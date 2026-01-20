@@ -1,4 +1,4 @@
-# IinPublic App Development Plan
+# IinPublic App Development Plan (Merged + Updated)
 
 ## Project Overview
 
@@ -26,6 +26,8 @@ The app allows users to:
 - **User Profiles**: 
   - **Profile as Q/A List**: User profile is essentially a list of question/answer pairs
   - **Mandatory Question**: "StageName" - identifies the user (alternative to using public/private key pair directly)
+  - **Headshot Icon**: Each user can choose a small icon as their headshot/avatar
+  - **Chatbot Overlay**: When an answer is given by the user's chatbot (auto answer), a small chatbot icon is overlaid on top of the user's headshot so others can clearly see that the response is from the bot, not typed manually
   - **Editable Answers**: User can change every answer in their profile
   - **Reputation Section** (Read-Only):
     - User can choose to hide all or part of reputation, but cannot change it
@@ -256,6 +258,187 @@ All users have built-in filters enabled by default that automatically filter inc
 - **Scope**: Limit applies to the smallest chatroom the user is currently in
 - **Fair Usage**: Same limit applies to both sending and receiving talks
 
+#### Example Use Case 1: Finding a Tennis Partner
+
+**Talk Structure:**
+1. **Question 1**: "Do you like to play tennis?"
+   - Answer: "No" → **Terminate talk** (ignore this user)
+   - Answer: "Yes" → Continue to Question 2
+
+2. **Question 2**: "Are you available on [specific time period]?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Question 3
+
+3. **Question 3**: "Are you available at [specific location]?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Question 4
+
+4. **Question 4**: "What is your skill level?"
+   - Answer: "Beginner" → Continue to Question 5 (only if talk creator wants beginner)
+   - Answer: "Experienced" → **Terminate talk** (if creator wants beginner) OR Continue to Question 5 (if creator wants experienced)
+   - Answer: "Professional" → **Terminate talk** (if creator wants beginner) OR Continue to Question 5 (if creator wants professional)
+   - **Clarification**: Only one skill level is linked to the next question; the rest are ignored, meaning the user wants to play with others of the same skill level
+
+5. **Final Question**: "Would you like to meet in person to play tennis?"
+   - Answer: "Let's talk in person" → **MATCH FOUND** → Requires attention
+   - Answer: "Ignore" → **Filtered out** → End talk
+
+**Execution Flow:**
+- User creates this talk once in the Talk Editor
+- User selects "Send to all nearby users in current chatroom" (up to their limit, e.g., 1000 users)
+- **Pre-filtering**: System filters by location and tags (e.g., "tennis", "sports") first
+- Chatbot automatically sends this talk to all selected users
+- Each recipient's chatbot auto-answers questions they've answered before (if "auto" attribute)
+- Recipients only need to answer new questions
+- When a match is found ("Let's talk in person"), both users are notified
+- Ignored talks are automatically filtered out
+
+#### Example Use Case 2: Finding a Date in a Bar ⭐
+
+**Scenario**: A man wants to find a date in a bar
+
+**Talk Structure:**
+1. **Pre-filtering**: Location (bar chatroom), Adult tag
+2. **Question 1**: "Are you Female?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Question 2
+
+3. **Question 2**: "Are you age 18 or older?"
+   - Answer: "No" → **Terminate talk** (underage protection)
+   - Answer: "Yes" → Continue to Question 3
+
+4. **Question 3**: "Is your weight in [certain range]?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Question 4
+
+5. **Question 4**: "Is your height in [certain range]?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Final Question
+
+6. **Final Question**: "Would you like to meet?"
+   - Answer: "Let's talk in person" → **MATCH FOUND** → Notify both users
+   - Answer: "Ignore" → **Filtered out**
+
+**Execution Flow:**
+- User creates "Find Date" talk with adult content flag
+- User selects specific bar chatroom (e.g., "Joe's Bar" at 123 Main St)
+- System applies adult tag and age verification
+- Talk sent to users in bar chatroom
+- Pre-filtering by location (bar) and tags (adult) happens first
+- Only qualified users proceed through questions
+
+#### Example Use Case 3: Buying a Used Dining Table ⭐
+
+**Scenario**: A man wants to buy a used dining table
+
+**Talk Structure:**
+1. **Pre-filtering**: Location (nearby), Tags: "sell", "used", "dining table"
+2. **Question 1**: "Is location nearby?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Question 2
+
+3. **Question 2**: "Are you selling?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Question 3
+
+4. **Question 3**: "Is it used?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Question 4
+
+5. **Question 4**: "Is it a dining table?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Question 5
+
+6. **Question 5**: "Is delivery available?"
+   - Answer: "No" → Continue to Question 6 (still interested)
+   - Answer: "Yes" → Continue to Question 6 (preferred)
+
+7. **Question 6**: "Is price in [certain range]?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Final Question
+
+8. **Final Question**: "Let's talk in person?"
+   - Answer: "Let's talk in person" → **MATCH FOUND** → Notify both users
+   - Answer: "Ignore" → **Filtered out**
+
+#### Example Use Case 4: Finding a Hobby Buddy ⭐
+
+**Scenario**: Finding a hobby buddy
+
+**Talk Structure:**
+1. **Pre-filtering**: Location (nearby), Interest tags (specific hobby)
+2. **Question 1**: "Do you share interest in [specific hobby]?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Question 2
+
+3. **Question 2**: "Are you available [time period]?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Question 3
+
+4. **Question 3**: "Are you located nearby?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Final Question
+
+5. **Final Question**: "Let's talk in person?"
+   - Answer: "Let's talk in person" → **MATCH FOUND**
+   - Answer: "Ignore" → **Filtered out**
+
+#### Example Use Case 5: Selling a Used Bike ⭐
+
+**Scenario**: A man wants to sell a used bike
+
+**Talk Structure:**
+1. **Pre-filtering**: Location (nearby), Tags: "buy", "used", "bike"
+2. **Question 1**: "Is location nearby?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Question 2
+
+3. **Question 2**: "Are you buying?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Question 3
+
+4. **Question 3**: "Are you interested in used items?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Question 4
+
+5. **Question 4**: "Are you interested in bikes?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Question 5
+
+6. **Question 5**: "Is price in [certain range] acceptable?"
+   - Answer: "No" → **Terminate talk**
+   - Answer: "Yes" → Continue to Final Question
+
+7. **Final Question**: "Let's talk in person?"
+   - Answer: "Let's talk in person" → **MATCH FOUND** → Notify both users
+   - Answer: "Ignore" → **Filtered out**
+
+#### Example Use Case 6: Running a Survey as a Talk ⭐
+
+**Scenario**: A user (or business) wants to run a short survey and collect statistics about opinions or preferences.
+
+**Talk Structure:**
+1. **Pre-filtering**: Optional location and tag filters (e.g., tags: "survey", "feedback", "product X")
+2. **Question 1**: "How often do you visit this place?"
+   - Answers (multiple choice): "Daily", "Weekly", "Monthly", "Rarely"
+3. **Question 2**: "How satisfied are you with [service/product]?"
+   - Answers (1–5 stars): "1", "2", "3", "4", "5"
+4. **Question 3**: "Would you recommend this to a friend?"
+   - Answers: "Yes", "No", "Not sure"
+5. **Final Question** (optional): "Would you like to be contacted for follow‑up?"
+   - Answers:
+     - "Let's talk in person" → **FOLLOW‑UP MATCH** (creates a direct conversation)
+     - "Ignore" → No follow‑up, answers are used only for statistics
+
+**Execution & Statistics:**
+- Survey creator marks the talk as **survey** type.
+- Survey can be sent to a region chatroom or a business chatroom.
+- Aggregated survey statistics are recorded, such as:
+  - Distribution of visit frequency
+  - Satisfaction score distribution
+  - Recommendation rate
+- Individual answers can remain private; only aggregated statistics are shown to the survey owner (unless a user explicitly chooses “Let’s talk in person”).
+
 ### 7. Spam Prevention System ⭐
 
 #### Rate Limiting
@@ -314,6 +497,7 @@ All users have built-in filters enabled by default that automatically filter inc
 - **Highlight talks requiring attention** ("Let's talk in person" matches)
 - **Filter by language** (only shows talks in understood languages)
 - **Grammar and dirty words filtering** (applied automatically)
+- **Avatar + Chatbot Overlay**: Display user headshot icon; overlay chatbot icon when the message/answer is produced by chatbot
 
 #### Outgoing Chat Interface
 - Ask questions to other users
@@ -340,6 +524,7 @@ All users have built-in filters enabled by default that automatically filter inc
 - **Set talk metadata**: expiration period, location tags, content classification, language
 - **Add interest tags** to talks for common interest matching (Craigslist-style catalog)
 - **Pre-filtering setup**: Configure location and tag filters for efficient matching
+- **Survey mode**: Optionally mark a talk as a survey and define which answers are aggregated into statistics
 
 ---
 
@@ -388,6 +573,7 @@ All users have built-in filters enabled by default that automatically filter inc
    - **Target user list** (for bulk sends)
    - **Pre-filtering**: Location requirements, required tags
    - **Language**: Required language marking
+   - **Survey flag**: Optional boolean indicating the talk is a survey
    - **Metadata**:
      - Creation timestamp
      - Location (chatroom ID, coordinates)
@@ -414,6 +600,7 @@ All users have built-in filters enabled by default that automatically filter inc
    - **Profile (Q/A List)**:
      - Mandatory question: "StageName" (user identifier)
      - Languages understood (for language filter)
+     - Headshot icon selection
      - All other questions/answers (editable)
    - **Reputation Section** (read-only, can hide but not change):
      - Statistics (questions answered, talks sent, matches found)
@@ -552,8 +739,9 @@ All users have built-in filters enabled by default that automatically filter inc
 6. Chatbot auto-answers questions previously answered with "auto" attribute
 7. User manually answers new questions or "manual" questions
 8. **Simple answers**: User selects from predefined answer options
-9. User selects answer attribute (auto/manual) for each response
-10. **Talk ending**: User selects "Ignore" (filters out) or "Let's talk in person" (match found)
+9. **Avatar + Chatbot Overlay**: If the answer was auto-generated, show chatbot overlay on the responder avatar
+10. User selects answer attribute (auto/manual) for each response
+11. **Talk ending**: User selects "Ignore" (filters out) or "Let's talk in person" (match found)
 
 ### Workflow 6: FIFO Removal from Full Chatroom
 1. Chatroom reaches capacity (1000 users)
@@ -599,6 +787,13 @@ All users have built-in filters enabled by default that automatically filter inc
 6. Popular tags appear first in tag selection
 7. Regional variations in tag popularity
 
+### Workflow 11: Survey Statistics (Survey Talk) ⭐
+1. Survey creator publishes a survey talk and sends it to a target chatroom
+2. Recipients answer simple predefined questions
+3. System aggregates responses into survey statistics
+4. Survey creator views aggregated results dashboard
+5. Any “Let’s talk in person” responses open direct follow-up chats
+
 ---
 
 ## Development Phases
@@ -612,7 +807,7 @@ All users have built-in filters enabled by default that automatically filter inc
 - [ ] **Build business/custom chatroom system** (brand, address, owner, user management)
 - [ ] **Implement travel system** (traveller marking, single travel chatroom)
 - [ ] **Implement multiple chatroom membership** (true location + travel)
-- [ ] Build user profile system (Q/A list with StageName)
+- [ ] Build user profile system (Q/A list with StageName + headshot icon)
 - [ ] **Implement reputation system** (read-only, hideable, Amazon-style reviews)
 - [ ] **Implement local Node.js for web version**
 
@@ -646,6 +841,7 @@ All users have built-in filters enabled by default that automatically filter inc
 - [ ] **Implement talk expiration and archival system**
 - [ ] **Implement manual talk deletion**
 - [ ] **Integrate tag system into talks**
+- [ ] **Add survey mode** (survey flag + aggregation definition)
 
 ### Phase 5: Bulk Matching System ⭐
 - [ ] Design conversation instance data model
@@ -657,6 +853,7 @@ All users have built-in filters enabled by default that automatically filter inc
 - [ ] Build match dashboard/analytics
 - [ ] **Implement "Ignore" vs "Let's talk in person" filtering**
 - [ ] **Implement pre-filtering for efficient matching**
+- [ ] **Implement survey statistics aggregation** (region/business scope)
 
 ### Phase 6: Spam Prevention & Moderation ⭐
 - [ ] **Implement fixed period rate limiting** (once per day/week/etc.)
@@ -675,10 +872,12 @@ All users have built-in filters enabled by default that automatically filter inc
 - [ ] **Add ignored talk filtering**
 - [ ] **Add attention-required highlights** ("Let's talk in person")
 - [ ] **Integrate built-in filters** (language, grammar, dirty words display)
+- [ ] **Add avatar + chatbot overlay UI**
 - [ ] Build outgoing chat interface (with bulk operations)
 - [ ] **Add chatroom travel interface** (including business chatrooms)
 - [ ] **Add talk metadata display** (including language)
 - [ ] **Add send capacity display** (reputation-based)
+- [ ] Add survey results UI (aggregated statistics)
 - [ ] Integrate chatbot interactions
 - [ ] Implement real-time updates
 - [ ] **Create match management interface**
@@ -713,6 +912,8 @@ All users have built-in filters enabled by default that automatically filter inc
 - [ ] **Pre-filtering efficiency testing**
 - [ ] **Reputation system testing**
 - [ ] **Abuse prevention testing**
+- [ ] **Avatar overlay UI testing**
+- [ ] **Survey aggregation correctness testing**
 - [ ] Bug fixes
 - [ ] UI/UX improvements
 
@@ -736,6 +937,8 @@ All users have built-in filters enabled by default that automatically filter inc
 - **Filter Effectiveness**: Reduction in inappropriate content through built-in filters
 - **Reputation Impact**: Correlation between reputation and user behavior
 - **Abuse Prevention**: Reduction in system abuse through block-based punishment
+- **Survey Participation Rate**: % of recipients completing survey talks
+- **Survey Data Quality**: Completion rate per question and distribution stability
 
 ---
 
@@ -765,6 +968,8 @@ All users have built-in filters enabled by default that automatically filter inc
 22. **Location & Travel**: ✅ GPS as true location (blurred), users can travel to one chatroom (marked as traveller), multiple chatrooms for true location
 23. **Abuse Prevention**: ✅ Block-based punishment reduces send capacity
 24. **Business Legitimacy**: ✅ Legal protection for legitimate brands/logos, rest reputation-driven
+25. **Avatar + Chatbot Overlay**: ✅ User headshot icon + bot overlay on bot-authored answers
+26. **Survey Talks**: ✅ Survey talk type with aggregated statistics
 
 ---
 
@@ -780,6 +985,7 @@ All users have built-in filters enabled by default that automatically filter inc
 8. **Archive Storage**: How long should archived talks be retained before permanent deletion?
 9. **Regional Tag Variations**: How to handle tags that mean different things in different regions?
 10. **Filter Customization**: How much customization should users have over filter sensitivity?
+11. **Survey Privacy**: Should survey results always be aggregated-only, or can per-answer anonymity settings exist?
 
 ---
 
