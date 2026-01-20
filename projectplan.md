@@ -197,6 +197,7 @@ At a high level, the system provides:
   - User profiles (interests).
 - **FR‑TG‑4**: The system SHALL compute regional popularity of tags and use popularity for tag suggestion order.
 - **FR‑TG‑5**: Tags SHALL be usable as part of pre-filtering for target selection.
+- **FR‑TG‑6 (Mandatory Preamble)**: Every talk (auto-captured or editor-built) SHALL begin with a tag/location pre-filter step. The system SHALL prepend the talk with the user’s chosen tags and location filters before any questions are presented.
 
 #### 3.1.6 Talk Structure and Execution
 
@@ -208,6 +209,13 @@ At a high level, the system provides:
   - "Ignore" → terminate, filter out.
   - "Let's talk in person" → mark as a potential match.
 - **FR‑TK‑6**: Talks SHALL be able to be marked as **survey** type, with designated questions to aggregate.
+- **FR‑TK‑7 (Auto Linear Capture)**: During one-on-one chat, if User A writes in the pattern `Question? Answer1; Answer2; ...; AnswerN.`, the system SHALL:
+  - Present the predefined answers as selectable chips to User B.
+  - On selection, treat the chosen answer as valid, ignore the others, and advance to the next such line.
+  - Detect the final sentence ending with “.” that is not followed by more answers, and stop the flow.
+  - Automatically record the resulting Q&A sequence as a **linear talk** draft for User A to reuse and broadcast later.
+- **FR‑TK‑8 (Editing Constraints)**: Tree-structured talks and survey talks MAY only be created/edited in the Talk Editor UI. Auto-captured chats produce linear talks only.
+
 
 #### 3.1.7 Bulk Matching and Sending
 
@@ -220,6 +228,7 @@ At a high level, the system provides:
   - Business chatroom
   - Other user-defined chatrooms
   - Filtered subsets (tags, distance).
+- When a talk is auto-captured from chat, its stored draft SHALL include the mandatory tags/location preamble before bulk sending is allowed.
 
 #### 3.1.8 Spam Prevention & Moderation
 
@@ -243,6 +252,19 @@ At a high level, the system provides:
   - Basic stats (counts, percentages)
 - **FR‑SV‑4**: Individual survey responses MAY remain anonymous to the survey owner; only aggregated statistics are required by default.
 - **FR‑SV‑5**: If the final question uses "Let's talk in person", individual follow‑up conversations SHALL be created for those respondents.
+- Surveys remain editor-only; auto-capture cannot produce survey talks.
+
+### 3.1.10 Build, Test, Deploy Plan (new subsection)
+
+- **FR‑BTD‑1 (Build Web)**: Provide scripts to install dependencies, build/compile the web app (browser + embedded Node.js peer), and produce distributable assets.
+- **FR‑BTD‑2 (Build Android)**: Provide scripts/CI steps to install Android toolchain, build/compile the Android app (with embedded Node-like runtime), and generate signed APK/AAB.
+- **FR‑BTD‑3 (Debug)**: Provide documented debug profiles for web (dev server, source maps) and Android (USB/network debugging, logcat).
+- **FR‑BTD‑4 (Test)**: Provide automated test suites (unit, integration, and end-to-end) for:
+  - Talk creation, auto-linear capture, bulk send, filters/tags preamble, age-gate/adult flows, survey aggregation.
+  - Platform sanity (web, Android) and offline/resync behavior.
+- **FR‑BTD‑5 (Deploy Web)**: Provide deployment steps to publish the built web assets (e.g., static hosting + signaling/bootstrap service if needed).
+- **FR‑BTD‑6 (Deploy Android)**: Provide steps to sign and upload APK/AAB to Play (or internal track), including versioning and release notes.
+- **FR‑BTD‑7 (CI/CD)**: Set up CI to run build, lint, tests on PR; set up CD to push web deploys and Android internal releases after passing checks.
 
 ---
 
@@ -255,6 +277,7 @@ At a high level, the system provides:
   - Overlaid chatbot icon on bot‑authored answers.
   - Badges for traveller vs. local.
   - Indicators for "Ignore" vs. "Let's talk in person" status.
+- **UI‑1d**: In chat, lines matching `Question? Answer1; …; AnswerN.` SHALL render answers as tappable chips; when answered, the next such line is prompted; final plain sentence ends the flow and saves a linear talk draft.
 - **UI‑2**: Talk Editor SHALL:
   - Show graph/flow of questions without loops.
   - Highlight branches and OR‑joins.
@@ -306,6 +329,7 @@ At a high level, the system provides:
 
 - **NFR‑PT‑1**: The web implementation SHOULD work across modern desktop and mobile browsers.
 - **NFR‑PT‑2**: Android implementation SHOULD mirror web functionality as closely as possible.
+- **NFR‑U‑3**: Auto-captured linear talks MUST require no manual editing to be reusable; tags/location preamble must auto-attach.
 
 ---
 
@@ -412,7 +436,7 @@ This section lists representative test scenarios derived from the functional req
    - Q2: "Are you available [time period]?"
    - Q3: "Are you located nearby?"
    - Final: "Let's talk in person?" (Ignore / Let's talk in person)
-2. User C bulk sends to nearby users.
+2. User C bulk sends to nearby  .
 3. Recipients answer questions.
 
 **Expected Results**:
@@ -472,6 +496,21 @@ This section lists representative test scenarios derived from the functional req
 - Aggregated statistics (distributions, percentages) are available to E.
 - Users selecting "Let's talk in person" get direct contact with E.
 - Others remain anonymous contributors to the aggregate stats.
+
+#### 6.7 TC‑LIN‑01: Auto Linear Talk Capture in Chat
+**Goal**: Verify that ad-hoc one-on-one chat lines in the format `Question? Answer1; Answer2; ...; AnswerN.` produce a reusable linear talk.
+**Preconditions**: User A and User B are in a one-on-one chat; auto-capture is enabled.
+**Steps**:
+1) User A sends: `Do you like coffee? Yes; No.`
+2) User B taps “Yes.”
+3) User A sends: `Hot or iced? Hot; Iced.`
+4) User B taps “Iced.”
+5) User A sends final sentence: `Great, let's meet tomorrow.` (no answer list)
+**Expected**:
+- Each step presents selectable predefined answers to User B.
+- Non-chosen answers are ignored; chosen path is recorded.
+- Final sentence ends the flow; no further questions are prompted.
+- The system saves the resulting linear talk (Q&A path) as a draft/template under User A’s talks, with tags/location preamble automatically included.
 
 ---
 
