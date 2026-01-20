@@ -29,11 +29,46 @@ The app allows users to:
   - **Editable Answers**: User can change every answer in their profile
   - **Reputation Section** (Read-Only):
     - User can choose to hide all or part of reputation, but cannot change it
+    - **Reputation as Statistics**: Statistics of all other users' feedback, similar to Amazon store's customer reviews
     - Includes: Statistics, number of friends, mutual friends, reputation ranks (5-star reviews)
+    - **Age Verification Feedback**: Feedback mark for age verification that other users can confirm true/false
     - Reputation is calculated and maintained by the system based on user interactions
+    - **Reputation Accumulation**: Reputation accumulates over time for rate limit enforcement
+    - **Incentivize Good Reputation**: Good reputation increases send capacity and privileges
+    - **Discourage Bad Reputation**: Bad reputation decreases send capacity and privileges
   - **Active user lists across different locations**
 
-### 2. Dynamic Chatroom System ⭐
+### 2. Built-in Filters System ⭐
+
+#### Default Filters
+All users have built-in filters enabled by default that automatically filter incoming talks:
+
+1. **Language Filter** ⭐
+   - Each talk is marked with a specific language
+   - User profile includes languages they understand
+   - **Filter Logic**: If user understands the talk's language → let it through; otherwise → ignore
+   - Users can add/remove languages from their profile
+   - Multi-language support: Users can understand multiple languages
+
+2. **Grammar Filter** ⭐
+   - Automatically detects ill-formed talks with grammar errors
+   - **Filter Logic**: Talks with grammar errors → ignore
+   - Grammar checking applied to question text and talk structure
+   - Users can disable this filter if desired (advanced settings)
+
+3. **Dirty Words Filter** ⭐
+   - Automatically detects dirty/inappropriate words in questions and talks
+   - **Filter Logic**: Questions/talks with dirty words → ignore
+   - Maintains a dictionary of inappropriate words/phrases
+   - Users can customize dirty words list or disable filter (advanced settings)
+
+#### Filter Management
+- **Default State**: All filters enabled by default
+- **User Control**: Users can enable/disable individual filters
+- **Customization**: Users can customize filter sensitivity (for grammar and dirty words)
+- **Filter Priority**: Filters are applied in sequence (language → grammar → dirty words)
+
+### 3. Dynamic Chatroom System ⭐
 
 #### Hierarchical Chatroom Structure
 - **Global Chatroom**: Single global chatroom accessible to everyone at app start
@@ -47,6 +82,20 @@ The app allows users to:
   - Level 6: Districts/Neighborhoods
   - Continues until chatroom has < 1000 users
 
+#### Chatroom Types ⭐
+
+**Automatic Location-Based Chatrooms:**
+- **Pure Location-Based**: All chatrooms with pure location-based boundaries are automatically created to split users into different regional chatrooms
+- **Automatic Management**: System automatically creates, splits, and manages these chatrooms
+- **No User Control**: Users cannot delete or modify automatic chatrooms
+- **Purpose**: Efficient user distribution and load balancing
+
+**User-Defined Chatrooms:**
+- **User Management**: User-defined chatrooms are managed entirely by users
+- **Custom Names**: Users can give more appropriate chatroom names
+- **Lifecycle Management**: Users can create, rename, and delete chatrooms after use
+- **Temporary Use**: Chatrooms can be created for specific events or purposes and deleted when no longer needed
+
 #### Custom Chatrooms at Each Level ⭐
 - **Business Place Chatrooms**: At each hierarchy level, users can create custom chatrooms associated with specific locations
 - **Business Chatroom Properties**:
@@ -56,6 +105,10 @@ The app allows users to:
   - Location coordinates (Lat/Long)
   - Associated hierarchy level
   - Purpose/description
+- **Business Legitimacy** ⭐:
+  - **Legal Protection**: Legitimate brand/logo/true identification are protected by laws
+  - **Reputation-Driven**: Rest of business verification is reputation-driven
+  - Users can report fake businesses, affecting owner's reputation
 - **Use Cases**:
   - Bars, restaurants, cafes
   - Stores, shops, markets
@@ -65,12 +118,31 @@ The app allows users to:
 - **Access**: Users can discover and join business chatrooms based on location proximity
 - **Targeting**: Business owners can create chatrooms to connect with their customers
 
+#### Location & Travel System ⭐
+
+**True Location:**
+- **Mobile GPS Feed**: Location from mobile GPS feed is considered as true location
+- **Privacy Blurring**: True location is blurred to larger region for privacy concerns
+- **Location Accuracy**: GPS-based location is trusted for abuse prevention
+
+**Chatroom Membership:**
+- **Multiple Chatrooms**: A user can be in multiple chatrooms that include their true location
+- **Travel Chatroom**: User can only be in one chatroom that they travel to (manual travel)
+- **Traveller Marking**: Users who manually travel to chatrooms are marked as "traveller"
+- **Traveller Visibility**: Other users can see if someone is a traveller vs. local user
+
+**Manual Travel:**
+- Users can manually "travel" to any chatroom of different locations
+- Travellers are marked as such in the chatroom
+- Travel allows users to explore different regions and find matches beyond their immediate location
+
 #### Chatroom Assignment Logic
 1. **Default Entry**: New users enter global chatroom first
 2. **Automatic Migration**: If global chatroom is full (>1000 users), user automatically shifts to smaller regional chatroom
 3. **Iterative Refinement**: Process continues until user is in smallest chatroom with <1000 users
 4. **Overflow Handling**: If a chatroom is full, new users can still enter; user who has been in the chatroom longest is removed (FIFO)
-5. **Custom Chatroom Access**: Users can join business/custom chatrooms at any hierarchy level based on location
+5. **FIFO Removal Notification** ⭐: Longest-staying user receives notification when being removed (always in a smaller regional chatroom anyway)
+6. **Custom Chatroom Access**: Users can join business/custom chatrooms at any hierarchy level based on location
 
 #### Chatroom Features
 - **Overlapping Locations**: Chatrooms can have overlapping geographic boundaries
@@ -80,7 +152,7 @@ The app allows users to:
 - **Multi-Chatroom Presence**: Users can maintain active user lists from different locations/chatrooms
 - **Public Space**: Chatrooms are public places where users connect; all communication is one-on-one (no group chat)
 
-### 3. Question-Answer System ⭐
+### 4. Question-Answer System ⭐
 
 #### Design Principles
 - **Simple Questions**: Questions should be simple and straightforward
@@ -108,6 +180,8 @@ The app allows users to:
 
 #### Tag System ⭐
 - **Catalog-Style Tags**: Tags organized like Craigslist categories
+- **Free Tag Creation**: Tags can be created freely by users
+- **Regional Popularity**: Statistics decide the order of popular tags based on region
 - **Tag Categories**: 
   - For Sale: furniture, electronics, vehicles, etc.
   - Services: delivery, repair, tutoring, etc.
@@ -120,7 +194,7 @@ The app allows users to:
 - **Tag-Based Filtering**: Users can filter talks and users by tags
 - **Efficient Filtering**: Tags and location are used to filter out the most unqualified users first
 
-### 4. Talk System ⭐
+### 5. Talk System ⭐
 
 #### Talk Structure Rules
 - **No Loops**: A series of questions and answers in a talk must be unique with no loops inside
@@ -137,6 +211,7 @@ The app allows users to:
   - "Let's talk in person" → Match found, requires attention
 
 #### Talk Features
+- **Language Marking**: Each talk is marked with a specific language
 - **Auto-Answering**: Chatbot automatically answers questions previously answered with "auto" attribute
 - **Manual Override**: Users only need to answer new questions or those answered with "manual" attribute
 - **Talk Sharing**: Users can copy, save, and reuse talks from other users
@@ -145,187 +220,43 @@ The app allows users to:
 - **Talk Metadata** ⭐:
   - Timestamp (creation time)
   - Location (chatroom/coordinates where sent)
+  - Language (required)
   - Expiration period (user-configurable: days, weeks, months, years)
-  - Expired talks are automatically archived or removed
+  - Expired talks are automatically archived (users can manually delete)
 - **Pre-filtering**: Location and tags filter unqualified users before questions are asked
+- **Talk Archival**: All expired talks can be archived; users can manually delete talks
 
 #### Talk Retention
 - **Conversation History**: One-on-one talk exchanges are retained for a configurable period (default: 1 month, up to 1 year)
-- **Automatic Cleanup**: Talks expire after set period unless updated/changed
-- **Archive System**: Expired talks can be archived for reference
+- **Automatic Archival**: Talks expire after set period and are automatically archived
+- **Manual Deletion**: Users can manually delete talks (archived or active)
+- **Archive System**: Expired talks are archived for reference but can be deleted
 
-### 5. Bulk Matching System ⭐
+### 6. Bulk Matching System ⭐
 
 #### Core Capability
 - **Mass Communication**: Users can define and send talks to multiple users at once (default limit: 1000)
 - **User-Configurable Limits**: Each user can set their own bulk send limits separately
+- **Reputation-Based Limits** ⭐: Send capacity is limited based on reputation (users blocked by too many others have reduced capacity)
 - **Purpose-Driven Talks**: Each talk serves a specific matching purpose (e.g., finding a tennis partner, study buddy, roommate, date, buyer, seller)
 - **Automatic Filtering**: Talks automatically filter users based on their answers, eliminating incompatible matches early
 - **Parallel Processing**: All talks run concurrently, with chatbots handling responses automatically
 - **Efficient Pre-filtering**: Location and tags filter users before detailed questions are asked
 
+#### Abuse Prevention ⭐
+- **Block-Based Punishment**: A user who is blocked by too many other users should be punished by limiting send capacity
+- **Reputation Enforcement**: Location-based talks limit user's capability of abusing the system
+- **Progressive Restrictions**: More blocks = lower send capacity
+- **Reputation Recovery**: Users can improve reputation over time to regain send capacity
+
 #### Bulk Send Limits
 - **Default Limit**: 1000 talks per send operation
 - **User Customization**: Each user can set their own limits (e.g., 500, 1000, 2000)
+- **Reputation-Based Adjustment**: Limits adjusted based on reputation and block count
 - **Scope**: Limit applies to the smallest chatroom the user is currently in
 - **Fair Usage**: Same limit applies to both sending and receiving talks
 
-#### Example Use Case 1: Finding a Tennis Partner
-
-**Talk Structure:**
-1. **Question 1**: "Do you like to play tennis?"
-   - Answer: "No" → **Terminate talk** (ignore this user)
-   - Answer: "Yes" → Continue to Question 2
-
-2. **Question 2**: "Are you available on [specific time period]?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Question 3
-
-3. **Question 3**: "Are you available at [specific location]?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Question 4
-
-4. **Question 4**: "What is your skill level?"
-   - Answer: "Beginner" → Continue to Question 5 (only if talk creator wants beginner)
-   - Answer: "Experienced" → **Terminate talk** (if creator wants beginner) OR Continue to Question 5 (if creator wants experienced)
-   - Answer: "Professional" → **Terminate talk** (if creator wants beginner) OR Continue to Question 5 (if creator wants professional)
-   - **Clarification**: Only one skill level is linked to the next question; the rest are ignored, meaning the user wants to play with others of the same skill level
-
-5. **Final Question**: "Would you like to meet in person to play tennis?"
-   - Answer: "Let's talk in person" → **MATCH FOUND** → Requires attention
-   - Answer: "Ignore" → **Filtered out** → End talk
-
-**Execution Flow:**
-- User creates this talk once in the Talk Editor
-- User selects "Send to all nearby users in current chatroom" (up to their limit, e.g., 1000 users)
-- **Pre-filtering**: System filters by location and tags (e.g., "tennis", "sports") first
-- Chatbot automatically sends this talk to all selected users
-- Each recipient's chatbot auto-answers questions they've answered before (if "auto" attribute)
-- Recipients only need to answer new questions
-- When a match is found ("Let's talk in person"), both users are notified
-- Ignored talks are automatically filtered out
-
-#### Example Use Case 2: Finding a Date in a Bar ⭐
-
-**Scenario**: A man wants to find a date in a bar
-
-**Talk Structure:**
-1. **Pre-filtering**: Location (bar chatroom), Adult tag
-2. **Question 1**: "Are you Female?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Question 2
-
-3. **Question 2**: "Are you age 18 or older?"
-   - Answer: "No" → **Terminate talk** (underage protection)
-   - Answer: "Yes" → Continue to Question 3
-
-4. **Question 3**: "Is your weight in [certain range]?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Question 4
-
-5. **Question 4**: "Is your height in [certain range]?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Final Question
-
-6. **Final Question**: "Would you like to meet?"
-   - Answer: "Let's talk in person" → **MATCH FOUND** → Notify both users
-   - Answer: "Ignore" → **Filtered out**
-
-**Execution Flow:**
-- User creates "Find Date" talk with adult content flag
-- User selects specific bar chatroom (e.g., "Joe's Bar" at 123 Main St)
-- System applies adult tag and age verification
-- Talk sent to users in bar chatroom
-- Pre-filtering by location (bar) and tags (adult) happens first
-- Only qualified users proceed through questions
-
-#### Example Use Case 3: Buying a Used Dining Table ⭐
-
-**Scenario**: A man wants to buy a used dining table
-
-**Talk Structure:**
-1. **Pre-filtering**: Location (nearby), Tags: "sell", "used", "dining table"
-2. **Question 1**: "Is location nearby?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Question 2
-
-3. **Question 2**: "Are you selling?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Question 3
-
-4. **Question 3**: "Is it used?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Question 4
-
-5. **Question 4**: "Is it a dining table?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Question 5
-
-6. **Question 5**: "Is delivery available?"
-   - Answer: "No" → Continue to Question 6 (still interested)
-   - Answer: "Yes" → Continue to Question 6 (preferred)
-
-7. **Question 6**: "Is price in [certain range]?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Final Question
-
-8. **Final Question**: "Let's talk in person?"
-   - Answer: "Let's talk in person" → **MATCH FOUND** → Notify both users
-   - Answer: "Ignore" → **Filtered out**
-
-#### Example Use Case 4: Finding a Hobby Buddy ⭐
-
-**Scenario**: Finding a hobby buddy
-
-**Talk Structure:**
-1. **Pre-filtering**: Location (nearby), Interest tags (specific hobby)
-2. **Question 1**: "Do you share interest in [specific hobby]?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Question 2
-
-3. **Question 2**: "Are you available [time period]?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Question 3
-
-4. **Question 3**: "Are you located nearby?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Final Question
-
-5. **Final Question**: "Let's talk in person?"
-   - Answer: "Let's talk in person" → **MATCH FOUND**
-   - Answer: "Ignore" → **Filtered out**
-
-#### Example Use Case 5: Selling a Used Bike ⭐
-
-**Scenario**: A man wants to sell a used bike
-
-**Talk Structure:**
-1. **Pre-filtering**: Location (nearby), Tags: "buy", "used", "bike"
-2. **Question 1**: "Is location nearby?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Question 2
-
-3. **Question 2**: "Are you buying?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Question 3
-
-4. **Question 3**: "Are you interested in used items?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Question 4
-
-5. **Question 4**: "Are you interested in bikes?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Question 5
-
-6. **Question 5**: "Is price in [certain range] acceptable?"
-   - Answer: "No" → **Terminate talk**
-   - Answer: "Yes" → Continue to Final Question
-
-7. **Final Question**: "Let's talk in person?"
-   - Answer: "Let's talk in person" → **MATCH FOUND** → Notify both users
-   - Answer: "Ignore" → **Filtered out**
-
-### 6. Spam Prevention System ⭐
+### 7. Spam Prevention System ⭐
 
 #### Rate Limiting
 - **Fixed Period System**: Users can send talks only within fixed time periods
@@ -334,11 +265,15 @@ The app allows users to:
 - **Fair Game Principle**: The same period applies to both sending and receiving talks
   - If you can send once per day, you can receive talks once per day
   - Prevents spam while maintaining fairness
+- **Reputation-Based Rate Limits** ⭐: Reputation accumulates over time for rate limit enforcement
+  - Good reputation: More frequent send opportunities
+  - Bad reputation: Less frequent send opportunities
 
 #### Location Filtering
 - **Range Specification**: Users can specify the range of location that filters out further users
 - **Distance-Based Filtering**: Only users within specified radius receive talks
 - **Geographic Boundaries**: Can filter by chatroom level (e.g., only same city, same country)
+- **True Location Enforcement**: GPS-based location prevents location spoofing abuse
 
 #### User Blocking
 - **Blacklist System**: Users can create a blacklist that blocks specific users
@@ -346,21 +281,28 @@ The app allows users to:
   - Blocked users cannot send talks to the blocker
   - Blocked users' talks are automatically filtered
   - Blocked users cannot see the blocker's profile or talks
+- **Block Statistics**: System tracks how many users have blocked each user
+- **Block-Based Punishment**: High block count reduces send capacity
 
-### 7. Moderation System ⭐
+### 8. Moderation System ⭐
 
 #### Decentralized Moderation
 - **User-Level Blocking**: Each user can block any talks or users if inappropriate content appears
 - **No Central Authority**: Moderation is handled at the user level (decentralized approach)
 - **Block Propagation**: Blocked content is filtered for the blocking user only
 
-#### Age Verification & Content Filtering
+#### Age Verification & Content Filtering ⭐
 - **Adult Content Protection**: For adult/sexual content talks, age verification must be the first question
 - **Underage Protection**: Under-age users cannot see adult talks
 - **Age Gate**: Age verification question must be answered before adult content is accessible
 - **Content Classification**: Talks can be marked as "adult content" requiring age verification
+- **Age Verification Feedback** ⭐: 
+  - Age verification has a feedback mark in user's read-only reputation section
+  - Other users can confirm true/false on age verification
+  - Feedback accumulates to verify age claims
+  - Without central authorization, community feedback validates age
 
-### 8. Chat Interfaces
+### 9. Chat Interfaces
 
 #### Incoming Chat Interface
 - View and answer questions from other users
@@ -370,6 +312,8 @@ The app allows users to:
 - View match notifications
 - **Filter ignored talks** (automatically hidden)
 - **Highlight talks requiring attention** ("Let's talk in person" matches)
+- **Filter by language** (only shows talks in understood languages)
+- **Grammar and dirty words filtering** (applied automatically)
 
 #### Outgoing Chat Interface
 - Ask questions to other users
@@ -377,13 +321,15 @@ The app allows users to:
 - **Monitor progress of all active talks** (dashboard showing: sent, in-progress, matched, terminated, ignored)
 - View match results
 - Manage talk queue (prioritize, pause, resume)
-- **View talk metadata** (time, location, expiration status)
+- **View talk metadata** (time, location, expiration status, language)
 - **Select target chatroom** (including business/custom chatrooms)
+- **View send capacity** (based on reputation and blocks)
 
-### 9. Talk Editor
+### 10. Talk Editor
 - Create and edit questions and answers
 - **Simple question builder**: Create simple, straightforward questions
 - **Predefined answer options**: Select from predefined answer sets
+- **Language selection**: Mark talk with specific language
 - Build talk structures (linear or tree-based)
 - **No loop validation**: System prevents creating loops in talk structure
 - **Logic OR support**: Multiple answers can lead to same next question
@@ -391,7 +337,7 @@ The app allows users to:
 - Test talks before publishing
 - **Save talk templates** for reuse
 - **Duplicate and modify** existing talks
-- **Set talk metadata**: expiration period, location tags, content classification
+- **Set talk metadata**: expiration period, location tags, content classification, language
 - **Add interest tags** to talks for common interest matching (Craigslist-style catalog)
 - **Pre-filtering setup**: Configure location and tag filters for efficient matching
 
@@ -415,12 +361,12 @@ The app allows users to:
 #### Phase 2: Android Application
 - **Secondary Platform**: Android native app
 - **Similar Approach**: Similar to web version, runs local Node.js instance
-- **Location Services**: Native Android location APIs
+- **Location Services**: Native Android location APIs (GPS feed as true location)
 
 #### Phase 3: iOS Application
 - **Tertiary Platform**: iOS native app
-- **Implementation Challenge**: Node.js in iOS may have limitations; alternative approaches may be needed
-- **Status**: To be determined based on iOS capabilities
+- **Implementation Status**: ⚠️ **To be determined** - Node.js in iOS feasibility needs evaluation
+- **Alternative Approaches**: May need alternative implementation if Node.js is not feasible
 
 ### Database Schema
 
@@ -438,9 +384,10 @@ The app allows users to:
    - Answer mappings (logic OR supported)
    - Final question definitions
    - User ownership and sharing permissions
-   - **Talk status**: draft, active, paused, completed
+   - **Talk status**: draft, active, paused, completed, archived
    - **Target user list** (for bulk sends)
    - **Pre-filtering**: Location requirements, required tags
+   - **Language**: Required language marking
    - **Metadata**:
      - Creation timestamp
      - Location (chatroom ID, coordinates)
@@ -461,22 +408,28 @@ The app allows users to:
 
 4. **Users**
    - User ID (auto-generated)
-   - Location data (Lat/Long, current chatroom hierarchy)
+   - Location data (Lat/Long, current chatroom hierarchy, true location blurred)
+   - **Travel Status**: Traveller flag, travel chatroom ID
+   - **Chatroom Membership**: List of chatrooms user is in (multiple for true location, one for travel)
    - **Profile (Q/A List)**:
      - Mandatory question: "StageName" (user identifier)
+     - Languages understood (for language filter)
      - All other questions/answers (editable)
    - **Reputation Section** (read-only, can hide but not change):
      - Statistics (questions answered, talks sent, matches found)
      - Number of friends
      - Mutual friends count
-     - Reputation ranks (5-star reviews)
+     - Reputation ranks (5-star reviews, Amazon-style)
+     - Age verification feedback (true/false confirmations from other users)
      - Reputation visibility settings (hide all/part)
+     - Block count (how many users have blocked this user)
    - Age (for age verification)
    - **Settings**:
-     - Bulk send limit
+     - Bulk send limit (reputation-adjusted)
      - Send/receive rate limit period
      - Location filter range
      - Blacklist (blocked user IDs)
+     - Built-in filter preferences (language, grammar, dirty words)
    - **Active user lists** (users in different locations/chatrooms)
 
 5. **Chatrooms**
@@ -493,8 +446,10 @@ The app allows users to:
      - Physical address
      - Owner/creator user ID
      - Business description
+     - Legitimacy indicators (legal protection, reputation)
    - Purpose/description (for user-created chatrooms)
    - Overlapping chatroom references
+   - **FIFO Removal Notifications**: Track notifications sent
 
 6. **Matches**
    - Match ID
@@ -510,7 +465,19 @@ The app allows users to:
    - Tag category (for sale, services, community, personals, housing, etc.)
    - Associated talks
    - User tag selections
-   - Tag popularity metrics
+   - **Regional Popularity**: Statistics for tag popularity by region
+   - Tag creation timestamp
+   - Creator user ID
+
+8. **Reputation & Feedback**
+   - Feedback ID
+   - User ID (being reviewed)
+   - Reviewer ID
+   - Feedback type: review, age verification, block
+   - Rating (1-5 stars for reviews)
+   - Feedback text
+   - Timestamp
+   - Verified status
 
 ### Communication Model
 - **One-on-One Chat Only**: No group chat functionality
@@ -518,7 +485,7 @@ The app allows users to:
 - **Privacy**: "Manual" answers remain private to the questioner
 - **Bulk Operations**: System handles thousands of concurrent conversations efficiently
 - **Chatroom Purpose**: Public places for user connection; all communication is one-on-one
-- **Talk Retention**: Conversations retained for configurable period (1 month to 1 year)
+- **Talk Retention**: Conversations retained for configurable period (1 month to 1 year), then archived
 
 ### Scalability Architecture ⭐
 - **Location-Based Splitting**: More precise location-based chatrooms are automatically created to reduce exponential increase of concurrent users and talks
@@ -526,6 +493,7 @@ The app allows users to:
 - **Automatic Load Balancing**: System automatically creates finer chatrooms when user density increases
 - **Efficient Routing**: Talk routing optimized by chatroom hierarchy
 - **Pre-filtering Efficiency**: Location and tags filter unqualified users before detailed questions are asked
+- **Built-in Filters**: Language, grammar, and dirty words filters reduce processing load
 
 ---
 
@@ -535,14 +503,24 @@ The app allows users to:
 1. User visits iinpublic.com or opens app
 2. App automatically downloads and starts local Node.js instance
 3. User receives unique ID (no login required)
-4. System determines user location (Lat/Long)
-5. **User enters global chatroom first**
-6. **If global chatroom > 1000 users**: User automatically shifts to regional chatroom (e.g., Asia, Europe, America)
-7. **Process iterates**: Continues shifting to smaller chatrooms until current chatroom has < 1000 users
-8. User is now in optimal chatroom for their location
-9. **User can discover and join business chatrooms** based on location proximity
+4. System determines user location (Lat/Long from GPS)
+5. **True location blurred** to larger region for privacy
+6. **User enters global chatroom first**
+7. **If global chatroom > 1000 users**: User automatically shifts to regional chatroom (e.g., Asia, Europe, America)
+8. **Process iterates**: Continues shifting to smaller chatrooms until current chatroom has < 1000 users
+9. User is now in optimal chatroom for their location
+10. **User can be in multiple chatrooms** that include their true location
+11. **User can discover and join business chatrooms** based on location proximity
 
-### Workflow 2: Creating Business Chatroom
+### Workflow 2: Built-in Filters Application
+1. User receives incoming talk
+2. **Language filter applied**: If talk language not in user's understood languages → ignore
+3. **Grammar filter applied**: If talk has grammar errors → ignore
+4. **Dirty words filter applied**: If talk contains dirty words → ignore
+5. If talk passes all filters → proceed to user
+6. User can customize filter settings in preferences
+
+### Workflow 3: Creating Business Chatroom
 1. User (business owner) selects location and hierarchy level
 2. User creates custom business chatroom:
    - Enters brand name (e.g., "Joe's Bar")
@@ -550,99 +528,76 @@ The app allows users to:
    - Sets location coordinates
    - Adds description/purpose
 3. Chatroom is created and associated with location
-4. Other users can discover and join based on proximity
-5. Business owner can send talks to chatroom members
+4. **Business legitimacy**: Legitimate brands/logos protected by law; rest reputation-driven
+5. Other users can discover and join based on proximity
+6. Business owner can send talks to chatroom members
+7. **User can delete chatroom** after use
 
-### Workflow 3: Receiving and Answering Questions
+### Workflow 4: Manual Travel to Chatroom
+1. User selects "Travel" option
+2. User browses available chatrooms (different locations)
+3. User selects target chatroom
+4. **User marked as "traveller"** in that chatroom
+5. **User can only be in one travel chatroom** at a time
+6. User can send talks in travel chatroom
+7. Other users see traveller marking
+8. User can return to true location chatrooms
+
+### Workflow 5: Receiving and Answering Questions
 1. User receives question(s) from another user or chatbot
-2. **Pre-filtering applied**: Location and tags filter talk before it reaches user
-3. **Spam check**: System verifies sender is not blocked and rate limits are respected
-4. **Age verification**: If talk contains adult content, age verification question appears first
-5. Chatbot auto-answers questions previously answered with "auto" attribute
-6. User manually answers new questions or "manual" questions
-7. **Simple answers**: User selects from predefined answer options
-8. User selects answer attribute (auto/manual) for each response
-9. **Talk ending**: User selects "Ignore" (filters out) or "Let's talk in person" (match found)
+2. **Built-in filters applied**: Language, grammar, dirty words
+3. **Pre-filtering applied**: Location and tags filter talk before it reaches user
+4. **Spam check**: System verifies sender is not blocked and rate limits are respected
+5. **Age verification**: If talk contains adult content, age verification question appears first
+6. Chatbot auto-answers questions previously answered with "auto" attribute
+7. User manually answers new questions or "manual" questions
+8. **Simple answers**: User selects from predefined answer options
+9. User selects answer attribute (auto/manual) for each response
+10. **Talk ending**: User selects "Ignore" (filters out) or "Let's talk in person" (match found)
 
-### Workflow 4: Creating and Sending Bulk Matching Talks ⭐
-1. User opens Talk Editor
-2. Creates question sequence (linear or tree structure) for a specific matching purpose
-   - **Simple questions**: Questions are straightforward
-   - **Predefined answers**: Answers chosen from predefined options
-   - **No loops**: System validates no loops in talk structure
-   - **Logic OR**: Multiple answers can lead to same next question
-3. **Adds interest tags** (Craigslist-style catalog) to talk for common interest matching
-4. **Sets pre-filtering**: Configures location and tag filters to filter unqualified users first
-5. Defines answer options and next question mappings
-6. Sets final question responses:
-   - "Ignore" → Filter out
-   - "Let's talk in person" → Match found
-7. **Sets talk metadata**: expiration period, location, content classification
-8. **Saves talk as template**
-9. **Checks rate limit**: Verifies user can send talks (based on fixed period setting)
-10. **Selects target chatroom**: 
-    - Option A: Current automatic chatroom
-    - Option B: Business chatroom (e.g., specific bar)
-    - Option C: Custom chatroom
-    - Option D: Users matching certain criteria (tags, location range)
-11. **Pre-filtering applied**: Location and tags filter users before talk is sent
-12. **Location filter applied**: Only users within specified range receive talk
-13. **Blacklist filter applied**: Blocked users are excluded
-14. **Initiates bulk send** (respects user's bulk limit)
-15. System creates individual conversation instances for each recipient
-16. **Talk metadata recorded**: Timestamp, location, expiration set
-17. Chatbot automatically sends talk to all recipients
-18. **Monitor dashboard** shows:
-    - Total sent
-    - In progress (waiting for answers)
-    - Matched ("Let's talk in person")
-    - Terminated (filtered out)
-    - Ignored
-    - Expired talks
+### Workflow 6: FIFO Removal from Full Chatroom
+1. Chatroom reaches capacity (1000 users)
+2. New user tries to enter chatroom
+3. System identifies longest-staying user
+4. **Longest-staying user receives notification**: "You will be removed from this chatroom due to capacity"
+5. User is removed from chatroom (always in a smaller regional chatroom anyway)
+6. New user enters chatroom
+7. Process continues
 
-### Workflow 5: Use Case - Finding Date in Bar ⭐
-1. User creates "Find Date" talk with adult content flag
-2. User adds tags: "adult", "dating", "personals"
-3. User sets pre-filtering: Location (specific bar chatroom), Adult tag required
-4. User builds question sequence:
-   - Age verification (first question, mandatory for adult content)
-   - Gender question
-   - Age range question
-   - Physical attributes (weight, height ranges)
-5. User selects target: "Joe's Bar" business chatroom
-6. User sends talk to bar chatroom members
-7. System pre-filters: Only users in bar chatroom with adult tag see talk
-8. Age verification happens first
-9. Qualified users proceed through questions
-10. When match found ("Let's talk in person"), both users notified
+### Workflow 7: Reputation & Abuse Prevention
+1. User sends talks to multiple users
+2. Some users block the sender
+3. **Block count increases** in sender's reputation
+4. **Send capacity decreases** based on block count
+5. **Reputation accumulates** over time (good behavior improves reputation)
+6. **Rate limits adjusted** based on reputation
+7. Users with good reputation get more send opportunities
+8. Users with bad reputation get fewer send opportunities
 
-### Workflow 6: Use Case - Buying/Selling Items ⭐
-1. **Buyer creates "Buy Dining Table" talk**:
-   - Adds tags: "sell", "used", "dining table", "furniture"
-   - Sets location filter (nearby)
-   - Creates questions: location, selling, used, item type, delivery, price range
-   - Sends to current chatroom
+### Workflow 8: Age Verification Feedback
+1. User claims to be 18+ in adult content talk
+2. Other users interact with this user
+3. **Age verification feedback**: Other users can mark age claim as true/false
+4. **Feedback accumulates** in user's read-only reputation section
+5. **Community validation**: Without central authority, community feedback validates age
+6. Users can see age verification feedback when viewing profile
 
-2. **Seller creates "Sell Bike" talk**:
-   - Adds tags: "buy", "used", "bike", "vehicles"
-   - Sets location filter (nearby)
-   - Creates questions: location, buying, used items, item type, price range
-   - Sends to current chatroom
+### Workflow 9: Talk Expiration & Archival
+1. Talk reaches expiration timestamp
+2. **Talk automatically archived** (not deleted)
+3. User can view archived talks
+4. **User can manually delete** archived talks
+5. Active talks can also be manually deleted by creator
+6. Deleted talks are permanently removed
 
-3. **Pre-filtering**: Tags and location filter users first
-4. **Matching**: When criteria match, "Let's talk in person" triggers
-5. **Direct communication**: Buyer and seller connect
-
-### Workflow 7: Managing User Profile & Reputation
-1. User opens profile editor
-2. **Profile as Q/A List**: User sees all questions and answers
-3. **Mandatory Question**: "StageName" is always present and editable
-4. **Editable Answers**: User can change any answer
-5. **Reputation Section**: 
-   - User views reputation (statistics, friends, reviews)
-   - User can hide all or part of reputation
-   - User cannot edit reputation (read-only)
-6. Changes are saved and synced
+### Workflow 10: Tag Creation & Popularity
+1. User creates new tag (free creation)
+2. Tag is added to system
+3. Other users start using the tag
+4. **Statistics track tag usage** by region
+5. **Tag popularity order** determined by regional statistics
+6. Popular tags appear first in tag selection
+7. Regional variations in tag popularity
 
 ---
 
@@ -650,91 +605,114 @@ The app allows users to:
 
 ### Phase 1: Core Infrastructure
 - [ ] Set up Gun.js database
-- [ ] Implement user ID generation and location tracking (Lat/Long)
+- [ ] Implement user ID generation and location tracking (Lat/Long from GPS)
 - [ ] **Build hierarchical chatroom system** (global → regional → local)
 - [ ] **Implement automatic chatroom division logic** (split when > 1000 users)
-- [ ] **Create chatroom overflow handling** (FIFO removal)
-- [ ] **Build business/custom chatroom system** (brand, address, owner)
+- [ ] **Create chatroom overflow handling** (FIFO removal with notification)
+- [ ] **Build business/custom chatroom system** (brand, address, owner, user management)
+- [ ] **Implement travel system** (traveller marking, single travel chatroom)
+- [ ] **Implement multiple chatroom membership** (true location + travel)
 - [ ] Build user profile system (Q/A list with StageName)
-- [ ] **Implement reputation system** (read-only, hideable)
+- [ ] **Implement reputation system** (read-only, hideable, Amazon-style reviews)
 - [ ] **Implement local Node.js for web version**
 
-### Phase 2: Question-Answer System
+### Phase 2: Built-in Filters System ⭐
+- [ ] **Implement language filter** (talk language marking, user language preferences)
+- [ ] **Implement grammar filter** (grammar error detection)
+- [ ] **Implement dirty words filter** (inappropriate word detection)
+- [ ] **Build filter management interface** (enable/disable, customize)
+- [ ] **Integrate filters into talk processing pipeline**
+
+### Phase 3: Question-Answer System
 - [ ] Implement question/answer data model (simple questions, predefined answers)
 - [ ] Build answer attribute system (auto/manual)
 - [ ] Create chatbot auto-answer logic
 - [ ] Develop answer history tracking
-- [ ] **Implement tag system** (Craigslist-style catalog)
+- [ ] **Implement tag system** (Craigslist-style catalog, free creation, regional popularity)
 - [ ] **Add final talk endings** ("Ignore", "Let's talk in person")
 - [ ] **Build predefined answer option system**
 
-### Phase 3: Talk System
+### Phase 4: Talk System
 - [ ] Design talk data structure (tree/linear, no loops)
 - [ ] **Implement loop detection and prevention**
 - [ ] **Implement logic OR support** (multiple answers → same next question)
 - [ ] Build talk editor interface (simple questions, predefined answers)
+- [ ] **Add language marking to talks**
 - [ ] Implement talk execution engine
 - [ ] **Implement pre-filtering system** (location and tags)
 - [ ] Create talk sharing/copying functionality
 - [ ] **Implement talk template system**
-- [ ] **Add talk metadata** (timestamp, location, expiration)
-- [ ] **Implement talk expiration system**
+- [ ] **Add talk metadata** (timestamp, location, expiration, language)
+- [ ] **Implement talk expiration and archival system**
+- [ ] **Implement manual talk deletion**
 - [ ] **Integrate tag system into talks**
 
-### Phase 4: Bulk Matching System ⭐
+### Phase 5: Bulk Matching System ⭐
 - [ ] Design conversation instance data model
 - [ ] Build bulk send functionality
-- [ ] **Implement user-configurable bulk send limits** (default 1000)
+- [ ] **Implement user-configurable bulk send limits** (default 1000, reputation-adjusted)
+- [ ] **Implement abuse prevention** (block-based punishment, send capacity reduction)
 - [ ] Implement concurrent conversation management
 - [ ] Create match detection and notification system
 - [ ] Build match dashboard/analytics
 - [ ] **Implement "Ignore" vs "Let's talk in person" filtering**
 - [ ] **Implement pre-filtering for efficient matching**
 
-### Phase 5: Spam Prevention & Moderation ⭐
+### Phase 6: Spam Prevention & Moderation ⭐
 - [ ] **Implement fixed period rate limiting** (once per day/week/etc.)
 - [ ] **Build fair game system** (same period for send/receive)
+- [ ] **Implement reputation-based rate limits** (accumulated reputation affects limits)
 - [ ] **Create location range filtering**
 - [ ] **Build blacklist/blocking system**
+- [ ] **Implement block statistics tracking**
 - [ ] **Implement decentralized moderation** (user-level blocking)
 - [ ] **Add age verification system** (for adult content)
+- [ ] **Implement age verification feedback** (community validation)
 - [ ] **Implement underage protection** (hide adult talks from minors)
 
-### Phase 6: Chat Interfaces
+### Phase 7: Chat Interfaces
 - [ ] Build incoming chat interface (with multi-talk support)
 - [ ] **Add ignored talk filtering**
 - [ ] **Add attention-required highlights** ("Let's talk in person")
+- [ ] **Integrate built-in filters** (language, grammar, dirty words display)
 - [ ] Build outgoing chat interface (with bulk operations)
 - [ ] **Add chatroom travel interface** (including business chatrooms)
-- [ ] **Add talk metadata display**
+- [ ] **Add talk metadata display** (including language)
+- [ ] **Add send capacity display** (reputation-based)
 - [ ] Integrate chatbot interactions
 - [ ] Implement real-time updates
 - [ ] **Create match management interface**
 
-### Phase 7: Advanced Features
+### Phase 8: Advanced Features
 - [ ] User statistics tracking
 - [ ] Profile editing (Q/A list with StageName)
-- [ ] Reputation system (read-only, hideable)
+- [ ] Reputation system (read-only, hideable, Amazon-style)
+- [ ] **Age verification feedback system**
 - [ ] Advanced match filtering
 - [ ] Talk templates library
 - [ ] **Performance optimization for 1000+ concurrent conversations**
 - [ ] **Chatroom hierarchy visualization**
-- [ ] **Business chatroom management**
+- [ ] **Business chatroom management** (create, rename, delete)
+- [ ] **Automatic chatroom management** (pure location-based)
 - [ ] **Active user lists across locations**
+- [ ] **Tag popularity statistics** (regional)
 
-### Phase 8: Platform Development
+### Phase 9: Platform Development
 - [ ] **Web version** (iinpublic.com with local Node.js)
-- [ ] **Android app** (with local Node.js)
-- [ ] **iOS app** (evaluate Node.js feasibility, implement alternative if needed)
+- [ ] **Android app** (with local Node.js, GPS location)
+- [ ] **iOS app** (evaluate Node.js feasibility, implement alternative if needed) ⚠️ **To be determined**
 
-### Phase 9: Testing & Refinement
+### Phase 10: Testing & Refinement
 - [ ] User testing (especially bulk matching scenarios)
 - [ ] Performance testing (1000+ concurrent talks, chatroom splitting)
 - [ ] Spam prevention testing
 - [ ] Moderation system testing
+- [ ] **Built-in filter testing** (language, grammar, dirty words)
 - [ ] Offline functionality testing
 - [ ] **Loop detection testing**
 - [ ] **Pre-filtering efficiency testing**
+- [ ] **Reputation system testing**
+- [ ] **Abuse prevention testing**
 - [ ] Bug fixes
 - [ ] UI/UX improvements
 
@@ -755,44 +733,53 @@ The app allows users to:
 - **Tag Matching**: Percentage of matches found through tag-based filtering
 - **Pre-filtering Effectiveness**: Reduction in unqualified matches through location/tag filtering
 - **Business Chatroom Usage**: Number of business chatrooms created and active users
+- **Filter Effectiveness**: Reduction in inappropriate content through built-in filters
+- **Reputation Impact**: Correlation between reputation and user behavior
+- **Abuse Prevention**: Reduction in system abuse through block-based punishment
 
 ---
 
 ## Resolved Questions & Specifications
 
-1. **Location Privacy**: ✅ Uses Lat/Long system with hierarchical chatroom division
-2. **Spam Prevention**: ✅ Fixed period rate limiting, location filters, blacklists
-3. **Data Persistence**: ✅ Talks retained for 1 month to 1 year (user-configurable)
+1. **Location Privacy**: ✅ Uses Lat/Long system with hierarchical chatroom division, GPS as true location blurred for privacy
+2. **Spam Prevention**: ✅ Fixed period rate limiting, location filters, blacklists, reputation-based limits
+3. **Data Persistence**: ✅ Talks retained for 1 month to 1 year (user-configurable), then archived
 4. **Offline Support**: ✅ Full offline support with Gun.js sync
-5. **Moderation**: ✅ Decentralized user-level blocking, age verification for adult content
+5. **Moderation**: ✅ Decentralized user-level blocking, age verification for adult content with community feedback
 6. **Scalability**: ✅ Automatic location-based chatroom splitting reduces load
-7. **Platform Priority**: ✅ Web first (with local Node.js), then Android, then iOS
-8. **Bulk Send Limits**: ✅ Default 1000, user-configurable per user
+7. **Platform Priority**: ✅ Web first (with local Node.js), then Android, then iOS (to be determined)
+8. **Bulk Send Limits**: ✅ Default 1000, user-configurable per user, reputation-adjusted
 9. **Notification Management**: ✅ Filtered by "Ignore" vs "Let's talk in person"
-10. **Talk Expiration**: ✅ Talks have metadata with expiration timestamps
+10. **Talk Expiration**: ✅ Talks have metadata with expiration timestamps, automatically archived, users can manually delete
 11. **Custom Chatrooms**: ✅ Business chatrooms with brand, address, owner at each hierarchy level
 12. **Question Simplicity**: ✅ Simple questions with predefined answer options
 13. **Talk Structure**: ✅ No loops allowed, logic OR acceptable
 14. **Pre-filtering**: ✅ Location and tags filter unqualified users first
-15. **User Profile**: ✅ Q/A list with mandatory StageName, read-only reputation section
-16. **Tag System**: ✅ Craigslist-style catalog tags
+15. **User Profile**: ✅ Q/A list with mandatory StageName, read-only reputation section (Amazon-style)
+16. **Tag System**: ✅ Craigslist-style catalog tags, free creation, regional popularity statistics
+17. **Built-in Filters**: ✅ Language filter, grammar filter, dirty words filter (default enabled)
+18. **Chatroom Management**: ✅ Automatic location-based chatrooms auto-created, user-defined chatrooms user-managed (create, rename, delete)
+19. **FIFO Removal**: ✅ Longest-staying user gets notification when removed (always in smaller regional chatroom)
+20. **Age Verification**: ✅ Community feedback system in read-only reputation section
+21. **Reputation System**: ✅ Amazon-style customer reviews, accumulates over time, affects rate limits
+22. **Location & Travel**: ✅ GPS as true location (blurred), users can travel to one chatroom (marked as traveller), multiple chatrooms for true location
+23. **Abuse Prevention**: ✅ Block-based punishment reduces send capacity
+24. **Business Legitimacy**: ✅ Legal protection for legitimate brands/logos, rest reputation-driven
 
 ---
 
 ## Open Questions & Considerations
 
-1. **Node.js in iOS**: Technical feasibility of running Node.js in iOS app (may need alternative approach)
-2. **Chatroom Split Algorithm**: Optimal algorithm for determining split boundaries (geographic vs. user density)
-3. **FIFO Removal**: Should longest-staying user be notified before removal from full chatroom?
-4. **Tag Catalog**: Should use exact Craigslist categories or custom categories?
-5. **Age Verification**: How to securely verify age without central authority?
-6. **Talk Expiration**: Should expired talks be completely deleted or archived?
-7. **Rate Limit Enforcement**: How to prevent users from bypassing rate limits (decentralized enforcement)?
-8. **Location Accuracy**: How to handle users with inaccurate or spoofed location data?
-9. **Chatroom Overlap**: How to handle users who qualify for multiple overlapping chatrooms?
-10. **Bulk Limit Enforcement**: How to prevent abuse of bulk sending in decentralized system?
-11. **Reputation Calculation**: How to calculate reputation ranks and reviews in decentralized system?
-12. **Business Chatroom Verification**: How to verify business ownership/legitimacy?
+1. **Node.js in iOS**: ⚠️ **To be determined** - Technical feasibility needs evaluation, may need alternative approach
+2. **Grammar Filter Accuracy**: How accurate should grammar checking be? (balance between filtering and false positives)
+3. **Dirty Words Dictionary**: Should use standard dictionary or allow regional/cultural customization?
+4. **Tag Moderation**: Should there be any moderation for user-created tags?
+5. **Reputation Recovery**: What is the process for users to recover from bad reputation?
+6. **Business Verification**: How to handle disputes about business ownership/legitimacy?
+7. **Travel Limitations**: Should there be limits on how often users can travel to different chatrooms?
+8. **Archive Storage**: How long should archived talks be retained before permanent deletion?
+9. **Regional Tag Variations**: How to handle tags that mean different things in different regions?
+10. **Filter Customization**: How much customization should users have over filter sensitivity?
 
 ---
 
@@ -803,10 +790,13 @@ The app allows users to:
 - Advanced matching algorithms (ML-based compatibility scoring)
 - Analytics dashboard for talk performance
 - Push notifications
-- Multi-language support
+- Multi-language support (expanded)
 - Talk scheduling (send talks at specific times)
 - A/B testing for talk effectiveness
 - Advanced tag system (hierarchical tags, tag recommendations)
 - Chatroom analytics and insights
 - Business chatroom promotion/advertising features
 - Reputation system enhancements (detailed review system)
+- Advanced grammar checking (ML-based)
+- Cultural sensitivity filters
+- Regional language variations support
