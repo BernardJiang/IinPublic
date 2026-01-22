@@ -120,12 +120,12 @@ export class UIManager extends EventEmitter {
           <form id="user-creation-form">
             <div class="form-group">
               <label class="form-label">Stage Name (required)</label>
-              <input type="text" class="form-input" id="stage-name" required 
+              <input type="text" class="form-input" id="stage-name" name="stage-name" required 
                      placeholder="Choose a name others will see">
             </div>
             <div class="form-group">
               <label class="form-label">Languages you understand</label>
-              <select class="form-input" id="languages" multiple>
+              <select class="form-input" id="languages" name="languages" multiple>
                 <option value="en" selected>English</option>
                 <option value="es">Spanish</option>
                 <option value="fr">French</option>
@@ -145,9 +145,9 @@ export class UIManager extends EventEmitter {
       form.addEventListener('submit', (e) => {
         e.preventDefault();
         const formData = new FormData(form);
-        const stageName = formData.get('stage-name') as string;
+        const stageName = formData.get('stage-name') as string | null;
         
-        if (stageName.trim()) {
+        if (stageName && stageName.trim()) {
           document.body.removeChild(modal);
           resolve({
             stageName: stageName.trim(),

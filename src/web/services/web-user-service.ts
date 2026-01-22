@@ -54,7 +54,7 @@ export class WebUserService {
   async setUserStatus(userId: string, status: 'online' | 'away' | 'offline'): Promise<void> {
     await this.gunService.put(`users/${userId}/status`, {
       status,
-      timestamp: new Date()
+      timestamp: new Date() // Gun service will serialize this properly
     });
   }
 }

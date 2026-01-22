@@ -8,12 +8,12 @@ export class WebGunService extends EventEmitter {
 
   constructor() {
     super();
-    this.peers = ['ws://localhost:8080/gun'];
+    this.peers = []; // Start without WebSocket peers
   }
 
   async initialize(): Promise<void> {
     try {
-      // Initialize Gun.js for web
+      // Initialize Gun.js for web (localStorage-only mode for development)
       this.gun = Gun({
         peers: this.peers,
         localStorage: true, // Use localStorage in browser
@@ -43,9 +43,59 @@ export class WebGunService extends EventEmitter {
     return this.gun;
   }
 
+  private serializeDates(obj: any): any {
+    if (obj instanceof Date) {
+      return obj.toISOString();
+    }
+    if (Array.isArray(obj)) {
+      // Convert arrays to objects with numeric keys for Gun.js compatibility
+      const arrayObj: any = { _isArray: true };
+      obj.forEach((item, index) => {
+        arrayObj[index.toString()] = this.serializeDates(item);
+      });
+      return arrayObj;
+    }
+    if (obj && typeof obj === 'object') {
+      const serialized: any = {};
+      for (const key in obj) {
+        serialized[key] = this.serializeDates(obj[key]);
+      }
+      return serialized;
+    }
+    return obj;
+  }
+
+  private deserializeDates(obj: any): any {
+    if (typeof obj === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(obj)) {
+      return new Date(obj);
+    }
+    if (obj && typeof obj === 'object' && obj._isArray) {
+      // Convert Gun.js array objects back to arrays
+      const result: any[] = [];
+      Object.keys(obj).forEach(key => {
+        if (key !== '_isArray') {
+          const index = parseInt(key);
+          if (!isNaN(index)) {
+            result[index] = this.deserializeDates(obj[key]);
+          }
+        }
+      });
+      return result;
+    }
+    if (obj && typeof obj === 'object') {
+      const deserialized: any = {};
+      for (const key in obj) {
+        deserialized[key] = this.deserializeDates(obj[key]);
+      }
+      return deserialized;
+    }
+    return obj;
+  }
+
   async put(key: string, data: any): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.gun.get(key).put(data, (ack: any) => {
+      const serializedData = this.serializeDates(data);
+      this.gun.get(key).put(serializedData, (ack: any) => {
         if (ack.err) {
           reject(new Error(ack.err));
         } else {
@@ -64,7 +114,8 @@ export class WebGunService extends EventEmitter {
         if (data === undefined) {
           reject(new Error(`No data found for key: ${key}`));
         } else {
-          resolve(data);
+          const deserializedData = this.deserializeDates(data);
+          resolve(deserializedData);
         }
       });
       

@@ -1,5 +1,6 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const webpack = require('webpack');
 
 module.exports = {
   entry: './src/web/index.ts',
@@ -32,7 +33,24 @@ module.exports = {
     new HtmlWebpackPlugin({
       template: './src/web/index.html',
       title: 'IinPublic'
-    })
+    }),
+    // Ignore Gun.js dynamic requires to suppress webpack warnings
+    new webpack.IgnorePlugin({
+      resourceRegExp: /^(ws|bufferutil|utf-8-validate|supports-color)$/,
+      contextRegExp: /gun/
+    }),
+    new webpack.ContextReplacementPlugin(
+      /gun/,
+      path.resolve(__dirname, 'node_modules/gun'),
+      {}
+    )
+  ],
+  ignoreWarnings: [
+    // Suppress Gun.js dynamic require warnings
+    {
+      module: /gun/,
+      message: /Critical dependency: the request of a dependency is an expression/
+    }
   ],
   devServer: {
     static: './dist/web',
