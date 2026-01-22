@@ -178,8 +178,8 @@ At a high level, the system provides:
 
 #### 3.1.4 Question-Answer System
 
-- **FR‑QA‑1**: All questions SHALL be simple text.
-- **FR‑QA‑2**: All answers SHALL be drawn from predefined options (binary, multiple choice, ranges, tags).
+- **FR‑QA‑1**: All questions SHALL be simple text. A questin is defined as a sentence/phrase that ends with ?
+- **FR‑QA‑2**: All answers SHALL be drawn from predefined options (binary, multiple choice, ranges, tags). An answer is defined as a sentence/phrase ends with . followed after a question.
 - **FR‑QA‑3**: Every question SHALL support **Ignore** as a mandatory answer.
 - **FR‑QA‑4**: The system SHALL support answer attributes:
   - **Auto**: public, re-usable by chatbot.
