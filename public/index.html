@@ -1,0 +1,137 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IinPublic Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2rem; background: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .status { padding: 1rem; margin: 1rem 0; border-radius: 4px; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        button { background: #007bff; color: white; padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer; margin: 0.5rem 0; }
+        button:hover { background: #0056b3; }
+        #log { background: #f8f9fa; padding: 1rem; border: 1px solid #dee2e6; border-radius: 4px; font-family: monospace; font-size: 0.9rem; max-height: 300px; overflow-y: auto; margin-top: 1rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1> IinPublic Development Test</h1>
+        
+        <div class="status info">
+            <strong>System Status:</strong>
+            <div>
+                <span id="server-status">Checking server connection...</span><br>
+                <span id="gun-status">Checking Gun.js peer...</span>
+            </div>
+        </div>
+
+        <h2>Quick Tests</h2>
+        <button onclick="testServer()">Test Server Connection</button>
+        <button onclick="testGun()">Test Gun.js Peer</button>
+        <button onclick="testLocationServices()">Test Location Services</button>
+        <button onclick="clearLog()">Clear Log</button>
+
+        <div id="log">Ready for testing...</div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+    <script>
+        const log = document.getElementById('log');
+        
+        function logMessage(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'color: red;' : type === 'success' ? 'color: green;' : '';
+            log.innerHTML += `<div style="${className}">[${timestamp}] ${message}</div>`;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function clearLog() {
+            log.innerHTML = 'Log cleared...';
+        }
+
+        // Test server connection
+        async function testServer() {
+            logMessage('Testing server connection to http://localhost:8080...');
+            try {
+                const response = await fetch('http://localhost:8080/api/health');
+                if (response.ok) {
+                    const data = await response.json();
+                    logMessage(' Server connection successful: ' + JSON.stringify(data), 'success');
+                    document.getElementById('server-status').textContent = ' Server: Connected';
+                } else {
+                    logMessage(' Server responded with status: ' + response.status, 'error');
+                    document.getElementById('server-status').textContent = ' Server: Error ' + response.status;
+                }
+            } catch (error) {
+                logMessage(' Server connection failed: ' + error.message, 'error');
+                document.getElementById('server-status').textContent = ' Server: Connection failed';
+            }
+        }
+
+        // Test Gun.js connection
+        function testGun() {
+            logMessage('Testing Gun.js peer connection...');
+            try {
+                const gun = Gun(['http://localhost:8765/gun']);
+                
+                // Test write/read
+                const testKey = 'test_' + Date.now();
+                const testData = { message: 'Hello from IinPublic!', timestamp: Date.now() };
+                
+                gun.get(testKey).put(testData, function(ack) {
+                    if(ack.err) {
+                        logMessage(' Gun.js write error: ' + ack.err, 'error');
+                        document.getElementById('gun-status').textContent = ' Gun.js: Write failed';
+                    } else {
+                        logMessage(' Gun.js write successful', 'success');
+                        
+                        // Test read
+                        gun.get(testKey).once(function(data, key) {
+                            if(data) {
+                                logMessage(' Gun.js read successful: ' + JSON.stringify(data), 'success');
+                                document.getElementById('gun-status').textContent = ' Gun.js: Connected';
+                            } else {
+                                logMessage(' Gun.js read failed: no data', 'error');
+                                document.getElementById('gun-status').textContent = ' Gun.js: Read failed';
+                            }
+                        });
+                    }
+                });
+            } catch (error) {
+                logMessage(' Gun.js connection failed: ' + error.message, 'error');
+                document.getElementById('gun-status').textContent = ' Gun.js: Connection failed';
+            }
+        }
+
+        // Test location services
+        function testLocationServices() {
+            logMessage('Testing location services...');
+            if (!navigator.geolocation) {
+                logMessage(' Geolocation is not supported by this browser', 'error');
+                return;
+            }
+            
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    logMessage(' Location access granted', 'success');
+                    logMessage(` Coordinates: ${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`, 'success');
+                    logMessage(` Accuracy: ${position.coords.accuracy} meters`, 'info');
+                },
+                function(error) {
+                    logMessage(' Location access denied: ' + error.message, 'error');
+                },
+                { timeout: 10000, enableHighAccuracy: true }
+            );
+        }
+
+        // Run initial tests
+        setTimeout(() => {
+            testServer();
+            testGun();
+        }, 1000);
+    </script>
+</body>
+</html>
