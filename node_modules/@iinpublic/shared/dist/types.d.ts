@@ -167,26 +167,117 @@ export declare const TalkSchema: z.ZodObject<{
     isSurvey?: boolean | undefined;
 }>;
 export type Talk = z.infer<typeof TalkSchema>;
+export declare const MessageContentSchema: z.ZodObject<{
+    type: z.ZodEnum<["text", "talk_invite", "talk_result"]>;
+    text: z.ZodOptional<z.ZodString>;
+    talkId: z.ZodOptional<z.ZodString>;
+    talkTitle: z.ZodOptional<z.ZodString>;
+    result: z.ZodOptional<z.ZodEnum<["match", "ignore"]>>;
+    answers: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodAny>>;
+}, "strip", z.ZodTypeAny, {
+    type: "text" | "talk_invite" | "talk_result";
+    text?: string | undefined;
+    talkId?: string | undefined;
+    talkTitle?: string | undefined;
+    result?: "ignore" | "match" | undefined;
+    answers?: Record<string, any> | undefined;
+}, {
+    type: "text" | "talk_invite" | "talk_result";
+    text?: string | undefined;
+    talkId?: string | undefined;
+    talkTitle?: string | undefined;
+    result?: "ignore" | "match" | undefined;
+    answers?: Record<string, any> | undefined;
+}>;
 export declare const MessageSchema: z.ZodObject<{
     id: z.ZodString;
     sender: z.ZodString;
-    content: z.ZodString;
+    content: z.ZodObject<{
+        type: z.ZodEnum<["text", "talk_invite", "talk_result"]>;
+        text: z.ZodOptional<z.ZodString>;
+        talkId: z.ZodOptional<z.ZodString>;
+        talkTitle: z.ZodOptional<z.ZodString>;
+        result: z.ZodOptional<z.ZodEnum<["match", "ignore"]>>;
+        answers: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodAny>>;
+    }, "strip", z.ZodTypeAny, {
+        type: "text" | "talk_invite" | "talk_result";
+        text?: string | undefined;
+        talkId?: string | undefined;
+        talkTitle?: string | undefined;
+        result?: "ignore" | "match" | undefined;
+        answers?: Record<string, any> | undefined;
+    }, {
+        type: "text" | "talk_invite" | "talk_result";
+        text?: string | undefined;
+        talkId?: string | undefined;
+        talkTitle?: string | undefined;
+        result?: "ignore" | "match" | undefined;
+        answers?: Record<string, any> | undefined;
+    }>;
     timestamp: z.ZodNumber;
-    relatedTalkId: z.ZodOptional<z.ZodString>;
-    selectedOptionId: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     id: string;
     sender: string;
-    content: string;
+    content: {
+        type: "text" | "talk_invite" | "talk_result";
+        text?: string | undefined;
+        talkId?: string | undefined;
+        talkTitle?: string | undefined;
+        result?: "ignore" | "match" | undefined;
+        answers?: Record<string, any> | undefined;
+    };
     timestamp: number;
-    relatedTalkId?: string | undefined;
-    selectedOptionId?: string | undefined;
 }, {
     id: string;
     sender: string;
-    content: string;
+    content: {
+        type: "text" | "talk_invite" | "talk_result";
+        text?: string | undefined;
+        talkId?: string | undefined;
+        talkTitle?: string | undefined;
+        result?: "ignore" | "match" | undefined;
+        answers?: Record<string, any> | undefined;
+    };
     timestamp: number;
-    relatedTalkId?: string | undefined;
-    selectedOptionId?: string | undefined;
 }>;
 export type Message = z.infer<typeof MessageSchema>;
+export declare const ChatroomInfoSchema: z.ZodObject<{
+    id: z.ZodString;
+    name: z.ZodString;
+    description: z.ZodOptional<z.ZodString>;
+    location: z.ZodOptional<z.ZodObject<{
+        lat: z.ZodNumber;
+        lng: z.ZodNumber;
+        radius: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        lat: number;
+        lng: number;
+        radius: number;
+    }, {
+        lat: number;
+        lng: number;
+        radius: number;
+    }>>;
+    type: z.ZodDefault<z.ZodEnum<["global", "local", "business"]>>;
+}, "strip", z.ZodTypeAny, {
+    type: "global" | "local" | "business";
+    id: string;
+    name: string;
+    description?: string | undefined;
+    location?: {
+        lat: number;
+        lng: number;
+        radius: number;
+    } | undefined;
+}, {
+    id: string;
+    name: string;
+    type?: "global" | "local" | "business" | undefined;
+    description?: string | undefined;
+    location?: {
+        lat: number;
+        lng: number;
+        radius: number;
+    } | undefined;
+}>;
+export type ChatroomInfo = z.infer<typeof ChatroomInfoSchema>;

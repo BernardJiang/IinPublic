@@ -9,9 +9,14 @@ import { UserProfileSchema } from './types';
 export const saveUserProfile = async (user, profile) => {
     // Validate schema before saving
     const parsed = UserProfileSchema.parse(profile);
+    // Gun doesn't support arrays, serialize them
+    const dataToSave = {
+        ...parsed,
+        languages: JSON.stringify(parsed.languages)
+    };
     return new Promise((resolve, reject) => {
         // user.get('profile') is a node
-        user.get('profile').put(parsed, (ack) => {
+        user.get('profile').put(dataToSave, (ack) => {
             if (ack.err)
                 reject(new Error(ack.err));
             else
@@ -34,6 +39,15 @@ export const subscribeToUserProfile = (gun, pubKey, callback) => {
         // Data usually comes with meta properties from Gun (_), we should clean or Zod might strip them if we use strict.
         // Zod defaults to strip() for unknown keys so it's fine.
         try {
+            // Deserialize arrays
+            if (typeof data.languages === 'string') {
+                try {
+                    data.languages = JSON.parse(data.languages);
+                }
+                catch (e) {
+                    // fallback or ignore
+                }
+            }
             const parsed = UserProfileSchema.parse(data);
             callback(parsed);
         }

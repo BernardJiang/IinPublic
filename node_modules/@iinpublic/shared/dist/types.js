@@ -35,12 +35,30 @@ export const TalkSchema = z.object({
     createdAt: TimestampSchema,
 });
 // --- Messages / Matches ---
+// --- Messages / Matches ---
+export const MessageContentSchema = z.object({
+    type: z.enum(['text', 'talk_invite', 'talk_result']),
+    text: z.string().optional(),
+    talkId: z.string().optional(),
+    talkTitle: z.string().optional(),
+    result: z.enum(['match', 'ignore']).optional(),
+    answers: z.record(z.string(), z.any()).optional() // QuestionId -> Answer
+});
 export const MessageSchema = z.object({
     id: z.string(),
     sender: PubKeySchema,
-    content: z.string(),
+    content: MessageContentSchema,
     timestamp: TimestampSchema,
-    // For Talk answers
-    relatedTalkId: z.string().optional(),
-    selectedOptionId: z.string().optional(),
+});
+// --- Chatrooms ---
+export const ChatroomInfoSchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string().optional(),
+    location: z.object({
+        lat: z.number(),
+        lng: z.number(),
+        radius: z.number(), // meters
+    }).optional(),
+    type: z.enum(['global', 'local', 'business']).default('local'),
 });

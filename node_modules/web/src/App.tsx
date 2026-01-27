@@ -1,4 +1,3 @@
-import React from 'react';
 import { GunProvider } from './contexts/GunContext';
 import { UserProvider } from './contexts/UserContext';
 import { AppRouter } from './AppRouter';
