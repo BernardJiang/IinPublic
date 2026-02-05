@@ -165,6 +165,28 @@ Referencing `projectplan.md` Section 6 Scenarios.
     4.  Verify `userA.statistics.totalRepliesReceived` increments by 2.
     5.  Verify stats persist across restarts.
 
+### 6.7 TC-ONB-01: First Run Onboarding
+*   **Action**:
+    1.  Clear app data or install fresh.
+    2.  Launch application.
+    3.  Observe "StageName" prompt.
+    4.  Verify default text is "John Doe".
+    5.  Change name to "Alice" and confirm.
+*   **Check**:
+    1.  Verify internal User ID is a long SEA public key string (not a simple UUID).
+    2.  Verify `user.stageName` is saved as "Alice".
+    3.  Restart app. Verify user is NOT prompted again and logs in as "Alice".
+
+### 6.8 TC-SYNC-01: Chatroom Entry Broadcast
+*   **Preconditions**: User A has 5 public talks. Room has 10 other users.
+*   **Action**:
+    1.  User A enters the chatroom.
+    2.  Wait for sync.
+    3.  User A exits and re-enters immediately.
+*   **Check**:
+    1.  **First Entry**: Verify User A sends `SYNC_REQUEST`. Verify peer 10 users receive User A's 5 talks. Verify User A receives public talks from 10 peers.
+    2.  **Second Entry**: Verify `SYNC_REQUEST` is sent but data payload is empty (peers recognize timestamps match). **Zero** talks resent.
+
 ---
 
 ## 7. Performance & Security Testing

@@ -200,11 +200,11 @@ Chatroom = {
 
 ### User Identity Management System
 
-**Unique ID Generation:**
-- Cryptographically secure UUID v4 generation using Web Crypto API
-- Collision detection with retry mechanism
-- ID validation against existing user database
-- Backup ID generation strategies for system reliability
+**SEA Identity & Key Generation:**
+- Use `Gun.SEA.pair()` to generate a cryptographically secure public/private key pair on first run.
+- **UserID** = The generated `pub` (public key) string.
+- Private key must be stored securely in local storage (e.g., indexedDB/localStorage with encryption if available) and never transmitted to other peers.
+- All user profile updates must be signed using the private key (`user.get('profile').put(data, cb, {opt: {cert: ...}})` or standard SEA flow).
 
 **Profile Data Encryption:**
 ```javascript
@@ -274,10 +274,19 @@ WebSocketManager = {
   protocols: {
     handshake: "ws-handshake-v1",
     data: "ws-data-v1",
-    heartbeat: "ws-heartbeat-v1"
+    heartbeat: "ws-heartbeat-v1",
+    sync: "ws-sync-v1"
   }
 }
 ```
+
+**Synchronization Protocol (Auto-Broadcast & Deduplication):**
+- **Trigger**: On chatroom entry.
+- **Protocol**:
+  1.  **Handshake**: Broadcast `SYNC_REQUEST` containing `{ senderID, lastSyncTimestamp }` to all peers in room.
+  2.  **Filter**: Peers check `talk.updatedAt > sender.lastSyncTimestamp`.
+  3.  **Exchange**: Peers respond with only *new* or *modified* talk data.
+  4.  **Update**: Sender updates local `lastSyncTimestamp` for that peer after successful receipt.
 
 ### Chatroom Management System
 
