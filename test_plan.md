@@ -143,6 +143,28 @@ Referencing `projectplan.md` Section 6 Scenarios.
     2.  Restart App.
     3.  **Check**: GunPeerService restarts, `gun.js` re-initializes, and local data persistence is verified (Profile data still exists).
 
+### 6.5 TC-DATA-01: Relationship Tagging
+*   **Action**:
+    1.  User A views User B's profile.
+    2.  User A tags User B as "Friend".
+    3.  User A views User C's profile.
+    4.  User A tags User C as "Coworker".
+*   **Check**:
+    1.  Verify `userA.relationships[userB_ID]` equals "Friend".
+    2.  Verify `userA.relationships[userC_ID]` equals "Coworker".
+    3.  Restart app (simulate storage reload). Verify tags persist.
+
+### 6.6 TC-DATA-02: History & Statistics Persistence
+*   **Action**:
+    1.  User A sends a talk to 5 users.
+    2.  2 users reply.
+*   **Check**:
+    1.  Verify `userA.history.talksInitiated` contains the new talk ID.
+    2.  Verify `userA.history.contactedUsers` contains the IDs of the 5 recipients.
+    3.  Verify `userA.statistics.totalTalksSent` increments by 1.
+    4.  Verify `userA.statistics.totalRepliesReceived` increments by 2.
+    5.  Verify stats persist across restarts.
+
 ---
 
 ## 7. Performance & Security Testing

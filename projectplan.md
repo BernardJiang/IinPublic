@@ -147,6 +147,14 @@ At a high level, the system provides:
   - Block count
 - **FR‑UM‑7**: Users SHALL be able to hide all or parts of their reputation from others but SHALL NOT be able to edit the underlying metrics.
 - **FR‑UM‑8**: The system SHALL allow users to maintain lists of active users across multiple locations/chatrooms.
+- **FR‑UM‑9**: The system SHALL persist a comprehensive list of all users the user has previously contacted.
+- **FR‑UM‑10**: The system SHALL persist lists of all talks initiated and received by the user (history).
+- **FR‑UM‑11**: The system SHALL allow users to tag other users with specific relationship types: **Stranger** (default), **Friend**, **Family**, **Coworker**, **Acquaintance**, and **Blocked**.
+- **FR‑UM‑12**: The system SHALL calculate and persist detailed statistics per user-to-user interaction, including:
+  - Total talks sent/received
+  - Total conversations initiated
+  - Last contact timestamp
+  - Relationship history
 
 #### 3.1.2 Built-in Filters
 

@@ -43,17 +43,42 @@ UserProfile = {
     }
   ],
   headshotIcon: String (avatar selection ID),
+  
+  // Relationship Management
+  relationships: {
+    // Map of userID -> relationship type
+    [userID]: "stranger" | "friend" | "family" | "coworker" | "acquaintance" | "blocked"
+  },
+  
+  // History & Interaction Logs
+  history: {
+    contactedUsers: [String] (List of userIDs contacted),
+    talksInitiated: [String] (List of talkIDs sent),
+    talksReceived: [String] (List of talkIDs received),
+    conversations: [String] (List of conversationIDs)
+  },
+
+  // Detailed Statistics
+  statistics: {
+    totalTalksSent: Integer,
+    totalTalksReceived: Integer,
+    totalRepliesReceived: Integer,
+    distinctUsersContacted: Integer,
+    daysActive: Integer,
+    responseRate: Float
+  },
+
   reputation: {
     questionsAnswered: Integer,
-    talksSent: Integer,
-    matchesFound: Integer,
-    friendsCount: Integer,
+    // (Legacy fields merged or kept for specific algorithms)
+    friendsCount: Integer, // Computed from relationships map
     mutualFriends: Integer,
     starRating: Float (0.0-5.0),
     ageVerified: Boolean,
-    blockedCount: Integer,
+    blockedCount: Integer, // Computed from relationships map
     lastActivity: Timestamp
   },
+
   languages: [String] (ISO 639-1 language codes),
   filters: {
     languageEnabled: Boolean,
