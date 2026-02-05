@@ -160,7 +160,7 @@ At a high level, the system provides:
 #### 3.1.3 Chatroom Management (Location & Travel)
 
 - **FR‑CR‑1**: The system SHALL maintain a **global chatroom** accessible to all users at app start.
-- **FR‑CR‑2**: The system SHALL automatically place new users into the global chatroom first.
+- **FR‑CR‑2**: The system SHALL automatically place users into the **global chatroom** upon every application start.
 - **FR‑CR‑3**: When a chatroom exceeds a capacity threshold (e.g., 1000 users), the system SHALL:
   - Split the room into finer location-based subrooms (continent → country → state → city → etc.).
   - Move users into appropriate subrooms based on GPS coordinates.
@@ -175,6 +175,7 @@ At a high level, the system provides:
 - **FR‑CR‑8**: The system SHALL store **true location** from GPS and use a blurred region for public operations.
 - **FR‑CR‑9**: A user MAY belong to multiple chatrooms that include their true location.
 - **FR‑CR‑10**: A user MAY actively “travel” to exactly one remote chatroom at a time and SHALL be marked as **traveller** there.
+- **FR‑CR‑11**: When a user enters a chatroom (including auto-entry), they SHALL be immediately visible in the online list. When they leave or close the application, they SHALL be removed from the list.
 
 #### 3.1.4 Question-Answer System
 
