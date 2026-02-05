@@ -6,11 +6,12 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev --workspaces --if-present",
+    "dev": "concurrently \"npm run dev -w @iinpublic/relay\" \"npm run dev -w web\"",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "prettier": "^3.0.0",
     "typescript": "^5.0.0"
   }
