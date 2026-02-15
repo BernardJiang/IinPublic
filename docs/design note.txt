@@ -1,0 +1,43 @@
+
+This is a personal chatbot that repeats all your questions and answers based on preset conditions. It enhances your capability of conversation greatly.
+
+
+The usage: 
+
+1)When first run, the app automatically generates a unique ID and stageName for you. 
+  You can change your stageName anytime and it can be your first name or anything as you wish, so it can be the same as someone else just as your real name. 
+  Only unique ID is unique. It is protected by a pair of pub/priv key. 
+
+2)You are immediately placed in a social network as everyone else. It is location based map that uses your location to determine which chatroom you will be placed. 
+    Use geo coordinates to set up chatroom. on roundup location hashed with app id.
+
+3) When you ask a question and answer a question, these will be saved as your attributes and reuse again. When you have peer to peer conversation, no data will be saved.
+
+4) When you ask a question, the regular express is set to rule:
+   * a questin is defined as a sentence/phrase ends with ?
+   * an answer is defined as a sentence/phrase ends with . right after a question.
+   * options are defined as a set of answers to a question, which simplifies the others' effort to respond. 
+
+   eg. 
+       What's your name?    //One question, ends with ?  no suggested answers as options.
+       My name is Bernard.   //One answer, One answer in one line. ** is my answer to my question.
+       What's your name? ** My name is Bernard.   //One question, One answer in one line. ** is my answer to my question.
+       Are you a doctor? ** yes; * no. //One question, two options, first of which with ** is my own question.
+       Do you have review on this business? 
+       Do you like to play tennis? **yes; * no. 
+
+5) You can chain some questions together to form a talk.
+
+6) When ask or answer a question, it can be divided into a few scinarios. 
+
+   1) Green: talk in public, everything is public. and chatbot will automatically ask and answer in public chatroom. 
+   2) Red: manually, you manually ask and answer questions without chatbot doing it for you. 
+   3) yellow: a set of rules based on location, friend circle, semiautomatic. One-on-one chat. 
+
+At the beginning, a usre can see three lists: other users nearby, public chatroom and talk list.
+
+
+
+
+
+

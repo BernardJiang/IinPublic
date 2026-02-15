@@ -1,0 +1,8 @@
+The project is 
+
+Backend: 
+ node.js + gun.js + iris 
+ androidjs or JaneaSystems/nodejs-mobile 
+
+Front End:
+react native, circlejs, cyptoscape 

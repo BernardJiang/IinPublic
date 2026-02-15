@@ -1,0 +1,207 @@
+/* Rate Limiter Styles */
+.rate-limiter {
+  font-family: Arial, sans-serif;
+  background-color: #f8f9fa;
+  color: #212529;
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.rate-limiter h2 {
+  color: #495057;
+  border-bottom: 2px solid #e9ecef;
+  padding-bottom: 10px;
+  margin-bottom: 20px;
+}
+
+.rate-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+  margin-bottom: 30px;
+}
+
+.rate-status-card {
+  background-color: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  text-align: center;
+}
+
+.rate-status-card h4 {
+  color: #007bff;
+  margin: 0 0 10px 0;
+  font-size: 16px;
+}
+
+.rate-status-card .allowed {
+  color: #28a745;
+  font-size: 20px;
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+.rate-status-card .denied {
+  color: #dc3545;
+  font-size: 20px;
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+.rate-status-card .count {
+  font-size: 14px;
+  color: #495057;
+  margin-bottom: 5px;
+}
+
+.rate-status-card .limit {
+  font-size: 12px;
+  color: #6c757d;
+  margin-bottom: 5px;
+}
+
+.rate-status-card .reason {
+  font-size: 16px;
+  color: #dc3545;
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #f8d7da;
+  border-radius: 4px;
+  border-left: 4px solid #dc3545;
+}
+
+.rate-status-card .reset-time {
+  font-size: 12px;
+  color: #6c757d;
+  margin-top: 5px;
+}
+
+.limit-visualization {
+  width: 100%;
+  height: 40px;
+  background-color: #e9ecef;
+  border-radius: 4px;
+  position: relative;
+  margin: 10px 0;
+}
+
+.limit-bar {
+  height: 100%;
+  background-color: #28a745;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.limit-bar.exceeded {
+  background-color: #dc3545;
+}
+
+/* Button Styles (reuse from existing) */
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  text-decoration: none;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: #0056b3;
+}
+
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+}
+
+.btn-secondary:hover {
+  background-color: #545b62;
+}
+
+.btn-success {
+  background-color: #28a745;
+  color: white;
+}
+
+.btn-success:hover {
+  background-color: #218838;
+}
+
+.btn-warning {
+  background-color: #ffc107;
+  color: #212529;
+}
+
+.btn-warning:hover {
+  background-color: #e0a800;
+}
+
+.btn-danger {
+  background-color: #dc3545;
+  color: white;
+}
+
+.btn-danger:hover {
+  background-color: #c82333;
+}
+
+.status-indicator {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+
+.status-indicator.green {
+  background-color: #28a745;
+}
+
+.status-indicator.red {
+  background-color: #dc3545;
+}
+
+.status-indicator.yellow {
+  background-color: #ffc107;
+}
+
+.reputation-adjustment {
+  background-color: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 4px;
+  padding: 15px;
+  margin-bottom: 20px;
+}
+
+.reputation-adjustment h4 {
+  color: #856404;
+  margin: 0 0 10px 0;
+  font-size: 16px;
+}
+
+.reputation-adjustment p {
+  color: #495057;
+  margin: 0;
+}
