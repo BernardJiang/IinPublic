@@ -234,6 +234,55 @@ export class UIManager extends EventEmitter {
     // Placeholder for refreshing talks list
   }
 
+  displayChatroomMessage(message: {
+    id: string;
+    text: string;
+    senderName: string;
+    timestamp: string;
+    isOwnMessage: boolean;
+  }): void {
+    const messagesContainer = document.getElementById('messages-container');
+    if (!messagesContainer) return;
+
+    // Check if message already exists to avoid duplicates
+    if (document.getElementById(`msg-${message.id}`)) {
+      return;
+    }
+
+    // Clear welcome message if it exists
+    const welcomeMsg = messagesContainer.querySelector('.text-center.p-20');
+    if (welcomeMsg) {
+      welcomeMsg.remove();
+    }
+
+    const messageTime = new Date(message.timestamp).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    const messageDiv = document.createElement('div');
+    messageDiv.id = `msg-${message.id}`;
+    messageDiv.className = `message ${message.isOwnMessage ? 'sent' : ''}`;
+    messageDiv.innerHTML = `
+      <div class="message-bubble">
+        ${!message.isOwnMessage ? `<div style="font-weight: bold; font-size: 0.85em; margin-bottom: 4px; color: #667eea;">${this.escapeHtml(message.senderName)}</div>` : ''}
+        <div>${this.escapeHtml(message.text)}</div>
+        <div class="message-time">${messageTime}</div>
+      </div>
+    `;
+
+    messagesContainer.appendChild(messageDiv);
+
+    // Auto-scroll to bottom
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  }
+
+  private escapeHtml(text: string): string {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
   updateChatroomMembers(
     members: Array<{ userId: string; stageName: string }>,
     currentUserId: string,

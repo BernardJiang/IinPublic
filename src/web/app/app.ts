@@ -113,12 +113,51 @@ export class IinPublicApp {
       this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
     });
 
+    // Subscribe to chatroom messages
+    this.subscribeToMessages(chatroomId);
+
     // Update chatroom info
     this.uiManager.updateChatroomInfo({ id: chatroomId, name: `Chatroom: ${chatroomId}` });
   }
 
+  private subscribeToMessages(chatroomId: string): void {
+    console.log('💬 Subscribing to chatroom messages:', chatroomId);
+    const gun = this.gunService.getGun();
+
+    gun
+      .get('chatrooms')
+      .get(chatroomId)
+      .get('messages')
+      .map()
+      .on((messageData: any, messageId: string) => {
+        if (messageId.startsWith('_')) return; // Skip Gun.js metadata
+
+        console.log('📨 Received message:', messageData);
+
+        if (messageData && messageData.text) {
+          // Display the message in UI
+          this.uiManager.displayChatroomMessage({
+            id: messageData.id,
+            text: messageData.text,
+            senderName: messageData.senderName || 'Unknown',
+            timestamp: messageData.timestamp,
+            isOwnMessage: messageData.senderId === this.currentUser?.id,
+          });
+        }
+      });
+  }
+
   private setupEventHandlers(): void {
     // Handle UI events
+
+    // Handle "Send Talk" button click on user
+    this.uiManager.on('sendTalkToUser', async (data: { userId: string }) => {
+      console.log('🎯 Send Talk clicked for user:', data.userId);
+      // For now, just show a simple message interface
+      this.uiManager.showNotification(`Starting conversation with user ${data.userId}`, 'info');
+      // TODO: Implement actual talk/conversation creation
+    });
+
     this.uiManager.on(
       'sendTalk',
       async (data: { talkId: string; targetScope: any; maxRecipients: number }) => {
@@ -182,19 +221,32 @@ export class IinPublicApp {
 
     this.uiManager.on('sendMessage', async (data: { conversationId: string; message: string }) => {
       try {
-        // Check for auto-linear capture pattern
-        const linearCapture = this.talkService.checkForLinearCapture(data.message);
+        console.log('📤 Sending message:', data.message);
 
-        if (linearCapture) {
-          this.uiManager.showLinearCaptureInterface(data.conversationId, linearCapture);
-        } else {
-          await this.talkService.sendMessage(
-            data.conversationId,
-            this.currentUser!.id,
-            data.message,
-          );
+        // For now, broadcast message to the chatroom
+        const chatroomId = this.chatroomService.getCurrentChatroomId();
+        if (!chatroomId) {
+          this.uiManager.showNotification('Not in a chatroom', 'error');
+          return;
         }
+
+        // Create a simple message object
+        const message = {
+          id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          text: data.message,
+          senderId: this.currentUser!.id,
+          senderName: this.currentUser!.stageName,
+          timestamp: new Date().toISOString(),
+        };
+
+        // Store message in Gun.js
+        const gun = this.gunService.getGun();
+        gun.get('chatrooms').get(chatroomId).get('messages').get(message.id).put(message);
+
+        console.log('✅ Message sent:', message);
+        this.uiManager.showNotification('Message sent!', 'success');
       } catch (error) {
+        console.error('Failed to send message:', error);
         this.uiManager.showNotification(
           'Failed to send message: ' + (error as Error).message,
           'error',
