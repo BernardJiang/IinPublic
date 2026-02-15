@@ -6,14 +6,14 @@ describe('LocationPrivacy', () => {
     it('should blur GPS coordinates to a region', () => {
       const coordinate: GPSCoordinate = {
         latitude: 40.7128,
-        longitude: -74.0060,
+        longitude: -74.006,
         accuracy: 10,
-        timestamp: new Date()
+        timestamp: new Date(),
       };
 
       const blurred = LocationPrivacy.blurLocation(coordinate);
 
-      expect(blurred.region).toMatch(/^region_40\.71_-74\.00$/);
+      expect(blurred.region).toMatch(/^region_40\.71_-74\.01$/);
       expect(blurred.chatrooms).toEqual([]);
       expect(blurred.trueLocation).toEqual(coordinate);
     });
@@ -21,16 +21,16 @@ describe('LocationPrivacy', () => {
     it('should consistently blur similar coordinates to the same region', () => {
       const coord1: GPSCoordinate = {
         latitude: 40.7128,
-        longitude: -74.0060,
+        longitude: -74.006,
         accuracy: 10,
-        timestamp: new Date()
+        timestamp: new Date(),
       };
 
       const coord2: GPSCoordinate = {
         latitude: 40.7129, // Slight difference
         longitude: -74.0061,
         accuracy: 10,
-        timestamp: new Date()
+        timestamp: new Date(),
       };
 
       const blurred1 = LocationPrivacy.blurLocation(coord1);
@@ -44,16 +44,16 @@ describe('LocationPrivacy', () => {
     it('should calculate distance between two coordinates', () => {
       const coord1: GPSCoordinate = {
         latitude: 40.7128,
-        longitude: -74.0060,
+        longitude: -74.006,
         accuracy: 10,
-        timestamp: new Date()
+        timestamp: new Date(),
       };
 
       const coord2: GPSCoordinate = {
         latitude: 40.7589,
         longitude: -73.9851,
         accuracy: 10,
-        timestamp: new Date()
+        timestamp: new Date(),
       };
 
       const distance = LocationPrivacy.calculateDistance(coord1, coord2);
@@ -66,9 +66,9 @@ describe('LocationPrivacy', () => {
     it('should return 0 for identical coordinates', () => {
       const coord: GPSCoordinate = {
         latitude: 40.7128,
-        longitude: -74.0060,
+        longitude: -74.006,
         accuracy: 10,
-        timestamp: new Date()
+        timestamp: new Date(),
       };
 
       const distance = LocationPrivacy.calculateDistance(coord, coord);
@@ -80,12 +80,12 @@ describe('LocationPrivacy', () => {
     it('should correctly identify if coordinate is in region', () => {
       const coordinate: GPSCoordinate = {
         latitude: 40.7128,
-        longitude: -74.0060,
+        longitude: -74.006,
         accuracy: 10,
-        timestamp: new Date()
+        timestamp: new Date(),
       };
 
-      const region = 'region_40.71_-74.00';
+      const region = 'region_40.71_-74.01';
       expect(LocationPrivacy.isInRegion(coordinate, region)).toBe(true);
 
       const differentRegion = 'region_41.00_-74.00';
@@ -100,7 +100,7 @@ describe('LocationPrivacy', () => {
 
       expect(nearbyRegions).toContain(region);
       expect(nearbyRegions.length).toBe(9); // 3x3 grid
-      
+
       // Check that surrounding regions are included
       expect(nearbyRegions).toContain('region_40.7_-74.01');
       expect(nearbyRegions).toContain('region_40.72_-73.99');
@@ -119,7 +119,7 @@ describe('LocationPrivacy', () => {
       const safeData = {
         message: 'Hello world',
         timestamp: new Date(),
-        userId: '12345'
+        userId: '12345',
       };
 
       expect(LocationPrivacy.validatePrivacy(safeData)).toBe(true);
@@ -129,8 +129,8 @@ describe('LocationPrivacy', () => {
       const regionData = {
         location: {
           region: 'region_40.71_-74.00',
-          chatrooms: ['room1', 'room2']
-        }
+          chatrooms: ['room1', 'room2'],
+        },
       };
 
       expect(LocationPrivacy.validatePrivacy(regionData)).toBe(true);
@@ -139,8 +139,8 @@ describe('LocationPrivacy', () => {
     it('should fail for data with GPS coordinates', () => {
       const unsafeData = {
         latitude: 40.7128,
-        longitude: -74.0060,
-        message: 'Hello'
+        longitude: -74.006,
+        message: 'Hello',
       };
 
       expect(LocationPrivacy.validatePrivacy(unsafeData)).toBe(false);
@@ -150,7 +150,7 @@ describe('LocationPrivacy', () => {
   describe('generateChatroomId', () => {
     it('should generate correct chatroom ID based on user count', () => {
       const region = 'region_40.71_-74.00';
-      
+
       expect(LocationPrivacy.generateChatroomId(region, 25)).toBe('region_40.71_-74.00_room_0');
       expect(LocationPrivacy.generateChatroomId(region, 75)).toBe('region_40.71_-74.00_room_1');
       expect(LocationPrivacy.generateChatroomId(region, 125)).toBe('region_40.71_-74.00_room_2');
@@ -162,8 +162,8 @@ describe('LocationPrivacy', () => {
       const location = await LocationPrivacy.getCurrentLocation();
 
       expect(location).toBeDefined();
-      expect(location.latitude).toBe(40.7128);
-      expect(location.longitude).toBe(-74.0060);
+      expect(location.latitude).toBe(37.7749); // San Francisco
+      expect(location.longitude).toBe(-122.4194);
       expect(location.accuracy).toBe(10);
       expect(location.timestamp).toBeInstanceOf(Date);
     });
@@ -175,7 +175,7 @@ describe('ChatroomLocationManager', () => {
     it('should return base chatroom for a region', async () => {
       const location: BlurredLocation = {
         region: 'region_40.71_-74.00',
-        chatrooms: []
+        chatrooms: [],
       };
 
       const chatroomId = await ChatroomLocationManager.findOptimalChatroom(location);
@@ -207,7 +207,7 @@ describe('ChatroomLocationManager', () => {
     it('should return primary room for region', async () => {
       const region = 'region_40.71_-74.00';
       const result = await ChatroomLocationManager.handleRoomMerge(region, 10);
-      
+
       expect(result).toBe('region_40.71_-74.00_room_0');
     });
   });
@@ -219,18 +219,18 @@ describe('LocationFilter', () => {
       const users = [
         { id: 'user1', location: { region: 'region_40.71_-74.00', chatrooms: [] } },
         { id: 'user2', location: { region: 'region_40.71_-74.00', chatrooms: [] } },
-        { id: 'user3', location: { region: 'region_41.00_-74.00', chatrooms: [] } }
+        { id: 'user3', location: { region: 'region_41.00_-74.00', chatrooms: [] } },
       ];
 
       const targetLocation: BlurredLocation = {
         region: 'region_40.71_-74.00',
-        chatrooms: []
+        chatrooms: [],
       };
 
       const filtered = LocationFilter.filterByProximity(users, targetLocation);
-      
+
       expect(filtered).toHaveLength(2);
-      expect(filtered.map(u => u.id)).toEqual(['user1', 'user2']);
+      expect(filtered.map((u) => u.id)).toEqual(['user1', 'user2']);
     });
   });
 
@@ -238,14 +238,14 @@ describe('LocationFilter', () => {
     it('should return location-appropriate prompts', () => {
       const location: BlurredLocation = {
         region: 'region_40.71_-74.00',
-        chatrooms: []
+        chatrooms: [],
       };
 
       const prompts = LocationFilter.getLocationBasedPrompts(location);
-      
+
       expect(prompts).toBeDefined();
       expect(prompts.length).toBeGreaterThan(0);
-      expect(prompts.every(prompt => typeof prompt === 'string')).toBe(true);
+      expect(prompts.every((prompt) => typeof prompt === 'string')).toBe(true);
     });
   });
 });

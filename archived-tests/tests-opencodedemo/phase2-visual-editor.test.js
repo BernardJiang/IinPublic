@@ -3,7 +3,7 @@
  * Comprehensive test suite for the visual talk editor component
  */
 
-import VisualTalkEditor from '../src/VisualTalkEditor';
+import VisualTalkEditor from '../src/examples/opencodedemo/VisualTalkEditor';
 
 // Mock Gun.js
 const mockGun = {
@@ -11,7 +11,7 @@ const mockGun = {
   put: jest.fn().mockReturnThis(),
   on: jest.fn().mockReturnThis(),
   once: jest.fn().mockReturnThis(),
-  map: jest.fn().mockReturnThis()
+  map: jest.fn().mockReturnThis(),
 };
 
 // Mock DOM environment
@@ -19,8 +19,8 @@ global.document = {
   getElementById: jest.fn((id) => ({
     id,
     innerHTML: '',
-    style: {}
-  }))
+    style: {},
+  })),
 };
 
 describe('Phase 2: Visual Talk Editor - Unit Tests', () => {
@@ -30,7 +30,7 @@ describe('Phase 2: Visual Talk Editor - Unit Tests', () => {
   beforeEach(() => {
     // Reset mocks
     jest.clearAllMocks();
-    
+
     // Create editor instance without Gun (for unit tests)
     editor = new VisualTalkEditor(containerId, null);
   });
@@ -63,7 +63,7 @@ describe('Phase 2: Visual Talk Editor - Unit Tests', () => {
       const nodeData = {
         text: 'Do you like tennis?',
         answers: ['Yes', 'No'],
-        autoAnswer: false
+        autoAnswer: false,
       };
 
       const nodeId = editor.addQuestionNode({ x: 100, y: 100 }, nodeData);
@@ -193,14 +193,20 @@ describe('Phase 2: Visual Talk Editor - Unit Tests', () => {
 
   describe('Graph Validation', () => {
     test('should validate valid graph', () => {
-      const node1 = editor.addQuestionNode({ x: 100, y: 100 }, {
-        text: 'Question 1?',
-        answers: ['Yes', 'No']
-      });
-      const node2 = editor.addQuestionNode({ x: 200, y: 200 }, {
-        text: 'Question 2?',
-        answers: ['Maybe']
-      });
+      const node1 = editor.addQuestionNode(
+        { x: 100, y: 100 },
+        {
+          text: 'Question 1?',
+          answers: ['Yes', 'No'],
+        },
+      );
+      const node2 = editor.addQuestionNode(
+        { x: 200, y: 200 },
+        {
+          text: 'Question 2?',
+          answers: ['Maybe'],
+        },
+      );
 
       editor.connectQuestions(node1, node2, 'Yes');
 
@@ -210,14 +216,20 @@ describe('Phase 2: Visual Talk Editor - Unit Tests', () => {
     });
 
     test('should detect cycles in validation', () => {
-      const node1 = editor.addQuestionNode({ x: 100, y: 100 }, {
-        text: 'Question 1?',
-        answers: ['Yes']
-      });
-      const node2 = editor.addQuestionNode({ x: 200, y: 200 }, {
-        text: 'Question 2?',
-        answers: ['Yes']
-      });
+      const node1 = editor.addQuestionNode(
+        { x: 100, y: 100 },
+        {
+          text: 'Question 1?',
+          answers: ['Yes'],
+        },
+      );
+      const node2 = editor.addQuestionNode(
+        { x: 200, y: 200 },
+        {
+          text: 'Question 2?',
+          answers: ['Yes'],
+        },
+      );
 
       editor.connectQuestions(node1, node2);
       editor.connectQuestions(node2, node1);
@@ -228,25 +240,31 @@ describe('Phase 2: Visual Talk Editor - Unit Tests', () => {
     });
 
     test('should detect nodes without text', () => {
-      editor.addQuestionNode({ x: 100, y: 100 }, {
-        text: '',
-        answers: ['Yes', 'No']
-      });
+      editor.addQuestionNode(
+        { x: 100, y: 100 },
+        {
+          text: '',
+          answers: ['Yes', 'No'],
+        },
+      );
 
       const validation = editor.validateGraph();
       expect(validation.valid).toBe(false);
-      expect(validation.errors.some(e => e.includes('has no text'))).toBe(true);
+      expect(validation.errors.some((e) => e.includes('has no text'))).toBe(true);
     });
 
     test('should detect nodes without answers', () => {
-      const nodeId = editor.addQuestionNode({ x: 100, y: 100 }, {
-        text: 'Question?',
-        answers: []
-      });
+      const nodeId = editor.addQuestionNode(
+        { x: 100, y: 100 },
+        {
+          text: 'Question?',
+          answers: [],
+        },
+      );
 
       const validation = editor.validateGraph();
       expect(validation.valid).toBe(false);
-      expect(validation.errors.some(e => e.includes('has no answer options'))).toBe(true);
+      expect(validation.errors.some((e) => e.includes('has no answer options'))).toBe(true);
     });
   });
 
@@ -258,19 +276,19 @@ describe('Phase 2: Visual Talk Editor - Unit Tests', () => {
             id: 'q1',
             text: 'Are you available?',
             answers: ['Yes', 'No'],
-            nextQuestion: { 'Yes': 'q2', 'No': 'q3' }
+            nextQuestion: { Yes: 'q2', No: 'q3' },
           },
           {
             id: 'q2',
             text: 'What time?',
-            answers: ['Morning', 'Evening']
+            answers: ['Morning', 'Evening'],
           },
           {
             id: 'q3',
             text: 'Maybe later?',
-            answers: ['Ignore']
-          }
-        ]
+            answers: ['Ignore'],
+          },
+        ],
       };
 
       expect(editor.validateBranchingLogic(talkData)).toBe(true);
@@ -283,9 +301,9 @@ describe('Phase 2: Visual Talk Editor - Unit Tests', () => {
             id: 'q1',
             text: 'Question?',
             answers: ['Yes', 'No', 'Maybe'],
-            nextQuestion: { 'Yes': 'q2' } // Missing mappings for No and Maybe
-          }
-        ]
+            nextQuestion: { Yes: 'q2' }, // Missing mappings for No and Maybe
+          },
+        ],
       };
 
       expect(editor.validateBranchingLogic(talkData)).toBe(false);
@@ -298,26 +316,26 @@ describe('Phase 2: Visual Talk Editor - Unit Tests', () => {
             id: 'q1',
             text: 'Are you available?',
             answers: ['Yes', 'No'],
-            nextQuestion: { 'Yes': 'q2', 'No': 'q3' }
+            nextQuestion: { Yes: 'q2', No: 'q3' },
           },
           {
             id: 'q2',
             text: 'What time?',
             answers: ['Morning', 'Evening'],
-            nextQuestion: null
+            nextQuestion: null,
           },
           {
             id: 'q3',
             text: 'Maybe later?',
             answers: ['Ignore'],
-            nextQuestion: null
-          }
-        ]
+            nextQuestion: null,
+          },
+        ],
       };
 
       const answers = {
         q1: 'Yes',
-        q2: 'Evening'
+        q2: 'Evening',
       };
 
       const flow = editor.simulateFlow(talkData, answers);
@@ -332,15 +350,15 @@ describe('Phase 2: Visual Talk Editor - Unit Tests', () => {
             id: 'q1',
             text: 'Question?',
             answers: ['Yes', 'No'],
-            nextQuestion: { 'Yes': 'q2', 'No': null }
+            nextQuestion: { Yes: 'q2', No: null },
           },
           {
             id: 'q2',
             text: 'Follow-up?',
             answers: ['OK'],
-            nextQuestion: null
-          }
-        ]
+            nextQuestion: null,
+          },
+        ],
       };
 
       const answers = { q1: 'Yes' }; // Missing q2 answer
@@ -353,14 +371,20 @@ describe('Phase 2: Visual Talk Editor - Unit Tests', () => {
 
   describe('Import/Export', () => {
     test('should export graph to JSON', () => {
-      const node1 = editor.addQuestionNode({ x: 100, y: 100 }, {
-        text: 'Question 1?',
-        answers: ['Yes', 'No']
-      });
-      const node2 = editor.addQuestionNode({ x: 200, y: 200 }, {
-        text: 'Question 2?',
-        answers: ['Maybe']
-      });
+      const node1 = editor.addQuestionNode(
+        { x: 100, y: 100 },
+        {
+          text: 'Question 1?',
+          answers: ['Yes', 'No'],
+        },
+      );
+      const node2 = editor.addQuestionNode(
+        { x: 200, y: 200 },
+        {
+          text: 'Question 2?',
+          answers: ['Maybe'],
+        },
+      );
 
       editor.connectQuestions(node1, node2, 'Yes');
 
@@ -379,18 +403,16 @@ describe('Phase 2: Visual Talk Editor - Unit Tests', () => {
             id: 'q1',
             text: 'Question 1?',
             answers: ['Yes', 'No'],
-            position: { x: 100, y: 100 }
+            position: { x: 100, y: 100 },
           },
           {
             id: 'q2',
             text: 'Question 2?',
             answers: ['Maybe'],
-            position: { x: 200, y: 200 }
-          }
+            position: { x: 200, y: 200 },
+          },
         ],
-        connections: [
-          { source: 'q1', target: 'q2', answer: 'Yes' }
-        ]
+        connections: [{ source: 'q1', target: 'q2', answer: 'Yes' }],
       };
 
       editor.importFromJSON(talkData);
@@ -403,7 +425,7 @@ describe('Phase 2: Visual Talk Editor - Unit Tests', () => {
       const position = { x: 150, y: 250 };
       const nodeId = editor.addQuestionNode(position, {
         text: 'Question?',
-        answers: ['Yes']
+        answers: ['Yes'],
       });
 
       const json = editor.exportToJSON();
@@ -419,23 +441,32 @@ describe('Phase 2: Visual Talk Editor - Unit Tests', () => {
 
   describe('Can Save', () => {
     test('should allow saving valid graph', () => {
-      const node = editor.addQuestionNode({ x: 100, y: 100 }, {
-        text: 'Valid question?',
-        answers: ['Yes', 'No']
-      });
+      const node = editor.addQuestionNode(
+        { x: 100, y: 100 },
+        {
+          text: 'Valid question?',
+          answers: ['Yes', 'No'],
+        },
+      );
 
       expect(editor.canSave()).toBe(true);
     });
 
     test('should prevent saving graph with cycles', () => {
-      const node1 = editor.addQuestionNode({ x: 100, y: 100 }, {
-        text: 'Question 1?',
-        answers: ['Yes']
-      });
-      const node2 = editor.addQuestionNode({ x: 200, y: 200 }, {
-        text: 'Question 2?',
-        answers: ['Yes']
-      });
+      const node1 = editor.addQuestionNode(
+        { x: 100, y: 100 },
+        {
+          text: 'Question 1?',
+          answers: ['Yes'],
+        },
+      );
+      const node2 = editor.addQuestionNode(
+        { x: 200, y: 200 },
+        {
+          text: 'Question 2?',
+          answers: ['Yes'],
+        },
+      );
 
       editor.connectQuestions(node1, node2);
       editor.connectQuestions(node2, node1);
@@ -444,10 +475,13 @@ describe('Phase 2: Visual Talk Editor - Unit Tests', () => {
     });
 
     test('should prevent saving graph with invalid nodes', () => {
-      editor.addQuestionNode({ x: 100, y: 100 }, {
-        text: '',
-        answers: []
-      });
+      editor.addQuestionNode(
+        { x: 100, y: 100 },
+        {
+          text: '',
+          answers: [],
+        },
+      );
 
       expect(editor.canSave()).toBe(false);
     });
@@ -486,25 +520,37 @@ describe('Phase 2: Visual Talk Editor - Integration Tests', () => {
     const editor = new VisualTalkEditor('complex-editor', null);
 
     // Create branching tennis talk
-    const q1 = editor.addQuestionNode({ x: 100, y: 100 }, {
-      text: 'Do you play tennis?',
-      answers: ['Yes', 'No', 'Learning']
-    });
+    const q1 = editor.addQuestionNode(
+      { x: 100, y: 100 },
+      {
+        text: 'Do you play tennis?',
+        answers: ['Yes', 'No', 'Learning'],
+      },
+    );
 
-    const q2 = editor.addQuestionNode({ x: 200, y: 200 }, {
-      text: 'What is your skill level?',
-      answers: ['Beginner', 'Intermediate', 'Advanced']
-    });
+    const q2 = editor.addQuestionNode(
+      { x: 200, y: 200 },
+      {
+        text: 'What is your skill level?',
+        answers: ['Beginner', 'Intermediate', 'Advanced'],
+      },
+    );
 
-    const q3 = editor.addQuestionNode({ x: 300, y: 200 }, {
-      text: 'Would you like to learn?',
-      answers: ['Yes', 'No']
-    });
+    const q3 = editor.addQuestionNode(
+      { x: 300, y: 200 },
+      {
+        text: 'Would you like to learn?',
+        answers: ['Yes', 'No'],
+      },
+    );
 
-    const q4 = editor.addQuestionNode({ x: 250, y: 300 }, {
-      text: 'When are you available?',
-      answers: ['Weekdays', 'Weekends', 'Anytime']
-    });
+    const q4 = editor.addQuestionNode(
+      { x: 250, y: 300 },
+      {
+        text: 'When are you available?',
+        answers: ['Weekdays', 'Weekends', 'Anytime'],
+      },
+    );
 
     // Connect with branching logic
     editor.connectQuestions(q1, q2, 'Yes');
@@ -526,14 +572,20 @@ describe('Phase 2: Visual Talk Editor - Integration Tests', () => {
   test('should handle export and re-import preserving structure', () => {
     const editor1 = new VisualTalkEditor('editor1', null);
 
-    const q1 = editor1.addQuestionNode({ x: 100, y: 100 }, {
-      text: 'Question 1?',
-      answers: ['A', 'B']
-    });
-    const q2 = editor1.addQuestionNode({ x: 200, y: 200 }, {
-      text: 'Question 2?',
-      answers: ['C', 'D']
-    });
+    const q1 = editor1.addQuestionNode(
+      { x: 100, y: 100 },
+      {
+        text: 'Question 1?',
+        answers: ['A', 'B'],
+      },
+    );
+    const q2 = editor1.addQuestionNode(
+      { x: 200, y: 200 },
+      {
+        text: 'Question 2?',
+        answers: ['C', 'D'],
+      },
+    );
     editor1.connectQuestions(q1, q2, 'A');
 
     const exported = editor1.exportToJSON();

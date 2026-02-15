@@ -7,15 +7,15 @@ import {
   ReputationManager,
   RateLimiter,
   ContentFilter,
-  BlockManager
-} from '../src/ReputationModeration';
+  BlockManager,
+} from '../src/examples/opencodedemo/ReputationModeration';
 
 // Mock Gun.js
 const createMockGun = () => {
   const storage = {};
-  
+
   const mockGun = {
-    get: function(path) {
+    get: function (path) {
       if (!storage[path]) {
         storage[path] = {};
       }
@@ -33,11 +33,11 @@ const createMockGun = () => {
           callback(storage[path]);
           return mockGun.get(path);
         },
-        map: () => mockGun.get(path)
+        map: () => mockGun.get(path),
       };
-    }
+    },
   };
-  
+
   mockGun._storage = storage;
   return mockGun;
 };
@@ -302,7 +302,7 @@ describe('Phase 2: Rate Limiting - Unit Tests', () => {
 
       // Mock reputation with blocks
       gun.get('reputation').get(userId).put({
-        blockCount: 3
+        blockCount: 3,
       });
 
       const capacity = await rateLimiter.getSendCapacity(userId);
@@ -314,7 +314,7 @@ describe('Phase 2: Rate Limiting - Unit Tests', () => {
 
       // Mock reputation with many blocks
       gun.get('reputation').get(userId).put({
-        blockCount: 100
+        blockCount: 100,
       });
 
       const capacity = await rateLimiter.getSendCapacity(userId);
@@ -349,7 +349,7 @@ describe('Phase 2: Content Filtering - Unit Tests', () => {
     test('should detect adult content by tags', () => {
       const adultTalk = {
         tags: ['adult', 'dating'],
-        questions: []
+        questions: [],
       };
 
       expect(contentFilter.isAdultContent(adultTalk)).toBe(true);
@@ -358,7 +358,7 @@ describe('Phase 2: Content Filtering - Unit Tests', () => {
     test('should not flag non-adult content', () => {
       const normalTalk = {
         tags: ['tennis', 'sports'],
-        questions: []
+        questions: [],
       };
 
       expect(contentFilter.isAdultContent(normalTalk)).toBe(false);
@@ -367,7 +367,7 @@ describe('Phase 2: Content Filtering - Unit Tests', () => {
     test('should be case-insensitive', () => {
       const adultTalk = {
         tags: ['ADULT', 'Dating'],
-        questions: []
+        questions: [],
       };
 
       expect(contentFilter.isAdultContent(adultTalk)).toBe(true);
@@ -378,7 +378,7 @@ describe('Phase 2: Content Filtering - Unit Tests', () => {
     test('should filter adult content for underage users', async () => {
       const adultTalk = {
         tags: ['adult', 'dating'],
-        questions: [{ text: 'Are you 18+?', answers: ['Yes', 'No'] }]
+        questions: [{ text: 'Are you 18+?', answers: ['Yes', 'No'] }],
       };
 
       const underageUser = { id: 'user1', age: 16 };
@@ -392,14 +392,14 @@ describe('Phase 2: Content Filtering - Unit Tests', () => {
     test('should show adult content to verified adults', async () => {
       const adultTalk = {
         tags: ['adult', 'dating'],
-        questions: [{ text: 'Age verification required', answers: ['18+', 'Under 18'] }]
+        questions: [{ text: 'Age verification required', answers: ['18+', 'Under 18'] }],
       };
 
       const adultUser = { id: 'user1', age: 21 };
 
       // Mock age verification
       gun.get('reputation').get('user1').put({
-        ageVerified: true
+        ageVerified: true,
       });
 
       const result = await contentFilter.filterTalk(adultTalk, adultUser);
@@ -410,14 +410,14 @@ describe('Phase 2: Content Filtering - Unit Tests', () => {
     test('should require age verification for adult content', async () => {
       const adultTalk = {
         tags: ['adult'],
-        questions: []
+        questions: [],
       };
 
       const unverifiedAdult = { id: 'user1', age: 25 };
 
       // Mock unverified reputation
       gun.get('reputation').get('user1').put({
-        ageVerified: false
+        ageVerified: false,
       });
 
       const result = await contentFilter.filterTalk(adultTalk, unverifiedAdult);
@@ -452,7 +452,7 @@ describe('Phase 2: Content Filtering - Unit Tests', () => {
     test('should verify adult age', async () => {
       const userId = 'user1';
       const verification = {
-        birthdate: '1990-01-01'
+        birthdate: '1990-01-01',
       };
 
       const result = await contentFilter.verifyAge(userId, verification);
@@ -463,7 +463,7 @@ describe('Phase 2: Content Filtering - Unit Tests', () => {
     test('should reject underage verification', async () => {
       const userId = 'user1';
       const verification = {
-        birthdate: '2010-01-01' // Too young
+        birthdate: '2010-01-01', // Too young
       };
 
       const result = await contentFilter.verifyAge(userId, verification);
@@ -485,7 +485,7 @@ describe('Phase 2: Content Filtering - Unit Tests', () => {
     test('should show normal content', async () => {
       const normalTalk = {
         tags: ['tennis', 'sports'],
-        questions: []
+        questions: [],
       };
 
       const user = { id: 'user1', age: 25, settings: {} };

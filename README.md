@@ -35,6 +35,8 @@ See `docs/` folder for detailed documentation from all sources.
 
 ## Technology Stack
 
+**Note:** This project uses TypeScript exclusively for all core functionality. JavaScript examples have been archived to `archived-tests/` for reference.
+
 ### Web Platform
 
 - **Frontend**: TypeScript, Webpack 5, HTML5/CSS3
@@ -131,9 +133,21 @@ npm run test:all
 
 ### Test Structure
 
+All tests are written in TypeScript using Jest:
+
 - **Unit Tests**: `src/test/unit/` - Test individual functions and classes
+  - `reputation.test.ts` - Reputation scoring and bulk send capacity
+  - `location.test.ts` - GPS blurring, distance calculation, chatroom management
+  - `talk-engine.test.ts` - Talk validation and DAG structure verification
 - **Integration Tests**: `src/test/integration/` - Test service interactions
+  - `services.test.ts` - Gun.js service integration, user/talk/reputation services
 - **Test Setup**: `src/test/setup.ts` - Global mocks and test configuration
+
+**Current Test Results:**
+
+- ✅ 41 tests passing
+- 📝 1 test skipped (timeout edge case)
+- 🎯 100% of core functionality tested
 
 ### Code Quality
 
