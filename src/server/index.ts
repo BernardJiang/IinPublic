@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import helmet from 'helmet';
+import Gun from 'gun';
 import { GunService } from './services/gun-service';
 import { ChatroomManager } from './services/chatroom-manager';
 import { TalkService } from './services/talk-service';
@@ -13,6 +14,7 @@ class IinPublicServer {
   private app: express.Application;
   private server: any;
   private io: Server;
+  private gun: any;
   private gunService!: GunService;
   private chatroomManager!: ChatroomManager;
   private talkService!: TalkService;
@@ -22,46 +24,69 @@ class IinPublicServer {
   constructor() {
     this.app = express();
     this.server = createServer(this.app);
+
     this.io = new Server(this.server, {
       cors: {
-        origin: process.env.NODE_ENV === 'production' 
-          ? ['https://iinpublic.com'] 
-          : ['http://localhost:3000'],
-        methods: ['GET', 'POST']
-      }
+        origin:
+          process.env.NODE_ENV === 'production'
+            ? ['https://iinpublic.com']
+            : ['http://localhost:3000', 'http://localhost:3001'],
+        methods: ['GET', 'POST'],
+      },
     });
-    
+
     this.setupMiddleware();
+    this.setupGun();
     this.initializeServices();
     this.setupRoutes();
     this.setupSocketHandlers();
   }
 
+  private setupGun(): void {
+    // Initialize Gun and attach to HTTP server
+    // Disable axe relay for local development to ensure direct peer connections
+    this.gun = Gun({
+      web: this.server,
+      axe: false, // Disable automatic relay for local testing
+      localStorage: false, // Server doesn't need localStorage
+      radisk: true, // Enable disk persistence on server
+    });
+    console.log('🔫 Gun.js attached to HTTP server (axe relay disabled for local dev)');
+  }
+
   private setupMiddleware(): void {
-    this.app.use(helmet({
-      contentSecurityPolicy: {
-        directives: {
-          defaultSrc: ["'self'"],
-          styleSrc: ["'self'", "'unsafe-inline'"],
-          scriptSrc: ["'self'", "'unsafe-eval'"], // Gun.js needs eval
-          imgSrc: ["'self'", "data:", "https:"],
-          connectSrc: ["'self'", "ws:", "wss:"]
-        }
-      }
-    }));
-    
-    this.app.use(cors({
-      origin: process.env.NODE_ENV === 'production' 
-        ? ['https://iinpublic.com'] 
-        : ['http://localhost:3000'],
-      credentials: true
-    }));
-    
+    this.app.use(
+      helmet({
+        contentSecurityPolicy: {
+          directives: {
+            defaultSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            scriptSrc: ["'self'", "'unsafe-eval'"], // Gun.js needs eval
+            imgSrc: ["'self'", 'data:', 'https:'],
+            connectSrc: ["'self'", 'ws:', 'wss:'],
+          },
+        },
+      }),
+    );
+
+    this.app.use(
+      cors({
+        origin:
+          process.env.NODE_ENV === 'production'
+            ? ['https://iinpublic.com']
+            : ['http://localhost:3000', 'http://localhost:3001'],
+        credentials: true,
+      }),
+    );
+
     this.app.use(express.json({ limit: '10mb' }));
     this.app.use(express.urlencoded({ extended: true }));
-    
-    // Gun.js middleware - simplified for now
-    // this.app.use(Gun.serve);
+
+    // Serve static files from project root (for gun-test.html)
+    this.app.use(express.static('.'));
+
+    // Gun.js HTTP endpoint - served by Gun({ web: this.server })
+    this.app.use(Gun.serve);
   }
 
   private initializeServices(): void {
@@ -113,7 +138,7 @@ class IinPublicServer {
           req.params.id,
           req.body.senderId,
           req.body.targetScope,
-          req.body.maxRecipients
+          req.body.maxRecipients,
         );
         res.json(job);
       } catch (error) {
@@ -204,9 +229,9 @@ class IinPublicServer {
           const message = await this.talkService.processMessage(
             data.conversationId,
             socket.data.userId,
-            data.message
+            data.message,
           );
-          
+
           // Emit to conversation participants
           socket.to(data.conversationId).emit('new_message', message);
         } catch (error) {
@@ -221,15 +246,15 @@ class IinPublicServer {
             data.conversationId,
             data.questionId,
             data.answerId,
-            socket.data.userId
+            socket.data.userId,
           );
-          
+
           socket.emit('question_answered', result);
-          
+
           if (result.isComplete) {
-            socket.emit('talk_completed', { 
+            socket.emit('talk_completed', {
               conversationId: data.conversationId,
-              result: result.outcome 
+              result: result.outcome,
             });
           }
         } catch (error) {
@@ -241,7 +266,7 @@ class IinPublicServer {
       socket.on('update_location', async (data) => {
         try {
           await this.userService.updateUserLocation(socket.data.userId, data.location);
-          
+
           // Check if user needs to be moved to different chatroom
           const newChatroom = await this.chatroomManager.findOptimalChatroom(data.location);
           if (newChatroom) {

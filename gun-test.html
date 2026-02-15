@@ -1,0 +1,116 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Gun.js Connection Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+  </head>
+  <body>
+    <h1>Gun.js Connection Test</h1>
+    <button onclick="testWrite()">Write Test Data</button>
+    <button onclick="testRead()">Read Test Data</button>
+    <button onclick="testChatroom()">Join Chatroom as TestUser</button>
+    <div id="output"></div>
+
+    <script>
+      const gun = Gun({
+        peers: ['http://localhost:8080/gun'],
+        localStorage: true,
+        axe: false,
+      });
+
+      gun.on('hi', (peer) => {
+        log('✅ Connected to peer: ' + (peer.url || 'unknown'));
+      });
+
+      gun.on('bye', (peer) => {
+        log('❌ Disconnected from peer: ' + (peer.url || 'unknown'));
+      });
+
+      function log(msg) {
+        const output = document.getElementById('output');
+        output.innerHTML += '<div>' + new Date().toLocaleTimeString() + ': ' + msg + '</div>';
+        console.log(msg);
+      }
+
+      function testWrite() {
+        const testData = {
+          message: 'Hello from test at ' + new Date().toISOString(),
+          timestamp: Date.now(),
+        };
+
+        gun
+          .get('test')
+          .get('data')
+          .put(testData, (ack) => {
+            if (ack.err) {
+              log('❌ Write error: ' + ack.err);
+            } else {
+              log('✅ Write successful: ' + JSON.stringify(testData));
+            }
+          });
+      }
+
+      function testRead() {
+        gun
+          .get('test')
+          .get('data')
+          .once((data) => {
+            if (data) {
+              log('✅ Read data: ' + JSON.stringify(data));
+            } else {
+              log('❌ No data found');
+            }
+          });
+      }
+
+      function testChatroom() {
+        const userId = 'TestUser' + Math.floor(Math.random() * 1000);
+        const chatroomId = 'test-room';
+
+        const userData = {
+          joinedAt: new Date().toISOString(),
+          isActive: true,
+          lastSeen: new Date().toISOString(),
+          userId: userId,
+        };
+
+        gun
+          .get('chatrooms')
+          .get(chatroomId)
+          .get('users')
+          .get(userId)
+          .put(userData, (ack) => {
+            if (ack.err) {
+              log('❌ Join chatroom error: ' + ack.err);
+            } else {
+              log('✅ Joined chatroom as: ' + userId);
+            }
+          });
+
+        // Subscribe to chatroom members
+        gun
+          .get('chatrooms')
+          .get(chatroomId)
+          .get('users')
+          .on((usersData) => {
+            if (usersData) {
+              const members = [];
+              for (const uid in usersData) {
+                if (!uid.startsWith('_') && usersData[uid].isActive) {
+                  members.push(uid);
+                }
+              }
+              log('👥 Chatroom members: ' + members.join(', '));
+            }
+          });
+      }
+
+      log('🚀 Gun.js initialized, attempting to connect...');
+      setTimeout(() => {
+        log('📊 Checking connection status...');
+        const peers = Object.keys(gun._.opt.peers || {});
+        log('Configured peers: ' + peers.join(', '));
+      }, 2000);
+    </script>
+  </body>
+</html>

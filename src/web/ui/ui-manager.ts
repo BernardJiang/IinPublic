@@ -146,13 +146,13 @@ export class UIManager extends EventEmitter {
         e.preventDefault();
         const formData = new FormData(form);
         const stageName = formData.get('stage-name') as string | null;
-        
+
         if (stageName && stageName.trim()) {
           document.body.removeChild(modal);
           resolve({
             stageName: stageName.trim(),
             languages: ['en'], // Simplified for now
-            interests: []
+            interests: [],
           });
         }
       });
@@ -183,8 +183,16 @@ export class UIManager extends EventEmitter {
     console.log('Conversation updated:', result);
   }
 
-  updateChatroomInfo(update: any): void {
-    console.log('Chatroom updated:', update);
+  updateChatroomInfo(info: { id: string; name: string } | any): void {
+    const chatroomInfo = document.getElementById('chatroom-info');
+    if (chatroomInfo && info.id && info.name) {
+      chatroomInfo.innerHTML = `
+        <div class="chatroom-title">${info.name}</div>
+        <div class="chatroom-status">Connected</div>
+      `;
+    } else {
+      console.log('Chatroom updated:', info);
+    }
   }
 
   updateUserInfo(user: User): void {
@@ -204,9 +212,9 @@ export class UIManager extends EventEmitter {
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
     notification.textContent = message;
-    
+
     document.body.appendChild(notification);
-    
+
     setTimeout(() => {
       if (document.body.contains(notification)) {
         document.body.removeChild(notification);
@@ -224,5 +232,52 @@ export class UIManager extends EventEmitter {
 
   refreshTalksList(): void {
     // Placeholder for refreshing talks list
+  }
+
+  updateChatroomMembers(
+    members: Array<{ userId: string; stageName: string }>,
+    currentUserId: string,
+  ): void {
+    const conversationList = document.getElementById('conversation-list');
+    if (!conversationList) return;
+
+    const otherMembers = members.filter((member) => member.userId !== currentUserId);
+
+    if (otherMembers.length === 0) {
+      conversationList.innerHTML = `
+        <div class="empty-state">
+          <p>No other users in this chatroom yet.</p>
+          <p style="font-size: 0.9em; color: #666;">Waiting for others to join...</p>
+        </div>
+      `;
+    } else {
+      conversationList.innerHTML = `
+        <h3 style="padding: 10px; color: #666; font-size: 0.9em;">Online Users (${otherMembers.length})</h3>
+        ${otherMembers
+          .map(
+            (member) => `
+          <div class="user-item" data-user-id="${member.userId}">
+            <div class="user-avatar">${member.stageName.charAt(0).toUpperCase()}</div>
+            <div class="user-details">
+              <div class="user-name">${member.stageName}</div>
+              <div class="user-status">Online</div>
+            </div>
+            <button class="btn-send-talk" data-user-id="${member.userId}">Send Talk</button>
+          </div>
+        `,
+          )
+          .join('')}
+      `;
+
+      // Add click handlers for send talk buttons
+      conversationList.querySelectorAll('.btn-send-talk').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          const targetUserId = (e.target as HTMLElement).getAttribute('data-user-id');
+          if (targetUserId) {
+            this.emit('sendTalkToUser', { userId: targetUserId });
+          }
+        });
+      });
+    }
   }
 }

@@ -634,3 +634,57 @@ body {
 .mb-20 { margin-bottom: 20px; }
 .p-10 { padding: 10px; }
 .p-20 { padding: 20px; }
+/* User List Styles */
+.user-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 15px;
+    border-bottom: 1px solid #f0f0f0;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.user-item:hover {
+    background-color: #f8f9fa;
+}
+
+.user-details {
+    flex: 1;
+    margin-left: 10px;
+}
+
+.user-name {
+    font-weight: 500;
+    color: #333;
+    margin-bottom: 2px;
+}
+
+.user-status {
+    font-size: 0.85em;
+    color: #28a745;
+}
+
+.btn-send-talk {
+    background: #667eea;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-send-talk:hover {
+    background: #5568d3;
+}
+
+.empty-state {
+    padding: 40px 20px;
+    text-align: center;
+    color: #999;
+}
+
+.empty-state p {
+    margin: 5px 0;
+}

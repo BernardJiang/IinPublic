@@ -1,6 +1,7 @@
 import './styles/main.css';
 import { IinPublicApp } from './app/app';
 import { LocationPrivacy } from '../shared/location';
+import { GPSCoordinate } from '../shared/types';
 
 class WebApp {
   private app: IinPublicApp;
@@ -12,14 +13,36 @@ class WebApp {
   async initialize(): Promise<void> {
     try {
       console.log('🚀 Initializing IinPublic Web App');
-      
-      // Initialize location services
-      const location = await LocationPrivacy.getCurrentLocation();
-      console.log('📍 Location obtained:', location.latitude.toFixed(3), location.longitude.toFixed(3));
-      
+
+      // FOR TESTING: Use a fixed location so all users end up in same chatroom
+      // TODO: Remove this and use real location in production
+      const USE_TEST_LOCATION = true;
+
+      let location: GPSCoordinate;
+      if (USE_TEST_LOCATION) {
+        location = {
+          latitude: 37.7749, // San Francisco coordinates
+          longitude: -122.4194,
+          accuracy: 100,
+          timestamp: new Date(),
+        };
+        console.log(
+          '🧪 Using TEST location (all users in same chatroom):',
+          location.latitude,
+          location.longitude,
+        );
+      } else {
+        location = await LocationPrivacy.getCurrentLocation();
+        console.log(
+          '📍 Location obtained:',
+          location.latitude.toFixed(3),
+          location.longitude.toFixed(3),
+        );
+      }
+
       // Initialize the main app
       await this.app.initialize(location);
-      
+
       console.log('✅ IinPublic Web App initialized successfully');
     } catch (error) {
       console.error('❌ Failed to initialize app:', error);

@@ -8,21 +8,28 @@ export class WebGunService extends EventEmitter {
 
   constructor() {
     super();
-    this.peers = []; // Start without WebSocket peers
+    // Connect to Gun.js server for peer synchronization
+    this.peers = ['http://localhost:8080/gun'];
   }
 
   async initialize(): Promise<void> {
     try {
-      // Initialize Gun.js for web (localStorage-only mode for development)
+      // Initialize Gun.js for web
       this.gun = Gun({
         peers: this.peers,
         localStorage: true, // Use localStorage in browser
-        radisk: false
+        radisk: false,
+        axe: false, // Disable automatic relay
       });
 
       this.setupEventHandlers();
       this.connected = true;
-      console.log('🔗 Gun.js web service initialized');
+      console.log('🔗 Gun.js web service initialized with peers:', this.peers);
+
+      // Log connection status after a delay
+      setTimeout(() => {
+        console.log('📊 Gun.js mesh status:', Object.keys(this.gun._.opt.peers));
+      }, 2000);
     } catch (error) {
       console.error('Failed to initialize Gun.js web service:', error);
       throw error;
@@ -72,7 +79,7 @@ export class WebGunService extends EventEmitter {
     if (obj && typeof obj === 'object' && obj._isArray) {
       // Convert Gun.js array objects back to arrays
       const result: any[] = [];
-      Object.keys(obj).forEach(key => {
+      Object.keys(obj).forEach((key) => {
         if (key !== '_isArray') {
           const index = parseInt(key);
           if (!isNaN(index)) {
@@ -108,7 +115,7 @@ export class WebGunService extends EventEmitter {
   async get(key: string): Promise<any> {
     return new Promise((resolve, reject) => {
       let timeout: NodeJS.Timeout;
-      
+
       const off = this.gun.get(key).once((data: any) => {
         clearTimeout(timeout);
         if (data === undefined) {
@@ -118,7 +125,7 @@ export class WebGunService extends EventEmitter {
           resolve(deserializedData);
         }
       });
-      
+
       // Timeout after 3 seconds
       timeout = setTimeout(() => {
         off.off();
@@ -132,7 +139,7 @@ export class WebGunService extends EventEmitter {
       callback(data);
       this.emit('newMessage', data);
     });
-    
+
     return () => off.off();
   }
 
