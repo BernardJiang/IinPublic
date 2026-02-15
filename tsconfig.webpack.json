@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "declarationMap": false,
+    "allowJs": false
+  },
+  "include": ["src/web/**/*.ts", "src/shared/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/examples/**/*",
+    "src/test/**/*",
+    "src/server/**/*",
+    "archived-tests/**/*",
+    "**/*.js",
+    "**/*.jsx"
+  ]
+}

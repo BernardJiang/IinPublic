@@ -60,47 +60,55 @@ See `docs/` folder for detailed documentation from all sources.
 
 ## Quick Start
 
+> 📖 **For detailed step-by-step instructions, see [HOW_TO_RUN.md](./HOW_TO_RUN.md)**
+
 ### Prerequisites
 
 - Node.js 18+ and npm
 - Android Studio (for mobile development)
 - Git
 
-### Installation
+### Installation & Running
 
 1. **Clone and setup**:
 
-   ```powershell
+   ```bash
    git clone <your-repo-url>
-   cd iin
+   cd IinPublic
    npm install
    ```
 
-2. **Development Commands**:
+2. **Run the application**:
 
-   ```powershell
-   # Start web development server (port 3001)
-   npm run dev:web
-
-   # Start backend server
-   npm run dev:server
-
-   # Start both web and server concurrently
+   ```bash
+   # Start both web frontend (port 3001) and backend server (port 8080)
    npm run dev
    ```
 
-3. **Build Commands**:
+3. **Open in browser**: http://localhost:3001
 
-   ```powershell
-   # Build web application
-   npm run build:web
+**That's it!** The app will:
 
-   # Build server application
-   npm run build:server
+- Start the web server on port 3001
+- Start the backend API on port 8080
+- Auto-reload on code changes
+- Request location permissions (required for chatrooms)
 
-   # Build all platforms
-   npm run build
-   ```
+### Development Commands
+
+```bash
+# Development
+npm run dev              # Run everything (web + server)
+npm run dev:web          # Web only (port 3001)
+npm run dev:server       # Server only (port 8080)
+
+# Building
+npm run build            # Build all platforms
+npm run build:web        # Build web application
+npm run build:server     # Build server application
+```
+
+For troubleshooting, common issues, and detailed explanations, see **[HOW_TO_RUN.md](./HOW_TO_RUN.md)**.
 
 ## Testing & Quality Assurance
 
