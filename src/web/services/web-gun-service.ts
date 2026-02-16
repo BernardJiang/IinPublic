@@ -51,21 +51,34 @@ export class WebGunService extends EventEmitter {
   }
 
   private serializeDates(obj: any): any {
+    // Filter out undefined values - Gun.js doesn't accept them
+    if (obj === undefined || obj === null) {
+      return null;
+    }
     if (obj instanceof Date) {
       return obj.toISOString();
     }
     if (Array.isArray(obj)) {
       // Convert arrays to objects with numeric keys for Gun.js compatibility
-      const arrayObj: any = { _isArray: true };
+      const arrayObj: any = { _isArray: true, _length: obj.length };
       obj.forEach((item, index) => {
-        arrayObj[index.toString()] = this.serializeDates(item);
+        const serialized = this.serializeDates(item);
+        if (serialized !== null && serialized !== undefined) {
+          arrayObj[index.toString()] = serialized;
+        }
       });
       return arrayObj;
     }
     if (obj && typeof obj === 'object') {
       const serialized: any = {};
       for (const key in obj) {
-        serialized[key] = this.serializeDates(obj[key]);
+        if (obj.hasOwnProperty(key)) {
+          const value = this.serializeDates(obj[key]);
+          // Only include defined values
+          if (value !== undefined && value !== null) {
+            serialized[key] = value;
+          }
+        }
       }
       return serialized;
     }
@@ -79,20 +92,20 @@ export class WebGunService extends EventEmitter {
     if (obj && typeof obj === 'object' && obj._isArray) {
       // Convert Gun.js array objects back to arrays
       const result: any[] = [];
-      Object.keys(obj).forEach((key) => {
-        if (key !== '_isArray') {
-          const index = parseInt(key);
-          if (!isNaN(index)) {
-            result[index] = this.deserializeDates(obj[key]);
-          }
+      const length = obj._length || 0;
+      for (let i = 0; i < length; i++) {
+        if (obj.hasOwnProperty(i.toString())) {
+          result[i] = this.deserializeDates(obj[i.toString()]);
         }
-      });
+      }
       return result;
     }
     if (obj && typeof obj === 'object') {
       const deserialized: any = {};
       for (const key in obj) {
-        deserialized[key] = this.deserializeDates(obj[key]);
+        if (obj.hasOwnProperty(key)) {
+          deserialized[key] = this.deserializeDates(obj[key]);
+        }
       }
       return deserialized;
     }
@@ -101,14 +114,40 @@ export class WebGunService extends EventEmitter {
 
   async put(key: string, data: any): Promise<void> {
     return new Promise((resolve, reject) => {
-      const serializedData = this.serializeDates(data);
-      this.gun.get(key).put(serializedData, (ack: any) => {
-        if (ack.err) {
-          reject(new Error(ack.err));
-        } else {
-          resolve();
-        }
-      });
+      try {
+        const serializedData = this.serializeDates(data);
+        console.log(
+          '🔧 Serialized data for Gun.js:',
+          key,
+          JSON.stringify(serializedData).substring(0, 500),
+        );
+
+        // Use a timeout to detect if Gun.js never responds
+        const timeout = setTimeout(() => {
+          console.error('⏱️ Gun.js put timeout for key:', key);
+          reject(new Error('Gun.js put operation timed out'));
+        }, 5000);
+
+        this.gun.get(key).put(serializedData, (ack: any) => {
+          clearTimeout(timeout);
+
+          console.log('📥 Gun.js acknowledgment:', ack);
+
+          if (ack.err) {
+            console.error('❌ Gun.js put error:', ack.err, 'for key:', key);
+            reject(new Error(ack.err));
+          } else if (ack.ok === 0) {
+            console.warn('⚠️ Gun.js put returned ok=0 (no error but no success)');
+            resolve(); // Still resolve since it's not an error
+          } else {
+            console.log('✅ Gun.js put success:', key);
+            resolve();
+          }
+        });
+      } catch (error) {
+        console.error('❌ Serialization error:', error);
+        reject(error);
+      }
     });
   }
 

@@ -116,6 +116,9 @@ export class IinPublicApp {
     // Subscribe to chatroom messages
     this.subscribeToMessages(chatroomId);
 
+    // Subscribe to chatroom talks
+    this.subscribeToTalks(chatroomId);
+
     // Update chatroom info
     this.uiManager.updateChatroomInfo({ id: chatroomId, name: `Chatroom: ${chatroomId}` });
   }
@@ -142,6 +145,45 @@ export class IinPublicApp {
             senderName: messageData.senderName || 'Unknown',
             timestamp: messageData.timestamp,
             isOwnMessage: messageData.senderId === this.currentUser?.id,
+          });
+        }
+      });
+  }
+
+  private subscribeToTalks(chatroomId: string): void {
+    console.log('🎯 Subscribing to chatroom talks:', chatroomId);
+    const gun = this.gunService.getGun();
+
+    gun
+      .get('chatrooms')
+      .get(chatroomId)
+      .get('talks')
+      .map()
+      .on((talkAnnouncement: any, talkId: string) => {
+        if (talkId.startsWith('_')) return; // Skip Gun.js metadata
+
+        console.log('📨 Received talk announcement:', talkAnnouncement);
+
+        if (talkAnnouncement && talkAnnouncement.talkId) {
+          // Fetch the full talk details
+          gun.get(`talks/${talkAnnouncement.talkId}`).once((talkDataWrapper: any) => {
+            if (talkDataWrapper && talkDataWrapper.data) {
+              // Parse the JSON string to get the full talk
+              const talkData = JSON.parse(talkDataWrapper.data);
+              console.log('📋 Full talk data:', talkData);
+
+              // Display the talk in UI
+              this.uiManager.displayIncomingTalk({
+                id: talkData.id,
+                title: talkData.title,
+                authorName: talkAnnouncement.authorName || 'Unknown',
+                type: talkData.type,
+                questionCount: talkData.questions?.length || 0,
+                timestamp: talkAnnouncement.timestamp,
+                isOwnTalk: talkAnnouncement.authorId === this.currentUser?.id,
+                fullTalk: talkData,
+              });
+            }
           });
         }
       });
@@ -180,17 +222,70 @@ export class IinPublicApp {
 
     this.uiManager.on('createTalk', async (talkData: Partial<Talk>) => {
       try {
-        await this.talkService.createTalk({
+        console.log('📝 Creating talk:', talkData);
+
+        // Create the talk
+        const talk = await this.talkService.createTalk({
           ...talkData,
           authorId: this.currentUser!.id,
         });
-        this.uiManager.showNotification('Talk created successfully!', 'success');
-        this.uiManager.refreshTalksList();
+
+        console.log('✅ Talk created:', talk);
+
+        // Broadcast the talk to the chatroom
+        const chatroomId = this.chatroomService.getCurrentChatroomId();
+        if (chatroomId) {
+          const gun = this.gunService.getGun();
+
+          // Store the talk announcement in the chatroom
+          gun.get('chatrooms').get(chatroomId).get('talks').get(talk.id).put({
+            talkId: talk.id,
+            title: talk.title,
+            authorId: talk.authorId,
+            authorName: this.currentUser!.stageName,
+            type: talk.type,
+            timestamp: new Date().toISOString(),
+            questionCount: talk.questions.length,
+          });
+
+          console.log('📢 Talk broadcasted to chatroom:', chatroomId);
+        }
+
+        this.uiManager.showNotification('Talk created and sent to chatroom!', 'success');
       } catch (error) {
+        console.error('Failed to create talk:', error);
         this.uiManager.showNotification(
           'Failed to create talk: ' + (error as Error).message,
           'error',
         );
+      }
+    });
+
+    this.uiManager.on('talkCompleted', async (data: { talkId: string; answers: any[] }) => {
+      try {
+        console.log('📝 User completed talk:', data);
+
+        // Store the response in Gun.js
+        const chatroomId = this.chatroomService.getCurrentChatroomId();
+        if (chatroomId) {
+          const gun = this.gunService.getGun();
+          const responseId = `resp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+          gun
+            .get(`talks/${data.talkId}`)
+            .get('responses')
+            .get(responseId)
+            .put({
+              responderId: this.currentUser!.id,
+              responderName: this.currentUser!.stageName,
+              answers: JSON.stringify(data.answers),
+              submittedAt: new Date().toISOString(),
+            });
+
+          console.log('✅ Talk response stored');
+        }
+      } catch (error) {
+        console.error('Failed to store talk response:', error);
       }
     });
 
