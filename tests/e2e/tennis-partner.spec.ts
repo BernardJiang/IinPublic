@@ -10,6 +10,30 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
   let user1Page: Page;
   let user2Page: Page;
 
+  // Helper function to create a simple talk
+  async function createSimpleTalk(
+    page: Page,
+    title: string,
+    question: string,
+    yesAction: 'noticed' | 'ignore',
+    noAction: 'noticed' | 'ignore',
+  ) {
+    await page.click('#create-talk-btn');
+    await page.waitForSelector('.modal-overlay', { timeout: 5000 });
+
+    await page.fill('#talk-title', title);
+    await page.selectOption('#talk-type', 'matching');
+    await page.fill('.question-item .question-text', question);
+    await page.fill('.answer-item:nth-child(1) .answer-text', 'Yes');
+    await page.selectOption('.answer-item:nth-child(1) .answer-next', yesAction);
+    await page.fill('.answer-item:nth-child(2) .answer-text', 'No');
+    await page.selectOption('.answer-item:nth-child(2) .answer-next', noAction);
+
+    await page.click('#talk-editor-form button[type="submit"]');
+    await page.waitForSelector('.modal-overlay', { state: 'detached', timeout: 5000 });
+    await page.waitForTimeout(2000);
+  }
+
   test.beforeAll(async () => {
     // Clear Gun.js databases to start fresh (removes persisted users like "a2")
     console.log('🧹 Clearing Gun.js databases to start fresh...');
@@ -130,43 +154,8 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
 
     // Wait for Gun.js synchronization between the two browser contexts
     console.log('⏳ Waiting for Gun.js peer synchronization...');
-    await user1Page.waitForTimeout(10000); // Increased to 10 seconds
-    await user2Page.waitForTimeout(10000);
-
-    // Verify that users can see each other
-    console.log('🔍 Verifying users can see each other...');
-
-    // Check if User 1 can see User 2
-    const user1SeesUser2 = await user1Page.evaluate(() => {
-      const conversationList = document.getElementById('conversation-list');
-      return conversationList?.textContent?.includes('TennisPlayer2') || false;
-    });
-    console.log(`  User 1 sees User 2: ${user1SeesUser2}`);
-
-    // Check if User 2 can see User 1
-    const user2SeesUser1 = await user2Page.evaluate(() => {
-      const conversationList = document.getElementById('conversation-list');
-      return conversationList?.textContent?.includes('TennisPlayer1') || false;
-    });
-    console.log(`  User 2 sees User 1: ${user2SeesUser1}`);
-
-    // If they can't see each other, wait a bit more and check again
-    if (!user1SeesUser2 || !user2SeesUser1) {
-      console.log('⏳ Users not visible yet, waiting 10 more seconds...');
-      await user1Page.waitForTimeout(10000);
-      await user2Page.waitForTimeout(10000);
-
-      const user1SeesUser2Retry = await user1Page.evaluate(() => {
-        const conversationList = document.getElementById('conversation-list');
-        return conversationList?.textContent?.includes('TennisPlayer2') || false;
-      });
-      const user2SeesUser1Retry = await user2Page.evaluate(() => {
-        const conversationList = document.getElementById('conversation-list');
-        return conversationList?.textContent?.includes('TennisPlayer1') || false;
-      });
-      console.log(`  Retry - User 1 sees User 2: ${user1SeesUser2Retry}`);
-      console.log(`  Retry - User 2 sees User 1: ${user2SeesUser1Retry}`);
-    }
+    await user1Page.waitForTimeout(3000); // Reduced to 3 seconds
+    await user2Page.waitForTimeout(3000);
 
     // ============================================
     // STEP 3: User 1 creates Tennis Partner Talk
@@ -416,21 +405,7 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     console.log('📍 Step 7: Testing Ignore path...');
 
     // User 1 creates another Tennis Partner Talk for testing ignore
-    await user1Page.click('#create-talk-btn');
-    await user1Page.waitForSelector('.modal-overlay', { timeout: 5000 });
-
-    // Quick setup: Just title and one question
-    await user1Page.fill('#talk-title', 'tennis test 2');
-    await user1Page.selectOption('#talk-type', 'matching');
-    await user1Page.fill('.question-item .question-text', 'Do you play tennis?');
-    await user1Page.fill('.answer-item:nth-child(1) .answer-text', 'Yes');
-    await user1Page.selectOption('.answer-item:nth-child(1) .answer-next', 'noticed');
-    await user1Page.fill('.answer-item:nth-child(2) .answer-text', 'No');
-    await user1Page.selectOption('.answer-item:nth-child(2) .answer-next', 'ignore');
-
-    await user1Page.click('#talk-editor-form button[type="submit"]');
-    await user1Page.waitForSelector('.modal-overlay', { state: 'detached', timeout: 5000 });
-    await user1Page.waitForTimeout(2000);
+    await createSimpleTalk(user1Page, 'tennis test 2', 'Do you play tennis?', 'noticed', 'ignore');
 
     // User 2 answers with "No" (Ignore)
     const talkAnnouncement2 = user2Page.locator('.talk-announcement:has-text("tennis test 2")');
@@ -455,75 +430,34 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
 
   test('Test auto/manual answer preferences', async () => {
     // ============================================
-    // SETUP: Clear localStorage and reload pages
+    // SETUP: Clear localStorage and wait for sync
     // ============================================
-    console.log('🔄 Setting up test - clearing localStorage and reloading...');
+    console.log('🔄 Setting up test - clearing localStorage...');
     await user1Page.evaluate(() => localStorage.clear());
     await user2Page.evaluate(() => localStorage.clear());
-    await user1Page.reload();
-    await user2Page.reload();
-    await user1Page.waitForLoadState('networkidle');
-    await user2Page.waitForLoadState('networkidle');
     console.log('✅ Test setup complete');
 
-    // ============================================
-    // STEP 1: User 1 signs in
-    // ============================================
-    console.log('📍 Step 1: User 1 signing in...');
-    await user1Page.goto('/');
-    await user1Page.waitForLoadState('networkidle');
-
-    const user1StageNameInput = user1Page.locator('#stage-name');
-    await user1StageNameInput.waitFor({ state: 'visible', timeout: 10000 });
-    await user1StageNameInput.fill('TennisPlayer1');
-
-    const user1SubmitBtn = user1Page.locator('button[type="submit"]');
-    await user1SubmitBtn.click();
-
-    await user1Page.waitForSelector('#chatroom-info', { timeout: 10000 });
-    console.log('✅ User 1 signed in');
+    // Short wait for Gun.js to stabilize after first test
+    await user1Page.waitForTimeout(1000);
+    await user2Page.waitForTimeout(1000);
 
     // ============================================
-    // STEP 2: User 2 signs in
+    // STEP 1: User 1 creates a simple Talk
     // ============================================
-    console.log('📍 Step 2: User 2 signing in...');
-    await user2Page.goto('/');
-    await user2Page.waitForLoadState('networkidle');
-
-    const user2StageNameInput = user2Page.locator('#stage-name');
-    await user2StageNameInput.waitFor({ state: 'visible', timeout: 10000 });
-    await user2StageNameInput.fill('TennisPlayer2');
-
-    const user2SubmitBtn = user2Page.locator('button[type="submit"]');
-    await user2SubmitBtn.click();
-
-    await user2Page.waitForSelector('#chatroom-info', { timeout: 10000 });
-    console.log('✅ User 2 signed in');
-
-    // ============================================
-    // STEP 3: User 1 creates a simple Talk
-    // ============================================
-    console.log('📍 Step 3: User 1 creating a simple Talk...');
-    await user1Page.click('#create-talk-btn');
-    await user1Page.waitForSelector('.modal-overlay', { timeout: 5000 });
-
-    await user1Page.fill('#talk-title', 'preferences test');
-    await user1Page.selectOption('#talk-type', 'matching');
-    await user1Page.fill('.question-item .question-text', 'Do you like coffee?');
-    await user1Page.fill('.answer-item:nth-child(1) .answer-text', 'Yes');
-    await user1Page.selectOption('.answer-item:nth-child(1) .answer-next', 'noticed');
-    await user1Page.fill('.answer-item:nth-child(2) .answer-text', 'No');
-    await user1Page.selectOption('.answer-item:nth-child(2) .answer-next', 'ignore');
-
-    await user1Page.click('#talk-editor-form button[type="submit"]');
-    await user1Page.waitForSelector('.modal-overlay', { state: 'detached', timeout: 5000 });
-    await user1Page.waitForTimeout(2000);
+    console.log('📍 Step 1: User 1 creating a simple Talk...');
+    await createSimpleTalk(
+      user1Page,
+      'preferences test',
+      'Do you like coffee?',
+      'noticed',
+      'ignore',
+    );
     console.log('✅ Talk created');
 
     // ============================================
-    // STEP 4: User 2 receives and answers with Auto mode
+    // STEP 2: User 2 receives and answers with Auto mode
     // ============================================
-    console.log('📍 Step 4: User 2 answering with Auto mode...');
+    console.log('📍 Step 2: User 2 answering with Auto mode...');
 
     const talkAnnouncement = user2Page.locator('.talk-announcement:has-text("preferences test")');
     await talkAnnouncement.waitFor({ state: 'visible', timeout: 10000 });
@@ -564,9 +498,9 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     await user2Page.waitForTimeout(3000);
 
     // ============================================
-    // STEP 5: Verify preference was saved
+    // STEP 3: Verify preference was saved
     // ============================================
-    console.log('📍 Step 5: Verifying preference was saved...');
+    console.log('📍 Step 3: Verifying preference was saved...');
 
     // Check localStorage for saved preference
     const savedPreference = await user2Page.evaluate(() => {
@@ -582,25 +516,18 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     console.log('✅ Preference saved in localStorage');
 
     // ============================================
-    // STEP 6: Test auto-answer on second occurrence
+    // STEP 4: Test auto-answer on second occurrence
     // ============================================
-    console.log('📍 Step 6: Testing auto-answer on second occurrence...');
+    console.log('📍 Step 4: Testing auto-answer on second occurrence...');
 
     // User 1 creates the same talk again
-    await user1Page.click('#create-talk-btn');
-    await user1Page.waitForSelector('.modal-overlay', { timeout: 5000 });
-
-    await user1Page.fill('#talk-title', 'preferences test 2');
-    await user1Page.selectOption('#talk-type', 'matching');
-    await user1Page.fill('.question-item .question-text', 'Do you like coffee?');
-    await user1Page.fill('.answer-item:nth-child(1) .answer-text', 'Yes');
-    await user1Page.selectOption('.answer-item:nth-child(1) .answer-next', 'noticed');
-    await user1Page.fill('.answer-item:nth-child(2) .answer-text', 'No');
-    await user1Page.selectOption('.answer-item:nth-child(2) .answer-next', 'ignore');
-
-    await user1Page.click('#talk-editor-form button[type="submit"]');
-    await user1Page.waitForSelector('.modal-overlay', { state: 'detached', timeout: 5000 });
-    await user1Page.waitForTimeout(2000);
+    await createSimpleTalk(
+      user1Page,
+      'preferences test 2',
+      'Do you like coffee?',
+      'noticed',
+      'ignore',
+    );
     console.log('✅ Second talk created');
 
     // User 2 should auto-answer since preference is saved
@@ -625,9 +552,9 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     console.log('✅ Auto-answer triggered - Match notification displayed with (auto) tag');
 
     // ============================================
-    // STEP 7: Test preferences UI
+    // STEP 5: Test preferences UI
     // ============================================
-    console.log('📍 Step 7: Testing preferences management UI...');
+    console.log('📍 Step 5: Testing preferences management UI...');
 
     // Click on "My Preferences" button
     const viewPrefsBtn = user2Page.locator('#view-preferences-btn');
