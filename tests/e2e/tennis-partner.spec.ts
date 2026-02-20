@@ -652,9 +652,14 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     // ============================================
     console.log('📍 Step 5: Testing preferences management UI...');
 
-    // Scroll to and click on "My Answers" button
+    // Navigate to Answers tab first
+    const answersNavBtn = user2Page.locator('.nav-btn[data-view="answers"]');
+    await answersNavBtn.click();
+    await user2Page.waitForTimeout(500);
+    console.log('✅ Navigated to Answers tab');
+
+    // Click on "My Answers" button
     const viewPrefsBtn = user2Page.locator('#view-preferences-btn');
-    await viewPrefsBtn.scrollIntoViewIfNeeded();
     await viewPrefsBtn.waitFor({ state: 'visible', timeout: 5000 });
     await viewPrefsBtn.click();
 
@@ -774,9 +779,14 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     // ============================================
     console.log('📍 Step 3: User1 checks "My Talks" for created talk...');
 
-    // Scroll to and click "My Talks" button on User1
+    // Navigate to Me tab first
+    const meNavBtn1 = user1Page.locator('.nav-btn[data-view="me"]');
+    await meNavBtn1.click();
+    await user1Page.waitForTimeout(500);
+    console.log('✅ User1 navigated to Me tab');
+
+    // Click "My Talks" button on User1
     const myTalksBtn1 = user1Page.locator('#view-my-talks-btn');
-    await myTalksBtn1.scrollIntoViewIfNeeded();
     await myTalksBtn1.waitFor({ state: 'visible', timeout: 5000 });
     await myTalksBtn1.click();
 
@@ -808,9 +818,14 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     // ============================================
     console.log('📍 Step 4: User2 checks "My Talks" for answered talk...');
 
-    // Scroll to and click "My Talks" button on User2
+    // Navigate to Me tab first
+    const meNavBtn2 = user2Page.locator('.nav-btn[data-view="me"]');
+    await meNavBtn2.click();
+    await user2Page.waitForTimeout(500);
+    console.log('✅ User2 navigated to Me tab');
+
+    // Click "My Talks" button on User2
     const myTalksBtn2 = user2Page.locator('#view-my-talks-btn');
-    await myTalksBtn2.scrollIntoViewIfNeeded();
     await myTalksBtn2.waitFor({ state: 'visible', timeout: 5000 });
     await myTalksBtn2.click();
 

@@ -18,55 +18,109 @@ export class UIManager extends EventEmitter {
 
     this.appContainer.innerHTML = `
       <div class="app-container">
-        <div class="sidebar">
-          <div class="header">
-            <div class="user-info" id="user-info"></div>
-          </div>
-          <div class="conversation-list" id="conversation-list">
-            <p>Loading conversations...</p>
-          </div>
-          <div class="sidebar-actions">
-            <button class="btn sidebar-btn" id="create-talk-btn">
-              ➕ Create Talk
-            </button>
-            <button class="btn sidebar-btn" id="view-my-talks-btn">
-              📋 My Talks
-            </button>
-            <button class="btn sidebar-btn" id="view-preferences-btn">
-              📝 My Answers
-            </button>
+        <!-- Top Header -->
+        <div class="top-header" id="top-header">
+          <div class="header-title" id="header-title">Chatrooms</div>
+          <div class="header-actions" id="header-actions">
+            <button class="header-btn" id="create-talk-btn">➕</button>
           </div>
         </div>
-        <div class="main-content">
-          <div class="chatroom-info" id="chatroom-info">
-            <div class="chatroom-title">Loading...</div>
-            <div class="chatroom-status">Connecting...</div>
-          </div>
-          <div class="chat-area">
-            <div class="messages-container" id="messages-container">
-              <div class="text-center p-20">
-                <p>Welcome to IinPublic! Select a conversation or start a new talk.</p>
+
+        <!-- Main View Container -->
+        <div class="view-container">
+          
+          <!-- Chatrooms View (Default) -->
+          <div class="view-panel active" id="chatrooms-view">
+            <div class="chatroom-info" id="chatroom-info">
+              <div class="chatroom-title">Global Chatroom</div>
+              <div class="chatroom-status">Connecting...</div>
+            </div>
+            <div class="chat-area">
+              <div class="messages-container" id="messages-container">
+                <div class="text-center p-20">
+                  <p>Welcome to IinPublic! Select a conversation or start a new talk.</p>
+                </div>
+              </div>
+              <div class="message-input-area">
+                <div class="message-input-container">
+                  <textarea 
+                    class="message-input" 
+                    id="message-input" 
+                    placeholder="Type a message or create a talk..."
+                    rows="1"
+                  ></textarea>
+                  <button class="send-button" id="send-button">
+                    <span>→</span>
+                  </button>
+                </div>
               </div>
             </div>
-            <div class="message-input-area">
-              <div class="message-input-container">
-                <textarea 
-                  class="message-input" 
-                  id="message-input" 
-                  placeholder="Type a message or create a talk..."
-                  rows="1"
-                ></textarea>
-                <button class="send-button" id="send-button">
-                  <span>→</span>
+          </div>
+
+          <!-- Talks View -->
+          <div class="view-panel" id="talks-view">
+            <div class="view-content">
+              <div class="conversation-list" id="conversation-list">
+                <p style="text-align: center; padding: 20px; color: #999;">Loading talk announcements...</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Answers View -->
+          <div class="view-panel" id="answers-view">
+            <div class="view-content" id="answers-content">
+              <div style="padding: 20px; text-align: center; color: #999;">
+                <p>Your answered questions will appear here.</p>
+                <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">
+                  View My Answers
                 </button>
               </div>
             </div>
           </div>
+
+          <!-- Me View -->
+          <div class="view-panel" id="me-view">
+            <div class="view-content">
+              <div class="user-profile">
+                <div class="user-info" id="user-info-me"></div>
+                <div class="profile-actions">
+                  <button class="profile-btn" id="view-my-talks-btn">
+                    📋 My Talks
+                  </button>
+                  <button class="profile-btn" id="my-answers-btn">
+                    📝 My Answers
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Bottom Navigation Bar -->
+        <div class="bottom-nav">
+          <button class="nav-btn active" data-view="chatrooms">
+            <div class="nav-icon">💬</div>
+            <div class="nav-label">Chatrooms</div>
+          </button>
+          <button class="nav-btn" data-view="talks">
+            <div class="nav-icon">📢</div>
+            <div class="nav-label">Talks</div>
+          </button>
+          <button class="nav-btn" data-view="answers">
+            <div class="nav-icon">📝</div>
+            <div class="nav-label">Answers</div>
+          </button>
+          <button class="nav-btn" data-view="me">
+            <div class="nav-icon">👤</div>
+            <div class="nav-label">Me</div>
+          </button>
         </div>
       </div>
     `;
 
     this.setupEventListeners();
+    this.setupBottomNavigation();
   }
 
   private setupEventListeners(): void {
@@ -116,16 +170,71 @@ export class UIManager extends EventEmitter {
         this.showPreferencesDialog();
       });
     }
+
+    const myAnswersBtn = document.getElementById('my-answers-btn');
+    if (myAnswersBtn) {
+      myAnswersBtn.addEventListener('click', () => {
+        this.showPreferencesDialog();
+      });
+    }
+  }
+
+  private setupBottomNavigation(): void {
+    const navButtons = document.querySelectorAll('.nav-btn');
+    const viewPanels = document.querySelectorAll('.view-panel');
+    const headerTitle = document.getElementById('header-title');
+    const headerActions = document.getElementById('header-actions');
+
+    navButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        const targetView = (button as HTMLElement).dataset.view;
+        if (!targetView) return;
+
+        // Update active nav button
+        navButtons.forEach((btn) => btn.classList.remove('active'));
+        button.classList.add('active');
+
+        // Update active view panel
+        viewPanels.forEach((panel) => panel.classList.remove('active'));
+        const targetPanel = document.getElementById(`${targetView}-view`);
+        if (targetPanel) {
+          targetPanel.classList.add('active');
+        }
+
+        // Update header title and actions
+        if (headerTitle) {
+          const titles: Record<string, string> = {
+            chatrooms: 'Chatrooms',
+            talks: 'Talks',
+            answers: 'My Answers',
+            me: 'Me',
+          };
+          headerTitle.textContent = titles[targetView] || 'IinPublic';
+        }
+
+        // Show/hide create talk button based on view
+        if (headerActions) {
+          if (targetView === 'chatrooms' || targetView === 'talks') {
+            headerActions.style.display = 'block';
+          } else {
+            headerActions.style.display = 'none';
+          }
+        }
+      });
+    });
   }
 
   showMainInterface(user: User): void {
-    const userInfo = document.getElementById('user-info');
-    if (userInfo) {
-      userInfo.innerHTML = `
-        <div class="user-avatar">${user.stageName.charAt(0).toUpperCase()}</div>
-        <div>
-          <div><strong>${user.stageName}</strong></div>
-          <div style="font-size: 0.8em; color: #666;">Online</div>
+    // Update user info in Me view
+    const userInfoMe = document.getElementById('user-info-me');
+    if (userInfoMe) {
+      userInfoMe.innerHTML = `
+        <div class="user-avatar" style="width: 80px; height: 80px; font-size: 2em; margin: 20px auto;">
+          ${user.stageName.charAt(0).toUpperCase()}
+        </div>
+        <div style="text-align: center; margin-top: 10px;">
+          <div style="font-size: 1.2em; font-weight: 600;">${user.stageName}</div>
+          <div style="font-size: 0.9em; color: #999; margin-top: 5px;">Online</div>
         </div>
       `;
     }
