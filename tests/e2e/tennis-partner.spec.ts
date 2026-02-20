@@ -52,6 +52,16 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
       console.log('  ✅ Cleared server database (data.json/)');
     }
 
+    // Clear .tmp files created by Gun.js
+    const projectRoot = path.join(__dirname, '../../');
+    const tmpFiles = fs.readdirSync(projectRoot).filter((file) => file.endsWith('.tmp'));
+    tmpFiles.forEach((file) => {
+      fs.rmSync(path.join(projectRoot, file), { force: true });
+    });
+    if (tmpFiles.length > 0) {
+      console.log(`  ✅ Cleared ${tmpFiles.length} .tmp files`);
+    }
+
     console.log('✅ All databases cleared');
     console.log('⚠️  Please close any manually opened browser tabs pointing to localhost:3001');
 
@@ -110,6 +120,16 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     if (fs.existsSync(serverDataPath)) {
       fs.rmSync(serverDataPath, { recursive: true, force: true });
       console.log('  ✅ Cleared server database (data.json/)');
+    }
+
+    // Clear .tmp files created by Gun.js
+    const projectRoot = path.join(__dirname, '../../');
+    const tmpFiles = fs.readdirSync(projectRoot).filter((file) => file.endsWith('.tmp'));
+    tmpFiles.forEach((file) => {
+      fs.rmSync(path.join(projectRoot, file), { force: true });
+    });
+    if (tmpFiles.length > 0) {
+      console.log(`  ✅ Cleared ${tmpFiles.length} .tmp files`);
     }
 
     console.log('✅ Cleanup complete');
