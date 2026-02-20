@@ -652,8 +652,9 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     // ============================================
     console.log('📍 Step 5: Testing preferences management UI...');
 
-    // Click on "My Preferences" button
+    // Scroll to and click on "My Answers" button
     const viewPrefsBtn = user2Page.locator('#view-preferences-btn');
+    await viewPrefsBtn.scrollIntoViewIfNeeded();
     await viewPrefsBtn.waitFor({ state: 'visible', timeout: 5000 });
     await viewPrefsBtn.click();
 

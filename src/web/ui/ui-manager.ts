@@ -25,7 +25,7 @@ export class UIManager extends EventEmitter {
           <div class="conversation-list" id="conversation-list">
             <p>Loading conversations...</p>
           </div>
-          <div style="padding: 10px; border-top: 1px solid #e0e0e0;">
+          <div class="sidebar-actions" style="padding: 10px; border-top: 1px solid #e0e0e0; background: white;">
             <button class="btn" id="create-talk-btn" style="width: 100%; background: #667eea; color: white; padding: 10px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; margin-bottom: 8px;">
               ➕ Create Talk
             </button>
