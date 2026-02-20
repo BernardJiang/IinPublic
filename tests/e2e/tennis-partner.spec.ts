@@ -1,4 +1,6 @@
 import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import * as fs from 'fs';
+import * as path from 'path';
 
 test.describe('Tennis Partner Talk - Two User Interaction', () => {
   let browser: Browser;
@@ -8,6 +10,26 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
   let user2Page: Page;
 
   test.beforeAll(async () => {
+    // Clear Gun.js databases to start fresh (removes persisted users like "a2")
+    console.log('🧹 Clearing Gun.js databases to start fresh...');
+
+    // Clear client database
+    const radataPath = path.join(__dirname, '../../radata');
+    if (fs.existsSync(radataPath)) {
+      fs.rmSync(radataPath, { recursive: true, force: true });
+      console.log('  ✅ Cleared client database (radata/)');
+    }
+
+    // Clear server database
+    const serverDataPath = path.join(__dirname, '../../data.json');
+    if (fs.existsSync(serverDataPath)) {
+      fs.rmSync(serverDataPath, { recursive: true, force: true });
+      console.log('  ✅ Cleared server database (data.json/)');
+    }
+
+    console.log('✅ All databases cleared');
+    console.log('⚠️  Please close any manually opened browser tabs pointing to localhost:3001');
+
     // Launch Chrome browser with headed mode
     browser = await chromium.launch({
       headless: false,
@@ -15,11 +37,14 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     });
 
     // Create separate browser contexts for two users (simulates 2 separate tabs)
+    // Each context has its own storage, cookies, etc. (like incognito mode)
     user1Context = await browser.newContext({
       viewport: { width: 1280, height: 720 },
+      storageState: undefined, // Start with clean storage
     });
     user2Context = await browser.newContext({
       viewport: { width: 1280, height: 720 },
+      storageState: undefined, // Start with clean storage
     });
 
     // Create a page in each context - these will appear as separate tabs
@@ -37,6 +62,23 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     await user1Context.close();
     await user2Context.close();
     await browser.close();
+
+    // Clean up databases after test
+    console.log('🧹 Cleaning up databases after test...');
+
+    const radataPath = path.join(__dirname, '../../radata');
+    if (fs.existsSync(radataPath)) {
+      fs.rmSync(radataPath, { recursive: true, force: true });
+      console.log('  ✅ Cleared client database (radata/)');
+    }
+
+    const serverDataPath = path.join(__dirname, '../../data.json');
+    if (fs.existsSync(serverDataPath)) {
+      fs.rmSync(serverDataPath, { recursive: true, force: true });
+      console.log('  ✅ Cleared server database (data.json/)');
+    }
+
+    console.log('✅ Cleanup complete');
   });
 
   test('Complete Tennis Partner Talk flow with 2 users', async () => {

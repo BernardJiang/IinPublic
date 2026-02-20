@@ -61,7 +61,7 @@ module.exports = {
     hot: process.env.DISABLE_HMR !== 'true',
     liveReload: process.env.DISABLE_HMR !== 'true',
     watchFiles: process.env.DISABLE_HMR === 'true' ? [] : undefined,
-    open: true,
+    open: process.env.DISABLE_HMR !== 'true', // Don't auto-open browser during e2e tests
     historyApiFallback: true,
   },
   devtool: 'source-map',
