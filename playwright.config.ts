@@ -30,13 +30,13 @@ export default defineConfig({
       command: 'npm run dev:server',
       port: 8080,
       timeout: 120 * 1000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: true, // Reuse existing server to avoid HMR disruption
     },
     {
-      command: 'npm run dev:web',
+      command: 'npm run dev:web:e2e',
       port: 3001,
       timeout: 120 * 1000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: true, // Reuse existing server to avoid HMR disruption
     },
   ],
 });

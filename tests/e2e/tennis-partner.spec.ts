@@ -26,6 +26,10 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     user1Page = await user1Context.newPage();
     user2Page = await user2Context.newPage();
 
+    // Listen to console messages from both pages
+    user1Page.on('console', (msg) => console.log(`[User1 Browser]:`, msg.text()));
+    user2Page.on('console', (msg) => console.log(`[User2 Browser]:`, msg.text()));
+
     console.log('🚀 Launched 2 Chrome tabs for User 1 and User 2');
   });
 
@@ -295,10 +299,31 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     // ============================================
     console.log('📍 Step 6: Verifying match notification...');
 
-    // Check for success notification (use .first() in case there are multiple)
+    // Check for success notification on User 2's page (use .first() in case there are multiple)
     const matchNotification = user2Page.locator('.notification.success:has-text("Match")').first();
     await matchNotification.waitFor({ state: 'visible', timeout: 5000 });
-    console.log('✅ Match notification displayed!');
+    console.log('✅ User 2 received match notification!');
+
+    // Wait for Gun.js to sync the response to User 1
+    console.log('  Waiting for Gun.js to sync response to User 1...');
+    await user1Page.waitForTimeout(5000);
+
+    // Check browser console for any errors
+    const user1ConsoleMessages = await user1Page.evaluate(() => {
+      // Check if any notifications are present
+      const notifications = document.querySelectorAll('.notification');
+      return Array.from(notifications).map((n) => n.textContent);
+    });
+    console.log('  User 1 notifications on page:', user1ConsoleMessages);
+
+    // Also verify User 1 receives match notification
+    const user1MatchNotification = user1Page
+      .locator('.notification.success:has-text("Match")')
+      .first();
+    await user1MatchNotification.waitFor({ state: 'visible', timeout: 10000 });
+    console.log('✅ User 1 received match notification!');
+
+    console.log('🎾 Both users notified of the match!');
 
     // Modal should close
     await user2Page.waitForSelector('.modal-overlay', { state: 'detached', timeout: 5000 });

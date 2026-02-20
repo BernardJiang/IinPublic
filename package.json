@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev:web\" \"npm run dev:server\"",
     "dev:web": "webpack serve --mode development --config webpack.config.js",
+    "dev:web:e2e": "DISABLE_HMR=true webpack serve --mode development --config webpack.config.js --no-watch",
     "dev:server": "tsx watch src/server/index.ts",
     "build": "npm run build:web && npm run build:server && npm run build:android",
     "build:web": "webpack --mode production --config webpack.config.js",
@@ -18,7 +19,7 @@
     "test:coverage": "jest --coverage",
     "test:type": "tsc --noEmit",
     "test:all": "npm run test:type && npm run test:coverage",
-    "test:e2e": "playwright test",
+    "test:e2e": "DISABLE_HMR=true playwright test",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write src/**/*.ts",

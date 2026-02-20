@@ -58,7 +58,9 @@ module.exports = {
   devServer: {
     static: './dist/web',
     port: 3001,
-    hot: true,
+    hot: process.env.DISABLE_HMR !== 'true',
+    liveReload: process.env.DISABLE_HMR !== 'true',
+    watchFiles: process.env.DISABLE_HMR === 'true' ? [] : undefined,
     open: true,
     historyApiFallback: true,
   },

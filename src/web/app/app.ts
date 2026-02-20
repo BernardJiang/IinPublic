@@ -183,10 +183,91 @@ export class IinPublicApp {
                 isOwnTalk: talkAnnouncement.authorId === this.currentUser?.id,
                 fullTalk: talkData,
               });
+
+              // If this is the user's own talk, subscribe to responses
+              if (talkAnnouncement.authorId === this.currentUser?.id) {
+                this.subscribeToTalkResponses(talkAnnouncement.talkId, talkData);
+              }
             }
           });
         }
       });
+  }
+
+  private subscribeToTalkResponses(talkId: string, talkData: any): void {
+    console.log('👂 Subscribing to responses for talk:', talkId);
+    const gun = this.gunService.getGun();
+
+    gun
+      .get(`talks/${talkId}`)
+      .get('responses')
+      .map()
+      .on((responseData: any, responseId: string) => {
+        if (responseId.startsWith('_')) return; // Skip Gun.js metadata
+
+        console.log('📬 Received talk response:', responseData);
+
+        if (responseData && responseData.responderId && responseData.answers) {
+          // Don't notify for own responses
+          if (responseData.responderId === this.currentUser?.id) return;
+
+          try {
+            const answers = JSON.parse(responseData.answers);
+
+            // Check if this is a match
+            const isMatch = this.checkIfMatch(talkData, answers);
+
+            if (isMatch) {
+              this.uiManager.showNotification(
+                `Match! ${responseData.responderName} noticed you on "${talkData.title}"`,
+                'success',
+              );
+              console.log(`✅ Match detected with ${responseData.responderName}`);
+            }
+          } catch (error) {
+            console.error('Error processing talk response:', error);
+          }
+        }
+      });
+  }
+
+  private checkIfMatch(talkData: any, answers: any[]): boolean {
+    // For matching-type talks, check if the final answer was "noticed"
+    if (talkData.type !== 'matching') {
+      console.log('  Not a matching talk, type:', talkData.type);
+      return false;
+    }
+
+    // Find the last answer
+    const lastAnswer = answers[answers.length - 1];
+    if (!lastAnswer) {
+      console.log('  No last answer found');
+      return false;
+    }
+
+    console.log('  Last answer:', lastAnswer);
+
+    // Find the corresponding question and answer in the talk
+    const question = talkData.questions.find((q: any) => q.id === lastAnswer.questionId);
+    if (!question) {
+      console.log('  Question not found for ID:', lastAnswer.questionId);
+      return false;
+    }
+
+    console.log('  Found question:', question.text);
+
+    const answer = question.answers.find((a: any) => a.id === lastAnswer.answerId);
+    if (!answer) {
+      console.log('  Answer not found for ID:', lastAnswer.answerId);
+      return false;
+    }
+
+    console.log('  Found answer:', answer.text, 'isMatch:', answer.isMatch);
+
+    // Check if this answer is marked as a match
+    const isMatch = answer.isMatch === true;
+    console.log('  Is match?', isMatch);
+    return isMatch;
   }
 
   private setupEventHandlers(): void {
@@ -249,6 +330,9 @@ export class IinPublicApp {
           });
 
           console.log('📢 Talk broadcasted to chatroom:', chatroomId);
+
+          // Subscribe to responses for this talk (since author won't receive their own announcement)
+          this.subscribeToTalkResponses(talk.id, talk);
         }
 
         this.uiManager.showNotification('Talk created and sent to chatroom!', 'success');
