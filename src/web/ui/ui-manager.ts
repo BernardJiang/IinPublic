@@ -3,6 +3,8 @@ import { EventEmitter } from 'events';
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
+  private currentChatroom: string = 'global';
+  private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
 
   initialize(): void {
     const container = document.getElementById('app');
@@ -31,28 +33,29 @@ export class UIManager extends EventEmitter {
           
           <!-- Chatrooms View (Default) -->
           <div class="view-panel active" id="chatrooms-view">
-            <div class="chatroom-info" id="chatroom-info">
-              <div class="chatroom-title">Global Chatroom</div>
-              <div class="chatroom-status">Connecting...</div>
+            <!-- Chatroom List -->
+            <div class="chatroom-list-container" id="chatroom-list-container">
+              <div class="chatroom-list" id="chatroom-list">
+                <p style="text-align: center; padding: 20px; color: #999;">Loading chatrooms...</p>
+              </div>
             </div>
-            <div class="chat-area">
-              <div class="messages-container" id="messages-container">
-                <div class="text-center p-20">
-                  <p>Welcome to IinPublic! Select a conversation or start a new talk.</p>
+
+            <!-- Chatroom Detail (Hidden by default) -->
+            <div class="chatroom-detail-container" id="chatroom-detail-container" style="display: none;">
+              <div class="chatroom-detail-header">
+                <button class="back-btn" id="back-to-chatrooms">‹ Back</button>
+                <div class="chatroom-detail-info" id="chatroom-detail-info">
+                  <div class="chatroom-detail-title" id="current-chatroom-title">Global Chatroom</div>
+                  <div class="chatroom-detail-status" id="current-chatroom-status">Loading...</div>
                 </div>
               </div>
-              <div class="message-input-area">
-                <div class="message-input-container">
-                  <textarea 
-                    class="message-input" 
-                    id="message-input" 
-                    placeholder="Type a message or create a talk..."
-                    rows="1"
-                  ></textarea>
-                  <button class="send-button" id="send-button">
-                    <span>→</span>
-                  </button>
-                </div>
+              <div class="chatroom-members-list" id="chatroom-members-list">
+                <p style="text-align: center; padding: 20px; color: #999;">Loading members...</p>
+              </div>
+              <div class="chatroom-actions">
+                <button class="btn broadcast-btn" id="broadcast-talk-btn">
+                  📢 Broadcast Talk to All Users
+                </button>
               </div>
             </div>
           </div>
@@ -177,6 +180,26 @@ export class UIManager extends EventEmitter {
         this.showPreferencesDialog();
       });
     }
+
+    // Back to chatrooms button
+    const backToChatroomsBtn = document.getElementById('back-to-chatrooms');
+    if (backToChatroomsBtn) {
+      backToChatroomsBtn.addEventListener('click', () => {
+        this.showChatroomList();
+      });
+    }
+
+    // Broadcast talk button
+    const broadcastTalkBtn = document.getElementById('broadcast-talk-btn');
+    if (broadcastTalkBtn) {
+      broadcastTalkBtn.addEventListener('click', () => {
+        this.emit('broadcastTalk', {
+          chatroomId: this.currentChatroom,
+          members: this.currentChatroomMembers,
+        });
+        this.showTalkEditorDialog();
+      });
+    }
   }
 
   private setupBottomNavigation(): void {
@@ -220,6 +243,11 @@ export class UIManager extends EventEmitter {
             headerActions.style.display = 'none';
           }
         }
+
+        // Special handling for chatrooms view
+        if (targetView === 'chatrooms') {
+          this.showChatroomList();
+        }
       });
     });
   }
@@ -245,6 +273,137 @@ export class UIManager extends EventEmitter {
         <div class="chatroom-title">Global Chatroom</div>
         <div class="chatroom-status">Connected • Ready to meet people nearby</div>
       `;
+    }
+
+    // Initialize chatroom list view (default view)
+    this.showChatroomList();
+  }
+
+  showChatroomList(): void {
+    // Hide chatroom detail view, show chatroom list
+    const listContainer = document.getElementById('chatroom-list-container');
+    const detailContainer = document.getElementById('chatroom-detail-container');
+
+    if (listContainer) listContainer.style.display = 'block';
+    if (detailContainer) detailContainer.style.display = 'none';
+
+    // Update header
+    const headerTitle = document.getElementById('header-title');
+    if (headerTitle) headerTitle.textContent = 'Chatrooms';
+
+    // Define location-based chatroom hierarchy
+    const chatrooms = [
+      {
+        id: 'global',
+        name: 'Global',
+        icon: '🌍',
+        level: 0,
+        description: 'Connect with everyone worldwide',
+      },
+      {
+        id: 'north-america',
+        name: 'North America',
+        icon: '🌎',
+        level: 1,
+        description: 'Continental chatroom',
+      },
+      { id: 'usa', name: 'United States', icon: '🗺️', level: 2, description: 'Country chatroom' },
+      {
+        id: 'california',
+        name: 'California',
+        icon: '🏞️',
+        level: 3,
+        description: 'State/Region chatroom',
+      },
+      {
+        id: 'san-francisco',
+        name: 'San Francisco',
+        icon: '🏙️',
+        level: 4,
+        description: 'City chatroom',
+      },
+      {
+        id: 'downtown-sf',
+        name: 'Downtown SF',
+        icon: '🏘️',
+        level: 5,
+        description: 'Neighborhood chatroom',
+      },
+    ];
+
+    // Populate chatroom list
+    const chatroomList = document.getElementById('chatroom-list');
+    if (chatroomList) {
+      chatroomList.innerHTML = chatrooms
+        .map(
+          (room) => `
+        <div class="chatroom-item" data-chatroom-id="${room.id}" data-level="${room.level}">
+          <div class="chatroom-icon">${room.icon}</div>
+          <div class="chatroom-info">
+            <div class="chatroom-name">${room.name}</div>
+            <div class="chatroom-description">${room.description}</div>
+          </div>
+          <div class="chatroom-arrow">›</div>
+        </div>
+      `,
+        )
+        .join('');
+
+      // Add click handlers to each chatroom item
+      const chatroomItems = chatroomList.querySelectorAll('.chatroom-item');
+      chatroomItems.forEach((item) => {
+        item.addEventListener('click', () => {
+          const chatroomId = item.getAttribute('data-chatroom-id');
+          if (chatroomId) {
+            this.showChatroomDetail(chatroomId);
+          }
+        });
+      });
+    }
+  }
+
+  showChatroomDetail(chatroomId: string): void {
+    // Hide chatroom list, show detail view
+    const listContainer = document.getElementById('chatroom-list-container');
+    const detailContainer = document.getElementById('chatroom-detail-container');
+
+    if (listContainer) listContainer.style.display = 'none';
+    if (detailContainer) detailContainer.style.display = 'block';
+
+    // Map chatroom IDs to names
+    const chatroomNames: Record<string, string> = {
+      global: '🌍 Global',
+      'north-america': '🌎 North America',
+      usa: '🗺️ United States',
+      california: '🏞️ California',
+      'san-francisco': '🏙️ San Francisco',
+      'downtown-sf': '🏘️ Downtown SF',
+    };
+
+    // Update header and chatroom info
+    const headerTitle = document.getElementById('header-title');
+    const chatroomTitle = document.getElementById('current-chatroom-title');
+    const chatroomStatus = document.getElementById('current-chatroom-status');
+
+    const roomName = chatroomNames[chatroomId] || chatroomId;
+
+    if (headerTitle) headerTitle.textContent = roomName;
+    if (chatroomTitle) chatroomTitle.textContent = roomName;
+    if (chatroomStatus) chatroomStatus.textContent = 'Loading members...';
+
+    // Store current chatroom
+    this.currentChatroom = chatroomId;
+
+    // Update members list (for now, show placeholder)
+    const membersList = document.getElementById('chatroom-members-list');
+    if (membersList) {
+      // Initially show loading state
+      membersList.innerHTML =
+        '<div style="padding: 20px; text-align: center; color: #999;">Loading online users...</div>';
+
+      // Trigger update of chatroom members
+      // This will be populated by updateChatroomMembers() when called from the app
+      this.emit('chatroomChanged', chatroomId);
     }
   }
 
@@ -1588,45 +1747,93 @@ export class UIManager extends EventEmitter {
     currentUserId: string,
   ): void {
     const conversationList = document.getElementById('conversation-list');
-    if (!conversationList) return;
+    const chatroomMembersList = document.getElementById('chatroom-members-list');
+    const chatroomStatus = document.getElementById('current-chatroom-status');
 
     const otherMembers = members.filter((member) => member.userId !== currentUserId);
 
-    if (otherMembers.length === 0) {
-      conversationList.innerHTML = `
-        <div class="empty-state">
-          <p>No other users in this chatroom yet.</p>
-          <p style="font-size: 0.9em; color: #666;">Waiting for others to join...</p>
-        </div>
-      `;
-    } else {
-      conversationList.innerHTML = `
-        <h3 style="padding: 10px; color: #666; font-size: 0.9em;">Online Users (${otherMembers.length})</h3>
-        ${otherMembers
+    // Update Talks view (conversation-list)
+    if (conversationList) {
+      if (otherMembers.length === 0) {
+        conversationList.innerHTML = `
+          <div class="empty-state">
+            <p>No other users in this chatroom yet.</p>
+            <p style="font-size: 0.9em; color: #666;">Waiting for others to join...</p>
+          </div>
+        `;
+      } else {
+        conversationList.innerHTML = `
+          <h3 style="padding: 10px; color: #666; font-size: 0.9em;">Online Users (${otherMembers.length})</h3>
+          ${otherMembers
+            .map(
+              (member) => `
+            <div class="user-item" data-user-id="${member.userId}">
+              <div class="user-avatar">${member.stageName.charAt(0).toUpperCase()}</div>
+              <div class="user-details">
+                <div class="user-name">${member.stageName}</div>
+                <div class="user-status">Online</div>
+              </div>
+              <button class="btn-send-talk" data-user-id="${member.userId}">Send Talk</button>
+            </div>
+          `,
+            )
+            .join('')}
+        `;
+
+        // Add click handlers for send talk buttons
+        conversationList.querySelectorAll('.btn-send-talk').forEach((btn) => {
+          btn.addEventListener('click', (e) => {
+            const targetUserId = (e.target as HTMLElement).getAttribute('data-user-id');
+            if (targetUserId) {
+              this.emit('sendTalkToUser', { userId: targetUserId });
+            }
+          });
+        });
+      }
+    }
+
+    // Update Chatrooms detail view (chatroom-members-list)
+    if (chatroomMembersList) {
+      // Update status
+      if (chatroomStatus) {
+        chatroomStatus.textContent = `${otherMembers.length} user${otherMembers.length !== 1 ? 's' : ''} online`;
+      }
+
+      // Store members for broadcast functionality
+      this.currentChatroomMembers = otherMembers;
+
+      if (otherMembers.length === 0) {
+        chatroomMembersList.innerHTML = `
+          <div class="empty-state" style="padding: 40px 20px; text-align: center;">
+            <p style="font-size: 1.2em; margin-bottom: 8px;">No other users here yet</p>
+            <p style="font-size: 0.9em; color: #999;">You're the first one in this chatroom!</p>
+          </div>
+        `;
+      } else {
+        chatroomMembersList.innerHTML = otherMembers
           .map(
             (member) => `
-          <div class="user-item" data-user-id="${member.userId}">
-            <div class="user-avatar">${member.stageName.charAt(0).toUpperCase()}</div>
-            <div class="user-details">
-              <div class="user-name">${member.stageName}</div>
-              <div class="user-status">Online</div>
+          <div class="chatroom-member-item" data-user-id="${member.userId}">
+            <div class="chatroom-member-avatar">${member.stageName.charAt(0).toUpperCase()}</div>
+            <div class="chatroom-member-info">
+              <div class="chatroom-member-name">${member.stageName}</div>
+              <div class="chatroom-member-status">Online now</div>
             </div>
-            <button class="btn-send-talk" data-user-id="${member.userId}">Send Talk</button>
           </div>
         `,
           )
-          .join('')}
-      `;
+          .join('');
 
-      // Add click handlers for send talk buttons
-      conversationList.querySelectorAll('.btn-send-talk').forEach((btn) => {
-        btn.addEventListener('click', (e) => {
-          const targetUserId = (e.target as HTMLElement).getAttribute('data-user-id');
-          if (targetUserId) {
-            this.emit('sendTalkToUser', { userId: targetUserId });
-          }
+        // Add click handlers to member items (could send talk to individual)
+        chatroomMembersList.querySelectorAll('.chatroom-member-item').forEach((item) => {
+          item.addEventListener('click', (e) => {
+            const targetUserId = (e.currentTarget as HTMLElement).getAttribute('data-user-id');
+            if (targetUserId) {
+              this.emit('sendTalkToUser', { userId: targetUserId });
+            }
+          });
         });
-      });
+      }
     }
   }
 }
