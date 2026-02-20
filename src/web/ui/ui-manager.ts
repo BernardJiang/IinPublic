@@ -334,6 +334,7 @@ export class UIManager extends EventEmitter {
                   data-answer-id="${answer.id}"
                   data-is-terminal="${answer.isTerminal || false}"
                   data-is-ignore="${answer.isIgnore || false}"
+                  data-is-match="${answer.isMatch || false}"
                   data-next-question-id="${answer.nextQuestionId || ''}"
                   style="
                     display: block;
@@ -369,6 +370,7 @@ export class UIManager extends EventEmitter {
           const answerText = target.textContent!.trim();
           const isTerminal = target.dataset.isTerminal === 'true';
           const isIgnore = target.dataset.isIgnore === 'true';
+          const isMatch = target.dataset.isMatch === 'true';
           const nextQuestionId = target.dataset.nextQuestionId;
 
           // Record answer
@@ -380,12 +382,19 @@ export class UIManager extends EventEmitter {
 
           if (isIgnore) {
             // User chose to ignore
-            this.showNotification('Talk ignored', 'info');
+            this.showNotification('Talk ignored - no match', 'info');
+            if (document.body.contains(modal)) {
+              document.body.removeChild(modal);
+            }
+          } else if (isMatch) {
+            // User chose a matching answer - this is a match!
+            this.completeTalk(talk, answers);
+            this.showNotification('Match! You both noticed each other.', 'success');
             if (document.body.contains(modal)) {
               document.body.removeChild(modal);
             }
           } else if (isTerminal) {
-            // Talk complete
+            // Talk complete (other terminal reasons)
             this.completeTalk(talk, answers);
             if (document.body.contains(modal)) {
               document.body.removeChild(modal);
@@ -517,7 +526,7 @@ export class UIManager extends EventEmitter {
 
     const renderForm = () => {
       modal.innerHTML = `
-        <div class="modal-content" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
+        <div class="modal-content" style="max-width: 1000px; max-height: 90vh; overflow-y: auto;">
           <div class="modal-header">
             <h2 class="modal-title">Create a Talk</h2>
             <p>Build a branching conversation flow - each answer can lead to a different question</p>
@@ -666,8 +675,9 @@ export class UIManager extends EventEmitter {
         style="flex: 1;"
       >
       <span style="font-size: 0.9em; color: #666;">→</span>
-      <select class="form-input answer-next" style="flex: 0 0 150px; font-size: 0.9em;">
-        <option value="terminal">End Talk ✓</option>
+      <select class="form-input answer-next" style="flex: 0 0 180px; font-size: 0.9em;">
+        <option value="ignore">Ignore (filter out)</option>
+        <option value="noticed">Noticed (match)</option>
       </select>
       ${index > 1 ? '<button type="button" class="btn-remove-answer" style="background: #f44336; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">×</button>' : ''}
     `;
@@ -718,8 +728,11 @@ export class UIManager extends EventEmitter {
       answerSelects.forEach((select) => {
         const currentValue = (select as HTMLSelectElement).value;
 
-        // Build options: End Talk + only later questions (downward branching)
-        const options = ['<option value="terminal">End Talk ✓</option>'];
+        // Build options: Ignore, Noticed + only later questions (downward branching)
+        const options = [
+          '<option value="ignore">Ignore (filter out)</option>',
+          '<option value="noticed">Noticed (match)</option>',
+        ];
 
         for (let i = qIdx + 1; i < questions.length; i++) {
           options.push(`<option value="q_${i}">Go to Question ${i + 1}</option>`);
@@ -765,24 +778,22 @@ export class UIManager extends EventEmitter {
           const answer: any = {
             id: `a_${qIndex}_${aIndex}`,
             text: answerText,
-            isTerminal: nextQuestion === 'terminal',
           };
 
-          // Only add nextQuestionId if it's not terminal
-          if (nextQuestion !== 'terminal' && nextQuestion) {
+          // Handle the different action types
+          if (nextQuestion === 'ignore') {
+            answer.isIgnore = true;
+            answer.isTerminal = true;
+          } else if (nextQuestion === 'noticed') {
+            answer.isMatch = true;
+            answer.isTerminal = true;
+          } else if (nextQuestion) {
+            // It's a question ID (e.g., "q_1")
             answer.nextQuestionId = nextQuestion;
           }
 
           answers.push(answer);
         }
-      });
-
-      // Add "Not interested" option that terminates
-      answers.push({
-        id: `a_${qIndex}_ignore`,
-        text: 'Not interested',
-        isIgnore: true,
-        isTerminal: true,
       });
 
       questions.push({

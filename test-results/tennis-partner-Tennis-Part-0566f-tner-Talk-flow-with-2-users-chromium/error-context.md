@@ -1,0 +1,123 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e6]:
+        - generic [ref=e7]: T
+        - generic [ref=e8]:
+          - strong [ref=e10]: TennisPlayer1
+          - generic [ref=e11]: Online
+      - generic [ref=e13]:
+        - paragraph [ref=e14]: No other users in this chatroom yet.
+        - paragraph [ref=e15]: Waiting for others to join...
+      - button "➕ Create Talk" [ref=e17] [cursor=pointer]
+    - generic [ref=e18]:
+      - generic [ref=e19]:
+        - generic [ref=e20]: Global Chatroom
+        - generic [ref=e21]: Connected • Ready to meet people nearby
+      - generic [ref=e22]:
+        - paragraph [ref=e25]: Welcome to IinPublic! Select a conversation or start a new talk.
+        - generic [ref=e27]:
+          - textbox "Type a message or create a talk..." [ref=e28]
+          - button "→" [ref=e29] [cursor=pointer]:
+            - generic [ref=e30]: →
+  - generic [ref=e32]:
+    - generic [ref=e33]:
+      - heading "Create a Talk" [level=2] [ref=e34]
+      - paragraph [ref=e35]: Build a branching conversation flow - each answer can lead to a different question
+    - generic [ref=e36]:
+      - generic [ref=e37]:
+        - generic [ref=e38]: Talk Title
+        - textbox "e.g., Coffee Meetup, Quick Survey" [ref=e39]: tennis partner
+      - generic [ref=e40]:
+        - generic [ref=e41]: Type
+        - combobox [ref=e42]:
+          - option "Matching (find compatible people)" [selected]
+          - option "Survey (collect responses)"
+      - generic [ref=e43]:
+        - generic [ref=e44]: Questions & Branching
+        - generic [ref=e45]:
+          - generic [ref=e46]:
+            - strong [ref=e48]: Question 1
+            - textbox "Enter your question here (e.g., Do you like coffee?)" [ref=e49]: Do you play tennis?
+            - generic [ref=e50]:
+              - generic [ref=e51]:
+                - textbox "Answer 1" [ref=e52]: "Yes"
+                - generic [ref=e53]: →
+                - combobox [ref=e54]:
+                  - option "Ignore (filter out)" [selected]
+                  - option "Noticed (match)"
+                  - option "Go to Question 2"
+                  - option "Go to Question 3"
+              - generic [ref=e55]:
+                - textbox "Answer 2" [ref=e56]: "No"
+                - generic [ref=e57]: →
+                - combobox [ref=e58]:
+                  - option "Ignore (filter out)" [selected]
+                  - option "Noticed (match)"
+                  - option "Go to Question 2"
+                  - option "Go to Question 3"
+            - button "+ Add Answer" [ref=e59] [cursor=pointer]
+          - generic [ref=e60]:
+            - generic [ref=e61]:
+              - strong [ref=e62]: Question 2
+              - button "Remove" [ref=e63] [cursor=pointer]
+            - textbox "Enter your question here (e.g., Do you like coffee?)" [ref=e64]: What's your skill level?
+            - generic [ref=e65]:
+              - generic [ref=e66]:
+                - textbox "Answer 1" [ref=e67]: beginner
+                - generic [ref=e68]: →
+                - combobox [ref=e69]:
+                  - option "Ignore (filter out)" [selected]
+                  - option "Noticed (match)"
+                  - option "Go to Question 3"
+              - generic [ref=e70]:
+                - textbox "Answer 2" [ref=e71]: amateur
+                - generic [ref=e72]: →
+                - combobox [ref=e73]:
+                  - option "Ignore (filter out)" [selected]
+                  - option "Noticed (match)"
+                  - option "Go to Question 3"
+              - generic [ref=e74]:
+                - textbox "Answer 3" [ref=e75]: professional
+                - generic [ref=e76]: →
+                - combobox [ref=e77]:
+                  - option "Ignore (filter out)" [selected]
+                  - option "Noticed (match)"
+                  - option "Go to Question 3"
+                - button "×" [ref=e78] [cursor=pointer]
+              - generic [ref=e79]:
+                - textbox "Answer 4" [ref=e80]: "Yes"
+                - generic [ref=e81]: →
+                - combobox [ref=e82]:
+                  - option "Ignore (filter out)" [selected]
+                  - option "Noticed (match)"
+                  - option "Go to Question 3"
+                - button "×" [ref=e83] [cursor=pointer]
+            - button "+ Add Answer" [ref=e84] [cursor=pointer]
+          - generic [ref=e85]:
+            - generic [ref=e86]:
+              - strong [ref=e87]: Question 3
+              - button "Remove" [ref=e88] [cursor=pointer]
+            - textbox "Enter your question here (e.g., Do you like coffee?)" [active] [ref=e89]: Are you available to play at Balboa Activity Center every Sunday?
+            - generic [ref=e90]:
+              - generic [ref=e91]:
+                - textbox "Answer 1" [ref=e92]: "No"
+                - generic [ref=e93]: →
+                - combobox [ref=e94]:
+                  - option "Ignore (filter out)"
+                  - option "Noticed (match)" [selected]
+              - generic [ref=e95]:
+                - textbox "Answer 2" [ref=e96]
+                - generic [ref=e97]: →
+                - combobox [ref=e98]:
+                  - option "Ignore (filter out)" [selected]
+                  - option "Noticed (match)"
+            - button "+ Add Answer" [ref=e99] [cursor=pointer]
+        - button "+ Add Question" [ref=e100] [cursor=pointer]
+      - generic [ref=e101]:
+        - button "Cancel" [ref=e102] [cursor=pointer]
+        - button "Create & Send to Chatroom" [ref=e103] [cursor=pointer]
+```
