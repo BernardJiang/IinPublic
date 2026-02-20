@@ -397,11 +397,24 @@ export class UIManager extends EventEmitter {
               ${currentQuestion.answers
                 .map(
                   (answer: any) => `
-                <div style="margin-bottom: 15px;">
-                  <div style="display: flex; gap: 8px; width: 100%;">
+                <div style="margin-bottom: 20px;">
+                  <div style="
+                    padding: 12px;
+                    background: #f8f9fa;
+                    border: 2px solid #e0e0e0;
+                    border-radius: 8px;
+                    font-size: 1.1em;
+                    font-weight: 500;
+                    color: #333;
+                    margin-bottom: 8px;
+                  ">
+                    ${this.escapeHtml(answer.text)}
+                  </div>
+                  <div style="display: flex; gap: 8px;">
                     <button 
                       class="answer-option-btn answer-auto-btn"
                       data-answer-id="${answer.id}"
+                      data-answer-text="${this.escapeHtml(answer.text)}"
                       data-answer-mode="auto"
                       data-is-terminal="${answer.isTerminal || false}"
                       data-is-ignore="${answer.isIgnore || false}"
@@ -409,27 +422,26 @@ export class UIManager extends EventEmitter {
                       data-next-question-id="${answer.nextQuestionId || ''}"
                       style="
                         flex: 1;
-                        padding: 12px;
-                        background: linear-gradient(135deg, #4ade80 0%, #4ade80 50%, #10b981 50%, #10b981 100%);
-                        border: 2px solid #10b981;
-                        border-radius: 8px;
+                        padding: 10px 16px;
+                        background: #10b981;
+                        border: 2px solid #059669;
+                        border-radius: 6px;
                         cursor: pointer;
                         text-align: center;
-                        font-size: 1em;
-                        font-weight: 500;
+                        font-size: 0.9em;
+                        font-weight: 600;
                         color: white;
                         transition: all 0.2s;
-                        position: relative;
                       "
-                      onmouseover="this.style.transform='scale(1.03)'; this.style.boxShadow='0 4px 12px rgba(16, 185, 129, 0.3)';"
-                      onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='none';"
+                      onmouseover="this.style.background='#059669'; this.style.transform='scale(1.02)';"
+                      onmouseout="this.style.background='#10b981'; this.style.transform='scale(1)';"
                     >
-                      ${this.escapeHtml(answer.text)}
-                      <div style="font-size: 0.7em; opacity: 0.9; margin-top: 4px;">AUTO</div>
+                      AUTO
                     </button>
                     <button 
                       class="answer-option-btn answer-manual-btn"
                       data-answer-id="${answer.id}"
+                      data-answer-text="${this.escapeHtml(answer.text)}"
                       data-answer-mode="manual"
                       data-is-terminal="${answer.isTerminal || false}"
                       data-is-ignore="${answer.isIgnore || false}"
@@ -437,23 +449,21 @@ export class UIManager extends EventEmitter {
                       data-next-question-id="${answer.nextQuestionId || ''}"
                       style="
                         flex: 1;
-                        padding: 12px;
-                        background: linear-gradient(135deg, #f87171 0%, #f87171 50%, #dc2626 50%, #dc2626 100%);
-                        border: 2px solid #dc2626;
-                        border-radius: 8px;
+                        padding: 10px 16px;
+                        background: #dc2626;
+                        border: 2px solid #b91c1c;
+                        border-radius: 6px;
                         cursor: pointer;
                         text-align: center;
-                        font-size: 1em;
-                        font-weight: 500;
+                        font-size: 0.9em;
+                        font-weight: 600;
                         color: white;
                         transition: all 0.2s;
-                        position: relative;
                       "
-                      onmouseover="this.style.transform='scale(1.03)'; this.style.boxShadow='0 4px 12px rgba(220, 38, 38, 0.3)';"
-                      onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='none';"
+                      onmouseover="this.style.background='#b91c1c'; this.style.transform='scale(1.02)';"
+                      onmouseout="this.style.background='#dc2626'; this.style.transform='scale(1)';"
                     >
-                      ${this.escapeHtml(answer.text)}
-                      <div style="font-size: 0.7em; opacity: 0.9; margin-top: 4px;">MANUAL</div>
+                      MANUAL
                     </button>
                   </div>
                 </div>
@@ -496,7 +506,7 @@ export class UIManager extends EventEmitter {
         btn.addEventListener('click', (e) => {
           const target = e.currentTarget as HTMLElement;
           const answerId = target.dataset.answerId!;
-          const answerText = target.textContent!.trim().replace(/\s*(AUTO|MANUAL)\s*$/, ''); // Remove AUTO/MANUAL label
+          const answerText = target.dataset.answerText || target.textContent!.trim(); // Get from data attribute or fallback to text
           const isTerminal = target.dataset.isTerminal === 'true';
           const isIgnore = target.dataset.isIgnore === 'true';
           const isMatch = target.dataset.isMatch === 'true';

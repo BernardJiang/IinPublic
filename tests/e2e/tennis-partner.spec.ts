@@ -371,14 +371,16 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
 
     // Question 1: Do you play tennis? -> Answer "Yes"
     console.log('  Answering Q1: Yes (with manual mode)');
-    const q1YesBtn = user2Page.locator('button.answer-manual-btn:has-text("Yes")').first();
+    // The first answer option's MANUAL button
+    const q1YesBtn = user2Page.locator('button.answer-manual-btn').first();
     await q1YesBtn.click();
 
     await user2Page.waitForTimeout(500); // Wait for UI update
 
     // Question 2: What's your skill level? -> Answer "amateur"
     console.log('  Answering Q2: amateur (with manual mode)');
-    const q2AmateurBtn = user2Page.locator('button.answer-manual-btn:has-text("amateur")');
+    // The second answer option's MANUAL button (amateur is the 2nd option)
+    const q2AmateurBtn = user2Page.locator('button.answer-manual-btn').nth(1);
     await q2AmateurBtn.waitFor({ state: 'visible', timeout: 5000 });
     await q2AmateurBtn.click();
 
@@ -386,7 +388,8 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
 
     // Question 3: Are you available...? -> Answer "Yes" (Match!)
     console.log('  Answering Q3: Yes (expecting match!) (with manual mode)');
-    const q3YesBtn = user2Page.locator('button.answer-manual-btn:has-text("Yes")').last();
+    // The first answer option's MANUAL button for Q3
+    const q3YesBtn = user2Page.locator('button.answer-manual-btn').first();
     await q3YesBtn.waitFor({ state: 'visible', timeout: 5000 });
     await q3YesBtn.click();
 
@@ -437,7 +440,7 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     await answerBtn2.click();
     await user2Page.waitForSelector('.modal-overlay', { timeout: 5000 });
 
-    const noBtn = user2Page.locator('button.answer-manual-btn:has-text("No")').first();
+    const noBtn = user2Page.locator('button.answer-manual-btn').nth(1); // "No" is the second answer
     await noBtn.click();
 
     // Check for ignore notification
@@ -495,14 +498,14 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     console.log('✅ Ignore button is present');
 
     // Verify auto/manual buttons exist for the first answer
-    const autoBtn = user2Page.locator('button.answer-auto-btn:has-text("Yes")').first();
-    const manualBtn = user2Page.locator('button.answer-manual-btn:has-text("Yes")').first();
+    const autoBtn = user2Page.locator('button.answer-auto-btn').first();
+    const manualBtn = user2Page.locator('button.answer-manual-btn').first();
 
     await autoBtn.waitFor({ state: 'visible', timeout: 5000 });
     await manualBtn.waitFor({ state: 'visible', timeout: 5000 });
     console.log('✅ Auto/Manual buttons are present');
 
-    // Click the auto button for "Yes" answer
+    // Click the auto button for "Yes" answer (first answer option)
     await autoBtn.click();
     console.log('✅ Clicked Auto button for Yes');
 
