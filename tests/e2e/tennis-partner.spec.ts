@@ -686,4 +686,171 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
 
     console.log('🎉 ✅ ALL AUTO/MANUAL PREFERENCE TESTS PASSED!');
   });
+
+  test('should track and display "My Talks" history', async () => {
+    console.log('\n🎬 Starting "My Talks" feature test...\n');
+
+    // ============================================
+    // STEP 0: Clear localStorage and sign in both users
+    // ============================================
+    console.log('📍 Step 0: Clearing state and signing in both users...');
+
+    // Clear localStorage and reload pages
+    await user1Page.evaluate(() => localStorage.clear());
+    await user2Page.evaluate(() => localStorage.clear());
+
+    // User 1 sign in
+    await user1Page.goto('/');
+    await user1Page.waitForLoadState('networkidle');
+    const user1StageNameInput = user1Page.locator('#stage-name');
+    await user1StageNameInput.waitFor({ state: 'visible', timeout: 10000 });
+    await user1StageNameInput.fill('TennisPlayer1');
+    const user1SubmitBtn = user1Page.locator('button[type="submit"]');
+    await user1SubmitBtn.click();
+    await user1Page.waitForSelector('#create-talk-btn', { timeout: 10000 });
+    console.log('✅ User 1 signed in as TennisPlayer1');
+
+    // User 2 sign in
+    await user2Page.goto('/');
+    await user2Page.waitForLoadState('networkidle');
+    const user2StageNameInput = user2Page.locator('#stage-name');
+    await user2StageNameInput.waitFor({ state: 'visible', timeout: 10000 });
+    await user2StageNameInput.fill('TennisPlayer2');
+    const user2SubmitBtn = user2Page.locator('button[type="submit"]');
+    await user2SubmitBtn.click();
+    await user2Page.waitForSelector('#create-talk-btn', { timeout: 10000 });
+    console.log('✅ User 2 signed in as TennisPlayer2');
+
+    // Wait for Gun.js synchronization
+    console.log('⏳ Waiting for Gun.js peer synchronization...');
+    await user1Page.waitForTimeout(3000);
+    await user2Page.waitForTimeout(3000);
+
+    // ============================================
+    // STEP 1: User1 creates a talk
+    // ============================================
+    console.log('📍 Step 1: User1 creates a talk...');
+
+    await createSimpleTalk(user1Page, 'My Talks Test', 'Do you enjoy hiking?', 'noticed', 'ignore');
+
+    console.log('✅ Talk created by User1');
+
+    // ============================================
+    // STEP 2: User2 receives and answers the talk
+    // ============================================
+    console.log('📍 Step 2: User2 receives and answers the talk...');
+
+    // Wait a bit longer for Gun.js sync
+    await user2Page.waitForTimeout(2000);
+
+    // Wait for talk announcement on User2's side (using .talk-announcement class)
+    const talkAnnouncement = user2Page.locator('.talk-announcement:has-text("My Talks Test")');
+    await talkAnnouncement.waitFor({ state: 'visible', timeout: 15000 });
+    console.log('✅ User2 received talk announcement');
+
+    // Click on "Answer Talk" button
+    const answerTalkBtn = talkAnnouncement.locator('button:has-text("Answer Talk")');
+    await answerTalkBtn.click();
+
+    // Wait for talk response modal to open
+    await user2Page.waitForSelector('#talk-response-modal', { timeout: 5000 });
+    console.log('✅ Talk response modal opened on User2');
+
+    // Wait a bit for the modal to fully render
+    await user2Page.waitForTimeout(500);
+
+    // Click AUTO button for "Yes" answer (first answer's AUTO button)
+    const autoBtn = user2Page.locator('button.answer-auto-btn').first();
+    await autoBtn.waitFor({ state: 'visible', timeout: 5000 });
+    await autoBtn.click();
+    console.log('✅ User2 clicked AUTO button for answer');
+
+    // Wait for talk response modal to close
+    await user2Page.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
+    console.log('✅ User2 answered the talk');
+
+    // ============================================
+    // STEP 3: User1 checks "My Talks" for created talk
+    // ============================================
+    console.log('📍 Step 3: User1 checks "My Talks" for created talk...');
+
+    // Scroll to and click "My Talks" button on User1
+    const myTalksBtn1 = user1Page.locator('#view-my-talks-btn');
+    await myTalksBtn1.scrollIntoViewIfNeeded();
+    await myTalksBtn1.waitFor({ state: 'visible', timeout: 5000 });
+    await myTalksBtn1.click();
+
+    // Wait for My Talks modal
+    await user1Page.waitForSelector('#my-talks-modal', { timeout: 5000 });
+    console.log('✅ My Talks modal opened on User1');
+
+    // Verify created talk is shown with "Created by me" badge
+    const createdTalkItem = user1Page.locator('.talk-history-item:has-text("My Talks Test")');
+    await createdTalkItem.waitFor({ state: 'visible', timeout: 5000 });
+
+    const createdBadge = createdTalkItem.locator('span:has-text("Created by me")');
+    await createdBadge.waitFor({ state: 'visible', timeout: 5000 });
+    console.log('✅ Created talk appears with "Created by me" badge');
+
+    // Verify talk type badge
+    const typeBadge = createdTalkItem.locator('span:has-text("matching")');
+    await typeBadge.waitFor({ state: 'visible', timeout: 5000 });
+    console.log('✅ Talk type badge displayed');
+
+    // Close My Talks modal
+    const closeBtn1 = user1Page.locator('#close-my-talks-modal');
+    await closeBtn1.click();
+    await user1Page.waitForSelector('#my-talks-modal', { state: 'detached', timeout: 5000 });
+    console.log('✅ My Talks modal closed on User1');
+
+    // ============================================
+    // STEP 4: User2 checks "My Talks" for answered talk
+    // ============================================
+    console.log('📍 Step 4: User2 checks "My Talks" for answered talk...');
+
+    // Scroll to and click "My Talks" button on User2
+    const myTalksBtn2 = user2Page.locator('#view-my-talks-btn');
+    await myTalksBtn2.scrollIntoViewIfNeeded();
+    await myTalksBtn2.waitFor({ state: 'visible', timeout: 5000 });
+    await myTalksBtn2.click();
+
+    // Wait for My Talks modal
+    await user2Page.waitForSelector('#my-talks-modal', { timeout: 5000 });
+    console.log('✅ My Talks modal opened on User2');
+
+    // Verify answered talk is shown with "Answered by me" badge
+    const answeredTalkItem = user2Page.locator('.talk-history-item:has-text("My Talks Test")');
+    await answeredTalkItem.waitFor({ state: 'visible', timeout: 5000 });
+
+    const answeredBadge = answeredTalkItem.locator('span:has-text("Answered by me")');
+    await answeredBadge.waitFor({ state: 'visible', timeout: 5000 });
+    console.log('✅ Answered talk appears with "Answered by me" badge');
+
+    // ============================================
+    // STEP 5: Test delete functionality
+    // ============================================
+    console.log('📍 Step 5: Testing delete functionality...');
+
+    // Click delete button
+    const deleteBtn = user2Page.locator('.delete-talk-btn').first();
+    await deleteBtn.click();
+
+    await user2Page.waitForTimeout(1000);
+
+    // Verify the specific talk is removed (modal should refresh)
+    await user2Page.waitForSelector('#my-talks-modal', { timeout: 5000 });
+
+    // Verify "My Talks Test" is no longer in the list
+    const deletedTalkItem = user2Page.locator('.talk-history-item:has-text("My Talks Test")');
+    await deletedTalkItem.waitFor({ state: 'detached', timeout: 5000 });
+    console.log('✅ Talk deleted successfully');
+
+    // Close My Talks modal
+    const closeBtn2 = user2Page.locator('#close-my-talks-modal');
+    await closeBtn2.click();
+    await user2Page.waitForSelector('#my-talks-modal', { state: 'detached', timeout: 5000 });
+    console.log('✅ My Talks modal closed on User2');
+
+    console.log('🎉 ✅ ALL "MY TALKS" FEATURE TESTS PASSED!');
+  });
 });

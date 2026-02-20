@@ -25,11 +25,14 @@ export class UIManager extends EventEmitter {
           <div class="conversation-list" id="conversation-list">
             <p>Loading conversations...</p>
           </div>
-          <div class="sidebar-actions" style="padding: 10px; border-top: 1px solid #e0e0e0; background: white;">
-            <button class="btn" id="create-talk-btn" style="width: 100%; background: #667eea; color: white; padding: 10px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; margin-bottom: 8px;">
+          <div class="sidebar-actions">
+            <button class="btn sidebar-btn" id="create-talk-btn">
               ➕ Create Talk
             </button>
-            <button class="btn" id="view-preferences-btn" style="width: 100%; background: #48bb78; color: white; padding: 10px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+            <button class="btn sidebar-btn" id="view-my-talks-btn">
+              📋 My Talks
+            </button>
+            <button class="btn sidebar-btn" id="view-preferences-btn">
               📝 My Answers
             </button>
           </div>
@@ -97,6 +100,13 @@ export class UIManager extends EventEmitter {
     if (createTalkBtn) {
       createTalkBtn.addEventListener('click', () => {
         this.showTalkEditorDialog();
+      });
+    }
+
+    const viewMyTalksBtn = document.getElementById('view-my-talks-btn');
+    if (viewMyTalksBtn) {
+      viewMyTalksBtn.addEventListener('click', () => {
+        this.showMyTalksDialog();
       });
     }
 
@@ -243,6 +253,16 @@ export class UIManager extends EventEmitter {
     if (document.getElementById(`talk-${talk.id}`)) {
       return;
     }
+
+    // Save to My Talks history
+    this.saveMyTalk({
+      talkId: talk.id,
+      title: talk.title,
+      type: talk.type,
+      timestamp: talk.timestamp,
+      role: talk.isOwnTalk ? 'created' : 'answered',
+      fullTalk: talk.fullTalk,
+    });
 
     // Clear welcome message if it exists
     const welcomeMsg = messagesContainer.querySelector('.text-center.p-20');
@@ -590,6 +610,16 @@ export class UIManager extends EventEmitter {
   private completeTalk(talk: any, answers: any[]): void {
     console.log('✅ Talk completed:', talk.id, answers);
 
+    // Update My Talks history to mark as answered
+    this.saveMyTalk({
+      talkId: talk.id,
+      title: talk.title,
+      type: talk.type,
+      timestamp: talk.createdAt || new Date().toISOString(),
+      role: 'answered',
+      fullTalk: talk,
+    });
+
     // Emit event for app to handle
     this.emit('talkCompleted', {
       talkId: talk.id,
@@ -916,6 +946,164 @@ export class UIManager extends EventEmitter {
     const preferences = this.getAnswerPreferences();
     delete preferences[key];
     localStorage.setItem('answerPreferences', JSON.stringify(preferences));
+  }
+
+  // ============================================
+  // MY TALKS MANAGEMENT
+  // ============================================
+
+  private saveMyTalk(talkData: {
+    talkId: string;
+    title: string;
+    type: string;
+    timestamp: string;
+    role: 'created' | 'answered';
+    fullTalk?: any;
+  }): void {
+    const myTalks = this.getMyTalks();
+    myTalks[talkData.talkId] = {
+      ...talkData,
+      lastInteraction: new Date().toISOString(),
+    };
+    localStorage.setItem('myTalks', JSON.stringify(myTalks));
+  }
+
+  private getMyTalks(): Record<string, any> {
+    const stored = localStorage.getItem('myTalks');
+    return stored ? JSON.parse(stored) : {};
+  }
+
+  showMyTalksDialog(): void {
+    const myTalks = this.getMyTalks();
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'my-talks-modal';
+
+    const talkEntries = Object.entries(myTalks).sort(
+      ([, a]: [string, any], [, b]: [string, any]) =>
+        new Date(b.lastInteraction).getTime() - new Date(a.lastInteraction).getTime(),
+    );
+
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
+        <div class="modal-header">
+          <h2 class="modal-title">My Talks</h2>
+          <button class="close-button" id="close-my-talks-modal" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">&times;</button>
+        </div>
+        <div style="padding: 20px;">
+          ${
+            talkEntries.length === 0
+              ? '<p style="text-align: center; color: #666;">You haven\'t created or answered any talks yet. Create or answer a talk to see it here.</p>'
+              : `
+            <p style="margin-bottom: 20px; color: #666;">You have ${talkEntries.length} talk(s) in your history.</p>
+            <div style="max-height: 500px; overflow-y: auto;">
+              ${talkEntries
+                .map(
+                  ([talkId, talk]) => `
+                  <div class="talk-history-item" style="background: #f9f9f9; border: 2px solid #e0e0e0; border-radius: 12px; padding: 20px; margin-bottom: 15px;">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                      <div style="flex: 1;">
+                        <div style="font-weight: 600; font-size: 1.1em; color: #333; margin-bottom: 6px;">
+                          ${this.escapeHtml(talk.title)}
+                        </div>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                          <span style="display: inline-block; padding: 4px 12px; background: ${talk.role === 'created' ? '#dbeafe' : '#dcfce7'}; color: ${talk.role === 'created' ? '#1e40af' : '#166534'}; border-radius: 12px; font-size: 0.8em; font-weight: 600;">
+                            ${talk.role === 'created' ? '📝 Created by me' : '✅ Answered by me'}
+                          </span>
+                          <span style="display: inline-block; padding: 4px 12px; background: #f3f4f6; color: #6b7280; border-radius: 12px; font-size: 0.8em; font-weight: 600;">
+                            ${talk.type}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div style="font-size: 0.85em; color: #999; margin-bottom: 12px;">
+                      Last interaction: ${new Date(talk.lastInteraction).toLocaleString()}
+                    </div>
+                    <div style="font-size: 0.85em; color: #999;">
+                      Talk ID: <code style="background: #e5e7eb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em;">${talkId}</code>
+                    </div>
+                    <button 
+                      class="delete-talk-btn" 
+                      data-talk-id="${talkId}"
+                      style="margin-top: 12px; background: #e53e3e; color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.85em; font-weight: 600;"
+                    >
+                      🗑️ Remove from History
+                    </button>
+                  </div>
+                `,
+                )
+                .join('')}
+            </div>
+            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
+              <button 
+                id="clear-all-talks-btn"
+                style="background: #e53e3e; color: white; border: none; border-radius: 8px; padding: 12px 24px; cursor: pointer; font-weight: 600; font-size: 1em;"
+              >
+                🗑️ Clear All History
+              </button>
+            </div>
+          `
+          }
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Close button handler
+    const closeBtn = document.getElementById('close-my-talks-modal');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        if (document.body.contains(modal)) {
+          document.body.removeChild(modal);
+        }
+      });
+    }
+
+    // Delete individual talk handlers
+    modal.querySelectorAll('.delete-talk-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        const target = e.currentTarget as HTMLElement;
+        const talkId = target.dataset.talkId!;
+        this.deleteMyTalk(talkId);
+        // Refresh the dialog
+        if (document.body.contains(modal)) {
+          document.body.removeChild(modal);
+        }
+        this.showMyTalksDialog();
+        this.showNotification('Talk removed from history', 'success');
+      });
+    });
+
+    // Clear all button handler
+    const clearAllBtn = document.getElementById('clear-all-talks-btn');
+    if (clearAllBtn) {
+      clearAllBtn.addEventListener('click', () => {
+        if (confirm('Are you sure you want to clear all talk history?')) {
+          localStorage.removeItem('myTalks');
+          if (document.body.contains(modal)) {
+            document.body.removeChild(modal);
+          }
+          this.showMyTalksDialog();
+          this.showNotification('All talk history cleared', 'success');
+        }
+      });
+    }
+
+    // Close on overlay click
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        if (document.body.contains(modal)) {
+          document.body.removeChild(modal);
+        }
+      }
+    });
+  }
+
+  private deleteMyTalk(talkId: string): void {
+    const myTalks = this.getMyTalks();
+    delete myTalks[talkId];
+    localStorage.setItem('myTalks', JSON.stringify(myTalks));
   }
 
   showNotification(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info'): void {
