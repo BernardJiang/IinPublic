@@ -381,26 +381,20 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     await matchNotification.waitFor({ state: 'visible', timeout: 5000 });
     console.log('✅ User 2 received match notification!');
 
-    // Wait for Gun.js to sync the response to User 1
-    console.log('  Waiting for Gun.js to sync response to User 1...');
-    await user1Page.waitForTimeout(5000);
-
-    // Check browser console for any errors
-    const user1ConsoleMessages = await user1Page.evaluate(() => {
-      // Check if any notifications are present
-      const notifications = document.querySelectorAll('.notification');
-      return Array.from(notifications).map((n) => n.textContent);
-    });
-    console.log('  User 1 notifications on page:', user1ConsoleMessages);
-
-    // Also verify User 1 receives match notification
+    // Check User 1's match notification immediately (before it disappears after 3 seconds)
+    console.log('  Checking User 1 match notification immediately...');
     const user1MatchNotification = user1Page
       .locator('.notification.success:has-text("Match")')
       .first();
-    await user1MatchNotification.waitFor({ state: 'visible', timeout: 10000 });
+    await user1MatchNotification.waitFor({ state: 'visible', timeout: 5000 });
     console.log('✅ User 1 received match notification!');
 
     console.log('🎾 Both users notified of the match!');
+
+    // Wait for Gun.js to fully sync before continuing
+    console.log('  Waiting for Gun.js to complete sync...');
+    await user1Page.waitForTimeout(3000);
+    await user2Page.waitForTimeout(3000);
 
     // Modal should close
     await user2Page.waitForSelector('.modal-overlay', { state: 'detached', timeout: 5000 });
