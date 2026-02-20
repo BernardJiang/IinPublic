@@ -9,13 +9,16 @@ export class WebChatroomService {
   constructor(private gunService: WebGunService) {}
 
   async findOptimalChatroom(location: GPSCoordinate): Promise<string> {
-    // Get available chatrooms (simplified for now)
-    const hierarchy = LocationPrivacy.getNearbyRegions(
-      LocationPrivacy.blurLocation(location).region,
-    );
+    // Blur location and get the region
+    const blurredLocation = LocationPrivacy.blurLocation(location);
 
-    // For now, return the most specific chatroom
-    return hierarchy[hierarchy.length - 1];
+    // Use the primary region with room_0 suffix
+    // This ensures all users in the same region are in the same chatroom
+    const chatroomId = `${blurredLocation.region}_room_0`;
+
+    console.log(`🔍 Finding chatroom for region: ${blurredLocation.region} -> ${chatroomId}`);
+
+    return chatroomId;
   }
 
   async joinChatroom(chatroomId: string, userId: string, stageName?: string): Promise<void> {

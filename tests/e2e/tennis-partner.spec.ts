@@ -72,6 +72,11 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     await user2Page.waitForSelector('#create-talk-btn', { timeout: 10000 });
     console.log('✅ User 2 signed in as TennisPlayer2');
 
+    // Wait for Gun.js synchronization between the two browser contexts
+    console.log('⏳ Waiting for Gun.js peer synchronization...');
+    await user1Page.waitForTimeout(5000);
+    await user2Page.waitForTimeout(5000);
+
     // ============================================
     // STEP 3: User 1 creates Tennis Partner Talk
     // ============================================
@@ -230,8 +235,14 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     await user1Page.waitForSelector('.modal-overlay', { state: 'detached', timeout: 10000 });
     console.log('✅ Tennis Partner Talk created and broadcast');
 
-    // Wait for Talk to propagate through Gun.js
-    await user1Page.waitForTimeout(2000);
+    // Wait for Talk to propagate through Gun.js (increased wait time)
+    await user1Page.waitForTimeout(3000);
+    await user2Page.waitForTimeout(3000);
+
+    // Debug: Check if Talk announcement appears in User 2's view
+    console.log('  Checking User 2 page for talk announcements...');
+    const announcementCount = await user2Page.locator('.talk-announcement').count();
+    console.log(`  Found ${announcementCount} talk announcements on User 2's page`);
 
     // ============================================
     // STEP 4: User 2 receives Talk notification
@@ -240,7 +251,7 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
 
     // Look for Talk announcement in User 2's chat
     const talkAnnouncement = user2Page.locator('.talk-announcement:has-text("tennis partner")');
-    await talkAnnouncement.waitFor({ state: 'visible', timeout: 10000 });
+    await talkAnnouncement.waitFor({ state: 'visible', timeout: 15000 });
     console.log('✅ User 2 received Tennis Partner Talk announcement');
 
     // ============================================
