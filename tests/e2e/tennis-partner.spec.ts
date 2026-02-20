@@ -1,4 +1,4 @@
-import { test, expect, Browser, BrowserContext, Page } from '@playwright/test';
+import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
 
 test.describe('Tennis Partner Talk - Two User Interaction', () => {
   let browser: Browser;
@@ -7,20 +7,32 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
   let user1Page: Page;
   let user2Page: Page;
 
-  test.beforeAll(async ({ browser: testBrowser }) => {
-    browser = testBrowser;
+  test.beforeAll(async () => {
+    // Launch Chrome browser with headed mode
+    browser = await chromium.launch({
+      headless: false,
+      slowMo: 100, // Slow down actions by 100ms to make them visible
+    });
 
-    // Create separate browser contexts for two users (simulates 2 browsers)
-    user1Context = await browser.newContext();
-    user2Context = await browser.newContext();
+    // Create separate browser contexts for two users (simulates 2 separate tabs)
+    user1Context = await browser.newContext({
+      viewport: { width: 1280, height: 720 },
+    });
+    user2Context = await browser.newContext({
+      viewport: { width: 1280, height: 720 },
+    });
 
+    // Create a page in each context - these will appear as separate tabs
     user1Page = await user1Context.newPage();
     user2Page = await user2Context.newPage();
+
+    console.log('🚀 Launched 2 Chrome tabs for User 1 and User 2');
   });
 
   test.afterAll(async () => {
     await user1Context.close();
     await user2Context.close();
+    await browser.close();
   });
 
   test('Complete Tennis Partner Talk flow with 2 users', async () => {
@@ -139,23 +151,6 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
       'ignore',
     );
 
-    // Answer 2: "amateur" -> Go to Question 3 (will set after Q3 is created)
-    await user1Page.fill(
-      '.question-item:nth-child(2) .answer-item:nth-child(2) .answer-text',
-      'amateur',
-    );
-
-    // Answer 3: "professional" -> Ignore
-    await user1Page.click('.question-item:nth-child(2) .btn-add-answer');
-    await user1Page.fill(
-      '.question-item:nth-child(2) .answer-item:nth-child(3) .answer-text',
-      'professional',
-    );
-    await user1Page.selectOption(
-      '.question-item:nth-child(2) .answer-item:nth-child(3) .answer-next',
-      'ignore',
-    );
-
     // ============================================
     // Question 3: "Are you available at Balboa?"
     // ============================================
@@ -189,22 +184,9 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
 
     // Use nth-of-type for selects which should be more reliable
     await user1Page.selectOption(
-      '.question-item:nth-child(3) .answers-container select:nth-of-type(1)',
+      '.question-item:nth-child(3) .answers-container .answer-item:nth-child(1) .answer-next',
       'noticed',
     );
-    await user1Page.selectOption(
-      '.question-item:nth-child(3) .answers-container select:nth-of-type(2)',
-      'ignore',
-    );
-
-    // Answer 2: "No" -> Ignore
-    console.log('  Filling Q3 Answer 2...');
-    await user1Page.evaluate(() => {
-      const allAnswers = Array.from(
-        document.querySelectorAll('.answer-text'),
-      ) as HTMLInputElement[];
-      allAnswers[7].value = 'No';
-    });
     await user1Page.selectOption(
       '.question-item:nth-child(3) .answers-container .answer-item:nth-child(2) .answer-next',
       'ignore',
@@ -302,8 +284,8 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     // ============================================
     console.log('📍 Step 6: Verifying match notification...');
 
-    // Check for success notification
-    const matchNotification = user2Page.locator('.notification.success:has-text("Match")');
+    // Check for success notification (use .first() in case there are multiple)
+    const matchNotification = user2Page.locator('.notification.success:has-text("Match")').first();
     await matchNotification.waitFor({ state: 'visible', timeout: 5000 });
     console.log('✅ Match notification displayed!');
 

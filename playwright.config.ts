@@ -7,12 +7,14 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: 1, // Single worker for controlled test execution
   reporter: 'html',
+  timeout: 120000, // 2 minutes timeout for multi-user e2e tests
 
   use: {
     baseURL: 'http://localhost:3001',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
+    headless: false, // Show browser windows for multi-user tests
   },
 
   projects: [
