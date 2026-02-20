@@ -154,44 +154,60 @@ export class IinPublicApp {
     console.log('🎯 Subscribing to chatroom talks:', chatroomId);
     const gun = this.gunService.getGun();
 
-    gun
-      .get('chatrooms')
-      .get(chatroomId)
-      .get('talks')
-      .map()
-      .on((talkAnnouncement: any, talkId: string) => {
-        if (talkId.startsWith('_')) return; // Skip Gun.js metadata
+    const talksRef = gun.get('chatrooms').get(chatroomId).get('talks');
 
-        console.log('📨 Received talk announcement:', talkAnnouncement);
+    // Track processed talks to avoid duplicates
+    const processedTalks = new Set<string>();
 
-        if (talkAnnouncement && talkAnnouncement.talkId) {
-          // Fetch the full talk details
-          gun.get(`talks/${talkAnnouncement.talkId}`).once((talkDataWrapper: any) => {
-            if (talkDataWrapper && talkDataWrapper.data) {
-              // Parse the JSON string to get the full talk
-              const talkData = JSON.parse(talkDataWrapper.data);
-              console.log('📋 Full talk data:', talkData);
+    const processTalkAnnouncement = (talkAnnouncement: any, talkId: string) => {
+      if (talkId.startsWith('_')) return; // Skip Gun.js metadata
 
-              // Display the talk in UI
-              this.uiManager.displayIncomingTalk({
-                id: talkData.id,
-                title: talkData.title,
-                authorName: talkAnnouncement.authorName || 'Unknown',
-                type: talkData.type,
-                questionCount: talkData.questions?.length || 0,
-                timestamp: talkAnnouncement.timestamp,
-                isOwnTalk: talkAnnouncement.authorId === this.currentUser?.id,
-                fullTalk: talkData,
-              });
+      console.log('📨 Received talk announcement:', { talkId, talkAnnouncement });
 
-              // If this is the user's own talk, subscribe to responses
-              if (talkAnnouncement.authorId === this.currentUser?.id) {
-                this.subscribeToTalkResponses(talkAnnouncement.talkId, talkData);
-              }
+      // Avoid processing the same talk multiple times
+      if (processedTalks.has(talkId)) {
+        console.log('⏭️  Skipping already processed talk:', talkId);
+        return;
+      }
+
+      if (talkAnnouncement && talkAnnouncement.talkId) {
+        processedTalks.add(talkId);
+
+        // Fetch the full talk details
+        gun.get(`talks/${talkAnnouncement.talkId}`).once((talkDataWrapper: any) => {
+          if (talkDataWrapper && talkDataWrapper.data) {
+            // Parse the JSON string to get the full talk
+            const talkData = JSON.parse(talkDataWrapper.data);
+            console.log('📋 Full talk data:', talkData);
+
+            // Display the talk in UI
+            this.uiManager.displayIncomingTalk({
+              id: talkData.id,
+              title: talkData.title,
+              authorName: talkAnnouncement.authorName || 'Unknown',
+              type: talkData.type,
+              questionCount: talkData.questions?.length || 0,
+              timestamp: talkAnnouncement.timestamp,
+              isOwnTalk: talkAnnouncement.authorId === this.currentUser?.id,
+              fullTalk: talkData,
+            });
+
+            // If this is the user's own talk, subscribe to responses
+            if (talkAnnouncement.authorId === this.currentUser?.id) {
+              this.subscribeToTalkResponses(talkAnnouncement.talkId, talkData);
             }
-          });
-        }
-      });
+          }
+        });
+      }
+    };
+
+    // Use .on() for real-time updates
+    talksRef.map().on(processTalkAnnouncement);
+
+    // ALSO use .once() to load existing talks immediately
+    // This ensures we don't miss talks that were added while we were offline
+    console.log('🔄 Loading existing talks with .once()...');
+    talksRef.map().once(processTalkAnnouncement);
   }
 
   private subscribeToTalkResponses(talkId: string, talkData: any): void {

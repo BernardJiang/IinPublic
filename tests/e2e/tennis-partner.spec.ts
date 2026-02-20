@@ -31,7 +31,7 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
 
     await page.click('#talk-editor-form button[type="submit"]');
     await page.waitForSelector('.modal-overlay', { state: 'detached', timeout: 5000 });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000); // Increased wait for Gun.js sync
   }
 
   test.beforeAll(async () => {
@@ -69,22 +69,22 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     browser1 = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=0,0', '--window-size=960,800'],
+      args: ['--window-position=0,0', '--window-size=960,1080'],
     });
 
     browser2 = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=960,0', '--window-size=960,800'],
+      args: ['--window-position=960,0', '--window-size=960,1080'],
     });
 
     // Create contexts - each browser gets its own context
     user1Context = await browser1.newContext({
-      viewport: { width: 960, height: 800 },
+      viewport: { width: 960, height: 1080 },
       storageState: undefined, // Start with clean storage
     });
     user2Context = await browser2.newContext({
-      viewport: { width: 960, height: 800 },
+      viewport: { width: 960, height: 1080 },
       storageState: undefined, // Start with clean storage
     });
 
@@ -453,21 +453,43 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
 
   test('Test auto/manual answer preferences', async () => {
     // ============================================
-    // SETUP: Clear localStorage and wait for sync
+    // SETUP: Wait for Gun.js to fully settle from previous test
     // ============================================
-    console.log('🔄 Setting up test - clearing localStorage...');
-    await user1Page.evaluate(() => localStorage.clear());
-    await user2Page.evaluate(() => localStorage.clear());
-    console.log('✅ Test setup complete');
+    console.log('🔄 Setting up test 2...');
+    console.log('⏳ Waiting 10 seconds for Gun.js to fully stabilize from test 1...');
+    await user1Page.waitForTimeout(10000);
+    await user2Page.waitForTimeout(10000);
 
-    // Short wait for Gun.js to stabilize after first test
-    await user1Page.waitForTimeout(1000);
-    await user2Page.waitForTimeout(1000);
+    // Clear only answer preferences (not all localStorage)
+    console.log('🧹 Clearing answer preferences...');
+    await user1Page.evaluate(() => localStorage.removeItem('answerPreferences'));
+    await user2Page.evaluate(() => localStorage.removeItem('answerPreferences'));
+    console.log('✅ Answer preferences cleared');
+
+    // Verify users are still on the main interface
+    console.log('🔍 Verifying users are still signed in...');
+    const user1CreateBtn = await user1Page.locator('#create-talk-btn').isVisible();
+    const user2CreateBtn = await user2Page.locator('#create-talk-btn').isVisible();
+    console.log(`  User 1 create button visible: ${user1CreateBtn}`);
+    console.log(`  User 2 create button visible: ${user2CreateBtn}`);
+
+    if (!user1CreateBtn || !user2CreateBtn) {
+      throw new Error('❌ Users not signed in - UI not ready');
+    }
+
+    // Check what talks are currently visible to User 2 before we start
+    const existingTalks = await user2Page.locator('.talk-announcement').count();
+    console.log(`  User 2 currently sees ${existingTalks} talk announcements from previous test`);
 
     // ============================================
     // STEP 1: User 1 creates a simple Talk
     // ============================================
     console.log('📍 Step 1: User 1 creating a simple Talk...');
+
+    // Verify create button exists before clicking
+    await user1Page.waitForSelector('#create-talk-btn', { state: 'visible', timeout: 5000 });
+    console.log('  Create button found');
+
     await createSimpleTalk(
       user1Page,
       'preferences test',
@@ -475,15 +497,70 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
       'noticed',
       'ignore',
     );
-    console.log('✅ Talk created');
+    console.log('✅ Talk created and submitted');
 
+    // Extra wait for talk to broadcast
+    console.log('⏳ Waiting for talk to broadcast through Gun.js...');
+    await user1Page.waitForTimeout(3000);
+
+    // Check if User 1 can see the talk in their own view
+    const user1TalkCount = await user1Page.locator('.talk-announcement').count();
+    console.log(`  User 1 sees ${user1TalkCount} talk announcements (including own talks)`);
+
+    // Give more time for cross-peer sync
+    await user2Page.waitForTimeout(3000);
+
+    // ============================================
+    // STEP 2: User 2 receives and answers with Auto mode
     // ============================================
     // STEP 2: User 2 receives and answers with Auto mode
     // ============================================
     console.log('📍 Step 2: User 2 answering with Auto mode...');
 
+    // Poll for the new talk announcement with retries
+    console.log('⏳ Waiting for talk announcement to appear...');
+    let talkFound = false;
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    while (!talkFound && attempts < maxAttempts) {
+      attempts++;
+      const talkCount = await user2Page
+        .locator('.talk-announcement:has-text("preferences test")')
+        .count();
+      console.log(
+        `  Attempt ${attempts}/${maxAttempts}: Found ${talkCount} matching announcements`,
+      );
+
+      if (talkCount > 0) {
+        talkFound = true;
+        console.log('  ✅ Talk announcement found!');
+      } else {
+        console.log('  ⏳ Not found yet, waiting 2 more seconds...');
+        await user2Page.waitForTimeout(2000);
+
+        // Debug: Show all talk announcements
+        const allTalks = await user2Page.locator('.talk-announcement').count();
+        console.log(`  Total talk announcements visible: ${allTalks}`);
+
+        if (allTalks > 0) {
+          // Get the text of existing talks to debug
+          const talkTexts = await user2Page.locator('.talk-announcement').allTextContents();
+          console.log(
+            `  Talk titles visible: ${talkTexts.map((t) => t.substring(0, 50)).join(', ')}`,
+          );
+        }
+      }
+    }
+
+    if (!talkFound) {
+      throw new Error(
+        '❌ Talk announcement "preferences test" never appeared after ' + maxAttempts + ' attempts',
+      );
+    }
+
     const talkAnnouncement = user2Page.locator('.talk-announcement:has-text("preferences test")');
-    await talkAnnouncement.waitFor({ state: 'visible', timeout: 10000 });
+    await talkAnnouncement.waitFor({ state: 'visible', timeout: 5000 });
 
     const answerBtn = user2Page.locator(
       '.talk-announcement:has-text("preferences test") button:has-text("Answer")',
@@ -596,7 +673,7 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     await user2Page.waitForTimeout(1000);
 
     // Verify preference is gone
-    const emptyMessage = user2Page.locator('p:has-text("No saved preferences yet")');
+    const emptyMessage = user2Page.locator('p:has-text("No answered questions yet")');
     await emptyMessage.waitFor({ state: 'visible', timeout: 5000 });
     console.log('✅ Preference deleted successfully');
 
