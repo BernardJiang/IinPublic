@@ -4,17 +4,26 @@ export class GunService {
   private gun: any;
   private peers: string[];
 
-  constructor() {
-    this.peers = process.env.GUN_PEERS 
-      ? process.env.GUN_PEERS.split(',')
-      : ['http://localhost:8080/gun'];
-    
-    this.gun = Gun({
-      peers: this.peers,
-      localStorage: false, // Server-side, no localStorage
-      radisk: true, // Enable persistent storage
-      file: process.env.GUN_DATA_FILE || 'data.json'
-    });
+  constructor(existingGunInstance?: any) {
+    if (existingGunInstance) {
+      // Use the provided Gun instance (from HTTP server)
+      this.gun = existingGunInstance;
+      this.peers = [];
+      console.log('✅ GunService using existing Gun instance from HTTP server');
+    } else {
+      // Create new Gun instance (for standalone use)
+      this.peers = process.env.GUN_PEERS
+        ? process.env.GUN_PEERS.split(',')
+        : ['http://localhost:8080/gun'];
+
+      this.gun = Gun({
+        peers: this.peers,
+        localStorage: false, // Server-side, no localStorage
+        radisk: true, // Enable persistent storage
+        file: process.env.GUN_DATA_FILE || 'data.json',
+      });
+      console.log('✅ GunService created new Gun instance');
+    }
 
     this.setupEventHandlers();
   }
@@ -56,13 +65,16 @@ export class GunService {
    */
   public async get(key: string): Promise<any> {
     return new Promise((resolve, reject) => {
-      this.gun.get(key).once((data: any) => {
-        if (data === undefined) {
-          reject(new Error(`No data found for key: ${key}`));
-        } else {
-          resolve(data);
-        }
-      }, { wait: 1000 }); // Wait up to 1 second for data
+      this.gun.get(key).once(
+        (data: any) => {
+          if (data === undefined) {
+            reject(new Error(`No data found for key: ${key}`));
+          } else {
+            resolve(data);
+          }
+        },
+        { wait: 1000 },
+      ); // Wait up to 1 second for data
     });
   }
 
@@ -73,7 +85,7 @@ export class GunService {
     const off = this.gun.get(key).on((data: any, _key: string) => {
       callback(data);
     });
-    
+
     return () => off.off();
   }
 
@@ -98,13 +110,16 @@ export class GunService {
   public async getSet(setKey: string): Promise<any[]> {
     return new Promise((resolve) => {
       const items: any[] = [];
-      
-      this.gun.get(setKey).map().once((data: any, _key: string) => {
-        if (data) {
-          items.push({ ...data, _key });
-        }
-      });
-      
+
+      this.gun
+        .get(setKey)
+        .map()
+        .once((data: any, _key: string) => {
+          if (data) {
+            items.push({ ...data, _key });
+          }
+        });
+
       // Wait a bit for all items to be collected
       setTimeout(() => resolve(items), 500);
     });
@@ -115,13 +130,16 @@ export class GunService {
    */
   public async removeFromSet(setKey: string, itemKey: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.gun.get(setKey).get(itemKey).put(null, (ack: any) => {
-        if (ack.err) {
-          reject(new Error(ack.err));
-        } else {
-          resolve();
-        }
-      });
+      this.gun
+        .get(setKey)
+        .get(itemKey)
+        .put(null, (ack: any) => {
+          if (ack.err) {
+            reject(new Error(ack.err));
+          } else {
+            resolve();
+          }
+        });
     });
   }
 
@@ -133,7 +151,7 @@ export class GunService {
     // For now, return a mock implementation
     return {
       pub: 'mock_public_key_' + Date.now(),
-      priv: 'mock_private_key_' + Date.now()
+      priv: 'mock_private_key_' + Date.now(),
     };
   }
 
@@ -143,7 +161,7 @@ export class GunService {
   public getNetworkStats(): any {
     return {
       peers: this.gun._.opt.peers,
-      connected: Object.keys(this.gun._.opt.mesh.hi || {}).length
+      connected: Object.keys(this.gun._.opt.mesh.hi || {}).length,
     };
   }
 

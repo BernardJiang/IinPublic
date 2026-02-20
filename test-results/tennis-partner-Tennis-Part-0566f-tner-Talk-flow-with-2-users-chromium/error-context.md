@@ -24,7 +24,7 @@
     - generic [ref=e26]:
       - generic [ref=e28]:
         - generic [ref=e29]: "📤 You sent Talk: tennis partner"
-        - generic [ref=e30]: "From: TennisPlayer1 • 💬 Matching • 3 questions • 10:11 PM"
+        - generic [ref=e30]: "From: TennisPlayer1 • 💬 Matching • 3 questions • 10:26 PM"
         - generic [ref=e31]: Waiting for responses...
       - generic [ref=e33]:
         - textbox "Type a message or create a talk..." [ref=e34]

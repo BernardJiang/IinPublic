@@ -19,7 +19,6 @@ export class WebGunService extends EventEmitter {
         peers: this.peers,
         localStorage: true, // Use localStorage in browser
         radisk: false,
-        axe: false, // Disable automatic relay
       });
 
       this.setupEventHandlers();

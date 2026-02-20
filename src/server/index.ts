@@ -44,14 +44,12 @@ class IinPublicServer {
 
   private setupGun(): void {
     // Initialize Gun and attach to HTTP server
-    // Disable axe relay for local development to ensure direct peer connections
     this.gun = Gun({
       web: this.server,
-      axe: false, // Disable automatic relay for local testing
       localStorage: false, // Server doesn't need localStorage
       radisk: true, // Enable disk persistence on server
     });
-    console.log('🔫 Gun.js attached to HTTP server (axe relay disabled for local dev)');
+    console.log('🔫 Gun.js attached to HTTP server');
   }
 
   private setupMiddleware(): void {
@@ -90,11 +88,11 @@ class IinPublicServer {
   }
 
   private initializeServices(): void {
-    this.gunService = new GunService();
+    this.gunService = new GunService(this.gun); // Pass the Gun instance
     this.userService = new UserService(this.gunService);
     this.reputationService = new ReputationService(this.gunService);
     this.chatroomManager = new ChatroomManager(this.gunService);
-    this.talkService = new TalkService(this.gunService, this.reputationService);
+    this.talkService = new TalkService(this.gunService, this.chatroomManager);
   }
 
   private setupRoutes(): void {

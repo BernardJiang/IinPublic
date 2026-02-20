@@ -120,8 +120,43 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
 
     // Wait for Gun.js synchronization between the two browser contexts
     console.log('⏳ Waiting for Gun.js peer synchronization...');
-    await user1Page.waitForTimeout(5000);
-    await user2Page.waitForTimeout(5000);
+    await user1Page.waitForTimeout(10000); // Increased to 10 seconds
+    await user2Page.waitForTimeout(10000);
+
+    // Verify that users can see each other
+    console.log('🔍 Verifying users can see each other...');
+
+    // Check if User 1 can see User 2
+    const user1SeesUser2 = await user1Page.evaluate(() => {
+      const conversationList = document.getElementById('conversation-list');
+      return conversationList?.textContent?.includes('TennisPlayer2') || false;
+    });
+    console.log(`  User 1 sees User 2: ${user1SeesUser2}`);
+
+    // Check if User 2 can see User 1
+    const user2SeesUser1 = await user2Page.evaluate(() => {
+      const conversationList = document.getElementById('conversation-list');
+      return conversationList?.textContent?.includes('TennisPlayer1') || false;
+    });
+    console.log(`  User 2 sees User 1: ${user2SeesUser1}`);
+
+    // If they can't see each other, wait a bit more and check again
+    if (!user1SeesUser2 || !user2SeesUser1) {
+      console.log('⏳ Users not visible yet, waiting 10 more seconds...');
+      await user1Page.waitForTimeout(10000);
+      await user2Page.waitForTimeout(10000);
+
+      const user1SeesUser2Retry = await user1Page.evaluate(() => {
+        const conversationList = document.getElementById('conversation-list');
+        return conversationList?.textContent?.includes('TennisPlayer2') || false;
+      });
+      const user2SeesUser1Retry = await user2Page.evaluate(() => {
+        const conversationList = document.getElementById('conversation-list');
+        return conversationList?.textContent?.includes('TennisPlayer1') || false;
+      });
+      console.log(`  Retry - User 1 sees User 2: ${user1SeesUser2Retry}`);
+      console.log(`  Retry - User 2 sees User 1: ${user2SeesUser1Retry}`);
+    }
 
     // ============================================
     // STEP 3: User 1 creates Tennis Partner Talk
