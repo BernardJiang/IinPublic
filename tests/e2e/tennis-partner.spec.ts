@@ -370,23 +370,23 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     console.log('✅ Talk response modal opened');
 
     // Question 1: Do you play tennis? -> Answer "Yes"
-    console.log('  Answering Q1: Yes');
-    const q1YesBtn = user2Page.locator('button:has-text("Yes")').first();
+    console.log('  Answering Q1: Yes (with manual mode)');
+    const q1YesBtn = user2Page.locator('button.answer-manual-btn:has-text("Yes")').first();
     await q1YesBtn.click();
 
     await user2Page.waitForTimeout(500); // Wait for UI update
 
     // Question 2: What's your skill level? -> Answer "amateur"
-    console.log('  Answering Q2: amateur');
-    const q2AmateurBtn = user2Page.locator('button:has-text("amateur")');
+    console.log('  Answering Q2: amateur (with manual mode)');
+    const q2AmateurBtn = user2Page.locator('button.answer-manual-btn:has-text("amateur")');
     await q2AmateurBtn.waitFor({ state: 'visible', timeout: 5000 });
     await q2AmateurBtn.click();
 
     await user2Page.waitForTimeout(500);
 
     // Question 3: Are you available...? -> Answer "Yes" (Match!)
-    console.log('  Answering Q3: Yes (expecting match!)');
-    const q3YesBtn = user2Page.locator('button:has-text("Yes")').last();
+    console.log('  Answering Q3: Yes (expecting match!) (with manual mode)');
+    const q3YesBtn = user2Page.locator('button.answer-manual-btn:has-text("Yes")').last();
     await q3YesBtn.waitFor({ state: 'visible', timeout: 5000 });
     await q3YesBtn.click();
 
@@ -437,7 +437,7 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     await answerBtn2.click();
     await user2Page.waitForSelector('.modal-overlay', { timeout: 5000 });
 
-    const noBtn = user2Page.locator('button:has-text("No")').first();
+    const noBtn = user2Page.locator('button.answer-manual-btn:has-text("No")').first();
     await noBtn.click();
 
     // Check for ignore notification
@@ -494,21 +494,17 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     await ignoreButton.waitFor({ state: 'visible', timeout: 5000 });
     console.log('✅ Ignore button is present');
 
-    // Verify auto/manual radio buttons exist for the first answer
-    const autoRadio = user2Page.locator('input[type="radio"][value="auto"]').first();
-    const manualRadio = user2Page.locator('input[type="radio"][value="manual"]').first();
+    // Verify auto/manual buttons exist for the first answer
+    const autoBtn = user2Page.locator('button.answer-auto-btn:has-text("Yes")').first();
+    const manualBtn = user2Page.locator('button.answer-manual-btn:has-text("Yes")').first();
 
-    await autoRadio.waitFor({ state: 'visible', timeout: 5000 });
-    await manualRadio.waitFor({ state: 'visible', timeout: 5000 });
-    console.log('✅ Auto/Manual radio buttons are present');
+    await autoBtn.waitFor({ state: 'visible', timeout: 5000 });
+    await manualBtn.waitFor({ state: 'visible', timeout: 5000 });
+    console.log('✅ Auto/Manual buttons are present');
 
-    // Select Auto mode for "Yes" answer
-    await autoRadio.click();
-    console.log('✅ Selected Auto mode');
-
-    // Click Yes button
-    const yesBtn = user2Page.locator('button.answer-option-btn:has-text("Yes")').first();
-    await yesBtn.click();
+    // Click the auto button for "Yes" answer
+    await autoBtn.click();
+    console.log('✅ Clicked Auto button for Yes');
 
     // Should see match notification - use first() since there might be multiple notifications
     const matchNotification = user2Page.locator('.notification.success:has-text("Match")').first();

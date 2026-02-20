@@ -398,53 +398,63 @@ export class UIManager extends EventEmitter {
                 .map(
                   (answer: any) => `
                 <div style="margin-bottom: 15px;">
-                  <button 
-                    class="answer-option-btn"
-                    data-answer-id="${answer.id}"
-                    data-is-terminal="${answer.isTerminal || false}"
-                    data-is-ignore="${answer.isIgnore || false}"
-                    data-is-match="${answer.isMatch || false}"
-                    data-next-question-id="${answer.nextQuestionId || ''}"
-                    style="
-                      display: block;
-                      width: 100%;
-                      padding: 12px;
-                      margin-bottom: 8px;
-                      background: white;
-                      border: 2px solid #e0e0e0;
-                      border-radius: 8px;
-                      cursor: pointer;
-                      text-align: left;
-                      font-size: 1em;
-                      transition: all 0.2s;
-                    "
-                    onmouseover="this.style.background='#f5f5f5'; this.style.borderColor='#667eea';"
-                    onmouseout="this.style.background='white'; this.style.borderColor='#e0e0e0';"
-                  >
-                    ${this.escapeHtml(answer.text)}
-                  </button>
-                  <div style="display: flex; gap: 8px; padding-left: 12px;">
-                    <label style="display: flex; align-items: center; gap: 4px; font-size: 0.85em; color: #666;">
-                      <input 
-                        type="radio" 
-                        name="mode-${answer.id}" 
-                        value="auto"
-                        class="answer-mode-radio"
-                        data-answer-id="${answer.id}"
-                      >
-                      Auto
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 4px; font-size: 0.85em; color: #666;">
-                      <input 
-                        type="radio" 
-                        name="mode-${answer.id}" 
-                        value="manual"
-                        class="answer-mode-radio"
-                        data-answer-id="${answer.id}"
-                        checked
-                      >
-                      Manual
-                    </label>
+                  <div style="display: flex; gap: 8px; width: 100%;">
+                    <button 
+                      class="answer-option-btn answer-auto-btn"
+                      data-answer-id="${answer.id}"
+                      data-answer-mode="auto"
+                      data-is-terminal="${answer.isTerminal || false}"
+                      data-is-ignore="${answer.isIgnore || false}"
+                      data-is-match="${answer.isMatch || false}"
+                      data-next-question-id="${answer.nextQuestionId || ''}"
+                      style="
+                        flex: 1;
+                        padding: 12px;
+                        background: linear-gradient(135deg, #4ade80 0%, #4ade80 50%, #10b981 50%, #10b981 100%);
+                        border: 2px solid #10b981;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        text-align: center;
+                        font-size: 1em;
+                        font-weight: 500;
+                        color: white;
+                        transition: all 0.2s;
+                        position: relative;
+                      "
+                      onmouseover="this.style.transform='scale(1.03)'; this.style.boxShadow='0 4px 12px rgba(16, 185, 129, 0.3)';"
+                      onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='none';"
+                    >
+                      ${this.escapeHtml(answer.text)}
+                      <div style="font-size: 0.7em; opacity: 0.9; margin-top: 4px;">AUTO</div>
+                    </button>
+                    <button 
+                      class="answer-option-btn answer-manual-btn"
+                      data-answer-id="${answer.id}"
+                      data-answer-mode="manual"
+                      data-is-terminal="${answer.isTerminal || false}"
+                      data-is-ignore="${answer.isIgnore || false}"
+                      data-is-match="${answer.isMatch || false}"
+                      data-next-question-id="${answer.nextQuestionId || ''}"
+                      style="
+                        flex: 1;
+                        padding: 12px;
+                        background: linear-gradient(135deg, #f87171 0%, #f87171 50%, #dc2626 50%, #dc2626 100%);
+                        border: 2px solid #dc2626;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        text-align: center;
+                        font-size: 1em;
+                        font-weight: 500;
+                        color: white;
+                        transition: all 0.2s;
+                        position: relative;
+                      "
+                      onmouseover="this.style.transform='scale(1.03)'; this.style.boxShadow='0 4px 12px rgba(220, 38, 38, 0.3)';"
+                      onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='none';"
+                    >
+                      ${this.escapeHtml(answer.text)}
+                      <div style="font-size: 0.7em; opacity: 0.9; margin-top: 4px;">MANUAL</div>
+                    </button>
                   </div>
                 </div>
               `,
@@ -486,22 +496,14 @@ export class UIManager extends EventEmitter {
         btn.addEventListener('click', (e) => {
           const target = e.currentTarget as HTMLElement;
           const answerId = target.dataset.answerId!;
-          const answerText = target.textContent!.trim();
+          const answerText = target.textContent!.trim().replace(/\s*(AUTO|MANUAL)\s*$/, ''); // Remove AUTO/MANUAL label
           const isTerminal = target.dataset.isTerminal === 'true';
           const isIgnore = target.dataset.isIgnore === 'true';
           const isMatch = target.dataset.isMatch === 'true';
           const nextQuestionId = target.dataset.nextQuestionId;
 
-          // Get the selected mode (auto/manual) for this answer
-          let answerMode = 'manual'; // default
-          if (answerId !== 'ignore') {
-            const modeRadio = modal.querySelector(
-              `input[name="mode-${answerId}"]:checked`,
-            ) as HTMLInputElement;
-            if (modeRadio) {
-              answerMode = modeRadio.value;
-            }
-          }
+          // Get the answer mode from the button itself
+          const answerMode = target.dataset.answerMode || 'manual'; // default to manual
 
           // Record answer
           answers.push({
