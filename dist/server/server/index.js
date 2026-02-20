@@ -8,6 +8,7 @@ const http_1 = require("http");
 const socket_io_1 = require("socket.io");
 const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
+const gun_1 = __importDefault(require("gun"));
 const gun_service_1 = require("./services/gun-service");
 const chatroom_manager_1 = require("./services/chatroom-manager");
 const talk_service_1 = require("./services/talk-service");
@@ -17,6 +18,7 @@ class IinPublicServer {
     app;
     server;
     io;
+    gun;
     gunService;
     chatroomManager;
     talkService;
@@ -29,14 +31,24 @@ class IinPublicServer {
             cors: {
                 origin: process.env.NODE_ENV === 'production'
                     ? ['https://iinpublic.com']
-                    : ['http://localhost:3000'],
-                methods: ['GET', 'POST']
-            }
+                    : ['http://localhost:3000', 'http://localhost:3001'],
+                methods: ['GET', 'POST'],
+            },
         });
         this.setupMiddleware();
+        this.setupGun();
         this.initializeServices();
         this.setupRoutes();
         this.setupSocketHandlers();
+    }
+    setupGun() {
+        // Initialize Gun and attach to HTTP server
+        this.gun = (0, gun_1.default)({
+            web: this.server,
+            localStorage: false, // Server doesn't need localStorage
+            radisk: true, // Enable disk persistence on server
+        });
+        console.log('🔫 Gun.js attached to HTTP server');
     }
     setupMiddleware() {
         this.app.use((0, helmet_1.default)({
@@ -45,28 +57,30 @@ class IinPublicServer {
                     defaultSrc: ["'self'"],
                     styleSrc: ["'self'", "'unsafe-inline'"],
                     scriptSrc: ["'self'", "'unsafe-eval'"], // Gun.js needs eval
-                    imgSrc: ["'self'", "data:", "https:"],
-                    connectSrc: ["'self'", "ws:", "wss:"]
-                }
-            }
+                    imgSrc: ["'self'", 'data:', 'https:'],
+                    connectSrc: ["'self'", 'ws:', 'wss:'],
+                },
+            },
         }));
         this.app.use((0, cors_1.default)({
             origin: process.env.NODE_ENV === 'production'
                 ? ['https://iinpublic.com']
-                : ['http://localhost:3000'],
-            credentials: true
+                : ['http://localhost:3000', 'http://localhost:3001'],
+            credentials: true,
         }));
         this.app.use(express_1.default.json({ limit: '10mb' }));
         this.app.use(express_1.default.urlencoded({ extended: true }));
-        // Gun.js middleware - simplified for now
-        // this.app.use(Gun.serve);
+        // Serve static files from project root (for gun-test.html)
+        this.app.use(express_1.default.static('.'));
+        // Gun.js HTTP endpoint - served by Gun({ web: this.server })
+        this.app.use(gun_1.default.serve);
     }
     initializeServices() {
-        this.gunService = new gun_service_1.GunService();
+        this.gunService = new gun_service_1.GunService(this.gun); // Pass the Gun instance
         this.userService = new user_service_1.UserService(this.gunService);
         this.reputationService = new reputation_service_1.ReputationService(this.gunService);
         this.chatroomManager = new chatroom_manager_1.ChatroomManager(this.gunService);
-        this.talkService = new talk_service_1.TalkService(this.gunService, this.reputationService);
+        this.talkService = new talk_service_1.TalkService(this.gunService, this.chatroomManager);
     }
     setupRoutes() {
         // Health check
@@ -206,7 +220,7 @@ class IinPublicServer {
                     if (result.isComplete) {
                         socket.emit('talk_completed', {
                             conversationId: data.conversationId,
-                            result: result.outcome
+                            result: result.outcome,
                         });
                     }
                 }

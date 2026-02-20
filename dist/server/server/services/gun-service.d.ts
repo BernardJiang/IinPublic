@@ -1,7 +1,7 @@
 export declare class GunService {
     private gun;
     private peers;
-    constructor();
+    constructor(existingGunInstance?: any);
     private setupEventHandlers;
     /**
      * Get Gun instance for direct access

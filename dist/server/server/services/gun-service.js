@@ -8,16 +8,26 @@ const gun_1 = __importDefault(require("gun"));
 class GunService {
     gun;
     peers;
-    constructor() {
-        this.peers = process.env.GUN_PEERS
-            ? process.env.GUN_PEERS.split(',')
-            : ['http://localhost:8080/gun'];
-        this.gun = (0, gun_1.default)({
-            peers: this.peers,
-            localStorage: false, // Server-side, no localStorage
-            radisk: true, // Enable persistent storage
-            file: process.env.GUN_DATA_FILE || 'data.json'
-        });
+    constructor(existingGunInstance) {
+        if (existingGunInstance) {
+            // Use the provided Gun instance (from HTTP server)
+            this.gun = existingGunInstance;
+            this.peers = [];
+            console.log('✅ GunService using existing Gun instance from HTTP server');
+        }
+        else {
+            // Create new Gun instance (for standalone use)
+            this.peers = process.env.GUN_PEERS
+                ? process.env.GUN_PEERS.split(',')
+                : ['http://localhost:8080/gun'];
+            this.gun = (0, gun_1.default)({
+                peers: this.peers,
+                localStorage: false, // Server-side, no localStorage
+                radisk: true, // Enable persistent storage
+                file: process.env.GUN_DATA_FILE || 'data.json',
+            });
+            console.log('✅ GunService created new Gun instance');
+        }
         this.setupEventHandlers();
     }
     setupEventHandlers() {
@@ -94,7 +104,10 @@ class GunService {
     async getSet(setKey) {
         return new Promise((resolve) => {
             const items = [];
-            this.gun.get(setKey).map().once((data, _key) => {
+            this.gun
+                .get(setKey)
+                .map()
+                .once((data, _key) => {
                 if (data) {
                     items.push({ ...data, _key });
                 }
@@ -108,7 +121,10 @@ class GunService {
      */
     async removeFromSet(setKey, itemKey) {
         return new Promise((resolve, reject) => {
-            this.gun.get(setKey).get(itemKey).put(null, (ack) => {
+            this.gun
+                .get(setKey)
+                .get(itemKey)
+                .put(null, (ack) => {
                 if (ack.err) {
                     reject(new Error(ack.err));
                 }
@@ -126,7 +142,7 @@ class GunService {
         // For now, return a mock implementation
         return {
             pub: 'mock_public_key_' + Date.now(),
-            priv: 'mock_private_key_' + Date.now()
+            priv: 'mock_private_key_' + Date.now(),
         };
     }
     /**
@@ -135,7 +151,7 @@ class GunService {
     getNetworkStats() {
         return {
             peers: this.gun._.opt.peers,
-            connected: Object.keys(this.gun._.opt.mesh.hi || {}).length
+            connected: Object.keys(this.gun._.opt.mesh.hi || {}).length,
         };
     }
     /**

@@ -26,8 +26,11 @@ export class UIManager extends EventEmitter {
             <p>Loading conversations...</p>
           </div>
           <div style="padding: 10px; border-top: 1px solid #e0e0e0;">
-            <button class="btn" id="create-talk-btn" style="width: 100%; background: #667eea; color: white; padding: 10px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+            <button class="btn" id="create-talk-btn" style="width: 100%; background: #667eea; color: white; padding: 10px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; margin-bottom: 8px;">
               ➕ Create Talk
+            </button>
+            <button class="btn" id="view-preferences-btn" style="width: 100%; background: #48bb78; color: white; padding: 10px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+              ⚙️ My Preferences
             </button>
           </div>
         </div>
@@ -94,6 +97,13 @@ export class UIManager extends EventEmitter {
     if (createTalkBtn) {
       createTalkBtn.addEventListener('click', () => {
         this.showTalkEditorDialog();
+      });
+    }
+
+    const viewPreferencesBtn = document.getElementById('view-preferences-btn');
+    if (viewPreferencesBtn) {
+      viewPreferencesBtn.addEventListener('click', () => {
+        this.showPreferencesDialog();
       });
     }
   }
@@ -311,6 +321,64 @@ export class UIManager extends EventEmitter {
         return;
       }
 
+      // Check if there's a saved preference for this question
+      const savedPreference = this.getAnswerPreference(talk.id, currentQuestion.id);
+      if (savedPreference && savedPreference.mode === 'auto') {
+        // Auto-answer with saved preference
+        console.log('🤖 Auto-answering with saved preference:', savedPreference.answerText);
+
+        // Find the answer object
+        const answer = currentQuestion.answers.find((a: any) => a.id === savedPreference.answerId);
+        if (answer) {
+          // Record the answer
+          answers.push({
+            questionId: currentQuestion.id,
+            answerId: savedPreference.answerId,
+            answerText: savedPreference.answerText,
+          });
+
+          // Handle the answer (same logic as manual click)
+          if (answer.isIgnore) {
+            this.showNotification('Talk ignored - no match (auto)', 'info');
+            if (document.body.contains(modal)) {
+              document.body.removeChild(modal);
+            }
+            return;
+          } else if (answer.isMatch) {
+            this.completeTalk(talk, answers);
+            this.showNotification('Match! You both noticed each other. (auto)', 'success');
+            if (document.body.contains(modal)) {
+              document.body.removeChild(modal);
+            }
+            return;
+          } else if (answer.isTerminal) {
+            this.completeTalk(talk, answers);
+            if (document.body.contains(modal)) {
+              document.body.removeChild(modal);
+            }
+            return;
+          } else if (answer.nextQuestionId) {
+            currentQuestion = talk.questions.find((q: any) => q.id === answer.nextQuestionId);
+            if (currentQuestion) {
+              renderQuestion();
+            } else {
+              console.warn('Next question not found:', answer.nextQuestionId);
+              this.completeTalk(talk, answers);
+              if (document.body.contains(modal)) {
+                document.body.removeChild(modal);
+              }
+            }
+            return;
+          } else {
+            this.completeTalk(talk, answers);
+            if (document.body.contains(modal)) {
+              document.body.removeChild(modal);
+            }
+            return;
+          }
+        }
+      }
+
       const currentQuestionIndex = talk.questions.findIndex(
         (q: any) => q.id === currentQuestion.id,
       );
@@ -329,34 +397,85 @@ export class UIManager extends EventEmitter {
               ${currentQuestion.answers
                 .map(
                   (answer: any) => `
-                <button 
-                  class="answer-option-btn"
-                  data-answer-id="${answer.id}"
-                  data-is-terminal="${answer.isTerminal || false}"
-                  data-is-ignore="${answer.isIgnore || false}"
-                  data-is-match="${answer.isMatch || false}"
-                  data-next-question-id="${answer.nextQuestionId || ''}"
-                  style="
-                    display: block;
-                    width: 100%;
-                    padding: 12px;
-                    margin-bottom: 10px;
-                    background: white;
-                    border: 2px solid #e0e0e0;
-                    border-radius: 8px;
-                    cursor: pointer;
-                    text-align: left;
-                    font-size: 1em;
-                    transition: all 0.2s;
-                  "
-                  onmouseover="this.style.background='#f5f5f5'; this.style.borderColor='#667eea';"
-                  onmouseout="this.style.background='white'; this.style.borderColor='#e0e0e0';"
-                >
-                  ${this.escapeHtml(answer.text)}
-                </button>
+                <div style="margin-bottom: 15px;">
+                  <button 
+                    class="answer-option-btn"
+                    data-answer-id="${answer.id}"
+                    data-is-terminal="${answer.isTerminal || false}"
+                    data-is-ignore="${answer.isIgnore || false}"
+                    data-is-match="${answer.isMatch || false}"
+                    data-next-question-id="${answer.nextQuestionId || ''}"
+                    style="
+                      display: block;
+                      width: 100%;
+                      padding: 12px;
+                      margin-bottom: 8px;
+                      background: white;
+                      border: 2px solid #e0e0e0;
+                      border-radius: 8px;
+                      cursor: pointer;
+                      text-align: left;
+                      font-size: 1em;
+                      transition: all 0.2s;
+                    "
+                    onmouseover="this.style.background='#f5f5f5'; this.style.borderColor='#667eea';"
+                    onmouseout="this.style.background='white'; this.style.borderColor='#e0e0e0';"
+                  >
+                    ${this.escapeHtml(answer.text)}
+                  </button>
+                  <div style="display: flex; gap: 8px; padding-left: 12px;">
+                    <label style="display: flex; align-items: center; gap: 4px; font-size: 0.85em; color: #666;">
+                      <input 
+                        type="radio" 
+                        name="mode-${answer.id}" 
+                        value="auto"
+                        class="answer-mode-radio"
+                        data-answer-id="${answer.id}"
+                      >
+                      Auto
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 4px; font-size: 0.85em; color: #666;">
+                      <input 
+                        type="radio" 
+                        name="mode-${answer.id}" 
+                        value="manual"
+                        class="answer-mode-radio"
+                        data-answer-id="${answer.id}"
+                        checked
+                      >
+                      Manual
+                    </label>
+                  </div>
+                </div>
               `,
                 )
                 .join('')}
+              <button 
+                class="answer-option-btn ignore-btn"
+                data-answer-id="ignore"
+                data-is-terminal="false"
+                data-is-ignore="true"
+                data-is-match="false"
+                data-next-question-id=""
+                style="
+                  display: block;
+                  width: 100%;
+                  padding: 12px;
+                  margin-top: 10px;
+                  background: #f5f5f5;
+                  border: 2px solid #999;
+                  border-radius: 8px;
+                  cursor: pointer;
+                  text-align: center;
+                  font-size: 1em;
+                  color: #666;
+                  transition: all 0.2s;
+                "
+                onmouseover="this.style.background='#e0e0e0'; this.style.borderColor='#666';"
+                onmouseout="this.style.background='#f5f5f5'; this.style.borderColor='#999';"
+              >
+                Ignore this talk
+              </button>
             </div>
           </div>
         </div>
@@ -373,12 +492,28 @@ export class UIManager extends EventEmitter {
           const isMatch = target.dataset.isMatch === 'true';
           const nextQuestionId = target.dataset.nextQuestionId;
 
+          // Get the selected mode (auto/manual) for this answer
+          let answerMode = 'manual'; // default
+          if (answerId !== 'ignore') {
+            const modeRadio = modal.querySelector(
+              `input[name="mode-${answerId}"]:checked`,
+            ) as HTMLInputElement;
+            if (modeRadio) {
+              answerMode = modeRadio.value;
+            }
+          }
+
           // Record answer
           answers.push({
             questionId: currentQuestion.id,
             answerId,
             answerText,
           });
+
+          // Save preference if mode is auto
+          if (answerMode === 'auto') {
+            this.saveAnswerPreference(talk.id, currentQuestion.id, answerId, answerText);
+          }
 
           if (isIgnore) {
             // User chose to ignore
@@ -442,6 +577,160 @@ export class UIManager extends EventEmitter {
         : 'Survey response submitted! Thank you.',
       'success',
     );
+  }
+
+  private saveAnswerPreference(
+    talkId: string,
+    questionId: string,
+    answerId: string,
+    answerText: string,
+  ): void {
+    const preferences = this.getAnswerPreferences();
+    // Use question text as key instead of talkId+questionId so preferences work across different talks
+    const key = `${questionId}`;
+    preferences[key] = { answerId, answerText, mode: 'auto', talkId };
+    localStorage.setItem('answerPreferences', JSON.stringify(preferences));
+    console.log('💾 Saved answer preference:', key, answerText);
+  }
+
+  private getAnswerPreferences(): Record<
+    string,
+    { answerId: string; answerText: string; mode: string; talkId?: string }
+  > {
+    const stored = localStorage.getItem('answerPreferences');
+    return stored ? JSON.parse(stored) : {};
+  }
+
+  private getAnswerPreference(
+    _talkId: string,
+    questionId: string,
+  ): { answerId: string; answerText: string; mode: string } | null {
+    const preferences = this.getAnswerPreferences();
+    // Try question ID only first (works across different talks with same question)
+    const key = `${questionId}`;
+    return preferences[key] || null;
+  }
+
+  showPreferencesDialog(): void {
+    const preferences = this.getAnswerPreferences();
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'preferences-modal';
+
+    const preferenceEntries = Object.entries(preferences);
+
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+          <h2 class="modal-title">My Answer Preferences</h2>
+          <button class="close-button" id="close-preferences-modal" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">&times;</button>
+        </div>
+        <div style="padding: 20px;">
+          ${
+            preferenceEntries.length === 0
+              ? '<p style="text-align: center; color: #666;">No saved preferences yet. When you select "Auto" mode for an answer, it will be saved here.</p>'
+              : `
+            <p style="margin-bottom: 15px; color: #666;">You have ${preferenceEntries.length} saved answer preference(s). These will be used automatically next time you encounter these questions.</p>
+            <div style="max-height: 400px; overflow-y: auto;">
+              ${preferenceEntries
+                .map(
+                  ([key, pref]) => `
+                  <div class="preference-item" style="background: #f9f9f9; border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; margin-bottom: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: start;">
+                      <div style="flex: 1;">
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 4px;">
+                          Question ID: ${this.escapeHtml(key)}
+                        </div>
+                        <div style="font-weight: 600; margin-bottom: 4px;">
+                          Answer: ${this.escapeHtml(pref.answerText)}
+                        </div>
+                        <div style="font-size: 0.85em; color: #48bb78;">
+                          Mode: Auto
+                        </div>
+                      </div>
+                      <button 
+                        class="delete-pref-btn" 
+                        data-pref-key="${key}"
+                        style="background: #e53e3e; color: white; border: none; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-size: 0.85em; white-space: nowrap;"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                `,
+                )
+                .join('')}
+            </div>
+            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
+              <button 
+                id="clear-all-prefs-btn"
+                style="background: #e53e3e; color: white; border: none; border-radius: 8px; padding: 10px 20px; cursor: pointer; font-weight: 600;"
+              >
+                Clear All Preferences
+              </button>
+            </div>
+          `
+          }
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Close button handler
+    const closeBtn = document.getElementById('close-preferences-modal');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        if (document.body.contains(modal)) {
+          document.body.removeChild(modal);
+        }
+      });
+    }
+
+    // Delete individual preference handlers
+    modal.querySelectorAll('.delete-pref-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        const target = e.currentTarget as HTMLElement;
+        const key = target.dataset.prefKey!;
+        this.deleteAnswerPreference(key);
+        // Refresh the dialog
+        if (document.body.contains(modal)) {
+          document.body.removeChild(modal);
+        }
+        this.showPreferencesDialog();
+        this.showNotification('Preference deleted', 'success');
+      });
+    });
+
+    // Clear all button handler
+    const clearAllBtn = document.getElementById('clear-all-prefs-btn');
+    if (clearAllBtn) {
+      clearAllBtn.addEventListener('click', () => {
+        if (confirm('Are you sure you want to clear all saved preferences?')) {
+          localStorage.removeItem('answerPreferences');
+          if (document.body.contains(modal)) {
+            document.body.removeChild(modal);
+          }
+          this.showPreferencesDialog();
+          this.showNotification('All preferences cleared', 'success');
+        }
+      });
+    }
+
+    // Close on overlay click
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        if (document.body.contains(modal)) {
+          document.body.removeChild(modal);
+        }
+      }
+    });
+  }
+
+  private deleteAnswerPreference(key: string): void {
+    const preferences = this.getAnswerPreferences();
+    delete preferences[key];
+    localStorage.setItem('answerPreferences', JSON.stringify(preferences));
   }
 
   showNotification(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info'): void {

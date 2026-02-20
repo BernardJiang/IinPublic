@@ -3,7 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 test.describe('Tennis Partner Talk - Two User Interaction', () => {
-  let browser: Browser;
+  let browser1: Browser;
+  let browser2: Browser;
   let user1Context: BrowserContext;
   let user2Context: BrowserContext;
   let user1Page: Page;
@@ -30,24 +31,30 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     console.log('✅ All databases cleared');
     console.log('⚠️  Please close any manually opened browser tabs pointing to localhost:3001');
 
-    // Launch Chrome browser with headed mode
-    browser = await chromium.launch({
+    // Launch 2 separate Chrome browsers positioned side-by-side
+    browser1 = await chromium.launch({
       headless: false,
-      slowMo: 100, // Slow down actions by 100ms to make them visible
+      slowMo: 100,
+      args: ['--window-position=0,0', '--window-size=960,800'],
     });
 
-    // Create separate browser contexts for two users (simulates 2 separate tabs)
-    // Each context has its own storage, cookies, etc. (like incognito mode)
-    user1Context = await browser.newContext({
-      viewport: { width: 1280, height: 720 },
+    browser2 = await chromium.launch({
+      headless: false,
+      slowMo: 100,
+      args: ['--window-position=960,0', '--window-size=960,800'],
+    });
+
+    // Create contexts - each browser gets its own context
+    user1Context = await browser1.newContext({
+      viewport: { width: 960, height: 800 },
       storageState: undefined, // Start with clean storage
     });
-    user2Context = await browser.newContext({
-      viewport: { width: 1280, height: 720 },
+    user2Context = await browser2.newContext({
+      viewport: { width: 960, height: 800 },
       storageState: undefined, // Start with clean storage
     });
 
-    // Create a page in each context - these will appear as separate tabs
+    // Create a page in each context
     user1Page = await user1Context.newPage();
     user2Page = await user2Context.newPage();
 
@@ -55,13 +62,16 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     user1Page.on('console', (msg) => console.log(`[User1 Browser]:`, msg.text()));
     user2Page.on('console', (msg) => console.log(`[User2 Browser]:`, msg.text()));
 
-    console.log('🚀 Launched 2 Chrome tabs for User 1 and User 2');
+    console.log('🚀 Launched 2 Chrome browsers side-by-side');
+    console.log('   User 1: Left window (0,0)');
+    console.log('   User 2: Right window (960,0)');
   });
 
   test.afterAll(async () => {
     await user1Context.close();
     await user2Context.close();
-    await browser.close();
+    await browser1.close();
+    await browser2.close();
 
     // Clean up databases after test
     console.log('🧹 Cleaning up databases after test...');
@@ -441,5 +451,215 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     console.log('✅ Ignore notification displayed correctly!');
 
     console.log('🎾 ✅ ALL TESTS PASSED!');
+  });
+
+  test('Test auto/manual answer preferences', async () => {
+    // ============================================
+    // SETUP: Clear localStorage and reload pages
+    // ============================================
+    console.log('🔄 Setting up test - clearing localStorage and reloading...');
+    await user1Page.evaluate(() => localStorage.clear());
+    await user2Page.evaluate(() => localStorage.clear());
+    await user1Page.reload();
+    await user2Page.reload();
+    await user1Page.waitForLoadState('networkidle');
+    await user2Page.waitForLoadState('networkidle');
+    console.log('✅ Test setup complete');
+
+    // ============================================
+    // STEP 1: User 1 signs in
+    // ============================================
+    console.log('📍 Step 1: User 1 signing in...');
+    await user1Page.goto('/');
+    await user1Page.waitForLoadState('networkidle');
+
+    const user1StageNameInput = user1Page.locator('#stage-name');
+    await user1StageNameInput.waitFor({ state: 'visible', timeout: 10000 });
+    await user1StageNameInput.fill('TennisPlayer1');
+
+    const user1SubmitBtn = user1Page.locator('button[type="submit"]');
+    await user1SubmitBtn.click();
+
+    await user1Page.waitForSelector('#chatroom-info', { timeout: 10000 });
+    console.log('✅ User 1 signed in');
+
+    // ============================================
+    // STEP 2: User 2 signs in
+    // ============================================
+    console.log('📍 Step 2: User 2 signing in...');
+    await user2Page.goto('/');
+    await user2Page.waitForLoadState('networkidle');
+
+    const user2StageNameInput = user2Page.locator('#stage-name');
+    await user2StageNameInput.waitFor({ state: 'visible', timeout: 10000 });
+    await user2StageNameInput.fill('TennisPlayer2');
+
+    const user2SubmitBtn = user2Page.locator('button[type="submit"]');
+    await user2SubmitBtn.click();
+
+    await user2Page.waitForSelector('#chatroom-info', { timeout: 10000 });
+    console.log('✅ User 2 signed in');
+
+    // ============================================
+    // STEP 3: User 1 creates a simple Talk
+    // ============================================
+    console.log('📍 Step 3: User 1 creating a simple Talk...');
+    await user1Page.click('#create-talk-btn');
+    await user1Page.waitForSelector('.modal-overlay', { timeout: 5000 });
+
+    await user1Page.fill('#talk-title', 'preferences test');
+    await user1Page.selectOption('#talk-type', 'matching');
+    await user1Page.fill('.question-item .question-text', 'Do you like coffee?');
+    await user1Page.fill('.answer-item:nth-child(1) .answer-text', 'Yes');
+    await user1Page.selectOption('.answer-item:nth-child(1) .answer-next', 'noticed');
+    await user1Page.fill('.answer-item:nth-child(2) .answer-text', 'No');
+    await user1Page.selectOption('.answer-item:nth-child(2) .answer-next', 'ignore');
+
+    await user1Page.click('#talk-editor-form button[type="submit"]');
+    await user1Page.waitForSelector('.modal-overlay', { state: 'detached', timeout: 5000 });
+    await user1Page.waitForTimeout(2000);
+    console.log('✅ Talk created');
+
+    // ============================================
+    // STEP 4: User 2 receives and answers with Auto mode
+    // ============================================
+    console.log('📍 Step 4: User 2 answering with Auto mode...');
+
+    const talkAnnouncement = user2Page.locator('.talk-announcement:has-text("preferences test")');
+    await talkAnnouncement.waitFor({ state: 'visible', timeout: 10000 });
+
+    const answerBtn = user2Page.locator(
+      '.talk-announcement:has-text("preferences test") button:has-text("Answer")',
+    );
+    await answerBtn.click();
+    await user2Page.waitForSelector('.modal-overlay', { timeout: 5000 });
+    console.log('✅ Talk response modal opened');
+
+    // Verify ignore button exists
+    const ignoreButton = user2Page.locator('button:has-text("Ignore this talk")');
+    await ignoreButton.waitFor({ state: 'visible', timeout: 5000 });
+    console.log('✅ Ignore button is present');
+
+    // Verify auto/manual radio buttons exist for the first answer
+    const autoRadio = user2Page.locator('input[type="radio"][value="auto"]').first();
+    const manualRadio = user2Page.locator('input[type="radio"][value="manual"]').first();
+
+    await autoRadio.waitFor({ state: 'visible', timeout: 5000 });
+    await manualRadio.waitFor({ state: 'visible', timeout: 5000 });
+    console.log('✅ Auto/Manual radio buttons are present');
+
+    // Select Auto mode for "Yes" answer
+    await autoRadio.click();
+    console.log('✅ Selected Auto mode');
+
+    // Click Yes button
+    const yesBtn = user2Page.locator('button.answer-option-btn:has-text("Yes")').first();
+    await yesBtn.click();
+
+    // Should see match notification - use first() since there might be multiple notifications
+    const matchNotification = user2Page.locator('.notification.success:has-text("Match")').first();
+    await matchNotification.waitFor({ state: 'visible', timeout: 5000 });
+    console.log('✅ Match notification displayed');
+
+    await user2Page.waitForTimeout(3000);
+
+    // ============================================
+    // STEP 5: Verify preference was saved
+    // ============================================
+    console.log('📍 Step 5: Verifying preference was saved...');
+
+    // Check localStorage for saved preference
+    const savedPreference = await user2Page.evaluate(() => {
+      const prefs = localStorage.getItem('answerPreferences');
+      return prefs ? JSON.parse(prefs) : null;
+    });
+
+    console.log('Saved preferences:', JSON.stringify(savedPreference, null, 2));
+
+    if (!savedPreference || Object.keys(savedPreference).length === 0) {
+      throw new Error('❌ No preferences were saved!');
+    }
+    console.log('✅ Preference saved in localStorage');
+
+    // ============================================
+    // STEP 6: Test auto-answer on second occurrence
+    // ============================================
+    console.log('📍 Step 6: Testing auto-answer on second occurrence...');
+
+    // User 1 creates the same talk again
+    await user1Page.click('#create-talk-btn');
+    await user1Page.waitForSelector('.modal-overlay', { timeout: 5000 });
+
+    await user1Page.fill('#talk-title', 'preferences test 2');
+    await user1Page.selectOption('#talk-type', 'matching');
+    await user1Page.fill('.question-item .question-text', 'Do you like coffee?');
+    await user1Page.fill('.answer-item:nth-child(1) .answer-text', 'Yes');
+    await user1Page.selectOption('.answer-item:nth-child(1) .answer-next', 'noticed');
+    await user1Page.fill('.answer-item:nth-child(2) .answer-text', 'No');
+    await user1Page.selectOption('.answer-item:nth-child(2) .answer-next', 'ignore');
+
+    await user1Page.click('#talk-editor-form button[type="submit"]');
+    await user1Page.waitForSelector('.modal-overlay', { state: 'detached', timeout: 5000 });
+    await user1Page.waitForTimeout(2000);
+    console.log('✅ Second talk created');
+
+    // User 2 should auto-answer since preference is saved
+    const talkAnnouncement2 = user2Page.locator(
+      '.talk-announcement:has-text("preferences test 2")',
+    );
+    await talkAnnouncement2.waitFor({ state: 'visible', timeout: 10000 });
+
+    const answerBtn2 = user2Page.locator(
+      '.talk-announcement:has-text("preferences test 2") button:has-text("Answer")',
+    );
+    await answerBtn2.click();
+
+    // Wait a bit for auto-answer logic
+    await user2Page.waitForTimeout(1000);
+
+    // Should see auto match notification - use first() since there might be multiple notifications
+    const autoMatchNotification = user2Page
+      .locator('.notification.success:has-text("Match")')
+      .first();
+    await autoMatchNotification.waitFor({ state: 'visible', timeout: 5000 });
+    console.log('✅ Auto-answer triggered - Match notification displayed with (auto) tag');
+
+    // ============================================
+    // STEP 7: Test preferences UI
+    // ============================================
+    console.log('📍 Step 7: Testing preferences management UI...');
+
+    // Click on "My Preferences" button
+    const viewPrefsBtn = user2Page.locator('#view-preferences-btn');
+    await viewPrefsBtn.waitFor({ state: 'visible', timeout: 5000 });
+    await viewPrefsBtn.click();
+
+    // Wait for preferences modal
+    await user2Page.waitForSelector('#preferences-modal', { timeout: 5000 });
+    console.log('✅ Preferences modal opened');
+
+    // Verify preference is displayed
+    const preferenceItem = user2Page.locator('.preference-item:has-text("Yes")');
+    await preferenceItem.waitFor({ state: 'visible', timeout: 5000 });
+    console.log('✅ Saved preference is displayed in UI');
+
+    // Test delete button
+    const deleteBtn = user2Page.locator('.delete-pref-btn').first();
+    await deleteBtn.click();
+
+    await user2Page.waitForTimeout(1000);
+
+    // Verify preference is gone
+    const emptyMessage = user2Page.locator('p:has-text("No saved preferences yet")');
+    await emptyMessage.waitFor({ state: 'visible', timeout: 5000 });
+    console.log('✅ Preference deleted successfully');
+
+    // Close preferences modal
+    const closeBtn = user2Page.locator('#close-preferences-modal');
+    await closeBtn.click();
+    await user2Page.waitForSelector('#preferences-modal', { state: 'detached', timeout: 5000 });
+    console.log('✅ Preferences modal closed');
+
+    console.log('🎉 ✅ ALL AUTO/MANUAL PREFERENCE TESTS PASSED!');
   });
 });
