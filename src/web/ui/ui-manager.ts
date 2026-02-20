@@ -63,8 +63,13 @@ export class UIManager extends EventEmitter {
           <!-- Talks View -->
           <div class="view-panel" id="talks-view">
             <div class="view-content">
-              <div class="conversation-list" id="conversation-list">
-                <p style="text-align: center; padding: 20px; color: #999;">Loading talk announcements...</p>
+              <div class="talks-header">
+                <button class="btn create-talk-btn" id="create-talk-btn-talks">
+                  ➕ Create New Talk
+                </button>
+              </div>
+              <div class="talks-list" id="talks-list">
+                <p style="text-align: center; padding: 40px 20px; color: #999;">No talks yet. Create your first talk!</p>
               </div>
             </div>
           </div>
@@ -160,6 +165,14 @@ export class UIManager extends EventEmitter {
       });
     }
 
+    // Create talk button in Talks view
+    const createTalkBtnTalks = document.getElementById('create-talk-btn-talks');
+    if (createTalkBtnTalks) {
+      createTalkBtnTalks.addEventListener('click', () => {
+        this.showTalkEditorDialog();
+      });
+    }
+
     const viewMyTalksBtn = document.getElementById('view-my-talks-btn');
     if (viewMyTalksBtn) {
       viewMyTalksBtn.addEventListener('click', () => {
@@ -247,6 +260,11 @@ export class UIManager extends EventEmitter {
         // Special handling for chatrooms view
         if (targetView === 'chatrooms') {
           this.showChatroomList();
+        }
+
+        // Special handling for talks view
+        if (targetView === 'talks') {
+          this.displayTalksList();
         }
       });
     });
@@ -404,6 +422,82 @@ export class UIManager extends EventEmitter {
       // Trigger update of chatroom members
       // This will be populated by updateChatroomMembers() when called from the app
       this.emit('chatroomChanged', chatroomId);
+    }
+  }
+
+  displayTalksList(): void {
+    const talksList = document.getElementById('talks-list');
+    if (!talksList) return;
+
+    const myTalks = this.getMyTalks();
+    const talkEntries = Object.entries(myTalks).sort(
+      ([, a]: [string, any], [, b]: [string, any]) =>
+        new Date(b.lastInteraction).getTime() - new Date(a.lastInteraction).getTime(),
+    );
+
+    if (talkEntries.length === 0) {
+      talksList.innerHTML = `
+        <div class="empty-state" style="padding: 60px 20px; text-align: center;">
+          <div style="font-size: 3em; margin-bottom: 16px;">💬</div>
+          <p style="font-size: 1.2em; color: #666; margin-bottom: 8px;">No talks yet</p>
+          <p style="font-size: 0.9em; color: #999;">Create your first talk to get started!</p>
+        </div>
+      `;
+    } else {
+      talksList.innerHTML = talkEntries
+        .map(
+          ([talkId, talk]) => `
+        <div class="talk-list-item" data-talk-id="${talkId}">
+          <div class="talk-item-header">
+            <div class="talk-item-title">${this.escapeHtml(talk.title)}</div>
+            <div class="talk-item-badges">
+              <span class="talk-badge talk-badge-${talk.role === 'created' ? 'created' : 'answered'}">
+                ${talk.role === 'created' ? '📝 Created' : '✅ Answered'}
+              </span>
+              <span class="talk-badge talk-badge-type">${talk.type}</span>
+            </div>
+          </div>
+          <div class="talk-item-meta">
+            <span class="talk-item-time">${this.formatTimeAgo(new Date(talk.lastInteraction))}</span>
+          </div>
+        </div>
+      `,
+        )
+        .join('');
+
+      // Add click handlers to talk items
+      talksList.querySelectorAll('.talk-list-item').forEach((item) => {
+        item.addEventListener('click', () => {
+          const talkId = (item as HTMLElement).dataset.talkId;
+          if (talkId) {
+            this.showTalkDetail(talkId);
+          }
+        });
+      });
+    }
+  }
+
+  private formatTimeAgo(date: Date): string {
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  }
+
+  private showTalkDetail(talkId: string): void {
+    // For now, show a simple notification
+    // Later this can open a detailed view of the talk with responses
+    const myTalks = this.getMyTalks();
+    const talk = myTalks[talkId];
+    if (talk) {
+      this.showNotification(`Talk: ${talk.title}`, 'info');
     }
   }
 
@@ -1234,6 +1328,12 @@ export class UIManager extends EventEmitter {
       lastInteraction: new Date().toISOString(),
     };
     localStorage.setItem('myTalks', JSON.stringify(myTalks));
+
+    // Refresh talks list if currently viewing Talks tab
+    const talksView = document.getElementById('talks-view');
+    if (talksView && talksView.classList.contains('active')) {
+      this.displayTalksList();
+    }
   }
 
   private getMyTalks(): Record<string, any> {
@@ -1372,6 +1472,12 @@ export class UIManager extends EventEmitter {
     const myTalks = this.getMyTalks();
     delete myTalks[talkId];
     localStorage.setItem('myTalks', JSON.stringify(myTalks));
+
+    // Refresh talks list if currently viewing Talks tab
+    const talksView = document.getElementById('talks-view');
+    if (talksView && talksView.classList.contains('active')) {
+      this.displayTalksList();
+    }
   }
 
   showNotification(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info'): void {
@@ -1746,51 +1852,10 @@ export class UIManager extends EventEmitter {
     members: Array<{ userId: string; stageName: string }>,
     currentUserId: string,
   ): void {
-    const conversationList = document.getElementById('conversation-list');
     const chatroomMembersList = document.getElementById('chatroom-members-list');
     const chatroomStatus = document.getElementById('current-chatroom-status');
 
     const otherMembers = members.filter((member) => member.userId !== currentUserId);
-
-    // Update Talks view (conversation-list)
-    if (conversationList) {
-      if (otherMembers.length === 0) {
-        conversationList.innerHTML = `
-          <div class="empty-state">
-            <p>No other users in this chatroom yet.</p>
-            <p style="font-size: 0.9em; color: #666;">Waiting for others to join...</p>
-          </div>
-        `;
-      } else {
-        conversationList.innerHTML = `
-          <h3 style="padding: 10px; color: #666; font-size: 0.9em;">Online Users (${otherMembers.length})</h3>
-          ${otherMembers
-            .map(
-              (member) => `
-            <div class="user-item" data-user-id="${member.userId}">
-              <div class="user-avatar">${member.stageName.charAt(0).toUpperCase()}</div>
-              <div class="user-details">
-                <div class="user-name">${member.stageName}</div>
-                <div class="user-status">Online</div>
-              </div>
-              <button class="btn-send-talk" data-user-id="${member.userId}">Send Talk</button>
-            </div>
-          `,
-            )
-            .join('')}
-        `;
-
-        // Add click handlers for send talk buttons
-        conversationList.querySelectorAll('.btn-send-talk').forEach((btn) => {
-          btn.addEventListener('click', (e) => {
-            const targetUserId = (e.target as HTMLElement).getAttribute('data-user-id');
-            if (targetUserId) {
-              this.emit('sendTalkToUser', { userId: targetUserId });
-            }
-          });
-        });
-      }
-    }
 
     // Update Chatrooms detail view (chatroom-members-list)
     if (chatroomMembersList) {

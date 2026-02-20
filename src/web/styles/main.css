@@ -542,6 +542,121 @@ body {
   box-shadow: 0 2px 8px rgba(7, 193, 96, 0.3);
 }
 
+/* Talks View */
+.talks-header {
+  padding: 16px;
+  background: #fff;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.create-talk-btn {
+  width: 100%;
+  padding: 14px 20px;
+  background: linear-gradient(135deg, #07c160 0%, #05a04e 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 1em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(7, 193, 96, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.create-talk-btn:hover {
+  background: linear-gradient(135deg, #06ab56 0%, #048f45 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(7, 193, 96, 0.3);
+}
+
+.create-talk-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(7, 193, 96, 0.2);
+}
+
+.talks-list {
+  flex: 1;
+  overflow-y: auto;
+  background: #f8f9fa;
+  padding: 8px;
+}
+
+.talk-list-item {
+  background: white;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 8px;
+  border: 1px solid #e0e0e0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.talk-list-item:hover {
+  background: #f8f9fa;
+  border-color: #07c160;
+  transform: translateX(4px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.talk-list-item:active {
+  transform: translateX(4px) scale(0.98);
+}
+
+.talk-item-header {
+  margin-bottom: 12px;
+}
+
+.talk-item-title {
+  font-size: 1.1em;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.talk-item-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.talk-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.75em;
+  font-weight: 600;
+}
+
+.talk-badge-created {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.talk-badge-answered {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.talk-badge-type {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.talk-item-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.talk-item-time {
+  font-size: 0.85em;
+  color: #999;
+}
+
 /* Chat Area */
 .chat-area {
   flex: 1;
