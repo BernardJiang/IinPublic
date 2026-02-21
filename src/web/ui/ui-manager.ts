@@ -5,6 +5,8 @@ export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
   private currentChatroom: string = 'global';
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
+  private currentConversationId: string | undefined = undefined;
+  // private newMatchesCount: number = 0; // TODO: implement match count tracking
 
   initialize(): void {
     const container = document.getElementById('app');
@@ -74,6 +76,26 @@ export class UIManager extends EventEmitter {
             </div>
           </div>
 
+          <!-- Conversations View (Hidden overlay, opened when clicking on a user) -->
+          <div class="conversation-detail-overlay" id="conversation-detail-overlay" style="display: none;">
+            <div class="conversation-detail-container">
+              <div class="conversation-detail-header">
+                <button class="back-btn" id="back-from-conversation">‹ Back</button>
+                <div class="conversation-detail-info" id="conversation-detail-info">
+                  <div class="conversation-detail-name" id="conversation-user-name">User</div>
+                  <div class="conversation-detail-status" id="conversation-status">Online</div>
+                </div>
+              </div>
+              <div class="conversation-messages" id="conversation-messages">
+                <p style="text-align: center; padding: 20px; color: #999;">Start your conversation!</p>
+              </div>
+              <div class="conversation-input-container">
+                <textarea id="conversation-message-input" placeholder="Type a message..." rows="2"></textarea>
+                <button class="btn send-btn" id="send-conversation-message">Send</button>
+              </div>
+            </div>
+          </div>
+
           <!-- Answers View -->
           <div class="view-panel" id="answers-view">
             <div class="view-content" id="answers-content">
@@ -108,7 +130,7 @@ export class UIManager extends EventEmitter {
         <!-- Bottom Navigation Bar -->
         <div class="bottom-nav">
           <button class="nav-btn active" data-view="chatrooms">
-            <div class="nav-icon">💬</div>
+            <div class="nav-icon">🌍</div>
             <div class="nav-label">Chatrooms</div>
           </button>
           <button class="nav-btn" data-view="talks">
@@ -492,12 +514,143 @@ export class UIManager extends EventEmitter {
   }
 
   private showTalkDetail(talkId: string): void {
-    // For now, show a simple notification
-    // Later this can open a detailed view of the talk with responses
     const myTalks = this.getMyTalks();
     const talk = myTalks[talkId];
-    if (talk) {
+    if (!talk) return;
+
+    // If this is a received talk (role === 'answered') and has fullTalk data, show the response dialog
+    if (talk.role === 'answered' && talk.fullTalk) {
+      this.showTalkResponseDialog(talk.fullTalk);
+    } else if (talk.role === 'created') {
+      // For created talks, show a notification (later can show responses/stats)
+      this.showNotification(`Your talk: ${talk.title}`, 'info');
+    } else {
+      // Fallback notification
       this.showNotification(`Talk: ${talk.title}`, 'info');
+    }
+  }
+
+  displayConversationsList(): void {
+    const conversationsList = document.getElementById('conversations-list');
+    if (!conversationsList) return;
+
+    // Get conversations from localStorage
+    const myConversations = this.getMyConversations();
+    const conversationEntries = Object.entries(myConversations).sort(
+      ([, a]: [string, any], [, b]: [string, any]) =>
+        new Date(b.lastMessageTime || b.createdAt).getTime() -
+        new Date(a.lastMessageTime || a.createdAt).getTime(),
+    );
+
+    if (conversationEntries.length === 0) {
+      conversationsList.innerHTML = `
+        <div class="empty-state" style="padding: 60px 20px; text-align: center;">
+          <div style="font-size: 3em; margin-bottom: 16px;">💬</div>
+          <p style="font-size: 1.2em; color: #666; margin-bottom: 8px;">No conversations yet</p>
+          <p style="font-size: 0.9em; color: #999;">Match with someone through talks to start chatting!</p>
+        </div>
+      `;
+    } else {
+      conversationsList.innerHTML = conversationEntries
+        .map(
+          ([conversationId, conversation]) => `
+        <div class="conversation-list-item ${conversation.unread ? 'unread' : ''}" data-conversation-id="${conversationId}">
+          <div class="conversation-avatar">
+            ${conversation.otherUserName?.charAt(0).toUpperCase() || '?'}
+          </div>
+          <div class="conversation-content">
+            <div class="conversation-header">
+              <div class="conversation-name">${this.escapeHtml(conversation.otherUserName || 'Unknown')}</div>
+              <div class="conversation-time">${this.formatTimeAgo(new Date(conversation.lastMessageTime || conversation.createdAt))}</div>
+            </div>
+            <div class="conversation-preview">
+              ${conversation.unread ? '<span class="unread-badge"></span>' : ''}
+              ${this.escapeHtml(conversation.lastMessage || 'Matched! Start a conversation...')}
+            </div>
+          </div>
+        </div>
+      `,
+        )
+        .join('');
+
+      // Add click handlers to conversation items
+      conversationsList.querySelectorAll('.conversation-list-item').forEach((item) => {
+        item.addEventListener('click', () => {
+          const conversationId = (item as HTMLElement).dataset.conversationId;
+          if (conversationId) {
+            this.showConversationDetail(conversationId);
+          }
+        });
+      });
+    }
+  }
+
+  private getMyConversations(): Record<string, any> {
+    const conversationsJson = localStorage.getItem('myConversations');
+    return conversationsJson ? JSON.parse(conversationsJson) : {};
+  }
+
+  showConversationDetail(conversationId: string): void {
+    const overlay = document.getElementById('conversation-detail-overlay');
+
+    if (overlay) overlay.style.display = 'flex';
+
+    this.currentConversationId = conversationId;
+
+    // Get conversation data
+    const conversations = this.getMyConversations();
+    const conversation = conversations[conversationId];
+
+    if (!conversation) return;
+
+    // Update header with user name
+    const userName = document.getElementById('conversation-user-name');
+    if (userName) userName.textContent = conversation.otherUserName || 'Unknown';
+
+    // Mark conversation as read
+    conversation.unread = false;
+    localStorage.setItem('myConversations', JSON.stringify(conversations));
+    this.updateMatchBadge();
+
+    // Load messages
+    this.emit('loadConversation', { conversationId });
+
+    // Setup back button
+    const backBtn = document.getElementById('back-from-conversation');
+    if (backBtn) {
+      backBtn.replaceWith(backBtn.cloneNode(true)); // Remove old listeners
+      const newBackBtn = document.getElementById('back-from-conversation');
+      newBackBtn?.addEventListener('click', () => {
+        if (overlay) overlay.style.display = 'none';
+        this.currentConversationId = undefined;
+      });
+    }
+
+    // Setup send message button
+    const sendBtn = document.getElementById('send-conversation-message');
+    const messageInput = document.getElementById(
+      'conversation-message-input',
+    ) as HTMLTextAreaElement;
+
+    if (sendBtn && messageInput) {
+      sendBtn.replaceWith(sendBtn.cloneNode(true)); // Remove old listeners
+      const newSendBtn = document.getElementById('send-conversation-message');
+
+      const sendMessage = () => {
+        const message = messageInput.value.trim();
+        if (message) {
+          this.emit('sendConversationMessage', { conversationId, message });
+          messageInput.value = '';
+        }
+      };
+
+      newSendBtn?.addEventListener('click', sendMessage);
+      messageInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendMessage();
+        }
+      });
     }
   }
 
@@ -608,11 +761,10 @@ export class UIManager extends EventEmitter {
     isOwnTalk: boolean;
     fullTalk: any;
   }): void {
-    const messagesContainer = document.getElementById('messages-container');
-    if (!messagesContainer) return;
-
     // Check if talk already exists to avoid duplicates
-    if (document.getElementById(`talk-${talk.id}`)) {
+    const myTalks = this.getMyTalks();
+    if (myTalks[talk.id]) {
+      console.log('⏭️  Talk already saved, skipping:', talk.id);
       return;
     }
 
@@ -626,62 +778,16 @@ export class UIManager extends EventEmitter {
       fullTalk: talk.fullTalk,
     });
 
-    // Clear welcome message if it exists
-    const welcomeMsg = messagesContainer.querySelector('.text-center.p-20');
-    if (welcomeMsg) {
-      welcomeMsg.remove();
+    // Show a notification for received talks
+    if (!talk.isOwnTalk) {
+      this.showNotification(`📥 New talk from ${talk.authorName}: ${talk.title}`, 'info');
     }
 
-    const talkTime = new Date(talk.timestamp).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-
-    const talkDiv = document.createElement('div');
-    talkDiv.id = `talk-${talk.id}`;
-    talkDiv.className = 'talk-announcement';
-    talkDiv.style.cssText = `
-      margin: 20px 0;
-      padding: 15px;
-      background: ${talk.isOwnTalk ? '#e3f2fd' : '#fff8e1'};
-      border-left: 4px solid ${talk.isOwnTalk ? '#2196F3' : '#FFC107'};
-      border-radius: 8px;
-    `;
-
-    talkDiv.innerHTML = `
-      <div style="font-weight: bold; margin-bottom: 5px; color: #333;">
-        ${talk.isOwnTalk ? '📤 You sent' : '📥 New'} Talk: ${this.escapeHtml(talk.title)}
-      </div>
-      <div style="font-size: 0.9em; color: #666; margin-bottom: 10px;">
-        From: ${this.escapeHtml(talk.authorName)} • ${talk.type === 'matching' ? '💬 Matching' : '📊 Survey'} • ${talk.questionCount} question${talk.questionCount > 1 ? 's' : ''} • ${talkTime}
-      </div>
-      ${
-        !talk.isOwnTalk
-          ? `
-        <button 
-          class="btn" 
-          data-talk-id="${talk.id}" 
-          style="background: #4CAF50; color: white; padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;"
-        >
-          Answer Talk →
-        </button>
-      `
-          : '<div style="font-size: 0.9em; color: #666;">Waiting for responses...</div>'
-      }
-    `;
-
-    messagesContainer.appendChild(talkDiv);
-
-    // Add click handler for "Answer Talk" button
-    const answerBtn = talkDiv.querySelector('.btn');
-    if (answerBtn) {
-      answerBtn.addEventListener('click', () => {
-        this.showTalkResponseDialog(talk.fullTalk);
-      });
+    // Refresh the talks list if the Talks tab is currently active
+    const talksTab = document.getElementById('tab-talks');
+    if (talksTab?.classList.contains('active')) {
+      this.displayTalksList();
     }
-
-    // Auto-scroll to bottom
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
 
   showTalkResponseDialog(talk: any): void {
@@ -986,6 +1092,7 @@ export class UIManager extends EventEmitter {
     this.emit('talkCompleted', {
       talkId: talk.id,
       answers,
+      talkData: talk,
     });
 
     this.showNotification(
@@ -1899,6 +2006,105 @@ export class UIManager extends EventEmitter {
           });
         });
       }
+    }
+  }
+
+  updateMatchBadge(): void {
+    // Count unread conversations
+    const conversations = this.getMyConversations();
+    const unreadCount = Object.values(conversations).filter((conv: any) => conv.unread).length;
+
+    // Update badge on Me tab
+    const meTab = document.querySelector('.nav-btn[data-view="me"] .nav-icon');
+    if (meTab) {
+      // Remove existing badge
+      const existingBadge = meTab.querySelector('.notification-badge');
+      if (existingBadge) existingBadge.remove();
+
+      // Add new badge if there are unread conversations
+      if (unreadCount > 0) {
+        const badge = document.createElement('span');
+        badge.className = 'notification-badge';
+        badge.textContent = unreadCount > 99 ? '99+' : unreadCount.toString();
+        meTab.appendChild(badge);
+      }
+    }
+  }
+
+  displayConversationMessages(conversationId: string, messages: any[]): void {
+    if (this.currentConversationId !== conversationId) return;
+
+    const messagesContainer = document.getElementById('conversation-messages');
+    if (!messagesContainer) return;
+
+    if (messages.length === 0) {
+      messagesContainer.innerHTML = `
+        <div style="text-align: center; padding: 40px 20px; color: #999;">
+          <p>You matched! Start your conversation...</p>
+        </div>
+      `;
+      return;
+    }
+
+    messagesContainer.innerHTML = messages
+      .map((msg) => {
+        const isOwn = msg.isOwnMessage;
+        return `
+          <div class="message ${isOwn ? 'message-own' : 'message-other'}">
+            <div class="message-content">
+              <div class="message-text">${this.escapeHtml(msg.text)}</div>
+              <div class="message-time">${this.formatTimeAgo(new Date(msg.timestamp))}</div>
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+
+    // Scroll to bottom
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  }
+
+  addNewConversation(conversationData: {
+    conversationId: string;
+    otherUserId: string;
+    otherUserName: string;
+    talkId?: string;
+  }): void {
+    const conversations = this.getMyConversations();
+
+    conversations[conversationData.conversationId] = {
+      otherUserId: conversationData.otherUserId,
+      otherUserName: conversationData.otherUserName,
+      talkId: conversationData.talkId,
+      createdAt: new Date().toISOString(),
+      lastMessage: null,
+      lastMessageTime: null,
+      unread: true, // New conversations are marked as unread
+    };
+
+    localStorage.setItem('myConversations', JSON.stringify(conversations));
+
+    // Update badge
+    this.updateMatchBadge();
+
+    // Show notification
+    this.showNotification(`🎉 New match with ${conversationData.otherUserName}!`, 'success');
+  }
+
+  updateConversationMessage(conversationId: string, message: string, timestamp: string): void {
+    const conversations = this.getMyConversations();
+
+    if (conversations[conversationId]) {
+      conversations[conversationId].lastMessage = message;
+      conversations[conversationId].lastMessageTime = timestamp;
+
+      // If the current conversation is not open, mark as unread
+      if (this.currentConversationId !== conversationId) {
+        conversations[conversationId].unread = true;
+      }
+
+      localStorage.setItem('myConversations', JSON.stringify(conversations));
+      this.updateMatchBadge();
     }
   }
 }

@@ -63,6 +63,18 @@ module.exports = {
     watchFiles: process.env.DISABLE_HMR === 'true' ? [] : undefined,
     open: process.env.DISABLE_HMR !== 'true', // Don't auto-open browser during e2e tests
     historyApiFallback: true,
+    // Disable all watching for E2E tests
+    ...(process.env.DISABLE_HMR === 'true' && {
+      client: {
+        webSocketURL: 'ws://127.0.0.1:3001/ws',
+      },
+    }),
   },
+  ...(process.env.DISABLE_HMR === 'true' && {
+    watch: false,
+    watchOptions: {
+      ignored: '**/*',
+    },
+  }),
   devtool: 'source-map',
 };

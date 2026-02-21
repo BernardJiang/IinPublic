@@ -3,6 +3,7 @@ import { WebGunService } from '../services/web-gun-service';
 import { WebUserService } from '../services/web-user-service';
 import { WebChatroomService } from '../services/web-chatroom-service';
 import { WebTalkService } from '../services/web-talk-service';
+import { WebConversationService } from '../services/web-conversation-service';
 import { UIManager } from '../ui/ui-manager';
 import { LocationPrivacy } from '../../shared/location';
 
@@ -11,6 +12,7 @@ export class IinPublicApp {
   private userService: WebUserService;
   private chatroomService: WebChatroomService;
   private talkService: WebTalkService;
+  private conversationService: WebConversationService;
   private uiManager: UIManager;
   private currentUser?: User;
   private currentLocation?: GPSCoordinate;
@@ -20,6 +22,7 @@ export class IinPublicApp {
     this.userService = new WebUserService(this.gunService);
     this.chatroomService = new WebChatroomService(this.gunService);
     this.talkService = new WebTalkService(this.gunService);
+    this.conversationService = new WebConversationService(this.gunService);
     this.uiManager = new UIManager();
   }
 
@@ -118,6 +121,9 @@ export class IinPublicApp {
 
     // Subscribe to chatroom talks
     this.subscribeToTalks(chatroomId);
+
+    // Subscribe to user's conversations (for matches)
+    this.subscribeToUserConversations();
 
     // Update chatroom info
     this.uiManager.updateChatroomInfo({ id: chatroomId, name: `Chatroom: ${chatroomId}` });
@@ -239,6 +245,28 @@ export class IinPublicApp {
                 'success',
               );
               console.log(`✅ Match detected with ${responseData.responderName}`);
+
+              // Create conversation between the two users
+              this.conversationService
+                .createConversation({
+                  userId1: this.currentUser!.id,
+                  userName1: this.currentUser!.stageName,
+                  userId2: responseData.responderId,
+                  userName2: responseData.responderName,
+                  talkId: talkId,
+                })
+                .then((conversationId) => {
+                  // Add conversation to UI
+                  this.uiManager.addNewConversation({
+                    conversationId,
+                    otherUserId: responseData.responderId,
+                    otherUserName: responseData.responderName,
+                    talkId: talkId,
+                  });
+                })
+                .catch((error) => {
+                  console.error('Failed to create conversation:', error);
+                });
             }
           } catch (error) {
             console.error('Error processing talk response:', error);
@@ -286,15 +314,64 @@ export class IinPublicApp {
     return isMatch;
   }
 
+  private subscribeToUserConversations(): void {
+    if (!this.currentUser) return;
+
+    console.log('💬 Subscribing to user conversations for:', this.currentUser.id);
+
+    this.conversationService.subscribeToUserConversations(
+      this.currentUser.id,
+      async (conversations) => {
+        console.log('📨 New conversations detected:', conversations);
+
+        // Process each conversation
+        for (const conversationData of conversations) {
+          // Get the other user's info
+          const otherUserId =
+            conversationData.userId1 === this.currentUser!.id
+              ? conversationData.userId2
+              : conversationData.userId1;
+          const otherUserName =
+            conversationData.userId1 === this.currentUser!.id
+              ? conversationData.userName2
+              : conversationData.userName1;
+
+          // Add to UI
+          this.uiManager.addNewConversation({
+            conversationId: conversationData.conversationId,
+            otherUserId: otherUserId,
+            otherUserName: otherUserName,
+            talkId: conversationData.talkId,
+          });
+        }
+      },
+    );
+  }
+
   private setupEventHandlers(): void {
     // Handle UI events
 
-    // Handle "Send Talk" button click on user
+    // Handle "Send Talk" button click on user - now opens conversation if exists
     this.uiManager.on('sendTalkToUser', async (data: { userId: string }) => {
-      console.log('🎯 Send Talk clicked for user:', data.userId);
-      // For now, just show a simple message interface
-      this.uiManager.showNotification(`Starting conversation with user ${data.userId}`, 'info');
-      // TODO: Implement actual talk/conversation creation
+      console.log('👤 User clicked:', data.userId);
+
+      // Check if conversation exists with this user
+      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const existingConversation = Object.values(conversations).find(
+        (conv: any) => conv.otherUserId === data.userId,
+      ) as any;
+
+      if (existingConversation) {
+        // Open existing conversation
+        console.log('💬 Opening existing conversation:', existingConversation.conversationId);
+        this.uiManager.showConversationDetail(existingConversation.conversationId);
+      } else {
+        // No conversation yet - show notification
+        this.uiManager.showNotification(
+          'Match with this user through Talks to start a conversation!',
+          'info',
+        );
+      }
     });
 
     this.uiManager.on(
@@ -361,33 +438,74 @@ export class IinPublicApp {
       }
     });
 
-    this.uiManager.on('talkCompleted', async (data: { talkId: string; answers: any[] }) => {
-      try {
-        console.log('📝 User completed talk:', data);
+    this.uiManager.on(
+      'talkCompleted',
+      async (data: { talkId: string; answers: any[]; talkData?: any }) => {
+        try {
+          console.log('📝 User completed talk:', data);
 
-        // Store the response in Gun.js
-        const chatroomId = this.chatroomService.getCurrentChatroomId();
-        if (chatroomId) {
-          const gun = this.gunService.getGun();
-          const responseId = `resp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          // Store the response in Gun.js
+          const chatroomId = this.chatroomService.getCurrentChatroomId();
+          if (chatroomId) {
+            const gun = this.gunService.getGun();
+            const responseId = `resp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-          gun
-            .get(`talks/${data.talkId}`)
-            .get('responses')
-            .get(responseId)
-            .put({
-              responderId: this.currentUser!.id,
-              responderName: this.currentUser!.stageName,
-              answers: JSON.stringify(data.answers),
-              submittedAt: new Date().toISOString(),
-            });
+            gun
+              .get(`talks/${data.talkId}`)
+              .get('responses')
+              .get(responseId)
+              .put({
+                responderId: this.currentUser!.id,
+                responderName: this.currentUser!.stageName,
+                answers: JSON.stringify(data.answers),
+                submittedAt: new Date().toISOString(),
+              });
 
-          console.log('✅ Talk response stored');
+            console.log('✅ Talk response stored');
+
+            // Check if this response is a match
+            if (data.talkData) {
+              const isMatch = this.checkIfMatch(data.talkData, data.answers);
+
+              if (isMatch) {
+                console.log(`✅ Match! Creating conversation with talk author`);
+
+                // Get talk author info
+                gun.get(`talks/${data.talkId}`).once(async (talkWrapper: any) => {
+                  if (talkWrapper && talkWrapper.data) {
+                    const talkData = JSON.parse(talkWrapper.data);
+
+                    // Get author's user data to get their name
+                    gun.get(`users/${talkData.authorId}`).once(async (authorData: any) => {
+                      const authorName = authorData?.stageName || 'Unknown';
+
+                      // Create conversation
+                      const conversationId = await this.conversationService.createConversation({
+                        userId1: this.currentUser!.id,
+                        userName1: this.currentUser!.stageName,
+                        userId2: talkData.authorId,
+                        userName2: authorName,
+                        talkId: data.talkId,
+                      });
+
+                      // Add to UI
+                      this.uiManager.addNewConversation({
+                        conversationId,
+                        otherUserId: talkData.authorId,
+                        otherUserName: authorName,
+                        talkId: data.talkId,
+                      });
+                    });
+                  }
+                });
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Failed to store talk response:', error);
         }
-      } catch (error) {
-        console.error('Failed to store talk response:', error);
-      }
-    });
+      },
+    );
 
     this.uiManager.on(
       'answerQuestion',
@@ -448,6 +566,49 @@ export class IinPublicApp {
         );
       }
     });
+
+    // Handle conversation message loading
+    this.uiManager.on('loadConversation', async (data: { conversationId: string }) => {
+      try {
+        console.log('📖 Loading conversation:', data.conversationId);
+
+        // Subscribe to messages for this conversation
+        this.conversationService.subscribeToMessages(data.conversationId, (messages) => {
+          console.log('📨 Received conversation messages:', messages);
+          this.uiManager.displayConversationMessages(data.conversationId, messages);
+        });
+      } catch (error) {
+        console.error('Failed to load conversation:', error);
+        this.uiManager.showNotification(
+          'Failed to load conversation: ' + (error as Error).message,
+          'error',
+        );
+      }
+    });
+
+    // Handle sending conversation messages
+    this.uiManager.on(
+      'sendConversationMessage',
+      async (data: { conversationId: string; message: string }) => {
+        try {
+          console.log('📤 Sending conversation message:', data.message);
+
+          await this.conversationService.sendMessage(
+            data.conversationId,
+            this.currentUser!.id,
+            data.message,
+          );
+
+          console.log('✅ Conversation message sent');
+        } catch (error) {
+          console.error('Failed to send conversation message:', error);
+          this.uiManager.showNotification(
+            'Failed to send message: ' + (error as Error).message,
+            'error',
+          );
+        }
+      },
+    );
 
     this.uiManager.on('requestLocationUpdate', async () => {
       try {

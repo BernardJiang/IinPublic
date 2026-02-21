@@ -1,9 +1,17 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CONFIG = void 0;
+// Helper to safely access environment variables in browser and Node.js
+const getEnv = (key, defaultValue) => {
+    if (typeof process !== 'undefined' && process.env) {
+        return process.env[key] || defaultValue;
+    }
+    return defaultValue;
+};
 exports.CONFIG = {
     // Chatroom settings
-    CHATROOM_CAPACITY: 1000,
+    CHATROOM_CAPACITY: parseInt(getEnv('CHATROOM_MAX_CAPACITY', '1000'), 10),
+    CHATROOM_ENABLE_FIFO: getEnv('CHATROOM_ENABLE_FIFO', 'true') !== 'false', // Enabled by default
     GLOBAL_CHATROOM_ID: 'global',
     // Bulk sending limits
     MAX_BULK_RECIPIENTS: 1000,
@@ -16,7 +24,7 @@ exports.CONFIG = {
         TALK_SEND_DAILY: 10,
         TALK_SEND_WEEKLY: 50,
         MESSAGE_PER_MINUTE: 60,
-        BULK_SEND_DAILY: 5
+        BULK_SEND_DAILY: 5,
     },
     // Talk structure
     MAX_QUESTIONS_PER_TALK: 20,
@@ -38,7 +46,7 @@ exports.CONFIG = {
     MIN_AGE_FOR_ADULT_CONTENT: 18,
     AGE_VERIFICATION_THRESHOLD: 3, // votes needed
     // Development
-    DEBUG_MODE: process.env.NODE_ENV !== 'production',
-    LOG_LEVEL: process.env.LOG_LEVEL || 'info'
+    DEBUG_MODE: getEnv('NODE_ENV', 'development') !== 'production',
+    LOG_LEVEL: getEnv('LOG_LEVEL', 'info'),
 };
 //# sourceMappingURL=config.js.map

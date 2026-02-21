@@ -14,6 +14,7 @@ IinPublic provides:
 
 - **Decentralized Real-time Chat**: Using Gun.js for peer-to-peer communication
 - **Location-Based Chatrooms**: GPS-enabled chatrooms with privacy controls
+- **FIFO Chatroom Capacity Management**: Automatic eviction of oldest users when chatrooms reach capacity (default 1000 users, configurable for testing)
 - **Interactive Talks**: Structured Q&A sessions with community moderation
 - **Visual Talk Editor**: Drag-drop interface for creating complex branching talks
 - **Survey System**: Community polls and feedback collection
@@ -415,7 +416,43 @@ WEB_PORT=3000
 SERVER_PORT=8080
 GUN_PORT=8765
 ANDROID_DEBUG=true
+
+# Chatroom FIFO Capacity Settings
+CHATROOM_MAX_CAPACITY=1000        # Default: 1000 users per chatroom
+CHATROOM_ENABLE_FIFO=true         # Enable FIFO eviction (default: true)
 ```
+
+### FIFO Chatroom Capacity Management
+
+IinPublic implements a **First-In-First-Out (FIFO)** capacity management system for chatrooms:
+
+- **Default Capacity**: 1000 users per chatroom
+- **Configurable for Testing**: Set `CHATROOM_MAX_CAPACITY` to 2, 3, 4, or 5 users for testing
+- **Automatic Eviction**: When a chatroom reaches capacity and a new user joins, the **oldest user** (first to join) is automatically moved to a smaller regional chatroom
+- **Hierarchical Eviction**: Users are moved down the chatroom hierarchy:
+  - Global → Hemisphere → Continental → Country → State → City → Neighborhood
+  - If already at the smallest level, users are distributed to sub-rooms
+
+**Testing FIFO with Small Capacity:**
+
+Create a `.env.test` file:
+
+```bash
+CHATROOM_MAX_CAPACITY=3
+CHATROOM_ENABLE_FIFO=true
+```
+
+Then run the app - when the 4th user joins, the 1st user will be automatically evicted to a smaller chatroom.
+
+**How It Works:**
+
+1. User joins a chatroom
+2. System checks current capacity
+3. If at max capacity, find the oldest user (sorted by `joinedAt` timestamp)
+4. Move oldest user to a smaller regional chatroom
+5. New user joins successfully
+
+This ensures fair distribution of users across chatrooms and prevents any single chatroom from becoming overcrowded.
 
 ## Testing Strategy
 

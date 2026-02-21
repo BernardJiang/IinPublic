@@ -43,8 +43,8 @@
         - generic [ref=e46]: Neighborhood chatroom
       - generic [ref=e47]: ›
   - generic [ref=e48]:
-    - button "💬 Chatrooms" [ref=e49] [cursor=pointer]:
-      - generic [ref=e50]: 💬
+    - button "🌍 Chatrooms" [ref=e49] [cursor=pointer]:
+      - generic [ref=e50]: 🌍
       - generic [ref=e51]: Chatrooms
     - button "📢 Talks" [ref=e52] [cursor=pointer]:
       - generic [ref=e53]: 📢

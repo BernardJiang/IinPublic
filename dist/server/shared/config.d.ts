@@ -1,5 +1,6 @@
 export declare const CONFIG: {
-    readonly CHATROOM_CAPACITY: 1000;
+    readonly CHATROOM_CAPACITY: number;
+    readonly CHATROOM_ENABLE_FIFO: boolean;
     readonly GLOBAL_CHATROOM_ID: "global";
     readonly MAX_BULK_RECIPIENTS: 1000;
     readonly DEFAULT_BULK_LIMIT: 100;

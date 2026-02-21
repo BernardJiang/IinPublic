@@ -75,6 +75,7 @@
     "cytoscape": "^3.33.1",
     "cytoscape-dagre": "^2.5.0",
     "eslint": "^8.55.0",
+    "express-http-proxy": "^2.1.2",
     "html-webpack-plugin": "^5.6.0",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^30.2.0",
