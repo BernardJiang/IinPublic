@@ -69,22 +69,22 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     browser1 = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=0,0', '--window-size=960,1080'],
+      args: ['--window-position=0,0', '--window-size=960,1200'],
     });
 
     browser2 = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=960,0', '--window-size=960,1080'],
+      args: ['--window-position=960,0', '--window-size=960,1200'],
     });
 
     // Create contexts - each browser gets its own context
     user1Context = await browser1.newContext({
-      viewport: { width: 960, height: 1080 },
+      viewport: { width: 960, height: 1200 },
       storageState: undefined, // Start with clean storage
     });
     user2Context = await browser2.newContext({
-      viewport: { width: 960, height: 1080 },
+      viewport: { width: 960, height: 1200 },
       storageState: undefined, // Start with clean storage
     });
 
