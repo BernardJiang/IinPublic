@@ -16,6 +16,7 @@ export class IinPublicApp {
   private uiManager: UIManager;
   private currentUser?: User;
   private currentLocation?: GPSCoordinate;
+  private currentChatroomId?: string;
 
   constructor() {
     this.gunService = new WebGunService();
@@ -133,6 +134,7 @@ export class IinPublicApp {
 
     // Find optimal chatroom for user's location
     const chatroomId = await this.chatroomService.findOptimalChatroom(this.currentLocation);
+    this.currentChatroomId = chatroomId; // Track current chatroom
 
     console.log('🎯 Assigned to chatroom:', chatroomId);
     console.log('📍 Based on location:', this.currentLocation);
@@ -699,7 +701,10 @@ export class IinPublicApp {
 
     // Handle beforeunload to cleanup
     window.addEventListener('beforeunload', () => {
-      if (this.currentUser) {
+      if (this.currentUser && this.currentChatroomId) {
+        // Mark user as inactive in chatroom (for member count)
+        this.chatroomService.leaveChatroom(this.currentChatroomId, this.currentUser.id);
+        // Set user status to offline
         this.userService.setUserStatus(this.currentUser.id, 'offline');
       }
     });
