@@ -1,5 +1,6 @@
 import { User } from '../../shared/types';
 import { EventEmitter } from 'events';
+import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
@@ -7,6 +8,7 @@ export class UIManager extends EventEmitter {
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
   private currentConversationId: string | undefined = undefined;
   private chatroomMemberCounts: Map<string, number> = new Map(); // Track member count per chatroom
+  private expandedChatrooms: Set<string> = new Set(['global']); // Track which chatrooms are expanded (default: global expanded)
   // private newMatchesCount: number = 0; // TODO: implement match count tracking
 
   initialize(): void {
@@ -337,75 +339,57 @@ export class UIManager extends EventEmitter {
   }
 
   private renderChatroomList(): void {
-    // Define location-based chatroom hierarchy
-    const chatrooms = [
-      {
-        id: 'global',
-        name: 'Global',
-        icon: '🌍',
-        level: 0,
-        description: 'Connect with everyone worldwide',
-      },
-      {
-        id: 'north-america',
-        name: 'North America',
-        icon: '🌎',
-        level: 1,
-        description: 'Continental chatroom',
-      },
-      { id: 'usa', name: 'United States', icon: '🗺️', level: 2, description: 'Country chatroom' },
-      {
-        id: 'california',
-        name: 'California',
-        icon: '🏞️',
-        level: 3,
-        description: 'State/Region chatroom',
-      },
-      {
-        id: 'san-francisco',
-        name: 'San Francisco',
-        icon: '🏙️',
-        level: 4,
-        description: 'City chatroom',
-      },
-      {
-        id: 'downtown-sf',
-        name: 'Downtown SF',
-        icon: '🏘️',
-        level: 5,
-        description: 'Neighborhood chatroom',
-      },
-    ];
+    // Get flat list of all chatrooms from hierarchy
+    const allChatrooms = getFlatChatroomList();
 
     // Add current location-based chatroom if it's not in the list
-    if (this.currentChatroom && !chatrooms.find((r) => r.id === this.currentChatroom)) {
-      chatrooms.unshift({
+    if (this.currentChatroom && !allChatrooms.find((r) => r.id === this.currentChatroom)) {
+      allChatrooms.unshift({
         id: this.currentChatroom,
         name: 'My Location',
         icon: '📍',
         level: 0,
         description: 'Your current location chatroom',
+        hasChildren: false,
       });
     }
+
+    // Filter chatrooms based on expanded state
+    const visibleChatrooms = allChatrooms.filter((room) => {
+      // Root level (global and location) are always visible
+      if (room.level === 0) return true;
+
+      // For child nodes, check if parent is expanded
+      if (room.parentId) {
+        return this.expandedChatrooms.has(room.parentId);
+      }
+
+      return true;
+    });
 
     // Populate chatroom list
     const chatroomList = document.getElementById('chatroom-list');
     if (chatroomList) {
-      chatroomList.innerHTML = chatrooms
+      chatroomList.innerHTML = visibleChatrooms
         .map((room) => {
           const memberCount = this.chatroomMemberCounts.get(room.id) || 0;
           const isCurrentRoom = this.currentChatroom === room.id;
+          const isExpanded = this.expandedChatrooms.has(room.id);
+          const expandIcon = room.hasChildren ? (isExpanded ? '▼' : '▶') : '';
+
           return `
-        <div class="chatroom-item ${isCurrentRoom ? 'current-room' : ''}" data-chatroom-id="${room.id}" data-level="${room.level}">
+        <div class="chatroom-item ${isCurrentRoom ? 'current-room' : ''}" 
+             data-chatroom-id="${room.id}" 
+             data-level="${room.level}"
+             data-has-children="${room.hasChildren}"
+             style="padding-left: ${room.level * 20 + 16}px;">
+          ${room.hasChildren ? `<div class="chatroom-expand-icon" data-chatroom-id="${room.id}">${expandIcon}</div>` : '<div class="chatroom-expand-icon-placeholder"></div>'}
           <div class="chatroom-icon">${room.icon}</div>
           <div class="chatroom-info">
             <div class="chatroom-name">
               ${room.name}
               ${isCurrentRoom ? '<span class="current-room-badge">Current</span>' : ''}
-            </div>
-            <div class="chatroom-description">
-              ${room.description}
-              ${memberCount > 0 ? `<span class="chatroom-headcount">👥 ${memberCount}</span>` : ''}
+              <span class="chatroom-headcount">${memberCount > 0 ? `👥 ${memberCount}` : '👥 0'}</span>
             </div>
           </div>
           <div class="chatroom-arrow">›</div>
@@ -413,6 +397,18 @@ export class UIManager extends EventEmitter {
       `;
         })
         .join('');
+
+      // Add click handlers for expand/collapse icons
+      const expandIcons = chatroomList.querySelectorAll('.chatroom-expand-icon');
+      expandIcons.forEach((icon) => {
+        icon.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent triggering the chatroom click
+          const chatroomId = icon.getAttribute('data-chatroom-id');
+          if (chatroomId) {
+            this.toggleChatroomExpanded(chatroomId);
+          }
+        });
+      });
 
       // Add click handlers to each chatroom item
       const chatroomItems = chatroomList.querySelectorAll('.chatroom-item');
@@ -427,6 +423,19 @@ export class UIManager extends EventEmitter {
     }
   }
 
+  /**
+   * Toggle expand/collapse state of a chatroom node
+   */
+  private toggleChatroomExpanded(chatroomId: string): void {
+    if (this.expandedChatrooms.has(chatroomId)) {
+      this.expandedChatrooms.delete(chatroomId);
+    } else {
+      this.expandedChatrooms.add(chatroomId);
+    }
+    // Re-render the chatroom list
+    this.renderChatroomList();
+  }
+
   showChatroomDetail(chatroomId: string): void {
     // Hide chatroom list, show detail view
     const listContainer = document.getElementById('chatroom-list-container');
@@ -435,22 +444,15 @@ export class UIManager extends EventEmitter {
     if (listContainer) listContainer.style.display = 'none';
     if (detailContainer) detailContainer.style.display = 'block';
 
-    // Map chatroom IDs to names
-    const chatroomNames: Record<string, string> = {
-      global: '🌍 Global',
-      'north-america': '🌎 North America',
-      usa: '🗺️ United States',
-      california: '🏞️ California',
-      'san-francisco': '🏙️ San Francisco',
-      'downtown-sf': '🏘️ Downtown SF',
-    };
+    // Get chatroom name from hierarchy
+    const allChatrooms = getFlatChatroomList();
+    const room = allChatrooms.find((r) => r.id === chatroomId);
+    const roomName = room ? `${room.icon} ${room.name}` : chatroomId;
 
     // Update header and chatroom info
     const headerTitle = document.getElementById('header-title');
     const chatroomTitle = document.getElementById('current-chatroom-title');
     const chatroomStatus = document.getElementById('current-chatroom-status');
-
-    const roomName = chatroomNames[chatroomId] || chatroomId;
 
     if (headerTitle) headerTitle.textContent = roomName;
     if (chatroomTitle) chatroomTitle.textContent = roomName;

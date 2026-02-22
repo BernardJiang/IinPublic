@@ -347,6 +347,7 @@ body {
   border: 1px solid #e0e0e0;
   cursor: pointer;
   transition: all 0.2s ease;
+  position: relative;
 }
 
 .chatroom-item:hover {
@@ -357,6 +358,33 @@ body {
 
 .chatroom-item:active {
   transform: translateX(4px) scale(0.98);
+}
+
+/* Expand/Collapse icon */
+.chatroom-expand-icon {
+  width: 20px;
+  height: 20px;
+  margin-right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.8em;
+  color: #666;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.chatroom-expand-icon:hover {
+  color: #07c160;
+  transform: scale(1.2);
+}
+
+.chatroom-expand-icon-placeholder {
+  width: 20px;
+  margin-right: 8px;
+  flex-shrink: 0;
 }
 
 /* Hierarchical level styling */
@@ -375,25 +403,16 @@ body {
   color: white;
 }
 
-.chatroom-item[data-level='1'] {
-  margin-left: 12px;
+.chatroom-item[data-level='0'] .chatroom-expand-icon {
+  color: white;
 }
 
-.chatroom-item[data-level='2'] {
-  margin-left: 24px;
+.chatroom-item[data-level='0'] .chatroom-headcount {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
 }
 
-.chatroom-item[data-level='3'] {
-  margin-left: 36px;
-}
-
-.chatroom-item[data-level='4'] {
-  margin-left: 48px;
-}
-
-.chatroom-item[data-level='5'] {
-  margin-left: 60px;
-}
+/* Remove old margin-based indentation (now using inline style padding-left) */
 
 .chatroom-icon {
   font-size: 2em;

@@ -6,6 +6,7 @@ import { WebTalkService } from '../services/web-talk-service';
 import { WebConversationService } from '../services/web-conversation-service';
 import { UIManager } from '../ui/ui-manager';
 import { LocationPrivacy } from '../../shared/location';
+import { getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 
 export class IinPublicApp {
   private gunService: WebGunService;
@@ -57,14 +58,8 @@ export class IinPublicApp {
    * This allows showing real-time headcount badges that update when users join/leave
    */
   private subscribeToAllChatroomMemberCounts(): void {
-    const chatroomIds = [
-      'global',
-      'north-america',
-      'usa',
-      'california',
-      'san-francisco',
-      'downtown-sf',
-    ];
+    // Get all chatroom IDs from the hierarchy
+    const chatroomIds = getAllChatroomIds();
 
     // Also include the current chatroom ID (location-based) if it's not in the list
     const currentChatroomId = this.chatroomService.getCurrentChatroomId();
@@ -74,6 +69,7 @@ export class IinPublicApp {
     }
 
     console.log('📊 Subscribing to member counts for all chatrooms...');
+    console.log(`   Total chatrooms: ${chatroomIds.length}`);
 
     chatroomIds.forEach((chatroomId) => {
       this.chatroomService.subscribeToMemberCount(chatroomId, (count) => {
