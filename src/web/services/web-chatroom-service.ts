@@ -9,6 +9,7 @@ export class WebChatroomService {
   private membersUpdateTimeout?: NodeJS.Timeout | null; // Debounce Gun.js member updates
   private lastMembersUpdate: number = 0; // Timestamp of last member update (rate limiter)
   private readonly MIN_UPDATE_INTERVAL = 2000; // Minimum 2 seconds between member updates
+  private memberCountSubscriptions: Map<string, () => void> = new Map(); // Track subscriptions for cleanup
 
   constructor(private gunService: WebGunService) {}
 
@@ -245,6 +246,64 @@ export class WebChatroomService {
           resolve(count);
         });
     });
+  }
+
+  /**
+   * Subscribe to member count updates for a specific chatroom
+   * Calls the callback whenever the member count changes
+   */
+  subscribeToMemberCount(chatroomId: string, callback: (count: number) => void): void {
+    // Unsubscribe from previous subscription for this chatroom if exists
+    const existingUnsubscribe = this.memberCountSubscriptions.get(chatroomId);
+    if (existingUnsubscribe) {
+      existingUnsubscribe();
+    }
+
+    console.log(`👂 Subscribing to member count for chatroom: ${chatroomId}`);
+    const gun = this.gunService.getGun();
+
+    // Subscribe to all user changes in this chatroom
+    const off = gun
+      .get('chatrooms')
+      .get(chatroomId)
+      .get('users')
+      .map()
+      .on(() => {
+        // When any user data changes, re-count all active members
+        gun
+          .get('chatrooms')
+          .get(chatroomId)
+          .get('users')
+          .once((usersData: any) => {
+            if (!usersData) {
+              callback(0);
+              return;
+            }
+
+            let count = 0;
+            for (const userId in usersData) {
+              if (userId.startsWith('_')) continue; // Skip Gun.js metadata
+              const memberData = usersData[userId];
+              if (memberData && memberData.isActive === true) {
+                count++;
+              }
+            }
+
+            console.log(`📊 Member count update for ${chatroomId}: ${count} members`);
+            callback(count);
+          });
+      });
+
+    // Store unsubscribe function
+    this.memberCountSubscriptions.set(chatroomId, () => off.off());
+  }
+
+  /**
+   * Unsubscribe from all member count subscriptions
+   */
+  unsubscribeAllMemberCounts(): void {
+    this.memberCountSubscriptions.forEach((unsubscribe) => unsubscribe());
+    this.memberCountSubscriptions.clear();
   }
 
   /**

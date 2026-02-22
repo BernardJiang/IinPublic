@@ -741,6 +741,11 @@ export class UIManager extends EventEmitter {
   }
 
   updateChatroomInfo(info: { id: string; name: string } | any): void {
+    // Update current chatroom tracking
+    if (info.id) {
+      this.currentChatroom = info.id;
+    }
+
     const chatroomInfo = document.getElementById('chatroom-info');
     if (chatroomInfo && info.id && info.name) {
       chatroomInfo.innerHTML = `
@@ -2004,9 +2009,9 @@ export class UIManager extends EventEmitter {
 
     // Update Chatrooms detail view (chatroom-members-list)
     if (chatroomMembersList) {
-      // Update status
+      // Update status - show total member count including current user
       if (chatroomStatus) {
-        chatroomStatus.textContent = `${otherMembers.length} user${otherMembers.length !== 1 ? 's' : ''} online`;
+        chatroomStatus.textContent = `👥 ${members.length} member${members.length !== 1 ? 's' : ''} total`;
       }
 
       // Store members for broadcast functionality

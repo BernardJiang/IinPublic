@@ -47,8 +47,41 @@ export class IinPublicApp {
     // Show main interface
     this.uiManager.showMainInterface(this.currentUser!);
 
-    // Fetch member counts for all chatrooms (after UI is shown)
-    await this.fetchAllChatroomMemberCounts();
+    // Subscribe to member counts for all chatrooms (real-time updates)
+    this.subscribeToAllChatroomMemberCounts();
+  }
+
+  /**
+   * Subscribe to member count updates for all chatrooms in the UI list
+   * This allows showing real-time headcount badges that update when users join/leave
+   */
+  private subscribeToAllChatroomMemberCounts(): void {
+    const chatroomIds = [
+      'global',
+      'north-america',
+      'usa',
+      'california',
+      'san-francisco',
+      'downtown-sf',
+    ];
+
+    // Also include the current chatroom ID (location-based) if it's not in the list
+    const currentChatroomId = this.chatroomService.getCurrentChatroomId();
+    if (currentChatroomId && !chatroomIds.includes(currentChatroomId)) {
+      chatroomIds.push(currentChatroomId);
+      console.log(`📍 Also subscribing to current location-based chatroom: ${currentChatroomId}`);
+    }
+
+    console.log('📊 Subscribing to member counts for all chatrooms...');
+
+    chatroomIds.forEach((chatroomId) => {
+      this.chatroomService.subscribeToMemberCount(chatroomId, (count) => {
+        console.log(`  - ${chatroomId}: ${count} members`);
+        this.uiManager.setChatroomMemberCount(chatroomId, count);
+      });
+    });
+
+    console.log('✅ Subscribed to all chatroom member counts');
   }
 
   private async initializeUser(): Promise<void> {
@@ -136,29 +169,6 @@ export class IinPublicApp {
    * Fetch member counts for all chatrooms in the UI list
    * This allows showing headcount badges for rooms the user hasn't visited
    */
-  private async fetchAllChatroomMemberCounts(): Promise<void> {
-    const chatroomIds = [
-      'global',
-      'north-america',
-      'usa',
-      'california',
-      'san-francisco',
-      'downtown-sf',
-    ];
-
-    console.log('📊 Fetching member counts for all chatrooms...');
-
-    // Fetch counts in parallel for better performance
-    const countPromises = chatroomIds.map(async (chatroomId) => {
-      const count = await this.chatroomService.getMemberCount(chatroomId);
-      console.log(`  - ${chatroomId}: ${count} members`);
-      this.uiManager.setChatroomMemberCount(chatroomId, count);
-    });
-
-    await Promise.all(countPromises);
-    console.log('✅ All chatroom member counts fetched');
-  }
-
   private subscribeToMessages(chatroomId: string): void {
     console.log('💬 Subscribing to chatroom messages:', chatroomId);
     const gun = this.gunService.getGun();
