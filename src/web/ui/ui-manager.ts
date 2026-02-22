@@ -31,6 +31,7 @@ export class UIManager extends EventEmitter {
         <!-- Top Header -->
         <div class="top-header" id="top-header">
           <div class="header-title" id="header-title">Chatrooms</div>
+          <div class="header-user-info" id="header-user-info" style="display: none;"></div>
           <div class="header-actions" id="header-actions">
             <button class="header-btn" id="create-talk-btn">➕</button>
           </div>
@@ -299,6 +300,20 @@ export class UIManager extends EventEmitter {
   }
 
   showMainInterface(user: User): void {
+    // Update header with user's stageName
+    const headerUserInfo = document.getElementById('header-user-info');
+    if (headerUserInfo) {
+      headerUserInfo.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div class="user-avatar" style="width: 32px; height: 32px; font-size: 0.9em;">
+            ${user.stageName.charAt(0).toUpperCase()}
+          </div>
+          <div style="font-size: 0.95em; font-weight: 500; color: white;">${user.stageName}</div>
+        </div>
+      `;
+      headerUserInfo.style.display = 'block';
+    }
+
     // Update user info in Me view
     const userInfoMe = document.getElementById('user-info-me');
     if (userInfoMe) {

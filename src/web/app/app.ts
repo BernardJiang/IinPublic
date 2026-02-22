@@ -128,6 +128,15 @@ export class IinPublicApp {
   private async initializeChatrooms(): Promise<void> {
     if (!this.currentUser || !this.currentLocation) return;
 
+    // Always join the global chatroom first
+    console.log('🌍 Joining global chatroom...');
+    await this.chatroomService.joinChatroom(
+      'global',
+      this.currentUser.id,
+      this.currentUser.stageName,
+    );
+    console.log('✅ Joined global chatroom');
+
     // Find optimal chatroom for user's location
     const chatroomId = await this.chatroomService.findOptimalChatroom(this.currentLocation);
     this.currentChatroomId = chatroomId; // Track current chatroom
@@ -135,7 +144,7 @@ export class IinPublicApp {
     console.log('🎯 Assigned to chatroom:', chatroomId);
     console.log('📍 Based on location:', this.currentLocation);
 
-    // Join the chatroom
+    // Join the location-based chatroom
     await this.chatroomService.joinChatroom(
       chatroomId,
       this.currentUser.id,
@@ -719,6 +728,8 @@ export class IinPublicApp {
       if (this.currentUser && this.currentChatroomId) {
         // Mark user as inactive in chatroom (for member count)
         this.chatroomService.leaveChatroom(this.currentChatroomId, this.currentUser.id);
+        // Leave global chatroom
+        this.chatroomService.leaveChatroom('global', this.currentUser.id);
         // Set user status to offline
         this.userService.setUserStatus(this.currentUser.id, 'offline');
       }
@@ -762,7 +773,10 @@ export class IinPublicApp {
     console.log('🧹 Manual cleanup called');
     if (this.currentUser && this.currentChatroomId) {
       console.log(`🧹 Cleanup: user=${this.currentUser.id}, chatroom=${this.currentChatroomId}`);
+      // Leave location-based chatroom
       this.chatroomService.leaveChatroom(this.currentChatroomId, this.currentUser.id);
+      // Leave global chatroom
+      this.chatroomService.leaveChatroom('global', this.currentUser.id);
       this.userService.setUserStatus(this.currentUser.id, 'offline');
       console.log('✅ Manual cleanup complete');
     } else {

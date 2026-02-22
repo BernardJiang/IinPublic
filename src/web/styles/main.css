@@ -95,6 +95,27 @@ body {
   opacity: 0.7;
 }
 
+.header-user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  margin-right: 10px;
+}
+
+.header-user-info .user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
 /* View Container */
 .view-container {
   flex: 1;
