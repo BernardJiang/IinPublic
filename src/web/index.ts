@@ -8,6 +8,15 @@ class WebApp {
 
   constructor() {
     this.app = new IinPublicApp();
+
+    // Expose IMMEDIATELY for E2E testing (before any async operations)
+    (window as any).__iinpublic_app = this;
+    console.log('🔧 Exposed __iinpublic_app to window for E2E testing');
+  }
+
+  // Expose app for E2E testing
+  getApp(): IinPublicApp {
+    return this.app;
   }
 
   async initialize(): Promise<void> {

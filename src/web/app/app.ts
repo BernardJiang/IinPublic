@@ -736,4 +736,22 @@ export class IinPublicApp {
       window.location.reload();
     }
   }
+
+  // E2E Testing helpers - expose private state for manual cleanup in tests
+  public getCurrentChatroomId(): string | undefined {
+    return this.currentChatroomId;
+  }
+
+  public manualCleanup(): void {
+    // Manually trigger cleanup (for E2E tests where beforeunload may not fire)
+    console.log('🧹 Manual cleanup called');
+    if (this.currentUser && this.currentChatroomId) {
+      console.log(`🧹 Cleanup: user=${this.currentUser.id}, chatroom=${this.currentChatroomId}`);
+      this.chatroomService.leaveChatroom(this.currentChatroomId, this.currentUser.id);
+      this.userService.setUserStatus(this.currentUser.id, 'offline');
+      console.log('✅ Manual cleanup complete');
+    } else {
+      console.log('⚠️ Manual cleanup skipped - no user or chatroom');
+    }
+  }
 }

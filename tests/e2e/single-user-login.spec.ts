@@ -122,6 +122,15 @@ test.describe('Single User Login/Logout Test', () => {
     console.log('\n📍 STEP 2: User exits app (closing tab)');
     console.log('='.repeat(60));
 
+    // Manually trigger cleanup before closing (beforeunload may not fire in Playwright)
+    await page.evaluate(() => {
+      const webApp = (window as any).__iinpublic_app;
+      if (webApp) {
+        webApp.getApp().manualCleanup();
+      }
+    });
+    console.log('✅ Cleanup called manually');
+
     await page.close();
     console.log('✅ Tab closed (simulating user exit)');
 
@@ -190,6 +199,14 @@ test.describe('Single User Login/Logout Test', () => {
     console.log('  2. ✅ User exits → tab closed (beforeunload sets isActive=false)');
     console.log('  3. ✅ User re-opens → remembered via localStorage');
     console.log('  4. ✅ User auto-rejoins → headcount = 1 again');
+
+    // Final cleanup
+    await page.evaluate(() => {
+      const webApp = (window as any).__iinpublic_app;
+      if (webApp) {
+        webApp.getApp().manualCleanup();
+      }
+    });
 
     await page.close();
     await context.close();

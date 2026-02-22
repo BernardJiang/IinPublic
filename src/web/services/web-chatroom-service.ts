@@ -75,11 +75,13 @@ export class WebChatroomService {
   }
 
   async leaveChatroom(chatroomId: string, userId: string): Promise<void> {
+    console.log(`🚪 Leaving chatroom: ${chatroomId} as user: ${userId}`);
     const gun = this.gunService.getGun();
     gun.get('chatrooms').get(chatroomId).get('users').get(userId).put({
       leftAt: new Date().toISOString(),
       isActive: false,
     });
+    console.log(`✅ Initiated leave for chatroom: ${chatroomId}`);
   }
 
   async switchChatroom(userId: string, newChatroomId: string): Promise<void> {
