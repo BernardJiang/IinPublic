@@ -6,6 +6,7 @@ export class UIManager extends EventEmitter {
   private currentChatroom: string = 'global';
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
   private currentConversationId: string | undefined = undefined;
+  private chatroomMemberCounts: Map<string, number> = new Map(); // Track member count per chatroom
   // private newMatchesCount: number = 0; // TODO: implement match count tracking
 
   initialize(): void {
@@ -331,6 +332,11 @@ export class UIManager extends EventEmitter {
     const headerTitle = document.getElementById('header-title');
     if (headerTitle) headerTitle.textContent = 'Chatrooms';
 
+    // Render the chatroom list
+    this.renderChatroomList();
+  }
+
+  private renderChatroomList(): void {
     // Define location-based chatroom hierarchy
     const chatrooms = [
       {
@@ -375,18 +381,26 @@ export class UIManager extends EventEmitter {
     const chatroomList = document.getElementById('chatroom-list');
     if (chatroomList) {
       chatroomList.innerHTML = chatrooms
-        .map(
-          (room) => `
-        <div class="chatroom-item" data-chatroom-id="${room.id}" data-level="${room.level}">
+        .map((room) => {
+          const memberCount = this.chatroomMemberCounts.get(room.id) || 0;
+          const isCurrentRoom = this.currentChatroom === room.id;
+          return `
+        <div class="chatroom-item ${isCurrentRoom ? 'current-room' : ''}" data-chatroom-id="${room.id}" data-level="${room.level}">
           <div class="chatroom-icon">${room.icon}</div>
           <div class="chatroom-info">
-            <div class="chatroom-name">${room.name}</div>
-            <div class="chatroom-description">${room.description}</div>
+            <div class="chatroom-name">
+              ${room.name}
+              ${isCurrentRoom ? '<span class="current-room-badge">Current</span>' : ''}
+            </div>
+            <div class="chatroom-description">
+              ${room.description}
+              ${memberCount > 0 ? `<span class="chatroom-headcount">👥 ${memberCount}</span>` : ''}
+            </div>
           </div>
           <div class="chatroom-arrow">›</div>
         </div>
-      `,
-        )
+      `;
+        })
         .join('');
 
       // Add click handlers to each chatroom item
@@ -1955,6 +1969,21 @@ export class UIManager extends EventEmitter {
     });
   }
 
+  /**
+   * Set member count for a specific chatroom (can be called for any chatroom)
+   */
+  setChatroomMemberCount(chatroomId: string, count: number): void {
+    console.log(`📊 Setting member count for ${chatroomId}: ${count} members`);
+    this.chatroomMemberCounts.set(chatroomId, count);
+
+    // Refresh chatroom list to show updated counts (without changing view)
+    // Only refresh if the DOM element exists (i.e., after initialization)
+    const chatroomList = document.getElementById('chatroom-list');
+    if (chatroomList) {
+      this.renderChatroomList();
+    }
+  }
+
   updateChatroomMembers(
     members: Array<{ userId: string; stageName: string }>,
     currentUserId: string,
@@ -1963,6 +1992,15 @@ export class UIManager extends EventEmitter {
     const chatroomStatus = document.getElementById('current-chatroom-status');
 
     const otherMembers = members.filter((member) => member.userId !== currentUserId);
+
+    // Update member count for current chatroom
+    console.log(
+      `📊 Updating member count for ${this.currentChatroom}: ${members.length} total members`,
+    );
+    this.chatroomMemberCounts.set(this.currentChatroom, members.length);
+
+    // Refresh chatroom list to show updated counts (without changing view)
+    this.renderChatroomList();
 
     // Update Chatrooms detail view (chatroom-members-list)
     if (chatroomMembersList) {

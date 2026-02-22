@@ -212,6 +212,42 @@ export class WebChatroomService {
   }
 
   /**
+   * Get the member count for a specific chatroom (without subscribing)
+   * This is useful for displaying member counts in chatroom lists
+   */
+  async getMemberCount(chatroomId: string): Promise<number> {
+    const gun = this.gunService.getGun();
+
+    return new Promise((resolve) => {
+      const timeoutId = setTimeout(() => resolve(0), 1000);
+
+      gun
+        .get('chatrooms')
+        .get(chatroomId)
+        .get('users')
+        .once((usersData: any) => {
+          clearTimeout(timeoutId);
+
+          if (!usersData) {
+            resolve(0);
+            return;
+          }
+
+          let count = 0;
+          for (const userId in usersData) {
+            if (userId.startsWith('_')) continue; // Skip Gun.js metadata
+            const memberData = usersData[userId];
+            if (memberData && memberData.isActive === true) {
+              count++;
+            }
+          }
+
+          resolve(count);
+        });
+    });
+  }
+
+  /**
    * Enforce FIFO capacity limit on a chatroom
    * When capacity is reached, evict the oldest user to a smaller regional chatroom
    */

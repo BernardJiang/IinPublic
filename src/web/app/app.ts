@@ -46,6 +46,9 @@ export class IinPublicApp {
 
     // Show main interface
     this.uiManager.showMainInterface(this.currentUser!);
+
+    // Fetch member counts for all chatrooms (after UI is shown)
+    await this.fetchAllChatroomMemberCounts();
   }
 
   private async initializeUser(): Promise<void> {
@@ -127,6 +130,33 @@ export class IinPublicApp {
 
     // Update chatroom info
     this.uiManager.updateChatroomInfo({ id: chatroomId, name: `Chatroom: ${chatroomId}` });
+  }
+
+  /**
+   * Fetch member counts for all chatrooms in the UI list
+   * This allows showing headcount badges for rooms the user hasn't visited
+   */
+  private async fetchAllChatroomMemberCounts(): Promise<void> {
+    const chatroomIds = [
+      'global',
+      'north-america',
+      'usa',
+      'california',
+      'san-francisco',
+      'downtown-sf',
+    ];
+
+    console.log('📊 Fetching member counts for all chatrooms...');
+
+    // Fetch counts in parallel for better performance
+    const countPromises = chatroomIds.map(async (chatroomId) => {
+      const count = await this.chatroomService.getMemberCount(chatroomId);
+      console.log(`  - ${chatroomId}: ${count} members`);
+      this.uiManager.setChatroomMemberCount(chatroomId, count);
+    });
+
+    await Promise.all(countPromises);
+    console.log('✅ All chatroom member counts fetched');
   }
 
   private subscribeToMessages(chatroomId: string): void {
