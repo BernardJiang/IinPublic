@@ -8,7 +8,7 @@ const getEnv = (key: string, defaultValue: string): string => {
 
 export const CONFIG = {
   // Chatroom settings
-  CHATROOM_CAPACITY: parseInt(getEnv('CHATROOM_MAX_CAPACITY', '1000'), 10),
+  CHATROOM_CAPACITY: parseInt(getEnv('CHATROOM_MAX_CAPACITY', '3'), 10), // Set to 3 for testing (production: 1000)
   CHATROOM_ENABLE_FIFO: getEnv('CHATROOM_ENABLE_FIFO', 'true') !== 'false', // Enabled by default
   GLOBAL_CHATROOM_ID: 'global',
 

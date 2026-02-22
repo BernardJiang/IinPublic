@@ -45,7 +45,7 @@ test.describe('Three User Login/Logout Test', () => {
   }
 
   // Helper function to get headcount from a page
-  async function getHeadcount(page: Page, chatroomName: string = 'My Location'): Promise<string> {
+  async function getHeadcount(page: Page, chatroomName: string = 'Global'): Promise<string> {
     const headcount = await page.locator(
       `.chatroom-item:has-text("${chatroomName}") .chatroom-headcount`,
     );

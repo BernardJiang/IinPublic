@@ -2,6 +2,7 @@ import { GPSCoordinate } from '../../shared/types';
 import { LocationPrivacy } from '../../shared/location';
 import { WebGunService } from './web-gun-service';
 import { CONFIG } from '../../shared/config';
+import { getParentChatroom, findAppropriateChildChatroom } from '../../shared/location-to-chatroom';
 
 export class WebChatroomService {
   private currentChatroomId?: string;
@@ -10,6 +11,7 @@ export class WebChatroomService {
   private lastMembersUpdate: number = 0; // Timestamp of last member update (rate limiter)
   private readonly MIN_UPDATE_INTERVAL = 2000; // Minimum 2 seconds between member updates
   private memberCountSubscriptions: Map<string, () => void> = new Map(); // Track subscriptions for cleanup
+  private userLocations: Map<string, GPSCoordinate> = new Map(); // Track user locations for FIFO eviction
 
   constructor(private gunService: WebGunService) {}
 
@@ -24,6 +26,60 @@ export class WebChatroomService {
     console.log(`🔍 Finding chatroom for region: ${blurredLocation.region} -> ${chatroomId}`);
 
     return chatroomId;
+  }
+
+  /**
+   * Find optimal chatroom using hierarchical assignment logic
+   *
+   * Logic:
+   * 1. New user: Always start at Global
+   * 2. Re-entering user with lastChatroomId:
+   *    - If last room is empty (0 users), move up to parent
+   *    - If last room has capacity, rejoin it
+   *    - If last room is full, will trigger FIFO in joinChatroom
+   *
+   * @param location User's GPS location
+   * @param userId User's unique identifier
+   * @param lastChatroomId Optional last chatroom from localStorage
+   */
+  async findOptimalChatroomHierarchical(
+    location: GPSCoordinate,
+    userId: string,
+    lastChatroomId?: string,
+  ): Promise<string> {
+    console.log(`🔍 Finding optimal chatroom for user ${userId}`);
+    console.log(`  Location: ${location.latitude}, ${location.longitude}`);
+    console.log(`  Last chatroom: ${lastChatroomId || 'none (new user)'}`);
+
+    // Store user location for FIFO eviction
+    this.userLocations.set(userId, location);
+
+    // If no last chatroom, start at Global
+    if (!lastChatroomId) {
+      console.log(`  → New user, starting at Global`);
+      return CONFIG.GLOBAL_CHATROOM_ID;
+    }
+
+    // Check if last room is empty → move up to parent
+    const lastRoomCount = await this.getMemberCount(lastChatroomId);
+    console.log(`  Last room (${lastChatroomId}) member count: ${lastRoomCount}`);
+
+    if (lastRoomCount === 0) {
+      console.log(`  → Last room is empty, moving up to parent`);
+      const parent = getParentChatroom(lastChatroomId);
+      if (parent) {
+        console.log(`  → Parent room: ${parent}`);
+        return parent;
+      } else {
+        console.log(`  → No parent found, staying at Global`);
+        return CONFIG.GLOBAL_CHATROOM_ID;
+      }
+    }
+
+    // Last room has users, try to rejoin it
+    // If it's at capacity, FIFO will be enforced in joinChatroom()
+    console.log(`  → Re-entering last room: ${lastChatroomId}`);
+    return lastChatroomId;
   }
 
   async joinChatroom(chatroomId: string, userId: string, stageName?: string): Promise<void> {
@@ -309,8 +365,8 @@ export class WebChatroomService {
   }
 
   /**
-   * Enforce FIFO capacity limit on a chatroom
-   * When capacity is reached, evict the oldest user to a smaller regional chatroom
+   * Enforce FIFO capacity limit on a chatroom using hierarchical assignment
+   * When capacity is reached, evict the oldest user DOWN the hierarchy based on their GPS location
    */
   private async enforceCapacityLimit(chatroomId: string, newUserId: string): Promise<void> {
     try {
@@ -372,27 +428,39 @@ export class WebChatroomService {
                 `👤 Evicting oldest user: ${oldestUser.stageName} (joined: ${oldestUser.joinedAt})`,
               );
 
-              // Determine smaller regional chatroom
-              const smallerChatroomId = this.getSmallerRegionalChatroom(chatroomId);
+              // Get the oldest user's location
+              const oldestUserLocation = this.userLocations.get(oldestUser.userId);
 
-              if (smallerChatroomId) {
+              if (!oldestUserLocation) {
                 console.log(
-                  `📍 Moving ${oldestUser.stageName} to smaller chatroom: ${smallerChatroomId}`,
+                  `⚠️  No location found for user ${oldestUser.stageName}, cannot determine child chatroom`,
+                );
+                resolve();
+                return;
+              }
+
+              // Find appropriate child chatroom based on user's location
+              const childChatroomId = findAppropriateChildChatroom(chatroomId, oldestUserLocation);
+
+              if (childChatroomId) {
+                console.log(
+                  `📍 Moving ${oldestUser.stageName} to child chatroom: ${childChatroomId}`,
                 );
 
-                // Move user to smaller chatroom
+                // Move user to child chatroom
                 await this.moveUserToChatroom(
                   oldestUser.userId,
                   chatroomId,
-                  smallerChatroomId,
+                  childChatroomId,
                   oldestUser.stageName,
                 );
               } else {
                 console.log(
-                  `⚠️  No smaller chatroom available, forcing user to leave: ${oldestUser.stageName}`,
+                  `⚠️  Already at most specific chatroom level, cannot evict ${oldestUser.stageName}`,
                 );
-                // Just mark as inactive if no smaller room exists
-                await this.leaveChatroom(chatroomId, oldestUser.userId);
+                // At the leaf node, we can't go further down
+                // In production, might want to create dynamic sub-rooms or just reject new user
+                console.log(`  → Allowing join anyway (at leaf level)`);
               }
             }
 
@@ -404,58 +472,6 @@ export class WebChatroomService {
       // Don't block the join on capacity check errors
       return Promise.resolve();
     }
-  }
-
-  /**
-   * Get a smaller regional chatroom ID based on the current chatroom
-   * Hierarchy: Global -> Continental -> Country -> State -> City -> Neighborhood
-   */
-  private getSmallerRegionalChatroom(currentChatroomId: string): string | null {
-    // Parse the current chatroom ID to determine its level
-    // Format: region_lat_lon_room_0 or global_room_0
-
-    if (currentChatroomId.startsWith('global')) {
-      // If already at global, create continental chatrooms
-      // For simplicity, we'll use hemisphere-based splits
-      return `hemisphere_north_room_0`; // Could be more sophisticated
-    }
-
-    if (currentChatroomId.startsWith('hemisphere')) {
-      // Move to continental level
-      return `continent_na_room_0`; // North America
-    }
-
-    if (currentChatroomId.startsWith('continent')) {
-      // Move to country level
-      return `country_us_room_0`; // USA
-    }
-
-    if (currentChatroomId.startsWith('country')) {
-      // Move to state level
-      return `state_ca_room_0`; // California
-    }
-
-    if (currentChatroomId.startsWith('state')) {
-      // Move to city level
-      return `city_sf_room_0`; // San Francisco
-    }
-
-    if (currentChatroomId.startsWith('city')) {
-      // Move to neighborhood level (smallest)
-      return `neighborhood_soma_room_0`; // SoMa neighborhood
-    }
-
-    // Already at smallest level (neighborhood), or region-based chatroom
-    // For region-based rooms, create sub-rooms with incrementing numbers
-    const match = currentChatroomId.match(/^(.+)_room_(\d+)$/);
-    if (match) {
-      const baseId = match[1];
-      const roomNum = parseInt(match[2], 10);
-      // Create a new room in the same region
-      return `${baseId}_room_${roomNum + 1}`;
-    }
-
-    return null; // No smaller chatroom available
   }
 
   /**

@@ -94,10 +94,8 @@ test.describe('Single User Login/Logout Test', () => {
     // Wait for app to initialize
     await page.waitForTimeout(3000); // Wait for Gun.js sync
 
-    // Check headcount in "My Location" chatroom
-    const headcount1 = await page.locator(
-      '.chatroom-item:has-text("My Location") .chatroom-headcount',
-    );
+    // Check headcount in "Global" chatroom
+    const headcount1 = await page.locator('.chatroom-item:has-text("Global") .chatroom-headcount');
     await headcount1.waitFor({ state: 'visible', timeout: 5000 });
     const headcountText1 = await headcount1.textContent();
     console.log(`📊 Headcount after first login: ${headcountText1}`);
@@ -171,10 +169,8 @@ test.describe('Single User Login/Logout Test', () => {
     // "👤 Existing user loaded: User..." - but we'll verify via headcount instead
     console.log('✅ User persisted (verified via console logs showing "Existing user loaded")');
 
-    // Check headcount - should be 1 again (TennisPlayer1 rejoined)
-    const headcount2 = await page.locator(
-      '.chatroom-item:has-text("My Location") .chatroom-headcount',
-    );
+    // Check headcount - should be 1 again (user rejoined)
+    const headcount2 = await page.locator('.chatroom-item:has-text("Global") .chatroom-headcount');
     await headcount2.waitFor({ state: 'visible', timeout: 5000 });
     const headcountText2 = await headcount2.textContent();
     console.log(`📊 Headcount after re-login: ${headcountText2}`);

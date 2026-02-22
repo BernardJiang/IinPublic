@@ -109,7 +109,7 @@ test.describe('Two User Login/Logout Test', () => {
 
     // Check headcount for User 1
     const headcount1_step1 = await page1.locator(
-      '.chatroom-item:has-text("My Location") .chatroom-headcount',
+      '.chatroom-item:has-text("Global") .chatroom-headcount',
     );
     await headcount1_step1.waitFor({ state: 'visible', timeout: 5000 });
     const headcountText1_step1 = await headcount1_step1.textContent();
@@ -152,13 +152,13 @@ test.describe('Two User Login/Logout Test', () => {
 
     // Check headcount for both users (should be 2)
     const headcount1_step2 = await page1.locator(
-      '.chatroom-item:has-text("My Location") .chatroom-headcount',
+      '.chatroom-item:has-text("Global") .chatroom-headcount',
     );
     const headcountText1_step2 = await headcount1_step2.textContent();
     console.log(`📊 User 1 headcount: ${headcountText1_step2}`);
 
     const headcount2_step2 = await page2.locator(
-      '.chatroom-item:has-text("My Location") .chatroom-headcount',
+      '.chatroom-item:has-text("Global") .chatroom-headcount',
     );
     const headcountText2_step2 = await headcount2_step2.textContent();
     console.log(`📊 User 2 headcount: ${headcountText2_step2}`);
@@ -229,7 +229,7 @@ test.describe('Two User Login/Logout Test', () => {
     let headcountText1_step3 = '';
     for (let i = 0; i < 10; i++) {
       const headcount1_step3 = await page1.locator(
-        '.chatroom-item:has-text("My Location") .chatroom-headcount',
+        '.chatroom-item:has-text("Global") .chatroom-headcount',
       );
       headcountText1_step3 = (await headcount1_step3.textContent()) || '';
       console.log(
@@ -281,13 +281,13 @@ test.describe('Two User Login/Logout Test', () => {
 
     // Check headcount for both users (should be 2 again)
     const headcount1_step4 = await page1.locator(
-      '.chatroom-item:has-text("My Location") .chatroom-headcount',
+      '.chatroom-item:has-text("Global") .chatroom-headcount',
     );
     const headcountText1_step4 = await headcount1_step4.textContent();
     console.log(`📊 User 1 headcount: ${headcountText1_step4}`);
 
     const headcount2_step4 = await page2.locator(
-      '.chatroom-item:has-text("My Location") .chatroom-headcount',
+      '.chatroom-item:has-text("Global") .chatroom-headcount',
     );
     const headcountText2_step4 = await headcount2_step4.textContent();
     console.log(`📊 User 2 headcount: ${headcountText2_step4}`);
@@ -382,13 +382,13 @@ test.describe('Two User Login/Logout Test', () => {
 
     // Check headcount for both users (should be 2)
     const headcount1_step6 = await page1.locator(
-      '.chatroom-item:has-text("My Location") .chatroom-headcount',
+      '.chatroom-item:has-text("Global") .chatroom-headcount',
     );
     const headcountText1_step6 = await headcount1_step6.textContent();
     console.log(`📊 User 1 headcount: ${headcountText1_step6}`);
 
     const headcount2_step6 = await page2.locator(
-      '.chatroom-item:has-text("My Location") .chatroom-headcount',
+      '.chatroom-item:has-text("Global") .chatroom-headcount',
     );
     const headcountText2_step6 = await headcount2_step6.textContent();
     console.log(`📊 User 2 headcount: ${headcountText2_step6}`);

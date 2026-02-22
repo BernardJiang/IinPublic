@@ -128,28 +128,30 @@ export class IinPublicApp {
   private async initializeChatrooms(): Promise<void> {
     if (!this.currentUser || !this.currentLocation) return;
 
-    // Always join the global chatroom first
-    console.log('🌍 Joining global chatroom...');
-    await this.chatroomService.joinChatroom(
-      'global',
-      this.currentUser.id,
-      this.currentUser.stageName,
-    );
-    console.log('✅ Joined global chatroom');
+    // Get last chatroom from localStorage (for re-entry logic)
+    const lastChatroomId = localStorage.getItem('iinpublic_last_chatroom') || undefined;
 
-    // Find optimal chatroom for user's location
-    const chatroomId = await this.chatroomService.findOptimalChatroom(this.currentLocation);
+    // Find optimal chatroom using hierarchical assignment
+    const chatroomId = await this.chatroomService.findOptimalChatroomHierarchical(
+      this.currentLocation,
+      this.currentUser.id,
+      lastChatroomId,
+    );
+
     this.currentChatroomId = chatroomId; // Track current chatroom
 
     console.log('🎯 Assigned to chatroom:', chatroomId);
     console.log('📍 Based on location:', this.currentLocation);
 
-    // Join the location-based chatroom
+    // Join the assigned chatroom (FIFO logic will be enforced in joinChatroom)
     await this.chatroomService.joinChatroom(
       chatroomId,
       this.currentUser.id,
       this.currentUser.stageName,
     );
+
+    // Store current chatroom in localStorage for next time
+    localStorage.setItem('iinpublic_last_chatroom', chatroomId);
 
     console.log('🏠 Joined chatroom:', chatroomId);
 
@@ -726,10 +728,8 @@ export class IinPublicApp {
     // Handle beforeunload to cleanup
     window.addEventListener('beforeunload', () => {
       if (this.currentUser && this.currentChatroomId) {
-        // Mark user as inactive in chatroom (for member count)
+        // Mark user as inactive in current chatroom (for member count)
         this.chatroomService.leaveChatroom(this.currentChatroomId, this.currentUser.id);
-        // Leave global chatroom
-        this.chatroomService.leaveChatroom('global', this.currentUser.id);
         // Set user status to offline
         this.userService.setUserStatus(this.currentUser.id, 'offline');
       }
@@ -773,10 +773,8 @@ export class IinPublicApp {
     console.log('🧹 Manual cleanup called');
     if (this.currentUser && this.currentChatroomId) {
       console.log(`🧹 Cleanup: user=${this.currentUser.id}, chatroom=${this.currentChatroomId}`);
-      // Leave location-based chatroom
+      // Leave current chatroom
       this.chatroomService.leaveChatroom(this.currentChatroomId, this.currentUser.id);
-      // Leave global chatroom
-      this.chatroomService.leaveChatroom('global', this.currentUser.id);
       this.userService.setUserStatus(this.currentUser.id, 'offline');
       console.log('✅ Manual cleanup complete');
     } else {
