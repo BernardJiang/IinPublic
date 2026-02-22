@@ -162,17 +162,13 @@ export class IinPublicApp {
     console.log('🏠 Joined chatroom:', chatroomId);
 
     // Subscribe to chatroom members and update UI
-    let hasShownWelcomeBanner = false;
     this.chatroomService.subscribeToMembers(chatroomId, (members) => {
       console.log('👥 Chatroom members updated:', members);
       this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
 
-      // Show welcome banner on first member update for new users
-      if (!hasShownWelcomeBanner && (this as any).isNewUser) {
-        hasShownWelcomeBanner = true;
-        const chatroomName = this.getChatroomDisplayName(chatroomId);
-        this.uiManager.showWelcomeBanner(this.currentUser!.stageName, chatroomName, members.length);
-      }
+      // Update status bar with current chatroom info (real-time)
+      const chatroomName = this.getChatroomDisplayName(chatroomId);
+      this.uiManager.updateStatusBar(this.currentUser!.stageName, chatroomName, members.length);
     });
 
     // Subscribe to chatroom messages

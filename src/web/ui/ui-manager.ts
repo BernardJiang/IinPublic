@@ -42,10 +42,10 @@ export class UIManager extends EventEmitter {
           
           <!-- Chatrooms View (Default) -->
           <div class="view-panel active" id="chatrooms-view">
-            <!-- Welcome Banner (Hidden by default, shown after joining) -->
-            <div class="welcome-banner" id="welcome-banner" style="display: none;">
-              <div class="welcome-banner-content">
-                <span id="welcome-banner-text">Welcome to IinPublic!</span>
+            <!-- Status Bar (Always visible, shows current user and chatroom info) -->
+            <div class="status-bar" id="status-bar">
+              <div class="status-bar-content">
+                <span id="status-bar-text">Connecting...</span>
               </div>
             </div>
             
@@ -831,18 +831,12 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  showWelcomeBanner(stageName: string, chatroomName: string, memberCount: number): void {
-    const banner = document.getElementById('welcome-banner');
-    const bannerText = document.getElementById('welcome-banner-text');
+  updateStatusBar(stageName: string, chatroomName: string, memberCount: number): void {
+    const statusBar = document.getElementById('status-bar');
+    const statusBarText = document.getElementById('status-bar-text');
 
-    if (banner && bannerText) {
-      bannerText.textContent = `Welcome ${stageName} to ${chatroomName} with ${memberCount} ${memberCount === 1 ? 'user' : 'users'}.`;
-      banner.style.display = 'block';
-
-      // Auto-hide after 5 seconds
-      setTimeout(() => {
-        banner.style.display = 'none';
-      }, 5000);
+    if (statusBar && statusBarText) {
+      statusBarText.textContent = `${stageName} in ${chatroomName} with ${memberCount} ${memberCount === 1 ? 'user' : 'users'}`;
     }
   }
 
