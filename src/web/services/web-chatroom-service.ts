@@ -328,28 +328,42 @@ export class WebChatroomService {
       .map()
       .on(() => {
         // When any user data changes, re-count all active members
+        // Use map().once() to ensure we get the latest data for each user
+        const members: { [userId: string]: any } = {};
+        let pendingUsers = 0;
+        let completed = false;
+
         gun
           .get('chatrooms')
           .get(chatroomId)
           .get('users')
-          .once((usersData: any) => {
-            if (!usersData) {
-              callback(0);
-              return;
-            }
+          .map()
+          .once((memberData: any, userId: string) => {
+            // Skip Gun.js metadata
+            if (userId.startsWith('_')) return;
 
-            let count = 0;
-            for (const userId in usersData) {
-              if (userId.startsWith('_')) continue; // Skip Gun.js metadata
-              const memberData = usersData[userId];
-              if (memberData && memberData.isActive === true) {
-                count++;
-              }
-            }
-
-            console.log(`📊 Member count update for ${chatroomId}: ${count} members`);
-            callback(count);
+            pendingUsers++;
+            members[userId] = memberData;
           });
+
+        // Wait for Gun.js to finish loading data (with longer timeout for reliability)
+        // Increased from 100ms to 1000ms to ensure Gun.js sync completes even on slow systems
+        setTimeout(() => {
+          if (completed) return;
+          completed = true;
+
+          let count = 0;
+          for (const userId in members) {
+            const memberData = members[userId];
+            if (memberData && memberData.isActive === true) {
+              count++;
+            }
+          }
+
+          console.log(`📊 Member count update for ${chatroomId}: ${count} members`);
+          console.log(`  - ${chatroomId}: ${count} members`);
+          callback(count);
+        }, 1000);
       });
 
     // Store unsubscribe function
