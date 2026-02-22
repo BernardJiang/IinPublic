@@ -66,31 +66,44 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     console.log('⚠️  Please close any manually opened browser tabs pointing to localhost:3001');
 
     // Launch 2 separate Chrome browsers positioned side-by-side
+    // Window must be EXTREMELY tall to show full viewport in E2E environment
+    // Setting to 1800px to ensure 600px viewport is fully visible
     browser1 = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=0,0', '--window-size=960,1200'],
+      args: ['--window-position=0,0', '--window-size=960,1200', '--force-device-scale-factor=1'],
     });
 
     browser2 = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=960,0', '--window-size=960,1200'],
+      args: ['--window-position=960,0', '--window-size=960,1200', '--force-device-scale-factor=1'],
     });
 
     // Create contexts - each browser gets its own context
+    // Using a small viewport (600px height) that will definitely fit on screen
     user1Context = await browser1.newContext({
       viewport: { width: 960, height: 1200 },
+      deviceScaleFactor: 1,
       storageState: undefined, // Start with clean storage
     });
     user2Context = await browser2.newContext({
       viewport: { width: 960, height: 1200 },
+      deviceScaleFactor: 1,
       storageState: undefined, // Start with clean storage
     });
 
     // Create a page in each context
     user1Page = await user1Context.newPage();
     user2Page = await user2Context.newPage();
+
+    // Force zoom level to 100% (1.0)
+    await user1Page.evaluate(() => {
+      (document.body.style as any).zoom = '1.0';
+    });
+    await user2Page.evaluate(() => {
+      (document.body.style as any).zoom = '1.0';
+    });
 
     // Listen to console messages from both pages
     user1Page.on('console', (msg) => console.log(`[User1 Browser]:`, msg.text()));
@@ -99,6 +112,10 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     console.log('🚀 Launched 2 Chrome browsers side-by-side');
     console.log('   User 1: Left window (0,0)');
     console.log('   User 2: Right window (960,0)');
+    console.log('');
+    console.log('⚠️  NOTE: If browser windows are too small and navigation bar is cut off,');
+    console.log('   please manually drag the windows taller to see the full interface.');
+    console.log('');
   });
 
   test.afterAll(async () => {
@@ -177,6 +194,11 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     await user1Page.waitForTimeout(3000);
     await user2Page.waitForTimeout(3000);
 
+    // Take screenshots for debugging
+    await user1Page.screenshot({ path: 'test-screenshots/user1-full-page.png', fullPage: true });
+    await user1Page.screenshot({ path: 'test-screenshots/user1-viewport.png' });
+    console.log('📸 Screenshots saved to test-screenshots/');
+
     // Verify both users can see the navigation
     const user1NavCount = await user1Page.locator('.nav-btn').count();
     const user2NavCount = await user2Page.locator('.nav-btn').count();
@@ -188,6 +210,78 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
       throw new Error(
         `Expected 4 navigation tabs, got User1: ${user1NavCount}, User2: ${user2NavCount}`,
       );
+    }
+
+    // Check if bottom navigation is actually visible in the viewport
+    const user1BottomNav = user1Page.locator('.bottom-nav');
+    const user1NavBox = await user1BottomNav.boundingBox();
+    const user1Viewport = user1Page.viewportSize();
+
+    // Get the actual computed height from the browser
+    const user1NavComputedHeight = await user1Page.evaluate(() => {
+      const nav = document.querySelector('.bottom-nav');
+      const appContainer = document.querySelector('.app-container');
+      const html = document.documentElement;
+      const body = document.body;
+
+      if (!nav) return null;
+      const computed = window.getComputedStyle(nav);
+      const appComputed = appContainer ? window.getComputedStyle(appContainer) : null;
+
+      return {
+        navHeight: computed.height,
+        navOffsetHeight: (nav as HTMLElement).offsetHeight,
+        appContainerHeight: appComputed?.height,
+        htmlHeight: html.offsetHeight,
+        bodyHeight: body.offsetHeight,
+        viewportHeight: window.innerHeight,
+        documentHeight: document.documentElement.scrollHeight,
+        vh100: window.innerHeight + 'px (what 100vh should be)',
+      };
+    });
+
+    console.log('🔍 User 1 computed heights:', JSON.stringify(user1NavComputedHeight, null, 2));
+
+    const user2BottomNav = user2Page.locator('.bottom-nav');
+    const user2NavBox = await user2BottomNav.boundingBox();
+    const user2Viewport = user2Page.viewportSize();
+
+    console.log(`📐 User 1 viewport: ${user1Viewport?.width}x${user1Viewport?.height}`);
+    console.log(
+      `📐 User 1 bottom nav position: y=${user1NavBox?.y}, height=${user1NavBox?.height}`,
+    );
+    console.log(
+      `📐 User 1 bottom nav bottom edge: ${(user1NavBox?.y ?? 0) + (user1NavBox?.height ?? 0)}`,
+    );
+
+    console.log(`📐 User 2 viewport: ${user2Viewport?.width}x${user2Viewport?.height}`);
+    console.log(
+      `📐 User 2 bottom nav position: y=${user2NavBox?.y}, height=${user2NavBox?.height}`,
+    );
+    console.log(
+      `📐 User 2 bottom nav bottom edge: ${(user2NavBox?.y ?? 0) + (user2NavBox?.height ?? 0)}`,
+    );
+
+    // Check if bottom nav is cut off (bottom edge beyond viewport)
+    const user1NavCutOff =
+      (user1NavBox?.y ?? 0) + (user1NavBox?.height ?? 0) > (user1Viewport?.height ?? 0);
+    const user2NavCutOff =
+      (user2NavBox?.y ?? 0) + (user2NavBox?.height ?? 0) > (user2Viewport?.height ?? 0);
+
+    if (user1NavCutOff) {
+      console.log('❌ User 1 bottom nav is CUT OFF below viewport!');
+    } else {
+      console.log('✅ User 1 bottom nav is VISIBLE within viewport');
+    }
+
+    if (user2NavCutOff) {
+      console.log('❌ User 2 bottom nav is CUT OFF below viewport!');
+    } else {
+      console.log('✅ User 2 bottom nav is VISIBLE within viewport' + user2NavBox?.height + 'px');
+    }
+
+    if (user1NavCutOff || user2NavCutOff) {
+      throw new Error('Bottom navigation is cut off below the viewport!');
     }
 
     console.log('🎉 ✅ BASIC TEST PASSED - App opens and users can sign in!');
