@@ -194,6 +194,22 @@ test.describe('Tennis Partner Talk - Two User Interaction', () => {
     await user1Page.waitForTimeout(3000);
     await user2Page.waitForTimeout(3000);
 
+    // Verify headcount badges show in chatroom list
+    console.log('📊 Checking headcount badges in chatroom list...');
+    const user1HeadcountText = await user1Page.locator('.chatroom-headcount').first().textContent();
+    const user2HeadcountText = await user2Page.locator('.chatroom-headcount').first().textContent();
+
+    console.log(`  User 1 sees: ${user1HeadcountText}`);
+    console.log(`  User 2 sees: ${user2HeadcountText}`);
+
+    // Both should see 2 members (including themselves)
+    if (!user1HeadcountText?.includes('2') || !user2HeadcountText?.includes('2')) {
+      throw new Error(
+        `Expected both users to see 2 members, got User1: ${user1HeadcountText}, User2: ${user2HeadcountText}`,
+      );
+    }
+    console.log('✅ Both users see correct headcount (2 members)');
+
     // Take screenshots for debugging
     await user1Page.screenshot({ path: 'test-screenshots/user1-full-page.png', fullPage: true });
     await user1Page.screenshot({ path: 'test-screenshots/user1-viewport.png' });

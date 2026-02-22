@@ -377,6 +377,17 @@ export class UIManager extends EventEmitter {
       },
     ];
 
+    // Add current location-based chatroom if it's not in the list
+    if (this.currentChatroom && !chatrooms.find((r) => r.id === this.currentChatroom)) {
+      chatrooms.unshift({
+        id: this.currentChatroom,
+        name: 'My Location',
+        icon: '📍',
+        level: 0,
+        description: 'Your current location chatroom',
+      });
+    }
+
     // Populate chatroom list
     const chatroomList = document.getElementById('chatroom-list');
     if (chatroomList) {
