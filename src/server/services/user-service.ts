@@ -1,5 +1,6 @@
 import { User, GPSCoordinate } from '../../shared/types';
 import { GunService } from './gun-service';
+import { generateRandomStageName } from '../../shared/user-utils';
 
 export class UserService {
   constructor(private gunService: GunService) {}
@@ -8,7 +9,7 @@ export class UserService {
     // Server-side user creation logic
     const user: User = {
       id: userData.id || '',
-      stageName: userData.stageName || '',
+      stageName: userData.stageName || generateRandomStageName(),
       ...(userData.headshot && { headshot: userData.headshot }),
       profile: userData.profile || [],
       reputation: userData.reputation || {
@@ -22,13 +23,13 @@ export class UserService {
         ageVerified: false,
         ageVerificationVotes: 0,
         blockCount: 0,
-        isHidden: false
+        isHidden: false,
       },
       location: userData.location || { region: '', chatrooms: [] },
       languages: userData.languages || ['en'],
       interests: userData.interests || [],
       createdAt: new Date(),
-      lastActive: new Date()
+      lastActive: new Date(),
     };
 
     await this.gunService.put(`users/${user.id}`, user);

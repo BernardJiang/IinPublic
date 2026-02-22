@@ -2,6 +2,7 @@ import { User, GPSCoordinate } from '../../shared/types';
 import { LocationPrivacy } from '../../shared/location';
 import { WebGunService } from './web-gun-service';
 import { v4 as uuidv4 } from 'uuid';
+import { generateRandomStageName } from '../../shared/user-utils';
 
 export class WebUserService {
   constructor(private gunService: WebGunService) {}
@@ -9,10 +10,10 @@ export class WebUserService {
   async createUser(userData: Partial<User>): Promise<User> {
     const userId = uuidv4();
     const now = new Date();
-    
+
     const userBase = {
       id: userId,
-      stageName: userData.stageName || '',
+      stageName: userData.stageName || generateRandomStageName(),
       profile: userData.profile || [],
       reputation: {
         questionsAnswered: 0,
@@ -25,18 +26,16 @@ export class WebUserService {
         ageVerified: false,
         ageVerificationVotes: 0,
         blockCount: 0,
-        isHidden: false
+        isHidden: false,
       },
       location: userData.location || { region: '', chatrooms: [] },
       languages: userData.languages || ['en'],
       interests: userData.interests || [],
       createdAt: now,
-      lastActive: now
+      lastActive: now,
     };
-    
-    const user: User = userData.headshot ? 
-      { ...userBase, headshot: userData.headshot } : 
-      userBase;
+
+    const user: User = userData.headshot ? { ...userBase, headshot: userData.headshot } : userBase;
 
     await this.gunService.put(`users/${userId}`, user);
     return user;
@@ -54,7 +53,11 @@ export class WebUserService {
   async setUserStatus(userId: string, status: 'online' | 'away' | 'offline'): Promise<void> {
     await this.gunService.put(`users/${userId}/status`, {
       status,
-      timestamp: new Date() // Gun service will serialize this properly
+      timestamp: new Date(), // Gun service will serialize this properly
     });
+  }
+
+  async updateStageName(userId: string, newStageName: string): Promise<void> {
+    await this.gunService.put(`users/${userId}/stageName`, newStageName);
   }
 }

@@ -86,11 +86,10 @@ test.describe('Single User Login/Logout Test', () => {
     await page.waitForSelector('.modal-overlay', { timeout: 10000 });
     console.log('✅ User creation dialog shown (new user)');
 
-    // Fill in stage name
-    await page.fill('#stage-name', 'TennisPlayer1');
-    await page.click('#user-creation-form button[type="submit"]');
+    // Click "Get Started" button - no need to fill in stage name anymore
+    await page.click('#get-started-btn');
     await page.waitForSelector('.modal-overlay', { state: 'detached', timeout: 10000 });
-    console.log('✅ User created: TennisPlayer1');
+    console.log('✅ User created with auto-generated stage name');
 
     // Wait for app to initialize
     await page.waitForTimeout(3000); // Wait for Gun.js sync
@@ -169,7 +168,7 @@ test.describe('Single User Login/Logout Test', () => {
     await page.waitForTimeout(3000); // Wait for Gun.js sync
 
     // We can verify the user persisted by checking the console logs showed
-    // "👤 Existing user loaded: TennisPlayer1" - but we'll verify via headcount instead
+    // "👤 Existing user loaded: User..." - but we'll verify via headcount instead
     console.log('✅ User persisted (verified via console logs showing "Existing user loaded")');
 
     // Check headcount - should be 1 again (TennisPlayer1 rejoined)

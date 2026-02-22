@@ -101,10 +101,9 @@ test.describe('Two User Login/Logout Test', () => {
 
     // User 1 creates account
     await page1.waitForSelector('.modal-overlay', { timeout: 10000 });
-    await page1.fill('#stage-name', 'User1');
-    await page1.click('#user-creation-form button[type="submit"]');
+    await page1.click('#get-started-btn');
     await page1.waitForSelector('.modal-overlay', { state: 'detached', timeout: 10000 });
-    console.log('✅ User 1 created: User1');
+    console.log('✅ User 1 created with auto-generated stage name');
 
     await page1.waitForTimeout(3000); // Wait for Gun.js sync
 
@@ -145,10 +144,9 @@ test.describe('Two User Login/Logout Test', () => {
 
     // User 2 creates account
     await page2.waitForSelector('.modal-overlay', { timeout: 10000 });
-    await page2.fill('#stage-name', 'User2');
-    await page2.click('#user-creation-form button[type="submit"]');
+    await page2.click('#get-started-btn');
     await page2.waitForSelector('.modal-overlay', { state: 'detached', timeout: 10000 });
-    console.log('✅ User 2 created: User2');
+    console.log('✅ User 2 created with auto-generated stage name');
 
     await page2.waitForTimeout(3000); // Wait for Gun.js sync
 

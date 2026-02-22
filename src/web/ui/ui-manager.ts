@@ -11,6 +11,9 @@ export class UIManager extends EventEmitter {
   private expandedChatrooms: Set<string> = new Set(['global']); // Track which chatrooms are expanded (default: global expanded)
   // private newMatchesCount: number = 0; // TODO: implement match count tracking
 
+  // Callback for stage name changes
+  public onStageNameChange?: (userId: string, newStageName: string) => Promise<void>;
+
   initialize(): void {
     const container = document.getElementById('app');
     if (!container) {
@@ -306,8 +309,15 @@ export class UIManager extends EventEmitter {
         <div style="text-align: center; margin-top: 10px;">
           <div style="font-size: 1.2em; font-weight: 600;">${user.stageName}</div>
           <div style="font-size: 0.9em; color: #999; margin-top: 5px;">Online</div>
+          <button class="btn" id="edit-stagename-btn" style="margin-top: 10px;">Edit Stage Name</button>
         </div>
       `;
+
+      // Add event listener for edit stage name button
+      const editBtn = document.getElementById('edit-stagename-btn');
+      if (editBtn) {
+        editBtn.addEventListener('click', () => this.showEditStageNameDialog(user));
+      }
     }
 
     const chatroomInfo = document.getElementById('chatroom-info');
@@ -689,25 +699,50 @@ export class UIManager extends EventEmitter {
         <div class="modal-content">
           <div class="modal-header">
             <h2 class="modal-title">Welcome to IinPublic!</h2>
-            <p>Let's set up your profile to get started.</p>
+            <p>Your account is being set up with a random stage name.</p>
+            <p>You can change your stage name anytime in your profile settings.</p>
           </div>
-          <form id="user-creation-form">
+          <div class="modal-actions">
+            <button type="button" class="btn" id="get-started-btn">Get Started</button>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(modal);
+
+      const getStartedBtn = document.getElementById('get-started-btn') as HTMLButtonElement;
+      getStartedBtn.addEventListener('click', () => {
+        document.body.removeChild(modal);
+        resolve({
+          languages: ['en'],
+          interests: [],
+        });
+      });
+    });
+  }
+
+  async showEditStageNameDialog(user: any): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2 class="modal-title">Edit Stage Name</h2>
+            <p>Current: ${user.stageName}</p>
+          </div>
+          <form id="edit-stagename-form">
             <div class="form-group">
-              <label class="form-label">Stage Name (required)</label>
-              <input type="text" class="form-input" id="stage-name" name="stage-name" required 
-                     placeholder="Choose a name others will see">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Languages you understand</label>
-              <select class="form-input" id="languages" name="languages" multiple>
-                <option value="en" selected>English</option>
-                <option value="es">Spanish</option>
-                <option value="fr">French</option>
-                <option value="de">German</option>
-              </select>
+              <label class="form-label">New Stage Name</label>
+              <input type="text" class="form-input" id="new-stage-name" name="new-stage-name" 
+                     required minlength="3" maxlength="50"
+                     placeholder="Enter your new stage name"
+                     value="${user.stageName}">
+              <small style="color: #666; font-size: 0.85em;">3-50 characters</small>
             </div>
             <div class="modal-actions">
-              <button type="submit" class="btn">Get Started</button>
+              <button type="button" class="btn" id="cancel-edit-btn" style="background: #6c757d;">Cancel</button>
+              <button type="submit" class="btn">Save</button>
             </div>
           </form>
         </div>
@@ -715,19 +750,31 @@ export class UIManager extends EventEmitter {
 
       document.body.appendChild(modal);
 
-      const form = document.getElementById('user-creation-form') as HTMLFormElement;
-      form.addEventListener('submit', (e) => {
+      const form = document.getElementById('edit-stagename-form') as HTMLFormElement;
+      const cancelBtn = document.getElementById('cancel-edit-btn') as HTMLButtonElement;
+
+      cancelBtn.addEventListener('click', () => {
+        document.body.removeChild(modal);
+        resolve();
+      });
+
+      form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const formData = new FormData(form);
-        const stageName = formData.get('stage-name') as string | null;
+        const newStageName = formData.get('new-stage-name') as string | null;
 
-        if (stageName && stageName.trim()) {
-          document.body.removeChild(modal);
-          resolve({
-            stageName: stageName.trim(),
-            languages: ['en'], // Simplified for now
-            interests: [],
-          });
+        if (newStageName && newStageName.trim() && newStageName.trim().length >= 3) {
+          try {
+            // Update the user's stage name
+            await this.onStageNameChange?.(user.id, newStageName.trim());
+            document.body.removeChild(modal);
+            resolve();
+          } catch (error) {
+            alert('Failed to update stage name. Please try again.');
+            reject(error);
+          }
+        } else {
+          alert('Stage name must be at least 3 characters long.');
         }
       });
     });

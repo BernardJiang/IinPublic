@@ -110,7 +110,7 @@ export class IinPublicApp {
     const blurredLocation = LocationPrivacy.blurLocation(this.currentLocation!);
 
     const newUser: Partial<User> = {
-      stageName: userData.stageName,
+      // stageName will be auto-generated in userService.createUser()
       headshot: userData.headshot,
       location: blurredLocation,
       languages: userData.languages || ['en'],
@@ -388,6 +388,25 @@ export class IinPublicApp {
 
   private setupEventHandlers(): void {
     // Handle UI events
+
+    // Handle stage name changes
+    this.uiManager.onStageNameChange = async (userId: string, newStageName: string) => {
+      try {
+        await this.userService.updateStageName(userId, newStageName);
+
+        // Update current user object
+        if (this.currentUser && this.currentUser.id === userId) {
+          this.currentUser.stageName = newStageName;
+          // Refresh the UI to show the new name
+          this.uiManager.showMainInterface(this.currentUser);
+        }
+
+        this.uiManager.showNotification('Stage name updated successfully!', 'success');
+      } catch (error) {
+        console.error('Failed to update stage name:', error);
+        throw error;
+      }
+    };
 
     // Handle "Send Talk" button click on user - now opens conversation if exists
     this.uiManager.on('sendTalkToUser', async (data: { userId: string }) => {
