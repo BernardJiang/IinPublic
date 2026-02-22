@@ -84,6 +84,7 @@ export class IinPublicApp {
   private async initializeUser(): Promise<void> {
     // Check for existing user in local storage
     const existingUserId = localStorage.getItem('iinpublic_user_id');
+    let isNewUser = false;
 
     if (existingUserId) {
       try {
@@ -92,10 +93,15 @@ export class IinPublicApp {
       } catch (error) {
         console.log('🆕 Existing user not found, creating new user');
         this.currentUser = await this.createNewUser();
+        isNewUser = true;
       }
     } else {
       this.currentUser = await this.createNewUser();
+      isNewUser = true;
     }
+
+    // Store whether this is a new user for welcome banner
+    (this as any).isNewUser = isNewUser;
 
     // Update user location
     if (this.currentLocation) {
@@ -156,9 +162,17 @@ export class IinPublicApp {
     console.log('🏠 Joined chatroom:', chatroomId);
 
     // Subscribe to chatroom members and update UI
+    let hasShownWelcomeBanner = false;
     this.chatroomService.subscribeToMembers(chatroomId, (members) => {
       console.log('👥 Chatroom members updated:', members);
       this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
+
+      // Show welcome banner on first member update for new users
+      if (!hasShownWelcomeBanner && (this as any).isNewUser) {
+        hasShownWelcomeBanner = true;
+        const chatroomName = this.getChatroomDisplayName(chatroomId);
+        this.uiManager.showWelcomeBanner(this.currentUser!.stageName, chatroomName, members.length);
+      }
     });
 
     // Subscribe to chatroom messages
@@ -172,6 +186,20 @@ export class IinPublicApp {
 
     // Update chatroom info
     this.uiManager.updateChatroomInfo({ id: chatroomId, name: `Chatroom: ${chatroomId}` });
+  }
+
+  /**
+   * Get a user-friendly display name for a chatroom
+   */
+  private getChatroomDisplayName(chatroomId: string): string {
+    // Capitalize and format the chatroom name
+    if (chatroomId === 'global') return 'Global';
+
+    // Convert 'north-america' to 'North America', etc.
+    return chatroomId
+      .split('-')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
   }
 
   /**

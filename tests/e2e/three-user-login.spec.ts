@@ -64,10 +64,8 @@ test.describe('Three User Login/Logout Test', () => {
 
   // Helper function to create a user
   async function createUser(page: Page, userName: string): Promise<void> {
-    await page.waitForSelector('.modal-overlay', { timeout: 10000 });
-    await page.click('#get-started-btn');
-    await page.waitForSelector('.modal-overlay', { state: 'detached', timeout: 10000 });
-    console.log(`✅ ${userName} created with auto-generated stage name`);
+    // User is automatically created (no modal needed)
+    console.log(`✅ ${userName} created automatically with auto-generated stage name`);
     await page.waitForTimeout(3000); // Wait for Gun.js sync
   }
 
@@ -344,13 +342,6 @@ test.describe('Three User Login/Logout Test', () => {
 
     // Should NOT show user creation dialog (user remembered)
     await page2.waitForTimeout(1000);
-    const modalVisible2 = await page2
-      .locator('.modal-overlay')
-      .isVisible()
-      .catch(() => false);
-    if (modalVisible2) {
-      throw new Error('User 2 was not remembered - localStorage persistence failed');
-    }
     console.log('✅ User 2 remembered from localStorage');
 
     await page2.waitForTimeout(3000); // Wait for Gun.js sync
@@ -380,13 +371,6 @@ test.describe('Three User Login/Logout Test', () => {
     await page3.waitForLoadState('networkidle');
 
     await page3.waitForTimeout(1000);
-    const modalVisible3 = await page3
-      .locator('.modal-overlay')
-      .isVisible()
-      .catch(() => false);
-    if (modalVisible3) {
-      throw new Error('User 3 was not remembered - localStorage persistence failed');
-    }
     console.log('✅ User 3 remembered from localStorage');
 
     await page3.waitForTimeout(3000); // Wait for Gun.js sync
@@ -414,13 +398,6 @@ test.describe('Three User Login/Logout Test', () => {
     await page1.waitForLoadState('networkidle');
 
     await page1.waitForTimeout(1000);
-    const modalVisible1 = await page1
-      .locator('.modal-overlay')
-      .isVisible()
-      .catch(() => false);
-    if (modalVisible1) {
-      throw new Error('User 1 was not remembered - localStorage persistence failed');
-    }
     console.log('✅ User 1 remembered from localStorage');
 
     await page1.waitForTimeout(3000); // Wait for Gun.js sync

@@ -42,6 +42,13 @@ export class UIManager extends EventEmitter {
           
           <!-- Chatrooms View (Default) -->
           <div class="view-panel active" id="chatrooms-view">
+            <!-- Welcome Banner (Hidden by default, shown after joining) -->
+            <div class="welcome-banner" id="welcome-banner" style="display: none;">
+              <div class="welcome-banner-content">
+                <span id="welcome-banner-text">Welcome to IinPublic!</span>
+              </div>
+            </div>
+            
             <!-- Chatroom List -->
             <div class="chatroom-list-container" id="chatroom-list-container">
               <div class="chatroom-list" id="chatroom-list">
@@ -707,32 +714,11 @@ export class UIManager extends EventEmitter {
   }
 
   async showUserCreationDialog(): Promise<any> {
-    return new Promise((resolve) => {
-      const modal = document.createElement('div');
-      modal.className = 'modal-overlay';
-      modal.innerHTML = `
-        <div class="modal-content">
-          <div class="modal-header">
-            <h2 class="modal-title">Welcome to IinPublic!</h2>
-            <p>Your account is being set up with a random stage name.</p>
-            <p>You can change your stage name anytime in your profile settings.</p>
-          </div>
-          <div class="modal-actions">
-            <button type="button" class="btn" id="get-started-btn">Get Started</button>
-          </div>
-        </div>
-      `;
-
-      document.body.appendChild(modal);
-
-      const getStartedBtn = document.getElementById('get-started-btn') as HTMLButtonElement;
-      getStartedBtn.addEventListener('click', () => {
-        document.body.removeChild(modal);
-        resolve({
-          languages: ['en'],
-          interests: [],
-        });
-      });
+    // No modal needed - user creation is automatic
+    // Welcome banner will be shown on chatrooms tab after joining
+    return Promise.resolve({
+      languages: ['en'],
+      interests: [],
     });
   }
 
@@ -842,6 +828,21 @@ export class UIManager extends EventEmitter {
           <div style="font-size: 0.8em; color: #666;">Online</div>
         </div>
       `;
+    }
+  }
+
+  showWelcomeBanner(stageName: string, chatroomName: string, memberCount: number): void {
+    const banner = document.getElementById('welcome-banner');
+    const bannerText = document.getElementById('welcome-banner-text');
+
+    if (banner && bannerText) {
+      bannerText.textContent = `Welcome ${stageName} to ${chatroomName} with ${memberCount} ${memberCount === 1 ? 'user' : 'users'}.`;
+      banner.style.display = 'block';
+
+      // Auto-hide after 5 seconds
+      setTimeout(() => {
+        banner.style.display = 'none';
+      }, 5000);
     }
   }
 

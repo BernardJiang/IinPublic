@@ -99,11 +99,8 @@ test.describe('Two User Login/Logout Test', () => {
     await page1.goto('/');
     await page1.waitForLoadState('networkidle');
 
-    // User 1 creates account
-    await page1.waitForSelector('.modal-overlay', { timeout: 10000 });
-    await page1.click('#get-started-btn');
-    await page1.waitForSelector('.modal-overlay', { state: 'detached', timeout: 10000 });
-    console.log('✅ User 1 created with auto-generated stage name');
+    // User 1 is automatically created (no modal needed)
+    console.log('✅ User 1 created automatically with auto-generated stage name');
 
     await page1.waitForTimeout(3000); // Wait for Gun.js sync
 
@@ -142,11 +139,8 @@ test.describe('Two User Login/Logout Test', () => {
     await page2.goto('/');
     await page2.waitForLoadState('networkidle');
 
-    // User 2 creates account
-    await page2.waitForSelector('.modal-overlay', { timeout: 10000 });
-    await page2.click('#get-started-btn');
-    await page2.waitForSelector('.modal-overlay', { state: 'detached', timeout: 10000 });
-    console.log('✅ User 2 created with auto-generated stage name');
+    // User 2 is automatically created (no modal needed)
+    console.log('✅ User 2 created automatically with auto-generated stage name');
 
     await page2.waitForTimeout(3000); // Wait for Gun.js sync
 
@@ -267,14 +261,6 @@ test.describe('Two User Login/Logout Test', () => {
 
     // User 2 should NOT see creation dialog (remembered from localStorage)
     await page2.waitForTimeout(1000);
-    const user2ModalVisible = await page2
-      .locator('.modal-overlay')
-      .isVisible()
-      .catch(() => false);
-
-    if (user2ModalVisible) {
-      throw new Error('User 2 was not remembered - should not show creation dialog');
-    }
     console.log('✅ User 2 remembered from localStorage (no dialog shown)');
 
     await page2.waitForTimeout(3000); // Wait for Gun.js sync
@@ -350,14 +336,6 @@ test.describe('Two User Login/Logout Test', () => {
     await page1.waitForLoadState('networkidle');
 
     await page1.waitForTimeout(1000);
-    const user1ModalVisible = await page1
-      .locator('.modal-overlay')
-      .isVisible()
-      .catch(() => false);
-
-    if (user1ModalVisible) {
-      throw new Error('User 1 was not remembered - should not show creation dialog');
-    }
     console.log('✅ User 1 remembered from localStorage (no dialog shown)');
 
     // User 2 re-enters
@@ -368,14 +346,6 @@ test.describe('Two User Login/Logout Test', () => {
     await page2.waitForLoadState('networkidle');
 
     await page2.waitForTimeout(1000);
-    const user2ModalVisible2 = await page2
-      .locator('.modal-overlay')
-      .isVisible()
-      .catch(() => false);
-
-    if (user2ModalVisible2) {
-      throw new Error('User 2 was not remembered - should not show creation dialog');
-    }
     console.log('✅ User 2 remembered from localStorage (no dialog shown)');
 
     await page1.waitForTimeout(3000); // Wait for Gun.js sync

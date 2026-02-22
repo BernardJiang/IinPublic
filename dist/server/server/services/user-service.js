@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.UserService = void 0;
+const user_utils_1 = require("../../shared/user-utils");
 class UserService {
     gunService;
     constructor(gunService) {
@@ -10,7 +11,7 @@ class UserService {
         // Server-side user creation logic
         const user = {
             id: userData.id || '',
-            stageName: userData.stageName || '',
+            stageName: userData.stageName || (0, user_utils_1.generateRandomStageName)(),
             ...(userData.headshot && { headshot: userData.headshot }),
             profile: userData.profile || [],
             reputation: userData.reputation || {
@@ -24,13 +25,13 @@ class UserService {
                 ageVerified: false,
                 ageVerificationVotes: 0,
                 blockCount: 0,
-                isHidden: false
+                isHidden: false,
             },
             location: userData.location || { region: '', chatrooms: [] },
             languages: userData.languages || ['en'],
             interests: userData.interests || [],
             createdAt: new Date(),
-            lastActive: new Date()
+            lastActive: new Date(),
         };
         await this.gunService.put(`users/${user.id}`, user);
         return user;
