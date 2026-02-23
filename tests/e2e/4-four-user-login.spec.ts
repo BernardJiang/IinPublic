@@ -155,6 +155,10 @@ test.describe('Four User Chatroom Capacity Test', () => {
     console.log(`📊 User1 status: ${status1}`);
     console.log('✅ User1 in Global');
 
+    // Add delay before next user joins
+    console.log('⏳ Waiting 2s before User 2 joins...');
+    await page1.waitForTimeout(2000);
+
     // --- User 2 enters ---
     console.log('\n📍 STEP 1.2: User 2 enters Global');
     console.log('-'.repeat(60));
@@ -172,6 +176,10 @@ test.describe('Four User Chatroom Capacity Test', () => {
     const status2 = await getStatusBar(page2);
     console.log(`📊 UserAmerican2 status: ${status2}`);
     console.log('✅ UserAmerican2 in Global');
+
+    // Add delay before next user joins
+    console.log('⏳ Waiting 2s before User 3 joins...');
+    await page2.waitForTimeout(2000);
 
     // --- UserAmerican3 enters ---
     console.log('\n📍 STEP 1.3: UserAmerican3 enters Global');
@@ -191,8 +199,9 @@ test.describe('Four User Chatroom Capacity Test', () => {
     console.log(`📊 UserAmerican3 status: ${status3}`);
     console.log('✅ UserAmerican3 in Global');
 
-    // Verify Global has 3 users
-    await page1.waitForTimeout(2000);
+    // Verify Global has 3 users - add extra wait for Gun.js sync
+    console.log('⏳ Waiting 3s for Gun.js to sync headcounts...');
+    await page1.waitForTimeout(3000);
     const global1 = await getHeadcount(page1, 'Global');
     console.log(`📊 Global headcount: ${global1}`);
     if (!global1.includes('3')) {
@@ -204,6 +213,10 @@ test.describe('Four User Chatroom Capacity Test', () => {
       path: path.join(screenshotDir, '01-global-full-user1.png'),
       fullPage: true,
     });
+
+    // Add delay before User 4 joins
+    console.log('⏳ Waiting 3s before User 4 joins...');
+    await page1.waitForTimeout(3000);
 
     // ============================================
     // PHASE 2: UserAmerican4 enters → bumps UserAmerican1 to North America
@@ -229,8 +242,8 @@ test.describe('Four User Chatroom Capacity Test', () => {
     console.log(`📊 UserAmerican4 status: ${status4}`);
 
     // Wait for capacity logic to kick in
-    console.log('⏳ Waiting for capacity logic to bump UserAmerican1...');
-    await page1.waitForTimeout(5000);
+    console.log('⏳ Waiting 6s for capacity logic to bump UserAmerican1...');
+    await page1.waitForTimeout(6000);
 
     // Check UserAmerican1 status bar - should show North America
     const status1After = await getStatusBar(page1);
@@ -241,8 +254,9 @@ test.describe('Four User Chatroom Capacity Test', () => {
       // Might still show Global in status, but should be in north-america
     }
 
-    // Check headcounts
-    await page1.waitForTimeout(2000);
+    // Check headcounts - add extra wait for sync
+    console.log('⏳ Waiting 3s for headcount sync...');
+    await page1.waitForTimeout(3000);
     const northAmerica1 = await getHeadcount(page1, 'North America');
     const global1After = await getHeadcount(page1, 'Global');
     console.log(`📊 UserAmerican1 sees - Global: ${global1After}, North America: ${northAmerica1}`);
@@ -281,9 +295,13 @@ test.describe('Four User Chatroom Capacity Test', () => {
 
     console.log('\n📍 STEP 3.1: All users exit');
     await cleanupUser(page1, 'UserAmerican1');
+    await page1.waitForTimeout(1000);
     await cleanupUser(page2, 'UserAmerican2');
+    await page2.waitForTimeout(1000);
     await cleanupUser(page3, 'UserAmerican3');
+    await page3.waitForTimeout(1000);
     await cleanupUser(page4, 'UserAmerican4');
+    await page4.waitForTimeout(1000);
 
     await page1.close();
     await page2.close();
@@ -291,7 +309,8 @@ test.describe('Four User Chatroom Capacity Test', () => {
     await page4.close();
     console.log('✅ All users exited');
 
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    console.log('⏳ Waiting 5s for Gun.js cleanup...');
+    await new Promise((resolve) => setTimeout(resolve, 5000));
 
     console.log('\n📍 STEP 3.2: All users re-enter');
 
@@ -307,6 +326,9 @@ test.describe('Four User Chatroom Capacity Test', () => {
     await page1.waitForLoadState('networkidle');
     await page1.waitForTimeout(3000);
 
+    console.log('⏳ Waiting 2s before User 2 re-enters...');
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
     // UserAmerican2 re-enters
     context2 = await browser2.newContext({
       viewport: { width: 640, height: 600 },
@@ -319,6 +341,9 @@ test.describe('Four User Chatroom Capacity Test', () => {
     await page2.waitForLoadState('networkidle');
     await page2.waitForTimeout(3000);
 
+    console.log('⏳ Waiting 2s before User 3 re-enters...');
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
     // UserAmerican3 re-enters
     context3 = await browser3.newContext({
       viewport: { width: 640, height: 600 },
@@ -330,6 +355,9 @@ test.describe('Four User Chatroom Capacity Test', () => {
     await page3.goto('/');
     await page3.waitForLoadState('networkidle');
     await page3.waitForTimeout(3000);
+
+    console.log('⏳ Waiting 2s before User 4 re-enters...');
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // UserAmerican4 re-enters
     context4 = await browser4.newContext({
@@ -345,8 +373,9 @@ test.describe('Four User Chatroom Capacity Test', () => {
 
     console.log('✅ All users re-entered');
 
-    // Check that they stayed in their rooms
-    await page1.waitForTimeout(2000);
+    // Check that they stayed in their rooms - add extra wait for sync
+    console.log('⏳ Waiting 3s for final headcount sync...');
+    await page1.waitForTimeout(3000);
     const status1Final = await getStatusBar(page1);
     const status2Final = await getStatusBar(page2);
     const status3Final = await getStatusBar(page3);

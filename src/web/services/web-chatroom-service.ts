@@ -82,7 +82,12 @@ export class WebChatroomService {
     return lastChatroomId;
   }
 
-  async joinChatroom(chatroomId: string, userId: string, stageName?: string): Promise<void> {
+  async joinChatroom(
+    chatroomId: string,
+    userId: string,
+    stageName?: string,
+    onMoved?: (newChatroomId: string) => void,
+  ): Promise<void> {
     this.currentChatroomId = chatroomId;
 
     // Check capacity and handle FIFO eviction if enabled
@@ -127,7 +132,40 @@ export class WebChatroomService {
         }
       });
 
+    // Watch for FIFO eviction - if this user gets moved by another user joining
+    this.watchForEviction(userId, chatroomId, onMoved);
+
     console.log(`✅ Successfully initiated join for chatroom: ${chatroomId}`);
+  }
+
+  /**
+   * Watch if this user gets evicted from current chatroom by FIFO logic
+   */
+  private watchForEviction(
+    userId: string,
+    currentChatroomId: string,
+    onMoved?: (newChatroomId: string) => void,
+  ): void {
+    const gun = this.gunService.getGun();
+
+    // Watch for when this user gets marked as inactive in the current chatroom
+    // or when they appear in a different chatroom
+    gun
+      .get('chatrooms')
+      .get(currentChatroomId)
+      .get('users')
+      .get(userId)
+      .on((userData: any) => {
+        // If user becomes inactive in current room, they might have been moved
+        if (userData && userData.isActive === false && userData.movedTo) {
+          console.log(
+            `🚨 FIFO Eviction detected: User moved from ${currentChatroomId} to ${userData.movedTo}`,
+          );
+          if (onMoved) {
+            onMoved(userData.movedTo);
+          }
+        }
+      });
   }
 
   async leaveChatroom(chatroomId: string, userId: string): Promise<void> {
@@ -499,13 +537,16 @@ export class WebChatroomService {
   ): Promise<void> {
     console.log(`🔄 Moving user ${stageName} from ${fromChatroomId} to ${toChatroomId}`);
 
-    // Leave old chatroom
-    await this.leaveChatroom(fromChatroomId, userId);
-
-    // Join new chatroom
-    // Note: We need to be careful not to trigger another capacity check here
-    // So we'll directly add the user without calling joinChatroom
     const gun = this.gunService.getGun();
+
+    // First, mark user as inactive in old chatroom and add movedTo field
+    gun.get('chatrooms').get(fromChatroomId).get('users').get(userId).put({
+      isActive: false,
+      leftAt: new Date().toISOString(),
+      movedTo: toChatroomId, // Signal to client they've been moved
+    });
+
+    // Then add user to new chatroom
     const userData = {
       joinedAt: new Date().toISOString(),
       isActive: true,

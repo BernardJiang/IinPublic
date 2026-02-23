@@ -154,6 +154,38 @@ export class IinPublicApp {
       chatroomId,
       this.currentUser.id,
       this.currentUser.stageName,
+      async (newChatroomId: string) => {
+        // User was moved by FIFO eviction
+        console.log(`🔔 FIFO Eviction: Switching from ${chatroomId} to ${newChatroomId}`);
+
+        // Update current chatroom
+        this.currentChatroomId = newChatroomId;
+        localStorage.setItem('iinpublic_last_chatroom', newChatroomId);
+
+        // Re-subscribe to new chatroom
+        this.chatroomService.subscribeToMembers(newChatroomId, (members) => {
+          console.log('👥 Chatroom members updated:', members);
+          this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
+
+          // Update status bar with new chatroom info
+          const chatroomName = this.getChatroomDisplayName(newChatroomId);
+          this.uiManager.updateStatusBar(this.currentUser!.stageName, chatroomName, members.length);
+        });
+
+        // Re-subscribe to messages and talks
+        this.subscribeToMessages(newChatroomId);
+        this.subscribeToTalks(newChatroomId);
+
+        // Update UI
+        this.uiManager.updateChatroomInfo({
+          id: newChatroomId,
+          name: `Chatroom: ${newChatroomId}`,
+        });
+
+        // Show notification to user
+        const chatroomName = this.getChatroomDisplayName(newChatroomId);
+        console.log(`📢 You've been moved to ${chatroomName} (room was at capacity)`);
+      },
     );
 
     // Store current chatroom in localStorage for next time
