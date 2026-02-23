@@ -95,12 +95,23 @@ export class WebChatroomService {
       await this.enforceCapacityLimit(chatroomId, userId);
     }
 
+    // Get user's location from the local map
+    const userLocation = this.userLocations.get(userId);
+
     const userData = {
       joinedAt: new Date().toISOString(),
       isActive: true,
       lastSeen: new Date().toISOString(),
       userId: userId,
       stageName: stageName || userId, // Use stageName if provided, otherwise fall back to userId
+      location: userLocation
+        ? {
+            latitude: userLocation.latitude,
+            longitude: userLocation.longitude,
+            accuracy: userLocation.accuracy,
+            timestamp: userLocation.timestamp.toISOString(),
+          }
+        : undefined,
     };
 
     console.log(`👥 Joining chatroom: ${chatroomId} as user: ${userId}`);
@@ -426,7 +437,12 @@ export class WebChatroomService {
       const capacity = CONFIG.CHATROOM_CAPACITY;
 
       return new Promise((resolve) => {
-        const activeUsers: Array<{ userId: string; joinedAt: string; stageName: string }> = [];
+        const activeUsers: Array<{
+          userId: string;
+          joinedAt: string;
+          stageName: string;
+          location?: { latitude: number; longitude: number; accuracy: number; timestamp: string };
+        }> = [];
         let completed = false;
 
         // Use map().once() to get each user's latest data individually
@@ -445,6 +461,7 @@ export class WebChatroomService {
                 userId: userId,
                 joinedAt: memberData.joinedAt,
                 stageName: memberData.stageName || userId,
+                location: memberData.location,
               });
             }
           });
@@ -473,8 +490,8 @@ export class WebChatroomService {
               `👤 Evicting oldest user: ${oldestUser.stageName} (joined: ${oldestUser.joinedAt})`,
             );
 
-            // Get the oldest user's location
-            const oldestUserLocation = this.userLocations.get(oldestUser.userId);
+            // Get the oldest user's location from Gun.js data
+            const oldestUserLocation = oldestUser.location;
 
             if (!oldestUserLocation) {
               console.log(
@@ -484,8 +501,16 @@ export class WebChatroomService {
               return;
             }
 
+            // Convert location to GPSCoordinate (convert timestamp string to Date)
+            const gpsLocation: GPSCoordinate = {
+              latitude: oldestUserLocation.latitude,
+              longitude: oldestUserLocation.longitude,
+              accuracy: oldestUserLocation.accuracy,
+              timestamp: new Date(oldestUserLocation.timestamp),
+            };
+
             // Find appropriate child chatroom based on user's location
-            const childChatroomId = findAppropriateChildChatroom(chatroomId, oldestUserLocation);
+            const childChatroomId = findAppropriateChildChatroom(chatroomId, gpsLocation);
 
             if (childChatroomId) {
               console.log(
