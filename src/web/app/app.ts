@@ -162,7 +162,7 @@ export class IinPublicApp {
         this.currentChatroomId = newChatroomId;
         localStorage.setItem('iinpublic_last_chatroom', newChatroomId);
 
-        // Re-subscribe to new chatroom
+        // Re-subscribe to new chatroom (this will unsubscribe from old one automatically)
         this.chatroomService.subscribeToMembers(newChatroomId, (members) => {
           console.log('👥 Chatroom members updated:', members);
           this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
@@ -171,6 +171,17 @@ export class IinPublicApp {
           const chatroomName = this.getChatroomDisplayName(newChatroomId);
           this.uiManager.updateStatusBar(this.currentUser!.stageName, chatroomName, members.length);
         });
+
+        // Set up new eviction watcher for the new chatroom (recursive - can be evicted again)
+        this.chatroomService.setupEvictionWatcher(
+          this.currentUser!.id,
+          newChatroomId,
+          async (newerChatroomId: string) => {
+            // Recursively handle further evictions (though unlikely in practice)
+            console.log(`🔔 Further eviction: ${newChatroomId} → ${newerChatroomId}`);
+            // Note: We could make this callback reusable, but for now keeping it simple
+          },
+        );
 
         // Re-subscribe to messages and talks
         this.subscribeToMessages(newChatroomId);

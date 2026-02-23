@@ -2,11 +2,12 @@ import { GPSCoordinate } from '../../shared/types';
 import { LocationPrivacy } from '../../shared/location';
 import { WebGunService } from './web-gun-service';
 import { CONFIG } from '../../shared/config';
-import { getParentChatroom, findAppropriateChildChatroom } from '../../shared/location-to-chatroom';
+import { findAppropriateChildChatroom } from '../../shared/location-to-chatroom';
 
 export class WebChatroomService {
   private currentChatroomId?: string;
   private activeMembersUnsubscribe?: () => void;
+  private evictionWatcherUnsubscribe?: () => void; // Unsubscribe from eviction watcher
   private membersUpdateTimeout?: NodeJS.Timeout | null; // Debounce Gun.js member updates
   private lastMembersUpdate: number = 0; // Timestamp of last member update (rate limiter)
   private readonly MIN_UPDATE_INTERVAL = 2000; // Minimum 2 seconds between member updates
@@ -60,25 +61,13 @@ export class WebChatroomService {
       return CONFIG.GLOBAL_CHATROOM_ID;
     }
 
-    // Check if last room is empty → move up to parent
+    // Re-entering user: always rejoin last room (even if empty)
+    // This preserves the user's room assignment, especially important for evicted users
     const lastRoomCount = await this.getMemberCount(lastChatroomId);
     console.log(`  Last room (${lastChatroomId}) member count: ${lastRoomCount}`);
-
-    if (lastRoomCount === 0) {
-      console.log(`  → Last room is empty, moving up to parent`);
-      const parent = getParentChatroom(lastChatroomId);
-      if (parent) {
-        console.log(`  → Parent room: ${parent}`);
-        return parent;
-      } else {
-        console.log(`  → No parent found, staying at Global`);
-        return CONFIG.GLOBAL_CHATROOM_ID;
-      }
-    }
-
-    // Last room has users, try to rejoin it
-    // If it's at capacity, FIFO will be enforced in joinChatroom()
     console.log(`  → Re-entering last room: ${lastChatroomId}`);
+
+    // If it's at capacity, FIFO will be enforced in joinChatroom()
     return lastChatroomId;
   }
 
@@ -157,11 +146,17 @@ export class WebChatroomService {
     currentChatroomId: string,
     onMoved?: (newChatroomId: string) => void,
   ): void {
+    // Unsubscribe from previous eviction watcher if it exists
+    if (this.evictionWatcherUnsubscribe) {
+      this.evictionWatcherUnsubscribe();
+      delete this.evictionWatcherUnsubscribe;
+    }
+
     const gun = this.gunService.getGun();
 
     // Watch for when this user gets marked as inactive in the current chatroom
     // or when they appear in a different chatroom
-    gun
+    const off = gun
       .get('chatrooms')
       .get(currentChatroomId)
       .get('users')
@@ -172,11 +167,39 @@ export class WebChatroomService {
           console.log(
             `🚨 FIFO Eviction detected: User moved from ${currentChatroomId} to ${userData.movedTo}`,
           );
+
+          // Unsubscribe from this watcher now that eviction happened
+          if (this.evictionWatcherUnsubscribe) {
+            this.evictionWatcherUnsubscribe();
+            delete this.evictionWatcherUnsubscribe;
+          }
+
           if (onMoved) {
             onMoved(userData.movedTo);
           }
         }
       });
+
+    // Store unsubscribe function
+    this.evictionWatcherUnsubscribe = () => off.off();
+  }
+
+  /**
+   * Set up eviction watcher for a chatroom (public method for use after manual room switches)
+   */
+  setupEvictionWatcher(
+    userId: string,
+    chatroomId: string,
+    onMoved?: (newChatroomId: string) => void,
+  ): void {
+    // Clean up any existing eviction watcher before setting up a new one
+    if (this.evictionWatcherUnsubscribe) {
+      console.log('🧹 Cleaning up previous eviction watcher before setting up new one');
+      this.evictionWatcherUnsubscribe();
+      delete this.evictionWatcherUnsubscribe;
+    }
+
+    this.watchForEviction(userId, chatroomId, onMoved);
   }
 
   async leaveChatroom(chatroomId: string, userId: string): Promise<void> {
@@ -233,7 +256,16 @@ export class WebChatroomService {
     callback: (members: Array<{ userId: string; stageName: string }>) => void,
   ): void {
     if (this.activeMembersUnsubscribe) {
+      console.log(`🧹 Unsubscribing from previous chatroom members`);
       this.activeMembersUnsubscribe();
+      delete this.activeMembersUnsubscribe;
+    }
+
+    // Clear any pending member update timeouts from the old subscription
+    if (this.membersUpdateTimeout) {
+      console.log(`🧹 Clearing pending member update timeout from old subscription`);
+      clearTimeout(this.membersUpdateTimeout);
+      this.membersUpdateTimeout = null;
     }
 
     console.log(`👂 Subscribing to chatroom members: ${chatroomId}`);

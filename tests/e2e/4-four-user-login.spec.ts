@@ -219,10 +219,24 @@ test.describe('Four User Chatroom Capacity Test', () => {
     const status1After = await getStatusBar(page1);
     console.log(`📊 UserAmerican1 status after bump: ${status1After}`);
 
+    // CRITICAL CHECK: Status bar must show North America, not toggle
     if (!status1After.includes('North America')) {
-      console.log('⚠️  UserAmerican1 not bumped to North America yet, checking chatroom...');
-      // Might still show Global in status, but should be in north-america
+      throw new Error(
+        `❌ UserAmerican1 status bar should show "North America" after eviction, got: ${status1After}`,
+      );
     }
+    console.log('✅ UserAmerican1 status bar correctly shows North America');
+
+    // Wait a bit more and check again to ensure no toggling
+    await page1.waitForTimeout(2000);
+    const status1AfterWait = await getStatusBar(page1);
+    console.log(`📊 UserAmerican1 status after additional wait: ${status1AfterWait}`);
+    if (!status1AfterWait.includes('North America')) {
+      throw new Error(
+        `❌ UserAmerican1 status bar is toggling! Should stay "North America", got: ${status1AfterWait}`,
+      );
+    }
+    console.log('✅ UserAmerican1 status bar is stable (not toggling)');
 
     // Check headcounts - add extra wait for sync
     console.log('⏳ Waiting 3s for headcount sync...');
@@ -356,23 +370,25 @@ test.describe('Four User Chatroom Capacity Test', () => {
     console.log(`📊 UserAmerican3 final status: ${status3Final}`);
     console.log(`📊 UserAmerican4 final status: ${status4Final}`);
 
-    // Verify UserAmerican1 stayed in North America
-    if (status1Final.includes('North America')) {
-      console.log('✅ UserAmerican1 persisted in North America');
-    } else {
-      console.log('⚠️  UserAmerican1 should be in North America');
+    // CRITICAL CHECK: Verify UserAmerican1 stayed in North America (not Global!)
+    if (!status1Final.includes('North America')) {
+      throw new Error(
+        `❌ UserAmerican1 should rejoin North America after logout/login, got: ${status1Final}`,
+      );
     }
+    console.log('✅ UserAmerican1 persisted in North America');
 
     // Verify UserAmerican2, 3, 4 stayed in Global
     if (
-      status2Final.includes('Global') &&
-      status3Final.includes('Global') &&
-      status4Final.includes('Global')
+      !status2Final.includes('Global') ||
+      !status3Final.includes('Global') ||
+      !status4Final.includes('Global')
     ) {
-      console.log('✅ UserAmerican2, 3, 4 persisted in Global');
-    } else {
-      console.log('⚠️  UserAmerican2, 3, 4 should be in Global');
+      throw new Error(
+        `❌ UserAmerican2, 3, 4 should stay in Global. Got: ${status2Final}, ${status3Final}, ${status4Final}`,
+      );
     }
+    console.log('✅ UserAmerican2, 3, 4 persisted in Global');
 
     await page1.screenshot({
       path: path.join(screenshotDir, '03-user1-persisted-north-america.png'),
