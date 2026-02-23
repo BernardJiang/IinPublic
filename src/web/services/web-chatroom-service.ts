@@ -98,21 +98,21 @@ export class WebChatroomService {
     // Get user's location from the local map
     const userLocation = this.userLocations.get(userId);
 
-    const userData = {
+    const userData: any = {
       joinedAt: new Date().toISOString(),
       isActive: true,
       lastSeen: new Date().toISOString(),
       userId: userId,
       stageName: stageName || userId, // Use stageName if provided, otherwise fall back to userId
-      location: userLocation
-        ? {
-            latitude: userLocation.latitude,
-            longitude: userLocation.longitude,
-            accuracy: userLocation.accuracy,
-            timestamp: userLocation.timestamp.toISOString(),
-          }
-        : undefined,
     };
+
+    // Add location as flat fields to avoid Gun.js reference issues
+    if (userLocation) {
+      userData.locationLatitude = userLocation.latitude;
+      userData.locationLongitude = userLocation.longitude;
+      userData.locationAccuracy = userLocation.accuracy;
+      userData.locationTimestamp = userLocation.timestamp.toISOString();
+    }
 
     console.log(`👥 Joining chatroom: ${chatroomId} as user: ${userId}`);
     console.log(`📝 User data:`, userData);
@@ -369,50 +369,36 @@ export class WebChatroomService {
     console.log(`👂 Subscribing to member count for chatroom: ${chatroomId}`);
     const gun = this.gunService.getGun();
 
-    // Subscribe to all user changes in this chatroom
+    // Track active members for this chatroom
+    const activeMembers = new Map<string, any>();
+    let updateTimeout: NodeJS.Timeout | null = null;
+
+    // Subscribe to each individual user's data using map().on()
     const off = gun
       .get('chatrooms')
       .get(chatroomId)
       .get('users')
       .map()
-      .on(() => {
-        // When any user data changes, re-count all active members
-        // Use map().once() to ensure we get the latest data for each user
-        const members: { [userId: string]: any } = {};
-        let pendingUsers = 0;
-        let completed = false;
+      .on((memberData: any, userId: string) => {
+        // Skip Gun.js metadata
+        if (userId.startsWith('_')) return;
 
-        gun
-          .get('chatrooms')
-          .get(chatroomId)
-          .get('users')
-          .map()
-          .once((memberData: any, userId: string) => {
-            // Skip Gun.js metadata
-            if (userId.startsWith('_')) return;
+        // Update our tracking map
+        activeMembers.set(userId, memberData);
 
-            pendingUsers++;
-            members[userId] = memberData;
-          });
-
-        // Wait for Gun.js to finish loading data (with longer timeout for reliability)
-        // Increased from 100ms to 1000ms to ensure Gun.js sync completes even on slow systems
-        setTimeout(() => {
-          if (completed) return;
-          completed = true;
-
+        // Debounce the count update to avoid excessive recalculations
+        if (updateTimeout) clearTimeout(updateTimeout);
+        updateTimeout = setTimeout(() => {
           let count = 0;
-          for (const userId in members) {
-            const memberData = members[userId];
-            if (memberData && memberData.isActive === true) {
+          for (const [, data] of activeMembers) {
+            if (data && data.isActive === true) {
               count++;
             }
           }
 
           console.log(`📊 Member count update for ${chatroomId}: ${count} members`);
-          console.log(`  - ${chatroomId}: ${count} members`);
           callback(count);
-        }, 1000);
+        }, 100); // 100ms debounce
       });
 
     // Store unsubscribe function
@@ -441,7 +427,10 @@ export class WebChatroomService {
           userId: string;
           joinedAt: string;
           stageName: string;
-          location?: { latitude: number; longitude: number; accuracy: number; timestamp: string };
+          locationLatitude?: number;
+          locationLongitude?: number;
+          locationAccuracy?: number;
+          locationTimestamp?: string;
         }> = [];
         let completed = false;
 
@@ -461,7 +450,10 @@ export class WebChatroomService {
                 userId: userId,
                 joinedAt: memberData.joinedAt,
                 stageName: memberData.stageName || userId,
-                location: memberData.location,
+                locationLatitude: memberData.locationLatitude,
+                locationLongitude: memberData.locationLongitude,
+                locationAccuracy: memberData.locationAccuracy,
+                locationTimestamp: memberData.locationTimestamp,
               });
             }
           });
@@ -490,10 +482,13 @@ export class WebChatroomService {
               `👤 Evicting oldest user: ${oldestUser.stageName} (joined: ${oldestUser.joinedAt})`,
             );
 
-            // Get the oldest user's location from Gun.js data
-            const oldestUserLocation = oldestUser.location;
-
-            if (!oldestUserLocation) {
+            // Check if location data is available
+            if (
+              !oldestUser.locationLatitude ||
+              !oldestUser.locationLongitude ||
+              !oldestUser.locationAccuracy ||
+              !oldestUser.locationTimestamp
+            ) {
               console.log(
                 `⚠️  No location found for user ${oldestUser.stageName}, cannot determine child chatroom`,
               );
@@ -501,12 +496,12 @@ export class WebChatroomService {
               return;
             }
 
-            // Convert location to GPSCoordinate (convert timestamp string to Date)
+            // Convert flat location fields to GPSCoordinate
             const gpsLocation: GPSCoordinate = {
-              latitude: oldestUserLocation.latitude,
-              longitude: oldestUserLocation.longitude,
-              accuracy: oldestUserLocation.accuracy,
-              timestamp: new Date(oldestUserLocation.timestamp),
+              latitude: oldestUser.locationLatitude,
+              longitude: oldestUser.locationLongitude,
+              accuracy: oldestUser.locationAccuracy,
+              timestamp: new Date(oldestUser.locationTimestamp),
             };
 
             // Find appropriate child chatroom based on user's location
