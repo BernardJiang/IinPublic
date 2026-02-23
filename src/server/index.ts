@@ -182,6 +182,28 @@ class IinPublicServer {
         res.status(400).json({ error: (error as Error).message });
       }
     });
+
+    // Test-only endpoint to clear Gun.js in-memory database
+    if (process.env.NODE_ENV !== 'production') {
+      this.app.post('/api/test/clear-database', (_req, res) => {
+        try {
+          // Clear Gun.js in-memory graph
+          // Gun stores data in gun._.graph which is the in-memory cache
+          if (this.gun && this.gun._ && this.gun._.graph) {
+            console.log('🧹 Clearing Gun.js in-memory database...');
+            // Create a new empty graph
+            this.gun._.graph = {};
+            console.log('✅ Gun.js in-memory database cleared');
+            res.json({ success: true, message: 'Gun.js in-memory database cleared' });
+          } else {
+            res.status(500).json({ error: 'Gun.js graph not accessible' });
+          }
+        } catch (error) {
+          console.error('Error clearing Gun.js database:', error);
+          res.status(500).json({ error: (error as Error).message });
+        }
+      });
+    }
   }
 
   private setupSocketHandlers(): void {

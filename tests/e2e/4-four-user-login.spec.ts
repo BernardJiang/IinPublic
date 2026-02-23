@@ -1,6 +1,7 @@
 import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { clearGunDatabases } from './helpers/clear-database';
 
 test.describe('Four User Chatroom Capacity Test', () => {
   let browser1: Browser;
@@ -15,37 +16,6 @@ test.describe('Four User Chatroom Capacity Test', () => {
   let page2: Page;
   let page3: Page;
   let page4: Page;
-
-  // Helper function to clear Gun.js databases
-  function clearGunDatabases() {
-    console.log('🧹 Clearing Gun.js databases to start fresh...');
-
-    // Clear client database
-    const radataPath = path.join(__dirname, '../../radata');
-    if (fs.existsSync(radataPath)) {
-      fs.rmSync(radataPath, { recursive: true, force: true });
-      console.log('  ✅ Cleared client database (radata/)');
-    }
-
-    // Clear server database
-    const serverDataPath = path.join(__dirname, '../../data1.json');
-    if (fs.existsSync(serverDataPath)) {
-      fs.rmSync(serverDataPath, { recursive: true, force: true });
-      console.log('  ✅ Cleared server database (data1.json)');
-    }
-
-    // Clear .tmp files created by Gun.js
-    const projectRoot = path.join(__dirname, '../../');
-    const tmpFiles = fs.readdirSync(projectRoot).filter((file) => file.endsWith('.tmp'));
-    tmpFiles.forEach((file) => {
-      fs.rmSync(path.join(projectRoot, file), { force: true });
-    });
-    if (tmpFiles.length > 0) {
-      console.log(`  ✅ Cleared ${tmpFiles.length} .tmp files`);
-    }
-
-    console.log('✅ All databases cleared');
-  }
 
   // Helper function to get status bar text
   async function getStatusBar(page: Page): Promise<string> {
@@ -78,7 +48,7 @@ test.describe('Four User Chatroom Capacity Test', () => {
 
   test.beforeAll(async () => {
     // Clear databases before starting
-    clearGunDatabases();
+    await clearGunDatabases();
 
     // Launch 4 separate Chrome browsers positioned in a 2x2 grid
     browser1 = await chromium.launch({
@@ -119,7 +89,7 @@ test.describe('Four User Chatroom Capacity Test', () => {
     if (browser4) await browser4.close();
 
     // Clean up databases after test
-    clearGunDatabases();
+    await clearGunDatabases();
     console.log('✅ Cleanup complete');
   });
 
