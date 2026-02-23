@@ -426,98 +426,91 @@ export class WebChatroomService {
       const capacity = CONFIG.CHATROOM_CAPACITY;
 
       return new Promise((resolve) => {
-        // Set timeout first to prevent hanging
-        const timeoutId = setTimeout(() => {
-          console.log(`⏱️  Capacity check timed out for ${chatroomId}, proceeding with join`);
-          resolve();
-        }, 2000);
+        const activeUsers: Array<{ userId: string; joinedAt: string; stageName: string }> = [];
+        let completed = false;
 
+        // Use map().once() to get each user's latest data individually
         gun
           .get('chatrooms')
           .get(chatroomId)
           .get('users')
-          .once(async (usersData: any) => {
-            clearTimeout(timeoutId);
+          .map()
+          .once((memberData: any, userId: string) => {
+            // Skip Gun.js metadata
+            if (userId.startsWith('_')) return;
 
-            if (!usersData) {
-              console.log(`📭 Chatroom ${chatroomId} is empty, no capacity check needed`);
+            // Only count active users that aren't the new user
+            if (memberData && memberData.isActive === true && userId !== newUserId) {
+              activeUsers.push({
+                userId: userId,
+                joinedAt: memberData.joinedAt,
+                stageName: memberData.stageName || userId,
+              });
+            }
+          });
+
+        // Wait for Gun.js to process all users
+        setTimeout(async () => {
+          if (completed) return;
+          completed = true;
+
+          console.log(
+            `📊 Chatroom ${chatroomId} capacity check: ${activeUsers.length}/${capacity} users`,
+          );
+
+          // If chatroom is at capacity, evict the oldest user
+          if (activeUsers.length >= capacity) {
+            // Sort by joinedAt to find the oldest user (FIFO)
+            activeUsers.sort((a, b) => {
+              const dateA = new Date(a.joinedAt).getTime();
+              const dateB = new Date(b.joinedAt).getTime();
+              return dateA - dateB;
+            });
+
+            const oldestUser = activeUsers[0];
+            console.log(`🚪 FIFO Eviction: Chatroom is full (${activeUsers.length}/${capacity})`);
+            console.log(
+              `👤 Evicting oldest user: ${oldestUser.stageName} (joined: ${oldestUser.joinedAt})`,
+            );
+
+            // Get the oldest user's location
+            const oldestUserLocation = this.userLocations.get(oldestUser.userId);
+
+            if (!oldestUserLocation) {
+              console.log(
+                `⚠️  No location found for user ${oldestUser.stageName}, cannot determine child chatroom`,
+              );
               resolve();
               return;
             }
 
-            // Count active users (excluding the new user who hasn't joined yet)
-            const activeUsers: Array<{ userId: string; joinedAt: string; stageName: string }> = [];
+            // Find appropriate child chatroom based on user's location
+            const childChatroomId = findAppropriateChildChatroom(chatroomId, oldestUserLocation);
 
-            for (const userId in usersData) {
-              if (userId.startsWith('_')) continue; // Skip Gun.js metadata
-              const memberData = usersData[userId];
-
-              if (memberData && memberData.isActive === true && userId !== newUserId) {
-                activeUsers.push({
-                  userId: userId,
-                  joinedAt: memberData.joinedAt,
-                  stageName: memberData.stageName || userId,
-                });
-              }
-            }
-
-            console.log(
-              `📊 Chatroom ${chatroomId} capacity check: ${activeUsers.length}/${capacity} users`,
-            );
-
-            // If chatroom is at capacity, evict the oldest user
-            if (activeUsers.length >= capacity) {
-              // Sort by joinedAt to find the oldest user (FIFO)
-              activeUsers.sort((a, b) => {
-                const dateA = new Date(a.joinedAt).getTime();
-                const dateB = new Date(b.joinedAt).getTime();
-                return dateA - dateB;
-              });
-
-              const oldestUser = activeUsers[0];
-              console.log(`🚪 FIFO Eviction: Chatroom is full (${activeUsers.length}/${capacity})`);
+            if (childChatroomId) {
               console.log(
-                `👤 Evicting oldest user: ${oldestUser.stageName} (joined: ${oldestUser.joinedAt})`,
+                `📍 Moving ${oldestUser.stageName} to child chatroom: ${childChatroomId}`,
               );
 
-              // Get the oldest user's location
-              const oldestUserLocation = this.userLocations.get(oldestUser.userId);
-
-              if (!oldestUserLocation) {
-                console.log(
-                  `⚠️  No location found for user ${oldestUser.stageName}, cannot determine child chatroom`,
-                );
-                resolve();
-                return;
-              }
-
-              // Find appropriate child chatroom based on user's location
-              const childChatroomId = findAppropriateChildChatroom(chatroomId, oldestUserLocation);
-
-              if (childChatroomId) {
-                console.log(
-                  `📍 Moving ${oldestUser.stageName} to child chatroom: ${childChatroomId}`,
-                );
-
-                // Move user to child chatroom
-                await this.moveUserToChatroom(
-                  oldestUser.userId,
-                  chatroomId,
-                  childChatroomId,
-                  oldestUser.stageName,
-                );
-              } else {
-                console.log(
-                  `⚠️  Already at most specific chatroom level, cannot evict ${oldestUser.stageName}`,
-                );
-                // At the leaf node, we can't go further down
-                // In production, might want to create dynamic sub-rooms or just reject new user
-                console.log(`  → Allowing join anyway (at leaf level)`);
-              }
+              // Move user to child chatroom
+              await this.moveUserToChatroom(
+                oldestUser.userId,
+                chatroomId,
+                childChatroomId,
+                oldestUser.stageName,
+              );
+            } else {
+              console.log(
+                `⚠️  Already at most specific chatroom level, cannot evict ${oldestUser.stageName}`,
+              );
+              // At the leaf node, we can't go further down
+              // In production, might want to create dynamic sub-rooms or just reject new user
+              console.log(`  → Allowing join anyway (at leaf level)`);
             }
+          }
 
-            resolve();
-          });
+          resolve();
+        }, 2000); // Wait 2s for Gun.js to sync before checking capacity
       });
     } catch (error) {
       console.error(`❌ Error enforcing capacity limit:`, error);
