@@ -72,6 +72,12 @@ test.describe('Twenty-One User Comprehensive Chatroom Test', () => {
     }
   }
 
+  // Helper to parse headcount string to number
+  function parseHeadcount(headcountStr: string): number {
+    const match = headcountStr.match(/(\d+)/);
+    return match ? parseInt(match[1]) : 0;
+  }
+
   // Helper function to cleanup user before closing
   async function cleanupUser(page: Page, userName: string): Promise<void> {
     try {
@@ -148,8 +154,18 @@ test.describe('Twenty-One User Comprehensive Chatroom Test', () => {
     console.log('PHASE 1: All 21 users login (Global FIFO bumps to continental rooms)');
     console.log('='.repeat(80));
 
+    // Track headcounts to detect unexpected decreases
+    let lastHeadcounts = {
+      global: 0,
+      na: 0,
+      sa: 0,
+      eu: 0,
+      as: 0,
+      af: 0,
+      oc: 0,
+    };
+
     // Login all 21 users sequentially
-    // Expected: Users 1-3 fill Global, then each new user bumps oldest from Global
     for (let i = 0; i < 21; i++) {
       const user = USERS[i];
       console.log(`\n📍 User ${user.id}: ${user.name} joining (${user.continent})...`);
@@ -181,13 +197,98 @@ test.describe('Twenty-One User Comprehensive Chatroom Test', () => {
       console.log(`   ✅ ${user.name} joined: ${status}`);
 
       // Wait for FIFO eviction to process
-      await page.waitForTimeout(4000);
+      await page.waitForTimeout(5000);
 
-      // Check Global capacity after each join
-      const globalCount = await getHeadcount(page, 'Global');
-      console.log(`   📊 Global headcount: ${globalCount}`);
+      // Check headcounts and verify they're sensible
+      const globalCount = parseHeadcount(await getHeadcount(page, 'Global'));
+      const naCount = parseHeadcount(await getHeadcount(page, 'North America'));
+      const saCount = parseHeadcount(await getHeadcount(page, 'South America'));
+      const euCount = parseHeadcount(await getHeadcount(page, 'Europe'));
+      const asCount = parseHeadcount(await getHeadcount(page, 'Asia'));
+      const afCount = parseHeadcount(await getHeadcount(page, 'Africa'));
+      const ocCount = parseHeadcount(await getHeadcount(page, 'Oceania'));
 
-      await page.waitForTimeout(2000);
+      console.log(
+        `   📊 [After User ${user.id}] G:${globalCount} NA:${naCount} SA:${saCount} EU:${euCount} AS:${asCount} AF:${afCount} OC:${ocCount}`,
+      );
+
+      // Verify Global never exceeds capacity
+      if (globalCount > 3) {
+        throw new Error(`❌ Global exceeded capacity: ${globalCount}/3 after ${user.name} joined`);
+      }
+
+      // Verify continental rooms never exceed capacity
+      if (naCount > 3) {
+        throw new Error(
+          `❌ North America exceeded capacity: ${naCount}/3 after ${user.name} joined`,
+        );
+      }
+      if (saCount > 3) {
+        throw new Error(
+          `❌ South America exceeded capacity: ${saCount}/3 after ${user.name} joined`,
+        );
+      }
+      if (euCount > 3) {
+        throw new Error(`❌ Europe exceeded capacity: ${euCount}/3 after ${user.name} joined`);
+      }
+      if (asCount > 3) {
+        throw new Error(`❌ Asia exceeded capacity: ${asCount}/3 after ${user.name} joined`);
+      }
+      if (afCount > 3) {
+        throw new Error(`❌ Africa exceeded capacity: ${afCount}/3 after ${user.name} joined`);
+      }
+      if (ocCount > 3) {
+        throw new Error(`❌ Oceania exceeded capacity: ${ocCount}/3 after ${user.name} joined`);
+      }
+
+      // Check for unexpected decreases (except when cascading might cause temporary fluctuations)
+      // Continental rooms should only increase or stay same (never decrease when users join)
+      if (i > 3) {
+        // After Global fills
+        if (naCount < lastHeadcounts.na - 1) {
+          console.warn(
+            `⚠️  North America headcount decreased unexpectedly: ${lastHeadcounts.na} -> ${naCount}`,
+          );
+        }
+        if (saCount < lastHeadcounts.sa - 1) {
+          console.warn(
+            `⚠️  South America headcount decreased unexpectedly: ${lastHeadcounts.sa} -> ${saCount}`,
+          );
+        }
+        if (euCount < lastHeadcounts.eu - 1) {
+          console.warn(
+            `⚠️  Europe headcount decreased unexpectedly: ${lastHeadcounts.eu} -> ${euCount}`,
+          );
+        }
+        if (asCount < lastHeadcounts.as - 1) {
+          console.warn(
+            `⚠️  Asia headcount decreased unexpectedly: ${lastHeadcounts.as} -> ${asCount}`,
+          );
+        }
+        if (afCount < lastHeadcounts.af - 1) {
+          console.warn(
+            `⚠️  Africa headcount decreased unexpectedly: ${lastHeadcounts.af} -> ${afCount}`,
+          );
+        }
+        if (ocCount < lastHeadcounts.oc - 1) {
+          console.warn(
+            `⚠️  Oceania headcount decreased unexpectedly: ${lastHeadcounts.oc} -> ${ocCount}`,
+          );
+        }
+      }
+
+      // Update last headcounts
+      lastHeadcounts = {
+        global: globalCount,
+        na: naCount,
+        sa: saCount,
+        eu: euCount,
+        as: asCount,
+        af: afCount,
+        oc: ocCount,
+      };
+
+      console.log(`   ✅ Headcounts within capacity limits`);
     }
 
     console.log('\n✅ All 21 users logged in');
