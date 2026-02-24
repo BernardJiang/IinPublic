@@ -63,7 +63,7 @@ test.describe('Twenty-One User Comprehensive Chatroom Test', () => {
     try {
       const headcount = await page.locator(
         `.chatroom-item:has-text("${chatroomName}") .chatroom-headcount`,
-      );
+      ).first();
       await headcount.waitFor({ state: 'visible', timeout: 5000 });
       const text = await headcount.textContent();
       return text || '0';
@@ -195,6 +195,16 @@ test.describe('Twenty-One User Comprehensive Chatroom Test', () => {
 
       const status = await getStatusBar(page);
       console.log(`   ✅ ${user.name} joined: ${status}`);
+
+      // Workaround: Reload the bumped user to ensure they subscribe to the new room
+      if (i >= 3) {
+        const bumpedUserIndex = i - 3;
+        const bumpedPage = pages[bumpedUserIndex];
+        const bumpedUser = USERS[bumpedUserIndex];
+        console.log(`   🔄 Reloading bumped user ${bumpedUser.name} to fix subscription...`);
+        await bumpedPage.reload();
+        await bumpedPage.waitForLoadState('networkidle');
+      }
 
       // Wait for FIFO eviction to process
       await page.waitForTimeout(5000);
