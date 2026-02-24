@@ -22,6 +22,13 @@ export async function clearGunDatabases() {
     console.log('  ✅ Cleared server database (data1.json)');
   }
 
+  // Also check for data.json (alternative Gun database location)
+  const altServerDataPath = path.join(__dirname, '../../../data.json');
+  if (fs.existsSync(altServerDataPath)) {
+    fs.rmSync(altServerDataPath, { recursive: true, force: true });
+    console.log('  ✅ Cleared alternate server database (data.json)');
+  }
+
   // Clear .tmp files created by Gun.js
   const projectRoot = path.join(__dirname, '../../../');
   const tmpFiles = fs.readdirSync(projectRoot).filter((file) => file.endsWith('.tmp'));
@@ -45,6 +52,9 @@ export async function clearGunDatabases() {
   } catch (error) {
     console.warn('  ⚠️ Could not connect to Gun.js server to clear database');
   }
+
+  // Add a delay to ensure all Gun.js writes are flushed before clearing
+  await new Promise((resolve) => setTimeout(resolve, 1000));
 
   console.log('✅ All databases cleared');
 }

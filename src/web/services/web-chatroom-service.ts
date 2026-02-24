@@ -100,51 +100,123 @@ export class WebChatroomService {
     // Use Gun's graph structure properly
     const gun = this.gunService.getGun();
 
-    // Write user to database and wait for completion
-    await new Promise<void>((resolve, reject) => {
-      gun
-        .get('chatrooms')
-        .get(chatroomId)
-        .get('users')
-        .get(userId)
-        .put(userData, (ack: any) => {
-          if (ack.err) {
-            console.error(`❌ Failed to write user data to Gun.js:`, ack.err);
-            reject(new Error(ack.err));
+    // Write user to database and wait for completion (with retry logic)
+    const writeUserWithRetry = async (maxRetries: number = 3): Promise<void> => {
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+              reject(new Error('User data write timeout'));
+            }, 3000); // 3 second timeout per attempt
+
+            gun
+              .get('chatrooms')
+              .get(chatroomId)
+              .get('users')
+              .get(userId)
+              .put(userData, (ack: any) => {
+                clearTimeout(timeoutId);
+                if (ack.err) {
+                  console.error(
+                    `❌ [Attempt ${attempt}/${maxRetries}] Failed to write user data:`,
+                    ack.err,
+                  );
+                  reject(new Error(ack.err));
+                } else {
+                  console.log(
+                    `✅ Successfully wrote user data to Gun.js for chatroom: ${chatroomId}`,
+                  );
+                  resolve();
+                }
+              });
+          });
+
+          // Success! Return
+          return;
+        } catch (error) {
+          if (attempt === maxRetries) {
+            // Final attempt failed - throw error (this is critical data)
+            throw new Error(`Failed to write user data after ${maxRetries} attempts: ${error}`);
           } else {
-            console.log(`✅ Successfully wrote user data to Gun.js for chatroom: ${chatroomId}`);
-            resolve();
+            // Wait before retry (exponential backoff)
+            const delayMs = attempt * 500;
+            console.log(`   Retrying user data write in ${delayMs}ms...`);
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
           }
-        });
-    });
+        }
+      }
+    };
+
+    await writeUserWithRetry();
 
     // Store location in a dedicated path for reliable retrieval
+    // This is non-blocking - if it fails, we still allow the user to join
     if (userLocation) {
       console.log(`📍 Storing location in dedicated path for user ${userId}`);
-      await new Promise<void>((resolve, reject) => {
-        gun
-          .get('chatrooms')
-          .get(chatroomId)
-          .get('locations')
-          .get(userId)
-          .put(
-            {
-              latitude: userLocation.latitude,
-              longitude: userLocation.longitude,
-              accuracy: userLocation.accuracy,
-              timestamp: userLocation.timestamp.toISOString(),
-            },
-            (ack: any) => {
-              if (ack.err) {
-                console.error(`❌ Failed to write location to Gun.js:`, ack.err);
-                reject(new Error(ack.err));
-              } else {
-                console.log(`✅ Successfully wrote location for user ${userId}`);
-                resolve();
-              }
-            },
-          );
+
+      // Helper function to attempt location write with retry
+      const writeLocationWithRetry = async (maxRetries: number = 3): Promise<void> => {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            await new Promise<void>((resolve, reject) => {
+              const timeoutId = setTimeout(() => {
+                reject(new Error('Location write timeout'));
+              }, 2000); // 2 second timeout per attempt
+
+              gun
+                .get('chatrooms')
+                .get(chatroomId)
+                .get('locations')
+                .get(userId)
+                .put(
+                  {
+                    latitude: userLocation.latitude,
+                    longitude: userLocation.longitude,
+                    accuracy: userLocation.accuracy,
+                    timestamp: userLocation.timestamp.toISOString(),
+                  },
+                  (ack: any) => {
+                    clearTimeout(timeoutId);
+                    if (ack.err) {
+                      console.error(
+                        `❌ [Attempt ${attempt}/${maxRetries}] Failed to write location:`,
+                        ack.err,
+                      );
+                      reject(new Error(ack.err));
+                    } else {
+                      console.log(`✅ Successfully wrote location for user ${userId}`);
+                      resolve();
+                    }
+                  },
+                );
+            });
+
+            // Success! Break out of retry loop
+            return;
+          } catch (error) {
+            if (attempt === maxRetries) {
+              // Final attempt failed - log warning but don't throw
+              console.warn(
+                `⚠️  Location write failed after ${maxRetries} attempts. Continuing without location storage.`,
+              );
+              console.warn(`   This may affect FIFO eviction routing for user ${userId}`);
+            } else {
+              // Wait before retry (exponential backoff)
+              const delayMs = attempt * 500;
+              console.log(`   Retrying in ${delayMs}ms...`);
+              await new Promise((resolve) => setTimeout(resolve, delayMs));
+            }
+          }
+        }
+      };
+
+      // Fire and don't wait - make it non-blocking
+      writeLocationWithRetry().catch((err) => {
+        console.warn(`⚠️  Background location write encountered error:`, err);
       });
+
+      // Give it a brief moment to complete (but don't block on it)
+      await new Promise((resolve) => setTimeout(resolve, 100));
     } else {
       console.log(`⚠️  No location in Map for user ${userId}`);
     }

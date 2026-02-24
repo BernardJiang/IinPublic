@@ -119,6 +119,11 @@ test.describe('Four User Chatroom Capacity Test', () => {
 
     await page1.goto('/');
     await page1.waitForLoadState('networkidle');
+    // Clear browser storage to ensure no stale data from previous test runs
+    await page1.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
     await page1.waitForTimeout(3000);
 
     const status1 = await getStatusBar(page1);
