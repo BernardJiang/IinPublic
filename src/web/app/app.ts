@@ -6,7 +6,7 @@ import { WebTalkService } from '../services/web-talk-service';
 import { WebConversationService } from '../services/web-conversation-service';
 import { UIManager } from '../ui/ui-manager';
 import { LocationPrivacy } from '../../shared/location';
-import { getAllChatroomIds } from '../../shared/chatroom-hierarchy';
+import { getAllChatroomIds, CHATROOM_HIERARCHY } from '../../shared/chatroom-hierarchy';
 
 export class IinPublicApp {
   private gunService: WebGunService;
@@ -149,53 +149,58 @@ export class IinPublicApp {
     console.log('🎯 Assigned to chatroom:', chatroomId);
     console.log('📍 Based on location:', this.currentLocation);
 
+    // Define a reusable eviction handler that can handle cascading evictions
+    const handleEviction = async (fromChatroomId: string, toChatroomId: string) => {
+      // User was moved by FIFO eviction
+      console.log(`🔔 FIFO Eviction: Switching from ${fromChatroomId} to ${toChatroomId}`);
+
+      // Update current chatroom
+      this.currentChatroomId = toChatroomId;
+      localStorage.setItem('iinpublic_last_chatroom', toChatroomId);
+
+      // Re-subscribe to new chatroom (this will unsubscribe from old one automatically)
+      this.chatroomService.subscribeToMembers(toChatroomId, (members) => {
+        console.log('👥 Chatroom members updated:', members);
+        this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
+
+        // Update status bar with new chatroom info
+        const chatroomName = this.getChatroomDisplayName(toChatroomId);
+        this.uiManager.updateStatusBar(this.currentUser!.stageName, chatroomName, members.length);
+      });
+
+      // Set up new eviction watcher for the new chatroom (recursive - can be evicted again)
+      this.chatroomService.setupEvictionWatcher(
+        this.currentUser!.id,
+        toChatroomId,
+        async (newerChatroomId: string) => {
+          // Recursively handle further evictions by calling this handler again
+          console.log(`🔔 Cascading eviction: ${toChatroomId} → ${newerChatroomId}`);
+          await handleEviction(toChatroomId, newerChatroomId);
+        },
+      );
+
+      // Re-subscribe to messages and talks
+      this.subscribeToMessages(toChatroomId);
+      this.subscribeToTalks(toChatroomId);
+
+      // Update UI
+      this.uiManager.updateChatroomInfo({
+        id: toChatroomId,
+        name: `Chatroom: ${toChatroomId}`,
+      });
+
+      // Show notification to user
+      const chatroomName = this.getChatroomDisplayName(toChatroomId);
+      console.log(`📢 You've been moved to ${chatroomName} (room was at capacity)`);
+    };
+
     // Join the assigned chatroom (FIFO logic will be enforced in joinChatroom)
     await this.chatroomService.joinChatroom(
       chatroomId,
       this.currentUser.id,
       this.currentUser.stageName,
       async (newChatroomId: string) => {
-        // User was moved by FIFO eviction
-        console.log(`🔔 FIFO Eviction: Switching from ${chatroomId} to ${newChatroomId}`);
-
-        // Update current chatroom
-        this.currentChatroomId = newChatroomId;
-        localStorage.setItem('iinpublic_last_chatroom', newChatroomId);
-
-        // Re-subscribe to new chatroom (this will unsubscribe from old one automatically)
-        this.chatroomService.subscribeToMembers(newChatroomId, (members) => {
-          console.log('👥 Chatroom members updated:', members);
-          this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
-
-          // Update status bar with new chatroom info
-          const chatroomName = this.getChatroomDisplayName(newChatroomId);
-          this.uiManager.updateStatusBar(this.currentUser!.stageName, chatroomName, members.length);
-        });
-
-        // Set up new eviction watcher for the new chatroom (recursive - can be evicted again)
-        this.chatroomService.setupEvictionWatcher(
-          this.currentUser!.id,
-          newChatroomId,
-          async (newerChatroomId: string) => {
-            // Recursively handle further evictions (though unlikely in practice)
-            console.log(`🔔 Further eviction: ${newChatroomId} → ${newerChatroomId}`);
-            // Note: We could make this callback reusable, but for now keeping it simple
-          },
-        );
-
-        // Re-subscribe to messages and talks
-        this.subscribeToMessages(newChatroomId);
-        this.subscribeToTalks(newChatroomId);
-
-        // Update UI
-        this.uiManager.updateChatroomInfo({
-          id: newChatroomId,
-          name: `Chatroom: ${newChatroomId}`,
-        });
-
-        // Show notification to user
-        const chatroomName = this.getChatroomDisplayName(newChatroomId);
-        console.log(`📢 You've been moved to ${chatroomName} (room was at capacity)`);
+        await handleEviction(chatroomId, newChatroomId);
       },
     );
 
@@ -231,10 +236,26 @@ export class IinPublicApp {
    * Get a user-friendly display name for a chatroom
    */
   private getChatroomDisplayName(chatroomId: string): string {
-    // Capitalize and format the chatroom name
-    if (chatroomId === 'global') return 'Global';
+    // Look up proper display name from the chatroom hierarchy
+    const findChatroom = (node: any): string | null => {
+      if (node.id === chatroomId) {
+        return node.name;
+      }
+      if (node.children) {
+        for (const child of node.children) {
+          const result = findChatroom(child);
+          if (result) return result;
+        }
+      }
+      return null;
+    };
 
-    // Convert 'north-america' to 'North America', etc.
+    const displayName = findChatroom(CHATROOM_HIERARCHY);
+    if (displayName) {
+      return displayName;
+    }
+
+    // Fallback: Capitalize and format the chatroom ID
     return chatroomId
       .split('-')
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
