@@ -9,10 +9,13 @@ export class WebChatroomService {
   private activeMembersUnsubscribe?: () => void;
   private evictionWatcherUnsubscribe?: () => void; // Unsubscribe from eviction watcher
   private membersUpdateTimeout?: NodeJS.Timeout | null; // Debounce Gun.js member updates
+  private membersCallbackTimeout?: NodeJS.Timeout | null; // Timeout for collectActiveMembers callback
+  private initialCollectionTimeout?: NodeJS.Timeout | null; // Timeout for initial collectActiveMembers call
   private lastMembersUpdate: number = 0; // Timestamp of last member update (rate limiter)
   private readonly MIN_UPDATE_INTERVAL = 2000; // Minimum 2 seconds between member updates
   private memberCountSubscriptions: Map<string, () => void> = new Map(); // Track subscriptions for cleanup
   private userLocations: Map<string, GPSCoordinate> = new Map(); // Track user locations for FIFO eviction
+  private currentSubscribedChatroomId?: string; // Track which chatroom is currently subscribed to prevent stale callbacks
 
   constructor(private gunService: WebGunService) {}
 
@@ -30,7 +33,7 @@ export class WebChatroomService {
   }
 
   /**
-   * Find optimal chatroom using hierarchical assignment logic
+   * Find the optimal chatroom for a user based on location and last chatroom
    *
    * Logic:
    * 1. New user: Always start at Global
@@ -79,13 +82,9 @@ export class WebChatroomService {
   ): Promise<void> {
     this.currentChatroomId = chatroomId;
 
-    // Check capacity and handle FIFO eviction if enabled
-    if (CONFIG.CHATROOM_ENABLE_FIFO) {
-      await this.enforceCapacityLimit(chatroomId, userId);
-    }
-
     // Get user's location from the local map
     const userLocation = this.userLocations.get(userId);
+    console.log(`🗺️  User location from Map:`, userLocation);
 
     const userData: any = {
       joinedAt: new Date().toISOString(),
@@ -95,47 +94,74 @@ export class WebChatroomService {
       stageName: stageName || userId, // Use stageName if provided, otherwise fall back to userId
     };
 
-    // Add location as flat fields to avoid Gun.js reference issues
-    if (userLocation) {
-      userData.locationLatitude = userLocation.latitude;
-      userData.locationLongitude = userLocation.longitude;
-      userData.locationAccuracy = userLocation.accuracy;
-      userData.locationTimestamp = userLocation.timestamp.toISOString();
-    }
-
     console.log(`👥 Joining chatroom: ${chatroomId} as user: ${userId}`);
     console.log(`📝 User data:`, userData);
 
     // Use Gun's graph structure properly
     const gun = this.gunService.getGun();
 
-    gun
-      .get('chatrooms')
-      .get(chatroomId)
-      .get('users')
-      .get(userId)
-      .put(userData, (ack: any) => {
-        if (ack.err) {
-          console.error(`❌ Failed to write user data to Gun.js:`, ack.err);
-        } else {
-          console.log(`✅ Successfully wrote user data to Gun.js for chatroom: ${chatroomId}`);
-          console.log(`🔍 Gun.js write acknowledged, reading back data...`);
+    // Write user to database and wait for completion
+    await new Promise<void>((resolve, reject) => {
+      gun
+        .get('chatrooms')
+        .get(chatroomId)
+        .get('users')
+        .get(userId)
+        .put(userData, (ack: any) => {
+          if (ack.err) {
+            console.error(`❌ Failed to write user data to Gun.js:`, ack.err);
+            reject(new Error(ack.err));
+          } else {
+            console.log(`✅ Successfully wrote user data to Gun.js for chatroom: ${chatroomId}`);
+            resolve();
+          }
+        });
+    });
 
-          // Read back to verify
-          gun
-            .get('chatrooms')
-            .get(chatroomId)
-            .get('users')
-            .once((users: any) => {
-              console.log(`📖 Current users in chatroom ${chatroomId}:`, users);
-            });
-        }
+    // Store location in a dedicated path for reliable retrieval
+    if (userLocation) {
+      console.log(`📍 Storing location in dedicated path for user ${userId}`);
+      await new Promise<void>((resolve, reject) => {
+        gun
+          .get('chatrooms')
+          .get(chatroomId)
+          .get('locations')
+          .get(userId)
+          .put(
+            {
+              latitude: userLocation.latitude,
+              longitude: userLocation.longitude,
+              accuracy: userLocation.accuracy,
+              timestamp: userLocation.timestamp.toISOString(),
+            },
+            (ack: any) => {
+              if (ack.err) {
+                console.error(`❌ Failed to write location to Gun.js:`, ack.err);
+                reject(new Error(ack.err));
+              } else {
+                console.log(`✅ Successfully wrote location for user ${userId}`);
+                resolve();
+              }
+            },
+          );
       });
+    } else {
+      console.log(`⚠️  No location in Map for user ${userId}`);
+    }
+
+    // Wait for Gun.js to propagate the write to all peers
+    // This is critical for FIFO eviction to see the correct user count
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    // Check capacity and handle FIFO eviction AFTER adding the user
+    if (CONFIG.CHATROOM_ENABLE_FIFO) {
+      await this.enforceCapacityLimitAfterJoin(chatroomId, userId);
+    }
 
     // Watch for FIFO eviction - if this user gets moved by another user joining
     this.watchForEviction(userId, chatroomId, onMoved);
 
-    console.log(`✅ Successfully initiated join for chatroom: ${chatroomId}`);
+    console.log(`✅ Successfully joined chatroom: ${chatroomId}`);
   }
 
   /**
@@ -268,7 +294,25 @@ export class WebChatroomService {
       this.membersUpdateTimeout = null;
     }
 
+    // Clear any pending callback timeouts from old collectActiveMembers calls
+    if (this.membersCallbackTimeout) {
+      console.log(`🧹 Clearing pending callback timeout from old collectActiveMembers`);
+      clearTimeout(this.membersCallbackTimeout);
+      this.membersCallbackTimeout = null;
+    }
+
+    // Clear the initial collection timeout from old subscription
+    if (this.initialCollectionTimeout) {
+      console.log(`🧹 Clearing pending initial collection timeout from old subscription`);
+      clearTimeout(this.initialCollectionTimeout);
+      this.initialCollectionTimeout = null;
+    }
+
     console.log(`👂 Subscribing to chatroom members: ${chatroomId}`);
+
+    // Track the current subscription to prevent stale callbacks
+    this.currentSubscribedChatroomId = chatroomId;
+
     const gun = this.gunService.getGun();
 
     // Gun.js returns references when subscribing to a collection
@@ -304,8 +348,15 @@ export class WebChatroomService {
             : this.MIN_UPDATE_INTERVAL - timeSinceLastUpdate + 500; // Wait until rate limit expires
 
         this.membersUpdateTimeout = setTimeout(() => {
-          this.collectActiveMembers(chatroomId, callback);
-          this.lastMembersUpdate = Date.now();
+          // Validate we're still subscribed to this chatroom before calling callback
+          if (chatroomId === this.currentSubscribedChatroomId) {
+            this.collectActiveMembers(chatroomId, callback);
+            this.lastMembersUpdate = Date.now();
+          } else {
+            console.log(
+              `⏭️  Skipping scheduled update for ${chatroomId} (current: ${this.currentSubscribedChatroomId})`,
+            );
+          }
           this.membersUpdateTimeout = null; // Allow next update to schedule a new timeout
         }, delay);
       }
@@ -313,10 +364,18 @@ export class WebChatroomService {
 
     this.activeMembersUnsubscribe = () => off.off();
 
-    // Do initial collection
-    setTimeout(() => {
-      this.collectActiveMembers(chatroomId, callback);
-      this.lastMembersUpdate = Date.now(); // Set initial timestamp
+    // Do initial collection (track timeout so it can be cancelled if user switches rooms)
+    this.initialCollectionTimeout = setTimeout(() => {
+      // Validate we're still subscribed to this chatroom before calling callback
+      if (chatroomId === this.currentSubscribedChatroomId) {
+        this.collectActiveMembers(chatroomId, callback);
+        this.lastMembersUpdate = Date.now(); // Set initial timestamp
+      } else {
+        console.log(
+          `⏭️  Skipping initial collection for ${chatroomId} (current: ${this.currentSubscribedChatroomId})`,
+        );
+      }
+      this.initialCollectionTimeout = null; // Clear after execution
     }, 500);
   }
 
@@ -324,6 +383,14 @@ export class WebChatroomService {
     chatroomId: string,
     callback: (members: Array<{ userId: string; stageName: string }>) => void,
   ): void {
+    // Prevent stale callbacks from old subscriptions
+    if (chatroomId !== this.currentSubscribedChatroomId) {
+      console.log(
+        `⏭️  Skipping stale callback for ${chatroomId} (current: ${this.currentSubscribedChatroomId})`,
+      );
+      return;
+    }
+
     const gun = this.gunService.getGun();
     const members: Array<{ userId: string; stageName: string }> = [];
 
@@ -334,16 +401,27 @@ export class WebChatroomService {
       .map()
       .once((memberData: any, userId: string) => {
         if (!userId.startsWith('_') && memberData && memberData.isActive === true) {
+          console.log(`✅ Collecting active member: ${userId} (${memberData.stageName})`);
           members.push({
             userId: userId,
             stageName: memberData.stageName || userId,
           });
+        } else if (!userId.startsWith('_') && memberData) {
+          console.log(
+            `⏭️  Skipping inactive member: ${userId} (${memberData.stageName}, isActive: ${memberData.isActive})`,
+          );
         }
       });
 
-    setTimeout(() => {
+    // Clear any existing callback timeout before setting a new one
+    if (this.membersCallbackTimeout) {
+      clearTimeout(this.membersCallbackTimeout);
+    }
+
+    this.membersCallbackTimeout = setTimeout(() => {
       console.log(`👥 Active members collected:`, members);
       callback(members);
+      this.membersCallbackTimeout = null;
     }, 200);
   }
 
@@ -446,15 +524,21 @@ export class WebChatroomService {
   }
 
   /**
-   * Enforce FIFO capacity limit on a chatroom using hierarchical assignment
-   * When capacity is reached, evict the oldest user DOWN the hierarchy based on their GPS location
+   * Enforce capacity limit AFTER a user has joined
+   * When capacity is exceeded, evict the oldest user DOWN the hierarchy based on their GPS location
+   * Note: This is called AFTER the new user has been added to the database
    */
-  private async enforceCapacityLimit(chatroomId: string, newUserId: string): Promise<void> {
+  private async enforceCapacityLimitAfterJoin(
+    chatroomId: string,
+    newUserId: string,
+  ): Promise<void> {
     try {
       const gun = this.gunService.getGun();
       const capacity = CONFIG.CHATROOM_CAPACITY;
 
       return new Promise((resolve) => {
+        const self = this; // Capture 'this' for use in callbacks
+
         const activeUsers: Array<{
           userId: string;
           joinedAt: string;
@@ -464,105 +548,180 @@ export class WebChatroomService {
           locationAccuracy?: number;
           locationTimestamp?: string;
         }> = [];
-        let completed = false;
 
-        // Use map().once() to get each user's latest data individually
+        // Use .once() on the users collection to get a snapshot, then iterate
         gun
           .get('chatrooms')
           .get(chatroomId)
           .get('users')
-          .map()
-          .once((memberData: any, userId: string) => {
-            // Skip Gun.js metadata
-            if (userId.startsWith('_')) return;
-
-            // Only count active users that aren't the new user
-            if (memberData && memberData.isActive === true && userId !== newUserId) {
-              activeUsers.push({
-                userId: userId,
-                joinedAt: memberData.joinedAt,
-                stageName: memberData.stageName || userId,
-                locationLatitude: memberData.locationLatitude,
-                locationLongitude: memberData.locationLongitude,
-                locationAccuracy: memberData.locationAccuracy,
-                locationTimestamp: memberData.locationTimestamp,
-              });
-            }
-          });
-
-        // Wait for Gun.js to process all users
-        setTimeout(async () => {
-          if (completed) return;
-          completed = true;
-
-          console.log(
-            `📊 Chatroom ${chatroomId} capacity check: ${activeUsers.length}/${capacity} users`,
-          );
-
-          // If chatroom is at capacity, evict the oldest user
-          if (activeUsers.length >= capacity) {
-            // Sort by joinedAt to find the oldest user (FIFO)
-            activeUsers.sort((a, b) => {
-              const dateA = new Date(a.joinedAt).getTime();
-              const dateB = new Date(b.joinedAt).getTime();
-              return dateA - dateB;
-            });
-
-            const oldestUser = activeUsers[0];
-            console.log(`🚪 FIFO Eviction: Chatroom is full (${activeUsers.length}/${capacity})`);
-            console.log(
-              `👤 Evicting oldest user: ${oldestUser.stageName} (joined: ${oldestUser.joinedAt})`,
-            );
-
-            // Check if location data is available
-            if (
-              !oldestUser.locationLatitude ||
-              !oldestUser.locationLongitude ||
-              !oldestUser.locationAccuracy ||
-              !oldestUser.locationTimestamp
-            ) {
-              console.log(
-                `⚠️  No location found for user ${oldestUser.stageName}, cannot determine child chatroom`,
-              );
+          .once((usersData: any) => {
+            if (!usersData) {
+              console.log(`📊 Chatroom ${chatroomId} has no users yet`);
               resolve();
               return;
             }
 
-            // Convert flat location fields to GPSCoordinate
-            const gpsLocation: GPSCoordinate = {
-              latitude: oldestUser.locationLatitude,
-              longitude: oldestUser.locationLongitude,
-              accuracy: oldestUser.locationAccuracy,
-              timestamp: new Date(oldestUser.locationTimestamp),
+            // Iterate over all user IDs in the collection
+            const userIds = Object.keys(usersData).filter(
+              (key) => !key.startsWith('_') && usersData[key],
+            );
+
+            console.log(`📊 Found ${userIds.length} user entries in chatroom ${chatroomId}`);
+
+            // For each user, fetch their full data with all fields
+            let completed = 0;
+            const processUser = (userId: string) => {
+              gun
+                .get('chatrooms')
+                .get(chatroomId)
+                .get('users')
+                .get(userId)
+                .once((memberData: any) => {
+                  completed++;
+
+                  console.log(`🔍 Reading user ${userId} from Gun.js:`, memberData);
+                  console.log(`   isActive: ${memberData?.isActive}`);
+
+                  if (memberData && memberData.isActive === true) {
+                    activeUsers.push({
+                      userId: userId,
+                      joinedAt: memberData.joinedAt,
+                      stageName: memberData.stageName || userId,
+                    });
+                  }
+
+                  // Check if all users have been processed
+                  if (completed >= userIds.length) {
+                    // Wait a bit more for any stragglers
+                    setTimeout(() => {
+                      checkCapacityAndEvict();
+                    }, 500);
+                  }
+                });
             };
 
-            // Find appropriate child chatroom based on user's location
-            const childChatroomId = findAppropriateChildChatroom(chatroomId, gpsLocation);
+            // Process all users
+            userIds.forEach(processUser);
 
-            if (childChatroomId) {
+            // Guard to prevent duplicate eviction checks
+            let capacityChecked = false;
+
+            // Safety timeout in case some users don't respond
+            setTimeout(() => {
+              if (completed < userIds.length) {
+                console.log(
+                  `⚠️  Timeout waiting for all users (got ${completed}/${userIds.length})`,
+                );
+              }
+              checkCapacityAndEvict();
+            }, 2000);
+
+            function checkCapacityAndEvict() {
+              if (capacityChecked) {
+                console.log(`⏭️  Capacity already checked, skipping duplicate check`);
+                return;
+              }
+              capacityChecked = true;
+
               console.log(
-                `📍 Moving ${oldestUser.stageName} to child chatroom: ${childChatroomId}`,
+                `📊 Chatroom ${chatroomId} capacity check: ${activeUsers.length}/${capacity} users (including new user ${newUserId})`,
               );
 
-              // Move user to child chatroom
-              await this.moveUserToChatroom(
-                oldestUser.userId,
-                chatroomId,
-                childChatroomId,
-                oldestUser.stageName,
-              );
-            } else {
-              console.log(
-                `⚠️  Already at most specific chatroom level, cannot evict ${oldestUser.stageName}`,
-              );
-              // At the leaf node, we can't go further down
-              // In production, might want to create dynamic sub-rooms or just reject new user
-              console.log(`  → Allowing join anyway (at leaf level)`);
+              // If chatroom EXCEEDS capacity, evict the oldest user (not including the one who just joined)
+              if (activeUsers.length > capacity) {
+                // Sort by joinedAt to find the oldest user (FIFO)
+                activeUsers.sort((a, b) => {
+                  const dateA = new Date(a.joinedAt).getTime();
+                  const dateB = new Date(b.joinedAt).getTime();
+                  return dateA - dateB;
+                });
+
+                // Find the oldest user that is NOT the new user
+                const oldestUser = activeUsers.find((user) => user.userId !== newUserId);
+
+                if (!oldestUser) {
+                  console.log(`⚠️  All users are the new user, cannot evict`);
+                  resolve();
+                  return;
+                }
+
+                console.log(
+                  `🚪 FIFO Eviction: Chatroom exceeds capacity (${activeUsers.length}/${capacity})`,
+                );
+                console.log(
+                  `👤 Evicting oldest user: ${oldestUser.stageName} (joined: ${oldestUser.joinedAt})`,
+                );
+                console.log(`   Full oldestUser data:`, oldestUser);
+
+                // Fetch location from dedicated location path
+                console.log(`📍 Fetching location from dedicated path for ${oldestUser.userId}...`);
+                let locationFetched = false;
+
+                gun
+                  .get('chatrooms')
+                  .get(chatroomId)
+                  .get('locations')
+                  .get(oldestUser.userId)
+                  .once((locationData: any) => {
+                    if (locationFetched) return; // Already handled by timeout
+                    locationFetched = true;
+
+                    console.log(`🔍 Location fetch callback fired with:`, locationData);
+
+                    if (locationData && locationData.latitude && locationData.longitude) {
+                      console.log(`✅ Got location from dedicated path:`, locationData);
+
+                      const gpsLocation: GPSCoordinate = {
+                        latitude: locationData.latitude,
+                        longitude: locationData.longitude,
+                        accuracy: locationData.accuracy || 0,
+                        timestamp: new Date(locationData.timestamp || new Date()),
+                      };
+
+                      // Find appropriate child chatroom based on user's location
+                      const childChatroomId = findAppropriateChildChatroom(chatroomId, gpsLocation);
+
+                      if (childChatroomId) {
+                        console.log(
+                          `📍 Moving ${oldestUser.stageName} to child chatroom: ${childChatroomId}`,
+                        );
+
+                        // Move user to child chatroom
+                        self.moveUserToChatroom(
+                          oldestUser.userId,
+                          chatroomId,
+                          childChatroomId,
+                          oldestUser.stageName,
+                        );
+                      } else {
+                        console.log(`⚠️  No appropriate child chatroom found`);
+                      }
+                      resolve();
+                    } else {
+                      console.log(`❌ Location data incomplete or missing:`, locationData);
+                      resolve();
+                    }
+                  });
+
+                // Timeout fallback
+                setTimeout(() => {
+                  if (!locationFetched) {
+                    locationFetched = true;
+                    console.log(
+                      `❌ Timeout waiting for location from dedicated path for ${oldestUser.userId}`,
+                    );
+                    resolve();
+                  }
+                }, 1000);
+
+                return;
+
+                // If location exists in chatroom data, use it directly
+              }
+
+              resolve();
             }
-          }
-
-          resolve();
-        }, 2000); // Wait 2s for Gun.js to sync before checking capacity
+          });
       });
     } catch (error) {
       console.error(`❌ Error enforcing capacity limit:`, error);
@@ -584,14 +743,32 @@ export class WebChatroomService {
 
     const gun = this.gunService.getGun();
 
-    // First, mark user as inactive in old chatroom and add movedTo field
+    // First, get the user's location from the old chatroom
+    const locationData: any = await new Promise((resolve) => {
+      gun
+        .get('chatrooms')
+        .get(fromChatroomId)
+        .get('locations')
+        .get(userId)
+        .once((data: any) => {
+          resolve(data);
+        });
+
+      // Timeout after 500ms
+      setTimeout(() => resolve(null), 500);
+    });
+
+    // Mark user as inactive in old chatroom and add movedTo field
     gun.get('chatrooms').get(fromChatroomId).get('users').get(userId).put({
       isActive: false,
       leftAt: new Date().toISOString(),
       movedTo: toChatroomId, // Signal to client they've been moved
     });
 
-    // Then add user to new chatroom
+    // Remove location from old chatroom
+    gun.get('chatrooms').get(fromChatroomId).get('locations').get(userId).put(null);
+
+    // Add user to new chatroom
     const userData = {
       joinedAt: new Date().toISOString(),
       isActive: true,
@@ -603,6 +780,20 @@ export class WebChatroomService {
 
     gun.get('chatrooms').get(toChatroomId).get('users').get(userId).put(userData);
 
+    // Transfer location to new chatroom
+    if (locationData) {
+      console.log(`📍 Transferring location to ${toChatroomId}`);
+      gun.get('chatrooms').get(toChatroomId).get('locations').get(userId).put(locationData);
+    }
+
     console.log(`✅ User ${stageName} successfully moved to ${toChatroomId}`);
+
+    // Wait for Gun.js to propagate the write to all peers
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    // Check capacity in the new chatroom and cascade eviction if needed
+    if (CONFIG.CHATROOM_ENABLE_FIFO) {
+      await this.enforceCapacityLimitAfterJoin(toChatroomId, userId);
+    }
   }
 }

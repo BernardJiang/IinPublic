@@ -24,22 +24,31 @@ class WebApp {
       console.log('🚀 Initializing IinPublic Web App');
 
       // FOR TESTING: Use a fixed location so all users end up in same chatroom
-      // TODO: Remove this and use real location in production
+      // Tests can override by setting window.__test_location before app loads
       const USE_TEST_LOCATION = true;
 
       let location: GPSCoordinate;
       if (USE_TEST_LOCATION) {
-        location = {
-          latitude: 37.7749, // San Francisco coordinates
-          longitude: -122.4194,
-          accuracy: 100,
-          timestamp: new Date(),
-        };
-        console.log(
-          '🧪 Using TEST location (all users in same chatroom):',
-          location.latitude,
-          location.longitude,
-        );
+        // Check if test has set a custom location
+        const customLocation = (window as any).__test_location;
+        if (customLocation) {
+          location = {
+            latitude: customLocation.latitude,
+            longitude: customLocation.longitude,
+            accuracy: customLocation.accuracy || 100,
+            timestamp: new Date(),
+          };
+          console.log('🧪 Using custom TEST location:', location.latitude, location.longitude);
+        } else {
+          // Default test location
+          location = {
+            latitude: 37.7749, // San Francisco coordinates
+            longitude: -122.4194,
+            accuracy: 100,
+            timestamp: new Date(),
+          };
+          console.log('🧪 Using default TEST location:', location.latitude, location.longitude);
+        }
       } else {
         location = await LocationPrivacy.getCurrentLocation();
         console.log(
