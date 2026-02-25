@@ -62,6 +62,45 @@ test.describe('Seven User FIFO Eviction Test', () => {
       console.log(`   ✅ All rooms at or under capacity`);
     }
 
+    // Helper to verify that each user is in the correct room and sees the correct headcount
+    async function verifyAllUsersRoomAndHeadcount(
+      pages: Page[],
+      userStates: { [userId: number]: { room: string; headcount: number } },
+    ): Promise<void> {
+      console.log('   🔬 Verifying each user knows their room and its headcount...');
+      for (let i = 0; i < pages.length; i++) {
+        if (!pages[i] || pages[i].isClosed()) continue; // Skip closed pages
+
+        const user = USERS[i];
+        const state = userStates[user.id];
+
+        if (!state) continue; // Skip users not relevant to the current check
+
+        // 1. Check if user is in the expected room
+        const statusBarText = await getStatusBar(pages[i]);
+        const roomMatch = statusBarText.match(/in ([\w\s]+) with/);
+        const actualRoom = roomMatch ? roomMatch[1].trim() : 'N/A';
+
+        if (actualRoom !== state.room) {
+          throw new Error(
+            `❌ [${user.name}] is in the WRONG ROOM. Expected: '${state.room}', Found: '${actualRoom}'`,
+          );
+        }
+
+        // 2. Check headcount for that room from the user's own perspective
+        const userVisibleHeadcount = await getHeadcount(pages[i], state.room);
+        if (userVisibleHeadcount !== state.headcount) {
+          throw new Error(
+            `❌ [${user.name}] in room '${state.room}' sees WRONG HEADCOUNT. Saw: ${userVisibleHeadcount}, Expected: ${state.headcount}`,
+          );
+        }
+        console.log(
+          `   ✅ [${user.name}] is in '${state.room}' and sees correct headcount ${userVisibleHeadcount}/${state.headcount}`,
+        );
+      }
+      console.log('   ✅ All active users have been verified.');
+    }
+
     // Helper to cleanup a user
     async function cleanupUser(page: Page, userName: string) {
       try {
@@ -140,6 +179,13 @@ test.describe('Seven User FIFO Eviction Test', () => {
     console.log(`   Global: ${globalCount1}/3`);
     expect(globalCount1).toBe(3);
 
+    const userStates1 = {
+      1: { room: 'Global', headcount: 3 },
+      2: { room: 'Global', headcount: 3 },
+      3: { room: 'Global', headcount: 3 },
+    };
+    await verifyAllUsersRoomAndHeadcount(pages, userStates1);
+
     // ============================================
     // PHASE 2: User 4 joins (bumps User 1 to NA)
     // ============================================
@@ -188,6 +234,14 @@ test.describe('Seven User FIFO Eviction Test', () => {
     expect(globalCount2).toBe(3);
     expect(naCount2).toBe(1);
 
+    const userStates2 = {
+      1: { room: 'North America', headcount: 1 },
+      2: { room: 'Global', headcount: 3 },
+      3: { room: 'Global', headcount: 3 },
+      4: { room: 'Global', headcount: 3 },
+    };
+    await verifyAllUsersRoomAndHeadcount(pages, userStates2);
+
     // ============================================
     // PHASE 3: User 5 joins (bumps User 2 to NA)
     // ============================================
@@ -233,6 +287,15 @@ test.describe('Seven User FIFO Eviction Test', () => {
     expect(globalCount3).toBe(3);
     expect(naCount3).toBe(2);
 
+    const userStates3 = {
+      1: { room: 'North America', headcount: 2 },
+      2: { room: 'North America', headcount: 2 },
+      3: { room: 'Global', headcount: 3 },
+      4: { room: 'Global', headcount: 3 },
+      5: { room: 'Global', headcount: 3 },
+    };
+    await verifyAllUsersRoomAndHeadcount(pages, userStates3);
+
     // ============================================
     // PHASE 4: User 6 joins (bumps User 3 to NA)
     // ============================================
@@ -277,6 +340,16 @@ test.describe('Seven User FIFO Eviction Test', () => {
     console.log(`   Global: ${globalCount4}/3, North America: ${naCount4}/3`);
     expect(globalCount4).toBe(3);
     expect(naCount4).toBe(3);
+
+    const userStates4 = {
+      1: { room: 'North America', headcount: 3 },
+      2: { room: 'North America', headcount: 3 },
+      3: { room: 'North America', headcount: 3 },
+      4: { room: 'Global', headcount: 3 },
+      5: { room: 'Global', headcount: 3 },
+      6: { room: 'Global', headcount: 3 },
+    };
+    await verifyAllUsersRoomAndHeadcount(pages, userStates4);
 
     // ============================================
     // PHASE 5: User 7 joins (bumps User 4 to SA)
@@ -326,6 +399,17 @@ test.describe('Seven User FIFO Eviction Test', () => {
     expect(globalCount5).toBe(3);
     expect(naCount5).toBe(3);
     expect(saCount5).toBe(1);
+
+    const userStates5 = {
+      1: { room: 'North America', headcount: 3 },
+      2: { room: 'North America', headcount: 3 },
+      3: { room: 'North America', headcount: 3 },
+      4: { room: 'South America', headcount: 1 },
+      5: { room: 'Global', headcount: 3 },
+      6: { room: 'Global', headcount: 3 },
+      7: { room: 'Global', headcount: 3 },
+    };
+    await verifyAllUsersRoomAndHeadcount(pages, userStates5);
 
     // ============================================
     // PHASE 6: All logout
@@ -402,6 +486,18 @@ test.describe('Seven User FIFO Eviction Test', () => {
     expect(globalCountFinal).toBe(3);
     expect(naCountFinal).toBe(3);
     expect(saCountFinal).toBe(1);
+
+    // Same state as before logout
+    const userStatesFinal = {
+      1: { room: 'North America', headcount: 3 },
+      2: { room: 'North America', headcount: 3 },
+      3: { room: 'North America', headcount: 3 },
+      4: { room: 'South America', headcount: 1 },
+      5: { room: 'Global', headcount: 3 },
+      6: { room: 'Global', headcount: 3 },
+      7: { room: 'Global', headcount: 3 },
+    };
+    await verifyAllUsersRoomAndHeadcount(pages, userStatesFinal);
 
     // Cleanup
     console.log('\n🧹 Cleaning up...');

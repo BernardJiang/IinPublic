@@ -183,6 +183,12 @@ export class IinPublicApp {
       this.subscribeToMessages(toChatroomId);
       this.subscribeToTalks(toChatroomId);
 
+      // Also subscribe to the new chatroom's member count for the UI list
+      this.chatroomService.subscribeToMemberCount(toChatroomId, (count) => {
+        console.log(`  - ${toChatroomId}: ${count} members`);
+        this.uiManager.setChatroomMemberCount(toChatroomId, count);
+      });
+
       // Update UI
       this.uiManager.updateChatroomInfo({
         id: toChatroomId,

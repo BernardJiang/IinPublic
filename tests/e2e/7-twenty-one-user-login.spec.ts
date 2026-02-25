@@ -196,16 +196,6 @@ test.describe('Twenty-One User Comprehensive Chatroom Test', () => {
       const status = await getStatusBar(page);
       console.log(`   ✅ ${user.name} joined: ${status}`);
 
-      // Workaround: Reload the bumped user to ensure they subscribe to the new room
-      if (i >= 3) {
-        const bumpedUserIndex = i - 3;
-        const bumpedPage = pages[bumpedUserIndex];
-        const bumpedUser = USERS[bumpedUserIndex];
-        console.log(`   🔄 Reloading bumped user ${bumpedUser.name} to fix subscription...`);
-        await bumpedPage.reload();
-        await bumpedPage.waitForLoadState('networkidle');
-      }
-
       // Wait for FIFO eviction to process
       await page.waitForTimeout(5000);
 
@@ -249,6 +239,23 @@ test.describe('Twenty-One User Comprehensive Chatroom Test', () => {
       }
       if (ocCount > 3) {
         throw new Error(`❌ Oceania exceeded capacity: ${ocCount}/3 after ${user.name} joined`);
+      }
+
+      // Specific verification for User 1 receiving headcount updates after being bumped
+      if (i === 4) {
+        console.log('   🔍 Verifying User 1 sees headcount change in North America...');
+        // User 1 should be in North America and see 2 users (User 1 + User 2)
+        
+        // Use polling to ensure we catch the update
+        await expect.poll(async () => {
+          const user1NAHeadcount = await getHeadcount(pages[0], 'North America');
+          return parseHeadcount(user1NAHeadcount);
+        }, {
+          message: 'User 1 should see 2 users in North America',
+          timeout: 10000,
+        }).toBe(2);
+        
+        console.log('   ✅ User 1 correctly sees 2 users in North America');
       }
 
       // Check for unexpected decreases (except when cascading might cause temporary fluctuations)
