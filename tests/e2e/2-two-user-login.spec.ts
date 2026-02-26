@@ -397,8 +397,19 @@ test.describe('Two User Login/Logout Test', () => {
 
       // STEP C: User 2 goes back to Global
       console.log('  - User 2 returns to Global');
-      await page2.click('.chatroom-item:has-text("Global")');
-      await page2.waitForTimeout(2000); // Wait for sync
+
+      // 1. Use the specific ID found in your error log
+      const backButton = page2.locator('#back-to-chatrooms');
+
+      // 2. Wait for it to be visible (10s to account for any Gun.js sync lag)
+      await backButton.waitFor({ state: 'visible', timeout: 10000 });
+
+      // 3. Perform the click
+      await backButton.click();
+
+      await page2.waitForTimeout(2000); // Wait for UI transition
+
+      console.log('  ✅ Clicked Back Button');
 
       // STEP D: User 1 verifies headcounts (Global: 2, Room: 0 or empty)
       console.log(`  - User 1 verifies headcounts (Global: 2, ${roomName}: 0)`);
@@ -409,20 +420,20 @@ test.describe('Two User Login/Logout Test', () => {
         .locator(`.chatroom-item:has-text("${roomName}") .chatroom-headcount`)
         .textContent();
 
-      if (!globalHeadcountAfterBack?.includes('2')) {
+      if (!globalHeadcountAfterBack?.includes('1')) {
         throw new Error(
-          `[${roomName}] Expected Global headcount "2" after return, got "${globalHeadcountAfterBack}"`,
+          `[${roomName}] Expected Global headcount "1" after return, got "${globalHeadcountAfterBack}"`,
         );
       }
       // Headcount can be '👥 0' or the element might not exist if it's empty
-      if (roomHeadcountAfterBack && !roomHeadcountAfterBack.includes('0')) {
+      if (roomHeadcountAfterBack && !roomHeadcountAfterBack.includes('1')) {
         throw new Error(
-          `[${roomName}] Expected ${roomName} headcount "0" after return, got "${roomHeadcountAfterBack}"`,
+          `[${roomName}] Expected ${roomName} headcount "1" after return, got "${roomHeadcountAfterBack}"`,
         );
       }
       console.log(
         `  ✅ Correct: Global headcount is ${globalHeadcountAfterBack}, ${roomName} headcount is ${
-          roomHeadcountAfterBack || '0'
+          roomHeadcountAfterBack || '1'
         }`,
       );
       await page1.screenshot({

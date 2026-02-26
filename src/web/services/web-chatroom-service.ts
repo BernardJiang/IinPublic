@@ -327,6 +327,7 @@ export class WebChatroomService {
       await this.leaveChatroom(this.currentChatroomId, userId);
     }
     await this.joinChatroom(newChatroomId, userId, stageName);
+    this.subscribeToMemberCount(newChatroomId, () => {});
   }
 
   async getActiveMembers(chatroomId: string): Promise<string[]> {

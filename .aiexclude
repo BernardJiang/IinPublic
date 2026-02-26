@@ -1,0 +1,26 @@
+# Dependency folders (The biggest performance killers)
+node_modules/
+.expo/
+.npm/
+
+# Build outputs
+android/app/build/
+ios/build/
+bin/
+dist/
+out/
+
+# Gun.js local storage (can grow large with sync data)
+radata/
+dummy/
+
+# Version control and logs
+.git/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment and sensitive files
+.env
+.env.*
