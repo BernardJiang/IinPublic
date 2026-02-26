@@ -19,6 +19,10 @@ class WebApp {
     return this.app;
   }
 
+  cleanup(): void {
+    this.app.manualCleanup();
+  }
+
   async initialize(): Promise<void> {
     try {
       console.log('🚀 Initializing IinPublic Web App');
