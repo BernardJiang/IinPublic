@@ -322,11 +322,11 @@ export class WebChatroomService {
     console.log(`✅ Initiated leave for chatroom: ${chatroomId}`);
   }
 
-  async switchChatroom(userId: string, newChatroomId: string): Promise<void> {
+  async switchChatroom(userId: string, newChatroomId: string, stageName?: string): Promise<void> {
     if (this.currentChatroomId) {
       await this.leaveChatroom(this.currentChatroomId, userId);
     }
-    await this.joinChatroom(newChatroomId, userId);
+    await this.joinChatroom(newChatroomId, userId, stageName);
   }
 
   async getActiveMembers(chatroomId: string): Promise<string[]> {

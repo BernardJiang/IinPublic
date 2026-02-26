@@ -350,6 +350,89 @@ test.describe('Two User Login/Logout Test', () => {
       fullPage: true,
     });
 
+    // =============================================================
+    // STEP 6.5: User 2 manually navigates through chatrooms and User 1 verifies headcounts
+    // =============================================================
+    console.log(
+      '\n📍 STEP 6.5: User 2 navigates rooms, User 1 verifies headcounts',
+    );
+    console.log('='.repeat(60));
+
+    const roomsToTest = ['North America', 'South America', 'Europe', 'Asia'];
+
+    for (const roomName of roomsToTest) {
+      console.log(`\n▶️ Testing navigation to ${roomName}`);
+
+      // STEP A: User 2 enters the room
+      console.log(`  - User 2 enters ${roomName}`);
+      await page2.click(`.chatroom-item:has-text("${roomName}")`);
+      await page2.waitForTimeout(2000); // Wait for sync
+
+      // STEP B: User 1 verifies headcounts (Global: 1, Room: 1)
+      console.log(`  - User 1 verifies headcounts (Global: 1, ${roomName}: 1)`);
+      const globalHeadcountAfterEnter = await page1
+        .locator('.chatroom-item:has-text("Global") .chatroom-headcount')
+        .textContent();
+      const roomHeadcountAfterEnter = await page1
+        .locator(`.chatroom-item:has-text("${roomName}") .chatroom-headcount`)
+        .textContent();
+
+      if (!globalHeadcountAfterEnter?.includes('1')) {
+        throw new Error(
+          `[${roomName}] Expected Global headcount "1", got "${globalHeadcountAfterEnter}"`,
+        );
+      }
+      if (!roomHeadcountAfterEnter?.includes('1')) {
+        throw new Error(
+          `[${roomName}] Expected ${roomName} headcount "1", got "${roomHeadcountAfterEnter}"`,
+        );
+      }
+      console.log(
+        `  ✅ Correct: Global headcount is ${globalHeadcountAfterEnter}, ${roomName} headcount is ${roomHeadcountAfterEnter}`,
+      );
+      await page1.screenshot({
+        path: path.join(screenshotDir, `06-user2-in-${roomName}.png`),
+        fullPage: true,
+      });
+
+      // STEP C: User 2 goes back to Global
+      console.log('  - User 2 returns to Global');
+      await page2.click('.chatroom-item:has-text("Global")');
+      await page2.waitForTimeout(2000); // Wait for sync
+
+      // STEP D: User 1 verifies headcounts (Global: 2, Room: 0 or empty)
+      console.log(`  - User 1 verifies headcounts (Global: 2, ${roomName}: 0)`);
+      const globalHeadcountAfterBack = await page1
+        .locator('.chatroom-item:has-text("Global") .chatroom-headcount')
+        .textContent();
+      const roomHeadcountAfterBack = await page1
+        .locator(`.chatroom-item:has-text("${roomName}") .chatroom-headcount`)
+        .textContent();
+
+      if (!globalHeadcountAfterBack?.includes('2')) {
+        throw new Error(
+          `[${roomName}] Expected Global headcount "2" after return, got "${globalHeadcountAfterBack}"`,
+        );
+      }
+      // Headcount can be '👥 0' or the element might not exist if it's empty
+      if (roomHeadcountAfterBack && !roomHeadcountAfterBack.includes('0')) {
+        throw new Error(
+          `[${roomName}] Expected ${roomName} headcount "0" after return, got "${roomHeadcountAfterBack}"`,
+        );
+      }
+      console.log(
+        `  ✅ Correct: Global headcount is ${globalHeadcountAfterBack}, ${roomName} headcount is ${
+          roomHeadcountAfterBack || '0'
+        }`,
+      );
+      await page1.screenshot({
+        path: path.join(screenshotDir, `07-user2-back-from-${roomName}.png`),
+        fullPage: true,
+      });
+    }
+
+    console.log('\n✅ All room navigation tests passed!');
+
     // ============================================
     // STEP 7: Both users exit (final cleanup)
     // ============================================
@@ -390,6 +473,7 @@ test.describe('Two User Login/Logout Test', () => {
     console.log('  4. ✅ User 2 re-enters → headcount = 2 (remembered via localStorage)');
     console.log('  5. ✅ Both exit → headcount = 0');
     console.log('  6. ✅ Both re-enter → headcount = 2 (both remembered)');
+    console.log('  6.5. ✅ User 2 navigates rooms, and headcount is verified');
     console.log('  7. ✅ Both exit → test complete');
   });
 });

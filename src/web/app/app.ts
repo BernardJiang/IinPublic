@@ -797,6 +797,35 @@ export class IinPublicApp {
       }
     });
 
+    this.uiManager.on('chatroomChanged', async (chatroomId: string) => {
+      if (!this.currentUser || !this.currentChatroomId || this.currentChatroomId === chatroomId) {
+        return;
+      }
+      
+      console.log(`🔄 User switching from chatroom ${this.currentChatroomId} to ${chatroomId}`);
+    
+      await this.chatroomService.switchChatroom(
+        this.currentUser.id,
+        chatroomId,
+        this.currentUser.stageName,
+      );
+      
+      // Update app state
+      this.currentChatroomId = chatroomId;
+      localStorage.setItem('iinpublic_last_chatroom', chatroomId);
+      
+      // Re-establish subscriptions for the new room
+      this.chatroomService.subscribeToMembers(chatroomId, (members) => {
+        this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
+        const chatroomName = this.getChatroomDisplayName(chatroomId);
+        this.uiManager.updateStatusBar(this.currentUser!.stageName, chatroomName, members.length);
+      });
+      this.subscribeToMessages(chatroomId);
+      this.subscribeToTalks(chatroomId);
+    
+      console.log(`✅ Switched to ${chatroomId}`);
+    });
+
     // Handle Gun.js real-time updates
     this.gunService.on('newMessage', (message: any) => {
       this.uiManager.displayNewMessage(message);

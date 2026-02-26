@@ -242,6 +242,17 @@ class IinPublicServer {
         }
       });
 
+      socket.on('move_chatroom', async (data) => {
+        try {
+          await this.chatroomManager.moveChatroom(socket.data.userId, data.oldChatroomId, data.newChatroomId);
+          socket.leave(data.oldChatroomId);
+          socket.join(data.newChatroomId);
+          socket.emit('moved_chatroom', { oldChatroomId: data.oldChatroomId, newChatroomId: data.newChatroomId });
+        } catch (error) {
+          socket.emit('error', { error: (error as Error).message });
+        }
+      });
+
       // Real-time messaging
       socket.on('send_message', async (data) => {
         try {

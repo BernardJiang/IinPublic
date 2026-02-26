@@ -15,6 +15,8 @@ export class ChatroomManager {
       joinedAt: new Date(),
       isActive: true
     });
+    const headcount = await this.gunService.get(`chatrooms/${chatroomId}/headcount`) || 0;
+    await this.gunService.put(`chatrooms/${chatroomId}/headcount`, headcount + 1);
   }
 
   async leaveChatroom(chatroomId: string, userId: string): Promise<void> {
@@ -22,6 +24,13 @@ export class ChatroomManager {
       leftAt: new Date(),
       isActive: false
     });
+    const headcount = await this.gunService.get(`chatrooms/${chatroomId}/headcount`) || 0;
+    await this.gunService.put(`chatrooms/${chatroomId}/headcount`, Math.max(0, headcount - 1));
+  }
+
+  async moveChatroom(userId: string, oldChatroomId: string, newChatroomId: string): Promise<void> {
+    await this.leaveChatroom(oldChatroomId, userId);
+    await this.joinChatroom(newChatroomId, userId);
   }
 
   async findOptimalChatroom(_location: GPSCoordinate): Promise<string> {
