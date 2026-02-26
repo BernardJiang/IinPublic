@@ -121,17 +121,20 @@ test.describe('Seven User FIFO Eviction Test', () => {
 
     console.log('🚀 Launching 7 Chrome browsers...');
     const windowWidth = 480;
-    const windowHeight = 360;
+    const windowHeight = 480;
     for (let i = 0; i < 7; i++) {
       const browser = await playwright.chromium.launch({
         headless: false,
         args: [
           `--window-position=${(i % 4) * windowWidth},${
-            Math.floor(i / 4) * windowHeight
+            Math.floor(i / 4) * windowHeight 
           }`,
+          `--window-size=${windowWidth},${windowHeight}`,
+          '--force-device-scale-factor=0.8',
         ],
       });
       browsers.push(browser);
+      console.log(`✅ Bernard Launched browser ${i + 1} at window position ${(i % 4) * windowWidth},${Math.floor(i / 4) * windowHeight * 4}`);
     }
     console.log('✅ Launched 7 browsers\n');
 
