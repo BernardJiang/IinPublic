@@ -120,10 +120,16 @@ test.describe('Seven User FIFO Eviction Test', () => {
     console.log('✅ All databases cleared\n');
 
     console.log('🚀 Launching 7 Chrome browsers...');
+    const windowWidth = 480;
+    const windowHeight = 360;
     for (let i = 0; i < 7; i++) {
       const browser = await playwright.chromium.launch({
         headless: false,
-        args: [`--window-position=${i * 50},${i * 50}`],
+        args: [
+          `--window-position=${(i % 4) * windowWidth},${
+            Math.floor(i / 4) * windowHeight
+          }`,
+        ],
       });
       browsers.push(browser);
     }
@@ -140,13 +146,15 @@ test.describe('Seven User FIFO Eviction Test', () => {
     console.log('='.repeat(80));
     console.log('PHASE 1: Users 1-3 join Global (room fills up)');
     console.log('='.repeat(80));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     for (let i = 0; i < 3; i++) {
       const user = USERS[i];
       console.log(`\n📍 User ${user.id}: ${user.name} joining...`);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       const context = await browsers[i].newContext({
-        viewport: { width: 1280, height: 720 },
+        viewport: { width: windowWidth, height: windowHeight },
       });
 
       const page = await context.newPage();
@@ -162,22 +170,25 @@ test.describe('Seven User FIFO Eviction Test', () => {
 
       await page.goto('/');
       await page.waitForLoadState('networkidle');
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(2000);
 
       contexts.push(context);
       pages.push(page);
 
       const status = await getStatusBar(page);
       console.log(`   ✅ ${user.name} joined: ${status}`);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       // Wait for FIFO to process
       await page.waitForTimeout(3000);
 
       // Check capacity
       await checkAllRoomsUnderCapacity(page, `After User ${user.id}`);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
 
     console.log('\n📊 After Phase 1: Global should have 3 users (1, 2, 3)');
+    await new Promise((resolve) => setTimeout(resolve, 2000));
     const globalCount1 = await getHeadcount(pages[2], 'Global');
     console.log(`   Global: ${globalCount1}/3`);
     expect(globalCount1).toBe(3);
@@ -188,6 +199,7 @@ test.describe('Seven User FIFO Eviction Test', () => {
       3: { room: 'Global', headcount: 3 },
     };
     await verifyAllUsersRoomAndHeadcount(pages, userStates1);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // ============================================
     // PHASE 2: User 4 joins (bumps User 1 to NA)
@@ -195,12 +207,14 @@ test.describe('Seven User FIFO Eviction Test', () => {
     console.log('\n' + '='.repeat(80));
     console.log('PHASE 2: User 4 (SA) joins → User 1 bumped to North America');
     console.log('='.repeat(80));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const user4 = USERS[3];
     console.log(`\n📍 User ${user4.id}: ${user4.name} joining...`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const context4 = await browsers[3].newContext({
-      viewport: { width: 1280, height: 720 },
+      viewport: { width: windowWidth, height: windowHeight },
     });
 
     const page4 = await context4.newPage();
@@ -216,21 +230,24 @@ test.describe('Seven User FIFO Eviction Test', () => {
 
     await page4.goto('/');
     await page4.waitForLoadState('networkidle');
-    await page4.waitForTimeout(3000);
+    await page4.waitForTimeout(2000);
 
     contexts.push(context4);
     pages.push(page4);
 
     const status4 = await getStatusBar(page4);
     console.log(`   ✅ ${user4.name} joined: ${status4}`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // Wait for FIFO eviction
     await page4.waitForTimeout(4000);
 
     // Check capacity
     await checkAllRoomsUnderCapacity(page4, `After User 4`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     console.log('\n📊 After User 4: Global should have users 2,3,4. NA should have user 1');
+    await new Promise((resolve) => setTimeout(resolve, 2000));
     const globalCount2 = await getHeadcount(pages[3], 'Global');
     const naCount2 = await getHeadcount(pages[0], 'North America');
     console.log(`   Global: ${globalCount2}/3, North America: ${naCount2}/3`);
@@ -244,6 +261,7 @@ test.describe('Seven User FIFO Eviction Test', () => {
       4: { room: 'Global', headcount: 3 },
     };
     await verifyAllUsersRoomAndHeadcount(pages, userStates2);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // ============================================
     // PHASE 3: User 5 joins (bumps User 2 to NA)
@@ -251,12 +269,14 @@ test.describe('Seven User FIFO Eviction Test', () => {
     console.log('\n' + '='.repeat(80));
     console.log('PHASE 3: User 5 (SA) joins → User 2 bumped to North America');
     console.log('='.repeat(80));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const user5 = USERS[4];
     console.log(`\n📍 User ${user5.id}: ${user5.name} joining...`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const context5 = await browsers[4].newContext({
-      viewport: { width: 1280, height: 720 },
+      viewport: { width: windowWidth, height: windowHeight },
     });
 
     const page5 = await context5.newPage();
@@ -272,18 +292,21 @@ test.describe('Seven User FIFO Eviction Test', () => {
 
     await page5.goto('/');
     await page5.waitForLoadState('networkidle');
-    await page5.waitForTimeout(3000);
+    await page5.waitForTimeout(2000);
 
     contexts.push(context5);
     pages.push(page5);
 
     const status5 = await getStatusBar(page5);
     console.log(`   ✅ ${user5.name} joined: ${status5}`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     await page5.waitForTimeout(4000);
     await checkAllRoomsUnderCapacity(page5, `After User 5`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     console.log('\n📊 After User 5: Global should have users 3,4,5. NA should have users 1,2');
+    await new Promise((resolve) => setTimeout(resolve, 2000));
     const globalCount3 = await getHeadcount(pages[4], 'Global');
     const naCount3 = await getHeadcount(pages[0], 'North America');
     console.log(`   Global: ${globalCount3}/3, North America: ${naCount3}/3`);
@@ -298,6 +321,7 @@ test.describe('Seven User FIFO Eviction Test', () => {
       5: { room: 'Global', headcount: 3 },
     };
     await verifyAllUsersRoomAndHeadcount(pages, userStates3);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // ============================================
     // PHASE 4: User 6 joins (bumps User 3 to NA)
@@ -305,12 +329,14 @@ test.describe('Seven User FIFO Eviction Test', () => {
     console.log('\n' + '='.repeat(80));
     console.log('PHASE 4: User 6 (SA) joins → User 3 bumped to North America');
     console.log('='.repeat(80));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const user6 = USERS[5];
     console.log(`\n📍 User ${user6.id}: ${user6.name} joining...`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const context6 = await browsers[5].newContext({
-      viewport: { width: 1280, height: 720 },
+      viewport: { width: windowWidth, height: windowHeight },
     });
 
     const page6 = await context6.newPage();
@@ -326,18 +352,21 @@ test.describe('Seven User FIFO Eviction Test', () => {
 
     await page6.goto('/');
     await page6.waitForLoadState('networkidle');
-    await page6.waitForTimeout(3000);
+    await page6.waitForTimeout(2000);
 
     contexts.push(context6);
     pages.push(page6);
 
     const status6 = await getStatusBar(page6);
     console.log(`   ✅ ${user6.name} joined: ${status6}`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     await page6.waitForTimeout(4000);
     await checkAllRoomsUnderCapacity(page6, `After User 6`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     console.log('\n📊 After User 6: Global should have users 4,5,6. NA should have users 1,2,3');
+    await new Promise((resolve) => setTimeout(resolve, 2000));
     const globalCount4 = await getHeadcount(pages[5], 'Global');
     const naCount4 = await getHeadcount(pages[0], 'North America');
     console.log(`   Global: ${globalCount4}/3, North America: ${naCount4}/3`);
@@ -353,6 +382,7 @@ test.describe('Seven User FIFO Eviction Test', () => {
       6: { room: 'Global', headcount: 3 },
     };
     await verifyAllUsersRoomAndHeadcount(pages, userStates4);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // ============================================
     // PHASE 5: User 7 joins (bumps User 4 to SA)
@@ -360,12 +390,14 @@ test.describe('Seven User FIFO Eviction Test', () => {
     console.log('\n' + '='.repeat(80));
     console.log('PHASE 5: User 7 (Asia) joins → User 4 bumped to South America');
     console.log('='.repeat(80));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const user7 = USERS[6];
     console.log(`\n📍 User ${user7.id}: ${user7.name} joining...`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const context7 = await browsers[6].newContext({
-      viewport: { width: 1280, height: 720 },
+      viewport: { width: windowWidth, height: windowHeight },
     });
 
     const page7 = await context7.newPage();
@@ -381,18 +413,21 @@ test.describe('Seven User FIFO Eviction Test', () => {
 
     await page7.goto('/');
     await page7.waitForLoadState('networkidle');
-    await page7.waitForTimeout(3000);
+    await page7.waitForTimeout(2000);
 
     contexts.push(context7);
     pages.push(page7);
 
     const status7 = await getStatusBar(page7);
     console.log(`   ✅ ${user7.name} joined: ${status7}`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     await page7.waitForTimeout(4000);
     await checkAllRoomsUnderCapacity(page7, `After User 7`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     console.log('\n📊 After User 7: Global=5,6,7. NA=1,2,3. SA=4');
+    await new Promise((resolve) => setTimeout(resolve, 2000));
     const globalCount5 = await getHeadcount(pages[6], 'Global');
     const naCount5 = await getHeadcount(pages[0], 'North America');
     const saCount5 = await getHeadcount(pages[3], 'South America');
@@ -413,6 +448,7 @@ test.describe('Seven User FIFO Eviction Test', () => {
       7: { room: 'Global', headcount: 3 },
     };
     await verifyAllUsersRoomAndHeadcount(pages, userStates5);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // ============================================
     // PHASE 6: All logout
@@ -420,10 +456,12 @@ test.describe('Seven User FIFO Eviction Test', () => {
     console.log('\n' + '='.repeat(80));
     console.log('PHASE 6: All users logout');
     console.log('='.repeat(80));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     for (let i = 0; i < USERS.length; i++) {
       const user = USERS[i];
       console.log(`\n📍 User ${user.id}: ${user.name} logging out...`);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       await contexts[i].storageState({
         path: path.join(storageDir, `user-${user.id}-state.json`),
@@ -432,7 +470,7 @@ test.describe('Seven User FIFO Eviction Test', () => {
       await cleanupUser(pages[i], user.name);
       await pages[i].close();
       console.log(`   ✅ ${user.name} logged out`);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
 
     // ============================================
@@ -441,6 +479,7 @@ test.describe('Seven User FIFO Eviction Test', () => {
     console.log('\n' + '='.repeat(80));
     console.log('PHASE 7: All users rejoin (should remember previous room)');
     console.log('='.repeat(80));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // Clear arrays
     contexts.length = 0;
@@ -449,10 +488,11 @@ test.describe('Seven User FIFO Eviction Test', () => {
     for (let i = 0; i < USERS.length; i++) {
       const user = USERS[i];
       console.log(`\n📍 User ${user.id}: ${user.name} rejoining...`);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       const context = await browsers[i].newContext({
         storageState: path.join(storageDir, `user-${user.id}-state.json`),
-        viewport: { width: 1280, height: 720 },
+        viewport: { width: windowWidth, height: windowHeight },
       });
 
       const page = await context.newPage();
@@ -468,18 +508,18 @@ test.describe('Seven User FIFO Eviction Test', () => {
 
       await page.goto('/');
       await page.waitForLoadState('networkidle');
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(2000);
 
       contexts.push(context);
       pages.push(page);
 
       const status = await getStatusBar(page);
       console.log(`   ✅ ${user.name} rejoined: ${status}`);
-
-      await page.waitForTimeout(2000);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
 
     console.log('\n📊 After rejoin: Should be same distribution as before logout');
+    await new Promise((resolve) => setTimeout(resolve, 2000));
     const globalCountFinal = await getHeadcount(pages[6], 'Global');
     const naCountFinal = await getHeadcount(pages[0], 'North America');
     const saCountFinal = await getHeadcount(pages[3], 'South America');
@@ -501,9 +541,11 @@ test.describe('Seven User FIFO Eviction Test', () => {
       7: { room: 'Global', headcount: 3 },
     };
     await verifyAllUsersRoomAndHeadcount(pages, userStatesFinal);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // Cleanup
     console.log('\n🧹 Cleaning up...');
+    await new Promise((resolve) => setTimeout(resolve, 2000));
     for (let i = 0; i < USERS.length; i++) {
       await cleanupUser(pages[i], USERS[i].name);
       await pages[i].close();
@@ -514,5 +556,6 @@ test.describe('Seven User FIFO Eviction Test', () => {
     }
 
     console.log('\n✅ Test completed successfully!');
+    await new Promise((resolve) => setTimeout(resolve, 2000));
   });
 });
