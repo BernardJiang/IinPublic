@@ -58,6 +58,6 @@ export class WebUserService {
   }
 
   async updateStageName(userId: string, newStageName: string): Promise<void> {
-    await this.gunService.put(`users/${userId}/stageName`, newStageName);
+    await this.gunService.put(`users/${userId}`, { stageName: newStageName });
   }
 }

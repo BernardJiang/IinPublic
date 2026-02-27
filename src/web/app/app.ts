@@ -504,6 +504,19 @@ export class IinPublicApp {
           this.currentUser.stageName = newStageName;
           // Refresh the UI to show the new name
           this.uiManager.showMainInterface(this.currentUser);
+
+          // Update the stage name in the current chatroom so others can see it
+          if (this.currentChatroomId) {
+            const gun = this.gunService.getGun();
+            gun.get('chatrooms').get(this.currentChatroomId).get('users').get(userId).put({
+              stageName: newStageName,
+            });
+
+            // Force status bar update with new name
+            const chatroomName = this.getChatroomDisplayName(this.currentChatroomId);
+            const memberCount = this.uiManager.getChatroomMemberCount(this.currentChatroomId) || 1;
+            this.uiManager.updateStatusBar(newStageName, chatroomName, memberCount);
+          }
         }
 
         this.uiManager.showNotification('Stage name updated successfully!', 'success');
@@ -801,19 +814,19 @@ export class IinPublicApp {
       if (!this.currentUser || !this.currentChatroomId || this.currentChatroomId === chatroomId) {
         return;
       }
-      
+
       console.log(`🔄 User switching from chatroom ${this.currentChatroomId} to ${chatroomId}`);
-    
+
       await this.chatroomService.switchChatroom(
         this.currentUser.id,
         chatroomId,
         this.currentUser.stageName,
       );
-      
+
       // Update app state
       this.currentChatroomId = chatroomId;
       localStorage.setItem('iinpublic_last_chatroom', chatroomId);
-      
+
       // Re-establish subscriptions for the new room
       this.chatroomService.subscribeToMembers(chatroomId, (members) => {
         this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
@@ -822,7 +835,7 @@ export class IinPublicApp {
       });
       this.subscribeToMessages(chatroomId);
       this.subscribeToTalks(chatroomId);
-    
+
       console.log(`✅ Switched to ${chatroomId}`);
     });
 

@@ -14,6 +14,10 @@ export class UIManager extends EventEmitter {
   // Callback for stage name changes
   public onStageNameChange?: (userId: string, newStageName: string) => Promise<void>;
 
+  getChatroomMemberCount(chatroomId: string): number {
+    return this.chatroomMemberCounts.get(chatroomId) || 0;
+  }
+
   initialize(): void {
     const container = document.getElementById('app');
     if (!container) {
@@ -143,7 +147,7 @@ export class UIManager extends EventEmitter {
 
         <!-- Bottom Navigation Bar -->
         <div class="bottom-nav">
-          <button class="nav-btn active" data-view="chatrooms">
+          <button class="nav-btn active" data-view="chatrooms" data-testid="bottom-navigation-button-chat">
             <div class="nav-icon">🌍</div>
             <div class="nav-label">Chatrooms</div>
           </button>
@@ -155,7 +159,7 @@ export class UIManager extends EventEmitter {
             <div class="nav-icon">📝</div>
             <div class="nav-label">Answers</div>
           </button>
-          <button class="nav-btn" data-view="me">
+          <button class="nav-btn" data-view="me" data-testid="bottom-navigation-button-me">
             <div class="nav-icon">👤</div>
             <div class="nav-label">Me</div>
           </button>
@@ -315,7 +319,7 @@ export class UIManager extends EventEmitter {
           <div class="user-avatar" style="width: 32px; height: 32px; font-size: 0.9em;">
             ${user.stageName.charAt(0).toUpperCase()}
           </div>
-          <div style="font-size: 0.95em; font-weight: 500; color: white;">${user.stageName}</div>
+          <div style="font-size: 0.95em; font-weight: 500; color: white;" data-testid="user-stage-name">${user.stageName}</div>
         </div>
       `;
       headerUserInfo.style.display = 'block';
@@ -331,7 +335,7 @@ export class UIManager extends EventEmitter {
         <div style="text-align: center; margin-top: 10px;">
           <div style="font-size: 1.2em; font-weight: 600;">${user.stageName}</div>
           <div style="font-size: 0.9em; color: #999; margin-top: 5px;">Online</div>
-          <button class="btn" id="edit-stagename-btn" style="margin-top: 10px;">Edit Stage Name</button>
+          <button class="btn" id="edit-stagename-btn" data-testid="edit-stage-name-button" style="margin-top: 10px;">Edit Stage Name</button>
         </div>
       `;
 
@@ -736,6 +740,7 @@ export class UIManager extends EventEmitter {
             <div class="form-group">
               <label class="form-label">New Stage Name</label>
               <input type="text" class="form-input" id="new-stage-name" name="new-stage-name" 
+                     data-testid="stage-name-input"
                      required minlength="3" maxlength="50"
                      placeholder="Enter your new stage name"
                      value="${user.stageName}">
@@ -743,7 +748,7 @@ export class UIManager extends EventEmitter {
             </div>
             <div class="modal-actions">
               <button type="button" class="btn" id="cancel-edit-btn" style="background: #6c757d;">Cancel</button>
-              <button type="submit" class="btn">Save</button>
+              <button type="submit" class="btn" data-testid="save-stage-name-button">Save</button>
             </div>
           </form>
         </div>
