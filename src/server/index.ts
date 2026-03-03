@@ -92,7 +92,7 @@ class IinPublicServer {
     this.userService = new UserService(this.gunService);
     this.reputationService = new ReputationService(this.gunService);
     this.chatroomManager = new ChatroomManager(this.gunService);
-    this.talkService = new TalkService(this.gunService, this.chatroomManager);
+    this.talkService = new TalkService(this.gunService, this.reputationService);
   }
 
   private setupRoutes(): void {
@@ -286,7 +286,18 @@ class IinPublicServer {
             socket.emit('talk_completed', {
               conversationId: data.conversationId,
               result: result.outcome,
+              talkId: result.talkId,
+              matchId: result.matchId,
             });
+
+            // For match outcomes, emit a dedicated event so clients can react explicitly
+            if (result.outcome === 'match') {
+              socket.emit('talk_matched', {
+                conversationId: data.conversationId,
+                talkId: result.talkId,
+                matchId: result.matchId,
+              });
+            }
           }
         } catch (error) {
           socket.emit('error', { error: (error as Error).message });
