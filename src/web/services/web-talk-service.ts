@@ -41,6 +41,46 @@ export class WebTalkService {
     }
   }
 
+  async getTalk(talkId: string): Promise<Talk | null> {
+    try {
+      const raw = await this.gunService.get(`talks/${talkId}`);
+      if (!raw || !raw.data) return null;
+      const talk = typeof raw.data === 'string' ? JSON.parse(raw.data) : raw.data;
+      return talk as Talk;
+    } catch {
+      return null;
+    }
+  }
+
+  async updateTalk(talkId: string, talkData: Partial<Talk>): Promise<Talk> {
+    const existing = await this.getTalk(talkId);
+    if (!existing) {
+      throw new Error(`Talk not found: ${talkId}`);
+    }
+    const updated: Talk = {
+      ...existing,
+      ...talkData,
+      id: talkId,
+      title: talkData.title ?? existing.title,
+      authorId: existing.authorId,
+      type: talkData.type ?? existing.type,
+      isAdult: talkData.isAdult ?? existing.isAdult,
+      language: talkData.language ?? existing.language,
+      tags: talkData.tags ?? existing.tags,
+      questions: talkData.questions ?? existing.questions,
+      createdAt: existing.createdAt,
+      isTemplate: talkData.isTemplate ?? existing.isTemplate,
+      usageCount: existing.usageCount,
+    };
+    const talkJson = JSON.stringify(updated);
+    await this.gunService.put(`talks/${talkId}`, {
+      id: updated.id,
+      data: talkJson,
+      createdAt: updated.createdAt instanceof Date ? updated.createdAt.toISOString() : (existing as any).createdAt,
+    });
+    return updated;
+  }
+
   async sendBulkTalk(
     talkId: string,
     senderId: string,

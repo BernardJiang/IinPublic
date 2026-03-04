@@ -613,6 +613,97 @@ export class IinPublicApp {
       }
     });
 
+    this.uiManager.on('updateTalk', async (data: { id: string; title: string; type: string; questions: any[]; language?: string; tags?: any[] }) => {
+      try {
+        await this.talkService.updateTalk(data.id, {
+          title: data.title,
+          type: data.type as 'matching' | 'survey',
+          questions: data.questions,
+          language: data.language || 'en',
+          tags: data.tags || [],
+        });
+        this.uiManager.showNotification('Talk updated.', 'success');
+        this.uiManager.displayTalksList();
+      } catch (error) {
+        console.error('Failed to update talk:', error);
+        this.uiManager.showNotification(
+          'Failed to update talk: ' + (error as Error).message,
+          'error',
+        );
+      }
+    });
+
+    this.uiManager.on('loadTalkForEdit', async (data: { talkId: string }) => {
+      try {
+        const talk = await this.talkService.getTalk(data.talkId);
+        if (talk) {
+          this.uiManager.showTalkEditorDialog(talk);
+        } else {
+          this.uiManager.showNotification('Talk not found.', 'error');
+        }
+      } catch (error) {
+        console.error('Failed to load talk:', error);
+        this.uiManager.showNotification(
+          'Failed to load talk: ' + (error as Error).message,
+          'error',
+        );
+      }
+    });
+
+    this.uiManager.on('needTalkStats', async (data: { talkIds: string[] }) => {
+      if (data.talkIds.length === 0) {
+        this.uiManager.setTalkStats({});
+        this.uiManager.displayTalksList();
+        return;
+      }
+      const gun = this.gunService.getGun();
+      const statsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
+      await Promise.all(
+        data.talkIds.map((talkId) =>
+          new Promise<void>(async (resolve) => {
+            const talk = await this.talkService.getTalk(talkId);
+            if (!talk) {
+              statsMap[talkId] = { responses: 0, matches: 0, ignores: 0 };
+              resolve();
+              return;
+            }
+            const responses: any[] = [];
+            gun
+              .get(`talks/${talkId}`)
+              .get('responses')
+              .map()
+              .once((responseData: any, responseId: string) => {
+                if (responseId.startsWith('_')) return;
+                if (responseData && responseData.answers) responses.push(responseData);
+              });
+            // Allow Gun to deliver all response callbacks
+            setTimeout(() => {
+              let matches = 0;
+              let ignores = 0;
+              for (const r of responses) {
+                try {
+                  const answers = typeof r.answers === 'string' ? JSON.parse(r.answers) : r.answers;
+                  if (Array.isArray(answers) && answers.length > 0) {
+                    const last = answers[answers.length - 1];
+                    const question = talk.questions.find((q: any) => q.id === last.questionId);
+                    const answer = question?.answers?.find((a: any) => a.id === last.answerId);
+                    if (answer?.isMatch) matches += 1;
+                    else if (answer?.isIgnore) ignores += 1;
+                  }
+                } catch {
+                  // skip invalid response
+                }
+              }
+              statsMap[talkId] = { responses: responses.length, matches, ignores };
+              resolve();
+            }, 500);
+          }),
+        ),
+      );
+      this.uiManager.setTalkStats(statsMap);
+      this.uiManager.displayTalksList();
+    });
+
     this.uiManager.on(
       'talkCompleted',
       async (data: { talkId: string; answers: any[]; talkData?: any }) => {

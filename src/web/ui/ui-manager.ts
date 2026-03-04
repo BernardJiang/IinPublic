@@ -10,6 +10,7 @@ export class UIManager extends EventEmitter {
   private chatroomMemberCounts: Map<string, number> = new Map(); // Track member count per chatroom
   private expandedChatrooms: Set<string> = new Set(['global']); // Track which chatrooms are expanded (default: global expanded)
   // private newMatchesCount: number = 0; // TODO: implement match count tracking
+  private talkStatsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
 
   // Callback for stage name changes
   public onStageNameChange?: (userId: string, newStageName: string) => Promise<void>;
@@ -515,12 +516,15 @@ export class UIManager extends EventEmitter {
     if (!talksList) return;
 
     const myTalks = this.getMyTalks();
-    const talkEntries = Object.entries(myTalks).sort(
-      ([, a]: [string, any], [, b]: [string, any]) =>
-        new Date(b.lastInteraction).getTime() - new Date(a.lastInteraction).getTime(),
-    );
+    // Show only talks the user created (not answered talks)
+    const createdEntries = Object.entries(myTalks)
+      .filter(([, t]: [string, any]) => t.role === 'created')
+      .sort(
+        ([, a]: [string, any], [, b]: [string, any]) =>
+          new Date(b.lastInteraction).getTime() - new Date(a.lastInteraction).getTime(),
+      );
 
-    if (talkEntries.length === 0) {
+    if (createdEntries.length === 0) {
       talksList.innerHTML = `
         <div class="empty-state" style="padding: 60px 20px; text-align: center;">
           <div style="font-size: 3em; margin-bottom: 16px;">💬</div>
@@ -529,37 +533,62 @@ export class UIManager extends EventEmitter {
         </div>
       `;
     } else {
-      talksList.innerHTML = talkEntries
+      talksList.innerHTML = createdEntries
         .map(
-          ([talkId, talk]) => `
+          ([talkId, talk]) => {
+            const stats = this.talkStatsMap[talkId];
+            const statsLine = stats
+              ? `Responses: ${stats.responses} · Matches: ${stats.matches} · Ignores: ${stats.ignores}`
+              : '—';
+            return `
         <div class="talk-list-item" data-talk-id="${talkId}">
           <div class="talk-item-header">
             <div class="talk-item-title">${this.escapeHtml(talk.title)}</div>
             <div class="talk-item-badges">
-              <span class="talk-badge talk-badge-${talk.role === 'created' ? 'created' : 'answered'}">
-                ${talk.role === 'created' ? '📝 Created' : '✅ Answered'}
-              </span>
+              <span class="talk-badge talk-badge-created">📝 Created</span>
               <span class="talk-badge talk-badge-type">${talk.type}</span>
             </div>
           </div>
           <div class="talk-item-meta">
             <span class="talk-item-time">${this.formatTimeAgo(new Date(talk.lastInteraction))}</span>
           </div>
+          <div class="talk-item-stats" style="font-size: 0.85em; color: #666; margin-top: 6px;">
+            ${statsLine}
+          </div>
+          <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px;">
+            <button type="button" class="btn edit-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">✏️ Edit</button>
+          </div>
         </div>
-      `,
+      `;
+          },
         )
         .join('');
 
-      // Add click handlers to talk items
+      // Request stats for all created talks (app will fetch and call setTalkStats + displayTalksList again)
+      const talkIds = createdEntries.map(([id]) => id);
+      this.emit('needTalkStats', { talkIds });
+
+      // Click on row: open edit (except when clicking Edit button)
       talksList.querySelectorAll('.talk-list-item').forEach((item) => {
-        item.addEventListener('click', () => {
-          const talkId = (item as HTMLElement).dataset.talkId;
-          if (talkId) {
-            this.showTalkDetail(talkId);
-          }
+        const talkId = (item as HTMLElement).dataset.talkId;
+        if (!talkId) return;
+        item.addEventListener('click', (e) => {
+          if ((e.target as HTMLElement).closest('.edit-talk-btn')) return;
+          this.emit('loadTalkForEdit', { talkId });
+        });
+      });
+      talksList.querySelectorAll('.edit-talk-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const talkId = (e.currentTarget as HTMLElement).dataset.talkId;
+          if (talkId) this.emit('loadTalkForEdit', { talkId });
         });
       });
     }
+  }
+
+  setTalkStats(statsMap: Record<string, { responses: number; matches: number; ignores: number }>): void {
+    this.talkStatsMap = { ...this.talkStatsMap, ...statsMap };
   }
 
   private formatTimeAgo(date: Date): string {
@@ -581,14 +610,12 @@ export class UIManager extends EventEmitter {
     const talk = myTalks[talkId];
     if (!talk) return;
 
-    // If this is a received talk (role === 'answered') and has fullTalk data, show the response dialog
-    if (talk.role === 'answered' && talk.fullTalk) {
+    if (talk.role === 'created') {
+      // Open editor for editing
+      this.emit('loadTalkForEdit', { talkId });
+    } else if (talk.role === 'answered' && talk.fullTalk) {
       this.showTalkResponseDialog(talk.fullTalk);
-    } else if (talk.role === 'created') {
-      // For created talks, show a notification (later can show responses/stats)
-      this.showNotification(`Your talk: ${talk.title}`, 'info');
     } else {
-      // Fallback notification
       this.showNotification(`Talk: ${talk.title}`, 'info');
     }
   }
@@ -1569,7 +1596,7 @@ export class UIManager extends EventEmitter {
               ${talkEntries
                 .map(
                   ([talkId, talk]) => `
-                  <div class="talk-history-item" style="background: #f9f9f9; border: 2px solid #e0e0e0; border-radius: 12px; padding: 20px; margin-bottom: 15px;">
+                  <div class="talk-history-item" data-talk-id="${talkId}" style="background: #f9f9f9; border: 2px solid #e0e0e0; border-radius: 12px; padding: 20px; margin-bottom: 15px; cursor: pointer;">
                     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
                       <div style="flex: 1;">
                         <div style="font-weight: 600; font-size: 1.1em; color: #333; margin-bottom: 6px;">
@@ -1632,6 +1659,7 @@ export class UIManager extends EventEmitter {
     // Delete individual talk handlers
     modal.querySelectorAll('.delete-talk-btn').forEach((btn) => {
       btn.addEventListener('click', (e) => {
+        e.stopPropagation();
         const target = e.currentTarget as HTMLElement;
         const talkId = target.dataset.talkId!;
         this.deleteMyTalk(talkId);
@@ -1641,6 +1669,20 @@ export class UIManager extends EventEmitter {
         }
         this.showMyTalksDialog();
         this.showNotification('Talk removed from history', 'success');
+      });
+    });
+
+    // Click on talk card to open (edit for created, response view for answered)
+    modal.querySelectorAll('.talk-history-item').forEach((item) => {
+      item.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).closest('.delete-talk-btn')) return;
+        const talkId = (item as HTMLElement).dataset.talkId;
+        if (talkId) {
+          if (document.body.contains(modal)) {
+            document.body.removeChild(modal);
+          }
+          this.showTalkDetail(talkId);
+        }
       });
     });
 
@@ -1756,29 +1798,33 @@ export class UIManager extends EventEmitter {
     return div.innerHTML;
   }
 
-  showTalkEditorDialog(): void {
+  showTalkEditorDialog(existingTalk?: any): void {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.id = 'talk-editor-modal';
+    if (existingTalk?.id) {
+      (modal as HTMLElement).dataset.editingTalkId = existingTalk.id;
+    }
 
     const renderForm = () => {
+      const isEdit = !!(existingTalk && existingTalk.id);
       modal.innerHTML = `
         <div class="modal-content" style="max-width: 1000px; max-height: 90vh; overflow-y: auto;">
           <div class="modal-header">
-            <h2 class="modal-title">Create a Talk</h2>
+            <h2 class="modal-title">${isEdit ? 'Edit Talk' : 'Create a Talk'}</h2>
             <p>Build a branching conversation flow - each answer can lead to a different question</p>
           </div>
-          <form id="talk-editor-form" style="padding: 20px;">
+          <form id="talk-editor-form" style="padding: 20px;" data-editing-talk-id="${existingTalk?.id || ''}">
             <div class="form-group">
               <label class="form-label">Talk Title</label>
-              <input type="text" class="form-input" id="talk-title" placeholder="e.g., Coffee Meetup, Quick Survey" required>
+              <input type="text" class="form-input" id="talk-title" placeholder="e.g., Coffee Meetup, Quick Survey" required value="${existingTalk ? this.escapeHtml(existingTalk.title) : ''}">
             </div>
             
             <div class="form-group">
               <label class="form-label">Type</label>
               <select class="form-input" id="talk-type">
-                <option value="matching">Matching (find compatible people)</option>
-                <option value="survey">Survey (collect responses)</option>
+                <option value="matching" ${existingTalk?.type === 'survey' ? '' : 'selected'}>Matching (find compatible people)</option>
+                <option value="survey" ${existingTalk?.type === 'survey' ? 'selected' : ''}>Survey (collect responses)</option>
               </select>
             </div>
             
@@ -1790,20 +1836,58 @@ export class UIManager extends EventEmitter {
             
             <div class="modal-actions">
               <button type="button" class="btn" id="cancel-talk-btn" style="background: #ccc; color: #333;">Cancel</button>
-              <button type="submit" class="btn">Create & Send to Chatroom</button>
+              <button type="submit" class="btn">${isEdit ? 'Save changes' : 'Create & Send to Chatroom'}</button>
             </div>
           </form>
         </div>
       `;
 
-      // Re-render all questions
       const questionsContainer = document.getElementById('questions-container');
       if (questionsContainer) {
         questionsContainer.innerHTML = '';
-        this.addQuestionToForm(0, questionsContainer);
+        if (existingTalk && Array.isArray(existingTalk.questions) && existingTalk.questions.length > 0) {
+          existingTalk.questions.forEach((q: any, qIndex: number) => {
+            this.addQuestionToForm(qIndex, questionsContainer);
+            const questionItem = questionsContainer.querySelector(`[data-question-index="${qIndex}"]`);
+            if (questionItem) {
+              const textInput = questionItem.querySelector('.question-text') as HTMLInputElement;
+              if (textInput) textInput.value = q.text || '';
+              const answersContainer = questionItem.querySelector('.answers-container') as HTMLElement;
+              if (answersContainer && Array.isArray(q.answers)) {
+                answersContainer.innerHTML = '';
+                q.answers.forEach((a: any, aIndex: number) => {
+                  this.addAnswerToQuestion(answersContainer, aIndex);
+                  const answerItem = answersContainer.querySelector(`[data-answer-index="${aIndex}"]`);
+                  if (answerItem) {
+                    const answerInput = answerItem.querySelector('.answer-text') as HTMLInputElement;
+                    if (answerInput) answerInput.value = a.text || '';
+                  }
+                });
+              }
+            }
+          });
+          this.updateAllAnswerDropdowns();
+          // Set "next" dropdown values after options are built
+          existingTalk.questions.forEach((q: any, qIndex: number) => {
+            const questionItem = questionsContainer!.querySelector(`[data-question-index="${qIndex}"]`);
+            if (!questionItem || !Array.isArray(q.answers)) return;
+            const answersContainer = questionItem.querySelector('.answers-container');
+            if (!answersContainer) return;
+            const answerItems = answersContainer.querySelectorAll('.answer-item');
+            q.answers.forEach((a: any, aIndex: number) => {
+              const answerItem = answerItems[aIndex];
+              const nextSelect = answerItem?.querySelector('.answer-next') as HTMLSelectElement;
+              if (!nextSelect) return;
+              if (a.isIgnore) nextSelect.value = 'ignore';
+              else if (a.isMatch) nextSelect.value = 'noticed';
+              else if (a.nextQuestionId) nextSelect.value = a.nextQuestionId;
+            });
+          });
+        } else {
+          this.addQuestionToForm(0, questionsContainer);
+        }
       }
 
-      // Setup event handlers
       this.setupTalkFormHandlers(modal);
     };
 
@@ -2040,13 +2124,36 @@ export class UIManager extends EventEmitter {
       });
     });
 
-    this.emit('createTalk', {
-      title,
-      type,
-      questions,
-      language: 'en',
-      tags: [],
-    });
+    const editingTalkId = form.dataset.editingTalkId;
+    if (editingTalkId) {
+      // Update local myTalks so the list shows the new title when re-rendered after save
+      const myTalks = this.getMyTalks();
+      if (myTalks[editingTalkId]) {
+        myTalks[editingTalkId] = {
+          ...myTalks[editingTalkId],
+          title,
+          type,
+          lastInteraction: new Date().toISOString(),
+        };
+        localStorage.setItem('myTalks', JSON.stringify(myTalks));
+      }
+      this.emit('updateTalk', {
+        id: editingTalkId,
+        title,
+        type,
+        questions,
+        language: 'en',
+        tags: [],
+      });
+    } else {
+      this.emit('createTalk', {
+        title,
+        type,
+        questions,
+        language: 'en',
+        tags: [],
+      });
+    }
   }
 
   /**
