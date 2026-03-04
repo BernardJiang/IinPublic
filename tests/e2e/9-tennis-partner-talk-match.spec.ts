@@ -144,6 +144,14 @@ test.describe('Tennis Partner Talk Match - Tom & Jerry', () => {
     return { context, page };
   }
 
+  async function getConversationCount(page: Page): Promise<number> {
+    const conversationsJson = await page.evaluate(() =>
+      window.localStorage.getItem('myConversations'),
+    );
+    const conversations = conversationsJson ? JSON.parse(conversationsJson) : {};
+    return Object.keys(conversations).length;
+  }
+
   async function waitForSuccessNotification(
     page: Page,
     containsText: string,
@@ -156,7 +164,7 @@ test.describe('Tennis Partner Talk Match - Tom & Jerry', () => {
     console.log(`✅ ${label} saw success notification containing: "${containsText}"`);
   }
 
-  test('Tom sends Tennis Partner talk to Jerry, Jerry answers and they get a match', async () => {
+  test('Tom sends Tennis Partner talk to Jerry, Jerry answers and they get a match; Alan and Alex flows', async () => {
     // 1) Bootstrap Tom and Jerry
     console.log('\n📍 STEP 1: Bootstrapping Tom and Jerry');
     console.log('='.repeat(60));
@@ -232,11 +240,11 @@ test.describe('Tennis Partner Talk Match - Tom & Jerry', () => {
     await jerryTalkItem.click();
     await pageJerry.waitForSelector('#talk-response-modal .modal-content');
 
-    // Click the MANUAL button for the match answer
-    const manualMatchButton = pageJerry.locator(
-      `.answer-manual-btn[data-answer-text="${MATCH_ANSWER_TEXT}"]`,
+    // Click the AUTO button for the match answer so Jerry's chatbot can reuse it later
+    const autoMatchButton = pageJerry.locator(
+      `.answer-auto-btn[data-answer-text="${MATCH_ANSWER_TEXT}"]`,
     );
-    await manualMatchButton.click();
+    await autoMatchButton.click();
 
     // Jerry should see a match notification
     await waitForSuccessNotification(
@@ -267,18 +275,139 @@ test.describe('Tennis Partner Talk Match - Tom & Jerry', () => {
     await pageTom.click('.nav-btn[data-view="me"]');
     await pageTom.waitForTimeout(1000);
 
-    // Open conversations list via clicking on any chatroom member "Send Talk" prompt is not needed;
-    // conversations are stored in localStorage and rendered when conversation overlay is opened.
-    // We can directly inspect localStorage via the browser context.
-    const conversationsJson = await pageTom.evaluate(() =>
-      window.localStorage.getItem('myConversations'),
-    );
-    const conversations = conversationsJson ? JSON.parse(conversationsJson) : {};
-    const conversationIds = Object.keys(conversations);
+    const tomConversationCountAfterJerry = await getConversationCount(pageTom);
 
-    expect(conversationIds.length).toBeGreaterThan(0);
+    expect(tomConversationCountAfterJerry).toBeGreaterThan(0);
     console.log(
-      `✅ Tom has ${conversationIds.length} conversation(s) stored after Tennis Partner match`,
+      `✅ Tom has ${tomConversationCountAfterJerry} conversation(s) stored after Tennis Partner match`,
+    );
+
+    // -----------------------------------------------------------------------
+    // 5) Third user Alan joins, Tom sends the same talk, Alan is NOT a match
+    // -----------------------------------------------------------------------
+    console.log('\n📍 STEP 5: Alan joins; Tom sends Tennis Partner talk again; Alan is not a match');
+    console.log('='.repeat(60));
+
+    const alanBootstrap = await bootstrapUser(browserTom, 'AlanWindow', 'Alan');
+    const pageAlan = alanBootstrap.page;
+
+    // Tom creates and broadcasts the same Tennis Partner talk again
+    await pageTom.click('.nav-btn[data-view="chatrooms"]');
+    await pageTom.waitForTimeout(1000);
+    await pageTom.click('#create-talk-btn');
+    await pageTom.waitForSelector('#talk-editor-form');
+
+    await pageTom.fill('#talk-title', TALK_TITLE);
+    await pageTom.selectOption('#talk-type', 'matching');
+
+    const question2 = pageTom.locator('.question-item').first();
+    await question2.locator('.question-text').fill('Do you want a tennis partner?');
+
+    const firstAnswer2 = question2.locator('.answer-item').nth(0);
+    const secondAnswer2 = question2.locator('.answer-item').nth(1);
+
+    await firstAnswer2.locator('.answer-text').fill(MATCH_ANSWER_TEXT);
+    await firstAnswer2.locator('.answer-next').selectOption('noticed');
+
+    await secondAnswer2.locator('.answer-text').fill('No thanks.');
+    await secondAnswer2.locator('.answer-next').selectOption('ignore');
+
+    await pageTom.click('#talk-editor-form button[type="submit"]');
+    await pageTom.waitForTimeout(2000);
+    console.log('✅ Tom created and broadcasted Tennis Partner talk for Alan');
+
+    // Alan receives and answers "No thanks." (ignore path, not a match)
+    await pageAlan.click('.nav-btn[data-view="talks"]');
+    await pageAlan.waitForTimeout(2000);
+
+    const alanTalkItem = pageAlan
+      .locator('.talk-list-item')
+      .filter({ hasText: TALK_TITLE })
+      .first();
+    await alanTalkItem.waitFor({ state: 'visible', timeout: 15000 });
+    await alanTalkItem.click();
+    await pageAlan.waitForSelector('#talk-response-modal .modal-content');
+
+    const alanIgnoreButton = pageAlan.locator(
+      `.answer-manual-btn[data-answer-text="No thanks."]`,
+    );
+    await alanIgnoreButton.click();
+
+    // Give system a moment to process; there should be no new match for Tom
+    await pageTom.waitForTimeout(2000);
+    const tomConversationCountAfterAlan = await getConversationCount(pageTom);
+    expect(tomConversationCountAfterAlan).toBe(tomConversationCountAfterJerry);
+    console.log(
+      `✅ Alan did not create a new match for Tom (conversations stay at ${tomConversationCountAfterAlan})`,
+    );
+
+    const alanConversationCount = await getConversationCount(pageAlan);
+    expect(alanConversationCount).toBe(0);
+    console.log('✅ Alan has no conversations (no match)');
+
+    // -----------------------------------------------------------------------
+    // 6) Fourth user Alex asks the same talk to Jerry; Jerry's chatbot answers automatically
+    // -----------------------------------------------------------------------
+    console.log(
+      '\n📍 STEP 6: Alex joins; sends Tennis Partner talk; Jerry\'s chatbot auto-answers for Jerry',
+    );
+    console.log('='.repeat(60));
+
+    const alexBootstrap = await bootstrapUser(browserTom, 'AlexWindow', 'Alex');
+    const pageAlex = alexBootstrap.page;
+
+    const jerryConversationsBeforeAlex = await getConversationCount(pageJerry);
+
+    // Alex creates and broadcasts the same Tennis Partner talk
+    await pageAlex.click('.nav-btn[data-view="chatrooms"]');
+    await pageAlex.waitForTimeout(1000);
+    await pageAlex.click('#create-talk-btn');
+    await pageAlex.waitForSelector('#talk-editor-form');
+
+    await pageAlex.fill('#talk-title', TALK_TITLE);
+    await pageAlex.selectOption('#talk-type', 'matching');
+
+    const question3 = pageAlex.locator('.question-item').first();
+    await question3.locator('.question-text').fill('Do you want a tennis partner?');
+
+    const firstAnswer3 = question3.locator('.answer-item').nth(0);
+    const secondAnswer3 = question3.locator('.answer-item').nth(1);
+
+    await firstAnswer3.locator('.answer-text').fill(MATCH_ANSWER_TEXT);
+    await firstAnswer3.locator('.answer-next').selectOption('noticed');
+
+    await secondAnswer3.locator('.answer-text').fill('No thanks.');
+    await secondAnswer3.locator('.answer-next').selectOption('ignore');
+
+    await pageAlex.click('#talk-editor-form button[type="submit"]');
+    await pageAlex.waitForTimeout(2000);
+    console.log('✅ Alex created and broadcasted Tennis Partner talk');
+
+    // Jerry receives the talk again; with AUTO preference saved, his chatbot should answer automatically
+    await pageJerry.click('.nav-btn[data-view="talks"]');
+    await pageJerry.waitForTimeout(2000);
+
+    const jerryTalkItemsAfterAlex = pageJerry
+      .locator('.talk-list-item')
+      .filter({ hasText: TALK_TITLE });
+    const jerryTalkCount = await jerryTalkItemsAfterAlex.count();
+    expect(jerryTalkCount).toBeGreaterThan(0);
+
+    // Open the most recent Tennis Partner talk
+    await jerryTalkItemsAfterAlex.nth(jerryTalkCount - 1).click();
+    await pageJerry.waitForTimeout(1000);
+
+    // Auto-answer should complete the talk and show the (auto) match notification
+    await waitForSuccessNotification(
+      pageJerry,
+      'Match! You both noticed each other.',
+      'Jerry (auto)',
+    );
+
+    const jerryConversationsAfterAlex = await getConversationCount(pageJerry);
+    expect(jerryConversationsAfterAlex).toBeGreaterThanOrEqual(jerryConversationsBeforeAlex);
+    console.log(
+      `✅ Jerry's chatbot auto-answered and created a new match (conversations: ${jerryConversationsBeforeAlex} -> ${jerryConversationsAfterAlex})`,
     );
   });
 });
