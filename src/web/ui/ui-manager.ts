@@ -9,6 +9,7 @@ export class UIManager extends EventEmitter {
   private currentConversationId: string | undefined = undefined;
   private chatroomMemberCounts: Map<string, number> = new Map(); // Track member count per chatroom
   private expandedChatrooms: Set<string> = new Set(['global']); // Track which chatrooms are expanded (default: global expanded)
+  private matchedUserIds: Set<string> = new Set(); // Users who matched with me (for green indicator)
   // private newMatchesCount: number = 0; // TODO: implement match count tracking
   private talkStatsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
 
@@ -243,15 +244,37 @@ export class UIManager extends EventEmitter {
       });
     }
 
-    // Broadcast talk button
+    // Broadcast talk button: only open "create new talk" when 0 talks created
     const broadcastTalkBtn = document.getElementById('broadcast-talk-btn');
     if (broadcastTalkBtn) {
       broadcastTalkBtn.addEventListener('click', () => {
+        const myTalks = this.getMyTalks();
+        const createdCount = Object.values(myTalks).filter(
+          (t: any) => t?.role === 'created',
+        ).length;
+
         this.emit('broadcastTalk', {
           chatroomId: this.currentChatroom,
           members: this.currentChatroomMembers,
         });
-        this.showTalkEditorDialog();
+
+        // Highlight members who will receive the broadcast
+        const list = document.getElementById('chatroom-members-list');
+        if (list) {
+          list.querySelectorAll('.chatroom-member-item').forEach((el) => {
+            el.classList.add('broadcast-sent-to');
+          });
+          setTimeout(() => {
+            list.querySelectorAll('.chatroom-member-item').forEach((el) => {
+              el.classList.remove('broadcast-sent-to');
+            });
+          }, 2500);
+        }
+
+        // Only launch create-talk dialog when user has no talks to broadcast
+        if (createdCount === 0) {
+          this.showTalkEditorDialog();
+        }
       });
     }
   }
@@ -306,6 +329,11 @@ export class UIManager extends EventEmitter {
         // Special handling for talks view
         if (targetView === 'talks') {
           this.displayTalksList();
+        }
+
+        // Special handling for answers view: show answered talks with match/mismatch
+        if (targetView === 'answers') {
+          this.displayAnswersList();
         }
       });
     });
@@ -516,32 +544,43 @@ export class UIManager extends EventEmitter {
     if (!talksList) return;
 
     const myTalks = this.getMyTalks();
-    // Show only talks the user created (not answered talks)
-    const createdEntries = Object.entries(myTalks)
-      .filter(([, t]: [string, any]) => t.role === 'created')
+    // Show both created and received/answered talks, sorted by last interaction
+    const allEntries = Object.entries(myTalks)
       .sort(
         ([, a]: [string, any], [, b]: [string, any]) =>
           new Date(b.lastInteraction).getTime() - new Date(a.lastInteraction).getTime(),
       );
+    const createdEntries = allEntries.filter(([, t]: [string, any]) => t.role === 'created');
+    const answeredEntries = allEntries.filter(([, t]: [string, any]) => t.role === 'answered');
 
-    if (createdEntries.length === 0) {
+    if (allEntries.length === 0) {
       talksList.innerHTML = `
         <div class="empty-state" style="padding: 60px 20px; text-align: center;">
           <div style="font-size: 3em; margin-bottom: 16px;">💬</div>
           <p style="font-size: 1.2em; color: #666; margin-bottom: 8px;">No talks yet</p>
-          <p style="font-size: 0.9em; color: #999;">Create your first talk to get started!</p>
+          <p style="font-size: 0.9em; color: #999;">Create your first talk or wait for talks from others.</p>
         </div>
       `;
     } else {
-      talksList.innerHTML = createdEntries
-        .map(
-          ([talkId, talk]) => {
-            const stats = this.talkStatsMap[talkId];
-            const statsLine = stats
-              ? `Responses: ${stats.responses} · Matches: ${stats.matches} · Ignores: ${stats.ignores}`
-              : '—';
-            return `
-        <div class="talk-list-item" data-talk-id="${talkId}">
+      const createdHtml =
+        createdEntries.length > 0
+          ? createdEntries
+              .map(
+                ([talkId, talk]) => {
+                  const stats = this.talkStatsMap[talkId];
+                  const statsLine = stats
+                    ? `Responses: ${stats.responses} · Matches: ${stats.matches} · Ignores: ${stats.ignores}`
+                    : '—';
+                  const conversations = this.getMyConversations();
+                  const matchedNames = Object.values(conversations)
+                    .filter((c: any) => c.talkId === talkId)
+                    .map((c: any) => c.otherUserName);
+                  const matchedLine =
+                    matchedNames.length > 0
+                      ? `<div class="talk-item-matched" style="font-size: 0.85em; color: #2e7d32; margin-top: 4px;">Matched with: ${matchedNames.join(', ')}</div>`
+                      : '';
+                  return `
+        <div class="talk-list-item" data-talk-id="${talkId}" data-role="created">
           <div class="talk-item-header">
             <div class="talk-item-title">${this.escapeHtml(talk.title)}</div>
             <div class="talk-item-badges">
@@ -555,26 +594,73 @@ export class UIManager extends EventEmitter {
           <div class="talk-item-stats" style="font-size: 0.85em; color: #666; margin-top: 6px;">
             ${statsLine}
           </div>
+          ${matchedLine}
           <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px;">
             <button type="button" class="btn edit-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">✏️ Edit</button>
           </div>
         </div>
       `;
-          },
-        )
-        .join('');
+                },
+              )
+              .join('')
+          : '';
 
-      // Request stats for all created talks (app will fetch and call setTalkStats + displayTalksList again)
-      const talkIds = createdEntries.map(([id]) => id);
-      this.emit('needTalkStats', { talkIds });
+      const answeredHtml =
+        answeredEntries.length > 0
+          ? answeredEntries
+              .map(
+                ([talkId, talk]) => `
+        <div class="talk-list-item" data-talk-id="${talkId}" data-role="answered">
+          <div class="talk-item-header">
+            <div class="talk-item-title">${this.escapeHtml(talk.title)}</div>
+            <div class="talk-item-badges">
+              <span class="talk-badge talk-badge-answered">📥 From others</span>
+              <span class="talk-badge talk-badge-type">${talk.type}</span>
+            </div>
+          </div>
+          <div class="talk-item-meta">
+            <span class="talk-item-time">${this.formatTimeAgo(new Date(talk.lastInteraction))}</span>
+          </div>
+          <div class="talk-item-actions" style="margin-top: 10px;">
+            <button type="button" class="btn open-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">Open &amp; Answer</button>
+          </div>
+        </div>
+      `,
+              )
+              .join('')
+          : '';
 
-      // Click on row: open edit (except when clicking Edit button)
+      const sectionCreated =
+        createdEntries.length > 0
+          ? `<div class="talks-section-label" style="font-size: 0.85em; color: #666; margin-bottom: 8px; margin-top: 12px;">📝 Created by me</div>${createdHtml}`
+          : '';
+      const sectionAnswered =
+        answeredEntries.length > 0
+          ? `<div class="talks-section-label" style="font-size: 0.85em; color: #666; margin-bottom: 8px; margin-top: 12px;">📥 Talks from others</div>${answeredHtml}`
+          : '';
+
+      talksList.innerHTML = sectionAnswered + sectionCreated;
+
+      // Request stats for created talks only
+      if (createdEntries.length > 0) {
+        const talkIds = createdEntries.map(([id]) => id);
+        this.emit('needTalkStats', { talkIds });
+      }
+
+      // Click: created → edit; answered → show response dialog
       talksList.querySelectorAll('.talk-list-item').forEach((item) => {
-        const talkId = (item as HTMLElement).dataset.talkId;
+        const el = item as HTMLElement;
+        const talkId = el.dataset.talkId;
+        const role = el.dataset.role;
         if (!talkId) return;
         item.addEventListener('click', (e) => {
           if ((e.target as HTMLElement).closest('.edit-talk-btn')) return;
-          this.emit('loadTalkForEdit', { talkId });
+          if ((e.target as HTMLElement).closest('.open-talk-btn')) return;
+          if (role === 'created') {
+            this.emit('loadTalkForEdit', { talkId });
+          } else {
+            this.showTalkDetail(talkId);
+          }
         });
       });
       talksList.querySelectorAll('.edit-talk-btn').forEach((btn) => {
@@ -584,11 +670,68 @@ export class UIManager extends EventEmitter {
           if (talkId) this.emit('loadTalkForEdit', { talkId });
         });
       });
+      talksList.querySelectorAll('.open-talk-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const talkId = (e.currentTarget as HTMLElement).dataset.talkId;
+          if (talkId) this.showTalkDetail(talkId);
+        });
+      });
     }
   }
 
   setTalkStats(statsMap: Record<string, { responses: number; matches: number; ignores: number }>): void {
     this.talkStatsMap = { ...this.talkStatsMap, ...statsMap };
+  }
+
+  displayAnswersList(): void {
+    const container = document.getElementById('answers-content');
+    if (!container) return;
+    const myTalks = this.getMyTalks();
+    const answered = Object.entries(myTalks)
+      .filter(([, t]: [string, any]) => t?.role === 'answered')
+      .sort(
+        ([, a]: [string, any], [, b]: [string, any]) =>
+          new Date(b.lastInteraction).getTime() - new Date(a.lastInteraction).getTime(),
+      );
+    if (answered.length === 0) {
+      container.innerHTML = `
+        <div style="padding: 20px; text-align: center; color: #999;">
+          <p>Your answered talks will appear here with match/mismatch status.</p>
+          <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">View My Answers</button>
+        </div>
+      `;
+      const prefsBtn = document.getElementById('view-preferences-btn');
+      if (prefsBtn) prefsBtn.addEventListener('click', () => this.showPreferencesDialog());
+      return;
+    }
+    container.innerHTML = `
+      <div style="padding: 16px;">
+        <p style="margin-bottom: 12px; color: #666;">Talks you answered and their outcome:</p>
+        <div id="answers-list" style="display: flex; flex-direction: column; gap: 10px;"></div>
+        <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">View My Answers (preferences)</button>
+      </div>
+    `;
+    const listEl = document.getElementById('answers-list');
+    if (listEl) {
+      answered.forEach(([talkId, talk]: [string, any]) => {
+        const outcome = talk.outcome === 'match' ? 'match' : 'mismatch';
+        const item = document.createElement('div');
+        item.className = 'answer-outcome-item';
+        item.dataset.talkId = talkId;
+        item.style.cssText = 'padding: 12px; border-radius: 8px; background: ' + (outcome === 'match' ? '#e8f5e9' : '#fff3e0') + '; border: 1px solid ' + (outcome === 'match' ? '#c8e6c9' : '#ffe0b2') + ';';
+        item.innerHTML = `
+          <div style="font-weight: 600;">${this.escapeHtml(talk.title)}</div>
+          <div style="font-size: 0.9em; margin-top: 4px;">
+            <span style="color: ${outcome === 'match' ? '#2e7d32' : '#e65100'}; font-weight: 600;">${outcome === 'match' ? '✓ Match' : '✗ Mismatch'}</span>
+          </div>
+        `;
+        item.addEventListener('click', () => this.showTalkDetail(talkId));
+        listEl.appendChild(item);
+      });
+    }
+    const prefsBtn = document.getElementById('view-preferences-btn');
+    if (prefsBtn) prefsBtn.addEventListener('click', () => this.showPreferencesDialog());
   }
 
   private formatTimeAgo(date: Date): string {
@@ -863,13 +1006,26 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  updateStatusBar(stageName: string, chatroomName: string, memberCount: number): void {
+  updateStatusBar(
+    stageName: string,
+    chatroomName: string,
+    memberCount: number,
+    totalMatches?: number,
+  ): void {
     const statusBar = document.getElementById('status-bar');
     const statusBarText = document.getElementById('status-bar-text');
 
     if (statusBar && statusBarText) {
-      statusBarText.textContent = `${stageName} in ${chatroomName} with ${memberCount} ${memberCount === 1 ? 'user' : 'users'}`;
+      let text = `${stageName} in ${chatroomName} with ${memberCount} ${memberCount === 1 ? 'user' : 'users'}`;
+      if (totalMatches !== undefined && totalMatches > 0) {
+        text += ` · ${totalMatches} match${totalMatches !== 1 ? 'es' : ''}`;
+      }
+      statusBarText.textContent = text;
     }
+  }
+
+  getTotalMatches(): number {
+    return Object.values(this.talkStatsMap).reduce((sum, s) => sum + s.matches, 0);
   }
 
   displayIncomingTalk(talk: {
@@ -899,9 +1055,11 @@ export class UIManager extends EventEmitter {
       fullTalk: talk.fullTalk,
     });
 
-    // Show a notification for received talks
+    // Show a notification for received talks and flash the author's icon in member list
     if (!talk.isOwnTalk) {
       this.showNotification(`📥 New talk from ${talk.authorName}: ${talk.title}`, 'info');
+      const authorId = talk.fullTalk?.authorId;
+      if (authorId) this.flashMemberForNewTalk(authorId);
     }
 
     // Refresh the talks list if the Talks tab is currently active
@@ -923,7 +1081,7 @@ export class UIManager extends EventEmitter {
     const renderQuestion = () => {
       if (!currentQuestion) {
         // No more questions - complete the talk
-        this.completeTalk(talk, answers);
+        this.completeTalk(talk, answers, 'mismatch');
         if (document.body.contains(modal)) {
           document.body.removeChild(modal);
         }
@@ -949,19 +1107,20 @@ export class UIManager extends EventEmitter {
           // Handle the answer (same logic as manual click)
           if (answer.isIgnore) {
             this.showNotification('Talk ignored - no match (auto)', 'info');
+            this.completeTalk(talk, answers, 'mismatch');
             if (document.body.contains(modal)) {
               document.body.removeChild(modal);
             }
             return;
           } else if (answer.isMatch) {
-            this.completeTalk(talk, answers);
+            this.completeTalk(talk, answers, 'match');
             this.showNotification('Match! You both noticed each other. (auto)', 'success');
             if (document.body.contains(modal)) {
               document.body.removeChild(modal);
             }
             return;
           } else if (answer.isTerminal) {
-            this.completeTalk(talk, answers);
+            this.completeTalk(talk, answers, 'mismatch');
             if (document.body.contains(modal)) {
               document.body.removeChild(modal);
             }
@@ -972,7 +1131,7 @@ export class UIManager extends EventEmitter {
               renderQuestion();
             } else {
               console.warn('Next question not found:', answer.nextQuestionId);
-              this.completeTalk(talk, answers);
+              this.completeTalk(talk, answers, 'mismatch');
               if (document.body.contains(modal)) {
                 document.body.removeChild(modal);
               }
@@ -1141,9 +1300,9 @@ export class UIManager extends EventEmitter {
             currentQuestion.answers,
           );
 
-          // Update mode in preferences based on button clicked
+          // Update mode in preferences based on button clicked (same key as saveAnswerPreference)
           const preferences = this.getAnswerPreferences();
-          const key = currentQuestion.id;
+          const key = `${talk.id}_${currentQuestion.id}`;
           if (preferences[key]) {
             preferences[key].mode = answerMode;
             localStorage.setItem('answerPreferences', JSON.stringify(preferences));
@@ -1152,19 +1311,20 @@ export class UIManager extends EventEmitter {
           if (isIgnore) {
             // User chose to ignore
             this.showNotification('Talk ignored - no match', 'info');
+            this.completeTalk(talk, answers, 'mismatch');
             if (document.body.contains(modal)) {
               document.body.removeChild(modal);
             }
           } else if (isMatch) {
             // User chose a matching answer - this is a match!
-            this.completeTalk(talk, answers);
+            this.completeTalk(talk, answers, 'match');
             this.showNotification('Match! You both noticed each other.', 'success');
             if (document.body.contains(modal)) {
               document.body.removeChild(modal);
             }
           } else if (isTerminal) {
             // Talk complete (other terminal reasons)
-            this.completeTalk(talk, answers);
+            this.completeTalk(talk, answers, 'mismatch');
             if (document.body.contains(modal)) {
               document.body.removeChild(modal);
             }
@@ -1176,14 +1336,14 @@ export class UIManager extends EventEmitter {
             } else {
               // Question not found - end talk
               console.warn('Next question not found:', nextQuestionId);
-              this.completeTalk(talk, answers);
+              this.completeTalk(talk, answers, 'mismatch');
               if (document.body.contains(modal)) {
                 document.body.removeChild(modal);
               }
             }
           } else {
             // No next question specified - end talk
-            this.completeTalk(talk, answers);
+            this.completeTalk(talk, answers, 'mismatch');
             if (document.body.contains(modal)) {
               document.body.removeChild(modal);
             }
@@ -1196,10 +1356,10 @@ export class UIManager extends EventEmitter {
     renderQuestion();
   }
 
-  private completeTalk(talk: any, answers: any[]): void {
-    console.log('✅ Talk completed:', talk.id, answers);
+  private completeTalk(talk: any, answers: any[], outcome?: 'match' | 'mismatch'): void {
+    console.log('✅ Talk completed:', talk.id, answers, outcome);
 
-    // Update My Talks history to mark as answered
+    // Update My Talks history to mark as answered (with outcome for Answer tab)
     this.saveMyTalk({
       talkId: talk.id,
       title: talk.title,
@@ -1207,6 +1367,7 @@ export class UIManager extends EventEmitter {
       timestamp: talk.createdAt || new Date().toISOString(),
       role: 'answered',
       fullTalk: talk,
+      outcome: outcome ?? 'mismatch',
     });
 
     // Emit event for app to handle
@@ -1233,8 +1394,7 @@ export class UIManager extends EventEmitter {
     allAnswers?: any[],
   ): void {
     const preferences = this.getAnswerPreferences();
-    // Use question text as key instead of talkId+questionId so preferences work across different talks
-    const key = `${questionId}`;
+    const key = `${talkId}_${questionId}`;
     preferences[key] = {
       answerId,
       answerText,
@@ -1245,7 +1405,7 @@ export class UIManager extends EventEmitter {
       timestamp: new Date().toISOString(),
     };
     localStorage.setItem('answerPreferences', JSON.stringify(preferences));
-    console.log('💾 Saved answer preference:', key, answerText);
+    console.log('💾 Saved answer to my list:', key, answerText);
   }
 
   private getAnswerPreferences(): Record<
@@ -1265,7 +1425,7 @@ export class UIManager extends EventEmitter {
   }
 
   private getAnswerPreference(
-    _talkId: string,
+    talkId: string,
     questionId: string,
   ): {
     answerId: string;
@@ -1275,8 +1435,7 @@ export class UIManager extends EventEmitter {
     allAnswers?: any[];
   } | null {
     const preferences = this.getAnswerPreferences();
-    // Try question ID only first (works across different talks with same question)
-    const key = `${questionId}`;
+    const key = `${talkId}_${questionId}`;
     return preferences[key] || null;
   }
 
@@ -1549,6 +1708,7 @@ export class UIManager extends EventEmitter {
     timestamp: string;
     role: 'created' | 'answered';
     fullTalk?: any;
+    outcome?: 'match' | 'mismatch';
   }): void {
     const myTalks = this.getMyTalks();
     myTalks[talkData.talkId] = {
@@ -2209,29 +2369,137 @@ export class UIManager extends EventEmitter {
       } else {
         chatroomMembersList.innerHTML = otherMembers
           .map(
-            (member) => `
-          <div class="chatroom-member-item" data-user-id="${member.userId}">
+            (member) => {
+              const isMatched = this.matchedUserIds.has(member.userId);
+              return `
+          <div class="chatroom-member-item" data-user-id="${member.userId}" data-stage-name="${this.escapeHtml(member.stageName)}" ${isMatched ? ' data-matched="true"' : ''}>
             <div class="chatroom-member-avatar">${member.stageName.charAt(0).toUpperCase()}</div>
             <div class="chatroom-member-info">
               <div class="chatroom-member-name">${member.stageName}</div>
-              <div class="chatroom-member-status">Online now</div>
+              <div class="chatroom-member-status">${isMatched ? 'Matched' : 'Online now'}</div>
             </div>
           </div>
-        `,
+        `;
+            },
           )
           .join('');
 
-        // Add click handlers to member items (could send talk to individual)
+        // Re-apply matched class for styling
+        chatroomMembersList.querySelectorAll('.chatroom-member-item').forEach((el) => {
+          if ((el as HTMLElement).dataset.matched === 'true') {
+            el.classList.add('member-matched');
+          }
+        });
+
+        // Add click handlers: show talks from this user or open conversation
         chatroomMembersList.querySelectorAll('.chatroom-member-item').forEach((item) => {
           item.addEventListener('click', (e) => {
             const targetUserId = (e.currentTarget as HTMLElement).getAttribute('data-user-id');
+            const stageName = (e.currentTarget as HTMLElement).getAttribute('data-stage-name') || 'User';
             if (targetUserId) {
-              this.emit('sendTalkToUser', { userId: targetUserId });
+              this.showTalksFromUserOrConversation(targetUserId, stageName);
             }
           });
         });
       }
     }
+  }
+
+  setMemberMatched(userId: string): void {
+    this.matchedUserIds.add(userId);
+    const list = document.getElementById('chatroom-members-list');
+    const item = list?.querySelector(`.chatroom-member-item[data-user-id="${userId}"]`);
+    if (item) {
+      item.classList.add('member-matched');
+      (item as HTMLElement).dataset.matched = 'true';
+      const status = item.querySelector('.chatroom-member-status');
+      if (status) status.textContent = 'Matched';
+    }
+  }
+
+  flashMemberForNewTalk(authorId: string): void {
+    const list = document.getElementById('chatroom-members-list');
+    const item = list?.querySelector(`.chatroom-member-item[data-user-id="${authorId}"]`);
+    if (item) {
+      item.classList.remove('flash-new-talk');
+      void (item as HTMLElement).offsetWidth;
+      item.classList.add('flash-new-talk');
+      setTimeout(() => item.classList.remove('flash-new-talk'), 1200);
+    }
+  }
+
+  private showTalksFromUserOrConversation(userId: string, stageName: string): void {
+    const myTalks = this.getMyTalks();
+    const talksFromUser = Object.entries(myTalks).filter(
+      ([, t]: [string, any]) => t?.role === 'answered' && t?.fullTalk?.authorId === userId,
+    );
+    const conversations = this.getMyConversations();
+    const hasConversation = Object.values(conversations).some(
+      (c: any) => c.otherUserId === userId,
+    );
+
+    if (talksFromUser.length > 0) {
+      this.showTalksFromUserModal(userId, stageName, talksFromUser);
+    } else if (hasConversation) {
+      this.emit('sendTalkToUser', { userId });
+    } else {
+      this.showNotification(
+        'Match with this user through Talks to start a conversation!',
+        'info',
+      );
+    }
+  }
+
+  private showTalksFromUserModal(
+    _userId: string,
+    stageName: string,
+    talkEntries: [string, any][],
+  ): void {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'talks-from-user-modal';
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 420px;">
+        <div class="modal-header">
+          <h2 class="modal-title">Talks from ${this.escapeHtml(stageName)}</h2>
+          <button class="close-button" id="close-talks-from-user-modal" style="background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
+        </div>
+        <div style="padding: 16px;">
+          ${talkEntries
+            .map(
+              ([talkId, talk]) => `
+            <div class="talk-from-user-item" data-talk-id="${talkId}" style="padding: 12px; margin-bottom: 8px; background: #f5f5f5; border-radius: 8px; cursor: pointer;">
+              <div style="font-weight: 600;">${this.escapeHtml(talk.title)}</div>
+              <div style="font-size: 0.85em; color: #666;">Click to open & answer</div>
+            </div>
+          `,
+            )
+            .join('')}
+          <p style="margin-top: 12px; font-size: 0.9em; color: #666;">Or go to the <strong>Talks</strong> tab to see all talks.</p>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const closeBtn = document.getElementById('close-talks-from-user-modal');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        if (document.body.contains(modal)) document.body.removeChild(modal);
+      });
+    }
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        if (document.body.contains(modal)) document.body.removeChild(modal);
+      }
+    });
+
+    modal.querySelectorAll('.talk-from-user-item').forEach((el) => {
+      el.addEventListener('click', () => {
+        const talkId = (el as HTMLElement).dataset.talkId;
+        if (document.body.contains(modal)) document.body.removeChild(modal);
+        if (talkId) this.showTalkDetail(talkId);
+      });
+    });
   }
 
   updateMatchBadge(): void {

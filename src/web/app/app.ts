@@ -165,7 +165,12 @@ export class IinPublicApp {
 
         // Update status bar with new chatroom info
         const chatroomName = this.getChatroomDisplayName(toChatroomId);
-        this.uiManager.updateStatusBar(this.currentUser!.stageName, chatroomName, members.length);
+        this.uiManager.updateStatusBar(
+          this.currentUser!.stageName,
+          chatroomName,
+          members.length,
+          this.uiManager.getTotalMatches(),
+        );
       });
 
       // Set up new eviction watcher for the new chatroom (recursive - can be evicted again)
@@ -222,7 +227,12 @@ export class IinPublicApp {
 
       // Update status bar with current chatroom info (real-time)
       const chatroomName = this.getChatroomDisplayName(chatroomId);
-      this.uiManager.updateStatusBar(this.currentUser!.stageName, chatroomName, members.length);
+      this.uiManager.updateStatusBar(
+        this.currentUser!.stageName,
+        chatroomName,
+        members.length,
+        this.uiManager.getTotalMatches(),
+      );
     });
 
     // Subscribe to chatroom messages
@@ -406,6 +416,7 @@ export class IinPublicApp {
                     otherUserName: responseData.responderName,
                     talkId: talkId,
                   });
+                  this.uiManager.setMemberMatched(responseData.responderId);
                 })
                 .catch((error) => {
                   console.error('Failed to create conversation:', error);
@@ -515,7 +526,12 @@ export class IinPublicApp {
             // Force status bar update with new name
             const chatroomName = this.getChatroomDisplayName(this.currentChatroomId);
             const memberCount = this.uiManager.getChatroomMemberCount(this.currentChatroomId) || 1;
-            this.uiManager.updateStatusBar(newStageName, chatroomName, memberCount);
+            this.uiManager.updateStatusBar(
+              newStageName,
+              chatroomName,
+              memberCount,
+              this.uiManager.getTotalMatches(),
+            );
           }
         }
 
@@ -613,6 +629,57 @@ export class IinPublicApp {
       }
     });
 
+    // Broadcast all my created talks to all other users in the current room
+    this.uiManager.on(
+      'broadcastTalk',
+      async (data: { chatroomId: string; members: Array<{ userId: string; stageName: string }> }) => {
+        try {
+          const chatroomId = data.chatroomId || this.chatroomService.getCurrentChatroomId();
+          if (!chatroomId || !this.currentUser) {
+            this.uiManager.showNotification('No chatroom selected.', 'error');
+            return;
+          }
+          // members are already "other" users (excluding self)
+          const targetCount = data.members?.length ?? 0;
+          const myTalksRaw = localStorage.getItem('myTalks');
+          const myTalks = myTalksRaw ? JSON.parse(myTalksRaw) : {};
+          const createdIds = Object.entries(myTalks)
+            .filter(([, t]: [string, any]) => t?.role === 'created')
+            .map(([id]) => id);
+          if (createdIds.length === 0) {
+            this.uiManager.showNotification('You have no talks to broadcast. Create one first.', 'info');
+            return;
+          }
+          const gun = this.gunService.getGun();
+          let sent = 0;
+          for (const talkId of createdIds) {
+            const talk = await this.talkService.getTalk(talkId);
+            if (!talk) continue;
+            gun.get('chatrooms').get(chatroomId).get('talks').get(talk.id).put({
+              talkId: talk.id,
+              title: talk.title,
+              authorId: talk.authorId,
+              authorName: this.currentUser!.stageName,
+              type: talk.type,
+              timestamp: new Date().toISOString(),
+              questionCount: talk.questions?.length ?? 0,
+            });
+            sent += 1;
+          }
+          this.uiManager.showNotification(
+            `Sent ${sent} talk${sent !== 1 ? 's' : ''} to ${targetCount} user${targetCount !== 1 ? 's' : ''} in the room.`,
+            'success',
+          );
+        } catch (error) {
+          console.error('Broadcast talks failed:', error);
+          this.uiManager.showNotification(
+            'Failed to broadcast talks: ' + (error as Error).message,
+            'error',
+          );
+        }
+      },
+    );
+
     this.uiManager.on('updateTalk', async (data: { id: string; title: string; type: string; questions: any[]; language?: string; tags?: any[] }) => {
       try {
         await this.talkService.updateTalk(data.id, {
@@ -702,6 +769,18 @@ export class IinPublicApp {
       );
       this.uiManager.setTalkStats(statsMap);
       this.uiManager.displayTalksList();
+      // Refresh status bar so match count is shown
+      const chatroomId = this.chatroomService.getCurrentChatroomId();
+      if (chatroomId && this.currentUser) {
+        const chatroomName = this.getChatroomDisplayName(chatroomId);
+        const count = this.uiManager.getChatroomMemberCount(chatroomId) || 0;
+        this.uiManager.updateStatusBar(
+          this.currentUser.stageName,
+          chatroomName,
+          count,
+          this.uiManager.getTotalMatches(),
+        );
+      }
     });
 
     this.uiManager.on(
@@ -902,32 +981,43 @@ export class IinPublicApp {
     });
 
     this.uiManager.on('chatroomChanged', async (chatroomId: string) => {
-      if (!this.currentUser || !this.currentChatroomId || this.currentChatroomId === chatroomId) {
+      if (!this.currentUser) {
         return;
       }
 
-      console.log(`🔄 User switching from chatroom ${this.currentChatroomId} to ${chatroomId}`);
+      const isSameRoom = this.currentChatroomId === chatroomId;
 
-      await this.chatroomService.switchChatroom(
-        this.currentUser.id,
-        chatroomId,
-        this.currentUser.stageName,
-      );
+      if (!isSameRoom && this.currentChatroomId) {
+        console.log(`🔄 User switching from chatroom ${this.currentChatroomId} to ${chatroomId}`);
 
-      // Update app state
-      this.currentChatroomId = chatroomId;
-      localStorage.setItem('iinpublic_last_chatroom', chatroomId);
+        await this.chatroomService.switchChatroom(
+          this.currentUser.id,
+          chatroomId,
+          this.currentUser.stageName,
+        );
 
-      // Re-establish subscriptions for the new room
+        this.currentChatroomId = chatroomId;
+        localStorage.setItem('iinpublic_last_chatroom', chatroomId);
+
+        this.subscribeToMessages(chatroomId);
+        this.subscribeToTalks(chatroomId);
+        console.log(`✅ Switched to ${chatroomId}`);
+      } else if (isSameRoom) {
+        // Same room: ensure we have currentChatroomId set (e.g. first time opening detail)
+        this.currentChatroomId = chatroomId;
+      }
+
+      // Always subscribe to members when opening a room (same or different) so online list is shown
       this.chatroomService.subscribeToMembers(chatroomId, (members) => {
         this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
         const chatroomName = this.getChatroomDisplayName(chatroomId);
-        this.uiManager.updateStatusBar(this.currentUser!.stageName, chatroomName, members.length);
+        this.uiManager.updateStatusBar(
+          this.currentUser!.stageName,
+          chatroomName,
+          members.length,
+          this.uiManager.getTotalMatches(),
+        );
       });
-      this.subscribeToMessages(chatroomId);
-      this.subscribeToTalks(chatroomId);
-
-      console.log(`✅ Switched to ${chatroomId}`);
     });
 
     // Handle Gun.js real-time updates

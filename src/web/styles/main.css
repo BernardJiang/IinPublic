@@ -644,6 +644,35 @@ body {
   color: #07c160;
 }
 
+/* Broadcast sent: highlight members who received the broadcast */
+.chatroom-member-item.broadcast-sent-to {
+  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%) !important;
+  border-radius: 8px;
+  transition: background 0.3s ease;
+}
+
+/* Match indicator on member name (Tom sees green when Jerry/Bob match) */
+.chatroom-member-item.member-matched .chatroom-member-name {
+  color: #07c160;
+  font-weight: 700;
+}
+
+.chatroom-member-item.member-matched .chatroom-member-status {
+  content: 'Matched';
+}
+
+/* Flash when new talk received from this user */
+.chatroom-member-item.flash-new-talk {
+  animation: flashMember 1s ease-out;
+}
+
+@keyframes flashMember {
+  0%, 100% { background: transparent; }
+  25% { background: rgba(7, 193, 96, 0.4); }
+  50% { background: transparent; }
+  75% { background: rgba(7, 193, 96, 0.25); }
+}
+
 #broadcast-talk-btn {
   margin: 12px;
   padding: 16px;
