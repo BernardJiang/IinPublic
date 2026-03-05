@@ -82,6 +82,30 @@ export class UIManager extends EventEmitter {
             </div>
           </div>
 
+          <!-- Contacts View (users who have matches with current user) -->
+          <div class="view-panel" id="contacts-view">
+            <div class="view-content">
+              <div class="contacts-list-container" id="contacts-list-container">
+                <div class="contacts-list" id="contacts-list">
+                  <p style="text-align: center; padding: 40px 20px; color: #999;">No contacts yet. Match with others via Talks to see them here.</p>
+                </div>
+              </div>
+              <!-- Contact detail: list of talks with this user (hidden by default) -->
+              <div class="contact-detail-container" id="contact-detail-container" style="display: none;">
+                <div class="contact-detail-header">
+                  <button class="back-btn" id="back-to-contacts-list">‹ Back</button>
+                  <div class="contact-detail-info" id="contact-detail-info">
+                    <div class="contact-detail-name" id="contact-detail-name">Contact</div>
+                    <div class="contact-detail-matches" id="contact-detail-matches">0 matches</div>
+                  </div>
+                </div>
+                <div class="contact-talks-list" id="contact-talks-list">
+                  <p style="text-align: center; padding: 20px; color: #999;">Loading...</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Talks View -->
           <div class="view-panel" id="talks-view">
             <div class="view-content">
@@ -152,6 +176,10 @@ export class UIManager extends EventEmitter {
           <button class="nav-btn active" data-view="chatrooms" data-testid="bottom-navigation-button-chat">
             <div class="nav-icon">🌍</div>
             <div class="nav-label">Chatrooms</div>
+          </button>
+          <button class="nav-btn" data-view="contacts" data-testid="bottom-navigation-button-contacts">
+            <div class="nav-icon">👥</div>
+            <div class="nav-label">Contacts</div>
           </button>
           <button class="nav-btn" data-view="talks">
             <div class="nav-icon">📢</div>
@@ -244,6 +272,14 @@ export class UIManager extends EventEmitter {
       });
     }
 
+    // Back to contacts list button
+    const backToContactsListBtn = document.getElementById('back-to-contacts-list');
+    if (backToContactsListBtn) {
+      backToContactsListBtn.addEventListener('click', () => {
+        this.showContactsList();
+      });
+    }
+
     // Broadcast talk button: only open "create new talk" when 0 talks created
     const broadcastTalkBtn = document.getElementById('broadcast-talk-btn');
     if (broadcastTalkBtn) {
@@ -305,6 +341,7 @@ export class UIManager extends EventEmitter {
         if (headerTitle) {
           const titles: Record<string, string> = {
             chatrooms: 'Chatrooms',
+            contacts: 'Contacts',
             talks: 'Talks',
             answers: 'My Answers',
             me: 'Me',
@@ -324,6 +361,11 @@ export class UIManager extends EventEmitter {
         // Special handling for chatrooms view
         if (targetView === 'chatrooms') {
           this.showChatroomList();
+        }
+
+        // Special handling for contacts view
+        if (targetView === 'contacts') {
+          this.showContactsList();
         }
 
         // Special handling for talks view
@@ -401,6 +443,120 @@ export class UIManager extends EventEmitter {
 
     // Render the chatroom list
     this.renderChatroomList();
+  }
+
+  showContactsList(): void {
+    const listContainer = document.getElementById('contacts-list-container');
+    const detailContainer = document.getElementById('contact-detail-container');
+    if (listContainer) listContainer.style.display = 'block';
+    if (detailContainer) detailContainer.style.display = 'none';
+    this.displayContactsList();
+  }
+
+  /** Build list of contacts: users who have at least one match (conversation) with current user. */
+  displayContactsList(): void {
+    const listEl = document.getElementById('contacts-list');
+    if (!listEl) return;
+
+    const conversations = this.getMyConversations();
+    const byUser: Record<
+      string,
+      { otherUserName: string; conversations: Array<{ conversationId: string; talkId?: string }> }
+    > = {};
+    for (const [convId, conv] of Object.entries(conversations)) {
+      const c = conv as any;
+      const uid = c.otherUserId;
+      if (!uid) continue;
+      if (!byUser[uid]) {
+        byUser[uid] = { otherUserName: c.otherUserName || 'Unknown', conversations: [] };
+      }
+      byUser[uid].conversations.push({
+        conversationId: convId,
+        talkId: c.talkId,
+      });
+    }
+
+    const contactEntries = Object.entries(byUser).sort(
+      ([, a], [, b]) => b.conversations.length - a.conversations.length,
+    );
+
+    if (contactEntries.length === 0) {
+      listEl.innerHTML = `
+        <p style="text-align: center; padding: 40px 20px; color: #999;">No contacts yet. Match with others via Talks to see them here.</p>
+      `;
+      return;
+    }
+
+    listEl.innerHTML = contactEntries
+      .map(
+        ([userId, { otherUserName, conversations: convs }]) => `
+        <div class="contact-item" data-contact-user-id="${this.escapeHtml(userId)}" data-contact-name="${this.escapeHtml(otherUserName)}" data-contact-count="${convs.length}" style="display: flex; align-items: center; justify-content: space-between; padding: 16px; margin-bottom: 8px; background: white; border-radius: 12px; border: 1px solid #e0e0e0; cursor: pointer;">
+          <div>
+            <div class="contact-item-name" style="font-weight: 600;">${this.escapeHtml(otherUserName)}</div>
+            <div class="contact-item-meta" style="font-size: 0.85em; color: #666;">${convs.length} match(es)</div>
+          </div>
+          <span style="color: #999;">›</span>
+        </div>
+      `,
+      )
+      .join('');
+
+    listEl.querySelectorAll('.contact-item').forEach((el) => {
+      el.addEventListener('click', () => {
+        const userId = (el as HTMLElement).dataset.contactUserId;
+        const name = (el as HTMLElement).dataset.contactName;
+        const count = (el as HTMLElement).dataset.contactCount;
+        if (userId && name) {
+          this.showContactDetail(userId, name, parseInt(count || '0', 10));
+        }
+      });
+    });
+  }
+
+  /** Show list of talks that match the current user and the selected contact. */
+  showContactDetail(otherUserId: string, otherUserName: string, matchCount: number): void {
+    const listContainer = document.getElementById('contacts-list-container');
+    const detailContainer = document.getElementById('contact-detail-container');
+    const detailName = document.getElementById('contact-detail-name');
+    const detailMatches = document.getElementById('contact-detail-matches');
+    const talksList = document.getElementById('contact-talks-list');
+    if (!listContainer || !detailContainer || !detailName || !detailMatches || !talksList) return;
+
+    listContainer.style.display = 'none';
+    detailContainer.style.display = 'block';
+    detailName.textContent = otherUserName;
+    detailMatches.textContent = `${matchCount} match(es)`;
+
+    const conversations = this.getMyConversations();
+    const myTalks = this.getMyTalks();
+    const convsWithThisUser = Object.entries(conversations).filter(
+      ([, c]: [string, any]) => c.otherUserId === otherUserId,
+    );
+
+    if (convsWithThisUser.length === 0) {
+      talksList.innerHTML = '<p style="text-align: center; padding: 20px; color: #999;">No matching talks.</p>';
+      return;
+    }
+
+    talksList.innerHTML = convsWithThisUser
+      .map(([, c]: [string, any]) => {
+        const talkId = c.talkId;
+        const talk = talkId ? myTalks[talkId] : null;
+        const title = talk?.title || (talkId ? `Talk ${talkId}` : 'Unknown talk');
+        return `
+          <div class="contact-talk-item" data-talk-id="${talkId || ''}" style="padding: 14px 16px; margin-bottom: 8px; background: #f9f9f9; border-radius: 10px; border: 1px solid #e0e0e0; cursor: pointer;">
+            <div style="font-weight: 600;">${this.escapeHtml(title)}</div>
+          </div>
+        `;
+      })
+      .join('');
+
+    talksList.querySelectorAll('.contact-talk-item').forEach((el) => {
+      el.addEventListener('click', () => {
+        const talkId = (el as HTMLElement).dataset.talkId;
+        if (talkId) this.showTalkDetail(talkId);
+      });
+    });
   }
 
   private renderChatroomList(): void {

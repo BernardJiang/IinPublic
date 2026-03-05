@@ -480,21 +480,24 @@ export class IinPublicApp {
 
         // Process each conversation
         for (const conversationData of conversations) {
-          // Get the other user's info
+          // Gun stores otherUserId/otherUserName; legacy or other sources may use userId1/userId2
           const otherUserId =
-            conversationData.userId1 === this.currentUser!.id
+            conversationData.otherUserId ??
+            (conversationData.userId1 === this.currentUser!.id
               ? conversationData.userId2
-              : conversationData.userId1;
+              : conversationData.userId1);
           const otherUserName =
-            conversationData.userId1 === this.currentUser!.id
+            conversationData.otherUserName ??
+            (conversationData.userId1 === this.currentUser!.id
               ? conversationData.userName2
-              : conversationData.userName1;
+              : conversationData.userName1);
 
-          // Add to UI
+          if (!otherUserId) continue;
+
           this.uiManager.addNewConversation({
             conversationId: conversationData.conversationId,
-            otherUserId: otherUserId,
-            otherUserName: otherUserName,
+            otherUserId,
+            otherUserName: otherUserName ?? 'Unknown',
             talkId: conversationData.talkId,
           });
         }
