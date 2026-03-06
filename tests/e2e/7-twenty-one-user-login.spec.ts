@@ -2,6 +2,7 @@ import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwrig
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases } from './helpers/clear-database';
+import { ensureWindowFitsViewport } from './helpers/browser-window';
 
 // User definitions with GPS coordinates for each continent
 const USERS = [
@@ -102,19 +103,20 @@ test.describe('Twenty-One User Comprehensive Chatroom Test', () => {
     const rows = 3;
     const windowWidth = Math.floor(1920 / cols);
     const windowHeight = Math.floor(1080 / rows);
+    const browserChromeHeight = 200;
 
     for (let i = 0; i < 21; i++) {
       const col = i % cols;
       const row = Math.floor(i / cols);
       const x = col * windowWidth;
-      const y = row * windowHeight;
+      const y = row * (windowHeight + browserChromeHeight);
 
       const browser = await chromium.launch({
         headless: false,
         slowMo: 50,
         args: [
           `--window-position=${x},${y}`,
-          `--window-size=${windowWidth},${windowHeight}`,
+          `--window-size=${windowWidth},${windowHeight + browserChromeHeight}`,
           '--force-device-scale-factor=0.8',
         ],
       });
@@ -188,6 +190,7 @@ test.describe('Twenty-One User Comprehensive Chatroom Test', () => {
 
       await page.goto('/');
       await page.waitForLoadState('networkidle');
+      await ensureWindowFitsViewport(page, windowWidth, windowHeight);
       await page.waitForTimeout(3000);
 
       contexts.push(context);

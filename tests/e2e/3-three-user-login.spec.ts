@@ -2,6 +2,7 @@ import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwrig
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases } from './helpers/clear-database';
+import { ensureWindowFitsViewport } from './helpers/browser-window';
 
 test.describe('Three User Login/Logout Test', () => {
   let browser1: Browser;
@@ -58,19 +59,19 @@ test.describe('Three User Login/Logout Test', () => {
     browser1 = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=0,0', '--window-size=640,800', '--force-device-scale-factor=1'],
+      args: ['--window-position=0,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
     });
 
     browser2 = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=640,0', '--window-size=640,800', '--force-device-scale-factor=1'],
+      args: ['--window-position=640,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
     });
 
     browser3 = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=1280,0', '--window-size=640,800', '--force-device-scale-factor=1'],
+      args: ['--window-position=1280,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
     });
 
     console.log('🚀 Launched 3 Chrome browsers in a row');
@@ -130,6 +131,7 @@ test.describe('Three User Login/Logout Test', () => {
 
     await page1.goto('/');
     await page1.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page1, 640, 800);
     await createUser(page1, 'User 1');
 
     const headcount1_1 = await getHeadcount(page1);
@@ -154,6 +156,7 @@ test.describe('Three User Login/Logout Test', () => {
 
     await page2.goto('/');
     await page2.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page2, 640, 800);
     await createUser(page2, 'User 2');
 
     // Verify both users see headcount = 2
@@ -186,6 +189,7 @@ test.describe('Three User Login/Logout Test', () => {
 
     await page3.goto('/');
     await page3.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page3, 640, 800);
     await createUser(page3, 'User 3');
 
     // Verify all three users see headcount = 3

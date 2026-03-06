@@ -1,5 +1,6 @@
 import { test, expect, Browser, Page, BrowserContext } from '@playwright/test';
 import { clearGunDatabases } from './helpers/clear-database';
+import { ensureWindowFitsViewport } from './helpers/browser-window';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -122,14 +123,15 @@ test.describe('Seven User FIFO Eviction Test', () => {
     console.log('🚀 Launching 7 Chrome browsers...');
     const windowWidth = 480;
     const windowHeight = 480;
+    const browserChromeHeight = 200;
     for (let i = 0; i < 7; i++) {
       const browser = await playwright.chromium.launch({
         headless: false,
         args: [
           `--window-position=${(i % 4) * windowWidth},${
-            Math.floor(i / 4) * windowHeight 
+            Math.floor(i / 4) * (windowHeight + browserChromeHeight)
           }`,
-          `--window-size=${windowWidth},${windowHeight}`,
+          `--window-size=${windowWidth},${windowHeight + browserChromeHeight}`,
           '--force-device-scale-factor=0.8',
         ],
       });
@@ -173,6 +175,7 @@ test.describe('Seven User FIFO Eviction Test', () => {
 
       await page.goto('/');
       await page.waitForLoadState('networkidle');
+      await ensureWindowFitsViewport(page, windowWidth, windowHeight);
       await page.waitForTimeout(2000);
 
       contexts.push(context);
@@ -233,6 +236,7 @@ test.describe('Seven User FIFO Eviction Test', () => {
 
     await page4.goto('/');
     await page4.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page4, windowWidth, windowHeight);
     await page4.waitForTimeout(2000);
 
     contexts.push(context4);
@@ -295,6 +299,7 @@ test.describe('Seven User FIFO Eviction Test', () => {
 
     await page5.goto('/');
     await page5.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page5, windowWidth, windowHeight);
     await page5.waitForTimeout(2000);
 
     contexts.push(context5);
@@ -355,6 +360,7 @@ test.describe('Seven User FIFO Eviction Test', () => {
 
     await page6.goto('/');
     await page6.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page6, windowWidth, windowHeight);
     await page6.waitForTimeout(2000);
 
     contexts.push(context6);
@@ -416,6 +422,7 @@ test.describe('Seven User FIFO Eviction Test', () => {
 
     await page7.goto('/');
     await page7.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page7, windowWidth, windowHeight);
     await page7.waitForTimeout(2000);
 
     contexts.push(context7);
@@ -511,6 +518,7 @@ test.describe('Seven User FIFO Eviction Test', () => {
 
       await page.goto('/');
       await page.waitForLoadState('networkidle');
+      await ensureWindowFitsViewport(page, windowWidth, windowHeight);
       await page.waitForTimeout(2000);
 
       contexts.push(context);

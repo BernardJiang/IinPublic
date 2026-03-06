@@ -2,6 +2,7 @@ import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwrig
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases } from './helpers/clear-database';
+import { ensureWindowFitsViewport } from './helpers/browser-window';
 
 test.describe('Chatbot: Tom manual match, Bob bot match, bot icon on conversations', () => {
   let browserTom: Browser;
@@ -32,17 +33,17 @@ test.describe('Chatbot: Tom manual match, Bob bot match, bot icon on conversatio
     browserTom = await chromium.launch({
       headless: false,
       slowMo: 80,
-      args: ['--window-position=0,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
+      args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     browserJerry = await chromium.launch({
       headless: false,
       slowMo: 80,
-      args: ['--window-position=640,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
+      args: ['--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     browserBob = await chromium.launch({
       headless: false,
       slowMo: 80,
-      args: ['--window-position=1280,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
+      args: ['--window-position=1280,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     console.log('🚀 Launched 3 Chrome browsers: Tom, Jerry, Bob');
   });
@@ -89,6 +90,7 @@ test.describe('Chatbot: Tom manual match, Bob bot match, bot icon on conversatio
 
     await page.goto('/');
     await page.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page, 640, 1000);
     await page.waitForTimeout(3000);
 
     await page.click('.nav-btn[data-view="me"]');

@@ -2,6 +2,7 @@ import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwrig
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases } from './helpers/clear-database';
+import { ensureWindowFitsViewport } from './helpers/browser-window';
 
 test.describe('Tennis Partner Talk Match - Tom & Jerry', () => {
   let browserTom: Browser;
@@ -29,7 +30,7 @@ test.describe('Tennis Partner Talk Match - Tom & Jerry', () => {
     browserTom = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=0,0', '--window-size=960,1200', '--force-device-scale-factor=1'],
+      args: ['--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });
 
     browserJerry = await chromium.launch({
@@ -37,7 +38,7 @@ test.describe('Tennis Partner Talk Match - Tom & Jerry', () => {
       slowMo: 100,
       args: [
         '--window-position=960,0',
-        '--window-size=960,1200',
+        '--window-size=960,1400',
         '--force-device-scale-factor=1',
       ],
     });
@@ -102,6 +103,7 @@ test.describe('Tennis Partner Talk Match - Tom & Jerry', () => {
 
     await page.goto('/');
     await page.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page, 960, 1200);
     await page.waitForTimeout(3000);
 
     console.log(`✅ ${windowLabel} initial login complete`);

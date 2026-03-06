@@ -2,6 +2,7 @@ import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwrig
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases } from './helpers/clear-database';
+import { ensureWindowFitsViewport } from './helpers/browser-window';
 
 test.describe('Single User Login/Logout Test', () => {
   let browser: Browser;
@@ -16,7 +17,7 @@ test.describe('Single User Login/Logout Test', () => {
     browser = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=0,0', '--window-size=960,1200', '--force-device-scale-factor=1'],
+      args: ['--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });
 
     console.log('🚀 Launched Chrome browser');
@@ -51,6 +52,7 @@ test.describe('Single User Login/Logout Test', () => {
     // Navigate to app
     await page.goto('/');
     await page.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page, 960, 1200);
 
     // User is automatically created (no modal needed)
     console.log('✅ User created automatically with auto-generated stage name');

@@ -2,6 +2,7 @@ import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwrig
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases } from './helpers/clear-database';
+import { ensureWindowFitsViewport } from './helpers/browser-window';
 
 test.describe('New User Edit Stage Name Test', () => {
   let browser: Browser;
@@ -13,7 +14,7 @@ test.describe('New User Edit Stage Name Test', () => {
     browser = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=0,0', '--window-size=960,1200', '--force-device-scale-factor=1'],
+      args: ['--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });
     console.log('🚀 Launched Chrome browser');
   });
@@ -38,6 +39,7 @@ test.describe('New User Edit Stage Name Test', () => {
     // 1) User login
     await page.goto('/');
     await page.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page, 960, 1200);
     await page.waitForTimeout(3000);
     console.log('✅ User logged in');
 

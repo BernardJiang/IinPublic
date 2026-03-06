@@ -2,6 +2,7 @@ import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwrig
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases } from './helpers/clear-database';
+import { ensureWindowFitsViewport } from './helpers/browser-window';
 
 test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answers all, TechSupport confirms', () => {
   let browserTechSupport: Browser;
@@ -58,12 +59,12 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     browserTechSupport = await chromium.launch({
       headless: false,
       slowMo: 80,
-      args: ['--window-position=0,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
+      args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     browserTom = await chromium.launch({
       headless: false,
       slowMo: 80,
-      args: ['--window-position=640,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
+      args: ['--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     console.log('🚀 Launched 2 Chrome browsers: TechSupport, Tom');
   });
@@ -106,6 +107,7 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
 
     await page.goto('/');
     await page.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page, 640, 1000);
     await page.waitForTimeout(3000);
 
     await page.click('.nav-btn[data-view="me"]');

@@ -2,6 +2,7 @@ import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwrig
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases } from './helpers/clear-database';
+import { ensureWindowFitsViewport } from './helpers/browser-window';
 
 test.describe('Four User Chatroom Capacity Test', () => {
   let browser1: Browser;
@@ -54,25 +55,25 @@ test.describe('Four User Chatroom Capacity Test', () => {
     browser1 = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=0,0', '--window-size=640,600', '--force-device-scale-factor=1'],
+      args: ['--window-position=0,0', '--window-size=640,800', '--force-device-scale-factor=1'],
     });
 
     browser2 = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=640,0', '--window-size=640,600', '--force-device-scale-factor=1'],
+      args: ['--window-position=640,0', '--window-size=640,800', '--force-device-scale-factor=1'],
     });
 
     browser3 = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=0,600', '--window-size=640,600', '--force-device-scale-factor=1'],
+      args: ['--window-position=0,600', '--window-size=640,800', '--force-device-scale-factor=1'],
     });
 
     browser4 = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=640,600', '--window-size=640,600', '--force-device-scale-factor=1'],
+      args: ['--window-position=640,600', '--window-size=640,800', '--force-device-scale-factor=1'],
     });
 
     console.log('🚀 Launched 4 Chrome browsers in 2x2 grid');
@@ -119,6 +120,7 @@ test.describe('Four User Chatroom Capacity Test', () => {
 
     await page1.goto('/');
     await page1.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page1, 640, 600);
     // Clear browser storage to ensure no stale data from previous test runs
     await page1.evaluate(() => {
       localStorage.clear();
@@ -147,6 +149,7 @@ test.describe('Four User Chatroom Capacity Test', () => {
 
     await page2.goto('/');
     await page2.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page2, 640, 600);
     await page2.waitForTimeout(3000);
     const status2 = await getStatusBar(page2);
     console.log(`📊 UserAmerican2 status: ${status2}`);
@@ -169,6 +172,7 @@ test.describe('Four User Chatroom Capacity Test', () => {
 
     await page3.goto('/');
     await page3.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page3, 640, 600);
     await page3.waitForTimeout(3000);
     const status3 = await getStatusBar(page3);
     console.log(`📊 UserAmerican3 status: ${status3}`);
@@ -212,6 +216,7 @@ test.describe('Four User Chatroom Capacity Test', () => {
 
     await page4.goto('/');
     await page4.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page4, 640, 600);
     await page4.waitForTimeout(3000);
     const status4 = await getStatusBar(page4);
     console.log(`📊 UserAmerican4 status: ${status4}`);
@@ -313,6 +318,7 @@ test.describe('Four User Chatroom Capacity Test', () => {
     page1.on('console', (msg) => console.log(`[UserAmerican1]:`, msg.text()));
     await page1.goto('/');
     await page1.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page1, 640, 600);
     await page1.waitForTimeout(3000);
 
     console.log('⏳ Waiting 2s before User 2 re-enters...');
@@ -328,6 +334,7 @@ test.describe('Four User Chatroom Capacity Test', () => {
     page2.on('console', (msg) => console.log(`[UserAmerican2]:`, msg.text()));
     await page2.goto('/');
     await page2.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page2, 640, 600);
     await page2.waitForTimeout(3000);
 
     console.log('⏳ Waiting 2s before User 3 re-enters...');
@@ -343,6 +350,7 @@ test.describe('Four User Chatroom Capacity Test', () => {
     page3.on('console', (msg) => console.log(`[UserAmerican3]:`, msg.text()));
     await page3.goto('/');
     await page3.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page3, 640, 600);
     await page3.waitForTimeout(3000);
 
     console.log('⏳ Waiting 2s before User 4 re-enters...');
@@ -358,6 +366,7 @@ test.describe('Four User Chatroom Capacity Test', () => {
     page4.on('console', (msg) => console.log(`[UserAmerican4]:`, msg.text()));
     await page4.goto('/');
     await page4.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page4, 640, 600);
     await page4.waitForTimeout(3000);
 
     console.log('✅ All users re-entered');

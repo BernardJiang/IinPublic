@@ -2,6 +2,7 @@ import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwrig
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases } from './helpers/clear-database';
+import { ensureWindowFitsViewport } from './helpers/browser-window';
 
 test.describe('Two User Login/Logout Test', () => {
   let browser1: Browser;
@@ -19,13 +20,13 @@ test.describe('Two User Login/Logout Test', () => {
     browser1 = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=0,0', '--window-size=960,1200', '--force-device-scale-factor=1'],
+      args: ['--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });
 
     browser2 = await chromium.launch({
       headless: false,
       slowMo: 100,
-      args: ['--window-position=960,0', '--window-size=960,1200', '--force-device-scale-factor=1'],
+      args: ['--window-position=960,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });
 
     console.log('🚀 Launched 2 Chrome browsers side-by-side');
@@ -68,6 +69,7 @@ test.describe('Two User Login/Logout Test', () => {
 
     await page1.goto('/');
     await page1.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page1, 960, 1200);
 
     // User 1 is automatically created (no modal needed)
     console.log('✅ User 1 created automatically with auto-generated stage name');
@@ -108,6 +110,7 @@ test.describe('Two User Login/Logout Test', () => {
 
     await page2.goto('/');
     await page2.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page2, 960, 1200);
 
     // User 2 is automatically created (no modal needed)
     console.log('✅ User 2 created automatically with auto-generated stage name');
@@ -228,6 +231,7 @@ test.describe('Two User Login/Logout Test', () => {
 
     await page2.goto('/');
     await page2.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page2, 960, 1200);
 
     // User 2 should NOT see creation dialog (remembered from localStorage)
     await page2.waitForTimeout(1000);
@@ -314,6 +318,7 @@ test.describe('Two User Login/Logout Test', () => {
 
     await page2.goto('/');
     await page2.waitForLoadState('networkidle');
+    await ensureWindowFitsViewport(page2, 960, 1200);
 
     await page2.waitForTimeout(1000);
     console.log('✅ User 2 remembered from localStorage (no dialog shown)');
