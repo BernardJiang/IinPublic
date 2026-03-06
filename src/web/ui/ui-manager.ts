@@ -166,6 +166,10 @@ export class UIManager extends EventEmitter {
                   </button>
                 </div>
               </div>
+              <div class="conversations-section" style="margin-top: 24px;">
+                <h3 style="font-size: 1em; margin-bottom: 12px; color: #666;">Conversations</h3>
+                <div id="conversations-list"></div>
+              </div>
             </div>
           </div>
 
@@ -374,6 +378,11 @@ export class UIManager extends EventEmitter {
         if (targetView === 'answers') {
           this.displayAnswersList();
         }
+
+        // Special handling for me view: refresh conversations list
+        if (targetView === 'me') {
+          this.displayConversationsList();
+        }
       });
     });
   }
@@ -412,6 +421,11 @@ export class UIManager extends EventEmitter {
             <span>Auto-save received talks (copy talk)</span>
           </label>
           <p style="margin: 8px 0 0 28px; font-size: 0.85em; color: #6b7280;">When off, received talks are not saved to My Talks.</p>
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.95em; margin-top: 14px;">
+            <input type="checkbox" id="chatbot-enabled-checkbox" ${this.getChatbotEnabled() ? 'checked' : ''}>
+            <span>Enable chatbot (auto-reply with previous match answers)</span>
+          </label>
+          <p style="margin: 8px 0 0 28px; font-size: 0.85em; color: #6b7280;">When the same talk is sent to you again, reply automatically with your last match answer. Replies show a bot icon.</p>
         </div>
       `;
 
@@ -424,6 +438,12 @@ export class UIManager extends EventEmitter {
       if (copyTalkCheckbox) {
         copyTalkCheckbox.addEventListener('change', () => {
           this.setCopyTalkAutoSave(copyTalkCheckbox.checked);
+        });
+      }
+      const chatbotCheckbox = document.getElementById('chatbot-enabled-checkbox') as HTMLInputElement;
+      if (chatbotCheckbox) {
+        chatbotCheckbox.addEventListener('change', () => {
+          this.setChatbotEnabled(chatbotCheckbox.checked);
         });
       }
     }
@@ -741,7 +761,7 @@ export class UIManager extends EventEmitter {
                   const conversations = this.getMyConversations();
                   const matchedNames = Object.values(conversations)
                     .filter((c: any) => c.talkId === talkId)
-                    .map((c: any) => c.otherUserName);
+                    .map((c: any) => c.respondedByBot ? `${c.otherUserName} 🤖` : c.otherUserName);
                   const matchedLine =
                     matchedNames.length > 0
                       ? `<div class="talk-item-matched" style="font-size: 0.85em; color: #2e7d32; margin-top: 4px;">Matched with: ${matchedNames.join(', ')}</div>`
@@ -972,9 +992,12 @@ export class UIManager extends EventEmitter {
       conversationsList.innerHTML = conversationEntries
         .map(
           ([conversationId, conversation]) => `
-        <div class="conversation-list-item ${conversation.unread ? 'unread' : ''}" data-conversation-id="${conversationId}">
-          <div class="conversation-avatar">
-            ${conversation.otherUserName?.charAt(0).toUpperCase() || '?'}
+        <div class="conversation-list-item ${conversation.unread ? 'unread' : ''}" data-conversation-id="${conversationId}" data-responded-by-bot="${!!conversation.respondedByBot}">
+          <div class="conversation-avatar-wrapper" style="position: relative;">
+            <div class="conversation-avatar">
+              ${conversation.otherUserName?.charAt(0).toUpperCase() || '?'}
+            </div>
+            ${conversation.respondedByBot ? '<span class="conversation-bot-badge" title="Answered by chatbot">🤖</span>' : ''}
           </div>
           <div class="conversation-content">
             <div class="conversation-header">
@@ -1997,6 +2020,36 @@ export class UIManager extends EventEmitter {
     localStorage.setItem('copyTalkAutoSave', String(enabled));
   }
 
+  getChatbotEnabled(): boolean {
+    return localStorage.getItem('chatbotEnabled') === 'true';
+  }
+
+  setChatbotEnabled(enabled: boolean): void {
+    localStorage.setItem('chatbotEnabled', String(enabled));
+  }
+
+  getChatbotTemplate(talkId: string): { answers: any[]; talkData: any } | null {
+    try {
+      const raw = localStorage.getItem('chatbotTemplates');
+      if (!raw) return null;
+      const templates: Record<string, { answers: any[]; talkData: any }> = JSON.parse(raw);
+      return templates[talkId] || null;
+    } catch {
+      return null;
+    }
+  }
+
+  saveChatbotTemplate(talkId: string, data: { answers: any[]; talkData: any }): void {
+    try {
+      const raw = localStorage.getItem('chatbotTemplates');
+      const templates: Record<string, { answers: any[]; talkData: any }> = raw ? JSON.parse(raw) : {};
+      templates[talkId] = data;
+      localStorage.setItem('chatbotTemplates', JSON.stringify(templates));
+    } catch (e) {
+      console.warn('Failed to save chatbot template:', e);
+    }
+  }
+
   setTalkDisabled(talkId: string, disabled: boolean): void {
     const myTalks = this.getMyTalks();
     if (myTalks[talkId]) {
@@ -2952,6 +3005,7 @@ export class UIManager extends EventEmitter {
     otherUserId: string;
     otherUserName: string;
     talkId?: string;
+    respondedByBot?: boolean;
   }): void {
     const conversations = this.getMyConversations();
 
@@ -2963,6 +3017,7 @@ export class UIManager extends EventEmitter {
       lastMessage: null,
       lastMessageTime: null,
       unread: true, // New conversations are marked as unread
+      respondedByBot: !!conversationData.respondedByBot,
     };
 
     localStorage.setItem('myConversations', JSON.stringify(conversations));

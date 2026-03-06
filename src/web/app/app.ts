@@ -323,9 +323,29 @@ export class IinPublicApp {
 
       console.log('📨 Received talk announcement:', { talkId, talkAnnouncement });
 
-      // Avoid processing the same talk multiple times
+      // Same talk received again (e.g. re-broadcast by another user) - try chatbot auto-reply
       if (processedTalks.has(talkId)) {
-        console.log('⏭️  Skipping already processed talk:', talkId);
+        if (
+          talkAnnouncement &&
+          talkAnnouncement.talkId &&
+          talkAnnouncement.authorId !== this.currentUser?.id &&
+          this.uiManager.getChatbotEnabled()
+        ) {
+          const template = this.uiManager.getChatbotTemplate(talkId);
+          if (template) {
+            gun.get(`talks/${talkAnnouncement.talkId}`).once((talkDataWrapper: any) => {
+              if (talkDataWrapper && talkDataWrapper.data) {
+                const talkData = JSON.parse(talkDataWrapper.data);
+                this.tryChatbotReply(
+                  talkId,
+                  talkData,
+                  talkAnnouncement.authorId,
+                  talkAnnouncement.authorName || 'Unknown',
+                );
+              }
+            });
+          }
+        }
         return;
       }
 
@@ -386,6 +406,9 @@ export class IinPublicApp {
           // Don't notify for own responses
           if (responseData.responderId === this.currentUser?.id) return;
 
+          // Chatbot responses include authorId: only that author should get the match/conversation
+          if (responseData.authorId && responseData.authorId !== this.currentUser?.id) return;
+
           try {
             const answers = JSON.parse(responseData.answers);
 
@@ -415,6 +438,7 @@ export class IinPublicApp {
                     otherUserId: responseData.responderId,
                     otherUserName: responseData.responderName,
                     talkId: talkId,
+                    respondedByBot: !!responseData.isChatbotResponse,
                   });
                   this.uiManager.setMemberMatched(responseData.responderId);
                 })
@@ -427,6 +451,57 @@ export class IinPublicApp {
           }
         }
       });
+  }
+
+  /**
+   * Auto-reply to a talk using saved template (chatbot). Puts response to Gun and creates
+   * responder's conversation so the author will receive the match and see bot icon.
+   */
+  private tryChatbotReply(
+    talkId: string,
+    talkData: any,
+    authorId: string,
+    authorName: string,
+  ): void {
+    const template = this.uiManager.getChatbotTemplate(talkId);
+    if (!template || !this.currentUser?.id) return;
+
+    const gun = this.gunService.getGun();
+    const responseId = `response-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+    const responsePayload = {
+      responderId: this.currentUser.id,
+      responderName: this.currentUser.stageName,
+      answers: JSON.stringify(template.answers),
+      respondedAt: new Date().toISOString(),
+      isChatbotResponse: true,
+      authorId, // so only this author creates a conversation when they receive the response
+      authorName,
+    };
+
+    gun.get(`talks/${talkId}`).get('responses').get(responseId).put(responsePayload);
+
+    const isMatch = this.checkIfMatch(talkData, template.answers);
+    if (isMatch) {
+      this.conversationService
+        .createConversation({
+          userId1: this.currentUser.id,
+          userName1: this.currentUser.stageName,
+          userId2: authorId,
+          userName2: authorName,
+          talkId,
+        })
+        .then((conversationId) => {
+          this.uiManager.addNewConversation({
+            conversationId,
+            otherUserId: authorId,
+            otherUserName: authorName,
+            talkId,
+            respondedByBot: false, // responder (Jerry) sees author (Bob), not bot
+          });
+        })
+        .catch((err) => console.error('Chatbot conversation create failed:', err));
+    }
   }
 
   private checkIfMatch(talkData: any, answers: any[]): boolean {
@@ -784,9 +859,11 @@ export class IinPublicApp {
 
     this.uiManager.on(
       'talkCompleted',
-      async (data: { talkId: string; answers: any[]; talkData?: any }) => {
+      async (data: { talkId: string; answers: any[]; talkData?: any; isChatbotResponse?: boolean }) => {
         try {
           console.log('📝 User completed talk:', data);
+
+          const isChatbot = !!data.isChatbotResponse;
 
           // Store the response in Gun.js
           const chatroomId = this.chatroomService.getCurrentChatroomId();
@@ -803,6 +880,7 @@ export class IinPublicApp {
                 responderName: this.currentUser!.stageName,
                 answers: JSON.stringify(data.answers),
                 submittedAt: new Date().toISOString(),
+                isChatbotResponse: isChatbot,
               });
 
             console.log('✅ Talk response stored');
@@ -810,6 +888,14 @@ export class IinPublicApp {
             // Check if this response is a match
             if (data.talkData) {
               const isMatch = this.checkIfMatch(data.talkData, data.answers);
+
+              if (isMatch && !isChatbot) {
+                // Save template for chatbot to reuse when the same talk is received again
+                this.uiManager.saveChatbotTemplate(data.talkId, {
+                  answers: data.answers,
+                  talkData: data.talkData,
+                });
+              }
 
               if (isMatch) {
                 console.log(`✅ Match! Creating conversation with talk author`);
@@ -832,7 +918,7 @@ export class IinPublicApp {
                         talkId: data.talkId,
                       });
 
-                      // Add to UI
+                      // Add to UI (responder's view; respondedByBot is only set on author's view when they receive the response)
                       this.uiManager.addNewConversation({
                         conversationId,
                         otherUserId: talkData.authorId,
@@ -1082,6 +1168,42 @@ export class IinPublicApp {
   // E2E Testing helpers - expose private state for manual cleanup in tests
   public getCurrentChatroomId(): string | undefined {
     return this.currentChatroomId;
+  }
+
+  /**
+   * Re-announce a talk to the current room as the current user (for E2E: Bob "sends same talk" to trigger chatbot).
+   * Fetches talk from Gun and puts to chatroom with current user as author.
+   */
+  public announceTalkToRoom(talkId: string): Promise<void> {
+    const chatroomId = this.chatroomService.getCurrentChatroomId();
+    if (!chatroomId || !this.currentUser) return Promise.reject(new Error('No chatroom or user'));
+
+    const gun = this.gunService.getGun();
+    return new Promise((resolve, reject) => {
+      gun.get(`talks/${talkId}`).once((wrapper: any) => {
+        if (!wrapper || !wrapper.data) {
+          reject(new Error(`Talk not found: ${talkId}`));
+          return;
+        }
+        try {
+          const talkData = JSON.parse(wrapper.data);
+          gun.get('chatrooms').get(chatroomId).get('talks').get(talkId).put({
+            talkId,
+            title: talkData.title,
+            authorId: this.currentUser!.id,
+            authorName: this.currentUser!.stageName,
+            type: talkData.type,
+            timestamp: new Date().toISOString(),
+            questionCount: talkData.questions?.length ?? 0,
+          });
+          // So we receive responses (e.g. chatbot reply) for this talk
+          this.subscribeToTalkResponses(talkId, talkData);
+          resolve();
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
   }
 
   public manualCleanup(): void {
