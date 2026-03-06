@@ -430,8 +430,8 @@ export class IinPublicApp {
   }
 
   private checkIfMatch(talkData: any, answers: any[]): boolean {
-    // For matching-type talks, check if the final answer was "noticed"
-    if (talkData.type !== 'matching') {
+    // Matching-type talks and tags both use isMatch on the chosen answer
+    if (talkData.type !== 'matching' && talkData.type !== 'tag') {
       console.log('  Not a matching talk, type:', talkData.type);
       return false;
     }

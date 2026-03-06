@@ -84,7 +84,7 @@ class IinPublicServer {
     this.app.use(express.static('.'));
 
     // Gun.js HTTP endpoint - served by Gun({ web: this.server })
-    this.app.use(Gun.serve);
+    this.app.use((Gun as any).serve);
   }
 
   private initializeServices(): void {

@@ -10,6 +10,11 @@ export declare class TalkValidator {
      * Validates talk structure and content
      */
     static validateTalk(talk: Talk): void;
+    /**
+     * Tag: simplest form of talk. Single question (keyword/short phrase), one checkbox:
+     * checked = match, unchecked = ignore.
+     */
+    private static validateTagTalk;
     private static validateQuestion;
     private static validateAnswer;
     private static validateSurveyTalk;

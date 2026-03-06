@@ -193,8 +193,83 @@ describe('TalkValidator', () => {
     });
   });
 
+  describe('validateTalk (tag)', () => {
+    it('should accept a valid tag (one question, one match + one ignore answer)', () => {
+      const tag: Talk = {
+        id: 'tag-1',
+        title: 'Coffee',
+        authorId: 'user-1',
+        type: 'tag',
+        isAdult: false,
+        language: 'en',
+        tags: [],
+        questions: [
+          {
+            id: 'q_0',
+            text: 'Coffee',
+            answers: [
+              { id: 'a_0_match', text: 'Match.', isMatch: true, isTerminal: true },
+              { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+            ],
+          },
+        ],
+        createdAt: new Date(),
+        isTemplate: false,
+        usageCount: 0,
+      };
+      expect(() => TalkValidator.validateTalk(tag)).not.toThrow();
+    });
+
+    it('should reject tag with more than one question', () => {
+      const tag: Talk = {
+        id: 'tag-2',
+        title: 'Coffee',
+        authorId: 'user-1',
+        type: 'tag',
+        isAdult: false,
+        language: 'en',
+        tags: [],
+        questions: [
+          { id: 'q_0', text: 'Coffee', answers: [{ id: 'a1', text: 'Match.', isMatch: true, isTerminal: true }, { id: 'a2', text: 'Ignore.', isIgnore: true, isTerminal: true }] },
+          { id: 'q_1', text: 'Tennis', answers: [{ id: 'a3', text: 'Match.', isMatch: true, isTerminal: true }, { id: 'a4', text: 'Ignore.', isIgnore: true, isTerminal: true }] },
+        ],
+        createdAt: new Date(),
+        isTemplate: false,
+        usageCount: 0,
+      };
+      expect(() => TalkValidator.validateTalk(tag)).toThrow('Tag must have exactly one question');
+    });
+
+    it('should reject tag without both match and ignore answers', () => {
+      const tag: Talk = {
+        id: 'tag-3',
+        title: 'Coffee',
+        authorId: 'user-1',
+        type: 'tag',
+        isAdult: false,
+        language: 'en',
+        tags: [],
+        questions: [
+          {
+            id: 'q_0',
+            text: 'Coffee',
+            answers: [
+              { id: 'a_0_match', text: 'Match.', isMatch: true, isTerminal: true },
+            ],
+          },
+        ],
+        createdAt: new Date(),
+        isTemplate: false,
+        usageCount: 0,
+      };
+      expect(() => TalkValidator.validateTalk(tag)).toThrow(
+        /Tag must have (exactly two answers|one match and one ignore)/,
+      );
+    });
+  });
+});
+
   // The following tests are commented out because the methods are private or don't exist
-  // Uncomment when the methods are made public or implemented
 
   // describe('validateAnswer', () => {
   //   it('should validate a terminal answer', () => {
@@ -248,4 +323,3 @@ describe('TalkValidator', () => {
   //     expect(talk.tags.map((t: any) => t.name)).toEqual(['casual', 'introduction']);
   //   });
   // });
-});

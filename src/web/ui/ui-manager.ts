@@ -1230,6 +1230,63 @@ export class UIManager extends EventEmitter {
     modal.className = 'modal-overlay';
     modal.id = 'talk-response-modal';
 
+    // Tag: single checkbox (match / ignore)
+    if (talk.type === 'tag') {
+      const q = talk.questions?.[0];
+      if (!q || !q.answers?.length) {
+        this.showNotification('Invalid tag', 'error');
+        return;
+      }
+      const matchAnswer = q.answers.find((a: any) => a.isMatch);
+      const ignoreAnswer = q.answers.find((a: any) => a.isIgnore);
+      modal.innerHTML = `
+        <div class="modal-content" style="max-width: 600px;">
+          <div class="modal-header">
+            <h2 class="modal-title">${this.escapeHtml(talk.title)}</h2>
+            <p>Tag — check to match, leave unchecked to ignore</p>
+          </div>
+          <div style="padding: 20px;">
+            <div style="font-size: 1.1em; font-weight: 600; margin-bottom: 20px;">
+              ${this.escapeHtml(q.text)}
+            </div>
+            <label class="tag-checkbox-label" style="display: flex; align-items: center; gap: 12px; cursor: pointer; font-size: 1.1em;">
+              <input type="checkbox" id="tag-match-checkbox" class="tag-match-checkbox">
+              <span>Match (I'm interested)</span>
+            </label>
+            <button type="button" id="tag-submit-btn" class="btn" style="margin-top: 20px; width: 100%; padding: 12px; background: #667eea; color: white; border: none; border-radius: 8px; font-size: 1em; cursor: pointer;">
+              Submit
+            </button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+      const checkbox = document.getElementById('tag-match-checkbox') as HTMLInputElement;
+      const submitBtn = document.getElementById('tag-submit-btn');
+      const answers: { questionId: string; answerId: string; answerText: string }[] = [];
+      submitBtn?.addEventListener('click', () => {
+        const checked = checkbox?.checked;
+        const answer = checked && matchAnswer ? matchAnswer : ignoreAnswer;
+        if (!answer) {
+          this.completeTalk(talk, [], 'mismatch');
+        } else {
+          answers.push({
+            questionId: q.id,
+            answerId: answer.id,
+            answerText: answer.text || (checked ? 'Match.' : 'Ignore.'),
+          });
+          if (checked && matchAnswer) {
+            this.showNotification('Match! You both noticed each other.', 'success');
+            this.completeTalk(talk, answers, 'match');
+          } else {
+            this.showNotification('Tag ignored - no match', 'info');
+            this.completeTalk(talk, answers, 'mismatch');
+          }
+        }
+        if (document.body.contains(modal)) document.body.removeChild(modal);
+      });
+      return;
+    }
+
     // Start with first question
     let currentQuestion = talk.questions[0];
     const answers: { questionId: string; answerId: string; answerText: string }[] = [];
@@ -1536,7 +1593,9 @@ export class UIManager extends EventEmitter {
     this.showNotification(
       talk.type === 'matching'
         ? "Response submitted! We'll notify you of matches."
-        : 'Survey response submitted! Thank you.',
+        : talk.type === 'tag'
+          ? "Tag response submitted!"
+          : 'Survey response submitted! Thank you.',
       'success',
     );
   }
@@ -2128,7 +2187,7 @@ export class UIManager extends EventEmitter {
         <div class="modal-content" style="max-width: 1000px; max-height: 90vh; overflow-y: auto;">
           <div class="modal-header">
             <h2 class="modal-title">${isEdit ? 'Edit Talk' : 'Create a Talk'}</h2>
-            <p>Build a branching conversation flow - each answer can lead to a different question</p>
+            <p class="talk-editor-description">Build a branching conversation flow - each answer can lead to a different question</p>
           </div>
           <form id="talk-editor-form" style="padding: 20px;" data-editing-talk-id="${existingTalk?.id || ''}">
             <div class="form-group">
@@ -2138,13 +2197,28 @@ export class UIManager extends EventEmitter {
             
             <div class="form-group">
               <label class="form-label">Type</label>
-              <select class="form-input" id="talk-type">
-                <option value="matching" ${existingTalk?.type === 'survey' ? '' : 'selected'}>Matching (find compatible people)</option>
-                <option value="survey" ${existingTalk?.type === 'survey' ? 'selected' : ''}>Survey (collect responses)</option>
+              <div style="display: flex; flex-direction: column; gap: 10px;">
+                <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
+                  <input type="radio" name="talk-type-radio" value="matching" ${existingTalk?.type !== 'tag' && existingTalk?.type !== 'survey' ? 'checked' : ''}>
+                  <span>Talk (matching – find compatible people)</span>
+                </label>
+                <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
+                  <input type="radio" name="talk-type-radio" value="survey" ${existingTalk?.type === 'survey' ? 'checked' : ''}>
+                  <span>Survey (collect responses)</span>
+                </label>
+                <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
+                  <input type="radio" name="talk-type-radio" value="tag" ${existingTalk?.type === 'tag' ? 'checked' : ''}>
+                  <span>Tag (single keyword, answer with one checkbox: match or ignore)</span>
+                </label>
+              </div>
+              <select class="form-input" id="talk-type" aria-hidden="true" style="position: absolute; left: -9999px;" tabindex="-1">
+                <option value="matching">Matching</option>
+                <option value="survey">Survey</option>
+                <option value="tag">Tag</option>
               </select>
             </div>
             
-            <div class="form-group">
+            <div class="form-group" id="questions-form-group">
               <label class="form-label">Questions & Branching</label>
               <div id="questions-container"></div>
               <button type="button" id="add-question-btn" class="btn" style="margin-top: 10px; background: #667eea; color: white;">+ Add Question</button>
@@ -2202,6 +2276,54 @@ export class UIManager extends EventEmitter {
         } else {
           this.addQuestionToForm(0, questionsContainer);
         }
+      }
+
+      const talkTypeSelect = document.getElementById('talk-type') as HTMLSelectElement;
+      const questionsFormGroup = document.getElementById('questions-form-group');
+      const updateFormForType = () => {
+        const type = talkTypeSelect?.value || 'matching';
+        const titleInput = document.getElementById('talk-title') as HTMLInputElement;
+        const desc = document.querySelector('.talk-editor-description');
+        if (type === 'tag') {
+          if (questionsFormGroup) {
+            questionsFormGroup.style.display = 'none';
+            questionsFormGroup.querySelectorAll('input, select, textarea').forEach((el) => {
+              (el as HTMLInputElement).disabled = true;
+            });
+          }
+          if (titleInput) {
+            titleInput.placeholder = 'e.g., Coffee, Tennis, Jobs';
+            titleInput.setAttribute('aria-label', 'Tag keyword');
+          }
+          if (desc) (desc as HTMLElement).textContent = 'Tag: one keyword. Others answer with a checkbox — checked = match, unchecked = ignore.';
+        } else {
+          if (questionsFormGroup) {
+            questionsFormGroup.style.display = 'block';
+            questionsFormGroup.querySelectorAll('input, select, textarea').forEach((el) => {
+              (el as HTMLInputElement).disabled = false;
+            });
+          }
+          if (titleInput) {
+            titleInput.placeholder = 'e.g., Coffee Meetup, Quick Survey';
+            titleInput.removeAttribute('aria-label');
+          }
+          if (desc) (desc as HTMLElement).textContent = 'Build a branching conversation flow - each answer can lead to a different question';
+        }
+      };
+      modal.querySelectorAll('input[name="talk-type-radio"]').forEach((radio) => {
+        radio.addEventListener('change', (e) => {
+          const value = (e.target as HTMLInputElement).value;
+          if (talkTypeSelect) talkTypeSelect.value = value;
+          updateFormForType();
+        });
+      });
+      const checkedRadio = modal.querySelector('input[name="talk-type-radio"]:checked') as HTMLInputElement;
+      if (talkTypeSelect && checkedRadio) {
+        talkTypeSelect.value = checkedRadio.value;
+      }
+      if (talkTypeSelect) {
+        talkTypeSelect.addEventListener('change', updateFormForType);
+        updateFormForType();
       }
 
       this.setupTalkFormHandlers(modal);
@@ -2392,53 +2514,74 @@ export class UIManager extends EventEmitter {
   }
 
   private processTalkForm(form: HTMLFormElement): void {
-    const title = (document.getElementById('talk-title') as HTMLInputElement).value;
+    const title = (document.getElementById('talk-title') as HTMLInputElement).value.trim();
     const type = (document.getElementById('talk-type') as HTMLSelectElement).value as
       | 'matching'
-      | 'survey';
+      | 'survey'
+      | 'tag';
 
-    const questions: any[] = [];
-    const questionItems = form.querySelectorAll('.question-item');
+    let questions: any[];
 
-    questionItems.forEach((item, qIndex) => {
-      const questionText = (item.querySelector('.question-text') as HTMLInputElement).value;
-      const answerItems = item.querySelectorAll('.answer-item');
+    if (type === 'tag') {
+      const keyword = title || (document.getElementById('talk-title') as HTMLInputElement).value.trim();
+      if (!keyword) {
+        this.showNotification('Tag keyword is required', 'error');
+        return;
+      }
+      questions = [
+        {
+          id: 'q_0',
+          text: keyword,
+          answers: [
+            { id: 'a_0_match', text: 'Match.', isMatch: true, isTerminal: true },
+            { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+      ];
+    } else {
+      questions = [];
+      const questionItems = form.querySelectorAll('.question-item');
 
-      const answers: any[] = [];
-      answerItems.forEach((answerItem, aIndex) => {
-        const answerText = (
-          answerItem.querySelector('.answer-text') as HTMLInputElement
-        ).value.trim();
-        const nextQuestion = (answerItem.querySelector('.answer-next') as HTMLSelectElement).value;
+      questionItems.forEach((item, qIndex) => {
+        const questionText = (item.querySelector('.question-text') as HTMLInputElement).value;
+        const answerItems = item.querySelectorAll('.answer-item');
 
-        if (answerText) {
-          const answer: any = {
-            id: `a_${qIndex}_${aIndex}`,
-            text: answerText,
-          };
+        const answers: any[] = [];
+        answerItems.forEach((answerItem, aIndex) => {
+          const answerText = (
+            answerItem.querySelector('.answer-text') as HTMLInputElement
+          ).value.trim();
+          const nextQuestion = (answerItem.querySelector('.answer-next') as HTMLSelectElement).value;
 
-          // Handle the different action types
-          if (nextQuestion === 'ignore') {
-            answer.isIgnore = true;
-            answer.isTerminal = true;
-          } else if (nextQuestion === 'noticed') {
-            answer.isMatch = true;
-            answer.isTerminal = true;
-          } else if (nextQuestion) {
-            // It's a question ID (e.g., "q_1")
-            answer.nextQuestionId = nextQuestion;
+          if (answerText) {
+            const answer: any = {
+              id: `a_${qIndex}_${aIndex}`,
+              text: answerText,
+            };
+
+            // Handle the different action types
+            if (nextQuestion === 'ignore') {
+              answer.isIgnore = true;
+              answer.isTerminal = true;
+            } else if (nextQuestion === 'noticed') {
+              answer.isMatch = true;
+              answer.isTerminal = true;
+            } else if (nextQuestion) {
+              // It's a question ID (e.g., "q_1")
+              answer.nextQuestionId = nextQuestion;
+            }
+
+            answers.push(answer);
           }
+        });
 
-          answers.push(answer);
-        }
+        questions.push({
+          id: `q_${qIndex}`,
+          text: questionText,
+          answers: answers,
+        });
       });
-
-      questions.push({
-        id: `q_${qIndex}`,
-        text: questionText,
-        answers: answers,
-      });
-    });
+    }
 
     const editingTalkId = form.dataset.editingTalkId;
     if (editingTalkId) {

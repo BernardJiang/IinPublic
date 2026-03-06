@@ -6,6 +6,7 @@ export declare class ChatroomManager {
     getAllChatrooms(): Promise<any[]>;
     joinChatroom(chatroomId: string, userId: string): Promise<void>;
     leaveChatroom(chatroomId: string, userId: string): Promise<void>;
+    moveChatroom(userId: string, oldChatroomId: string, newChatroomId: string): Promise<void>;
     findOptimalChatroom(_location: GPSCoordinate): Promise<string>;
 }
 //# sourceMappingURL=chatroom-manager.d.ts.map

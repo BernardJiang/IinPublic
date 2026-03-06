@@ -80,6 +80,112 @@ class TalkService {
         });
         // Update reputation
         await this.reputationService.updateUserReputation(userId, 'question_answered');
+        // Try to infer outcome (match / ignore / completed) from the Talk model
+        try {
+            // Load conversation metadata if it exists
+            const rawConversation = await this.gunService
+                .get(`conversations/${conversationId}`)
+                .catch(() => undefined);
+            let talkId;
+            let participants;
+            if (rawConversation) {
+                if (rawConversation.data) {
+                    // Conversation stored as { data: JSON.stringify(conversationData) }
+                    try {
+                        const parsed = JSON.parse(rawConversation.data);
+                        talkId = parsed.talkId;
+                        participants = parsed.participants;
+                    }
+                    catch {
+                        // Ignore JSON parse errors and fall back
+                    }
+                }
+                else {
+                    talkId = rawConversation.talkId;
+                    participants = rawConversation.participants;
+                }
+            }
+            if (!talkId) {
+                // No talk metadata available, return basic result
+                return result;
+            }
+            result.talkId = talkId;
+            // Load the Talk; it might be stored directly or wrapped in { data }
+            const rawTalk = await this.gunService.get(`talks/${talkId}`).catch(() => undefined);
+            if (!rawTalk) {
+                return result;
+            }
+            let talk;
+            if (rawTalk.data) {
+                try {
+                    talk = JSON.parse(rawTalk.data);
+                }
+                catch {
+                    // If parsing fails, fall back to rawTalk as-is
+                    talk = rawTalk;
+                }
+            }
+            else {
+                talk = rawTalk;
+            }
+            if (!talk || !Array.isArray(talk.questions)) {
+                return result;
+            }
+            const question = talk.questions.find((q) => q.id === questionId);
+            if (!question) {
+                return result;
+            }
+            const answer = question.answers.find((a) => a.id === answerId);
+            if (!answer) {
+                return result;
+            }
+            // Derive outcome based on answer flags
+            if (answer.isIgnore) {
+                result.isComplete = true;
+                result.outcome = 'ignored';
+            }
+            else if (answer.isMatch) {
+                result.isComplete = true;
+                result.outcome = 'match';
+            }
+            else if (answer.isTerminal) {
+                result.isComplete = true;
+                result.outcome = 'completed';
+            }
+            // If we have a match, persist a Match record and update conversation status / reputation
+            if (result.outcome === 'match' && participants && participants.length >= 2) {
+                const matchId = (0, uuid_1.v4)();
+                const match = {
+                    id: matchId,
+                    userIds: participants,
+                    talkId,
+                    conversationId,
+                    matchedAt: new Date(),
+                    status: 'pending',
+                };
+                await this.gunService.put(`matches/${matchId}`, match);
+                result.matchId = matchId;
+                // Update conversation status if stored with structured data
+                if (rawConversation && rawConversation.data) {
+                    try {
+                        const parsed = JSON.parse(rawConversation.data);
+                        parsed.status = 'matched';
+                        await this.gunService.put(`conversations/${conversationId}`, {
+                            data: JSON.stringify(parsed),
+                        });
+                    }
+                    catch {
+                        // If parsing fails, skip conversation status update
+                    }
+                }
+                // Update reputation for all participants
+                await Promise.all(participants.map((participantId) => this.reputationService.updateUserReputation(participantId, 'match_found')));
+            }
+        }
+        catch (error) {
+            // Matching / outcome logic should never break core answer processing
+            console.error('Failed to process talk answer for matching logic:', error);
+        }
         return result;
     }
 }

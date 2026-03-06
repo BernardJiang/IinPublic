@@ -80,7 +80,7 @@ class IinPublicServer {
         this.userService = new user_service_1.UserService(this.gunService);
         this.reputationService = new reputation_service_1.ReputationService(this.gunService);
         this.chatroomManager = new chatroom_manager_1.ChatroomManager(this.gunService);
-        this.talkService = new talk_service_1.TalkService(this.gunService, this.chatroomManager);
+        this.talkService = new talk_service_1.TalkService(this.gunService, this.reputationService);
     }
     setupRoutes() {
         // Health check
@@ -164,6 +164,29 @@ class IinPublicServer {
                 res.status(400).json({ error: error.message });
             }
         });
+        // Test-only endpoint to clear Gun.js in-memory database
+        if (process.env.NODE_ENV !== 'production') {
+            this.app.post('/api/test/clear-database', (_req, res) => {
+                try {
+                    // Clear Gun.js in-memory graph
+                    // Gun stores data in gun._.graph which is the in-memory cache
+                    if (this.gun && this.gun._ && this.gun._.graph) {
+                        console.log('🧹 Clearing Gun.js in-memory database...');
+                        // Create a new empty graph
+                        this.gun._.graph = {};
+                        console.log('✅ Gun.js in-memory database cleared');
+                        res.json({ success: true, message: 'Gun.js in-memory database cleared' });
+                    }
+                    else {
+                        res.status(500).json({ error: 'Gun.js graph not accessible' });
+                    }
+                }
+                catch (error) {
+                    console.error('Error clearing Gun.js database:', error);
+                    res.status(500).json({ error: error.message });
+                }
+            });
+        }
     }
     setupSocketHandlers() {
         this.io.on('connection', (socket) => {
@@ -200,6 +223,17 @@ class IinPublicServer {
                     socket.emit('error', { error: error.message });
                 }
             });
+            socket.on('move_chatroom', async (data) => {
+                try {
+                    await this.chatroomManager.moveChatroom(socket.data.userId, data.oldChatroomId, data.newChatroomId);
+                    socket.leave(data.oldChatroomId);
+                    socket.join(data.newChatroomId);
+                    socket.emit('moved_chatroom', { oldChatroomId: data.oldChatroomId, newChatroomId: data.newChatroomId });
+                }
+                catch (error) {
+                    socket.emit('error', { error: error.message });
+                }
+            });
             // Real-time messaging
             socket.on('send_message', async (data) => {
                 try {
@@ -221,7 +255,17 @@ class IinPublicServer {
                         socket.emit('talk_completed', {
                             conversationId: data.conversationId,
                             result: result.outcome,
+                            talkId: result.talkId,
+                            matchId: result.matchId,
                         });
+                        // For match outcomes, emit a dedicated event so clients can react explicitly
+                        if (result.outcome === 'match') {
+                            socket.emit('talk_matched', {
+                                conversationId: data.conversationId,
+                                talkId: result.talkId,
+                                matchId: result.matchId,
+                            });
+                        }
                     }
                 }
                 catch (error) {

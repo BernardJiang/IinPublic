@@ -86,11 +86,22 @@ export class TalkValidator {
       throw new ValidationError('Talk must have at least one question');
     }
     
+    const isTagByType = String(talk.type) === 'tag';
+    const isTagByStructure =
+      talk.questions.length === 1 &&
+      talk.questions[0].answers?.length === 2 &&
+      talk.questions[0].answers.some((a) => a.isMatch) &&
+      talk.questions[0].answers.some((a) => a.isIgnore);
+    if (isTagByType || isTagByStructure) {
+      this.validateTagTalk(talk);
+      return;
+    }
+    
     if (talk.questions.length > 20) {
       throw new ValidationError('Talk cannot have more than 20 questions');
     }
     
-    // Validate each question
+    // Validate each question (skip for tag - validated in validateTagTalk)
     for (const question of talk.questions) {
       this.validateQuestion(question);
     }
@@ -101,6 +112,28 @@ export class TalkValidator {
     // Validate survey-specific rules
     if (talk.type === 'survey') {
       this.validateSurveyTalk(talk);
+    }
+  }
+  
+  /**
+   * Tag: simplest form of talk. Single question (keyword/short phrase), one checkbox:
+   * checked = match, unchecked = ignore.
+   */
+  private static validateTagTalk(talk: Talk): void {
+    if (talk.questions.length !== 1) {
+      throw new ValidationError('Tag must have exactly one question');
+    }
+    const q = talk.questions[0];
+    if (!q.text || !q.text.trim()) {
+      throw new ValidationError('Tag question (keyword) is required');
+    }
+    if (q.answers.length !== 2) {
+      throw new ValidationError('Tag must have exactly two answers (match and ignore)');
+    }
+    const hasMatch = q.answers.some(a => a.isMatch);
+    const hasIgnore = q.answers.some(a => a.isIgnore);
+    if (!hasMatch || !hasIgnore) {
+      throw new ValidationError('Tag must have one match and one ignore answer');
     }
   }
   
