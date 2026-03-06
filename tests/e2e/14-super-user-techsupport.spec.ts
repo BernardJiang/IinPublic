@@ -127,10 +127,17 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     return { context, page };
   }
 
-  async function waitForNotification(page: Page, contains: string, label: string): Promise<void> {
-    const locator = page.getByText(contains, { exact: false }).first();
+  async function waitForNotification(
+    page: Page,
+    contains: string | RegExp,
+    label: string,
+  ): Promise<void> {
+    const locator =
+      typeof contains === 'string'
+        ? page.getByText(contains, { exact: false }).first()
+        : page.getByText(contains).first();
     await expect(locator).toBeVisible({ timeout: 20000 });
-    console.log(`✅ ${label} saw notification: "${contains}"`);
+    console.log(`✅ ${label} saw notification: "${String(contains)}"`);
   }
 
   test('TechSupport creates 10 tags + 10 talks, answers all himself (in UI); Tom joins; TechSupport sends all 20; Tom answers all; TechSupport confirms', async () => {
@@ -292,8 +299,8 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     await pageTechSupport.waitForTimeout(1500);
 
     await pageTechSupport.click('#broadcast-talk-btn');
-    await pageTechSupport.waitForTimeout(500);
-    await waitForNotification(pageTechSupport, 'Sent 1 talk', 'TechSupport');
+    await pageTechSupport.waitForTimeout(2000); // allow async broadcast to complete before toast is dismissed (3s)
+    await waitForNotification(pageTechSupport, /Sent 1 talks?/, 'TechSupport');
 
     await pageTom.waitForTimeout(3000);
     await pageTom.click('.nav-btn[data-view="talks"]');

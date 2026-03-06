@@ -47,6 +47,13 @@ test.describe('Twenty-One User Comprehensive Chatroom Test', () => {
   const contexts: BrowserContext[] = [];
   const pages: Page[] = [];
 
+  // Viewport/grid dimensions (shared so test and beforeAll can use them)
+  const COLS = 7;
+  const ROWS = 3;
+  const viewportWidth = Math.floor(1920 / COLS);
+  const viewportHeight = Math.floor(1080 / ROWS);
+  const browserChromeHeight = 200;
+
   // Helper function to get status bar text
   async function getStatusBar(page: Page): Promise<string> {
     try {
@@ -99,31 +106,25 @@ test.describe('Twenty-One User Comprehensive Chatroom Test', () => {
 
     // Launch 21 browsers in a grid layout (7x3)
     console.log('🚀 Launching 21 Chrome browsers...');
-    const cols = 7;
-    const rows = 3;
-    const windowWidth = Math.floor(1920 / cols);
-    const windowHeight = Math.floor(1080 / rows);
-    const browserChromeHeight = 200;
-
     for (let i = 0; i < 21; i++) {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const x = col * windowWidth;
-      const y = row * (windowHeight + browserChromeHeight);
+      const col = i % COLS;
+      const row = Math.floor(i / COLS);
+      const x = col * viewportWidth;
+      const y = row * (viewportHeight + browserChromeHeight);
 
       const browser = await chromium.launch({
         headless: false,
         slowMo: 50,
         args: [
           `--window-position=${x},${y}`,
-          `--window-size=${windowWidth},${windowHeight + browserChromeHeight}`,
+          `--window-size=${viewportWidth},${viewportHeight + browserChromeHeight}`,
           '--force-device-scale-factor=0.8',
         ],
       });
       browsers.push(browser);
     }
 
-    console.log(`✅ Launched ${browsers.length} browsers in ${cols}x${rows} grid`);
+    console.log(`✅ Launched ${browsers.length} browsers in ${COLS}x${ROWS} grid`);
   });
 
   test.afterAll(async () => {
@@ -173,7 +174,7 @@ test.describe('Twenty-One User Comprehensive Chatroom Test', () => {
       console.log(`\n📍 User ${user.id}: ${user.name} joining (${user.continent})...`);
 
       const context = await browsers[i].newContext({
-        viewport: { width: Math.floor(1920 / 7), height: Math.floor(1080 / 3) },
+        viewport: { width: viewportWidth, height: viewportHeight },
         deviceScaleFactor: 0.8,
       });
 
@@ -190,7 +191,7 @@ test.describe('Twenty-One User Comprehensive Chatroom Test', () => {
 
       await page.goto('/');
       await page.waitForLoadState('networkidle');
-      await ensureWindowFitsViewport(page, windowWidth, windowHeight);
+      await ensureWindowFitsViewport(page, viewportWidth, viewportHeight);
       await page.waitForTimeout(3000);
 
       contexts.push(context);
