@@ -280,14 +280,11 @@ export class UIManager extends EventEmitter {
       });
     }
 
-    // Broadcast talk button: only open "create new talk" when 0 talks created
+    // Broadcast talk button: only open "create new talk" when 0 talks to broadcast
     const broadcastTalkBtn = document.getElementById('broadcast-talk-btn');
     if (broadcastTalkBtn) {
       broadcastTalkBtn.addEventListener('click', () => {
-        const myTalks = this.getMyTalks();
-        const createdCount = Object.values(myTalks).filter(
-          (t: any) => t?.role === 'created',
-        ).length;
+        const broadcastableCount = this.getBroadcastableTalkIds().length;
 
         this.emit('broadcastTalk', {
           chatroomId: this.currentChatroom,
@@ -308,7 +305,7 @@ export class UIManager extends EventEmitter {
         }
 
         // Only launch create-talk dialog when user has no talks to broadcast
-        if (createdCount === 0) {
+        if (broadcastableCount === 0) {
           this.showTalkEditorDialog();
         }
       });
@@ -399,6 +396,7 @@ export class UIManager extends EventEmitter {
     // Update user info in Me view
     const userInfoMe = document.getElementById('user-info-me');
     if (userInfoMe) {
+      const copyTalkChecked = this.getCopyTalkAutoSave();
       userInfoMe.innerHTML = `
         <div class="user-avatar" style="width: 80px; height: 80px; font-size: 2em; margin: 20px auto;">
           ${user.stageName.charAt(0).toUpperCase()}
@@ -408,12 +406,25 @@ export class UIManager extends EventEmitter {
           <div style="font-size: 0.9em; color: #999; margin-top: 5px;">Online</div>
           <button class="btn" id="edit-stagename-btn" data-testid="edit-stage-name-button" style="margin-top: 10px;">Edit Stage Name</button>
         </div>
+        <div style="margin-top: 20px; padding: 16px; background: #f9fafb; border-radius: 12px; text-align: left;">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.95em;">
+            <input type="checkbox" id="copy-talk-autosave-checkbox" ${copyTalkChecked ? 'checked' : ''}>
+            <span>Auto-save received talks (copy talk)</span>
+          </label>
+          <p style="margin: 8px 0 0 28px; font-size: 0.85em; color: #6b7280;">When off, received talks are not saved to My Talks.</p>
+        </div>
       `;
 
       // Add event listener for edit stage name button
       const editBtn = document.getElementById('edit-stagename-btn');
       if (editBtn) {
         editBtn.addEventListener('click', () => this.showEditStageNameDialog(user));
+      }
+      const copyTalkCheckbox = document.getElementById('copy-talk-autosave-checkbox') as HTMLInputElement;
+      if (copyTalkCheckbox) {
+        copyTalkCheckbox.addEventListener('change', () => {
+          this.setCopyTalkAutoSave(copyTalkCheckbox.checked);
+        });
       }
     }
 
@@ -700,14 +711,14 @@ export class UIManager extends EventEmitter {
     if (!talksList) return;
 
     const myTalks = this.getMyTalks();
-    // Show both created and received/answered talks, sorted by last interaction
+    // Show both created and received/copied talks, sorted by last interaction
     const allEntries = Object.entries(myTalks)
       .sort(
         ([, a]: [string, any], [, b]: [string, any]) =>
           new Date(b.lastInteraction).getTime() - new Date(a.lastInteraction).getTime(),
       );
     const createdEntries = allEntries.filter(([, t]: [string, any]) => t.role === 'created');
-    const answeredEntries = allEntries.filter(([, t]: [string, any]) => t.role === 'answered');
+    const answeredEntries = allEntries.filter(([, t]: [string, any]) => t.role === 'answered' || t.role === 'copied');
 
     if (allEntries.length === 0) {
       talksList.innerHTML = `
@@ -735,6 +746,7 @@ export class UIManager extends EventEmitter {
                     matchedNames.length > 0
                       ? `<div class="talk-item-matched" style="font-size: 0.85em; color: #2e7d32; margin-top: 4px;">Matched with: ${matchedNames.join(', ')}</div>`
                       : '';
+                  const disabled = !!talk.disabled;
                   return `
         <div class="talk-list-item" data-talk-id="${talkId}" data-role="created">
           <div class="talk-item-header">
@@ -742,6 +754,7 @@ export class UIManager extends EventEmitter {
             <div class="talk-item-badges">
               <span class="talk-badge talk-badge-created">📝 Created</span>
               <span class="talk-badge talk-badge-type">${talk.type}</span>
+              ${disabled ? '<span class="talk-badge" style="background:#fef3c7;color:#92400e;">🚫 Disabled</span>' : ''}
             </div>
           </div>
           <div class="talk-item-meta">
@@ -751,8 +764,9 @@ export class UIManager extends EventEmitter {
             ${statsLine}
           </div>
           ${matchedLine}
-          <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px;">
+          <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
             <button type="button" class="btn edit-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">✏️ Edit</button>
+            <button type="button" class="btn toggle-broadcast-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">${disabled ? '✅ Enable for broadcast' : '🚫 Disable for broadcast'}</button>
           </div>
         </div>
       `;
@@ -765,23 +779,28 @@ export class UIManager extends EventEmitter {
         answeredEntries.length > 0
           ? answeredEntries
               .map(
-                ([talkId, talk]) => `
-        <div class="talk-list-item" data-talk-id="${talkId}" data-role="answered">
+                ([talkId, talk]) => {
+                  const disabled = !!talk.disabled;
+                  return `
+        <div class="talk-list-item" data-talk-id="${talkId}" data-role="${talk.role || 'answered'}">
           <div class="talk-item-header">
             <div class="talk-item-title">${this.escapeHtml(talk.title)}</div>
             <div class="talk-item-badges">
-              <span class="talk-badge talk-badge-answered">📥 From others</span>
+              <span class="talk-badge talk-badge-answered">📥 ${talk.role === 'copied' ? 'Copied' : 'From others'}</span>
               <span class="talk-badge talk-badge-type">${talk.type}</span>
+              ${disabled ? '<span class="talk-badge" style="background:#fef3c7;color:#92400e;">🚫 Disabled</span>' : ''}
             </div>
           </div>
           <div class="talk-item-meta">
             <span class="talk-item-time">${this.formatTimeAgo(new Date(talk.lastInteraction))}</span>
           </div>
-          <div class="talk-item-actions" style="margin-top: 10px;">
+          <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
             <button type="button" class="btn open-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">Open &amp; Answer</button>
+            <button type="button" class="btn toggle-broadcast-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">${disabled ? '✅ Enable for broadcast' : '🚫 Disable for broadcast'}</button>
           </div>
         </div>
-      `,
+      `;
+                },
               )
               .join('')
           : '';
@@ -833,6 +852,16 @@ export class UIManager extends EventEmitter {
           if (talkId) this.showTalkDetail(talkId);
         });
       });
+      talksList.querySelectorAll('.toggle-broadcast-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const talkId = (e.currentTarget as HTMLElement).dataset.talkId;
+          if (!talkId) return;
+          const myTalks = this.getMyTalks();
+          const current = !!myTalks[talkId]?.disabled;
+          this.setTalkDisabled(talkId, !current);
+        });
+      });
     }
   }
 
@@ -845,7 +874,7 @@ export class UIManager extends EventEmitter {
     if (!container) return;
     const myTalks = this.getMyTalks();
     const answered = Object.entries(myTalks)
-      .filter(([, t]: [string, any]) => t?.role === 'answered')
+      .filter(([, t]: [string, any]) => t?.role === 'answered' || t?.role === 'copied')
       .sort(
         ([, a]: [string, any], [, b]: [string, any]) =>
           new Date(b.lastInteraction).getTime() - new Date(a.lastInteraction).getTime(),
@@ -912,7 +941,7 @@ export class UIManager extends EventEmitter {
     if (talk.role === 'created') {
       // Open editor for editing
       this.emit('loadTalkForEdit', { talkId });
-    } else if (talk.role === 'answered' && talk.fullTalk) {
+    } else if ((talk.role === 'answered' || talk.role === 'copied') && talk.fullTalk) {
       this.showTalkResponseDialog(talk.fullTalk);
     } else {
       this.showNotification(`Talk: ${talk.title}`, 'info');
@@ -1201,13 +1230,18 @@ export class UIManager extends EventEmitter {
       return;
     }
 
-    // Save to My Talks history
+    // Option to disable auto-save of received talks (copy talk feature)
+    if (!talk.isOwnTalk && !this.getCopyTalkAutoSave()) {
+      return;
+    }
+
+    // Save as copied so user can resend; use 'copied' for received talks
     this.saveMyTalk({
       talkId: talk.id,
       title: talk.title,
       type: talk.type,
       timestamp: talk.timestamp,
-      role: talk.isOwnTalk ? 'created' : 'answered',
+      role: talk.isOwnTalk ? 'created' : 'copied',
       fullTalk: talk.fullTalk,
     });
 
@@ -1572,13 +1606,16 @@ export class UIManager extends EventEmitter {
   private completeTalk(talk: any, answers: any[], outcome?: 'match' | 'mismatch'): void {
     console.log('✅ Talk completed:', talk.id, answers, outcome);
 
-    // Update My Talks history to mark as answered (with outcome for Answer tab)
+    const myTalks = this.getMyTalks();
+    const existing = myTalks[talk.id];
+    const role = existing?.role === 'copied' ? 'copied' : 'answered';
+
     this.saveMyTalk({
       talkId: talk.id,
       title: talk.title,
       type: talk.type,
       timestamp: talk.createdAt || new Date().toISOString(),
-      role: 'answered',
+      role,
       fullTalk: talk,
       outcome: outcome ?? 'mismatch',
     });
@@ -1921,13 +1958,17 @@ export class UIManager extends EventEmitter {
     title: string;
     type: string;
     timestamp: string;
-    role: 'created' | 'answered';
+    role: 'created' | 'answered' | 'copied';
     fullTalk?: any;
     outcome?: 'match' | 'mismatch';
+    disabled?: boolean;
   }): void {
     const myTalks = this.getMyTalks();
+    const existing = myTalks[talkData.talkId];
     myTalks[talkData.talkId] = {
+      ...existing,
       ...talkData,
+      disabled: talkData.disabled ?? existing?.disabled ?? false,
       lastInteraction: new Date().toISOString(),
     };
     localStorage.setItem('myTalks', JSON.stringify(myTalks));
@@ -1935,6 +1976,32 @@ export class UIManager extends EventEmitter {
     // Refresh talks list if currently viewing Talks tab
     const talksView = document.getElementById('talks-view');
     if (talksView && talksView.classList.contains('active')) {
+      this.displayTalksList();
+    }
+  }
+
+  /** Talks that can be included in broadcast: created or copied, and not disabled */
+  getBroadcastableTalkIds(): string[] {
+    const myTalks = this.getMyTalks();
+    return Object.entries(myTalks)
+      .filter(([, t]: [string, any]) => (t?.role === 'created' || t?.role === 'copied') && !t?.disabled)
+      .map(([id]) => id);
+  }
+
+  getCopyTalkAutoSave(): boolean {
+    const v = localStorage.getItem('copyTalkAutoSave');
+    return v === null || v === 'true';
+  }
+
+  setCopyTalkAutoSave(enabled: boolean): void {
+    localStorage.setItem('copyTalkAutoSave', String(enabled));
+  }
+
+  setTalkDisabled(talkId: string, disabled: boolean): void {
+    const myTalks = this.getMyTalks();
+    if (myTalks[talkId]) {
+      myTalks[talkId].disabled = disabled;
+      localStorage.setItem('myTalks', JSON.stringify(myTalks));
       this.displayTalksList();
     }
   }
@@ -1978,12 +2045,13 @@ export class UIManager extends EventEmitter {
                           ${this.escapeHtml(talk.title)}
                         </div>
                         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                          <span style="display: inline-block; padding: 4px 12px; background: ${talk.role === 'created' ? '#dbeafe' : '#dcfce7'}; color: ${talk.role === 'created' ? '#1e40af' : '#166534'}; border-radius: 12px; font-size: 0.8em; font-weight: 600;">
-                            ${talk.role === 'created' ? '📝 Created by me' : '✅ Answered by me'}
+                          <span style="display: inline-block; padding: 4px 12px; background: ${talk.role === 'created' ? '#dbeafe' : talk.role === 'copied' ? '#e0e7ff' : '#dcfce7'}; color: ${talk.role === 'created' ? '#1e40af' : talk.role === 'copied' ? '#3730a3' : '#166534'}; border-radius: 12px; font-size: 0.8em; font-weight: 600;">
+                            ${talk.role === 'created' ? '📝 Created by me' : talk.role === 'copied' ? '📥 Copied' : '✅ Answered by me'}
                           </span>
                           <span style="display: inline-block; padding: 4px 12px; background: #f3f4f6; color: #6b7280; border-radius: 12px; font-size: 0.8em; font-weight: 600;">
                             ${talk.type}
                           </span>
+                          ${talk.disabled ? '<span style="display: inline-block; padding: 4px 12px; background: #fef3c7; color: #92400e; border-radius: 12px; font-size: 0.8em; font-weight: 600;">🚫 Disabled</span>' : ''}
                         </div>
                       </div>
                     </div>
@@ -1993,13 +2061,22 @@ export class UIManager extends EventEmitter {
                     <div style="font-size: 0.85em; color: #999;">
                       Talk ID: <code style="background: #e5e7eb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em;">${talkId}</code>
                     </div>
+                    <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button 
+                      class="toggle-broadcast-my-talks-btn" 
+                      data-talk-id="${talkId}"
+                      style="background: ${talk.disabled ? '#22c55e' : '#f59e0b'}; color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.85em; font-weight: 600;"
+                    >
+                      ${talk.disabled ? '✅ Enable for broadcast' : '🚫 Disable for broadcast'}
+                    </button>
                     <button 
                       class="delete-talk-btn" 
                       data-talk-id="${talkId}"
-                      style="margin-top: 12px; background: #e53e3e; color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.85em; font-weight: 600;"
+                      style="background: #e53e3e; color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.85em; font-weight: 600;"
                     >
                       🗑️ Remove from History
                     </button>
+                    </div>
                   </div>
                 `,
                 )
@@ -2046,8 +2123,22 @@ export class UIManager extends EventEmitter {
         this.showNotification('Talk removed from history', 'success');
       });
     });
+    modal.querySelectorAll('.toggle-broadcast-my-talks-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const target = e.currentTarget as HTMLElement;
+        const talkId = target.dataset.talkId!;
+        const myTalks = this.getMyTalks();
+        const current = !!myTalks[talkId]?.disabled;
+        this.setTalkDisabled(talkId, !current);
+        if (document.body.contains(modal)) {
+          document.body.removeChild(modal);
+        }
+        this.showMyTalksDialog();
+      });
+    });
 
-    // Click on talk card to open (edit for created, response view for answered)
+    // Click on talk card to open (edit for created, response view for answered/copied)
     modal.querySelectorAll('.talk-history-item').forEach((item) => {
       item.addEventListener('click', (e) => {
         if ((e.target as HTMLElement).closest('.delete-talk-btn')) return;
@@ -2730,7 +2821,7 @@ export class UIManager extends EventEmitter {
   private showTalksFromUserOrConversation(userId: string, stageName: string): void {
     const myTalks = this.getMyTalks();
     const talksFromUser = Object.entries(myTalks).filter(
-      ([, t]: [string, any]) => t?.role === 'answered' && t?.fullTalk?.authorId === userId,
+      ([, t]: [string, any]) => (t?.role === 'answered' || t?.role === 'copied') && t?.fullTalk?.authorId === userId,
     );
     const conversations = this.getMyConversations();
     const hasConversation = Object.values(conversations).some(

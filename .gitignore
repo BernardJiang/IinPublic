@@ -1,6 +1,6 @@
 node_modules
-data.json/!
-radata/!
+data.json
+radata/
 *.tmp
 test-screenshots
 playwright-report

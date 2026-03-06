@@ -644,18 +644,14 @@ export class IinPublicApp {
           }
           // members are already "other" users (excluding self)
           const targetCount = data.members?.length ?? 0;
-          const myTalksRaw = localStorage.getItem('myTalks');
-          const myTalks = myTalksRaw ? JSON.parse(myTalksRaw) : {};
-          const createdIds = Object.entries(myTalks)
-            .filter(([, t]: [string, any]) => t?.role === 'created')
-            .map(([id]) => id);
-          if (createdIds.length === 0) {
-            this.uiManager.showNotification('You have no talks to broadcast. Create one first.', 'info');
+          const broadcastableIds = this.uiManager.getBroadcastableTalkIds();
+          if (broadcastableIds.length === 0) {
+            this.uiManager.showNotification('You have no talks to broadcast. Create one first or enable copied talks.', 'info');
             return;
           }
           const gun = this.gunService.getGun();
           let sent = 0;
-          for (const talkId of createdIds) {
+          for (const talkId of broadcastableIds) {
             const talk = await this.talkService.getTalk(talkId);
             if (!talk) continue;
             gun.get('chatrooms').get(chatroomId).get('talks').get(talk.id).put({
