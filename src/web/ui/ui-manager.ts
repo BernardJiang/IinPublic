@@ -911,9 +911,9 @@ export class UIManager extends EventEmitter {
       return;
     }
     container.innerHTML = `
-      <div style="padding: 16px;">
+      <div class="answers-view-inner" style="padding: 16px; max-width: min(900px, 95%); margin: 0 auto;">
         <p style="margin-bottom: 12px; color: #666;">Talks you answered and their outcome:</p>
-        <div id="answers-list" style="display: flex; flex-direction: column; gap: 10px;"></div>
+        <div id="answers-list" class="answers-list" style="display: flex; flex-direction: column; gap: 10px;"></div>
         <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">View My Answers (preferences)</button>
       </div>
     `;
@@ -924,12 +924,10 @@ export class UIManager extends EventEmitter {
         const item = document.createElement('div');
         item.className = 'answer-outcome-item';
         item.dataset.talkId = talkId;
-        item.style.cssText = 'padding: 12px; border-radius: 8px; background: ' + (outcome === 'match' ? '#e8f5e9' : '#fff3e0') + '; border: 1px solid ' + (outcome === 'match' ? '#c8e6c9' : '#ffe0b2') + ';';
+        item.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-radius: 8px; background: ' + (outcome === 'match' ? '#e8f5e9' : '#fff3e0') + '; border: 1px solid ' + (outcome === 'match' ? '#c8e6c9' : '#ffe0b2') + ';';
         item.innerHTML = `
-          <div style="font-weight: 600;">${this.escapeHtml(talk.title)}</div>
-          <div style="font-size: 0.9em; margin-top: 4px;">
-            <span style="color: ${outcome === 'match' ? '#2e7d32' : '#e65100'}; font-weight: 600;">${outcome === 'match' ? '✓ Match' : '✗ Mismatch'}</span>
-          </div>
+          <div style="font-weight: 600; flex: 1; min-width: 0;">${this.escapeHtml(talk.title)}</div>
+          <span style="font-size: 0.9em; flex-shrink: 0; color: ${outcome === 'match' ? '#2e7d32' : '#e65100'}; font-weight: 600;">${outcome === 'match' ? '✓ Match' : '✗ Mismatch'}</span>
         `;
         item.addEventListener('click', () => this.showTalkDetail(talkId));
         listEl.appendChild(item);
@@ -1346,7 +1344,7 @@ export class UIManager extends EventEmitter {
 
     // Start with first question
     let currentQuestion = talk.questions[0];
-    const answers: { questionId: string; answerId: string; answerText: string }[] = [];
+    const answers: { questionId: string; answerId: string; answerText: string; mode?: 'auto' | 'manual' }[] = [];
 
     const renderQuestion = () => {
       if (!currentQuestion) {
@@ -1372,6 +1370,7 @@ export class UIManager extends EventEmitter {
             questionId: currentQuestion.id,
             answerId: savedPreference.answerId,
             answerText: savedPreference.answerText,
+            mode: (savedPreference.mode as 'auto' | 'manual') || 'auto',
           });
 
           // Handle the answer (same logic as manual click)
@@ -1420,147 +1419,92 @@ export class UIManager extends EventEmitter {
       const currentQuestionIndex = talk.questions.findIndex(
         (q: any) => q.id === currentQuestion.id,
       );
+      const choiceRadioName = `choice-${currentQuestion.id}`;
+      const showBackButton = currentQuestionIndex > 0;
+      const previousChoice = answers.find((a) => a.questionId === currentQuestion.id);
 
       modal.innerHTML = `
         <div class="modal-content" style="max-width: 600px;">
-          <div class="modal-header">
-            <h2 class="modal-title">${this.escapeHtml(talk.title)}</h2>
-            <p>Question ${currentQuestionIndex + 1} of ${talk.questions.length}</p>
+          <div class="modal-header" style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+            <div>
+              <h2 class="modal-title">${this.escapeHtml(talk.title)}</h2>
+              <p>Question ${currentQuestionIndex + 1} of ${talk.questions.length}</p>
+            </div>
+            ${showBackButton ? `<button type="button" class="btn btn-back-question" data-testid="back-question-btn">← Previous question</button>` : ''}
           </div>
           <div style="padding: 20px;">
-            <div style="font-size: 1.1em; font-weight: 600; margin-bottom: 20px;">
+            <div style="font-size: 1.1em; font-weight: 600; margin-bottom: 16px;">
               ${this.escapeHtml(currentQuestion.text)}
             </div>
-            <div id="answer-options">
+            <div class="answer-radio-grid" role="radiogroup" aria-label="Choose answer and mode">
+              <div class="answer-grid-header">
+                <span>Auto</span><span>Manual</span><span></span>
+              </div>
               ${currentQuestion.answers
                 .map(
-                  (answer: any) => `
-                <div style="margin-bottom: 20px;">
-                  <div style="
-                    padding: 12px;
-                    background: #f8f9fa;
-                    border: 2px solid #e0e0e0;
-                    border-radius: 8px;
-                    font-size: 1.1em;
-                    font-weight: 500;
-                    color: #333;
-                    margin-bottom: 8px;
-                  ">
-                    ${this.escapeHtml(answer.text)}
-                  </div>
-                  <div style="display: flex; gap: 8px;">
-                    <button 
-                      class="answer-option-btn answer-auto-btn"
-                      data-answer-id="${answer.id}"
-                      data-answer-text="${this.escapeHtml(answer.text)}"
-                      data-answer-mode="auto"
-                      data-is-terminal="${answer.isTerminal || false}"
-                      data-is-ignore="${answer.isIgnore || false}"
-                      data-is-match="${answer.isMatch || false}"
-                      data-next-question-id="${answer.nextQuestionId || ''}"
-                      style="
-                        flex: 1;
-                        padding: 10px 16px;
-                        background: #10b981;
-                        border: 2px solid #059669;
-                        border-radius: 6px;
-                        cursor: pointer;
-                        text-align: center;
-                        font-size: 0.9em;
-                        font-weight: 600;
-                        color: white;
-                        transition: all 0.2s;
-                      "
-                      onmouseover="this.style.background='#059669'; this.style.transform='scale(1.02)';"
-                      onmouseout="this.style.background='#10b981'; this.style.transform='scale(1)';"
-                    >
-                      AUTO
-                    </button>
-                    <button 
-                      class="answer-option-btn answer-manual-btn"
-                      data-answer-id="${answer.id}"
-                      data-answer-text="${this.escapeHtml(answer.text)}"
-                      data-answer-mode="manual"
-                      data-is-terminal="${answer.isTerminal || false}"
-                      data-is-ignore="${answer.isIgnore || false}"
-                      data-is-match="${answer.isMatch || false}"
-                      data-next-question-id="${answer.nextQuestionId || ''}"
-                      style="
-                        flex: 1;
-                        padding: 10px 16px;
-                        background: #dc2626;
-                        border: 2px solid #b91c1c;
-                        border-radius: 6px;
-                        cursor: pointer;
-                        text-align: center;
-                        font-size: 0.9em;
-                        font-weight: 600;
-                        color: white;
-                        transition: all 0.2s;
-                      "
-                      onmouseover="this.style.background='#b91c1c'; this.style.transform='scale(1.02)';"
-                      onmouseout="this.style.background='#dc2626'; this.style.transform='scale(1)';"
-                    >
-                      MANUAL
-                    </button>
-                  </div>
+                  (answer: any) => {
+                    const prevMode = previousChoice?.answerId === answer.id ? (previousChoice?.mode ?? 'manual') : '';
+                    return `
+                <div class="answer-grid-row">
+                  <label class="answer-grid-cell"><input type="radio" name="${choiceRadioName}" value="${answer.id}_auto" class="choice-radio"
+                    data-answer-id="${answer.id}"
+                    data-answer-text="${this.escapeHtml(answer.text)}"
+                    data-mode="auto"
+                    data-is-terminal="${answer.isTerminal || false}"
+                    data-is-ignore="${answer.isIgnore || false}"
+                    data-is-match="${answer.isMatch || false}"
+                    data-next-question-id="${answer.nextQuestionId || ''}"
+                    ${prevMode === 'auto' ? 'checked' : ''}></label>
+                  <label class="answer-grid-cell"><input type="radio" name="${choiceRadioName}" value="${answer.id}_manual" class="choice-radio"
+                    data-answer-id="${answer.id}"
+                    data-answer-text="${this.escapeHtml(answer.text)}"
+                    data-mode="manual"
+                    data-is-terminal="${answer.isTerminal || false}"
+                    data-is-ignore="${answer.isIgnore || false}"
+                    data-is-match="${answer.isMatch || false}"
+                    data-next-question-id="${answer.nextQuestionId || ''}"
+                    ${prevMode === 'manual' ? 'checked' : ''}></label>
+                  <span class="answer-grid-label">${this.escapeHtml(answer.text)}</span>
                 </div>
-              `,
+              `;
+                  },
                 )
                 .join('')}
-              <button 
-                class="answer-option-btn ignore-btn"
-                data-answer-id="ignore"
-                data-is-terminal="false"
-                data-is-ignore="true"
-                data-is-match="false"
-                data-next-question-id=""
-                style="
-                  display: block;
-                  width: 100%;
-                  padding: 12px;
-                  margin-top: 10px;
-                  background: #f5f5f5;
-                  border: 2px solid #999;
-                  border-radius: 8px;
-                  cursor: pointer;
-                  text-align: center;
-                  font-size: 1em;
-                  color: #666;
-                  transition: all 0.2s;
-                "
-                onmouseover="this.style.background='#e0e0e0'; this.style.borderColor='#666';"
-                onmouseout="this.style.background='#f5f5f5'; this.style.borderColor='#999';"
-              >
-                Ignore this talk
-              </button>
+              <div class="answer-grid-row answer-grid-row-ignore">
+                <label class="answer-grid-cell"><input type="radio" name="${choiceRadioName}" value="ignore" class="choice-radio ignore-radio"
+                  data-answer-id="ignore"
+                  data-answer-text="ignore"
+                  data-mode="manual"
+                  data-is-terminal="false"
+                  data-is-ignore="true"
+                  data-is-match="false"
+                  data-next-question-id=""
+                  ${previousChoice?.answerId === 'ignore' ? 'checked' : ''}></label>
+                <span class="answer-grid-cell"></span>
+                <span class="answer-grid-label">Ignore</span>
+              </div>
             </div>
           </div>
         </div>
       `;
 
-      // Add event listeners to answer buttons
-      modal.querySelectorAll('.answer-option-btn').forEach((btn) => {
-        btn.addEventListener('click', (e) => {
-          const target = e.currentTarget as HTMLElement;
-          const answerId = target.dataset.answerId!;
-          const answerText = target.dataset.answerText || target.textContent!.trim(); // Get from data attribute or fallback to text
-          const isTerminal = target.dataset.isTerminal === 'true';
-          const isIgnore = target.dataset.isIgnore === 'true';
-          const isMatch = target.dataset.isMatch === 'true';
-          const nextQuestionId = target.dataset.nextQuestionId;
+      const applyChoice = (radio: HTMLInputElement) => {
+        const answerId = radio.dataset.answerId!;
+        const isIgnore = radio.dataset.isIgnore === 'true';
+        const answerText = radio.dataset.answerText || '';
+        const answerMode = (radio.dataset.mode || 'manual') as 'auto' | 'manual';
+        const isTerminal = radio.dataset.isTerminal === 'true';
+        const isMatch = radio.dataset.isMatch === 'true';
+        const nextQuestionId = radio.dataset.nextQuestionId || '';
 
-          // Get the answer mode from the button itself
-          const answerMode = target.dataset.answerMode || 'manual'; // default to manual
+        answers.push({
+          questionId: currentQuestion.id,
+          answerId,
+          answerText: isIgnore ? 'ignore' : answerText,
+          mode: answerMode,
+        });
 
-          // Record answer
-          answers.push({
-            questionId: currentQuestion.id,
-            answerId,
-            answerText,
-          });
-
-          // Save answer to preferences (for both auto and manual mode)
+        if (!isIgnore) {
           this.saveAnswerPreference(
             talk.id,
             currentQuestion.id,
@@ -1569,57 +1513,55 @@ export class UIManager extends EventEmitter {
             currentQuestion.text,
             currentQuestion.answers,
           );
-
-          // Update mode in preferences based on button clicked (same key as saveAnswerPreference)
           const preferences = this.getAnswerPreferences();
           const key = `${talk.id}_${currentQuestion.id}`;
           if (preferences[key]) {
             preferences[key].mode = answerMode;
             localStorage.setItem('answerPreferences', JSON.stringify(preferences));
           }
+        }
 
-          if (isIgnore) {
-            // User chose to ignore
-            this.showNotification('Talk ignored - no match', 'info');
-            this.completeTalk(talk, answers, 'mismatch');
-            if (document.body.contains(modal)) {
-              document.body.removeChild(modal);
-            }
-          } else if (isMatch) {
-            // User chose a matching answer - this is a match!
-            this.completeTalk(talk, answers, 'match');
-            this.showNotification('Match! You both noticed each other.', 'success');
-            if (document.body.contains(modal)) {
-              document.body.removeChild(modal);
-            }
-          } else if (isTerminal) {
-            // Talk complete (other terminal reasons)
-            this.completeTalk(talk, answers, 'mismatch');
-            if (document.body.contains(modal)) {
-              document.body.removeChild(modal);
-            }
-          } else if (nextQuestionId) {
-            // Find next question by ID
-            currentQuestion = talk.questions.find((q: any) => q.id === nextQuestionId);
-            if (currentQuestion) {
-              renderQuestion();
-            } else {
-              // Question not found - end talk
-              console.warn('Next question not found:', nextQuestionId);
-              this.completeTalk(talk, answers, 'mismatch');
-              if (document.body.contains(modal)) {
-                document.body.removeChild(modal);
-              }
-            }
+        if (isIgnore) {
+          this.showNotification('Talk ignored - no match', 'info');
+          this.completeTalk(talk, answers, 'mismatch');
+          if (document.body.contains(modal)) document.body.removeChild(modal);
+        } else if (isMatch) {
+          this.completeTalk(talk, answers, 'match');
+          this.showNotification('Match! You both noticed each other.', 'success');
+          if (document.body.contains(modal)) document.body.removeChild(modal);
+        } else if (isTerminal) {
+          this.completeTalk(talk, answers, 'mismatch');
+          if (document.body.contains(modal)) document.body.removeChild(modal);
+        } else if (nextQuestionId) {
+          const nextQ = talk.questions.find((q: any) => q.id === nextQuestionId);
+          if (nextQ) {
+            currentQuestion = nextQ;
+            renderQuestion();
           } else {
-            // No next question specified - end talk
             this.completeTalk(talk, answers, 'mismatch');
-            if (document.body.contains(modal)) {
-              document.body.removeChild(modal);
-            }
+            if (document.body.contains(modal)) document.body.removeChild(modal);
           }
+        } else {
+          this.completeTalk(talk, answers, 'mismatch');
+          if (document.body.contains(modal)) document.body.removeChild(modal);
+        }
+      };
+
+      modal.querySelectorAll('.choice-radio').forEach((radioEl) => {
+        radioEl.addEventListener('change', (e) => {
+          const radio = e.target as HTMLInputElement;
+          if (radio.checked) applyChoice(radio);
         });
       });
+
+      const backBtn = modal.querySelector('[data-testid="back-question-btn"]');
+      if (backBtn) {
+        backBtn.addEventListener('click', () => {
+          answers.pop();
+          currentQuestion = talk.questions[currentQuestionIndex - 1];
+          renderQuestion();
+        });
+      }
     };
 
     document.body.appendChild(modal);

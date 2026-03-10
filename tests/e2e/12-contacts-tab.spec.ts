@@ -191,7 +191,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
       await pageJerry.locator('.talk-list-item').filter({ hasText: TALK_TENNIS }).first().click();
     }
     await pageJerry.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
-    await pageJerry.locator(`.answer-manual-btn[data-answer-text="${MATCH_ANSWER}"]`).first().click();
+    await pageJerry.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
     await waitForNotification(pageJerry, 'Match!', 'Jerry');
     await pageJerry.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
     await pageJerry.waitForTimeout(500);
@@ -200,7 +200,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await pageJerry.waitForTimeout(2000);
     await pageJerry.locator('.talk-list-item').filter({ hasText: TALK_COFFEE }).first().click();
     await pageJerry.waitForSelector('#talk-response-modal .modal-content', { timeout: 5000 });
-    await pageJerry.locator(`.answer-manual-btn[data-answer-text="${IGNORE_ANSWER_COFFEE}"]`).first().click();
+    await pageJerry.locator(`input.choice-radio[data-answer-text="${IGNORE_ANSWER_COFFEE}"][data-mode="manual"]`).first().click();
     await pageJerry.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
 
     // 4) Bob: answer Coffee (match), Tennis (mismatch)
@@ -209,14 +209,14 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await pageBob.waitForTimeout(3000);
     await pageBob.locator('.talk-list-item').filter({ hasText: TALK_COFFEE }).first().click();
     await pageBob.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
-    await pageBob.locator(`.answer-manual-btn[data-answer-text="${MATCH_ANSWER_COFFEE}"]`).first().click();
+    await pageBob.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER_COFFEE}"][data-mode="manual"]`).first().click();
     await waitForNotification(pageBob, 'Match!', 'Bob');
     await pageBob.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
     await pageBob.waitForTimeout(500);
 
     await pageBob.locator('.talk-list-item').filter({ hasText: TALK_TENNIS }).first().click();
     await pageBob.waitForSelector('#talk-response-modal .modal-content', { timeout: 5000 });
-    await pageBob.locator(`.answer-manual-btn[data-answer-text="${IGNORE_ANSWER}"]`).first().click();
+    await pageBob.locator(`input.choice-radio[data-answer-text="${IGNORE_ANSWER}"][data-mode="manual"]`).first().click();
     await pageBob.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
 
     // Wait for Tom to receive both match notifications

@@ -177,7 +177,7 @@ test.describe('Chatbot: Tom manual match, Bob bot match, bot icon on conversatio
     await pageJerry.waitForTimeout(3000);
     await pageJerry.locator('.talk-list-item').filter({ hasText: TALK_TENNIS }).first().click();
     await pageJerry.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
-    await pageJerry.locator(`.answer-manual-btn[data-answer-text="${MATCH_ANSWER}"]`).first().click();
+    await pageJerry.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
     await waitForNotification(pageJerry, 'Match!', 'Jerry');
     await pageJerry.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
     await pageJerry.waitForTimeout(500);

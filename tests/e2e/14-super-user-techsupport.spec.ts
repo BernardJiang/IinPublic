@@ -237,7 +237,7 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
         .first()
         .click();
       await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
-      await pageTom.locator(`.answer-manual-btn[data-answer-text="${MATCH_ANSWER}"]`).first().click();
+      await pageTom.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
       await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
       await pageTom.waitForTimeout(400);
     }
@@ -309,7 +309,7 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
 
     await pageTom.locator('.talk-list-item').filter({ hasText: copyTalkTitle }).first().click();
     await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
-    await pageTom.locator(`.answer-manual-btn[data-answer-text="${MATCH_ANSWER}"]`).first().click();
+    await pageTom.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
     await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
     await pageTom.waitForTimeout(500);
 

@@ -30,13 +30,13 @@ export default defineConfig({
       command: 'npm run dev:server',
       port: 8080,
       timeout: 120 * 1000,
-      reuseExistingServer: false, // Force fresh server to pick up code changes
+      reuseExistingServer: true,
     },
     {
       command: 'npm run dev:web:e2e',
       port: 3001,
       timeout: 120 * 1000,
-      reuseExistingServer: true, // Force fresh server to pick up code changes
+      reuseExistingServer: true,
     },
   ],
 });

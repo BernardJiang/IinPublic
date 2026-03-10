@@ -242,11 +242,8 @@ test.describe('Tennis Partner Talk Match - Tom & Jerry', () => {
     await jerryTalkItem.click();
     await pageJerry.waitForSelector('#talk-response-modal .modal-content');
 
-    // Click the AUTO button for the match answer so Jerry's chatbot can reuse it later
-    const autoMatchButton = pageJerry.locator(
-      `.answer-auto-btn[data-answer-text="${MATCH_ANSWER_TEXT}"]`,
-    );
-    await autoMatchButton.click();
+    // One click: select "Yes" + auto so Jerry's chatbot can reuse it later
+    await pageJerry.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER_TEXT}"][data-mode="auto"]`).click();
 
     // Jerry should see a match notification
     await waitForSuccessNotification(
@@ -330,10 +327,7 @@ test.describe('Tennis Partner Talk Match - Tom & Jerry', () => {
     await alanTalkItem.click();
     await pageAlan.waitForSelector('#talk-response-modal .modal-content');
 
-    const alanIgnoreButton = pageAlan.locator(
-      `.answer-manual-btn[data-answer-text="No thanks."]`,
-    );
-    await alanIgnoreButton.click();
+    await pageAlan.locator('input.choice-radio[data-answer-text="No thanks."][data-mode="manual"]').click();
 
     // Give system a moment to process; there should be no new match for Tom
     await pageTom.waitForTimeout(2000);

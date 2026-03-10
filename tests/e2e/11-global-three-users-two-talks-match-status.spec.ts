@@ -198,7 +198,7 @@ test.describe('Global room: 3 users, 2 talks, match status on status bar', () =>
       await pageJerry.locator('.talk-list-item').filter({ hasText: TALK_TENNIS }).first().click();
     }
     await pageJerry.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
-    await pageJerry.locator(`.answer-manual-btn[data-answer-text="${MATCH_ANSWER}"]`).first().click();
+    await pageJerry.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
     await waitForNotification(pageJerry, 'Match!', 'Jerry');
     await pageJerry.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
     await pageJerry.waitForTimeout(500);
@@ -208,7 +208,7 @@ test.describe('Global room: 3 users, 2 talks, match status on status bar', () =>
     await pageJerry.waitForTimeout(2000);
     await pageJerry.locator('.talk-list-item').filter({ hasText: TALK_COFFEE }).first().click();
     await pageJerry.waitForSelector('#talk-response-modal .modal-content', { timeout: 5000 });
-    await pageJerry.locator(`.answer-manual-btn[data-answer-text="${IGNORE_ANSWER_COFFEE}"]`).first().click();
+    await pageJerry.locator(`input.choice-radio[data-answer-text="${IGNORE_ANSWER_COFFEE}"][data-mode="manual"]`).first().click();
     await pageJerry.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
     console.log('✅ Jerry: Tennis match, Coffee mismatch');
 
@@ -218,14 +218,14 @@ test.describe('Global room: 3 users, 2 talks, match status on status bar', () =>
     await pageBob.waitForTimeout(3000);
     await pageBob.locator('.talk-list-item').filter({ hasText: TALK_COFFEE }).first().click();
     await pageBob.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
-    await pageBob.locator(`.answer-manual-btn[data-answer-text="${MATCH_ANSWER_COFFEE}"]`).first().click();
+    await pageBob.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER_COFFEE}"][data-mode="manual"]`).first().click();
     await waitForNotification(pageBob, 'Match!', 'Bob');
     await pageBob.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
     await pageBob.waitForTimeout(500);
 
     await pageBob.locator('.talk-list-item').filter({ hasText: TALK_TENNIS }).first().click();
     await pageBob.waitForSelector('#talk-response-modal .modal-content', { timeout: 5000 });
-    await pageBob.locator(`.answer-manual-btn[data-answer-text="${IGNORE_ANSWER}"]`).first().click();
+    await pageBob.locator(`input.choice-radio[data-answer-text="${IGNORE_ANSWER}"][data-mode="manual"]`).first().click();
     await pageBob.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
     console.log('✅ Bob: Coffee match, Tennis mismatch');
 
