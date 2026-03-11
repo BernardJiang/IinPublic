@@ -1421,7 +1421,17 @@ export class UIManager extends EventEmitter {
       );
       const choiceRadioName = `choice-${currentQuestion.id}`;
       const showBackButton = currentQuestionIndex > 0;
-      const previousChoice = answers.find((a) => a.questionId === currentQuestion.id);
+      const previousChoiceFromSession = answers.find((a) => a.questionId === currentQuestion.id);
+      const savedPreferenceForDisplay = this.getAnswerPreference(talk.id, currentQuestion.id);
+      const previousChoice =
+        previousChoiceFromSession ||
+        (savedPreferenceForDisplay
+          ? {
+              answerId: savedPreferenceForDisplay.answerId,
+              answerText: savedPreferenceForDisplay.answerText,
+              mode: (savedPreferenceForDisplay.mode as 'auto' | 'manual') || 'manual',
+            }
+          : undefined);
 
       modal.innerHTML = `
         <div class="modal-content" style="max-width: 600px;">

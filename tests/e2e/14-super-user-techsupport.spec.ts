@@ -299,7 +299,6 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     await pageTechSupport.waitForTimeout(1500);
 
     await pageTechSupport.click('#broadcast-talk-btn');
-    await pageTechSupport.waitForTimeout(2000); // allow async broadcast to complete before toast is dismissed (3s)
     await waitForNotification(pageTechSupport, /Sent 1 talks?/, 'TechSupport');
 
     await pageTom.waitForTimeout(3000);
