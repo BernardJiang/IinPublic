@@ -2,19 +2,19 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
-  fullyParallel: false, // Run tests sequentially for multi-user scenarios
+  fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: 1, // Single worker for controlled test execution
+  workers: 1,
   reporter: 'html',
-  timeout: 300000, // 5 minutes timeout for multi-user e2e tests (Gun.js sync can be slow)
+  timeout: 300000,
 
   use: {
     baseURL: 'http://localhost:3001',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
-    headless: false, // Show browser windows for multi-user tests
+    headless: false,
   },
 
   projects: [
@@ -24,7 +24,6 @@ export default defineConfig({
     },
   ],
 
-  // Run dev servers before tests
   webServer: [
     {
       command: 'npm run dev:server',

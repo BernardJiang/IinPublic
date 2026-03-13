@@ -2,200 +2,77 @@
 
 ## Overview
 
-This directory contains end-to-end tests for the IinPublic real-time Talk system using Playwright. These tests simulate multiple users in separate browser instances to verify the complete Talk flow including creation, broadcasting, answering, and branching logic.
+End-to-end tests for the IinPublic real-time Talk system using Playwright. Tests use **short** intervals by default for fast regression; set **long** intervals when you want to watch the run.
 
-## Test Files
+## Test Files (compressed from 16 → 9)
 
-### `tennis-partner.spec.ts`
+| File | Coverage |
+|------|----------|
+| `01-login-and-headcount.spec.ts` | Single user login/re-login; two users headcount 1→2→1→2 + room nav |
+| `02-multi-user-headcount.spec.ts` | Three users: sequential enter, FIFO exit, random re-enter |
+| `03-capacity-eviction.spec.ts` | Four users: Global fills, fourth bumps first to North America; persistence |
+| `04-profile-edit-stage-name.spec.ts` | New user edits stage name |
+| `05-talks-edit.spec.ts` | Create talk, Talks tab, Edit with prefilled data |
+| `05-talks-matching.spec.ts` | Tennis match; two talks + status bar + Answer tab; chatbot + bot icon; ignore then change answer |
+| `06-contacts-tab.spec.ts` | Contacts list, click contact → matching talks |
+| `07-tags-checkbox.spec.ts` | Tag create, checkbox match/ignore |
+| `08-super-user-techsupport.spec.ts` | 10 tags + 10 talks, Tom answers all; copy-talk broadcast toggle + delete |
 
-Comprehensive test that simulates two users interacting through the Tennis Partner Talk:
+## Short vs long intervals
 
-**User 1:**
+- **Short (default)** — for CI and automatic regression. Minimal waits between actions and Gun sync.
+- **Long** — for human verification. ~3× longer waits and slower `slowMo` so you can follow the flow.
 
-- Signs in as "TennisPlayer1"
-- Creates a Tennis Partner Talk with branching questions
-- Broadcasts the Talk to the chatroom
+Use the `E2E_INTERVAL` environment variable:
 
-**User 2:**
+```bash
+# Automatic regression (short waits)
+npm run test:e2e
 
-- Signs in as "TennisPlayer2"
-- Receives the Talk announcement
-- Answers questions following the branching logic
-- Receives match/ignore notifications
+# Human watch (long waits)
+E2E_INTERVAL=long npx playwright test
+```
 
-**Test Coverage:**
+Timing is centralized in `helpers/timing.ts` (`afterLoad`, `afterSync`, `afterNav`, `afterAction`, `delay`).
 
-- ✅ User authentication
-- ✅ Talk creation with 3 questions
-- ✅ Branching logic (downward-only)
-- ✅ Real-time Talk broadcasting via Gun.js
-- ✅ Talk response with dynamic question flow
-- ✅ Match notification (isMatch: true)
-- ✅ Ignore notification (isIgnore: true)
-
-## Running Tests
+## Running tests
 
 ### Prerequisites
 
-Ensure both servers are running:
+Playwright config starts dev servers if needed (backend 8080, frontend 3001).
+
+### Commands
 
 ```bash
-# Terminal 1: Backend server (port 8080)
-npm run dev:server
-
-# Terminal 2: Frontend server (port 3001)
-npm run dev:web
-```
-
-**Note:** The Playwright config is set to automatically start these servers if they're not running.
-
-### Run Tests
-
-```bash
-# Run all E2E tests
+# Run all E2E tests (short intervals)
 npm run test:e2e
 
-# Run tests in headed mode (see browsers)
-npx playwright test --headed
+# Run with long intervals (watch in browser)
+E2E_INTERVAL=long npx playwright test
 
-# Run tests with UI (interactive mode)
+# Run one file
+npx playwright test 01-login-and-headcount.spec.ts
+
+# UI mode
 npx playwright test --ui
 
-# Run specific test file
-npx playwright test tennis-partner.spec.ts
-
-# Debug mode (step through with inspector)
+# Debug
 npx playwright test --debug
 ```
 
-### View Test Report
-
-After running tests, view the HTML report:
+### Report
 
 ```bash
 npx playwright show-report
 ```
 
-## Test Architecture
+## Helpers
 
-### Multi-User Simulation
+- `helpers/clear-database.ts` — clear Gun disk + in-memory before/after suites
+- `helpers/timing.ts` — `wait(shortMs, longMs)`, `afterLoad`, `afterSync`, `afterNav`, `afterAction`, `delay`
+- `helpers/browser-window.ts` — viewport / ensure window fits
 
-The tests use separate **BrowserContext** instances to simulate independent users:
+## Known limitations
 
-```typescript
-user1Context = await browser.newContext();
-user2Context = await browser.newContext();
-
-user1Page = await user1Context.newPage();
-user2Page = await user2Context.newPage();
-```
-
-This ensures:
-
-- Separate cookies/localStorage
-- Independent Gun.js connections
-- Realistic peer-to-peer communication testing
-
-### Test Flow
-
-1. **User Setup**: Both users sign in with different stage names
-2. **Talk Creation**: User 1 creates Tennis Partner Talk with branching
-3. **Broadcasting**: Talk propagates through Gun.js to User 2
-4. **Talk Response**: User 2 answers questions following branches
-5. **Outcome Verification**: Check for match/ignore notifications
-
-### Key Selectors
-
-- `#stage-name` - User creation input
-- `#create-talk-btn` - Open Talk editor
-- `.talk-announcement` - Talk announcement in chat
-- `.modal-overlay` - Modal dialogs
-- `.notification.success` - Success notifications
-- `.notification.info` - Info notifications
-
-## Debugging Tips
-
-### View Browser Actions
-
-Run with headed mode to see what's happening:
-
-```bash
-npx playwright test --headed --slowmo=1000
-```
-
-### Take Screenshots
-
-Tests automatically capture screenshots on failure. To force screenshots:
-
-```typescript
-await page.screenshot({ path: 'debug.png' });
-```
-
-### Console Logs
-
-The test includes detailed console logging for each step:
-
-```
-📍 Step 1: User 1 signing in...
-✅ User 1 signed in as TennisPlayer1
-📍 Step 2: User 2 signing in...
-```
-
-### Trace Viewer
-
-View detailed execution traces:
-
-```bash
-npx playwright show-trace trace.zip
-```
-
-## Adding More Tests
-
-### Template for New Talk Tests
-
-```typescript
-test('Your Talk Scenario', async () => {
-  // 1. Sign in users
-  await user1Page.goto('/');
-  await user1Page.fill('#stage-name', 'User1Name');
-  await user1Page.click('button[type="submit"]');
-
-  // 2. Create Talk
-  await user1Page.click('#create-talk-btn');
-  // ... fill form
-
-  // 3. User 2 receives and responds
-  await user2Page.locator('.talk-announcement').click();
-  // ... answer questions
-
-  // 4. Verify outcome
-  await expect(user2Page.locator('.notification')).toBeVisible();
-});
-```
-
-## CI/CD Integration
-
-The tests are configured for CI environments:
-
-```yaml
-# .github/workflows/e2e-tests.yml
-- name: Install Playwright Browsers
-  run: npx playwright install --with-deps
-
-- name: Run E2E Tests
-  run: npm run test:e2e
-```
-
-## Known Issues / Limitations
-
-1. **Gun.js Propagation Delay**: Tests include `waitForTimeout(2000)` to allow Gun.js to sync data between peers
-2. **Modal Animations**: Some modals have CSS transitions; use `waitForSelector` with adequate timeouts
-3. **Single Worker**: Tests run sequentially (`workers: 1`) to avoid race conditions in Gun.js
-
-## Future Enhancements
-
-- [ ] Test multi-user matching (3+ users responding to same Talk)
-- [ ] Test Talk editing/deletion
-- [ ] Test survey-type Talks with result aggregation
-- [ ] Test offline/reconnection scenarios
-- [ ] Performance benchmarks for Gun.js sync speed
+- **Gun.js sync**: Tests use configurable waits; long mode gives more time for propagation.
+- **Single worker**: Tests run sequentially (`workers: 1`) to avoid races with shared Gun state.

@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
+import { afterLoad, afterSync, afterNav, afterAction, delay } from './helpers/timing';
 
 test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
   let browserAlice: Browser;
@@ -14,10 +15,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
 
   const TAG_COFFEE = 'Coffee';
   const TAG_CAT = 'Cat';
-  const screenshotDir = path.join(
-    __dirname,
-    '../../test-screenshots/13-tag-checkbox-match-ignore',
-  );
+  const screenshotDir = path.join(__dirname, '../../test-screenshots/07-tags');
 
   test.beforeAll(async () => {
     await clearGunDatabases();
@@ -28,12 +26,12 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
 
     browserAlice = await chromium.launch({
       headless: false,
-      slowMo: 100,
+      slowMo: delay(50, 120),
       args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     browserTom = await chromium.launch({
       headless: false,
-      slowMo: 100,
+      slowMo: delay(50, 120),
       args: ['--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     console.log('🚀 Launched 2 Chrome browsers: Alice, Tom');
@@ -78,22 +76,22 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await ensureWindowFitsViewport(page, 640, 1000);
-    await page.waitForTimeout(3000);
+    await afterLoad();
 
     await page.click('.nav-btn[data-view="me"]');
-    await page.waitForTimeout(1000);
+    await afterNav();
     await page.waitForSelector('#edit-stagename-btn');
     await page.click('#edit-stagename-btn');
-    await page.waitForTimeout(500);
+    await afterAction();
     await page.fill('#new-stage-name', stageName);
     await page.click('#edit-stagename-form button[type="submit"]');
-    await page.waitForTimeout(1000);
+    await afterNav();
 
     const headerStageName = page.locator('[data-testid="user-stage-name"]');
     await expect(headerStageName).toContainText(stageName);
 
     await page.click('.nav-btn[data-view="chatrooms"]');
-    await page.waitForTimeout(1000);
+    await afterNav();
     return { context, page };
   }
 
@@ -110,48 +108,48 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     contextAlice = alice.context;
     pageAlice = alice.page;
     await pageAlice.click('.chatroom-item:has-text("Global")');
-    await pageAlice.waitForTimeout(2000);
+    await afterSync();
 
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
     await pageTom.click('.chatroom-item:has-text("Global")');
-    await pageTom.waitForTimeout(2000);
+    await afterSync();
 
     // 2) Alice creates tag "Coffee"
     console.log('\n📍 STEP 2: Alice creates tag "' + TAG_COFFEE + '"');
     await pageAlice.click('.nav-btn[data-view="chatrooms"]');
-    await pageAlice.waitForTimeout(500);
+    await afterAction();
     await pageAlice.click('.chatroom-item:has-text("Global")');
-    await pageAlice.waitForTimeout(1000);
+    await afterNav();
 
     await pageAlice.click('#create-talk-btn');
     await pageAlice.waitForSelector('#talk-editor-form');
     await pageAlice.click('input[name="talk-type-radio"][value="tag"]');
-    await pageAlice.waitForTimeout(300);
+    await afterAction();
     await pageAlice.fill('#talk-title', TAG_COFFEE);
     await pageAlice.click('#talk-editor-form button[type="submit"]');
-    await pageAlice.waitForTimeout(2000);
+    await afterSync();
 
     // 3) Alice creates tag "Cat"
     console.log('\n📍 STEP 3: Alice creates tag "' + TAG_CAT + '"');
     await pageAlice.click('#create-talk-btn');
     await pageAlice.waitForSelector('#talk-editor-form');
     await pageAlice.click('input[name="talk-type-radio"][value="tag"]');
-    await pageAlice.waitForTimeout(300);
+    await afterAction();
     await pageAlice.fill('#talk-title', TAG_CAT);
     await pageAlice.click('#talk-editor-form button[type="submit"]');
-    await pageAlice.waitForTimeout(2000);
+    await afterSync();
 
     await pageAlice.click('#broadcast-talk-btn');
-    await pageAlice.waitForTimeout(500);
+    await afterAction();
     await waitForNotification(pageAlice, 'Sent 2 talk', 'Alice');
 
     // 4) Tom opens Coffee tag, checks checkbox, submits → match
     console.log('\n📍 STEP 4: Tom opens Coffee, checks checkbox, submits → match');
-    await pageTom.waitForTimeout(4000);
+    await afterSync();
     await pageTom.click('.nav-btn[data-view="talks"]');
-    await pageTom.waitForTimeout(3000);
+    await afterSync();
     await pageTom.locator('.talk-list-item').filter({ hasText: TAG_COFFEE }).first().click();
     await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
     await expect(pageTom.locator('.tag-match-checkbox')).toBeVisible();
@@ -166,7 +164,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     // 6) Tom opens Cat tag, leaves checkbox unchecked, submits → ignore
     console.log('\n📍 STEP 6: Tom opens Cat, leaves checkbox unchecked → ignore');
     await pageTom.click('.nav-btn[data-view="talks"]');
-    await pageTom.waitForTimeout(2000);
+    await afterSync();
     await pageTom.locator('.talk-list-item').filter({ hasText: TAG_CAT }).first().click();
     await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
     await pageTom.click('#tag-submit-btn');
@@ -174,19 +172,19 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
 
     // 7) Alice confirms one match: Talks tab shows "Matched with: Tom" for Coffee; status shows 1 match
     await pageAlice.click('.nav-btn[data-view="talks"]');
-    await pageAlice.waitForTimeout(2000);
-    await expect(pageAlice.getByText(/Matched with:/).first()).toBeVisible({ timeout: 5000 });
+    await afterSync();
+    await expect(pageAlice.getByText(/Matched with:/).first()).toBeVisible({ timeout: 10000 });
     const statusBar = pageAlice.locator('#status-bar-text');
-    await expect(statusBar).toContainText(/1 match(es)?/, { timeout: 5000 });
+    await expect(statusBar).toContainText(/1 match(es)?/, { timeout: 15000 });
 
     // 8) Tom's Answer tab: Coffee = Match, Cat = Mismatch
     await pageTom.click('.nav-btn[data-view="answers"]');
-    await pageTom.waitForTimeout(2000);
+    await afterSync();
     const tomContent = pageTom.locator('#answers-content');
-    await expect(tomContent.getByText(TAG_COFFEE).first()).toBeVisible({ timeout: 5000 });
-    await expect(tomContent.getByText(TAG_CAT).first()).toBeVisible({ timeout: 5000 });
-    await expect(tomContent.getByText(/Match/).first()).toBeVisible({ timeout: 5000 });
-    await expect(tomContent.getByText(/Mismatch/).first()).toBeVisible({ timeout: 5000 });
+    await expect(tomContent.getByText(TAG_COFFEE).first()).toBeVisible({ timeout: 10000 });
+    await expect(tomContent.getByText(TAG_CAT).first()).toBeVisible({ timeout: 10000 });
+    await expect(tomContent.getByText(/Match/).first()).toBeVisible({ timeout: 10000 });
+    await expect(tomContent.getByText(/Mismatch/).first()).toBeVisible({ timeout: 10000 });
 
     console.log('✅ Tag flow verified: Alice created Coffee + Cat; Tom matched Coffee, ignored Cat; Alice received one match.');
   });

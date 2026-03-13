@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
+import { afterLoad, afterSync, afterNav, afterAction, delay } from './helpers/timing';
 
 test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answers all, TechSupport confirms', () => {
   let browserTechSupport: Browser;
@@ -44,10 +45,7 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
   const MATCH_ANSWER = 'Yes, match.';
   const IGNORE_ANSWER = 'No thanks.';
 
-  const screenshotDir = path.join(
-    __dirname,
-    '../../test-screenshots/14-super-user-techsupport',
-  );
+  const screenshotDir = path.join(__dirname, '../../test-screenshots/08-super-user');
 
   test.beforeAll(async () => {
     await clearGunDatabases();
@@ -58,12 +56,12 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
 
     browserTechSupport = await chromium.launch({
       headless: false,
-      slowMo: 80,
+      slowMo: delay(50, 120),
       args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     browserTom = await chromium.launch({
       headless: false,
-      slowMo: 80,
+      slowMo: delay(50, 120),
       args: ['--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     console.log('🚀 Launched 2 Chrome browsers: TechSupport, Tom');
@@ -108,22 +106,22 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await ensureWindowFitsViewport(page, 640, 1000);
-    await page.waitForTimeout(3000);
+    await afterLoad();
 
     await page.click('.nav-btn[data-view="me"]');
-    await page.waitForTimeout(1000);
+    await afterNav();
     await page.waitForSelector('#edit-stagename-btn');
     await page.click('#edit-stagename-btn');
-    await page.waitForTimeout(500);
+    await afterAction();
     await page.fill('#new-stage-name', stageName);
     await page.click('#edit-stagename-form button[type="submit"]');
-    await page.waitForTimeout(1000);
+    await afterNav();
 
     const headerStageName = page.locator('[data-testid="user-stage-name"]');
     await expect(headerStageName).toContainText(stageName);
 
     await page.click('.nav-btn[data-view="chatrooms"]');
-    await page.waitForTimeout(1000);
+    await afterNav();
     return { context, page };
   }
 
@@ -248,10 +246,10 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     // Open Talks first so needTalkStats runs and status bar gets match count (stats load when list is shown)
     await pageTechSupport.click('.nav-btn[data-view="talks"]');
     await pageTechSupport.waitForTimeout(2000);
-    await expect(pageTechSupport.getByText(/Matched with:/).first()).toBeVisible({ timeout: 5000 });
+    await expect(pageTechSupport.getByText(/Matched with:/).first()).toBeVisible({ timeout: 15000 });
     // Now wait for status bar to show match count (async needTalkStats updates it)
     const statusBar = pageTechSupport.locator('#status-bar-text');
-    await expect(statusBar).toContainText(/20 match(es)?/, { timeout: 15000 });
+    await expect(statusBar).toContainText(/20 match(es)?/, { timeout: 25000 });
     const matchedLines = await pageTechSupport.getByText(/Matched with:/).count();
     expect(matchedLines).toBeGreaterThanOrEqual(1);
 
