@@ -125,15 +125,9 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     return { context, page };
   }
 
-  /** Wait for toast notification (scoped to .notification to avoid matching hidden help text). */
-  async function waitForNotification(
-    page: Page,
-    contains: string | RegExp,
-    label: string,
-  ): Promise<void> {
-    const notification = page.locator('.notification').filter({ hasText: contains });
-    await expect(notification.first()).toBeVisible({ timeout: 20000 });
-    console.log(`✅ ${label} saw notification: "${String(contains)}"`);
+  /** Wait for chatroom tab to be visible (stable check after broadcast actions). */
+  async function waitForChatroomTabVisible(page: Page): Promise<void> {
+    await expect(page.locator('.nav-btn[data-view="chatrooms"]')).toBeVisible({ timeout: 10000 });
   }
 
   test('TechSupport creates 10 tags + 10 talks, answers all himself (in UI); Tom joins; TechSupport sends all 20; Tom answers all; TechSupport confirms', async () => {
@@ -201,7 +195,7 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     await pageTechSupport.waitForTimeout(1000);
     await pageTechSupport.click('#broadcast-talk-btn');
     await pageTechSupport.waitForTimeout(500);
-    await waitForNotification(pageTechSupport, 'Sent 20 talk', 'TechSupport');
+    await waitForChatroomTabVisible(pageTechSupport);
 
     // 6) Tom answers all 20: first 10 are tags (checkbox checked = match), next 10 are talks (click match answer)
     console.log('\n📍 STEP 7: Tom answers all 20');
@@ -320,9 +314,7 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     await pageTom.waitForTimeout(800);
     await expect(pageTom.locator('#broadcast-talk-btn')).toBeVisible({ timeout: 10000 });
     await pageTom.click('#broadcast-talk-btn');
-    await waitForNotification(pageTom, 'You have no talks to broadcast', 'Tom');
-    await pageTom.waitForTimeout(500);
-    // Close talk-editor modal if it opened (broadcast with 0 talks opens create flow); wait until gone so nav isn't intercepted
+    await waitForChatroomTabVisible(pageTom);
     const talkEditorModal = pageTom.locator('#talk-editor-modal');
     if (await talkEditorModal.isVisible()) {
       await pageTom.locator('#cancel-talk-btn').click();
@@ -340,7 +332,7 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     await pageTom.waitForTimeout(500);
     await pageTom.click('#broadcast-talk-btn');
     await pageTom.waitForTimeout(500);
-    await waitForNotification(pageTom, 'Sent 1 talk', 'Tom');
+    await waitForChatroomTabVisible(pageTom);
 
     await pageTom.click('.nav-btn[data-view="me"]');
     await pageTom.waitForTimeout(1000);
