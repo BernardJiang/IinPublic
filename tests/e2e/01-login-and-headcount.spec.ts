@@ -42,7 +42,7 @@ test.describe('Login and headcount', () => {
     page.on('console', (m) => console.log('[Browser]:', m.text()));
 
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 960, 1200);
     await afterLoad();
 
@@ -58,7 +58,7 @@ test.describe('Login and headcount', () => {
     page = await context.newPage();
     page.on('console', (m) => console.log('[Browser]:', m.text()));
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('load');
     await afterNav();
     await afterLoad();
     await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('1');
@@ -77,7 +77,7 @@ test.describe('Login and headcount', () => {
     page = await context.newPage();
     page.on('console', (m) => console.log('[User1]:', m.text()));
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 960, 1200);
     await afterLoad();
     await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('1');
@@ -86,7 +86,7 @@ test.describe('Login and headcount', () => {
     page2 = await context2.newPage();
     page2.on('console', (m) => console.log('[User2]:', m.text()));
     await page2.goto('/');
-    await page2.waitForLoadState('networkidle');
+    await page2.waitForLoadState('load');
     await ensureWindowFitsViewport(page2, 960, 1200);
     await afterLoad();
     await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('2', { timeout: 15000 });
@@ -103,7 +103,7 @@ test.describe('Login and headcount', () => {
     page2 = await context2.newPage();
     page2.on('console', (m) => console.log('[User2]:', m.text()));
     await page2.goto('/');
-    await page2.waitForLoadState('networkidle');
+    await page2.waitForLoadState('load');
     await afterNav();
     await afterLoad();
     await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('2', { timeout: 15000 });

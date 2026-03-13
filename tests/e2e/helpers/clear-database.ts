@@ -8,12 +8,13 @@ import * as path from 'path';
 export async function clearGunDatabases() {
   console.log('🧹 Clearing Gun.js databases to start fresh...');
 
-  // Clear client database
+  // Clear client/server radata (Gun file storage); recreate dir so next run can write (avoids ENOENT)
   const radataPath = path.join(__dirname, '../../../radata');
   if (fs.existsSync(radataPath)) {
     fs.rmSync(radataPath, { recursive: true, force: true });
     console.log('  ✅ Cleared client database (radata/)');
   }
+  fs.mkdirSync(radataPath, { recursive: true });
 
   // Clear server database
   const serverDataPath = path.join(__dirname, '../../../data1.json');
@@ -53,8 +54,8 @@ export async function clearGunDatabases() {
     console.warn('  ⚠️ Could not connect to Gun.js server to clear database');
   }
 
-  // Add a delay to ensure all Gun.js writes are flushed before clearing
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+  // Allow server and Gun to finish clearing before next test
+  await new Promise((resolve) => setTimeout(resolve, 600));
 
   console.log('✅ All databases cleared');
 }

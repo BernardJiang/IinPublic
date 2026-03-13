@@ -74,7 +74,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     page.on('console', (msg) => console.log(`[${label}]:`, msg.text()));
 
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 640, 1000);
     await afterLoad();
 

@@ -71,7 +71,7 @@ test.describe('Capacity and eviction', () => {
     page1 = await context1.newPage();
     page1.on('console', (m) => console.log('[U1]:', m.text()));
     await page1.goto('/');
-    await page1.waitForLoadState('networkidle');
+    await page1.waitForLoadState('load');
     await ensureWindowFitsViewport(page1, 640, 600);
     await page1.evaluate(() => {
       localStorage.clear();
@@ -83,7 +83,7 @@ test.describe('Capacity and eviction', () => {
     page2 = await context2.newPage();
     page2.on('console', (m) => console.log('[U2]:', m.text()));
     await page2.goto('/');
-    await page2.waitForLoadState('networkidle');
+    await page2.waitForLoadState('load');
     await ensureWindowFitsViewport(page2, 640, 600);
     await afterLoad();
 
@@ -91,7 +91,7 @@ test.describe('Capacity and eviction', () => {
     page3 = await context3.newPage();
     page3.on('console', (m) => console.log('[U3]:', m.text()));
     await page3.goto('/');
-    await page3.waitForLoadState('networkidle');
+    await page3.waitForLoadState('load');
     await ensureWindowFitsViewport(page3, 640, 600);
     await afterLoad();
 
@@ -104,7 +104,7 @@ test.describe('Capacity and eviction', () => {
     page4 = await context4.newPage();
     page4.on('console', (m) => console.log('[U4]:', m.text()));
     await page4.goto('/');
-    await page4.waitForLoadState('networkidle');
+    await page4.waitForLoadState('load');
     await ensureWindowFitsViewport(page4, 640, 600);
     await afterLoad();
     await afterSync();
@@ -143,7 +143,7 @@ test.describe('Capacity and eviction', () => {
     page1 = await context1.newPage();
     page1.on('console', (m) => console.log('[U1]:', m.text()));
     await page1.goto('/');
-    await page1.waitForLoadState('networkidle');
+    await page1.waitForLoadState('load');
     await afterLoad();
     await afterNav();
 
@@ -154,7 +154,7 @@ test.describe('Capacity and eviction', () => {
     });
     page2 = await context2.newPage();
     await page2.goto('/');
-    await page2.waitForLoadState('networkidle');
+    await page2.waitForLoadState('load');
     await afterLoad();
 
     context3 = await browser3.newContext({
@@ -164,7 +164,7 @@ test.describe('Capacity and eviction', () => {
     });
     page3 = await context3.newPage();
     await page3.goto('/');
-    await page3.waitForLoadState('networkidle');
+    await page3.waitForLoadState('load');
     await afterLoad();
 
     context4 = await browser4.newContext({
@@ -174,7 +174,7 @@ test.describe('Capacity and eviction', () => {
     });
     page4 = await context4.newPage();
     await page4.goto('/');
-    await page4.waitForLoadState('networkidle');
+    await page4.waitForLoadState('load');
     await afterLoad();
 
     await afterSync();

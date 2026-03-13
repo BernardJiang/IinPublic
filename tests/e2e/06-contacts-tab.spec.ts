@@ -76,7 +76,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     const page = await context.newPage();
     page.on('console', (m) => console.log(`[${label}]:`, m.text()));
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 640, 1000);
     await afterLoad();
     await page.click('.nav-btn[data-view="me"]');

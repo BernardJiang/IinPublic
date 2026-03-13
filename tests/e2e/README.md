@@ -76,3 +76,4 @@ npx playwright show-report
 
 - **Gun.js sync**: Tests use configurable waits; long mode gives more time for propagation.
 - **Single worker**: Tests run sequentially (`workers: 1`) to avoid races with shared Gun state.
+- **Load state**: Tests use `waitForLoadState('load')` (not `networkidle`) so Gun/WebSocket activity doesn't block. **afterLoad/afterSync** are required so Gun can connect and propagate (e.g. headcount); shortening them too much causes headcount stuck at 1 and flaky tests.

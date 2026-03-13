@@ -33,7 +33,7 @@ test.describe('Talks: create and edit', () => {
     page = await context.newPage();
     page.on('console', (m) => console.log('[Browser]:', m.text()));
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 960, 1200);
     await afterLoad();
     await page.click('.nav-btn[data-view="me"]');

@@ -35,6 +35,23 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     });
   });
 
+  test.beforeEach(async () => {
+    const closePage = async (p?: Page) => {
+      if (!p) return;
+      try {
+        await p.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
+      } catch {}
+      await p.close().catch(() => {});
+    };
+    await closePage(pageTom);
+    await closePage(pageJerry);
+    await closePage(pageBob);
+    await contextTom?.close().catch(() => {});
+    await contextJerry?.close().catch(() => {});
+    await contextBob?.close().catch(() => {});
+    await clearGunDatabases();
+  });
+
   test.afterAll(async () => {
     const cleanup = async (p?: Page) => {
       if (!p) return;
@@ -69,7 +86,7 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     const page = await context.newPage();
     page.on('console', (m) => console.log(`[${label}]:`, m.text()));
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 640, 1000);
     await afterLoad();
     await page.click('.nav-btn[data-view="me"]');

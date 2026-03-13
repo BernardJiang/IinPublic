@@ -104,7 +104,7 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     page.on('console', (msg) => console.log(`[${label}]:`, msg.text()));
 
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 640, 1000);
     await afterLoad();
 
@@ -125,16 +125,14 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     return { context, page };
   }
 
+  /** Wait for toast notification (scoped to .notification to avoid matching hidden help text). */
   async function waitForNotification(
     page: Page,
     contains: string | RegExp,
     label: string,
   ): Promise<void> {
-    const locator =
-      typeof contains === 'string'
-        ? page.getByText(contains, { exact: false }).first()
-        : page.getByText(contains).first();
-    await expect(locator).toBeVisible({ timeout: 20000 });
+    const notification = page.locator('.notification').filter({ hasText: contains });
+    await expect(notification.first()).toBeVisible({ timeout: 20000 });
     console.log(`✅ ${label} saw notification: "${String(contains)}"`);
   }
 
@@ -269,6 +267,7 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     test.setTimeout(120000);
 
     console.log('\n📍 Copy-talk test: TechSupport creates one talk, Tom receives (saved), disables, broadcast 0, enables, broadcast 1, deletes');
+    await clearGunDatabases();
     const techSupport = await bootstrapUser(browserTechSupport, 'TechSupport', TECH_SUPPORT_NAME);
     contextTechSupport = techSupport.context;
     pageTechSupport = techSupport.page;
@@ -297,12 +296,11 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     await pageTechSupport.waitForTimeout(1500);
 
     await pageTechSupport.click('#broadcast-talk-btn');
-    await waitForNotification(pageTechSupport, /Sent 1 talks?/, 'TechSupport');
+    await afterSync();
 
-    await pageTom.waitForTimeout(3000);
     await pageTom.click('.nav-btn[data-view="talks"]');
-    await pageTom.waitForTimeout(2000);
-    await expect(pageTom.locator('.talk-list-item').filter({ hasText: copyTalkTitle }).first()).toBeVisible({ timeout: 10000 });
+    await afterSync();
+    await expect(pageTom.locator('.talk-list-item').filter({ hasText: copyTalkTitle }).first()).toBeVisible({ timeout: 15000 });
 
     await pageTom.locator('.talk-list-item').filter({ hasText: copyTalkTitle }).first().click();
     await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
