@@ -721,7 +721,7 @@ export class IinPublicApp {
           const targetCount = data.members?.length ?? 0;
           const broadcastableIds = this.uiManager.getBroadcastableTalkIds();
           if (broadcastableIds.length === 0) {
-            this.uiManager.showNotification('You have no talks to broadcast. Create one first or enable copied talks.', 'info');
+            // UI already shows this notification when broadcastableCount === 0; skip duplicate to avoid double toast
             return;
           }
           const gun = this.gunService.getGun();

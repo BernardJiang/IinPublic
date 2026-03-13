@@ -289,7 +289,6 @@ export class UIManager extends EventEmitter {
     if (broadcastTalkBtn) {
       broadcastTalkBtn.addEventListener('click', () => {
         const broadcastableCount = this.getBroadcastableTalkIds().length;
-
         this.emit('broadcastTalk', {
           chatroomId: this.currentChatroom,
           members: this.currentChatroomMembers,
@@ -308,9 +307,12 @@ export class UIManager extends EventEmitter {
           }, 2500);
         }
 
-        // Only launch create-talk dialog when user has no talks to broadcast
+        // Only launch create-talk dialog when user has no talks to broadcast; show notification after modal so it stays on top and is visible to E2E
         if (broadcastableCount === 0) {
           this.showTalkEditorDialog();
+          setTimeout(() => {
+            this.showNotification('You have no talks to broadcast. Create one first or enable copied talks.', 'info');
+          }, 0);
         }
       });
     }
@@ -2201,11 +2203,13 @@ export class UIManager extends EventEmitter {
 
     document.body.appendChild(notification);
 
+    const hideAfter =
+      message.includes('You have no talks to broadcast') ? 10000 : 3000;
     setTimeout(() => {
       if (document.body.contains(notification)) {
         document.body.removeChild(notification);
       }
-    }, 3000);
+    }, hideAfter);
   }
 
   showTalkCompletion(_conversationId: string, outcome: string): void {

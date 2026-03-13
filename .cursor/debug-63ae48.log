@@ -1,0 +1,2 @@
+{"sessionId":"63ae48","timestamp":1773376309116,"location":"e2e spec","message":"Copy-talk test started","data":{"logPath":"/home/bernard/IinPublic/.cursor/debug-63ae48.log"}}
+{"sessionId":"63ae48","timestamp":1773376335792,"location":"e2e spec","message":"page snapshot after broadcast click","data":{"snapshot":{"notifications":[{"text":"You have no talks to broadcast. Create one first or enable copied talks.","visible":false,"classList":"notification info"}],"modalVisible":false}}}
