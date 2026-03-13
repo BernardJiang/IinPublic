@@ -102,11 +102,14 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     return { context, page };
   }
 
-  /** Wait for a toast notification (avoids matching hidden help text that contains e.g. "Sent"). */
-  async function waitNotif(page: Page, contains: string, label: string): Promise<void> {
-    const notification = page.locator('.notification').filter({ hasText: contains });
-    await expect(notification.first()).toBeVisible({ timeout: 15000 });
-    console.log(`✅ ${label} saw: "${contains}"`);
+  /** Wait for a tab to be the active one (previous tab restored after modal closes). */
+  async function waitForTabActive(page: Page, view: 'chatrooms' | 'talks' | 'contacts' | 'answers' | 'me'): Promise<void> {
+    await expect(page.locator(`.nav-btn[data-view="${view}"].active`)).toBeVisible({ timeout: 10000 });
+  }
+
+  /** Wait for talk-response modal to close (use after clicking an answer so view is restored). */
+  async function waitForResponseModalClosed(page: Page): Promise<void> {
+    await page.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
   }
 
   test('Tennis match: Tom sends, Jerry answers match', async () => {
@@ -136,7 +139,7 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     await afterSync();
     await pageTom.click('#broadcast-talk-btn');
     await afterAction();
-    await waitNotif(pageTom, 'Sent', 'Tom');
+    await waitForTabActive(pageTom, 'chatrooms');
 
     await afterSync();
     await pageJerry.click('.nav-btn[data-view="talks"]');
@@ -147,8 +150,9 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
       .locator('input.choice-radio[data-answer-text="Yes, lets play."][data-mode="manual"]')
       .first()
       .click();
-    await waitNotif(pageJerry, 'Match!', 'Jerry');
-    await waitNotif(pageTom, 'Match!', 'Tom');
+    await waitForResponseModalClosed(pageJerry);
+    await waitForTabActive(pageJerry, 'talks');
+    await waitForTabActive(pageTom, 'chatrooms');
   });
 
   test('Two talks: Tom Tennis+Coffee, Jerry/Bob match/mismatch; status bar and Answer tab', async () => {
@@ -196,13 +200,16 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     await afterSync();
     await pageTom.click('#broadcast-talk-btn');
     await afterAction();
-    await waitNotif(pageTom, 'Sent', 'Tom');
+    await waitForTabActive(pageTom, 'chatrooms');
 
+    await afterSync();
+    await pageJerry.click('.nav-btn[data-view="talks"]');
     await afterSync();
     await pageJerry.locator('.talk-list-item').filter({ hasText: 'Tennis' }).first().click();
     await pageJerry.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
     await pageJerry.locator('input.choice-radio[data-answer-text="Yes"][data-mode="manual"]').first().click();
-    await waitNotif(pageJerry, 'Match!', 'Jerry');
+    await waitForResponseModalClosed(pageJerry);
+    await waitForTabActive(pageJerry, 'talks');
     await pageJerry.locator('.talk-list-item').filter({ hasText: 'Coffee' }).first().click();
     await pageJerry.waitForSelector('#talk-response-modal .modal-content', { timeout: 5000 });
     await pageJerry.locator('input.choice-radio[data-answer-text="No"][data-mode="manual"]').first().click();
@@ -213,13 +220,14 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     await pageBob.locator('.talk-list-item').filter({ hasText: 'Coffee' }).first().click();
     await pageBob.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
     await pageBob.locator('input.choice-radio[data-answer-text="Yes"][data-mode="manual"]').first().click();
-    await waitNotif(pageBob, 'Match!', 'Bob');
+    await waitForResponseModalClosed(pageBob);
+    await waitForTabActive(pageBob, 'talks');
     await pageBob.locator('.talk-list-item').filter({ hasText: 'Tennis' }).first().click();
     await pageBob.waitForSelector('#talk-response-modal .modal-content', { timeout: 5000 });
     await pageBob.locator('input.choice-radio[data-answer-text="No"][data-mode="manual"]').first().click();
     await afterSync();
 
-    await waitNotif(pageTom, 'Match!', 'Tom');
+    await waitForTabActive(pageTom, 'chatrooms');
     await afterSync();
     await pageTom.click('.nav-btn[data-view="talks"]');
     await afterSync();
@@ -262,7 +270,7 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     await pageTom.click('#talk-editor-form button[type="submit"]');
     await afterSync();
     await pageTom.click('#broadcast-talk-btn');
-    await waitNotif(pageTom, 'Sent', 'Tom');
+    await waitForTabActive(pageTom, 'chatrooms');
 
     await pageJerry.click('.nav-btn[data-view="me"]');
     await afterNav();
@@ -276,8 +284,11 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
       .locator('input.choice-radio[data-answer-text="Yes, lets play."][data-mode="manual"]')
       .first()
       .click();
-    await waitNotif(pageJerry, 'Match!', 'Jerry');
+    await waitForResponseModalClosed(pageJerry);
+    await waitForTabActive(pageJerry, 'talks');
 
+    await pageTom.click('.nav-btn[data-view="talks"]');
+    await afterSync();
     const talkId = await pageTom.locator('.talk-list-item').filter({ hasText: 'Tennis' }).first().getAttribute('data-talk-id');
     expect(talkId).toBeTruthy();
     await pageBob.evaluate(
@@ -289,7 +300,7 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
       talkId!,
     );
     await afterSync();
-    await waitNotif(pageBob, 'Match!', 'Bob');
+    await waitForTabActive(pageBob, 'chatrooms');
 
     await pageTom.click('.nav-btn[data-view="me"]');
     await afterSync();
@@ -345,7 +356,7 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     await pageTom.click('#talk-editor-form button[type="submit"]');
     await afterSync();
     await pageTom.click('#broadcast-talk-btn');
-    await waitNotif(pageTom, 'Sent', 'Tom');
+    await waitForTabActive(pageTom, 'chatrooms');
 
     await afterSync();
     await pageJerry.click('.nav-btn[data-view="talks"]');
@@ -365,7 +376,8 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     await pageJerry.locator('input.choice-radio[data-answer-text="amateur"][data-mode="auto"]').first().click();
     await afterAction();
     await pageJerry.locator('input.choice-radio[data-answer-text="Yes"][data-mode="manual"]').first().click();
-    await waitNotif(pageJerry, 'Match!', 'Jerry');
-    await waitNotif(pageTom, 'Match!', 'Tom');
+    await waitForResponseModalClosed(pageJerry);
+    await waitForTabActive(pageJerry, 'talks');
+    await waitForTabActive(pageTom, 'chatrooms');
   });
 });
