@@ -125,9 +125,9 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     return { context, page };
   }
 
-  /** Wait for chatroom tab to be visible (stable check after broadcast actions). */
-  async function waitForChatroomTabVisible(page: Page): Promise<void> {
-    await expect(page.locator('.nav-btn[data-view="chatrooms"]')).toBeVisible({ timeout: 10000 });
+  /** Wait for a tab to be the active one (previous tab restored after modal closes). */
+  async function waitForTabActive(page: Page, view: 'chatrooms' | 'talks' | 'contacts' | 'answers' | 'me'): Promise<void> {
+    await expect(page.locator(`.nav-btn[data-view="${view}"].active`)).toBeVisible({ timeout: 10000 });
   }
 
   test('TechSupport creates 10 tags + 10 talks, answers all himself (in UI); Tom joins; TechSupport sends all 20; Tom answers all; TechSupport confirms', async () => {
@@ -195,7 +195,7 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     await pageTechSupport.waitForTimeout(1000);
     await pageTechSupport.click('#broadcast-talk-btn');
     await pageTechSupport.waitForTimeout(500);
-    await waitForChatroomTabVisible(pageTechSupport);
+    await waitForTabActive(pageTechSupport, 'chatrooms');
 
     // 6) Tom answers all 20: first 10 are tags (checkbox checked = match), next 10 are talks (click match answer)
     console.log('\n📍 STEP 7: Tom answers all 20');
@@ -314,7 +314,7 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     await pageTom.waitForTimeout(800);
     await expect(pageTom.locator('#broadcast-talk-btn')).toBeVisible({ timeout: 10000 });
     await pageTom.click('#broadcast-talk-btn');
-    await waitForChatroomTabVisible(pageTom);
+    await waitForTabActive(pageTom, 'chatrooms');
     const talkEditorModal = pageTom.locator('#talk-editor-modal');
     if (await talkEditorModal.isVisible()) {
       await pageTom.locator('#cancel-talk-btn').click();
@@ -332,7 +332,7 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     await pageTom.waitForTimeout(500);
     await pageTom.click('#broadcast-talk-btn');
     await pageTom.waitForTimeout(500);
-    await waitForChatroomTabVisible(pageTom);
+    await waitForTabActive(pageTom, 'chatrooms');
 
     await pageTom.click('.nav-btn[data-view="me"]');
     await pageTom.waitForTimeout(1000);
