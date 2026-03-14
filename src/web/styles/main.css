@@ -692,16 +692,14 @@ body {
   content: 'Matched';
 }
 
-/* Flash when new talk received from this user */
+/* Flash when new talk received from this user - single gentle pulse, 1s cycle */
 .chatroom-member-item.flash-new-talk {
-  animation: flashMember 1s ease-out;
+  animation: flashMember 1s ease-in-out;
 }
 
 @keyframes flashMember {
   0%, 100% { background: transparent; }
-  25% { background: rgba(7, 193, 96, 0.4); }
-  50% { background: transparent; }
-  75% { background: rgba(7, 193, 96, 0.25); }
+  50% { background: rgba(7, 193, 96, 0.35); }
 }
 
 #broadcast-talk-btn {

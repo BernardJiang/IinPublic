@@ -295,6 +295,15 @@ class IinPublicServer {
         });
     }
     start(port = 8080) {
+        this.server.on('error', (err) => {
+            if (err.code === 'EADDRINUSE') {
+                console.error(`\n❌ Port ${port} is already in use.`);
+                console.error('   Stop the other process using the port, or use a different PORT.');
+                console.error('   Example: PORT=8081 npm run dev:server\n');
+                process.exit(1);
+            }
+            throw err;
+        });
         this.server.listen(port, () => {
             console.log(`🚀 IinPublic server running on port ${port}`);
             console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);

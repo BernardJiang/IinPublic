@@ -80,6 +80,12 @@ export interface Talk {
   createdAt: Date;
   isTemplate: boolean;
   usageCount: number;
+  /** Expiration timestamp (ms). null/undefined = forever. Once expired, talk is not sent automatically but can be re-activated. */
+  expiresAt?: number | null;
+  /** Location radius in miles. null/undefined = anywhere. Recipients outside this radius are filtered out. */
+  locationRadiusMiles?: number | null;
+  /** Author's location when talk was created (for distance filtering). */
+  authorLocation?: { latitude: number; longitude: number };
 }
 
 export interface Question {

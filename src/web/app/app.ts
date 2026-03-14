@@ -355,11 +355,33 @@ export class IinPublicApp {
         // Fetch the full talk details
         gun.get(`talks/${talkAnnouncement.talkId}`).once((talkDataWrapper: any) => {
           if (talkDataWrapper && talkDataWrapper.data) {
-            // Parse the JSON string to get the full talk
             const talkData = JSON.parse(talkDataWrapper.data);
             console.log('📋 Full talk data:', talkData);
 
-            // Display the talk in UI
+            // Filter by location: if talk has authorLocation + radius, only show if we're within range
+            const radiusMiles = talkData.locationRadiusMiles ?? talkData.locationRadius;
+            const authorLoc = talkData.authorLocation;
+            if (
+              radiusMiles != null &&
+              radiusMiles > 0 &&
+              authorLoc?.latitude != null &&
+              authorLoc?.longitude != null &&
+              this.currentLocation
+            ) {
+              const authorCoord = {
+                latitude: authorLoc.latitude,
+                longitude: authorLoc.longitude,
+                accuracy: 0,
+                timestamp: new Date(),
+              };
+              const distanceMeters = LocationPrivacy.calculateDistance(this.currentLocation, authorCoord);
+              const distanceMiles = distanceMeters / 1609.344;
+              if (distanceMiles > radiusMiles) {
+                console.log(`📏 Skipping talk ${talkData.id}: ${distanceMiles.toFixed(1)} mi > ${radiusMiles} mi`);
+                return;
+              }
+            }
+
             this.uiManager.displayIncomingTalk({
               id: talkData.id,
               title: talkData.title,
@@ -371,7 +393,6 @@ export class IinPublicApp {
               fullTalk: talkData,
             });
 
-            // If this is the user's own talk, subscribe to responses
             if (talkAnnouncement.authorId === this.currentUser?.id) {
               this.subscribeToTalkResponses(talkAnnouncement.talkId, talkData);
             }
@@ -663,49 +684,61 @@ export class IinPublicApp {
       },
     );
 
-    this.uiManager.on('createTalk', async (talkData: Partial<Talk>) => {
-      try {
-        console.log('📝 Creating talk:', talkData);
+    this.uiManager.on(
+      'createTalk',
+      async (talkData: Partial<Talk> & { sendToChatroom?: boolean; selfAnswers?: { questionId: string; answerId: string }[] }) => {
+        try {
+          const { sendToChatroom = true, selfAnswers = [], ...rest } = talkData;
+          console.log('📝 Creating talk:', rest);
 
-        // Create the talk
-        const talk = await this.talkService.createTalk({
-          ...talkData,
-          authorId: this.currentUser!.id,
-        });
+          const createPayload: Partial<Talk> = {
+            ...rest,
+            authorId: this.currentUser!.id,
+          };
+          if (rest.locationRadiusMiles != null && this.currentLocation) {
+            createPayload.authorLocation = {
+              latitude: this.currentLocation.latitude,
+              longitude: this.currentLocation.longitude,
+            };
+          }
+          const talk = await this.talkService.createTalk(createPayload);
 
-        console.log('✅ Talk created:', talk);
+          console.log('✅ Talk created:', talk);
 
-        // Broadcast the talk to the chatroom
-        const chatroomId = this.chatroomService.getCurrentChatroomId();
-        if (chatroomId) {
-          const gun = this.gunService.getGun();
+          this.uiManager.saveCreatedTalk(talk, { selfAnswers });
 
-          // Store the talk announcement in the chatroom
-          gun.get('chatrooms').get(chatroomId).get('talks').get(talk.id).put({
-            talkId: talk.id,
-            title: talk.title,
-            authorId: talk.authorId,
-            authorName: this.currentUser!.stageName,
-            type: talk.type,
-            timestamp: new Date().toISOString(),
-            questionCount: talk.questions.length,
-          });
-
-          console.log('📢 Talk broadcasted to chatroom:', chatroomId);
-
-          // Subscribe to responses for this talk (since author won't receive their own announcement)
-          this.subscribeToTalkResponses(talk.id, talk);
+          if (sendToChatroom) {
+            const chatroomId = this.chatroomService.getCurrentChatroomId();
+            if (chatroomId) {
+              const gun = this.gunService.getGun();
+              gun.get('chatrooms').get(chatroomId).get('talks').get(talk.id).put({
+                talkId: talk.id,
+                title: talk.title,
+                authorId: talk.authorId,
+                authorName: this.currentUser!.stageName,
+                type: talk.type,
+                timestamp: new Date().toISOString(),
+                questionCount: talk.questions.length,
+                expiresAt: talk.expiresAt ?? undefined,
+                locationRadiusMiles: talk.locationRadiusMiles ?? undefined,
+                authorLocation: talk.authorLocation ?? undefined,
+              });
+              console.log('📢 Talk broadcasted to chatroom:', chatroomId);
+              this.subscribeToTalkResponses(talk.id, talk);
+            }
+            this.uiManager.showNotification('Talk created and sent to chatroom!', 'success');
+          } else {
+            this.uiManager.showNotification('Talk created and saved to your list.', 'success');
+          }
+        } catch (error) {
+          console.error('Failed to create talk:', error);
+          this.uiManager.showNotification(
+            'Failed to create talk: ' + (error as Error).message,
+            'error',
+          );
         }
-
-        this.uiManager.showNotification('Talk created and sent to chatroom!', 'success');
-      } catch (error) {
-        console.error('Failed to create talk:', error);
-        this.uiManager.showNotification(
-          'Failed to create talk: ' + (error as Error).message,
-          'error',
-        );
-      }
-    });
+      },
+    );
 
     // Broadcast all my created talks to all other users in the current room
     this.uiManager.on(
@@ -754,25 +787,40 @@ export class IinPublicApp {
       },
     );
 
-    this.uiManager.on('updateTalk', async (data: { id: string; title: string; type: string; questions: any[]; language?: string; tags?: any[] }) => {
-      try {
-        await this.talkService.updateTalk(data.id, {
+    this.uiManager.on(
+      'updateTalk',
+      async (data: {
+        id: string;
+        title: string;
+        type: string;
+        questions: any[];
+        language?: string;
+        tags?: any[];
+        expiresAt?: number | null;
+        locationRadiusMiles?: number | null;
+      }) => {
+        try {
+        const updatePayload: Partial<Talk> = {
           title: data.title,
           type: data.type as 'matching' | 'survey',
           questions: data.questions,
           language: data.language || 'en',
           tags: data.tags || [],
-        });
-        this.uiManager.showNotification('Talk updated.', 'success');
-        this.uiManager.displayTalksList();
-      } catch (error) {
-        console.error('Failed to update talk:', error);
-        this.uiManager.showNotification(
-          'Failed to update talk: ' + (error as Error).message,
-          'error',
-        );
-      }
-    });
+        };
+        if (data.expiresAt !== undefined) updatePayload.expiresAt = data.expiresAt;
+        if (data.locationRadiusMiles !== undefined) updatePayload.locationRadiusMiles = data.locationRadiusMiles;
+        await this.talkService.updateTalk(data.id, updatePayload);
+          this.uiManager.showNotification('Talk updated.', 'success');
+          this.uiManager.displayTalksList();
+        } catch (error) {
+          console.error('Failed to update talk:', error);
+          this.uiManager.showNotification(
+            'Failed to update talk: ' + (error as Error).message,
+            'error',
+          );
+        }
+      },
+    );
 
     this.uiManager.on('loadTalkForEdit', async (data: { talkId: string }) => {
       try {
@@ -862,6 +910,12 @@ export class IinPublicApp {
       async (data: { talkId: string; answers: any[]; talkData?: any; isChatbotResponse?: boolean }) => {
         try {
           console.log('📝 User completed talk:', data);
+
+          this.uiManager.saveQuestionAnswersFromCompletion(
+            data.talkData || {},
+            data.answers,
+            this.currentLocation,
+          );
 
           const isChatbot = !!data.isChatbotResponse;
 
