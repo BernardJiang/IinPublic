@@ -133,6 +133,64 @@ test.describe('Talks: create and edit', () => {
     await expect(page.locator('.talk-list-item').filter({ hasText: title })).not.toBeVisible({ timeout: 5000 });
   });
 
+  test('Disable-for-broadcast checkbox survives multiple toggles and remove (wait for each toggle)', async () => {
+    await bootstrapUser('CheckboxStressUser');
+    const titles = ['Checkbox Talk A', 'Checkbox Talk B', 'Checkbox Talk C'] as const;
+
+    async function createTalk(title: string): Promise<void> {
+      await page.click('#create-talk-btn');
+      await page.waitForSelector('#talk-editor-form');
+      await page.fill('#talk-title', title);
+      await page.selectOption('#talk-type', 'matching');
+      const q = page.locator('.question-item').first();
+      await q.locator('.question-text').fill('Q?');
+      await q.locator('.answer-item').nth(0).locator('.answer-text').fill('Y');
+      await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('ignore');
+      await q.locator('.answer-item').nth(1).locator('.answer-text').fill('N');
+      await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
+      await page.click('#talk-editor-form button[type="submit"]');
+      await page.waitForSelector('#talk-editor-modal', { state: 'detached', timeout: 15000 });
+      await afterSync();
+    }
+
+    for (const title of titles) await createTalk(title);
+
+    await page.click('.nav-btn[data-view="talks"]');
+    await afterSync();
+
+    // Helper: click disable label and wait for checkbox to reach expected checked state (avoids Gun/sync racing ahead of clicks)
+    async function toggleDisableAndWait(talkTitle: string, expectChecked: boolean): Promise<void> {
+      const item = page.locator('.talk-list-item').filter({ hasText: talkTitle }).filter({ has: page.locator('.talk-badge-created') }).first();
+      await item.locator('.talk-disable-broadcast-label').click();
+      const cb = item.locator('.talk-disable-broadcast-checkbox');
+      if (expectChecked) {
+        await expect(cb).toBeChecked({ timeout: 5000 });
+      } else {
+        await expect(cb).not.toBeChecked({ timeout: 5000 });
+      }
+    }
+
+    // Each of 3 talks: toggle checkbox 3 times (on -> off -> on), waiting for state after each click
+    for (const title of titles) {
+      await toggleDisableAndWait(title, true);   // 1st click -> disabled
+      await toggleDisableAndWait(title, false);  // 2nd click -> enabled
+      await toggleDisableAndWait(title, true);   // 3rd click -> disabled
+    }
+
+    // Remove middle talk (B)
+    const middleItem = page.locator('.talk-list-item').filter({ hasText: titles[1] }).filter({ has: page.locator('.talk-badge-created') }).first();
+    await middleItem.locator('.remove-talk-btn').click();
+    await afterSync();
+    await expect(page.locator('.talk-list-item').filter({ hasText: titles[1] })).not.toBeVisible({ timeout: 5000 });
+
+    // Remaining 2 talks: toggle each checkbox 3 times again, waiting for state each time
+    for (const title of [titles[0], titles[2]]) {
+      await toggleDisableAndWait(title, false);  // was disabled -> enable
+      await toggleDisableAndWait(title, true);   // disable again
+      await toggleDisableAndWait(title, false);  // enable again
+    }
+  });
+
   test('Create talk without sending to chatroom', async () => {
     await bootstrapUser('NoSendUser');
     await page.click('#create-talk-btn');

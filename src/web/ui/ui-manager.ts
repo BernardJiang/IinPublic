@@ -12,6 +12,7 @@ export class UIManager extends EventEmitter {
   private matchedUserIds: Set<string> = new Set(); // Users who matched with me (for green indicator)
   // private newMatchesCount: number = 0; // TODO: implement match count tracking
   private talkStatsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
+  private talksListDelegationBound = false;
 
   // Callback for stage name changes
   public onStageNameChange?: (userId: string, newStageName: string) => Promise<void>;
@@ -732,13 +733,14 @@ export class UIManager extends EventEmitter {
     const talksList = document.getElementById('talks-list');
     if (!talksList) return;
 
-    // One-time event delegation: handle Edit, Remove, and Disable checkbox in capture so nothing else can swallow the event
-    if (!(talksList as HTMLElement).dataset.delegationBound) {
-      (talksList as HTMLElement).dataset.delegationBound = '1';
-      talksList.addEventListener(
+    // One-time delegation on body so it survives any list re-renders (e.g. after removing items)
+    if (!this.talksListDelegationBound) {
+      this.talksListDelegationBound = true;
+      document.body.addEventListener(
         'click',
         (e) => {
           const target = e.target as HTMLElement;
+          if (!target.closest('#talks-list')) return;
           const removeBtn = target.closest('.remove-talk-btn');
           if (removeBtn) {
             e.preventDefault();
@@ -768,8 +770,8 @@ export class UIManager extends EventEmitter {
           // Checkbox or its label: toggle disabled state ourselves so we don't rely on change event
           const label = target.closest('.talk-disable-broadcast-label');
           const checkbox = target.closest('.talk-disable-broadcast-checkbox') as HTMLInputElement | null;
-          const control = checkbox ?? label?.querySelector('.talk-disable-broadcast-checkbox') as HTMLInputElement | null;
-          if (control) {
+          const control = checkbox ?? (label ? label.querySelector('.talk-disable-broadcast-checkbox') : null) as HTMLInputElement | null;
+          if (control && control.dataset) {
             e.preventDefault();
             e.stopPropagation();
             const talkId = control.dataset.talkId;
