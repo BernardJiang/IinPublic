@@ -298,12 +298,10 @@ body {
   margin-bottom: 10px;
   border: 1px solid #e0e0e0;
   cursor: pointer;
-  transition: all 0.2s ease;
 }
 
 .conversation-item:hover {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  transform: translateY(-1px);
 }
 
 .conversation-item.active {
@@ -406,18 +404,16 @@ body {
   border-radius: 12px;
   border: 1px solid #e0e0e0;
   cursor: pointer;
-  transition: all 0.2s ease;
   position: relative;
 }
 
 .chatroom-item:hover {
   background: #f8f9fa;
   border-color: #07c160;
-  transform: translateX(4px);
 }
 
 .chatroom-item:active {
-  transform: translateX(4px) scale(0.98);
+  background: #f0f0f0;
 }
 
 /* Expand/Collapse icon */
@@ -433,12 +429,10 @@ body {
   font-size: 0.8em;
   color: #666;
   flex-shrink: 0;
-  transition: transform 0.2s ease;
 }
 
 .chatroom-expand-icon:hover {
   color: #07c160;
-  transform: scale(1.2);
 }
 
 .chatroom-expand-icon-placeholder {
@@ -565,11 +559,10 @@ body {
   color: #07c160;
   cursor: pointer;
   padding: 4px 8px;
-  transition: transform 0.2s ease;
 }
 
 #back-to-chatrooms:hover {
-  transform: translateX(-4px);
+  opacity: 0.9;
 }
 
 #chatroom-detail-info {
@@ -635,7 +628,6 @@ body {
   border-radius: 8px;
   border: 1px solid #e0e0e0;
   cursor: pointer;
-  transition: all 0.2s ease;
 }
 
 .chatroom-member-item:hover {
@@ -675,11 +667,10 @@ body {
   color: #07c160;
 }
 
-/* Broadcast sent: highlight members who received the broadcast */
+/* Broadcast sent: highlight members who received the broadcast (no animation) */
 .chatroom-member-item.broadcast-sent-to {
   background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%) !important;
   border-radius: 8px;
-  transition: background 0.3s ease;
 }
 
 /* Match indicator on member name (Tom sees green when Jerry/Bob match) */
@@ -692,14 +683,9 @@ body {
   content: 'Matched';
 }
 
-/* Flash when new talk received from this user - single gentle pulse, 1s */
+/* Highlight when new talk received from this user (no animation, instant) */
 .chatroom-member-item.flash-new-talk {
-  animation: flashMember 1s ease-in-out;
-}
-
-@keyframes flashMember {
-  0%, 100% { background: transparent; }
-  50% { background: rgba(7, 193, 96, 0.35); }
+  background: rgba(7, 193, 96, 0.25);
 }
 
 #broadcast-talk-btn {
@@ -712,7 +698,6 @@ body {
   font-size: 1.05em;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
   box-shadow: 0 4px 12px rgba(7, 193, 96, 0.3);
   display: flex;
   align-items: center;
@@ -722,12 +707,10 @@ body {
 
 #broadcast-talk-btn:hover {
   background: linear-gradient(135deg, #06ab56 0%, #048f45 100%);
-  transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(7, 193, 96, 0.4);
 }
 
 #broadcast-talk-btn:active {
-  transform: translateY(0);
   box-shadow: 0 2px 8px rgba(7, 193, 96, 0.3);
 }
 
@@ -748,7 +731,6 @@ body {
   font-size: 1em;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
   box-shadow: 0 2px 8px rgba(7, 193, 96, 0.2);
   display: flex;
   align-items: center;
@@ -758,12 +740,10 @@ body {
 
 .create-talk-btn:hover {
   background: linear-gradient(135deg, #06ab56 0%, #048f45 100%);
-  transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(7, 193, 96, 0.3);
 }
 
 .create-talk-btn:active {
-  transform: translateY(0);
   box-shadow: 0 2px 6px rgba(7, 193, 96, 0.2);
 }
 
@@ -1032,7 +1012,6 @@ body {
   border-radius: 6px;
   cursor: pointer;
   font-size: 1em;
-  transition: all 0.2s ease;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -1040,13 +1019,11 @@ body {
 
 .btn:hover {
   background: #5a67d8;
-  transform: translateY(-1px);
 }
 
 .btn:disabled {
   background: #ccc;
   cursor: not-allowed;
-  transform: none;
 }
 
 .btn-secondary {
@@ -1492,7 +1469,6 @@ body {
   font-size: 1em;
   cursor: pointer;
   text-align: left;
-  transition: all 0.2s;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1504,7 +1480,7 @@ body {
 }
 
 .profile-btn:active {
-  transform: scale(0.98);
+  background: #eee;
 }
 
 /* Primary Button */
@@ -1517,7 +1493,6 @@ body {
   font-size: 1em;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
 }
 
 .primary-btn:hover {
@@ -1525,7 +1500,7 @@ body {
 }
 
 .primary-btn:active {
-  transform: scale(0.98);
+  background: #059a4c;
 }
 
 /* Conversations View Styles */
@@ -1541,13 +1516,11 @@ body {
   border-radius: 12px;
   margin-bottom: 8px;
   cursor: pointer;
-  transition: all 0.2s;
   border: 1px solid #e5e5e5;
 }
 
 .conversation-list-item:hover {
   background: #f8f8f8;
-  transform: translateX(4px);
 }
 
 .conversation-list-item.unread {
@@ -1777,7 +1750,6 @@ body {
   border-radius: 20px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
 }
 
 .send-btn:hover {
@@ -1785,7 +1757,7 @@ body {
 }
 
 .send-btn:active {
-  transform: scale(0.95);
+  background: #059a4c;
 }
 
 /* Notification Badge on Tab Icon */

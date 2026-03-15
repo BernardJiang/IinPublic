@@ -759,11 +759,14 @@ export class UIManager extends EventEmitter {
             const talkId = (editBtn as HTMLElement).dataset.talkId;
             const role = row?.getAttribute('data-role');
             if (talkId) {
-              if (role === 'created') {
-                this.emit('loadTalkForEdit', { talkId });
-              } else {
-                this.showTalkDetail(talkId);
-              }
+              // Defer so click finishes and any re-renders run first (same as delete/checkbox)
+              setTimeout(() => {
+                if (role === 'created') {
+                  this.emit('loadTalkForEdit', { talkId });
+                } else {
+                  this.showTalkDetail(talkId);
+                }
+              }, 0);
             }
             return;
           }
