@@ -692,7 +692,7 @@ body {
   content: 'Matched';
 }
 
-/* Flash when new talk received from this user - single gentle pulse, 1s cycle */
+/* Flash when new talk received from this user - single gentle pulse, 1s */
 .chatroom-member-item.flash-new-talk {
   animation: flashMember 1s ease-in-out;
 }
@@ -781,18 +781,18 @@ body {
   margin-bottom: 8px;
   border: 1px solid #e0e0e0;
   cursor: pointer;
-  transition: all 0.2s ease;
 }
 
 .talk-list-item:hover {
-  background: #f8f9fa;
+  background: #f0f9f4;
   border-color: #07c160;
-  transform: translateX(4px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 8px rgba(7, 193, 96, 0.15);
 }
 
 .talk-list-item:active {
-  transform: translateX(4px) scale(0.98);
+  background: #e8f5e9;
+  border-color: #05a04e;
+  box-shadow: 0 1px 4px rgba(7, 193, 96, 0.2);
 }
 
 .talk-item-header {

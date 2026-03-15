@@ -834,7 +834,7 @@ export class UIManager extends EventEmitter {
             <div class="talk-item-badges">
               <span class="talk-badge talk-badge-created">📝 Created</span>
               <span class="talk-badge talk-badge-type">${talk.type}</span>
-              ${disabled ? '<span class="talk-badge" style="background:#fef3c7;color:#92400e;">🚫 Disabled</span>' : ''}
+              ${disabled ? '<span class="talk-badge talk-badge-disabled" style="background:#fef3c7;color:#92400e;">🚫 Disabled</span>' : ''}
             </div>
           </div>
           <div class="talk-item-meta">
@@ -877,7 +877,7 @@ export class UIManager extends EventEmitter {
             <div class="talk-item-badges">
               <span class="talk-badge talk-badge-answered">📥 ${talk.role === 'copied' ? 'Copied' : 'From others'}</span>
               <span class="talk-badge talk-badge-type">${talk.type}</span>
-              ${disabled ? '<span class="talk-badge" style="background:#fef3c7;color:#92400e;">🚫 Disabled</span>' : ''}
+              ${disabled ? '<span class="talk-badge talk-badge-disabled" style="background:#fef3c7;color:#92400e;">🚫 Disabled</span>' : ''}
             </div>
           </div>
           <div class="talk-item-meta">
@@ -2298,9 +2298,27 @@ export class UIManager extends EventEmitter {
    */
   setTalkDisabled(talkId: string, disabled: boolean): void {
     const myTalks = this.getMyTalks();
-    if (myTalks[talkId]) {
-      myTalks[talkId].disabled = !!disabled;
-      localStorage.setItem('myTalks', JSON.stringify(myTalks));
+    if (!myTalks[talkId]) return;
+    myTalks[talkId].disabled = !!disabled;
+    localStorage.setItem('myTalks', JSON.stringify(myTalks));
+    // Patch only this row so the checkbox stays in DOM and keeps responding (no full list re-render)
+    const talksList = document.getElementById('talks-list');
+    const row = talksList?.querySelector(`.talk-list-item[data-talk-id="${talkId}"]`);
+    if (row) {
+      const cb = row.querySelector('.talk-disable-broadcast-checkbox') as HTMLInputElement | null;
+      if (cb) cb.checked = !!disabled;
+      const badges = row.querySelector('.talk-item-badges');
+      const existingBadge = row.querySelector('.talk-badge-disabled');
+      if (!!disabled && !existingBadge && badges) {
+        const badge = document.createElement('span');
+        badge.className = 'talk-badge talk-badge-disabled';
+        badge.setAttribute('style', 'background:#fef3c7;color:#92400e;');
+        badge.textContent = '🚫 Disabled';
+        badges.appendChild(badge);
+      } else if (!disabled && existingBadge) {
+        existingBadge.remove();
+      }
+    } else {
       this.displayTalksList();
     }
   }
