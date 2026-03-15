@@ -733,12 +733,13 @@ export class UIManager extends EventEmitter {
     const talksList = document.getElementById('talks-list');
     if (!talksList) return;
 
-    // One-time delegation on body so it survives any list re-renders (e.g. after removing items)
+    // One-time delegation on body: use mousedown so we run before any re-render can replace the DOM (click fires later and target can be gone)
     if (!this.talksListDelegationBound) {
       this.talksListDelegationBound = true;
       document.body.addEventListener(
-        'click',
+        'mousedown',
         (e) => {
+          if (e.button !== 0) return; // only left button
           const target = e.target as HTMLElement;
           if (!target.closest('#talks-list')) return;
           const removeBtn = target.closest('.remove-talk-btn');
@@ -755,22 +756,13 @@ export class UIManager extends EventEmitter {
           if (editBtn) {
             e.preventDefault();
             e.stopPropagation();
-            const row = editBtn.closest('.talk-list-item');
             const talkId = (editBtn as HTMLElement).dataset.talkId;
-            const role = row?.getAttribute('data-role');
             if (talkId) {
-              // Defer so click finishes and any re-renders run first (same as delete/checkbox)
-              setTimeout(() => {
-                if (role === 'created') {
-                  this.emit('loadTalkForEdit', { talkId });
-                } else {
-                  this.showTalkDetail(talkId);
-                }
-              }, 0);
+              // Always open the talk editor when Edit is clicked (never open response flow here)
+              setTimeout(() => this.emit('loadTalkForEdit', { talkId }), 0);
             }
             return;
           }
-          // Checkbox or its label: toggle disabled state ourselves so we don't rely on change event
           const label = target.closest('.talk-disable-broadcast-label');
           const checkbox = target.closest('.talk-disable-broadcast-checkbox') as HTMLInputElement | null;
           const control = checkbox ?? (label ? label.querySelector('.talk-disable-broadcast-checkbox') : null) as HTMLInputElement | null;
@@ -1095,7 +1087,8 @@ export class UIManager extends EventEmitter {
       // Open editor for editing
       this.emit('loadTalkForEdit', { talkId });
     } else if ((talk.role === 'answered' || talk.role === 'copied') && talk.fullTalk) {
-      this.showTalkResponseDialog(talk.fullTalk);
+      // Open response view without auto-answering (avoid instant "Match!" toast when just viewing)
+      this.showTalkResponseDialog(talk.fullTalk, { skipAutoAnswer: true });
     } else {
       this.showNotification(`Talk: ${talk.title}`, 'info');
     }
@@ -1415,7 +1408,8 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  showTalkResponseDialog(talk: any): void {
+  showTalkResponseDialog(talk: any, options?: { skipAutoAnswer?: boolean }): void {
+    const skipAutoAnswer = options?.skipAutoAnswer ?? false;
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.id = 'talk-response-modal';
@@ -1491,8 +1485,8 @@ export class UIManager extends EventEmitter {
         return;
       }
 
-      // Check if there's a saved preference for this question
-      const savedPreference = this.getAnswerPreference(talk.id, currentQuestion.id);
+      // Check if there's a saved preference for this question (skip when opening from list to avoid instant match toast)
+      const savedPreference = skipAutoAnswer ? null : this.getAnswerPreference(talk.id, currentQuestion.id);
       if (savedPreference && savedPreference.mode === 'auto') {
         // Auto-answer with saved preference
         console.log('🤖 Auto-answering with saved preference:', savedPreference.answerText);
@@ -3449,15 +3443,17 @@ export class UIManager extends EventEmitter {
     respondedByBot?: boolean;
   }): void {
     const conversations = this.getMyConversations();
+    const existing = conversations[conversationData.conversationId];
+    const isNew = !existing;
 
     conversations[conversationData.conversationId] = {
       otherUserId: conversationData.otherUserId,
       otherUserName: conversationData.otherUserName,
       talkId: conversationData.talkId,
-      createdAt: new Date().toISOString(),
-      lastMessage: null,
-      lastMessageTime: null,
-      unread: true, // New conversations are marked as unread
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      lastMessage: existing?.lastMessage ?? null,
+      lastMessageTime: existing?.lastMessageTime ?? null,
+      unread: isNew ? true : (existing?.unread ?? false),
       respondedByBot: !!conversationData.respondedByBot,
     };
 
@@ -3466,8 +3462,11 @@ export class UIManager extends EventEmitter {
     // Update badge
     this.updateMatchBadge();
 
-    // Show notification
-    this.showNotification(`🎉 New match with ${conversationData.otherUserName}!`, 'success');
+    // Only show toast for genuinely new matches (not when re-syncing or opening edit)
+    if (isNew) {
+      const name = conversationData.otherUserName?.trim() || 'Someone';
+      this.showNotification(`🎉 New match with ${name}!`, 'success');
+    }
   }
 
   updateConversationMessage(conversationId: string, message: string, timestamp: string): void {
