@@ -9,6 +9,7 @@ import { ChatroomManager } from './services/chatroom-manager';
 import { TalkService } from './services/talk-service';
 import { UserService } from './services/user-service';
 import { ReputationService } from './services/reputation-service';
+import { checkIfMatch } from '../shared/talk-engine';
 
 class IinPublicServer {
   private app: express.Application;
@@ -141,6 +142,112 @@ class IinPublicServer {
         res.json(job);
       } catch (error) {
         res.status(400).json({ error: (error as Error).message });
+      }
+    });
+
+    // Talk response: backend runs match logic and creates conversation if match (frontend only sends payload and updates UI)
+    this.app.post('/api/talks/:id/response', async (req, res) => {
+      try {
+        const talkId = req.params.id;
+        const { responderId, responderName, answers, talkData: bodyTalkData } = req.body as {
+          responderId: string;
+          responderName?: string;
+          answers: Array<{ questionId: string; answerId: string; answerText?: string; isChecked?: boolean }>;
+          talkData?: unknown;
+        };
+        if (!responderId || !Array.isArray(answers)) {
+          res.status(400).json({ error: 'responderId and answers required' });
+          return;
+        }
+        let talkData: any = null;
+        const rawTalk = await this.gunService.getPath(['talks', talkId]);
+        if (rawTalk) {
+          talkData =
+            typeof rawTalk.data === 'string'
+              ? JSON.parse(rawTalk.data)
+              : rawTalk.data || rawTalk;
+        } else if (bodyTalkData != null) {
+          // Fallback: client may send talkData when Gun sync hasn't delivered the talk yet (e.g. e2e)
+          talkData =
+            typeof bodyTalkData === 'string'
+              ? JSON.parse(bodyTalkData as string)
+              : bodyTalkData;
+        }
+        if (!talkData) {
+          res.status(404).json({ error: 'Talk not found' });
+          return;
+        }
+        const normalizedAnswers =
+          talkData.type === 'tag'
+            ? answers.map((answer) => {
+                const question = talkData.questions?.find((q: any) => q.id === answer.questionId);
+                const selected = question?.answers?.find((a: any) => a.id === answer.answerId);
+                const isChecked = selected?.isMatch === true;
+                const answerText = answer.answerText ?? selected?.text;
+                return { ...answer, answerText, isChecked };
+              })
+            : answers;
+
+        if (talkData.type === 'tag') {
+          const responseId = `resp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+          await this.gunService.putPath(['talks', talkId, 'responses', responseId], {
+            responderId,
+            responderName: responderName || 'Someone',
+            answers: JSON.stringify(normalizedAnswers),
+            submittedAt: new Date().toISOString(),
+            isChatbotResponse: false,
+            backendRecorded: true,
+          });
+        }
+
+        const isMatch = checkIfMatch(talkData, normalizedAnswers);
+        if (!isMatch) {
+          res.json({ isMatch: false });
+          return;
+        }
+        const authorId = talkData.authorId;
+        if (!authorId) {
+          res.json({ isMatch: true, conversationId: null, otherUserId: null, otherUserName: 'Someone' });
+          return;
+        }
+        const authorNode = await this.gunService.getPath(['users', authorId]);
+        const authorName =
+          (authorNode?.stageName ?? authorNode?.data?.stageName) || 'Someone';
+        const sortedIds = [responderId, authorId].sort();
+        const conversationId = `conv_${sortedIds[0]}_${sortedIds[1]}_${talkId}`;
+        const conversationData = {
+          id: conversationId,
+          participants: [responderId, authorId],
+          talkId,
+          createdAt: new Date().toISOString(),
+          status: 'active',
+        };
+        await this.gunService.putPath(['conversations', conversationId], {
+          data: JSON.stringify(conversationData),
+        });
+        await this.gunService.putPath(['users', responderId, 'conversations', conversationId], {
+          conversationId,
+          otherUserId: authorId,
+          otherUserName: authorName,
+          talkId,
+          createdAt: new Date().toISOString(),
+        });
+        await this.gunService.putPath(['users', authorId, 'conversations', conversationId], {
+          conversationId,
+          otherUserId: responderId,
+          otherUserName: responderName || 'Someone',
+          talkId,
+          createdAt: new Date().toISOString(),
+        });
+        res.json({
+          isMatch: true,
+          conversationId,
+          otherUserId: authorId,
+          otherUserName: authorName,
+        });
+      } catch (error) {
+        console.error('Talk response error:', error);
+        res.status(500).json({ error: (error as Error).message });
       }
     });
 

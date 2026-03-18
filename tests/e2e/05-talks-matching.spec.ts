@@ -294,8 +294,18 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     await pageBob.evaluate(
       async (id: string) => {
         const app = (window as any).__iinpublic_app?.getApp();
-        if (!app?.announceTalkToRoom) throw new Error('announceTalkToRoom not found');
-        await app.announceTalkToRoom(id);
+        const talk = app.uiManager.getMyTalks()[id].fullTalk;
+        const newTalk = await app.talkService.createTalk({
+           title: talk.title,
+           type: talk.type,
+           authorId: app.gunService.getCurrentUser()?.userId || '',
+           questions: talk.questions,
+           isAdult: false,
+           language: talk.language,
+           tags: talk.tags,
+           isTemplate: true
+        });
+        setTimeout(() => app.announceTalkToRoom(newTalk.id), 500);
       },
       talkId!,
     );

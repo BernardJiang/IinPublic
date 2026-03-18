@@ -154,6 +154,8 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
     await expect(pageTom.locator('.tag-match-checkbox')).toBeVisible();
     await pageTom.locator('#tag-match-checkbox').check();
+    const isChecked = await pageTom.evaluate(() => (document.getElementById('tag-match-checkbox') as HTMLInputElement).checked);
+    console.log("PLAYWRIGHT THINKS IT IS CHECKED: ", isChecked);
     await pageTom.click('#tag-submit-btn');
     await waitForNotification(pageTom, 'Match!', 'Tom');
     await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
@@ -183,8 +185,10 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     const tomContent = pageTom.locator('#answers-content');
     await expect(tomContent.getByText(TAG_COFFEE).first()).toBeVisible({ timeout: 10000 });
     await expect(tomContent.getByText(TAG_CAT).first()).toBeVisible({ timeout: 10000 });
-    await expect(tomContent.getByText(/Match/).first()).toBeVisible({ timeout: 10000 });
-    await expect(tomContent.getByText(/Mismatch/).first()).toBeVisible({ timeout: 10000 });
+    console.log(await tomContent.innerHTML());
+    // Alice matched, Cat ignored
+    await expect(tomContent).toContainText('Match', { timeout: 10000 });
+    await expect(tomContent).toContainText('Mismatch', { timeout: 10000 });
 
     console.log('✅ Tag flow verified: Alice created Coffee + Cat; Tom matched Coffee, ignored Cat; Alice received one match.');
   });

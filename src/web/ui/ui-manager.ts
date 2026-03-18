@@ -1458,6 +1458,14 @@ export class UIManager extends EventEmitter {
             answerId: answer.id,
             answerText: answer.text || (checked ? 'Match.' : 'Ignore.'),
           });
+          this.saveAnswerPreference(
+            talk.id,
+            q.id,
+            answer.id,
+            answer.text || (checked ? 'Match.' : 'Ignore.'),
+            q.text,
+            q.answers,
+          );
           if (checked && matchAnswer) {
             this.showNotification('Match! You both noticed each other.', 'success');
             this.completeTalk(talk, answers, 'match');
@@ -1712,8 +1720,9 @@ export class UIManager extends EventEmitter {
       text: qu.text,
       answers: (qu.answers || []).map((a: any) => a.text),
     }));
+    const title = talk.type === 'tag' ? talk.title : '';
     const loc = talk.locationRadiusMiles != null ? String(talk.locationRadiusMiles) : '';
-    return JSON.stringify({ q, loc });
+    return JSON.stringify({ q, loc, title, type: talk.type });
   }
 
   private getAnsweredByContent(): Record<string, string> {
@@ -2609,6 +2618,13 @@ export class UIManager extends EventEmitter {
               <label class="form-label">Talk Title</label>
               <input type="text" class="form-input" id="talk-title" placeholder="e.g., Coffee Meetup, Quick Survey" required value="${existingTalk ? this.escapeHtml(existingTalk.title) : ''}">
             </div>
+
+            <div class="form-group" id="tag-like-group" style="display: none;">
+              <label class="talk-send-chatroom-label" style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                <input type="checkbox" id="tag-like-checkbox" checked aria-label="I like this tag">
+                <span>I like this tag</span>
+              </label>
+            </div>
             
             <div class="form-group">
               <label class="form-label">Type</label>
@@ -2766,6 +2782,8 @@ export class UIManager extends EventEmitter {
       const talkOptionsGroup = document.getElementById('talk-options-group');
       const talkLocationGroup = document.getElementById('talk-location-group');
       const talkSendChatroomGroup = document.getElementById('talk-send-chatroom-group');
+      const tagLikeGroup = document.getElementById('tag-like-group');
+      const tagLikeCheckbox = document.getElementById('tag-like-checkbox') as HTMLInputElement | null;
       const talkTypeSelect = document.getElementById('talk-type') as HTMLSelectElement;
       const questionsFormGroup = document.getElementById('questions-form-group');
       const updateFormForType = () => {
@@ -2782,6 +2800,8 @@ export class UIManager extends EventEmitter {
           if (talkOptionsGroup) talkOptionsGroup.style.display = 'none';
           if (talkLocationGroup) talkLocationGroup.style.display = 'none';
           if (talkSendChatroomGroup) talkSendChatroomGroup.style.display = 'none';
+          if (tagLikeGroup) tagLikeGroup.style.display = 'block';
+          if (tagLikeCheckbox && !isEdit && tagLikeCheckbox.checked === false) tagLikeCheckbox.checked = true;
           if (titleInput) {
             titleInput.placeholder = 'e.g., Coffee, Tennis, Jobs';
             titleInput.setAttribute('aria-label', 'Tag keyword');
@@ -2797,6 +2817,7 @@ export class UIManager extends EventEmitter {
           if (talkOptionsGroup) talkOptionsGroup.style.display = 'block';
           if (talkLocationGroup) talkLocationGroup.style.display = 'block';
           if (talkSendChatroomGroup) talkSendChatroomGroup.style.display = isEdit ? 'none' : 'block';
+          if (tagLikeGroup) tagLikeGroup.style.display = 'none';
           if (titleInput) {
             titleInput.placeholder = 'e.g., Coffee Meetup, Quick Survey';
             titleInput.removeAttribute('aria-label');
@@ -3104,6 +3125,9 @@ export class UIManager extends EventEmitter {
           ],
         },
       ];
+      const tagLikeCheckbox = document.getElementById('tag-like-checkbox') as HTMLInputElement | null;
+      const likesTag = tagLikeCheckbox ? tagLikeCheckbox.checked : true;
+      selfAnswers.push({ questionId: 'q_0', answerId: likesTag ? 'a_0_match' : 'a_0_ignore' });
     } else {
       questions = [];
       const questionItems = form.querySelectorAll('.question-item');

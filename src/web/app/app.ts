@@ -1,4 +1,5 @@
 import { User, GPSCoordinate, Talk } from '../../shared/types';
+import { checkIfMatch } from '../../shared/talk-engine';
 import { WebGunService } from '../services/web-gun-service';
 import { WebUserService } from '../services/web-user-service';
 import { WebChatroomService } from '../services/web-chatroom-service';
@@ -434,7 +435,7 @@ export class IinPublicApp {
             const answers = JSON.parse(responseData.answers);
 
             // Check if this is a match
-            const isMatch = this.checkIfMatch(talkData, answers);
+            const isMatch = checkIfMatch(talkData, answers);
 
             if (isMatch) {
               this.uiManager.showNotification(
@@ -502,7 +503,7 @@ export class IinPublicApp {
 
     gun.get(`talks/${talkId}`).get('responses').get(responseId).put(responsePayload);
 
-    const isMatch = this.checkIfMatch(talkData, template.answers);
+    const isMatch = checkIfMatch(talkData, template.answers);
     if (isMatch) {
       this.conversationService
         .createConversation({
@@ -523,45 +524,6 @@ export class IinPublicApp {
         })
         .catch((err) => console.error('Chatbot conversation create failed:', err));
     }
-  }
-
-  private checkIfMatch(talkData: any, answers: any[]): boolean {
-    // Matching-type talks and tags both use isMatch on the chosen answer
-    if (talkData.type !== 'matching' && talkData.type !== 'tag') {
-      console.log('  Not a matching talk, type:', talkData.type);
-      return false;
-    }
-
-    // Find the last answer
-    const lastAnswer = answers[answers.length - 1];
-    if (!lastAnswer) {
-      console.log('  No last answer found');
-      return false;
-    }
-
-    console.log('  Last answer:', lastAnswer);
-
-    // Find the corresponding question and answer in the talk
-    const question = talkData.questions.find((q: any) => q.id === lastAnswer.questionId);
-    if (!question) {
-      console.log('  Question not found for ID:', lastAnswer.questionId);
-      return false;
-    }
-
-    console.log('  Found question:', question.text);
-
-    const answer = question.answers.find((a: any) => a.id === lastAnswer.answerId);
-    if (!answer) {
-      console.log('  Answer not found for ID:', lastAnswer.answerId);
-      return false;
-    }
-
-    console.log('  Found answer:', answer.text, 'isMatch:', answer.isMatch);
-
-    // Check if this answer is marked as a match
-    const isMatch = answer.isMatch === true;
-    console.log('  Is match?', isMatch);
-    return isMatch;
   }
 
   private subscribeToUserConversations(): void {
@@ -711,7 +673,7 @@ export class IinPublicApp {
             const chatroomId = this.chatroomService.getCurrentChatroomId();
             if (chatroomId) {
               const gun = this.gunService.getGun();
-              gun.get('chatrooms').get(chatroomId).get('talks').get(talk.id).put({
+              const talkData: any = {
                 talkId: talk.id,
                 title: talk.title,
                 authorId: talk.authorId,
@@ -719,10 +681,12 @@ export class IinPublicApp {
                 type: talk.type,
                 timestamp: new Date().toISOString(),
                 questionCount: talk.questions.length,
-                expiresAt: talk.expiresAt ?? undefined,
-                locationRadiusMiles: talk.locationRadiusMiles ?? undefined,
-                authorLocation: talk.authorLocation ?? undefined,
-              });
+              };
+              if (talk.expiresAt != null) talkData.expiresAt = talk.expiresAt;
+              if (talk.locationRadiusMiles != null) talkData.locationRadiusMiles = talk.locationRadiusMiles;
+              if (talk.authorLocation != null) talkData.authorLocation = talk.authorLocation;
+
+              gun.get('chatrooms').get(chatroomId).get('talks').get(talk.id).put(talkData);
               console.log('📢 Talk broadcasted to chatroom:', chatroomId);
               this.subscribeToTalkResponses(talk.id, talk);
             }
@@ -762,7 +726,7 @@ export class IinPublicApp {
           for (const talkId of broadcastableIds) {
             const talk = await this.talkService.getTalk(talkId);
             if (!talk) continue;
-            gun.get('chatrooms').get(chatroomId).get('talks').get(talk.id).put({
+            const broadcastPayload: any = {
               talkId: talk.id,
               title: talk.title,
               authorId: talk.authorId,
@@ -770,7 +734,12 @@ export class IinPublicApp {
               type: talk.type,
               timestamp: new Date().toISOString(),
               questionCount: talk.questions?.length ?? 0,
-            });
+            };
+            if (talk.expiresAt != null) broadcastPayload.expiresAt = talk.expiresAt;
+            if (talk.locationRadiusMiles != null) broadcastPayload.locationRadiusMiles = talk.locationRadiusMiles;
+            if (talk.authorLocation != null) broadcastPayload.authorLocation = talk.authorLocation;
+
+            gun.get('chatrooms').get(chatroomId).get('talks').get(talk.id).put(broadcastPayload);
             sent += 1;
           }
           this.uiManager.showNotification(
@@ -922,66 +891,62 @@ export class IinPublicApp {
           // Store the response in Gun.js
           const chatroomId = this.chatroomService.getCurrentChatroomId();
           if (chatroomId) {
-            const gun = this.gunService.getGun();
-            const responseId = `resp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const shouldStoreResponse = data.talkData?.type !== 'tag';
+            if (shouldStoreResponse) {
+              const gun = this.gunService.getGun();
+              const responseId = `resp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-            gun
-              .get(`talks/${data.talkId}`)
-              .get('responses')
-              .get(responseId)
-              .put({
-                responderId: this.currentUser!.id,
-                responderName: this.currentUser!.stageName,
-                answers: JSON.stringify(data.answers),
-                submittedAt: new Date().toISOString(),
-                isChatbotResponse: isChatbot,
-              });
+              gun
+                .get(`talks/${data.talkId}`)
+                .get('responses')
+                .get(responseId)
+                .put({
+                  responderId: this.currentUser!.id,
+                  responderName: this.currentUser!.stageName,
+                  answers: JSON.stringify(data.answers),
+                  submittedAt: new Date().toISOString(),
+                  isChatbotResponse: isChatbot,
+                });
 
-            console.log('✅ Talk response stored');
+              console.log('✅ Talk response stored');
+            } else {
+              console.log('✅ Tag response will be stored by backend');
+            }
 
-            // Check if this response is a match
+            // Backend runs match logic and creates conversation if match (frontend only updates UI)
             if (data.talkData) {
-              const isMatch = this.checkIfMatch(data.talkData, data.answers);
-
-              if (isMatch && !isChatbot) {
-                // Save template for chatbot to reuse when the same talk is received again
-                this.uiManager.saveChatbotTemplate(data.talkId, {
-                  answers: data.answers,
-                  talkData: data.talkData,
+              try {
+                const apiBase = typeof window !== 'undefined' && (window as any).__API_BASE != null
+                  ? (window as any).__API_BASE
+                  : '';
+                const res = await fetch(`${apiBase}/api/talks/${data.talkId}/response`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    responderId: this.currentUser!.id,
+                    responderName: this.currentUser!.stageName,
+                    answers: data.answers,
+                    talkData: data.talkData,
+                  }),
                 });
-              }
-
-              if (isMatch) {
-                console.log(`✅ Match! Creating conversation with talk author`);
-
-                // Get talk author info
-                gun.get(`talks/${data.talkId}`).once(async (talkWrapper: any) => {
-                  if (talkWrapper && talkWrapper.data) {
-                    const talkData = JSON.parse(talkWrapper.data);
-
-                    // Get author's user data to get their name
-                    gun.get(`users/${talkData.authorId}`).once(async (authorData: any) => {
-                      const authorName = authorData?.stageName || 'Unknown';
-
-                      // Create conversation
-                      const conversationId = await this.conversationService.createConversation({
-                        userId1: this.currentUser!.id,
-                        userName1: this.currentUser!.stageName,
-                        userId2: talkData.authorId,
-                        userName2: authorName,
-                        talkId: data.talkId,
-                      });
-
-                      // Add to UI (responder's view; respondedByBot is only set on author's view when they receive the response)
-                      this.uiManager.addNewConversation({
-                        conversationId,
-                        otherUserId: talkData.authorId,
-                        otherUserName: authorName,
-                        talkId: data.talkId,
-                      });
-                    });
-                  }
-                });
+                if (!res.ok) throw new Error(await res.text());
+                const result = await res.json();
+                if (result.isMatch && !isChatbot) {
+                  this.uiManager.saveChatbotTemplate(data.talkId, {
+                    answers: data.answers,
+                    talkData: data.talkData,
+                  });
+                }
+                if (result.isMatch && result.conversationId) {
+                  this.uiManager.addNewConversation({
+                    conversationId: result.conversationId,
+                    otherUserId: result.otherUserId,
+                    otherUserName: result.otherUserName ?? 'Someone',
+                    talkId: data.talkId,
+                  });
+                }
+              } catch (err) {
+                console.error('Talk response API error:', err);
               }
             }
           }

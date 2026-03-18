@@ -58,6 +58,10 @@ module.exports = {
   devServer: {
     static: './dist/web',
     port: 3001,
+    proxy: [
+      { context: ['/api'], target: 'http://localhost:8080', logLevel: 'debug' },
+      { context: ['/gun'], target: 'http://localhost:8080', ws: true },
+    ],
     hot: process.env.DISABLE_HMR !== 'true',
     liveReload: process.env.DISABLE_HMR !== 'true',
     watchFiles: process.env.DISABLE_HMR === 'true' ? [] : undefined,

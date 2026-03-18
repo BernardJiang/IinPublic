@@ -305,8 +305,8 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     await pageTom.click('.nav-btn[data-view="talks"]');
     await pageTom.waitForTimeout(1000);
     const copyTalkRow = pageTom.locator('.talk-list-item').filter({ hasText: copyTalkTitle }).first();
-    await copyTalkRow.locator('button.toggle-broadcast-btn').click();
-    await expect(copyTalkRow.locator('button.toggle-broadcast-btn')).toContainText('Enable for broadcast', { timeout: 10000 });
+    await copyTalkRow.locator('.talk-disable-broadcast-label').click();
+    await expect(copyTalkRow.locator('input.talk-disable-broadcast-checkbox')).toBeChecked({ timeout: 10000 });
 
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
     await pageTom.waitForTimeout(500);
@@ -323,7 +323,8 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
 
     await pageTom.click('.nav-btn[data-view="talks"]');
     await pageTom.waitForTimeout(800);
-    await pageTom.locator('.talk-list-item').filter({ hasText: copyTalkTitle }).first().locator('button.toggle-broadcast-btn').click();
+    await pageTom.locator('.talk-list-item').filter({ hasText: copyTalkTitle }).first().locator('.talk-disable-broadcast-label').click();
+    await expect(pageTom.locator('.talk-list-item').filter({ hasText: copyTalkTitle }).first().locator('input.talk-disable-broadcast-checkbox')).not.toBeChecked({ timeout: 10000 });
     await pageTom.waitForTimeout(800);
 
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
