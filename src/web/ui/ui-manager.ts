@@ -763,6 +763,16 @@ export class UIManager extends EventEmitter {
             }
             return;
           }
+          const viewBtn = target.closest('.view-talk-btn');
+          if (viewBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const talkId = (viewBtn as HTMLElement).dataset.talkId;
+            if (talkId) {
+              setTimeout(() => this.showTalkDetail(talkId), 0);
+            }
+            return;
+          }
           const label = target.closest('.talk-disable-broadcast-label');
           const checkbox = target.closest('.talk-disable-broadcast-checkbox') as HTMLInputElement | null;
           const control = checkbox ?? (label ? label.querySelector('.talk-disable-broadcast-checkbox') : null) as HTMLInputElement | null;
@@ -786,14 +796,16 @@ export class UIManager extends EventEmitter {
     }
 
     const myTalks = this.getMyTalks();
-    // Show both created and received/copied talks, sorted by last interaction
+    // Sort all talks by last interaction
     const allEntries = Object.entries(myTalks)
       .sort(
         ([, a]: [string, any], [, b]: [string, any]) =>
           new Date(b.lastInteraction).getTime() - new Date(a.lastInteraction).getTime(),
       );
-    const createdEntries = allEntries.filter(([, t]: [string, any]) => t.role === 'created');
-    const answeredEntries = allEntries.filter(([, t]: [string, any]) => t.role === 'answered' || t.role === 'copied');
+    // OUT: talks this user created or copied (can broadcast)
+    const outEntries = allEntries.filter(([, t]: [string, any]) => t.role === 'created' || t.role === 'copied');
+    // IN: all talks from others (answered or unanswered)
+    const inEntries = allEntries.filter(([, t]: [string, any]) => t.role === 'answered' || t.role === 'copied');
 
     if (allEntries.length === 0) {
       talksList.innerHTML = `
@@ -804,9 +816,9 @@ export class UIManager extends EventEmitter {
         </div>
       `;
     } else {
-      const createdHtml =
-        createdEntries.length > 0
-          ? createdEntries
+      const outHtml =
+        outEntries.length > 0
+          ? outEntries
               .map(
                 ([talkId, talk]) => {
                   const stats = this.talkStatsMap[talkId];
@@ -824,12 +836,15 @@ export class UIManager extends EventEmitter {
                   const disabled = !!talk.disabled;
                   const expText = this.formatExpiration(talk.expiresAt);
                   const locText = this.formatLocationRadius(talk.locationRadiusMiles);
+                  const roleBadge = talk.role === 'copied'
+                    ? '<span class="talk-badge talk-badge-copied" style="background:#e0e7ff;color:#3730a3;">📋 Copied</span>'
+                    : '<span class="talk-badge talk-badge-created" style="background:#dbeafe;color:#1e40af;">📝 Created</span>';
                   return `
-        <div class="talk-list-item" data-talk-id="${talkId}" data-role="created">
+        <div class="talk-list-item" data-talk-id="${talkId}" data-role="${talk.role || 'created'}">
           <div class="talk-item-header">
             <div class="talk-item-title">${this.escapeHtml(talk.title)}</div>
             <div class="talk-item-badges">
-              <span class="talk-badge talk-badge-created">📝 Created</span>
+              ${roleBadge}
               <span class="talk-badge talk-badge-type">${talk.type}</span>
               ${disabled ? '<span class="talk-badge talk-badge-disabled" style="background:#fef3c7;color:#92400e;">🚫 Disabled</span>' : ''}
             </div>
@@ -859,36 +874,43 @@ export class UIManager extends EventEmitter {
               .join('')
           : '';
 
-      const answeredHtml =
-        answeredEntries.length > 0
-          ? answeredEntries
+      const inHtml =
+        inEntries.length > 0
+          ? inEntries
               .map(
                 ([talkId, talk]) => {
                   const disabled = !!talk.disabled;
                   const expText = this.formatExpiration(talk.expiresAt);
                   const locText = this.formatLocationRadius(talk.locationRadiusMiles);
+                  const isAnswered =
+                    talk.role === 'answered' || talk.outcome === 'match' || talk.outcome === 'mismatch';
+                  const statusBadge = isAnswered
+                    ? talk.outcome === 'match'
+                      ? '<span class="talk-badge" style="background:#dcfce7;color:#166534;">✅ Match</span>'
+                      : '<span class="talk-badge" style="background:#f3f4f6;color:#6b7280;">✅ Answered</span>'
+                    : '<span class="talk-badge" style="background:#dbeafe;color:#1d4ed8;font-weight:700;">🆕 New</span>';
+                  const titleStyle = isAnswered
+                    ? 'font-weight: 500; color: #9ca3af;'
+                    : 'font-weight: 700; color: #1d4ed8;';
+                  const metaStyle = isAnswered ? 'color: #9ca3af;' : 'color: #4b5563;';
                   return `
-        <div class="talk-list-item" data-talk-id="${talkId}" data-role="${talk.role || 'answered'}">
+        <div class="talk-list-item" data-talk-id="${talkId}" data-role="incoming" style="${isAnswered ? 'background:#fafafa;' : ''}">
           <div class="talk-item-header">
-            <div class="talk-item-title">${this.escapeHtml(talk.title)}</div>
+            <div class="talk-item-title" style="${titleStyle}">${this.escapeHtml(talk.title)}</div>
             <div class="talk-item-badges">
-              <span class="talk-badge talk-badge-answered">📥 ${talk.role === 'copied' ? 'Copied' : 'From others'}</span>
+              ${statusBadge}
               <span class="talk-badge talk-badge-type">${talk.type}</span>
               ${disabled ? '<span class="talk-badge talk-badge-disabled" style="background:#fef3c7;color:#92400e;">🚫 Disabled</span>' : ''}
             </div>
           </div>
-          <div class="talk-item-meta">
+          <div class="talk-item-meta" style="${metaStyle}">
             <span class="talk-item-time">${this.formatTimeAgo(new Date(talk.lastInteraction))}</span>
           </div>
-          <div class="talk-item-meta" style="font-size: 0.85em; color: #666;">
+          <div class="talk-item-meta" style="font-size: 0.85em; ${metaStyle}">
             Expiration: ${expText} · Location: ${locText}
           </div>
           <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-            <button type="button" class="btn edit-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">✏️ Edit</button>
-            <label class="talk-disable-broadcast-label" style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.9em;">
-              <input type="checkbox" class="talk-disable-broadcast-checkbox" data-talk-id="${talkId}" ${disabled ? 'checked' : ''}>
-              <span>Disable for broadcast</span>
-            </label>
+            <button type="button" class="btn view-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">🔍 View</button>
             <button type="button" class="btn remove-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em; background: #dc3545; color: white;">🗑️ Remove</button>
           </div>
         </div>
@@ -898,20 +920,24 @@ export class UIManager extends EventEmitter {
               .join('')
           : '';
 
-      const sectionCreated =
-        createdEntries.length > 0
-          ? `<div class="talks-section-label" style="font-size: 0.85em; color: #666; margin-bottom: 8px; margin-top: 12px;">📝 Created by me</div>${createdHtml}`
+      const sectionOut =
+        outEntries.length > 0
+          ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: #374151; background: #f3f4f6; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
+               <span style="font-size: 1.2em;">📤</span> OUT <span style="font-size: 0.8em; font-weight: 400; color: #6b7280;">(${outEntries.length} talk${outEntries.length !== 1 ? 's' : ''} · created or copied)</span>
+             </div>${outHtml}`
           : '';
-      const sectionAnswered =
-        answeredEntries.length > 0
-          ? `<div class="talks-section-label" style="font-size: 0.85em; color: #666; margin-bottom: 8px; margin-top: 12px;">📥 Talks from others</div>${answeredHtml}`
+      const sectionIn =
+        inEntries.length > 0
+          ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: #374151; background: #f3f4f6; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
+               <span style="font-size: 1.2em;">📥</span> IN <span style="font-size: 0.8em; font-weight: 400; color: #6b7280;">(${inEntries.length} talk${inEntries.length !== 1 ? 's' : ''} · from others, answered or not)</span>
+             </div>${inHtml}`
           : '';
 
-      talksList.innerHTML = sectionAnswered + sectionCreated;
+      talksList.innerHTML = sectionIn + sectionOut;
 
-      // Request stats for created talks only
-      if (createdEntries.length > 0) {
-        const talkIds = createdEntries.map(([id]) => id);
+      // Request stats for out talks (created/copied) only
+      if (outEntries.length > 0) {
+        const talkIds = outEntries.map(([id]) => id);
         this.emit('needTalkStats', { talkIds });
       }
 
@@ -923,7 +949,7 @@ export class UIManager extends EventEmitter {
         if (!talkId) return;
         item.addEventListener('click', (e) => {
           if ((e.target as HTMLElement).closest('.talk-item-actions')) return;
-          if (role === 'created') {
+          if (role === 'created' || role === 'copied') {
             this.emit('loadTalkForEdit', { talkId });
           } else {
             this.showTalkDetail(talkId);
@@ -1423,6 +1449,12 @@ export class UIManager extends EventEmitter {
       }
       const matchAnswer = q.answers.find((a: any) => a.isMatch);
       const ignoreAnswer = q.answers.find((a: any) => a.isIgnore);
+      const savedTagPreference = this.getAnswerPreference(talk.id, q.id);
+      const isSavedMatch =
+        !!savedTagPreference &&
+        !!matchAnswer &&
+        (savedTagPreference.answerId === matchAnswer.id ||
+          savedTagPreference.answerText?.toLowerCase() === (matchAnswer.text || '').toLowerCase());
       modal.innerHTML = `
         <div class="modal-content" style="max-width: 600px;">
           <div class="modal-header">
@@ -1434,7 +1466,7 @@ export class UIManager extends EventEmitter {
               ${this.escapeHtml(q.text)}
             </div>
             <label class="tag-checkbox-label" style="display: flex; align-items: center; gap: 12px; cursor: pointer; font-size: 1.1em;">
-              <input type="checkbox" id="tag-match-checkbox" class="tag-match-checkbox">
+              <input type="checkbox" id="tag-match-checkbox" class="tag-match-checkbox" ${isSavedMatch ? 'checked' : ''}>
               <span>Match (I'm interested)</span>
             </label>
             <button type="button" id="tag-submit-btn" class="btn" style="margin-top: 20px; width: 100%; padding: 12px; background: #667eea; color: white; border: none; border-radius: 8px; font-size: 1em; cursor: pointer;">
@@ -2309,23 +2341,25 @@ export class UIManager extends EventEmitter {
     if (!myTalks[talkId]) return;
     myTalks[talkId].disabled = !!disabled;
     localStorage.setItem('myTalks', JSON.stringify(myTalks));
-    // Patch only this row so the checkbox stays in DOM and keeps responding (no full list re-render)
+    // Patch visible rows so checkboxes stay in DOM and keep responding (no full list re-render)
     const talksList = document.getElementById('talks-list');
-    const row = talksList?.querySelector(`.talk-list-item[data-talk-id="${talkId}"]`);
-    if (row) {
-      const cb = row.querySelector('.talk-disable-broadcast-checkbox') as HTMLInputElement | null;
-      if (cb) cb.checked = !!disabled;
-      const badges = row.querySelector('.talk-item-badges');
-      const existingBadge = row.querySelector('.talk-badge-disabled');
-      if (!!disabled && !existingBadge && badges) {
-        const badge = document.createElement('span');
-        badge.className = 'talk-badge talk-badge-disabled';
-        badge.setAttribute('style', 'background:#fef3c7;color:#92400e;');
-        badge.textContent = '🚫 Disabled';
-        badges.appendChild(badge);
-      } else if (!disabled && existingBadge) {
-        existingBadge.remove();
-      }
+    const rows = talksList?.querySelectorAll(`.talk-list-item[data-talk-id="${talkId}"]`);
+    if (rows && rows.length > 0) {
+      rows.forEach((row) => {
+        const cb = row.querySelector('.talk-disable-broadcast-checkbox') as HTMLInputElement | null;
+        if (cb) cb.checked = !!disabled;
+        const badges = row.querySelector('.talk-item-badges');
+        const existingBadge = row.querySelector('.talk-badge-disabled');
+        if (!!disabled && !existingBadge && badges) {
+          const badge = document.createElement('span');
+          badge.className = 'talk-badge talk-badge-disabled';
+          badge.setAttribute('style', 'background:#fef3c7;color:#92400e;');
+          badge.textContent = '🚫 Disabled';
+          badges.appendChild(badge);
+        } else if (!disabled && existingBadge) {
+          existingBadge.remove();
+        }
+      });
     } else {
       this.displayTalksList();
     }
