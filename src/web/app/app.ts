@@ -19,6 +19,8 @@ export class IinPublicApp {
   private currentUser?: User;
   private currentLocation?: GPSCoordinate;
   private currentChatroomId?: string;
+  private subscribedTalkResponseStreams: Set<string> = new Set();
+  private processedMatchResponseEvents: Set<string> = new Set();
 
   constructor() {
     this.gunService = new WebGunService();
@@ -394,6 +396,29 @@ export class IinPublicApp {
               fullTalk: talkData,
             });
 
+            if (
+              this.currentUser?.id &&
+              talkAnnouncement.authorId &&
+              talkAnnouncement.authorId !== this.currentUser.id
+            ) {
+              const apiBase = typeof window !== 'undefined' && (window as any).__API_BASE != null
+                ? (window as any).__API_BASE
+                : '';
+              fetch(`${apiBase}/api/talks/${talkAnnouncement.talkId}/received`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  receiverId: this.currentUser.id,
+                  receiverName: this.currentUser.stageName,
+                  senderId: talkAnnouncement.authorId,
+                  senderName: talkAnnouncement.authorName || 'Unknown',
+                  talkData,
+                }),
+              })
+                .then(() => this.refreshIncomingTalkClusters())
+                .catch((err) => console.error('Failed to register incoming talk:', err));
+            }
+
             if (talkAnnouncement.authorId === this.currentUser?.id) {
               this.subscribeToTalkResponses(talkAnnouncement.talkId, talkData);
             }
@@ -412,6 +437,11 @@ export class IinPublicApp {
   }
 
   private subscribeToTalkResponses(talkId: string, talkData: any): void {
+    if (this.subscribedTalkResponseStreams.has(talkId)) {
+      return;
+    }
+    this.subscribedTalkResponseStreams.add(talkId);
+
     console.log('👂 Subscribing to responses for talk:', talkId);
     const gun = this.gunService.getGun();
 
@@ -438,6 +468,12 @@ export class IinPublicApp {
             const isMatch = checkIfMatch(talkData, answers);
 
             if (isMatch) {
+              const responseEventKey = `${talkId}:${responseId}`;
+              if (this.processedMatchResponseEvents.has(responseEventKey)) {
+                return;
+              }
+              this.processedMatchResponseEvents.add(responseEventKey);
+
               this.uiManager.showNotification(
                 `Match! ${responseData.responderName} noticed you on "${talkData.title}"`,
                 'success',
@@ -473,6 +509,27 @@ export class IinPublicApp {
           }
         }
       });
+  }
+
+  private async refreshIncomingTalkClusters(): Promise<void> {
+    if (!this.currentUser?.id) return;
+    try {
+      const apiBase =
+        typeof window !== 'undefined' && (window as any).__API_BASE != null
+          ? (window as any).__API_BASE
+          : '';
+      const res = await fetch(`${apiBase}/api/users/${this.currentUser.id}/incoming-talks`);
+      if (!res.ok) throw new Error(await res.text());
+      const clusters = await res.json();
+      this.uiManager.setIncomingTalkClusters(Array.isArray(clusters) ? clusters : []);
+
+      const talksTab = document.getElementById('tab-talks');
+      if (talksTab?.classList.contains('active')) {
+        this.uiManager.displayTalksList();
+      }
+    } catch (error) {
+      console.error('Failed to refresh incoming talk clusters:', error);
+    }
   }
 
   /**
@@ -645,6 +702,10 @@ export class IinPublicApp {
         }
       },
     );
+
+    this.uiManager.on('needIncomingTalkClusters', async () => {
+      await this.refreshIncomingTalkClusters();
+    });
 
     this.uiManager.on(
       'createTalk',
@@ -927,6 +988,10 @@ export class IinPublicApp {
                     responderName: this.currentUser!.stageName,
                     answers: data.answers,
                     talkData: data.talkData,
+                    isChatbotResponse: isChatbot,
+                    isAuto:
+                      data.answers.length > 0 &&
+                      data.answers.every((a: any) => String(a?.mode || '').toLowerCase() === 'auto'),
                   }),
                 });
                 if (!res.ok) throw new Error(await res.text());
