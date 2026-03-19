@@ -103,95 +103,128 @@ class IinPublicServer {
       .toLowerCase();
   }
 
-  private buildTalkIdentityKey(talkData: any): string {
-    const title = this.normalizeIdentityText(talkData?.title);
+  private hashIdentityPayload(payload: string): string {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < payload.length; i += 1) {
+      hash ^= payload.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+  }
+
+  private buildIdentityPayloadFromTalk(talkData: any): { type: string; questions: Array<{ text: string; answers: string[] }> } {
     const type = this.normalizeIdentityText(talkData?.type || 'matching');
-      const questions = (Array.isArray(talkData?.questions)
+    const questions = (Array.isArray(talkData?.questions)
       ? talkData.questions.map((q: any) => ({
           text: this.normalizeIdentityText(q?.text),
           answers: (Array.isArray(q?.answers) ? q.answers : [])
             .map((a: any) => this.normalizeIdentityText(a?.text))
             .sort(),
         }))
-        : [])
-        .sort((a: any, b: any) => String(a.text).localeCompare(String(b.text)));
+      : [])
+      .sort((a: any, b: any) => String(a.text).localeCompare(String(b.text)));
+    return { type, questions };
+  }
 
-      return JSON.stringify({ type, questions });
+  private buildTalkIdentityKey(talkData: any): string {
+    const payload = this.buildIdentityPayloadFromTalk(talkData);
+    const payloadJson = JSON.stringify(payload);
+    return `qa_${this.hashIdentityPayload(payloadJson)}`;
+  }
+
+  private canonicalIdentityKeyFromStoredCluster(cluster: any): string {
+    if (!cluster) return this.buildTalkIdentityKey({ type: 'matching', questions: [] });
+
+    const key = typeof cluster.identityKey === 'string' ? cluster.identityKey : '';
+    if (key.startsWith('qa_')) {
+      return key;
     }
 
-    private canonicalIdentityKeyFromStoredCluster(cluster: any): string {
-      if (!cluster) return JSON.stringify({ type: 'matching', questions: [] });
-
-      let parsed: any = null;
-      if (typeof cluster.identityKey === 'string') {
-        try {
-          parsed = JSON.parse(cluster.identityKey);
-        } catch {
-          parsed = null;
-        }
+    if (key) {
+      try {
+        const parsed = JSON.parse(key);
+        const payload = {
+          type: this.normalizeIdentityText(parsed?.type ?? cluster?.type ?? 'matching'),
+          questions: (Array.isArray(parsed?.questions)
+            ? parsed.questions.map((q: any) => ({
+                text: this.normalizeIdentityText(q?.text),
+                answers: (Array.isArray(q?.answers) ? q.answers : [])
+                  .map((a: any) => this.normalizeIdentityText(a))
+                  .sort(),
+              }))
+            : [])
+            .sort((a: any, b: any) => String(a.text).localeCompare(String(b.text))),
+        };
+        return `qa_${this.hashIdentityPayload(JSON.stringify(payload))}`;
+      } catch {
+        // fall through
       }
-
-      const type = this.normalizeIdentityText(parsed?.type ?? cluster?.type ?? 'matching');
-      const questions = (Array.isArray(parsed?.questions)
-        ? parsed.questions.map((q: any) => ({
-            text: this.normalizeIdentityText(q?.text),
-            answers: (Array.isArray(q?.answers) ? q.answers : [])
-              .map((a: any) => this.normalizeIdentityText(a))
-              .sort(),
-          }))
-        : [])
-        .sort((a: any, b: any) => String(a.text).localeCompare(String(b.text)));
-
-      return JSON.stringify({ type, questions });
     }
 
-    private async getMergedIncomingClusterForUser(userId: string, identityKey: string): Promise<any> {
-      const incoming = await this.gunService.getPath(['incomingTalksByUser', userId]);
-      const merged: any = {
-        identityKey,
-        title: '',
-        type: 'matching',
-        questionCount: 0,
-        senders: {},
-        talkIds: {},
-        updatedAt: new Date(0).toISOString(),
-        identityAliases: [identityKey],
-      };
+    return this.buildTalkIdentityKey(cluster);
+  }
 
-      if (!incoming || typeof incoming !== 'object') {
-        return merged;
-      }
+  private async getMergedIncomingClusterForUser(userId: string, identityKey: string): Promise<any> {
+    const incoming = await this.gunService.getPath(['incomingTalksByUser', userId]);
+    const merged: any = {
+      identityKey,
+      title: '',
+      type: 'matching',
+      questionCount: 0,
+      senders: {},
+      talkIds: {},
+      updatedAt: new Date(0).toISOString(),
+      identityAliases: [identityKey],
+    };
 
-      for (const [rawKey, rawCluster] of Object.entries(incoming)) {
-        if (rawKey.startsWith('_') || !rawCluster) continue;
-        const cluster = rawCluster as any;
-        const canonical = this.canonicalIdentityKeyFromStoredCluster(cluster);
-        if (canonical !== identityKey) continue;
-
-        if (!merged.identityAliases.includes(rawKey)) {
-          merged.identityAliases.push(rawKey);
-        }
-        if (cluster?.identityKey && !merged.identityAliases.includes(cluster.identityKey)) {
-          merged.identityAliases.push(cluster.identityKey);
-        }
-
-        const clusterSenders = cluster?.senders && typeof cluster.senders === 'object' ? cluster.senders : {};
-        const clusterTalkIds = cluster?.talkIds && typeof cluster.talkIds === 'object' ? cluster.talkIds : {};
-        merged.senders = { ...merged.senders, ...clusterSenders };
-        merged.talkIds = { ...merged.talkIds, ...clusterTalkIds };
-        merged.questionCount = Math.max(Number(merged.questionCount || 0), Number(cluster?.questionCount || 0));
-
-        const clusterUpdatedAt = new Date(cluster?.updatedAt || 0).getTime();
-        const mergedUpdatedAt = new Date(merged.updatedAt || 0).getTime();
-        if (clusterUpdatedAt >= mergedUpdatedAt) {
-          merged.updatedAt = cluster?.updatedAt || merged.updatedAt;
-          merged.title = cluster?.title || merged.title;
-          merged.type = cluster?.type || merged.type;
-        }
-      }
-
+    if (!incoming || typeof incoming !== 'object') {
       return merged;
     }
+
+    for (const [rawKey, rawCluster] of Object.entries(incoming)) {
+      if (rawKey.startsWith('_') || !rawCluster) continue;
+      const cluster = rawCluster as any;
+      const canonical = this.canonicalIdentityKeyFromStoredCluster(cluster);
+      if (canonical !== identityKey) continue;
+
+      if (!merged.identityAliases.includes(rawKey)) {
+        merged.identityAliases.push(rawKey);
+      }
+      if (cluster?.identityKey && !merged.identityAliases.includes(cluster.identityKey)) {
+        merged.identityAliases.push(cluster.identityKey);
+      }
+
+      const clusterSenders = cluster?.senders && typeof cluster.senders === 'object' ? cluster.senders : {};
+      const clusterTalkIds = cluster?.talkIds && typeof cluster.talkIds === 'object' ? cluster.talkIds : {};
+      merged.senders = { ...merged.senders, ...clusterSenders };
+      merged.talkIds = { ...merged.talkIds, ...clusterTalkIds };
+      merged.questionCount = Math.max(Number(merged.questionCount || 0), Number(cluster?.questionCount || 0));
+
+      const clusterUpdatedAt = new Date(cluster?.updatedAt || 0).getTime();
+      const mergedUpdatedAt = new Date(merged.updatedAt || 0).getTime();
+      if (clusterUpdatedAt >= mergedUpdatedAt) {
+        merged.updatedAt = cluster?.updatedAt || merged.updatedAt;
+        merged.type = cluster?.type || merged.type;
+      }
+    }
+
+    const latestTalkId = Object.entries(merged.talkIds || {})
+      .sort(
+        ([, a], [, b]) =>
+          new Date(String(b || 0)).getTime() - new Date(String(a || 0)).getTime(),
+      )
+      .map(([id]) => id)[0];
+
+    if (latestTalkId) {
+      const latestTalk = await this.loadTalkDataFromGraphOrBody(latestTalkId);
+      merged.title = latestTalk?.title || merged.title || '';
+      merged.type = latestTalk?.type || merged.type;
+      merged.questionCount = Array.isArray(latestTalk?.questions)
+        ? latestTalk.questions.length
+        : merged.questionCount;
+    }
+
+    return merged;
   }
 
   private async loadTalkDataFromGraphOrBody(talkId: string, bodyTalkData?: unknown): Promise<any | null> {
@@ -294,8 +327,7 @@ class IinPublicServer {
   }): Promise<{ identityKey: string; cluster: any }> {
     const { receiverId, talkId, talkData, senderId, senderName } = params;
     const identityKey = this.buildTalkIdentityKey(talkData);
-    const existingRaw = await this.gunService.getPath(['incomingTalksByUser', receiverId, identityKey]);
-    const existing = existingRaw && typeof existingRaw === 'object' ? existingRaw : {};
+    const existing = await this.getMergedIncomingClusterForUser(receiverId, identityKey);
     const nowIso = new Date().toISOString();
     const senderMap = existing.senders && typeof existing.senders === 'object' ? existing.senders : {};
     const talkIds = existing.talkIds && typeof existing.talkIds === 'object' ? existing.talkIds : {};
@@ -316,9 +348,17 @@ class IinPublicServer {
       senders: senderMap,
       talkIds,
       updatedAt: nowIso,
+      identityAliases: Array.isArray(existing.identityAliases) ? existing.identityAliases : [identityKey],
     };
 
     await this.gunService.putPath(['incomingTalksByUser', receiverId, identityKey], cluster);
+    if (Array.isArray(existing.identityAliases)) {
+      for (const alias of existing.identityAliases) {
+        if (alias && alias !== identityKey) {
+          await this.gunService.putPath(['incomingTalksByUser', receiverId, alias], cluster);
+        }
+      }
+    }
     await this.gunService.putPath(['talkIdentityById', talkId], { identityKey, updatedAt: nowIso });
     await this.gunService.putPath(['incomingTalkIdentityByUserAndTalkId', receiverId, talkId], {
       identityKey,
@@ -335,7 +375,7 @@ class IinPublicServer {
     fallbackSenderId?: string;
   }): Promise<Array<{ senderId: string; senderName: string; talkId: string }>> {
     const { responderId, identityKey, fallbackTalkId, fallbackSenderId } = params;
-    const cluster = await this.gunService.getPath(['incomingTalksByUser', responderId, identityKey]);
+    const cluster = await this.getMergedIncomingClusterForUser(responderId, identityKey);
     const list: Array<{ senderId: string; senderName: string; talkId: string }> = [];
     const seen = new Set<string>();
 
@@ -621,17 +661,16 @@ class IinPublicServer {
           res.json([]);
           return;
         }
-        const rawValues = Object.entries(incoming)
-          .filter(([k]) => !k.startsWith('_'))
-          .map(([, v]) => v)
-          .filter(Boolean) as any[];
+
+        const canonicalKeys = new Set<string>();
+        for (const [k, v] of Object.entries(incoming)) {
+          if (k.startsWith('_') || !v) continue;
+          canonicalKeys.add(this.canonicalIdentityKeyFromStoredCluster(v));
+        }
 
         const values = await Promise.all(
-          rawValues.map(async (cluster) => {
-            const identityKey = cluster?.identityKey;
-            if (!identityKey) {
-              return { ...cluster, isAnswered: false };
-            }
+          Array.from(canonicalKeys).map(async (identityKey) => {
+            const cluster = await this.getMergedIncomingClusterForUser(userId, identityKey);
             const template = await this.gunService.getPath([
               'talkAnswerTemplateByUser',
               userId,

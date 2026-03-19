@@ -806,12 +806,9 @@ export class UIManager extends EventEmitter {
       );
     // OUT: talks this user created or copied (can broadcast)
     const outEntries = allEntries.filter(([, t]: [string, any]) => t.role === 'created' || t.role === 'copied');
-    // IN: prefer backend-consolidated incoming talks; fallback to local list
+    // IN: backend-consolidated incoming talks (content-hash merged)
     const backendInEntries = (this.incomingTalkClusters || []).filter((c: any) => c && c.identityKey);
-    const inEntries =
-      backendInEntries.length > 0
-        ? backendInEntries
-        : allEntries.filter(([, t]: [string, any]) => t.role === 'answered' || t.role === 'copied');
+    const inEntries = backendInEntries;
 
     if (allEntries.length === 0 && inEntries.length === 0) {
       talksList.innerHTML = `
@@ -882,37 +879,36 @@ export class UIManager extends EventEmitter {
 
       const inHtml =
         inEntries.length > 0
-          ? (backendInEntries.length > 0
-              ? backendInEntries
-                  .map((cluster: any) => {
-                    const talkIdsObj = cluster?.talkIds && typeof cluster.talkIds === 'object' ? cluster.talkIds : {};
-                    const talkIdFromMap = Object.entries(talkIdsObj)
-                      .sort(
-                        ([, a], [, b]) =>
-                          new Date(String(b || 0)).getTime() - new Date(String(a || 0)).getTime(),
-                      )
-                      .map(([id]) => id)[0];
-                    const sendersObj = cluster?.senders && typeof cluster.senders === 'object' ? cluster.senders : {};
-                    const senderNames = Array.from(
-                      new Set(
-                        Object.values(sendersObj)
-                          .map((s: any) => String(s?.senderName || '').trim())
-                          .filter(Boolean),
-                      ),
-                    );
-                    const talkId =
-                      talkIdFromMap ||
-                      ((Object.values(sendersObj).find((s: any) => s?.lastTalkId) as any)?.lastTalkId as string | undefined) ||
-                      '';
-                    const isAnswered = !!cluster?.isAnswered;
-                    const titleStyle = isAnswered
-                      ? 'font-weight: 500; color: #9ca3af;'
-                      : 'font-weight: 700; color: #1d4ed8;';
-                    const metaStyle = isAnswered ? 'color: #9ca3af;' : 'color: #4b5563;';
-                    const statusBadge = isAnswered
-                      ? '<span class="talk-badge" style="background:#f3f4f6;color:#6b7280;">✅ Answered</span>'
-                      : '<span class="talk-badge" style="background:#dbeafe;color:#1d4ed8;font-weight:700;">🆕 New</span>';
-                    return `
+          ? backendInEntries
+              .map((cluster: any) => {
+                const talkIdsObj = cluster?.talkIds && typeof cluster.talkIds === 'object' ? cluster.talkIds : {};
+                const talkIdFromMap = Object.entries(talkIdsObj)
+                  .sort(
+                    ([, a], [, b]) =>
+                      new Date(String(b || 0)).getTime() - new Date(String(a || 0)).getTime(),
+                  )
+                  .map(([id]) => id)[0];
+                const sendersObj = cluster?.senders && typeof cluster.senders === 'object' ? cluster.senders : {};
+                const senderNames = Array.from(
+                  new Set(
+                    Object.values(sendersObj)
+                      .map((s: any) => String(s?.senderName || '').trim())
+                      .filter(Boolean),
+                  ),
+                );
+                const talkId =
+                  talkIdFromMap ||
+                  ((Object.values(sendersObj).find((s: any) => s?.lastTalkId) as any)?.lastTalkId as string | undefined) ||
+                  '';
+                const isAnswered = !!cluster?.isAnswered;
+                const titleStyle = isAnswered
+                  ? 'font-weight: 500; color: #9ca3af;'
+                  : 'font-weight: 700; color: #1d4ed8;';
+                const metaStyle = isAnswered ? 'color: #9ca3af;' : 'color: #4b5563;';
+                const statusBadge = isAnswered
+                  ? '<span class="talk-badge" style="background:#f3f4f6;color:#6b7280;">✅ Answered</span>'
+                  : '<span class="talk-badge" style="background:#dbeafe;color:#1d4ed8;font-weight:700;">🆕 New</span>';
+                return `
         <div class="talk-list-item" data-talk-id="${talkId}" data-role="incoming" style="${isAnswered ? 'background:#fafafa;' : ''}">
           <div class="talk-item-header">
             <div class="talk-item-title" style="${titleStyle}">${this.escapeHtml(cluster?.title || 'Incoming Talk')}</div>
@@ -933,48 +929,8 @@ export class UIManager extends EventEmitter {
           </div>
         </div>
       `;
-                  })
-                  .join('')
-              : (inEntries as [string, any][])
-                  .map(([talkId, talk]) => {
-                    const disabled = !!talk.disabled;
-                    const expText = this.formatExpiration(talk.expiresAt);
-                    const locText = this.formatLocationRadius(talk.locationRadiusMiles);
-                    const isAnswered =
-                      talk.role === 'answered' || talk.outcome === 'match' || talk.outcome === 'mismatch';
-                    const statusBadge = isAnswered
-                      ? talk.outcome === 'match'
-                        ? '<span class="talk-badge" style="background:#dcfce7;color:#166534;">✅ Match</span>'
-                        : '<span class="talk-badge" style="background:#f3f4f6;color:#6b7280;">✅ Answered</span>'
-                      : '<span class="talk-badge" style="background:#dbeafe;color:#1d4ed8;font-weight:700;">🆕 New</span>';
-                    const titleStyle = isAnswered
-                      ? 'font-weight: 500; color: #9ca3af;'
-                      : 'font-weight: 700; color: #1d4ed8;';
-                    const metaStyle = isAnswered ? 'color: #9ca3af;' : 'color: #4b5563;';
-                    return `
-        <div class="talk-list-item" data-talk-id="${talkId}" data-role="incoming" style="${isAnswered ? 'background:#fafafa;' : ''}">
-          <div class="talk-item-header">
-            <div class="talk-item-title" style="${titleStyle}">${this.escapeHtml(talk.title)}</div>
-            <div class="talk-item-badges">
-              ${statusBadge}
-              <span class="talk-badge talk-badge-type">${talk.type}</span>
-              ${disabled ? '<span class="talk-badge talk-badge-disabled" style="background:#fef3c7;color:#92400e;">🚫 Disabled</span>' : ''}
-            </div>
-          </div>
-          <div class="talk-item-meta" style="${metaStyle}">
-            <span class="talk-item-time">${this.formatTimeAgo(new Date(talk.lastInteraction))}</span>
-          </div>
-          <div class="talk-item-meta" style="font-size: 0.85em; ${metaStyle}">
-            Expiration: ${expText} · Location: ${locText}
-          </div>
-          <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-            <button type="button" class="btn view-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">🔍 View</button>
-            <button type="button" class="btn remove-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em; background: #dc3545; color: white;">🗑️ Remove</button>
-          </div>
-        </div>
-      `;
-                  })
-                  .join(''))
+              })
+              .join('')
           : '';
 
       const sectionOut =
