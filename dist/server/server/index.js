@@ -14,6 +14,7 @@ const chatroom_manager_1 = require("./services/chatroom-manager");
 const talk_service_1 = require("./services/talk-service");
 const user_service_1 = require("./services/user-service");
 const reputation_service_1 = require("./services/reputation-service");
+const talk_engine_1 = require("../shared/talk-engine");
 class IinPublicServer {
     app;
     server;
@@ -82,6 +83,337 @@ class IinPublicServer {
         this.chatroomManager = new chatroom_manager_1.ChatroomManager(this.gunService);
         this.talkService = new talk_service_1.TalkService(this.gunService, this.reputationService);
     }
+    normalizeIdentityText(input) {
+        return String(input ?? '')
+            .trim()
+            .replace(/\s+/g, ' ')
+            .toLowerCase();
+    }
+    hashIdentityPayload(payload) {
+        let hash = 0x811c9dc5;
+        for (let i = 0; i < payload.length; i += 1) {
+            hash ^= payload.charCodeAt(i);
+            hash = Math.imul(hash, 0x01000193);
+        }
+        return (hash >>> 0).toString(16).padStart(8, '0');
+    }
+    buildIdentityPayloadFromTalk(talkData) {
+        const type = this.normalizeIdentityText(talkData?.type || 'matching');
+        const questions = (Array.isArray(talkData?.questions)
+            ? talkData.questions.map((q) => ({
+                text: this.normalizeIdentityText(q?.text),
+                answers: (Array.isArray(q?.answers) ? q.answers : [])
+                    .map((a) => this.normalizeIdentityText(a?.text))
+                    .sort(),
+            }))
+            : [])
+            .sort((a, b) => String(a.text).localeCompare(String(b.text)));
+        return { type, questions };
+    }
+    buildTalkIdentityKey(talkData) {
+        const payload = this.buildIdentityPayloadFromTalk(talkData);
+        const payloadJson = JSON.stringify(payload);
+        return `qa_${this.hashIdentityPayload(payloadJson)}`;
+    }
+    canonicalIdentityKeyFromStoredCluster(cluster) {
+        if (!cluster)
+            return this.buildTalkIdentityKey({ type: 'matching', questions: [] });
+        const key = typeof cluster.identityKey === 'string' ? cluster.identityKey : '';
+        if (key.startsWith('qa_')) {
+            return key;
+        }
+        if (key) {
+            try {
+                const parsed = JSON.parse(key);
+                const payload = {
+                    type: this.normalizeIdentityText(parsed?.type ?? cluster?.type ?? 'matching'),
+                    questions: (Array.isArray(parsed?.questions)
+                        ? parsed.questions.map((q) => ({
+                            text: this.normalizeIdentityText(q?.text),
+                            answers: (Array.isArray(q?.answers) ? q.answers : [])
+                                .map((a) => this.normalizeIdentityText(a))
+                                .sort(),
+                        }))
+                        : [])
+                        .sort((a, b) => String(a.text).localeCompare(String(b.text))),
+                };
+                return `qa_${this.hashIdentityPayload(JSON.stringify(payload))}`;
+            }
+            catch {
+                // fall through
+            }
+        }
+        return this.buildTalkIdentityKey(cluster);
+    }
+    async getMergedIncomingClusterForUser(userId, identityKey) {
+        const incoming = await this.gunService.getPath(['incomingTalksByUser', userId]);
+        const merged = {
+            identityKey,
+            title: '',
+            type: 'matching',
+            questionCount: 0,
+            senders: {},
+            talkIds: {},
+            updatedAt: new Date(0).toISOString(),
+            identityAliases: { [identityKey]: true },
+        };
+        if (!incoming || typeof incoming !== 'object') {
+            return merged;
+        }
+        for (const [rawKey, rawCluster] of Object.entries(incoming)) {
+            if (rawKey.startsWith('_') || !rawCluster)
+                continue;
+            const cluster = rawCluster;
+            const canonical = this.canonicalIdentityKeyFromStoredCluster(cluster);
+            if (canonical !== identityKey)
+                continue;
+            merged.identityAliases[rawKey] = true;
+            if (cluster?.identityKey) {
+                merged.identityAliases[cluster.identityKey] = true;
+            }
+            const clusterSenders = cluster?.senders && typeof cluster.senders === 'object' ? cluster.senders : {};
+            const clusterTalkIds = cluster?.talkIds && typeof cluster.talkIds === 'object' ? cluster.talkIds : {};
+            merged.senders = { ...merged.senders, ...clusterSenders };
+            merged.talkIds = { ...merged.talkIds, ...clusterTalkIds };
+            merged.questionCount = Math.max(Number(merged.questionCount || 0), Number(cluster?.questionCount || 0));
+            const clusterUpdatedAt = new Date(cluster?.updatedAt || 0).getTime();
+            const mergedUpdatedAt = new Date(merged.updatedAt || 0).getTime();
+            if (clusterUpdatedAt >= mergedUpdatedAt) {
+                merged.updatedAt = cluster?.updatedAt || merged.updatedAt;
+                merged.type = cluster?.type || merged.type;
+            }
+        }
+        const latestTalkId = Object.entries(merged.talkIds || {})
+            .sort(([, a], [, b]) => new Date(String(b || 0)).getTime() - new Date(String(a || 0)).getTime())
+            .map(([id]) => id)[0];
+        if (latestTalkId) {
+            const latestTalk = await this.loadTalkDataFromGraphOrBody(latestTalkId);
+            merged.title = latestTalk?.title || merged.title || '';
+            merged.type = latestTalk?.type || merged.type;
+            merged.questionCount = Array.isArray(latestTalk?.questions)
+                ? latestTalk.questions.length
+                : merged.questionCount;
+        }
+        return merged;
+    }
+    async loadTalkDataFromGraphOrBody(talkId, bodyTalkData) {
+        const rawTalk = await this.gunService.getPath(['talks', talkId]);
+        if (rawTalk) {
+            if (typeof rawTalk.data === 'string') {
+                return JSON.parse(rawTalk.data);
+            }
+            return rawTalk.data || rawTalk;
+        }
+        if (bodyTalkData != null) {
+            return typeof bodyTalkData === 'string' ? JSON.parse(bodyTalkData) : bodyTalkData;
+        }
+        return null;
+    }
+    normalizeSubmittedAnswersForTalk(talkData, answers) {
+        if (talkData?.type !== 'tag')
+            return answers;
+        return answers.map((answer) => {
+            const question = talkData.questions?.find((q) => q.id === answer.questionId);
+            const selected = question?.answers?.find((a) => a.id === answer.answerId);
+            const isChecked = selected?.isMatch === true;
+            const answerText = answer.answerText ?? selected?.text;
+            return { ...answer, answerText, isChecked };
+        });
+    }
+    buildAnswerTemplateEntries(talkData, answers) {
+        const questions = Array.isArray(talkData?.questions) ? talkData.questions : [];
+        return answers.map((answer) => {
+            const question = questions.find((q) => q.id === answer.questionId);
+            const selected = question?.answers?.find((a) => a.id === answer.answerId);
+            return {
+                questionText: String(question?.text || '').trim(),
+                answerText: String(answer.answerText ?? selected?.text ?? '').trim(),
+                mode: String(answer.mode || 'manual'),
+                isChecked: answer.isChecked === true || selected?.isMatch === true,
+            };
+        });
+    }
+    mapTemplateEntriesToTalk(templateEntries, talkData) {
+        const questions = Array.isArray(talkData?.questions) ? talkData.questions : [];
+        const mapped = [];
+        for (const entry of templateEntries || []) {
+            const qText = this.normalizeIdentityText(entry.questionText);
+            const aText = this.normalizeIdentityText(entry.answerText);
+            const question = questions.find((q) => this.normalizeIdentityText(q?.text) === qText);
+            if (!question)
+                continue;
+            const answer = (Array.isArray(question.answers) ? question.answers : []).find((a) => this.normalizeIdentityText(a?.text) === aText);
+            if (!answer)
+                continue;
+            mapped.push({
+                questionId: question.id,
+                answerId: answer.id,
+                answerText: answer.text,
+                isChecked: entry.isChecked === true || answer.isMatch === true,
+                mode: entry.mode || 'manual',
+            });
+        }
+        return this.normalizeSubmittedAnswersForTalk(talkData, mapped);
+    }
+    deriveIsAutoAnswerSet(answers, explicitIsAuto, isChatbotResponse) {
+        if (explicitIsAuto != null)
+            return !!explicitIsAuto;
+        if (isChatbotResponse)
+            return true;
+        if (!Array.isArray(answers) || answers.length === 0)
+            return false;
+        return answers.every((a) => String(a?.mode || '').toLowerCase() === 'auto');
+    }
+    async getUserStageName(userId, fallback) {
+        const userNode = await this.gunService.getPath(['users', userId]);
+        return (userNode?.stageName ?? userNode?.data?.stageName ?? fallback ?? 'Someone');
+    }
+    async upsertIncomingTalkForUser(params) {
+        const { receiverId, talkId, talkData, senderId, senderName } = params;
+        const identityKey = this.buildTalkIdentityKey(talkData);
+        const existing = await this.getMergedIncomingClusterForUser(receiverId, identityKey);
+        const nowIso = new Date().toISOString();
+        const senderMap = existing.senders && typeof existing.senders === 'object' ? existing.senders : {};
+        const talkIds = existing.talkIds && typeof existing.talkIds === 'object' ? existing.talkIds : {};
+        senderMap[senderId] = {
+            senderId,
+            senderName: senderName || senderMap[senderId]?.senderName || 'Someone',
+            lastTalkId: talkId,
+            lastReceivedAt: nowIso,
+        };
+        talkIds[talkId] = nowIso;
+        const cluster = {
+            identityKey,
+            title: talkData?.title || existing.title || '',
+            type: talkData?.type || existing.type || 'matching',
+            questionCount: Array.isArray(talkData?.questions) ? talkData.questions.length : existing.questionCount || 0,
+            senders: senderMap,
+            talkIds,
+            updatedAt: nowIso,
+            identityAliases: existing.identityAliases && typeof existing.identityAliases === 'object' ? existing.identityAliases : { [identityKey]: true },
+        };
+        await this.gunService.putPath(['incomingTalksByUser', receiverId, identityKey], cluster);
+        if (existing.identityAliases && typeof existing.identityAliases === 'object') {
+            for (const alias of Object.keys(existing.identityAliases)) {
+                if (alias && alias !== identityKey) {
+                    await this.gunService.putPath(['incomingTalksByUser', receiverId, alias], cluster);
+                }
+            }
+        }
+        await this.gunService.putPath(['talkIdentityById', talkId], { identityKey, updatedAt: nowIso });
+        await this.gunService.putPath(['incomingTalkIdentityByUserAndTalkId', receiverId, talkId], {
+            identityKey,
+            updatedAt: nowIso,
+        });
+        return { identityKey, cluster };
+    }
+    async getClusterSenders(params) {
+        const { responderId, identityKey, fallbackTalkId, fallbackSenderId } = params;
+        const cluster = await this.getMergedIncomingClusterForUser(responderId, identityKey);
+        const list = [];
+        const seen = new Set();
+        if (cluster?.senders && typeof cluster.senders === 'object') {
+            for (const sender of Object.values(cluster.senders)) {
+                const senderId = sender?.senderId;
+                if (!senderId || senderId === responderId || seen.has(senderId))
+                    continue;
+                seen.add(senderId);
+                list.push({
+                    senderId,
+                    senderName: sender?.senderName || 'Someone',
+                    talkId: sender?.lastTalkId || fallbackTalkId,
+                });
+            }
+        }
+        if (fallbackSenderId && fallbackSenderId !== responderId && !seen.has(fallbackSenderId)) {
+            seen.add(fallbackSenderId);
+            const fallbackName = await this.getUserStageName(fallbackSenderId, 'Someone');
+            list.push({ senderId: fallbackSenderId, senderName: fallbackName, talkId: fallbackTalkId });
+        }
+        return list;
+    }
+    async saveUserAnswerTemplateByContent(params) {
+        const { responderId, responderName, identityKey, answers, templateEntries, isAuto } = params;
+        await this.gunService.putPath(['talkAnswerTemplateByUser', responderId, identityKey], {
+            responderId,
+            responderName,
+            answers: JSON.stringify(answers),
+            templateEntries: JSON.stringify(templateEntries),
+            isAuto,
+            updatedAt: new Date().toISOString(),
+        });
+    }
+    async createOrGetConversation(params) {
+        const { responderId, responderName, senderId, senderName, talkId } = params;
+        const sortedIds = [responderId, senderId].sort();
+        const conversationId = `conv_${sortedIds[0]}_${sortedIds[1]}_${talkId}`;
+        const conversationData = {
+            id: conversationId,
+            participants: [responderId, senderId],
+            talkId,
+            createdAt: new Date().toISOString(),
+            status: 'active',
+        };
+        await this.gunService.putPath(['conversations', conversationId], {
+            data: JSON.stringify(conversationData),
+        });
+        await this.gunService.putPath(['users', responderId, 'conversations', conversationId], {
+            conversationId,
+            otherUserId: senderId,
+            otherUserName: senderName,
+            talkId,
+            createdAt: new Date().toISOString(),
+        });
+        await this.gunService.putPath(['users', senderId, 'conversations', conversationId], {
+            conversationId,
+            otherUserId: responderId,
+            otherUserName: responderName,
+            talkId,
+            createdAt: new Date().toISOString(),
+        });
+        return { conversationId, otherUserId: senderId, otherUserName: senderName };
+    }
+    async fanoutResponseToSenders(params) {
+        const { talkData, sourceTalkId, responderId, responderName, answers, senders, isChatbotResponse, storeOnSourceTalk, } = params;
+        const responseTargets = senders.length > 0 ? senders : [];
+        const isMatch = (0, talk_engine_1.checkIfMatch)(talkData, answers);
+        const matches = [];
+        for (const sender of responseTargets) {
+            if (!sender?.senderId || sender.senderId === responderId)
+                continue;
+            const targetTalkId = sender.talkId || sourceTalkId;
+            const shouldStoreOnTarget = storeOnSourceTalk || targetTalkId !== sourceTalkId || talkData?.type === 'tag';
+            if (shouldStoreOnTarget) {
+                const responseId = `resp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+                await this.gunService.putPath(['talks', targetTalkId, 'responses', responseId], {
+                    responderId,
+                    responderName,
+                    answers: JSON.stringify(answers),
+                    submittedAt: new Date().toISOString(),
+                    isChatbotResponse,
+                    backendRecorded: true,
+                    authorId: sender.senderId,
+                    authorName: sender.senderName,
+                });
+            }
+            if (isMatch) {
+                const conv = await this.createOrGetConversation({
+                    responderId,
+                    responderName,
+                    senderId: sender.senderId,
+                    senderName: sender.senderName,
+                    talkId: targetTalkId,
+                });
+                matches.push({
+                    senderId: sender.senderId,
+                    senderName: sender.senderName,
+                    conversationId: conv.conversationId,
+                    talkId: targetTalkId,
+                });
+            }
+        }
+        return matches;
+    }
     setupRoutes() {
         // Health check
         this.app.get('/health', (_req, res) => {
@@ -123,6 +455,179 @@ class IinPublicServer {
             }
             catch (error) {
                 res.status(400).json({ error: error.message });
+            }
+        });
+        this.app.post('/api/talks/:id/received', async (req, res) => {
+            try {
+                const talkId = req.params.id;
+                const { receiverId, receiverName, senderId, senderName, talkData: bodyTalkData } = req.body;
+                if (!receiverId || !senderId) {
+                    res.status(400).json({ error: 'receiverId and senderId required' });
+                    return;
+                }
+                const talkData = await this.loadTalkDataFromGraphOrBody(talkId, bodyTalkData);
+                if (!talkData) {
+                    res.status(404).json({ error: 'Talk not found' });
+                    return;
+                }
+                const resolvedSenderName = senderName || (await this.getUserStageName(senderId, 'Someone'));
+                const resolvedReceiverName = receiverName || (await this.getUserStageName(receiverId, 'Someone'));
+                const { identityKey } = await this.upsertIncomingTalkForUser({
+                    receiverId,
+                    talkId,
+                    talkData,
+                    senderId,
+                    senderName: resolvedSenderName,
+                });
+                const savedTemplate = await this.gunService.getPath([
+                    'talkAnswerTemplateByUser',
+                    receiverId,
+                    identityKey,
+                ]);
+                if (!savedTemplate?.isAuto) {
+                    res.json({ registered: true, identityKey, autoResponded: false });
+                    return;
+                }
+                const templateEntriesRaw = typeof savedTemplate.templateEntries === 'string'
+                    ? JSON.parse(savedTemplate.templateEntries)
+                    : savedTemplate.templateEntries;
+                const autoAnswers = this.mapTemplateEntriesToTalk(templateEntriesRaw || [], talkData);
+                if (!Array.isArray(autoAnswers) || autoAnswers.length === 0) {
+                    res.json({ registered: true, identityKey, autoResponded: false, reason: 'No mappable auto answers' });
+                    return;
+                }
+                const matches = await this.fanoutResponseToSenders({
+                    talkData,
+                    sourceTalkId: talkId,
+                    responderId: receiverId,
+                    responderName: resolvedReceiverName,
+                    answers: autoAnswers,
+                    senders: [{ senderId, senderName: resolvedSenderName, talkId }],
+                    isChatbotResponse: true,
+                    storeOnSourceTalk: true,
+                });
+                res.json({
+                    registered: true,
+                    identityKey,
+                    autoResponded: true,
+                    isMatch: matches.length > 0,
+                    matches,
+                    conversationId: matches[0]?.conversationId ?? null,
+                    otherUserId: matches[0]?.senderId ?? senderId,
+                    otherUserName: matches[0]?.senderName ?? resolvedSenderName,
+                });
+            }
+            catch (error) {
+                console.error('Talk received registration error:', error);
+                res.status(500).json({ error: error.message });
+            }
+        });
+        this.app.get('/api/users/:id/incoming-talks', async (req, res) => {
+            try {
+                const userId = req.params.id;
+                const incoming = await this.gunService.getPath(['incomingTalksByUser', userId]);
+                if (!incoming || typeof incoming !== 'object') {
+                    res.json([]);
+                    return;
+                }
+                const canonicalKeys = new Set();
+                for (const [k, v] of Object.entries(incoming)) {
+                    if (k.startsWith('_') || !v)
+                        continue;
+                    canonicalKeys.add(this.canonicalIdentityKeyFromStoredCluster(v));
+                }
+                const values = await Promise.all(Array.from(canonicalKeys).map(async (identityKey) => {
+                    const cluster = await this.getMergedIncomingClusterForUser(userId, identityKey);
+                    const template = await this.gunService.getPath([
+                        'talkAnswerTemplateByUser',
+                        userId,
+                        identityKey,
+                    ]);
+                    const isAnswered = !!(template && template.answers);
+                    return {
+                        ...cluster,
+                        isAnswered,
+                        isAutoAnswered: !!template?.isAuto,
+                    };
+                }));
+                values.sort((a, b) => new Date(b?.updatedAt || 0).getTime() - new Date(a?.updatedAt || 0).getTime());
+                res.json(values);
+            }
+            catch (error) {
+                res.status(500).json({ error: error.message });
+            }
+        });
+        // Talk response: backend runs match logic and creates conversation if match (frontend only sends payload and updates UI)
+        this.app.post('/api/talks/:id/response', async (req, res) => {
+            try {
+                const talkId = req.params.id;
+                const { responderId, responderName, answers, talkData: bodyTalkData, isAuto, isChatbotResponse } = req.body;
+                if (!responderId || !Array.isArray(answers)) {
+                    res.status(400).json({ error: 'responderId and answers required' });
+                    return;
+                }
+                const talkData = await this.loadTalkDataFromGraphOrBody(talkId, bodyTalkData);
+                if (!talkData) {
+                    res.status(404).json({ error: 'Talk not found' });
+                    return;
+                }
+                const normalizedAnswers = this.normalizeSubmittedAnswersForTalk(talkData, answers);
+                const identityKey = this.buildTalkIdentityKey(talkData);
+                const resolvedResponderName = responderName || (await this.getUserStageName(responderId, 'Someone'));
+                const fallbackSenderId = talkData.authorId;
+                if (fallbackSenderId && fallbackSenderId !== responderId) {
+                    const fallbackSenderName = await this.getUserStageName(fallbackSenderId, 'Someone');
+                    await this.upsertIncomingTalkForUser({
+                        receiverId: responderId,
+                        talkId,
+                        talkData,
+                        senderId: fallbackSenderId,
+                        senderName: fallbackSenderName,
+                    });
+                }
+                const sendersParams = {
+                    responderId,
+                    identityKey,
+                    fallbackTalkId: talkId,
+                };
+                if (fallbackSenderId) {
+                    sendersParams.fallbackSenderId = fallbackSenderId;
+                }
+                const senders = await this.getClusterSenders(sendersParams);
+                const effectiveIsAuto = this.deriveIsAutoAnswerSet(normalizedAnswers, isAuto, isChatbotResponse);
+                const templateEntries = this.buildAnswerTemplateEntries(talkData, normalizedAnswers);
+                await this.saveUserAnswerTemplateByContent({
+                    responderId,
+                    responderName: resolvedResponderName,
+                    identityKey,
+                    answers: normalizedAnswers,
+                    templateEntries,
+                    isAuto: effectiveIsAuto,
+                });
+                const matches = await this.fanoutResponseToSenders({
+                    talkData,
+                    sourceTalkId: talkId,
+                    responderId,
+                    responderName: resolvedResponderName,
+                    answers: normalizedAnswers,
+                    senders,
+                    isChatbotResponse: !!isChatbotResponse,
+                    storeOnSourceTalk: false,
+                });
+                const isMatch = (0, talk_engine_1.checkIfMatch)(talkData, normalizedAnswers);
+                res.json({
+                    isMatch,
+                    identityKey,
+                    matchedCount: matches.length,
+                    matches,
+                    conversationId: matches[0]?.conversationId ?? null,
+                    otherUserId: matches[0]?.senderId ?? null,
+                    otherUserName: matches[0]?.senderName ?? null,
+                });
+            }
+            catch (error) {
+                console.error('Talk response error:', error);
+                res.status(500).json({ error: error.message });
             }
         });
         // Chatroom routes

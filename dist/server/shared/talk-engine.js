@@ -1,7 +1,27 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TalkLinearCapture = exports.TalkValidator = void 0;
+exports.checkIfMatch = checkIfMatch;
 const errors_1 = require("./errors");
+/**
+ * Determines if the last submitted answer is a match (matching/tag talks).
+ * Used by both frontend and backend so match logic lives in one place.
+ */
+function checkIfMatch(talkData, answers) {
+    if (talkData.type !== 'matching' && talkData.type !== 'tag') {
+        return false;
+    }
+    const lastAnswer = answers[answers.length - 1];
+    if (!lastAnswer)
+        return false;
+    const question = talkData.questions?.find((q) => q.id === lastAnswer.questionId);
+    if (!question)
+        return false;
+    const answer = question.answers?.find((a) => a.id === lastAnswer.answerId);
+    if (!answer)
+        return false;
+    return answer.isMatch === true;
+}
 class TalkValidator {
     /**
      * Validates that a talk structure forms a DAG (no loops)

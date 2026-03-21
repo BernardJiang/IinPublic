@@ -735,6 +735,8 @@ export class UIManager extends EventEmitter {
     const talksList = document.getElementById('talks-list');
     if (!talksList) return;
 
+    const myTalks = this.getMyTalks();
+
     // One-time delegation on body: use mousedown so we run before any re-render can replace the DOM (click fires later and target can be gone)
     if (!this.talksListDelegationBound) {
       this.talksListDelegationBound = true;
@@ -797,7 +799,6 @@ export class UIManager extends EventEmitter {
       );
     }
 
-    const myTalks = this.getMyTalks();
     // Sort all talks by last interaction
     const allEntries = Object.entries(myTalks)
       .sort(
@@ -1415,10 +1416,12 @@ export class UIManager extends EventEmitter {
     isOwnTalk: boolean;
     fullTalk: any;
   }): void {
-    // Check if talk already exists to avoid duplicates
+    // Check if talk already exists from the SAME author to avoid duplicates
     const myTalks = this.getMyTalks();
-    if (myTalks[talk.id]) {
-      console.log('⏭️  Talk already saved, skipping:', talk.id);
+    const existing = myTalks[talk.id];
+    const authorId = talk.fullTalk?.authorId;
+    if (existing && existing.fullTalk?.authorId === authorId) {
+      console.log('⏭️  Talk already saved from same author, skipping:', talk.id);
       return;
     }
 

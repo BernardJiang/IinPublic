@@ -359,7 +359,6 @@ export class IinPublicApp {
         gun.get(`talks/${talkAnnouncement.talkId}`).once((talkDataWrapper: any) => {
           if (talkDataWrapper && talkDataWrapper.data) {
             const talkData = JSON.parse(talkDataWrapper.data);
-            console.log('📋 Full talk data:', talkData);
 
             // Filter by location: if talk has authorLocation + radius, only show if we're within range
             const radiusMiles = talkData.locationRadiusMiles ?? talkData.locationRadius;

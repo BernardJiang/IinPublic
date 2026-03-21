@@ -174,7 +174,7 @@ class IinPublicServer {
       senders: {},
       talkIds: {},
       updatedAt: new Date(0).toISOString(),
-      identityAliases: [identityKey],
+      identityAliases: { [identityKey]: true },
     };
 
     if (!incoming || typeof incoming !== 'object') {
@@ -187,11 +187,9 @@ class IinPublicServer {
       const canonical = this.canonicalIdentityKeyFromStoredCluster(cluster);
       if (canonical !== identityKey) continue;
 
-      if (!merged.identityAliases.includes(rawKey)) {
-        merged.identityAliases.push(rawKey);
-      }
-      if (cluster?.identityKey && !merged.identityAliases.includes(cluster.identityKey)) {
-        merged.identityAliases.push(cluster.identityKey);
+      merged.identityAliases[rawKey] = true;
+      if (cluster?.identityKey) {
+        merged.identityAliases[cluster.identityKey] = true;
       }
 
       const clusterSenders = cluster?.senders && typeof cluster.senders === 'object' ? cluster.senders : {};
@@ -348,12 +346,12 @@ class IinPublicServer {
       senders: senderMap,
       talkIds,
       updatedAt: nowIso,
-      identityAliases: Array.isArray(existing.identityAliases) ? existing.identityAliases : [identityKey],
+      identityAliases: existing.identityAliases && typeof existing.identityAliases === 'object' ? existing.identityAliases : { [identityKey]: true },
     };
 
     await this.gunService.putPath(['incomingTalksByUser', receiverId, identityKey], cluster);
-    if (Array.isArray(existing.identityAliases)) {
-      for (const alias of existing.identityAliases) {
+    if (existing.identityAliases && typeof existing.identityAliases === 'object') {
+      for (const alias of Object.keys(existing.identityAliases)) {
         if (alias && alias !== identityKey) {
           await this.gunService.putPath(['incomingTalksByUser', receiverId, alias], cluster);
         }
@@ -733,12 +731,15 @@ class IinPublicServer {
           });
         }
 
-        const senders = await this.getClusterSenders({
+        const sendersParams = {
           responderId,
           identityKey,
           fallbackTalkId: talkId,
-          fallbackSenderId,
-        });
+        } as { responderId: string; identityKey: string; fallbackTalkId: string; fallbackSenderId?: string };
+        if (fallbackSenderId) {
+          sendersParams.fallbackSenderId = fallbackSenderId;
+        }
+        const senders = await this.getClusterSenders(sendersParams);
 
         const effectiveIsAuto = this.deriveIsAutoAnswerSet(normalizedAnswers, isAuto, isChatbotResponse);
         const templateEntries = this.buildAnswerTemplateEntries(talkData, normalizedAnswers);

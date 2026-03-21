@@ -1,4 +1,16 @@
 import { Talk } from './types';
+/** Answer record as submitted by the user (e.g. from talk response flow) */
+export interface SubmittedAnswer {
+    questionId: string;
+    answerId: string;
+    answerText?: string;
+    isChecked?: boolean;
+}
+/**
+ * Determines if the last submitted answer is a match (matching/tag talks).
+ * Used by both frontend and backend so match logic lives in one place.
+ */
+export declare function checkIfMatch(talkData: Talk | any, answers: SubmittedAnswer[]): boolean;
 export declare class TalkValidator {
     /**
      * Validates that a talk structure forms a DAG (no loops)

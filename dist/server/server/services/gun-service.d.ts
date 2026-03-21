@@ -16,6 +16,15 @@ export declare class GunService {
      */
     get(key: string): Promise<any>;
     /**
+     * Get data at a nested path (e.g. ['talks', talkId] or ['users', userId, 'conversations', convId])
+     * so server can read the same graph shape the client uses.
+     */
+    getPath(path: string[]): Promise<any>;
+    /**
+     * Put data at a nested path (same graph shape as client).
+     */
+    putPath(path: string[], data: any): Promise<void>;
+    /**
      * Subscribe to real-time updates
      */
     subscribe(key: string, callback: (data: any) => void): () => void;

@@ -75,6 +75,44 @@ class GunService {
         });
     }
     /**
+     * Get data at a nested path (e.g. ['talks', talkId] or ['users', userId, 'conversations', convId])
+     * so server can read the same graph shape the client uses.
+     */
+    async getPath(path) {
+        if (path.length === 0)
+            return undefined;
+        return new Promise((resolve) => {
+            let ref = this.gun;
+            for (const seg of path) {
+                ref = ref.get(seg);
+            }
+            ref.once((data) => {
+                resolve(data);
+            }, { wait: 2000 });
+        });
+    }
+    /**
+     * Put data at a nested path (same graph shape as client).
+     */
+    async putPath(path, data) {
+        if (path.length === 0)
+            return;
+        return new Promise((resolve, reject) => {
+            let ref = this.gun;
+            for (const seg of path) {
+                ref = ref.get(seg);
+            }
+            ref.put(data, (ack) => {
+                if (ack?.err) {
+                    reject(new Error(ack.err));
+                }
+                else {
+                    resolve();
+                }
+            });
+        });
+    }
+    /**
      * Subscribe to real-time updates
      */
     subscribe(key, callback) {

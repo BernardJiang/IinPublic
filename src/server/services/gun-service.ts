@@ -84,7 +84,7 @@ export class GunService {
    */
   public async getPath(path: string[]): Promise<any> {
     if (path.length === 0) return undefined;
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       let ref: any = this.gun;
       for (const seg of path) {
         ref = ref.get(seg);
