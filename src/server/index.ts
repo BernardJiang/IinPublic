@@ -95,6 +95,36 @@ class IinPublicServer {
     this.talkService = new TalkService(this.gunService, this.reputationService);
   }
 
+  private normalizeIdentityText(input: unknown): string {
+    return String(input ?? '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+  }
+
+  private hashIdentityPayload(payload: string): string {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < payload.length; i += 1) {
+      hash ^= payload.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+  }
+
+  private buildTalkIdentityKey(talkData: any): string {
+    const type = this.normalizeIdentityText(talkData?.type || 'matching');
+    const questions = (Array.isArray(talkData?.questions)
+      ? talkData.questions.map((q: any) => ({
+          text: this.normalizeIdentityText(q?.text),
+          answers: (Array.isArray(q?.answers) ? q.answers : [])
+            .map((a: any) => this.normalizeIdentityText(a?.text))
+            .sort(),
+        }))
+      : [])
+      .sort((a: any, b: any) => String(a.text).localeCompare(String(b.text)));
+    return `qa_${this.hashIdentityPayload(JSON.stringify({ type, questions }))}`;
+  }
+
   private setupRoutes(): void {
     // Health check
     this.app.get('/health', (_req, res) => {
@@ -144,6 +174,92 @@ class IinPublicServer {
       }
     });
 
+    // Register received talk with identity-based deduplication
+    this.app.post('/api/talks/:id/received', async (req, res) => {
+      try {
+        const talkId = req.params.id;
+        const { receiverId, senderId, senderName, talkData: bodyTalkData } = req.body as {
+          receiverId: string;
+          senderId: string;
+          senderName?: string;
+          talkData?: unknown;
+        };
+        if (!receiverId || !senderId) {
+          res.status(400).json({ error: 'receiverId and senderId required' });
+          return;
+        }
+
+        // Load talk data
+        let talkData: any = bodyTalkData;
+        if (!talkData) {
+          try {
+            const rawTalk = await this.gunService.get(`talks/${talkId}`);
+            if (rawTalk) {
+              talkData = typeof rawTalk.data === 'string' ? JSON.parse(rawTalk.data) : rawTalk.data;
+            }
+          } catch {
+            // Talk not found
+          }
+        }
+        if (!talkData) {
+          res.status(404).json({ error: 'Talk not found' });
+          return;
+        }
+
+        // Build identity key for deduplication
+        const identityKey = this.buildTalkIdentityKey(talkData);
+
+        // Store in incoming talks by identity key (deduplicates identical talks)
+        const nowIso = new Date().toISOString();
+        let existing: any = null;
+        try {
+          existing = await this.gunService.get(`incomingTalksByUser/${receiverId}/${identityKey}`);
+        } catch {
+          // Not found, will create new
+        }
+        
+        if (!existing) {
+          existing = {
+            identityKey,
+            title: '',
+            type: talkData?.type || 'matching',
+            questionCount: 0,
+            senders: {},
+            talkIds: {},
+            updatedAt: new Date(0).toISOString(),
+          };
+        }
+
+        const senderMap = existing.senders && typeof existing.senders === 'object' ? existing.senders : {};
+        const talkIds = existing.talkIds && typeof existing.talkIds === 'object' ? existing.talkIds : {};
+
+        senderMap[senderId] = {
+          senderId,
+          senderName: senderName || senderMap[senderId]?.senderName || 'Someone',
+          lastTalkId: talkId,
+          lastReceivedAt: nowIso,
+        };
+        talkIds[talkId] = nowIso;
+
+        const cluster = {
+          identityKey,
+          title: talkData?.title || existing.title || '',
+          type: talkData?.type || existing.type || 'matching',
+          questionCount: Array.isArray(talkData?.questions) ? talkData.questions.length : existing.questionCount || 0,
+          senders: senderMap,
+          talkIds,
+          updatedAt: nowIso,
+        };
+
+        await this.gunService.put(`incomingTalksByUser/${receiverId}/${identityKey}`, cluster);
+        await this.gunService.put(`talkIdentityById/${talkId}`, { identityKey, updatedAt: nowIso });
+
+        res.json({ registered: true, identityKey });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
     // Chatroom routes
     this.app.get('/api/chatrooms', async (_req, res) => {
       try {
@@ -180,6 +296,35 @@ class IinPublicServer {
         res.json({ valid: true });
       } catch (error) {
         res.status(400).json({ error: (error as Error).message });
+      }
+    });
+
+    // Get incoming talks grouped by identity (for deduplication)
+    this.app.get('/api/users/:id/incoming-talks', async (req, res) => {
+      try {
+        const userId = req.params.id;
+        let incoming: any = {};
+        try {
+          incoming = await this.gunService.get(`incomingTalksByUser/${userId}`);
+        } catch {
+          // Not found or empty
+        }
+        
+        if (!incoming || typeof incoming !== 'object') {
+          res.json([]);
+          return;
+        }
+
+        const clusters = Object.entries(incoming)
+          .filter(([k, v]) => !k.startsWith('_') && v)
+          .map(([, cluster]) => cluster);
+
+        clusters.sort(
+          (a: any, b: any) => new Date(b?.updatedAt || 0).getTime() - new Date(a?.updatedAt || 0).getTime(),
+        );
+        res.json(clusters);
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
       }
     });
 

@@ -7,6 +7,10 @@ playwright-report
 test-results
 test-storage
 .test-storage
+dist
+user_data
+
+
 
 
 
