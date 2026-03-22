@@ -20,6 +20,9 @@ export class WebTalkService {
       isTemplate: talkData.isTemplate || false,
       usageCount: 0,
     };
+    if (talkData.expiresAt != null) talk.expiresAt = talkData.expiresAt;
+    if (talkData.locationRadiusMiles != null) talk.locationRadiusMiles = talkData.locationRadiusMiles;
+    if (talkData.authorLocation != null) talk.authorLocation = talkData.authorLocation;
 
     console.log('🔍 About to store Talk in Gun.js:', JSON.stringify(talk, null, 2));
 
@@ -72,6 +75,12 @@ export class WebTalkService {
       isTemplate: talkData.isTemplate ?? existing.isTemplate,
       usageCount: existing.usageCount,
     };
+    if (talkData.expiresAt !== undefined) updated.expiresAt = talkData.expiresAt;
+    else if (existing.expiresAt != null) updated.expiresAt = existing.expiresAt;
+    if (talkData.locationRadiusMiles !== undefined) updated.locationRadiusMiles = talkData.locationRadiusMiles;
+    else if (existing.locationRadiusMiles != null) updated.locationRadiusMiles = existing.locationRadiusMiles;
+    if (talkData.authorLocation !== undefined) updated.authorLocation = talkData.authorLocation;
+    else if (existing.authorLocation != null) updated.authorLocation = existing.authorLocation;
     const talkJson = JSON.stringify(updated);
     await this.gunService.put(`talks/${talkId}`, {
       id: updated.id,

@@ -1,4 +1,5 @@
 import { User, GPSCoordinate, Talk } from '../../shared/types';
+import { checkIfMatch } from '../../shared/talk-engine';
 import { WebGunService } from '../services/web-gun-service';
 import { WebUserService } from '../services/web-user-service';
 import { WebChatroomService } from '../services/web-chatroom-service';
@@ -18,6 +19,8 @@ export class IinPublicApp {
   private currentUser?: User;
   private currentLocation?: GPSCoordinate;
   private currentChatroomId?: string;
+  private subscribedTalkResponseStreams: Set<string> = new Set();
+  private processedMatchResponseEvents: Set<string> = new Set();
 
   constructor() {
     this.gunService = new WebGunService();
@@ -355,11 +358,33 @@ export class IinPublicApp {
         // Fetch the full talk details
         gun.get(`talks/${talkAnnouncement.talkId}`).once((talkDataWrapper: any) => {
           if (talkDataWrapper && talkDataWrapper.data) {
-            // Parse the JSON string to get the full talk
             const talkData = JSON.parse(talkDataWrapper.data);
             console.log('📋 Full talk data:', talkData);
 
-            // Display the talk in UI
+            // Filter by location: if talk has authorLocation + radius, only show if we're within range
+            const radiusMiles = talkData.locationRadiusMiles ?? talkData.locationRadius;
+            const authorLoc = talkData.authorLocation;
+            if (
+              radiusMiles != null &&
+              radiusMiles > 0 &&
+              authorLoc?.latitude != null &&
+              authorLoc?.longitude != null &&
+              this.currentLocation
+            ) {
+              const authorCoord = {
+                latitude: authorLoc.latitude,
+                longitude: authorLoc.longitude,
+                accuracy: 0,
+                timestamp: new Date(),
+              };
+              const distanceMeters = LocationPrivacy.calculateDistance(this.currentLocation, authorCoord);
+              const distanceMiles = distanceMeters / 1609.344;
+              if (distanceMiles > radiusMiles) {
+                console.log(`📏 Skipping talk ${talkData.id}: ${distanceMiles.toFixed(1)} mi > ${radiusMiles} mi`);
+                return;
+              }
+            }
+
             this.uiManager.displayIncomingTalk({
               id: talkData.id,
               title: talkData.title,
@@ -371,7 +396,29 @@ export class IinPublicApp {
               fullTalk: talkData,
             });
 
-            // If this is the user's own talk, subscribe to responses
+            if (
+              this.currentUser?.id &&
+              talkAnnouncement.authorId &&
+              talkAnnouncement.authorId !== this.currentUser.id
+            ) {
+              const apiBase = typeof window !== 'undefined' && (window as any).__API_BASE != null
+                ? (window as any).__API_BASE
+                : '';
+              fetch(`${apiBase}/api/talks/${talkAnnouncement.talkId}/received`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  receiverId: this.currentUser.id,
+                  receiverName: this.currentUser.stageName,
+                  senderId: talkAnnouncement.authorId,
+                  senderName: talkAnnouncement.authorName || 'Unknown',
+                  talkData,
+                }),
+              })
+                .then(() => this.refreshIncomingTalkClusters())
+                .catch((err) => console.error('Failed to register incoming talk:', err));
+            }
+
             if (talkAnnouncement.authorId === this.currentUser?.id) {
               this.subscribeToTalkResponses(talkAnnouncement.talkId, talkData);
             }
@@ -390,6 +437,11 @@ export class IinPublicApp {
   }
 
   private subscribeToTalkResponses(talkId: string, talkData: any): void {
+    if (this.subscribedTalkResponseStreams.has(talkId)) {
+      return;
+    }
+    this.subscribedTalkResponseStreams.add(talkId);
+
     console.log('👂 Subscribing to responses for talk:', talkId);
     const gun = this.gunService.getGun();
 
@@ -413,9 +465,15 @@ export class IinPublicApp {
             const answers = JSON.parse(responseData.answers);
 
             // Check if this is a match
-            const isMatch = this.checkIfMatch(talkData, answers);
+            const isMatch = checkIfMatch(talkData, answers);
 
             if (isMatch) {
+              const responseEventKey = `${talkId}:${responseId}`;
+              if (this.processedMatchResponseEvents.has(responseEventKey)) {
+                return;
+              }
+              this.processedMatchResponseEvents.add(responseEventKey);
+
               this.uiManager.showNotification(
                 `Match! ${responseData.responderName} noticed you on "${talkData.title}"`,
                 'success',
@@ -453,6 +511,27 @@ export class IinPublicApp {
       });
   }
 
+  private async refreshIncomingTalkClusters(): Promise<void> {
+    if (!this.currentUser?.id) return;
+    try {
+      const apiBase =
+        typeof window !== 'undefined' && (window as any).__API_BASE != null
+          ? (window as any).__API_BASE
+          : '';
+      const res = await fetch(`${apiBase}/api/users/${this.currentUser.id}/incoming-talks`);
+      if (!res.ok) throw new Error(await res.text());
+      const clusters = await res.json();
+      this.uiManager.setIncomingTalkClusters(Array.isArray(clusters) ? clusters : []);
+
+      const talksTab = document.getElementById('tab-talks');
+      if (talksTab?.classList.contains('active')) {
+        this.uiManager.displayTalksList();
+      }
+    } catch (error) {
+      console.error('Failed to refresh incoming talk clusters:', error);
+    }
+  }
+
   /**
    * Auto-reply to a talk using saved template (chatbot). Puts response to Gun and creates
    * responder's conversation so the author will receive the match and see bot icon.
@@ -481,7 +560,7 @@ export class IinPublicApp {
 
     gun.get(`talks/${talkId}`).get('responses').get(responseId).put(responsePayload);
 
-    const isMatch = this.checkIfMatch(talkData, template.answers);
+    const isMatch = checkIfMatch(talkData, template.answers);
     if (isMatch) {
       this.conversationService
         .createConversation({
@@ -502,45 +581,6 @@ export class IinPublicApp {
         })
         .catch((err) => console.error('Chatbot conversation create failed:', err));
     }
-  }
-
-  private checkIfMatch(talkData: any, answers: any[]): boolean {
-    // Matching-type talks and tags both use isMatch on the chosen answer
-    if (talkData.type !== 'matching' && talkData.type !== 'tag') {
-      console.log('  Not a matching talk, type:', talkData.type);
-      return false;
-    }
-
-    // Find the last answer
-    const lastAnswer = answers[answers.length - 1];
-    if (!lastAnswer) {
-      console.log('  No last answer found');
-      return false;
-    }
-
-    console.log('  Last answer:', lastAnswer);
-
-    // Find the corresponding question and answer in the talk
-    const question = talkData.questions.find((q: any) => q.id === lastAnswer.questionId);
-    if (!question) {
-      console.log('  Question not found for ID:', lastAnswer.questionId);
-      return false;
-    }
-
-    console.log('  Found question:', question.text);
-
-    const answer = question.answers.find((a: any) => a.id === lastAnswer.answerId);
-    if (!answer) {
-      console.log('  Answer not found for ID:', lastAnswer.answerId);
-      return false;
-    }
-
-    console.log('  Found answer:', answer.text, 'isMatch:', answer.isMatch);
-
-    // Check if this answer is marked as a match
-    const isMatch = answer.isMatch === true;
-    console.log('  Is match?', isMatch);
-    return isMatch;
   }
 
   private subscribeToUserConversations(): void {
@@ -663,49 +703,67 @@ export class IinPublicApp {
       },
     );
 
-    this.uiManager.on('createTalk', async (talkData: Partial<Talk>) => {
-      try {
-        console.log('📝 Creating talk:', talkData);
-
-        // Create the talk
-        const talk = await this.talkService.createTalk({
-          ...talkData,
-          authorId: this.currentUser!.id,
-        });
-
-        console.log('✅ Talk created:', talk);
-
-        // Broadcast the talk to the chatroom
-        const chatroomId = this.chatroomService.getCurrentChatroomId();
-        if (chatroomId) {
-          const gun = this.gunService.getGun();
-
-          // Store the talk announcement in the chatroom
-          gun.get('chatrooms').get(chatroomId).get('talks').get(talk.id).put({
-            talkId: talk.id,
-            title: talk.title,
-            authorId: talk.authorId,
-            authorName: this.currentUser!.stageName,
-            type: talk.type,
-            timestamp: new Date().toISOString(),
-            questionCount: talk.questions.length,
-          });
-
-          console.log('📢 Talk broadcasted to chatroom:', chatroomId);
-
-          // Subscribe to responses for this talk (since author won't receive their own announcement)
-          this.subscribeToTalkResponses(talk.id, talk);
-        }
-
-        this.uiManager.showNotification('Talk created and sent to chatroom!', 'success');
-      } catch (error) {
-        console.error('Failed to create talk:', error);
-        this.uiManager.showNotification(
-          'Failed to create talk: ' + (error as Error).message,
-          'error',
-        );
-      }
+    this.uiManager.on('needIncomingTalkClusters', async () => {
+      await this.refreshIncomingTalkClusters();
     });
+
+    this.uiManager.on(
+      'createTalk',
+      async (talkData: Partial<Talk> & { sendToChatroom?: boolean; selfAnswers?: { questionId: string; answerId: string }[] }) => {
+        try {
+          const { sendToChatroom = true, selfAnswers = [], ...rest } = talkData;
+          console.log('📝 Creating talk:', rest);
+
+          const createPayload: Partial<Talk> = {
+            ...rest,
+            authorId: this.currentUser!.id,
+          };
+          if (rest.locationRadiusMiles != null && this.currentLocation) {
+            createPayload.authorLocation = {
+              latitude: this.currentLocation.latitude,
+              longitude: this.currentLocation.longitude,
+            };
+          }
+          const talk = await this.talkService.createTalk(createPayload);
+
+          console.log('✅ Talk created:', talk);
+
+          this.uiManager.saveCreatedTalk(talk, { selfAnswers });
+
+          if (sendToChatroom) {
+            const chatroomId = this.chatroomService.getCurrentChatroomId();
+            if (chatroomId) {
+              const gun = this.gunService.getGun();
+              const talkData: any = {
+                talkId: talk.id,
+                title: talk.title,
+                authorId: talk.authorId,
+                authorName: this.currentUser!.stageName,
+                type: talk.type,
+                timestamp: new Date().toISOString(),
+                questionCount: talk.questions.length,
+              };
+              if (talk.expiresAt != null) talkData.expiresAt = talk.expiresAt;
+              if (talk.locationRadiusMiles != null) talkData.locationRadiusMiles = talk.locationRadiusMiles;
+              if (talk.authorLocation != null) talkData.authorLocation = talk.authorLocation;
+
+              gun.get('chatrooms').get(chatroomId).get('talks').get(talk.id).put(talkData);
+              console.log('📢 Talk broadcasted to chatroom:', chatroomId);
+              this.subscribeToTalkResponses(talk.id, talk);
+            }
+            this.uiManager.showNotification('Talk created and sent to chatroom!', 'success');
+          } else {
+            this.uiManager.showNotification('Talk created and saved to your list.', 'success');
+          }
+        } catch (error) {
+          console.error('Failed to create talk:', error);
+          this.uiManager.showNotification(
+            'Failed to create talk: ' + (error as Error).message,
+            'error',
+          );
+        }
+      },
+    );
 
     // Broadcast all my created talks to all other users in the current room
     this.uiManager.on(
@@ -729,7 +787,7 @@ export class IinPublicApp {
           for (const talkId of broadcastableIds) {
             const talk = await this.talkService.getTalk(talkId);
             if (!talk) continue;
-            gun.get('chatrooms').get(chatroomId).get('talks').get(talk.id).put({
+            const broadcastPayload: any = {
               talkId: talk.id,
               title: talk.title,
               authorId: talk.authorId,
@@ -737,7 +795,12 @@ export class IinPublicApp {
               type: talk.type,
               timestamp: new Date().toISOString(),
               questionCount: talk.questions?.length ?? 0,
-            });
+            };
+            if (talk.expiresAt != null) broadcastPayload.expiresAt = talk.expiresAt;
+            if (talk.locationRadiusMiles != null) broadcastPayload.locationRadiusMiles = talk.locationRadiusMiles;
+            if (talk.authorLocation != null) broadcastPayload.authorLocation = talk.authorLocation;
+
+            gun.get('chatrooms').get(chatroomId).get('talks').get(talk.id).put(broadcastPayload);
             sent += 1;
           }
           this.uiManager.showNotification(
@@ -754,25 +817,40 @@ export class IinPublicApp {
       },
     );
 
-    this.uiManager.on('updateTalk', async (data: { id: string; title: string; type: string; questions: any[]; language?: string; tags?: any[] }) => {
-      try {
-        await this.talkService.updateTalk(data.id, {
+    this.uiManager.on(
+      'updateTalk',
+      async (data: {
+        id: string;
+        title: string;
+        type: string;
+        questions: any[];
+        language?: string;
+        tags?: any[];
+        expiresAt?: number | null;
+        locationRadiusMiles?: number | null;
+      }) => {
+        try {
+        const updatePayload: Partial<Talk> = {
           title: data.title,
           type: data.type as 'matching' | 'survey',
           questions: data.questions,
           language: data.language || 'en',
           tags: data.tags || [],
-        });
-        this.uiManager.showNotification('Talk updated.', 'success');
-        this.uiManager.displayTalksList();
-      } catch (error) {
-        console.error('Failed to update talk:', error);
-        this.uiManager.showNotification(
-          'Failed to update talk: ' + (error as Error).message,
-          'error',
-        );
-      }
-    });
+        };
+        if (data.expiresAt !== undefined) updatePayload.expiresAt = data.expiresAt;
+        if (data.locationRadiusMiles !== undefined) updatePayload.locationRadiusMiles = data.locationRadiusMiles;
+        await this.talkService.updateTalk(data.id, updatePayload);
+          this.uiManager.showNotification('Talk updated.', 'success');
+          this.uiManager.displayTalksList();
+        } catch (error) {
+          console.error('Failed to update talk:', error);
+          this.uiManager.showNotification(
+            'Failed to update talk: ' + (error as Error).message,
+            'error',
+          );
+        }
+      },
+    );
 
     this.uiManager.on('loadTalkForEdit', async (data: { talkId: string }) => {
       try {
@@ -863,71 +941,77 @@ export class IinPublicApp {
         try {
           console.log('📝 User completed talk:', data);
 
+          this.uiManager.saveQuestionAnswersFromCompletion(
+            data.talkData || {},
+            data.answers,
+            this.currentLocation,
+          );
+
           const isChatbot = !!data.isChatbotResponse;
 
           // Store the response in Gun.js
           const chatroomId = this.chatroomService.getCurrentChatroomId();
           if (chatroomId) {
-            const gun = this.gunService.getGun();
-            const responseId = `resp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const shouldStoreResponse = data.talkData?.type !== 'tag';
+            if (shouldStoreResponse) {
+              const gun = this.gunService.getGun();
+              const responseId = `resp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-            gun
-              .get(`talks/${data.talkId}`)
-              .get('responses')
-              .get(responseId)
-              .put({
-                responderId: this.currentUser!.id,
-                responderName: this.currentUser!.stageName,
-                answers: JSON.stringify(data.answers),
-                submittedAt: new Date().toISOString(),
-                isChatbotResponse: isChatbot,
-              });
+              gun
+                .get(`talks/${data.talkId}`)
+                .get('responses')
+                .get(responseId)
+                .put({
+                  responderId: this.currentUser!.id,
+                  responderName: this.currentUser!.stageName,
+                  answers: JSON.stringify(data.answers),
+                  submittedAt: new Date().toISOString(),
+                  isChatbotResponse: isChatbot,
+                });
 
-            console.log('✅ Talk response stored');
+              console.log('✅ Talk response stored');
+            } else {
+              console.log('✅ Tag response will be stored by backend');
+            }
 
-            // Check if this response is a match
+            // Backend runs match logic and creates conversation if match (frontend only updates UI)
             if (data.talkData) {
-              const isMatch = this.checkIfMatch(data.talkData, data.answers);
-
-              if (isMatch && !isChatbot) {
-                // Save template for chatbot to reuse when the same talk is received again
-                this.uiManager.saveChatbotTemplate(data.talkId, {
-                  answers: data.answers,
-                  talkData: data.talkData,
+              try {
+                const apiBase = typeof window !== 'undefined' && (window as any).__API_BASE != null
+                  ? (window as any).__API_BASE
+                  : '';
+                const res = await fetch(`${apiBase}/api/talks/${data.talkId}/response`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    responderId: this.currentUser!.id,
+                    responderName: this.currentUser!.stageName,
+                    answers: data.answers,
+                    talkData: data.talkData,
+                    isChatbotResponse: isChatbot,
+                    isAuto:
+                      data.answers.length > 0 &&
+                      data.answers.every((a: any) => String(a?.mode || '').toLowerCase() === 'auto'),
+                  }),
                 });
-              }
-
-              if (isMatch) {
-                console.log(`✅ Match! Creating conversation with talk author`);
-
-                // Get talk author info
-                gun.get(`talks/${data.talkId}`).once(async (talkWrapper: any) => {
-                  if (talkWrapper && talkWrapper.data) {
-                    const talkData = JSON.parse(talkWrapper.data);
-
-                    // Get author's user data to get their name
-                    gun.get(`users/${talkData.authorId}`).once(async (authorData: any) => {
-                      const authorName = authorData?.stageName || 'Unknown';
-
-                      // Create conversation
-                      const conversationId = await this.conversationService.createConversation({
-                        userId1: this.currentUser!.id,
-                        userName1: this.currentUser!.stageName,
-                        userId2: talkData.authorId,
-                        userName2: authorName,
-                        talkId: data.talkId,
-                      });
-
-                      // Add to UI (responder's view; respondedByBot is only set on author's view when they receive the response)
-                      this.uiManager.addNewConversation({
-                        conversationId,
-                        otherUserId: talkData.authorId,
-                        otherUserName: authorName,
-                        talkId: data.talkId,
-                      });
-                    });
-                  }
-                });
+                if (!res.ok) throw new Error(await res.text());
+                const result = await res.json();
+                if (result.isMatch && !isChatbot) {
+                  this.uiManager.saveChatbotTemplate(data.talkId, {
+                    answers: data.answers,
+                    talkData: data.talkData,
+                  });
+                }
+                if (result.isMatch && result.conversationId) {
+                  this.uiManager.addNewConversation({
+                    conversationId: result.conversationId,
+                    otherUserId: result.otherUserId,
+                    otherUserName: result.otherUserName ?? 'Someone',
+                    talkId: data.talkId,
+                  });
+                }
+              } catch (err) {
+                console.error('Talk response API error:', err);
               }
             }
           }
