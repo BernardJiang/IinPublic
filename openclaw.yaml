@@ -1,0 +1,21 @@
+# iinpublic/openclaw.yml
+workflows:
+  iinpublic-e2e:
+    id: iinpublic-e2e
+    trigger:
+      - cron: "0 0 * * *" # Runs at midnight
+      - manual: true
+    tasks:
+      - name: run-e2e
+        command: npm run test:e2e
+        retry:
+          max_attempts: 2
+          initial_delay: 10s
+        on_failure:
+          notify: [telegram, slack] # Or whichever channel you paired
+          action: report_error
+      - name: report-success
+        depends_on: [run-e2e]
+        command: echo "E2E Tests for iinpublic passed successfully!"
+        on_success:
+          notify: [telegram]
