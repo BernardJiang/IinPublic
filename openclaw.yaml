@@ -7,7 +7,7 @@ workflows:
       - manual: true
     tasks:
       - name: run-e2e
-        command: npm run test:e2e
+        command: timeout 1200s npm run test:e2e
         retry:
           max_attempts: 2
           initial_delay: 10s
@@ -19,3 +19,19 @@ workflows:
         command: echo "E2E Tests for iinpublic passed successfully!"
         on_success:
           notify: [telegram]
+  test-and-report:
+    tasks:
+      - name: run-e2e
+        command: timeout 1200s npm run test:e2e
+        # This captures the log and makes it available to the "report"
+      - name: report-results
+        depends_on: [run-e2e]
+        command: echo "E2E Tests Finished."
+        on_complete:
+          notify: [telegram]
+          message: |
+            ✅ E2E Tests Finished!
+            Summary: {{tasks.run-e2e.output | truncate(500)}}
+        on_failure:
+          notify: [telegram]
+          message: "🚨 E2E FAIL: {{tasks.run-e2e.error}}"
