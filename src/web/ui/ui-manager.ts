@@ -1,6 +1,7 @@
 import { User } from '../../shared/types';
 import { EventEmitter } from 'events';
 import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
+import { pickLatestTalkIdFromIncomingCluster, isTalkUuid } from '../../shared/incoming-talk-ids';
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
@@ -12,6 +13,8 @@ export class UIManager extends EventEmitter {
   private matchedUserIds: Set<string> = new Set(); // Users who matched with me (for green indicator)
   // private newMatchesCount: number = 0; // TODO: implement match count tracking
   private talkStatsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
+  private talksListDelegationBound = false;
+  private incomingTalkClusters: any[] = [];
 
   // Callback for stage name changes
   public onStageNameChange?: (userId: string, newStageName: string) => Promise<void>;
@@ -373,6 +376,7 @@ export class UIManager extends EventEmitter {
 
         // Special handling for talks view
         if (targetView === 'talks') {
+          this.emit('needIncomingTalkClusters');
           this.displayTalksList();
         }
 
@@ -733,16 +737,84 @@ export class UIManager extends EventEmitter {
     if (!talksList) return;
 
     const myTalks = this.getMyTalks();
-    // Show both created and received/copied talks, sorted by last interaction
+
+    // One-time delegation on body: use mousedown so we run before any re-render can replace the DOM (click fires later and target can be gone)
+    if (!this.talksListDelegationBound) {
+      this.talksListDelegationBound = true;
+      document.body.addEventListener(
+        'mousedown',
+        (e) => {
+          if (e.button !== 0) return; // only left button
+          const target = e.target as HTMLElement;
+          if (!target.closest('#talks-list')) return;
+          const removeBtn = target.closest('.remove-talk-btn');
+          if (removeBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const talkId = (removeBtn as HTMLElement).dataset.talkId;
+            if (talkId) {
+              setTimeout(() => this.deleteMyTalk(talkId), 0);
+            }
+            return;
+          }
+          const editBtn = target.closest('.edit-talk-btn');
+          if (editBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const talkId = (editBtn as HTMLElement).dataset.talkId;
+            if (talkId) {
+              // Always open the talk editor when Edit is clicked (never open response flow here)
+              setTimeout(() => this.emit('loadTalkForEdit', { talkId }), 0);
+            }
+            return;
+          }
+          const viewBtn = target.closest('.view-talk-btn');
+          if (viewBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const el = viewBtn as HTMLElement;
+            const talkId = el.dataset.talkId || '';
+            const identityKey = el.dataset.identityKey || '';
+            if (talkId || identityKey) {
+              setTimeout(() => this.showTalkDetail(talkId, identityKey || undefined), 0);
+            }
+            return;
+          }
+          const label = target.closest('.talk-disable-broadcast-label');
+          const checkbox = target.closest('.talk-disable-broadcast-checkbox') as HTMLInputElement | null;
+          const control = checkbox ?? (label ? label.querySelector('.talk-disable-broadcast-checkbox') : null) as HTMLInputElement | null;
+          if (control && control.dataset) {
+            e.preventDefault();
+            e.stopPropagation();
+            const talkId = control.dataset.talkId;
+            if (talkId) {
+              control.checked = !control.checked;
+              const disabled = control.checked;
+              setTimeout(() => {
+                this.setTalkDisabled(talkId, disabled);
+                this.showNotification(disabled ? 'Talk disabled for broadcast' : 'Talk enabled for broadcast', 'success');
+              }, 0);
+            }
+            return;
+          }
+        },
+        { capture: true },
+      );
+    }
+
+    // Sort all talks by last interaction
     const allEntries = Object.entries(myTalks)
       .sort(
         ([, a]: [string, any], [, b]: [string, any]) =>
           new Date(b.lastInteraction).getTime() - new Date(a.lastInteraction).getTime(),
       );
-    const createdEntries = allEntries.filter(([, t]: [string, any]) => t.role === 'created');
-    const answeredEntries = allEntries.filter(([, t]: [string, any]) => t.role === 'answered' || t.role === 'copied');
+    // OUT: talks this user created or copied (can broadcast)
+    const outEntries = allEntries.filter(([, t]: [string, any]) => t.role === 'created' || t.role === 'copied');
+    // IN: backend-consolidated incoming talks (content-hash merged)
+    const backendInEntries = (this.incomingTalkClusters || []).filter((c: any) => c && c.identityKey);
+    const inEntries = backendInEntries;
 
-    if (allEntries.length === 0) {
+    if (allEntries.length === 0 && inEntries.length === 0) {
       talksList.innerHTML = `
         <div class="empty-state" style="padding: 60px 20px; text-align: center;">
           <div style="font-size: 3em; margin-bottom: 16px;">💬</div>
@@ -751,9 +823,9 @@ export class UIManager extends EventEmitter {
         </div>
       `;
     } else {
-      const createdHtml =
-        createdEntries.length > 0
-          ? createdEntries
+      const outHtml =
+        outEntries.length > 0
+          ? outEntries
               .map(
                 ([talkId, talk]) => {
                   const stats = this.talkStatsMap[talkId];
@@ -769,26 +841,38 @@ export class UIManager extends EventEmitter {
                       ? `<div class="talk-item-matched" style="font-size: 0.85em; color: #2e7d32; margin-top: 4px;">Matched with: ${matchedNames.join(', ')}</div>`
                       : '';
                   const disabled = !!talk.disabled;
+                  const expText = this.formatExpiration(talk.expiresAt);
+                  const locText = this.formatLocationRadius(talk.locationRadiusMiles);
+                  const roleBadge = talk.role === 'copied'
+                    ? '<span class="talk-badge talk-badge-copied" style="background:#e0e7ff;color:#3730a3;">📋 Copied</span>'
+                    : '<span class="talk-badge talk-badge-created" style="background:#dbeafe;color:#1e40af;">📝 Created</span>';
                   return `
-        <div class="talk-list-item" data-talk-id="${talkId}" data-role="created">
+        <div class="talk-list-item" data-talk-id="${talkId}" data-role="${talk.role || 'created'}">
           <div class="talk-item-header">
             <div class="talk-item-title">${this.escapeHtml(talk.title)}</div>
             <div class="talk-item-badges">
-              <span class="talk-badge talk-badge-created">📝 Created</span>
+              ${roleBadge}
               <span class="talk-badge talk-badge-type">${talk.type}</span>
-              ${disabled ? '<span class="talk-badge" style="background:#fef3c7;color:#92400e;">🚫 Disabled</span>' : ''}
+              ${disabled ? '<span class="talk-badge talk-badge-disabled" style="background:#fef3c7;color:#92400e;">🚫 Disabled</span>' : ''}
             </div>
           </div>
           <div class="talk-item-meta">
             <span class="talk-item-time">${this.formatTimeAgo(new Date(talk.lastInteraction))}</span>
+          </div>
+          <div class="talk-item-meta" style="font-size: 0.85em; color: #666;">
+            Expiration: ${expText} · Location: ${locText}
           </div>
           <div class="talk-item-stats" style="font-size: 0.85em; color: #666; margin-top: 6px;">
             ${statsLine}
           </div>
           ${matchedLine}
-          <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
+          <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
             <button type="button" class="btn edit-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">✏️ Edit</button>
-            <button type="button" class="btn toggle-broadcast-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">${disabled ? '✅ Enable for broadcast' : '🚫 Disable for broadcast'}</button>
+            <label class="talk-disable-broadcast-label" style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.9em;">
+              <input type="checkbox" class="talk-disable-broadcast-checkbox" data-talk-id="${talkId}" ${disabled ? 'checked' : ''}>
+              <span>Disable for broadcast</span>
+            </label>
+            <button type="button" class="btn remove-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em; background: #dc3545; color: white;">🗑️ Remove</button>
           </div>
         </div>
       `;
@@ -797,91 +881,89 @@ export class UIManager extends EventEmitter {
               .join('')
           : '';
 
-      const answeredHtml =
-        answeredEntries.length > 0
-          ? answeredEntries
-              .map(
-                ([talkId, talk]) => {
-                  const disabled = !!talk.disabled;
-                  return `
-        <div class="talk-list-item" data-talk-id="${talkId}" data-role="${talk.role || 'answered'}">
+      const inHtml =
+        inEntries.length > 0
+          ? backendInEntries
+              .map((cluster: any) => {
+                const sendersObj = cluster?.senders && typeof cluster.senders === 'object' ? cluster.senders : {};
+                const senderNames = Array.from(
+                  new Set(
+                    Object.values(sendersObj)
+                      .map((s: any) => String(s?.senderName || '').trim())
+                      .filter(Boolean),
+                  ),
+                );
+                const talkId = this.pickIncomingRowTalkId(cluster);
+                const identityKey = String(cluster?.identityKey || '');
+                const isAnswered = !!cluster?.isAnswered;
+                const titleStyle = isAnswered
+                  ? 'font-weight: 500; color: #9ca3af;'
+                  : 'font-weight: 700; color: #1d4ed8;';
+                const metaStyle = isAnswered ? 'color: #9ca3af;' : 'color: #4b5563;';
+                const statusBadge = isAnswered
+                  ? '<span class="talk-badge" style="background:#f3f4f6;color:#6b7280;">✅ Answered</span>'
+                  : '<span class="talk-badge" style="background:#dbeafe;color:#1d4ed8;font-weight:700;">🆕 New</span>';
+                return `
+        <div class="talk-list-item" data-talk-id="${talkId}" data-identity-key="${this.escapeHtml(identityKey)}" data-role="incoming" style="${isAnswered ? 'background:#fafafa;' : ''}">
           <div class="talk-item-header">
-            <div class="talk-item-title">${this.escapeHtml(talk.title)}</div>
+            <div class="talk-item-title" style="${titleStyle}">${this.escapeHtml(cluster?.title || 'Incoming Talk')}</div>
             <div class="talk-item-badges">
-              <span class="talk-badge talk-badge-answered">📥 ${talk.role === 'copied' ? 'Copied' : 'From others'}</span>
-              <span class="talk-badge talk-badge-type">${talk.type}</span>
-              ${disabled ? '<span class="talk-badge" style="background:#fef3c7;color:#92400e;">🚫 Disabled</span>' : ''}
+              ${statusBadge}
+              <span class="talk-badge talk-badge-type">${this.escapeHtml(cluster?.type || 'matching')}</span>
+              <span class="talk-badge" style="background:#eef2ff;color:#3730a3;">👥 ${senderNames.length} sender${senderNames.length !== 1 ? 's' : ''}</span>
             </div>
           </div>
-          <div class="talk-item-meta">
-            <span class="talk-item-time">${this.formatTimeAgo(new Date(talk.lastInteraction))}</span>
+          <div class="talk-item-meta" style="${metaStyle}">
+            <span class="talk-item-time">${this.formatTimeAgo(new Date(cluster?.updatedAt || Date.now()))}</span>
           </div>
-          <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
-            <button type="button" class="btn open-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">Open &amp; Answer</button>
-            <button type="button" class="btn toggle-broadcast-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">${disabled ? '✅ Enable for broadcast' : '🚫 Disable for broadcast'}</button>
+          <div class="talk-item-meta" style="font-size: 0.85em; ${metaStyle}">
+            From: ${this.escapeHtml(senderNames.join(', ') || 'Unknown')}
+          </div>
+          <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <button type="button" class="btn view-talk-btn" data-talk-id="${talkId}" data-identity-key="${this.escapeHtml(identityKey)}" style="padding: 6px 12px; font-size: 0.9em;" ${talkId || identityKey ? '' : 'disabled'}>🔍 View</button>
           </div>
         </div>
       `;
-                },
-              )
+              })
               .join('')
           : '';
 
-      const sectionCreated =
-        createdEntries.length > 0
-          ? `<div class="talks-section-label" style="font-size: 0.85em; color: #666; margin-bottom: 8px; margin-top: 12px;">📝 Created by me</div>${createdHtml}`
+      const sectionOut =
+        outEntries.length > 0
+          ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: #374151; background: #f3f4f6; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
+               <span style="font-size: 1.2em;">📤</span> OUT <span style="font-size: 0.8em; font-weight: 400; color: #6b7280;">(${outEntries.length} talk${outEntries.length !== 1 ? 's' : ''} · created or copied)</span>
+             </div>${outHtml}`
           : '';
-      const sectionAnswered =
-        answeredEntries.length > 0
-          ? `<div class="talks-section-label" style="font-size: 0.85em; color: #666; margin-bottom: 8px; margin-top: 12px;">📥 Talks from others</div>${answeredHtml}`
+      const sectionIn =
+        inEntries.length > 0
+          ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: #374151; background: #f3f4f6; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
+               <span style="font-size: 1.2em;">📥</span> IN <span style="font-size: 0.8em; font-weight: 400; color: #6b7280;">(${inEntries.length} talk${inEntries.length !== 1 ? 's' : ''} · consolidated by content)</span>
+             </div>${inHtml}`
           : '';
 
-      talksList.innerHTML = sectionAnswered + sectionCreated;
+      talksList.innerHTML = sectionIn + sectionOut;
 
-      // Request stats for created talks only
-      if (createdEntries.length > 0) {
-        const talkIds = createdEntries.map(([id]) => id);
+      // Request stats for out talks (created/copied) only
+      if (outEntries.length > 0) {
+        const talkIds = outEntries.map(([id]) => id);
         this.emit('needTalkStats', { talkIds });
       }
 
-      // Click: created → edit; answered → show response dialog
+      // Row click opens edit/detail only when not clicking an action button (handled in capture above)
       talksList.querySelectorAll('.talk-list-item').forEach((item) => {
         const el = item as HTMLElement;
-        const talkId = el.dataset.talkId;
+        const talkId = el.dataset.talkId || '';
+        const identityKey = el.dataset.identityKey || '';
         const role = el.dataset.role;
-        if (!talkId) return;
+        if (role === 'incoming' && !talkId && !identityKey) return;
+        if (role !== 'incoming' && !talkId) return;
         item.addEventListener('click', (e) => {
-          if ((e.target as HTMLElement).closest('.edit-talk-btn')) return;
-          if ((e.target as HTMLElement).closest('.open-talk-btn')) return;
-          if (role === 'created') {
+          if ((e.target as HTMLElement).closest('.talk-item-actions')) return;
+          if (role === 'created' || role === 'copied') {
             this.emit('loadTalkForEdit', { talkId });
           } else {
-            this.showTalkDetail(talkId);
+            this.showTalkDetail(talkId, identityKey || undefined);
           }
-        });
-      });
-      talksList.querySelectorAll('.edit-talk-btn').forEach((btn) => {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const talkId = (e.currentTarget as HTMLElement).dataset.talkId;
-          if (talkId) this.emit('loadTalkForEdit', { talkId });
-        });
-      });
-      talksList.querySelectorAll('.open-talk-btn').forEach((btn) => {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const talkId = (e.currentTarget as HTMLElement).dataset.talkId;
-          if (talkId) this.showTalkDetail(talkId);
-        });
-      });
-      talksList.querySelectorAll('.toggle-broadcast-btn').forEach((btn) => {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const talkId = (e.currentTarget as HTMLElement).dataset.talkId;
-          if (!talkId) return;
-          const myTalks = this.getMyTalks();
-          const current = !!myTalks[talkId]?.disabled;
-          this.setTalkDisabled(talkId, !current);
         });
       });
     }
@@ -891,21 +973,34 @@ export class UIManager extends EventEmitter {
     this.talkStatsMap = { ...this.talkStatsMap, ...statsMap };
   }
 
+  setIncomingTalkClusters(clusters: any[]): void {
+    this.incomingTalkClusters = Array.isArray(clusters) ? clusters : [];
+  }
+
   displayAnswersList(): void {
     const container = document.getElementById('answers-content');
     if (!container) return;
     const myTalks = this.getMyTalks();
-    const answered = Object.entries(myTalks)
+    const answeredEntries = Object.entries(myTalks)
       .filter(([, t]: [string, any]) => t?.role === 'answered' || t?.role === 'copied')
       .sort(
         ([, a]: [string, any], [, b]: [string, any]) =>
           new Date(b.lastInteraction).getTime() - new Date(a.lastInteraction).getTime(),
       );
-    if (answered.length === 0) {
+    const deduped: Array<[string, any]> = [];
+    const seenContent = new Set<string>();
+    for (const [talkId, talk] of answeredEntries) {
+      const full = talk.fullTalk;
+      const contentKey = full ? UIManager.getTalkContentKey(full) : talkId;
+      if (seenContent.has(contentKey)) continue;
+      seenContent.add(contentKey);
+      deduped.push([talkId, talk]);
+    }
+    if (deduped.length === 0) {
       container.innerHTML = `
         <div style="padding: 20px; text-align: center; color: #999;">
-          <p>Your answered talks will appear here with match/mismatch status.</p>
-          <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">View My Answers</button>
+          <p>Talks you've received and answered will appear here.</p>
+          <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">View My Answers (preferences)</button>
         </div>
       `;
       const prefsBtn = document.getElementById('view-preferences-btn');
@@ -914,29 +1009,81 @@ export class UIManager extends EventEmitter {
     }
     container.innerHTML = `
       <div class="answers-view-inner" style="padding: 16px; max-width: min(900px, 95%); margin: 0 auto;">
-        <p style="margin-bottom: 12px; color: #666;">Talks you answered and their outcome:</p>
+        <p style="margin-bottom: 12px; color: #666;">Talks you've received and answered (same question set = one entry, multiple senders):</p>
         <div id="answers-list" class="answers-list" style="display: flex; flex-direction: column; gap: 10px;"></div>
         <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">View My Answers (preferences)</button>
       </div>
     `;
     const listEl = document.getElementById('answers-list');
     if (listEl) {
-      answered.forEach(([talkId, talk]: [string, any]) => {
+      deduped.forEach(([talkId, talk]) => {
         const outcome = talk.outcome === 'match' ? 'match' : 'mismatch';
+        const senders = talk.senders && talk.senders.length > 0
+          ? talk.senders.length === 1
+            ? `From 1 sender`
+            : `From ${talk.senders.length} senders`
+          : '';
         const item = document.createElement('div');
-        item.className = 'answer-outcome-item';
+        item.className = 'answer-talk-item';
         item.dataset.talkId = talkId;
-        item.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-radius: 8px; background: ' + (outcome === 'match' ? '#e8f5e9' : '#fff3e0') + '; border: 1px solid ' + (outcome === 'match' ? '#c8e6c9' : '#ffe0b2') + ';';
+        item.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-radius: 8px; background: ' + (outcome === 'match' ? '#e8f5e9' : '#fff3e0') + '; border: 1px solid ' + (outcome === 'match' ? '#c8e6c9' : '#ffe0b2') + '; flex-wrap: wrap;';
         item.innerHTML = `
-          <div style="font-weight: 600; flex: 1; min-width: 0;">${this.escapeHtml(talk.title)}</div>
-          <span style="font-size: 0.9em; flex-shrink: 0; color: ${outcome === 'match' ? '#2e7d32' : '#e65100'}; font-weight: 600;">${outcome === 'match' ? '✓ Match' : '✗ Mismatch'}</span>
+          <div style="flex: 1; min-width: 0;">
+            <div style="font-weight: 600;">${this.escapeHtml(talk.title)}</div>
+            <div style="font-size: 0.85em; color: #666;">${senders} · ${outcome === 'match' ? '✓ Match' : '✗ Mismatch'}</div>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">Copy</button>
+            <button type="button" class="btn answer-edit-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">Edit</button>
+          </div>
         `;
-        item.addEventListener('click', () => this.showTalkDetail(talkId));
         listEl.appendChild(item);
       });
     }
+    listEl?.querySelectorAll('.answer-copy-talk-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const talkId = (e.currentTarget as HTMLElement).dataset.talkId;
+        if (!talkId) return;
+        this.copyAnsweredTalkToTalks(talkId);
+      });
+    });
+    listEl?.querySelectorAll('.answer-edit-talk-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const talkId = (e.currentTarget as HTMLElement).dataset.talkId;
+        if (!talkId) return;
+        this.showTalkDetail(talkId);
+      });
+    });
     const prefsBtn = document.getElementById('view-preferences-btn');
     if (prefsBtn) prefsBtn.addEventListener('click', () => this.showPreferencesDialog());
+  }
+
+  private copyAnsweredTalkToTalks(talkId: string): void {
+    const myTalks = this.getMyTalks();
+    const talk = myTalks[talkId];
+    if (!talk?.fullTalk) {
+      this.showNotification('Talk data not found', 'error');
+      return;
+    }
+    if (talk.role === 'copied') {
+      this.showNotification('Already in your Talks list', 'info');
+      return;
+    }
+    this.saveMyTalk({
+      talkId,
+      title: talk.title,
+      type: talk.type,
+      timestamp: talk.lastInteraction || new Date().toISOString(),
+      role: 'copied',
+      fullTalk: talk.fullTalk,
+      outcome: talk.outcome,
+      senders: talk.senders,
+    });
+    this.showNotification('Copied to Talks tab', 'success');
+    this.displayTalksList();
+    this.displayAnswersList();
   }
 
   private formatTimeAgo(date: Date): string {
@@ -953,18 +1100,74 @@ export class UIManager extends EventEmitter {
     return date.toLocaleDateString();
   }
 
-  private showTalkDetail(talkId: string): void {
-    const myTalks = this.getMyTalks();
-    const talk = myTalks[talkId];
-    if (!talk) return;
+  private formatExpiration(expiresAt: number | null | undefined): string {
+    if (expiresAt == null) return 'Forever';
+    const now = Date.now();
+    if (now > expiresAt) return 'Expired';
+    const oneDay = 24 * 60 * 60 * 1000;
+    const left = expiresAt - now;
+    if (left <= oneDay) return 'Expires in &lt;1d';
+    if (left <= 7 * oneDay) return `Expires in ${Math.floor(left / oneDay)}d`;
+    if (left <= 30 * oneDay) return `Expires in ${Math.floor(left / (7 * oneDay))}w`;
+    if (left <= 365 * oneDay) return `Expires in ${Math.floor(left / (30 * oneDay))}mo`;
+    return `Expires in ${Math.floor(left / (365 * oneDay))}y`;
+  }
 
-    if (talk.role === 'created') {
-      // Open editor for editing
-      this.emit('loadTalkForEdit', { talkId });
-    } else if ((talk.role === 'answered' || talk.role === 'copied') && talk.fullTalk) {
-      this.showTalkResponseDialog(talk.fullTalk);
+  private formatLocationRadius(radiusMiles: number | null | undefined): string {
+    if (radiusMiles == null) return 'Anywhere';
+    return `${radiusMiles} mi`;
+  }
+
+  /** Resolve a concrete talk UUID for an incoming cluster (Gun may reshape talkIds). */
+  private pickIncomingRowTalkId(cluster: any): string {
+    return pickLatestTalkIdFromIncomingCluster(cluster || {});
+  }
+
+  private showTalkDetail(talkId: string, identityKeyFallback?: string): void {
+    const raw = (talkId || '').trim();
+    const tid = isTalkUuid(raw) ? raw : '';
+    if (!tid && identityKeyFallback) {
+      this.emit('demandFullTalkByIdentity', {
+        identityKey: identityKeyFallback,
+        callback: (fullTalk: any) => {
+          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true });
+          else this.showNotification('Could not load talk.', 'error');
+        },
+      });
+      return;
+    }
+    if (!tid) {
+      this.showNotification('Could not open talk.', 'error');
+      return;
+    }
+
+    const myTalks = this.getMyTalks();
+    const talk = myTalks[tid];
+
+    if (talk) {
+      if (talk.role === 'created') {
+        // Open editor for editing
+        this.emit('loadTalkForEdit', { talkId: tid });
+      } else if ((talk.role === 'answered' || talk.role === 'copied') && talk.fullTalk) {
+        // Open response view without auto-answering (avoid instant "Match!" toast when just viewing)
+        this.showTalkResponseDialog(talk.fullTalk, { skipAutoAnswer: true });
+      } else {
+        this.showNotification(`Talk: ${talk.title}`, 'info');
+      }
     } else {
-      this.showNotification(`Talk: ${talk.title}`, 'info');
+      // Incoming: load by id; if Gun gave a bad id, app retries via identityKey from server API.
+      this.emit('demandFullTalk', {
+        talkId: tid,
+        identityKeyFallback: identityKeyFallback || undefined,
+        callback: (fullTalk: any) => {
+          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true });
+          else
+            this.showNotification(
+              'Could not load this talk yet. Check your connection and try again.',
+              'error',
+            );
+        },
+      });
     }
   }
 
@@ -1246,27 +1449,7 @@ export class UIManager extends EventEmitter {
     isOwnTalk: boolean;
     fullTalk: any;
   }): void {
-    // Check if talk already exists to avoid duplicates
-    const myTalks = this.getMyTalks();
-    if (myTalks[talk.id]) {
-      console.log('⏭️  Talk already saved, skipping:', talk.id);
-      return;
-    }
-
-    // Option to disable auto-save of received talks (copy talk feature)
-    if (!talk.isOwnTalk && !this.getCopyTalkAutoSave()) {
-      return;
-    }
-
-    // Save as copied so user can resend; use 'copied' for received talks
-    this.saveMyTalk({
-      talkId: talk.id,
-      title: talk.title,
-      type: talk.type,
-      timestamp: talk.timestamp,
-      role: talk.isOwnTalk ? 'created' : 'copied',
-      fullTalk: talk.fullTalk,
-    });
+    // Do not auto-save to myTalks. Rely on the backend incomingTalkClusters instead.
 
     // Show a notification for received talks and flash the author's icon in member list
     if (!talk.isOwnTalk) {
@@ -1282,7 +1465,8 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  showTalkResponseDialog(talk: any): void {
+  showTalkResponseDialog(talk: any, options?: { skipAutoAnswer?: boolean }): void {
+    const skipAutoAnswer = options?.skipAutoAnswer ?? false;
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.id = 'talk-response-modal';
@@ -1296,6 +1480,12 @@ export class UIManager extends EventEmitter {
       }
       const matchAnswer = q.answers.find((a: any) => a.isMatch);
       const ignoreAnswer = q.answers.find((a: any) => a.isIgnore);
+      const savedTagPreference = this.getAnswerPreference(talk.id, q.id);
+      const isSavedMatch =
+        !!savedTagPreference &&
+        !!matchAnswer &&
+        (savedTagPreference.answerId === matchAnswer.id ||
+          savedTagPreference.answerText?.toLowerCase() === (matchAnswer.text || '').toLowerCase());
       modal.innerHTML = `
         <div class="modal-content" style="max-width: 600px;">
           <div class="modal-header">
@@ -1307,7 +1497,7 @@ export class UIManager extends EventEmitter {
               ${this.escapeHtml(q.text)}
             </div>
             <label class="tag-checkbox-label" style="display: flex; align-items: center; gap: 12px; cursor: pointer; font-size: 1.1em;">
-              <input type="checkbox" id="tag-match-checkbox" class="tag-match-checkbox">
+              <input type="checkbox" id="tag-match-checkbox" class="tag-match-checkbox" ${isSavedMatch ? 'checked' : ''}>
               <span>Match (I'm interested)</span>
             </label>
             <button type="button" id="tag-submit-btn" class="btn" style="margin-top: 20px; width: 100%; padding: 12px; background: #667eea; color: white; border: none; border-radius: 8px; font-size: 1em; cursor: pointer;">
@@ -1331,6 +1521,14 @@ export class UIManager extends EventEmitter {
             answerId: answer.id,
             answerText: answer.text || (checked ? 'Match.' : 'Ignore.'),
           });
+          this.saveAnswerPreference(
+            talk.id,
+            q.id,
+            answer.id,
+            answer.text || (checked ? 'Match.' : 'Ignore.'),
+            q.text,
+            q.answers,
+          );
           if (checked && matchAnswer) {
             this.showNotification('Match! You both noticed each other.', 'success');
             this.completeTalk(talk, answers, 'match');
@@ -1341,6 +1539,11 @@ export class UIManager extends EventEmitter {
         }
         if (document.body.contains(modal)) document.body.removeChild(modal);
       });
+      return;
+    }
+
+    if (!Array.isArray(talk.questions) || talk.questions.length === 0) {
+      this.showNotification('Could not load talk (missing questions).', 'error');
       return;
     }
 
@@ -1358,8 +1561,8 @@ export class UIManager extends EventEmitter {
         return;
       }
 
-      // Check if there's a saved preference for this question
-      const savedPreference = this.getAnswerPreference(talk.id, currentQuestion.id);
+      // Check if there's a saved preference for this question (skip when opening from list to avoid instant match toast)
+      const savedPreference = skipAutoAnswer ? null : this.getAnswerPreference(talk.id, currentQuestion.id);
       if (savedPreference && savedPreference.mode === 'auto') {
         // Auto-answer with saved preference
         console.log('🤖 Auto-answering with saved preference:', savedPreference.answerText);
@@ -1580,24 +1783,63 @@ export class UIManager extends EventEmitter {
     renderQuestion();
   }
 
+  private static getTalkContentKey(talk: any): string {
+    const q = (talk.questions || []).map((qu: any) => ({
+      text: qu.text,
+      answers: (qu.answers || []).map((a: any) => a.text),
+    }));
+    const title = talk.type === 'tag' ? talk.title : '';
+    const loc = talk.locationRadiusMiles != null ? String(talk.locationRadiusMiles) : '';
+    return JSON.stringify({ q, loc, title, type: talk.type });
+  }
+
+  private getAnsweredByContent(): Record<string, string> {
+    const raw = localStorage.getItem('answeredTalkByContent');
+    return raw ? JSON.parse(raw) : {};
+  }
+
+  private setAnsweredByContent(map: Record<string, string>): void {
+    localStorage.setItem('answeredTalkByContent', JSON.stringify(map));
+  }
+
   private completeTalk(talk: any, answers: any[], outcome?: 'match' | 'mismatch'): void {
     console.log('✅ Talk completed:', talk.id, answers, outcome);
 
+    const contentKey = UIManager.getTalkContentKey(talk);
+    const answeredByContent = this.getAnsweredByContent();
+    const existingTalkId = answeredByContent[contentKey];
     const myTalks = this.getMyTalks();
-    const existing = myTalks[talk.id];
-    const role = existing?.role === 'copied' ? 'copied' : 'answered';
+    const authorId = talk.authorId || (talk as any).authorId;
+
+    let talkIdToUse: string;
+    let senders: string[];
+
+    if (existingTalkId && myTalks[existingTalkId]) {
+      talkIdToUse = existingTalkId;
+      const existing = myTalks[existingTalkId];
+      const prevSenders = existing.senders || (existing.fullTalk?.authorId ? [existing.fullTalk.authorId] : []);
+      senders = [...new Set([...prevSenders, authorId].filter(Boolean))];
+    } else {
+      talkIdToUse = talk.id;
+      senders = authorId ? [authorId] : [];
+      answeredByContent[contentKey] = talk.id;
+      this.setAnsweredByContent(answeredByContent);
+    }
+
+    const existingEntry = myTalks[talkIdToUse];
+    const role = existingEntry?.role === 'copied' ? 'copied' : 'answered';
 
     this.saveMyTalk({
-      talkId: talk.id,
+      talkId: talkIdToUse,
       title: talk.title,
       type: talk.type,
       timestamp: talk.createdAt || new Date().toISOString(),
       role,
-      fullTalk: talk,
-      outcome: outcome ?? 'mismatch',
+      fullTalk: existingTalkId && myTalks[existingTalkId]?.fullTalk ? myTalks[existingTalkId].fullTalk : talk,
+      outcome: outcome ?? existingEntry?.outcome ?? 'mismatch',
+      senders,
     });
 
-    // Emit event for app to handle
     this.emit('talkCompleted', {
       talkId: talk.id,
       answers,
@@ -1666,6 +1908,67 @@ export class UIManager extends EventEmitter {
     const preferences = this.getAnswerPreferences();
     const key = `${talkId}_${questionId}`;
     return preferences[key] || null;
+  }
+
+  private static normalizeQuestionKey(questionText: string): string {
+    return questionText.trim().toLowerCase();
+  }
+
+  private getMyQuestionAnswers(): Record<
+    string,
+    { questionText: string; answerId: string; answerText: string; isIgnored: boolean; timestamp: string; location?: string }
+  > {
+    const stored = localStorage.getItem('myQuestionAnswers');
+    return stored ? JSON.parse(stored) : {};
+  }
+
+  private setMyQuestionAnswer(
+    key: string,
+    value: { questionText: string; answerId: string; answerText: string; isIgnored: boolean; timestamp: string; location?: string },
+  ): void {
+    const all = this.getMyQuestionAnswers();
+    all[key] = value;
+    localStorage.setItem('myQuestionAnswers', JSON.stringify(all));
+  }
+
+  /**
+   * Called by app when user completes a talk: save each question-answer to myQuestionAnswers (keyed by question text; last wins).
+   */
+  saveQuestionAnswersFromCompletion(
+    talkData: { questions?: Array<{ id: string; text?: string }> },
+    answers: Array<{ questionId: string; answerId: string; answerText?: string }>,
+    location?: { latitude: number; longitude: number },
+  ): void {
+    const locationStr = location ? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}` : undefined;
+    const timestamp = new Date().toISOString();
+    const questions = talkData.questions || [];
+    for (const a of answers) {
+      const q = questions.find((qu: any) => qu.id === a.questionId);
+      const questionText = q?.text?.trim() || '';
+      if (!questionText) continue;
+      const key = UIManager.normalizeQuestionKey(questionText);
+      const isIgnored = a.answerText === 'ignore' || !a.answerText;
+      const entry: {
+        questionText: string;
+        answerId: string;
+        answerText: string;
+        isIgnored: boolean;
+        timestamp: string;
+        location?: string;
+      } = {
+        questionText,
+        answerId: a.answerId,
+        answerText: isIgnored ? '' : (a.answerText || ''),
+        isIgnored,
+        timestamp,
+      };
+      if (locationStr != null) entry.location = locationStr;
+      this.setMyQuestionAnswer(key, entry);
+    }
+    const answersView = document.getElementById('answers-view');
+    if (answersView?.classList.contains('active')) {
+      this.displayAnswersList();
+    }
   }
 
   showPreferencesDialog(): void {
@@ -1939,13 +2242,18 @@ export class UIManager extends EventEmitter {
     fullTalk?: any;
     outcome?: 'match' | 'mismatch';
     disabled?: boolean;
+    senders?: string[];
   }): void {
     const myTalks = this.getMyTalks();
     const existing = myTalks[talkData.talkId];
+    const full = talkData.fullTalk;
     myTalks[talkData.talkId] = {
       ...existing,
       ...talkData,
       disabled: talkData.disabled ?? existing?.disabled ?? false,
+      expiresAt: existing?.expiresAt ?? full?.expiresAt ?? undefined,
+      locationRadiusMiles: existing?.locationRadiusMiles ?? full?.locationRadiusMiles ?? undefined,
+      senders: talkData.senders ?? existing?.senders ?? undefined,
       lastInteraction: new Date().toISOString(),
     };
     localStorage.setItem('myTalks', JSON.stringify(myTalks));
@@ -1957,12 +2265,67 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  /** Talks that can be included in broadcast: created or copied, and not disabled */
+  /** Talks that can be included in broadcast: created or copied, not disabled, and not expired */
   getBroadcastableTalkIds(): string[] {
     const myTalks = this.getMyTalks();
+    const now = Date.now();
     return Object.entries(myTalks)
-      .filter(([, t]: [string, any]) => (t?.role === 'created' || t?.role === 'copied') && !t?.disabled)
+      .filter(([, t]: [string, any]) => {
+        if (t?.disabled) return false;
+        if (t?.role !== 'created' && t?.role !== 'copied') return false;
+        if (t?.expiresAt != null && typeof t.expiresAt === 'number' && now > t.expiresAt) return false;
+        return true;
+      })
       .map(([id]) => id);
+  }
+
+  /**
+   * Called by app after a talk is created: saves to myTalks and user's answer list (answerPreferences).
+   */
+  saveCreatedTalk(
+    talk: { id: string; title: string; type: string; questions: any[]; expiresAt?: number | null; locationRadiusMiles?: number | null },
+    options: { selfAnswers: { questionId: string; answerId: string }[] },
+  ): void {
+    const myTalks = this.getMyTalks();
+    myTalks[talk.id] = {
+      ...myTalks[talk.id],
+      talkId: talk.id,
+      title: talk.title,
+      type: talk.type,
+      timestamp: new Date().toISOString(),
+      role: 'created',
+      fullTalk: talk,
+      disabled: false,
+      expiresAt: talk.expiresAt ?? undefined,
+      locationRadiusMiles: talk.locationRadiusMiles ?? undefined,
+      lastInteraction: new Date().toISOString(),
+    };
+    localStorage.setItem('myTalks', JSON.stringify(myTalks));
+
+    // Save self-answers to answer preferences (user's answer list) for chatbot/auto-reply
+    const preferences = this.getAnswerPreferences();
+    for (const { questionId, answerId } of options.selfAnswers) {
+      const q = talk.questions?.find((qu: any) => qu.id === questionId);
+      if (!q) continue;
+      const a = q.answers?.find((an: any) => an.id === answerId);
+      if (!a) continue;
+      const key = `${talk.id}_${questionId}`;
+      preferences[key] = {
+        answerId: a.id,
+        answerText: a.text,
+        mode: 'auto',
+        talkId: talk.id,
+        questionText: q.text || '',
+        allAnswers: q.answers || [],
+        timestamp: new Date().toISOString(),
+      };
+    }
+    localStorage.setItem('answerPreferences', JSON.stringify(preferences));
+
+    const talksView = document.getElementById('talks-view');
+    if (talksView?.classList.contains('active')) {
+      this.displayTalksList();
+    }
   }
 
   getCopyTalkAutoSave(): boolean {
@@ -2004,11 +2367,36 @@ export class UIManager extends EventEmitter {
     }
   }
 
+  /**
+   * Sets whether a talk is disabled for broadcast.
+   * When disabled (checkbox checked), the talk is excluded from getBroadcastableTalkIds()
+   * and will not be sent to anyone when broadcasting.
+   */
   setTalkDisabled(talkId: string, disabled: boolean): void {
     const myTalks = this.getMyTalks();
-    if (myTalks[talkId]) {
-      myTalks[talkId].disabled = disabled;
-      localStorage.setItem('myTalks', JSON.stringify(myTalks));
+    if (!myTalks[talkId]) return;
+    myTalks[talkId].disabled = !!disabled;
+    localStorage.setItem('myTalks', JSON.stringify(myTalks));
+    // Patch visible rows so checkboxes stay in DOM and keep responding (no full list re-render)
+    const talksList = document.getElementById('talks-list');
+    const rows = talksList?.querySelectorAll(`.talk-list-item[data-talk-id="${talkId}"]`);
+    if (rows && rows.length > 0) {
+      rows.forEach((row) => {
+        const cb = row.querySelector('.talk-disable-broadcast-checkbox') as HTMLInputElement | null;
+        if (cb) cb.checked = !!disabled;
+        const badges = row.querySelector('.talk-item-badges');
+        const existingBadge = row.querySelector('.talk-badge-disabled');
+        if (!!disabled && !existingBadge && badges) {
+          const badge = document.createElement('span');
+          badge.className = 'talk-badge talk-badge-disabled';
+          badge.setAttribute('style', 'background:#fef3c7;color:#92400e;');
+          badge.textContent = '🚫 Disabled';
+          badges.appendChild(badge);
+        } else if (!disabled && existingBadge) {
+          existingBadge.remove();
+        }
+      });
+    } else {
       this.displayTalksList();
     }
   }
@@ -2186,14 +2574,20 @@ export class UIManager extends EventEmitter {
 
   private deleteMyTalk(talkId: string): void {
     const myTalks = this.getMyTalks();
+    if (!(talkId in myTalks)) return;
     delete myTalks[talkId];
     localStorage.setItem('myTalks', JSON.stringify(myTalks));
-
-    // Refresh talks list if currently viewing Talks tab
-    const talksView = document.getElementById('talks-view');
-    if (talksView && talksView.classList.contains('active')) {
-      this.displayTalksList();
+    const answeredByContent = this.getAnsweredByContent();
+    for (const [key, id] of Object.entries(answeredByContent)) {
+      if (id === talkId) {
+        delete answeredByContent[key];
+        this.setAnsweredByContent(answeredByContent);
+        break;
+      }
     }
+    this.displayTalksList();
+    this.displayAnswersList();
+    this.showNotification('Talk removed from list', 'success');
   }
 
   showNotification(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info'): void {
@@ -2294,6 +2688,13 @@ export class UIManager extends EventEmitter {
               <label class="form-label">Talk Title</label>
               <input type="text" class="form-input" id="talk-title" placeholder="e.g., Coffee Meetup, Quick Survey" required value="${existingTalk ? this.escapeHtml(existingTalk.title) : ''}">
             </div>
+
+            <div class="form-group" id="tag-like-group" style="display: none;">
+              <label class="talk-send-chatroom-label" style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                <input type="checkbox" id="tag-like-checkbox" checked aria-label="I like this tag">
+                <span>I like this tag</span>
+              </label>
+            </div>
             
             <div class="form-group">
               <label class="form-label">Type</label>
@@ -2324,9 +2725,34 @@ export class UIManager extends EventEmitter {
               <button type="button" id="add-question-btn" class="btn" style="margin-top: 10px; background: #667eea; color: white;">+ Add Question</button>
             </div>
             
+            <div class="form-group" id="talk-options-group">
+              <label class="form-label">Expiration</label>
+              <select class="form-input" id="talk-expires" aria-label="Talk expiration">
+                <option value="">Forever</option>
+                <option value="1y">One year</option>
+                <option value="1M">One month</option>
+                <option value="1w">One week</option>
+                <option value="1d">One day</option>
+              </select>
+            </div>
+            <div class="form-group" id="talk-location-group">
+              <label class="form-label">Location</label>
+              <select class="form-input" id="talk-location-radius" aria-label="Location radius">
+                <option value="">Anywhere</option>
+                <option value="10">10 miles</option>
+                <option value="100">100 miles</option>
+                <option value="1000">1000 miles</option>
+              </select>
+            </div>
+            <div class="form-group" id="talk-send-chatroom-group" style="display: ${isEdit ? 'none' : 'block'};">
+              <label class="talk-send-chatroom-label" style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                <input type="checkbox" id="talk-send-to-chatroom" checked aria-label="Send to Chatroom">
+                <span>Send to Chatroom</span>
+              </label>
+            </div>
             <div class="modal-actions">
               <button type="button" class="btn" id="cancel-talk-btn" style="background: #ccc; color: #333;">Cancel</button>
-              <button type="submit" class="btn">${isEdit ? 'Save changes' : 'Create & Send to Chatroom'}</button>
+              <button type="submit" class="btn" id="talk-submit-btn">${isEdit ? 'Save changes' : 'Create'}</button>
             </div>
           </form>
         </div>
@@ -2353,6 +2779,7 @@ export class UIManager extends EventEmitter {
                     if (answerInput) answerInput.value = a.text || '';
                   }
                 });
+                this.appendIgnoreRow(answersContainer, qIndex);
               }
             }
           });
@@ -2373,11 +2800,60 @@ export class UIManager extends EventEmitter {
               else if (a.nextQuestionId) nextSelect.value = a.nextQuestionId;
             });
           });
+          // Set self-answer radios from saved preferences when editing
+          const editingId = existingTalk.id;
+          if (editingId) {
+            const prefs = this.getAnswerPreferences();
+            existingTalk.questions.forEach((q: any, qIndex: number) => {
+              const questionId = q.id || `q_${qIndex}`;
+              const key = `${editingId}_${questionId}`;
+              const pref = prefs[key];
+              const questionItem = questionsContainer!.querySelector(`[data-question-index="${qIndex}"]`);
+              const radio = questionItem?.querySelector(`input[name="self-answer-q_${qIndex}"][value="${pref?.answerId}"]`) as HTMLInputElement;
+              if (radio) {
+                radio.checked = true;
+              } else {
+                const ignoreRadio = questionItem?.querySelector('.self-answer-ignore-row input[value="ignore"]') as HTMLInputElement;
+                if (ignoreRadio) ignoreRadio.checked = true;
+              }
+            });
+          }
         } else {
           this.addQuestionToForm(0, questionsContainer);
         }
       }
 
+      // Set expiration and location from existing talk
+      const expiresSelect = document.getElementById('talk-expires') as HTMLSelectElement;
+      const locationSelect = document.getElementById('talk-location-radius') as HTMLSelectElement;
+      if (existingTalk) {
+        if (expiresSelect && existingTalk.expiresAt != null) {
+          const exp = Number(existingTalk.expiresAt);
+          const now = Date.now();
+          const oneDay = 24 * 60 * 60 * 1000;
+          if (now > exp) {
+            expiresSelect.value = ''; // expired -> Forever so user can re-activate
+          } else if (exp - now <= oneDay) {
+            expiresSelect.value = '1d';
+          } else if (exp - now <= 7 * oneDay) {
+            expiresSelect.value = '1w';
+          } else if (exp - now <= 30 * oneDay) {
+            expiresSelect.value = '1M';
+          } else if (exp - now <= 365 * oneDay) {
+            expiresSelect.value = '1y';
+          } else {
+            expiresSelect.value = '';
+          }
+        }
+        if (locationSelect && existingTalk.locationRadiusMiles != null) {
+          locationSelect.value = String(existingTalk.locationRadiusMiles);
+        }
+      }
+      const talkOptionsGroup = document.getElementById('talk-options-group');
+      const talkLocationGroup = document.getElementById('talk-location-group');
+      const talkSendChatroomGroup = document.getElementById('talk-send-chatroom-group');
+      const tagLikeGroup = document.getElementById('tag-like-group');
+      const tagLikeCheckbox = document.getElementById('tag-like-checkbox') as HTMLInputElement | null;
       const talkTypeSelect = document.getElementById('talk-type') as HTMLSelectElement;
       const questionsFormGroup = document.getElementById('questions-form-group');
       const updateFormForType = () => {
@@ -2391,6 +2867,11 @@ export class UIManager extends EventEmitter {
               (el as HTMLInputElement).disabled = true;
             });
           }
+          if (talkOptionsGroup) talkOptionsGroup.style.display = 'none';
+          if (talkLocationGroup) talkLocationGroup.style.display = 'none';
+          if (talkSendChatroomGroup) talkSendChatroomGroup.style.display = 'none';
+          if (tagLikeGroup) tagLikeGroup.style.display = 'block';
+          if (tagLikeCheckbox && !isEdit && tagLikeCheckbox.checked === false) tagLikeCheckbox.checked = true;
           if (titleInput) {
             titleInput.placeholder = 'e.g., Coffee, Tennis, Jobs';
             titleInput.setAttribute('aria-label', 'Tag keyword');
@@ -2403,6 +2884,10 @@ export class UIManager extends EventEmitter {
               (el as HTMLInputElement).disabled = false;
             });
           }
+          if (talkOptionsGroup) talkOptionsGroup.style.display = 'block';
+          if (talkLocationGroup) talkLocationGroup.style.display = 'block';
+          if (talkSendChatroomGroup) talkSendChatroomGroup.style.display = isEdit ? 'none' : 'block';
+          if (tagLikeGroup) tagLikeGroup.style.display = 'none';
           if (titleInput) {
             titleInput.placeholder = 'e.g., Coffee Meetup, Quick Survey';
             titleInput.removeAttribute('aria-label');
@@ -2493,10 +2978,10 @@ export class UIManager extends EventEmitter {
 
     container.appendChild(questionDiv);
 
-    // Add 2 default answers
     const answersContainer = questionDiv.querySelector('.answers-container') as HTMLElement;
     this.addAnswerToQuestion(answersContainer, 0);
     this.addAnswerToQuestion(answersContainer, 1);
+    this.appendIgnoreRow(answersContainer, index);
 
     // Setup event handlers
     const removeBtn = questionDiv.querySelector('.btn-remove-question');
@@ -2508,13 +2993,15 @@ export class UIManager extends EventEmitter {
 
     const addAnswerBtn = questionDiv.querySelector('.btn-add-answer');
     addAnswerBtn?.addEventListener('click', () => {
-      const answerCount = answersContainer.children.length;
+      const answerCount = answersContainer.querySelectorAll('.answer-item').length;
       this.addAnswerToQuestion(answersContainer, answerCount);
       this.updateAllAnswerDropdowns();
     });
   }
 
   private addAnswerToQuestion(container: HTMLElement, index: number): void {
+    const questionItem = container.closest('.question-item');
+    const qIdx = questionItem ? parseInt(questionItem.getAttribute('data-question-index') ?? '0', 10) : 0;
     const answerDiv = document.createElement('div');
     answerDiv.className = 'answer-item';
     answerDiv.dataset.answerIndex = index.toString();
@@ -2524,8 +3011,10 @@ export class UIManager extends EventEmitter {
       align-items: center;
       margin-bottom: 8px;
     `;
-
+    const radioName = `self-answer-q_${qIdx}`;
+    const radioValue = `a_${qIdx}_${index}`;
     answerDiv.innerHTML = `
+      <input type="radio" name="${radioName}" value="${radioValue}" class="self-answer-radio" title="My answer">
       <input 
         type="text" 
         class="form-input answer-text" 
@@ -2541,15 +3030,60 @@ export class UIManager extends EventEmitter {
       ${index > 1 ? '<button type="button" class="btn-remove-answer" style="background: #f44336; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">×</button>' : ''}
     `;
 
-    container.appendChild(answerDiv);
+    const ignoreRow = container.querySelector('.self-answer-ignore-row');
+    if (ignoreRow) {
+      container.insertBefore(answerDiv, ignoreRow);
+    } else {
+      container.appendChild(answerDiv);
+    }
 
-    // Setup remove handler
+    const nextSelect = answerDiv.querySelector('.answer-next') as HTMLSelectElement;
+    nextSelect?.addEventListener('change', () => {
+      const val = nextSelect.value;
+      if (val && val !== 'ignore' && (val === 'noticed' || val.startsWith('q_'))) {
+        const radio = answerDiv.querySelector(`input[name="${radioName}"]`) as HTMLInputElement;
+        if (radio) radio.checked = true;
+      }
+    });
+
     const removeBtn = answerDiv.querySelector('.btn-remove-answer');
     removeBtn?.addEventListener('click', () => {
       container.removeChild(answerDiv);
       this.renumberAnswers(container);
       this.updateAllAnswerDropdowns();
+      this.renumberSelfAnswerRadios(container);
     });
+  }
+
+  private appendIgnoreRow(container: HTMLElement, qIndex: number): void {
+    if (container.querySelector('.self-answer-ignore-row')) return;
+    const row = document.createElement('div');
+    row.className = 'self-answer-ignore-row';
+    row.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 6px; margin-bottom: 8px;';
+    row.innerHTML = `
+      <input type="radio" name="self-answer-q_${qIndex}" value="ignore" class="self-answer-radio" checked title="My answer">
+      <span style="font-size: 0.9em; color: #666;">Ignore</span>
+    `;
+    container.appendChild(row);
+  }
+
+  private renumberSelfAnswerRadios(answersContainer: HTMLElement): void {
+    const questionItem = answersContainer.closest('.question-item');
+    if (!questionItem) return;
+    const qIndex = parseInt(questionItem.getAttribute('data-question-index') ?? '0', 10);
+    const name = `self-answer-q_${qIndex}`;
+    answersContainer.querySelectorAll('.answer-item').forEach((answerItem, aIdx) => {
+      const radio = answerItem.querySelector('.self-answer-radio') as HTMLInputElement;
+      if (radio) {
+        radio.name = name;
+        radio.value = `a_${qIndex}_${aIdx}`;
+      }
+    });
+    const ignoreRow = answersContainer.querySelector('.self-answer-ignore-row');
+    if (ignoreRow) {
+      const ignoreRadio = ignoreRow.querySelector('input[type="radio"]') as HTMLInputElement;
+      if (ignoreRadio) ignoreRadio.name = name;
+    }
   }
 
   private renumberQuestions(): void {
@@ -2559,6 +3093,12 @@ export class UIManager extends EventEmitter {
       const header = q.querySelector('strong');
       if (header) {
         header.textContent = `Question ${idx + 1}`;
+      }
+      const answersContainer = q.querySelector('.answers-container') as HTMLElement;
+      if (answersContainer) {
+        this.renumberSelfAnswerRadios(answersContainer);
+        const ignoreRow = answersContainer.querySelector('.self-answer-ignore-row input[type="radio"]') as HTMLInputElement;
+        if (ignoreRow) ignoreRow.name = `self-answer-q_${idx}`;
       }
     });
   }
@@ -2620,7 +3160,24 @@ export class UIManager extends EventEmitter {
       | 'survey'
       | 'tag';
 
+    const expiresSelect = document.getElementById('talk-expires') as HTMLSelectElement;
+    const locationSelect = document.getElementById('talk-location-radius') as HTMLSelectElement;
+    const sendToChatroomCheck = document.getElementById('talk-send-to-chatroom') as HTMLInputElement;
+    const expiresVal = expiresSelect?.value || '';
+    const oneDay = 24 * 60 * 60 * 1000;
+    let expiresAt: number | null = null;
+    if (expiresVal === '1d') expiresAt = Date.now() + oneDay;
+    else if (expiresVal === '1w') expiresAt = Date.now() + 7 * oneDay;
+    else if (expiresVal === '1M') expiresAt = Date.now() + 30 * oneDay;
+    else if (expiresVal === '1y') expiresAt = Date.now() + 365 * oneDay;
+    const locationRadiusMiles =
+      locationSelect?.value === '' || locationSelect?.value == null
+        ? null
+        : parseInt(locationSelect.value, 10);
+    const sendToChatroom = sendToChatroomCheck?.checked !== false;
+
     let questions: any[];
+    const selfAnswers: { questionId: string; answerId: string }[] = [];
 
     if (type === 'tag') {
       const keyword = title || (document.getElementById('talk-title') as HTMLInputElement).value.trim();
@@ -2638,11 +3195,19 @@ export class UIManager extends EventEmitter {
           ],
         },
       ];
+      const tagLikeCheckbox = document.getElementById('tag-like-checkbox') as HTMLInputElement | null;
+      const likesTag = tagLikeCheckbox ? tagLikeCheckbox.checked : true;
+      selfAnswers.push({ questionId: 'q_0', answerId: likesTag ? 'a_0_match' : 'a_0_ignore' });
     } else {
       questions = [];
       const questionItems = form.querySelectorAll('.question-item');
 
       questionItems.forEach((item, qIndex) => {
+        const questionId = `q_${qIndex}`;
+        const selfRadio = item.querySelector(`input[name="self-answer-${questionId}"]:checked`) as HTMLInputElement;
+        if (selfRadio && selfRadio.value !== 'ignore') {
+          selfAnswers.push({ questionId, answerId: selfRadio.value });
+        }
         const questionText = (item.querySelector('.question-text') as HTMLInputElement).value;
         const answerItems = item.querySelectorAll('.answer-item');
 
@@ -2676,7 +3241,7 @@ export class UIManager extends EventEmitter {
         });
 
         questions.push({
-          id: `q_${qIndex}`,
+          id: questionId,
           text: questionText,
           answers: answers,
         });
@@ -2692,6 +3257,8 @@ export class UIManager extends EventEmitter {
           ...myTalks[editingTalkId],
           title,
           type,
+          expiresAt: expiresAt ?? undefined,
+          locationRadiusMiles: locationRadiusMiles ?? undefined,
           lastInteraction: new Date().toISOString(),
         };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
@@ -2703,6 +3270,8 @@ export class UIManager extends EventEmitter {
         questions,
         language: 'en',
         tags: [],
+        expiresAt,
+        locationRadiusMiles,
       });
     } else {
       this.emit('createTalk', {
@@ -2711,6 +3280,10 @@ export class UIManager extends EventEmitter {
         questions,
         language: 'en',
         tags: [],
+        sendToChatroom,
+        expiresAt,
+        locationRadiusMiles,
+        selfAnswers,
       });
     }
   }
@@ -2823,7 +3396,7 @@ export class UIManager extends EventEmitter {
       item.classList.remove('flash-new-talk');
       void (item as HTMLElement).offsetWidth;
       item.classList.add('flash-new-talk');
-      setTimeout(() => item.classList.remove('flash-new-talk'), 1200);
+      setTimeout(() => item.classList.remove('flash-new-talk'), 1000);
     }
   }
 
@@ -2964,15 +3537,17 @@ export class UIManager extends EventEmitter {
     respondedByBot?: boolean;
   }): void {
     const conversations = this.getMyConversations();
+    const existing = conversations[conversationData.conversationId];
+    const isNew = !existing;
 
     conversations[conversationData.conversationId] = {
       otherUserId: conversationData.otherUserId,
       otherUserName: conversationData.otherUserName,
       talkId: conversationData.talkId,
-      createdAt: new Date().toISOString(),
-      lastMessage: null,
-      lastMessageTime: null,
-      unread: true, // New conversations are marked as unread
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      lastMessage: existing?.lastMessage ?? null,
+      lastMessageTime: existing?.lastMessageTime ?? null,
+      unread: isNew ? true : (existing?.unread ?? false),
       respondedByBot: !!conversationData.respondedByBot,
     };
 
@@ -2981,8 +3556,11 @@ export class UIManager extends EventEmitter {
     // Update badge
     this.updateMatchBadge();
 
-    // Show notification
-    this.showNotification(`🎉 New match with ${conversationData.otherUserName}!`, 'success');
+    // Only show toast for genuinely new matches (not when re-syncing or opening edit)
+    if (isNew) {
+      const name = conversationData.otherUserName?.trim() || 'Someone';
+      this.showNotification(`🎉 New match with ${name}!`, 'success');
+    }
   }
 
   updateConversationMessage(conversationId: string, message: string, timestamp: string): void {

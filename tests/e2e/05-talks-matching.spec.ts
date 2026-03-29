@@ -112,6 +112,14 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     await page.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
   }
 
+  /** Open an incoming talk via the View button (more reliable than row click for Gun-synced rows). */
+  async function openIncomingTalkModal(page: Page, titleSubstring: string): Promise<void> {
+    const row = page.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: titleSubstring });
+    await expect(row.first()).toBeVisible({ timeout: 20000 });
+    await row.first().locator('button.view-talk-btn').click();
+    await page.waitForSelector('#talk-response-modal .modal-content', { timeout: 25000 });
+  }
+
   test('Tennis match: Tom sends, Jerry answers match', async () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
@@ -144,8 +152,7 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     await afterSync();
     await pageJerry.click('.nav-btn[data-view="talks"]');
     await afterSync();
-    await pageJerry.locator('.talk-list-item').filter({ hasText: 'Tennis Partner' }).first().click();
-    await pageJerry.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
+    await openIncomingTalkModal(pageJerry, 'Tennis Partner');
     await pageJerry
       .locator('input.choice-radio[data-answer-text="Yes, lets play."][data-mode="manual"]')
       .first()
@@ -205,25 +212,21 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     await afterSync();
     await pageJerry.click('.nav-btn[data-view="talks"]');
     await afterSync();
-    await pageJerry.locator('.talk-list-item').filter({ hasText: 'Tennis' }).first().click();
-    await pageJerry.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
+    await openIncomingTalkModal(pageJerry, 'Tennis');
     await pageJerry.locator('input.choice-radio[data-answer-text="Yes"][data-mode="manual"]').first().click();
     await waitForResponseModalClosed(pageJerry);
     await waitForTabActive(pageJerry, 'talks');
-    await pageJerry.locator('.talk-list-item').filter({ hasText: 'Coffee' }).first().click();
-    await pageJerry.waitForSelector('#talk-response-modal .modal-content', { timeout: 5000 });
+    await openIncomingTalkModal(pageJerry, 'Coffee');
     await pageJerry.locator('input.choice-radio[data-answer-text="No"][data-mode="manual"]').first().click();
     await afterSync();
 
     await pageBob.click('.nav-btn[data-view="talks"]');
     await afterSync();
-    await pageBob.locator('.talk-list-item').filter({ hasText: 'Coffee' }).first().click();
-    await pageBob.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
+    await openIncomingTalkModal(pageBob, 'Coffee');
     await pageBob.locator('input.choice-radio[data-answer-text="Yes"][data-mode="manual"]').first().click();
     await waitForResponseModalClosed(pageBob);
     await waitForTabActive(pageBob, 'talks');
-    await pageBob.locator('.talk-list-item').filter({ hasText: 'Tennis' }).first().click();
-    await pageBob.waitForSelector('#talk-response-modal .modal-content', { timeout: 5000 });
+    await openIncomingTalkModal(pageBob, 'Tennis');
     await pageBob.locator('input.choice-radio[data-answer-text="No"][data-mode="manual"]').first().click();
     await afterSync();
 
@@ -278,8 +281,7 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     if (!(await chatbotCheckbox.isChecked())) await chatbotCheckbox.click();
     await pageJerry.click('.nav-btn[data-view="talks"]');
     await afterSync();
-    await pageJerry.locator('.talk-list-item').filter({ hasText: 'Tennis' }).first().click();
-    await pageJerry.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
+    await openIncomingTalkModal(pageJerry, 'Tennis');
     await pageJerry
       .locator('input.choice-radio[data-answer-text="Yes, lets play."][data-mode="manual"]')
       .first()
@@ -289,7 +291,11 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
 
     await pageTom.click('.nav-btn[data-view="talks"]');
     await afterSync();
-    const talkId = await pageTom.locator('.talk-list-item').filter({ hasText: 'Tennis' }).first().getAttribute('data-talk-id');
+    const talkId = await pageTom
+      .locator('.talk-list-item[data-role="created"]')
+      .filter({ hasText: 'Tennis' })
+      .first()
+      .getAttribute('data-talk-id');
     expect(talkId).toBeTruthy();
     await pageBob.evaluate(
       async (id: string) => {
@@ -361,16 +367,14 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     await afterSync();
     await pageJerry.click('.nav-btn[data-view="talks"]');
     await afterSync();
-    await pageJerry.locator('.talk-list-item').filter({ hasText: 'Tennis Partner' }).first().click();
-    await pageJerry.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
+    await openIncomingTalkModal(pageJerry, 'Tennis Partner');
     await pageJerry.locator('input.choice-radio[data-answer-text="Yes"][data-mode="manual"]').first().click();
     await pageJerry.locator('input.choice-radio[data-answer-text="amateur"][data-mode="manual"]').first().click();
     await pageJerry.locator('input.choice-radio[data-answer-text="No"][data-mode="manual"]').first().click();
-    await pageJerry.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
+    await pageJerry.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
 
     await afterSync();
-    await pageJerry.locator('.talk-list-item').filter({ hasText: 'Tennis Partner' }).first().click();
-    await pageJerry.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
+    await openIncomingTalkModal(pageJerry, 'Tennis Partner');
     await pageJerry.locator('input.choice-radio[data-answer-text="Yes"][data-mode="auto"]').first().click();
     await afterAction();
     await pageJerry.locator('input.choice-radio[data-answer-text="amateur"][data-mode="auto"]').first().click();

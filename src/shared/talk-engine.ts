@@ -1,6 +1,31 @@
 import { Talk, Question, Answer } from './types';
 import { TalkStructureError, ValidationError } from './errors';
 
+/** Answer record as submitted by the user (e.g. from talk response flow) */
+export interface SubmittedAnswer {
+  questionId: string;
+  answerId: string;
+  answerText?: string;
+  isChecked?: boolean;
+}
+
+/**
+ * Determines if the last submitted answer is a match (matching/tag talks).
+ * Used by both frontend and backend so match logic lives in one place.
+ */
+export function checkIfMatch(talkData: Talk | any, answers: SubmittedAnswer[]): boolean {
+  if (talkData.type !== 'matching' && talkData.type !== 'tag') {
+    return false;
+  }
+  const lastAnswer = answers[answers.length - 1];
+  if (!lastAnswer) return false;
+  const question = talkData.questions?.find((q: any) => q.id === lastAnswer.questionId);
+  if (!question) return false;
+  const answer = question.answers?.find((a: any) => a.id === lastAnswer.answerId);
+  if (!answer) return false;
+  return answer.isMatch === true;
+}
+
 export class TalkValidator {
   /**
    * Validates that a talk structure forms a DAG (no loops)

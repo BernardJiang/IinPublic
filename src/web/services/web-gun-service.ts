@@ -164,11 +164,11 @@ export class WebGunService extends EventEmitter {
         }
       });
 
-      // Timeout after 3 seconds
+      // Allow slow Gun replication from peer (e2e / busy clients)
       timeout = setTimeout(() => {
         off.off();
         reject(new Error(`Timeout getting data for key: ${key}`));
-      }, 3000);
+      }, 8000);
     });
   }
 

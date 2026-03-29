@@ -7,6 +7,7 @@ import { WebConversationService } from '../services/web-conversation-service';
 import { UIManager } from '../ui/ui-manager';
 import { LocationPrivacy } from '../../shared/location';
 import { getAllChatroomIds, CHATROOM_HIERARCHY } from '../../shared/chatroom-hierarchy';
+import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 
 export class IinPublicApp {
   private gunService: WebGunService;
@@ -18,12 +19,13 @@ export class IinPublicApp {
   private currentUser?: User;
   private currentLocation?: GPSCoordinate;
   private currentChatroomId?: string;
+  private incomingClustersMap: Record<string, any> = {};
 
   constructor() {
     this.gunService = new WebGunService();
     this.userService = new WebUserService(this.gunService);
     this.chatroomService = new WebChatroomService(this.gunService);
-    this.talkService = new WebTalkService(this.gunService);
+    this.talkService = new WebTalkService(this.gunService, this.getBackendApiBase());
     this.conversationService = new WebConversationService(this.gunService);
     this.uiManager = new UIManager();
   }
@@ -243,6 +245,9 @@ export class IinPublicApp {
 
     // Subscribe to user's conversations (for matches)
     this.subscribeToUserConversations();
+    
+    // Subscribe to backend-driven incoming talk clusters
+    this.subscribeToIncomingTalks();
 
     // Update chatroom info
     this.uiManager.updateChatroomInfo({ id: chatroomId, name: `Chatroom: ${chatroomId}` });
@@ -333,16 +338,14 @@ export class IinPublicApp {
         ) {
           const template = this.uiManager.getChatbotTemplate(talkId);
           if (template) {
-            gun.get(`talks/${talkAnnouncement.talkId}`).once((talkDataWrapper: any) => {
-              if (talkDataWrapper && talkDataWrapper.data) {
-                const talkData = JSON.parse(talkDataWrapper.data);
-                this.tryChatbotReply(
-                  talkId,
-                  talkData,
-                  talkAnnouncement.authorId,
-                  talkAnnouncement.authorName || 'Unknown',
-                );
-              }
+            void this.talkService.getTalkWithRetry(talkAnnouncement.talkId).then((talkData) => {
+              if (!talkData) return;
+              this.tryChatbotReply(
+                talkId,
+                talkData,
+                talkAnnouncement.authorId,
+                talkAnnouncement.authorName || 'Unknown',
+              );
             });
           }
         }
@@ -352,29 +355,36 @@ export class IinPublicApp {
       if (talkAnnouncement && talkAnnouncement.talkId) {
         processedTalks.add(talkId);
 
-        // Fetch the full talk details
-        gun.get(`talks/${talkAnnouncement.talkId}`).once((talkDataWrapper: any) => {
-          if (talkDataWrapper && talkDataWrapper.data) {
-            // Parse the JSON string to get the full talk
-            const talkData = JSON.parse(talkDataWrapper.data);
-            console.log('📋 Full talk data:', talkData);
+        // Wait for full JSON (questions/answers) — Gun .once often fires before replication completes.
+        void this.talkService.getTalkWithRetry(talkAnnouncement.talkId).then((talkData) => {
+          if (!talkData) {
+            console.warn('Could not load full talk after retry:', talkAnnouncement.talkId);
+            return;
+          }
+          console.log('📋 Full talk data:', talkData);
 
-            // Display the talk in UI
-            this.uiManager.displayIncomingTalk({
-              id: talkData.id,
-              title: talkData.title,
-              authorName: talkAnnouncement.authorName || 'Unknown',
-              type: talkData.type,
-              questionCount: talkData.questions?.length || 0,
-              timestamp: talkAnnouncement.timestamp,
-              isOwnTalk: talkAnnouncement.authorId === this.currentUser?.id,
-              fullTalk: talkData,
-            });
+          this.uiManager.displayIncomingTalk({
+            id: talkData.id,
+            title: talkData.title,
+            authorName: talkAnnouncement.authorName || 'Unknown',
+            type: talkData.type,
+            questionCount: talkData.questions?.length || 0,
+            timestamp: talkAnnouncement.timestamp,
+            isOwnTalk: talkAnnouncement.authorId === this.currentUser?.id,
+            fullTalk: talkData,
+          });
 
-            // If this is the user's own talk, subscribe to responses
-            if (talkAnnouncement.authorId === this.currentUser?.id) {
-              this.subscribeToTalkResponses(talkAnnouncement.talkId, talkData);
-            }
+          if (talkAnnouncement.authorId !== this.currentUser?.id) {
+            this.registerSelfAsReceiverOfIncomingTalk(
+              talkAnnouncement.talkId,
+              talkAnnouncement.authorId,
+              talkAnnouncement.authorName || 'Unknown',
+              talkData,
+            );
+          }
+
+          if (talkAnnouncement.authorId === this.currentUser?.id) {
+            this.subscribeToTalkResponses(talkAnnouncement.talkId, talkData);
           }
         });
       }
@@ -504,6 +514,49 @@ export class IinPublicApp {
     }
   }
 
+  /** HTTP API lives on the Gun server (port 8080 in dev). */
+  private getBackendApiBase(): string {
+    if (typeof window === 'undefined') return 'http://localhost:8080';
+    const { hostname, protocol } = window.location;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return `${protocol}//${hostname}:8080`;
+    }
+    return `${protocol}//${hostname}`;
+  }
+
+  /**
+   * Current user saw a talk announcement in their subscribed chatroom — register with the backend
+   * so `incomingTalksByUser` is populated (IN list). Receiver-driven so it still works when the
+   * sender's on-screen member list is wrong (e.g. eviction / room mismatch).
+   */
+  private registerSelfAsReceiverOfIncomingTalk(
+    talkId: string,
+    senderId: string,
+    senderName: string,
+    talkData: any,
+  ): void {
+    if (!this.currentUser || !senderId || senderId === this.currentUser.id) return;
+    const base = this.getBackendApiBase();
+    void fetch(`${base}/api/talks/${encodeURIComponent(talkId)}/received`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        receiverId: this.currentUser.id,
+        receiverName: this.currentUser.stageName,
+        senderId,
+        senderName,
+        talkData,
+      }),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text();
+          console.error('Incoming talk registration failed:', res.status, text);
+        }
+      })
+      .catch((e) => console.error('Incoming talk registration request failed:', e));
+  }
+
   private checkIfMatch(talkData: any, answers: any[]): boolean {
     // Matching-type talks and tags both use isMatch on the chosen answer
     if (talkData.type !== 'matching' && talkData.type !== 'tag') {
@@ -541,6 +594,52 @@ export class IinPublicApp {
     const isMatch = answer.isMatch === true;
     console.log('  Is match?', isMatch);
     return isMatch;
+  }
+
+  /** Resolve full talk using server incoming-talks (authoritative ids), not reshaped Gun cluster keys. */
+  private async loadFullTalkViaIncomingIdentity(identityKey: string): Promise<Talk | null> {
+    if (!this.currentUser?.id) return null;
+    try {
+      const base = this.getBackendApiBase();
+      const res = await fetch(
+        `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/incoming-talks`,
+      );
+      if (!res.ok) return null;
+      const clusters = await res.json();
+      if (!Array.isArray(clusters)) return null;
+      const cluster = clusters.find(
+        (c: any) =>
+          c &&
+          (c.identityKey === identityKey ||
+            (c.identityAliases &&
+              typeof c.identityAliases === 'object' &&
+              c.identityAliases[identityKey])),
+      );
+      if (!cluster) return null;
+      const latestTalkId = pickLatestTalkIdFromIncomingCluster(cluster);
+      if (!latestTalkId) return null;
+      return this.talkService.getTalkWithRetry(latestTalkId);
+    } catch {
+      return null;
+    }
+  }
+
+  private subscribeToIncomingTalks(): void {
+    if (!this.currentUser) return;
+    const gun = this.gunService.getGun();
+    console.log('👂 Subscribing to incoming talk clusters for:', this.currentUser.id);
+
+    gun
+      .get('incomingTalksByUser')
+      .get(this.currentUser.id)
+      .map()
+      .on((cluster: any, id: string) => {
+        if (!cluster) return;
+        this.incomingClustersMap[id] = cluster;
+        const clusters = Object.values(this.incomingClustersMap).filter((c: any) => c && c.identityKey);
+        this.uiManager.setIncomingTalkClusters(clusters);
+        this.uiManager.displayTalksList();
+      });
   }
 
   private subscribeToUserConversations(): void {
@@ -663,7 +762,13 @@ export class IinPublicApp {
       },
     );
 
-    this.uiManager.on('createTalk', async (talkData: Partial<Talk>) => {
+    this.uiManager.on(
+      'createTalk',
+      async (
+        talkData: Partial<Talk> & {
+          selfAnswers?: Array<{ questionId: string; answerId: string }>;
+        },
+      ) => {
       try {
         console.log('📝 Creating talk:', talkData);
 
@@ -674,6 +779,10 @@ export class IinPublicApp {
         });
 
         console.log('✅ Talk created:', talk);
+
+        this.uiManager.saveCreatedTalk(talk, {
+          selfAnswers: talkData.selfAnswers ?? [],
+        });
 
         // Broadcast the talk to the chatroom
         const chatroomId = this.chatroomService.getCurrentChatroomId();
@@ -773,6 +882,45 @@ export class IinPublicApp {
         );
       }
     });
+
+    this.uiManager.on(
+      'demandFullTalk',
+      async (data: {
+        talkId: string;
+        identityKeyFallback?: string;
+        callback: (fullTalk: any) => void;
+      }) => {
+        try {
+          let talk: Talk | null = null;
+          const id = (data.talkId || '').trim();
+          if (id) talk = await this.talkService.getTalkWithRetry(id);
+          if (!talk && data.identityKeyFallback) {
+            talk = await this.loadFullTalkViaIncomingIdentity(data.identityKeyFallback);
+          }
+          data.callback(talk);
+        } catch (error) {
+          console.error('Failed to get full talk:', error);
+          data.callback(null);
+        }
+      },
+    );
+
+    this.uiManager.on(
+      'demandFullTalkByIdentity',
+      async (data: { identityKey: string; callback: (fullTalk: any) => void }) => {
+        if (!this.currentUser?.id) {
+          data.callback(null);
+          return;
+        }
+        try {
+          const talk = await this.loadFullTalkViaIncomingIdentity(data.identityKey);
+          data.callback(talk);
+        } catch (error) {
+          console.error('demandFullTalkByIdentity failed:', error);
+          data.callback(null);
+        }
+      },
+    );
 
     this.uiManager.on('loadTalkForEdit', async (data: { talkId: string }) => {
       try {

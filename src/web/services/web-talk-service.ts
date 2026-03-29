@@ -4,7 +4,57 @@ import { WebGunService } from './web-gun-service';
 import { v4 as uuidv4 } from 'uuid';
 
 export class WebTalkService {
-  constructor(private gunService: WebGunService) {}
+  constructor(
+    private gunService: WebGunService,
+    /** When set, incomplete Gun reads fall back to GET this host + /api/talks/:id (server graph). */
+    private apiBase?: string,
+  ) {}
+
+  /** Gun sometimes exposes arrays as { _isArray, _length, 0, 1, ... } after graph merge. */
+  private normalizeAnswersArray(answers: any): any[] {
+    if (Array.isArray(answers)) return answers;
+    if (answers && typeof answers === 'object' && answers._isArray) {
+      const alen = Number(answers._length) || 0;
+      const ans: any[] = [];
+      for (let j = 0; j < alen; j++) {
+        if (Object.prototype.hasOwnProperty.call(answers, String(j))) ans.push(answers[String(j)]);
+      }
+      return ans;
+    }
+    if (answers && typeof answers === 'object') {
+      const keys = Object.keys(answers).filter((k) => /^\d+$/.test(k));
+      if (keys.length > 0) {
+        return keys
+          .map((k) => Number(k))
+          .sort((a, b) => a - b)
+          .map((i) => answers[String(i)]);
+      }
+    }
+    return [];
+  }
+
+  private normalizeQuestion(qu: any): any {
+    if (!qu || typeof qu !== 'object') return qu;
+    return { ...qu, answers: this.normalizeAnswersArray(qu.answers) };
+  }
+
+  private normalizeTalkFromStorage(talk: any): Talk {
+    if (!talk || typeof talk !== 'object') return talk as Talk;
+    const q = talk.questions;
+    if (Array.isArray(q)) {
+      return { ...talk, questions: q.map((qu) => this.normalizeQuestion(qu)) } as Talk;
+    }
+    if (q && typeof q === 'object' && q._isArray) {
+      const len = Number(q._length) || 0;
+      const arr: any[] = [];
+      for (let i = 0; i < len; i++) {
+        if (!Object.prototype.hasOwnProperty.call(q, String(i))) continue;
+        arr.push(this.normalizeQuestion(q[String(i)]));
+      }
+      return { ...talk, questions: arr } as Talk;
+    }
+    return talk as Talk;
+  }
 
   async createTalk(talkData: Partial<Talk>): Promise<Talk> {
     const talk: Talk = {
@@ -20,6 +70,9 @@ export class WebTalkService {
       isTemplate: talkData.isTemplate || false,
       usageCount: 0,
     };
+    if (talkData.expiresAt != null) talk.expiresAt = talkData.expiresAt;
+    if (talkData.locationRadiusMiles != null) talk.locationRadiusMiles = talkData.locationRadiusMiles;
+    if (talkData.authorLocation != null) talk.authorLocation = talkData.authorLocation;
 
     console.log('🔍 About to store Talk in Gun.js:', JSON.stringify(talk, null, 2));
 
@@ -45,11 +98,53 @@ export class WebTalkService {
     try {
       const raw = await this.gunService.get(`talks/${talkId}`);
       if (!raw || !raw.data) return null;
-      const talk = typeof raw.data === 'string' ? JSON.parse(raw.data) : raw.data;
-      return talk as Talk;
+      const parsed = typeof raw.data === 'string' ? JSON.parse(raw.data) : raw.data;
+      return this.normalizeTalkFromStorage(parsed);
     } catch {
       return null;
     }
+  }
+
+  /** Prefer server graph (authoritative), then retry local Gun until full talk is available. */
+  async getTalkWithRetry(
+    talkId: string,
+    opts?: { attempts?: number; gapMs?: number },
+  ): Promise<Talk | null> {
+    const attempts = opts?.attempts ?? 20;
+    const gapMs = opts?.gapMs ?? 250;
+    const looksComplete = (t: Talk | null): boolean => {
+      if (!t || !Array.isArray(t.questions) || t.questions.length === 0) return false;
+      const q0 = t.questions[0];
+      return !!(q0 && Array.isArray(q0.answers) && q0.answers.length > 0);
+    };
+
+    const tryServer = async (): Promise<Talk | null> => {
+      const base = this.apiBase?.replace(/\/$/, '');
+      if (!base) return null;
+      try {
+        const res = await fetch(`${base}/api/talks/${encodeURIComponent(talkId)}`);
+        if (!res.ok) return null;
+        const normalized = this.normalizeTalkFromStorage(await res.json());
+        return looksComplete(normalized) ? (normalized as Talk) : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const fromServer = await tryServer();
+    if (fromServer) return fromServer;
+
+    for (let i = 0; i < attempts; i++) {
+      const t = await this.getTalk(talkId);
+      if (looksComplete(t)) return t as Talk;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, gapMs));
+    }
+
+    const last = await this.getTalk(talkId);
+    if (looksComplete(last)) return last as Talk;
+    const again = await tryServer();
+    if (again) return again;
+    return looksComplete(last) ? last : null;
   }
 
   async updateTalk(talkId: string, talkData: Partial<Talk>): Promise<Talk> {
@@ -72,6 +167,12 @@ export class WebTalkService {
       isTemplate: talkData.isTemplate ?? existing.isTemplate,
       usageCount: existing.usageCount,
     };
+    if (talkData.expiresAt !== undefined) updated.expiresAt = talkData.expiresAt;
+    else if (existing.expiresAt != null) updated.expiresAt = existing.expiresAt;
+    if (talkData.locationRadiusMiles !== undefined) updated.locationRadiusMiles = talkData.locationRadiusMiles;
+    else if (existing.locationRadiusMiles != null) updated.locationRadiusMiles = existing.locationRadiusMiles;
+    if (talkData.authorLocation !== undefined) updated.authorLocation = talkData.authorLocation;
+    else if (existing.authorLocation != null) updated.authorLocation = existing.authorLocation;
     const talkJson = JSON.stringify(updated);
     await this.gunService.put(`talks/${talkId}`, {
       id: updated.id,

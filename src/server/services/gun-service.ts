@@ -79,6 +79,46 @@ export class GunService {
   }
 
   /**
+   * Get data at a nested path (e.g. ['talks', talkId] or ['users', userId, 'conversations', convId])
+   * so server can read the same graph shape the client uses.
+   */
+  public async getPath(path: string[]): Promise<any> {
+    if (path.length === 0) return undefined;
+    return new Promise((resolve) => {
+      let ref: any = this.gun;
+      for (const seg of path) {
+        ref = ref.get(seg);
+      }
+      ref.once(
+        (data: any) => {
+          resolve(data);
+        },
+        { wait: 2000 },
+      );
+    });
+  }
+
+  /**
+   * Put data at a nested path (same graph shape as client).
+   */
+  public async putPath(path: string[], data: any): Promise<void> {
+    if (path.length === 0) return;
+    return new Promise((resolve, reject) => {
+      let ref: any = this.gun;
+      for (const seg of path) {
+        ref = ref.get(seg);
+      }
+      ref.put(data, (ack: any) => {
+        if (ack?.err) {
+          reject(new Error(ack.err));
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+
+  /**
    * Subscribe to real-time updates
    */
   public subscribe(key: string, callback: (data: any) => void): () => void {
