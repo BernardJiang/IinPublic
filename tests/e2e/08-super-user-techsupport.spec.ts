@@ -130,6 +130,22 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     await expect(page.locator(`.nav-btn[data-view="${view}"].active`)).toBeVisible({ timeout: 10000 });
   }
 
+  /** Open an incoming row via View (reliable with Gun/backend-synced IN list). */
+  async function openTomIncomingModal(
+    page: Page,
+    titleSubstring: string,
+    typeBadge: 'tag' | 'matching',
+  ): Promise<void> {
+    const row = page
+      .locator('.talk-list-item[data-role="incoming"]')
+      .filter({ has: page.locator('.talk-badge-type').filter({ hasText: typeBadge }) })
+      .filter({ hasText: titleSubstring })
+      .first();
+    await expect(row).toBeVisible({ timeout: 25000 });
+    await row.locator('button.view-talk-btn').click();
+    await page.waitForSelector('#talk-response-modal .modal-content', { timeout: 25000 });
+  }
+
   test('TechSupport creates 10 tags + 10 talks, answers all himself (in UI); Tom joins; TechSupport sends all 20; Tom answers all; TechSupport confirms', async () => {
     test.setTimeout(300000); // 5 min - long flow with 20 answers and Gun.js sync
 
@@ -204,31 +220,19 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
 
     for (const tagName of TAG_NAMES) {
       // Target only tag-type items (badge "tag") so we don't open a matching talk with similar name (e.g. "Coffee Meetup")
-      await pageTom
-        .locator('.talk-list-item')
-        .filter({ has: pageTom.locator('.talk-badge-type').filter({ hasText: 'tag' }) })
-        .filter({ hasText: tagName })
-        .first()
-        .click();
-      await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
+      await openTomIncomingModal(pageTom, tagName, 'tag');
       await pageTom.waitForSelector('#tag-match-checkbox', { state: 'visible', timeout: 15000 });
       await pageTom.locator('#tag-match-checkbox').check();
       await pageTom.click('#tag-submit-btn');
-      await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
+      await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
       await pageTom.waitForTimeout(400);
     }
 
     for (const talkTitle of TALK_TITLES) {
       // Target only matching-type items so we don't open a tag when a title overlaps (e.g. "Tennis" tag vs "Tennis Partner" talk)
-      await pageTom
-        .locator('.talk-list-item')
-        .filter({ has: pageTom.locator('.talk-badge-type').filter({ hasText: 'matching' }) })
-        .filter({ hasText: talkTitle })
-        .first()
-        .click();
-      await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
+      await openTomIncomingModal(pageTom, talkTitle, 'matching');
       await pageTom.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
-      await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
+      await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
       await pageTom.waitForTimeout(400);
     }
 
@@ -291,22 +295,43 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
 
     await pageTechSupport.click('#broadcast-talk-btn');
     await afterSync();
+    await afterSync();
 
     await pageTom.click('.nav-btn[data-view="talks"]');
     await afterSync();
-    await expect(pageTom.locator('.talk-list-item').filter({ hasText: copyTalkTitle }).first()).toBeVisible({ timeout: 15000 });
-
-    await pageTom.locator('.talk-list-item').filter({ hasText: copyTalkTitle }).first().click();
-    await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
+    const incomingRow = pageTom
+      .locator('.talk-list-item[data-role="incoming"]')
+      .filter({ hasText: copyTalkTitle })
+      .first();
+    await expect(incomingRow).toBeVisible({ timeout: 25000 });
+    await incomingRow.locator('button.view-talk-btn').click();
+    await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 25000 });
     await pageTom.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
-    await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
+    await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
     await pageTom.waitForTimeout(500);
+
+    // Answered talks live under Answers until user copies to OUT (broadcast disable is on OUT rows only).
+    await pageTom.click('.nav-btn[data-view="answers"]');
+    await pageTom.waitForTimeout(800);
+    await expect(pageTom.locator('#answers-content').getByText(copyTalkTitle).first()).toBeVisible({ timeout: 15000 });
+    await pageTom
+      .locator('.answer-talk-item')
+      .filter({ hasText: copyTalkTitle })
+      .first()
+      .locator('.answer-copy-talk-btn')
+      .click();
+    await pageTom.waitForTimeout(600);
 
     await pageTom.click('.nav-btn[data-view="talks"]');
     await pageTom.waitForTimeout(1000);
-    const copyTalkRow = pageTom.locator('.talk-list-item').filter({ hasText: copyTalkTitle }).first();
-    await copyTalkRow.locator('button.toggle-broadcast-btn').click();
-    await expect(copyTalkRow.locator('button.toggle-broadcast-btn')).toContainText('Enable for broadcast', { timeout: 10000 });
+    const copyTalkRow = pageTom
+      .locator('.talk-list-item[data-role="copied"]')
+      .filter({ hasText: copyTalkTitle })
+      .first();
+    await expect(copyTalkRow).toBeVisible({ timeout: 15000 });
+    // mousedown delegation toggles this checkbox and syncs myTalks — use label click, not locator.check()
+    await copyTalkRow.locator('.talk-disable-broadcast-label').click();
+    await expect(copyTalkRow.locator('.talk-disable-broadcast-checkbox')).toBeChecked({ timeout: 10000 });
 
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
     await pageTom.waitForTimeout(500);
@@ -323,7 +348,11 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
 
     await pageTom.click('.nav-btn[data-view="talks"]');
     await pageTom.waitForTimeout(800);
-    await pageTom.locator('.talk-list-item').filter({ hasText: copyTalkTitle }).first().locator('button.toggle-broadcast-btn').click();
+    const copyRowAgain = pageTom
+      .locator('.talk-list-item[data-role="copied"]')
+      .filter({ hasText: copyTalkTitle })
+      .first();
+    await copyRowAgain.locator('.talk-disable-broadcast-label').click();
     await pageTom.waitForTimeout(800);
 
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
