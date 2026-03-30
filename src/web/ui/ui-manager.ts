@@ -1,7 +1,7 @@
 import { User } from '../../shared/types';
 import { EventEmitter } from 'events';
 import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
-import { pickLatestTalkIdFromIncomingCluster, isTalkUuid } from '../../shared/incoming-talk-ids';
+import { pickLatestTalkIdFromIncomingCluster, isValidTalkId } from '../../shared/incoming-talk-ids';
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
@@ -1125,7 +1125,7 @@ export class UIManager extends EventEmitter {
 
   private showTalkDetail(talkId: string, identityKeyFallback?: string): void {
     const raw = (talkId || '').trim();
-    const tid = isTalkUuid(raw) ? raw : '';
+    const tid = isValidTalkId(raw) ? raw : '';
     if (!tid && identityKeyFallback) {
       this.emit('demandFullTalkByIdentity', {
         identityKey: identityKeyFallback,

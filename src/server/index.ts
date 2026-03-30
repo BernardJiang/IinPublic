@@ -11,6 +11,11 @@ import { UserService } from './services/user-service';
 import { ReputationService } from './services/reputation-service';
 import { checkIfMatch } from '../shared/talk-engine';
 import { pickLatestTalkIdFromIncomingCluster } from '../shared/incoming-talk-ids';
+import {
+  normalizeIdentityText,
+  buildTalkIdentityKey,
+  canonicalIdentityKeyFromStoredCluster,
+} from '../shared/talk-content-id';
 
 class IinPublicServer {
   private app: express.Application;
@@ -97,74 +102,6 @@ class IinPublicServer {
     this.talkService = new TalkService(this.gunService, this.reputationService);
   }
 
-  private normalizeIdentityText(input: unknown): string {
-    return String(input ?? '')
-      .trim()
-      .replace(/\s+/g, ' ')
-      .toLowerCase();
-  }
-
-  private hashIdentityPayload(payload: string): string {
-    let hash = 0x811c9dc5;
-    for (let i = 0; i < payload.length; i += 1) {
-      hash ^= payload.charCodeAt(i);
-      hash = Math.imul(hash, 0x01000193);
-    }
-    return (hash >>> 0).toString(16).padStart(8, '0');
-  }
-
-  private buildIdentityPayloadFromTalk(talkData: any): { type: string; questions: Array<{ text: string; answers: string[] }> } {
-    const type = this.normalizeIdentityText(talkData?.type || 'matching');
-    const questions = (Array.isArray(talkData?.questions)
-      ? talkData.questions.map((q: any) => ({
-          text: this.normalizeIdentityText(q?.text),
-          answers: (Array.isArray(q?.answers) ? q.answers : [])
-            .map((a: any) => this.normalizeIdentityText(a?.text))
-            .sort(),
-        }))
-      : [])
-      .sort((a: any, b: any) => String(a.text).localeCompare(String(b.text)));
-    return { type, questions };
-  }
-
-  private buildTalkIdentityKey(talkData: any): string {
-    const payload = this.buildIdentityPayloadFromTalk(talkData);
-    const payloadJson = JSON.stringify(payload);
-    return `qa_${this.hashIdentityPayload(payloadJson)}`;
-  }
-
-  private canonicalIdentityKeyFromStoredCluster(cluster: any): string {
-    if (!cluster) return this.buildTalkIdentityKey({ type: 'matching', questions: [] });
-
-    const key = typeof cluster.identityKey === 'string' ? cluster.identityKey : '';
-    if (key.startsWith('qa_')) {
-      return key;
-    }
-
-    if (key) {
-      try {
-        const parsed = JSON.parse(key);
-        const payload = {
-          type: this.normalizeIdentityText(parsed?.type ?? cluster?.type ?? 'matching'),
-          questions: (Array.isArray(parsed?.questions)
-            ? parsed.questions.map((q: any) => ({
-                text: this.normalizeIdentityText(q?.text),
-                answers: (Array.isArray(q?.answers) ? q.answers : [])
-                  .map((a: any) => this.normalizeIdentityText(a))
-                  .sort(),
-              }))
-            : [])
-            .sort((a: any, b: any) => String(a.text).localeCompare(String(b.text))),
-        };
-        return `qa_${this.hashIdentityPayload(JSON.stringify(payload))}`;
-      } catch {
-        // fall through
-      }
-    }
-
-    return this.buildTalkIdentityKey(cluster);
-  }
-
   private async getMergedIncomingClusterForUser(userId: string, identityKey: string): Promise<any> {
     const incoming = await this.gunService.getPath(['incomingTalksByUser', userId]);
     const merged: any = {
@@ -186,7 +123,7 @@ class IinPublicServer {
     for (const [rawKey, rawCluster] of Object.entries(incoming)) {
       if (rawKey.startsWith('_') || !rawCluster) continue;
       const cluster = rawCluster as any;
-      const canonical = this.canonicalIdentityKeyFromStoredCluster(cluster);
+      const canonical = canonicalIdentityKeyFromStoredCluster(cluster);
       if (canonical !== identityKey) continue;
 
       merged.identityAliases[rawKey] = true;
@@ -283,13 +220,13 @@ class IinPublicServer {
     const mapped: Array<{ questionId: string; answerId: string; answerText?: string; isChecked?: boolean; mode?: string }> = [];
 
     for (const entry of templateEntries || []) {
-      const qText = this.normalizeIdentityText(entry.questionText);
-      const aText = this.normalizeIdentityText(entry.answerText);
-      const question = questions.find((q: any) => this.normalizeIdentityText(q?.text) === qText);
+      const qText = normalizeIdentityText(entry.questionText);
+      const aText = normalizeIdentityText(entry.answerText);
+      const question = questions.find((q: any) => normalizeIdentityText(q?.text) === qText);
       if (!question) continue;
 
       const answer = (Array.isArray(question.answers) ? question.answers : []).find(
-        (a: any) => this.normalizeIdentityText(a?.text) === aText,
+        (a: any) => normalizeIdentityText(a?.text) === aText,
       );
 
       if (!answer) continue;
@@ -329,7 +266,7 @@ class IinPublicServer {
     senderName?: string;
   }): Promise<{ identityKey: string; cluster: any }> {
     const { receiverId, talkId, talkData, senderId, senderName } = params;
-    const identityKey = this.buildTalkIdentityKey(talkData);
+    const identityKey = buildTalkIdentityKey(talkData);
     const existing = await this.getMergedIncomingClusterForUser(receiverId, identityKey);
     const nowIso = new Date().toISOString();
     const senderMap = existing.senders && typeof existing.senders === 'object' ? existing.senders : {};
@@ -684,7 +621,7 @@ class IinPublicServer {
         const canonicalKeys = new Set<string>();
         for (const [k, v] of Object.entries(incoming)) {
           if (k.startsWith('_') || !v) continue;
-          canonicalKeys.add(this.canonicalIdentityKeyFromStoredCluster(v));
+          canonicalKeys.add(canonicalIdentityKeyFromStoredCluster(v));
         }
 
         const values = await Promise.all(
@@ -737,7 +674,7 @@ class IinPublicServer {
         }
 
         const normalizedAnswers = this.normalizeSubmittedAnswersForTalk(talkData, answers);
-        const identityKey = this.buildTalkIdentityKey(talkData);
+        const identityKey = buildTalkIdentityKey(talkData);
         const resolvedResponderName = responderName || (await this.getUserStageName(responderId, 'Someone'));
 
         const fallbackSenderId = talkData.authorId as string | undefined;

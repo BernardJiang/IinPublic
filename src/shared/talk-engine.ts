@@ -1,5 +1,6 @@
 import { Talk, Question, Answer } from './types';
 import { TalkStructureError, ValidationError } from './errors';
+import { computeTalkIdFromTalkData } from './talk-content-id';
 
 /** Answer record as submitted by the user (e.g. from talk response flow) */
 export interface SubmittedAnswer {
@@ -308,7 +309,7 @@ export class TalkLinearCapture {
     }
     
     const talk: Talk = {
-      id: `talk_${Date.now()}_${userId}`,
+      id: '',
       title: 'Auto-captured Talk',
       authorId: userId,
       type: 'matching',
@@ -320,7 +321,8 @@ export class TalkLinearCapture {
       isTemplate: true,
       usageCount: 0
     };
-    
+    talk.id = computeTalkIdFromTalkData(talk);
+
     // Validate the generated talk
     TalkValidator.validateTalk(talk);
     

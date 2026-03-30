@@ -8,6 +8,7 @@ import { UIManager } from '../ui/ui-manager';
 import { LocationPrivacy } from '../../shared/location';
 import { getAllChatroomIds, CHATROOM_HIERARCHY } from '../../shared/chatroom-hierarchy';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
+import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
 
 export class IinPublicApp {
   private gunService: WebGunService;
@@ -20,6 +21,8 @@ export class IinPublicApp {
   private currentLocation?: GPSCoordinate;
   private currentChatroomId?: string;
   private incomingClustersMap: Record<string, any> = {};
+  /** Gun .map().on may replay the same response node; avoid duplicate match UI/conversations. */
+  private processedTalkResponseKeys = new Set<string>();
 
   constructor() {
     this.gunService = new WebGunService();
@@ -320,20 +323,24 @@ export class IinPublicApp {
 
     const talksRef = gun.get('chatrooms').get(chatroomId).get('talks');
 
-    // Track processed talks to avoid duplicates
-    const processedTalks = new Set<string>();
+    /** Dedupe by (talkId, authorId); same content-hash id from two senders must both register. */
+    const seenTalkAuthor = new Set<string>();
 
     const processTalkAnnouncement = (talkAnnouncement: any, talkId: string) => {
       if (talkId.startsWith('_')) return; // Skip Gun.js metadata
 
       console.log('📨 Received talk announcement:', { talkId, talkAnnouncement });
 
-      // Same talk received again (e.g. re-broadcast by another user) - try chatbot auto-reply
-      if (processedTalks.has(talkId)) {
+      const authorId = String(talkAnnouncement?.authorId || '');
+      const pairKey = `${talkId}::${authorId}`;
+
+      // Same sender + same talk announcement replayed — chatbot re-broadcast path only
+      if (seenTalkAuthor.has(pairKey)) {
         if (
           talkAnnouncement &&
           talkAnnouncement.talkId &&
-          talkAnnouncement.authorId !== this.currentUser?.id &&
+          authorId &&
+          authorId !== this.currentUser?.id &&
           this.uiManager.getChatbotEnabled()
         ) {
           const template = this.uiManager.getChatbotTemplate(talkId);
@@ -343,7 +350,7 @@ export class IinPublicApp {
               this.tryChatbotReply(
                 talkId,
                 talkData,
-                talkAnnouncement.authorId,
+                authorId,
                 talkAnnouncement.authorName || 'Unknown',
               );
             });
@@ -351,10 +358,9 @@ export class IinPublicApp {
         }
         return;
       }
+      seenTalkAuthor.add(pairKey);
 
       if (talkAnnouncement && talkAnnouncement.talkId) {
-        processedTalks.add(talkId);
-
         // Wait for full JSON (questions/answers) — Gun .once often fires before replication completes.
         void this.talkService.getTalkWithRetry(talkAnnouncement.talkId).then((talkData) => {
           if (!talkData) {
@@ -409,6 +415,10 @@ export class IinPublicApp {
       .map()
       .on((responseData: any, responseId: string) => {
         if (responseId.startsWith('_')) return; // Skip Gun.js metadata
+
+        const dedupeKey = `${talkId}::${responseId}`;
+        if (this.processedTalkResponseKeys.has(dedupeKey)) return;
+        this.processedTalkResponseKeys.add(dedupeKey);
 
         console.log('📬 Received talk response:', responseData);
 
@@ -511,6 +521,44 @@ export class IinPublicApp {
           });
         })
         .catch((err) => console.error('Chatbot conversation create failed:', err));
+    }
+  }
+
+  /** Senders from merged incoming cluster (same content-hash talk); empty if API/cluster missing. */
+  private async getIncomingSendersForMatchedTalk(talkData: any): Promise<
+    Array<{ senderId: string; senderName: string }>
+  > {
+    if (!this.currentUser?.id || !talkData) return [];
+    const base = this.getBackendApiBase();
+    try {
+      const res = await fetch(
+        `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/incoming-talks`,
+      );
+      if (!res.ok) return [];
+      const clusters = await res.json();
+      if (!Array.isArray(clusters)) return [];
+      const key = computeTalkIdFromTalkData(talkData);
+      const cluster = clusters.find(
+        (c: any) =>
+          c &&
+          (c.identityKey === key ||
+            (c.identityAliases &&
+              typeof c.identityAliases === 'object' &&
+              c.identityAliases[key])),
+      );
+      if (!cluster?.senders || typeof cluster.senders !== 'object') return [];
+      const out: Array<{ senderId: string; senderName: string }> = [];
+      for (const s of Object.values(cluster.senders as Record<string, any>)) {
+        const sid = s?.senderId;
+        if (!sid || sid === this.currentUser!.id) continue;
+        out.push({
+          senderId: sid,
+          senderName: s?.senderName || 'Someone',
+        });
+      }
+      return out;
+    } catch {
+      return [];
     }
   }
 
@@ -1046,36 +1094,43 @@ export class IinPublicApp {
               }
 
               if (isMatch) {
-                console.log(`✅ Match! Creating conversation with talk author`);
+                console.log(`✅ Match! Creating conversation(s) with sender(s)`);
 
-                // Get talk author info
-                gun.get(`talks/${data.talkId}`).once(async (talkWrapper: any) => {
-                  if (talkWrapper && talkWrapper.data) {
-                    const talkData = JSON.parse(talkWrapper.data);
+                const senders = await this.getIncomingSendersForMatchedTalk(data.talkData);
+                const targets =
+                  senders.length > 0
+                    ? senders
+                    : data.talkData.authorId
+                      ? [
+                          {
+                            senderId: data.talkData.authorId,
+                            senderName: 'Someone',
+                          },
+                        ]
+                      : [];
 
-                    // Get author's user data to get their name
-                    gun.get(`users/${talkData.authorId}`).once(async (authorData: any) => {
-                      const authorName = authorData?.stageName || 'Unknown';
-
-                      // Create conversation
+                for (const target of targets) {
+                  gun.get(`users/${target.senderId}`).once(async (authorData: any) => {
+                    const authorName = authorData?.stageName || target.senderName || 'Unknown';
+                    try {
                       const conversationId = await this.conversationService.createConversation({
                         userId1: this.currentUser!.id,
                         userName1: this.currentUser!.stageName,
-                        userId2: talkData.authorId,
+                        userId2: target.senderId,
                         userName2: authorName,
                         talkId: data.talkId,
                       });
-
-                      // Add to UI (responder's view; respondedByBot is only set on author's view when they receive the response)
                       this.uiManager.addNewConversation({
                         conversationId,
-                        otherUserId: talkData.authorId,
+                        otherUserId: target.senderId,
                         otherUserName: authorName,
                         talkId: data.talkId,
                       });
-                    });
-                  }
-                });
+                    } catch (e) {
+                      console.error('Failed to create match conversation:', e);
+                    }
+                  });
+                }
               }
             }
           }

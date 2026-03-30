@@ -20,6 +20,7 @@
     "test:coverage": "jest --coverage",
     "test:type": "tsc --noEmit",
     "test:all": "npm run test:type && npm run test:coverage",
+    "test:unit+e2e": "npm run test:unit && npm run test:e2e",
     "test:e2e": "DISABLE_HMR=true playwright test",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",

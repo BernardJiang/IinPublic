@@ -1,13 +1,27 @@
 /**
- * Incoming clusters store talkIds as { [talkUuid]: isoTimestamp }. Gun.js may nest or
- * wrap that map (e.g. _isArray + numeric indices), so we walk the tree and collect UUID keys.
+ * Incoming clusters store talkIds as { [talkId]: isoTimestamp }. Keys may be UUIDs or
+ * content-hash ids (`qa_` + 8 hex). Gun.js may nest or wrap that map.
  */
 export const TALK_UUID_KEY =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Reject Gun artifacts like numeric keys used as fake talk ids. */
+/** Content-derived talk id (same as computeTalkIdFromTalkData / server identity key). */
+export const TALK_CONTENT_HASH_ID = /^qa_[0-9a-f]{8}$/i;
+
+/** Legacy UUID or content-hash talk id. */
+export function isValidTalkId(id: string | undefined | null): boolean {
+  if (typeof id !== 'string') return false;
+  const t = id.trim();
+  return TALK_UUID_KEY.test(t) || TALK_CONTENT_HASH_ID.test(t);
+}
+
+/** @deprecated use isValidTalkId */
 export function isTalkUuid(id: string | undefined | null): boolean {
-  return typeof id === 'string' && TALK_UUID_KEY.test(id.trim());
+  return isValidTalkId(id);
+}
+
+function isTalkIdMapKey(k: string): boolean {
+  return TALK_UUID_KEY.test(k) || TALK_CONTENT_HASH_ID.test(k);
 }
 
 function visitTalkIdsNode(node: unknown, out: Record<string, string>): void {
@@ -22,7 +36,7 @@ function visitTalkIdsNode(node: unknown, out: Record<string, string>): void {
   }
   for (const [k, v] of Object.entries(n)) {
     if (k.startsWith('_')) continue;
-    if (TALK_UUID_KEY.test(k)) {
+    if (isTalkIdMapKey(k)) {
       out[k] = v != null && (typeof v === 'string' || typeof v === 'number') ? String(v) : '';
     } else if (typeof v === 'object' && v !== null) {
       visitTalkIdsNode(v, out);
@@ -69,7 +83,7 @@ export function pickLatestTalkIdFromIncomingCluster(cluster: {
     cluster?.latestTalkId != null && cluster.latestTalkId !== ''
       ? String(cluster.latestTalkId).trim()
       : '';
-  if (rawLatest && TALK_UUID_KEY.test(rawLatest)) return rawLatest;
+  if (rawLatest && isValidTalkId(rawLatest)) return rawLatest;
 
   const map = collectTalkIdTimestamps(cluster?.talkIds);
   const keys = Object.keys(map);

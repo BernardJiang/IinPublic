@@ -2,6 +2,7 @@ import { Talk, BulkSendJob, TargetScope } from '../../shared/types';
 import { TalkLinearCapture } from '../../shared/talk-engine';
 import { WebGunService } from './web-gun-service';
 import { v4 as uuidv4 } from 'uuid';
+import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
 
 export class WebTalkService {
   constructor(
@@ -58,7 +59,7 @@ export class WebTalkService {
 
   async createTalk(talkData: Partial<Talk>): Promise<Talk> {
     const talk: Talk = {
-      id: talkData.id || uuidv4(),
+      id: '',
       title: talkData.title || '',
       authorId: talkData.authorId || '',
       type: talkData.type || 'matching',
@@ -73,6 +74,8 @@ export class WebTalkService {
     if (talkData.expiresAt != null) talk.expiresAt = talkData.expiresAt;
     if (talkData.locationRadiusMiles != null) talk.locationRadiusMiles = talkData.locationRadiusMiles;
     if (talkData.authorLocation != null) talk.authorLocation = talkData.authorLocation;
+
+    talk.id = talkData.id || computeTalkIdFromTalkData(talk);
 
     console.log('🔍 About to store Talk in Gun.js:', JSON.stringify(talk, null, 2));
 

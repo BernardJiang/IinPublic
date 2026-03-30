@@ -163,6 +163,10 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
   });
 
   test('Two talks: Tom Tennis+Coffee, Jerry/Bob match/mismatch; status bar and Answer tab', async () => {
+    // Distinct titles avoid matching stale/substring rows when Gun replays many announcements.
+    const TITLE_TENNIS = 'TwoTalks e2e Tennis';
+    const TITLE_COFFEE = 'TwoTalks e2e Coffee';
+
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
@@ -183,7 +187,7 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
 
     await pageTom.click('#create-talk-btn');
     await pageTom.waitForSelector('#talk-editor-form');
-    await pageTom.fill('#talk-title', 'Tennis');
+    await pageTom.fill('#talk-title', TITLE_TENNIS);
     await pageTom.selectOption('#talk-type', 'matching');
     const q1 = pageTom.locator('.question-item').first();
     await q1.locator('.question-text').fill('Want tennis?');
@@ -195,7 +199,7 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     await afterSync();
     await pageTom.click('#create-talk-btn');
     await pageTom.waitForSelector('#talk-editor-form');
-    await pageTom.fill('#talk-title', 'Coffee');
+    await pageTom.fill('#talk-title', TITLE_COFFEE);
     await pageTom.selectOption('#talk-type', 'matching');
     const q2 = pageTom.locator('.question-item').first();
     await q2.locator('.question-text').fill('Coffee?');
@@ -212,22 +216,26 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     await afterSync();
     await pageJerry.click('.nav-btn[data-view="talks"]');
     await afterSync();
-    await openIncomingTalkModal(pageJerry, 'Tennis');
+    await openIncomingTalkModal(pageJerry, TITLE_TENNIS);
     await pageJerry.locator('input.choice-radio[data-answer-text="Yes"][data-mode="manual"]').first().click();
     await waitForResponseModalClosed(pageJerry);
     await waitForTabActive(pageJerry, 'talks');
-    await openIncomingTalkModal(pageJerry, 'Coffee');
+    await openIncomingTalkModal(pageJerry, TITLE_COFFEE);
     await pageJerry.locator('input.choice-radio[data-answer-text="No"][data-mode="manual"]').first().click();
+    await waitForResponseModalClosed(pageJerry);
+    await waitForTabActive(pageJerry, 'talks');
     await afterSync();
 
     await pageBob.click('.nav-btn[data-view="talks"]');
     await afterSync();
-    await openIncomingTalkModal(pageBob, 'Coffee');
+    await openIncomingTalkModal(pageBob, TITLE_COFFEE);
     await pageBob.locator('input.choice-radio[data-answer-text="Yes"][data-mode="manual"]').first().click();
     await waitForResponseModalClosed(pageBob);
     await waitForTabActive(pageBob, 'talks');
-    await openIncomingTalkModal(pageBob, 'Tennis');
+    await openIncomingTalkModal(pageBob, TITLE_TENNIS);
     await pageBob.locator('input.choice-radio[data-answer-text="No"][data-mode="manual"]').first().click();
+    await waitForResponseModalClosed(pageBob);
+    await waitForTabActive(pageBob, 'talks');
     await afterSync();
 
     await waitForTabActive(pageTom, 'chatrooms');
@@ -237,8 +245,12 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
     await expect(pageTom.locator('#status-bar-text')).toContainText(/2 match/, { timeout: 15000 });
     await pageJerry.click('.nav-btn[data-view="answers"]');
     await afterSync();
-    await expect(pageJerry.locator('#answers-content').getByText('Tennis').first()).toBeVisible({ timeout: 10000 });
-    await expect(pageJerry.locator('#answers-content').getByText('Coffee').first()).toBeVisible({ timeout: 10000 });
+    await expect(pageJerry.locator('#answers-content').getByText(TITLE_TENNIS).first()).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(pageJerry.locator('#answers-content').getByText(TITLE_COFFEE).first()).toBeVisible({
+      timeout: 10000,
+    });
   });
 
   test('Chatbot: Tom manual match, Bob bot match; Tom no bot icon, Bob has bot icon', async () => {
@@ -296,7 +308,7 @@ test.describe('Talks: matching, status, chatbot, change answer', () => {
       .filter({ hasText: 'Tennis' })
       .first()
       .getAttribute('data-talk-id');
-    expect(talkId).toBeTruthy();
+    expect(talkId).toMatch(/^qa_[0-9a-f]{8}$/i);
     await pageBob.evaluate(
       async (id: string) => {
         const app = (window as any).__iinpublic_app?.getApp();

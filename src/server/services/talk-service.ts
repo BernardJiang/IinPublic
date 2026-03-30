@@ -3,6 +3,7 @@ import { TalkValidator } from '../../shared/talk-engine';
 import { GunService } from './gun-service';
 import { ReputationService } from './reputation-service';
 import { v4 as uuidv4 } from 'uuid';
+import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
 
 export class TalkService {
   constructor(
@@ -12,7 +13,7 @@ export class TalkService {
 
   async createTalk(talkData: Partial<Talk>): Promise<Talk> {
     const talk: Talk = {
-      id: talkData.id || uuidv4(),
+      id: '',
       title: talkData.title || '',
       authorId: talkData.authorId || '',
       type: talkData.type || 'matching',
@@ -24,6 +25,7 @@ export class TalkService {
       isTemplate: talkData.isTemplate || false,
       usageCount: 0
     };
+    talk.id = talkData.id || computeTalkIdFromTalkData(talk);
 
     // Validate talk structure
     TalkValidator.validateTalk(talk);
