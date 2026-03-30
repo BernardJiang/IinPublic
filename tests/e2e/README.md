@@ -4,7 +4,7 @@
 
 End-to-end tests for the IinPublic real-time Talk system using Playwright. Tests use **short** intervals by default for fast regression; set **long** intervals when you want to watch the run.
 
-## Test Files (compressed from 16 → 9)
+## Test Files (compressed from 16 → 9 + talks-matching split)
 
 | File | Coverage |
 |------|----------|
@@ -13,7 +13,11 @@ End-to-end tests for the IinPublic real-time Talk system using Playwright. Tests
 | `03-capacity-eviction.spec.ts` | Four users: Global fills, fourth bumps first to North America; persistence |
 | `04-profile-edit-stage-name.spec.ts` | New user edits stage name |
 | `05-talks-edit.spec.ts` | Create talk, Talks tab, Edit with prefilled data |
-| `05-talks-matching.spec.ts` | Tennis match; two talks + status bar + Answer tab; chatbot + bot icon; ignore then change answer |
+| `talks-matching/01-tennis-jerry-match.spec.ts` | Tom creates talk, Jerry answers match |
+| `talks-matching/02-two-talks-status-answers.spec.ts` | Two talks, status bar match count, Answers tab |
+| `talks-matching/03-chatbot-bot-badge.spec.ts` | Chatbot + `announceTalkToRoom`; bot badge on Bob not Tom |
+| `talks-matching/04-ignore-then-change-answer.spec.ts` | Multi-Q flow: mismatch then reopen → match |
+| `helpers/talks-matching-browsers.ts`, `helpers/talks-matching-flow.ts` | Shared browser launch + Tom/Jerry/Bob flows |
 | `06-contacts-tab.spec.ts` | Contacts list, click contact → matching talks |
 | `07-tags-checkbox.spec.ts` | Tag create, checkbox match/ignore |
 | `08-super-user-techsupport.spec.ts` | 10 tags + 10 talks, Tom answers all; copy-talk broadcast toggle + delete |
@@ -52,6 +56,9 @@ E2E_INTERVAL=long npx playwright test
 
 # Run one file
 npx playwright test 01-login-and-headcount.spec.ts
+
+# Run only talks-matching split (faster triage)
+npx playwright test tests/e2e/talks-matching
 
 # UI mode
 npx playwright test --ui
