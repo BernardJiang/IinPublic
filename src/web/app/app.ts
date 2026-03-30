@@ -331,7 +331,14 @@ export class IinPublicApp {
   ): void {
     if (!authorId || authorId === this.currentUser?.id) return;
     if (!this.uiManager.getChatbotEnabled()) return;
-    if (!this.uiManager.getChatbotTemplate(talkId)) return;
+    const contentId = computeTalkIdFromTalkData(talkData);
+    const canAuto =
+      !!this.uiManager.getChatbotTemplate(talkId) ||
+      (!!contentId &&
+        contentId !== talkId &&
+        !!this.uiManager.getChatbotTemplate(contentId)) ||
+      !!this.uiManager.tryBuildChatbotAnswersFromFlattened(talkData);
+    if (!canAuto) return;
     const pairKey = `${talkId}::${authorId}`;
     if (this.chatbotAutoReplySentForPair.has(pairKey)) return;
     this.chatbotAutoReplySentForPair.add(pairKey);
@@ -501,7 +508,19 @@ export class IinPublicApp {
     authorId: string,
     authorName: string,
   ): void {
-    const template = this.uiManager.getChatbotTemplate(talkId);
+    let template = this.uiManager.getChatbotTemplate(talkId);
+    if (!template && talkData) {
+      const cid = computeTalkIdFromTalkData(talkData);
+      if (cid && cid !== talkId) {
+        template = this.uiManager.getChatbotTemplate(cid);
+      }
+    }
+    if (!template && talkData) {
+      const built = this.uiManager.tryBuildChatbotAnswersFromFlattened(talkData);
+      if (built && built.length > 0) {
+        template = { answers: built, talkData };
+      }
+    }
     if (!template || !this.currentUser?.id) return;
 
     const gun = this.gunService.getGun();

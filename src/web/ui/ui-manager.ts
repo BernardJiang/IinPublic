@@ -2,6 +2,12 @@ import { User } from '../../shared/types';
 import { EventEmitter } from 'events';
 import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
 import { pickLatestTalkIdFromIncomingCluster, isValidTalkId } from '../../shared/incoming-talk-ids';
+import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
+import {
+  buildAnswerPreferenceLookupKey,
+  sessionAnswersToQAPairs,
+  type QAPair,
+} from '../../shared/flattened-answer-keys';
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
@@ -1130,7 +1136,7 @@ export class UIManager extends EventEmitter {
       this.emit('demandFullTalkByIdentity', {
         identityKey: identityKeyFallback,
         callback: (fullTalk: any) => {
-          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true });
+          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: false });
           else this.showNotification('Could not load talk.', 'error');
         },
       });
@@ -1160,7 +1166,7 @@ export class UIManager extends EventEmitter {
         talkId: tid,
         identityKeyFallback: identityKeyFallback || undefined,
         callback: (fullTalk: any) => {
-          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true });
+          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: false });
           else
             this.showNotification(
               'Could not load this talk yet. Check your connection and try again.',
@@ -1480,7 +1486,7 @@ export class UIManager extends EventEmitter {
       }
       const matchAnswer = q.answers.find((a: any) => a.isMatch);
       const ignoreAnswer = q.answers.find((a: any) => a.isIgnore);
-      const savedTagPreference = this.getAnswerPreference(talk.id, q.id);
+      const savedTagPreference = this.resolveAnswerPreferenceForTalkQuestion(talk, 0, [], q, talk.id);
       const isSavedMatch =
         !!savedTagPreference &&
         !!matchAnswer &&
@@ -1522,12 +1528,13 @@ export class UIManager extends EventEmitter {
             answerText: answer.text || (checked ? 'Match.' : 'Ignore.'),
           });
           this.saveAnswerPreference(
+            talk,
             talk.id,
-            q.id,
+            q,
             answer.id,
             answer.text || (checked ? 'Match.' : 'Ignore.'),
-            q.text,
-            q.answers,
+            answers.map((a) => ({ questionId: a.questionId, answerText: a.answerText })),
+            'auto',
           );
           if (checked && matchAnswer) {
             this.showNotification('Match! You both noticed each other.', 'success');
@@ -1561,8 +1568,21 @@ export class UIManager extends EventEmitter {
         return;
       }
 
+      const currentQuestionIndex = talk.questions.findIndex(
+        (q: { id: string }) => q.id === currentQuestion.id,
+      );
+
       // Check if there's a saved preference for this question (skip when opening from list to avoid instant match toast)
-      const savedPreference = skipAutoAnswer ? null : this.getAnswerPreference(talk.id, currentQuestion.id);
+      const previousPairs = sessionAnswersToQAPairs(talk, answers);
+      const savedPreference = skipAutoAnswer
+        ? null
+        : this.resolveAnswerPreferenceForTalkQuestion(
+            talk,
+            currentQuestionIndex,
+            previousPairs,
+            currentQuestion,
+            talk.id,
+          );
       if (savedPreference && savedPreference.mode === 'auto') {
         // Auto-answer with saved preference
         console.log('🤖 Auto-answering with saved preference:', savedPreference.answerText);
@@ -1621,13 +1641,17 @@ export class UIManager extends EventEmitter {
         }
       }
 
-      const currentQuestionIndex = talk.questions.findIndex(
-        (q: any) => q.id === currentQuestion.id,
-      );
       const choiceRadioName = `choice-${currentQuestion.id}`;
       const showBackButton = currentQuestionIndex > 0;
       const previousChoiceFromSession = answers.find((a) => a.questionId === currentQuestion.id);
-      const savedPreferenceForDisplay = this.getAnswerPreference(talk.id, currentQuestion.id);
+      const previousPairsForDisplay = sessionAnswersToQAPairs(talk, answers);
+      const savedPreferenceForDisplay = this.resolveAnswerPreferenceForTalkQuestion(
+        talk,
+        currentQuestionIndex,
+        previousPairsForDisplay,
+        currentQuestion,
+        talk.id,
+      );
       const previousChoice =
         previousChoiceFromSession ||
         (savedPreferenceForDisplay
@@ -1721,19 +1745,14 @@ export class UIManager extends EventEmitter {
 
         if (!isIgnore) {
           this.saveAnswerPreference(
+            talk,
             talk.id,
-            currentQuestion.id,
+            currentQuestion,
             answerId,
             answerText,
-            currentQuestion.text,
-            currentQuestion.answers,
+            answers.map((a) => ({ questionId: a.questionId, answerText: a.answerText })),
+            answerMode,
           );
-          const preferences = this.getAnswerPreferences();
-          const key = `${talk.id}_${currentQuestion.id}`;
-          if (preferences[key]) {
-            preferences[key].mode = answerMode;
-            localStorage.setItem('answerPreferences', JSON.stringify(preferences));
-          }
         }
 
         if (isIgnore) {
@@ -1856,27 +1875,119 @@ export class UIManager extends EventEmitter {
     );
   }
 
+  private getFlattenedAnswerPreferences(): Record<
+    string,
+    {
+      answerId: string;
+      answerText: string;
+      mode: string;
+      talkId?: string;
+      questionText?: string;
+      allAnswers?: any[];
+      timestamp?: string;
+      flatKey?: string;
+    }
+  > {
+    try {
+      const raw = localStorage.getItem('flattenedAnswerPreferences');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private setFlattenedAnswerPreferences(
+    map: Record<
+      string,
+      {
+        answerId: string;
+        answerText: string;
+        mode: string;
+        talkId?: string;
+        questionText?: string;
+        allAnswers?: any[];
+        timestamp?: string;
+        flatKey?: string;
+      }
+    >,
+  ): void {
+    localStorage.setItem('flattenedAnswerPreferences', JSON.stringify(map));
+  }
+
+  /**
+   * Prefer context-aware flat key (cross-talk + multi-question path), then legacy `${talkId}_${questionId}`.
+   */
+  private resolveAnswerPreferenceForTalkQuestion(
+    talk: any,
+    questionIndex: number,
+    previousQAPairs: QAPair[],
+    currentQuestion: { id: string; text?: string },
+    talkInstanceId: string,
+  ): {
+    answerId: string;
+    answerText: string;
+    mode: string;
+    questionText?: string;
+    allAnswers?: any[];
+  } | null {
+    const talkContentHash = computeTalkIdFromTalkData(talk);
+    const flatKey = buildAnswerPreferenceLookupKey(
+      talk,
+      talkContentHash,
+      questionIndex,
+      previousQAPairs,
+      currentQuestion.text || '',
+    );
+    const flat = this.getFlattenedAnswerPreferences()[flatKey];
+    if (flat) return flat;
+    const preferences = this.getAnswerPreferences();
+    const legacyKey = `${talkInstanceId}_${currentQuestion.id}`;
+    return preferences[legacyKey] || null;
+  }
+
   private saveAnswerPreference(
-    talkId: string,
-    questionId: string,
+    talk: any,
+    talkInstanceId: string,
+    currentQuestion: { id: string; text?: string; answers?: any[] },
     answerId: string,
     answerText: string,
-    questionText?: string,
-    allAnswers?: any[],
+    fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerText?: string }>,
+    mode: 'auto' | 'manual' = 'auto',
   ): void {
     const preferences = this.getAnswerPreferences();
-    const key = `${talkId}_${questionId}`;
-    preferences[key] = {
+    const legacyKey = `${talkInstanceId}_${currentQuestion.id}`;
+    const talkContentHash = computeTalkIdFromTalkData(talk);
+    const qIndex = Math.max(
+      0,
+      talk.questions?.findIndex((q: { id: string }) => q.id === currentQuestion.id) ?? 0,
+    );
+    const previous = sessionAnswersToQAPairs(talk, fullSessionAnswersIncludingCurrent.slice(0, -1));
+    const flatKey = buildAnswerPreferenceLookupKey(
+      talk,
+      talkContentHash,
+      qIndex,
+      previous,
+      currentQuestion.text || '',
+    );
+
+    const entry = {
       answerId,
       answerText,
-      mode: 'auto',
-      talkId,
-      questionText: questionText || '',
-      allAnswers: allAnswers || [],
+      mode,
+      talkId: talkInstanceId,
+      questionText: currentQuestion.text || '',
+      allAnswers: currentQuestion.answers || [],
       timestamp: new Date().toISOString(),
+      flatKey,
     };
+
+    preferences[legacyKey] = entry;
     localStorage.setItem('answerPreferences', JSON.stringify(preferences));
-    console.log('💾 Saved answer to my list:', key, answerText);
+
+    const flatMap = this.getFlattenedAnswerPreferences();
+    flatMap[flatKey] = entry;
+    this.setFlattenedAnswerPreferences(flatMap);
+    console.log('💾 Saved answer (flat + legacy):', flatKey, answerText);
   }
 
   private getAnswerPreferences(): Record<
@@ -1895,19 +2006,37 @@ export class UIManager extends EventEmitter {
     return stored ? JSON.parse(stored) : {};
   }
 
-  private getAnswerPreference(
-    talkId: string,
-    questionId: string,
-  ): {
-    answerId: string;
-    answerText: string;
-    mode: string;
-    questionText?: string;
-    allAnswers?: any[];
-  } | null {
-    const preferences = this.getAnswerPreferences();
-    const key = `${talkId}_${questionId}`;
-    return preferences[key] || null;
+  /**
+   * Build a full answer list for Gun chatbot reply when the same talk id or content hash
+   * has no template but each step has a matching auto preference (any talk with same path).
+   */
+  tryBuildChatbotAnswersFromFlattened(
+    talkData: any,
+  ): Array<{ questionId: string; answerId: string; answerText: string; mode?: string }> | null {
+    const questions = talkData?.questions;
+    if (!Array.isArray(questions) || questions.length === 0) return null;
+    const out: Array<{ questionId: string; answerId: string; answerText: string; mode?: string }> =
+      [];
+    const pairs: QAPair[] = [];
+    const gunId = talkData.id || '';
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i];
+      const pref = this.resolveAnswerPreferenceForTalkQuestion(talkData, i, pairs, q, gunId);
+      if (!pref || pref.mode !== 'auto') return null;
+      const ans = q.answers?.find((a: { id: string }) => a.id === pref.answerId);
+      if (!ans) return null;
+      out.push({
+        questionId: q.id,
+        answerId: pref.answerId,
+        answerText: pref.answerText,
+        mode: 'auto',
+      });
+      pairs.push({
+        questionText: (q.text || '').trim(),
+        answerText: (pref.answerText || '').trim(),
+      });
+    }
+    return out;
   }
 
   private static normalizeQuestionKey(questionText: string): string {
@@ -1972,7 +2101,10 @@ export class UIManager extends EventEmitter {
   }
 
   showPreferencesDialog(): void {
-    const preferences = this.getAnswerPreferences();
+    const preferences = {
+      ...this.getAnswerPreferences(),
+      ...this.getFlattenedAnswerPreferences(),
+    };
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.id = 'preferences-modal';
@@ -2136,13 +2268,24 @@ export class UIManager extends EventEmitter {
         const newAnswerId = target.value;
         const newAnswerText = target.options[target.selectedIndex].text;
 
-        const prefs = this.getAnswerPreferences();
-        if (prefs[key]) {
-          prefs[key].answerId = newAnswerId;
-          prefs[key].answerText = newAnswerText;
-          prefs[key].timestamp = new Date().toISOString();
-          localStorage.setItem('answerPreferences', JSON.stringify(prefs));
-          this.showNotification('Answer updated', 'success');
+        if (key.startsWith('flat_')) {
+          const prefs = this.getFlattenedAnswerPreferences();
+          if (prefs[key]) {
+            prefs[key].answerId = newAnswerId;
+            prefs[key].answerText = newAnswerText;
+            prefs[key].timestamp = new Date().toISOString();
+            this.setFlattenedAnswerPreferences(prefs);
+            this.showNotification('Answer updated', 'success');
+          }
+        } else {
+          const prefs = this.getAnswerPreferences();
+          if (prefs[key]) {
+            prefs[key].answerId = newAnswerId;
+            prefs[key].answerText = newAnswerText;
+            prefs[key].timestamp = new Date().toISOString();
+            localStorage.setItem('answerPreferences', JSON.stringify(prefs));
+            this.showNotification('Answer updated', 'success');
+          }
         }
       });
     });
@@ -2154,32 +2297,36 @@ export class UIManager extends EventEmitter {
         const key = target.dataset.prefKey!;
         const isAuto = target.checked;
 
-        const prefs = this.getAnswerPreferences();
-        if (prefs[key]) {
-          prefs[key].mode = isAuto ? 'auto' : 'manual';
-          prefs[key].timestamp = new Date().toISOString();
+        const prefs = key.startsWith('flat_')
+          ? this.getFlattenedAnswerPreferences()
+          : this.getAnswerPreferences();
+        if (!prefs[key]) return;
+
+        prefs[key].mode = isAuto ? 'auto' : 'manual';
+        prefs[key].timestamp = new Date().toISOString();
+        if (key.startsWith('flat_')) {
+          this.setFlattenedAnswerPreferences(prefs);
+        } else {
           localStorage.setItem('answerPreferences', JSON.stringify(prefs));
-
-          // Update the toggle appearance
-          const toggleSpan = target.nextElementSibling as HTMLElement;
-          if (toggleSpan) {
-            toggleSpan.style.backgroundColor = isAuto ? '#10b981' : '#dc2626';
-            const innerSpan = toggleSpan.querySelector('span') as HTMLElement;
-            if (innerSpan) {
-              innerSpan.style.transform = isAuto ? 'translateX(26px)' : 'translateX(0)';
-            }
-          }
-
-          // Update the mode badge
-          const modeBadge = document.querySelector(`.mode-badge-${key}`) as HTMLElement;
-          if (modeBadge) {
-            modeBadge.textContent = isAuto ? '🟢 AUTO' : '🔴 MANUAL';
-            modeBadge.style.background = isAuto ? '#d1fae5' : '#fee2e2';
-            modeBadge.style.color = isAuto ? '#065f46' : '#991b1b';
-          }
-
-          this.showNotification(`Mode changed to ${isAuto ? 'AUTO' : 'MANUAL'}`, 'success');
         }
+
+        const toggleSpan = target.nextElementSibling as HTMLElement;
+        if (toggleSpan) {
+          toggleSpan.style.backgroundColor = isAuto ? '#10b981' : '#dc2626';
+          const innerSpan = toggleSpan.querySelector('span') as HTMLElement;
+          if (innerSpan) {
+            innerSpan.style.transform = isAuto ? 'translateX(26px)' : 'translateX(0)';
+          }
+        }
+
+        const modeBadge = document.querySelector(`.mode-badge-${key}`) as HTMLElement;
+        if (modeBadge) {
+          modeBadge.textContent = isAuto ? '🟢 AUTO' : '🔴 MANUAL';
+          modeBadge.style.background = isAuto ? '#d1fae5' : '#fee2e2';
+          modeBadge.style.color = isAuto ? '#065f46' : '#991b1b';
+        }
+
+        this.showNotification(`Mode changed to ${isAuto ? 'AUTO' : 'MANUAL'}`, 'success');
       });
     });
 
@@ -2204,6 +2351,7 @@ export class UIManager extends EventEmitter {
       clearAllBtn.addEventListener('click', () => {
         if (confirm('Are you sure you want to clear all saved answers?')) {
           localStorage.removeItem('answerPreferences');
+          localStorage.removeItem('flattenedAnswerPreferences');
           if (document.body.contains(modal)) {
             document.body.removeChild(modal);
           }
@@ -2224,6 +2372,12 @@ export class UIManager extends EventEmitter {
   }
 
   private deleteAnswerPreference(key: string): void {
+    if (key.startsWith('flat_')) {
+      const flat = this.getFlattenedAnswerPreferences();
+      delete flat[key];
+      this.setFlattenedAnswerPreferences(flat);
+      return;
+    }
     const preferences = this.getAnswerPreferences();
     delete preferences[key];
     localStorage.setItem('answerPreferences', JSON.stringify(preferences));
@@ -2303,24 +2457,15 @@ export class UIManager extends EventEmitter {
     localStorage.setItem('myTalks', JSON.stringify(myTalks));
 
     // Save self-answers to answer preferences (user's answer list) for chatbot/auto-reply
-    const preferences = this.getAnswerPreferences();
+    const acc: Array<{ questionId: string; answerText?: string }> = [];
     for (const { questionId, answerId } of options.selfAnswers) {
       const q = talk.questions?.find((qu: any) => qu.id === questionId);
       if (!q) continue;
       const a = q.answers?.find((an: any) => an.id === answerId);
       if (!a) continue;
-      const key = `${talk.id}_${questionId}`;
-      preferences[key] = {
-        answerId: a.id,
-        answerText: a.text,
-        mode: 'auto',
-        talkId: talk.id,
-        questionText: q.text || '',
-        allAnswers: q.answers || [],
-        timestamp: new Date().toISOString(),
-      };
+      acc.push({ questionId, answerText: a.text });
+      this.saveAnswerPreference(talk, talk.id, q, a.id, a.text || '', acc, 'auto');
     }
-    localStorage.setItem('answerPreferences', JSON.stringify(preferences));
 
     const talksView = document.getElementById('talks-view');
     if (talksView?.classList.contains('active')) {
@@ -2361,6 +2506,10 @@ export class UIManager extends EventEmitter {
       const raw = localStorage.getItem('chatbotTemplates');
       const templates: Record<string, { answers: any[]; talkData: any }> = raw ? JSON.parse(raw) : {};
       templates[talkId] = data;
+      const cid = computeTalkIdFromTalkData(data.talkData);
+      if (cid && cid !== talkId) {
+        templates[cid] = data;
+      }
       localStorage.setItem('chatbotTemplates', JSON.stringify(templates));
     } catch (e) {
       console.warn('Failed to save chatbot template:', e);

@@ -17,6 +17,7 @@ End-to-end tests for the IinPublic real-time Talk system using Playwright. Tests
 | `talks-matching/02-two-talks-status-answers.spec.ts` | Two talks, status bar match count, Answers tab |
 | `talks-matching/03-chatbot-bot-badge.spec.ts` | Chatbot + `announceTalkToRoom`; bot badge on Bob not Tom |
 | `talks-matching/04-ignore-then-change-answer.spec.ts` | Multi-Q flow: mismatch then reopen → match |
+| `talks-matching/05-partial-auto-answers.spec.ts` | Flattened context: first talk saves prefs; second talk (new hash) auto-fills Q1–Q2; Jerry answers Q3 only |
 | `helpers/talks-matching-browsers.ts`, `helpers/talks-matching-flow.ts` | Shared browser launch + Tom/Jerry/Bob flows |
 | `06-contacts-tab.spec.ts` | Contacts list, click contact → matching talks |
 | `07-tags-checkbox.spec.ts` | Tag create, checkbox match/ignore |

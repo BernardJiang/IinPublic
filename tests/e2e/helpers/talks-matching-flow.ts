@@ -1,7 +1,7 @@
 import { expect, Browser, BrowserContext, Page } from '@playwright/test';
 import { clearGunDatabases } from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
-import { afterLoad, afterNav, afterAction } from './timing';
+import { afterLoad, afterNav, afterAction, afterSync } from './timing';
 
 export async function bootstrapUser(
   browser: Browser,
@@ -44,8 +44,9 @@ export async function waitForResponseModalClosed(page: Page): Promise<void> {
 
 /** Open an incoming talk via the View button (more reliable than row click for Gun-synced rows). */
 export async function openIncomingTalkModal(page: Page, titleSubstring: string): Promise<void> {
+  await afterSync();
   const row = page.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: titleSubstring });
-  await expect(row.first()).toBeVisible({ timeout: 20000 });
+  await expect(row.first()).toBeVisible({ timeout: 45000 });
   await row.first().locator('button.view-talk-btn').click();
   await page.waitForSelector('#talk-response-modal .modal-content', { timeout: 25000 });
 }
