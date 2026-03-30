@@ -3540,6 +3540,12 @@ export class UIManager extends EventEmitter {
     const existing = conversations[conversationData.conversationId];
     const isNew = !existing;
 
+    // Gun sync (subscribeToUserConversations) omits respondedByBot — do not wipe a bot badge set by match/chatbot handlers.
+    const respondedByBot =
+      conversationData.respondedByBot !== undefined
+        ? !!conversationData.respondedByBot
+        : !!existing?.respondedByBot;
+
     conversations[conversationData.conversationId] = {
       otherUserId: conversationData.otherUserId,
       otherUserName: conversationData.otherUserName,
@@ -3548,7 +3554,7 @@ export class UIManager extends EventEmitter {
       lastMessage: existing?.lastMessage ?? null,
       lastMessageTime: existing?.lastMessageTime ?? null,
       unread: isNew ? true : (existing?.unread ?? false),
-      respondedByBot: !!conversationData.respondedByBot,
+      respondedByBot,
     };
 
     localStorage.setItem('myConversations', JSON.stringify(conversations));

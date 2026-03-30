@@ -105,6 +105,7 @@ test.describe('Talks matching — chatbot + bot badge', () => {
 
     await pageTom.click('.nav-btn[data-view="talks"]');
     await afterSync();
+    // Same content-hash id as Tom's talk — one logical talk; Bob re-broadcasts it as a second announcer (no separate OUT row required).
     const talkId = await pageTom
       .locator('.talk-list-item[data-role="created"]')
       .filter({ hasText: CHATBOT_TALK_TITLE })
@@ -129,8 +130,9 @@ test.describe('Talks matching — chatbot + bot badge', () => {
     ).not.toBeVisible();
     await pageBob.click('.nav-btn[data-view="me"]');
     await afterSync();
+    // Bob's match with Jerry came from Jerry's chatbot reply to Bob's re-announce; allow Gun sync.
     await expect(
       pageBob.locator('.conversation-list-item').filter({ hasText: 'Jerry' }).first().locator('.conversation-bot-badge'),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 20000 });
   });
 });

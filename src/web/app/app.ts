@@ -23,6 +23,8 @@ export class IinPublicApp {
   private incomingClustersMap: Record<string, any> = {};
   /** Gun .map().on may replay the same response node; avoid duplicate match UI/conversations. */
   private processedTalkResponseKeys = new Set<string>();
+  /** One auto chatbot reply per announcer for the same content-hash talk id (same qa_* = same talk; keys are not author-based talk identity). */
+  private chatbotAutoReplySentForPair = new Set<string>();
 
   constructor() {
     this.gunService = new WebGunService();
@@ -317,6 +319,25 @@ export class IinPublicApp {
       });
   }
 
+  /**
+   * When chatbot is on and we have a saved template for this talk, reply once per announcer
+   * (e.g. Bob re-broadcasts the same talk Tom created — Jerry auto-replies on first receipt, not only on Gun replay).
+   */
+  private maybeAutoChatbotReplyToAnnouncer(
+    talkId: string,
+    talkData: any,
+    authorId: string,
+    authorName: string,
+  ): void {
+    if (!authorId || authorId === this.currentUser?.id) return;
+    if (!this.uiManager.getChatbotEnabled()) return;
+    if (!this.uiManager.getChatbotTemplate(talkId)) return;
+    const pairKey = `${talkId}::${authorId}`;
+    if (this.chatbotAutoReplySentForPair.has(pairKey)) return;
+    this.chatbotAutoReplySentForPair.add(pairKey);
+    this.tryChatbotReply(talkId, talkData, authorId, authorName);
+  }
+
   private subscribeToTalks(chatroomId: string): void {
     console.log('🎯 Subscribing to chatroom talks:', chatroomId);
     const gun = this.gunService.getGun();
@@ -334,27 +355,18 @@ export class IinPublicApp {
       const authorId = String(talkAnnouncement?.authorId || '');
       const pairKey = `${talkId}::${authorId}`;
 
-      // Same sender + same talk announcement replayed — chatbot re-broadcast path only
+      // Same sender + same talk announcement replayed — retry chatbot if not already sent for this pair
       if (seenTalkAuthor.has(pairKey)) {
-        if (
-          talkAnnouncement &&
-          talkAnnouncement.talkId &&
-          authorId &&
-          authorId !== this.currentUser?.id &&
-          this.uiManager.getChatbotEnabled()
-        ) {
-          const template = this.uiManager.getChatbotTemplate(talkId);
-          if (template) {
-            void this.talkService.getTalkWithRetry(talkAnnouncement.talkId).then((talkData) => {
-              if (!talkData) return;
-              this.tryChatbotReply(
-                talkId,
-                talkData,
-                authorId,
-                talkAnnouncement.authorName || 'Unknown',
-              );
-            });
-          }
+        if (talkAnnouncement?.talkId && authorId && authorId !== this.currentUser?.id) {
+          void this.talkService.getTalkWithRetry(talkAnnouncement.talkId).then((talkData) => {
+            if (!talkData) return;
+            this.maybeAutoChatbotReplyToAnnouncer(
+              talkId,
+              talkData,
+              authorId,
+              talkAnnouncement.authorName || 'Unknown',
+            );
+          });
         }
         return;
       }
@@ -386,6 +398,12 @@ export class IinPublicApp {
               talkAnnouncement.authorId,
               talkAnnouncement.authorName || 'Unknown',
               talkData,
+            );
+            this.maybeAutoChatbotReplyToAnnouncer(
+              talkId,
+              talkData,
+              authorId,
+              talkAnnouncement.authorName || 'Unknown',
             );
           }
 
