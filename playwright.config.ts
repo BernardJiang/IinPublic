@@ -1,5 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
 
+/** Milliseconds between browser actions (CLI has no --slow-mo). Example: `PW_SLOW_MO=1000 npm run test:e2e -- …` */
+const pwSlowMo = process.env.PW_SLOW_MO;
+const slowMoMs =
+  pwSlowMo != null && pwSlowMo !== ''
+    ? Number(pwSlowMo)
+    : undefined;
+const launchOptions =
+  typeof slowMoMs === 'number' && !Number.isNaN(slowMoMs) && slowMoMs >= 0
+    ? { slowMo: slowMoMs }
+    : undefined;
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,
@@ -15,6 +26,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     headless: false,
+    ...(launchOptions ? { launchOptions } : {}),
   },
 
   projects: [
