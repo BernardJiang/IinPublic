@@ -3,6 +3,12 @@ import { clearGunDatabases } from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
 import { afterLoad, afterNav, afterAction, afterSync } from './timing';
 
+/** Slack for Gun + UI when the full E2E suite has been running a while (webpack/Gun load). */
+const INCOMING_ROW_POLL_MS = 20_000;
+const INCOMING_ROW_FINAL_MS = 15_000;
+const RESPONSE_MODAL_CONTENT_MS = 60_000;
+const RESPONSE_MODAL_DETACHED_MS = 25_000;
+
 export async function bootstrapUser(
   browser: Browser,
   label: string,
@@ -39,16 +45,79 @@ export async function waitForTabActive(
 }
 
 export async function waitForResponseModalClosed(page: Page): Promise<void> {
-  await page.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
+  await page.waitForSelector('#talk-response-modal', { state: 'detached', timeout: RESPONSE_MODAL_DETACHED_MS });
 }
 
 /** Open an incoming talk via the View button (more reliable than row click for Gun-synced rows). */
 export async function openIncomingTalkModal(page: Page, titleSubstring: string): Promise<void> {
+  await page.click('.nav-btn[data-view="talks"]');
+  await waitForTabActive(page, 'talks');
   await afterSync();
   const row = page.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: titleSubstring });
-  await expect(row.first()).toBeVisible({ timeout: 45000 });
+  const deadline = Date.now() + 120000;
+  while (Date.now() < deadline) {
+    await afterSync();
+    try {
+      await expect(row.first()).toBeVisible({ timeout: INCOMING_ROW_POLL_MS });
+      break;
+    } catch {
+      await page.click('.nav-btn[data-view="chatrooms"]');
+      await waitForTabActive(page, 'chatrooms');
+      await afterSync();
+      await page.click('.nav-btn[data-view="talks"]');
+      await waitForTabActive(page, 'talks');
+    }
+  }
+  await expect(row.first()).toBeVisible({ timeout: INCOMING_ROW_FINAL_MS });
   await row.first().locator('button.view-talk-btn').click();
-  await page.waitForSelector('#talk-response-modal .modal-content', { timeout: 25000 });
+  await page.waitForSelector('#talk-response-modal .modal-content', { timeout: RESPONSE_MODAL_CONTENT_MS });
+}
+
+/**
+ * Open the response dialog with saved auto-answers applied (flattened prefs / chatbot path).
+ * Normal {@link openIncomingTalkModal} skips auto so browsing IN rows does not instantly complete a match.
+ */
+export async function openIncomingTalkModalWithAutoAnswers(
+  page: Page,
+  titleSubstring: string,
+): Promise<void> {
+  await page.click('.nav-btn[data-view="talks"]');
+  await waitForTabActive(page, 'talks');
+  await afterSync();
+  const row = page.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: titleSubstring });
+  const deadline = Date.now() + 120000;
+  while (Date.now() < deadline) {
+    await afterSync();
+    try {
+      await expect(row.first()).toBeVisible({ timeout: INCOMING_ROW_POLL_MS });
+      break;
+    } catch {
+      await page.click('.nav-btn[data-view="chatrooms"]');
+      await waitForTabActive(page, 'chatrooms');
+      await afterSync();
+      await page.click('.nav-btn[data-view="talks"]');
+      await waitForTabActive(page, 'talks');
+    }
+  }
+  await expect(row.first()).toBeVisible({ timeout: INCOMING_ROW_FINAL_MS });
+  const talkId = await row.first().getAttribute('data-talk-id');
+  if (!talkId) {
+    throw new Error(`openIncomingTalkModalWithAutoAnswers: missing data-talk-id for "${titleSubstring}"`);
+  }
+  await page.evaluate(async (id: string) => {
+    const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+    if (typeof app?.openTalkResponseDialogWithAuto === 'function') {
+      await app.openTalkResponseDialogWithAuto(id);
+      return;
+    }
+    if (!app?.talkService?.getTalkWithRetry || !app?.uiManager?.showTalkResponseDialog) {
+      throw new Error('App not ready (openTalkResponseDialogWithAuto or talkService/uiManager)');
+    }
+    const talk = await app.talkService.getTalkWithRetry(id);
+    if (!talk) throw new Error(`Could not load talk: ${id}`);
+    app.uiManager.showTalkResponseDialog(talk, { skipAutoAnswer: false });
+  }, talkId);
+  await page.waitForSelector('#talk-response-modal .modal-content', { timeout: RESPONSE_MODAL_CONTENT_MS });
 }
 
 /** Close pages/contexts, manualCleanup, clear Gun — use in beforeEach for multi-user talks suites. */

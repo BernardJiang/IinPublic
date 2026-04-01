@@ -54,8 +54,8 @@ export async function clearGunDatabases() {
     console.warn('  ⚠️ Could not connect to Gun.js server to clear database');
   }
 
-  // Allow server and Gun to finish clearing before next test
-  await new Promise((resolve) => setTimeout(resolve, 600));
+  // Allow server and Gun to finish clearing before next test (longer after many suite clears / disk IO)
+  await new Promise((resolve) => setTimeout(resolve, 1000));
 
   console.log('✅ All databases cleared');
 }

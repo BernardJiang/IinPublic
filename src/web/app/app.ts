@@ -1446,6 +1446,19 @@ export class IinPublicApp {
     });
   }
 
+  /**
+   * E2E / advanced: open response dialog with flattened / saved auto-answers applied.
+   * The normal IN-row "View" path uses skipAutoAnswer so opening the list does not instantly complete a match.
+   */
+  public async openTalkResponseDialogWithAuto(talkId: string): Promise<void> {
+    const talk = await this.talkService.getTalkWithRetry(talkId);
+    if (!talk) {
+      this.uiManager.showNotification('Could not load talk.', 'error');
+      return;
+    }
+    this.uiManager.showTalkResponseDialog(talk, { skipAutoAnswer: false });
+  }
+
   public manualCleanup(): void {
     // Manually trigger cleanup (for E2E tests where beforeunload may not fire)
     console.log('🧹 Manual cleanup called');

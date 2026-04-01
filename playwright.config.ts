@@ -19,6 +19,10 @@ export default defineConfig({
   workers: 1,
   reporter: 'html',
   timeout: 300000,
+  // Full `npm run test:e2e` keeps webpack + Gun warm for a long time; 30s was tight for multi-browser talks.
+  expect: {
+    timeout: 45_000,
+  },
 
   use: {
     baseURL: 'http://localhost:3001',

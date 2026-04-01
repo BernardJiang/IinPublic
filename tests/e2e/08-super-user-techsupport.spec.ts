@@ -136,14 +136,31 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     titleSubstring: string,
     typeBadge: 'tag' | 'matching',
   ): Promise<void> {
+    await page.click('.nav-btn[data-view="talks"]');
+    await waitForTabActive(page, 'talks');
+    await page.waitForTimeout(800);
     const row = page
       .locator('.talk-list-item[data-role="incoming"]')
       .filter({ has: page.locator('.talk-badge-type').filter({ hasText: typeBadge }) })
       .filter({ hasText: titleSubstring })
       .first();
-    await expect(row).toBeVisible({ timeout: 25000 });
+    const deadline = Date.now() + 120000;
+    while (Date.now() < deadline) {
+      try {
+        await expect(row).toBeVisible({ timeout: 12000 });
+        break;
+      } catch {
+        await page.click('.nav-btn[data-view="chatrooms"]');
+        await waitForTabActive(page, 'chatrooms');
+        await page.waitForTimeout(500);
+        await page.click('.nav-btn[data-view="talks"]');
+        await waitForTabActive(page, 'talks');
+        await page.waitForTimeout(800);
+      }
+    }
+    await expect(row).toBeVisible({ timeout: 10000 });
     await row.locator('button.view-talk-btn').click();
-    await page.waitForSelector('#talk-response-modal .modal-content', { timeout: 25000 });
+    await page.waitForSelector('#talk-response-modal .modal-content', { timeout: 30000 });
   }
 
   test('TechSupport creates 10 tags + 10 talks, answers all himself (in UI); Tom joins; TechSupport sends all 20; Tom answers all; TechSupport confirms', async () => {
@@ -303,7 +320,7 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
       .locator('.talk-list-item[data-role="incoming"]')
       .filter({ hasText: copyTalkTitle })
       .first();
-    await expect(incomingRow).toBeVisible({ timeout: 25000 });
+    await expect(incomingRow).toBeVisible({ timeout: 90000 });
     await incomingRow.locator('button.view-talk-btn').click();
     await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 25000 });
     await pageTom.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();

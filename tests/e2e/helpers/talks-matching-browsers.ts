@@ -22,8 +22,9 @@ export async function launchThreeBrowsers(): Promise<ThreeBrowsers> {
   return { tom, jerry, bob };
 }
 
-export async function shutdownThreeBrowsers(b: ThreeBrowsers): Promise<void> {
-  await b.tom.close().catch(() => {});
-  await b.jerry.close().catch(() => {});
-  await b.bob.close().catch(() => {});
+export async function shutdownThreeBrowsers(b: ThreeBrowsers | undefined): Promise<void> {
+  if (!b?.tom && !b?.jerry && !b?.bob) return;
+  await b?.tom?.close().catch(() => {});
+  await b?.jerry?.close().catch(() => {});
+  await b?.bob?.close().catch(() => {});
 }

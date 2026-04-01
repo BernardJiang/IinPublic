@@ -67,7 +67,7 @@ test.describe('Talks matching — ignore then change to match', () => {
 
     await pageTom.click('#create-talk-btn');
     await pageTom.waitForSelector('#talk-editor-form');
-    await pageTom.fill('#talk-title', 'Tennis Partner');
+    await pageTom.fill('#talk-title', 'E2E Ignore Then Match Tennis');
     await pageTom.selectOption('#talk-type', 'matching');
     await pageTom.click('#add-question-btn');
     await afterAction();
@@ -103,14 +103,14 @@ test.describe('Talks matching — ignore then change to match', () => {
     await afterSync();
     await pageJerry.click('.nav-btn[data-view="talks"]');
     await afterSync();
-    await openIncomingTalkModal(pageJerry, 'Tennis Partner');
+    await openIncomingTalkModal(pageJerry, 'E2E Ignore Then Match Tennis');
     await pageJerry.locator('input.choice-radio[data-answer-text="Yes"][data-mode="manual"]').first().click();
     await pageJerry.locator('input.choice-radio[data-answer-text="amateur"][data-mode="manual"]').first().click();
     await pageJerry.locator('input.choice-radio[data-answer-text="No"][data-mode="manual"]').first().click();
     await pageJerry.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
 
     await afterSync();
-    await openIncomingTalkModal(pageJerry, 'Tennis Partner');
+    await openIncomingTalkModal(pageJerry, 'E2E Ignore Then Match Tennis');
     await pageJerry.locator('input.choice-radio[data-answer-text="Yes"][data-mode="auto"]').first().click();
     await afterAction();
     await pageJerry.locator('input.choice-radio[data-answer-text="amateur"][data-mode="auto"]').first().click();

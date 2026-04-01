@@ -85,6 +85,8 @@ npx playwright show-report
 - **Gun.js sync**: Tests use configurable waits; long mode gives more time for propagation.
 - **Single worker**: Tests run sequentially (`workers: 1`) to avoid races with shared Gun state.
 - **Load state**: Tests use `waitForLoadState('load')` (not `networkidle`) so Gun/WebSocket activity doesn't block. **afterLoad/afterSync** are required so Gun can connect and propagate (e.g. headcount); shortening them too much causes headcount stuck at 1 and flaky tests.
+- **Incoming talk rows**: `openIncomingTalkModal` / `openIncomingTalkModalWithAutoAnswers` go to the Talks tab first, then poll up to ~2 minutes (with chatrooms ↔ talks tab switches) until the IN row appears. If many tests fail on “incoming row not visible”, stop other processes using ports 8080/3001 and run `npm run test:e2e` again so Playwright can start fresh web + Gun servers.
+- **Full suite vs single file**: Files run in directory order (`01`…`08`, then `talks-matching/…`). Multi-browser talks tests run **last**, when webpack + Gun have been under load the longest, so Gun sync and modal opens can take longer than in an isolated run. Mitigations: use `E2E_INTERVAL=long npm run test:e2e` for more `afterSync` slack; avoid a **manually started** dev server on 8080/3001 while Playwright runs (`reuseExistingServer: true` will attach to it and share stale state); close heavy apps to free CPU; or run `npx playwright test tests/e2e/talks-matching` first as a smoke check, then the full command.
 
 
 npx playwright test tests/e2e/talks-matching/03-chatbot-bot-badge.spec.ts --debug

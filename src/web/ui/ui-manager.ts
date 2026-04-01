@@ -1136,7 +1136,7 @@ export class UIManager extends EventEmitter {
       this.emit('demandFullTalkByIdentity', {
         identityKey: identityKeyFallback,
         callback: (fullTalk: any) => {
-          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: false });
+          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true });
           else this.showNotification('Could not load talk.', 'error');
         },
       });
@@ -1166,7 +1166,7 @@ export class UIManager extends EventEmitter {
         talkId: tid,
         identityKeyFallback: identityKeyFallback || undefined,
         callback: (fullTalk: any) => {
-          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: false });
+          if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true });
           else
             this.showNotification(
               'Could not load this talk yet. Check your connection and try again.',

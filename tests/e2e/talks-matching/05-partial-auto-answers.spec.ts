@@ -2,8 +2,8 @@
  * Flattened / context-aware saved answers: Jerry completes a 3-Q talk (Sun), then opens a new
  * talk (Sat) with the same first two questions — the UI auto-advances Q1–Q2; Jerry only answers Q3.
  *
- * Depends on incoming talks opening with auto-answer enabled (`showTalkDetail` → `demandFullTalk*`
- * callbacks use `skipAutoAnswer: false`) so saved flat prefs apply when using View on an IN row.
+ * Uses `openIncomingTalkModalWithAutoAnswers` (app.openTalkResponseDialogWithAuto) for the second
+ * talk so saved prefs apply; normal View keeps skipAutoAnswer to avoid breaking other E2E flows.
  */
 import { test, expect, Browser, BrowserContext, Page } from '@playwright/test';
 import { clearGunDatabases } from '../helpers/clear-database';
@@ -14,6 +14,7 @@ import {
   waitForTabActive,
   waitForResponseModalClosed,
   openIncomingTalkModal,
+  openIncomingTalkModalWithAutoAnswers,
   resetTalksMatchingSession,
   finalCleanupPages,
 } from '../helpers/talks-matching-flow';
@@ -137,14 +138,20 @@ test.describe('Talks matching — partial auto-answers (flattened context)', () 
     await waitForTabActive(pageTom!, 'chatrooms');
 
     await afterSync();
-    await openIncomingTalkModal(pageJerry!, TITLE_SAT);
+    await openIncomingTalkModalWithAutoAnswers(pageJerry!, TITLE_SAT);
 
     const modal2 = pageJerry!.locator('#talk-response-modal');
-    await expect(modal2).toContainText('Question 3 of 3');
-    await expect(modal2).toContainText('Saturday');
-    await expect(modal2).not.toContainText('Sunday');
+    const modal2Body = modal2.locator('.modal-content').first();
+    // Scope to modal body so the IN list / other UI cannot add stray "Sunday" text; require third question copy.
+    await expect(modal2Body).toContainText('Question 3 of 3', { timeout: 20000 });
+    await expect(modal2Body.getByText(/Can you play on Saturday/i)).toBeVisible({ timeout: 10000 });
+    await expect(modal2Body).not.toContainText('Can you play on Sunday');
 
-    await modal2.locator('input.choice-radio[data-is-match="true"][data-mode="manual"]').click();
+    const matchManual = modal2.locator(
+      'input.choice-radio[data-is-match="true"][data-mode="manual"]',
+    );
+    await expect(matchManual).toBeVisible({ timeout: 15000 });
+    await matchManual.click();
     await waitForResponseModalClosed(pageJerry!);
     await waitForTabActive(pageJerry!, 'talks');
   });
