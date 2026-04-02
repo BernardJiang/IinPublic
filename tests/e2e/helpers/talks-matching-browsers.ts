@@ -9,15 +9,16 @@ export type ThreeBrowsers = { tom: Browser; jerry: Browser; bob: Browser };
  * Does not clear DB — call clearGunDatabases in beforeEach/beforeAll as your suite needs.
  */
 export async function launchThreeBrowsers(): Promise<ThreeBrowsers> {
-  const mk = (x: string) => ({
+  // Y=40 avoids stacking exactly on 008-super-user's 0,0 and 640,0 after back-to-back runs (macOS window/CDP oddities).
+  const mk = (x: number) => ({
     headless: false,
     slowMo: delay(50, 120),
-    args: [`--window-position=${x}`, '--window-size=640,1200', '--force-device-scale-factor=1'],
+    args: [`--window-position=${x},40`, '--window-size=640,1200', '--force-device-scale-factor=1'],
   });
   const [tom, jerry, bob] = await Promise.all([
-    chromium.launch(mk('0,0')),
-    chromium.launch(mk('640,0')),
-    chromium.launch(mk('1280,0')),
+    chromium.launch(mk(0)),
+    chromium.launch(mk(640)),
+    chromium.launch(mk(1280)),
   ]);
   return { tom, jerry, bob };
 }

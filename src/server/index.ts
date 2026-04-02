@@ -505,7 +505,8 @@ class IinPublicServer {
       try {
         const talk = await this.loadTalkDataFromGraphOrBody(req.params.id);
         if (!talk) {
-          res.status(404).json({ error: 'Talk not found' });
+          // 202 (not 404) avoids browser "Failed to load resource" spam while clients poll until replication.
+          res.status(202).json({ pending: true, id: req.params.id });
           return;
         }
         res.json(talk);

@@ -126,17 +126,20 @@ export class WebTalkService {
       if (!base) return null;
       try {
         const res = await fetch(`${base}/api/talks/${encodeURIComponent(talkId)}`);
+        if (res.status === 202) return null;
         if (!res.ok) return null;
-        const normalized = this.normalizeTalkFromStorage(await res.json());
+        const raw = await res.json();
+        if (raw && typeof raw === 'object' && (raw as { pending?: boolean }).pending === true) {
+          return null;
+        }
+        const normalized = this.normalizeTalkFromStorage(raw);
         return looksComplete(normalized) ? (normalized as Talk) : null;
       } catch {
         return null;
       }
     };
 
-    const fromServer = await tryServer();
-    if (fromServer) return fromServer;
-
+    // Prefer local Gun first; one HTTP fallback at the end (server returns 202 while replicating, not 404).
     for (let i = 0; i < attempts; i++) {
       const t = await this.getTalk(talkId);
       if (looksComplete(t)) return t as Talk;

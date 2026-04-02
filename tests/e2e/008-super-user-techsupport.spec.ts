@@ -67,6 +67,21 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     console.log('🚀 Launched 2 Chrome browsers: TechSupport, Tom');
   });
 
+  /**
+   * Both tests call bootstrapUser() on the same browsers. Without this, test 2 creates new
+   * contexts while test 1's contexts stay open → 4 live contexts / CDP load until afterAll.
+   * That stresses GPU + Playwright and commonly breaks the *next* file (e.g. talks-matching/03)
+   * with timeouts or "Object with guid … was not bound in the connection".
+   */
+  test.afterEach(async () => {
+    await contextTechSupport?.close().catch(() => {});
+    await contextTom?.close().catch(() => {});
+    contextTechSupport = undefined as unknown as BrowserContext;
+    contextTom = undefined as unknown as BrowserContext;
+    pageTechSupport = undefined as unknown as Page;
+    pageTom = undefined as unknown as Page;
+  });
+
   test.afterAll(async () => {
     const manualCleanup = async (page?: Page) => {
       if (!page) return;
@@ -81,12 +96,14 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     };
     await manualCleanup(pageTechSupport);
     await manualCleanup(pageTom);
-    await pageTechSupport?.close();
-    await pageTom?.close();
-    await contextTechSupport?.close();
-    await contextTom?.close();
-    await browserTechSupport?.close();
-    await browserTom?.close();
+    await pageTechSupport?.close().catch(() => {});
+    await pageTom?.close().catch(() => {});
+    await contextTechSupport?.close().catch(() => {});
+    await contextTom?.close().catch(() => {});
+    await browserTechSupport?.close().catch(() => {});
+    await browserTom?.close().catch(() => {});
+    // Let the OS reap Chromium processes before the next spec launches more browsers.
+    await new Promise((r) => setTimeout(r, 2000));
     await clearGunDatabases();
     console.log('✅ Cleanup complete');
   });

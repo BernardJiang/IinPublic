@@ -88,6 +88,21 @@ npx playwright show-report
 - **Incoming talk rows**: `openIncomingTalkModal` / `openIncomingTalkModalWithAutoAnswers` go to the Talks tab first, then poll up to ~2 minutes (with chatrooms ↔ talks tab switches) until the IN row appears. If many tests fail on “incoming row not visible”, stop other processes using ports 8080/3001 and run `npm run test:e2e` again so Playwright can start fresh web + Gun servers.
 - **Full suite vs single file**: Files run in directory order (`01`…`08`, then `talks-matching/…`). Multi-browser talks tests run **last**, when webpack + Gun have been under load the longest, so Gun sync and modal opens can take longer than in an isolated run. Mitigations: use `E2E_INTERVAL=long npm run test:e2e` for more `afterSync` slack; avoid a **manually started** dev server on 8080/3001 while Playwright runs (`reuseExistingServer: true` will attach to it and share stale state); close heavy apps to free CPU; or run `npx playwright test tests/e2e/talks-matching` first as a smoke check, then the full command.
 
+### Why `talks-matching/04` and `05` often pass alone but flake at the end of `npm run test:e2e`
+
+**This is usually not “cleanup failed.”** Evidence:
+
+- Each talks-matching file calls `clearGunDatabases()` in `beforeAll` / `beforeEach` / `afterAll`, closes browsers, and hits `POST /api/test/clear-database` so the server’s in-memory Gun graph is reset. If cleanup were systematically broken, **running 04/05 first** would still see leftover state from a **previous manual run** on disk — yet your reorder fix works **within the same** full suite, without changing cleanup code.
+- What changes with order is **how warm** the process is: after many tests, the **webpack dev client**, **Node (Gun + Express)**, and **three headed Chromiums** in the talks-matching specs have been busy longer. Gun replication, `getTalkWithRetry`, and incoming-list HTTP paths are **latency-sensitive**; under load they exceed the same timeouts that pass on a **cold** run.
+
+**Cleanup caveats (secondary):** `clearGunDatabases` deletes project `radata/`, `data.json` / `data1.json`, and clears `gun._.graph` on the server. That is best-effort: Radisk and long-lived peers can be subtle, but with **workers: 1** and **pages closed** before each clear, cross-test **corruption** is unlikely. The dominant issue is **timing**, not stale rows.
+
+**Practical mitigations:** Run the heaviest talks-matching specs **early** (rename files so they sort first, or run `npx playwright test tests/e2e/talks-matching/04 …` before the rest), use `E2E_INTERVAL=long` for the full suite, or restart the dev server between CI jobs if you need a perfectly cold Gun server.
+
+### `008-super-user-techsupport` before `talks-matching/03` (timeouts / CDP “guid … not bound”)
+
+`008` defines **two tests** that share one `beforeAll` (two `chromium.launch` instances). Each test calls `bootstrapUser()` → **new** `BrowserContext`s. The second test used to **replace** `page*` / `context*` without **closing** the first test’s contexts, so up to **four** live contexts piled up until `afterAll`’s `browser.close()`. That spikes CDP/GPU load and often breaks the **next** spec with a **300s hang** or Playwright’s **“Object with guid … was not bound in the connection”** (stale CDP target). **Fix:** `afterEach` closes both contexts after every test; `afterAll` waits **2s** after `browser.close()` so the OS can reap processes before the following file launches three more Chromes.
+
 
 npx playwright test tests/e2e/talks-matching/03-chatbot-bot-badge.spec.ts --debug
 PWDEBUG=1 npx playwright test tests/e2e/talks-matching/03-chatbot-bot-badge.spec.ts

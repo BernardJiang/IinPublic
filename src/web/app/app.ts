@@ -8,7 +8,7 @@ import { UIManager } from '../ui/ui-manager';
 import { LocationPrivacy } from '../../shared/location';
 import { getAllChatroomIds, CHATROOM_HIERARCHY } from '../../shared/chatroom-hierarchy';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
-import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
+import { buildTalkIdentityKey, computeTalkIdFromTalkData } from '../../shared/talk-content-id';
 
 export class IinPublicApp {
   private gunService: WebGunService;
@@ -610,6 +610,36 @@ export class IinPublicApp {
   }
 
   /**
+   * Wait until GET /api/talks/:id returns full talk JSON from the server graph so POST /received
+   * and receivers’ incoming list can resolve the same id before we announce in the chatroom.
+   */
+  private async waitUntilTalkReadableOnServer(talkId: string): Promise<boolean> {
+    const base = this.getBackendApiBase();
+    const maxAttempts = 60;
+    const gapMs = 250;
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const res = await fetch(`${base}/api/talks/${encodeURIComponent(talkId)}`);
+        if (res.status === 202) {
+          /* pending — server graph not replicated yet; no 404 console spam */
+        } else if (res.ok) {
+          const data = await res.json();
+          if (data && typeof data === 'object' && (data as { pending?: boolean }).pending === true) {
+            /* same */
+          } else {
+            const qs = data?.questions;
+            if (Array.isArray(qs) && qs.length > 0) return true;
+          }
+        }
+      } catch {
+        /* network — retry */
+      }
+      await new Promise((r) => setTimeout(r, gapMs));
+    }
+    return false;
+  }
+
+  /**
    * Current user saw a talk announcement in their subscribed chatroom — register with the backend
    * so `incomingTalksByUser` is populated (IN list). Receiver-driven so it still works when the
    * sender's on-screen member list is wrong (e.g. eviction / room mismatch).
@@ -637,7 +667,9 @@ export class IinPublicApp {
         if (!res.ok) {
           const text = await res.text();
           console.error('Incoming talk registration failed:', res.status, text);
+          return;
         }
+        await this.refreshIncomingTalkClustersFromApiUntilVisible(talkData, talkId);
       })
       .catch((e) => console.error('Incoming talk registration request failed:', e));
   }
@@ -725,6 +757,82 @@ export class IinPublicApp {
         this.uiManager.setIncomingTalkClusters(clusters);
         this.uiManager.displayTalksList();
       });
+  }
+
+  /**
+   * Merge IN clusters from the HTTP API (server Gun graph). Notifications can show before the browser
+   * peer replicates `incomingTalksByUser`; opening the Talks tab emits `needIncomingTalkClusters` to
+   * pull this list without waiting on Gun.
+   */
+  private async refreshIncomingTalkClustersFromApi(): Promise<void> {
+    if (!this.currentUser?.id) return;
+    const base = this.getBackendApiBase();
+    try {
+      const res = await fetch(
+        `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/incoming-talks`,
+      );
+      if (!res.ok) return;
+      const clusters = await res.json();
+      if (!Array.isArray(clusters)) return;
+      this.applyIncomingClustersFromApiArray(clusters);
+    } catch (e) {
+      console.warn('refreshIncomingTalkClustersFromApi failed:', e);
+    }
+  }
+
+  private applyIncomingClustersFromApiArray(clusters: any[]): void {
+    const next: Record<string, any> = { ...this.incomingClustersMap };
+    for (const c of clusters) {
+      if (c?.identityKey) {
+        next[c.identityKey] = c;
+      }
+    }
+    this.incomingClustersMap = next;
+    const list = Object.values(this.incomingClustersMap).filter((c: any) => c && c.identityKey);
+    this.uiManager.setIncomingTalkClusters(list);
+    this.uiManager.displayTalksList();
+  }
+
+  /**
+   * After registration, poll GET incoming-talks until this talk appears (or timeout). Aligns IN list
+   * with notification when server/Gun replication lags.
+   */
+  private async refreshIncomingTalkClustersFromApiUntilVisible(talkData: any, talkId: string): Promise<void> {
+    if (!this.currentUser?.id || !talkData) return;
+    const identityKey = buildTalkIdentityKey(talkData);
+    const base = this.getBackendApiBase();
+    const maxAttempts = 30;
+    const gapMs = 400;
+
+    const clusterIncludesTalk = (clusters: any[]): boolean =>
+      clusters.some((c: any) => {
+        if (!c?.identityKey) return false;
+        if (c.identityKey === identityKey) return true;
+        if (c.identityAliases && typeof c.identityAliases === 'object' && c.identityAliases[identityKey]) {
+          return true;
+        }
+        if (c.talkIds && typeof c.talkIds === 'object' && c.talkIds[talkId]) return true;
+        return false;
+      });
+
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const res = await fetch(
+          `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/incoming-talks`,
+        );
+        if (res.ok) {
+          const clusters = await res.json();
+          if (Array.isArray(clusters)) {
+            this.applyIncomingClustersFromApiArray(clusters);
+            if (clusterIncludesTalk(clusters)) return;
+          }
+        }
+      } catch {
+        /* retry */
+      }
+      await new Promise((r) => setTimeout(r, gapMs));
+    }
+    await this.refreshIncomingTalkClustersFromApi();
   }
 
   private subscribeToUserConversations(): void {
@@ -869,12 +977,20 @@ export class IinPublicApp {
           selfAnswers: talkData.selfAnswers ?? [],
         });
 
-        // Broadcast the talk to the chatroom
+        // Announce in chatroom only after server graph can serve GET /api/talks/:id (receiver POST /received needs it)
         const chatroomId = this.chatroomService.getCurrentChatroomId();
         if (chatroomId) {
-          const gun = this.gunService.getGun();
+          const synced = await this.waitUntilTalkReadableOnServer(talk.id);
+          if (!synced) {
+            this.subscribeToTalkResponses(talk.id, talk);
+            this.uiManager.showNotification(
+              'Talk saved locally. Server is slow to sync — use Broadcast in the chatroom in a few seconds.',
+              'info',
+            );
+            return;
+          }
 
-          // Store the talk announcement in the chatroom
+          const gun = this.gunService.getGun();
           gun.get('chatrooms').get(chatroomId).get('talks').get(talk.id).put({
             talkId: talk.id,
             title: talk.title,
@@ -887,7 +1003,6 @@ export class IinPublicApp {
 
           console.log('📢 Talk broadcasted to chatroom:', chatroomId);
 
-          // Subscribe to responses for this talk (since author won't receive their own announcement)
           this.subscribeToTalkResponses(talk.id, talk);
         }
 
@@ -923,6 +1038,11 @@ export class IinPublicApp {
           for (const talkId of broadcastableIds) {
             const talk = await this.talkService.getTalk(talkId);
             if (!talk) continue;
+            const synced = await this.waitUntilTalkReadableOnServer(talk.id);
+            if (!synced) {
+              console.warn('Skipping broadcast; talk not on server yet:', talk.id);
+              continue;
+            }
             gun.get('chatrooms').get(chatroomId).get('talks').get(talk.id).put({
               talkId: talk.id,
               title: talk.title,
@@ -1022,6 +1142,10 @@ export class IinPublicApp {
           'error',
         );
       }
+    });
+
+    this.uiManager.on('needIncomingTalkClusters', () => {
+      void this.refreshIncomingTalkClustersFromApi();
     });
 
     this.uiManager.on('needTalkStats', async (data: { talkIds: string[] }) => {
