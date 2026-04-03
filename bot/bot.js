@@ -2,6 +2,7 @@
 const TelegramBot = require("node-telegram-bot-api");
 const { exec } = require("child_process");
 const fs = require("fs");
+const path = require("path");
 
 // 🔑 Set your Telegram bot token here
 const token = process.env.TELEGRAM_TOKEN || "8639168961:AAE9BYdCww3PZPc75XmY-ZGSaFpErbnDHIA";
@@ -35,14 +36,14 @@ bot.on("message", (msg) => {
   // Help message
   if (text === "/start" || text === "/help") {
     return bot.sendMessage(chatId,
-`Usage:
-run: <command>
+      `Usage:
+      run: <command>
 
-Examples:
-run: pwd
-run: whoami
-run: ls
-run: npm run test:e2e`
+      Examples:
+      run: pwd
+      run: whoami
+      run: ls
+      run: npm run test:e2e`
     );
   }
 
@@ -51,13 +52,16 @@ run: npm run test:e2e`
     return bot.sendMessage(chatId, "Use: run: <command>");
   }
 
-  const cmd = text.replace("run:", "").trim();
+  let cmd = text.replace("run:", "").trim();
 
   if (!cmd) {
     return bot.sendMessage(chatId, "Empty command.");
   }
   if (cmd === "test") {
     cmd = "./run_e2e_with_summary.sh";
+  } 
+  if (cmd === "test2") {
+    cmd = "./scripts/run_e2e.sh";
   } 
   // 🔐 Escape double quotes
   const safeCmd = cmd.replace(/"/g, '\\"');
@@ -72,32 +76,38 @@ run: npm run test:e2e`
 
   exec(fullCmd, {
     cwd: WORK_DIR,
-    timeout: 10 * 60 * 1000, // 10 minutes
-    maxBuffer: 10 * 1024 * 1024, // 10MB output
+    timeout: 10 * 60 * 1000,
+    maxBuffer: 50 * 1024 * 1024,
     env: {
       PATH: "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
       HOME: process.env.HOME
     }
   }, (error, stdout, stderr) => {
-
+  
     let output = "";
-
+  
     if (stdout) output += stdout;
     if (stderr) output += "\n[stderr]\n" + stderr;
     if (error) output += "\n[error]\n" + error.message;
-
+  
     if (!output.trim()) {
       output = "No output";
     }
-
-    // ✂️ Telegram limit ~4096 chars
-    const chunks = output.match(/[\s\S]{1,4000}/g) || [];
-
-    for (const chunk of chunks) {
-      bot.sendMessage(chatId, "```\n" + chunk + "\n```", {
-        parse_mode: "Markdown"
-      });
-    }
+  
+    // 📁 Save full log
+    const logFile = path.join(WORK_DIR, "logs", `test_${Date.now()}.log`);
+    fs.writeFileSync(logFile, output);
+  
+    // 📤 Send file to Telegram
+    bot.sendDocument(chatId, logFile);
+  
+    // ✂️ Also send short preview (first 1000 chars)
+    const preview = output.slice(0, 1000);
+  
+    bot.sendMessage(chatId,
+      "📄 Log file sent. Preview:\n```" + preview + "```",
+      { parse_mode: "Markdown" }
+    );
   });
 });
 
