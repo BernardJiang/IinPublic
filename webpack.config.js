@@ -41,6 +41,27 @@ module.exports = {
       template: './src/web/index.html',
       title: 'IinPublic',
     }),
+    // E2E web (`DISABLE_HMR=true`): fixed relaxed capacity/FIFO so Gun map quirks don't FIFO-evict one browser
+    // to another region while the peer stays in Global — broadcast then targets the wrong chatroom's talks path.
+    ...(process.env.DISABLE_HMR === 'true'
+      ? [
+          new webpack.DefinePlugin({
+            'process.env.CHATROOM_MAX_CAPACITY': JSON.stringify(
+              process.env.CHATROOM_MAX_CAPACITY || '50',
+            ),
+            'process.env.CHATROOM_ENABLE_FIFO': JSON.stringify(
+              process.env.CHATROOM_ENABLE_FIFO !== undefined
+                ? process.env.CHATROOM_ENABLE_FIFO
+                : 'false',
+            ),
+          }),
+        ]
+      : [
+          new webpack.EnvironmentPlugin({
+            CHATROOM_MAX_CAPACITY: process.env.CHATROOM_MAX_CAPACITY || '3',
+            CHATROOM_ENABLE_FIFO: process.env.CHATROOM_ENABLE_FIFO || 'true',
+          }),
+        ]),
     // Ignore Gun.js dynamic requires to suppress webpack warnings
     new webpack.IgnorePlugin({
       resourceRegExp: /^(ws|bufferutil|utf-8-validate|supports-color)$/,

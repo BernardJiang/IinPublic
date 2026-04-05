@@ -10,7 +10,11 @@ export class WebChatroomService {
   private evictionWatcherUnsubscribe?: () => void; // Unsubscribe from eviction watcher
   private memberCountSubscriptions: Map<string, () => void> = new Map(); // Track subscriptions for cleanup
   private userLocations: Map<string, GPSCoordinate> = new Map(); // Track user locations for FIFO eviction
-  private currentSubscribedChatroomId?: string; // Track which chatroom is currently subscribed to prevent stale callbacks
+  /** Live map for the active subscribeToMembers listener — reused when reopening the same room so we never flash empty. */
+  private activeMembersForList = new Map<string, { userId: string; stageName: string }>();
+  private membersListDebounce: ReturnType<typeof setTimeout> | null = null;
+  private membersListCallback?: (members: Array<{ userId: string; stageName: string }>) => void;
+  private membersListenerRoomId: string | undefined = undefined;
 
   constructor(private gunService: WebGunService) {}
 
@@ -336,11 +340,22 @@ export class WebChatroomService {
       const gun = this.gunService.getGun();
 
       return new Promise((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          resolve([...members]);
+        };
+
+        const timeoutId = setTimeout(finish, 2000);
+
         gun
           .get('chatrooms')
           .get(chatroomId)
           .get('users')
           .once((usersData: any) => {
+            if (settled) return;
+            members.length = 0;
             if (usersData) {
               for (const userId in usersData) {
                 if (userId.startsWith('_')) continue; // Skip Gun.js metadata
@@ -350,11 +365,13 @@ export class WebChatroomService {
                 }
               }
             }
-            resolve(members);
+            // Do not resolve on empty — Gun often fires .once once with undefined before users exist;
+            // clearing the timeout then returned [] immediately and broke broadcast receiver resolution.
+            if (members.length > 0) {
+              clearTimeout(timeoutId);
+              finish();
+            }
           });
-
-        // Timeout after 2 seconds
-        setTimeout(() => resolve(members), 2000);
       });
     } catch (error) {
       console.error('Error getting active members:', error);
@@ -366,14 +383,31 @@ export class WebChatroomService {
     chatroomId: string,
     callback: (members: Array<{ userId: string; stageName: string }>) => void,
   ): void {
+    this.membersListCallback = callback;
+
+    // Reopening the same chatroom: keep Gun .map() state and only swap the callback + push a snapshot.
+    // Replacing the subscription used to clear the map; the first debounced tick was often [] and wiped
+    // broadcast receiver lists (server IN registration) while the UI still showed other users.
+    if (this.membersListenerRoomId === chatroomId && this.activeMembersUnsubscribe) {
+      queueMicrotask(() => {
+        if (this.membersListCallback === callback && chatroomId === this.membersListenerRoomId) {
+          callback(Array.from(this.activeMembersForList.values()));
+        }
+      });
+      return;
+    }
+
     if (this.activeMembersUnsubscribe) {
       this.activeMembersUnsubscribe();
     }
-    this.currentSubscribedChatroomId = chatroomId;
+    this.membersListenerRoomId = chatroomId;
+    this.activeMembersForList.clear();
+    if (this.membersListDebounce) {
+      clearTimeout(this.membersListDebounce);
+      this.membersListDebounce = null;
+    }
 
     const gun = this.gunService.getGun();
-    const activeMembers = new Map<string, { userId: string; stageName: string }>();
-    let updateTimeout: NodeJS.Timeout | null = null;
 
     const off = gun
       .get('chatrooms')
@@ -384,21 +418,28 @@ export class WebChatroomService {
         if (userId.startsWith('_')) return;
 
         if (memberData && memberData.isActive === true) {
-          activeMembers.set(userId, { userId, stageName: memberData.stageName || userId });
+          this.activeMembersForList.set(userId, { userId, stageName: memberData.stageName || userId });
         } else {
-          activeMembers.delete(userId);
+          this.activeMembersForList.delete(userId);
         }
 
-        if (updateTimeout) clearTimeout(updateTimeout);
-        updateTimeout = setTimeout(() => {
-          if (chatroomId === this.currentSubscribedChatroomId) {
-            const membersArray = Array.from(activeMembers.values());
-            callback(membersArray);
+        if (this.membersListDebounce) clearTimeout(this.membersListDebounce);
+        this.membersListDebounce = setTimeout(() => {
+          if (chatroomId === this.membersListenerRoomId && this.membersListCallback) {
+            this.membersListCallback(Array.from(this.activeMembersForList.values()));
           }
-        }, 150); // 150ms debounce
+        }, 150);
       });
 
-    this.activeMembersUnsubscribe = () => off.off();
+    this.activeMembersUnsubscribe = () => {
+      off.off();
+      this.membersListenerRoomId = undefined;
+      this.activeMembersForList.clear();
+      if (this.membersListDebounce) {
+        clearTimeout(this.membersListDebounce);
+        this.membersListDebounce = null;
+      }
+    };
   }
 
   getCurrentChatroomId(): string | undefined {

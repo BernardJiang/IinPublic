@@ -4,6 +4,11 @@ import * as path from 'path';
 import { clearGunDatabases } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay } from './helpers/timing';
+import {
+  countIncomingTalkSlots,
+  syncIncomingFromServer,
+  waitForIncomingTalkClusterOnServer,
+} from './helpers/talks-matching-flow';
 
 test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answers all, TechSupport confirms', () => {
   let browserTechSupport: Browser;
@@ -156,9 +161,11 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     await page.click('.nav-btn[data-view="talks"]');
     await waitForTabActive(page, 'talks');
     await page.waitForTimeout(800);
+    await waitForIncomingTalkClusterOnServer(page, titleSubstring);
+    await syncIncomingFromServer(page);
+    await page.waitForTimeout(400);
     const row = page
-      .locator('.talk-list-item[data-role="incoming"]')
-      .filter({ has: page.locator('.talk-badge-type').filter({ hasText: typeBadge }) })
+      .locator(`.talk-list-item[data-role="incoming"][data-incoming-type="${typeBadge}"]`)
       .filter({ hasText: titleSubstring })
       .first();
     const deadline = Date.now() + 120000;
@@ -246,6 +253,30 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     await pageTechSupport.click('#broadcast-talk-btn');
     await pageTechSupport.waitForTimeout(500);
     await waitForTabActive(pageTechSupport, 'chatrooms');
+
+    const tomUserId = await pageTom.evaluate(() =>
+      String(
+        (
+          window as unknown as {
+            __iinpublic_app?: { getApp: () => { currentUser?: { id: string } } };
+          }
+        ).__iinpublic_app?.getApp?.()?.currentUser?.id || '',
+      ),
+    );
+    expect(tomUserId.length, 'Tom user id for incoming-talks check').toBeGreaterThan(0);
+    await expect
+      .poll(
+        async () => {
+          const res = await pageTom.request.get(
+            `http://localhost:8080/api/users/${encodeURIComponent(tomUserId)}/incoming-talks`,
+          );
+          if (!res.ok()) return 0;
+          const data = await res.json();
+          return countIncomingTalkSlots(data);
+        },
+        { message: 'Tom should have 20 incoming talk slots after broadcast', timeout: 120_000 },
+      )
+      .toBeGreaterThanOrEqual(20);
 
     // 6) Tom answers all 20: first 10 are tags (checkbox checked = match), next 10 are talks (click match answer)
     console.log('\n📍 STEP 7: Tom answers all 20');

@@ -3,11 +3,102 @@ import { clearGunDatabases } from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
 import { afterLoad, afterNav, afterAction, afterSync } from './timing';
 
+/** Count distinct talk ids across incoming clusters (one merged cluster may hold many `qa_*` keys). */
+export function countIncomingTalkSlots(clusters: unknown): number {
+  if (!Array.isArray(clusters)) return 0;
+  let n = 0;
+  for (const c of clusters) {
+    const t = (c as { talkIds?: unknown })?.talkIds;
+    if (t && typeof t === 'object' && !Array.isArray(t)) {
+      const keys = Object.keys(t as object).filter((k) => !k.startsWith('_'));
+      n += keys.length > 0 ? keys.length : 1;
+    } else {
+      n += 1;
+    }
+  }
+  return n;
+}
+
 /** Slack for Gun + UI when the full E2E suite has been running a while (webpack/Gun load). */
 const INCOMING_ROW_POLL_MS = 20_000;
 const INCOMING_ROW_FINAL_MS = 15_000;
 const RESPONSE_MODAL_CONTENT_MS = 60_000;
 const RESPONSE_MODAL_DETACHED_MS = 25_000;
+
+/**
+ * Wait until the Gun server's incoming-talks API lists this title (POST /received succeeded).
+ * UI can lag Gun replication; this avoids racing only on `.incoming` rows.
+ */
+export async function waitForIncomingTalkClusterOnServer(page: Page, titleSubstring: string): Promise<void> {
+  await page.waitForFunction(
+    (titleSub: string) => {
+      const { hostname, protocol } = window.location;
+      const base =
+        hostname === 'localhost' || hostname === '127.0.0.1'
+          ? `${protocol}//${hostname}:8080`
+          : `${protocol}//${hostname}`;
+      const app = (
+        window as unknown as {
+          __iinpublic_app?: { getApp: () => { currentUser?: { id: string } } };
+        }
+      ).__iinpublic_app?.getApp?.();
+      const uid = app?.currentUser?.id;
+      if (!uid) return false;
+      return fetch(`${base}/api/users/${encodeURIComponent(uid)}/incoming-talks`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((clusters: unknown) => {
+          if (!Array.isArray(clusters)) return false;
+          const needle = titleSub.toLowerCase();
+          if (!needle) return false;
+          for (const c of clusters as any[]) {
+            const title = String(c?.title || '').toLowerCase();
+            if (title.includes(needle)) return true;
+          }
+          try {
+            if (clusters.some((c: any) => JSON.stringify(c).toLowerCase().includes(needle))) return true;
+          } catch {
+            /* ignore */
+          }
+          const talkFetches = (clusters as any[]).flatMap((c) => {
+            const t = c?.talkIds;
+            if (!t || typeof t !== 'object') return [];
+            return Object.keys(t)
+              .filter((k) => !k.startsWith('_'))
+              .map((id) =>
+                fetch(`${base}/api/talks/${encodeURIComponent(id)}`)
+                  .then((r) => (r.ok ? r.json() : null))
+                  .catch(() => null),
+              );
+          });
+          if (talkFetches.length === 0) return false;
+          return Promise.all(talkFetches).then((talks) =>
+            talks.some((td: any) => String(td?.title || '').toLowerCase().includes(needle)),
+          );
+        })
+        .catch(() => false);
+    },
+    titleSubstring,
+    { timeout: 90_000, polling: 400 },
+  );
+}
+
+/** Await server→UI incoming merge (same data as opening Talks tab; avoids racing fire-and-forget emit). */
+export async function syncIncomingFromServer(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const app = (
+      window as unknown as {
+        __iinpublic_app?: {
+          getApp: () => { syncIncomingClustersFromServer?: () => Promise<void>; uiManager?: { emit: (ev: string) => void } };
+        };
+      }
+    ).__iinpublic_app?.getApp?.();
+    if (app?.syncIncomingClustersFromServer) {
+      await app.syncIncomingClustersFromServer();
+      return;
+    }
+    app?.uiManager?.emit?.('needIncomingTalkClusters');
+  });
+}
 
 export async function bootstrapUser(
   browser: Browser,
@@ -53,6 +144,9 @@ export async function openIncomingTalkModal(page: Page, titleSubstring: string):
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
   await afterSync();
+  await waitForIncomingTalkClusterOnServer(page, titleSubstring);
+  await syncIncomingFromServer(page);
+  await afterSync();
   const row = page.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: titleSubstring });
   const deadline = Date.now() + 120000;
   while (Date.now() < deadline) {
@@ -61,11 +155,13 @@ export async function openIncomingTalkModal(page: Page, titleSubstring: string):
       await expect(row.first()).toBeVisible({ timeout: INCOMING_ROW_POLL_MS });
       break;
     } catch {
+      await syncIncomingFromServer(page);
       await page.click('.nav-btn[data-view="chatrooms"]');
       await waitForTabActive(page, 'chatrooms');
       await afterSync();
       await page.click('.nav-btn[data-view="talks"]');
       await waitForTabActive(page, 'talks');
+      await afterSync();
     }
   }
   await expect(row.first()).toBeVisible({ timeout: INCOMING_ROW_FINAL_MS });
@@ -84,6 +180,9 @@ export async function openIncomingTalkModalWithAutoAnswers(
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
   await afterSync();
+  await waitForIncomingTalkClusterOnServer(page, titleSubstring);
+  await syncIncomingFromServer(page);
+  await afterSync();
   const row = page.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: titleSubstring });
   const deadline = Date.now() + 120000;
   while (Date.now() < deadline) {
@@ -92,11 +191,13 @@ export async function openIncomingTalkModalWithAutoAnswers(
       await expect(row.first()).toBeVisible({ timeout: INCOMING_ROW_POLL_MS });
       break;
     } catch {
+      await syncIncomingFromServer(page);
       await page.click('.nav-btn[data-view="chatrooms"]');
       await waitForTabActive(page, 'chatrooms');
       await afterSync();
       await page.click('.nav-btn[data-view="talks"]');
       await waitForTabActive(page, 'talks');
+      await afterSync();
     }
   }
   await expect(row.first()).toBeVisible({ timeout: INCOMING_ROW_FINAL_MS });

@@ -99,7 +99,10 @@ bot.on("message", (msg) => {
     fs.writeFileSync(logFile, output);
   
     // 📤 Send file to Telegram
-    bot.sendDocument(chatId, logFile);
+    bot.sendDocument(chatId, logFile, {}, {
+      filename: "test.log",
+      contentType: "text/plain"
+    });
   
     // ✂️ Also send short preview (first 1000 chars)
     const preview = output.slice(0, 1000);

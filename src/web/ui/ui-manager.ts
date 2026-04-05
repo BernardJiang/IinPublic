@@ -13,6 +13,11 @@ export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
   private currentChatroom: string = 'global';
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
+
+  /** Other users in the current chatroom detail view (excludes self); used for broadcast + server-side IN registration. */
+  getCurrentChatroomMembers(): Array<{ userId: string; stageName: string }> {
+    return [...this.currentChatroomMembers];
+  }
   private currentConversationId: string | undefined = undefined;
   private chatroomMemberCounts: Map<string, number> = new Map(); // Track member count per chatroom
   private expandedChatrooms: Set<string> = new Set(['global']); // Track which chatrooms are expanded (default: global expanded)
@@ -298,9 +303,24 @@ export class UIManager extends EventEmitter {
     if (broadcastTalkBtn) {
       broadcastTalkBtn.addEventListener('click', () => {
         const broadcastableCount = this.getBroadcastableTalkIds().length;
+        // Prefer live DOM: currentChatroomMembers can lag a Gun re-subscribe or miss updates
+        // when the detail panel was rebuilt, leaving server-side IN registration with zero receivers.
+        const fromDom = Array.from(
+          document.querySelectorAll('#chatroom-members-list .chatroom-member-item[data-user-id]'),
+        ).map((el) => {
+          const node = el as HTMLElement;
+          return {
+            userId: node.dataset.userId || '',
+            stageName: (node.dataset.stageName || 'User').trim() || 'User',
+          };
+        });
+        const members =
+          fromDom.length > 0
+            ? fromDom.filter((m) => m.userId)
+            : this.currentChatroomMembers;
         this.emit('broadcastTalk', {
           chatroomId: this.currentChatroom,
-          members: this.currentChatroomMembers,
+          members,
         });
 
         // Highlight members who will receive the broadcast
@@ -909,8 +929,9 @@ export class UIManager extends EventEmitter {
                 const statusBadge = isAnswered
                   ? '<span class="talk-badge" style="background:#f3f4f6;color:#6b7280;">✅ Answered</span>'
                   : '<span class="talk-badge" style="background:#dbeafe;color:#1d4ed8;font-weight:700;">🆕 New</span>';
+                const incomingType = String(cluster?.type || 'matching').toLowerCase();
                 return `
-        <div class="talk-list-item" data-talk-id="${talkId}" data-identity-key="${this.escapeHtml(identityKey)}" data-role="incoming" style="${isAnswered ? 'background:#fafafa;' : ''}">
+        <div class="talk-list-item" data-talk-id="${talkId}" data-identity-key="${this.escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${this.escapeHtml(incomingType)}" style="${isAnswered ? 'background:#fafafa;' : ''}">
           <div class="talk-item-header">
             <div class="talk-item-title" style="${titleStyle}">${this.escapeHtml(cluster?.title || 'Incoming Talk')}</div>
             <div class="talk-item-badges">
@@ -2434,6 +2455,17 @@ export class UIManager extends EventEmitter {
   }
 
   /**
+   * Full talk from OUT/myTalks when Gun `getTalk` is slow — bulk broadcast must still POST register-receivers.
+   */
+  getBroadcastTalkPayload(talkId: string): any | null {
+    const myTalks = this.getMyTalks();
+    const row = myTalks[talkId];
+    const full = row?.fullTalk;
+    if (!full || !Array.isArray(full.questions) || full.questions.length === 0) return null;
+    return full;
+  }
+
+  /**
    * Called by app after a talk is created: saves to myTalks and user's answer list (answerPreferences).
    */
   saveCreatedTalk(
@@ -3470,15 +3502,15 @@ export class UIManager extends EventEmitter {
     // Refresh chatroom list to show updated counts (without changing view)
     this.renderChatroomList();
 
+    // Always sync broadcast receiver list from Gun (do not gate on detail DOM — avoids empty list)
+    this.currentChatroomMembers = otherMembers;
+
     // Update Chatrooms detail view (chatroom-members-list)
     if (chatroomMembersList) {
       // Update status - show total member count including current user
       if (chatroomStatus) {
         chatroomStatus.textContent = `👥 ${members.length} member${members.length !== 1 ? 's' : ''} total`;
       }
-
-      // Store members for broadcast functionality
-      this.currentChatroomMembers = otherMembers;
 
       if (otherMembers.length === 0) {
         chatroomMembersList.innerHTML = `

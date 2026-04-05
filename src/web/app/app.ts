@@ -362,11 +362,22 @@ export class IinPublicApp {
       const authorId = String(talkAnnouncement?.authorId || '');
       const pairKey = `${talkId}::${authorId}`;
 
-      // Same sender + same talk announcement replayed — retry chatbot if not already sent for this pair
+      /**
+       * Gun may fire .once and .on in any order, and replay nodes after replication. We must not mark
+       * (talkId, author) as "seen" until full talk JSON loads — otherwise a first failed getTalkWithRetry
+       * blocks forever. Replays must re-run POST /received (idempotent) so incomingTalksByUser fills
+       * even when the first attempt ran before server/browser graph caught up.
+       */
       if (seenTalkAuthor.has(pairKey)) {
         if (talkAnnouncement?.talkId && authorId && authorId !== this.currentUser?.id) {
           void this.talkService.getTalkWithRetry(talkAnnouncement.talkId).then((talkData) => {
             if (!talkData) return;
+            this.registerSelfAsReceiverOfIncomingTalk(
+              talkAnnouncement.talkId,
+              authorId,
+              talkAnnouncement.authorName || 'Unknown',
+              talkData,
+            );
             this.maybeAutoChatbotReplyToAnnouncer(
               talkId,
               talkData,
@@ -377,7 +388,6 @@ export class IinPublicApp {
         }
         return;
       }
-      seenTalkAuthor.add(pairKey);
 
       if (talkAnnouncement && talkAnnouncement.talkId) {
         // Wait for full JSON (questions/answers) — Gun .once often fires before replication completes.
@@ -388,16 +398,23 @@ export class IinPublicApp {
           }
           console.log('📋 Full talk data:', talkData);
 
-          this.uiManager.displayIncomingTalk({
-            id: talkData.id,
-            title: talkData.title,
-            authorName: talkAnnouncement.authorName || 'Unknown',
-            type: talkData.type,
-            questionCount: talkData.questions?.length || 0,
-            timestamp: talkAnnouncement.timestamp,
-            isOwnTalk: talkAnnouncement.authorId === this.currentUser?.id,
-            fullTalk: talkData,
-          });
+          const firstUi = !seenTalkAuthor.has(pairKey);
+          if (firstUi) {
+            seenTalkAuthor.add(pairKey);
+            this.uiManager.displayIncomingTalk({
+              id: talkData.id,
+              title: talkData.title,
+              authorName: talkAnnouncement.authorName || 'Unknown',
+              type: talkData.type,
+              questionCount: talkData.questions?.length || 0,
+              timestamp: talkAnnouncement.timestamp,
+              isOwnTalk: talkAnnouncement.authorId === this.currentUser?.id,
+              fullTalk: talkData,
+            });
+            if (talkAnnouncement.authorId === this.currentUser?.id) {
+              this.subscribeToTalkResponses(talkAnnouncement.talkId, talkData);
+            }
+          }
 
           if (talkAnnouncement.authorId !== this.currentUser?.id) {
             this.registerSelfAsReceiverOfIncomingTalk(
@@ -406,16 +423,14 @@ export class IinPublicApp {
               talkAnnouncement.authorName || 'Unknown',
               talkData,
             );
-            this.maybeAutoChatbotReplyToAnnouncer(
-              talkId,
-              talkData,
-              authorId,
-              talkAnnouncement.authorName || 'Unknown',
-            );
-          }
-
-          if (talkAnnouncement.authorId === this.currentUser?.id) {
-            this.subscribeToTalkResponses(talkAnnouncement.talkId, talkData);
+            if (firstUi) {
+              this.maybeAutoChatbotReplyToAnnouncer(
+                talkId,
+                talkData,
+                authorId,
+                talkAnnouncement.authorName || 'Unknown',
+              );
+            }
           }
         });
       }
@@ -610,6 +625,88 @@ export class IinPublicApp {
   }
 
   /**
+   * Sender-driven: upsert `incomingTalksByUser` on the API for each room member so receivers see IN rows
+   * even when Gun does not replicate the chatroom announcement to their peer in time (common in e2e).
+   * Client POST /received remains supported and is idempotent with this path.
+   */
+  private async registerReceiversOnServerForTalk(
+    talkId: string,
+    talk: Talk,
+    members: Array<{ userId: string; stageName: string }>,
+  ): Promise<void> {
+    const me = this.currentUser;
+    if (!me?.id || members.length === 0) return;
+    const receiverIds = members.map((m) => m.userId).filter((id) => id !== me.id);
+    if (receiverIds.length === 0) return;
+    const base = this.getBackendApiBase();
+    try {
+      const res = await fetch(
+        `${base}/api/talks/${encodeURIComponent(talkId)}/register-receivers-for-broadcast`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            senderId: me.id,
+            senderName: me.stageName,
+            receiverIds,
+            talkData: talk,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const t = await res.text();
+        console.warn('register-receivers-for-broadcast failed:', res.status, t);
+      }
+    } catch (e) {
+      console.warn('register-receivers-for-broadcast request failed:', e);
+    }
+  }
+
+  /**
+   * Other users who should receive server-side IN registration for a broadcast.
+   * Merge UI members with Gun `chatrooms/.../users` ids. Do not return UI-only early: the detail
+   * panel can show an empty list (or debounce lag) while the graph already has other members, which
+   * used to skip all register-receivers POSTs and leave only a single Gun-driven /received.
+   */
+  private async resolveBroadcastReceivers(
+    chatroomId: string,
+    uiMembers: Array<{ userId: string; stageName: string }>,
+  ): Promise<Array<{ userId: string; stageName: string }>> {
+    const me = this.currentUser?.id;
+    if (!me) return [];
+
+    const byId = new Map<string, { userId: string; stageName: string }>();
+    for (const m of uiMembers || []) {
+      if (!m.userId || m.userId === me) continue;
+      const name = String(m.stageName || m.userId).trim() || m.userId;
+      byId.set(m.userId, { userId: m.userId, stageName: name });
+    }
+
+    const mergeGunOnce = async () => {
+      const ids = await this.chatroomService.getActiveMembers(chatroomId);
+      for (const id of ids) {
+        if (!id || id === me || byId.has(id)) continue;
+        byId.set(id, { userId: id, stageName: id });
+      }
+    };
+
+    await mergeGunOnce();
+
+    if (byId.size === 0) {
+      for (let i = 0; i < 16; i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        await mergeGunOnce();
+        if (byId.size > 0) break;
+      }
+    } else {
+      await new Promise((r) => setTimeout(r, 150));
+      await mergeGunOnce();
+    }
+
+    return Array.from(byId.values());
+  }
+
+  /**
    * Wait until GET /api/talks/:id returns full talk JSON from the server graph so POST /received
    * and receivers’ incoming list can resolve the same id before we announce in the chatroom.
    */
@@ -780,15 +877,26 @@ export class IinPublicApp {
     }
   }
 
+  /**
+   * E2E: await the same IN-list merge as the Talks tab (GET incoming-talks → UI). The tab emits
+   * `needIncomingTalkClusters` without awaiting; Playwright needs a promise-bound sync.
+   */
+  public async syncIncomingClustersFromServer(): Promise<void> {
+    await this.refreshIncomingTalkClustersFromApi();
+  }
+
   private applyIncomingClustersFromApiArray(clusters: any[]): void {
-    const next: Record<string, any> = { ...this.incomingClustersMap };
+    // Authoritative snapshot from GET /incoming-talks — do not merge old Gun .map() soul keys on top.
+    // Spreading incomingClustersMap left stale/non-identity entries and could prevent IN rows from matching
+    // the server list after syncIncomingClustersFromServer (e2e: row missing despite API having the talk).
+    const next: Record<string, any> = {};
     for (const c of clusters) {
       if (c?.identityKey) {
         next[c.identityKey] = c;
       }
     }
     this.incomingClustersMap = next;
-    const list = Object.values(this.incomingClustersMap).filter((c: any) => c && c.identityKey);
+    const list = Object.values(next).filter((c: any) => c && c.identityKey);
     this.uiManager.setIncomingTalkClusters(list);
     this.uiManager.displayTalksList();
   }
@@ -977,12 +1085,17 @@ export class IinPublicApp {
           selfAnswers: talkData.selfAnswers ?? [],
         });
 
-        // Announce in chatroom only after server graph can serve GET /api/talks/:id (receiver POST /received needs it)
+        // Register receivers via API using local talk payload; Gun chatroom announce when server echoes talk.
         const chatroomId = this.chatroomService.getCurrentChatroomId();
         if (chatroomId) {
           const synced = await this.waitUntilTalkReadableOnServer(talk.id);
+          this.subscribeToTalkResponses(talk.id, talk);
+          const receivers = await this.resolveBroadcastReceivers(
+            chatroomId,
+            this.uiManager.getCurrentChatroomMembers(),
+          );
+          await this.registerReceiversOnServerForTalk(talk.id, talk, receivers);
           if (!synced) {
-            this.subscribeToTalkResponses(talk.id, talk);
             this.uiManager.showNotification(
               'Talk saved locally. Server is slow to sync — use Broadcast in the chatroom in a few seconds.',
               'info',
@@ -1002,8 +1115,6 @@ export class IinPublicApp {
           });
 
           console.log('📢 Talk broadcasted to chatroom:', chatroomId);
-
-          this.subscribeToTalkResponses(talk.id, talk);
         }
 
         this.uiManager.showNotification('Talk created and sent to chatroom!', 'success');
@@ -1026,25 +1137,35 @@ export class IinPublicApp {
             this.uiManager.showNotification('No chatroom selected.', 'error');
             return;
           }
-          // members are already "other" users (excluding self)
-          const targetCount = data.members?.length ?? 0;
           const broadcastableIds = this.uiManager.getBroadcastableTalkIds();
           if (broadcastableIds.length === 0) {
             // UI already shows this notification when broadcastableCount === 0; skip duplicate to avoid double toast
             return;
           }
+          const receivers = await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
+          const targetCount = receivers.length;
+          if (targetCount === 0) {
+            console.warn(
+              '⚠️ broadcastTalk: no receivers resolved (UI members + Gun fallback empty). IN list will not populate for others.',
+            );
+          }
           const gun = this.gunService.getGun();
           let sent = 0;
           for (const talkId of broadcastableIds) {
-            const talk = await this.talkService.getTalk(talkId);
-            if (!talk) continue;
-            const synced = await this.waitUntilTalkReadableOnServer(talk.id);
-            if (!synced) {
-              console.warn('Skipping broadcast; talk not on server yet:', talk.id);
-              continue;
+            // Prefer OUT row fullTalk (localStorage) — Gun getTalk often lags for 20 talks; skipping
+            // register + Gun put for most ids leaves Tom with a single IN cluster (e2e poll sees 1).
+            let talk = this.uiManager.getBroadcastTalkPayload(talkId);
+            if (!talk) {
+              talk = await this.talkService.getTalkWithRetry(talkId, { attempts: 15, gapMs: 100 });
             }
-            gun.get('chatrooms').get(chatroomId).get('talks').get(talk.id).put({
-              talkId: talk.id,
+            if (!talk) continue;
+            const tid = String(talk.id || talkId);
+            talk = { ...talk, id: tid, authorId: talk.authorId || this.currentUser!.id };
+            // Do not await waitUntilTalkReadableOnServer per talk — 20×~15s stalls the UI handler and e2e polls
+            // see an empty IN list until the whole loop finishes. Register uses POST body talkData; Gun put can lag.
+            await this.registerReceiversOnServerForTalk(tid, talk, receivers);
+            gun.get('chatrooms').get(chatroomId).get('talks').get(tid).put({
+              talkId: tid,
               title: talk.title,
               authorId: talk.authorId,
               authorName: this.currentUser!.stageName,
@@ -1456,7 +1577,7 @@ export class IinPublicApp {
         this.currentChatroomId = chatroomId;
       }
 
-      // Always subscribe to members when opening a room (same or different) so online list is shown
+      // subscribeToMembers reuses the Gun listener when chatroomId is unchanged (see WebChatroomService)
       this.chatroomService.subscribeToMembers(chatroomId, (members) => {
         this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
         const chatroomName = this.getChatroomDisplayName(chatroomId);

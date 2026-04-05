@@ -42,16 +42,20 @@ export default defineConfig({
 
   webServer: [
     {
-      command: 'npm run dev:server',
+      // In-memory server Gun only: disk radisk + graph clear races leave ghost chatroom members and break IN-list e2e.
+      // High capacity + no FIFO: default capacity 3 evicts users when Gun map over-counts; Tom and Jerry must stay in the same room for broadcast/IN sync.
+      command:
+        'CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false E2E_GUN_MEMORY_ONLY=1 npm run dev:server',
       port: 8080,
       timeout: 120 * 1000,
-      reuseExistingServer: true,
+      // Must spawn with E2E_GUN_MEMORY_ONLY + CHATROOM_* ; reusing a manually started dev:server ignores those env vars and keeps e2e flaky.
+      reuseExistingServer: false,
     },
     {
-      command: 'npm run dev:web:e2e',
+      command: 'CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false npm run dev:web:e2e',
       port: 3001,
       timeout: 120 * 1000,
-      reuseExistingServer: true,
+      reuseExistingServer: false,
     },
   ],
 });

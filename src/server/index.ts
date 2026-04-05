@@ -10,7 +10,7 @@ import { TalkService } from './services/talk-service';
 import { UserService } from './services/user-service';
 import { ReputationService } from './services/reputation-service';
 import { checkIfMatch } from '../shared/talk-engine';
-import { pickLatestTalkIdFromIncomingCluster } from '../shared/incoming-talk-ids';
+import { pickLatestTalkIdFromIncomingCluster, TALK_CONTENT_HASH_ID } from '../shared/incoming-talk-ids';
 import {
   normalizeIdentityText,
   buildTalkIdentityKey,
@@ -50,13 +50,16 @@ class IinPublicServer {
   }
 
   private setupGun(): void {
-    // Initialize Gun and attach to HTTP server
+    // E2E (Playwright): in-memory graph only so POST /api/test/clear-database + deleted radata/
+    // cannot be repopulated from radisk after a clear — otherwise stale chatrooms/users/talks
+    // accumulate and receivers time out waiting for IN rows.
+    const e2eMemoryOnly = process.env.E2E_GUN_MEMORY_ONLY === '1' || process.env.E2E_GUN_MEMORY_ONLY === 'true';
     this.gun = Gun({
       web: this.server,
       localStorage: false, // Server doesn't need localStorage
-      radisk: true, // Enable disk persistence on server
+      radisk: !e2eMemoryOnly,
     });
-    console.log('🔫 Gun.js attached to HTTP server');
+    console.log(`🔫 Gun.js attached to HTTP server (radisk=${!e2eMemoryOnly})`);
   }
 
   private setupMiddleware(): void {
@@ -122,9 +125,10 @@ class IinPublicServer {
 
     for (const [rawKey, rawCluster] of Object.entries(incoming)) {
       if (rawKey.startsWith('_') || !rawCluster) continue;
-      const cluster = rawCluster as any;
+      const cluster = this.clusterNodeForIdentityLookup(rawCluster) as any;
       const canonical = canonicalIdentityKeyFromStoredCluster(cluster);
-      if (canonical !== identityKey) continue;
+      const idFromNode = typeof cluster?.identityKey === 'string' ? String(cluster.identityKey).trim() : '';
+      if (canonical !== identityKey && rawKey !== identityKey && idFromNode !== identityKey) continue;
 
       merged.identityAliases[rawKey] = true;
       if (cluster?.identityKey) {
@@ -168,17 +172,43 @@ class IinPublicServer {
   }
 
   private async loadTalkDataFromGraphOrBody(talkId: string, bodyTalkData?: unknown): Promise<any | null> {
+    const parseBody = (): any | null => {
+      if (bodyTalkData == null) return null;
+      return typeof bodyTalkData === 'string' ? JSON.parse(bodyTalkData as string) : bodyTalkData;
+    };
+
+    const looksAuthoritative = (t: any): boolean => {
+      if (!t || typeof t !== 'object') return false;
+      const qs = t.questions;
+      if (!Array.isArray(qs) || qs.length === 0) return false;
+      const aid = t.authorId;
+      if (aid == null || String(aid).trim() === '' || String(aid) === 'undefined') return false;
+      return true;
+    };
+
+    let fromGraph: any | null = null;
     const rawTalk = await this.gunService.getPath(['talks', talkId]);
     if (rawTalk) {
-      if (typeof rawTalk.data === 'string') {
-        return JSON.parse(rawTalk.data);
+      try {
+        if (typeof rawTalk.data === 'string') {
+          fromGraph = JSON.parse(rawTalk.data);
+        } else {
+          fromGraph = rawTalk.data || rawTalk;
+        }
+      } catch {
+        fromGraph = null;
       }
-      return rawTalk.data || rawTalk;
     }
-    if (bodyTalkData != null) {
-      return typeof bodyTalkData === 'string' ? JSON.parse(bodyTalkData as string) : bodyTalkData;
-    }
-    return null;
+
+    const fromBody = parseBody();
+
+    // Prefer authoritative POST body first: the sender includes full talk JSON for broadcast batches.
+    // The graph can lag or (in tests) resolve oddly per id; using graph-first merged many broadcasts
+    // into one incoming cluster (same identity key) while the client still sent 20 distinct talks.
+    if (looksAuthoritative(fromBody)) return fromBody;
+    if (looksAuthoritative(fromGraph)) return fromGraph;
+    if (fromGraph) return fromGraph;
+    return fromBody;
   }
 
   private normalizeSubmittedAnswersForTalk(
@@ -258,6 +288,26 @@ class IinPublicServer {
     return (userNode?.stageName ?? userNode?.data?.stageName ?? fallback ?? 'Someone') as string;
   }
 
+  /** Gun cannot store `questions: [...]` on incoming cluster nodes; we keep `questionsJson` instead. */
+  private clusterNodeForIdentityLookup(v: unknown): any {
+    let base = v;
+    if (base && typeof base === 'object' && (base as any).data && typeof (base as any).data === 'object') {
+      base = (base as any).data;
+    }
+    if (!base || typeof base !== 'object') return base;
+    const o = base as Record<string, unknown>;
+    if (Array.isArray(o.questions)) return o;
+    if (typeof o.questionsJson === 'string' && o.questionsJson.length > 0) {
+      try {
+        const q = JSON.parse(o.questionsJson);
+        if (Array.isArray(q)) return { ...o, questions: q };
+      } catch {
+        /* ignore */
+      }
+    }
+    return o;
+  }
+
   private async upsertIncomingTalkForUser(params: {
     receiverId: string;
     talkId: string;
@@ -267,8 +317,28 @@ class IinPublicServer {
   }): Promise<{ identityKey: string; cluster: any }> {
     const { receiverId, talkId, talkData, senderId, senderName } = params;
     const identityKey = buildTalkIdentityKey(talkData);
-    const existing = await this.getMergedIncomingClusterForUser(receiverId, identityKey);
+    const tid = typeof talkId === 'string' ? talkId.trim() : '';
+    const useTalkIdAsStorageLeaf = tid.length > 0 && TALK_CONTENT_HASH_ID.test(tid);
+
     const nowIso = new Date().toISOString();
+
+    let existing: any;
+    if (useTalkIdAsStorageLeaf) {
+      const rawNode = await this.gunService.getPath(['incomingTalksByUser', receiverId, tid]);
+      const prev = this.clusterNodeForIdentityLookup(rawNode) as any;
+      existing = {
+        title: prev?.title || '',
+        type: prev?.type || 'matching',
+        senders: prev?.senders && typeof prev.senders === 'object' ? prev.senders : {},
+        talkIds: prev?.talkIds && typeof prev.talkIds === 'object' ? prev.talkIds : {},
+        questionCount: prev?.questionCount || 0,
+        questionsJson: prev?.questionsJson,
+        identityAliases: prev?.identityAliases && typeof prev.identityAliases === 'object' ? prev.identityAliases : {},
+      };
+    } else {
+      existing = await this.getMergedIncomingClusterForUser(receiverId, identityKey);
+    }
+
     const senderMap = existing.senders && typeof existing.senders === 'object' ? existing.senders : {};
     const talkIds = existing.talkIds && typeof existing.talkIds === 'object' ? existing.talkIds : {};
 
@@ -280,21 +350,34 @@ class IinPublicServer {
     };
     talkIds[talkId] = nowIso;
 
+    const questionsJsonForNode =
+      Array.isArray(talkData?.questions) && talkData.questions.length > 0
+        ? JSON.stringify(talkData.questions)
+        : typeof existing?.questionsJson === 'string'
+          ? existing.questionsJson
+          : '';
+
     const cluster = {
       identityKey,
       title: talkData?.title || existing.title || '',
       type: talkData?.type || existing.type || 'matching',
+      /** JSON string only — Gun.put rejects nested arrays on this path. */
+      questionsJson: questionsJsonForNode || undefined,
       questionCount: Array.isArray(talkData?.questions) ? talkData.questions.length : existing.questionCount || 0,
       senders: senderMap,
       talkIds,
       /** Stable id for clients when Gun reshapes `talkIds` keys. */
       latestTalkId: talkId,
       updatedAt: nowIso,
-      identityAliases: existing.identityAliases && typeof existing.identityAliases === 'object' ? existing.identityAliases : { [identityKey]: true },
+      identityAliases:
+        existing.identityAliases && typeof existing.identityAliases === 'object'
+          ? { ...existing.identityAliases, [identityKey]: true }
+          : { [identityKey]: true },
     };
 
-    await this.gunService.putPath(['incomingTalksByUser', receiverId, identityKey], cluster);
-    if (existing.identityAliases && typeof existing.identityAliases === 'object') {
+    const storageLeaf = useTalkIdAsStorageLeaf ? tid : identityKey;
+    await this.gunService.putPath(['incomingTalksByUser', receiverId, storageLeaf], cluster);
+    if (!useTalkIdAsStorageLeaf && existing.identityAliases && typeof existing.identityAliases === 'object') {
       for (const alias of Object.keys(existing.identityAliases)) {
         if (alias && alias !== identityKey) {
           await this.gunService.putPath(['incomingTalksByUser', receiverId, alias], cluster);
@@ -610,6 +693,52 @@ class IinPublicServer {
       }
     });
 
+    /**
+     * Sender-driven: after Gun announces a talk to a chatroom, register every listed receiver on the server
+     * graph so GET /incoming-talks and IN UI work even when a peer never receives the Gun node in time.
+     */
+    this.app.post('/api/talks/:id/register-receivers-for-broadcast', async (req, res) => {
+      try {
+        const talkId = req.params.id;
+        const { senderId, senderName, receiverIds, talkData: bodyTalkData } = req.body as {
+          senderId: string;
+          senderName?: string;
+          receiverIds: string[];
+          talkData?: unknown;
+        };
+        if (!senderId || !Array.isArray(receiverIds)) {
+          res.status(400).json({ error: 'senderId and receiverIds[] required' });
+          return;
+        }
+        const talkData = await this.loadTalkDataFromGraphOrBody(talkId, bodyTalkData);
+        if (!talkData) {
+          res.status(404).json({ error: 'Talk not found' });
+          return;
+        }
+        if (String((talkData as { authorId?: string }).authorId) !== String(senderId)) {
+          res.status(403).json({ error: 'senderId must match talk author' });
+          return;
+        }
+        const resolvedSenderName = senderName || (await this.getUserStageName(senderId, 'Someone'));
+        let registered = 0;
+        for (const receiverId of receiverIds) {
+          if (!receiverId || receiverId === senderId) continue;
+          await this.upsertIncomingTalkForUser({
+            receiverId,
+            talkId,
+            talkData,
+            senderId,
+            senderName: resolvedSenderName,
+          });
+          registered += 1;
+        }
+        res.json({ ok: true, registered });
+      } catch (error) {
+        console.error('register-receivers-for-broadcast error:', error);
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
     this.app.get('/api/users/:id/incoming-talks', async (req, res) => {
       try {
         const userId = req.params.id;
@@ -619,19 +748,30 @@ class IinPublicServer {
           return;
         }
 
-        const canonicalKeys = new Set<string>();
-        for (const [k, v] of Object.entries(incoming)) {
-          if (k.startsWith('_') || !v) continue;
-          canonicalKeys.add(canonicalIdentityKeyFromStoredCluster(v));
-        }
+        const childEntries = Object.entries(incoming).filter(([k, v]) => !k.startsWith('_') && v);
 
+        // One HTTP row per Gun child under incomingTalksByUser/:userId. Deduplicating only by
+        // canonical identity used to merge unrelated graph keys into one row and made bulk
+        // broadcast look like a single IN cluster in e2e (poll saw length 1).
         const values = await Promise.all(
-          Array.from(canonicalKeys).map(async (identityKey) => {
-            const cluster = await this.getMergedIncomingClusterForUser(userId, identityKey);
+          childEntries.map(async ([rawKey, v]) => {
+            const enriched = this.clusterNodeForIdentityLookup(v);
+            const node = enriched as Record<string, unknown>;
+            const fromCluster =
+              typeof node?.identityKey === 'string' ? String(node.identityKey).trim() : '';
+            let logical: string;
+            if (fromCluster && TALK_CONTENT_HASH_ID.test(fromCluster)) {
+              logical = fromCluster;
+            } else if (TALK_CONTENT_HASH_ID.test(rawKey)) {
+              logical = rawKey;
+            } else {
+              logical = canonicalIdentityKeyFromStoredCluster(enriched);
+            }
+            const cluster = await this.getMergedIncomingClusterForUser(userId, logical);
             const template = await this.gunService.getPath([
               'talkAnswerTemplateByUser',
               userId,
-              identityKey,
+              logical,
             ]);
             const isAnswered = !!(template && template.answers);
             return {
