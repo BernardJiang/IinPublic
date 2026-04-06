@@ -1,7 +1,7 @@
 import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { clearGunDatabases } from './helpers/clear-database';
+import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { wait, afterLoad, afterSync, afterNav, delay } from './helpers/timing';
 
@@ -78,6 +78,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     context1 = await newContext(browser1);
     page1 = await context1.newPage();
     page1.on('console', (m) => console.log('[User1]:', m.text()));
+    await injectIdbClear(page1);
     await page1.goto('/');
     await page1.waitForLoadState('load');
     await ensureWindowFitsViewport(page1, 640, 800);
@@ -87,6 +88,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     context2 = await newContext(browser2);
     page2 = await context2.newPage();
     page2.on('console', (m) => console.log('[User2]:', m.text()));
+    await injectIdbClear(page2);
     await page2.goto('/');
     await page2.waitForLoadState('load');
     await ensureWindowFitsViewport(page2, 640, 800);
@@ -97,6 +99,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     context3 = await newContext(browser3);
     page3 = await context3.newPage();
     page3.on('console', (m) => console.log('[User3]:', m.text()));
+    await injectIdbClear(page3);
     await page3.goto('/');
     await page3.waitForLoadState('load');
     await ensureWindowFitsViewport(page3, 640, 800);

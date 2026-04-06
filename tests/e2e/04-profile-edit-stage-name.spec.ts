@@ -1,7 +1,7 @@
 import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { clearGunDatabases } from './helpers/clear-database';
+import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterNav, afterAction, delay } from './helpers/timing';
 
@@ -31,6 +31,7 @@ test.describe('Profile: edit stage name', () => {
     context = await browser.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     page = await context.newPage();
     page.on('console', (m) => console.log('[Browser]:', m.text()));
+    await injectIdbClear(page);
 
     await page.goto('/');
     await page.waitForLoadState('load');

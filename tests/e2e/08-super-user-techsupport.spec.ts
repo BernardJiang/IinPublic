@@ -1,7 +1,7 @@
 import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { clearGunDatabases } from './helpers/clear-database';
+import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay } from './helpers/timing';
 import {
@@ -124,7 +124,7 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     });
     const page = await context.newPage();
     page.on('console', (msg) => console.log(`[${label}]:`, msg.text()));
-
+    await injectIdbClear(page);
     await page.goto('/');
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 640, 1000);

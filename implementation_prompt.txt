@@ -1,0 +1,41 @@
+Role: Expert Full-Stack Developer specialized in P2P and Local-First architectures.
+
+Task: Architect and implement a decentralized web application "boilerplate" using Gun.js that satisfies the following requirements:
+
+Web Worker Architecture:
+
+The primary Gun.js instance must run inside a Web Worker to act as a background "server."
+
+Implement a communication bridge (using postMessage) between the Main Thread and the Worker so the UI can get, put, and subscribe to data without blocking the event loop.
+
+Persistence Layer:
+
+Configure Gun to use IndexedDB (gun-indexeddb or rindexed) for long-term browser storage.
+
+Ensure data persists across page refreshes and browser restarts.
+
+Decentralized Networking:
+
+Configure the instance to connect to a specific "Hub" (a Node.js Gun relay) to facilitate peer discovery and data syncing between different browser instances.
+
+Enable WebRTC (via gun/lib/webrtc) for direct browser-to-browser data transfer when possible.
+
+Security & Identity (SEA):
+
+Use SEA (Security, Encryption, & Authorization) to handle user accounts.
+
+Implement a "Local-First" login: Users generate a cryptographic keypair (stored in the browser) to identify themselves.
+
+Structure the graph so that users have a "Public Space" (readable by all) and a "Private Space" (AES-encrypted, only readable by the owner).
+
+Data Structure:
+
+Create a simple "Flexible Graph" schema where a user can add "Nodes" (entities) that can link to each other, demonstrating the graph's ability to grow.
+
+Code Deliverables:
+
+worker.js: The background Gun logic, persistence setup, and SEA handlers.
+
+gun-bridge.js: A helper class for the main thread to interact with the worker.
+
+index.html / app.js: A basic UI to demonstrate: Create Account, Add Data, and Real-time Sync with another tab.

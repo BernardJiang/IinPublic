@@ -1,7 +1,7 @@
 import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { clearGunDatabases } from './helpers/clear-database';
+import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay } from './helpers/timing';
 
@@ -70,6 +70,8 @@ test.describe('Capacity and eviction', () => {
     context1 = await newContext(browser1);
     page1 = await context1.newPage();
     page1.on('console', (m) => console.log('[U1]:', m.text()));
+    // Clear both localStorage and the worker's IndexedDB for a completely fresh start.
+    await injectIdbClear(page1);
     await page1.goto('/');
     await page1.waitForLoadState('load');
     await ensureWindowFitsViewport(page1, 640, 600);
@@ -82,6 +84,7 @@ test.describe('Capacity and eviction', () => {
     context2 = await newContext(browser2);
     page2 = await context2.newPage();
     page2.on('console', (m) => console.log('[U2]:', m.text()));
+    await injectIdbClear(page2);
     await page2.goto('/');
     await page2.waitForLoadState('load');
     await ensureWindowFitsViewport(page2, 640, 600);
@@ -90,6 +93,7 @@ test.describe('Capacity and eviction', () => {
     context3 = await newContext(browser3);
     page3 = await context3.newPage();
     page3.on('console', (m) => console.log('[U3]:', m.text()));
+    await injectIdbClear(page3);
     await page3.goto('/');
     await page3.waitForLoadState('load');
     await ensureWindowFitsViewport(page3, 640, 600);
@@ -103,6 +107,7 @@ test.describe('Capacity and eviction', () => {
     context4 = await newContext(browser4);
     page4 = await context4.newPage();
     page4.on('console', (m) => console.log('[U4]:', m.text()));
+    await injectIdbClear(page4);
     await page4.goto('/');
     await page4.waitForLoadState('load');
     await ensureWindowFitsViewport(page4, 640, 600);

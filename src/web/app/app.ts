@@ -639,6 +639,7 @@ export class IinPublicApp {
     const receiverIds = members.map((m) => m.userId).filter((id) => id !== me.id);
     if (receiverIds.length === 0) return;
     const base = this.getBackendApiBase();
+    console.log(`📡 POSTing register-receivers: talkId=${talkId} receivers=${receiverIds.length}`);
     try {
       const res = await fetch(
         `${base}/api/talks/${encodeURIComponent(talkId)}/register-receivers-for-broadcast`,
@@ -656,6 +657,9 @@ export class IinPublicApp {
       if (!res.ok) {
         const t = await res.text();
         console.warn('register-receivers-for-broadcast failed:', res.status, t);
+      } else {
+        const r = await res.json();
+        console.log(`register-receivers-for-broadcast ok: talkId=${talkId} registered=${r?.registered}`);
       }
     } catch (e) {
       console.warn('register-receivers-for-broadcast request failed:', e);
@@ -1138,12 +1142,14 @@ export class IinPublicApp {
             return;
           }
           const broadcastableIds = this.uiManager.getBroadcastableTalkIds();
+          console.log(`📢 broadcastTalk: ${broadcastableIds.length} broadcastable ids, members=${data.members?.length ?? 0}`);
           if (broadcastableIds.length === 0) {
             // UI already shows this notification when broadcastableCount === 0; skip duplicate to avoid double toast
             return;
           }
           const receivers = await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
           const targetCount = receivers.length;
+          console.log(`📢 broadcastTalk: ${targetCount} receivers resolved`);
           if (targetCount === 0) {
             console.warn(
               '⚠️ broadcastTalk: no receivers resolved (UI members + Gun fallback empty). IN list will not populate for others.',
@@ -1158,7 +1164,7 @@ export class IinPublicApp {
             if (!talk) {
               talk = await this.talkService.getTalkWithRetry(talkId, { attempts: 15, gapMs: 100 });
             }
-            if (!talk) continue;
+            if (!talk) { console.warn(`📢 broadcastTalk: skipping ${talkId} (no talk data)`); continue; }
             const tid = String(talk.id || talkId);
             talk = { ...talk, id: tid, authorId: talk.authorId || this.currentUser!.id };
             // Do not await waitUntilTalkReadableOnServer per talk — 20×~15s stalls the UI handler and e2e polls

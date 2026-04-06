@@ -77,7 +77,13 @@ module.exports = {
     },
   ],
   devServer: {
-    static: './dist/web',
+    static: [
+      { directory: path.resolve(__dirname, 'dist/web') },
+      // Serve public/ so worker.js is available at /worker.js
+      { directory: path.resolve(__dirname, 'public'), publicPath: '/' },
+      // Serve gun files so the Web Worker can importScripts('/node_modules/gun/…')
+      { directory: path.resolve(__dirname, 'node_modules/gun'), publicPath: '/node_modules/gun' },
+    ],
     port: 3001,
     hot: process.env.DISABLE_HMR !== 'true',
     liveReload: process.env.DISABLE_HMR !== 'true',

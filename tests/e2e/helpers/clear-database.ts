@@ -1,9 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import type { Page } from '@playwright/test';
 
 /**
- * Clear all Gun.js databases (client, server disk, server memory)
- * Call this before each test suite to ensure a clean state
+ * Clear all Gun.js databases (client, server disk, server memory).
+ * Call this before each test suite to ensure a clean state.
  */
 export async function clearGunDatabases() {
   console.log('🧹 Clearing Gun.js databases to start fresh...');
@@ -58,4 +59,24 @@ export async function clearGunDatabases() {
   await new Promise((resolve) => setTimeout(resolve, 1000));
 
   console.log('✅ All databases cleared');
+}
+
+/**
+ * Inject an init script into `page` that deletes the Web Worker's IndexedDB
+ * (`gun-idb`) before the app scripts run.  Call this **after** `context.newPage()`
+ * but **before** `page.goto('/')` so the database is gone before the worker opens it.
+ *
+ * Use for tests that need a completely fresh Gun graph in the browser (no locally
+ * cached data from a previous context/test-run leaking through the Worker's IDB).
+ * Do NOT call this for "persistence" sub-tests where you want IDB to survive a
+ * page close/reopen within the same BrowserContext.
+ */
+export async function injectIdbClear(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    try {
+      indexedDB.deleteDatabase('gun-idb');
+    } catch {
+      // Non-fatal — the worker will create a fresh database regardless.
+    }
+  });
 }

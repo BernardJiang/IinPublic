@@ -1,7 +1,7 @@
 import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { clearGunDatabases } from './helpers/clear-database';
+import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { wait, afterLoad, afterSync, afterNav, afterAction, delay } from './helpers/timing';
 
@@ -40,6 +40,8 @@ test.describe('Login and headcount', () => {
     context = await browser.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     page = await context.newPage();
     page.on('console', (m) => console.log('[Browser]:', m.text()));
+    // Clear Web Worker IndexedDB so there is no cached Gun graph from a previous run.
+    await injectIdbClear(page);
 
     await page.goto('/');
     await page.waitForLoadState('load');
@@ -76,6 +78,7 @@ test.describe('Login and headcount', () => {
     context = await browser.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     page = await context.newPage();
     page.on('console', (m) => console.log('[User1]:', m.text()));
+    await injectIdbClear(page);
     await page.goto('/');
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 960, 1200);
@@ -85,6 +88,7 @@ test.describe('Login and headcount', () => {
     context2 = await browser2.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     page2 = await context2.newPage();
     page2.on('console', (m) => console.log('[User2]:', m.text()));
+    await injectIdbClear(page2);
     await page2.goto('/');
     await page2.waitForLoadState('load');
     await ensureWindowFitsViewport(page2, 960, 1200);

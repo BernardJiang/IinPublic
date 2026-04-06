@@ -1,64 +1,83 @@
 import Gun from 'gun';
 import { EventEmitter } from 'events';
+import { GunBridge, GunPair } from './gun-bridge';
 
+/**
+ * WebGunService — dual-mode Gun service.
+ *
+ * EXISTING API: the direct Gun instance is kept intact so existing services
+ * (chatroom, talk, conversation) can continue to call `getGun()` without change.
+ *
+ * NEW API: a GunBridge worker is created alongside the direct instance, exposing
+ * the Web-Worker-based path (IndexedDB persistence, SEA identity, private
+ * encrypted space, flexible graph) via dedicated methods.  New features should
+ * use `getBridge()` or the typed helpers on this class.
+ */
 export class WebGunService extends EventEmitter {
   private gun: any;
+  private bridge: GunBridge;
   private peers: string[];
   private connected: boolean = false;
 
   constructor() {
     super();
-    // Connect to Gun.js server for peer synchronization
     this.peers = ['http://localhost:8080/gun'];
+    this.bridge = new GunBridge('/worker.js');
   }
 
   async initialize(): Promise<void> {
     try {
-      // Initialize Gun.js for web
+      // ── Direct Gun instance (backward compat for existing services) ──
       this.gun = Gun({
         peers: this.peers,
-        localStorage: true, // Use localStorage in browser
+        localStorage: true,
         radisk: false,
       });
 
-      this.setupEventHandlers();
-      this.connected = true;
-      console.log('🔗 Gun.js web service initialized with peers:', this.peers);
+      this.gun.on('hi', (peer: any) => {
+        console.log('🤝 Gun peer connected:', peer.id || 'unknown');
+      });
+      this.gun.on('bye', (peer: any) => {
+        console.log('👋 Gun peer disconnected:', peer.id || 'unknown');
+      });
 
-      // Log connection status after a delay
-      setTimeout(() => {
-        console.log('📊 Gun.js mesh status:', Object.keys(this.gun._.opt.peers));
-      }, 2000);
+      // ── Worker bridge (new, IndexedDB-backed, SEA-enabled) ──
+      // Non-fatal: if the bridge worker fails (e.g. script load error), the app
+      // continues using the direct Gun instance for all existing functionality.
+      try {
+        await this.bridge.init({ hubUrl: this.peers[0] });
+        console.log('🔗 Gun.js worker bridge ready');
+      } catch (bridgeErr) {
+        console.warn('⚠️ Gun worker bridge unavailable — SEA/IndexedDB features disabled:', bridgeErr);
+      }
+
+      this.connected = true;
+      console.log('🔗 Gun.js initialized — hub:', this.peers[0]);
     } catch (error) {
-      console.error('Failed to initialize Gun.js web service:', error);
+      console.error('Failed to initialize Gun.js service:', error);
       throw error;
     }
   }
 
-  private setupEventHandlers(): void {
-    this.gun.on('hi', (peer: any) => {
-      console.log('🤝 Gun.js peer connected:', peer.id || 'unknown');
-    });
-
-    this.gun.on('bye', (peer: any) => {
-      console.log('👋 Gun.js peer disconnected:', peer.id || 'unknown');
-    });
-  }
-
+  /** Direct Gun instance — used by existing services (chatroom, talk, etc.). */
   getGun(): any {
     return this.gun;
   }
 
+  /**
+   * Worker-backed GunBridge — use for new features:
+   * SEA identity, IndexedDB persistence, private encrypted space, graph nodes.
+   */
+  getBridge(): GunBridge {
+    return this.bridge;
+  }
+
+  /* ── Serialization helpers ─────────────────────────────────────── */
+
   private serializeDates(obj: any): any {
-    // Filter out undefined values - Gun.js doesn't accept them
-    if (obj === undefined || obj === null) {
-      return null;
-    }
-    if (obj instanceof Date) {
-      return obj.toISOString();
-    }
+    if (obj === undefined || obj === null) return null;
+    if (obj instanceof Date) return obj.toISOString();
     if (Array.isArray(obj)) {
-      // Convert arrays to objects with numeric keys for Gun.js compatibility
       const arrayObj: any = { _isArray: true, _length: obj.length };
       obj.forEach((item, index) => {
         const serialized = this.serializeDates(item);
@@ -71,9 +90,8 @@ export class WebGunService extends EventEmitter {
     if (obj && typeof obj === 'object') {
       const serialized: any = {};
       for (const key in obj) {
-        if (obj.hasOwnProperty(key)) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
           const value = this.serializeDates(obj[key]);
-          // Only include defined values
           if (value !== undefined && value !== null) {
             serialized[key] = value;
           }
@@ -89,11 +107,10 @@ export class WebGunService extends EventEmitter {
       return new Date(obj);
     }
     if (obj && typeof obj === 'object' && obj._isArray) {
-      // Convert Gun.js array objects back to arrays
       const result: any[] = [];
       const length = obj._length || 0;
       for (let i = 0; i < length; i++) {
-        if (obj.hasOwnProperty(i.toString())) {
+        if (Object.prototype.hasOwnProperty.call(obj, i.toString())) {
           result[i] = this.deserializeDates(obj[i.toString()]);
         }
       }
@@ -102,7 +119,7 @@ export class WebGunService extends EventEmitter {
     if (obj && typeof obj === 'object') {
       const deserialized: any = {};
       for (const key in obj) {
-        if (obj.hasOwnProperty(key)) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
           deserialized[key] = this.deserializeDates(obj[key]);
         }
       }
@@ -111,40 +128,27 @@ export class WebGunService extends EventEmitter {
     return obj;
   }
 
+  /* ── Core graph operations (direct Gun — backward compat) ──────── */
+
   async put(key: string, data: any): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
         const serializedData = this.serializeDates(data);
-        console.log(
-          '🔧 Serialized data for Gun.js:',
-          key,
-          JSON.stringify(serializedData).substring(0, 500),
-        );
 
-        // Use a timeout to detect if Gun.js never responds
         const timeout = setTimeout(() => {
-          console.error('⏱️ Gun.js put timeout for key:', key);
           reject(new Error('Gun.js put operation timed out'));
         }, 5000);
 
         this.gun.get(key).put(serializedData, (ack: any) => {
           clearTimeout(timeout);
-
-          console.log('📥 Gun.js acknowledgment:', ack);
-
           if (ack.err) {
-            console.error('❌ Gun.js put error:', ack.err, 'for key:', key);
             reject(new Error(ack.err));
-          } else if (ack.ok === 0) {
-            console.warn('⚠️ Gun.js put returned ok=0 (no error but no success)');
-            resolve(); // Still resolve since it's not an error
           } else {
-            console.log('✅ Gun.js put success:', key);
+            console.log('✅ Gun put success:', key);
             resolve();
           }
         });
       } catch (error) {
-        console.error('❌ Serialization error:', error);
         reject(error);
       }
     });
@@ -152,19 +156,17 @@ export class WebGunService extends EventEmitter {
 
   async get(key: string): Promise<any> {
     return new Promise((resolve, reject) => {
-      let timeout: NodeJS.Timeout;
+      let timeout: ReturnType<typeof setTimeout>;
 
       const off = this.gun.get(key).once((data: any) => {
         clearTimeout(timeout);
         if (data === undefined) {
           reject(new Error(`No data found for key: ${key}`));
         } else {
-          const deserializedData = this.deserializeDates(data);
-          resolve(deserializedData);
+          resolve(this.deserializeDates(data));
         }
       });
 
-      // Allow slow Gun replication from peer (e2e / busy clients)
       timeout = setTimeout(() => {
         off.off();
         reject(new Error(`Timeout getting data for key: ${key}`));
@@ -177,8 +179,52 @@ export class WebGunService extends EventEmitter {
       callback(data);
       this.emit('newMessage', data);
     });
-
     return () => off.off();
+  }
+
+  /* ── Identity (SEA) — routed through the worker bridge ─────────── */
+
+  createAccount(): Promise<{ pub: string; epub: string }> {
+    return this.bridge.createAccount();
+  }
+
+  login(pair: GunPair): Promise<{ pub: string; epub: string }> {
+    return this.bridge.login(pair);
+  }
+
+  logout(): Promise<void> {
+    return this.bridge.logout();
+  }
+
+  /** Write to the current user's public namespace (readable by all). */
+  putPublic(key: string, data: any): Promise<void> {
+    return this.bridge.putPublic(key, this.serializeDates(data));
+  }
+
+  /** Write to the current user's private namespace (AES-encrypted, owner-only). */
+  putPrivate(key: string, data: any): Promise<void> {
+    return this.bridge.putPrivate(key, this.serializeDates(data));
+  }
+
+  /** Read and decrypt from the current user's private namespace. */
+  async getPrivate(key: string): Promise<any> {
+    const raw = await this.bridge.getPrivate(key);
+    return this.deserializeDates(raw);
+  }
+
+  /* ── Flexible Graph schema ─────────────────────────────────────── */
+
+  /** Create a named node in the shared graph. */
+  createNode(nodeId: string, nodeData: Record<string, any>): Promise<{ nodeId: string }> {
+    return this.bridge.createNode(nodeId, this.serializeDates(nodeData));
+  }
+
+  /**
+   * Create a directed edge between two nodes.
+   * Stored at: edges/<fromId>/<edgeLabel>/<toId>
+   */
+  linkNodes(fromId: string, toId: string, edgeLabel = 'link'): Promise<void> {
+    return this.bridge.linkNodes(fromId, toId, edgeLabel);
   }
 
   isConnected(): boolean {

@@ -1,5 +1,5 @@
 import { expect, Browser, BrowserContext, Page } from '@playwright/test';
-import { clearGunDatabases } from './clear-database';
+import { clearGunDatabases, injectIdbClear } from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
 import { afterLoad, afterNav, afterAction, afterSync } from './timing';
 
@@ -111,6 +111,8 @@ export async function bootstrapUser(
   });
   const page = await context.newPage();
   page.on('console', (m) => console.log(`[${label}]:`, m.text()));
+  // Clear the Web Worker's IndexedDB so each user starts with a fresh local Gun graph.
+  await injectIdbClear(page);
   await page.goto('/');
   await page.waitForLoadState('load');
   await ensureWindowFitsViewport(page, 640, 1000);

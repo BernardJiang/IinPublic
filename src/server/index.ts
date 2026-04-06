@@ -69,9 +69,11 @@ class IinPublicServer {
           directives: {
             defaultSrc: ["'self'"],
             styleSrc: ["'self'", "'unsafe-inline'"],
-            scriptSrc: ["'self'", "'unsafe-eval'"], // Gun.js needs eval
+            // Gun.js needs eval; worker scripts are served locally at /node_modules/gun/
+            scriptSrc: ["'self'", "'unsafe-eval'"],
             imgSrc: ["'self'", 'data:', 'https:'],
             connectSrc: ["'self'", 'ws:', 'wss:'],
+            workerSrc: ["'self'", 'blob:'],
           },
         },
       }),
@@ -90,7 +92,8 @@ class IinPublicServer {
     this.app.use(express.json({ limit: '10mb' }));
     this.app.use(express.urlencoded({ extended: true }));
 
-    // Serve static files from project root (for gun-test.html)
+    // Serve static files — public/ first so worker.js is reachable at /worker.js
+    this.app.use(express.static('public'));
     this.app.use(express.static('.'));
 
     // Gun.js HTTP endpoint - served by Gun({ web: this.server })
@@ -706,16 +709,19 @@ class IinPublicServer {
           receiverIds: string[];
           talkData?: unknown;
         };
+        console.log(`[register-receivers] talkId=${talkId} sender=${senderId} receivers=${JSON.stringify(receiverIds)}`);
         if (!senderId || !Array.isArray(receiverIds)) {
           res.status(400).json({ error: 'senderId and receiverIds[] required' });
           return;
         }
         const talkData = await this.loadTalkDataFromGraphOrBody(talkId, bodyTalkData);
+        console.log(`[register-receivers] talkData loaded: ${talkData ? (talkData as any).title : 'null'} authorId=${(talkData as any)?.authorId}`);
         if (!talkData) {
           res.status(404).json({ error: 'Talk not found' });
           return;
         }
         if (String((talkData as { authorId?: string }).authorId) !== String(senderId)) {
+          console.log(`[register-receivers] 403: talkData.authorId=${(talkData as any).authorId} !== senderId=${senderId}`);
           res.status(403).json({ error: 'senderId must match talk author' });
           return;
         }
