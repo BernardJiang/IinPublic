@@ -9,6 +9,8 @@ test-storage
 .test-storage
 dist
 user_data
+logs
+
 
 
 
