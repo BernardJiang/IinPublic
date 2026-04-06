@@ -116,7 +116,10 @@ export class WebTalkService {
     const attempts = opts?.attempts ?? 20;
     const gapMs = opts?.gapMs ?? 250;
     const looksComplete = (t: Talk | null): boolean => {
-      if (!t || !Array.isArray(t.questions) || t.questions.length === 0) return false;
+      if (!t) return false;
+      // Tag talks have no questions; treat them as complete if they have a title and authorId
+      if ((t as any).type === 'tag') return !!(t.title && t.authorId);
+      if (!Array.isArray(t.questions) || t.questions.length === 0) return false;
       const q0 = t.questions[0];
       return !!(q0 && Array.isArray(q0.answers) && q0.answers.length > 0);
     };

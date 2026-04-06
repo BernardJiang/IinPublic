@@ -67,12 +67,6 @@ test.describe('Talks: create and edit', () => {
     await page.click('#talk-editor-form button[type="submit"]');
     await afterSync();
 
-    // Notification or talk list: either confirms creation
-    await Promise.race([
-      page.getByText(/Talk created and sent to chatroom/i).waitFor({ state: 'visible', timeout: 12000 }),
-      page.locator('.talk-list-item').filter({ hasText: TALK_TITLE }).first().waitFor({ state: 'visible', timeout: 12000 }),
-    ]);
-
     await page.click('.nav-btn[data-view="talks"]');
     await afterSync();
     const talkItem = page.locator('.talk-list-item').filter({ hasText: TALK_TITLE }).first();

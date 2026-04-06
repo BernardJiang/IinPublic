@@ -2461,7 +2461,9 @@ export class UIManager extends EventEmitter {
     const myTalks = this.getMyTalks();
     const row = myTalks[talkId];
     const full = row?.fullTalk;
-    if (!full || !Array.isArray(full.questions) || full.questions.length === 0) return null;
+    if (!full) return null;
+    // Tag talks have no questions; non-tag talks require at least one question
+    if (full.type !== 'tag' && (!Array.isArray(full.questions) || full.questions.length === 0)) return null;
     return full;
   }
 

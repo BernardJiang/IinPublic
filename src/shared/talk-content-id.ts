@@ -39,6 +39,8 @@ export function hashIdentityPayload(payload: string): string {
 export type TalkIdentityPayload = {
   type: string;
   questions: Array<{ text: string; answers: string[] }>;
+  /** Included for tag-type talks (which have no questions) to differentiate by title. */
+  title?: string;
   authorId?: string;
   createdAt?: string;
   location?: { latitude: number; longitude: number };
@@ -64,6 +66,11 @@ export function buildIdentityPayloadFromTalk(
     .sort((a: { text: string }, b: { text: string }) => String(a.text).localeCompare(String(b.text)));
 
   const payload: TalkIdentityPayload = { type, questions };
+
+  // Tags have no questions, so include the normalized title to differentiate them.
+  if (type === 'tag' && talkData?.title) {
+    payload.title = normalizeIdentityText(talkData.title);
+  }
 
   if (o.includeAuthorId && talkData?.authorId) {
     payload.authorId = normalizeIdentityText(talkData.authorId);

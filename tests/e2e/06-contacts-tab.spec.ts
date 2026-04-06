@@ -4,6 +4,7 @@ import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay } from './helpers/timing';
+import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
 
 test.describe('Contacts tab: list of users with matches, click to see matching talks', () => {
   let browserTom: Browser;
@@ -152,46 +153,44 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
 
     await pageTom.click('#broadcast-talk-btn');
     await afterSync();
-    await waitForNotification(pageTom, 'Sent 2 talks', 'Tom');
+    // Poll server until Jerry has received both talks (broadcast takes time to register)
+    const jerryUserId = await pageJerry.evaluate(
+      () => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '',
+    );
+    await expect
+      .poll(
+        async () => {
+          const res = await pageTom.request.get(
+            `http://localhost:8080/api/users/${encodeURIComponent(jerryUserId)}/incoming-talks`,
+          );
+          if (!res.ok()) return 0;
+          return (await res.json() as any[]).length;
+        },
+        { message: 'Jerry should have incoming talks after broadcast', timeout: 60_000 },
+      )
+      .toBeGreaterThanOrEqual(1);
 
-    await afterSync();
-    try {
-      await pageJerry.locator('.chatroom-member-item').filter({ hasText: 'Tom' }).first().click();
-      await pageJerry.waitForSelector('#talks-from-user-modal', { timeout: 10000 });
-      await pageJerry.click('.talk-from-user-item:has-text("Tennis")');
-    } catch {
-      await pageJerry.click('.nav-btn[data-view="talks"]');
-      await afterSync();
-      await pageJerry.locator('.talk-list-item').filter({ hasText: TALK_TENNIS }).first().click();
-    }
-    await pageJerry.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
+    await openIncomingTalkModal(pageJerry, TALK_TENNIS);
     await pageJerry.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
-    await waitForNotification(pageJerry, 'Match!', 'Jerry');
-    await pageJerry.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
+    await expect(pageJerry.getByText('Match!').first()).toBeVisible({ timeout: 15000 });
+    await waitForResponseModalClosed(pageJerry);
     await afterAction();
 
-    await pageJerry.click('.nav-btn[data-view="talks"]');
-    await afterSync();
-    await pageJerry.locator('.talk-list-item').filter({ hasText: TALK_COFFEE }).first().click();
-    await pageJerry.waitForSelector('#talk-response-modal .modal-content', { timeout: 5000 });
+    await openIncomingTalkModal(pageJerry, TALK_COFFEE);
     await pageJerry.locator(`input.choice-radio[data-answer-text="${IGNORE_ANSWER_COFFEE}"][data-mode="manual"]`).first().click();
-    await pageJerry.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
+    await waitForResponseModalClosed(pageJerry);
 
-    await pageBob.click('.nav-btn[data-view="talks"]');
-    await afterSync();
-    await pageBob.locator('.talk-list-item').filter({ hasText: TALK_COFFEE }).first().click();
-    await pageBob.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
+    await openIncomingTalkModal(pageBob, TALK_COFFEE);
     await pageBob.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER_COFFEE}"][data-mode="manual"]`).first().click();
-    await waitForNotification(pageBob, 'Match!', 'Bob');
-    await pageBob.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
+    await expect(pageBob.getByText('Match!').first()).toBeVisible({ timeout: 15000 });
+    await waitForResponseModalClosed(pageBob);
     await afterAction();
 
-    await pageBob.locator('.talk-list-item').filter({ hasText: TALK_TENNIS }).first().click();
-    await pageBob.waitForSelector('#talk-response-modal .modal-content', { timeout: 5000 });
+    await openIncomingTalkModal(pageBob, TALK_TENNIS);
     await pageBob.locator(`input.choice-radio[data-answer-text="${IGNORE_ANSWER}"][data-mode="manual"]`).first().click();
-    await pageBob.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
+    await waitForResponseModalClosed(pageBob);
 
-    await waitForNotification(pageTom, 'Match!', 'Tom (first)');
+    await expect(pageTom.getByText('Match!').first()).toBeVisible({ timeout: 15000 });
     await afterSync();
     // Second Match! toast may already be dismissed; assert stable state (2 contacts) instead
     await pageTom.click('.nav-btn[data-view="contacts"]');

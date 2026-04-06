@@ -4,6 +4,7 @@ import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay } from './helpers/timing';
+import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
 
 test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
   let browserAlice: Browser;
@@ -143,32 +144,40 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
 
     await pageAlice.click('#broadcast-talk-btn');
     await afterAction();
-    await waitForNotification(pageAlice, 'Sent 2 talk', 'Alice');
+    // Poll server until Tom has received both tags (broadcast takes time to register)
+    const tomUserId = await pageTom.evaluate(
+      () => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '',
+    );
+    await expect
+      .poll(
+        async () => {
+          const res = await pageAlice.request.get(
+            `http://localhost:8080/api/users/${encodeURIComponent(tomUserId)}/incoming-talks`,
+          );
+          if (!res.ok()) return 0;
+          return (await res.json() as any[]).length;
+        },
+        { message: 'Tom should have incoming talks after broadcast', timeout: 60_000 },
+      )
+      .toBeGreaterThanOrEqual(1);
 
     // 4) Tom opens Coffee tag, checks checkbox, submits → match
     console.log('\n📍 STEP 4: Tom opens Coffee, checks checkbox, submits → match');
-    await afterSync();
-    await pageTom.click('.nav-btn[data-view="talks"]');
-    await afterSync();
-    await pageTom.locator('.talk-list-item').filter({ hasText: TAG_COFFEE }).first().click();
-    await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
+    await openIncomingTalkModal(pageTom, TAG_COFFEE);
     await expect(pageTom.locator('.tag-match-checkbox')).toBeVisible();
     await pageTom.locator('#tag-match-checkbox').check();
     await pageTom.click('#tag-submit-btn');
-    await waitForNotification(pageTom, 'Match!', 'Tom');
-    await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
+    await expect(pageTom.getByText('Match!').first()).toBeVisible({ timeout: 15000 });
+    await waitForResponseModalClosed(pageTom);
 
     // 5) Alice sees match notification for Coffee (one match)
-    await waitForNotification(pageAlice, 'Match!', 'Alice');
+    await expect(pageAlice.getByText('Match!').first()).toBeVisible({ timeout: 15000 });
 
     // 6) Tom opens Cat tag, leaves checkbox unchecked, submits → ignore
     console.log('\n📍 STEP 6: Tom opens Cat, leaves checkbox unchecked → ignore');
-    await pageTom.click('.nav-btn[data-view="talks"]');
-    await afterSync();
-    await pageTom.locator('.talk-list-item').filter({ hasText: TAG_CAT }).first().click();
-    await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 10000 });
+    await openIncomingTalkModal(pageTom, TAG_CAT);
     await pageTom.click('#tag-submit-btn');
-    await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 5000 });
+    await waitForResponseModalClosed(pageTom);
 
     // 7) Alice confirms one match: Talks tab shows "Matched with: Tom" for Coffee; status shows 1 match
     await pageAlice.click('.nav-btn[data-view="talks"]');

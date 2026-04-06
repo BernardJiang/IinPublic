@@ -128,7 +128,22 @@ class IinPublicServer {
 
     for (const [rawKey, rawCluster] of Object.entries(incoming)) {
       if (rawKey.startsWith('_') || !rawCluster) continue;
-      const cluster = this.clusterNodeForIdentityLookup(rawCluster) as any;
+
+      // Gun stores nested objects as soul references { '#': soul } at the parent level.
+      // Resolve them to actual cluster data before processing.
+      let resolvedCluster: any = rawCluster;
+      if (
+        rawCluster &&
+        typeof rawCluster === 'object' &&
+        !Array.isArray(rawCluster) &&
+        Object.keys(rawCluster as object).length === 1 &&
+        '#' in (rawCluster as object)
+      ) {
+        resolvedCluster =
+          (await this.gunService.getPath(['incomingTalksByUser', userId, rawKey])) || rawCluster;
+      }
+
+      const cluster = this.clusterNodeForIdentityLookup(resolvedCluster) as any;
       const canonical = canonicalIdentityKeyFromStoredCluster(cluster);
       const idFromNode = typeof cluster?.identityKey === 'string' ? String(cluster.identityKey).trim() : '';
       if (canonical !== identityKey && rawKey !== identityKey && idFromNode !== identityKey) continue;
@@ -138,8 +153,8 @@ class IinPublicServer {
         merged.identityAliases[cluster.identityKey] = true;
       }
 
-      const clusterSenders = cluster?.senders && typeof cluster.senders === 'object' ? cluster.senders : {};
-      const clusterTalkIds = cluster?.talkIds && typeof cluster.talkIds === 'object' ? cluster.talkIds : {};
+      const clusterSenders = cluster?.senders && typeof cluster.senders === 'object' && !('#' in (cluster.senders as object)) ? cluster.senders : {};
+      const clusterTalkIds = cluster?.talkIds && typeof cluster.talkIds === 'object' && !('#' in (cluster.talkIds as object)) ? cluster.talkIds : {};
       merged.senders = { ...merged.senders, ...clusterSenders };
       merged.talkIds = { ...merged.talkIds, ...clusterTalkIds };
       merged.questionCount = Math.max(Number(merged.questionCount || 0), Number(cluster?.questionCount || 0));
@@ -150,6 +165,10 @@ class IinPublicServer {
         merged.updatedAt = cluster?.updatedAt || merged.updatedAt;
         merged.type = cluster?.type || merged.type;
         if (cluster?.latestTalkId) merged.latestTalkId = String(cluster.latestTalkId);
+        // Copy title from cluster (stored inline as a primitive) so callers don't rely solely
+        // on loadTalkDataFromGraphOrBody to resolve it (which may fail if the talk was stored
+        // at a different Gun path than the server expects).
+        if (cluster?.title) merged.title = String(cluster.title);
       }
     }
 
@@ -182,10 +201,12 @@ class IinPublicServer {
 
     const looksAuthoritative = (t: any): boolean => {
       if (!t || typeof t !== 'object') return false;
-      const qs = t.questions;
-      if (!Array.isArray(qs) || qs.length === 0) return false;
       const aid = t.authorId;
       if (aid == null || String(aid).trim() === '' || String(aid) === 'undefined') return false;
+      // Tag talks have no questions — treat as authoritative if they have a title
+      if (t.type === 'tag') return !!(t.title);
+      const qs = t.questions;
+      if (!Array.isArray(qs) || qs.length === 0) return false;
       return true;
     };
 

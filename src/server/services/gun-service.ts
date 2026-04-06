@@ -108,7 +108,11 @@ export class GunService {
       for (const seg of path) {
         ref = ref.get(seg);
       }
+      const timer = setTimeout(() => {
+        resolve(); // Gun ACK can stall in-memory; treat timeout as success (data is in-memory)
+      }, 5000);
       ref.put(data, (ack: any) => {
+        clearTimeout(timer);
         if (ack?.err) {
           reject(new Error(ack.err));
         } else {
