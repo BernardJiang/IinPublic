@@ -1,0 +1,183 @@
+import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { clearGunDatabases } from './helpers/clear-database';
+import { afterSync, delay } from './helpers/timing';
+import {
+  MATCH_ANSWER,
+  IGNORE_ANSWER,
+  TECH_SUPPORT_NAME,
+  TOM_NAME,
+  bootstrapSuperUser,
+  waitForTabActive,
+} from './helpers/super-user-techsupport-shared';
+
+test.describe('Super user: copy talk broadcast toggle + delete', () => {
+  let browserTechSupport: Browser;
+  let browserTom: Browser;
+  let contextTechSupport: BrowserContext;
+  let contextTom: BrowserContext;
+  let pageTechSupport: Page;
+  let pageTom: Page;
+
+  test.beforeAll(async () => {
+    await clearGunDatabases();
+    browserTechSupport = await chromium.launch({
+      headless: false,
+      slowMo: delay(50, 120),
+      args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
+    });
+    browserTom = await chromium.launch({
+      headless: false,
+      slowMo: delay(50, 120),
+      args: ['--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
+    });
+  });
+
+  test.afterEach(async () => {
+    await contextTechSupport?.close().catch(() => {});
+    await contextTom?.close().catch(() => {});
+    contextTechSupport = undefined as unknown as BrowserContext;
+    contextTom = undefined as unknown as BrowserContext;
+    pageTechSupport = undefined as unknown as Page;
+    pageTom = undefined as unknown as Page;
+  });
+
+  test.afterAll(async () => {
+    const manualCleanup = async (page?: Page) => {
+      if (!page) return;
+      try {
+        await page.evaluate(() => {
+          const webApp = (window as any).__iinpublic_app;
+          if (webApp?.getApp) webApp.getApp().manualCleanup();
+        });
+      } catch {
+        // ignore
+      }
+    };
+    await manualCleanup(pageTechSupport);
+    await manualCleanup(pageTom);
+    await pageTechSupport?.close().catch(() => {});
+    await pageTom?.close().catch(() => {});
+    await contextTechSupport?.close().catch(() => {});
+    await contextTom?.close().catch(() => {});
+    await browserTechSupport?.close().catch(() => {});
+    await browserTom?.close().catch(() => {});
+    await new Promise((r) => setTimeout(r, 2000));
+    await clearGunDatabases();
+  });
+
+  test('Copy talk: receive saves automatically; disable filters broadcast; enable includes again; delete removes', async () => {
+    test.setTimeout(120000);
+
+    console.log('\n📍 Copy-talk test: TechSupport creates one talk, Tom receives (saved), disables, broadcast 0, enables, broadcast 1, deletes');
+    await clearGunDatabases();
+    const techSupport = await bootstrapSuperUser(browserTechSupport, 'TechSupport', TECH_SUPPORT_NAME);
+    contextTechSupport = techSupport.context;
+    pageTechSupport = techSupport.page;
+    await pageTechSupport.click('.chatroom-item:has-text("Global")');
+    await pageTechSupport.waitForTimeout(2000);
+
+    const tom = await bootstrapSuperUser(browserTom, 'Tom', TOM_NAME);
+    contextTom = tom.context;
+    pageTom = tom.page;
+    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.waitForTimeout(2000);
+
+    const copyTalkTitle = 'CopyTestTalk';
+    await pageTechSupport.click('#create-talk-btn');
+    await pageTechSupport.waitForSelector('#talk-editor-form');
+    await pageTechSupport.click('input[name="talk-type-radio"][value="matching"]');
+    await pageTechSupport.waitForTimeout(200);
+    await pageTechSupport.fill('#talk-title', copyTalkTitle);
+    const q = pageTechSupport.locator('.question-item').first();
+    await q.locator('.question-text').fill('Want to connect for CopyTestTalk?');
+    await q.locator('.answer-item').nth(0).locator('.answer-text').fill(MATCH_ANSWER);
+    await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
+    await q.locator('.answer-item').nth(1).locator('.answer-text').fill(IGNORE_ANSWER);
+    await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
+    await pageTechSupport.click('#talk-editor-form button[type="submit"]');
+    await pageTechSupport.waitForTimeout(1500);
+
+    await pageTechSupport.click('#broadcast-talk-btn');
+    await afterSync();
+    await afterSync();
+
+    await pageTom.click('.nav-btn[data-view="talks"]');
+    await afterSync();
+    const incomingRow = pageTom
+      .locator('.talk-list-item[data-role="incoming"]')
+      .filter({ hasText: copyTalkTitle })
+      .first();
+    await expect(incomingRow).toBeVisible({ timeout: 90000 });
+    await incomingRow.locator('button.view-talk-btn').click();
+    await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 25000 });
+    await pageTom.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
+    await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
+    await pageTom.waitForTimeout(500);
+
+    await pageTom.click('.nav-btn[data-view="answers"]');
+    await pageTom.waitForTimeout(800);
+    await expect(pageTom.locator('#answers-content').getByText(copyTalkTitle).first()).toBeVisible({ timeout: 15000 });
+    await pageTom
+      .locator('.answer-talk-item')
+      .filter({ hasText: copyTalkTitle })
+      .first()
+      .locator('.answer-copy-talk-btn')
+      .click();
+    await pageTom.waitForTimeout(600);
+
+    await pageTom.click('.nav-btn[data-view="talks"]');
+    await pageTom.waitForTimeout(1000);
+    const copyTalkRow = pageTom
+      .locator('.talk-list-item[data-role="copied"]')
+      .filter({ hasText: copyTalkTitle })
+      .first();
+    await expect(copyTalkRow).toBeVisible({ timeout: 15000 });
+    await copyTalkRow.locator('.talk-disable-broadcast-label').click();
+    await expect(copyTalkRow.locator('.talk-disable-broadcast-checkbox')).toBeChecked({ timeout: 10000 });
+
+    await pageTom.click('.nav-btn[data-view="chatrooms"]');
+    await pageTom.waitForTimeout(500);
+    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.waitForTimeout(800);
+    await expect(pageTom.locator('#broadcast-talk-btn')).toBeVisible({ timeout: 10000 });
+    await pageTom.click('#broadcast-talk-btn');
+    await waitForTabActive(pageTom, 'chatrooms');
+    const talkEditorModal = pageTom.locator('#talk-editor-modal');
+    if (await talkEditorModal.isVisible()) {
+      await pageTom.locator('#cancel-talk-btn').click();
+      await pageTom.waitForSelector('#talk-editor-modal', { state: 'detached', timeout: 5000 });
+    }
+
+    await pageTom.click('.nav-btn[data-view="talks"]');
+    await pageTom.waitForTimeout(800);
+    const copyRowAgain = pageTom
+      .locator('.talk-list-item[data-role="copied"]')
+      .filter({ hasText: copyTalkTitle })
+      .first();
+    await copyRowAgain.locator('.talk-disable-broadcast-label').click();
+    await pageTom.waitForTimeout(800);
+
+    await pageTom.click('.nav-btn[data-view="chatrooms"]');
+    await pageTom.waitForTimeout(500);
+    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.waitForTimeout(500);
+    await pageTom.click('#broadcast-talk-btn');
+    await pageTom.waitForTimeout(500);
+    await waitForTabActive(pageTom, 'chatrooms');
+
+    await pageTom.click('.nav-btn[data-view="me"]');
+    await pageTom.waitForTimeout(1000);
+    await pageTom.click('#view-my-talks-btn');
+    await pageTom.waitForSelector('#my-talks-modal', { timeout: 5000 });
+    await pageTom.locator('.talk-history-item').filter({ hasText: copyTalkTitle }).first().locator('.delete-talk-btn').click();
+    await pageTom.waitForTimeout(1000);
+    await expect(pageTom.getByText('Talk removed from history')).toBeVisible({ timeout: 5000 });
+    await pageTom.click('#close-my-talks-modal');
+    await pageTom.waitForTimeout(500);
+    await pageTom.click('#view-my-talks-btn');
+    await pageTom.waitForTimeout(1000);
+    await expect(pageTom.locator('.talk-history-item').filter({ hasText: copyTalkTitle })).toHaveCount(0);
+
+    console.log('✅ Copy-talk test complete: receive saved, disabled filtered from broadcast, enable included, delete removed.');
+  });
+});

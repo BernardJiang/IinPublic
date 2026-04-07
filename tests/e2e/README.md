@@ -4,11 +4,12 @@
 
 End-to-end tests for the IinPublic real-time Talk system using Playwright. Tests use **short** intervals by default for fast regression; set **long** intervals when you want to watch the run.
 
-## Test Files (compressed from 16 → 9 + talks-matching split)
+## Test Files (one `test()` per file for easier debugging; shared helpers under `helpers/`)
 
 | File | Coverage |
 |------|----------|
-| `01-login-and-headcount.spec.ts` | Single user login/re-login; two users headcount 1→2→1→2 + room nav |
+| `01-login-single-user-headcount.spec.ts` | Single user login/re-login, headcount 1 |
+| `01-login-two-users-headcount.spec.ts` | Two users headcount 1→2→1→2 + room navigation |
 | `02-multi-user-headcount.spec.ts` | Three users: sequential enter, FIFO exit, random re-enter |
 | `03-capacity-eviction.spec.ts` | Four users: Global fills, fourth bumps first to North America; persistence |
 | `04-profile-edit-stage-name.spec.ts` | New user edits stage name |
@@ -21,7 +22,9 @@ End-to-end tests for the IinPublic real-time Talk system using Playwright. Tests
 | `helpers/talks-matching-browsers.ts`, `helpers/talks-matching-flow.ts` | Shared browser launch + Tom/Jerry/Bob flows |
 | `06-contacts-tab.spec.ts` | Contacts list, click contact → matching talks |
 | `07-tags-checkbox.spec.ts` | Tag create, checkbox match/ignore |
-| `08-super-user-techsupport.spec.ts` | 10 tags + 10 talks, Tom answers all; copy-talk broadcast toggle + delete |
+| `08-super-user-20-broadcast.spec.ts` | 10 tags + 10 talks, broadcast 20, Tom answers all |
+| `08-super-user-copy-talk.spec.ts` | Copy talk: broadcast disable/enable + delete from My Talks |
+| `helpers/super-user-techsupport-shared.ts` | Shared bootstrap + Tom incoming modal helpers for `08-*` |
 
 ## Short vs long intervals
 
@@ -56,7 +59,7 @@ npm run test:e2e
 E2E_INTERVAL=long npx playwright test
 
 # Run one file
-npx playwright test 01-login-and-headcount.spec.ts
+npx playwright test 01-login-single-user-headcount.spec.ts
 
 # Run only talks-matching split (faster triage)
 npx playwright test tests/e2e/talks-matching
@@ -99,9 +102,9 @@ npx playwright show-report
 
 **Practical mitigations:** Run the heaviest talks-matching specs **early** (rename files so they sort first, or run `npx playwright test tests/e2e/talks-matching/04 …` before the rest), use `E2E_INTERVAL=long` for the full suite, or restart the dev server between CI jobs if you need a perfectly cold Gun server.
 
-### `008-super-user-techsupport` before `talks-matching/03` (timeouts / CDP “guid … not bound”)
+### `08-super-user-*` before `talks-matching/03` (timeouts / CDP “guid … not bound”)
 
-`008` defines **two tests** that share one `beforeAll` (two `chromium.launch` instances). Each test calls `bootstrapUser()` → **new** `BrowserContext`s. The second test used to **replace** `page*` / `context*` without **closing** the first test’s contexts, so up to **four** live contexts piled up until `afterAll`’s `browser.close()`. That spikes CDP/GPU load and often breaks the **next** spec with a **300s hang** or Playwright’s **“Object with guid … was not bound in the connection”** (stale CDP target). **Fix:** `afterEach` closes both contexts after every test; `afterAll` waits **2s** after `browser.close()` so the OS can reap processes before the following file launches three more Chromes.
+Each `08-*` file has **one** test but still uses two `chromium.launch` instances in `beforeAll`. **`afterEach`** closes both contexts after the test so stray contexts do not pile up. **`afterAll`** waits **2s** after `browser.close()` so the OS can reap processes before the next spec (e.g. talks-matching with three Chromes).
 
 
 npx playwright test tests/e2e/talks-matching/03-chatbot-bot-badge.spec.ts --debug

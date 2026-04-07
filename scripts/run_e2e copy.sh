@@ -8,7 +8,7 @@ LOG_FILE="logs/test_$(date +%s).log"
 echo "🚀 Running E2E tests..."
 
 # Run test and save log
-npm run test:e2e -- tests/e2e/01-login-and-headcount.spec.ts > "$LOG_FILE" 2>&1 || true
+npm run test:e2e -- tests/e2e/01-login-single-user-headcount.spec.ts > "$LOG_FILE" 2>&1 || true
 
 echo "🧠 Summarizing..."
 
