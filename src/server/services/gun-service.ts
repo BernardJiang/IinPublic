@@ -84,42 +84,34 @@ export class GunService {
    */
   public async getPath(path: string[]): Promise<any> {
     if (path.length === 0) return undefined;
-    return new Promise((resolve) => {
-      let ref: any = this.gun;
-      for (const seg of path) {
-        ref = ref.get(seg);
-      }
-      ref.once(
-        (data: any) => {
-          resolve(data);
-        },
-        { wait: 2000 },
-      );
-    });
+    return Promise.race([
+      new Promise<any>((resolve) => {
+        let ref: any = this.gun;
+        for (const seg of path) {
+          ref = ref.get(seg);
+        }
+        ref.once(
+          (data: any) => {
+            resolve(data);
+          },
+          { wait: 2000 },
+        );
+      }),
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3000)),
+    ]);
   }
 
   /**
    * Put data at a nested path (same graph shape as client).
    */
-  public async putPath(path: string[], data: any): Promise<void> {
-    if (path.length === 0) return;
-    return new Promise((resolve, reject) => {
-      let ref: any = this.gun;
-      for (const seg of path) {
-        ref = ref.get(seg);
-      }
-      const timer = setTimeout(() => {
-        resolve(); // Gun ACK can stall in-memory; treat timeout as success (data is in-memory)
-      }, 5000);
-      ref.put(data, (ack: any) => {
-        clearTimeout(timer);
-        if (ack?.err) {
-          reject(new Error(ack.err));
-        } else {
-          resolve();
-        }
-      });
-    });
+  public putPath(path: string[], data: any): Promise<void> {
+    if (path.length === 0) return Promise.resolve();
+    let ref: any = this.gun;
+    for (const seg of path) {
+      ref = ref.get(seg);
+    }
+    ref.put(data); // fire-and-forget: ack callback can hang in-memory; data is written synchronously
+    return Promise.resolve();
   }
 
   /**

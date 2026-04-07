@@ -633,36 +633,47 @@ export class IinPublicApp {
     talkId: string,
     talk: Talk,
     members: Array<{ userId: string; stageName: string }>,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const me = this.currentUser;
-    if (!me?.id || members.length === 0) return;
+    if (!me?.id || members.length === 0) return true;
     const receiverIds = members.map((m) => m.userId).filter((id) => id !== me.id);
-    if (receiverIds.length === 0) return;
+    if (receiverIds.length === 0) return true;
     const base = this.getBackendApiBase();
     console.log(`📡 POSTing register-receivers: talkId=${talkId} receivers=${receiverIds.length}`);
     try {
-      const res = await fetch(
-        `${base}/api/talks/${encodeURIComponent(talkId)}/register-receivers-for-broadcast`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            senderId: me.id,
-            senderName: me.stageName,
-            receiverIds,
-            talkData: talk,
-          }),
-        },
-      );
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25000);
+      let res: Response;
+      try {
+        res = await fetch(
+          `${base}/api/talks/${encodeURIComponent(talkId)}/register-receivers-for-broadcast`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              senderId: me.id,
+              senderName: me.stageName,
+              receiverIds,
+              talkData: talk,
+            }),
+            signal: controller.signal,
+          },
+        );
+      } finally {
+        clearTimeout(timeoutId);
+      }
       if (!res.ok) {
         const t = await res.text();
         console.warn('register-receivers-for-broadcast failed:', res.status, t);
+        return false;
       } else {
         const r = await res.json();
         console.log(`register-receivers-for-broadcast ok: talkId=${talkId} registered=${r?.registered}`);
+        return true;
       }
     } catch (e) {
       console.warn('register-receivers-for-broadcast request failed:', e);
+      return false;
     }
   }
 
@@ -1157,6 +1168,8 @@ export class IinPublicApp {
           }
           const gun = this.gunService.getGun();
           let sent = 0;
+          // Resolve all talk payloads first (sync from localStorage, no awaits)
+          const talkPayloads: Array<{ tid: string; talk: Talk }> = [];
           for (const talkId of broadcastableIds) {
             // Prefer OUT row fullTalk (localStorage) — Gun getTalk often lags for 20 talks; skipping
             // register + Gun put for most ids leaves Tom with a single IN cluster (e2e poll sees 1).
@@ -1167,9 +1180,20 @@ export class IinPublicApp {
             if (!talk) { console.warn(`📢 broadcastTalk: skipping ${talkId} (no talk data)`); continue; }
             const tid = String(talk.id || talkId);
             talk = { ...talk, id: tid, authorId: talk.authorId || this.currentUser!.id };
-            // Do not await waitUntilTalkReadableOnServer per talk — 20×~15s stalls the UI handler and e2e polls
-            // see an empty IN list until the whole loop finishes. Register uses POST body talkData; Gun put can lag.
-            await this.registerReceiversOnServerForTalk(tid, talk, receivers);
+            talkPayloads.push({ tid, talk: talk as Talk });
+          }
+          // Phase 1: POST register-receivers in small parallel batches (HTTP only — no Gun on this path).
+          // Fully sequential was very slow (20 round-trips); full parallel can spike the server.
+          const REGISTER_BATCH = 5;
+          for (let i = 0; i < talkPayloads.length; i += REGISTER_BATCH) {
+            const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
+            await Promise.all(
+              batch.map(({ tid, talk }) => this.registerReceiversOnServerForTalk(tid, talk, receivers)),
+            );
+            sent += batch.length;
+          }
+          // Phase 2: announce all talks in the chatroom via Gun.js AFTER all POSTs complete.
+          for (const { tid, talk } of talkPayloads) {
             gun.get('chatrooms').get(chatroomId).get('talks').get(tid).put({
               talkId: tid,
               title: talk.title,
@@ -1179,7 +1203,6 @@ export class IinPublicApp {
               timestamp: new Date().toISOString(),
               questionCount: talk.questions?.length ?? 0,
             });
-            sent += 1;
           }
           this.uiManager.showNotification(
             `Sent ${sent} talk${sent !== 1 ? 's' : ''} to ${targetCount} user${targetCount !== 1 ? 's' : ''} in the room.`,

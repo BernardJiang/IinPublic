@@ -22,12 +22,30 @@ import {
 const TITLE_SUN = 'E2E Partial Auto Sun';
 const TITLE_SAT = 'E2E Partial Auto Sat';
 
+/**
+ * Match! / “New match” toasts don’t auto-dismiss and sit over the header; Playwright won’t click
+ * through them (actionability). Dismiss by clicking, matching app behavior.
+ */
+async function dismissBlockingNotifications(page: Page): Promise<void> {
+  const matchToast = page.locator('.notification[data-match-notification="true"]');
+  for (let i = 0; i < 8 && (await matchToast.count()) > 0; i++) {
+    await matchToast.first().click({ timeout: 5000 });
+  }
+  await page
+    .locator('.notification.success')
+    .filter({ hasText: /New match/i })
+    .first()
+    .click({ timeout: 2000 })
+    .catch(() => {});
+}
+
 /** Fill a 3-question linear matching talk; last question Yes → match, No → ignore. */
 async function fillThreeQuestionTalk(
   page: Page,
   title: string,
   thirdQuestionText: string,
 ): Promise<void> {
+  await dismissBlockingNotifications(page);
   await page.click('#create-talk-btn');
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);

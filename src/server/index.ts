@@ -27,6 +27,8 @@ class IinPublicServer {
   private talkService!: TalkService;
   private userService!: UserService;
   private reputationService!: ReputationService;
+  /** Server-side store for incomingTalksByUser — bypasses Gun.js to avoid event-loop stall on bulk writes. */
+  private incomingTalksMap: Map<string, Map<string, any>> = new Map();
 
   constructor() {
     this.app = express();
@@ -210,6 +212,12 @@ class IinPublicServer {
       return true;
     };
 
+    const fromBody = parseBody();
+
+    // Prefer authoritative POST body first: the sender includes full talk JSON for broadcast batches.
+    // Skip the Gun.js graph lookup entirely when body is already authoritative (avoids event-loop stall).
+    if (looksAuthoritative(fromBody)) return fromBody;
+
     let fromGraph: any | null = null;
     const rawTalk = await this.gunService.getPath(['talks', talkId]);
     if (rawTalk) {
@@ -224,12 +232,6 @@ class IinPublicServer {
       }
     }
 
-    const fromBody = parseBody();
-
-    // Prefer authoritative POST body first: the sender includes full talk JSON for broadcast batches.
-    // The graph can lag or (in tests) resolve oddly per id; using graph-first merged many broadcasts
-    // into one incoming cluster (same identity key) while the client still sent 20 distinct talks.
-    if (looksAuthoritative(fromBody)) return fromBody;
     if (looksAuthoritative(fromGraph)) return fromGraph;
     if (fromGraph) return fromGraph;
     return fromBody;
@@ -346,22 +348,30 @@ class IinPublicServer {
 
     const nowIso = new Date().toISOString();
 
-    let existing: any;
-    if (useTalkIdAsStorageLeaf) {
-      const rawNode = await this.gunService.getPath(['incomingTalksByUser', receiverId, tid]);
-      const prev = this.clusterNodeForIdentityLookup(rawNode) as any;
-      existing = {
-        title: prev?.title || '',
-        type: prev?.type || 'matching',
-        senders: prev?.senders && typeof prev.senders === 'object' ? prev.senders : {},
-        talkIds: prev?.talkIds && typeof prev.talkIds === 'object' ? prev.talkIds : {},
-        questionCount: prev?.questionCount || 0,
-        questionsJson: prev?.questionsJson,
-        identityAliases: prev?.identityAliases && typeof prev.identityAliases === 'object' ? prev.identityAliases : {},
-      };
-    } else {
-      existing = await this.getMergedIncomingClusterForUser(receiverId, identityKey);
-    }
+    // Read from server-side Map (avoids Gun.js event-loop stall on bulk writes).
+    const userMap = this.incomingTalksMap.get(receiverId);
+    const storageLeafForRead = useTalkIdAsStorageLeaf ? tid : identityKey;
+    const prev = userMap?.get(storageLeafForRead);
+    const existing: any = prev
+      ? {
+          title: prev.title || '',
+          type: prev.type || 'matching',
+          senders: prev.senders && typeof prev.senders === 'object' ? prev.senders : {},
+          talkIds: prev.talkIds && typeof prev.talkIds === 'object' ? prev.talkIds : {},
+          questionCount: prev.questionCount || 0,
+          questionsJson: prev.questionsJson,
+          identityAliases:
+            prev.identityAliases && typeof prev.identityAliases === 'object' ? prev.identityAliases : {},
+        }
+      : {
+          title: '',
+          type: 'matching',
+          senders: {},
+          talkIds: {},
+          questionCount: 0,
+          questionsJson: undefined,
+          identityAliases: {},
+        };
 
     const senderMap = existing.senders && typeof existing.senders === 'object' ? existing.senders : {};
     const talkIds = existing.talkIds && typeof existing.talkIds === 'object' ? existing.talkIds : {};
@@ -400,19 +410,21 @@ class IinPublicServer {
     };
 
     const storageLeaf = useTalkIdAsStorageLeaf ? tid : identityKey;
-    await this.gunService.putPath(['incomingTalksByUser', receiverId, storageLeaf], cluster);
+
+    // Write to server-side Map (synchronous, no Gun.js event-loop stall).
+    if (!this.incomingTalksMap.has(receiverId)) this.incomingTalksMap.set(receiverId, new Map());
+    this.incomingTalksMap.get(receiverId)!.set(storageLeaf, cluster);
     if (!useTalkIdAsStorageLeaf && existing.identityAliases && typeof existing.identityAliases === 'object') {
       for (const alias of Object.keys(existing.identityAliases)) {
         if (alias && alias !== identityKey) {
-          await this.gunService.putPath(['incomingTalksByUser', receiverId, alias], cluster);
+          this.incomingTalksMap.get(receiverId)!.set(alias, cluster);
         }
       }
     }
-    await this.gunService.putPath(['talkIdentityById', talkId], { identityKey, updatedAt: nowIso });
-    await this.gunService.putPath(['incomingTalkIdentityByUserAndTalkId', receiverId, talkId], {
-      identityKey,
-      updatedAt: nowIso,
-    });
+
+    // No Gun.js writes here — server-side Map is the source of truth for incoming talks.
+    // Browser clients read from GET /incoming-talks (HTTP) when opening the Talks tab.
+    // Gun.js writes for incomingTalksByUser are skipped to avoid event-loop stall on bulk broadcasts.
 
     return { identityKey, cluster };
   }
@@ -722,6 +734,13 @@ class IinPublicServer {
      * graph so GET /incoming-talks and IN UI work even when a peer never receives the Gun node in time.
      */
     this.app.post('/api/talks/:id/register-receivers-for-broadcast', async (req, res) => {
+      // Hard 20-second timeout: Gun.js in-memory can stall put/get callbacks; ensure we always respond.
+      const hardTimeout = setTimeout(() => {
+        if (!res.headersSent) {
+          console.warn(`[register-receivers] hard timeout for talkId=${req.params.id}`);
+          res.status(504).json({ error: 'timeout', registered: 0 });
+        }
+      }, 20000);
       try {
         const talkId = req.params.id;
         const { senderId, senderName, receiverIds, talkData: bodyTalkData } = req.body as {
@@ -732,17 +751,20 @@ class IinPublicServer {
         };
         console.log(`[register-receivers] talkId=${talkId} sender=${senderId} receivers=${JSON.stringify(receiverIds)}`);
         if (!senderId || !Array.isArray(receiverIds)) {
+          clearTimeout(hardTimeout);
           res.status(400).json({ error: 'senderId and receiverIds[] required' });
           return;
         }
         const talkData = await this.loadTalkDataFromGraphOrBody(talkId, bodyTalkData);
         console.log(`[register-receivers] talkData loaded: ${talkData ? (talkData as any).title : 'null'} authorId=${(talkData as any)?.authorId}`);
         if (!talkData) {
+          clearTimeout(hardTimeout);
           res.status(404).json({ error: 'Talk not found' });
           return;
         }
         if (String((talkData as { authorId?: string }).authorId) !== String(senderId)) {
           console.log(`[register-receivers] 403: talkData.authorId=${(talkData as any).authorId} !== senderId=${senderId}`);
+          clearTimeout(hardTimeout);
           res.status(403).json({ error: 'senderId must match talk author' });
           return;
         }
@@ -759,42 +781,33 @@ class IinPublicServer {
           });
           registered += 1;
         }
-        res.json({ ok: true, registered });
+        clearTimeout(hardTimeout);
+        if (!res.headersSent) res.json({ ok: true, registered });
       } catch (error) {
+        clearTimeout(hardTimeout);
         console.error('register-receivers-for-broadcast error:', error);
-        res.status(500).json({ error: (error as Error).message });
+        if (!res.headersSent) res.status(500).json({ error: (error as Error).message });
       }
     });
 
     this.app.get('/api/users/:id/incoming-talks', async (req, res) => {
       try {
         const userId = req.params.id;
-        const incoming = await this.gunService.getPath(['incomingTalksByUser', userId]);
-        if (!incoming || typeof incoming !== 'object') {
+        const userMap = this.incomingTalksMap.get(userId);
+        if (!userMap || userMap.size === 0) {
           res.json([]);
           return;
         }
 
-        const childEntries = Object.entries(incoming).filter(([k, v]) => !k.startsWith('_') && v);
-
-        // One HTTP row per Gun child under incomingTalksByUser/:userId. Deduplicating only by
-        // canonical identity used to merge unrelated graph keys into one row and made bulk
-        // broadcast look like a single IN cluster in e2e (poll saw length 1).
+        // Read from server-side Map (no Gun.js calls — avoids event-loop stall).
         const values = await Promise.all(
-          childEntries.map(async ([rawKey, v]) => {
-            const enriched = this.clusterNodeForIdentityLookup(v);
-            const node = enriched as Record<string, unknown>;
-            const fromCluster =
-              typeof node?.identityKey === 'string' ? String(node.identityKey).trim() : '';
-            let logical: string;
-            if (fromCluster && TALK_CONTENT_HASH_ID.test(fromCluster)) {
-              logical = fromCluster;
-            } else if (TALK_CONTENT_HASH_ID.test(rawKey)) {
-              logical = rawKey;
-            } else {
-              logical = canonicalIdentityKeyFromStoredCluster(enriched);
-            }
-            const cluster = await this.getMergedIncomingClusterForUser(userId, logical);
+          Array.from(userMap.entries()).map(async ([rawKey, cluster]) => {
+            const logical =
+              typeof cluster?.identityKey === 'string' && cluster.identityKey
+                ? cluster.identityKey
+                : TALK_CONTENT_HASH_ID.test(rawKey)
+                  ? rawKey
+                  : canonicalIdentityKeyFromStoredCluster(cluster);
             const template = await this.gunService.getPath([
               'talkAnswerTemplateByUser',
               userId,
@@ -954,6 +967,8 @@ class IinPublicServer {
             console.log('🧹 Clearing Gun.js in-memory database...');
             // Create a new empty graph
             this.gun._.graph = {};
+            // Also clear server-side incoming talks Map
+            this.incomingTalksMap.clear();
             console.log('✅ Gun.js in-memory database cleared');
             res.json({ success: true, message: 'Gun.js in-memory database cleared' });
           } else {

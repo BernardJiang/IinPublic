@@ -397,6 +397,7 @@ export class UIManager extends EventEmitter {
 
         // Special handling for contacts view
         if (targetView === 'contacts') {
+          this.dismissMatchNotifications();
           this.showContactsList();
         }
 
@@ -2778,15 +2779,30 @@ export class UIManager extends EventEmitter {
     notification.className = `notification ${type}`;
     notification.textContent = message;
 
+    if (message.startsWith('Match!')) {
+      notification.dataset.matchNotification = 'true';
+      notification.style.cursor = 'pointer';
+      notification.addEventListener('click', () => {
+        if (document.body.contains(notification)) document.body.removeChild(notification);
+      });
+    }
+
     document.body.appendChild(notification);
 
-    const hideAfter =
-      message.includes('You have no talks to broadcast') ? 10000 : 3000;
-    setTimeout(() => {
-      if (document.body.contains(notification)) {
-        document.body.removeChild(notification);
-      }
-    }, hideAfter);
+    if (!message.startsWith('Match!')) {
+      const hideAfter = message.includes('You have no talks to broadcast') ? 10000 : 3000;
+      setTimeout(() => {
+        if (document.body.contains(notification)) {
+          document.body.removeChild(notification);
+        }
+      }, hideAfter);
+    }
+  }
+
+  private dismissMatchNotifications(): void {
+    document.querySelectorAll('.notification[data-match-notification="true"]').forEach((el) => {
+      if (document.body.contains(el)) document.body.removeChild(el);
+    });
   }
 
   showTalkCompletion(_conversationId: string, outcome: string): void {

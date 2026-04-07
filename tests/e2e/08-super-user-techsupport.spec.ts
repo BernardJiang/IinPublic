@@ -174,6 +174,7 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
         await expect(row).toBeVisible({ timeout: 12000 });
         break;
       } catch {
+        await syncIncomingFromServer(page);
         await page.click('.nav-btn[data-view="chatrooms"]');
         await waitForTabActive(page, 'chatrooms');
         await page.waitForTimeout(500);
@@ -188,7 +189,8 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
   }
 
   test('TechSupport creates 10 tags + 10 talks, answers all himself (in UI); Tom joins; TechSupport sends all 20; Tom answers all; TechSupport confirms', async () => {
-    test.setTimeout(300000); // 5 min - long flow with 20 answers and Gun.js sync
+    // Exceeds default 300s global timeout: 20 creates + broadcast (toast up to 180s) + 20 UI answers + Gun sync.
+    test.setTimeout(900_000);
 
     // 1) TechSupport enters Global and creates 10 tags
     console.log('\n📍 STEP 1: TechSupport enters Global');
@@ -251,8 +253,12 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
     await pageTechSupport.click('.chatroom-item:has-text("Global")');
     await pageTechSupport.waitForTimeout(1000);
     await pageTechSupport.click('#broadcast-talk-btn');
-    await pageTechSupport.waitForTimeout(500);
     await waitForTabActive(pageTechSupport, 'chatrooms');
+    // Broadcast runs 20× register-receivers POSTs (now batched in the app). Wait for the success
+    // toast — polling Tom's API before this races a partially completed broadcast.
+    await expect(
+      pageTechSupport.getByText(/Sent 20 talks to 1 user in the room\./),
+    ).toBeVisible({ timeout: 180_000 });
 
     const tomUserId = await pageTom.evaluate(() =>
       String(
@@ -274,7 +280,7 @@ test.describe('Super user TechSupport: 10 tags + 10 talks, send to Tom, Tom answ
           const data = await res.json();
           return countIncomingTalkSlots(data);
         },
-        { message: 'Tom should have 20 incoming talk slots after broadcast', timeout: 120_000 },
+        { message: 'Tom should have 20 incoming talk slots after broadcast', timeout: 60_000 },
       )
       .toBeGreaterThanOrEqual(20);
 
