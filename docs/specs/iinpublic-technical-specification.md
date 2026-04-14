@@ -420,6 +420,18 @@ Do you like to play tennis? ** yes; * no.  // Question with answer chips
 - Room merging when occupancy drops below threshold
 - Business chatrooms (FR-CR-6) stored as user-defined nodes alongside the automatic hierarchy
 
+**GPS Grid ID derivation:** The `{grid-hash}` node key is produced by rounding the device's geo coordinates to the grid precision, then hashing the rounded value together with the app ID. This ensures that two users at nearby coordinates produce the same hash (and land in the same chatroom node) without exposing exact GPS positions in the graph path.
+
+```typescript
+// src-shared/location/gridHash.ts
+export function deriveGridHash(lat: number, lng: number, appId: string, precision = 3): string {
+  // Round to `precision` decimal places (~111 m per 0.001°)
+  const roundedLat = Math.round(lat * 10 ** precision) / 10 ** precision;
+  const roundedLng = Math.round(lng * 10 ** precision) / 10 ** precision;
+  return hashFn(`${roundedLat}:${roundedLng}:${appId}`);
+}
+```
+
 ### 6.2 Bulk Send Architecture (Batched Delivery)
 
 ```javascript
@@ -1835,6 +1847,7 @@ The following items are known open questions or planned post-MVP work:
 | Reputation section (read-only) | FR-UM-6, FR-UM-7 | `ReputationManager`, `PrivacyToggle` |
 | Language / grammar / dirty word filters | FR-BF-1 – FR-BF-6 | `src/filters/contentFilters.ts` |
 | Chatroom hierarchy + auto-split | FR-CR-1 – FR-CR-4, §6.1 | `ChatroomManager`, Gun path design |
+| GPS grid ID (rounded coords + app ID hash) | §6.1 | `src-shared/location/gridHash.ts` |
 | Business chatrooms | FR-CR-5, FR-CR-6 | `IChatroomRepo`, Gun user-defined path |
 | FIFO eviction when full | FR-CR-7 | `ChatroomManager.checkCapacity()` |
 | Location blur | FR-CR-8, §6.3 | `LocationPrivacy` |
