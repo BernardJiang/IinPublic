@@ -121,6 +121,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await page2.close();
     await context2.close();
     await afterSync();
+    await wait(2000, 5000);
     verifyHeadcount(await getHeadcount(page3), 1, 'User 3');
 
     await cleanupUser(page3, 'User 3');
