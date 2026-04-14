@@ -1,10 +1,31 @@
-# IinPublic - Detailed Technical Specification
+# IinPublic — Technical Specification
+## Architecture, Security, Data, Network, Mobile & API Interfaces
 
-## Architecture Overview
+> **Version:** 2.0 (merged from v1 and Design Spec v2)
+> **Date:** 2026-04-13
+> **Status:** Authoritative
 
-Based on your choices, here's the detailed technical architecture:
+---
 
-### 1. Chatroom Hierarchy (Hybrid Approach)
+## Table of Contents
+
+1. [Architecture Overview](#1-architecture-overview)
+2. [Security & Privacy](#2-security--privacy)
+3. [Data Integrity & Conflict Resolution](#3-data-integrity--conflict-resolution)
+4. [Network & Scalability](#4-network--scalability)
+5. [Mobile-Specific Cases](#5-mobile-specific-cases)
+6. [API & Interface Standardization](#6-api--interface-standardization)
+7. [Gun.js Data Model Specifications](#7-gunjs-data-model-specifications)
+8. [UI/UX Component Specifications](#8-uiux-component-specifications)
+9. [Implementation Roadmap](#9-implementation-roadmap)
+10. [Testing Strategy & Quality Assurance](#10-testing-strategy--quality-assurance)
+11. [Key Technical Decisions](#11-key-technical-decisions)
+
+---
+
+## 1. Architecture Overview
+
+### 1.1 Chatroom Hierarchy (Hybrid Approach)
 ```
 /chatrooms
 ├── global (capacity: 1000)
@@ -19,19 +40,18 @@ Based on your choices, here's the detailed technical architecture:
 **Implementation Details:**
 - Gun.js native spatial queries for GPS grid lookups
 - Custom geographical nodes for administrative boundaries
-- Automatic room splitting when capacity exceeded
+- Automatic room splitting when capacity exceeded (FIFO eviction of oldest users)
 - Room merging when occupancy drops below threshold
 
-### 2. Bulk Send Architecture (Batched Delivery)
+### 1.2 Bulk Send Architecture (Batched Delivery)
 ```javascript
-// Bulk send queue system
 class BulkTalkSender {
   constructor() {
     this.queues = new Map(); // userId -> Queue
     this.batchSize = 50;
     this.batchDelay = 1000; // 1 second between batches
   }
-  
+
   async sendTalk(talkId, targetUsers, options) {
     const batches = this.createBatches(targetUsers);
     for (const batch of batches) {
@@ -42,28 +62,26 @@ class BulkTalkSender {
 }
 ```
 
-### 3. Location Privacy (Dynamic Blur Radius)
+### 1.3 Location Privacy (Dynamic Blur Radius)
 ```javascript
-// Location blur system
 class LocationPrivacy {
   constructor(user) {
     this.user = user;
     this.blurRadius = user.settings.privacyRadius || 1000; // meters
   }
-  
+
   getPublicLocation() {
     return this.blurGPS(this.user.trueLocation, this.blurRadius);
   }
-  
+
   canViewLocation(requester) {
     return this.user.settings.privacyExceptions.includes(requester.id);
   }
 }
 ```
 
-### 4. Advanced Talk Editor Features
+### 1.4 Advanced Talk Editor
 ```javascript
-// Visual talk editor with drag-drop
 class TalkEditor {
   constructor() {
     this.graph = new Cytoscape({
@@ -71,11 +89,10 @@ class TalkEditor {
       layout: 'dagre',
       elements: []
     });
-    
     this.setupDragDrop();
     this.setupRealTimeCollaboration();
   }
-  
+
   addQuestionNode(position) {
     const nodeId = `q_${Date.now()}`;
     this.graph.add({
@@ -86,24 +103,23 @@ class TalkEditor {
 }
 ```
 
-### 5. Mobile Architecture (Native Android + JS Bridge)
+### 1.5 Mobile Architecture (Native Android + JS Bridge)
 ```java
-// Android native bridge
 public class GunBridge extends WebView {
     private GunNode gunNode;
-    
+
     public GunBridge(Context context) {
         super(context);
         this.addJavascriptInterface(new JsInterface(), "Android");
         this.embeddedNode = new EmbeddedNode(context);
     }
-    
+
     public class JsInterface {
         @JavascriptInterface
         public String getGPSLocation() {
             return LocationManager.getCurrentLocation();
         }
-        
+
         @JavascriptInterface
         public void showNotification(String message) {
             NotificationManager.show(message);
@@ -112,14 +128,738 @@ public class GunBridge extends WebView {
 }
 ```
 
-### 6. Data Models with Gun SEA Schemas
+---
+
+## 2. Security & Privacy
+
+### 2.1 Data Collection Policy
+
+IinPublic is a decentralized application. **No user data is collected, stored, or transmitted to any central server**, with one narrow exception:
+
+| Data Type | Collected Centrally? | Where Stored |
+|---|---|---|
+| Profile, answers, talks, messages | No | Gun.js peer graph only |
+| GPS / location | No | Blurred, stored in user's own Gun node |
+| Session analytics, telemetry | No | — |
+| Tech support interactions | Yes (minimal, opt-in) | Centralised support channel only |
+
+Tech support data is limited to the content the user voluntarily sends through the in-app support flow. It is never cross-referenced with user identity nodes in the Gun graph.
+
+### 2.2 Peer-to-Peer Communication Design
+
+All application-level communication **must travel peer-to-peer via Gun.js**. This means:
+
+- No message content is relayed through or persisted on any application server.
+- Relay nodes (Gun super-peers) forward encrypted datagrams but cannot decrypt them.
+- `server.js` is limited to: serving the static bundle, acting as a Gun relay peer, and handling tech support tickets.
+
+```
+User A  ──[Gun P2P]──  User B
+          ╲        ╱
+           relay peer   (can forward, cannot read)
+```
+
+Any feature that requires reading message content on the server side is **prohibited by design**.
+
+### 2.3 Privacy-Sensitive Question Handling
+
+When a talk contains a question that the chatbot classifies as potentially privacy-sensitive, the system **must prompt the user** before auto-answering.
+
+**Privacy-sensitive categories:**
+- Full legal name, home address, phone number, email
+- Government ID, passport, driver's licence numbers
+- Health, medical, or financial information
+- Religious, political, or ethnic identity
+- Any question whose answer uniquely identifies the user's offline identity
+
+**Chatbot behaviour on privacy-sensitive questions:**
+```typescript
+if (isSensitive(question)) {
+  pause auto-answer flow
+  display: "This question may reveal private information.
+            Do you want to answer it, skip it, or mark it private?"
+  // user selects: Answer / Skip / Mark Private
+  // 'Answer' resumes normal flow; 'Skip' sends no answer;
+  // 'Mark Private' stores locally, never sent to chatbot relay
+}
+```
+
+The sensitivity classifier runs locally (no server round-trip) in `src/filters/privacyClassifier.ts`.
+
+### 2.4 Credit Card & Financial Data Filter
+
+All outgoing answer strings **must pass through a financial data filter** before being written to the Gun graph or sent to any peer.
+
+**Patterns blocked:**
+
+| Category | Pattern | Example match |
+|---|---|---|
+| Credit/debit card numbers | `\b(?:\d[ -]?){13,19}\b` + Luhn check | `4111 1111 1111 1111` |
+| CVV codes | `\b\d{3,4}\b` (in financial context) | `123` |
+| IBAN | `\b[A-Z]{2}\d{2}[A-Z0-9]{4}\d{7,}[A-Z0-9]{0,16}\b` | `GB29NWBK60161331926819` |
+| US routing/account | `\b\d{9}\b` / `\b\d{5,17}\b` | `021000021` |
+| Sort code | `\b\d{2}-\d{2}-\d{2}\b` | `20-00-00` |
+| Crypto wallet | BTC/ETH address patterns | `1A1zP1eP5Q...` / `0x123...` |
+
+```typescript
+// src/filters/financialDataFilter.ts
+export function filterBeforeWrite(answer: string): FilterResult {
+  if (containsFinancialData(answer)) {
+    return {
+      blocked: true,
+      reason: 'Financial or card data detected. Please do not share payment details.',
+      sanitized: null
+    };
+  }
+  return { blocked: false, sanitized: answer };
+}
+```
+
+The filter runs on **every write path**: chat message send, talk answer submission, and profile attribute update. A blocked write shows an inline warning; the data is never written to Gun.
+
+### 2.5 Answer Visibility Model (Public vs. Private)
+
+Every answer to a talk question carries a **visibility flag**:
+
+| Flag | Value | Meaning |
+|---|---|---|
+| Public | `"auto"` | Chatbot may repeat this answer to other users automatically |
+| Private | `"manual"` | Stored encrypted; chatbot never repeats it; only the user manually decides to share |
+
+**Default:** new answers default to `"auto"`. The user can downgrade to `"manual"` at any time.
+
+```typescript
+function chatbotCanRepeat(answer: AnswerRecord): boolean {
+  return answer.visibility === 'auto';
+}
+```
+
+Private answers are stored in the user's own SEA-encrypted Gun node (`~<pub>/answers/private/...`). They are **never placed in a shared chatroom node** and are never returned by the chatbot's answer-fetch queries.
+
+**UI requirement:** Each answer chip/card shows a lock icon toggle. Locked = private/manual. Unlocked = public/auto.
+
+### 2.6 Answer Mutability & Immutable History
+
+- **Answers are mutable.** A user can change their answer to any question at any time.
+- **History is append-only and immutable.** Every change creates a new history entry, signed with the user's SEA keypair. No entry can be deleted or modified.
+
+```typescript
+interface AnswerRecord {
+  questionId: string;
+  current: {
+    value: string;
+    visibility: 'auto' | 'manual';
+    updatedAt: number;
+    signature: string;       // SEA.sign(value + updatedAt, userPrivKey)
+  };
+  history: {                 // append-only log, never overwritten
+    [timestamp: string]: {
+      value: string;
+      visibility: 'auto' | 'manual';
+      signature: string;
+    }
+  };
+}
+```
+
+Gun paths:
+- Active answer: `~<userPub>/answers/<questionId>/current`
+- History log: `~<userPub>/answers/<questionId>/history/<timestamp>`
+
+Because Gun's Last-Write-Wins CRDT operates on `current` and history entries are keyed by unique timestamp (never overwritten), the history is naturally tamper-evident. Any peer can verify the signature chain.
+
+### 2.7 SEA Encryption per User Dataset
+
+All personally owned data is encrypted using **Gun SEA** under the user's own key pair.
+
+```typescript
+// Writing a private answer
+const encrypted = await SEA.encrypt(answerValue, userPair);
+gun.user().get('answers').get('private').get(questionId).put(encrypted);
+
+// Reading it back
+const enc = await gun.user().get('answers').get('private').get(questionId).once();
+const value = await SEA.decrypt(enc, userPair);
+```
+
+**Encrypted data:**
+- All `private/manual` answers
+- All messages exchanged with a known person (see §2.8)
+- Location data beyond the blurred public value
+
+**Intentionally public (not encrypted):**
+- Stage name (display name)
+- Public/auto answers
+- Public chatroom messages
+
+**Key storage:** Keys are stored in Gun's `user` space backed by browser IndexedDB or Android Keystore. Keys never leave the device unless the user explicitly exports them.
+
+### 2.8 Stranger Model & Known-Person Trust
+
+**Default state — Stranger:**
+- Every user starts as a stranger to every other user.
+- All communications to/from strangers are sent in plaintext over the Gun graph (publicly readable by anyone with the path).
+- The chatbot may answer talks on the user's behalf using public/auto answers.
+
+**Marking a Known Person:**
+
+When User A marks User B as a known person:
+1. User A records User B's Gun public key (`pub`) and user ID in A's own encrypted trust store:
+   ```
+   ~<userA_pub>/knownPersons/<userB_id>/  →  { pub: userB_pub, label: 'friend' }
+   ```
+2. From this point forward, messages from A to B are encrypted using B's public key.
+3. A assigns a relationship label: `friend | relative | coworker | acquaintance | partner | <custom>`.
+4. The marking is **unilateral** — B cannot see that A has labelled them.
+
+```typescript
+interface KnownPerson {
+  userId: string;
+  pub: string;              // their SEA public key
+  label: string;            // friend | relative | coworker | acquaintance | partner | custom
+  addedAt: number;
+  notes?: string;           // optional private notes, encrypted
+}
+```
+
+### 2.9 Encrypted vs. Public Message Marking
+
+All messages in the Gun graph carry a `channel` field:
+
+| `channel` | Meaning | Encryption |
+|---|---|---|
+| `"public"` | Stranger-to-stranger or open chatroom | None — plaintext |
+| `"known"` | A → B (A has marked B, unilateral) | Encrypted with B's public key |
+| `"mutual"` | Both A and B have marked each other | ECDH shared secret from both key pairs |
+
+**Mutual encryption:**
+```typescript
+// Derive shared secret using both key pairs
+const secret = await SEA.secret(theirPub, myPair);
+const encrypted = await SEA.encrypt(messageText, secret);
+
+const envelope = {
+  channel: 'mutual',
+  from: myPub,
+  to: theirPub,
+  payload: encrypted,
+  timestamp: Date.now(),
+  sig: await SEA.sign(encrypted, myPair)
+};
+```
+
+**UI display rules:**
+- `"public"`: globe icon or no badge
+- `"known"`: single-lock icon (one-way trust)
+- `"mutual"`: double-lock icon (mutual encrypted)
+
+The chatbot relay logic **only touches `"public"` channel messages.** It must never read or repeat `"known"` or `"mutual"` content.
+
+---
+
+## 3. Data Integrity & Conflict Resolution
+
+### 3.1 Gun.js CRDT as the Conflict Authority
+
+IinPublic delegates **all conflict resolution to Gun.js's built-in HAM (Hypothetical Amnesia Machine) CRDT**. No custom conflict resolution code should override or bypass Gun's native merge behaviour.
+
+This applies to:
+- User profile attributes
+- Talk question/answer records
+- Chatbot auto-generated answers
+- Reputation counters
+- Chatroom membership lists
+
+```typescript
+// ❌ Never override HAM
+gun.get('answers').get(id).put({ value: 'new', _: { '#': 'custom-soul' } });
+
+// ✅ Let Gun assign soul and resolve
+gun.get('answers').get(id).put({ value: 'new' });
+```
+
+### 3.2 Concurrent Edit / Concurrent Answer Handling
+
+**Scenario:** User A is editing a talk while User B starts answering the current (pre-edit) version.
+
+**Rule:** Treat them as two separate live objects until A's edit is complete.
+
+**Implementation:**
+
+1. When User A begins editing, an **edit lock** is created:
+   ```
+   talks/<talkId>/editLock  →  { lockedBy: userA_id, lockedAt: timestamp, version: N }
+   ```
+
+2. Incoming answers from User B are written against **version N** (the pre-edit snapshot):
+   ```
+   talks/<talkId>/answers/v<N>/<userB_id>/<questionId>
+   ```
+
+3. When User A saves the edit, the version increments to N+1. A **merge task** runs:
+   - Answers to questions that were **not changed** are migrated to v(N+1).
+   - Answers to questions that **were changed** (text, options, or order) are flagged; the original respondent receives a notification to re-answer.
+
+4. The edit lock is released. Future answers go to v(N+1).
+
+```typescript
+async function mergeAnswersAfterEdit(
+  talkId: string,
+  oldVersion: number,
+  changedQuestionIds: Set<string>
+): Promise<void> {
+  const oldAnswers = await getTalkAnswers(talkId, oldVersion);
+  const newVersion = oldVersion + 1;
+
+  for (const ans of oldAnswers) {
+    if (!changedQuestionIds.has(ans.questionId)) {
+      await writeTalkAnswer({ ...ans, version: newVersion });
+    } else {
+      await notifyUser(ans.userId, {
+        type: 'answer_stale',
+        talkId,
+        questionId: ans.questionId
+      });
+    }
+  }
+}
+```
+
+No answer is silently dropped. Users are always notified when their answer becomes stale due to an edit.
+
+---
+
+## 4. Network & Scalability
+
+### 4.1 Limited-Retry Drop Policy
+
+If a peer becomes unreachable, the system retries a fixed number of times then removes the peer from the active routing table.
+
+```typescript
+// src/config/network.ts
+export const NETWORK_CONFIG = {
+  maxRetries: 3,
+  retryBackoffMs: [1000, 3000, 8000],  // backoff per attempt
+  dropAfterMs: 15_000,                  // remove peer after this much silence
+};
+```
+
+**Behaviour:**
+```
+Peer B unreachable →
+  Retry 1 (after 1s)  → still unreachable
+  Retry 2 (after 3s)  → still unreachable
+  Retry 3 (after 8s)  → still unreachable
+  → Mark B as dropped; stop sending to B
+  → Gun's peer list updated (remove B)
+```
+
+Dropped peers are not permanently blacklisted. If B reconnects, the new-peer discovery flow (§4.2) handles it automatically.
+
+**No retries for:**
+- Chatroom presence pings (fire-and-forget)
+- Public broadcast talks (eventual consistency handles delivery)
+
+### 4.2 Automatic New-Peer Discovery
+
+When a new peer joins the Gun graph the app automatically reaches out to bootstrap the connection:
+
+```typescript
+gun.on('hi', (peer) => {
+  onNewPeer(peer);
+});
+
+async function onNewPeer(peer: GunPeer): Promise<void> {
+  // 1. Exchange public keys
+  await exchangePublicKeys(peer);
+
+  // 2. Register in local peer list
+  peerRegistry.add(peer.id, { connectedAt: Date.now(), status: 'active' });
+
+  // 3. If in the same chatroom, announce presence
+  if (await isInSameChatroom(peer.id)) {
+    await announcePresence(peer.id);
+  }
+}
+```
+
+No manual peer management is required. Gun's built-in mesh topology handles routing; the application layer only adds the presence announcement.
+
+---
+
+## 5. Mobile-Specific Cases
+
+### 5.1 Tit-for-Tat Fair Peer Mode
+
+Mobile devices operate on a **tit-for-tat (T4T) fairness principle**: a device contributes relay capacity in proportion to the capacity it consumes, preventing free-riding.
+
+```typescript
+interface PeerContribution {
+  bytesRelayed: number;     // bytes forwarded on behalf of others
+  bytesConsumed: number;    // bytes the local user sent/received
+  ratio: number;            // bytesRelayed / bytesConsumed
+}
+```
+
+- `ratio >= 1.0`: net contributor → full relay privileges.
+- `0.5 <= ratio < 1.0`: slightly behind → relay continues, throttled.
+- `ratio < 0.5`: net consumer → local relay paused until ratio recovers.
+
+T4T accounting resets at the start of each session (app foreground event).
+
+### 5.2 Battery-Level Feature Tiering
+
+Mobile features are tiered by battery level. Defaults below are user-adjustable in Settings > Power.
+
+| Battery Level | State | Features Disabled |
+|---|---|---|
+| > 30% | Normal | None |
+| 20 – 30% | **Low** | Stop relaying messages for other peers |
+| 10 – 20% | **Critical** | Stop chatbot (no auto-answers); relay already off |
+| < 10% | **Emergency** | Stop all new outgoing messages; read-only mode |
+
+```typescript
+// src-shared/battery/BatteryPolicy.ts
+
+export enum BatteryState {
+  Normal    = 'normal',
+  Low       = 'low',
+  Critical  = 'critical',
+  Emergency = 'emergency',
+}
+
+export function getBatteryState(levelPercent: number): BatteryState {
+  if (levelPercent > 30)  return BatteryState.Normal;
+  if (levelPercent > 20)  return BatteryState.Low;
+  if (levelPercent > 10)  return BatteryState.Critical;
+  return BatteryState.Emergency;
+}
+
+export function applyBatteryPolicy(state: BatteryState, services: AppServices): void {
+  switch (state) {
+    case BatteryState.Low:
+      services.relay.stop();
+      break;
+    case BatteryState.Critical:
+      services.relay.stop();
+      services.chatbot.stop();
+      break;
+    case BatteryState.Emergency:
+      services.relay.stop();
+      services.chatbot.stop();
+      services.messaging.setReadOnly(true);
+      break;
+    case BatteryState.Normal:
+      services.relay.start();
+      services.chatbot.start();
+      services.messaging.setReadOnly(false);
+      break;
+  }
+}
+```
+
+**Android integration:**
+```kotlin
+// android/app/src/main/kotlin/com/iinpublic/BatteryReceiver.kt
+class BatteryReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+        val pct   = (level / scale.toFloat() * 100).toInt()
+        webView.evaluateJavascript("window.__iinpublic.onBatteryChange($pct)", null)
+    }
+}
+```
+
+**User notifications:**
+- Entering Low: subtle banner "Relay paused to save battery."
+- Entering Critical: banner "Chatbot paused — battery low."
+- Entering Emergency: prominent banner "Messaging paused — battery critical. Plug in to resume."
+- Recovering to Normal: silent restore.
+
+### 5.3 Native Android Components
+
+```javascript
+const MobileComponents = {
+  locationService: {
+    native: 'AndroidLocationManager',
+    features: ['gpsTracking', 'backgroundLocation', 'permissionHandling', 'batteryOptimization']
+  },
+  notifications: {
+    native: 'AndroidNotificationManager',
+    features: ['pushNotifications', 'messageAlerts', 'matchNotifications', 'soundVibration']
+  },
+  offlineSync: {
+    native: 'AndroidSyncManager',
+    features: ['localQueue', 'backgroundSync', 'conflictResolution', 'storageManagement']
+  }
+};
+```
+
+---
+
+## 6. API & Interface Standardization
+
+This section defines the **contracts** between the three major boundary layers. All interfaces are expressed as TypeScript types. Platform-specific implementations must satisfy these contracts exactly.
+
+### 6.1 Frontend ↔ Backend Interface
+
+The frontend communicates with the backend over **HTTP REST** (static resources and tech support) and **WebSocket** (Gun.js relay peer). No other protocols are used.
+
+#### REST Endpoints
+
+| Method | Path | Purpose | Auth |
+|---|---|---|---|
+| `GET` | `/` | Serve static web bundle | None |
+| `POST` | `/api/support` | Submit tech support ticket | None (anon) |
+| `GET` | `/api/health` | Server health check | None |
+
+**Tech support ticket payload:**
+```typescript
+// POST /api/support
+interface SupportTicketRequest {
+  message: string;        // max 2000 chars, no user identity included
+  appVersion: string;     // semver from package.json
+  platform: 'web' | 'android';
+}
+
+interface SupportTicketResponse {
+  ticketId: string;
+  estimatedResponseHours: number;
+}
+```
+
+#### WebSocket (Gun Relay Peer)
+
+The Gun relay peer is mounted on the same WebSocket server. Gun manages the framing — **application code must not send custom WebSocket messages** through the Gun relay connection.
+
+```typescript
+// ✅ Correct — let Gun manage the connection
+const gun = Gun({ peers: ['wss://relay.iinpublic.app/gun'] });
+
+// ❌ Never send raw WS messages on the Gun socket
+```
+
+### 6.2 App ↔ Gun Database Interface
+
+All reads/writes to the Gun graph go through a **typed data access layer** (`src/data/`). Direct `gun.get()` / `gun.put()` calls in UI components are prohibited.
+
+#### Gun Path Conventions
+
+```
+Root graph layout:
+
+users/
+  <userId>/
+    profile/          ← public profile (stage name, avatar hash)
+    knownPersons/     ← encrypted, only readable by this user
+    answers/
+      public/         ← auto/public answers
+      private/        ← SEA-encrypted private answers
+      history/        ← immutable append-only log
+
+chatrooms/
+  global/
+  continent/<name>/
+    country/<name>/
+      state/<name>/
+        city/<name>/
+          district/<name>/
+            gps-grid/<hash>/
+
+talks/
+  <talkId>/
+    meta/             ← creator, tags, location filter
+    questions/        ← question nodes
+    editLock/         ← set while creator is editing
+    answers/
+      v<N>/           ← versioned answer bucket (see §3.2)
+
+messages/
+  public/<chatroomId>/
+    <msgId>/          ← plaintext public messages
+  known/<userA_id>_<userB_id>/
+    <msgId>/          ← one-way encrypted messages
+  mutual/<userA_id>_<userB_id>/
+    <msgId>/          ← ECDH mutually encrypted messages
+```
+
+#### Data Access Layer Interface
+
+```typescript
+// src/data/DataAccess.ts — the single interface all app code uses
+
+export interface IUserRepo {
+  getProfile(userId: string): Promise<UserProfile>;
+  updateProfile(fields: Partial<UserProfile>): Promise<void>;
+
+  getPublicAnswer(userId: string, questionId: string): Promise<AnswerRecord | null>;
+  setAnswer(questionId: string, value: string, visibility: 'auto' | 'manual'): Promise<void>;
+  getAnswerHistory(questionId: string): Promise<AnswerHistory[]>;
+
+  addKnownPerson(person: KnownPerson): Promise<void>;
+  getKnownPerson(userId: string): Promise<KnownPerson | null>;
+  listKnownPersons(): Promise<KnownPerson[]>;
+}
+
+export interface IMessageRepo {
+  sendPublic(chatroomId: string, text: string): Promise<void>;
+  sendKnown(toUserId: string, text: string): Promise<void>;
+  sendMutual(toUserId: string, text: string): Promise<void>;
+  subscribeToRoom(chatroomId: string, onMessage: (msg: Message) => void): Unsubscribe;
+  subscribeToInbox(onMessage: (msg: Message) => void): Unsubscribe;
+}
+
+export interface ITalkRepo {
+  createTalk(talk: NewTalk): Promise<string>;           // returns talkId
+  getTalk(talkId: string): Promise<Talk>;
+  startEdit(talkId: string): Promise<void>;             // acquires edit lock
+  saveEdit(talkId: string, updated: Partial<Talk>): Promise<void>;
+  submitAnswer(talkId: string, version: number, answers: AnswerMap): Promise<void>;
+}
+
+export interface IChatroomRepo {
+  joinRoom(roomId: string): Promise<void>;
+  leaveRoom(roomId: string): Promise<void>;
+  getRoomForLocation(coords: GpsCoord): Promise<string>;
+  subscribeToMembers(roomId: string, onUpdate: (members: string[]) => void): Unsubscribe;
+}
+```
+
+**Implementation:** `src/data/GunDataAccess.ts` implements all four interfaces against the live Gun graph. Tests use `src/data/MockDataAccess.ts` (same interfaces, in-memory).
+
+#### Write Pipeline (with Filters)
+
+Every write to the Gun graph must pass through this pipeline:
+
+```
+User input
+    │
+    ▼
+[1] financialDataFilter.filterBeforeWrite()   ← block card numbers etc.
+    │
+    ▼
+[2] privacyClassifier.check()                 ← prompt on sensitive questions
+    │
+    ▼
+[3] SEA.sign() / SEA.encrypt()                ← sign public, encrypt private
+    │
+    ▼
+[4] gun.put()                                 ← write to graph
+```
+
+### 6.3 Shared Logic ↔ Platform-Specific Logic Interface
+
+Business logic identical on both platforms lives in `src-shared/`. Platform-specific code lives in `src/` (web) and `android/app/src/` (Android).
+
+#### Directory Structure
+
+```
+IinPublic/
+├── src-shared/               ← platform-independent logic
+│   ├── filters/
+│   │   ├── financialDataFilter.ts
+│   │   └── privacyClassifier.ts
+│   ├── data/
+│   │   ├── DataAccess.ts     ← interface definitions only
+│   │   └── models.ts         ← all shared TypeScript types
+│   ├── talks/
+│   │   ├── TalkEngine.ts     ← talk flow execution
+│   │   └── ConflictMerge.ts  ← versioned answer merge (§3.2)
+│   ├── network/
+│   │   ├── RetryPolicy.ts    ← limited retry logic (§4.1)
+│   │   └── PeerDiscovery.ts  ← new peer on-join logic (§4.2)
+│   └── battery/
+│       └── BatteryPolicy.ts  ← tiering logic (§5.2) — logic only, no native calls
+│
+├── src/                      ← Web platform
+│   ├── data/
+│   │   └── GunDataAccess.ts  ← implements IUserRepo, IMessageRepo, etc.
+│   └── platform/
+│       └── WebCapabilities.ts
+│
+└── android/app/src/          ← Android platform
+    └── kotlin/com/iinpublic/
+        ├── data/
+        │   └── AndroidGunDataAccess.kt
+        └── platform/
+            ├── BatteryReceiver.kt
+            └── JsBridge.kt
+```
+
+#### Platform Capability Interface
+
+Each platform must implement `IPlatformCapabilities`. Shared code calls this interface exclusively; it never calls platform APIs directly.
+
+```typescript
+// src-shared/platform/IPlatformCapabilities.ts
+// Interface version: 1
+
+export interface IPlatformCapabilities {
+  // Battery
+  getBatteryLevel(): Promise<number>;           // 0–100 integer
+  onBatteryChange(cb: (level: number) => void): Unsubscribe;
+
+  // Location
+  getCurrentLocation(): Promise<GpsCoord>;
+  onLocationChange(cb: (coord: GpsCoord) => void): Unsubscribe;
+
+  // Storage
+  getStorageAdapter(): GunStorageAdapter;       // IndexedDB on web, SQLite on Android
+
+  // Notifications
+  showLocalNotification(opts: NotificationOpts): Promise<void>;
+
+  // Crypto keystore
+  loadKeyPair(): Promise<SEAPair | null>;
+  saveKeyPair(pair: SEAPair): Promise<void>;    // secure enclave on Android
+}
+```
+
+**Web implementation** (`src/platform/WebCapabilities.ts`):
+- `getBatteryLevel` → `navigator.getBattery()`
+- `getCurrentLocation` → `navigator.geolocation`
+- `getStorageAdapter` → IndexedDB via `gun/lib/radix`
+- `loadKeyPair` / `saveKeyPair` → `gun.user()` local store
+
+**Android implementation:**
+- `getBatteryLevel` → `BatteryManager` system service
+- `getCurrentLocation` → `FusedLocationProviderClient`
+- `getStorageAdapter` → SQLite via `gun/lib/rs`
+- `loadKeyPair` / `saveKeyPair` → Android Keystore system
+
+#### Shared ↔ Platform Boundary Rules
+
+1. **Shared code must never import platform-specific modules.** Any `if (platform === 'android')` in `src-shared/` is a bug.
+2. **Platform code may import from `src-shared/`**, but not vice versa.
+3. **Shared business logic must be unit-testable without any platform.** Tests in `src-shared/__tests__/` run in plain Node.js.
+4. **All native-to-JS calls on Android** go through `JsBridge.kt` with typed payloads — no raw untyped `evaluateJavascript` strings outside that file.
+5. **Breaking changes to `IPlatformCapabilities`** require a version bump comment at the top of the file.
+
+---
+
+## 7. Gun.js Data Model Specifications
+
+### 7.1 Core Data Structure
+```javascript
+/iinpublic
+├── /users/{userId}
+├── /chatrooms/{chatroomId}
+├── /talks/{talkId}
+├── /conversations/{conversationId}
+├── /surveys/{surveyId}
+├── /reputation/{userId}
+└── /tags/{tagId}
+```
+
+### 7.2 Data Schemas
 ```javascript
 // User schema
 const UserSchema = {
   _id: 'string',
   stageName: 'string',
   created: 'number',
-  attributes: 'object', // Q&A pairs
+  attributes: 'object',       // Q&A pairs
   reputation: {
     questionsAnswered: 'number',
     talksSent: 'number',
@@ -159,735 +899,8 @@ const TalkSchema = {
 };
 ```
 
-## Implementation Roadmap
-
-### Phase 1: Core Infrastructure (Weeks 1-4)
-
-#### Week 1-2: Gun.js Backend Setup
-**Development Tasks:**
-- Extend existing Entity.js with hierarchical chatroom system
-- Implement location blur with dynamic radius
-- Add user authentication with Gun SEA
-- Basic talk storage and retrieval
-
-**Test Plan:**
+### 7.3 User Management API
 ```javascript
-// Unit Tests
-describe('Chatroom Management', () => {
-  test('should create global chatroom and handle users up to capacity', async () => {
-    const chatroom = ChatroomManager.getChatroomForLocation({lat: 0, lng: 0});
-    await ChatroomManager.joinChatroom('user1', 'global');
-    await ChatroomManager.joinChatroom('user2', 'global');
-    const members = await chatroom.get('members').once();
-    expect(Object.keys(members).length).toBe(2);
-  });
-
-  test('should split chatroom when capacity exceeded (1000 users)', async () => {
-    // Simulate 1001 users joining
-    for(let i = 0; i < 1001; i++) {
-      await ChatroomManager.joinChatroom(`user${i}`, 'global');
-    }
-    // Verify splitting occurred
-    const subrooms = await ChatroomManager.getSubrooms('global');
-    expect(subrooms.length).toBeGreaterThan(1);
-  });
-});
-
-describe('Location Privacy', () => {
-  test('should blur location based on user settings', () => {
-    const user = { settings: { privacyRadius: 1000 } };
-    const privacy = new LocationPrivacy(user);
-    const blurred = privacy.getPublicLocation({lat: 37.7749, lng: -122.4194});
-    expect(blurred.accuracy).toBeGreaterThanOrEqual(1000);
-  });
-});
-
-describe('Authentication', () => {
-  test('should create user with Gun SEA authentication', async () => {
-    const user = await UserManager.createUser('testuser', 'password123');
-    expect(user.stageName).toBe('testuser');
-    expect(user.created).toBeDefined();
-  });
-});
-```
-
-**Integration Tests:**
-- Multi-user chatroom joining/leaving
-- Location updates trigger chatroom reassignment
-- Authentication persists across page refreshes
-- Gun peer-to-peer synchronization works
-
-**Performance Tests:**
-- Load test: 1000 concurrent users in single chatroom
-- Memory usage: <50MB per 100 active users
-- Sync latency: <2 seconds between connected peers
-
-**Exit Criteria:**
-- All unit tests pass (90%+ coverage)
-- Integration tests validate core flows
-- Performance benchmarks meet requirements
-- Code review completed and approved
-
----
-
-#### Week 3-4: Basic Talk System
-**Development Tasks:**
-- Enhance Talks.js with question/answer validation
-- Implement linear talk capture from chat
-- Add basic bulk sending with queuing
-- Simple matching logic
-
-**Test Plan:**
-```javascript
-describe('Talk System', () => {
-  test('should validate question-answer format', () => {
-    const validTalk = {
-      question: "Do you like tennis?",
-      answers: ["Yes", "No", "Maybe"]
-    };
-    expect(TalkManager.validateTalk(validTalk)).toBe(true);
-    
-    const invalidTalk = {
-      question: "Invalid question without ?",
-      answers: ["Yes"]
-    };
-    expect(TalkManager.validateTalk(invalidTalk)).toBe(false);
-  });
-
-  test('should auto-capture talk from chat message pattern', async () => {
-    const message = "Do you like coffee? Yes; No; Maybe.";
-    const captured = await ChatManager.autoCaptureTalk('user1', message);
-    expect(captured.questions).toHaveLength(1);
-    expect(captured.questions[0].answers).toEqual(["Yes", "No", "Maybe"]);
-  });
-
-  test('should send bulk talk in batches without flooding network', async () => {
-    const targetUsers = Array.from({length: 150}, (_, i) => `user${i}`);
-    const startTime = Date.now();
-    await BulkTalkSender.sendTalk('talk1', 'sender', targetUsers);
-    const endTime = Date.now();
-    
-    // Should take at least 2 seconds for 3 batches (150 users / 50 batch size * 1s delay)
-    expect(endTime - startTime).toBeGreaterThanOrEqual(2000);
-    
-    // Verify all conversations created
-    const conversations = await TalkManager.getTalkConversations('talk1');
-    expect(conversations).toHaveLength(150);
-  });
-});
-
-describe('Matching Logic', () => {
-  test('should create matches for compatible answers', async () => {
-    const conversation = await TalkManager.createConversation('talk1', 'user1', 'user2');
-    await TalkManager.recordAnswer(conversation.id, 'q1', 'Yes');
-    await TalkManager.recordAnswer(conversation.id, 'q2', "Let's talk in person");
-    
-    const status = await TalkManager.getConversationStatus(conversation.id);
-    expect(status.isMatch).toBe(true);
-  });
-});
-```
-
-**End-to-End Tests:**
-1. **Tennis Partner Matching Flow:**
-   - User creates tennis partner talk
-   - Bulk sends to 100 local users
-   - 10 users respond positively
-   - System creates 10 match conversations
-   - Verify all users can chat one-on-one
-
-2. **Auto-Capture and Reuse:**
-   - User sends patterned message in chat
-   - System captures and saves as talk draft
-   - User reuses captured talk for bulk sending
-   - Verify answers are presented as chips
-
-**Performance Tests:**
-- Bulk send: Handle 1000 recipients within 30 seconds
-- Auto-capture: Process messages in <100ms
-- Matching: Filter 1000 responses in <5 seconds
-- Memory: <100MB for 1000 concurrent talks
-
-**Security Tests:**
-- SQL/NoSQL injection prevention in talk data
-- XSS protection in question/answer rendering
-- Rate limiting prevents spam bulk sending
-- Access control: users can't modify others' talks
-
-**Exit Criteria:**
-- All unit tests pass (95%+ coverage)
-- End-to-end scenarios complete successfully
-- Performance meets requirements
-- Security vulnerabilities addressed
-- Manual testing confirms user experience
-
-### Phase 2: Advanced Features (Weeks 5-8)
-
-#### Week 5-6: Visual Talk Editor
-**Development Tasks:**
-- Drag-drop question nodes with Cytoscape
-- Talk graph validation (no cycles)
-- Branching and OR logic support
-- Real-time collaboration basics
-
-**Test Plan:**
-```javascript
-describe('Visual Talk Editor', () => {
-  test('should create drag-drop interface with Cytoscape', () => {
-    const editor = new TalkEditor();
-    expect(editor.graph).toBeDefined();
-    expect(editor.graph.container).toBeTruthy();
-  });
-
-  test('should validate no cycles in talk graph', () => {
-    const editor = new TalkEditor();
-    editor.addQuestionNode({x: 100, y: 100});
-    editor.addQuestionNode({x: 200, y: 200});
-    
-    // Create cycle
-    editor.connectQuestions('q1', 'q2');
-    editor.connectQuestions('q2', 'q1');
-    
-    expect(editor.hasCycle()).toBe(true);
-    expect(editor.canSave()).toBe(false);
-  });
-
-  test('should support branching with OR logic', () => {
-    const talk = {
-      questions: [
-        {
-          id: 'q1',
-          text: 'Are you available?',
-          answers: ['Yes', 'No'],
-          nextQuestion: { 'Yes': 'q2', 'No': 'q3' }
-        },
-        { id: 'q2', text: 'What time?', answers: ['Morning', 'Evening'] },
-        { id: 'q3', text: 'Maybe later', answers: ['Ignore'] }
-      ]
-    };
-    
-    expect(TalkManager.validateBranchingLogic(talk)).toBe(true);
-    const flow = TalkManager.simulateFlow(talk, { q1: 'Yes', q2: 'Evening' });
-    expect(flow.path).toEqual(['q1', 'q2']);
-  });
-});
-
-describe('Real-time Collaboration', () => {
-  test('should sync changes between multiple editors', async (done) => {
-    const editor1 = new TalkEditor('session1');
-    const editor2 = new TalkEditor('session1');
-    
-    editor1.addQuestionNode({x: 100, y: 100});
-    
-    setTimeout(() => {
-      const nodes = editor2.graph.nodes();
-      expect(nodes).toHaveLength(1);
-      done();
-    }, 100);
-  });
-});
-```
-
-**Integration Tests:**
-1. **Complex Talk Creation Flow:**
-   - User creates tennis partner talk with branching skill levels
-   - Tests all paths through the talk graph
-   - Validates no cycles exist
-   - Exports talk to JSON format
-
-2. **Collaborative Editing:**
-   - Two users edit same talk simultaneously
-   - Changes sync in real-time
-   - Conflict resolution works properly
-   - Talk remains valid throughout editing
-
-**Usability Tests:**
-- Drag-drop responsiveness on mobile devices
-- Auto-layout produces readable talk graphs
-- Undo/redo functionality works correctly
-- Save/export maintains talk structure
-
-**Exit Criteria:**
-- All unit tests pass (90%+ coverage)
-- Real-time collaboration stable with 5+ users
-- Complex talks (50+ questions) render smoothly
-- User acceptance testing confirms intuitive interface
-
----
-
-#### Week 7-8: Reputation & Moderation
-**Development Tasks:**
-- Permission-based reputation system
-- Rate limiting and spam prevention
-- Age verification for adult content
-- Block/unblock functionality
-
-**Test Plan:**
-```javascript
-describe('Reputation System', () => {
-  test('should update reputation metrics based on user actions', async () => {
-    const user = 'testuser';
-    await ReputationManager.updateMetric(user, 'questionsAnswered', 10);
-    await ReputationManager.updateMetric(user, 'talksSent', 5);
-    await ReputationManager.updateMetric(user, 'matchesFound', 3);
-    
-    const reputation = await ReputationManager.getReputation(user);
-    expect(reputation.questionsAnswered).toBe(10);
-    expect(reputation.talksSent).toBe(5);
-    expect(reputation.matchesFound).toBe(3);
-  });
-
-  test('should respect privacy permissions for reputation data', async () => {
-    const user = 'user1';
-    const viewer = 'user2';
-    
-    await ReputationManager.setPrivacyLevel(user, 'connections');
-    
-    const publicRep = await ReputationManager.getPublicReputation(user, 'stranger');
-    expect(publicRep.questionsAnswered).toBeUndefined();
-    
-    const connectionsRep = await ReputationManager.getPublicReputation(user, viewer);
-    expect(connectionsRep.questionsAnswered).toBeDefined();
-  });
-});
-
-describe('Rate Limiting', () => {
-  test('should prevent spam bulk sending', async () => {
-    const user = 'testuser';
-    
-    // Send 10 talks quickly - should be limited
-    for(let i = 0; i < 10; i++) {
-      const result = await RateLimiter.canSendBulk(user);
-      if (i < 3) {
-        expect(result).toBe(true);
-      } else {
-        expect(result).toBe(false);
-      }
-    }
-  });
-
-  test('should implement progressive penalty for blocks', async () => {
-    const user = 'spammer';
-    
-    // Simulate increasing blocks
-    await ReputationManager.recordBlock(user, 'blocker1');
-    await ReputationManager.recordBlock(user, 'blocker2');
-    await ReputationManager.recordBlock(user, 'blocker3');
-    
-    const capacity = await RateLimiter.getSendCapacity(user);
-    expect(capacity).toBeLessThan(100); // Reduced from default 1000
-  });
-});
-
-describe('Age Verification', () => {
-  test('should filter adult content for underage users', async () => {
-    const adultTalk = {
-      tags: ['adult', 'dating'],
-      questions: [{ text: 'Age verification required', answers: ['18+', 'Under 18'] }]
-    };
-    
-    const underageUser = { age: 16 };
-    const adultUser = { age: 21 };
-    
-    const underageFilter = await ContentFilter.filterTalk(adultTalk, underageUser);
-    expect(underageFilter.shouldShow).toBe(false);
-    
-    const adultFilter = await ContentFilter.filterTalk(adultTalk, adultUser);
-    expect(adultFilter.shouldShow).toBe(true);
-  });
-});
-```
-
-**Security Tests:**
-```javascript
-describe('Security & Moderation', () => {
-  test('should prevent reputation manipulation', async () => {
-    const attacker = 'malicious';
-    const target = 'victim';
-    
-    // Try to manipulate victim's reputation
-    const result = await ReputationManager.attemptManipulation(attacker, target);
-    expect(result.success).toBe(false);
-    expect(result.reason).toBe('unauthorized');
-  });
-
-  test('should implement proper block functionality', async () => {
-    const blocker = 'user1';
-    const blocked = 'user2';
-    
-    await BlockManager.block(blocker, blocked);
-    
-    // Blocked user cannot send talks to blocker
-    const canSend = await BlockManager.canSend(blocked, blocker);
-    expect(canSend).toBe(false);
-    
-    // Blocker cannot see blocked user's profile
-    const canView = await BlockManager.canView(blocker, blocked);
-    expect(canView).toBe(false);
-  });
-});
-```
-
-**Integration Tests:**
-1. **Reputation Lifecycle:**
-   - New user starts with neutral reputation
-   - Positive interactions improve reputation
-   - Blocks reduce send capacity
-   - Privacy settings control visibility
-
-2. **Content Filtering:**
-   - Adult content properly age-gated
-   - Dirty words filtered by user preference
-   - Language filtering works correctly
-   - Users can override filters with warnings
-
-**Performance Tests:**
-- Reputation calculations complete in <100ms
-- Rate limiting decisions in <10ms
-- Block list lookups scale to 10k+ blocks
-- Content filtering adds <50ms latency
-
-**Exit Criteria:**
-- All security tests pass
-- Reputation system resists manipulation
-- Rate limiting prevents abuse
-- Age verification compliance verified
-- Performance benchmarks met
-
-### Phase 3: Mobile & Performance (Weeks 9-12)
-
-#### Week 9-10: Android App
-**Development Tasks:**
-- Native Android with embedded Node.js
-- JavaScript bridge for GPS/notifications
-- Location services integration
-- Background sync capabilities
-
-**Test Plan:**
-```javascript
-// Android Instrumentation Tests
-describe('Android Integration', () => {
-  test('should initialize embedded Node.js runtime', async () => {
-    const bridge = new GunBridge(context);
-    expect(bridge.isNodeRunning()).toBe(true);
-    expect(bridge.gun).toBeDefined();
-  });
-
-  test('should get GPS location from native Android', async () => {
-    const bridge = new GunBridge(context);
-    const location = await bridge.jsInterface.getGPSLocation();
-    expect(location).toHaveProperty('lat');
-    expect(location).toHaveProperty('lng');
-    expect(location).toHaveProperty('accuracy');
-  });
-
-  test('should show native notifications', async () => {
-    const bridge = new GunBridge(context);
-    await bridge.jsInterface.showNotification('Test message');
-    
-    // Verify notification was shown
-    const notifications = await NotificationManager.getActiveNotifications();
-    expect(notifications).toContain('Test message');
-  });
-});
-
-// JavaScript Bridge Tests
-describe('JavaScript Bridge', () => {
-  test('should handle bidirectional communication', async (done) => {
-    const bridge = new GunBridge(context);
-    
-    bridge.addJavascriptInterface('testMethod', (data) => {
-      expect(data).toBe('hello from JS');
-      done();
-    });
-    
-    bridge.evaluateJavascript('window.Android.testMethod("hello from JS")');
-  });
-});
-```
-
-**Native Android Tests:**
-```java
-// Android Unit Tests
-@RunWith(AndroidJUnit4.class)
-public class GunBridgeTest {
-    
-    @Test
-    public void testNodeJSEmbedding() {
-        GunBridge bridge = new GunBridge(context);
-        assertTrue(bridge.isNodeInitialized());
-        assertNotNull(bridge.getNodeVersion());
-    }
-    
-    @Test
-    public void testLocationServices() {
-        LocationManager locationManager = new LocationManager(context);
-        locationManager.requestLocationUpdates();
-        
-        Location location = locationManager.getCurrentLocation();
-        assertNotNull(location);
-        assertTrue(location.getAccuracy() < 100); // Within 100m
-    }
-    
-    @Test
-    public void testBackgroundSync() {
-        SyncManager syncManager = new SyncManager();
-        syncManager.enableBackgroundSync();
-        
-        assertTrue(syncManager.isBackgroundSyncEnabled());
-        assertTrue(syncManager.hasBatteryOptimizationWhitelist());
-    }
-}
-```
-
-**Integration Tests:**
-1. **Mobile-to-Web Synchronization:**
-   - Android user updates location
-   - Web users see location change in real-time
-   - Messages sync between platforms seamlessly
-   - Offline queue works on mobile
-
-2. **Native Features Integration:**
-   - GPS location updates trigger chatroom changes
-   - Push notifications arrive for new messages
-   - Background sync preserves data across app restarts
-   - Battery optimization doesn't affect sync
-
-**Device Compatibility Tests:**
-- Android API levels 21-33 (Android 5.0+)
-- Various screen sizes (phones, tablets)
-- Low-memory devices (<2GB RAM)
-- Network conditions (WiFi, 4G, 3G, offline)
-
-**Performance Tests:**
-- App startup time <3 seconds
-- Memory usage <150MB at rest
-- Battery impact <5% per day with normal usage
-- Sync efficiency <1MB data per hour
-
-**Security Tests:**
-- Native code obfuscation prevents reverse engineering
-- JavaScript injection attacks prevented
-- Location data encryption at rest
-- SSL/TLS for network communications
-
-**Exit Criteria:**
-- All instrumentation tests pass
-- App runs on 95%+ of target Android devices
-- Performance metrics within acceptable ranges
-- Security audit passes
-- User acceptance testing complete
-
----
-
-#### Week 11-12: Performance Optimization
-**Development Tasks:**
-- Bulk send optimization (batch processing)
-- Offline sync with Gun native handling
-- Survey aggregation with live queries
-- Stress testing for 1000+ concurrent talks
-
-**Test Plan:**
-```javascript
-describe('Performance Optimization', () => {
-  test('should handle 1000+ concurrent bulk sends', async () => {
-    const startTime = Date.now();
-    const promises = [];
-    
-    for(let i = 0; i < 100; i++) {
-      const talkId = `talk_${i}`;
-      const targets = Array.from({length: 1000}, (_, j) => `user_${i}_${j}`);
-      promises.push(BulkTalkSender.sendTalk(talkId, `sender_${i}`, targets));
-    }
-    
-    await Promise.all(promises);
-    const endTime = Date.now();
-    
-    // Should complete within reasonable time (<5 minutes)
-    expect(endTime - startTime).toBeLessThan(300000);
-    
-    // Verify all talks sent successfully
-    for(let i = 0; i < 100; i++) {
-      const status = await BulkTalkSender.getSendStatus(`talk_${i}`);
-      expect(status.completed).toBe(true);
-    }
-  });
-
-  test('should maintain performance with offline/online transitions', async () => {
-    const user = 'testuser';
-    
-    // Go offline
-    NetworkManager.simulateOffline();
-    await BulkTalkSender.sendTalk('talk1', user, ['user1', 'user2']);
-    
-    // Verify queued locally
-    const queue = await OfflineManager.getQueue(user);
-    expect(queue).toHaveLength(2);
-    
-    // Go online
-    NetworkManager.simulateOnline();
-    
-    // Wait for sync
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    
-    // Verify queue emptied and sent
-    const queueAfter = await OfflineManager.getQueue(user);
-    expect(queueAfter).toHaveLength(0);
-    
-    const delivered = await BulkTalkSender.getDeliveryStatus('talk1');
-    expect(delivered.delivered).toBe(2);
-  });
-});
-
-describe('Survey Aggregation', () => {
-  test('should handle real-time aggregation for 10k+ responses', async () => {
-    const surveyId = 'survey1';
-    const responses = Array.from({length: 10000}, (_, i) => ({
-      userId: `user${i}`,
-      answer: i % 5 === 0 ? 'Excellent' : 
-              i % 4 === 0 ? 'Good' : 
-              i % 3 === 0 ? 'Average' : 'Poor',
-      timestamp: Date.now() - Math.random() * 86400000
-    }));
-    
-    const startTime = Date.now();
-    await SurveyManager.batchAddResponses(surveyId, responses);
-    const endTime = Date.now();
-    
-    // Should process 10k responses in <10 seconds
-    expect(endTime - startTime).toBeLessThan(10000);
-    
-    // Verify aggregation is correct
-    const results = await SurveyManager.getAggregation(surveyId);
-    expect(results.total).toBe(10000);
-    expect(results.distribution.Excellent).toBe(2000);
-  });
-});
-```
-
-**Load Testing:**
-```javascript
-describe('Load Testing', () => {
-  test('should sustain 1000 concurrent users', async () => {
-    const users = Array.from({length: 1000}, (_, i) => `user${i}`);
-    const results = [];
-    
-    for(const user of users) {
-      const result = await loadTestUser(user);
-      results.push(result);
-    }
-    
-    const avgResponseTime = results.reduce((sum, r) => sum + r.responseTime, 0) / results.length;
-    const errorRate = results.filter(r => r.error).length / results.length;
-    
-    expect(avgResponseTime).toBeLessThan(200); // <200ms avg response
-    expect(errorRate).toBeLessThan(0.01); // <1% error rate
-  });
-});
-```
-
-**Memory Leak Tests:**
-```javascript
-describe('Memory Management', () => {
-  test('should not leak memory during extended operation', async () => {
-    const initialMemory = process.memoryUsage().heapUsed;
-    
-    // Simulate extended usage (24 hours worth of operations)
-    for(let i = 0; i < 100000; i++) {
-      await BulkTalkSender.sendTalk(`talk${i}`, 'user', ['target']);
-      await SurveyManager.addResponse(`survey${i}`, 'response');
-      
-      if(i % 1000 === 0) {
-        // Force garbage collection
-        if(global.gc) global.gc();
-      }
-    }
-    
-    const finalMemory = process.memoryUsage().heapUsed;
-    const memoryIncrease = finalMemory - initialMemory;
-    
-    // Memory increase should be reasonable (<100MB)
-    expect(memoryIncrease).toBeLessThan(100 * 1024 * 1024);
-  });
-});
-```
-
-**Database Performance Tests:**
-```javascript
-describe('Gun.js Performance', () => {
-  test('should maintain query performance with large datasets', async () => {
-    // Create 100k conversations
-    for(let i = 0; i < 100000; i++) {
-      await gun.get('conversations').get(`conv${i}`).put({
-        id: `conv${i}`,
-        created: Date.now() - Math.random() * 86400000,
-        status: 'completed'
-      });
-    }
-    
-    const startTime = Date.now();
-    const conversations = await gun.get('conversations').map().once();
-    const endTime = Date.now();
-    
-    // Query 100k records in <5 seconds
-    expect(endTime - startTime).toBeLessThan(5000);
-    expect(Object.keys(conversations).length).toBe(100000);
-  });
-});
-```
-
-**Stress Tests:**
-1. **Concurrent Bulk Sends:**
-   - 100 users send 1000 talks each simultaneously
-   - System maintains responsiveness
-   - No deadlocks or race conditions
-   - All talks eventually delivered
-
-2. **Network Partition Recovery:**
-   - Simulate network split between peers
-   - Messages queue during partition
-   - Automatic sync when network restored
-   - No data loss or corruption
-
-3. **Resource Exhaustion:**
-   - Test behavior with full storage
-   - Memory pressure scenarios
-   - CPU overload conditions
-   - Graceful degradation, not crashes
-
-**Performance Benchmarks:**
-- Bulk send: 50 users/second sustained
-- Query response: <100ms for 10k record searches
-- Memory usage: <200MB per 1000 active users
-- Network efficiency: <500KB/hour per active user
-- Storage growth: <10MB/day per 1000 users
-
-**Exit Criteria:**
-- All performance tests pass
-- System handles 1000+ concurrent users
-- Memory leaks eliminated
-- Response times within SLA
-- Load test completes without errors
-- Production readiness checklist completed
-
-## Gun.js Data Model Specifications
-
-### Core Data Structure
-```javascript
-// Root structure
-/iinpublic
-├── /users/{userId}
-├── /chatrooms/{chatroomId}
-├── /talks/{talkId}
-├── /conversations/{conversationId}
-├── /surveys/{surveyId}
-├── /reputation/{userId}
-└── /tags/{tagId}
-```
-
-### User Management API
-```javascript
-// User creation and management
 class UserManager {
   static createUser(stageName, password) {
     return gun.user().create(stageName, password)
@@ -900,11 +913,7 @@ class UserManager {
             privacyRadius: 1000,
             languages: ['en'],
             autoAnswer: true,
-            filters: {
-              language: true,
-              grammar: false,
-              dirtyWords: true
-            }
+            filters: { language: true, grammar: false, dirtyWords: true }
           },
           location: {
             trueGPS: null,
@@ -917,7 +926,7 @@ class UserManager {
         return userProfile;
       });
   }
-  
+
   static updateLocation(userId, gpsCoords, blurRadius) {
     const publicLocation = this.blurLocation(gpsCoords, blurRadius);
     gun.get(userId).get('location').put({
@@ -925,58 +934,12 @@ class UserManager {
       publicRegion: publicLocation,
       lastUpdated: Date.now()
     });
-    
-    // Update chatroom membership
     this.updateChatroomMembership(userId, publicLocation);
   }
-  
-  static getReputation(userId) {
-    return gun.get('reputation').get(userId);
-  }
 }
 ```
 
-### Chatroom Management API
-```javascript
-class ChatroomManager {
-  static getChatroomForLocation(location, type = 'gps-grid') {
-    if (type === 'gps-grid') {
-      const gridHash = this.hashGPS(location);
-      return gun.get('chatrooms').get('gps-grid').get(gridHash);
-    }
-    // Add other types: city, state, country
-  }
-  
-  static joinChatroom(userId, chatroomId, isTraveler = false) {
-    const chatroom = gun.get('chatrooms').get(chatroomId);
-    const user = {
-      id: userId,
-      joined: Date.now(),
-      isTraveler: isTraveler
-    };
-    
-    chatroom.get('members').get(userId).put(user);
-    gun.get(userId).get('chatrooms').get(chatroomId).put({
-      joined: Date.now(),
-      isTraveler: isTraveler
-    });
-    
-    // Check capacity and split if needed
-    this.checkChatroomCapacity(chatroomId);
-  }
-  
-  static checkChatroomCapacity(chatroomId) {
-    const chatroom = gun.get('chatrooms').get(chatroomId);
-    chatroom.get('members').once().on(members => {
-      if (Object.keys(members).length > 1000) {
-        this.splitChatroom(chatroomId);
-      }
-    });
-  }
-}
-```
-
-### Talk System API
+### 7.4 Talk System API
 ```javascript
 class TalkManager {
   static createTalk(creatorId, talkConfig) {
@@ -990,115 +953,66 @@ class TalkManager {
       tags: talkConfig.tags || [],
       locationFilter: talkConfig.locationFilter || null,
       questions: talkConfig.questions || [],
-      stats: {
-        sent: 0,
-        responses: 0,
-        matches: 0,
-        ignores: 0
-      }
+      stats: { sent: 0, responses: 0, matches: 0, ignores: 0 }
     };
-    
     gun.get('talks').get(talkId).put(talk);
     return talkId;
   }
-  
+
   static sendBulkTalk(talkId, senderId, targetUsers, options = {}) {
-    const sender = gun.get('users').get(senderId);
-    const talk = gun.get('talks').get(talkId);
-    
-    // Update talk stats
-    talk.get('stats').get('sent').put(
-      talk.get('stats').get('sent').once() + targetUsers.length
-    );
-    
-    // Create individual conversations
     const batchedUsers = this.batchUsers(targetUsers, 50);
     batchedUsers.forEach((batch, batchIndex) => {
       setTimeout(() => {
         batch.forEach(targetId => {
           this.createConversation(talkId, senderId, targetId);
         });
-      }, batchIndex * 1000); // 1 second delay between batches
+      }, batchIndex * 1000);
     });
   }
-  
+
   static createConversation(talkId, senderId, recipientId) {
     const conversationId = `conv_${senderId}_${recipientId}_${Date.now()}`;
-    const conversation = {
+    gun.get('conversations').get(conversationId).put({
       id: conversationId,
-      talkId: talkId,
+      talkId,
       sender: senderId,
       recipient: recipientId,
       created: Date.now(),
-      status: 'pending', // pending, responded, matched, ignored
+      status: 'pending',
       currentQuestion: 0,
       answers: {},
       isAutoAnswer: false
-    };
-    
-    gun.get('conversations').get(conversationId).put(conversation);
-    
-    // Notify recipient if online
+    });
     this.notifyRecipient(recipientId, conversationId);
   }
 }
 ```
 
-### Survey Aggregation API
+### 7.5 Survey Aggregation API
 ```javascript
 class SurveyManager {
-  static createSurvey(creatorId, talkConfig) {
-    const surveyConfig = {
-      ...talkConfig,
-      isSurvey: true,
-      aggregationConfig: talkConfig.aggregationConfig || {
-        questions: talkConfig.questions.map(q => q.id),
-        statistics: ['count', 'percentage', 'distribution']
-      }
-    };
-    
-    return TalkManager.createTalk(creatorId, surveyConfig);
-  }
-  
   static addSurveyResponse(conversationId, questionId, answer) {
-    const conversation = gun.get('conversations').get(conversationId);
-    const surveyId = conversation.get('talkId').once();
-    
-    // Store individual response
-    gun.get('survey-responses')
-      .get(surveyId)
-      .get(conversationId)
-      .get(questionId)
-      .put(answer);
-    
-    // Update live aggregation
+    const surveyId = gun.get('conversations').get(conversationId).get('talkId').once();
+    gun.get('survey-responses').get(surveyId).get(conversationId).get(questionId).put(answer);
     this.updateLiveAggregation(surveyId, questionId, answer);
   }
-  
+
   static updateLiveAggregation(surveyId, questionId, answer) {
-    const aggPath = gun.get('survey-aggregations')
-      .get(surveyId)
-      .get(questionId);
-    
-    aggPath.get('total').once().then(total => {
-      aggPath.get('total').put(total + 1);
+    const aggPath = gun.get('survey-aggregations').get(surveyId).get(questionId);
+    aggPath.get('total').once().then(total => aggPath.get('total').put(total + 1));
+    aggPath.get('answers').get(answer).once().then(count => {
+      aggPath.get('answers').get(answer).put((count || 0) + 1);
     });
-    
-    aggPath.get('answers')
-      .get(answer)
-      .once()
-      .then(count => {
-        aggPath.get('answers').get(answer).put((count || 0) + 1);
-      });
   }
 }
 ```
 
-## UI/UX Component Specifications
+---
 
-### 1. Main Navigation Components
+## 8. UI/UX Component Specifications
+
+### 8.1 Main Navigation Components
 ```javascript
-// App Layout Structure
 const AppLayout = {
   header: {
     component: 'NavigationHeader',
@@ -1113,220 +1027,92 @@ const AppLayout = {
   },
   footer: {
     component: 'StatusBar',
-    features: ['connectionStatus', 'syncStatus', 'locationPrivacy']
+    features: ['connectionStatus', 'syncStatus', 'locationPrivacy', 'batteryState']
   }
 };
 ```
 
-### 2. Talk Editor Components
+### 8.2 Talk Editor Components
 ```javascript
-// Visual Talk Editor
 const TalkEditorComponents = {
   editorCanvas: {
     component: 'CytoscapeTalkEditor',
-    features: [
-      'dragDropNodes',
-      'connectQuestions',
-      'validateNoCycles',
-      'autoLayout',
-      'zoomPan',
-      'exportJSON',
-      'importTalk'
-    ]
+    features: ['dragDropNodes', 'connectQuestions', 'validateNoCycles', 'autoLayout', 'zoomPan', 'exportJSON', 'importTalk']
   },
-  
   questionPanel: {
     component: 'QuestionProperties',
-    fields: [
-      'questionText',
-      'answerOptions',
-      'autoAnswerToggle',
-      'nextQuestionSelector',
-      'questionTags'
-    ]
+    fields: ['questionText', 'answerOptions', 'autoAnswerToggle', 'nextQuestionSelector', 'questionTags']
   },
-  
   toolbar: {
     component: 'EditorToolbar',
-    actions: [
-      'addQuestion',
-      'addBranch',
-      'deleteNode',
-      'previewTalk',
-      'saveTalk',
-      'testTalk'
-    ]
+    actions: ['addQuestion', 'addBranch', 'deleteNode', 'previewTalk', 'saveTalk', 'testTalk']
   },
-  
   collaborationPanel: {
     component: 'RealTimeCollab',
-    features: [
-      'activeUsers',
-      'cursorTracking',
-      'changeHistory',
-      'conflictResolution'
-    ]
+    features: ['activeUsers', 'cursorTracking', 'changeHistory', 'editLockIndicator']
   }
 };
 ```
 
-### 3. Chat Interface Components
+### 8.3 Chat Interface Components
 ```javascript
-// Chat Interface with Auto-Capture
 const ChatComponents = {
   messageList: {
     component: 'MessageList',
-    features: [
-      'autoDetectPattern',
-      'renderAnswerChips',
-      'chatbotOverlay',
-      'timestampFormatting',
-      'readReceipts'
-    ]
+    features: ['autoDetectPattern', 'renderAnswerChips', 'chatbotOverlay', 'channelBadge', 'timestampFormatting', 'readReceipts']
+    // channelBadge shows globe / single-lock / double-lock per §2.9
   },
-  
   messageInput: {
     component: 'SmartMessageInput',
-    features: [
-      'talkPatternDetection',
-      'answerChipGeneration',
-      'autoComplete',
-      'characterCount',
-      'sendButton'
-    ]
+    features: ['talkPatternDetection', 'answerChipGeneration', 'autoComplete', 'characterCount', 'sendButton']
   },
-  
-  userProfile: {
-    component: 'UserAvatar',
-    features: [
-      'headshotDisplay',
-      'chatbotOverlay',
-      'travellerBadge',
-      'reputationStars',
-      'onlineIndicator'
-    ]
+  answerCard: {
+    component: 'AnswerChip',
+    features: ['visibilityToggle', 'lockIcon', 'editAnswer', 'viewHistory']
+    // visibilityToggle implements public/auto vs private/manual (§2.5)
   }
 };
 ```
 
-### 4. Bulk Send Dashboard
+### 8.4 Bulk Send Dashboard
 ```javascript
-// Bulk Send Management
 const BulkSendComponents = {
   targetingPanel: {
     component: 'TargetingCriteria',
-    fields: [
-      'locationSelector',
-      'tagFilter',
-      'distanceRadius',
-      'userCount',
-      'audiencePreview'
-    ]
+    fields: ['locationSelector', 'tagFilter', 'distanceRadius', 'userCount', 'audiencePreview']
   },
-  
   sendProgress: {
     component: 'SendProgressTracker',
-    metrics: [
-      'totalSent',
-      'pendingDelivery',
-      'responsesReceived',
-      'matchesFound',
-      'ignoredCount',
-      'errorRate'
-    ]
+    metrics: ['totalSent', 'pendingDelivery', 'responsesReceived', 'matchesFound', 'ignoredCount', 'errorRate']
   },
-  
   resultsView: {
     component: 'MatchResults',
-    features: [
-      'conversationList',
-      'matchFiltering',
-      'bulkActions',
-      'exportData',
-      'followUpActions'
-    ]
+    features: ['conversationList', 'matchFiltering', 'bulkActions', 'exportData', 'followUpActions']
   }
 };
 ```
 
-### 5. Survey Analytics Dashboard
+### 8.5 Survey Analytics Dashboard
 ```javascript
-// Survey Results Visualization
 const SurveyComponents = {
   resultsChart: {
     component: 'SurveyChartRenderer',
-    chartTypes: [
-      'barChart',
-      'pieChart',
-      'distributionPlot',
-      'timeSeries',
-      'comparisonChart'
-    ]
+    chartTypes: ['barChart', 'pieChart', 'distributionPlot', 'timeSeries', 'comparisonChart']
   },
-  
   questionAnalysis: {
     component: 'QuestionAnalytics',
-    metrics: [
-      'responseRate',
-      'answerDistribution',
-      'skipRate',
-      'timeToAnswer',
-      'demographics'
-    ]
+    metrics: ['responseRate', 'answerDistribution', 'skipRate', 'timeToAnswer', 'demographics']
   },
-  
   respondentManagement: {
     component: 'RespondentList',
-    features: [
-      'individualResponses',
-      'anonymityToggle',
-      'followUpMessages',
-      'exportResponses',
-      'filterRespondents'
-    ]
+    features: ['individualResponses', 'anonymityToggle', 'followUpMessages', 'exportResponses', 'filterRespondents']
   }
 };
 ```
 
-### 6. Mobile-Specific Components
-```javascript
-// Android Native Components
-const MobileComponents = {
-  locationService: {
-    native: 'AndroidLocationManager',
-    features: [
-      'gpsTracking',
-      'backgroundLocation',
-      'permissionHandling',
-      'batteryOptimization'
-    ]
-  },
-  
-  notifications: {
-    native: 'AndroidNotificationManager',
-    features: [
-      'pushNotifications',
-      'messageAlerts',
-      'matchNotifications',
-      'soundVibration'
-    ]
-  },
-  
-  offlineSync: {
-    native: 'AndroidSyncManager',
-    features: [
-      'localQueue',
-      'backgroundSync',
-      'conflictResolution',
-      'storageManagement'
-    ]
-  }
-};
-```
+### 8.6 User Interaction Patterns
 
-### 7. User Interaction Patterns
-
-#### Auto-Capture Pattern Detection
+**Auto-Capture Pattern Detection:**
 ```javascript
 // Message pattern: "Question? Answer1; Answer2; Answer3."
 const AutoCapturePattern = {
@@ -1341,9 +1127,8 @@ const AutoCapturePattern = {
 };
 ```
 
-#### Reputation Privacy Controls
+**Reputation Privacy Controls:**
 ```javascript
-// Reputation visibility settings
 const ReputationPrivacy = {
   levels: {
     public: ['questionsAnswered', 'starRating'],
@@ -1359,33 +1144,283 @@ const ReputationPrivacy = {
 };
 ```
 
-## Key Technical Decisions Made:
-- **Hybrid chatroom hierarchy**: Combining Gun.js spatial queries with custom geographical nodes
-- **Batched bulk sending**: 50-user batches with 1-second delays to prevent network flooding
-- **Dynamic location privacy**: User-controlled blur radius from 100m to 10km
-- **Advanced visual talk editor**: Drag-drop interface with real-time collaboration
-- **Local pattern matching**: Simple keyword/regex for chatbot auto-answers
-- **Native Android + JS bridge**: For mobile implementation
-- **Gun SEA schemas**: For data validation and security
-- **Client-side filtering**: For bulk matching efficiency
-- **Permission-based reputation**: Users control who sees their reputation data
-- **Live Gun aggregation**: For real-time survey statistics
+---
 
-## Testing Strategy & Quality Assurance
+## 9. Implementation Roadmap
 
-### Continuous Testing Pipeline
+### Phase 1: Core Infrastructure (Weeks 1-4)
+
+#### Week 1-2: Gun.js Backend Setup
+**Development Tasks:**
+- Extend Entity.js with hierarchical chatroom system
+- Implement location blur with dynamic radius
+- Add user authentication with Gun SEA
+- Basic talk storage and retrieval
+- Implement `financialDataFilter` and `privacyClassifier` (§2.3, §2.4)
+
+**Test Plan:**
+```javascript
+describe('Chatroom Management', () => {
+  test('should create global chatroom and handle users up to capacity', async () => {
+    const chatroom = ChatroomManager.getChatroomForLocation({lat: 0, lng: 0});
+    await ChatroomManager.joinChatroom('user1', 'global');
+    await ChatroomManager.joinChatroom('user2', 'global');
+    const members = await chatroom.get('members').once();
+    expect(Object.keys(members).length).toBe(2);
+  });
+
+  test('should split chatroom when capacity exceeded (1000 users)', async () => {
+    for(let i = 0; i < 1001; i++) {
+      await ChatroomManager.joinChatroom(`user${i}`, 'global');
+    }
+    const subrooms = await ChatroomManager.getSubrooms('global');
+    expect(subrooms.length).toBeGreaterThan(1);
+  });
+});
+
+describe('Security Filters', () => {
+  test('should block credit card numbers from being written', () => {
+    const result = filterBeforeWrite('My card is 4111 1111 1111 1111');
+    expect(result.blocked).toBe(true);
+  });
+
+  test('should flag privacy-sensitive answers', () => {
+    const result = privacyClassifier.check('What is your home address?');
+    expect(result.isSensitive).toBe(true);
+  });
+});
+
+describe('Authentication', () => {
+  test('should create user with Gun SEA authentication', async () => {
+    const user = await UserManager.createUser('testuser', 'password123');
+    expect(user.stageName).toBe('testuser');
+    expect(user.created).toBeDefined();
+  });
+});
+```
+
+**Exit Criteria:**
+- All unit tests pass (90%+ coverage)
+- Integration tests validate core flows
+- Performance benchmarks meet requirements
+- Security filters verified
+
+---
+
+#### Week 3-4: Basic Talk System
+**Development Tasks:**
+- Enhance Talks.js with question/answer validation
+- Implement answer visibility model (§2.5)
+- Implement immutable answer history (§2.6)
+- Implement versioned answer buckets for concurrent editing (§3.2)
+- Add basic bulk sending with queuing
+
+**Test Plan:**
+```javascript
+describe('Answer Visibility', () => {
+  test('chatbot should not repeat private/manual answers', () => {
+    const privateAnswer = { value: 'yes', visibility: 'manual' };
+    expect(chatbotCanRepeat(privateAnswer)).toBe(false);
+  });
+
+  test('answer history should be immutable', async () => {
+    await setAnswer('q1', 'yes', 'auto');
+    await setAnswer('q1', 'no', 'auto');
+    const history = await getAnswerHistory('q1');
+    expect(history.length).toBe(2);
+    // Attempt to alter history — should fail
+    await expect(alterHistory('q1', 0, 'maybe')).rejects.toThrow();
+  });
+});
+
+describe('Concurrent Edit / Answer', () => {
+  test('answers during edit go to prior version bucket', async () => {
+    await talkRepo.startEdit('talk1');
+    await talkRepo.submitAnswer('talk1', 0, { q1: 'yes' }); // version 0
+    await talkRepo.saveEdit('talk1', { /* changed q1 */ });
+    const v0Answers = await getTalkAnswers('talk1', 0);
+    expect(v0Answers).toHaveLength(1);
+  });
+});
+```
+
+**Exit Criteria:**
+- All unit tests pass (95%+ coverage)
+- End-to-end talk scenarios complete successfully
+- Security vulnerabilities addressed
+
+---
+
+### Phase 2: Advanced Features (Weeks 5-8)
+
+#### Week 5-6: Visual Talk Editor
+**Development Tasks:**
+- Drag-drop question nodes with Cytoscape
+- Talk graph validation (no cycles)
+- Branching and OR logic support
+- Real-time collaboration with edit lock (§3.2)
+
+**Test Plan:**
+```javascript
+describe('Visual Talk Editor', () => {
+  test('should validate no cycles in talk graph', () => {
+    const editor = new TalkEditor();
+    editor.connectQuestions('q1', 'q2');
+    editor.connectQuestions('q2', 'q1');
+    expect(editor.hasCycle()).toBe(true);
+    expect(editor.canSave()).toBe(false);
+  });
+
+  test('edit lock prevents concurrent version conflicts', async () => {
+    await talkRepo.startEdit('talk1');
+    // Second user tries to edit simultaneously
+    await expect(talkRepo.startEdit('talk1')).rejects.toThrow('locked');
+  });
+});
+```
+
+**Exit Criteria:**
+- All unit tests pass (90%+ coverage)
+- Real-time collaboration stable with 5+ users
+- Complex talks (50+ questions) render smoothly
+
+---
+
+#### Week 7-8: Reputation, Moderation & Trust
+**Development Tasks:**
+- Permission-based reputation system
+- Rate limiting and spam prevention
+- Age verification for adult content
+- Block/unblock functionality
+- Known-person trust model (§2.8)
+- Message channel marking (§2.9)
+
+**Test Plan:**
+```javascript
+describe('Known Person Trust', () => {
+  test('messages to known persons are encrypted', async () => {
+    await userRepo.addKnownPerson({ userId: 'userB', pub: 'pubB', label: 'friend', addedAt: Date.now() });
+    const envelope = await messageRepo.sendKnown('userB', 'hello');
+    expect(envelope.channel).toBe('known');
+    expect(envelope.payload).not.toBe('hello'); // encrypted
+  });
+
+  test('mutual known persons get ECDH shared-secret encryption', async () => {
+    // Both sides have marked each other
+    const envelope = await messageRepo.sendMutual('userB', 'hello');
+    expect(envelope.channel).toBe('mutual');
+  });
+});
+
+describe('Rate Limiting', () => {
+  test('should prevent spam bulk sending', async () => {
+    for(let i = 0; i < 10; i++) {
+      const result = await RateLimiter.canSendBulk('testuser');
+      if (i < 3) expect(result).toBe(true);
+      else expect(result).toBe(false);
+    }
+  });
+});
+```
+
+**Exit Criteria:**
+- All security tests pass
+- Reputation system resists manipulation
+- Trust/encryption model verified end-to-end
+
+---
+
+### Phase 3: Mobile & Performance (Weeks 9-12)
+
+#### Week 9-10: Android App
+**Development Tasks:**
+- Native Android with embedded Node.js
+- JavaScript bridge for GPS/notifications
+- Battery tiering integration (§5.2)
+- Tit-for-tat peer relay (§5.1)
+- `IPlatformCapabilities` implementation for Android (§6.3)
+
+**Test Plan:**
+```javascript
+describe('Battery Tiering', () => {
+  test('relay stops at low battery', () => {
+    const state = getBatteryState(25);
+    expect(state).toBe(BatteryState.Low);
+    applyBatteryPolicy(state, services);
+    expect(services.relay.isRunning()).toBe(false);
+    expect(services.chatbot.isRunning()).toBe(true);
+  });
+
+  test('chatbot stops at critical battery', () => {
+    const state = getBatteryState(15);
+    applyBatteryPolicy(state, services);
+    expect(services.chatbot.isRunning()).toBe(false);
+  });
+
+  test('read-only mode at emergency battery', () => {
+    const state = getBatteryState(8);
+    applyBatteryPolicy(state, services);
+    expect(services.messaging.isReadOnly()).toBe(true);
+  });
+});
+```
+
+**Android instrumentation tests:**
+```java
+@Test
+public void testBatteryReceiverNotifiesJS() {
+    Intent intent = new Intent(Intent.ACTION_BATTERY_CHANGED);
+    intent.putExtra(BatteryManager.EXTRA_LEVEL, 15);
+    intent.putExtra(BatteryManager.EXTRA_SCALE, 100);
+    batteryReceiver.onReceive(context, intent);
+    verify(webView).evaluateJavascript(contains("onBatteryChange(15)"), any());
+}
+```
+
+**Exit Criteria:**
+- Battery tiering verified on real devices
+- T4T relay accounting tested under simulated load
+- All instrumentation tests pass
+- App runs on 95%+ of target Android devices (API 24+)
+
+---
+
+#### Week 11-12: Performance Optimization
+**Development Tasks:**
+- Bulk send optimization
+- Offline sync with Gun native handling
+- Survey aggregation with live queries
+- Stress testing for 1000+ concurrent talks
+
+**Performance Benchmarks:**
+- Bulk send: 50 users/second sustained
+- Query response: <100ms for 10k record searches
+- Memory usage: <200MB per 1000 active users
+- Network efficiency: <500KB/hour per active user
+- Storage growth: <10MB/day per 1000 users
+- App startup time (Android): <3 seconds
+
+**Exit Criteria:**
+- All performance tests pass
+- System handles 1000+ concurrent users
+- Memory leaks eliminated
+- Production readiness checklist completed
+
+---
+
+## 10. Testing Strategy & Quality Assurance
+
+### 10.1 Continuous Testing Pipeline
 ```yaml
-# CI/CD Testing Pipeline
 stages:
   - lint_and_format
-  - unit_tests
+  - unit_tests             # src-shared/ tests run in plain Node.js (no platform)
   - integration_tests
   - performance_tests
   - security_tests
   - end_to_end_tests
   - deployment_tests
 
-# Test Execution Requirements
 coverage_threshold: 90%
 performance_baseline:
   response_time_p95: 200ms
@@ -1393,17 +1428,16 @@ performance_baseline:
   error_rate_max: 1%
 ```
 
-### Test Environment Setup
+### 10.2 Test Environment Setup
 ```javascript
-// Test Configuration
 const testEnvironments = {
   unit: {
     framework: 'Jest',
     coverage: 'Istanbul',
-    mocks: 'Gun.js sandbox'
+    mocks: 'MockDataAccess (in-memory, implements same interfaces as GunDataAccess)'
   },
   integration: {
-    framework: 'Cypress',
+    framework: 'Playwright / Cypress',
     docker: 'Multi-node Gun.js cluster',
     data: 'Seed with realistic datasets'
   },
@@ -1414,69 +1448,84 @@ const testEnvironments = {
   },
   mobile: {
     framework: 'AndroidJUnit, Espresso',
-    devices: 'Emulator matrix (API 21-33)',
+    devices: 'Emulator matrix (API 24–34)',
     automation: 'Appium for cross-platform'
   }
 };
 ```
 
-### Quality Gates
-Each phase must meet these criteria before proceeding:
+### 10.3 Quality Gates
 
 **Phase 1 Gate:**
 - [ ] 90%+ unit test coverage
 - [ ] All integration tests pass
+- [ ] Security filters (financial data, privacy classifier) verified
 - [ ] Performance benchmarks met
-- [ ] Security scan passes
 - [ ] Code review approved
 
 **Phase 2 Gate:**
 - [ ] Phase 1 regression tests pass
 - [ ] New features 95%+ coverage
+- [ ] Trust/encryption model end-to-end verified
 - [ ] Usability testing complete
-- [ ] Performance impact <10%
 - [ ] Security audit passed
 
 **Phase 3 Gate:**
 - [ ] All previous tests pass
-- [ ] Mobile device compatibility verified
+- [ ] Battery tiering verified on physical devices
+- [ ] T4T accounting stress-tested
 - [ ] Load testing completes successfully
 - [ ] Production deployment verified
 - [ ] User acceptance testing passed
 
-### Test Data Management
+### 10.4 Security-Specific Tests
 ```javascript
-// Test Data Strategy
-const testData = {
-  users: {
-    count: 10000,
-    distribution: {
-      locations: ['global', 'cities', 'gps-grids'],
-      reputations: ['new', 'established', 'veteran'],
-      ages: ['underage', 'adult', 'senior']
-    }
-  },
-  talks: {
-    types: ['matching', 'survey', 'linear', 'branched'],
-    complexity: ['simple', 'medium', 'complex'],
-    volume: 'High volume scenarios'
-  },
-  scenarios: {
-    tennis_matching: 'Pre-defined test case from SRS',
-    dating_filtering: 'Adult content with age verification',
-    bulk_surveys: 'Large-scale data collection',
-    network_partitions: 'Offline/online transition testing'
-  }
-};
+describe('Write Pipeline Security', () => {
+  test('financial data never reaches Gun graph', async () => {
+    await expect(
+      messageRepo.sendPublic('room1', 'call me at 4111111111111111')
+    ).rejects.toThrow('Financial data detected');
+
+    const messages = await getMessages('room1');
+    expect(messages.some(m => m.text.includes('4111'))).toBe(false);
+  });
+
+  test('private answers never appear in public Gun paths', async () => {
+    await userRepo.setAnswer('q1', 'secret', 'manual');
+    const publicNode = await gun.get('users').get(userId).get('answers').get('public').get('q1').once();
+    expect(publicNode).toBeNull();
+  });
+
+  test('stranger messages are plaintext; mutual messages are ciphertext', async () => {
+    const publicMsg = await messageRepo.sendPublic('room1', 'hi');
+    expect(publicMsg.channel).toBe('public');
+    expect(publicMsg.payload).toBe('hi');
+
+    await userRepo.addKnownPerson({ userId: 'b', pub: pubB, label: 'friend', addedAt: Date.now() });
+    // Simulate B marking A too (mutual)
+    const mutualMsg = await messageRepo.sendMutual('b', 'hi');
+    expect(mutualMsg.channel).toBe('mutual');
+    expect(mutualMsg.payload).not.toBe('hi');
+  });
+});
 ```
 
-### Regression Testing Suite
+### 10.5 Regression Test Suite
 ```javascript
-// Critical Path Tests
 const regressionTests = [
   'user_authentication_flow',
   'chatroom_membership_management',
   'talk_creation_and_delivery',
+  'answer_visibility_enforcement',
+  'answer_history_immutability',
+  'concurrent_edit_versioning',
+  'financial_data_filter',
+  'privacy_classifier_prompt',
+  'trust_model_encryption',
+  'battery_tiering_android',
+  'tit_for_tat_relay',
+  'limited_retry_drop_policy',
+  'auto_peer_discovery',
   'auto_capture_functionality',
   'bulk_send_performance',
   'reputation_system_integrity',
@@ -1487,16 +1536,50 @@ const regressionTests = [
 ];
 ```
 
-## Next Steps:
-1. **Phase 1 (Weeks 1-4)**: Core infrastructure with hierarchical chatrooms and basic talk system
-   - **Gate**: All tests pass, performance benchmarks met, security audit complete
-   
-2. **Phase 2 (Weeks 5-8)**: Advanced features including visual editor and reputation system
-   - **Gate**: Phase 1 regression + new feature tests + usability validation
-   
-3. **Phase 3 (Weeks 9-12)**: Mobile app and performance optimization
-   - **Gate**: Complete test suite + production readiness + deployment verification
+---
 
-The specification provides detailed API designs, component structures, comprehensive test plans, and implementation patterns that extend your existing Gun.js/React codebase while maintaining the decentralized architecture requirements from the SRS document.
+## 11. Key Technical Decisions
 
-Each phase includes thorough testing coverage with unit tests, integration tests, performance benchmarks, security validation, and quality gates to ensure code is verified before proceeding to the next development phase.
+- **Hybrid chatroom hierarchy**: Gun.js spatial queries combined with custom geographical nodes for multi-scale location coverage.
+- **Batched bulk sending**: 50-user batches with 1-second delays to prevent network flooding.
+- **Dynamic location privacy**: User-controlled blur radius from 100m to 10km.
+- **Stranger-first trust**: All users start as strangers; encryption is opt-in per relationship.
+- **Three-tier message channels**: public / known (one-way) / mutual (ECDH) with distinct UI indicators.
+- **Public/private answer visibility**: Users control whether chatbot may repeat each answer; private answers are SEA-encrypted and never leave the user's own node.
+- **Immutable signed history**: Answer history is append-only with SEA signatures; current answer is mutable.
+- **Gun CRDT authority**: No custom conflict resolution overrides HAM — Gun's own merge is the single source of truth.
+- **Versioned talk answers**: Concurrent edits and answers are isolated by version number and merged after the edit is saved.
+- **Three-retry drop policy**: Unreachable peers are ignored after 3 attempts; automatically reconnected via Gun's `hi` event.
+- **Battery tiering (Android)**: Four tiers (Normal / Low / Critical / Emergency) progressively shut down relay, chatbot, and messaging to preserve battery.
+- **Tit-for-tat relay fairness**: Mobile devices relay for others proportional to what they consume, preventing free-riding.
+- **Typed data access layer**: All Gun reads/writes go through `IUserRepo`, `IMessageRepo`, `ITalkRepo`, `IChatroomRepo` — no raw Gun calls in UI code.
+- **`IPlatformCapabilities` interface**: Shared logic never calls platform APIs directly; each platform provides its own implementation.
+- **Write pipeline with filters**: Financial data filter + privacy classifier + SEA encryption run on every Gun write before data is committed.
+- **Native Android + JS bridge**: Mobile implementation uses embedded Node.js with a typed `JsBridge.kt` for all native-to-JS communication.
+- **Permission-based reputation**: Users control who sees their reputation data at public / connections / private / hidden levels.
+- **Live Gun aggregation**: Real-time survey statistics updated incrementally on each response.
+
+---
+
+## Appendix: Cross-Reference Matrix
+
+| Requirement | Section | Implemented in |
+|---|---|---|
+| No central data collection | §2.1 | Architecture — no server writes |
+| P2P only | §2.2 | `server.js`, Gun relay config |
+| Privacy question prompt | §2.3 | `src-shared/filters/privacyClassifier.ts` |
+| Credit card filter | §2.4 | `src-shared/filters/financialDataFilter.ts` |
+| Public/private answer flag | §2.5 | `src-shared/data/models.ts`, answer chip UI |
+| Immutable answer history | §2.6 | `ITalkRepo.submitAnswer`, Gun path design |
+| SEA encryption per user | §2.7 | `GunDataAccess.ts` write pipeline |
+| Stranger model / known person | §2.8 | `IUserRepo.addKnownPerson`, Gun path design |
+| Message channel marking | §2.9 | `IMessageRepo.send*`, `Message.channel` field |
+| Gun CRDT authority | §3.1 | All `gun.put()` calls — no HAM override |
+| Concurrent edit/answer | §3.2 | `src-shared/talks/ConflictMerge.ts` |
+| Limited retry | §4.1 | `src-shared/network/RetryPolicy.ts` |
+| Auto peer discovery | §4.2 | `src-shared/network/PeerDiscovery.ts` |
+| Tit-for-tat relay | §5.1 | `src-shared/network/PeerContribution.ts` |
+| Battery tiering | §5.2 | `src-shared/battery/BatteryPolicy.ts` |
+| Frontend ↔ Backend API | §6.1 | `server.js`, REST + WebSocket |
+| App ↔ Gun interface | §6.2 | `src-shared/data/DataAccess.ts` |
+| Shared ↔ Platform interface | §6.3 | `src-shared/platform/IPlatformCapabilities.ts` |
