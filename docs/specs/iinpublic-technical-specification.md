@@ -131,7 +131,7 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 - Survey talks for collecting and aggregating statistics.
 - Decentralized moderation: blocking, age-gating, reputation, block count.
 - Headshot avatars with chatbot overlays to distinguish bot vs. human replies.
-- Green/Red/Yellow conversation modes to control chatbot automation level.
+- Green/Red conversation modes to control chatbot automation level (Auto / Manual).
 - Three-tier message security: public, one-way encrypted (known), mutual ECDH-encrypted (mutual).
 
 ### 2.3 User Classes and Characteristics
@@ -333,7 +333,7 @@ Do you like to play tennis? ** yes; * no.  // Question with answer chips
 - **UI-3**: The bulk send dashboard SHALL show: total sent, in progress, matched, ignored, expired.
 - **UI-4**: The survey results UI SHALL show aggregated statistics per question.
 - **UI-5**: Every answer chip/card SHALL show a lock icon toggle (locked = private/manual, unlocked = public/auto) per §7.5.
-- **UI-6**: The status bar SHALL show current conversation mode colour (🟢 Green / 🔴 Red / 🟡 Yellow) and battery tier (Normal / Low / Critical / Emergency) on mobile.
+- **UI-6**: The status bar SHALL show current conversation mode (🟢 Auto / 🔴 Manual) and battery tier (Normal / Low / Critical / Emergency) on mobile.
 - **UI-7**: The initial screen SHALL show three lists: **nearby users**, **public chatroom**, and **talk list**.
 
 ### 4.2 Hardware Interfaces
@@ -629,40 +629,26 @@ Private answers are stored in the user's own SEA-encrypted Gun node (`~<pub>/ans
 
 **UI requirement:** Each answer chip/card shows a lock icon toggle. Locked = private/manual. Unlocked = public/auto.
 
-### 7.6 Conversation Modes (Green / Red / Yellow)
+### 7.6 Conversation Modes (Auto / Manual)
 
-Every user operates in one of three conversation modes controlling how aggressively the chatbot acts on their behalf.
+Every user operates in one of two conversation modes controlling how aggressively the chatbot acts on their behalf.
 
 | Mode | Colour | Chatbot behaviour | Scope |
 |---|---|---|---|
 | **Auto** | 🟢 Green | Chatbot automatically asks and answers questions in the public chatroom using all public/auto answers. Everything is public. | Public chatroom |
 | **Manual** | 🔴 Red | User asks and answers all questions manually. Chatbot is silent. | Any channel |
-| **Semi-auto** | 🟡 Yellow | Chatbot operates under a rule set (location, friend circle, time window). One-on-one chat only. | One-on-one / known persons |
 
 ```typescript
-export type ConversationMode = 'green' | 'red' | 'yellow';
+export type ConversationMode = 'auto' | 'manual';
 
-export interface YellowModeRules {
-  locationRadius?: number;       // only fire chatbot when peer is within N metres
-  allowedLabels?: string[];      // only fire for 'friend', 'coworker', etc.
-  activeHours?: { from: string; to: string };
-}
-
-function shouldChatbotFire(
-  mode: ConversationMode,
-  peer: UserContext,
-  rules?: YellowModeRules
-): boolean {
-  if (mode === 'green') return true;
-  if (mode === 'red')   return false;
-  if (rules?.locationRadius && distanceTo(peer) > rules.locationRadius) return false;
-  if (rules?.allowedLabels  && !rules.allowedLabels.includes(peer.label)) return false;
-  if (rules?.activeHours    && !isWithinActiveHours(rules.activeHours))   return false;
-  return true;
+function shouldChatbotFire(mode: ConversationMode): boolean {
+  return mode === 'auto';
 }
 ```
 
-Even in Green mode the chatbot never repeats `"manual"` (private) answers.
+Even in Auto mode the chatbot never repeats `"manual"` (private) answers.
+
+> **Note — Yellow / Semi-auto mode (obsolete):** An earlier design included a third 🟡 Yellow "semi-auto" mode that fired the chatbot conditionally based on a rule set (location radius, relationship label, active hours). This mode has been **removed** in favour of simplicity. Its conditional-firing logic is fully achievable through the existing filter system (language filter, location filter, tag pre-filter — see §3.2, §3.5) applied at the talk or bulk-send level, without adding a separate chatbot-mode concept. Any references to `'yellow'` or `YellowModeRules` in older code or documentation should be treated as obsolete.
 
 ### 7.7 Answer Mutability & Immutable History
 
@@ -1165,8 +1151,7 @@ const UserSchema = {
     privacyRadius: 'number',
     languageFilters: 'array',
     chatbotAutoAnswers: 'boolean',
-    conversationMode: 'green|red|yellow',
-    yellowModeRules: 'object|null'
+    conversationMode: 'auto|manual'
   }
 };
 
@@ -1211,7 +1196,7 @@ async function initFirstRun(): Promise<UserSession> {
   const stageName = generateRandomStageName();
 
   gun.user().auth(pair);
-  gun.user().get('profile').put({ stageName, created: Date.now(), conversationMode: 'green' });
+  gun.user().get('profile').put({ stageName, created: Date.now(), conversationMode: 'auto' });
 
   const location = await platform.getCurrentLocation();
   const chatroomId = await chatroomRepo.getRoomForLocation(location);
@@ -1235,7 +1220,7 @@ class UserManager {
           privacyRadius: 1000,
           languages: ['en'],
           autoAnswer: true,
-          conversationMode: 'green',
+          conversationMode: 'auto',
           filters: { language: true, grammar: false, dirtyWords: true }
         },
         location: { trueGPS: null, publicRegion: null, travelMode: false, homeChatroom: null }
@@ -1510,7 +1495,7 @@ describe('Talk Constraints', () => {
 ---
 
 #### Week 7–8: Reputation, Moderation & Trust
-**Tasks:** Reputation system, rate limiting (FR-SP-1 through FR-SP-6), age verification (FR-SP-7, FR-SP-8), block/unblock, known-person trust model (§7.9), message channel marking (§7.10), Green/Red/Yellow modes.
+**Tasks:** Reputation system, rate limiting (FR-SP-1 through FR-SP-6), age verification (FR-SP-7, FR-SP-8), block/unblock, known-person trust model (§7.9), message channel marking (§7.10), Auto/Manual conversation modes.
 
 **Exit Criteria:** All security tests pass. Trust/encryption model verified end-to-end.
 
@@ -1831,7 +1816,7 @@ The following items are known open questions or planned post-MVP work:
 - **Mandatory talk preamble** (FR-TG-6): Every talk — auto-captured or editor-built — must have tags + location filter before bulk sending.
 - **DAG-only talk structure**: No loops permitted; cycle detection enforced in the editor.
 - **Auto-capture syntax** (`**` / `*` / `;`): Inline question/answer syntax turns chat into reusable linear talks.
-- **Green/Red/Yellow conversation modes**: User controls chatbot automation level per session/context.
+- **Auto/Manual conversation modes**: User controls chatbot automation level (Auto = chatbot fires on all public/auto answers; Manual = fully user-driven). Yellow/semi-auto mode removed — equivalent behaviour is achieved through talk filters.
 - **Permission-based reputation**: Users control who sees their reputation at public / connections / private / hidden levels.
 - **Business chatrooms**: User-defined chatrooms tied to physical brand locations, with their own targeting scope.
 
@@ -1872,7 +1857,7 @@ The following items are known open questions or planned post-MVP work:
 | P2P only; direct chats not persisted | NFR-S-1, §7.1, §7.2 | `server.js`, Gun relay config |
 | Privacy question prompt | NFR-S-4, §7.3 | `src-shared/filters/privacyClassifier.ts` |
 | Credit card / financial filter | NFR-S-3, §7.4 | `src-shared/filters/financialDataFilter.ts` |
-| Green/Red/Yellow modes | §7.6 | `shouldChatbotFire()`, `ConversationMode` type |
+| Auto/Manual conversation modes (Yellow obsolete) | §7.6 | `shouldChatbotFire()`, `ConversationMode` type |
 | Answer mutability + immutable history | §7.7 | `ITalkRepo.submitAnswer`, Gun path design |
 | SEA encryption per user | NFR-S-5, §7.8 | `GunDataAccess.ts` write pipeline |
 | Stranger model / known-person trust | §7.9 | `IUserRepo.addKnownPerson`, Gun path design |
