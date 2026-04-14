@@ -145,6 +145,8 @@ IinPublic is a decentralized application. **No user data is collected, stored, o
 
 Tech support data is limited to the content the user voluntarily sends through the in-app support flow. It is never cross-referenced with user identity nodes in the Gun graph.
 
+**Peer-to-peer direct conversations are not persisted.** When two users chat one-on-one (outside of a talk/survey), no message data is written to the Gun graph's shared nodes. The conversation exists only in the two peers' local memory for the duration of the session. Only talk Q&A pairs answered by a user are saved as that user's attributes and reused by the chatbot later.
+
 ### 2.2 Peer-to-Peer Communication Design
 
 All application-level communication **must travel peer-to-peer via Gun.js**. This means:
@@ -238,7 +240,48 @@ Private answers are stored in the user's own SEA-encrypted Gun node (`~<pub>/ans
 
 **UI requirement:** Each answer chip/card shows a lock icon toggle. Locked = private/manual. Unlocked = public/auto.
 
-### 2.6 Answer Mutability & Immutable History
+### 2.6 Conversation Modes (Green / Red / Yellow)
+
+Every user operates in one of three conversation modes that control how aggressively the chatbot acts on their behalf. The mode is set per user and can be changed at any time.
+
+| Mode | Colour | Chatbot behaviour | Scope |
+|---|---|---|---|
+| **Auto** | 🟢 Green | Chatbot automatically asks and answers questions in the public chatroom using all public/auto answers. Everything is public. | Public chatroom |
+| **Manual** | 🔴 Red | User asks and answers all questions manually. Chatbot is silent. | Any channel |
+| **Semi-auto** | 🟡 Yellow | Chatbot operates under a rule set (location, friend circle, time window). One-on-one chat only; rules determine when the chatbot fires. | One-on-one / known persons |
+
+```typescript
+// src-shared/data/models.ts
+export type ConversationMode = 'green' | 'red' | 'yellow';
+
+export interface YellowModeRules {
+  locationRadius?: number;       // only fire chatbot when peer is within N metres
+  allowedLabels?: string[];      // only fire for 'friend', 'coworker', etc.
+  activeHours?: { from: string; to: string }; // e.g. { from: '09:00', to: '21:00' }
+}
+```
+
+```typescript
+// Chatbot firing decision
+function shouldChatbotFire(
+  mode: ConversationMode,
+  peer: UserContext,
+  rules?: YellowModeRules
+): boolean {
+  if (mode === 'green') return true;
+  if (mode === 'red')   return false;
+
+  // Yellow: evaluate rules
+  if (rules?.locationRadius && distanceTo(peer) > rules.locationRadius) return false;
+  if (rules?.allowedLabels  && !rules.allowedLabels.includes(peer.label)) return false;
+  if (rules?.activeHours    && !isWithinActiveHours(rules.activeHours))   return false;
+  return true;
+}
+```
+
+**Relationship to answer visibility (§2.5):** The conversation mode controls *when* the chatbot fires; the answer visibility flag controls *which* answers it may use. Even in Green mode the chatbot never repeats `"manual"` (private) answers.
+
+### 2.7 Answer Mutability & Immutable History
 
 - **Answers are mutable.** A user can change their answer to any question at any time.
 - **History is append-only and immutable.** Every change creates a new history entry, signed with the user's SEA keypair. No entry can be deleted or modified.
@@ -268,7 +311,7 @@ Gun paths:
 
 Because Gun's Last-Write-Wins CRDT operates on `current` and history entries are keyed by unique timestamp (never overwritten), the history is naturally tamper-evident. Any peer can verify the signature chain.
 
-### 2.7 SEA Encryption per User Dataset
+### 2.8 SEA Encryption per User Dataset
 
 All personally owned data is encrypted using **Gun SEA** under the user's own key pair.
 
@@ -294,7 +337,7 @@ const value = await SEA.decrypt(enc, userPair);
 
 **Key storage:** Keys are stored in Gun's `user` space backed by browser IndexedDB or Android Keystore. Keys never leave the device unless the user explicitly exports them.
 
-### 2.8 Stranger Model & Known-Person Trust
+### 2.9 Stranger Model & Known-Person Trust
 
 **Default state — Stranger:**
 - Every user starts as a stranger to every other user.
@@ -322,7 +365,7 @@ interface KnownPerson {
 }
 ```
 
-### 2.9 Encrypted vs. Public Message Marking
+### 2.10 Encrypted vs. Public Message Marking
 
 All messages in the Gun graph carry a `channel` field:
 
@@ -899,7 +942,34 @@ const TalkSchema = {
 };
 ```
 
-### 7.3 User Management API
+### 7.3 First-Run Experience
+
+On the very first launch, before the user has set anything up:
+
+1. The app **auto-generates a unique ID** (a Gun SEA public key pair) and a random **stageName** (e.g. `user_7f3a`).
+2. The user can change their stageName at any time to any value — including their real first name. Stage names are **not unique**; only the underlying ID (public key) is unique and immutable.
+3. The user's SEA key pair is stored locally and is the sole proof of identity. No registration with a server is required.
+4. The app immediately uses the device's location to place the user in the appropriate chatroom (see §1.1).
+5. The initial screen shows three lists: **nearby users**, **public chatroom**, and **talk list**.
+
+```typescript
+// First-run initialisation
+async function initFirstRun(): Promise<UserSession> {
+  const pair = await SEA.pair();                        // generate unique ID
+  const stageName = generateRandomStageName();          // changeable at any time
+
+  gun.user().auth(pair);
+  gun.user().get('profile').put({ stageName, created: Date.now() });
+
+  const location = await platform.getCurrentLocation();
+  const chatroomId = await chatroomRepo.getRoomForLocation(location);
+  await chatroomRepo.joinRoom(chatroomId);
+
+  return { pair, stageName, chatroomId };
+}
+```
+
+### 7.4 User Management API
 ```javascript
 class UserManager {
   static createUser(stageName, password) {
@@ -913,6 +983,7 @@ class UserManager {
             privacyRadius: 1000,
             languages: ['en'],
             autoAnswer: true,
+            conversationMode: 'green',   // green | red | yellow (see §2.6)
             filters: { language: true, grammar: false, dirtyWords: true }
           },
           location: {
@@ -1112,17 +1183,52 @@ const SurveyComponents = {
 
 ### 8.6 User Interaction Patterns
 
+**Question / Answer Syntax Rules:**
+
+The following grammar defines how the app detects and parses questions and answers from free-text chat input:
+
+| Syntax element | Rule | Example |
+|---|---|---|
+| Question | Any sentence/phrase ending with `?` | `Do you like tennis?` |
+| Answer | A sentence/phrase ending with `.` that immediately follows a question | `Yes I do.` |
+| Inline own-answer | `**` prefix before an option — marks the user's own default answer | `** yes` |
+| Alternative option | `*` prefix — marks an additional option for the recipient to choose | `* no` |
+| Option separator | `;` separates multiple options on one line | `** yes; * no; * maybe` |
+
+```
+Examples:
+
+What's your name?
+→ One question, no suggested options.
+
+My name is Bernard.
+→ Standalone answer (saved as user attribute).
+
+What's your name? ** My name is Bernard.
+→ Question with the user's own inline answer on the same line.
+
+Are you a doctor? ** yes; * no.
+→ Question with two options; "yes" is the user's own answer, "no" is an alternative.
+
+Do you like to play tennis? ** yes; * no.
+→ Same pattern; recipient sees answer chips "yes" and "no".
+```
+
 **Auto-Capture Pattern Detection:**
 ```javascript
-// Message pattern: "Question? Answer1; Answer2; Answer3."
+// Full pattern: "Question? [**ownAnswer;] [*option; ...] ."
 const AutoCapturePattern = {
-  detection: /([^?]+\?)([^.]+(?:;[^.]+)*)\./,
+  // Matches: <question?> <** own> [; * alt ...] .
+  detection: /([^?]+\?)\s*(\*\*[^;.]+)?((?:;\s*\*[^;.]+)*)\.?/,
+  ownAnswerMarker: '**',
+  altOptionMarker: '*',
+  optionSeparator: ';',
   uiFlow: {
-    step1: 'Highlight pattern in input',
-    step2: 'Show answer chips to recipient',
-    step3: 'Record chosen answer path',
+    step1: 'Highlight detected pattern in input field',
+    step2: 'Render answer chips to recipient (own answer highlighted)',
+    step3: 'Record the chosen answer path',
     step4: 'Auto-save as linear talk draft',
-    step5: 'Add tags/location preamble'
+    step5: 'Prompt user to add tags / location preamble before bulk-send'
   }
 };
 ```
@@ -1566,14 +1672,17 @@ const regressionTests = [
 | Requirement | Section | Implemented in |
 |---|---|---|
 | No central data collection | §2.1 | Architecture — no server writes |
-| P2P only | §2.2 | `server.js`, Gun relay config |
+| P2P only; P2P chats not persisted | §2.1, §2.2 | `server.js`, Gun relay config |
 | Privacy question prompt | §2.3 | `src-shared/filters/privacyClassifier.ts` |
 | Credit card filter | §2.4 | `src-shared/filters/financialDataFilter.ts` |
 | Public/private answer flag | §2.5 | `src-shared/data/models.ts`, answer chip UI |
-| Immutable answer history | §2.6 | `ITalkRepo.submitAnswer`, Gun path design |
-| SEA encryption per user | §2.7 | `GunDataAccess.ts` write pipeline |
-| Stranger model / known person | §2.8 | `IUserRepo.addKnownPerson`, Gun path design |
-| Message channel marking | §2.9 | `IMessageRepo.send*`, `Message.channel` field |
+| Green/Red/Yellow conversation modes | §2.6 | `src-shared/data/models.ts`, `shouldChatbotFire()` |
+| Immutable answer history | §2.7 | `ITalkRepo.submitAnswer`, Gun path design |
+| SEA encryption per user | §2.8 | `GunDataAccess.ts` write pipeline |
+| Stranger model / known person | §2.9 | `IUserRepo.addKnownPerson`, Gun path design |
+| Message channel marking | §2.10 | `IMessageRepo.send*`, `Message.channel` field |
+| First-run ID + stageName generation | §7.3 | `initFirstRun()`, Gun SEA key pair |
+| Question/answer syntax (`**`, `*`) | §8.6 | `AutoCapturePattern`, `SmartMessageInput` |
 | Gun CRDT authority | §3.1 | All `gun.put()` calls — no HAM override |
 | Concurrent edit/answer | §3.2 | `src-shared/talks/ConflictMerge.ts` |
 | Limited retry | §4.1 | `src-shared/network/RetryPolicy.ts` |
