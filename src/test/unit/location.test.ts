@@ -162,8 +162,9 @@ describe('LocationPrivacy', () => {
       const location = await LocationPrivacy.getCurrentLocation();
 
       expect(location).toBeDefined();
-      expect(location.latitude).toBe(37.7749); // San Francisco
-      expect(location.longitude).toBe(-122.4194);
+      // Coordinates come from the jest setup.ts geolocation mock (New York)
+      expect(location.latitude).toBe(40.7128);
+      expect(location.longitude).toBe(-74.006);
       expect(location.accuracy).toBe(10);
       expect(location.timestamp).toBeInstanceOf(Date);
     });

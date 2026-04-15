@@ -32,7 +32,9 @@ export function isValidStageName(stageName: string): boolean {
     return false;
   }
 
-  // Allow letters, numbers, spaces, and basic punctuation
-  const validPattern = /^[a-zA-Z0-9\s\-_.,!?']+$/;
+  // Allow letters, numbers, single spaces, and basic punctuation.
+  // NOTE: Use a literal space rather than \s so that newlines, tabs, and other
+  // whitespace control characters are rejected.
+  const validPattern = /^[a-zA-Z0-9 \-_.,!?']+$/;
   return validPattern.test(stageName);
 }

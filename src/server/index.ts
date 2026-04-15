@@ -16,6 +16,8 @@ import {
   buildTalkIdentityKey,
   canonicalIdentityKeyFromStoredCluster,
 } from '../shared/talk-content-id';
+import { logger } from './logger';
+import { requestLogger } from './middleware/request-logger';
 
 class IinPublicServer {
   private app: express.Application;
@@ -61,7 +63,7 @@ class IinPublicServer {
       localStorage: false, // Server doesn't need localStorage
       radisk: !e2eMemoryOnly,
     });
-    console.log(`🔫 Gun.js attached to HTTP server (radisk=${!e2eMemoryOnly})`);
+    logger.info({ radisk: !e2eMemoryOnly }, '🔫 Gun.js attached to HTTP server');
   }
 
   private setupMiddleware(): void {
@@ -93,6 +95,9 @@ class IinPublicServer {
 
     this.app.use(express.json({ limit: '10mb' }));
     this.app.use(express.urlencoded({ extended: true }));
+
+    // Structured request logging (INF-05) — must come after body parsers.
+    this.app.use(requestLogger);
 
     // Serve static files — public/ first so worker.js is reachable at /worker.js
     this.app.use(express.static('public'));
@@ -724,7 +729,7 @@ class IinPublicServer {
           otherUserName: matches[0]?.senderName ?? resolvedSenderName,
         });
       } catch (error) {
-        console.error('Talk received registration error:', error);
+        logger.error({ err: error }, 'Talk received registration error');
         res.status(500).json({ error: (error as Error).message });
       }
     });
@@ -737,7 +742,7 @@ class IinPublicServer {
       // Hard 20-second timeout: Gun.js in-memory can stall put/get callbacks; ensure we always respond.
       const hardTimeout = setTimeout(() => {
         if (!res.headersSent) {
-          console.warn(`[register-receivers] hard timeout for talkId=${req.params.id}`);
+          logger.warn({ talkId: req.params.id }, '[register-receivers] hard timeout');
           res.status(504).json({ error: 'timeout', registered: 0 });
         }
       }, 20000);
@@ -749,21 +754,21 @@ class IinPublicServer {
           receiverIds: string[];
           talkData?: unknown;
         };
-        console.log(`[register-receivers] talkId=${talkId} sender=${senderId} receivers=${JSON.stringify(receiverIds)}`);
+        logger.info({ talkId, senderId, receiverCount: receiverIds.length }, '[register-receivers] registering receivers');
         if (!senderId || !Array.isArray(receiverIds)) {
           clearTimeout(hardTimeout);
           res.status(400).json({ error: 'senderId and receiverIds[] required' });
           return;
         }
         const talkData = await this.loadTalkDataFromGraphOrBody(talkId, bodyTalkData);
-        console.log(`[register-receivers] talkData loaded: ${talkData ? (talkData as any).title : 'null'} authorId=${(talkData as any)?.authorId}`);
+        logger.info({ talkId, title: (talkData as any)?.title ?? null, authorId: (talkData as any)?.authorId }, '[register-receivers] talkData loaded');
         if (!talkData) {
           clearTimeout(hardTimeout);
           res.status(404).json({ error: 'Talk not found' });
           return;
         }
         if (String((talkData as { authorId?: string }).authorId) !== String(senderId)) {
-          console.log(`[register-receivers] 403: talkData.authorId=${(talkData as any).authorId} !== senderId=${senderId}`);
+          logger.warn({ authorId: (talkData as any).authorId, senderId }, '[register-receivers] 403: authorId mismatch');
           clearTimeout(hardTimeout);
           res.status(403).json({ error: 'senderId must match talk author' });
           return;
@@ -785,7 +790,7 @@ class IinPublicServer {
         if (!res.headersSent) res.json({ ok: true, registered });
       } catch (error) {
         clearTimeout(hardTimeout);
-        console.error('register-receivers-for-broadcast error:', error);
+        logger.error({ err: error }, 'register-receivers-for-broadcast error');
         if (!res.headersSent) res.status(500).json({ error: (error as Error).message });
       }
     });
@@ -913,7 +918,7 @@ class IinPublicServer {
           otherUserName: matches[0]?.senderName ?? null,
         });
       } catch (error) {
-        console.error('Talk response error:', error);
+        logger.error({ err: error }, 'Talk response error');
         res.status(500).json({ error: (error as Error).message });
       }
     });
@@ -964,18 +969,18 @@ class IinPublicServer {
           // Clear Gun.js in-memory graph
           // Gun stores data in gun._.graph which is the in-memory cache
           if (this.gun && this.gun._ && this.gun._.graph) {
-            console.log('🧹 Clearing Gun.js in-memory database...');
+            logger.info('🧹 Clearing Gun.js in-memory database...');
             // Create a new empty graph
             this.gun._.graph = {};
             // Also clear server-side incoming talks Map
             this.incomingTalksMap.clear();
-            console.log('✅ Gun.js in-memory database cleared');
+            logger.info('✅ Gun.js in-memory database cleared');
             res.json({ success: true, message: 'Gun.js in-memory database cleared' });
           } else {
             res.status(500).json({ error: 'Gun.js graph not accessible' });
           }
         } catch (error) {
-          console.error('Error clearing Gun.js database:', error);
+          logger.error({ err: error }, 'Error clearing Gun.js database');
           res.status(500).json({ error: (error as Error).message });
         }
       });
@@ -984,7 +989,7 @@ class IinPublicServer {
 
   private setupSocketHandlers(): void {
     this.io.on('connection', (socket) => {
-      console.log(`User connected: ${socket.id}`);
+      logger.info({ socketId: socket.id }, 'User connected');
 
       // User authentication and setup
       socket.on('authenticate', async (data) => {
@@ -1096,7 +1101,7 @@ class IinPublicServer {
       });
 
       socket.on('disconnect', () => {
-        console.log(`User disconnected: ${socket.id}`);
+        logger.info({ socketId: socket.id }, 'User disconnected');
         if (socket.data.userId) {
           this.userService.setUserOffline(socket.data.userId);
         }
@@ -1107,17 +1112,13 @@ class IinPublicServer {
   public start(port: number = 8080): void {
     this.server.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
-        console.error(`\n❌ Port ${port} is already in use.`);
-        console.error('   Stop the other process using the port, or use a different PORT.');
-        console.error('   Example: PORT=8081 npm run dev:server\n');
+        logger.fatal({ port }, `Port ${port} is already in use. Stop the other process or use a different PORT env var.`);
         process.exit(1);
       }
       throw err;
     });
     this.server.listen(port, () => {
-      console.log(`🚀 IinPublic server running on port ${port}`);
-      console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`🔄 Gun.js peer network active`);
+      logger.info({ port, env: process.env.NODE_ENV || 'development' }, '🚀 IinPublic server started');
     });
   }
 }

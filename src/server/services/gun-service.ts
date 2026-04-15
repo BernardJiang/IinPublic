@@ -1,4 +1,5 @@
 import Gun from 'gun';
+import { logger } from '../logger';
 
 export class GunService {
   private gun: any;
@@ -9,7 +10,7 @@ export class GunService {
       // Use the provided Gun instance (from HTTP server)
       this.gun = existingGunInstance;
       this.peers = [];
-      console.log('✅ GunService using existing Gun instance from HTTP server');
+      logger.info('GunService using existing Gun instance from HTTP server');
     } else {
       // Create new Gun instance (for standalone use)
       this.peers = process.env.GUN_PEERS
@@ -22,7 +23,7 @@ export class GunService {
         radisk: true, // Enable persistent storage
         file: process.env.GUN_DATA_FILE || 'data.json',
       });
-      console.log('✅ GunService created new Gun instance');
+      logger.info('GunService created new Gun instance');
     }
 
     this.setupEventHandlers();
@@ -30,11 +31,11 @@ export class GunService {
 
   private setupEventHandlers(): void {
     this.gun.on('hi', (peer: any) => {
-      console.log(`🤝 Gun.js peer connected: ${peer.id}`);
+      logger.info({ peerId: peer.id }, 'Gun.js peer connected');
     });
 
     this.gun.on('bye', (peer: any) => {
-      console.log(`👋 Gun.js peer disconnected: ${peer.id}`);
+      logger.info({ peerId: peer.id }, 'Gun.js peer disconnected');
     });
   }
 
@@ -207,7 +208,7 @@ export class GunService {
   public shutdown(): void {
     if (this.gun && this.gun._) {
       // Gun doesn't have a formal shutdown method, but we can clean up
-      console.log('🔌 Shutting down Gun.js service');
+      logger.info('Shutting down Gun.js service');
     }
   }
 }

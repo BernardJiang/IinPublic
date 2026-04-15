@@ -3,6 +3,7 @@ import { TalkValidator } from '../../shared/talk-engine';
 import { GunService } from './gun-service';
 import { ReputationService } from './reputation-service';
 import { v4 as uuidv4 } from 'uuid';
+import { logger } from '../logger';
 import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
 
 export class TalkService {
@@ -228,7 +229,7 @@ export class TalkService {
       }
     } catch (error) {
       // Matching / outcome logic should never break core answer processing
-      console.error('Failed to process talk answer for matching logic:', error);
+      logger.error({ err: error }, 'Failed to process talk answer for matching logic');
     }
 
     return result;
