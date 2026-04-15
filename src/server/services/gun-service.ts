@@ -1,4 +1,5 @@
 import Gun from 'gun';
+import SEA from 'gun/sea';
 import { logger } from '../logger';
 
 export class GunService {
@@ -181,15 +182,15 @@ export class GunService {
   }
 
   /**
-   * Create a secure private key for user encryption (Gun SEA)
+   * Create a secure keypair for user encryption (Gun SEA).
    */
-  public async createUserSEA(): Promise<any> {
-    // This would use Gun's SEA (Security, Encryption, Authorization)
-    // For now, return a mock implementation
-    return {
-      pub: 'mock_public_key_' + Date.now(),
-      priv: 'mock_private_key_' + Date.now(),
-    };
+  public async createUserSEA(): Promise<{
+    pub: string;
+    priv: string;
+    epub: string;
+    epriv: string;
+  }> {
+    return SEA.pair();
   }
 
   /**

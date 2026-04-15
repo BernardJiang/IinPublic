@@ -23,6 +23,11 @@ export function generateRandomStageName(): string {
  * - Must be at most 50 characters
  * - Can contain letters, numbers, spaces, and basic punctuation
  */
+/** Normalize question text for preference / answer keying (matches UIManager). */
+export function normalizeQuestionKey(questionText: string): string {
+  return questionText.trim().toLowerCase();
+}
+
 export function isValidStageName(stageName: string): boolean {
   if (!stageName || stageName.trim().length < 3) {
     return false;

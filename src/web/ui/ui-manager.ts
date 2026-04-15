@@ -8,6 +8,7 @@ import {
   sessionAnswersToQAPairs,
   type QAPair,
 } from '../../shared/flattened-answer-keys';
+import { normalizeQuestionKey } from '../../shared/user-utils';
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
@@ -2012,6 +2013,22 @@ export class UIManager extends EventEmitter {
     console.log('💾 Saved answer (flat + legacy):', flatKey, answerText);
   }
 
+  /** Snapshot for syncing encrypted/auto answers to Gun (Phase 2). */
+  getAnswerPreferencesSnapshot(): Record<
+    string,
+    {
+      answerId: string;
+      answerText: string;
+      mode: string;
+      talkId?: string;
+      questionText?: string;
+      allAnswers?: any[];
+      timestamp?: string;
+    }
+  > {
+    return this.getAnswerPreferences();
+  }
+
   private getAnswerPreferences(): Record<
     string,
     {
@@ -2061,10 +2078,6 @@ export class UIManager extends EventEmitter {
     return out;
   }
 
-  private static normalizeQuestionKey(questionText: string): string {
-    return questionText.trim().toLowerCase();
-  }
-
   private getMyQuestionAnswers(): Record<
     string,
     { questionText: string; answerId: string; answerText: string; isIgnored: boolean; timestamp: string; location?: string }
@@ -2097,7 +2110,7 @@ export class UIManager extends EventEmitter {
       const q = questions.find((qu: any) => qu.id === a.questionId);
       const questionText = q?.text?.trim() || '';
       if (!questionText) continue;
-      const key = UIManager.normalizeQuestionKey(questionText);
+      const key = normalizeQuestionKey(questionText);
       const isIgnored = a.answerText === 'ignore' || !a.answerText;
       const entry: {
         questionText: string;
@@ -2781,11 +2794,12 @@ export class UIManager extends EventEmitter {
 
     if (message.startsWith('Match!')) {
       notification.dataset.matchNotification = 'true';
-      notification.style.cursor = 'pointer';
-      notification.addEventListener('click', () => {
-        if (document.body.contains(notification)) document.body.removeChild(notification);
-      });
     }
+    // All toasts: tap to dismiss (E2E and users need to clear overlays blocking the header).
+    notification.style.cursor = 'pointer';
+    notification.addEventListener('click', () => {
+      if (document.body.contains(notification)) document.body.removeChild(notification);
+    });
 
     document.body.appendChild(notification);
 

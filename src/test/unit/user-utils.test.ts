@@ -1,4 +1,14 @@
-import { generateRandomStageName, isValidStageName } from '../../shared/user-utils';
+import {
+  generateRandomStageName,
+  isValidStageName,
+  normalizeQuestionKey,
+} from '../../shared/user-utils';
+
+describe('normalizeQuestionKey', () => {
+  it('trims and lowercases for preference keys', () => {
+    expect(normalizeQuestionKey('  Hello World  ')).toBe('hello world');
+  });
+});
 
 describe('generateRandomStageName', () => {
   it('returns a string starting with "User"', () => {

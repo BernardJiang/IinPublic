@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import helmet from 'helmet';
 import Gun from 'gun';
+import SEA from 'gun/sea';
 import { GunService } from './services/gun-service';
 import { ChatroomManager } from './services/chatroom-manager';
 import { TalkService } from './services/talk-service';
@@ -16,6 +17,7 @@ import {
   buildTalkIdentityKey,
   canonicalIdentityKeyFromStoredCluster,
 } from '../shared/talk-content-id';
+import type { RelationshipLabel } from '../shared/types';
 import { logger } from './logger';
 import { requestLogger } from './middleware/request-logger';
 
@@ -614,6 +616,38 @@ class IinPublicServer {
       }
     });
 
+    this.app.post('/api/users/:id/known-people', async (req, res) => {
+      try {
+        const { targetId, label } = req.body as { targetId?: string; label?: string };
+        if (!targetId || !label) {
+          res.status(400).json({ error: 'targetId and label required' });
+          return;
+        }
+        await this.userService.addKnownPerson(req.params.id, targetId, label as RelationshipLabel);
+        res.json({ ok: true });
+      } catch (error) {
+        res.status(400).json({ error: (error as Error).message });
+      }
+    });
+
+    this.app.delete('/api/users/:id/known-people/:targetId', async (req, res) => {
+      try {
+        await this.userService.removeKnownPerson(req.params.id, req.params.targetId);
+        res.json({ ok: true });
+      } catch (error) {
+        res.status(400).json({ error: (error as Error).message });
+      }
+    });
+
+    this.app.get('/api/users/:id/known-people', async (req, res) => {
+      try {
+        const list = await this.userService.listKnownPeople(req.params.id);
+        res.json(list);
+      } catch (error) {
+        res.status(400).json({ error: (error as Error).message });
+      }
+    });
+
     // Talk routes
     this.app.post('/api/talks', async (req, res) => {
       try {
@@ -992,13 +1026,35 @@ class IinPublicServer {
       logger.info({ socketId: socket.id }, 'User connected');
 
       // User authentication and setup
-      socket.on('authenticate', async (data) => {
+      socket.on('authenticate', async (data: { userId?: string; pub?: string; signature?: string }) => {
         try {
+          if (!data?.userId) {
+            socket.emit('auth_error', { error: 'userId required' });
+            return;
+          }
+          if (!data.pub || !data.signature) {
+            socket.emit('auth_error', { error: 'pub and signature required' });
+            socket.disconnect();
+            return;
+          }
+          const verified = await SEA.verify(data.signature, data.pub);
+          if (verified !== data.userId) {
+            socket.emit('auth_error', { error: 'Invalid signature' });
+            socket.disconnect();
+            return;
+          }
           const user = await this.userService.getUser(data.userId);
+          if (user.pub && user.pub !== data.pub) {
+            socket.emit('auth_error', { error: 'Public key mismatch' });
+            socket.disconnect();
+            return;
+          }
           socket.data.userId = user.id;
+          socket.data.pub = data.pub;
           socket.emit('authenticated', { user });
         } catch (error) {
           socket.emit('auth_error', { error: (error as Error).message });
+          socket.disconnect();
         }
       });
 

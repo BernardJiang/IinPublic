@@ -78,22 +78,33 @@ test.describe('Direct messaging between matched users', () => {
     return { context, page };
   }
 
-  test('Tom and Jerry match on talk, then Tom sends message to Jerry and receives reply', async () => {
-    // Bootstrap Tom
+  /** Open the conversation overlay for a given contact name from the Me tab. */
+  async function openConversation(page: Page, otherUserName: string): Promise<void> {
+    await page.click('.nav-btn[data-view="me"]');
+    await afterNav();
+    // Wait for the conversations list to render a matching item
+    const convItem = page.locator('.conversation-list-item').filter({ hasText: otherUserName }).first();
+    await expect(convItem).toBeVisible({ timeout: 15000 });
+    await convItem.click();
+    // Overlay becomes visible
+    await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 10000 });
+  }
+
+  test('Tom and Jerry match on talk, then exchange messages', async () => {
+    // ── Bootstrap users ─────────────────────────────────────────────────────
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterSync();
 
-    // Bootstrap Jerry
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
     await pageJerry.click('.chatroom-item:has-text("Global")');
     await afterSync();
 
-    // Tom creates a matching talk "Tennis Partner"
+    // ── Tom creates and broadcasts the talk ──────────────────────────────────
     await pageTom.click('#create-talk-btn');
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', TALK_TITLE);
@@ -107,12 +118,11 @@ test.describe('Direct messaging between matched users', () => {
     await pageTom.click('#talk-editor-form button[type="submit"]');
     await afterSync();
 
-    // Tom broadcasts the talk
     await pageTom.click('#broadcast-talk-btn');
     await afterAction();
     await afterSync();
 
-    // Jerry answers the match
+    // ── Jerry answers — match ────────────────────────────────────────────────
     await openIncomingTalkModal(pageJerry, TALK_TITLE);
     await pageJerry
       .locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`)
@@ -122,134 +132,68 @@ test.describe('Direct messaging between matched users', () => {
     await waitForResponseModalClosed(pageJerry);
     await afterSync();
 
-    // Tom should see match toast too
+    // Tom sees the match toast too
     await expect(pageTom.getByText('Match!').first()).toBeVisible({ timeout: 15000 });
     await afterSync();
 
-    // Tom navigates to Contacts tab
-    await pageTom.click('.nav-btn[data-view="contacts"]');
-    await afterAction();
-    await expect(pageTom.locator('#contacts-list .contact-item')).toHaveCount(1, { timeout: 15000 });
+    // ── Tom opens the conversation and sends a message ───────────────────────
+    await openConversation(pageTom, 'Jerry');
 
-    // Tom clicks on Jerry's contact
-    await pageTom.locator('.contact-item').filter({ hasText: 'Jerry' }).first().click();
-    await afterNav();
-    await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
-
-    // Tom clicks the Message button on Jerry's contact detail
-    // Try multiple selectors to find the message button
-    let messageBtn = pageTom.locator('#message-btn').first();
-    if (!(await messageBtn.isVisible().catch(() => false))) {
-      messageBtn = pageTom.locator('.message-btn').first();
-    }
-    if (!(await messageBtn.isVisible().catch(() => false))) {
-      messageBtn = pageTom.locator('[data-testid="message-btn"]').first();
-    }
-    await expect(messageBtn).toBeVisible({ timeout: 10000 });
-    await messageBtn.click();
-    await afterNav();
-
-    // Tom types and sends a message
-    let messageInput = pageTom.locator('#message-input').first();
-    if (!(await messageInput.isVisible().catch(() => false))) {
-      messageInput = pageTom.locator('.message-input').first();
-    }
-    if (!(await messageInput.isVisible().catch(() => false))) {
-      messageInput = pageTom.locator('#conversation-input').first();
-    }
-    await expect(messageInput).toBeVisible({ timeout: 10000 });
-    await messageInput.fill(TOM_MESSAGE);
+    const tomInput = pageTom.locator('#conversation-message-input');
+    await expect(tomInput).toBeVisible({ timeout: 10000 });
+    await tomInput.fill(TOM_MESSAGE);
     await afterAction();
 
-    let sendBtn = pageTom.locator('#send-message-btn').first();
-    if (!(await sendBtn.isVisible().catch(() => false))) {
-      sendBtn = pageTom.locator('.send-message-btn').first();
-    }
-    await expect(sendBtn).toBeVisible({ timeout: 5000 });
-    await sendBtn.click();
+    await pageTom.click('#send-conversation-message');
     await afterSync();
 
-    // Verify Tom's message appears in his conversation view
+    // Tom sees his own message
     await expect(
-      pageTom.locator('.message-item, .message-bubble, .chat-message').filter({ hasText: TOM_MESSAGE }).first(),
+      pageTom.locator('#conversation-messages .message-text').filter({ hasText: TOM_MESSAGE }).first(),
     ).toBeVisible({ timeout: 10000 });
 
-    // Jerry navigates to Me tab or Conversations to see the message
-    await pageJerry.click('.nav-btn[data-view="me"]');
-    await afterNav();
+    // ── Jerry opens the conversation and sees Tom's message ──────────────────
+    await openConversation(pageJerry, 'Tom');
 
-    // Check for message in Me tab or look for Conversations section
-    let jerryMessageVisible = await pageJerry
-      .locator('.message-item, .message-bubble, .chat-message')
-      .filter({ hasText: TOM_MESSAGE })
-      .first()
-      .isVisible()
-      .catch(() => false);
-
-    if (!jerryMessageVisible) {
-      // Try clicking on Conversations if Me tab doesn't show it
-      const conversationLink = pageJerry.locator('[data-view="conversations"], #conversations-tab, .conversations-link').first();
-      if (await conversationLink.isVisible().catch(() => false)) {
-        await conversationLink.click();
-        await afterNav();
-      }
-    }
-
-    // Wait for Tom's message to appear to Jerry
     await expect
       .poll(
-        async () => {
-          const found = await pageJerry
-            .locator('.message-item, .message-bubble, .chat-message')
+        async () =>
+          pageJerry
+            .locator('#conversation-messages .message-text')
             .filter({ hasText: TOM_MESSAGE })
             .first()
             .isVisible()
-            .catch(() => false);
-          return found ? 'found' : 'not found';
-        },
-        { message: 'Jerry should see Tom\'s message', timeout: 30000 },
+            .catch(() => false),
+        { message: "Jerry should see Tom's message", timeout: 30000 },
       )
-      .toBe('found');
+      .toBe(true);
 
-    // Jerry replies to Tom
-    let jerryMessageInput = pageJerry.locator('#message-input').first();
-    if (!(await jerryMessageInput.isVisible().catch(() => false))) {
-      jerryMessageInput = pageJerry.locator('.message-input').first();
-    }
-    if (!(await jerryMessageInput.isVisible().catch(() => false))) {
-      jerryMessageInput = pageJerry.locator('#conversation-input').first();
-    }
-    await expect(jerryMessageInput).toBeVisible({ timeout: 10000 });
-    await jerryMessageInput.fill(JERRY_REPLY);
+    // ── Jerry replies ────────────────────────────────────────────────────────
+    const jerryInput = pageJerry.locator('#conversation-message-input');
+    await expect(jerryInput).toBeVisible({ timeout: 10000 });
+    await jerryInput.fill(JERRY_REPLY);
     await afterAction();
 
-    let jerrySendBtn = pageJerry.locator('#send-message-btn').first();
-    if (!(await jerrySendBtn.isVisible().catch(() => false))) {
-      jerrySendBtn = pageJerry.locator('.send-message-btn').first();
-    }
-    await expect(jerrySendBtn).toBeVisible({ timeout: 5000 });
-    await jerrySendBtn.click();
+    await pageJerry.click('#send-conversation-message');
     await afterSync();
 
-    // Verify Jerry's message appears in his conversation view
+    // Jerry sees his own reply
     await expect(
-      pageJerry.locator('.message-item, .message-bubble, .chat-message').filter({ hasText: JERRY_REPLY }).first(),
+      pageJerry.locator('#conversation-messages .message-text').filter({ hasText: JERRY_REPLY }).first(),
     ).toBeVisible({ timeout: 10000 });
 
-    // Tom should see Jerry's reply
+    // ── Tom sees Jerry's reply (conversation overlay already open) ───────────
     await expect
       .poll(
-        async () => {
-          const found = await pageTom
-            .locator('.message-item, .message-bubble, .chat-message')
+        async () =>
+          pageTom
+            .locator('#conversation-messages .message-text')
             .filter({ hasText: JERRY_REPLY })
             .first()
             .isVisible()
-            .catch(() => false);
-          return found ? 'found' : 'not found';
-        },
-        { message: 'Tom should see Jerry\'s reply', timeout: 30000 },
+            .catch(() => false),
+        { message: "Tom should see Jerry's reply", timeout: 30000 },
       )
-      .toBe('found');
+      .toBe(true);
   });
 });

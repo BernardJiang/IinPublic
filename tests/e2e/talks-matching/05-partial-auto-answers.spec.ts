@@ -23,20 +23,20 @@ const TITLE_SUN = 'E2E Partial Auto Sun';
 const TITLE_SAT = 'E2E Partial Auto Sat';
 
 /**
- * Match! / “New match” toasts don’t auto-dismiss and sit over the header; Playwright won’t click
- * through them (actionability). Dismiss by clicking, matching app behavior.
+ * Toast overlays (e.g. “🎉 New match…”, “Match! … noticed…”) sit over the header. Playwright will not
+ * click through them. Prefer tapping each toast (app removes on click); fall back to stripping the
+ * DOM if anything lingers (slow auto-dismiss races).
  */
 async function dismissBlockingNotifications(page: Page): Promise<void> {
-  const matchToast = page.locator('.notification[data-match-notification="true"]');
-  for (let i = 0; i < 8 && (await matchToast.count()) > 0; i++) {
-    await matchToast.first().click({ timeout: 5000 });
+  const anyToast = page.locator('.notification');
+  for (let i = 0; i < 24; i++) {
+    const n = await anyToast.count();
+    if (n === 0) break;
+    await anyToast.last().click({ timeout: 3000 });
   }
-  await page
-    .locator('.notification.success')
-    .filter({ hasText: /New match/i })
-    .first()
-    .click({ timeout: 2000 })
-    .catch(() => {});
+  await page.evaluate(() => {
+    document.querySelectorAll('.notification').forEach((el) => el.remove());
+  });
 }
 
 /** Fill a 3-question linear matching talk; last question Yes → match, No → ignore. */

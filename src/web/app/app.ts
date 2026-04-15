@@ -40,6 +40,7 @@ export class IinPublicApp {
 
     // Initialize services
     await this.gunService.initialize();
+    await this.gunService.ensureKeypairAndAuth();
 
     // Initialize UI
     this.uiManager.initialize();
@@ -96,6 +97,12 @@ export class IinPublicApp {
     if (existingUserId) {
       try {
         this.currentUser = await this.userService.getUser(existingUserId);
+        const pair = this.gunService.getStoredPair();
+        if (pair && !this.currentUser.pub) {
+          const merged: User = { ...this.currentUser, pub: pair.pub, epub: pair.epub };
+          await this.gunService.put(`users/${this.currentUser.id}`, merged);
+          this.currentUser = merged;
+        }
         console.log('👤 Existing user loaded:', this.currentUser.stageName);
       } catch (error) {
         console.log('🆕 Existing user not found, creating new user');
@@ -121,6 +128,7 @@ export class IinPublicApp {
     const userData = await this.uiManager.showUserCreationDialog();
 
     const blurredLocation = LocationPrivacy.blurLocation(this.currentLocation!);
+    const pair = this.gunService.getStoredPair();
 
     const newUser: Partial<User> = {
       // stageName will be auto-generated in userService.createUser()
@@ -129,6 +137,8 @@ export class IinPublicApp {
       languages: userData.languages || ['en'],
       interests: userData.interests || [],
       profile: [],
+      ...(pair?.pub ? { pub: pair.pub } : {}),
+      ...(pair?.epub ? { epub: pair.epub } : {}),
     };
 
     const user = await this.userService.createUser(newUser);
@@ -1371,6 +1381,18 @@ export class IinPublicApp {
           console.log('📝 User completed talk:', data);
 
           const isChatbot = !!data.isChatbotResponse;
+
+          if (data.talkData) {
+            const pair = this.gunService.getStoredPair();
+            if (pair) {
+              await this.userService.syncQuestionAnswersFromTalkCompletion(
+                data.talkData,
+                data.answers,
+                this.uiManager.getAnswerPreferencesSnapshot(),
+                pair,
+              );
+            }
+          }
 
           // Store the response in Gun.js
           const chatroomId = this.chatroomService.getCurrentChatroomId();

@@ -1,6 +1,9 @@
 import Gun from 'gun';
 import { EventEmitter } from 'events';
 import { GunBridge, GunPair } from './gun-bridge';
+import { getSEA } from '../sea-gun';
+
+const KEYPAIR_STORAGE = 'iinpublic_keypair';
 
 /**
  * WebGunService — dual-mode Gun service.
@@ -18,6 +21,8 @@ export class WebGunService extends EventEmitter {
   private bridge: GunBridge;
   private peers: string[];
   private connected: boolean = false;
+  /** In-memory copy of the SEA pair after `ensureKeypairAndAuth()`. */
+  private seaPair: GunPair | null = null;
 
   constructor() {
     super();
@@ -229,5 +234,63 @@ export class WebGunService extends EventEmitter {
 
   isConnected(): boolean {
     return this.connected;
+  }
+
+  /**
+   * Load or create a SEA keypair, persist under `iinpublic_keypair`, and `gun.user().auth(pair)`.
+   * Call after `initialize()`.
+   */
+  async ensureKeypairAndAuth(): Promise<GunPair> {
+    const SEA = getSEA();
+    if (!SEA?.pair) {
+      throw new Error('Gun SEA not loaded');
+    }
+    if (!this.gun) {
+      throw new Error('Gun not initialized');
+    }
+    let raw: string | null = null;
+    try {
+      raw = typeof localStorage !== 'undefined' ? localStorage.getItem(KEYPAIR_STORAGE) : null;
+    } catch {
+      raw = null;
+    }
+    let pair: GunPair;
+    if (raw) {
+      try {
+        pair = JSON.parse(raw) as GunPair;
+        if (!pair?.pub || !pair?.priv) {
+          pair = await SEA.pair();
+        }
+      } catch {
+        pair = await SEA.pair();
+      }
+    } else {
+      pair = await SEA.pair();
+    }
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(KEYPAIR_STORAGE, JSON.stringify(pair));
+      }
+    } catch {
+      /* ignore quota / private mode */
+    }
+
+    const gun = this.gun;
+    await new Promise<void>((resolve, reject) => {
+      gun.user().auth(pair, (ack: any) => {
+        if (ack && ack.err) {
+          reject(new Error(String(ack.err)));
+        } else {
+          resolve();
+        }
+      });
+    });
+    this.seaPair = pair;
+    return pair;
+  }
+
+  /** Active session pair after `ensureKeypairAndAuth()`. */
+  getStoredPair(): GunPair | null {
+    return this.seaPair;
   }
 }

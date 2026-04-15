@@ -1,4 +1,4 @@
-import { User, GPSCoordinate } from '../../shared/types';
+import { User, GPSCoordinate, RelationshipLabel, KnownPerson } from '../../shared/types';
 import { GunService } from './gun-service';
 import { generateRandomStageName } from '../../shared/user-utils';
 
@@ -30,10 +30,64 @@ export class UserService {
       interests: userData.interests || [],
       createdAt: new Date(),
       lastActive: new Date(),
+      knownPeople: userData.knownPeople ?? [],
+      ...(userData.pub ? { pub: userData.pub } : {}),
+      ...(userData.epub ? { epub: userData.epub } : {}),
     };
 
     await this.gunService.put(`users/${user.id}`, user);
     return user;
+  }
+
+  async addKnownPerson(userId: string, targetId: string, label: RelationshipLabel): Promise<void> {
+    const entry = {
+      userId: targetId,
+      label,
+      addedAt: new Date().toISOString(),
+    };
+    await this.gunService.putPath(['users', userId, 'knownPeople', targetId], entry);
+    try {
+      const u = await this.getUser(userId);
+      const list: KnownPerson[] = [
+        ...(u.knownPeople || []).filter((k) => k.userId !== targetId),
+        { userId: targetId, label, addedAt: new Date(entry.addedAt) },
+      ];
+      await this.gunService.put(`users/${userId}`, { ...u, knownPeople: list });
+    } catch {
+      /* graph may lag */
+    }
+  }
+
+  async removeKnownPerson(userId: string, targetId: string): Promise<void> {
+    await this.gunService.putPath(['users', userId, 'knownPeople', targetId], null);
+    try {
+      const u = await this.getUser(userId);
+      const list = (u.knownPeople || []).filter((k) => k.userId !== targetId);
+      await this.gunService.put(`users/${userId}`, { ...u, knownPeople: list });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async listKnownPeople(userId: string): Promise<KnownPerson[]> {
+    const gun = this.gunService.getGun();
+    return new Promise((resolve) => {
+      const items: KnownPerson[] = [];
+      gun
+        .get('users')
+        .get(userId)
+        .get('knownPeople')
+        .map()
+        .once((data: any, key: string) => {
+          if (!data || !key || key.startsWith('_')) return;
+          items.push({
+            userId: data.userId || key,
+            label: data.label,
+            addedAt: new Date(data.addedAt),
+          });
+        });
+      setTimeout(() => resolve(items), 500);
+    });
   }
 
   async getUser(userId: string): Promise<User> {

@@ -1,3 +1,11 @@
+export type RelationshipLabel = 'friend' | 'relative' | 'coworker' | 'acquaintance';
+
+export interface KnownPerson {
+  userId: string;
+  label: RelationshipLabel;
+  addedAt: Date;
+}
+
 export interface User {
   id: string;
   stageName: string;
@@ -9,6 +17,11 @@ export interface User {
   interests: Tag[];
   createdAt: Date;
   lastActive: Date;
+  /** SEA signing/encryption public key (hex) */
+  pub?: string;
+  /** SEA ephemeral public key for ECDH messaging */
+  epub?: string;
+  knownPeople?: KnownPerson[];
 }
 
 export interface QuestionAnswer {
@@ -152,6 +165,8 @@ export interface Message {
   answerId?: string;
   timestamp: Date;
   readBy: string[];
+  /** Default `public` — other values use SEA with recipient/sender epub */
+  channel?: 'public' | 'known' | 'mutual';
 }
 
 export interface Match {
