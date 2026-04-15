@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
-import { afterLoad, afterNav, afterAction, delay } from './helpers/timing';
+import { afterLoad, afterNav, afterAction, delay, headless } from './helpers/timing';
 
 test.describe('Profile: edit stage name', () => {
   let browser: Browser;
@@ -13,7 +13,7 @@ test.describe('Profile: edit stage name', () => {
   test.beforeAll(async () => {
     await clearGunDatabases();
     browser = await chromium.launch({
-      headless: false,
+      headless,
       slowMo: delay(50, 150),
       args: ['--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });

@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
-import { wait, afterLoad, afterSync, afterNav, delay } from './helpers/timing';
+import { wait, afterLoad, afterSync, afterNav, delay, headless } from './helpers/timing';
 
 test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () => {
   let browser1: Browser;
@@ -16,16 +16,12 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
   let page2: Page;
   let page3: Page;
 
-  async function getHeadcount(page: Page, chatroomName: string = 'Global'): Promise<string> {
+  async function expectHeadcount(page: Page, expected: number, userName: string, chatroomName = 'Global'): Promise<void> {
     const headcount = page.locator(`.chatroom-item:has-text("${chatroomName}") .chatroom-headcount`);
-    await headcount.waitFor({ state: 'visible', timeout: 5000 });
-    return (await headcount.textContent()) || '';
-  }
-
-  function verifyHeadcount(headcountText: string, expected: number, userName: string): void {
-    if (!headcountText.includes(expected.toString())) {
-      throw new Error(`Expected ${userName} headcount "👥 ${expected}", got "${headcountText}"`);
-    }
+    await expect(headcount, `${userName} should see headcount ${expected} in ${chatroomName}`).toContainText(
+      expected.toString(),
+      { timeout: 20000 },
+    );
     console.log(`✅ ${userName} sees headcount = ${expected}`);
   }
 
@@ -37,17 +33,17 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
   test.beforeAll(async () => {
     await clearGunDatabases();
     browser1 = await chromium.launch({
-      headless: false,
+      headless,
       slowMo: delay(50, 150),
       args: ['--window-position=0,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
     });
     browser2 = await chromium.launch({
-      headless: false,
+      headless,
       slowMo: delay(50, 150),
       args: ['--window-position=640,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
     });
     browser3 = await chromium.launch({
-      headless: false,
+      headless,
       slowMo: delay(50, 150),
       args: ['--window-position=1280,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
     });
@@ -83,7 +79,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await page1.waitForLoadState('load');
     await ensureWindowFitsViewport(page1, 640, 800);
     await afterLoad();
-    verifyHeadcount(await getHeadcount(page1), 1, 'User 1');
+    await expectHeadcount(page1, 1, 'User 1');
 
     context2 = await newContext(browser2);
     page2 = await context2.newPage();
@@ -93,8 +89,8 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await page2.waitForLoadState('load');
     await ensureWindowFitsViewport(page2, 640, 800);
     await afterLoad();
-    verifyHeadcount(await getHeadcount(page1), 2, 'User 1');
-    verifyHeadcount(await getHeadcount(page2), 2, 'User 2');
+    await expectHeadcount(page1, 2, 'User 1');
+    await expectHeadcount(page2, 2, 'User 2');
 
     context3 = await newContext(browser3);
     page3 = await context3.newPage();
@@ -104,17 +100,17 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await page3.waitForLoadState('load');
     await ensureWindowFitsViewport(page3, 640, 800);
     await afterLoad();
-    verifyHeadcount(await getHeadcount(page1), 3, 'User 1');
-    verifyHeadcount(await getHeadcount(page2), 3, 'User 2');
-    verifyHeadcount(await getHeadcount(page3), 3, 'User 3');
+    await expectHeadcount(page1, 3, 'User 1');
+    await expectHeadcount(page2, 3, 'User 2');
+    await expectHeadcount(page3, 3, 'User 3');
 
     await cleanupUser(page1, 'User 1');
     await context1.storageState({ path: storage1Path });
     await page1.close();
     await context1.close();
     await afterSync();
-    verifyHeadcount(await getHeadcount(page2), 2, 'User 2');
-    verifyHeadcount(await getHeadcount(page3), 2, 'User 3');
+    await expectHeadcount(page2, 2, 'User 2');
+    await expectHeadcount(page3, 2, 'User 3');
 
     await cleanupUser(page2, 'User 2');
     await context2.storageState({ path: storage2Path });
@@ -122,7 +118,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await context2.close();
     await afterSync();
     await wait(2000, 5000);
-    verifyHeadcount(await getHeadcount(page3), 1, 'User 3');
+    await expectHeadcount(page3, 1, 'User 3');
 
     await cleanupUser(page3, 'User 3');
     await context3.storageState({ path: storage3Path });
@@ -141,7 +137,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await page2.waitForLoadState('load');
     await afterNav();
     await afterLoad();
-    verifyHeadcount(await getHeadcount(page2), 1, 'User 2');
+    await expectHeadcount(page2, 1, 'User 2');
 
     context3 = await browser3.newContext({
       viewport: { width: 640, height: 800 },
@@ -154,8 +150,8 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await page3.waitForLoadState('load');
     await afterNav();
     await afterLoad();
-    verifyHeadcount(await getHeadcount(page2), 2, 'User 2');
-    verifyHeadcount(await getHeadcount(page3), 2, 'User 3');
+    await expectHeadcount(page2, 2, 'User 2');
+    await expectHeadcount(page3, 2, 'User 3');
 
     context1 = await browser1.newContext({
       viewport: { width: 640, height: 800 },
@@ -168,9 +164,9 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await page1.waitForLoadState('load');
     await afterNav();
     await afterLoad();
-    verifyHeadcount(await getHeadcount(page1), 3, 'User 1');
-    verifyHeadcount(await getHeadcount(page2), 3, 'User 2');
-    verifyHeadcount(await getHeadcount(page3), 3, 'User 3');
+    await expectHeadcount(page1, 3, 'User 1');
+    await expectHeadcount(page2, 3, 'User 2');
+    await expectHeadcount(page3, 3, 'User 3');
 
     await cleanupUser(page1, 'User 1');
     await cleanupUser(page2, 'User 2');

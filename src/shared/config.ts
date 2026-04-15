@@ -12,13 +12,30 @@ const e2eServerGun =
   process.env &&
   (process.env.E2E_GUN_MEMORY_ONLY === '1' || process.env.E2E_GUN_MEMORY_ONLY === 'true');
 
+/**
+ * Read a URL search param at module load time (browser only, non-production).
+ * Allows e2e tests to override specific CONFIG values per page by navigating to
+ * `/?e2e_capacity=3&e2e_fifo=true` without needing a separate webpack build.
+ * Returns null on server / in production.
+ */
+const e2eUrlParam = (key: string): string | null => {
+  if (typeof window === 'undefined') return null;
+  if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'production') return null;
+  try {
+    return new URLSearchParams(window.location.search).get(key);
+  } catch {
+    return null;
+  }
+};
+
 export const CONFIG = {
   // Chatroom settings
   CHATROOM_CAPACITY: parseInt(
-    getEnv('CHATROOM_MAX_CAPACITY', e2eServerGun ? '50' : '3'),
+    e2eUrlParam('e2e_capacity') ?? getEnv('CHATROOM_MAX_CAPACITY', e2eServerGun ? '50' : '3'),
     10,
   ),
-  CHATROOM_ENABLE_FIFO: getEnv('CHATROOM_ENABLE_FIFO', e2eServerGun ? 'false' : 'true') !== 'false',
+  CHATROOM_ENABLE_FIFO:
+    (e2eUrlParam('e2e_fifo') ?? getEnv('CHATROOM_ENABLE_FIFO', e2eServerGun ? 'false' : 'true')) !== 'false',
   GLOBAL_CHATROOM_ID: 'global',
 
   // Bulk sending limits

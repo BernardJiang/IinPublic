@@ -2,7 +2,7 @@ import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwrig
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases } from './helpers/clear-database';
-import { delay } from './helpers/timing';
+import { delay, headless, afterAction, afterNav, afterSync, afterLoad } from './helpers/timing';
 import { countIncomingTalkSlots } from './helpers/talks-matching-flow';
 import {
   TAG_NAMES,
@@ -34,12 +34,12 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     }
 
     browserTechSupport = await chromium.launch({
-      headless: false,
+      headless,
       slowMo: delay(50, 120),
       args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     browserTom = await chromium.launch({
-      headless: false,
+      headless,
       slowMo: delay(50, 120),
       args: ['--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
@@ -88,22 +88,22 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     contextTechSupport = techSupport.context;
     pageTechSupport = techSupport.page;
     await pageTechSupport.click('.chatroom-item:has-text("Global")');
-    await pageTechSupport.waitForTimeout(2000);
+    await afterLoad();
 
     await pageTechSupport.click('.nav-btn[data-view="chatrooms"]');
-    await pageTechSupport.waitForTimeout(500);
+    await afterAction();
     await pageTechSupport.click('.chatroom-item:has-text("Global")');
-    await pageTechSupport.waitForTimeout(1000);
+    await afterNav();
 
     console.log('\n📍 STEP 2: TechSupport creates 10 tags');
     for (const tagName of TAG_NAMES) {
       await pageTechSupport.click('#create-talk-btn');
       await pageTechSupport.waitForSelector('#talk-editor-form');
       await pageTechSupport.click('input[name="talk-type-radio"][value="tag"]');
-      await pageTechSupport.waitForTimeout(200);
+      await afterAction();
       await pageTechSupport.fill('#talk-title', tagName);
       await pageTechSupport.click('#talk-editor-form button[type="submit"]');
-      await pageTechSupport.waitForTimeout(1200);
+      await afterSync();
     }
 
     console.log('\n📍 STEP 3: TechSupport creates 10 talks');
@@ -111,7 +111,7 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
       await pageTechSupport.click('#create-talk-btn');
       await pageTechSupport.waitForSelector('#talk-editor-form');
       await pageTechSupport.click('input[name="talk-type-radio"][value="matching"]');
-      await pageTechSupport.waitForTimeout(200);
+      await afterAction();
       await pageTechSupport.fill('#talk-title', title);
       const q = pageTechSupport.locator('.question-item').first();
       await q.locator('.question-text').fill(`Want to connect for ${title}?`);
@@ -120,7 +120,7 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
       await q.locator('.answer-item').nth(1).locator('.answer-text').fill(IGNORE_ANSWER);
       await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
       await pageTechSupport.click('#talk-editor-form button[type="submit"]');
-      await pageTechSupport.waitForTimeout(1200);
+      await afterSync();
     }
 
     console.log('\n📍 STEP 4: TechSupport has 20 created (10 tags + 10 talks)');
@@ -130,13 +130,13 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     contextTom = tom.context;
     pageTom = tom.page;
     await pageTom.click('.chatroom-item:has-text("Global")');
-    await pageTom.waitForTimeout(3000);
+    await afterLoad();
 
     console.log('\n📍 STEP 6: TechSupport broadcasts all 20 to Tom');
     await pageTechSupport.click('.nav-btn[data-view="chatrooms"]');
-    await pageTechSupport.waitForTimeout(500);
+    await afterAction();
     await pageTechSupport.click('.chatroom-item:has-text("Global")');
-    await pageTechSupport.waitForTimeout(1000);
+    await afterNav();
     await pageTechSupport.click('#broadcast-talk-btn');
     await waitForTabActive(pageTechSupport, 'chatrooms');
     await expect(
@@ -169,7 +169,7 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
 
     console.log('\n📍 STEP 7: Tom answers all 20');
     await pageTom.click('.nav-btn[data-view="talks"]');
-    await pageTom.waitForTimeout(4000);
+    await afterLoad();
 
     for (const tagName of TAG_NAMES) {
       await openTomIncomingModal(pageTom, tagName, 'tag');
@@ -177,20 +177,20 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
       await pageTom.locator('#tag-match-checkbox').check();
       await pageTom.click('#tag-submit-btn');
       await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
-      await pageTom.waitForTimeout(400);
+      await afterAction();
     }
 
     for (const talkTitle of TALK_TITLES) {
       await openTomIncomingModal(pageTom, talkTitle, 'matching');
       await pageTom.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
       await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
-      await pageTom.waitForTimeout(400);
+      await afterAction();
     }
 
     console.log('\n📍 STEP 8: TechSupport confirms all 20 answers');
-    await pageTechSupport.waitForTimeout(3000);
+    await afterLoad();
     await pageTechSupport.click('.nav-btn[data-view="talks"]');
-    await pageTechSupport.waitForTimeout(2000);
+    await afterLoad();
     await expect(pageTechSupport.getByText(/Matched with:/).first()).toBeVisible({ timeout: 15000 });
     const statusBar = pageTechSupport.locator('#status-bar-text');
     await expect(statusBar).toContainText(/20 match(es)?/, { timeout: 25000 });
@@ -198,7 +198,7 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     expect(matchedLines).toBeGreaterThanOrEqual(1);
 
     await pageTom.click('.nav-btn[data-view="answers"]');
-    await pageTom.waitForTimeout(2000);
+    await afterLoad();
     const answersContent = pageTom.locator('#answers-content');
     for (const name of [...TAG_NAMES, ...TALK_TITLES]) {
       await expect(answersContent.getByText(name).first()).toBeVisible({ timeout: 3000 });

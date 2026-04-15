@@ -38,3 +38,10 @@ export const afterSync = () => wait(1500, 6000);
 export const afterLoad = () => wait(2000, 8000);
 
 export { E2E_INTERVAL, isLong };
+
+/**
+ * Whether to run browsers in headless mode.
+ * Always headless in CI; show the window in local dev.
+ * Matches the `use.headless` value in playwright.config.ts.
+ */
+export const headless = !!process.env.CI;

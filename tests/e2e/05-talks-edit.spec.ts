@@ -1,9 +1,7 @@
 import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
-import * as fs from 'fs';
-import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
-import { afterLoad, afterSync, afterNav, afterAction, delay } from './helpers/timing';
+import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
 
 test.describe('Talks: create and edit', () => {
   let browser: Browser;
@@ -15,7 +13,7 @@ test.describe('Talks: create and edit', () => {
   test.beforeAll(async () => {
     await clearGunDatabases();
     browser = await chromium.launch({
-      headless: false,
+      headless,
       slowMo: delay(50, 150),
       args: ['--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });
@@ -50,8 +48,6 @@ test.describe('Talks: create and edit', () => {
   }
 
   test('Create talk, Talks tab shows it with Edit; Edit opens with prefilled data', async () => {
-    const screenshotDir = path.join(__dirname, '../../test-screenshots/05-talks');
-    if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
     await bootstrapUser('EditTestUser');
 
     await page.click('#create-talk-btn');

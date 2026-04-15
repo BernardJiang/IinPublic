@@ -1,9 +1,7 @@
 import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
-import * as fs from 'fs';
-import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
-import { afterLoad, afterSync, afterNav, afterAction, delay } from './helpers/timing';
+import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
 
 test.describe('Contacts tab: list of users with matches, click to see matching talks', () => {
@@ -24,23 +22,20 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
   const IGNORE_ANSWER = 'No thanks.';
   const IGNORE_ANSWER_COFFEE = 'Not now.';
 
-  const screenshotDir = path.join(__dirname, '../../test-screenshots/06-contacts');
-
   test.beforeAll(async () => {
     await clearGunDatabases();
-    if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
     browserTom = await chromium.launch({
-      headless: false,
+      headless,
       slowMo: delay(50, 120),
       args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     browserJerry = await chromium.launch({
-      headless: false,
+      headless,
       slowMo: delay(50, 120),
       args: ['--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     browserBob = await chromium.launch({
-      headless: false,
+      headless,
       slowMo: delay(50, 120),
       args: ['--window-position=1280,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });

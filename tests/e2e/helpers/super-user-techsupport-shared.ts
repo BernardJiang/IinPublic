@@ -2,7 +2,7 @@ import { expect, Page } from '@playwright/test';
 import type { Browser, BrowserContext } from '@playwright/test';
 import { injectIdbClear } from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
-import { afterLoad, afterNav, afterAction } from './timing';
+import { afterLoad, afterNav, afterAction, afterSync } from './timing';
 import { syncIncomingFromServer, waitForIncomingTalkClusterOnServer } from './talks-matching-flow';
 
 export const TECH_SUPPORT_NAME = 'TechSupport';
@@ -86,10 +86,10 @@ export async function openTomIncomingModal(
 ): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
-  await page.waitForTimeout(800);
+  await afterNav();
   await waitForIncomingTalkClusterOnServer(page, titleSubstring);
   await syncIncomingFromServer(page);
-  await page.waitForTimeout(400);
+  await afterAction();
   const row = page
     .locator(`.talk-list-item[data-role="incoming"][data-incoming-type="${typeBadge}"]`)
     .filter({ hasText: titleSubstring })
@@ -103,10 +103,10 @@ export async function openTomIncomingModal(
       await syncIncomingFromServer(page);
       await page.click('.nav-btn[data-view="chatrooms"]');
       await waitForTabActive(page, 'chatrooms');
-      await page.waitForTimeout(500);
+      await afterAction();
       await page.click('.nav-btn[data-view="talks"]');
       await waitForTabActive(page, 'talks');
-      await page.waitForTimeout(800);
+      await afterSync();
     }
   }
   await expect(row).toBeVisible({ timeout: 10000 });

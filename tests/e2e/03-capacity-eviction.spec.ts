@@ -3,7 +3,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
-import { afterLoad, afterSync, afterNav, afterAction, delay } from './helpers/timing';
+import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
+
+/**
+ * Navigate to the app with e2e_capacity=3 and e2e_fifo=true URL params so the
+ * web bundle uses capacity=3 + FIFO enabled for this test, without needing a
+ * separate webpack build.  The playwright.config.ts runs servers with
+ * CHATROOM_MAX_CAPACITY=50 to keep other tests stable; this URL-param override
+ * lets 03-capacity-eviction run in the same server process.
+ */
+const E2E_URL = '/?e2e_capacity=3&e2e_fifo=true';
 
 test.describe('Capacity and eviction', () => {
   let browser1: Browser;
@@ -19,16 +28,20 @@ test.describe('Capacity and eviction', () => {
   let page3: Page;
   let page4: Page;
 
-  async function getStatusBar(page: Page): Promise<string> {
+  async function expectStatusBar(page: Page, contains: string, label: string): Promise<void> {
     const bar = page.locator('#status-bar-text');
-    await bar.waitFor({ state: 'visible', timeout: 5000 });
-    return (await bar.textContent()) || '';
+    await expect(bar, `${label} status bar should contain "${contains}"`).toContainText(contains, {
+      timeout: 20000,
+    });
   }
 
-  async function getHeadcount(page: Page, chatroomName: string): Promise<string> {
+  async function expectHeadcount(page: Page, expected: number, label: string, chatroomName = 'Global'): Promise<void> {
     const headcount = page.locator(`.chatroom-item:has-text("${chatroomName}") .chatroom-headcount`);
-    await headcount.waitFor({ state: 'visible', timeout: 5000 });
-    return (await headcount.textContent()) || '';
+    await expect(headcount, `${label} should see headcount ${expected} in ${chatroomName}`).toContainText(
+      expected.toString(),
+      { timeout: 20000 },
+    );
+    console.log(`✅ ${label} sees headcount = ${expected}`);
   }
 
   async function cleanupUser(page: Page, name: string): Promise<void> {
@@ -36,11 +49,24 @@ test.describe('Capacity and eviction', () => {
     console.log(`✅ ${name} cleanup called`);
   }
 
+  /** Launch a new page that navigates with capacity/FIFO URL params. */
+  async function newCapacityPage(context: BrowserContext, label: string): Promise<Page> {
+    const page = await context.newPage();
+    page.on('console', (m) => console.log(`[${label}]:`, m.text()));
+    // IDB clear must run before any script; addInitScript fires before page scripts.
+    await injectIdbClear(page);
+    await page.goto(E2E_URL);
+    await page.waitForLoadState('load');
+    await ensureWindowFitsViewport(page, 640, 600);
+    await afterLoad();
+    return page;
+  }
+
   test.beforeAll(async () => {
     await clearGunDatabases();
     const launch = (x: number, y: number) =>
       chromium.launch({
-        headless: false,
+        headless,
         slowMo: delay(50, 150),
         args: [`--window-position=${x},${y}`, '--window-size=640,800', '--force-device-scale-factor=1'],
       });
@@ -59,72 +85,40 @@ test.describe('Capacity and eviction', () => {
   });
 
   test('Four users: Global fills to 3, fourth bumps first to North America; persistence after re-enter', async () => {
-    const screenshotDir = path.join(__dirname, '../../test-screenshots/03-capacity');
     const storageDir = path.join(__dirname, '../../test-storage');
-    if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
     if (!fs.existsSync(storageDir)) fs.mkdirSync(storageDir, { recursive: true });
 
     const newContext = (b: Browser) =>
       b.newContext({ viewport: { width: 640, height: 600 }, deviceScaleFactor: 1 });
 
+    // --- Phase 1: Four users join sequentially; U4 should evict U1 to North America ---
+
     context1 = await newContext(browser1);
-    page1 = await context1.newPage();
-    page1.on('console', (m) => console.log('[U1]:', m.text()));
-    // Clear both localStorage and the worker's IndexedDB for a completely fresh start.
-    await injectIdbClear(page1);
-    await page1.goto('/');
-    await page1.waitForLoadState('load');
-    await ensureWindowFitsViewport(page1, 640, 600);
-    await page1.evaluate(() => {
-      localStorage.clear();
-      sessionStorage.clear();
-    });
-    await afterLoad();
+    page1 = await newCapacityPage(context1, 'U1');
 
     context2 = await newContext(browser2);
-    page2 = await context2.newPage();
-    page2.on('console', (m) => console.log('[U2]:', m.text()));
-    await injectIdbClear(page2);
-    await page2.goto('/');
-    await page2.waitForLoadState('load');
-    await ensureWindowFitsViewport(page2, 640, 600);
-    await afterLoad();
+    page2 = await newCapacityPage(context2, 'U2');
 
     context3 = await newContext(browser3);
-    page3 = await context3.newPage();
-    page3.on('console', (m) => console.log('[U3]:', m.text()));
-    await injectIdbClear(page3);
-    await page3.goto('/');
-    await page3.waitForLoadState('load');
-    await ensureWindowFitsViewport(page3, 640, 600);
-    await afterLoad();
+    page3 = await newCapacityPage(context3, 'U3');
 
     await afterSync();
-    const global1 = await getHeadcount(page1, 'Global');
-    expect(global1).toContain('3');
+    await expectHeadcount(page1, 3, 'U1');
     console.log('✅ Global at capacity (3/3)');
 
     context4 = await newContext(browser4);
-    page4 = await context4.newPage();
-    page4.on('console', (m) => console.log('[U4]:', m.text()));
-    await injectIdbClear(page4);
-    await page4.goto('/');
-    await page4.waitForLoadState('load');
-    await ensureWindowFitsViewport(page4, 640, 600);
-    await afterLoad();
+    page4 = await newCapacityPage(context4, 'U4');
     await afterSync();
     await afterSync();
 
-    const status1After = await getStatusBar(page1);
-    if (!status1After.includes('North America')) {
-      throw new Error(`User 1 should be bumped to North America, got: ${status1After}`);
-    }
-    console.log('✅ User 1 bumped to North America');
+    // U1 should have been evicted to North America by FIFO logic
+    await expectStatusBar(page1, 'North America', 'U1 after eviction');
+    console.log('✅ U1 bumped to North America');
 
     await afterAction();
-    const status1Again = await getStatusBar(page1);
-    expect(status1Again).toContain('North America');
+    await expectStatusBar(page1, 'North America', 'U1 stable after action');
 
+    // Save storage states before closing
     await context1.storageState({ path: path.join(storageDir, 'cap-user1.json') });
     await context2.storageState({ path: path.join(storageDir, 'cap-user2.json') });
     await context3.storageState({ path: path.join(storageDir, 'cap-user3.json') });
@@ -140,57 +134,46 @@ test.describe('Capacity and eviction', () => {
     await page4.close();
     await afterSync();
 
-    context1 = await browser1.newContext({
-      viewport: { width: 640, height: 600 },
-      deviceScaleFactor: 1,
-      storageState: path.join(storageDir, 'cap-user1.json'),
-    });
+    // --- Phase 2: All four re-enter; U1 should still be in North America ---
+
+    const reenterContext = async (browser: Browser, storageFile: string) =>
+      browser.newContext({
+        viewport: { width: 640, height: 600 },
+        deviceScaleFactor: 1,
+        storageState: path.join(storageDir, storageFile),
+      });
+
+    context1 = await reenterContext(browser1, 'cap-user1.json');
     page1 = await context1.newPage();
     page1.on('console', (m) => console.log('[U1]:', m.text()));
-    await page1.goto('/');
+    await page1.goto(E2E_URL);
     await page1.waitForLoadState('load');
     await afterLoad();
     await afterNav();
 
-    context2 = await browser2.newContext({
-      viewport: { width: 640, height: 600 },
-      deviceScaleFactor: 1,
-      storageState: path.join(storageDir, 'cap-user2.json'),
-    });
+    context2 = await reenterContext(browser2, 'cap-user2.json');
     page2 = await context2.newPage();
-    await page2.goto('/');
+    await page2.goto(E2E_URL);
     await page2.waitForLoadState('load');
     await afterLoad();
 
-    context3 = await browser3.newContext({
-      viewport: { width: 640, height: 600 },
-      deviceScaleFactor: 1,
-      storageState: path.join(storageDir, 'cap-user3.json'),
-    });
+    context3 = await reenterContext(browser3, 'cap-user3.json');
     page3 = await context3.newPage();
-    await page3.goto('/');
+    await page3.goto(E2E_URL);
     await page3.waitForLoadState('load');
     await afterLoad();
 
-    context4 = await browser4.newContext({
-      viewport: { width: 640, height: 600 },
-      deviceScaleFactor: 1,
-      storageState: path.join(storageDir, 'cap-user4.json'),
-    });
+    context4 = await reenterContext(browser4, 'cap-user4.json');
     page4 = await context4.newPage();
-    await page4.goto('/');
+    await page4.goto(E2E_URL);
     await page4.waitForLoadState('load');
     await afterLoad();
 
     await afterSync();
-    const s1 = await getStatusBar(page1);
-    const s2 = await getStatusBar(page2);
-    const s3 = await getStatusBar(page3);
-    const s4 = await getStatusBar(page4);
-    expect(s1).toContain('North America');
-    expect(s2).toContain('Global');
-    expect(s3).toContain('Global');
-    expect(s4).toContain('Global');
+    await expectStatusBar(page1, 'North America', 'U1 persistence check');
+    await expectStatusBar(page2, 'Global', 'U2 persistence check');
+    await expectStatusBar(page3, 'Global', 'U3 persistence check');
+    await expectStatusBar(page4, 'Global', 'U4 persistence check');
 
     await cleanupUser(page1, 'U1');
     await cleanupUser(page2, 'U2');

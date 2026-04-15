@@ -1,6 +1,6 @@
 import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { clearGunDatabases } from './helpers/clear-database';
-import { afterSync, delay } from './helpers/timing';
+import { afterSync, afterAction, afterNav, afterLoad, delay, headless } from './helpers/timing';
 import {
   MATCH_ANSWER,
   IGNORE_ANSWER,
@@ -21,12 +21,12 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
   test.beforeAll(async () => {
     await clearGunDatabases();
     browserTechSupport = await chromium.launch({
-      headless: false,
+      headless,
       slowMo: delay(50, 120),
       args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     browserTom = await chromium.launch({
-      headless: false,
+      headless,
       slowMo: delay(50, 120),
       args: ['--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
@@ -69,24 +69,24 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     test.setTimeout(120000);
 
     console.log('\n📍 Copy-talk test: TechSupport creates one talk, Tom receives (saved), disables, broadcast 0, enables, broadcast 1, deletes');
-    await clearGunDatabases();
+    // clearGunDatabases() is already called in beforeAll; no need to repeat here.
     const techSupport = await bootstrapSuperUser(browserTechSupport, 'TechSupport', TECH_SUPPORT_NAME);
     contextTechSupport = techSupport.context;
     pageTechSupport = techSupport.page;
     await pageTechSupport.click('.chatroom-item:has-text("Global")');
-    await pageTechSupport.waitForTimeout(2000);
+    await afterLoad();
 
     const tom = await bootstrapSuperUser(browserTom, 'Tom', TOM_NAME);
     contextTom = tom.context;
     pageTom = tom.page;
     await pageTom.click('.chatroom-item:has-text("Global")');
-    await pageTom.waitForTimeout(2000);
+    await afterLoad();
 
     const copyTalkTitle = 'CopyTestTalk';
     await pageTechSupport.click('#create-talk-btn');
     await pageTechSupport.waitForSelector('#talk-editor-form');
     await pageTechSupport.click('input[name="talk-type-radio"][value="matching"]');
-    await pageTechSupport.waitForTimeout(200);
+    await afterAction();
     await pageTechSupport.fill('#talk-title', copyTalkTitle);
     const q = pageTechSupport.locator('.question-item').first();
     await q.locator('.question-text').fill('Want to connect for CopyTestTalk?');
@@ -95,7 +95,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await q.locator('.answer-item').nth(1).locator('.answer-text').fill(IGNORE_ANSWER);
     await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
     await pageTechSupport.click('#talk-editor-form button[type="submit"]');
-    await pageTechSupport.waitForTimeout(1500);
+    await afterSync();
 
     await pageTechSupport.click('#broadcast-talk-btn');
     await afterSync();
@@ -112,10 +112,10 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await pageTom.waitForSelector('#talk-response-modal .modal-content', { timeout: 25000 });
     await pageTom.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
     await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
-    await pageTom.waitForTimeout(500);
+    await afterAction();
 
     await pageTom.click('.nav-btn[data-view="answers"]');
-    await pageTom.waitForTimeout(800);
+    await afterNav();
     await expect(pageTom.locator('#answers-content').getByText(copyTalkTitle).first()).toBeVisible({ timeout: 15000 });
     await pageTom
       .locator('.answer-talk-item')
@@ -123,10 +123,10 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
       .first()
       .locator('.answer-copy-talk-btn')
       .click();
-    await pageTom.waitForTimeout(600);
+    await afterNav();
 
     await pageTom.click('.nav-btn[data-view="talks"]');
-    await pageTom.waitForTimeout(1000);
+    await afterNav();
     const copyTalkRow = pageTom
       .locator('.talk-list-item[data-role="copied"]')
       .filter({ hasText: copyTalkTitle })
@@ -136,9 +136,9 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await expect(copyTalkRow.locator('.talk-disable-broadcast-checkbox')).toBeChecked({ timeout: 10000 });
 
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
-    await pageTom.waitForTimeout(500);
+    await afterAction();
     await pageTom.click('.chatroom-item:has-text("Global")');
-    await pageTom.waitForTimeout(800);
+    await afterNav();
     await expect(pageTom.locator('#broadcast-talk-btn')).toBeVisible({ timeout: 10000 });
     await pageTom.click('#broadcast-talk-btn');
     await waitForTabActive(pageTom, 'chatrooms');
@@ -149,33 +149,33 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     }
 
     await pageTom.click('.nav-btn[data-view="talks"]');
-    await pageTom.waitForTimeout(800);
+    await afterNav();
     const copyRowAgain = pageTom
       .locator('.talk-list-item[data-role="copied"]')
       .filter({ hasText: copyTalkTitle })
       .first();
     await copyRowAgain.locator('.talk-disable-broadcast-label').click();
-    await pageTom.waitForTimeout(800);
+    await afterNav();
 
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
-    await pageTom.waitForTimeout(500);
+    await afterAction();
     await pageTom.click('.chatroom-item:has-text("Global")');
-    await pageTom.waitForTimeout(500);
+    await afterAction();
     await pageTom.click('#broadcast-talk-btn');
-    await pageTom.waitForTimeout(500);
+    await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 
     await pageTom.click('.nav-btn[data-view="me"]');
-    await pageTom.waitForTimeout(1000);
+    await afterNav();
     await pageTom.click('#view-my-talks-btn');
     await pageTom.waitForSelector('#my-talks-modal', { timeout: 5000 });
     await pageTom.locator('.talk-history-item').filter({ hasText: copyTalkTitle }).first().locator('.delete-talk-btn').click();
-    await pageTom.waitForTimeout(1000);
+    await afterNav();
     await expect(pageTom.getByText('Talk removed from history')).toBeVisible({ timeout: 5000 });
     await pageTom.click('#close-my-talks-modal');
-    await pageTom.waitForTimeout(500);
+    await afterAction();
     await pageTom.click('#view-my-talks-btn');
-    await pageTom.waitForTimeout(1000);
+    await afterNav();
     await expect(pageTom.locator('.talk-history-item').filter({ hasText: copyTalkTitle })).toHaveCount(0);
 
     console.log('✅ Copy-talk test complete: receive saved, disabled filtered from broadcast, enable included, delete removed.');

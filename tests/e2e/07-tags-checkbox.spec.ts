@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
-import { afterLoad, afterSync, afterNav, afterAction, delay } from './helpers/timing';
+import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
 
 test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
@@ -26,12 +26,12 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     }
 
     browserAlice = await chromium.launch({
-      headless: false,
+      headless,
       slowMo: delay(50, 120),
       args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     browserTom = await chromium.launch({
-      headless: false,
+      headless,
       slowMo: delay(50, 120),
       args: ['--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
