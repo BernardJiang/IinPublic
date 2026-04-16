@@ -79,7 +79,12 @@ The system supports:
 | **Chatroom** | A public, location-based or user-defined "place" where users can find each other; all conversations remain one-on-one. |
 | **Business Chatroom** | A user-defined chatroom bound to a specific brand and address (e.g., a bar). |
 | **Traveller** | A user present in a chatroom outside their blurred true-location region. |
-| **Tag** | A catalog-style label (Craigslist-like categories) used to describe interests, items, or contexts. |
+| **Tag** | The simplest talk unit: a single keyword or short phrase with a checkbox (checked = interested / match, unchecked = not interested / ignore). No question-mark required. No answers beyond the checked/unchecked state. |
+| **Talk** | A sequential chain of one or more Q/A pairs where every question is shown in order and each question uses all previous questions and answers as context. The chatbot can auto-reply only when the full preceding context matches a stored answer. |
+| **Survey** | One or more independent Q/A pairs where every question stands alone — no prior Q/A is used as context. Each question's answer is stored and retrieved without context. Suitable for collecting aggregate statistics. |
+| **Tree Talk** | A hierarchical structure (JSON-like DAG) that contains both talk-style and survey-style sub-branches. Each node (question) carries a `contextPath` — the ordered list of (questionId, answerId) steps that led to it. The chatbot replies automatically only when the stored answer for that question was recorded under the same context path. |
+| **ContextPath** | An ordered list of `{ questionId, answerId }` steps representing the path through a tree talk that preceded a given question. Used during tree construction and validation; not stored in answer records. |
+| **ContextHash** | An 8-character lowercase hex string (FNV-1a 32-bit hash of the canonical context-path string). Stored in every answer record in place of the full ContextPath. The chatbot computes the hash of the current path and compares it with the stored hash — O(1) lookup. Root/no-context questions use `''` (empty string). |
 | **Survey Talk** | A talk specifically used for collecting and aggregating answer statistics. |
 | **Reputation** | Aggregated feedback metrics (star ratings, blocks, confirmations). Read-only to the user. |
 | **StageName** | A user-chosen display name. Not unique; multiple users may share one. |
@@ -254,6 +259,37 @@ Do you like to play tennis? ** yes; * no.  // Question with answer chips
 
 ### 3.6 Talk Structure and Execution
 
+#### 3.6.1 The Four Talk Types
+
+The system defines exactly four talk types, arranged from simplest to most complex:
+
+| Type | Questions | Context | Chatbot auto-reply condition |
+|------|-----------|---------|------------------------------|
+| **tag** | Exactly 1 | None | Always (no context needed) |
+| **talk** | 1 or more, sequential | All preceding Q/A pairs | Full preceding context matches stored answer |
+| **survey** | 1 or more, independent | None (each question is standalone) | Always (no context needed per question) |
+| **tree** | 1 or more, hierarchical | Each question carries its own `contextPath` (used for tree construction only) | Stored `contextHash` (FNV-1a hash of contextPath) matches the hash of the current conversation path |
+
+**Tag** — The simplest unit. A single keyword or short phrase. The user marks it checked (interested / match) or unchecked (not interested / ignore). No question mark, no free-text answers.
+
+**Talk** — A sequential chain. Question 2 implicitly knows about Question 1's answer, Question 3 knows about Q1 and Q2, etc. When stored to a flat answer list, only one record exists per question (the context is implied by position). The chatbot auto-replies to Q2 only if it answered Q1 in the same conversation.
+
+**Survey** — A collection of independent questions. Each question is answered without any reference to other questions. The same question may appear in multiple surveys and will always get the same answer regardless of surrounding questions. Suitable for collecting aggregate statistics.
+
+**Tree** — The most general structure. A tree (DAG) whose nodes may behave like talk-branches (context-dependent) or survey-branches (context-independent). Each question node carries a `contextPath` (used for tree construction and validation only). When saving answers, the full path list is NOT stored — instead each answer record carries a single `contextHash`: the FNV-1a 32-bit hash of the canonical path string. The same surface question (e.g., "What is your skill level?") is stored as **separate records** for each distinct branch because each branch produces a different hash. The chatbot auto-replies by computing the hash of the current path and doing an O(1) equality check against stored hashes — no list traversal required.
+
+**Example (tree):**
+```
+Q1a: "Do you like tennis?"  → Yes
+Q1b: "Do you like badminton?" → Yes   (independent root questions, no shared context)
+Q2:  "What is your skill level?"
+     - reached via Q1a=Yes → stored answer: "Beginner"  (contextPath: [{q1a, yes}])
+     - reached via Q1b=Yes → stored answer: "Professional" (contextPath: [{q1b, yes}])
+```
+The flat answer list for Q2 contains two distinct entries, keyed by their different context paths. Without the correct preceding context the chatbot does **not** reply automatically.
+
+#### 3.6.2 Talk Requirements
+
 - **FR-TK-1**: A talk SHALL be defined as a directed acyclic graph (DAG); no loops are permitted.
 - **FR-TK-2**: The system SHALL prevent users from creating cycles in talk graphs.
 - **FR-TK-3**: A talk SHALL support tree structures and linear chains.
@@ -268,6 +304,11 @@ Do you like to play tennis? ** yes; * no.  // Question with answer chips
   - Stop the flow when a final sentence ending with `.` is reached with no further answer list.
   - Automatically record the resulting Q&A sequence as a **linear talk** draft for User A to reuse and broadcast later.
 - **FR-TK-8 (Editing Constraints)**: Tree-structured talks and survey talks MAY only be created or edited in the Talk Editor UI. Auto-captured chats produce linear talks only.
+- **FR-TK-9 (Tag Structure)**: A tag talk SHALL contain exactly one question (a word or short phrase) and exactly two answers: one `isMatch=true` (checked) and one `isIgnore=true` (unchecked). No other answers are permitted.
+- **FR-TK-10 (Survey Independence)**: In a survey talk, every question SHALL be treated as independent — no `contextPath` is assigned, and the chatbot MAY auto-reply to any question regardless of the answers to sibling questions.
+- **FR-TK-11 (Tree Context Storage)**: In a tree talk, when saving a user's answer to a flat answer list, the system SHALL store a `contextHash` — the FNV-1a 32-bit hash of the canonical context-path string — alongside each answer. The full ContextPath list SHALL NOT be stored in the answer record; only the hash is persisted. Two answers to the same question reached via different branches produce different hashes and are stored as separate records.
+- **FR-TK-12 (Tree Context Reply Guard)**: When the chatbot considers auto-replying to a tree question, it SHALL compute the hash of the current conversation's active context path and look for a stored answer whose `(questionId, contextHash)` pair matches. If no match exists the chatbot SHALL NOT reply automatically. The question SHALL be presented to the user for a manual answer.
+- **FR-TK-13 (Context Hash Algorithm)**: The contextHash SHALL be computed using FNV-1a 32-bit over the UTF-8 encoding of the canonical context string `"qId1:aId1|qId2:aId2|..."`. Root/no-context questions (tag, survey, and matching types) SHALL use `''` (empty string) as their contextHash. The algorithm SHALL be implemented in pure JavaScript with no external dependencies so it runs identically in Node.js and browser environments.
 
 ### 3.7 Bulk Matching and Sending
 
@@ -1158,14 +1199,24 @@ const UserSchema = {
 const TalkSchema = {
   _id: 'string',
   creator: 'string',
-  type: 'matching|survey',
+  // One of four types — see §3.6.1 for full definitions:
+  //   'tag'     — single keyword/phrase, checked or unchecked
+  //   'matching'— sequential talk where each question uses all prior Q/A as context
+  //   'survey'  — independent questions, no shared context
+  //   'tree'    — hierarchical DAG mixing talk and survey branches; each question
+  //               carries a contextPath for context-aware chatbot reply
+  type: 'tag|matching|survey|tree',
   language: 'string',          // FR-BF-1: single primary language
   questions: [{
     id: 'string',
-    text: 'string',            // must end with ?
+    text: 'string',            // must end with ? (except tag type)
     answers: ['string'],       // predefined options
     autoAnswer: 'boolean',
-    nextQuestion: 'string|object|null'  // string = linear, object = branching, null = terminal
+    nextQuestion: 'string|object|null',  // string = linear, object = branching, null = terminal
+    // contextPath: present only on 'tree' type questions.
+    // Ordered list of { questionId, answerId } steps that lead to this question.
+    // Two occurrences of the same question with different contextPaths are independent.
+    contextPath: '[{ questionId: string, answerId: string }] | null'
   }],
   tags: ['string'],
   locationFilter: {
@@ -1178,6 +1229,26 @@ const TalkSchema = {
   aggregationConfig: 'object|null',
   version: 'number',           // incremented on each edit (§8.2)
   editLock: 'object|null'      // { lockedBy, lockedAt, version }
+};
+
+// Flat answer storage record (used by chatbot and profile Q/A list)
+//
+// Context is represented by a single contextHash, NOT by the full path list:
+//   tag / survey / matching : contextHash = ''  (no context required)
+//   tree                    : contextHash = 8-char FNV-1a hex of the
+//                             canonical "qId1:aId1|qId2:aId2|..." string.
+//
+// Chatbot lookup: compute hash of current path → compare contextHash → O(1).
+// The full ContextPath is retained only on the talk definition (Question.contextPath)
+// for tree traversal; it is never written to persistent answer storage.
+const AnswerRecordSchema = {
+  questionId: 'string',
+  answerId: 'string',
+  answerText: 'string',
+  // 8-char lowercase hex (FNV-1a 32-bit), or '' for no-context answers.
+  contextHash: 'string',
+  visibility: 'auto|manual',   // auto = chatbot may reuse; manual = private
+  recordedAt: 'number'
 };
 ```
 

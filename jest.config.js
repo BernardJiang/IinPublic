@@ -3,6 +3,8 @@ module.exports = {
   testEnvironment: 'node',
   testMatch: ['<rootDir>/src/test/**/*.test.ts'],
   setupFilesAfterEnv: ['<rootDir>/src/test/setup.ts'],
+  // Prefer TypeScript source files over pre-compiled .js files in src/
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   moduleNameMapper: {
     '^@shared/(.*)$': '<rootDir>/src/shared/$1',
     '^@web/(.*)$': '<rootDir>/src/web/$1',

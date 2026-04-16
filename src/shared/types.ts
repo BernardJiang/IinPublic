@@ -81,11 +81,68 @@ export interface BusinessInfo {
   verified: boolean;
 }
 
+/**
+ * One step in a context path: identifies which question was asked and which
+ * answer was selected by the user at that step. Used by tree-type talks to
+ * distinguish otherwise identical questions that appear in different branches.
+ */
+export interface ContextStep {
+  questionId: string;
+  answerId: string;
+}
+
+/**
+ * A flat answer record stored in the user's answer table.
+ * Used by the chatbot to decide whether it can auto-reply.
+ *
+ * Context is represented as a single hash ID (not a full path list):
+ *
+ * - tag / survey / matching (linear talk): contextHash is '' (empty string),
+ *   meaning no context is required.
+ * - tree: contextHash is an 8-char FNV-1a hex hash of the ordered
+ *   (questionId:answerId) steps that were active before this question was
+ *   shown. The chatbot matches by computing the hash of the current path
+ *   and comparing it against stored hashes — O(1) lookup, no list traversal.
+ *
+ * The full contextPath is NOT stored here; it only lives on the talk
+ * definition (Question.contextPath) where it is needed for tree traversal.
+ */
+export interface AnswerWithContext {
+  questionId: string;
+  answerId: string;
+  answerText: string;
+  /**
+   * Hash of the context path that was active when this answer was given.
+   * '' (empty) for tag/survey/matching. 8-char hex for tree branches.
+   * Computed by TreeTalkProcessor.buildContextHash().
+   */
+  contextHash: string;
+  visibility: 'auto' | 'manual';
+  recordedAt: Date;
+}
+
 export interface Talk {
   id: string;
   title: string;
   authorId: string;
-  type: 'matching' | 'survey' | 'tag';
+  /**
+   * The four talk types (see §3.6.1 of the technical specification):
+   *
+   * - 'tag'      : Single keyword/phrase, checked (match) or unchecked (ignore).
+   *                Exactly one question, no sequential context.
+   * - 'matching' : Sequential chain of Q/A. Every question uses all prior Q/A
+   *                as context. The chatbot auto-replies when the full preceding
+   *                context matches a stored answer.
+   * - 'survey'   : Independent Q/A pairs. No question uses other questions as
+   *                context. The chatbot can always auto-reply; results are
+   *                aggregated across all respondents.
+   * - 'tree'     : Hierarchical DAG that can contain both talk-style (context-
+   *                dependent) and survey-style (context-independent) branches.
+   *                Each question carries a contextPath. The chatbot auto-replies
+   *                only when the stored answer's contextPath matches the current
+   *                conversation path.
+   */
+  type: 'matching' | 'survey' | 'tag' | 'tree';
   isAdult: boolean;
   language: string;
   tags: Tag[];
@@ -105,10 +162,18 @@ export interface Question {
   id: string;
   text: string;
   answers: Answer[];
-  nextQuestionId?: string; // for linear talks
+  nextQuestionId?: string; // for linear (matching) talks
   branchingLogic?: BranchLogic[]; // for tree talks
   isAgeGate?: boolean;
   isAggregatable?: boolean; // for surveys
+  /**
+   * Present on 'tree' type questions only.
+   * The ordered list of (questionId, answerId) steps that were traversed to
+   * reach this question. Two occurrences of the same question text in different
+   * branches will have different contextPaths and are stored as separate answers.
+   * Empty array means a root question (no prior context).
+   */
+  contextPath?: ContextStep[];
 }
 
 export interface Answer {
