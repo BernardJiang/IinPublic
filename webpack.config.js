@@ -62,9 +62,13 @@ module.exports = {
             CHATROOM_ENABLE_FIFO: process.env.CHATROOM_ENABLE_FIFO || 'true',
           }),
         ]),
-    // Ignore Gun.js dynamic requires to suppress webpack warnings
+    // Ignore Gun.js dynamic requires that are Node.js-only and must not be
+    // bundled for the browser.  gun/sea.js requires 'crypto' and
+    // '@peculiar/webcrypto' in a try-catch at startup — it falls back to the
+    // browser's native WebCrypto API when these modules are absent, so
+    // silencing them here is safe and avoids spurious webpack warnings.
     new webpack.IgnorePlugin({
-      resourceRegExp: /^(ws|bufferutil|utf-8-validate|supports-color)$/,
+      resourceRegExp: /^(ws|bufferutil|utf-8-validate|supports-color|@peculiar\/webcrypto|crypto)$/,
       contextRegExp: /gun/,
     }),
     new webpack.ContextReplacementPlugin(/gun/, path.resolve(__dirname, 'node_modules/gun'), {}),
@@ -78,11 +82,17 @@ module.exports = {
   ],
   devServer: {
     static: [
-      { directory: path.resolve(__dirname, 'dist/web') },
+      // NOTE: dist/web is intentionally omitted — webpack-dev-server already
+      // serves webpack output from the in-memory filesystem via devMiddleware.
+      // Including it here would make chokidar watch the output directory and
+      // trigger live-reloads whenever webpack writes there, causing an
+      // infinite refresh loop.
+
       // Serve public/ so worker.js is available at /worker.js
       { directory: path.resolve(__dirname, 'public'), publicPath: '/' },
       // Serve gun files so the Web Worker can importScripts('/node_modules/gun/…')
-      { directory: path.resolve(__dirname, 'node_modules/gun'), publicPath: '/node_modules/gun' },
+      // watch: false — this is a large static dependency; no need to watch it.
+      { directory: path.resolve(__dirname, 'node_modules/gun'), publicPath: '/node_modules/gun', watch: false },
     ],
     port: 3001,
     hot: process.env.DISABLE_HMR !== 'true',
@@ -99,9 +109,17 @@ module.exports = {
   },
   ...(process.env.DISABLE_HMR === 'true' && {
     watch: false,
-    watchOptions: {
-      ignored: '**/*',
-    },
   }),
+  // watchOptions: always set for dev mode to ignore runtime-written directories
+  // (radata/ — Gun.js server storage, logs/ — server logging, dist/ — build output,
+  //  test-storage/ and user_data/ — test/browser profile data).
+  // In E2E mode (DISABLE_HMR=true) we additionally ignore everything to prevent
+  // any accidental watch-triggered recompile during tests.
+  watchOptions: process.env.DISABLE_HMR === 'true'
+    ? { ignored: '**/*' }
+    : {
+        ignored: ['**/node_modules', '**/radata', '**/logs', '**/dist', '**/.git', '**/test-storage', '**/user_data'],
+        aggregateTimeout: 300,
+      },
   devtool: 'source-map',
 };
