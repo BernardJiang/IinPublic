@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">66.66% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/9</span>
+                <span class='fraction'>6/9</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>1/1</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">50% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/4</span>
+                <span class='fraction'>2/4</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">66.66% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/9</span>
+                <span class='fraction'>6/9</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line medium'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -89,20 +89,20 @@
 <a name='L24'></a><a href='#L24'>24</a>
 <a name='L25'></a><a href='#L25'>25</a>
 <a name='L26'></a><a href='#L26'>26</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">8x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -114,20 +114,20 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { User } from '../../shared/types';
-<span class="cstat-no" title="statement not covered" >import { ReputationManager } from '../../shared/reputation';</span>
+import { ReputationManager } from '../../shared/reputation';
 import { GunService } from './gun-service';
 &nbsp;
-<span class="cstat-no" title="statement not covered" >export class R</span>eputationService {
-<span class="fstat-no" title="function not covered" >  constructor(private <span class="cstat-no" title="statement not covered" >g</span>unService: GunService)</span> {}
+export class ReputationService {
+  constructor(private gunService: GunService) {}
 &nbsp;
-<span class="fstat-no" title="function not covered" >  async </span>updateUserReputation(userId: string, action: string, value: number = <span class="branch-0 cbranch-no" title="branch not covered" >1)</span>: Promise&lt;void&gt; {
-    const user = <span class="cstat-no" title="statement not covered" >await this.gunService.get(`users/${userId}`);</span>
-    const updatedReputation = <span class="cstat-no" title="statement not covered" >ReputationManager.updateReputation(</span>
+  async updateUserReputation(userId: string, action: string, value: number = 1): Promise&lt;void&gt; {
+    const user = await this.gunService.get(`users/${userId}`);
+    const updatedReputation = ReputationManager.updateReputation(
       user.reputation,
       action as any,
       value
     );
-<span class="cstat-no" title="statement not covered" >    await this.gunService.put(`users/${userId}/reputation`, updatedReputation);</span>
+    await this.gunService.put(`users/${userId}/reputation`, updatedReputation);
   }
 &nbsp;
 <span class="fstat-no" title="function not covered" >  async </span>getUserReputationScore(userId: string): Promise&lt;number&gt; {
@@ -145,7 +145,7 @@ import { GunService } from './gun-service';
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-01-22T06:18:43.250Z
+                at 2026-04-16T15:59:38.840Z
             </div>
         <script src="../../prettify.js"></script>
         <script>
