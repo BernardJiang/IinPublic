@@ -65,7 +65,7 @@ export interface Talk {
     id: string;
     title: string;
     authorId: string;
-    type: 'matching' | 'survey' | 'tag';
+    type: 'flow' | 'survey' | 'tag';
     isAdult: boolean;
     language: string;
     tags: Tag[];

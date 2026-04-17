@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TalkLinearCapture = exports.TalkValidator = void 0;
+exports.FlowCapture = exports.TalkValidator = void 0;
 const errors_1 = require("./errors");
 class TalkValidator {
     /**
@@ -153,7 +153,7 @@ class TalkValidator {
     }
 }
 exports.TalkValidator = TalkValidator;
-class TalkLinearCapture {
+class FlowCapture {
     /**
      * Parses a chat line to extract question and answers
      * Format: "Question? Answer1; Answer2; ...; AnswerN."
@@ -234,7 +234,7 @@ class TalkLinearCapture {
             id: `talk_${Date.now()}_${userId}`,
             title: 'Auto-captured Talk',
             authorId: userId,
-            type: 'matching',
+            type: 'flow',
             isAdult: false,
             language: 'en',
             tags: tags.map((t) => ({ id: t, name: t, category: 'other', popularity: 0 })),
@@ -248,5 +248,5 @@ class TalkLinearCapture {
         return talk;
     }
 }
-exports.TalkLinearCapture = TalkLinearCapture;
+exports.FlowCapture = FlowCapture;
 //# sourceMappingURL=talk-engine.js.map

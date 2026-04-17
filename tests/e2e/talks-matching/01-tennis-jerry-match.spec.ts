@@ -68,7 +68,7 @@ test.describe('Talks matching — tennis, Jerry match', () => {
     await pageTom.click('#create-talk-btn');
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', 'Tennis Partner');
-    await pageTom.selectOption('#talk-type', 'matching');
+    await pageTom.selectOption('#talk-type', 'flow');
     const q = pageTom.locator('.question-item').first();
     await q.locator('.question-text').fill('Want a tennis partner?');
     await q.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes, lets play.');

@@ -82,7 +82,7 @@ export async function waitForTabActive(
 export async function openTomIncomingModal(
   page: Page,
   titleSubstring: string,
-  typeBadge: 'tag' | 'matching',
+  typeBadge: 'tag' | 'flow',
 ): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');

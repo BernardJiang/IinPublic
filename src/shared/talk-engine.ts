@@ -11,11 +11,11 @@ export interface SubmittedAnswer {
 }
 
 /**
- * Determines if the last submitted answer is a match (matching/tag talks).
+ * Determines if the last submitted answer is a match (flow/tag talks).
  * Used by both frontend and backend so match logic lives in one place.
  */
 export function checkIfMatch(talkData: Talk | any, answers: SubmittedAnswer[]): boolean {
-  if (talkData.type !== 'matching' && talkData.type !== 'tag') {
+  if (talkData.type !== 'flow' && talkData.type !== 'tag') {
     return false;
   }
   const lastAnswer = answers[answers.length - 1];
@@ -105,9 +105,9 @@ export class TalkValidator {
    *
    * Dispatch table for the four talk types (§3.6.1):
    *   tag      → validateTagTalk
-   *   matching → validateMatchingTalk (linear sequential Q/A)
+   *   flow   → validateFlowTalk  (linear sequential Q/A)
    *   survey   → validateSurveyTalk   (independent Q/A)
-   *   tree     → validateTreeTalk     (hierarchical DAG with context paths)
+   *   tree     → validateRouteTalk     (hierarchical DAG with context paths)
    */
   static validateTalk(talk: Talk): void {
     if (!talk.title?.trim()) {
@@ -129,8 +129,8 @@ export class TalkValidator {
       return;
     }
 
-    if (talk.type === 'tree') {
-      this.validateTreeTalk(talk);
+    if (talk.type === 'route') {
+      this.validateRouteTalk(talk);
       return;
     }
 
@@ -226,11 +226,11 @@ export class TalkValidator {
   }
 
   /**
-   * Validates a tree talk (type === 'tree').
+   * Validates a route talk (type === 'route').
    *
    * Rules:
    * - Must have at least one question.
-   * - Must not exceed 50 questions (tree talks can be large).
+   * - Must not exceed 50 questions (route talks can be large).
    * - Every question must have valid text and at least one answer.
    * - Every question must have a `contextPath` (root questions use []).
    * - No two questions may share the same (id, contextHash) pair.
@@ -238,9 +238,9 @@ export class TalkValidator {
    * - contextPath entries must refer to questions and answers that actually
    *   exist in the talk.
    */
-  private static validateTreeTalk(talk: Talk): void {
+  private static validateRouteTalk(talk: Talk): void {
     if (talk.questions.length > 50) {
-      throw new ValidationError('Tree talk cannot have more than 50 questions');
+      throw new ValidationError('Route cannot have more than 50 questions');
     }
 
     const questionIds = new Set(talk.questions.map(q => q.id));
@@ -279,7 +279,7 @@ export class TalkValidator {
       }
 
       // Uniqueness check: (questionId + contextHash) must be unique across all nodes
-      const contextHash = TreeTalkProcessor.buildContextHash(question.contextPath);
+      const contextHash = RouteProcessor.buildContextHash(question.contextPath);
       const uniqueKey = `${question.id}::${contextHash}`;
       if (seenContextKeys.has(uniqueKey)) {
         throw new ValidationError(
@@ -295,11 +295,11 @@ export class TalkValidator {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TreeTalkProcessor
+// RouteProcessor
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Utility class for working with tree-type talks.
+ * Utility class for working with route-type talks.
  *
  * Context representation:
  * Instead of storing the full list of { questionId, answerId } steps alongside
@@ -312,7 +312,7 @@ export class TalkValidator {
  * only on the talk definition (Question.contextPath) where it is needed for
  * tree construction and validation.
  */
-export class TreeTalkProcessor {
+export class RouteProcessor {
   /**
    * Computes the FNV-1a 32-bit hash of a context path and returns it as an
    * 8-character lowercase hex string.
@@ -399,7 +399,7 @@ export class TreeTalkProcessor {
    * for a stored answer whose (questionId, contextHash) pair matches. This is
    * an O(1) hash comparison — no list traversal required.
    *
-   * - tag / survey / matching: pass [] for currentContext → hash is '' → matches
+   * - tag / survey / flow: pass [] for currentContext → hash is '' → matches
    *   any answer record with contextHash = '' (no-context answers).
    * - tree: pass the active ContextStep array → hash is computed → only the
    *   answer recorded under the exact same branch will match (FR-TK-12).
@@ -407,7 +407,7 @@ export class TreeTalkProcessor {
    * @param questionId      The question the chatbot wants to answer.
    * @param currentContext  The context path active right now ([] for no-context).
    * @param storedAnswers   The user's auto-visibility AnswerWithContext records.
-   * @returns               The matching record, or null if auto-reply is not possible.
+   * @returns               The matched record, or null if auto-reply is not possible.
    */
   static resolveContextualAnswer(
     questionId: string,
@@ -425,7 +425,7 @@ export class TreeTalkProcessor {
   }
 
   /**
-   * Returns true if a question is a "survey-style" node in a tree talk —
+   * Returns true if a question is a "survey-style" node in a route talk —
    * i.e. its contextPath is empty (root-level) and it is answered without
    * any required prior context.
    */
@@ -434,7 +434,7 @@ export class TreeTalkProcessor {
   }
 }
 
-export class TalkLinearCapture {
+export class FlowCapture {
   /**
    * Parses a chat line to extract question and answers
    * Format: "Question? Answer1; Answer2; ...; AnswerN."
@@ -531,7 +531,7 @@ export class TalkLinearCapture {
       id: '',
       title: 'Auto-captured Talk',
       authorId: userId,
-      type: 'matching',
+      type: 'flow',
       isAdult: false,
       language: 'en',
       tags: tags.map((t: string) => ({ id: t, name: t, category: 'other' as const, popularity: 0 })),

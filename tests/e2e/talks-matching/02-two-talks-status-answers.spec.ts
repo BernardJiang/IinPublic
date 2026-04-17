@@ -77,7 +77,7 @@ test.describe('Talks matching — two talks, status bar, answers tab', () => {
     await pageTom.click('#create-talk-btn');
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', TITLE_TENNIS);
-    await pageTom.selectOption('#talk-type', 'matching');
+    await pageTom.selectOption('#talk-type', 'flow');
     const q1 = pageTom.locator('.question-item').first();
     await q1.locator('.question-text').fill('Want tennis?');
     await q1.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes');
@@ -89,7 +89,7 @@ test.describe('Talks matching — two talks, status bar, answers tab', () => {
     await pageTom.click('#create-talk-btn');
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', TITLE_COFFEE);
-    await pageTom.selectOption('#talk-type', 'matching');
+    await pageTom.selectOption('#talk-type', 'flow');
     const q2 = pageTom.locator('.question-item').first();
     await q2.locator('.question-text').fill('Coffee?');
     await q2.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes');

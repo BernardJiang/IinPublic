@@ -931,14 +931,14 @@ export class UIManager extends EventEmitter {
                 const statusBadge = isAnswered
                   ? '<span class="talk-badge" style="background:#f3f4f6;color:#6b7280;">✅ Answered</span>'
                   : '<span class="talk-badge" style="background:#dbeafe;color:#1d4ed8;font-weight:700;">🆕 New</span>';
-                const incomingType = String(cluster?.type || 'matching').toLowerCase();
+                const incomingType = String(cluster?.type || 'flow').toLowerCase();
                 return `
         <div class="talk-list-item" data-talk-id="${talkId}" data-identity-key="${this.escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${this.escapeHtml(incomingType)}" style="${isAnswered ? 'background:#fafafa;' : ''}">
           <div class="talk-item-header">
             <div class="talk-item-title" style="${titleStyle}">${this.escapeHtml(cluster?.title || 'Incoming Talk')}</div>
             <div class="talk-item-badges">
               ${statusBadge}
-              <span class="talk-badge talk-badge-type">${this.escapeHtml(cluster?.type || 'matching')}</span>
+              <span class="talk-badge talk-badge-type">${this.escapeHtml(cluster?.type || 'flow')}</span>
               <span class="talk-badge" style="background:#eef2ff;color:#3730a3;">👥 ${senderNames.length} sender${senderNames.length !== 1 ? 's' : ''}</span>
             </div>
           </div>
@@ -1889,7 +1889,7 @@ export class UIManager extends EventEmitter {
     });
 
     this.showNotification(
-      talk.type === 'matching'
+      talk.type === 'flow'
         ? "Response submitted! We'll notify you of matches."
         : talk.type === 'tag'
           ? "Tag response submitted!"
@@ -2913,8 +2913,8 @@ export class UIManager extends EventEmitter {
               <label class="form-label">Type</label>
               <div style="display: flex; flex-direction: column; gap: 10px;">
                 <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
-                  <input type="radio" name="talk-type-radio" value="matching" ${existingTalk?.type !== 'tag' && existingTalk?.type !== 'survey' ? 'checked' : ''}>
-                  <span>Talk (matching – find compatible people)</span>
+                  <input type="radio" name="talk-type-radio" value="flow" ${existingTalk?.type !== 'tag' && existingTalk?.type !== 'survey' ? 'checked' : ''}>
+                  <span>Flow – find compatible people</span>
                 </label>
                 <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
                   <input type="radio" name="talk-type-radio" value="survey" ${existingTalk?.type === 'survey' ? 'checked' : ''}>
@@ -2926,7 +2926,7 @@ export class UIManager extends EventEmitter {
                 </label>
               </div>
               <select class="form-input" id="talk-type" aria-hidden="true" style="position: absolute; left: -9999px;" tabindex="-1">
-                <option value="matching">Matching</option>
+                <option value="flow">Matching</option>
                 <option value="survey">Survey</option>
                 <option value="tag">Tag</option>
               </select>
@@ -3070,7 +3070,7 @@ export class UIManager extends EventEmitter {
       const talkTypeSelect = document.getElementById('talk-type') as HTMLSelectElement;
       const questionsFormGroup = document.getElementById('questions-form-group');
       const updateFormForType = () => {
-        const type = talkTypeSelect?.value || 'matching';
+        const type = talkTypeSelect?.value || 'flow';
         const titleInput = document.getElementById('talk-title') as HTMLInputElement;
         const desc = document.querySelector('.talk-editor-description');
         if (type === 'tag') {
@@ -3369,7 +3369,7 @@ export class UIManager extends EventEmitter {
   private processTalkForm(form: HTMLFormElement): void {
     const title = (document.getElementById('talk-title') as HTMLInputElement).value.trim();
     const type = (document.getElementById('talk-type') as HTMLSelectElement).value as
-      | 'matching'
+      | 'flow'
       | 'survey'
       | 'tag';
 

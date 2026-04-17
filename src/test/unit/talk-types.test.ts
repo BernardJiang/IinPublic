@@ -1,17 +1,17 @@
 /**
- * Tests for the four talk types: tag, talk (matching), survey, tree.
+ * Tests for the four talk types: tag, talk types: tag, flow, survey, route.
  *
  * The four types are defined in §3.6.1 of the technical specification:
  *
  *   tag      – single keyword/phrase, checked (match) or unchecked (ignore)
- *   matching – sequential chain, each question uses all prior Q/A as context
+ *   flow   – sequential chain (path graph), each question uses all prior Q/A as context
  *   survey   – independent Q/A, no shared context
- *   tree     – hierarchical DAG mixing context-dependent and independent nodes
+ *   route  – hierarchical DAG (logical map) mixing context-dependent and independent nodes
  *
- * The tennis/badminton example from the spec is exercised in the tree section.
+ * The tennis/badminton example from the spec is exercised in the route section.
  */
 
-import { TalkValidator, TreeTalkProcessor } from '../../shared/talk-engine';
+import { TalkValidator, RouteProcessor } from '../../shared/talk-engine';
 import { Talk, AnswerWithContext, ContextStep } from '../../shared/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -139,14 +139,14 @@ describe('Talk type: tag', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. TALK (matching — sequential, context-dependent)
+// 2. FLOW (linear thread — sequential, context-dependent)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Talk type: matching (sequential / context-dependent)', () => {
+describe('Talk type: flow (sequential / context-dependent)', () => {
   it('accepts a valid two-question sequential talk', () => {
     const talk: Talk = {
       ...makeBase(),
-      type: 'matching',
+      type: 'flow',
       questions: [
         {
           id: 'q1',
@@ -172,7 +172,7 @@ describe('Talk type: matching (sequential / context-dependent)', () => {
     expect(() => TalkValidator.validateTalk(talk)).not.toThrow();
   });
 
-  it('rejects a matching talk with more than 20 questions', () => {
+  it('rejects a flow with more than 20 questions', () => {
     const questions = Array.from({ length: 21 }, (_, i) => ({
       id: `q${i}`,
       text: `Question ${i}?`,
@@ -181,16 +181,16 @@ describe('Talk type: matching (sequential / context-dependent)', () => {
         { id: `a${i}_ig`, text: 'Ignore.', isIgnore: true, isTerminal: true },
       ],
     }));
-    const talk: Talk = { ...makeBase(), type: 'matching', questions };
+    const talk: Talk = { ...makeBase(), type: 'flow', questions };
     expect(() => TalkValidator.validateTalk(talk)).toThrow(
       'Talk cannot have more than 20 questions',
     );
   });
 
-  it('rejects a matching talk with a cycle', () => {
+  it('rejects a flow with a cycle', () => {
     const talk: Talk = {
       ...makeBase(),
-      type: 'matching',
+      type: 'flow',
       questions: [
         {
           id: 'q1',
@@ -285,10 +285,10 @@ describe('Talk type: survey (independent questions)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4. TREE (hierarchical DAG, context-aware)
+// 4. ROUTE (logical map — hierarchical DAG, context-aware)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Talk type: tree (hierarchical, context-aware)', () => {
+describe('Talk type: route (hierarchical DAG, context-aware)', () => {
   /**
    * Tennis / Badminton example from the spec (§3.6.1):
    *
@@ -300,11 +300,11 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
    * The same question text appears twice with different context paths.
    * In the flat answer list they become two distinct records.
    */
-  function makeTennisBadmintonTree(): Talk {
+  function makeTennisBadmintonRoute(): Talk {
     return {
       ...makeBase(),
-      title: 'Sports Interest Tree',
-      type: 'tree',
+      title: 'Sports Interest Route',
+      type: 'route',
       questions: [
         {
           id: 'q_tennis',
@@ -353,14 +353,14 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
   }
 
   describe('validation', () => {
-    it('accepts the tennis/badminton tree talk', () => {
-      expect(() => TalkValidator.validateTalk(makeTennisBadmintonTree())).not.toThrow();
+    it('accepts the tennis/badminton route', () => {
+      expect(() => TalkValidator.validateTalk(makeTennisBadmintonRoute())).not.toThrow();
     });
 
-    it('accepts a simple single-level tree (root questions only)', () => {
+    it('accepts a single-level route (root questions only)', () => {
       const talk: Talk = {
         ...makeBase(),
-        type: 'tree',
+        type: 'route',
         questions: [
           {
             id: 'q1',
@@ -377,10 +377,10 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
       expect(() => TalkValidator.validateTalk(talk)).not.toThrow();
     });
 
-    it('rejects a tree question missing contextPath entirely', () => {
+    it('rejects a route question missing contextPath entirely', () => {
       const talk: Talk = {
         ...makeBase(),
-        type: 'tree',
+        type: 'route',
         questions: [
           {
             id: 'q1',
@@ -398,10 +398,10 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
       );
     });
 
-    it('rejects a tree question whose contextPath references a non-existent questionId', () => {
+    it('rejects a route question whose contextPath references a non-existent questionId', () => {
       const talk: Talk = {
         ...makeBase(),
-        type: 'tree',
+        type: 'route',
         questions: [
           {
             id: 'q_root',
@@ -429,10 +429,10 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
       );
     });
 
-    it('rejects a tree question whose contextPath references a non-existent answerId', () => {
+    it('rejects a route question whose contextPath references a non-existent answerId', () => {
       const talk: Talk = {
         ...makeBase(),
-        type: 'tree',
+        type: 'route',
         questions: [
           {
             id: 'q_root',
@@ -460,7 +460,7 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
       );
     });
 
-    it('rejects a tree talk with more than 50 questions', () => {
+    it('rejects a route with more than 50 questions', () => {
       const questions = Array.from({ length: 51 }, (_, i) => ({
         id: `q${i}`,
         text: `Tree question ${i}?`,
@@ -470,16 +470,16 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
           { id: `a${i}_ig`, text: 'Ignore.', isIgnore: true, isTerminal: true },
         ],
       }));
-      const talk: Talk = { ...makeBase(), type: 'tree', questions };
+      const talk: Talk = { ...makeBase(), type: 'route', questions };
       expect(() => TalkValidator.validateTalk(talk)).toThrow(
-        'Tree talk cannot have more than 50 questions',
+        'Route cannot have more than 50 questions',
       );
     });
 
-    it('rejects a tree talk with a cycle', () => {
+    it('rejects a route with a cycle', () => {
       const talk: Talk = {
         ...makeBase(),
-        type: 'tree',
+        type: 'route',
         questions: [
           {
             id: 'q1',
@@ -506,17 +506,17 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // TreeTalkProcessor — context key building
+  // RouteProcessor — context key building
   // ─────────────────────────────────────────────────────────────────────────
 
-  describe('TreeTalkProcessor.buildContextHash', () => {
+  describe('RouteProcessor.buildContextHash', () => {
     it('returns "" (empty string) for an empty context path — no context needed', () => {
-      expect(TreeTalkProcessor.buildContextHash([])).toBe('');
+      expect(RouteProcessor.buildContextHash([])).toBe('');
     });
 
     it('returns a deterministic 8-char hex hash for a single-step context', () => {
       const path: ContextStep[] = [{ questionId: 'q_tennis', answerId: 'a_yes' }];
-      const hash = TreeTalkProcessor.buildContextHash(path);
+      const hash = RouteProcessor.buildContextHash(path);
       // FNV-1a of "q_tennis:a_yes" = c7d3aab4
       expect(hash).toBe('c7d3aab4');
       expect(hash).toHaveLength(8);
@@ -527,7 +527,7 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
         { questionId: 'q1', answerId: 'a1' },
         { questionId: 'q2', answerId: 'a2' },
       ];
-      const hash = TreeTalkProcessor.buildContextHash(path);
+      const hash = RouteProcessor.buildContextHash(path);
       // FNV-1a of "q1:a1|q2:a2" = 1c6c6ab0
       expect(hash).toBe('1c6c6ab0');
       expect(hash).toHaveLength(8);
@@ -535,8 +535,8 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
 
     it('is deterministic — same path always produces the same hash', () => {
       const path: ContextStep[] = [{ questionId: 'q_tennis', answerId: 'a_yes' }];
-      expect(TreeTalkProcessor.buildContextHash(path))
-        .toBe(TreeTalkProcessor.buildContextHash(path));
+      expect(RouteProcessor.buildContextHash(path))
+        .toBe(RouteProcessor.buildContextHash(path));
     });
 
     it('produces different hashes for different paths to the same question', () => {
@@ -544,18 +544,18 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
       const badmintonPath: ContextStep[] = [{ questionId: 'q_badminton', answerId: 'a_badminton_yes' }];
       // FNV-1a of "q_tennis:a_tennis_yes"    = aeafadc9
       // FNV-1a of "q_badminton:a_badminton_yes" = 5e968168
-      expect(TreeTalkProcessor.buildContextHash(tennisPath)).toBe('aeafadc9');
-      expect(TreeTalkProcessor.buildContextHash(badmintonPath)).toBe('5e968168');
-      expect(TreeTalkProcessor.buildContextHash(tennisPath))
-        .not.toBe(TreeTalkProcessor.buildContextHash(badmintonPath));
+      expect(RouteProcessor.buildContextHash(tennisPath)).toBe('aeafadc9');
+      expect(RouteProcessor.buildContextHash(badmintonPath)).toBe('5e968168');
+      expect(RouteProcessor.buildContextHash(tennisPath))
+        .not.toBe(RouteProcessor.buildContextHash(badmintonPath));
     });
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // TreeTalkProcessor — flattenTreeAnswers (tennis/badminton scenario)
+  // RouteProcessor — flattenTreeAnswers (tennis/badminton scenario)
   // ─────────────────────────────────────────────────────────────────────────
 
-  describe('TreeTalkProcessor.flattenTreeAnswers — tennis/badminton scenario', () => {
+  describe('RouteProcessor.flattenTreeAnswers — tennis/badminton scenario', () => {
     it('stores the skill-level answer for tennis with the correct contextHash', () => {
       const tennisSession = [
         {
@@ -572,7 +572,7 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
         },
       ];
 
-      const records = TreeTalkProcessor.flattenTreeAnswers(tennisSession);
+      const records = RouteProcessor.flattenTreeAnswers(tennisSession);
       expect(records).toHaveLength(2);
 
       const rootRecord = records.find(r => r.questionId === 'q_tennis')!;
@@ -603,7 +603,7 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
         },
       ];
 
-      const records = TreeTalkProcessor.flattenTreeAnswers(badmintonSession);
+      const records = RouteProcessor.flattenTreeAnswers(badmintonSession);
       const levelRecord = records.find(r => r.questionId === 'q_level_badminton')!;
       expect(levelRecord.answerText).toBe('Professional.');
       // FNV-1a of "q_badminton:a_badminton_yes" = 5e968168
@@ -617,7 +617,7 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
         questionId: 'q_level',
         answerId: 'a_beg',
         answerText: 'Beginner.',
-        contextHash: TreeTalkProcessor.buildContextHash([{ questionId: 'q_tennis', answerId: 'a_yes' }]),
+        contextHash: RouteProcessor.buildContextHash([{ questionId: 'q_tennis', answerId: 'a_yes' }]),
         visibility: 'auto',
         recordedAt: new Date(),
       };
@@ -625,7 +625,7 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
         questionId: 'q_level',
         answerId: 'a_pro',
         answerText: 'Professional.',
-        contextHash: TreeTalkProcessor.buildContextHash([{ questionId: 'q_badminton', answerId: 'a_yes' }]),
+        contextHash: RouteProcessor.buildContextHash([{ questionId: 'q_badminton', answerId: 'a_yes' }]),
         visibility: 'auto',
         recordedAt: new Date(),
       };
@@ -640,10 +640,10 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // TreeTalkProcessor — resolveContextualAnswer
+  // RouteProcessor — resolveContextualAnswer
   // ─────────────────────────────────────────────────────────────────────────
 
-  describe('TreeTalkProcessor.resolveContextualAnswer', () => {
+  describe('RouteProcessor.resolveContextualAnswer', () => {
     // Stored answers use contextHash only — no full path stored
     const storedAnswers: AnswerWithContext[] = [
       {
@@ -675,7 +675,7 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
     ];
 
     it('returns the correct answer when the tennis context matches', () => {
-      const result = TreeTalkProcessor.resolveContextualAnswer(
+      const result = RouteProcessor.resolveContextualAnswer(
         'q_level',
         [{ questionId: 'q_tennis', answerId: 'a_yes' }],
         storedAnswers,
@@ -685,7 +685,7 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
     });
 
     it('returns the correct answer when the badminton context matches', () => {
-      const result = TreeTalkProcessor.resolveContextualAnswer(
+      const result = RouteProcessor.resolveContextualAnswer(
         'q_level',
         [{ questionId: 'q_badminton', answerId: 'a_yes' }],
         storedAnswers,
@@ -697,7 +697,7 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
     it('returns null when no stored answer matches the current context (FR-TK-12)', () => {
       // User has tennis and badminton answers but chatbot is asked in a
       // squash context for which no answer was recorded.
-      const result = TreeTalkProcessor.resolveContextualAnswer(
+      const result = RouteProcessor.resolveContextualAnswer(
         'q_level',
         [{ questionId: 'q_squash', answerId: 'a_yes' }],
         storedAnswers,
@@ -706,7 +706,7 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
     });
 
     it('returns the root answer for a context-free (survey-style) question', () => {
-      const result = TreeTalkProcessor.resolveContextualAnswer(
+      const result = RouteProcessor.resolveContextualAnswer(
         'q_root_tag',
         [],   // no context
         storedAnswers,
@@ -724,7 +724,7 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
         visibility: 'manual',
         recordedAt: new Date(),
       };
-      const result = TreeTalkProcessor.resolveContextualAnswer(
+      const result = RouteProcessor.resolveContextualAnswer(
         'q_private',
         [],
         [manualAnswer],
@@ -734,16 +734,16 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // TreeTalkProcessor — isSurveyStyleNode
+  // RouteProcessor — isSurveyStyleNode
   // ─────────────────────────────────────────────────────────────────────────
 
-  describe('TreeTalkProcessor.isSurveyStyleNode', () => {
+  describe('RouteProcessor.isSurveyStyleNode', () => {
     it('returns true for a root node (empty contextPath)', () => {
       const q = {
         id: 'q1', text: 'Root?', contextPath: [],
         answers: [{ id: 'a1', text: 'Yes.', isTerminal: true }],
       };
-      expect(TreeTalkProcessor.isSurveyStyleNode(q)).toBe(true);
+      expect(RouteProcessor.isSurveyStyleNode(q)).toBe(true);
     });
 
     it('returns false for a context-dependent node', () => {
@@ -752,7 +752,7 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
         contextPath: [{ questionId: 'q1', answerId: 'a1' }],
         answers: [{ id: 'a2', text: 'Yes.', isTerminal: true }],
       };
-      expect(TreeTalkProcessor.isSurveyStyleNode(q)).toBe(false);
+      expect(RouteProcessor.isSurveyStyleNode(q)).toBe(false);
     });
 
     it('returns true when contextPath is undefined (no context assigned)', () => {
@@ -760,21 +760,21 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
         id: 'q3', text: 'No path?',
         answers: [{ id: 'a3', text: 'Yes.', isTerminal: true }],
       };
-      expect(TreeTalkProcessor.isSurveyStyleNode(q)).toBe(true);
+      expect(RouteProcessor.isSurveyStyleNode(q)).toBe(true);
     });
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // TreeTalkProcessor — buildContextPathFromSubmitted
+  // RouteProcessor — buildContextPathFromSubmitted
   // ─────────────────────────────────────────────────────────────────────────
 
-  describe('TreeTalkProcessor.buildContextPathFromSubmitted', () => {
+  describe('RouteProcessor.buildContextPathFromSubmitted', () => {
     it('produces a ContextStep array from submitted answers', () => {
       const submitted = [
         { questionId: 'q1', answerId: 'a1' },
         { questionId: 'q2', answerId: 'a2' },
       ];
-      const path = TreeTalkProcessor.buildContextPathFromSubmitted(submitted);
+      const path = RouteProcessor.buildContextPathFromSubmitted(submitted);
       expect(path).toEqual([
         { questionId: 'q1', answerId: 'a1' },
         { questionId: 'q2', answerId: 'a2' },
@@ -782,7 +782,7 @@ describe('Talk type: tree (hierarchical, context-aware)', () => {
     });
 
     it('returns an empty array for no prior answers', () => {
-      expect(TreeTalkProcessor.buildContextPathFromSubmitted([])).toEqual([]);
+      expect(RouteProcessor.buildContextPathFromSubmitted([])).toEqual([]);
     });
   });
 });

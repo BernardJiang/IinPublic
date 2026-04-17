@@ -3,7 +3,7 @@
  *
  * Example (strict id check once you build a minimal talk-shaped object):
  *   import { computeTalkIdFromTalkData } from './helpers/talk-content-id';
- *   expect(await row.getAttribute('data-talk-id')).toBe(computeTalkIdFromTalkData({ type: 'matching', questions: [...] }));
+ *   expect(await row.getAttribute('data-talk-id')).toBe(computeTalkIdFromTalkData({ type: 'flow', questions: [...] }));
  */
 export {
   computeTalkIdFromTalkData,

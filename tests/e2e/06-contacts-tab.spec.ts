@@ -46,7 +46,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
       if (!p) return;
       try {
         await p.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());
-      } catch {}
+      } catch { }
     };
     await cleanup(pageTom);
     await cleanup(pageJerry);
@@ -123,7 +123,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await pageTom.click('#create-talk-btn');
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', TALK_TENNIS);
-    await pageTom.selectOption('#talk-type', 'matching');
+    await pageTom.selectOption('#talk-type', 'flow');
     const q1 = pageTom.locator('.question-item').first();
     await q1.locator('.question-text').fill('Want a tennis partner?');
     await q1.locator('.answer-item').nth(0).locator('.answer-text').fill(MATCH_ANSWER);
@@ -136,7 +136,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await pageTom.click('#create-talk-btn');
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', TALK_COFFEE);
-    await pageTom.selectOption('#talk-type', 'matching');
+    await pageTom.selectOption('#talk-type', 'flow');
     const q2 = pageTom.locator('.question-item').first();
     await q2.locator('.question-text').fill('Want to grab coffee?');
     await q2.locator('.answer-item').nth(0).locator('.answer-text').fill(MATCH_ANSWER_COFFEE);

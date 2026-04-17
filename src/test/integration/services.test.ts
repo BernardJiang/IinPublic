@@ -98,7 +98,7 @@ describe('Service Integration Tests', () => {
       const talkData = {
         title: 'Test Talk',
         authorId: 'user123',
-        type: 'matching' as const,
+        type: 'flow' as const,
         isAdult: false,
         language: 'en',
         questions: [
@@ -128,7 +128,7 @@ describe('Service Integration Tests', () => {
       const invalidTalkData = {
         title: 'Invalid Talk',
         authorId: 'user123',
-        type: 'matching' as const,
+        type: 'flow' as const,
         isAdult: false,
         language: 'en',
         questions: [

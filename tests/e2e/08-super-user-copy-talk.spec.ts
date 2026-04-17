@@ -85,7 +85,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     const copyTalkTitle = 'CopyTestTalk';
     await pageTechSupport.click('#create-talk-btn');
     await pageTechSupport.waitForSelector('#talk-editor-form');
-    await pageTechSupport.click('input[name="talk-type-radio"][value="matching"]');
+    await pageTechSupport.click('input[name="talk-type-radio"][value="flow"]');
     await afterAction();
     await pageTechSupport.fill('#talk-title', copyTalkTitle);
     const q = pageTechSupport.locator('.question-item').first();

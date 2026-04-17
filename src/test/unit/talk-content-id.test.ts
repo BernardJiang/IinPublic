@@ -7,7 +7,7 @@ import {
 describe('talk-content-id', () => {
   it('produces stable qa_ id for same Q/A content', () => {
     const a = {
-      type: 'matching',
+      type: 'flow',
       questions: [
         {
           id: 'q1',
@@ -20,7 +20,7 @@ describe('talk-content-id', () => {
       ],
     };
     const b = {
-      type: 'matching',
+      type: 'flow',
       questions: [
         {
           id: 'q9',
@@ -42,11 +42,11 @@ describe('talk-content-id', () => {
 
   it('differs when answer text changes', () => {
     const t1 = {
-      type: 'matching',
+      type: 'flow',
       questions: [{ id: 'q1', text: 'Hi', answers: [{ id: 'a1', text: 'A' }] }],
     };
     const t2 = {
-      type: 'matching',
+      type: 'flow',
       questions: [{ id: 'q1', text: 'Hi', answers: [{ id: 'a1', text: 'B' }] }],
     };
     expect(computeTalkIdFromTalkData(t1)).not.toBe(computeTalkIdFromTalkData(t2));
@@ -54,7 +54,7 @@ describe('talk-content-id', () => {
 
   it('optional authorId changes id when enabled', () => {
     const base = {
-      type: 'matching',
+      type: 'flow',
       questions: [{ id: 'q1', text: 'Hi', answers: [{ id: 'a1', text: 'A' }] }],
       authorId: 'user-1',
     };

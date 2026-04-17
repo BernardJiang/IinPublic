@@ -83,7 +83,7 @@ export interface BusinessInfo {
 
 /**
  * One step in a context path: identifies which question was asked and which
- * answer was selected by the user at that step. Used by tree-type talks to
+ * answer was selected by the user at that step. Used by route-type talks to
  * distinguish otherwise identical questions that appear in different branches.
  */
 export interface ContextStep {
@@ -97,15 +97,15 @@ export interface ContextStep {
  *
  * Context is represented as a single hash ID (not a full path list):
  *
- * - tag / survey / matching (linear talk): contextHash is '' (empty string),
+ * - tag / survey / flow: contextHash is '' (empty string),
  *   meaning no context is required.
- * - tree: contextHash is an 8-char FNV-1a hex hash of the ordered
+ * - route: contextHash is an 8-char FNV-1a hex hash of the ordered
  *   (questionId:answerId) steps that were active before this question was
  *   shown. The chatbot matches by computing the hash of the current path
  *   and comparing it against stored hashes — O(1) lookup, no list traversal.
  *
  * The full contextPath is NOT stored here; it only lives on the talk
- * definition (Question.contextPath) where it is needed for tree traversal.
+ * definition (Question.contextPath) where it is needed for route traversal.
  */
 export interface AnswerWithContext {
   questionId: string;
@@ -113,8 +113,8 @@ export interface AnswerWithContext {
   answerText: string;
   /**
    * Hash of the context path that was active when this answer was given.
-   * '' (empty) for tag/survey/matching. 8-char hex for tree branches.
-   * Computed by TreeTalkProcessor.buildContextHash().
+   * '' (empty) for tag/survey/flow. 8-char hex for route branches.
+   * Computed by RouteProcessor.buildContextHash().
    */
   contextHash: string;
   visibility: 'auto' | 'manual';
@@ -128,21 +128,19 @@ export interface Talk {
   /**
    * The four talk types (see §3.6.1 of the technical specification):
    *
-   * - 'tag'      : Single keyword/phrase, checked (match) or unchecked (ignore).
-   *                Exactly one question, no sequential context.
-   * - 'matching' : Sequential chain of Q/A. Every question uses all prior Q/A
-   *                as context. The chatbot auto-replies when the full preceding
-   *                context matches a stored answer.
-   * - 'survey'   : Independent Q/A pairs. No question uses other questions as
-   *                context. The chatbot can always auto-reply; results are
-   *                aggregated across all respondents.
-   * - 'tree'     : Hierarchical DAG that can contain both talk-style (context-
-   *                dependent) and survey-style (context-independent) branches.
-   *                Each question carries a contextPath. The chatbot auto-replies
-   *                only when the stored answer's contextPath matches the current
-   *                conversation path.
+   * - 'tag'    : The Atom of Interest. Single keyword/phrase (Boolean toggle):
+   *              checked = match, unchecked = ignore. Isolated node, no context.
+   * - 'flow'   : The Linear Thread. Sequential chain of Q/A (path graph).
+   *              Every question uses all prior Q/A as context. The chatbot
+   *              auto-replies when the full preceding context matches a stored answer.
+   * - 'survey' : The Distributed Collection. Independent Q/A pairs (star graph).
+   *              No shared context; ideal for aggregate statistics.
+   * - 'route'  : The Logical Map. Branching DAG combining flow and survey logic.
+   *              Each question carries a contextPath (for construction only).
+   *              The chatbot auto-replies only when the stored contextHash matches
+   *              the hash of the current conversation path.
    */
-  type: 'matching' | 'survey' | 'tag' | 'tree';
+  type: 'flow' | 'survey' | 'tag' | 'route';
   isAdult: boolean;
   language: string;
   tags: Tag[];
@@ -162,12 +160,12 @@ export interface Question {
   id: string;
   text: string;
   answers: Answer[];
-  nextQuestionId?: string; // for linear (matching) talks
-  branchingLogic?: BranchLogic[]; // for tree talks
+  nextQuestionId?: string; // for flow (linear) talks
+  branchingLogic?: BranchLogic[]; // for route talks
   isAgeGate?: boolean;
   isAggregatable?: boolean; // for surveys
   /**
-   * Present on 'tree' type questions only.
+   * Present on 'route' type questions only.
    * The ordered list of (questionId, answerId) steps that were traversed to
    * reach this question. Two occurrences of the same question text in different
    * branches will have different contextPaths and are stored as separate answers.

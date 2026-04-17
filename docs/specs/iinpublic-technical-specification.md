@@ -73,19 +73,19 @@ The system supports:
 
 | Term | Definition |
 |---|---|
-| **Talk** | A structured sequence of questions and predefined answers, possibly branching (DAG). |
+| **Talk** | The umbrella term for any of the four types: Tag, Flow, Survey, or Route. |
 | **Auto Answer** | A public answer marked as re-usable by the user's chatbot. Stored with `visibility: 'auto'`. |
 | **Manual Answer** | A private answer not re-used by the chatbot. Stored with `visibility: 'manual'`, SEA-encrypted. |
 | **Chatroom** | A public, location-based or user-defined "place" where users can find each other; all conversations remain one-on-one. |
 | **Business Chatroom** | A user-defined chatroom bound to a specific brand and address (e.g., a bar). |
 | **Traveller** | A user present in a chatroom outside their blurred true-location region. |
 | **Tag** | The simplest talk unit: a single keyword or short phrase with a checkbox (checked = interested / match, unchecked = not interested / ignore). No question-mark required. No answers beyond the checked/unchecked state. |
-| **Talk** | A sequential chain of one or more Q/A pairs where every question is shown in order and each question uses all previous questions and answers as context. The chatbot can auto-reply only when the full preceding context matches a stored answer. |
+| **Flow** | The Linear Thread. A path-graph talk: sequential chain of Q/A where every question uses all prior Q/A as context. Chatbot auto-replies only when the full preceding context matches a stored answer. |
 | **Survey** | One or more independent Q/A pairs where every question stands alone — no prior Q/A is used as context. Each question's answer is stored and retrieved without context. Suitable for collecting aggregate statistics. |
-| **Tree Talk** | A hierarchical structure (JSON-like DAG) that contains both talk-style and survey-style sub-branches. Each node (question) carries a `contextPath` — the ordered list of (questionId, answerId) steps that led to it. The chatbot replies automatically only when the stored answer for that question was recorded under the same context path. |
-| **ContextPath** | An ordered list of `{ questionId, answerId }` steps representing the path through a tree talk that preceded a given question. Used during tree construction and validation; not stored in answer records. |
+| **Route** | The Logical Map. A DAG/general-tree talk combining flow and survey logic. Each question carries a `contextPath` (for construction only); answers are stored with a `contextHash` (FNV-1a hex). The chatbot auto-replies only when the stored hash matches the hash of the current conversation path. |
+| **ContextPath** | An ordered list of `{ questionId, answerId }` steps representing the path through a route that preceded a given question. Used during route construction and validation; not stored in answer records. |
 | **ContextHash** | An 8-character lowercase hex string (FNV-1a 32-bit hash of the canonical context-path string). Stored in every answer record in place of the full ContextPath. The chatbot computes the hash of the current path and compares it with the stored hash — O(1) lookup. Root/no-context questions use `''` (empty string). |
-| **Survey Talk** | A talk specifically used for collecting and aggregating answer statistics. |
+| **Survey** | The Distributed Collection. A star-graph talk: independent Q/A pairs with no shared context. Ideal for collecting aggregate statistics. |
 | **Reputation** | Aggregated feedback metrics (star ratings, blocks, confirmations). Read-only to the user. |
 | **StageName** | A user-chosen display name. Not unique; multiple users may share one. |
 | **SEA** | Gun.js Security, Encryption, and Authorization module — used for all cryptographic operations. |
@@ -133,7 +133,7 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 - Built-in filters: language, grammar, dirty words.
 - Tag system (Craigslist-style catalogs) for fast interest and item filtering.
 - Bulk matching logic for dating, sports, buying/selling, hobby matching, etc.
-- Survey talks for collecting and aggregating statistics.
+- Surveys for collecting and aggregating statistics.
 - Decentralized moderation: blocking, age-gating, reputation, block count.
 - Headshot avatars with chatbot overlays to distinguish bot vs. human replies.
 - Green/Red conversation modes to control chatbot automation level (Auto / Manual).
@@ -263,22 +263,22 @@ Do you like to play tennis? ** yes; * no.  // Question with answer chips
 
 The system defines exactly four talk types, arranged from simplest to most complex:
 
-| Type | Questions | Context | Chatbot auto-reply condition |
-|------|-----------|---------|------------------------------|
-| **tag** | Exactly 1 | None | Always (no context needed) |
-| **talk** | 1 or more, sequential | All preceding Q/A pairs | Full preceding context matches stored answer |
-| **survey** | 1 or more, independent | None (each question is standalone) | Always (no context needed per question) |
-| **tree** | 1 or more, hierarchical | Each question carries its own `contextPath` (used for tree construction only) | Stored `contextHash` (FNV-1a hash of contextPath) matches the hash of the current conversation path |
+| Type | Graph Structure | Context Logic | Chatbot auto-reply condition |
+|------|----------------|---------------|------------------------------|
+| **tag** | Isolated node | None | Always (no context needed) |
+| **flow** | Path graph (unary tree) | Full sequential (all prior Q/A) | Full preceding context matches stored answer |
+| **survey** | Star graph (height 1) | None (each question is standalone) | Always (no context needed per question) |
+| **route** | DAG / general tree | Path-dependent (`contextHash`) | Stored `contextHash` (FNV-1a 8-char hex) matches hash of current conversation path |
 
-**Tag** — The simplest unit. A single keyword or short phrase. The user marks it checked (interested / match) or unchecked (not interested / ignore). No question mark, no free-text answers.
+**Tag** — *The Atom of Interest.* Isolated node (Boolean toggle). A single keyword or short phrase; no question mark. Checked = match/interested, unchecked = ignore. No context required.
 
-**Talk** — A sequential chain. Question 2 implicitly knows about Question 1's answer, Question 3 knows about Q1 and Q2, etc. When stored to a flat answer list, only one record exists per question (the context is implied by position). The chatbot auto-replies to Q2 only if it answered Q1 in the same conversation.
+**Flow** — *The Linear Thread.* Path graph (degenerate/unary tree — every internal node has exactly one child). Questions are presented in strict sequence; each answer depends on all prior Q/A. Only one stored record per question (context is implied by sequential position). The chatbot auto-replies only when it has answered all preceding questions in the same session.
 
-**Survey** — A collection of independent questions. Each question is answered without any reference to other questions. The same question may appear in multiple surveys and will always get the same answer regardless of surrounding questions. Suitable for collecting aggregate statistics.
+**Survey** — *The Distributed Collection.* Star graph (all nodes connect directly to a single root at height 1). Every question is independent — no prior Q/A is used as context. The same question always receives the same stored answer regardless of surrounding questions. Ideal for aggregate statistics and flat profile data.
 
-**Tree** — The most general structure. A tree (DAG) whose nodes may behave like talk-branches (context-dependent) or survey-branches (context-independent). Each question node carries a `contextPath` (used for tree construction and validation only). When saving answers, the full path list is NOT stored — instead each answer record carries a single `contextHash`: the FNV-1a 32-bit hash of the canonical path string. The same surface question (e.g., "What is your skill level?") is stored as **separate records** for each distinct branch because each branch produces a different hash. The chatbot auto-replies by computing the hash of the current path and doing an O(1) equality check against stored hashes — no list traversal required.
+**Route** — *The Logical Map.* Directed Acyclic Graph (general tree). Combines flow branches (context-dependent) and survey branches (context-independent) in one structure. Each question carries a `contextPath` (used for construction/validation only — not stored in answer records). Every stored answer record carries a single `contextHash`: the 8-char FNV-1a 32-bit hex hash of the canonical path string. The same surface question (e.g., "What is your skill level?") produces **separate records** for each distinct branch because each branch hashes differently. The chatbot auto-replies by hashing the current path and doing an O(1) equality check — no list traversal required.
 
-**Example (tree):**
+**Example (route):**
 ```
 Q1a: "Do you like tennis?"  → Yes
 Q1b: "Do you like badminton?" → Yes   (independent root questions, no shared context)
@@ -292,7 +292,7 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 
 - **FR-TK-1**: A talk SHALL be defined as a directed acyclic graph (DAG); no loops are permitted.
 - **FR-TK-2**: The system SHALL prevent users from creating cycles in talk graphs.
-- **FR-TK-3**: A talk SHALL support tree structures and linear chains.
+- **FR-TK-3**: A talk SHALL support route (DAG) and flow (linear) structures.
 - **FR-TK-4**: Logic-OR SHALL be supported: multiple answers may point to the same next question.
 - **FR-TK-5**: The final question in a talk SHALL support two terminal answers:
   - **"Ignore"** → terminate the conversation, filter out the user.
@@ -303,12 +303,12 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
   - On selection, record the chosen answer, discard the others, and advance to the next such line.
   - Stop the flow when a final sentence ending with `.` is reached with no further answer list.
   - Automatically record the resulting Q&A sequence as a **linear talk** draft for User A to reuse and broadcast later.
-- **FR-TK-8 (Editing Constraints)**: Tree-structured talks and survey talks MAY only be created or edited in the Talk Editor UI. Auto-captured chats produce linear talks only.
-- **FR-TK-9 (Tag Structure)**: A tag talk SHALL contain exactly one question (a word or short phrase) and exactly two answers: one `isMatch=true` (checked) and one `isIgnore=true` (unchecked). No other answers are permitted.
-- **FR-TK-10 (Survey Independence)**: In a survey talk, every question SHALL be treated as independent — no `contextPath` is assigned, and the chatbot MAY auto-reply to any question regardless of the answers to sibling questions.
-- **FR-TK-11 (Tree Context Storage)**: In a tree talk, when saving a user's answer to a flat answer list, the system SHALL store a `contextHash` — the FNV-1a 32-bit hash of the canonical context-path string — alongside each answer. The full ContextPath list SHALL NOT be stored in the answer record; only the hash is persisted. Two answers to the same question reached via different branches produce different hashes and are stored as separate records.
-- **FR-TK-12 (Tree Context Reply Guard)**: When the chatbot considers auto-replying to a tree question, it SHALL compute the hash of the current conversation's active context path and look for a stored answer whose `(questionId, contextHash)` pair matches. If no match exists the chatbot SHALL NOT reply automatically. The question SHALL be presented to the user for a manual answer.
-- **FR-TK-13 (Context Hash Algorithm)**: The contextHash SHALL be computed using FNV-1a 32-bit over the UTF-8 encoding of the canonical context string `"qId1:aId1|qId2:aId2|..."`. Root/no-context questions (tag, survey, and matching types) SHALL use `''` (empty string) as their contextHash. The algorithm SHALL be implemented in pure JavaScript with no external dependencies so it runs identically in Node.js and browser environments.
+- **FR-TK-8 (Editing Constraints)**: Route and survey talks MAY only be created or edited in the Talk Editor UI. Auto-captured chats produce flow talks only.
+- **FR-TK-9 (Tag)**: A tag talk SHALL contain exactly one question (a word or short phrase) and exactly two answers: one `isMatch=true` (checked) and one `isIgnore=true` (unchecked). No other answers are permitted.
+- **FR-TK-10 (Survey Independence)**: In a survey, every question SHALL be treated as independent — no `contextPath` is assigned, and the chatbot MAY auto-reply to any question regardless of the answers to sibling questions.
+- **FR-TK-11 (Route Context Storage)**: In a route talk, when saving a user's answer to a flat answer list, the system SHALL store a `contextHash` — the FNV-1a 32-bit hash of the canonical context-path string — alongside each answer. The full ContextPath list SHALL NOT be stored in the answer record; only the hash is persisted. Two answers to the same question reached via different branches produce different hashes and are stored as separate records.
+- **FR-TK-12 (Route Context Reply Guard)**: When the chatbot considers auto-replying to a route question, it SHALL compute the hash of the current conversation's active context path and look for a stored answer whose `(questionId, contextHash)` pair matches. If no match exists the chatbot SHALL NOT reply automatically. The question SHALL be presented to the user for a manual answer.
+- **FR-TK-13 (Context Hash Algorithm)**: The contextHash SHALL be computed using FNV-1a 32-bit over the UTF-8 encoding of the canonical context string `"qId1:aId1|qId2:aId2|..."`. Root/no-context questions (tag, survey, and flow types) SHALL use `''` (empty string) as their contextHash. The algorithm SHALL be implemented in pure JavaScript with no external dependencies so it runs identically in Node.js and browser environments.
 
 ### 3.7 Bulk Matching and Sending
 
@@ -336,7 +336,7 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 
 ### 3.9 Survey Talks
 
-- **FR-SV-1**: The Talk Editor SHALL provide a flag to mark a talk as a **survey**.
+- **FR-SV-1**: The Talk Editor SHALL allow marking a talk as **survey** type.
 - **FR-SV-2**: Survey talks SHALL support multiple simple questions with predefined answers and an aggregation configuration specifying which questions/statistics to compute.
 - **FR-SV-3**: The system SHALL aggregate survey results into frequency distributions per answer and basic stats (counts, percentages).
 - **FR-SV-4**: Individual survey responses MAY remain anonymous to the survey owner; only aggregated statistics are required by default.
@@ -369,7 +369,7 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 - **UI-2**: The Talk Editor SHALL:
   - Show the graph/flow of questions with no loops.
   - Highlight branches and OR-joins.
-  - Indicate survey vs. matching talk.
+  - Indicate type (tag / flow / survey / route)..
   - Show an edit-lock indicator when another user holds the lock (§8.2).
 - **UI-3**: The bulk send dashboard SHALL show: total sent, in progress, matched, ignored, expired.
 - **UI-4**: The survey results UI SHALL show aggregated statistics per question.
@@ -1201,11 +1201,11 @@ const TalkSchema = {
   creator: 'string',
   // One of four types — see §3.6.1 for full definitions:
   //   'tag'     — single keyword/phrase, checked or unchecked
-  //   'matching'— sequential talk where each question uses all prior Q/A as context
+  //   'flow'   — Flow: sequential chain (path graph), each question uses all prior Q/A as context
   //   'survey'  — independent questions, no shared context
-  //   'tree'    — hierarchical DAG mixing talk and survey branches; each question
-  //               carries a contextPath for context-aware chatbot reply
-  type: 'tag|matching|survey|tree',
+  //   'route'   — Route: hierarchical DAG mixing flow and survey branches; each question
+  //               carries a contextPath for context-aware chatbot reply (contextHash stored)
+  type: 'tag|flow|survey|route'  // FR-TK-9/Flow/Survey/Route,
   language: 'string',          // FR-BF-1: single primary language
   questions: [{
     id: 'string',
@@ -1234,13 +1234,13 @@ const TalkSchema = {
 // Flat answer storage record (used by chatbot and profile Q/A list)
 //
 // Context is represented by a single contextHash, NOT by the full path list:
-//   tag / survey / matching : contextHash = ''  (no context required)
+//   tag / survey / flow : contextHash = ''  (no context required)
 //   tree                    : contextHash = 8-char FNV-1a hex of the
 //                             canonical "qId1:aId1|qId2:aId2|..." string.
 //
 // Chatbot lookup: compute hash of current path → compare contextHash → O(1).
 // The full ContextPath is retained only on the talk definition (Question.contextPath)
-// for tree traversal; it is never written to persistent answer storage.
+// for route traversal; it is never written to persistent answer storage.
 const AnswerRecordSchema = {
   questionId: 'string',
   answerId: 'string',
@@ -1323,7 +1323,7 @@ class TalkManager {
       id: talkId,
       creator: creatorId,
       created: Date.now(),
-      type: talkConfig.type || 'matching',
+      type: talkConfig.type || 'flow',
       language: talkConfig.language || 'en',
       isSurvey: talkConfig.isSurvey || false,
       tags: talkConfig.tags || [],
@@ -1913,11 +1913,11 @@ The following items are known open questions or planned post-MVP work:
 | Question/answer syntax (`**`, `*`) | FR-QA-1, FR-QA-2, §13.6 | `AutoCapturePattern`, `SmartMessageInput` |
 | Tag system + Craigslist catalogs | FR-TG-1 – FR-TG-5 | `TagManager` |
 | Mandatory preamble | FR-TG-6 | `TalkEngine.attachPreamble()` |
-| DAG talk, no cycles | FR-TK-1 – FR-TK-3 | `TalkEditor.hasCycle()`, `TalkEngine` |
+| Flow/Route DAG, no cycles | FR-TK-1 – FR-TK-3 | `TalkEditor.hasCycle()`, `TalkEngine` |
 | Logic-OR in talks | FR-TK-4 | `TalkSchema.nextQuestion` (object form) |
 | "Let's talk in person" / "Ignore" terminals | FR-TK-5 | `TalkEngine`, `MatchManager` |
-| Survey flag | FR-TK-6, FR-SV-1 | `TalkSchema.isSurvey` |
-| Auto linear capture | FR-TK-7 | `AutoCapturePattern`, `src-shared/talks/TalkEngine.ts` |
+| Survey type flag | FR-TK-6, FR-SV-1 | `TalkSchema.isSurvey` |
+| Auto flow capture | FR-TK-7 | `AutoCapturePattern`, `src-shared/talks/TalkEngine.ts` |
 | Editor-only for branching/survey | FR-TK-8, FR-SV-6 | `TalkEditor` guards |
 | Bulk send + batching | FR-BM-1 – FR-BM-6, §6.2 | `BulkTalkSender` |
 | Rate limits + block-based capacity | FR-SP-1 – FR-SP-6 | `RateLimiter`, `ReputationManager` |

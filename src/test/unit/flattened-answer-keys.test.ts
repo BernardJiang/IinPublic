@@ -6,7 +6,7 @@ import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
 
 describe('flattened-answer-keys', () => {
   const multiTalkA = {
-    type: 'matching',
+    type: 'flow',
     questions: [
       { id: 'q0', text: 'Tennis?', answers: [{ id: 'y', text: 'Yes' }] },
       { id: 'q1', text: 'Balboa?', answers: [{ id: 'y', text: 'Yes' }] },
@@ -14,7 +14,7 @@ describe('flattened-answer-keys', () => {
   };
 
   const multiTalkB = {
-    type: 'matching',
+    type: 'flow',
     questions: [
       { id: 'x0', text: 'Tennis?', answers: [{ id: 'a', text: 'Yes' }] },
       { id: 'x1', text: 'Saturday?', answers: [{ id: 'b', text: 'Yes' }] },

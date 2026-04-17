@@ -53,7 +53,7 @@ test.describe('Talks: create and edit', () => {
     await page.click('#create-talk-btn');
     await page.waitForSelector('#talk-editor-form');
     await page.fill('#talk-title', TALK_TITLE);
-    await page.selectOption('#talk-type', 'matching');
+    await page.selectOption('#talk-type', 'flow');
     const q = page.locator('.question-item').first();
     await q.locator('.question-text').fill('Do you drink coffee?');
     await q.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes');
@@ -73,7 +73,7 @@ test.describe('Talks: create and edit', () => {
     await talkItem.locator('.edit-talk-btn').click();
     await page.waitForSelector('#talk-editor-modal');
     await expect(page.locator('#talk-title')).toHaveValue(TALK_TITLE);
-    await expect(page.locator('#talk-type')).toHaveValue('matching');
+    await expect(page.locator('#talk-type')).toHaveValue('flow');
     await page.fill('#talk-title', TALK_TITLE_EDITED);
     await page.click('#talk-editor-form button[type="submit"]');
     await afterSync();

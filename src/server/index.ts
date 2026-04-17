@@ -122,7 +122,7 @@ class IinPublicServer {
     const merged: any = {
       identityKey,
       title: '',
-      type: 'matching',
+      type: 'flow',
       questionCount: 0,
       senders: {},
       talkIds: {},
@@ -362,7 +362,7 @@ class IinPublicServer {
     const existing: any = prev
       ? {
           title: prev.title || '',
-          type: prev.type || 'matching',
+          type: prev.type || 'flow',
           senders: prev.senders && typeof prev.senders === 'object' ? prev.senders : {},
           talkIds: prev.talkIds && typeof prev.talkIds === 'object' ? prev.talkIds : {},
           questionCount: prev.questionCount || 0,
@@ -372,7 +372,7 @@ class IinPublicServer {
         }
       : {
           title: '',
-          type: 'matching',
+          type: 'flow',
           senders: {},
           talkIds: {},
           questionCount: 0,
@@ -401,7 +401,7 @@ class IinPublicServer {
     const cluster = {
       identityKey,
       title: talkData?.title || existing.title || '',
-      type: talkData?.type || existing.type || 'matching',
+      type: talkData?.type || existing.type || 'flow',
       /** JSON string only — Gun.put rejects nested arrays on this path. */
       questionsJson: questionsJsonForNode || undefined,
       questionCount: Array.isArray(talkData?.questions) ? talkData.questions.length : existing.questionCount || 0,

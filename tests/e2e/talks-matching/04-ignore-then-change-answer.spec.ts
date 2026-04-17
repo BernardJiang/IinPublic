@@ -68,7 +68,7 @@ test.describe('Talks matching — ignore then change to match', () => {
     await pageTom.click('#create-talk-btn');
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', 'E2E Ignore Then Match Tennis');
-    await pageTom.selectOption('#talk-type', 'matching');
+    await pageTom.selectOption('#talk-type', 'flow');
     await pageTom.click('#add-question-btn');
     await afterAction();
     await pageTom.click('#add-question-btn');

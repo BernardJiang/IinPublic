@@ -17,7 +17,7 @@ export class TalkService {
       id: '',
       title: talkData.title || '',
       authorId: talkData.authorId || '',
-      type: talkData.type || 'matching',
+      type: talkData.type || 'flow',
       isAdult: talkData.isAdult || false,
       language: talkData.language || 'en',
       tags: talkData.tags || [],

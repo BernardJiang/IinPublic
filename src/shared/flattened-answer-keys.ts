@@ -22,7 +22,7 @@ export function buildAnswerPreferenceLookupKey(
   questionText: string,
 ): string {
   const nq = normalizeIdentityText(questionText);
-  const mt = normalizeIdentityText(talk?.type || 'matching');
+  const mt = normalizeIdentityText(talk?.type || 'flow');
   const qCount = Array.isArray(talk?.questions) ? talk.questions.length : 0;
   const isTagOrSingle = talk?.type === 'tag' || qCount <= 1;
 

@@ -14,7 +14,7 @@ export declare class TalkValidator {
     private static validateAnswer;
     private static validateSurveyTalk;
 }
-export declare class TalkLinearCapture {
+export declare class FlowCapture {
     /**
      * Parses a chat line to extract question and answers
      * Format: "Question? Answer1; Answer2; ...; AnswerN."

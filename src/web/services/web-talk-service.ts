@@ -1,5 +1,5 @@
 import { Talk, BulkSendJob, TargetScope } from '../../shared/types';
-import { TalkLinearCapture } from '../../shared/talk-engine';
+import { FlowCapture } from '../../shared/talk-engine';
 import { WebGunService } from './web-gun-service';
 import { v4 as uuidv4 } from 'uuid';
 import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
@@ -62,7 +62,7 @@ export class WebTalkService {
       id: '',
       title: talkData.title || '',
       authorId: talkData.authorId || '',
-      type: talkData.type || 'matching',
+      type: talkData.type || 'flow',
       isAdult: talkData.isAdult || false,
       language: talkData.language || 'en',
       tags: talkData.tags || [],
@@ -251,7 +251,7 @@ export class WebTalkService {
   }
 
   checkForLinearCapture(message: string): any | null {
-    const parsed = TalkLinearCapture.parseChatLine(message);
+    const parsed = FlowCapture.parseChatLine(message);
     if (parsed) {
       return { question: parsed.question, answers: parsed.answers };
     }

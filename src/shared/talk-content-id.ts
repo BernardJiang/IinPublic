@@ -55,7 +55,7 @@ export function buildIdentityPayloadFromTalk(
   options: TalkContentIdOptions = {},
 ): TalkIdentityPayload {
   const o = { ...DEFAULT_TALK_CONTENT_ID_OPTIONS, ...options };
-  const type = normalizeIdentityText(talkData?.type || 'matching');
+  const type = normalizeIdentityText(talkData?.type || 'flow');
   const questions = (Array.isArray(talkData?.questions) ? talkData.questions : [])
     .map((q: any) => ({
       text: normalizeIdentityText(q?.text),
@@ -113,7 +113,7 @@ export function buildTalkIdentityKey(talkData: any, options?: TalkContentIdOptio
  * Normalize legacy cluster keys (JSON identityKey) to canonical `qa_*` form.
  */
 export function canonicalIdentityKeyFromStoredCluster(cluster: any): string {
-  if (!cluster) return buildTalkIdentityKey({ type: 'matching', questions: [] });
+  if (!cluster) return buildTalkIdentityKey({ type: 'flow', questions: [] });
 
   const key = typeof cluster.identityKey === 'string' ? cluster.identityKey : '';
   if (key.startsWith('qa_')) {
@@ -124,7 +124,7 @@ export function canonicalIdentityKeyFromStoredCluster(cluster: any): string {
     try {
       const parsed = JSON.parse(key);
       const payload = {
-        type: normalizeIdentityText(parsed?.type ?? cluster?.type ?? 'matching'),
+        type: normalizeIdentityText(parsed?.type ?? cluster?.type ?? 'flow'),
         questions: (Array.isArray(parsed?.questions)
           ? parsed.questions.map((q: any) => ({
               text: normalizeIdentityText(q?.text),

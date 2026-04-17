@@ -39,7 +39,7 @@ test.describe('Direct messaging between matched users', () => {
       if (!p) return;
       try {
         await p.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());
-      } catch {}
+      } catch { }
     };
     await cleanup(pageTom);
     await cleanup(pageJerry);
@@ -108,7 +108,7 @@ test.describe('Direct messaging between matched users', () => {
     await pageTom.click('#create-talk-btn');
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', TALK_TITLE);
-    await pageTom.selectOption('#talk-type', 'matching');
+    await pageTom.selectOption('#talk-type', 'flow');
     const q = pageTom.locator('.question-item').first();
     await q.locator('.question-text').fill('Want a tennis partner?');
     await q.locator('.answer-item').nth(0).locator('.answer-text').fill(MATCH_ANSWER);

@@ -110,7 +110,7 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     for (const title of TALK_TITLES) {
       await pageTechSupport.click('#create-talk-btn');
       await pageTechSupport.waitForSelector('#talk-editor-form');
-      await pageTechSupport.click('input[name="talk-type-radio"][value="matching"]');
+      await pageTechSupport.click('input[name="talk-type-radio"][value="flow"]');
       await afterAction();
       await pageTechSupport.fill('#talk-title', title);
       const q = pageTechSupport.locator('.question-item').first();
@@ -181,7 +181,7 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     }
 
     for (const talkTitle of TALK_TITLES) {
-      await openTomIncomingModal(pageTom, talkTitle, 'matching');
+      await openTomIncomingModal(pageTom, talkTitle, 'flow');
       await pageTom.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
       await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
       await afterAction();

@@ -49,7 +49,7 @@ async function fillThreeQuestionTalk(
   await page.click('#create-talk-btn');
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
-  await page.selectOption('#talk-type', 'matching');
+  await page.selectOption('#talk-type', 'flow');
   await page.click('#add-question-btn');
   await afterAction();
   await page.click('#add-question-btn');
