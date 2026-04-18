@@ -105,9 +105,9 @@ export class TalkValidator {
    *
    * Dispatch table for the four talk types (§3.6.1):
    *   tag      → validateTagTalk
-   *   flow   → validateFlowTalk  (linear sequential Q/A)
-   *   survey   → validateSurveyTalk   (independent Q/A)
-   *   tree     → validateRouteTalk     (hierarchical DAG with context paths)
+   *   flow     → validateFlowTalk   (linear sequential Q/A; first answer must be match-or-next)
+   *   survey   → validateSurveyTalk (independent Q/A; per-answer counters)
+   *   route    → validateRouteTalk  (hierarchical DAG with context paths)
    */
   static validateTalk(talk: Talk): void {
     if (!talk.title?.trim()) {
@@ -134,21 +134,94 @@ export class TalkValidator {
       return;
     }
 
+    if (talk.type === 'survey') {
+      this.validateSurveyTalk(talk);
+      return;
+    }
+
+    // Default: flow
+    this.validateFlowTalk(talk);
+  }
+
+  /**
+   * Flow talks form a linear chain of unique questions. The first answer on
+   * every question decides where to go next (match / goto); every other answer
+   * is implicitly "ignore" (filter out). From the second question onward each
+   * question carries a contextHashId chained from the previous (qid,aid) pairs.
+   */
+  private static validateFlowTalk(talk: Talk): void {
     if (talk.questions.length > 20) {
       throw new ValidationError('Talk cannot have more than 20 questions');
     }
 
-    // Validate each question (skip for tag - validated in validateTagTalk)
+    // Question-level rules (text, answer count, per-answer text validity).
     for (const question of talk.questions) {
       this.validateQuestion(question);
     }
 
-    // Validate DAG structure
+    // All questions must be textually unique.
+    const seenTexts = new Set<string>();
+    const seenIds = new Set<string>();
+    for (const q of talk.questions) {
+      const norm = q.text.trim().toLowerCase();
+      if (seenTexts.has(norm)) {
+        throw new ValidationError(`Flow has duplicate question: "${q.text}"`);
+      }
+      seenTexts.add(norm);
+      if (seenIds.has(q.id)) {
+        throw new ValidationError(`Flow has duplicate question id: ${q.id}`);
+      }
+      seenIds.add(q.id);
+    }
+
+    // First answer on every question must be a "match" or a "go to next
+    // question" link; it may not be an ignore. Every remaining answer is
+    // treated as ignore (and must not carry match/next semantics).
+    for (const q of talk.questions) {
+      const first = q.answers[0];
+      if (!first) {
+        throw new ValidationError(`Flow question has no answers: ${q.id}`);
+      }
+      if (first.isIgnore) {
+        throw new ValidationError(
+          `Flow question "${q.id}": the first answer must be a match or a "go to next question" link, not ignore.`,
+        );
+      }
+      const firstIsMatch = first.isMatch === true;
+      const firstIsNext = typeof first.nextQuestionId === 'string' && first.nextQuestionId.length > 0;
+      if (!firstIsMatch && !firstIsNext) {
+        throw new ValidationError(
+          `Flow question "${q.id}": the first answer must either be a match or link to the next question.`,
+        );
+      }
+      // Every non-first answer is implicitly "ignore"; any conflicting flag is
+      // an error so the UI and data stay in sync.
+      for (let i = 1; i < q.answers.length; i++) {
+        const a = q.answers[i];
+        if (a.isMatch || a.nextQuestionId) {
+          throw new ValidationError(
+            `Flow question "${q.id}": only the first answer may be a match or link; answer "${a.id}" must be ignore.`,
+          );
+        }
+      }
+    }
+
+    // Validate DAG structure (no cycles).
     this.validateDAGStructure(talk);
 
-    // Validate survey-specific rules
-    if (talk.type === 'survey') {
-      this.validateSurveyTalk(talk);
+    // Validate the chained contextHashId for every question from the 2nd on.
+    // Q1's context is empty (''). Qn's context is the chain q1:a1|...|q(n-1):a(n-1),
+    // where a_k is the "match / next" first answer of Q_k.
+    let chain: ContextStep[] = [];
+    for (let i = 0; i < talk.questions.length; i++) {
+      const q = talk.questions[i];
+      const expected = RouteProcessor.buildContextHash(chain);
+      if (q.contextHashId !== undefined && q.contextHashId !== expected) {
+        throw new ValidationError(
+          `Flow question "${q.id}" has contextHashId="${q.contextHashId}" but expected "${expected}".`,
+        );
+      }
+      chain = [...chain, { questionId: q.id, answerId: q.answers[0].id }];
     }
   }
   
@@ -178,41 +251,49 @@ export class TalkValidator {
     if (!question.text?.trim()) {
       throw new ValidationError(`Question text is required for question ${question.id}`);
     }
-    
-    if (!question.text.endsWith('?')) {
-      throw new ValidationError(`Question must end with '?' for question ${question.id}`);
-    }
-    
+
+    // Trailing '?' is a stylistic convention, not a semantic rule — the
+    // validator used to require it, but that rejected reasonable answers
+    // like "Do you play tennis" or the same question with a period/ellipsis.
+    // The UI displays whatever the user typed.
+
     if (question.answers.length === 0) {
       throw new ValidationError(`Question must have at least one answer: ${question.id}`);
     }
-    
+
     if (question.answers.length > 10) {
       throw new ValidationError(`Question cannot have more than 10 answers: ${question.id}`);
     }
-    
+
     // Ensure "Ignore" option is always available
     const hasIgnore = question.answers.some(a => a.isIgnore);
     if (!hasIgnore) {
       throw new ValidationError(`Question must have an "Ignore" option: ${question.id}`);
     }
-    
+
     // Validate each answer
     for (const answer of question.answers) {
       this.validateAnswer(answer, question.id);
     }
   }
-  
+
   private static validateAnswer(answer: Answer, questionId: string): void {
     if (!answer.text?.trim()) {
       throw new ValidationError(`Answer text is required for answer ${answer.id} in question ${questionId}`);
     }
-    
-    if (!answer.text.endsWith('.')) {
-      throw new ValidationError(`Answer must end with '.' for answer ${answer.id} in question ${questionId}`);
-    }
+
+    // Trailing '.' was previously required; dropped so short answers like
+    // "Yes", "No", or "amateur" pass validation. The UI preserves the raw
+    // text so DOM attributes (data-answer-text) match what the user sees.
   }
   
+  /**
+   * Survey talks are a collection of independent questions (star graph). No
+   * question has a `nextQuestionId` or branching, and every question's
+   * contextHashId is '' because no prior Q/A affects any other. Every answer
+   * carries a numeric counter (initialised to 0) so aggregate statistics can
+   * be kept server-side.
+   */
   private static validateSurveyTalk(talk: Talk): void {
     const aggregatableQuestions = talk.questions.filter(q => q.isAggregatable);
 
@@ -222,6 +303,40 @@ export class TalkValidator {
 
     if (talk.questions.length > 15) {
       throw new ValidationError('Survey talk cannot have more than 15 questions');
+    }
+
+    // Per-question rules (text ends with '?', answers end with '.', etc).
+    for (const question of talk.questions) {
+      this.validateQuestion(question);
+
+      if (question.nextQuestionId) {
+        throw new ValidationError(
+          `Survey questions are independent and cannot link to other questions (got nextQuestionId on ${question.id}).`,
+        );
+      }
+      if (question.branchingLogic && question.branchingLogic.length > 0) {
+        throw new ValidationError(
+          `Survey questions cannot have branching logic (got branchingLogic on ${question.id}).`,
+        );
+      }
+      if (question.contextHashId !== undefined && question.contextHashId !== '') {
+        throw new ValidationError(
+          `Survey question "${question.id}" must have contextHashId="" (got "${question.contextHashId}").`,
+        );
+      }
+
+      for (const a of question.answers) {
+        if (a.nextQuestionId) {
+          throw new ValidationError(
+            `Survey answer "${a.id}" on question "${question.id}" cannot have nextQuestionId.`,
+          );
+        }
+        if (a.counter !== undefined && (typeof a.counter !== 'number' || a.counter < 0 || !Number.isFinite(a.counter))) {
+          throw new ValidationError(
+            `Survey answer "${a.id}" on question "${question.id}" has invalid counter value.`,
+          );
+        }
+      }
     }
   }
 
@@ -255,10 +370,10 @@ export class TalkValidator {
         throw new ValidationError(`Question must have at least one answer: ${question.id}`);
       }
 
-      // contextPath is mandatory on tree questions ([] for root questions)
+      // contextPath is mandatory on route questions ([] for root questions)
       if (question.contextPath === undefined) {
         throw new ValidationError(
-          `Tree question must have a contextPath (use [] for root questions): ${question.id}`
+          `Route question must have a contextPath (use [] for root questions): ${question.id}`
         );
       }
 
@@ -287,10 +402,197 @@ export class TalkValidator {
         );
       }
       seenContextKeys.add(uniqueKey);
+
+      // Denormalized contextHashId must match the contextPath if present.
+      if (question.contextHashId !== undefined && question.contextHashId !== contextHash) {
+        throw new ValidationError(
+          `Route question "${question.id}" contextHashId="${question.contextHashId}" does not match contextPath hash "${contextHash}".`
+        );
+      }
+
+      // Per-path uniqueness: the same question text must not appear twice on
+      // a single root→leaf path. Because the contextPath IS the path, we just
+      // check that none of the ancestors shares this question's (normalized) text.
+      const selfText = question.text.trim().toLowerCase();
+      for (const step of question.contextPath) {
+        const ancestor = talk.questions.find(q => q.id === step.questionId);
+        if (ancestor && ancestor.text.trim().toLowerCase() === selfText) {
+          throw new ValidationError(
+            `Route has repeating question on path: "${question.text}" appears twice between the root and node ${question.id}.`
+          );
+        }
+      }
     }
 
     // DAG check — no cycles
     this.validateDAGStructure(talk);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TalkAutofix — best-effort repair for common user mistakes before save.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Returned by {@link TalkAutofix.fix} so the UI can tell the user what was
+ * changed on their behalf.
+ */
+export interface TalkAutofixReport {
+  /** The fixed talk (new object — the input is not mutated). */
+  talk: Talk;
+  /** Human-readable descriptions of every patch applied. */
+  fixes: string[];
+}
+
+/**
+ * Small heuristics that repair common mistakes the user is likely to make in
+ * the create-talk form. Call this BEFORE {@link TalkValidator.validateTalk} so
+ * validation only fails on things we can't silently fix.
+ *
+ * Behaviour by type:
+ *   tag    – nothing to fix (dialog owns structure entirely).
+ *   flow   – auto-renames duplicate question texts, ensures Q1's first answer
+ *            has match/next semantics, strips match/next from later answers,
+ *            recomputes chained contextHashIds.
+ *   survey – clears nextQuestionId / branchingLogic, zeroes counter on every
+ *            answer, sets contextHashId = '', marks at least one question
+ *            aggregatable when none is.
+ *   route  – fills in contextPath=[] on root questions, recomputes
+ *            contextHashId from contextPath.
+ */
+export class TalkAutofix {
+  static fix(input: Talk): TalkAutofixReport {
+    const fixes: string[] = [];
+    // Deep-clone so callers can diff or roll back.
+    const talk: Talk = JSON.parse(JSON.stringify(input));
+
+    // Trim whitespace on all question/answer text fields. Leaving other
+    // punctuation (periods, question marks, exclamation points) as the user
+    // typed them so the DOM `data-answer-text` attribute — and any test or
+    // screen-reader output that keys off it — matches the raw input.
+    for (const q of talk.questions ?? []) {
+      if (typeof q.text === 'string' && q.text !== q.text.trim()) {
+        q.text = q.text.trim();
+      }
+      for (const a of q.answers ?? []) {
+        if (typeof a.text === 'string' && a.text !== a.text.trim()) {
+          a.text = a.text.trim();
+        }
+      }
+    }
+
+    if (talk.type === 'tag') {
+      return { talk, fixes };
+    }
+
+    if (talk.type === 'survey') {
+      let hasAggregatable = false;
+      for (const q of talk.questions) {
+        if (q.nextQuestionId) {
+          delete q.nextQuestionId;
+          fixes.push(`Removed nextQuestionId from survey question "${q.id}".`);
+        }
+        if (q.branchingLogic && q.branchingLogic.length > 0) {
+          q.branchingLogic = [];
+          fixes.push(`Cleared branchingLogic on survey question "${q.id}".`);
+        }
+        if (q.contextHashId !== '') {
+          q.contextHashId = '';
+        }
+        if (q.isAggregatable) hasAggregatable = true;
+        for (const a of q.answers) {
+          if (a.nextQuestionId) {
+            delete a.nextQuestionId;
+            fixes.push(`Removed nextQuestionId from survey answer "${a.id}".`);
+          }
+          if (typeof a.counter !== 'number' || !Number.isFinite(a.counter) || a.counter < 0) {
+            a.counter = 0;
+          }
+        }
+      }
+      if (!hasAggregatable && talk.questions.length > 0) {
+        talk.questions[0].isAggregatable = true;
+        fixes.push('Marked first survey question as aggregatable.');
+      }
+      return { talk, fixes };
+    }
+
+    if (talk.type === 'route') {
+      for (const q of talk.questions) {
+        if (q.contextPath === undefined) {
+          q.contextPath = [];
+          fixes.push(`Filled in empty contextPath for route question "${q.id}".`);
+        }
+        const expected = RouteProcessor.buildContextHash(q.contextPath);
+        if (q.contextHashId !== expected) {
+          q.contextHashId = expected;
+        }
+      }
+      return { talk, fixes };
+    }
+
+    // Default: flow
+    // 1) De-duplicate question texts by appending " (2)", " (3)", …
+    const textCounts = new Map<string, number>();
+    for (const q of talk.questions) {
+      const norm = q.text.trim().toLowerCase();
+      const count = (textCounts.get(norm) ?? 0) + 1;
+      textCounts.set(norm, count);
+      if (count > 1) {
+        // append disambiguator before the trailing '?'
+        const base = q.text.trim().replace(/\?+\s*$/, '');
+        q.text = `${base} (${count})?`;
+        fixes.push(`Renamed duplicate flow question "${q.id}" to "${q.text}".`);
+      }
+    }
+
+    // 2) Ensure the first answer of every question is a match or "go to next".
+    for (let i = 0; i < talk.questions.length; i++) {
+      const q = talk.questions[i];
+      if (q.answers.length === 0) continue;
+      const first = q.answers[0];
+      const nextId = talk.questions[i + 1]?.id;
+      const firstIsMatch = first.isMatch === true;
+      const firstIsNext = typeof first.nextQuestionId === 'string' && first.nextQuestionId.length > 0;
+      if (first.isIgnore || (!firstIsMatch && !firstIsNext)) {
+        delete first.isIgnore;
+        if (nextId) {
+          first.nextQuestionId = nextId;
+          delete first.isMatch;
+          delete first.isTerminal;
+          fixes.push(`Set first answer of "${q.id}" to link to "${nextId}".`);
+        } else {
+          first.isMatch = true;
+          first.isTerminal = true;
+          delete first.nextQuestionId;
+          fixes.push(`Set first answer of "${q.id}" to "match" (terminal).`);
+        }
+      }
+
+      // 3) Every non-first answer is implicitly ignore: strip conflicting flags.
+      for (let j = 1; j < q.answers.length; j++) {
+        const a = q.answers[j];
+        if (a.isMatch || a.nextQuestionId) {
+          delete a.isMatch;
+          delete a.nextQuestionId;
+          a.isIgnore = true;
+          a.isTerminal = true;
+          fixes.push(`Converted non-first answer "${a.id}" on "${q.id}" to ignore.`);
+        } else if (!a.isIgnore) {
+          a.isIgnore = true;
+          a.isTerminal = true;
+        }
+      }
+    }
+
+    // 4) Recompute chained contextHashId for flow.
+    let chain: ContextStep[] = [];
+    for (const q of talk.questions) {
+      q.contextHashId = RouteProcessor.buildContextHash(chain);
+      chain = [...chain, { questionId: q.id, answerId: q.answers[0]?.id ?? '' }];
+    }
+
+    return { talk, fixes };
   }
 }
 

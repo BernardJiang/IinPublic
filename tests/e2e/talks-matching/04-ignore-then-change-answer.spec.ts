@@ -81,10 +81,13 @@ test.describe('Talks matching — ignore then change to match', () => {
     await q0.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
     const q1 = pageTom.locator('.question-item').nth(1);
     await q1.locator('.question-text').fill("What's your skill level?");
-    await q1.locator('.answer-item').nth(0).locator('.answer-text').fill('beginner');
-    await q1.locator('.answer-item').nth(0).locator('.answer-next').selectOption('ignore');
-    await q1.locator('.answer-item').nth(1).locator('.answer-text').fill('amateur');
-    await q1.locator('.answer-item').nth(1).locator('.answer-next').selectOption('q_2');
+    // Flow-talk rule: only the first answer may be a match or link to the
+    // next question; all later answers are treated as ignore. So "amateur"
+    // (the one that leads to Q3) must be the first answer.
+    await q1.locator('.answer-item').nth(0).locator('.answer-text').fill('amateur');
+    await q1.locator('.answer-item').nth(0).locator('.answer-next').selectOption('q_2');
+    await q1.locator('.answer-item').nth(1).locator('.answer-text').fill('beginner');
+    await q1.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
     await q1.locator('.btn-add-answer').click();
     await afterAction();
     await q1.locator('.answer-item').nth(2).locator('.answer-text').fill('professional');

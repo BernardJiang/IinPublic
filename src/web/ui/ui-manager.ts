@@ -9,6 +9,7 @@ import {
   type QAPair,
 } from '../../shared/flattened-answer-keys';
 import { normalizeQuestionKey } from '../../shared/user-utils';
+import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
@@ -2913,29 +2914,51 @@ export class UIManager extends EventEmitter {
               <label class="form-label">Type</label>
               <div style="display: flex; flex-direction: column; gap: 10px;">
                 <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
-                  <input type="radio" name="talk-type-radio" value="flow" ${existingTalk?.type !== 'tag' && existingTalk?.type !== 'survey' ? 'checked' : ''}>
-                  <span>Flow – find compatible people</span>
+                  <input type="radio" name="talk-type-radio" value="tag" ${existingTalk?.type === 'tag' || !existingTalk ? 'checked' : ''}>
+                  <span>Tag (single keyword; answer with one checkbox — match or ignore)</span>
+                </label>
+                <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
+                  <input type="radio" name="talk-type-radio" value="flow" ${existingTalk?.type === 'flow' ? 'checked' : ''}>
+                  <span>Flow – sequential questions that find compatible people</span>
                 </label>
                 <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
                   <input type="radio" name="talk-type-radio" value="survey" ${existingTalk?.type === 'survey' ? 'checked' : ''}>
-                  <span>Survey (collect responses)</span>
+                  <span>Survey – independent questions that collect aggregate counts</span>
                 </label>
                 <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
-                  <input type="radio" name="talk-type-radio" value="tag" ${existingTalk?.type === 'tag' ? 'checked' : ''}>
-                  <span>Tag (single keyword, answer with one checkbox: match or ignore)</span>
+                  <input type="radio" name="talk-type-radio" value="route" ${existingTalk?.type === 'route' ? 'checked' : ''}>
+                  <span>Route – branching DAG of questions (tree editor)</span>
                 </label>
               </div>
               <select class="form-input" id="talk-type" aria-hidden="true" style="position: absolute; left: -9999px;" tabindex="-1">
-                <option value="flow">Matching</option>
-                <option value="survey">Survey</option>
                 <option value="tag">Tag</option>
+                <option value="flow">Flow</option>
+                <option value="survey">Survey</option>
+                <option value="route">Route</option>
               </select>
             </div>
-            
+
             <div class="form-group" id="questions-form-group">
-              <label class="form-label">Questions & Branching</label>
+              <label class="form-label" id="questions-form-label">Questions &amp; Branching</label>
+              <p class="talk-editor-type-hint" id="talk-editor-type-hint" style="margin: 0 0 10px 0; font-size: 0.9em; color: #666;"></p>
               <div id="questions-container"></div>
               <button type="button" id="add-question-btn" class="btn" style="margin-top: 10px; background: #667eea; color: white;">+ Add Question</button>
+            </div>
+
+            <div class="form-group" id="route-form-group" style="display: none;">
+              <label class="form-label">Route (DAG editor)</label>
+              <p style="margin: 0 0 10px 0; font-size: 0.9em; color: #666;">
+                Build a branching tree. Each answer can lead to a follow-up question. On any
+                path from the root to a leaf, the same question cannot appear twice — but the
+                same question may appear in two different branches (each will have its own
+                context hash ID).
+              </p>
+              <div id="route-editor"></div>
+              <div id="talk-validation-errors" class="talk-validation-errors" style="display: none; margin-top: 10px; padding: 10px; border: 1px solid #f44336; background: #fdecea; color: #b71c1c; border-radius: 6px; font-size: 0.9em;"></div>
+            </div>
+
+            <div class="form-group" id="talk-validation-group" style="display: none;">
+              <div id="talk-autofix-banner" class="talk-autofix-banner" style="display: none; margin-top: 10px; padding: 10px; border: 1px solid #4CAF50; background: #e8f5e9; color: #1b5e20; border-radius: 6px; font-size: 0.9em;"></div>
             </div>
             
             <div class="form-group" id="talk-options-group">
@@ -3069,20 +3092,27 @@ export class UIManager extends EventEmitter {
       const tagLikeCheckbox = document.getElementById('tag-like-checkbox') as HTMLInputElement | null;
       const talkTypeSelect = document.getElementById('talk-type') as HTMLSelectElement;
       const questionsFormGroup = document.getElementById('questions-form-group');
+      const routeFormGroup = document.getElementById('route-form-group');
+      const questionsTypeHint = document.getElementById('talk-editor-type-hint');
+      const questionsFormLabel = document.getElementById('questions-form-label');
       const updateFormForType = () => {
-        const type = talkTypeSelect?.value || 'flow';
+        const type = talkTypeSelect?.value || 'tag';
         const titleInput = document.getElementById('talk-title') as HTMLInputElement;
         const desc = document.querySelector('.talk-editor-description');
+        // Reset visibility each render — simpler than nested toggles.
+        if (questionsFormGroup) questionsFormGroup.style.display = 'none';
+        if (routeFormGroup) routeFormGroup.style.display = 'none';
+        if (tagLikeGroup) tagLikeGroup.style.display = 'none';
+        if (talkOptionsGroup) talkOptionsGroup.style.display = 'none';
+        if (talkLocationGroup) talkLocationGroup.style.display = 'none';
+        if (talkSendChatroomGroup) talkSendChatroomGroup.style.display = 'none';
+        if (questionsFormGroup) {
+          questionsFormGroup.querySelectorAll('input, select, textarea').forEach((el) => {
+            (el as HTMLInputElement).disabled = true;
+          });
+        }
+
         if (type === 'tag') {
-          if (questionsFormGroup) {
-            questionsFormGroup.style.display = 'none';
-            questionsFormGroup.querySelectorAll('input, select, textarea').forEach((el) => {
-              (el as HTMLInputElement).disabled = true;
-            });
-          }
-          if (talkOptionsGroup) talkOptionsGroup.style.display = 'none';
-          if (talkLocationGroup) talkLocationGroup.style.display = 'none';
-          if (talkSendChatroomGroup) talkSendChatroomGroup.style.display = 'none';
           if (tagLikeGroup) tagLikeGroup.style.display = 'block';
           if (tagLikeCheckbox && !isEdit && tagLikeCheckbox.checked === false) tagLikeCheckbox.checked = true;
           if (titleInput) {
@@ -3090,23 +3120,49 @@ export class UIManager extends EventEmitter {
             titleInput.setAttribute('aria-label', 'Tag keyword');
           }
           if (desc) (desc as HTMLElement).textContent = 'Tag: one keyword. Others answer with a checkbox — checked = match, unchecked = ignore.';
-        } else {
-          if (questionsFormGroup) {
-            questionsFormGroup.style.display = 'block';
-            questionsFormGroup.querySelectorAll('input, select, textarea').forEach((el) => {
-              (el as HTMLInputElement).disabled = false;
-            });
-          }
-          if (talkOptionsGroup) talkOptionsGroup.style.display = 'block';
-          if (talkLocationGroup) talkLocationGroup.style.display = 'block';
-          if (talkSendChatroomGroup) talkSendChatroomGroup.style.display = isEdit ? 'none' : 'block';
-          if (tagLikeGroup) tagLikeGroup.style.display = 'none';
-          if (titleInput) {
-            titleInput.placeholder = 'e.g., Coffee Meetup, Quick Survey';
-            titleInput.removeAttribute('aria-label');
-          }
-          if (desc) (desc as HTMLElement).textContent = 'Build a branching conversation flow - each answer can lead to a different question';
+          return;
         }
+
+        // Non-tag types share the bottom options.
+        if (talkOptionsGroup) talkOptionsGroup.style.display = 'block';
+        if (talkLocationGroup) talkLocationGroup.style.display = 'block';
+        if (talkSendChatroomGroup) talkSendChatroomGroup.style.display = isEdit ? 'none' : 'block';
+        if (titleInput) {
+          titleInput.placeholder = 'e.g., Coffee Meetup, Quick Survey';
+          titleInput.removeAttribute('aria-label');
+        }
+
+        if (type === 'route') {
+          if (routeFormGroup) routeFormGroup.style.display = 'block';
+          if (desc) (desc as HTMLElement).textContent = 'Route: a branching DAG. Each answer can lead to a follow-up question — same question can appear in different branches (different context hash ID).';
+          // Lazily render the route tree the first time the user switches to route.
+          this.ensureRouteEditorRendered(existingTalk);
+          return;
+        }
+
+        // flow / survey share the linear "questions" editor.
+        if (questionsFormGroup) {
+          questionsFormGroup.style.display = 'block';
+          questionsFormGroup.querySelectorAll('input, select, textarea').forEach((el) => {
+            (el as HTMLInputElement).disabled = false;
+          });
+        }
+        if (type === 'survey') {
+          if (questionsFormLabel) questionsFormLabel.textContent = 'Questions (independent)';
+          if (questionsTypeHint) {
+            questionsTypeHint.textContent =
+              'Survey: questions are independent — no branching. Every answer has a counter used for aggregate statistics.';
+          }
+          if (desc) (desc as HTMLElement).textContent = 'Survey: independent Q/A pairs. Counts per answer are tallied for statistics.';
+        } else {
+          if (questionsFormLabel) questionsFormLabel.textContent = 'Questions (flow)';
+          if (questionsTypeHint) {
+            questionsTypeHint.textContent =
+              'Flow: each question must be unique. The first answer is your "match" or "go to next" decision; any extra answers are treated as ignore.';
+          }
+          if (desc) (desc as HTMLElement).textContent = 'Flow: a linear chain of unique questions — first answer decides, rest are ignore.';
+        }
+        this.refreshFlowAnswerConstraints(type);
       };
       modal.querySelectorAll('input[name="talk-type-radio"]').forEach((radio) => {
         radio.addEventListener('change', (e) => {
@@ -3151,11 +3207,12 @@ export class UIManager extends EventEmitter {
       this.updateAllAnswerDropdowns();
     });
 
-    // Form submission
+    // Form submission — keep the modal open if validation fails so the user
+    // can read the error message and adjust.
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      this.processTalkForm(form);
-      if (document.body.contains(modal)) {
+      const ok = this.processTalkForm(form);
+      if (ok && document.body.contains(modal)) {
         document.body.removeChild(modal);
       }
     });
@@ -3364,14 +3421,22 @@ export class UIManager extends EventEmitter {
         }
       });
     });
+
+    // After the generic rebuild, apply per-type constraints on top (flow locks
+    // first-answer to match/next, rest to ignore). No-op for survey/route/tag.
+    const talkTypeSelect = document.getElementById('talk-type') as HTMLSelectElement | null;
+    if (talkTypeSelect) {
+      this.refreshFlowAnswerConstraints(talkTypeSelect.value || 'flow');
+    }
   }
 
-  private processTalkForm(form: HTMLFormElement): void {
+  private processTalkForm(form: HTMLFormElement): boolean {
     const title = (document.getElementById('talk-title') as HTMLInputElement).value.trim();
     const type = (document.getElementById('talk-type') as HTMLSelectElement).value as
       | 'flow'
       | 'survey'
-      | 'tag';
+      | 'tag'
+      | 'route';
 
     const expiresSelect = document.getElementById('talk-expires') as HTMLSelectElement;
     const locationSelect = document.getElementById('talk-location-radius') as HTMLSelectElement;
@@ -3395,8 +3460,8 @@ export class UIManager extends EventEmitter {
     if (type === 'tag') {
       const keyword = title || (document.getElementById('talk-title') as HTMLInputElement).value.trim();
       if (!keyword) {
-        this.showNotification('Tag keyword is required', 'error');
-        return;
+        this.showTalkValidationError(['Tag keyword is required']);
+        return false;
       }
       questions = [
         {
@@ -3411,7 +3476,14 @@ export class UIManager extends EventEmitter {
       const tagLikeCheckbox = document.getElementById('tag-like-checkbox') as HTMLInputElement | null;
       const likesTag = tagLikeCheckbox ? tagLikeCheckbox.checked : true;
       selfAnswers.push({ questionId: 'q_0', answerId: likesTag ? 'a_0_match' : 'a_0_ignore' });
+    } else if (type === 'route') {
+      questions = this.collectRouteEditorQuestions();
+      if (questions.length === 0) {
+        this.showTalkValidationError(['Route must have at least one question']);
+        return false;
+      }
     } else {
+      // flow + survey share the linear editor
       questions = [];
       const questionItems = form.querySelectorAll('.question-item');
 
@@ -3437,8 +3509,10 @@ export class UIManager extends EventEmitter {
               text: answerText,
             };
 
-            // Handle the different action types
-            if (nextQuestion === 'ignore') {
+            if (type === 'survey') {
+              // Surveys never branch; every answer carries a counter for stats.
+              answer.counter = 0;
+            } else if (nextQuestion === 'ignore') {
               answer.isIgnore = true;
               answer.isTerminal = true;
             } else if (nextQuestion === 'noticed') {
@@ -3453,13 +3527,48 @@ export class UIManager extends EventEmitter {
           }
         });
 
-        questions.push({
+        const questionObj: any = {
           id: questionId,
           text: questionText,
           answers: answers,
-        });
+        };
+        if (type === 'survey') {
+          questionObj.isAggregatable = true;
+          questionObj.contextHashId = '';
+        }
+        questions.push(questionObj);
       });
     }
+
+    // ── Validate (with best-effort autofix) before we emit anything ────────
+    // Build a minimal Talk-shaped object for the validator. Fields the
+    // validator doesn't care about are filled with placeholders.
+    const candidate = {
+      id: '',
+      title,
+      authorId: '',
+      type,
+      isAdult: false,
+      language: 'en',
+      tags: [],
+      questions,
+      createdAt: new Date(),
+      isTemplate: false,
+      usageCount: 0,
+    };
+    let fixed: any;
+    try {
+      const report = TalkAutofix.fix(candidate as any);
+      fixed = report.talk;
+      if (report.fixes.length > 0) {
+        this.showTalkAutofixReport(report.fixes);
+      }
+      TalkValidator.validateTalk(fixed as any);
+    } catch (err) {
+      this.showTalkValidationError([(err as Error).message]);
+      return false;
+    }
+    questions = fixed.questions;
 
     const editingTalkId = form.dataset.editingTalkId;
     if (editingTalkId) {
@@ -3498,6 +3607,313 @@ export class UIManager extends EventEmitter {
         locationRadiusMiles,
         selfAnswers,
       });
+    }
+    return true;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Create-Talk: per-type UI helpers (flow constraint, route DAG editor,
+  // validation feedback). Kept on the class so the inner closures in
+  // showTalkEditorDialog can reference them via `this`.
+  // ───────────────────────────────────────────────────────────────────────
+
+  /**
+   * Flow-talk UI hints: only the first answer per question decides (match or
+   * link to the next question). Additional answers are normalized to "ignore"
+   * by TalkAutofix at submit time, but we keep the <select> elements fully
+   * interactive here so the user — and Playwright — can toggle them freely.
+   *
+   * We do NOT disable the dropdowns or force their value on render. The only
+   * visible hint is a tooltip on non-first answers in flow mode. The heavy
+   * lifting is done by TalkAutofix + TalkValidator before save.
+   */
+  private refreshFlowAnswerConstraints(type: string): void {
+    const questionItems = document.querySelectorAll('.question-item');
+    questionItems.forEach((item) => {
+      const answersContainer = item.querySelector('.answers-container');
+      if (!answersContainer) return;
+      const answerItems = answersContainer.querySelectorAll('.answer-item');
+      answerItems.forEach((answerItem, aIdx) => {
+        const select = answerItem.querySelector('.answer-next') as HTMLSelectElement | null;
+        if (!select) return;
+        // Always keep the select enabled so Playwright / keyboard users can
+        // interact with every row. Reset any stale lock-state from previous
+        // renders.
+        select.disabled = false;
+        const ignoreOpt = select.querySelector('option[value="ignore"]') as HTMLOptionElement | null;
+        if (ignoreOpt) ignoreOpt.disabled = false;
+        select.removeAttribute('title');
+        if (type === 'flow' && aIdx > 0) {
+          select.title = 'Flow talks: only the first answer decides; others are normalized to Ignore when you save.';
+        }
+      });
+    });
+  }
+
+  /** In-memory model for the route-type DAG editor. */
+  private routeEditorQuestions: Array<{
+    id: string;
+    text: string;
+    parentAnswer: { questionId: string; answerId: string } | null;
+    answers: Array<{ id: string; text: string; isMatch?: boolean; isIgnore?: boolean; isTerminal?: boolean }>;
+  }> = [];
+
+  /** Builds or re-hydrates the route-editor in-memory state and redraws it. */
+  private ensureRouteEditorRendered(existingTalk?: any): void {
+    const host = document.getElementById('route-editor');
+    if (!host) return;
+    if (this.routeEditorQuestions.length === 0) {
+      if (existingTalk && existingTalk.type === 'route' && Array.isArray(existingTalk.questions)) {
+        // Rehydrate from an existing route talk.
+        this.routeEditorQuestions = existingTalk.questions.map((q: any) => ({
+          id: q.id,
+          text: q.text,
+          parentAnswer:
+            Array.isArray(q.contextPath) && q.contextPath.length > 0
+              ? { ...q.contextPath[q.contextPath.length - 1] }
+              : null,
+          answers: (q.answers || []).map((a: any) => ({
+            id: a.id,
+            text: a.text,
+            isMatch: !!a.isMatch,
+            isIgnore: !!a.isIgnore,
+            isTerminal: a.isTerminal !== false,
+          })),
+        }));
+      } else {
+        // Seed with a single root question.
+        this.routeEditorQuestions = [
+          {
+            id: 'q_0',
+            text: '',
+            parentAnswer: null,
+            answers: [
+              { id: 'a_0_match', text: 'Match.', isMatch: true, isTerminal: true },
+              { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+            ],
+          },
+        ];
+      }
+    }
+    this.renderRouteEditor();
+  }
+
+  private renderRouteEditor(): void {
+    const host = document.getElementById('route-editor');
+    if (!host) return;
+    // Build children index from parentAnswer refs.
+    const childrenOf = new Map<string, string[]>(); // key = parentAnswerId "qid::aid", value = child question ids
+    const roots: string[] = [];
+    for (const q of this.routeEditorQuestions) {
+      if (!q.parentAnswer) {
+        roots.push(q.id);
+      } else {
+        const key = `${q.parentAnswer.questionId}::${q.parentAnswer.answerId}`;
+        const arr = childrenOf.get(key) ?? [];
+        arr.push(q.id);
+        childrenOf.set(key, arr);
+      }
+    }
+    const byId = new Map(this.routeEditorQuestions.map((q) => [q.id, q]));
+    const renderNode = (qid: string, depth: number): string => {
+      const q = byId.get(qid);
+      if (!q) return '';
+      const indent = `margin-left:${depth * 20}px;`;
+      const answersHtml = q.answers
+        .map((a) => {
+          const childIds = childrenOf.get(`${q.id}::${a.id}`) ?? [];
+          const kind = a.isMatch ? 'match' : a.isIgnore ? 'ignore' : a.isTerminal ? 'terminal' : 'link';
+          return `
+            <div class="route-answer" data-qid="${q.id}" data-aid="${a.id}" style="display:flex; align-items:center; gap:8px; margin:4px 0 4px 18px;">
+              <span class="route-answer-kind" style="font-size:0.8em; padding:2px 6px; border-radius:10px; background:#eef; color:#334;">${kind}</span>
+              <input type="text" class="form-input route-answer-text" value="${this.escapeHtml(a.text)}" placeholder="Answer text (e.g., Yes.)" data-qid="${q.id}" data-aid="${a.id}" style="flex:1;">
+              <button type="button" class="btn route-add-child-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:#667eea; color:white; padding:2px 6px;">+ Child Q</button>
+              <button type="button" class="btn route-remove-answer-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:#f44336; color:white; padding:2px 6px;">×</button>
+            </div>
+            ${childIds.map((c) => renderNode(c, depth + 1)).join('')}
+          `;
+        })
+        .join('');
+      return `
+        <div class="route-node" data-qid="${q.id}" style="border:1px solid #ddd; border-radius:6px; padding:8px; margin:6px 0; ${indent} background:#fafafa;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <strong style="color:#667eea;">Q:</strong>
+            <input type="text" class="form-input route-question-text" value="${this.escapeHtml(q.text)}" placeholder="Question (end with ?)" data-qid="${q.id}" style="flex:1;">
+            <button type="button" class="btn route-add-answer-btn" data-qid="${q.id}" style="font-size:0.8em; background:#4CAF50; color:white; padding:2px 6px;">+ Answer</button>
+            ${q.parentAnswer ? `<button type="button" class="btn route-remove-question-btn" data-qid="${q.id}" style="font-size:0.8em; background:#f44336; color:white; padding:2px 6px;">Remove Q</button>` : ''}
+          </div>
+          ${answersHtml}
+        </div>
+      `;
+    };
+    host.innerHTML = roots.map((r) => renderNode(r, 0)).join('');
+
+    // Bind events (delegation-free for clarity).
+    host.querySelectorAll<HTMLInputElement>('.route-question-text').forEach((inp) => {
+      inp.addEventListener('input', () => {
+        const q = byId.get(inp.dataset.qid!);
+        if (q) q.text = inp.value;
+      });
+    });
+    host.querySelectorAll<HTMLInputElement>('.route-answer-text').forEach((inp) => {
+      inp.addEventListener('input', () => {
+        const q = byId.get(inp.dataset.qid!);
+        if (!q) return;
+        const a = q.answers.find((x) => x.id === inp.dataset.aid);
+        if (a) a.text = inp.value;
+      });
+    });
+    host.querySelectorAll<HTMLButtonElement>('.route-add-answer-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const q = byId.get(btn.dataset.qid!);
+        if (!q) return;
+        const idx = q.answers.length;
+        q.answers.push({
+          id: `${q.id}_a${idx}`,
+          text: 'New answer.',
+          isIgnore: true,
+          isTerminal: true,
+        });
+        this.renderRouteEditor();
+      });
+    });
+    host.querySelectorAll<HTMLButtonElement>('.route-remove-answer-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const q = byId.get(btn.dataset.qid!);
+        if (!q) return;
+        q.answers = q.answers.filter((a) => a.id !== btn.dataset.aid);
+        // Also cascade-remove any children of this answer.
+        const killKey = `${btn.dataset.qid}::${btn.dataset.aid}`;
+        this.routeEditorQuestions = this.routeEditorQuestions.filter((qq) => {
+          if (!qq.parentAnswer) return true;
+          const key = `${qq.parentAnswer.questionId}::${qq.parentAnswer.answerId}`;
+          return key !== killKey;
+        });
+        this.renderRouteEditor();
+      });
+    });
+    host.querySelectorAll<HTMLButtonElement>('.route-add-child-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const parentQid = btn.dataset.qid!;
+        const parentAid = btn.dataset.aid!;
+        const newId = `q_${this.routeEditorQuestions.length}`;
+        // Promote the chosen parent answer to a linking answer (not terminal/match/ignore).
+        const parentQ = byId.get(parentQid);
+        if (parentQ) {
+          const parentAnswer = parentQ.answers.find((a) => a.id === parentAid);
+          if (parentAnswer) {
+            delete parentAnswer.isMatch;
+            delete parentAnswer.isIgnore;
+            parentAnswer.isTerminal = false;
+          }
+        }
+        this.routeEditorQuestions.push({
+          id: newId,
+          text: '',
+          parentAnswer: { questionId: parentQid, answerId: parentAid },
+          answers: [
+            { id: `${newId}_match`, text: 'Match.', isMatch: true, isTerminal: true },
+            { id: `${newId}_ignore`, text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        });
+        this.renderRouteEditor();
+      });
+    });
+    host.querySelectorAll<HTMLButtonElement>('.route-remove-question-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const target = btn.dataset.qid!;
+        // Remove target and its descendants.
+        const keep = new Set<string>();
+        const mark = (id: string) => {
+          keep.add(id);
+          for (const qq of this.routeEditorQuestions) {
+            if (qq.parentAnswer && qq.parentAnswer.questionId === id) {
+              // Do not keep descendants of target.
+            }
+          }
+        };
+        // Build a child map and BFS from target to collect descendants.
+        const childMap = new Map<string, string[]>();
+        for (const qq of this.routeEditorQuestions) {
+          if (qq.parentAnswer) {
+            const arr = childMap.get(qq.parentAnswer.questionId) ?? [];
+            arr.push(qq.id);
+            childMap.set(qq.parentAnswer.questionId, arr);
+          }
+        }
+        const dead = new Set<string>([target]);
+        const stack = [target];
+        while (stack.length > 0) {
+          const cur = stack.pop()!;
+          for (const child of childMap.get(cur) ?? []) {
+            if (!dead.has(child)) {
+              dead.add(child);
+              stack.push(child);
+            }
+          }
+        }
+        this.routeEditorQuestions = this.routeEditorQuestions.filter((qq) => !dead.has(qq.id));
+        void keep; // silence unused
+        void mark;
+        this.renderRouteEditor();
+      });
+    });
+  }
+
+  /**
+   * Converts the route-editor model into the validator-ready Question[] shape.
+   * Sets each question's contextPath by walking up its parent chain.
+   */
+  private collectRouteEditorQuestions(): any[] {
+    const byId = new Map(this.routeEditorQuestions.map((q) => [q.id, q]));
+    const computeContextPath = (qid: string): Array<{ questionId: string; answerId: string }> => {
+      const path: Array<{ questionId: string; answerId: string }> = [];
+      let cur = byId.get(qid);
+      while (cur && cur.parentAnswer) {
+        path.unshift({ questionId: cur.parentAnswer.questionId, answerId: cur.parentAnswer.answerId });
+        cur = byId.get(cur.parentAnswer.questionId);
+      }
+      return path;
+    };
+    return this.routeEditorQuestions.map((q) => {
+      const contextPath = computeContextPath(q.id);
+      return {
+        id: q.id,
+        text: q.text.trim(),
+        contextPath,
+        answers: q.answers.map((a) => {
+          const obj: any = { id: a.id, text: a.text.trim() };
+          if (a.isMatch) obj.isMatch = true;
+          if (a.isIgnore) obj.isIgnore = true;
+          if (a.isTerminal) obj.isTerminal = true;
+          return obj;
+        }),
+      };
+    });
+  }
+
+  private showTalkValidationError(errors: string[]): void {
+    const group = document.getElementById('talk-validation-group');
+    if (group) group.style.display = 'block';
+    const errBox = document.getElementById('talk-validation-errors');
+    if (errBox) {
+      errBox.style.display = 'block';
+      errBox.innerHTML = '<strong>Cannot save — please fix:</strong><ul style="margin:6px 0 0 16px; padding:0;">' +
+        errors.map((e) => `<li>${this.escapeHtml(e)}</li>`).join('') +
+        '</ul>';
+      errBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
+  private showTalkAutofixReport(fixes: string[]): void {
+    const group = document.getElementById('talk-validation-group');
+    if (group) group.style.display = 'block';
+    const banner = document.getElementById('talk-autofix-banner');
+    if (banner) {
+      banner.style.display = 'block';
+      banner.innerHTML = '<strong>Auto-fixed:</strong><ul style="margin:6px 0 0 16px; padding:0;">' +
+        fixes.map((f) => `<li>${this.escapeHtml(f)}</li>`).join('') +
+        '</ul>';
     }
   }
 

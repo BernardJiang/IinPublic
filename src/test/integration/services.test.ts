@@ -106,8 +106,9 @@ describe('Service Integration Tests', () => {
             id: 'q1',
             text: 'What is your hobby?',
             answers: [
-              { id: 'a1', text: 'Reading.', isTerminal: true },
-              { id: 'a2', text: 'Sports.', isTerminal: true },
+              // Flow rule: first answer is match-or-next; the rest are ignore.
+              { id: 'a1', text: 'Reading.', isMatch: true, isTerminal: true },
+              { id: 'a2', text: 'Sports.', isIgnore: true, isTerminal: true },
               { id: 'a_ignore', text: 'Skip.', isIgnore: true, isTerminal: true },
             ],
           },

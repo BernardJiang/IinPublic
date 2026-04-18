@@ -172,6 +172,19 @@ export interface Question {
    * Empty array means a root question (no prior context).
    */
   contextPath?: ContextStep[];
+  /**
+   * 8-char FNV-1a hex hash of the preceding (questionId:answerId) chain,
+   * or '' when this question has no prior context.
+   *
+   * - flow   : set on the 2nd question onward (chained from prior Q/A). Q1 is ''.
+   * - route  : derived from `contextPath` — set for every question (root = '').
+   * - survey : always '' (questions are independent).
+   * - tag    : always '' (single isolated question).
+   *
+   * Computed by `RouteProcessor.buildContextHash` and kept as a denormalized
+   * field so the chatbot and UI can look it up without rebuilding the path.
+   */
+  contextHashId?: string;
 }
 
 export interface Answer {
@@ -181,6 +194,12 @@ export interface Answer {
   isTerminal?: boolean; // ends the talk
   isIgnore?: boolean; // filters out user
   isMatch?: boolean; // "Let's talk in person"
+  /**
+   * Aggregate counter used by 'survey' talks for statistics. Every time a
+   * responder picks this answer the counter is incremented. Absent / undefined
+   * for non-survey talks. Initialised to 0 when a survey is created.
+   */
+  counter?: number;
 }
 
 export interface BranchLogic {

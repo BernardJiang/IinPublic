@@ -9,13 +9,36 @@ import type { Page } from '@playwright/test';
 export async function clearGunDatabases() {
   console.log('🧹 Clearing Gun.js databases to start fresh...');
 
-  // Clear client/server radata (Gun file storage); recreate dir so next run can write (avoids ENOENT)
+  // Clear client/server radata (Gun file storage); recreate dir so next run can write (avoids ENOENT).
+  // Some CI / sandboxed environments disallow removing the mount-point directory
+  // itself (EPERM on rmdir) even when its contents are removable, so fall back
+  // to deleting the children individually.
   const radataPath = path.join(__dirname, '../../../radata');
   if (fs.existsSync(radataPath)) {
-    fs.rmSync(radataPath, { recursive: true, force: true });
-    console.log('  ✅ Cleared client database (radata/)');
+    try {
+      fs.rmSync(radataPath, { recursive: true, force: true });
+      console.log('  ✅ Cleared client database (radata/)');
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'EPERM' || code === 'EACCES') {
+        for (const child of fs.readdirSync(radataPath)) {
+          try {
+            fs.rmSync(path.join(radataPath, child), { recursive: true, force: true });
+          } catch {
+            // Best-effort; skip files we can't remove.
+          }
+        }
+        console.log('  ✅ Cleared client database contents (radata/*)');
+      } else {
+        throw err;
+      }
+    }
   }
-  fs.mkdirSync(radataPath, { recursive: true });
+  try {
+    fs.mkdirSync(radataPath, { recursive: true });
+  } catch {
+    // Directory already exists — that's fine.
+  }
 
   // Clear server database
   const serverDataPath = path.join(__dirname, '../../../data1.json');

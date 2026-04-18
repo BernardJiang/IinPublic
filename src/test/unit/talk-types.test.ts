@@ -11,7 +11,7 @@
  * The tennis/badminton example from the spec is exercised in the route section.
  */
 
-import { TalkValidator, RouteProcessor } from '../../shared/talk-engine';
+import { TalkValidator, RouteProcessor, TalkAutofix } from '../../shared/talk-engine';
 import { Talk, AnswerWithContext, ContextStep } from '../../shared/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -143,7 +143,36 @@ describe('Talk type: tag', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('Talk type: flow (sequential / context-dependent)', () => {
-  it('accepts a valid two-question sequential talk', () => {
+  it('accepts a valid two-question sequential talk (first answer links; rest ignore)', () => {
+    // Flow rules (§3.6.1 + create-talk GUI spec): the first answer on every
+    // question is a match-or-next; any additional answers are implicitly ignore.
+    const talk: Talk = {
+      ...makeBase(),
+      type: 'flow',
+      questions: [
+        {
+          id: 'q1',
+          text: 'Do you like tennis?',
+          answers: [
+            { id: 'a_yes', text: 'Yes.', nextQuestionId: 'q2' },
+            { id: 'a_ign', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+          nextQuestionId: 'q2',
+        },
+        {
+          id: 'q2',
+          text: 'What is your skill level?',
+          answers: [
+            { id: 'a_beg', text: "Let's talk.", isMatch: true, isTerminal: true },
+            { id: 'a_ign', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+      ],
+    };
+    expect(() => TalkValidator.validateTalk(talk)).not.toThrow();
+  });
+
+  it('rejects a flow whose later answer is not ignore (only first answer may match/link)', () => {
     const talk: Talk = {
       ...makeBase(),
       type: 'flow',
@@ -156,20 +185,44 @@ describe('Talk type: flow (sequential / context-dependent)', () => {
             { id: 'a_no',  text: 'No.', nextQuestionId: 'q2' },
             { id: 'a_ign', text: 'Ignore.', isIgnore: true, isTerminal: true },
           ],
-          nextQuestionId: 'q2',
         },
         {
           id: 'q2',
           text: 'What is your skill level?',
           answers: [
-            { id: 'a_beg', text: 'Beginner.', isTerminal: true },
-            { id: 'a_pro', text: 'Professional.', isTerminal: true },
+            { id: 'a_beg', text: "Let's talk.", isMatch: true, isTerminal: true },
             { id: 'a_ign', text: 'Ignore.', isIgnore: true, isTerminal: true },
           ],
         },
       ],
     };
-    expect(() => TalkValidator.validateTalk(talk)).not.toThrow();
+    expect(() => TalkValidator.validateTalk(talk)).toThrow(/only the first answer/);
+  });
+
+  it('rejects a flow with duplicate question text', () => {
+    const talk: Talk = {
+      ...makeBase(),
+      type: 'flow',
+      questions: [
+        {
+          id: 'q1',
+          text: 'Do you like tennis?',
+          answers: [
+            { id: 'a1', text: 'Yes.', nextQuestionId: 'q2' },
+            { id: 'a1_ign', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+        {
+          id: 'q2',
+          text: 'Do you like tennis?', // duplicate
+          answers: [
+            { id: 'a2', text: "Let's talk.", isMatch: true, isTerminal: true },
+            { id: 'a2_ign', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+      ],
+    };
+    expect(() => TalkValidator.validateTalk(talk)).toThrow(/duplicate question/);
   });
 
   it('rejects a flow with more than 20 questions', () => {
@@ -784,5 +837,234 @@ describe('Talk type: route (hierarchical DAG, context-aware)', () => {
     it('returns an empty array for no prior answers', () => {
       expect(RouteProcessor.buildContextPathFromSubmitted([])).toEqual([]);
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. NEW CREATE-TALK RULES: flow chained contextHashId, survey counters,
+//    route per-path uniqueness, TalkAutofix behaviour.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Flow chained contextHashId', () => {
+  it('accepts a flow where each question carries its chained contextHashId', () => {
+    // Q1's context is empty (''); Q2's context is hash([{q1,a_yes}]).
+    const q1a_yes = { questionId: 'q1', answerId: 'a_yes' };
+    const q1HashId = ''; // no prior context
+    const q2HashId = RouteProcessor.buildContextHash([q1a_yes]);
+    const talk: Talk = {
+      ...makeBase(),
+      type: 'flow',
+      questions: [
+        {
+          id: 'q1',
+          text: 'Do you like coffee?',
+          contextHashId: q1HashId,
+          answers: [
+            { id: 'a_yes', text: 'Yes.', nextQuestionId: 'q2' },
+            { id: 'a_ign', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+        {
+          id: 'q2',
+          text: 'Espresso or drip?',
+          contextHashId: q2HashId,
+          answers: [
+            { id: 'a_esp', text: "Let's talk.", isMatch: true, isTerminal: true },
+            { id: 'a_ign', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+      ],
+    };
+    expect(() => TalkValidator.validateTalk(talk)).not.toThrow();
+  });
+
+  it('rejects a flow whose contextHashId does not match the prior chain', () => {
+    const talk: Talk = {
+      ...makeBase(),
+      type: 'flow',
+      questions: [
+        {
+          id: 'q1',
+          text: 'A?',
+          contextHashId: '',
+          answers: [
+            { id: 'a1', text: 'Yes.', nextQuestionId: 'q2' },
+            { id: 'a1_ign', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+        {
+          id: 'q2',
+          text: 'B?',
+          contextHashId: 'deadbeef', // wrong
+          answers: [
+            { id: 'a2', text: "Let's talk.", isMatch: true, isTerminal: true },
+            { id: 'a2_ign', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+      ],
+    };
+    expect(() => TalkValidator.validateTalk(talk)).toThrow(/contextHashId/);
+  });
+});
+
+describe('Survey counters and independence', () => {
+  it('accepts a survey whose answers carry numeric counters', () => {
+    const talk: Talk = {
+      ...makeBase(),
+      type: 'survey',
+      questions: [
+        {
+          id: 'q1',
+          text: 'Favourite colour?',
+          isAggregatable: true,
+          contextHashId: '',
+          answers: [
+            { id: 'a_r', text: 'Red.', counter: 0, isIgnore: true, isTerminal: true },
+            { id: 'a_b', text: 'Blue.', counter: 0, isIgnore: true, isTerminal: true },
+          ],
+        },
+      ],
+    };
+    expect(() => TalkValidator.validateTalk(talk)).not.toThrow();
+  });
+
+  it('rejects a survey question with a nextQuestionId', () => {
+    const talk: Talk = {
+      ...makeBase(),
+      type: 'survey',
+      questions: [
+        {
+          id: 'q1',
+          text: 'A?',
+          isAggregatable: true,
+          nextQuestionId: 'q2',
+          answers: [
+            { id: 'a1', text: 'Yes.', isIgnore: true, isTerminal: true },
+            { id: 'a1_ign', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+        {
+          id: 'q2',
+          text: 'B?',
+          isAggregatable: true,
+          answers: [
+            { id: 'a2', text: 'Yes.', isIgnore: true, isTerminal: true },
+            { id: 'a2_ign', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+      ],
+    };
+    expect(() => TalkValidator.validateTalk(talk)).toThrow(/independent/);
+  });
+});
+
+describe('Route per-path uniqueness', () => {
+  it('rejects the same question text appearing twice on a single root→leaf path', () => {
+    const talk: Talk = {
+      ...makeBase(),
+      type: 'route',
+      questions: [
+        {
+          id: 'q_root',
+          text: 'Do you play a sport?',
+          contextPath: [],
+          answers: [{ id: 'a_yes', text: 'Yes.', isTerminal: false }],
+        },
+        {
+          id: 'q_dup',
+          // Same text as q_root — on the path [q_root/a_yes] this is illegal.
+          text: 'Do you play a sport?',
+          contextPath: [{ questionId: 'q_root', answerId: 'a_yes' }],
+          answers: [{ id: 'a_y', text: 'Yes.', isMatch: true, isTerminal: true }],
+        },
+      ],
+    };
+    expect(() => TalkValidator.validateTalk(talk)).toThrow(/repeating question on path/);
+  });
+
+  it('accepts the same question text in two different branches', () => {
+    // Two children of q_root: q_tennis and q_badminton. Each has its own
+    // "skill level" follow-up — same text, different branch, different hash.
+    const talk: Talk = {
+      ...makeBase(),
+      type: 'route',
+      questions: [
+        {
+          id: 'q_root',
+          text: 'Pick a sport.',
+          contextPath: [],
+          answers: [
+            { id: 'a_t', text: 'Tennis.', isTerminal: false },
+            { id: 'a_b', text: 'Badminton.', isTerminal: false },
+          ],
+        },
+        {
+          id: 'q_skill_tennis',
+          text: 'What is your skill level?',
+          contextPath: [{ questionId: 'q_root', answerId: 'a_t' }],
+          answers: [{ id: 'a_beg_t', text: 'Beginner.', isMatch: true, isTerminal: true }],
+        },
+        {
+          id: 'q_skill_bad',
+          text: 'What is your skill level?',
+          contextPath: [{ questionId: 'q_root', answerId: 'a_b' }],
+          answers: [{ id: 'a_beg_b', text: 'Beginner.', isMatch: true, isTerminal: true }],
+        },
+      ],
+    };
+    expect(() => TalkValidator.validateTalk(talk)).not.toThrow();
+  });
+});
+
+describe('TalkAutofix', () => {
+  it('auto-renames duplicate flow question texts and fixes answer constraints', () => {
+    const broken = {
+      ...makeBase(),
+      type: 'flow' as const,
+      questions: [
+        {
+          id: 'q1',
+          text: 'Do you like coffee?',
+          answers: [
+            // First answer is wrongly an ignore (autofix should promote it to a link/match)
+            { id: 'a1_first', text: 'Yes.', isIgnore: true, isTerminal: true },
+            // Second answer wrongly carries a match flag (autofix should convert to ignore)
+            { id: 'a1_extra', text: 'Maybe.', isMatch: true, isTerminal: true },
+            { id: 'a1_ign', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+        {
+          id: 'q2',
+          text: 'Do you like coffee?', // duplicate text
+          answers: [
+            { id: 'a2_first', text: "Let's talk.", isMatch: true, isTerminal: true },
+            { id: 'a2_ign', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+      ],
+    };
+    const report = TalkAutofix.fix(broken as any);
+    expect(report.fixes.length).toBeGreaterThan(0);
+    expect(() => TalkValidator.validateTalk(report.talk as any)).not.toThrow();
+    // Q2's text should have been disambiguated.
+    expect(report.talk.questions[1].text).not.toBe(report.talk.questions[0].text);
+    // First answer on q1 is now a match or next.
+    const a0 = report.talk.questions[0].answers[0];
+    expect(Boolean(a0.isMatch) || Boolean(a0.nextQuestionId)).toBe(true);
+    // The middle answer (previously match) is now ignore.
+    expect(report.talk.questions[0].answers[1].isMatch).toBeFalsy();
+    expect(report.talk.questions[0].answers[1].isIgnore).toBe(true);
+  });
+
+  it('fills in contextHashId for route questions from contextPath', () => {
+    const talk = {
+      ...makeBase(),
+      type: 'route' as const,
+      questions: [
+        { id: 'q0', text: 'Root?', contextPath: [], answers: [{ id: 'a0', text: 'Yes.', isMatch: true, isTerminal: true }] },
+      ],
+    };
+    const { talk: fixed } = TalkAutofix.fix(talk as any);
+    expect(fixed.questions[0].contextHashId).toBe('');
   });
 });
