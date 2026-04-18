@@ -5,7 +5,8 @@
  * Uses `openIncomingTalkModalWithAutoAnswers` (app.openTalkResponseDialogWithAuto) for the second
  * talk so saved prefs apply; normal View keeps skipAutoAnswer to avoid breaking other E2E flows.
  */
-import { test, expect, Browser, BrowserContext, Page } from '@playwright/test';
+import { Browser, BrowserContext, Page } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { clearGunDatabases } from '../helpers/clear-database';
 import { afterSync, afterAction } from '../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../helpers/talks-matching-browsers';

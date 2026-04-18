@@ -11,12 +11,50 @@ const launchOptions =
     ? { slowMo: slowMoMs }
     : undefined;
 
+/**
+ * Parallel-worker configuration.
+ *
+ *   PW_WORKERS=1 (default) → single worker, same behaviour as before option B.
+ *   PW_WORKERS=2+         → N workers, each with its own Gun server on 8080+i and
+ *                           webpack dev-server on 3001+i. Tests pick the port from
+ *                           TEST_WORKER_INDEX via helpers/ports.ts and the baseURL
+ *                           fixture in helpers/fixtures.ts.
+ *
+ * A shared Gun graph would otherwise let one test's chatroom members or talks
+ * bleed into another, so per-worker server isolation is the only safe way to go parallel.
+ */
+const parsedWorkers = Number(process.env.PW_WORKERS);
+const NUM_WORKERS = Number.isFinite(parsedWorkers) && parsedWorkers >= 1 ? Math.floor(parsedWorkers) : 1;
+
+const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
+  const gunPort = 8080 + i;
+  const webPort = 3001 + i;
+  return [
+    {
+      // In-memory server Gun only: disk radisk + graph clear races leave ghost chatroom members and break IN-list e2e.
+      // High capacity + no FIFO: default capacity 3 evicts users when Gun map over-counts; Tom and Jerry must stay in the same room for broadcast/IN sync.
+      command: `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false E2E_GUN_MEMORY_ONLY=1 PORT=${gunPort} node dist/server/server/index.js`,
+      port: gunPort,
+      timeout: 120 * 1000,
+      // Must spawn with E2E_GUN_MEMORY_ONLY + CHATROOM_* ; reusing a manually started dev:server ignores those env vars and keeps e2e flaky.
+      reuseExistingServer: false,
+    },
+    {
+      command: `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false PORT=${webPort} npm run dev:web:e2e -- --port ${webPort}`,
+      port: webPort,
+      timeout: 120 * 1000,
+      reuseExistingServer: false,
+    },
+  ];
+});
+
 export default defineConfig({
   testDir: './tests/e2e',
-  fullyParallel: false,
+  // Parallel when workers > 1; serial (preserving legacy behaviour) when workers = 1.
+  fullyParallel: NUM_WORKERS > 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: 1,
+  workers: NUM_WORKERS,
   reporter: 'html',
   timeout: 300000,
   // Full `npm run test:e2e` keeps webpack + Gun warm for a long time; 30s was tight for multi-browser talks.
@@ -25,6 +63,9 @@ export default defineConfig({
   },
 
   use: {
+    // Fallback baseURL for any tool that reads `use.baseURL` at config load.
+    // Tests override this per-worker via the `test` fixture in tests/e2e/helpers/fixtures.ts
+    // (which reads TEST_WORKER_INDEX, only set inside worker processes).
     baseURL: 'http://localhost:3001',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
@@ -40,22 +81,5 @@ export default defineConfig({
     },
   ],
 
-  webServer: [
-    {
-      // In-memory server Gun only: disk radisk + graph clear races leave ghost chatroom members and break IN-list e2e.
-      // High capacity + no FIFO: default capacity 3 evicts users when Gun map over-counts; Tom and Jerry must stay in the same room for broadcast/IN sync.
-      command:
-        'CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false E2E_GUN_MEMORY_ONLY=1 node dist/server/server/index.js',
-      port: 8080,
-      timeout: 120 * 1000,
-      // Must spawn with E2E_GUN_MEMORY_ONLY + CHATROOM_* ; reusing a manually started dev:server ignores those env vars and keeps e2e flaky.
-      reuseExistingServer: false,
-    },
-    {
-      command: 'CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false npm run dev:web:e2e',
-      port: 3001,
-      timeout: 120 * 1000,
-      reuseExistingServer: false,
-    },
-  ],
+  webServer: webServers,
 });

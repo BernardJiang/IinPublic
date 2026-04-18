@@ -12,8 +12,19 @@
     <div id="output"></div>
 
     <script>
+      // Derive the hub URL from this page's port (web 3001+N ↔ gun 8080+N for parallel e2e workers).
+      function gunHubUrl() {
+        const { hostname, protocol, port } = window.location;
+        const webPort = Number(port);
+        if ((hostname === 'localhost' || hostname === '127.0.0.1') && Number.isFinite(webPort) && webPort >= 3001) {
+          return `${protocol}//${hostname}:${webPort - 3001 + 8080}/gun`;
+        }
+        if (hostname === 'localhost' || hostname === '127.0.0.1') return `${protocol}//${hostname}:8080/gun`;
+        return `${protocol}//${hostname}/gun`;
+      }
+
       const gun = Gun({
-        peers: ['http://localhost:8080/gun'],
+        peers: [gunHubUrl()],
         localStorage: true,
         axe: false,
       });

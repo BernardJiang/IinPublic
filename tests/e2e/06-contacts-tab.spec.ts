@@ -1,7 +1,9 @@
-import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
+import { gunBaseURL, webBaseURL } from './helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
 
 test.describe('Contacts tab: list of users with matches, click to see matching talks', () => {
@@ -72,7 +74,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     const page = await context.newPage();
     page.on('console', (m) => console.log(`[${label}]:`, m.text()));
     await injectIdbClear(page);
-    await page.goto('/');
+    await page.goto(webBaseURL());
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 640, 1000);
     await afterLoad();
@@ -156,7 +158,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
       .poll(
         async () => {
           const res = await pageTom.request.get(
-            `http://localhost:8080/api/users/${encodeURIComponent(jerryUserId)}/incoming-talks`,
+            `${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}/incoming-talks`,
           );
           if (!res.ok()) return 0;
           return (await res.json() as any[]).length;

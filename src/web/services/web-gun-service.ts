@@ -26,8 +26,42 @@ export class WebGunService extends EventEmitter {
 
   constructor() {
     super();
-    this.peers = ['http://localhost:8080/gun'];
+    this.peers = [WebGunService.deriveGunHubUrl()];
     this.bridge = new GunBridge('/worker.js');
+  }
+
+  /**
+   * Compute the Gun hub URL from the current page origin.
+   *
+   * Convention (dev + e2e parallel workers):
+   *   web 3001 ↔ gun 8080   (single-worker default)
+   *   web 3002 ↔ gun 8081   (parallel worker 1)
+   *   web 3001+N ↔ gun 8080+N
+   *
+   * When running outside a browser (SSR / unit test) falls back to the legacy default so
+   * existing callers that construct this class in Node don't break.
+   */
+  private static deriveGunHubUrl(): string {
+    if (typeof window === 'undefined' || !window.location) {
+      // Node/SSR fallback: honour PORT env var so callers running inside a parallel
+      // worker process (web 3001+N ↔ gun 8080+N) still target their own Gun server.
+      const envPort = typeof process !== 'undefined' && process.env && process.env.PORT
+        ? parseInt(process.env.PORT, 10)
+        : 8080;
+      return `http://localhost:${Number.isFinite(envPort) ? envPort : 8080}/gun`;
+    }
+    const { protocol, hostname, port } = window.location;
+    const webPort = Number(port);
+    // Only apply the +8080-3001 offset for localhost dev/e2e; in prod the hub is on the same
+    // origin without an explicit port and we preserve that behaviour.
+    if ((hostname === 'localhost' || hostname === '127.0.0.1') && Number.isFinite(webPort) && webPort >= 3001) {
+      const gunPort = webPort - 3001 + 8080;
+      return `${protocol}//${hostname}:${gunPort}/gun`;
+    }
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return `${protocol}//${hostname}:8080/gun`;
+    }
+    return `${protocol}//${hostname}/gun`;
   }
 
   async initialize(): Promise<void> {

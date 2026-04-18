@@ -1,7 +1,8 @@
 /**
  * Two talks (Tennis + Coffee), Jerry/Bob match/mismatch; Tom status bar match count; Jerry Answers tab.
  */
-import { test, expect, Browser, BrowserContext, Page } from '@playwright/test';
+import { Browser, BrowserContext, Page } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { clearGunDatabases } from '../helpers/clear-database';
 import { afterSync, afterAction } from '../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../helpers/talks-matching-browsers';

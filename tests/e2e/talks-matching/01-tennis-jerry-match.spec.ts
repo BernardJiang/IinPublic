@@ -1,7 +1,8 @@
 /**
  * Tom creates a matching talk, broadcasts; Jerry answers the match path.
  */
-import { test, Browser, BrowserContext, Page } from '@playwright/test';
+import { Browser, BrowserContext, Page } from '@playwright/test';
+import { test } from '../helpers/fixtures';
 import { clearGunDatabases } from '../helpers/clear-database';
 import { afterSync, afterAction } from '../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../helpers/talks-matching-browsers';

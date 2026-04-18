@@ -1,9 +1,11 @@
-import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
+import { webBaseURL } from './helpers/ports';
 
 /**
  * Navigate to the app with e2e_capacity=3 and e2e_fifo=true URL params so the
@@ -55,7 +57,7 @@ test.describe('Capacity and eviction', () => {
     page.on('console', (m) => console.log(`[${label}]:`, m.text()));
     // IDB clear must run before any script; addInitScript fires before page scripts.
     await injectIdbClear(page);
-    await page.goto(E2E_URL);
+    await page.goto(webBaseURL() + E2E_URL);
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 640, 600);
     await afterLoad();
@@ -146,26 +148,26 @@ test.describe('Capacity and eviction', () => {
     context1 = await reenterContext(browser1, 'cap-user1.json');
     page1 = await context1.newPage();
     page1.on('console', (m) => console.log('[U1]:', m.text()));
-    await page1.goto(E2E_URL);
+    await page1.goto(webBaseURL() + E2E_URL);
     await page1.waitForLoadState('load');
     await afterLoad();
     await afterNav();
 
     context2 = await reenterContext(browser2, 'cap-user2.json');
     page2 = await context2.newPage();
-    await page2.goto(E2E_URL);
+    await page2.goto(webBaseURL() + E2E_URL);
     await page2.waitForLoadState('load');
     await afterLoad();
 
     context3 = await reenterContext(browser3, 'cap-user3.json');
     page3 = await context3.newPage();
-    await page3.goto(E2E_URL);
+    await page3.goto(webBaseURL() + E2E_URL);
     await page3.waitForLoadState('load');
     await afterLoad();
 
     context4 = await reenterContext(browser4, 'cap-user4.json');
     page4 = await context4.newPage();
-    await page4.goto(E2E_URL);
+    await page4.goto(webBaseURL() + E2E_URL);
     await page4.waitForLoadState('load');
     await afterLoad();
 

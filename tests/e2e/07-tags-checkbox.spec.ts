@@ -1,9 +1,11 @@
-import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
+import { gunBaseURL, webBaseURL } from './helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
 
 test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
@@ -74,7 +76,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     const page = await context.newPage();
     page.on('console', (msg) => console.log(`[${label}]:`, msg.text()));
     await injectIdbClear(page);
-    await page.goto('/');
+    await page.goto(webBaseURL());
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 640, 1000);
     await afterLoad();
@@ -152,7 +154,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
       .poll(
         async () => {
           const res = await pageAlice.request.get(
-            `http://localhost:8080/api/users/${encodeURIComponent(tomUserId)}/incoming-talks`,
+            `${gunBaseURL()}/api/users/${encodeURIComponent(tomUserId)}/incoming-talks`,
           );
           if (!res.ok()) return 0;
           return (await res.json() as any[]).length;

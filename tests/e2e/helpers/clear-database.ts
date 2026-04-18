@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Page } from '@playwright/test';
+import { gunBaseURL, workerIndex } from './ports';
 
 /**
  * Clear all Gun.js databases (client, server disk, server memory).
@@ -64,18 +65,20 @@ export async function clearGunDatabases() {
     console.log(`  ✅ Cleared ${tmpFiles.length} .tmp files`);
   }
 
-  // Clear Gun.js server in-memory database via API
+  // Clear Gun.js server in-memory database via API — each worker clears ONLY its own server,
+  // so parallel workers don't wipe each other's state.
+  const clearUrl = `${gunBaseURL()}/api/test/clear-database`;
   try {
-    const response = await fetch('http://localhost:8080/api/test/clear-database', {
+    const response = await fetch(clearUrl, {
       method: 'POST',
     });
     if (response.ok) {
-      console.log('  ✅ Cleared Gun.js server in-memory database');
+      console.log(`  ✅ Cleared Gun.js server in-memory database (worker ${workerIndex()})`);
     } else {
       console.warn('  ⚠️ Failed to clear Gun.js server database:', response.statusText);
     }
   } catch (error) {
-    console.warn('  ⚠️ Could not connect to Gun.js server to clear database');
+    console.warn(`  ⚠️ Could not connect to Gun.js server at ${clearUrl}`);
   }
 
   // Allow server and Gun to finish clearing before next test (longer after many suite clears / disk IO)

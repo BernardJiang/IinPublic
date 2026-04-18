@@ -13,10 +13,14 @@ export class GunService {
       this.peers = [];
       logger.info('GunService using existing Gun instance from HTTP server');
     } else {
-      // Create new Gun instance (for standalone use)
+      // Create new Gun instance (for standalone use).
+      // Default hub follows PORT env var so a standalone GunService running alongside a
+      // parallel Playwright worker (web 3001+N ↔ gun 8080+N) targets the right Gun server
+      // rather than always defaulting to 8080.
+      const defaultPort = process.env.PORT ? parseInt(process.env.PORT, 10) : 8080;
       this.peers = process.env.GUN_PEERS
         ? process.env.GUN_PEERS.split(',')
-        : ['http://localhost:8080/gun'];
+        : [`http://localhost:${Number.isFinite(defaultPort) ? defaultPort : 8080}/gun`];
 
       this.gun = Gun({
         peers: this.peers,

@@ -1,9 +1,11 @@
-import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { wait, afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
+import { webBaseURL } from './helpers/ports';
 
 test.describe('Login — two users headcount', () => {
   let browser: Browser;
@@ -41,7 +43,7 @@ test.describe('Login — two users headcount', () => {
     page = await context.newPage();
     page.on('console', (m) => console.log('[User1]:', m.text()));
     await injectIdbClear(page);
-    await page.goto('/');
+    await page.goto(webBaseURL());
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 960, 1200);
     await afterLoad();
@@ -51,7 +53,7 @@ test.describe('Login — two users headcount', () => {
     page2 = await context2.newPage();
     page2.on('console', (m) => console.log('[User2]:', m.text()));
     await injectIdbClear(page2);
-    await page2.goto('/');
+    await page2.goto(webBaseURL());
     await page2.waitForLoadState('load');
     await ensureWindowFitsViewport(page2, 960, 1200);
     await afterLoad();
@@ -67,7 +69,7 @@ test.describe('Login — two users headcount', () => {
 
     page2 = await context2.newPage();
     page2.on('console', (m) => console.log('[User2]:', m.text()));
-    await page2.goto('/');
+    await page2.goto(webBaseURL());
     await page2.waitForLoadState('load');
     await afterNav();
     await afterLoad();

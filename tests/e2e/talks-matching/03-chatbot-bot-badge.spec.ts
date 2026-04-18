@@ -1,7 +1,8 @@
 /**
  * Jerry manual match + chatbot; Bob re-announce; Tom vs Bob bot badge on Jerry conversation.
  */
-import { test, expect, Browser, BrowserContext, Page } from '@playwright/test';
+import { Browser, BrowserContext, Page } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { clearGunDatabases } from '../helpers/clear-database';
 import { afterSync, afterNav } from '../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../helpers/talks-matching-browsers';

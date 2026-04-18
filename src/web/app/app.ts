@@ -624,11 +624,27 @@ export class IinPublicApp {
     }
   }
 
-  /** HTTP API lives on the Gun server (port 8080 in dev). */
+  /**
+   * HTTP API lives on the Gun server (port 8080 in single-worker dev/e2e, 8080+N for parallel
+   * Playwright worker N). Derive the port from the current page port so each worker's bundle
+   * talks to its own backend.
+   */
   private getBackendApiBase(): string {
-    if (typeof window === 'undefined') return 'http://localhost:8080';
-    const { hostname, protocol } = window.location;
+    if (typeof window === 'undefined') {
+      // Node/SSR fallback: honour PORT env var so callers running inside a parallel
+      // worker process (web 3001+N ↔ gun 8080+N) still target their own Gun server.
+      const envPort = typeof process !== 'undefined' && process.env && process.env.PORT
+        ? parseInt(process.env.PORT, 10)
+        : 8080;
+      return `http://localhost:${Number.isFinite(envPort) ? envPort : 8080}`;
+    }
+    const { hostname, protocol, port } = window.location;
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      const webPort = Number(port);
+      if (Number.isFinite(webPort) && webPort >= 3001) {
+        const gunPort = webPort - 3001 + 8080;
+        return `${protocol}//${hostname}:${gunPort}`;
+      }
       return `${protocol}//${hostname}:8080`;
     }
     return `${protocol}//${hostname}`;

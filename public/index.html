@@ -52,11 +52,23 @@
             log.innerHTML = 'Log cleared...';
         }
 
+        // Derive backend origin from this page's port (web 3001+N ↔ gun 8080+N for parallel e2e workers).
+        function apiOrigin() {
+            const { hostname, protocol, port } = window.location;
+            const webPort = Number(port);
+            if ((hostname === 'localhost' || hostname === '127.0.0.1') && Number.isFinite(webPort) && webPort >= 3001) {
+                return `${protocol}//${hostname}:${webPort - 3001 + 8080}`;
+            }
+            if (hostname === 'localhost' || hostname === '127.0.0.1') return `${protocol}//${hostname}:8080`;
+            return `${protocol}//${hostname}`;
+        }
+
         // Test server connection
         async function testServer() {
-            logMessage('Testing server connection to http://localhost:8080...');
+            const origin = apiOrigin();
+            logMessage('Testing server connection to ' + origin + '...');
             try {
-                const response = await fetch('http://localhost:8080/api/health');
+                const response = await fetch(origin + '/api/health');
                 if (response.ok) {
                     const data = await response.json();
                     logMessage(' Server connection successful: ' + JSON.stringify(data), 'success');
@@ -75,7 +87,7 @@
         function testGun() {
             logMessage('Testing Gun.js peer connection...');
             try {
-                const gun = Gun(['http://localhost:8765/gun']);
+                const gun = Gun([apiOrigin() + '/gun']);
                 
                 // Test write/read
                 const testKey = 'test_' + Date.now();

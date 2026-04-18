@@ -1,8 +1,10 @@
-import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases } from './helpers/clear-database';
 import { delay, headless, afterAction, afterNav, afterSync, afterLoad } from './helpers/timing';
+import { gunBaseURL } from './helpers/ports';
 import { countIncomingTalkSlots } from './helpers/talks-matching-flow';
 import {
   TAG_NAMES,
@@ -157,7 +159,7 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
       .poll(
         async () => {
           const res = await pageTom.request.get(
-            `http://localhost:8080/api/users/${encodeURIComponent(tomUserId)}/incoming-talks`,
+            `${gunBaseURL()}/api/users/${encodeURIComponent(tomUserId)}/incoming-talks`,
           );
           if (!res.ok()) return 0;
           const data = await res.json();

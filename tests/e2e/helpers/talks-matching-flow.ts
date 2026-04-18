@@ -2,6 +2,7 @@ import { expect, Browser, BrowserContext, Page } from '@playwright/test';
 import { clearGunDatabases, injectIdbClear } from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
 import { afterLoad, afterNav, afterAction, afterSync } from './timing';
+import { webBaseURL } from './ports';
 
 /** Count distinct talk ids across incoming clusters (one merged cluster may hold many `qa_*` keys). */
 export function countIncomingTalkSlots(clusters: unknown): number {
@@ -113,7 +114,7 @@ export async function bootstrapUser(
   page.on('console', (m) => console.log(`[${label}]:`, m.text()));
   // Clear the Web Worker's IndexedDB so each user starts with a fresh local Gun graph.
   await injectIdbClear(page);
-  await page.goto('/');
+  await page.goto(webBaseURL());
   await page.waitForLoadState('load');
   await ensureWindowFitsViewport(page, 640, 1000);
   await afterLoad();

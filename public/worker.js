@@ -76,7 +76,30 @@ const idbAdapter = {
 
 /* ── 3. Gun initialization ──────────────────────────────────────── */
 // HUB_URL can be overridden via the 'init' message from the main thread.
-let HUB_URL = 'http://localhost:8080/gun';
+// Derive default from this worker's own origin so parallel Playwright workers (each
+// running on web 3001+N ↔ gun 8080+N) connect to the right Gun server even if the
+// main thread's `init` message hasn't arrived yet.
+let HUB_URL = (function () {
+  try {
+    var loc = self.location || {};
+    var hostname = loc.hostname || 'localhost';
+    var protocol = loc.protocol || 'http:';
+    var webPort = Number(loc.port);
+    if (
+      (hostname === 'localhost' || hostname === '127.0.0.1') &&
+      Number.isFinite(webPort) &&
+      webPort >= 3001
+    ) {
+      return protocol + '//' + hostname + ':' + (webPort - 3001 + 8080) + '/gun';
+    }
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return protocol + '//' + hostname + ':8080/gun';
+    }
+    return protocol + '//' + hostname + '/gun';
+  } catch (_e) {
+    return 'http://localhost:8080/gun';
+  }
+})();
 
 let gun = null;
 let SEA = self.SEA; // loaded by sea.js importScript above

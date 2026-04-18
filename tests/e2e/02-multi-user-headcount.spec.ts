@@ -1,9 +1,11 @@
-import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { wait, afterLoad, afterSync, afterNav, delay, headless } from './helpers/timing';
+import { webBaseURL } from './helpers/ports';
 
 test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () => {
   let browser1: Browser;
@@ -75,7 +77,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     page1 = await context1.newPage();
     page1.on('console', (m) => console.log('[User1]:', m.text()));
     await injectIdbClear(page1);
-    await page1.goto('/');
+    await page1.goto(webBaseURL());
     await page1.waitForLoadState('load');
     await ensureWindowFitsViewport(page1, 640, 800);
     await afterLoad();
@@ -85,7 +87,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     page2 = await context2.newPage();
     page2.on('console', (m) => console.log('[User2]:', m.text()));
     await injectIdbClear(page2);
-    await page2.goto('/');
+    await page2.goto(webBaseURL());
     await page2.waitForLoadState('load');
     await ensureWindowFitsViewport(page2, 640, 800);
     await afterLoad();
@@ -96,7 +98,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     page3 = await context3.newPage();
     page3.on('console', (m) => console.log('[User3]:', m.text()));
     await injectIdbClear(page3);
-    await page3.goto('/');
+    await page3.goto(webBaseURL());
     await page3.waitForLoadState('load');
     await ensureWindowFitsViewport(page3, 640, 800);
     await afterLoad();
@@ -133,7 +135,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     });
     page2 = await context2.newPage();
     page2.on('console', (m) => console.log('[User2]:', m.text()));
-    await page2.goto('/');
+    await page2.goto(webBaseURL());
     await page2.waitForLoadState('load');
     await afterNav();
     await afterLoad();
@@ -146,7 +148,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     });
     page3 = await context3.newPage();
     page3.on('console', (m) => console.log('[User3]:', m.text()));
-    await page3.goto('/');
+    await page3.goto(webBaseURL());
     await page3.waitForLoadState('load');
     await afterNav();
     await afterLoad();
@@ -160,7 +162,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     });
     page1 = await context1.newPage();
     page1.on('console', (m) => console.log('[User1]:', m.text()));
-    await page1.goto('/');
+    await page1.goto(webBaseURL());
     await page1.waitForLoadState('load');
     await afterNav();
     await afterLoad();

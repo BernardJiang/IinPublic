@@ -1,7 +1,9 @@
-import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
+import { webBaseURL } from './helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
 
 test.describe('Direct messaging between matched users', () => {
@@ -61,7 +63,7 @@ test.describe('Direct messaging between matched users', () => {
     const page = await context.newPage();
     page.on('console', (m) => console.log(`[${label}]:`, m.text()));
     await injectIdbClear(page);
-    await page.goto('/');
+    await page.goto(webBaseURL());
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 640, 1000);
     await afterLoad();

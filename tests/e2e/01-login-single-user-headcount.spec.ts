@@ -1,9 +1,11 @@
-import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, delay, headless } from './helpers/timing';
+import { webBaseURL } from './helpers/ports';
 
 test.describe('Login — single user headcount', () => {
   let browser: Browser;
@@ -33,7 +35,7 @@ test.describe('Login — single user headcount', () => {
     page.on('console', (m) => console.log('[Browser]:', m.text()));
     await injectIdbClear(page);
 
-    await page.goto('/');
+    await page.goto(webBaseURL());
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 960, 1200);
     await afterLoad();
@@ -49,7 +51,7 @@ test.describe('Login — single user headcount', () => {
 
     page = await context.newPage();
     page.on('console', (m) => console.log('[Browser]:', m.text()));
-    await page.goto('/');
+    await page.goto(webBaseURL());
     await page.waitForLoadState('load');
     await afterNav();
     await afterLoad();

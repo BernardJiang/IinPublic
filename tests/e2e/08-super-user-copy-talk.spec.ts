@@ -1,4 +1,5 @@
-import { test, expect, chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { clearGunDatabases } from './helpers/clear-database';
 import { afterSync, afterAction, afterNav, afterLoad, delay, headless } from './helpers/timing';
 import {

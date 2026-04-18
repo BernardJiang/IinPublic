@@ -94,17 +94,18 @@ module.exports = {
       // watch: false — this is a large static dependency; no need to watch it.
       { directory: path.resolve(__dirname, 'node_modules/gun'), publicPath: '/node_modules/gun', watch: false },
     ],
-    port: 3001,
+    // Port defaults to 3001; overridable via PORT env var or `-- --port NNNN` CLI flag so
+    // parallel Playwright workers can each run their own dev-server on 3001+N.
+    port: Number(process.env.PORT) || 3001,
     hot: process.env.DISABLE_HMR !== 'true',
     liveReload: process.env.DISABLE_HMR !== 'true',
     watchFiles: process.env.DISABLE_HMR === 'true' ? [] : undefined,
     open: process.env.DISABLE_HMR !== 'true', // Don't auto-open browser during e2e tests
     historyApiFallback: true,
-    // Disable all watching for E2E tests
+    // Disable all watching for E2E tests. Omit the hardcoded webSocketURL: the default
+    // (same origin as the page) is correct for every worker's port.
     ...(process.env.DISABLE_HMR === 'true' && {
-      client: {
-        webSocketURL: 'ws://127.0.0.1:3001/ws',
-      },
+      client: false,
     }),
   },
   ...(process.env.DISABLE_HMR === 'true' && {

@@ -40,10 +40,12 @@ class IinPublicServer {
 
     this.io = new Server(this.server, {
       cors: {
+        // In dev/e2e we may run multiple webpack dev servers on adjacent ports (parallel
+        // Playwright workers), so match any localhost origin rather than a fixed list.
         origin:
           process.env.NODE_ENV === 'production'
             ? ['https://iinpublic.com']
-            : ['http://localhost:3000', 'http://localhost:3001'],
+            : /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
         methods: ['GET', 'POST'],
       },
     });
@@ -87,10 +89,11 @@ class IinPublicServer {
 
     this.app.use(
       cors({
+        // See note on socket.io CORS above — parallel e2e workers use 3002+ too.
         origin:
           process.env.NODE_ENV === 'production'
             ? ['https://iinpublic.com']
-            : ['http://localhost:3000', 'http://localhost:3001'],
+            : /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
         credentials: true,
       }),
     );

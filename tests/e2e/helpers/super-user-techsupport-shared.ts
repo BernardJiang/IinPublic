@@ -3,6 +3,7 @@ import type { Browser, BrowserContext } from '@playwright/test';
 import { injectIdbClear } from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
 import { afterLoad, afterNav, afterAction, afterSync } from './timing';
+import { webBaseURL } from './ports';
 import { syncIncomingFromServer, waitForIncomingTalkClusterOnServer } from './talks-matching-flow';
 
 export const TECH_SUPPORT_NAME = 'TechSupport';
@@ -49,7 +50,7 @@ export async function bootstrapSuperUser(
   const page = await context.newPage();
   page.on('console', (msg) => console.log(`[${label}]:`, msg.text()));
   await injectIdbClear(page);
-  await page.goto('/');
+  await page.goto(webBaseURL());
   await page.waitForLoadState('load');
   await ensureWindowFitsViewport(page, 640, 1000);
   await afterLoad();
