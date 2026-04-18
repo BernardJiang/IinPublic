@@ -34,17 +34,17 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await clearGunDatabases();
     browser1 = await chromium.launch({
       headless,
-      slowMo: delay(50, 150),
+      slowMo: headless ? 0 : delay(50, 150),
       args: ['--window-position=0,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
     });
     browser2 = await chromium.launch({
       headless,
-      slowMo: delay(50, 150),
+      slowMo: headless ? 0 : delay(50, 150),
       args: ['--window-position=640,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
     });
     browser3 = await chromium.launch({
       headless,
-      slowMo: delay(50, 150),
+      slowMo: headless ? 0 : delay(50, 150),
       args: ['--window-position=1280,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
     });
   });

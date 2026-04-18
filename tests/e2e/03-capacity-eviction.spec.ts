@@ -67,7 +67,7 @@ test.describe('Capacity and eviction', () => {
     const launch = (x: number, y: number) =>
       chromium.launch({
         headless,
-        slowMo: delay(50, 150),
+        slowMo: headless ? 0 : delay(50, 150),
         args: [`--window-position=${x},${y}`, '--window-size=640,800', '--force-device-scale-factor=1'],
       });
     browser1 = await launch(0, 0);

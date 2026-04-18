@@ -28,14 +28,14 @@ export async function wait(shortMs: number, longMs?: number): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-/** Short: 250ms, Long: 1500ms — after a single action (click, fill). */
-export const afterAction = () => wait(250, 1500);
-/** Short: 400ms, Long: 3s — after login or nav. */
-export const afterNav = () => wait(400, 3000);
-/** Short: 1.5s, Long: 6s — after broadcast or multi-user join; Gun needs time to propagate. */
-export const afterSync = () => wait(1500, 6000);
-/** Short: 2s, Long: 8s — after page load so Gun can connect and initial sync; required for headcount. */
-export const afterLoad = () => wait(2000, 8000);
+/** Short: 100ms, Long: 1000ms — after a single action (click, fill). */
+export const afterAction = () => wait(100, 1000);
+/** Short: 200ms, Long: 2s — after login or nav. */
+export const afterNav = () => wait(200, 2000);
+/** Short: 600ms, Long: 4s — after broadcast or multi-user join; Gun needs time to propagate. */
+export const afterSync = () => wait(600, 4000);
+/** Short: 1s, Long: 6s — after page load so Gun can connect and initial sync; required for headcount. */
+export const afterLoad = () => wait(1000, 6000);
 
 export { E2E_INTERVAL, isLong };
 

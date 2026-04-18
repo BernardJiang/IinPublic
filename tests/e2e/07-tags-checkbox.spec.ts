@@ -27,12 +27,12 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
 
     browserAlice = await chromium.launch({
       headless,
-      slowMo: delay(50, 120),
+      slowMo: headless ? 0 : delay(50, 120),
       args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     browserTom = await chromium.launch({
       headless,
-      slowMo: delay(50, 120),
+      slowMo: headless ? 0 : delay(50, 120),
       args: ['--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     console.log('🚀 Launched 2 Chrome browsers: Alice, Tom');

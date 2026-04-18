@@ -12,7 +12,7 @@ export async function launchThreeBrowsers(): Promise<ThreeBrowsers> {
   // Y=40 avoids stacking exactly on 008-super-user's 0,0 and 640,0 after back-to-back runs (macOS window/CDP oddities).
   const mk = (x: number) => ({
     headless,
-    slowMo: delay(50, 120),
+    slowMo: headless ? 0 : delay(50, 120),
     args: [`--window-position=${x},40`, '--window-size=640,1200', '--force-device-scale-factor=1'],
   });
   const [tom, jerry, bob] = await Promise.all([

@@ -17,12 +17,12 @@ test.describe('Login — two users headcount', () => {
     await clearGunDatabases();
     browser = await chromium.launch({
       headless,
-      slowMo: delay(50, 150),
+      slowMo: headless ? 0 : delay(50, 150),
       args: ['--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });
     browser2 = await chromium.launch({
       headless,
-      slowMo: delay(50, 150),
+      slowMo: headless ? 0 : delay(50, 150),
       args: ['--window-position=960,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });
   });

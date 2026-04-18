@@ -26,17 +26,17 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await clearGunDatabases();
     browserTom = await chromium.launch({
       headless,
-      slowMo: delay(50, 120),
+      slowMo: headless ? 0 : delay(50, 120),
       args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     browserJerry = await chromium.launch({
       headless,
-      slowMo: delay(50, 120),
+      slowMo: headless ? 0 : delay(50, 120),
       args: ['--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     browserBob = await chromium.launch({
       headless,
-      slowMo: delay(50, 120),
+      slowMo: headless ? 0 : delay(50, 120),
       args: ['--window-position=1280,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
   });
