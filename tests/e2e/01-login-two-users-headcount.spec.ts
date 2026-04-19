@@ -1,11 +1,10 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from './helpers/fixtures';
 import * as fs from 'fs';
-import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { wait, afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
-import { webBaseURL } from './helpers/ports';
+import { webBaseURL, e2eTestScreenshotsDir } from './helpers/ports';
 
 test.describe('Login — two users headcount', () => {
   let browser: Browser;
@@ -15,7 +14,7 @@ test.describe('Login — two users headcount', () => {
   let page: Page;
   let page2: Page;
 
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunDatabases();
     browser = await chromium.launch({
       headless,
@@ -36,7 +35,7 @@ test.describe('Login — two users headcount', () => {
   });
 
   test('Two users: headcount 1→2→1→2 and one room navigation', async () => {
-    const screenshotDir = path.join(__dirname, '../../test-screenshots/01-login');
+    const screenshotDir = e2eTestScreenshotsDir('01-login');
     if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
 
     context = await browser.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });

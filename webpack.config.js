@@ -46,6 +46,7 @@ module.exports = {
     ...(process.env.DISABLE_HMR === 'true'
       ? [
           new webpack.DefinePlugin({
+            'process.env.DISABLE_HMR': JSON.stringify('true'),
             'process.env.CHATROOM_MAX_CAPACITY': JSON.stringify(
               process.env.CHATROOM_MAX_CAPACITY || '50',
             ),

@@ -5,7 +5,7 @@ import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { wait, afterLoad, afterSync, afterNav, delay, headless } from './helpers/timing';
-import { webBaseURL } from './helpers/ports';
+import { webBaseURL, e2eTestScreenshotsDir, e2eTestStorageDir } from './helpers/ports';
 
 test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () => {
   let browser1: Browser;
@@ -32,7 +32,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     console.log(`✅ ${userName} cleanup called`);
   }
 
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunDatabases();
     browser1 = await chromium.launch({
       headless,
@@ -59,8 +59,8 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
   });
 
   test('Three users enter sequentially, exit FIFO, re-enter random order', async () => {
-    const screenshotDir = path.join(__dirname, '../../test-screenshots/02-multi-user');
-    const storageDir = path.join(__dirname, '../../test-storage');
+    const screenshotDir = e2eTestScreenshotsDir('02-multi-user');
+    const storageDir = e2eTestStorageDir();
     if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
     if (!fs.existsSync(storageDir)) fs.mkdirSync(storageDir, { recursive: true });
     const storage1Path = path.join(storageDir, 'user1-state.json');

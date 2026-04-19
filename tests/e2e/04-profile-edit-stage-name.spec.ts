@@ -1,18 +1,17 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from './helpers/fixtures';
 import * as fs from 'fs';
-import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterNav, afterAction, delay, headless } from './helpers/timing';
-import { webBaseURL } from './helpers/ports';
+import { webBaseURL, e2eTestScreenshotsDir } from './helpers/ports';
 
 test.describe('Profile: edit stage name', () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
 
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunDatabases();
     browser = await chromium.launch({
       headless,
@@ -27,7 +26,7 @@ test.describe('Profile: edit stage name', () => {
   });
 
   test('New user changes stage name to Tom and sees it in header', async () => {
-    const screenshotDir = path.join(__dirname, '../../test-screenshots/04-profile');
+    const screenshotDir = e2eTestScreenshotsDir('04-profile');
     if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
 
     context = await browser.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });

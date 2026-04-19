@@ -30,7 +30,7 @@ test.describe('Talks matching — chatbot + bot badge', () => {
   let pageJerry: Page | undefined;
   let pageBob: Page | undefined;
 
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunDatabases();
     browsers = await launchThreeBrowsers();
     browserTom = browsers.tom;

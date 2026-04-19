@@ -5,7 +5,7 @@ import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
-import { webBaseURL } from './helpers/ports';
+import { webBaseURL, e2eTestStorageDir } from './helpers/ports';
 
 /**
  * Navigate to the app with e2e_capacity=3 and e2e_fifo=true URL params so the
@@ -64,7 +64,7 @@ test.describe('Capacity and eviction', () => {
     return page;
   }
 
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunDatabases();
     const launch = (x: number, y: number) =>
       chromium.launch({
@@ -87,7 +87,7 @@ test.describe('Capacity and eviction', () => {
   });
 
   test('Four users: Global fills to 3, fourth bumps first to North America; persistence after re-enter', async () => {
-    const storageDir = path.join(__dirname, '../../test-storage');
+    const storageDir = e2eTestStorageDir();
     if (!fs.existsSync(storageDir)) fs.mkdirSync(storageDir, { recursive: true });
 
     const newContext = (b: Browser) =>

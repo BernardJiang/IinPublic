@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Page } from '@playwright/test';
-import { gunBaseURL, workerIndex } from './ports';
+import { gunBaseURL, parallelSlot } from './ports';
 
 /**
  * Clear all Gun.js databases (client, server disk, server memory).
@@ -41,21 +41,18 @@ export async function clearGunDatabases() {
     // Directory already exists — that's fine.
   }
 
-  // Clear server database
   const serverDataPath = path.join(__dirname, '../../../data1.json');
   if (fs.existsSync(serverDataPath)) {
     fs.rmSync(serverDataPath, { recursive: true, force: true });
     console.log('  ✅ Cleared server database (data1.json)');
   }
 
-  // Also check for data.json (alternative Gun database location)
   const altServerDataPath = path.join(__dirname, '../../../data.json');
   if (fs.existsSync(altServerDataPath)) {
     fs.rmSync(altServerDataPath, { recursive: true, force: true });
     console.log('  ✅ Cleared alternate server database (data.json)');
   }
 
-  // Clear .tmp files created by Gun.js
   const projectRoot = path.join(__dirname, '../../../');
   const tmpFiles = fs.readdirSync(projectRoot).filter((file) => file.endsWith('.tmp'));
   tmpFiles.forEach((file) => {
@@ -73,7 +70,7 @@ export async function clearGunDatabases() {
       method: 'POST',
     });
     if (response.ok) {
-      console.log(`  ✅ Cleared Gun.js server in-memory database (worker ${workerIndex()})`);
+      console.log(`  ✅ Cleared Gun.js server in-memory database (parallel ${parallelSlot()})`);
     } else {
       console.warn('  ⚠️ Failed to clear Gun.js server database:', response.statusText);
     }

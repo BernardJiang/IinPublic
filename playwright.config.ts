@@ -17,14 +17,17 @@ const launchOptions =
  *   PW_WORKERS=1 (default) → single worker, same behaviour as before option B.
  *   PW_WORKERS=2+         → N workers, each with its own Gun server on 8080+i and
  *                           webpack dev-server on 3001+i. Tests pick the port from
- *                           TEST_WORKER_INDEX via helpers/ports.ts and the baseURL
+ *                           TEST_PARALLEL_INDEX via helpers/ports.ts and the baseURL
  *                           fixture in helpers/fixtures.ts.
  *
  * A shared Gun graph would otherwise let one test's chatroom members or talks
  * bleed into another, so per-worker server isolation is the only safe way to go parallel.
  */
-const parsedWorkers = Number(process.env.PW_WORKERS);
+/** Accept `PW_WORKER` as a typo-alias for `PW_WORKERS`. */
+const parsedWorkers = Number(process.env.PW_WORKERS ?? process.env.PW_WORKER);
 const NUM_WORKERS = Number.isFinite(parsedWorkers) && parsedWorkers >= 1 ? Math.floor(parsedWorkers) : 1;
+// Let helpers (e.g. clear-database) know whether multiple workers share disk paths.
+process.env.PW_WORKERS = String(NUM_WORKERS);
 
 const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
   const gunPort = 8080 + i;
@@ -50,8 +53,9 @@ const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
 
 export default defineConfig({
   testDir: './tests/e2e',
-  // Parallel when workers > 1; serial (preserving legacy behaviour) when workers = 1.
-  fullyParallel: NUM_WORKERS > 1,
+  // Keep tests in a file serial so shared beforeAll/afterAll and multi-step flows stay ordered.
+  // Parallelism is across files only (different workers still use isolated ports + artifacts).
+  fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: NUM_WORKERS,
@@ -65,7 +69,7 @@ export default defineConfig({
   use: {
     // Fallback baseURL for any tool that reads `use.baseURL` at config load.
     // Tests override this per-worker via the `test` fixture in tests/e2e/helpers/fixtures.ts
-    // (which reads TEST_WORKER_INDEX, only set inside worker processes).
+    // (which reads TEST_PARALLEL_INDEX, only set inside worker processes).
     baseURL: 'http://localhost:3001',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',

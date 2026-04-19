@@ -67,10 +67,17 @@ export class WebGunService extends EventEmitter {
   async initialize(): Promise<void> {
     try {
       // ── Direct Gun instance (backward compat for existing services) ──
+      // Gun AXE (axe.js) auto-adds localhost peers and can mesh multiple parallel e2e
+      // webpack+Gun servers (3001/3002 ↔ 8080/8081), splitting graphs so headcounts stay at 1.
+      // E2E bundles set DISABLE_HMR via webpack DefinePlugin — turn AXE off there only.
+      // Do not gate on `typeof process` / `process.env`: webpack 5 browser bundles often have no
+      // `process`, so the guard made e2eDisableAxe always false and AXE never disabled.
+      const e2eDisableAxe = process.env.DISABLE_HMR === 'true';
       this.gun = Gun({
         peers: this.peers,
         localStorage: true,
         radisk: false,
+        ...(e2eDisableAxe ? { axe: false } : {}),
       });
 
       this.gun.on('hi', (peer: any) => {

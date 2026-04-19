@@ -22,7 +22,7 @@ test.describe('Direct messaging between matched users', () => {
 
   test.setTimeout(120_000);
 
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunDatabases();
     browserTom = await chromium.launch({
       headless,

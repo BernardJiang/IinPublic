@@ -1,10 +1,9 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from './helpers/fixtures';
 import * as fs from 'fs';
-import * as path from 'path';
 import { clearGunDatabases } from './helpers/clear-database';
 import { delay, headless, afterAction, afterNav, afterSync, afterLoad } from './helpers/timing';
-import { gunBaseURL } from './helpers/ports';
+import { gunBaseURL, e2eTestScreenshotsDir } from './helpers/ports';
 import { countIncomingTalkSlots } from './helpers/talks-matching-flow';
 import {
   TAG_NAMES,
@@ -26,9 +25,9 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
   let pageTechSupport: Page;
   let pageTom: Page;
 
-  const screenshotDir = path.join(__dirname, '../../test-screenshots/08-super-user');
+  const screenshotDir = e2eTestScreenshotsDir('08-super-user');
 
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunDatabases();
 
     if (!fs.existsSync(screenshotDir)) {

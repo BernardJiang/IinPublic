@@ -33,10 +33,17 @@ const RESPONSE_MODAL_DETACHED_MS = 25_000;
 export async function waitForIncomingTalkClusterOnServer(page: Page, titleSubstring: string): Promise<void> {
   await page.waitForFunction(
     (titleSub: string) => {
-      const { hostname, protocol } = window.location;
+      const { hostname, protocol, port } = window.location;
+      const webPort = Number(port);
+      const gunPort =
+        (hostname === 'localhost' || hostname === '127.0.0.1') &&
+        Number.isFinite(webPort) &&
+        webPort >= 3001
+          ? webPort - 3001 + 8080
+          : 8080;
       const base =
         hostname === 'localhost' || hostname === '127.0.0.1'
-          ? `${protocol}//${hostname}:8080`
+          ? `${protocol}//${hostname}:${gunPort}`
           : `${protocol}//${hostname}`;
       const app = (
         window as unknown as {

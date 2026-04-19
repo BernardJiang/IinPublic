@@ -1,11 +1,10 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from './helpers/fixtures';
 import * as fs from 'fs';
-import * as path from 'path';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
-import { gunBaseURL, webBaseURL } from './helpers/ports';
+import { gunBaseURL, webBaseURL, e2eTestScreenshotsDir } from './helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
 
 test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
@@ -18,9 +17,9 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
 
   const TAG_COFFEE = 'Coffee';
   const TAG_CAT = 'Cat';
-  const screenshotDir = path.join(__dirname, '../../test-screenshots/07-tags');
+  const screenshotDir = e2eTestScreenshotsDir('07-tags');
 
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunDatabases();
 
     if (!fs.existsSync(screenshotDir)) {

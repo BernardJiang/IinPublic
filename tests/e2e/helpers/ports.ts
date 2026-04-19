@@ -7,37 +7,66 @@
  * and have every client connect only to its worker's server.
  *
  * Convention:
- *   worker 0 → web 3001 / gun 8080  (legacy default; unchanged single-worker behaviour)
- *   worker 1 → web 3002 / gun 8081
- *   worker N → web 3001+N / gun 8080+N
+ *   parallel slot 0 → web 3001 / gun 8080  (legacy default; unchanged single-worker behaviour)
+ *   parallel slot 1 → web 3002 / gun 8081
+ *   parallel slot N → web 3001+N / gun 8080+N
  *
- * `TEST_WORKER_INDEX` is set by Playwright inside each worker process. Outside a worker
- * (e.g. at config load) it is undefined; we fall back to 0 so nothing breaks.
+ * Use `TEST_PARALLEL_INDEX` (0 … workers−1), not `TEST_WORKER_INDEX`. The latter is a
+ * monotonically increasing process id that changes when a worker restarts, so it would
+ * point at the wrong dev server port after a retry.
+ *
+ * Outside a Playwright worker, `TEST_PARALLEL_INDEX` is unset; we fall back to 0.
  */
 
-/** 0-based worker index; 0 when called outside a Playwright worker process. */
-export function workerIndex(): number {
-  const raw = process.env.TEST_WORKER_INDEX;
+import * as path from 'path';
+
+/**
+ * Set once per Playwright worker from the `e2eWorkerSlot` fixture (workerInfo.parallelIndex).
+ * Prefer this over reading env alone so slot is fixed before any `beforeAll` runs.
+ */
+let parallelSlotOverride: number | null = null;
+
+export function setE2eParallelSlotFromWorker(n: number): void {
+  parallelSlotOverride = n;
+}
+
+/** Stable 0..workers−1 slot for ports and filesystem artifacts (maps to spawned servers). */
+export function parallelSlot(): number {
+  if (parallelSlotOverride != null) return parallelSlotOverride;
+  const raw = process.env.TEST_PARALLEL_INDEX;
   const n = raw == null ? NaN : Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
 /** Webpack dev-server port for this worker (3001 + index). */
-export function webPort(idx: number = workerIndex()): number {
+export function webPort(idx: number = parallelSlot()): number {
   return 3001 + idx;
 }
 
 /** Gun/API server port for this worker (8080 + index). */
-export function gunPort(idx: number = workerIndex()): number {
+export function gunPort(idx: number = parallelSlot()): number {
   return 8080 + idx;
 }
 
-/** Base URL for the webpack dev server serving the bundle to this worker's browsers. */
-export function webBaseURL(idx: number = workerIndex()): string {
-  return `http://localhost:${webPort(idx)}`;
+/**
+ * Use 127.0.0.1 (not "localhost") so every browser resolves the same loopback stack.
+ * With multiple webpack/Gun pairs, mixed ::1 vs 127.0.0.1 origins can split Gun peers.
+ */
+export function webBaseURL(idx: number = parallelSlot()): string {
+  return `http://127.0.0.1:${webPort(idx)}`;
 }
 
 /** Base URL for the Gun HTTP/WS endpoint this worker's browsers should talk to. */
-export function gunBaseURL(idx: number = workerIndex()): string {
-  return `http://localhost:${gunPort(idx)}`;
+export function gunBaseURL(idx: number = parallelSlot()): string {
+  return `http://127.0.0.1:${gunPort(idx)}`;
+}
+
+/** Isolated Playwright storage state dir (`test-storage/w{N}/`) so parallel workers never clobber JSON. */
+export function e2eTestStorageDir(): string {
+  return path.join(__dirname, '../../../test-storage', `w${parallelSlot()}`);
+}
+
+/** Isolated screenshot dir under `test-screenshots/w{N}/…`. */
+export function e2eTestScreenshotsDir(...segments: string[]): string {
+  return path.join(__dirname, '../../../test-screenshots', `w${parallelSlot()}`, ...segments);
 }

@@ -12,7 +12,7 @@ test.describe('Talks: create and edit', () => {
   const TALK_TITLE = 'Coffee Meetup';
   const TALK_TITLE_EDITED = 'Coffee Meetup (Edited)';
 
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunDatabases();
     browser = await chromium.launch({
       headless,

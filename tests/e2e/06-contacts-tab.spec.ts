@@ -24,7 +24,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
   const IGNORE_ANSWER = 'No thanks.';
   const IGNORE_ANSWER_COFFEE = 'Not now.';
 
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunDatabases();
     browserTom = await chromium.launch({
       headless,

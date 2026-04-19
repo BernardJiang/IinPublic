@@ -66,6 +66,12 @@ class IinPublicServer {
       web: this.server,
       localStorage: false, // Server doesn't need localStorage
       radisk: !e2eMemoryOnly,
+      // Parallel e2e runs multiple Gun HTTP servers (8080, 8081, …). Without this, Gun's
+      // UDP multicast (lib/multicast.js, port 8765) meshes separate processes and splits the
+      // in-memory graph so two browsers on one hub still see different chatroom membership.
+      // Browser AXE is disabled in e2e bundles (web-gun-service); server-side AXE/multicast
+      // must also be off for isolated graphs per hub.
+      ...(e2eMemoryOnly ? { peers: [], axe: false, multicast: false } : {}),
     });
     logger.info({ radisk: !e2eMemoryOnly }, '🔫 Gun.js attached to HTTP server');
   }

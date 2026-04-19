@@ -19,7 +19,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
   let pageTechSupport: Page;
   let pageTom: Page;
 
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunDatabases();
     browserTechSupport = await chromium.launch({
       headless,
