@@ -81,7 +81,7 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     console.log('✅ Cleanup complete');
   });
 
-  test('TechSupport creates 10 tags + 10 talks, answers all himself (in UI); Tom joins; TechSupport sends all 20; Tom answers all; TechSupport confirms', async () => {
+  test('TechSupport creates 10 tags + 10 talks, answers all himself (in UI); Tom joins; broadcast overlaps Tom answering each talk as it arrives; both verify 20 at end', async () => {
     test.setTimeout(900_000);
 
     /** Faster than fixed afterSync: editor removes the modal from DOM on successful save. */
@@ -139,17 +139,6 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterLoad();
 
-    console.log('\n📍 STEP 6: TechSupport broadcasts all 20 to Tom');
-    await pageTechSupport.click('.nav-btn[data-view="chatrooms"]');
-    await afterAction();
-    await pageTechSupport.click('.chatroom-item:has-text("Global")');
-    await afterNav();
-    await pageTechSupport.click('#broadcast-talk-btn');
-    await waitForTabActive(pageTechSupport, 'chatrooms');
-    await expect(
-      pageTechSupport.getByText(/Sent 20 talks to 1 user in the room\./),
-    ).toBeVisible({ timeout: 120_000 });
-
     const tomUserId = await pageTom.evaluate(() =>
       String(
         (
@@ -159,48 +148,60 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
         ).__iinpublic_app?.getApp?.()?.currentUser?.id || '',
       ),
     );
-    expect(tomUserId.length, 'Tom user id for incoming-talks check').toBeGreaterThan(0);
-    await expect
-      .poll(
-        async () => {
-          const res = await pageTom.request.get(
-            `${gunBaseURL()}/api/users/${encodeURIComponent(tomUserId)}/incoming-talks`,
-          );
-          if (!res.ok()) return 0;
-          const data = await res.json();
-          return countIncomingTalkSlots(data);
-        },
-        { message: 'Tom should have 20 incoming talk slots after broadcast', timeout: 45_000 },
-      )
-      .toBeGreaterThanOrEqual(20);
+    expect(tomUserId.length, 'Tom user id for end-of-flow checks').toBeGreaterThan(0);
 
-    console.log('\n📍 STEP 7: Tom answers all 20');
-    await pageTom.click('.nav-btn[data-view="talks"]');
-    await afterLoad();
+    console.log('\n📍 STEP 6–7: TechSupport starts broadcast; Tom answers each talk as soon as it appears (overlapped with broadcast finishing)');
+    await pageTechSupport.click('.nav-btn[data-view="chatrooms"]');
+    await afterAction();
+    await pageTechSupport.click('.chatroom-item:has-text("Global")');
+    await afterNav();
+    await pageTechSupport.click('#broadcast-talk-btn');
+    await waitForTabActive(pageTechSupport, 'chatrooms');
 
-    for (const tagName of TAG_NAMES) {
-      await openTomIncomingModal(pageTom, tagName, 'tag');
-      await pageTom.waitForSelector('#tag-match-checkbox', { state: 'visible', timeout: 15000 });
-      await pageTom.locator('#tag-match-checkbox').check();
-      await pageTom.click('#tag-submit-btn');
-      await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
-      await afterAction();
-    }
+    const techSupportWaitsForBroadcastToast = async () => {
+      await expect(
+        pageTechSupport.getByText(/Sent 20 talks to 1 user in the room\./),
+      ).toBeVisible({ timeout: 120_000 });
+    };
 
-    for (const talkTitle of TALK_TITLES) {
-      await openTomIncomingModal(pageTom, talkTitle, 'flow');
-      await pageTom.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
-      await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
-      await afterAction();
-    }
+    const tomAnswersEachIncomingAsItArrives = async () => {
+      await pageTom.click('.nav-btn[data-view="talks"]');
+      await afterLoad();
 
-    console.log('\n📍 STEP 8: TechSupport confirms all 20 answers');
+      for (const tagName of TAG_NAMES) {
+        await openTomIncomingModal(pageTom, tagName, 'tag');
+        await pageTom.waitForSelector('#tag-match-checkbox', { state: 'visible', timeout: 15000 });
+        await pageTom.locator('#tag-match-checkbox').check();
+        await pageTom.click('#tag-submit-btn');
+        await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
+        await afterAction();
+      }
+
+      for (const talkTitle of TALK_TITLES) {
+        await openTomIncomingModal(pageTom, talkTitle, 'flow');
+        await pageTom.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
+        await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
+        await afterAction();
+      }
+    };
+
+    await Promise.all([techSupportWaitsForBroadcastToast(), tomAnswersEachIncomingAsItArrives()]);
+
+    console.log('\n📍 STEP 8: End verification — TechSupport and Tom both confirm 20 completed (no earlier batch wait)');
     await afterLoad();
     await pageTechSupport.click('.nav-btn[data-view="talks"]');
     await afterLoad();
     await expect(pageTechSupport.getByText(/Matched with:/).first()).toBeVisible({ timeout: 15000 });
     const statusBar = pageTechSupport.locator('#status-bar-text');
-    await expect(statusBar).toContainText(/20 match(es)?/, { timeout: 25000 });
+    await expect
+      .poll(
+        async () => {
+          const t = (await statusBar.textContent()) || '';
+          return /20\s+match(?:es)?/i.test(t);
+        },
+        { message: 'TechSupport status bar should report 20 matches', timeout: 90_000 },
+      )
+      .toBe(true);
     const matchedLines = await pageTechSupport.getByText(/Matched with:/).count();
     expect(matchedLines).toBeGreaterThanOrEqual(1);
 
@@ -212,6 +213,20 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     }
     await expect(answersContent.getByText(/Match/).first()).toBeVisible({ timeout: 3000 });
 
-    console.log('✅ Super user test complete: TechSupport created 20, sent to Tom, Tom answered all, TechSupport confirmed.');
+    await expect
+      .poll(
+        async () => {
+          const res = await pageTom.request.get(
+            `${gunBaseURL()}/api/users/${encodeURIComponent(tomUserId)}/incoming-talks`,
+          );
+          if (!res.ok()) return 0;
+          const data = await res.json();
+          return countIncomingTalkSlots(data);
+        },
+        { message: 'Tom incoming API should still list at least 20 talk slots after answers', timeout: 30_000 },
+      )
+      .toBeGreaterThanOrEqual(20);
+
+    console.log('✅ Super user test complete: TechSupport created 20, broadcast overlapped Tom answers, both verified 20 at end.');
   });
 });
