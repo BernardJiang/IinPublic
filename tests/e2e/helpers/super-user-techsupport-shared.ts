@@ -79,26 +79,40 @@ export async function waitForTabActive(
   await expect(page.locator(`.nav-btn[data-view="${view}"].active`)).toBeVisible({ timeout: 10000 });
 }
 
+const TOM_INCOMING_SERVER_WAIT_MS = 45_000;
+const TOM_INCOMING_ROW_POLL_MS = 5000;
+const TOM_INCOMING_ROW_FINAL_MS = 12_000;
+const TOM_RESPONSE_MODAL_MS = 20_000;
+const TOM_INCOMING_NAV_DEADLINE_MS = 90_000;
+
 /** Open an incoming row via View (reliable with Gun/backend-synced IN list). */
 export async function openTomIncomingModal(
   page: Page,
   titleSubstring: string,
   typeBadge: 'tag' | 'flow',
 ): Promise<void> {
-  await page.click('.nav-btn[data-view="talks"]');
-  await waitForTabActive(page, 'talks');
-  await afterNav();
-  await waitForIncomingTalkClusterOnServer(page, titleSubstring);
+  const talksNav = page.locator('.nav-btn[data-view="talks"]');
+  if (!(await talksNav.evaluate((el) => el.classList.contains('active')))) {
+    await talksNav.click();
+    await waitForTabActive(page, 'talks');
+    await afterNav();
+  } else {
+    await waitForTabActive(page, 'talks');
+  }
+  await waitForIncomingTalkClusterOnServer(page, titleSubstring, {
+    timeout: TOM_INCOMING_SERVER_WAIT_MS,
+    polling: 400,
+  });
   await syncIncomingFromServer(page);
   await afterAction();
   const row = page
     .locator(`.talk-list-item[data-role="incoming"][data-incoming-type="${typeBadge}"]`)
     .filter({ hasText: titleSubstring })
     .first();
-  const deadline = Date.now() + 120000;
+  const deadline = Date.now() + TOM_INCOMING_NAV_DEADLINE_MS;
   while (Date.now() < deadline) {
     try {
-      await expect(row).toBeVisible({ timeout: 12000 });
+      await row.waitFor({ state: 'visible', timeout: TOM_INCOMING_ROW_POLL_MS });
       break;
     } catch {
       await syncIncomingFromServer(page);
@@ -110,7 +124,7 @@ export async function openTomIncomingModal(
       await afterSync();
     }
   }
-  await expect(row).toBeVisible({ timeout: 10000 });
+  await expect(row).toBeVisible({ timeout: TOM_INCOMING_ROW_FINAL_MS });
   await row.locator('button.view-talk-btn').click();
-  await page.waitForSelector('#talk-response-modal .modal-content', { timeout: 30000 });
+  await page.waitForSelector('#talk-response-modal .modal-content', { timeout: TOM_RESPONSE_MODAL_MS });
 }

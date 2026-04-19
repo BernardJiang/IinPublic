@@ -26,13 +26,30 @@ const INCOMING_ROW_FINAL_MS = 15_000;
 const RESPONSE_MODAL_CONTENT_MS = 60_000;
 const RESPONSE_MODAL_DETACHED_MS = 25_000;
 
+export type IncomingTalkServerWaitOptions = {
+  /** Default 90s; super-user bulk flows can use less once the server already holds clusters. */
+  timeout?: number;
+  /** Ms between predicate runs after the previous run finishes (Playwright default 50 is chatty for fetch-heavy checks). */
+  polling?: number;
+};
+
 /**
  * Wait until the Gun server's incoming-talks API lists this title (POST /received succeeded).
  * UI can lag Gun replication; this avoids racing only on `.incoming` rows.
+ *
+ * Predicate is optimized for large IN lists (e.g. 20 broadcasts): no JSON.stringify per poll,
+ * and talk-detail fetches run sequentially with early exit instead of fanning out dozens of
+ * parallel requests every polling interval.
  */
-export async function waitForIncomingTalkClusterOnServer(page: Page, titleSubstring: string): Promise<void> {
+export async function waitForIncomingTalkClusterOnServer(
+  page: Page,
+  titleSubstring: string,
+  options?: IncomingTalkServerWaitOptions,
+): Promise<void> {
+  const timeout = options?.timeout ?? 90_000;
+  const polling = options?.polling ?? 500;
   await page.waitForFunction(
-    (titleSub: string) => {
+    async (titleSub: string) => {
       const { hostname, protocol, port } = window.location;
       const webPort = Number(port);
       const gunPort =
@@ -52,41 +69,37 @@ export async function waitForIncomingTalkClusterOnServer(page: Page, titleSubstr
       ).__iinpublic_app?.getApp?.();
       const uid = app?.currentUser?.id;
       if (!uid) return false;
-      return fetch(`${base}/api/users/${encodeURIComponent(uid)}/incoming-talks`)
-        .then((r) => (r.ok ? r.json() : []))
-        .then((clusters: unknown) => {
-          if (!Array.isArray(clusters)) return false;
-          const needle = titleSub.toLowerCase();
-          if (!needle) return false;
-          for (const c of clusters as any[]) {
-            const title = String(c?.title || '').toLowerCase();
-            if (title.includes(needle)) return true;
+      try {
+        const r = await fetch(`${base}/api/users/${encodeURIComponent(uid)}/incoming-talks`);
+        const clusters: unknown = r.ok ? await r.json() : [];
+        if (!Array.isArray(clusters)) return false;
+        const needle = titleSub.toLowerCase();
+        if (!needle) return false;
+        for (const c of clusters as { title?: unknown; talkIds?: unknown }[]) {
+          if (String(c?.title || '').toLowerCase().includes(needle)) return true;
+        }
+        for (const c of clusters as { talkIds?: Record<string, unknown> }[]) {
+          const t = c?.talkIds;
+          if (!t || typeof t !== 'object') continue;
+          const ids = Object.keys(t).filter((k) => !k.startsWith('_'));
+          for (const id of ids) {
+            try {
+              const tr = await fetch(`${base}/api/talks/${encodeURIComponent(id)}`);
+              if (!tr.ok) continue;
+              const td = (await tr.json()) as { title?: unknown };
+              if (String(td?.title || '').toLowerCase().includes(needle)) return true;
+            } catch {
+              /* ignore */
+            }
           }
-          try {
-            if (clusters.some((c: any) => JSON.stringify(c).toLowerCase().includes(needle))) return true;
-          } catch {
-            /* ignore */
-          }
-          const talkFetches = (clusters as any[]).flatMap((c) => {
-            const t = c?.talkIds;
-            if (!t || typeof t !== 'object') return [];
-            return Object.keys(t)
-              .filter((k) => !k.startsWith('_'))
-              .map((id) =>
-                fetch(`${base}/api/talks/${encodeURIComponent(id)}`)
-                  .then((r) => (r.ok ? r.json() : null))
-                  .catch(() => null),
-              );
-          });
-          if (talkFetches.length === 0) return false;
-          return Promise.all(talkFetches).then((talks) =>
-            talks.some((td: any) => String(td?.title || '').toLowerCase().includes(needle)),
-          );
-        })
-        .catch(() => false);
+        }
+        return false;
+      } catch {
+        return false;
+      }
     },
     titleSubstring,
-    { timeout: 90_000, polling: 400 },
+    { timeout, polling },
   );
 }
 

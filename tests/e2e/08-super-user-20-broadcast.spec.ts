@@ -2,7 +2,7 @@ import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from './helpers/fixtures';
 import * as fs from 'fs';
 import { clearGunDatabases } from './helpers/clear-database';
-import { delay, headless, afterAction, afterNav, afterSync, afterLoad } from './helpers/timing';
+import { delay, headless, afterAction, afterNav, afterLoad } from './helpers/timing';
 import { gunBaseURL, e2eTestScreenshotsDir } from './helpers/ports';
 import { countIncomingTalkSlots } from './helpers/talks-matching-flow';
 import {
@@ -76,13 +76,19 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     await contextTom?.close().catch(() => {});
     await browserTechSupport?.close().catch(() => {});
     await browserTom?.close().catch(() => {});
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 1000));
     await clearGunDatabases();
     console.log('✅ Cleanup complete');
   });
 
   test('TechSupport creates 10 tags + 10 talks, answers all himself (in UI); Tom joins; TechSupport sends all 20; Tom answers all; TechSupport confirms', async () => {
     test.setTimeout(900_000);
+
+    /** Faster than fixed afterSync: editor removes the modal from DOM on successful save. */
+    const waitAfterTalkEditorSubmit = async (page: Page) => {
+      await page.waitForSelector('#talk-editor-form', { state: 'detached', timeout: 30_000 });
+      await afterAction();
+    };
 
     console.log('\n📍 STEP 1: TechSupport enters Global');
     const techSupport = await bootstrapSuperUser(browserTechSupport, 'TechSupport', TECH_SUPPORT_NAME);
@@ -104,7 +110,7 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
       await afterAction();
       await pageTechSupport.fill('#talk-title', tagName);
       await pageTechSupport.click('#talk-editor-form button[type="submit"]');
-      await afterSync();
+      await waitAfterTalkEditorSubmit(pageTechSupport);
     }
 
     console.log('\n📍 STEP 3: TechSupport creates 10 talks');
@@ -121,7 +127,7 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
       await q.locator('.answer-item').nth(1).locator('.answer-text').fill(IGNORE_ANSWER);
       await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
       await pageTechSupport.click('#talk-editor-form button[type="submit"]');
-      await afterSync();
+      await waitAfterTalkEditorSubmit(pageTechSupport);
     }
 
     console.log('\n📍 STEP 4: TechSupport has 20 created (10 tags + 10 talks)');
@@ -142,7 +148,7 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     await waitForTabActive(pageTechSupport, 'chatrooms');
     await expect(
       pageTechSupport.getByText(/Sent 20 talks to 1 user in the room\./),
-    ).toBeVisible({ timeout: 180_000 });
+    ).toBeVisible({ timeout: 120_000 });
 
     const tomUserId = await pageTom.evaluate(() =>
       String(
@@ -164,7 +170,7 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
           const data = await res.json();
           return countIncomingTalkSlots(data);
         },
-        { message: 'Tom should have 20 incoming talk slots after broadcast', timeout: 60_000 },
+        { message: 'Tom should have 20 incoming talk slots after broadcast', timeout: 45_000 },
       )
       .toBeGreaterThanOrEqual(20);
 
