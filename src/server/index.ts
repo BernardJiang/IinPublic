@@ -18,6 +18,16 @@ import {
   canonicalIdentityKeyFromStoredCluster,
 } from '../shared/talk-content-id';
 import type { RelationshipLabel } from '../shared/types';
+import {
+  aggregateByAnswer,
+  aggregateByRegion,
+  aggregateByTime,
+  bucketKey,
+  summarize,
+  type TalkResponse,
+  type TalkType,
+  type TimeBucket,
+} from '../shared/talk-stats';
 import { logger } from './logger';
 import { requestLogger } from './middleware/request-logger';
 
@@ -33,6 +43,14 @@ class IinPublicServer {
   private reputationService!: ReputationService;
   /** Server-side store for incomingTalksByUser — bypasses Gun.js to avoid event-loop stall on bulk writes. */
   private incomingTalksMap: Map<string, Map<string, any>> = new Map();
+  /** STAT-01 — normalized per-talk response log for the generic stats/inquiry layer. */
+  private talkResponsesMap: Map<string, TalkResponse[]> = new Map();
+  /** STAT-01 — secondary indices (in-memory mirror of idx/... graph paths). */
+  private statsIdx = {
+    byDay: new Map<string, Set<string>>(),
+    byRegion: new Map<string, Set<string>>(),
+    byTalkAnswer: new Map<string, Set<string>>(),
+  };
 
   constructor() {
     this.app = express();
@@ -328,6 +346,100 @@ class IinPublicServer {
   private async getUserStageName(userId: string, fallback: string): Promise<string> {
     const userNode = await this.gunService.getPath(['users', userId]);
     return (userNode?.stageName ?? userNode?.data?.stageName ?? fallback ?? 'Someone') as string;
+  }
+
+  private async getUserRegion(userId: string): Promise<string> {
+    const userNode = await this.gunService.getPath(['users', userId]);
+    const r =
+      userNode?.location?.region ??
+      userNode?.data?.location?.region ??
+      userNode?.region ??
+      'unknown';
+    return String(r || 'unknown');
+  }
+
+  /**
+   * STAT-01 — record a normalized {@link TalkResponse} and update secondary
+   * indices for the generic stats/inquiry layer.  Writes both to the in-memory
+   * server cache (authoritative for /api/stats/*) and to Gun paths
+   * `talks/<talkId>/stats/<responseId>` + `idx/...` so other peers can mirror.
+   */
+  private async recordTalkStatsResponse(params: {
+    talkId: string;
+    talkType: TalkType;
+    responderId: string;
+    region: string;
+    answers: Array<{ questionId: string; answerId: string; answerText: string }>;
+  }): Promise<void> {
+    const { talkId, talkType, responderId, region, answers } = params;
+    const responseId = `sr_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const createdAt = Date.now();
+    const record: TalkResponse = {
+      responseId,
+      talkId,
+      talkType,
+      responderId,
+      region,
+      answers: answers.map((a) => ({
+        questionId: a.questionId,
+        answerId: a.answerId,
+        answerText: a.answerText || '',
+      })),
+      createdAt,
+    };
+    const list = this.talkResponsesMap.get(talkId) ?? [];
+    list.push(record);
+    this.talkResponsesMap.set(talkId, list);
+
+    const dayKey = `${bucketKey(createdAt, 'day')}|${talkId}`;
+    (this.statsIdx.byDay.get(dayKey) ?? this.statsIdx.byDay.set(dayKey, new Set()).get(dayKey)!).add(
+      responseId,
+    );
+    const regionKey = `${region}|${talkId}`;
+    (
+      this.statsIdx.byRegion.get(regionKey) ??
+      this.statsIdx.byRegion.set(regionKey, new Set()).get(regionKey)!
+    ).add(responseId);
+    for (const a of record.answers) {
+      const aKey = `${talkId}|${a.questionId}|${a.answerId}`;
+      (
+        this.statsIdx.byTalkAnswer.get(aKey) ??
+        this.statsIdx.byTalkAnswer.set(aKey, new Set()).get(aKey)!
+      ).add(responseId);
+    }
+
+    try {
+      await this.gunService.putPath(['talks', talkId, 'stats', responseId], {
+        ...record,
+        answersJson: JSON.stringify(record.answers),
+      });
+      await this.gunService.putPath(
+        ['idx', 'responses_by_day', bucketKey(createdAt, 'day'), talkId, responseId],
+        { at: createdAt },
+      );
+      await this.gunService.putPath(
+        ['idx', 'responses_by_region', region, talkId, responseId],
+        { at: createdAt },
+      );
+      for (const a of record.answers) {
+        await this.gunService.putPath(
+          ['idx', 'responses_by_talk_answer', talkId, a.questionId, a.answerId, responseId],
+          { at: createdAt },
+        );
+      }
+    } catch (err) {
+      logger.warn({ err }, 'stats: Gun mirror write failed (memory cache still authoritative)');
+    }
+  }
+
+  private getTalkResponses(talkId: string, opts?: { from?: number; to?: number }): TalkResponse[] {
+    const list = this.talkResponsesMap.get(talkId) ?? [];
+    if (!opts?.from && !opts?.to) return list;
+    return list.filter(
+      (r) =>
+        (opts.from == null || r.createdAt >= opts.from) &&
+        (opts.to == null || r.createdAt <= opts.to),
+    );
   }
 
   /** Gun cannot store `questions: [...]` on incoming cluster nodes; we keep `questionsJson` instead. */
@@ -953,6 +1065,25 @@ class IinPublicServer {
         });
 
         const isMatch = checkIfMatch(talkData, normalizedAnswers);
+
+        // STAT-01 — normalize every response into the generic stats log, regardless of talk type.
+        try {
+          const region = await this.getUserRegion(responderId);
+          await this.recordTalkStatsResponse({
+            talkId,
+            talkType: (talkData?.type || 'flow') as TalkType,
+            responderId,
+            region,
+            answers: normalizedAnswers.map((a: any) => ({
+              questionId: String(a.questionId),
+              answerId: String(a.answerId),
+              answerText: String(a.answerText ?? ''),
+            })),
+          });
+        } catch (err) {
+          logger.warn({ err }, 'stats: failed to record response');
+        }
+
         res.json({
           isMatch,
           identityKey,
@@ -985,6 +1116,74 @@ class IinPublicServer {
       } catch (error) {
         res.status(400).json({ error: (error as Error).message });
       }
+    });
+
+    // STAT-01 — record a response in the generic stats log.
+    // Called from the client's talkCompleted handler (which writes responses directly to
+    // Gun, bypassing POST /api/talks/:id/response). Keeps stats in sync regardless of path.
+    this.app.post('/api/stats/talks/:id/record', async (req, res) => {
+      try {
+        const talkId = req.params.id;
+        const { responderId, talkType, answers } = req.body as {
+          responderId?: string;
+          talkType?: TalkType;
+          answers?: Array<{ questionId: string; answerId: string; answerText?: string }>;
+        };
+        if (!responderId || !talkType || !Array.isArray(answers)) {
+          res.status(400).json({ error: 'responderId, talkType, answers required' });
+          return;
+        }
+        const region = await this.getUserRegion(responderId);
+        await this.recordTalkStatsResponse({
+          talkId,
+          talkType,
+          responderId,
+          region,
+          answers: answers.map((a) => ({
+            questionId: String(a.questionId),
+            answerId: String(a.answerId),
+            answerText: String(a.answerText ?? ''),
+          })),
+        });
+        res.json({ ok: true });
+      } catch (error) {
+        logger.error({ err: error }, 'stats record error');
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // STAT-01 — generic stats/inquiry endpoints (uniform across tag/flow/survey/route)
+    this.app.get('/api/stats/talks/:id/summary', (req, res) => {
+      const talkId = req.params.id;
+      const responses = this.getTalkResponses(talkId);
+      const talkType = (responses[0]?.talkType ?? 'flow') as TalkType;
+      res.json(summarize(talkId, talkType, responses));
+    });
+
+    this.app.get('/api/stats/talks/:id/by-day', (req, res) => {
+      const talkId = req.params.id;
+      const opts: { from?: number; to?: number } = {};
+      if (req.query.from) opts.from = Number(req.query.from);
+      if (req.query.to) opts.to = Number(req.query.to);
+      const rawBucket = String(req.query.bucket || 'day').toLowerCase();
+      const bucket: TimeBucket = rawBucket === 'week' || rawBucket === 'month' ? rawBucket : 'day';
+      const responses = this.getTalkResponses(talkId, opts);
+      res.json(aggregateByTime(talkId, responses, bucket));
+    });
+
+    this.app.get('/api/stats/talks/:id/by-region', (req, res) => {
+      const talkId = req.params.id;
+      res.json(aggregateByRegion(talkId, this.getTalkResponses(talkId)));
+    });
+
+    this.app.get('/api/stats/talks/:id/by-answer', (req, res) => {
+      const talkId = req.params.id;
+      const questionId = String(req.query.questionId || '');
+      if (!questionId) {
+        res.status(400).json({ error: 'questionId query param required' });
+        return;
+      }
+      res.json(aggregateByAnswer(talkId, this.getTalkResponses(talkId), questionId));
     });
 
     // Survey routes

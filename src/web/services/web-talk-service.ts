@@ -250,6 +250,29 @@ export class WebTalkService {
     });
   }
 
+  /**
+   * STAT-01 — generic stats inquiry across all four talk types.
+   * Forwards to the server aggregation endpoint that matches {@link dimension}.
+   */
+  async queryStats(
+    talkId: string,
+    dimension: 'summary' | 'by-day' | 'by-region' | 'by-answer',
+    params?: { questionId?: string; from?: number; to?: number; bucket?: 'day' | 'week' | 'month' },
+  ): Promise<any> {
+    const base = this.apiBase?.replace(/\/$/, '');
+    if (!base) throw new Error('queryStats requires apiBase');
+    const q = new URLSearchParams();
+    if (params?.questionId) q.set('questionId', params.questionId);
+    if (params?.from != null) q.set('from', String(params.from));
+    if (params?.to != null) q.set('to', String(params.to));
+    if (params?.bucket) q.set('bucket', params.bucket);
+    const qs = q.toString();
+    const url = `${base}/api/stats/talks/${encodeURIComponent(talkId)}/${dimension}${qs ? `?${qs}` : ''}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`queryStats ${dimension} failed: ${res.status}`);
+    return res.json();
+  }
+
   checkForLinearCapture(message: string): any | null {
     const parsed = FlowCapture.parseChatLine(message);
     if (parsed) {

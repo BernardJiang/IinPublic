@@ -784,3 +784,39 @@ Phase 9 (iOS)     ── independent, can start after IOS-01 decision
 | LOC-02 | — | P1 | Location-privacy validation on all writes |
 | LOC-03 | — | P2 | Full 6-level location hierarchy |
 | TALK-04 | — | P1 | Visual talk editor (DAG UI) |
+| STAT-01 | — | P1 | Generic stats/inquiry layer across 4 talk types |
+
+---
+
+### STAT-01 · P1 — Generic statistics & inquiry across all four talk types
+**Files to create/edit:** `src/shared/talk-stats.ts` (new), `src/server/index.ts`, `src/web/services/web-talk-service.ts`
+**What exists:** Nothing. Each talk type (tags, flow, survey, route) currently carries its own ad-hoc aggregation (e.g. `SurveyAggregation`). There is no unified way for users to add statistics to their own talks without writing per-type code.
+**Design goal (from user):** *"Make the statistics and inquiry as easily as possible so that it can be added to talks by users without complex definitions."* Statistics must work uniformly across **tags, flow, survey, route** and support three basic inquiry dimensions:
+  - **Time-based** — counts / percentages bucketed by day / week / month.
+  - **Location-based** — counts / percentages by blurred region (reuse `LocationPrivacy` grid).
+  - **Answer-based** — yes/no or choice-distribution % per question.
+
+**Implement:**
+1. **Normalize every response** at write time into a common shape, regardless of talk type:
+   ```typescript
+   interface TalkResponse {
+     talkId: string;          // content-hash id
+     talkType: 'tags' | 'flow' | 'survey' | 'route';
+     responderId: string;     // or anonymised hash
+     region: string;          // blurred location id
+     answers: Array<{ questionId: string; answerId: string; answerText: string }>;
+     createdAt: number;
+   }
+   ```
+   Written to `talks/<talkId>/responses/<responseId>`.
+2. **Write secondary indices** at response time so aggregation is O(1) lookups, not graph scans:
+   - `idx/responses_by_day/<YYYY-MM-DD>/<talkId>/<responseId>`
+   - `idx/responses_by_region/<region>/<talkId>/<responseId>`
+   - `idx/responses_by_talk_answer/<talkId>/<questionId>/<answerId>/<responseId>`
+3. **Server aggregation endpoints** (all talk types share these; no per-type handler):
+   - `GET /api/stats/talks/:talkId/summary` — total responses + per-question counts and %.
+   - `GET /api/stats/talks/:talkId/by-day?from=&to=&bucket=day|week|month`.
+   - `GET /api/stats/talks/:talkId/by-region`.
+   - `GET /api/stats/talks/:talkId/by-answer?questionId=`.
+4. **Client helper** `WebTalkService.queryStats(talkId, { dimension, ... })` that wraps the endpoints above, so users can attach a stats widget to any talk with one call.
+5. **Extensibility** — custom user-defined aggregations (e.g. "score = sum of answer weights") expressed as a small JSON DSL (`{ reduce: 'sum', field: 'answer.weight' }`) evaluated server-side against the normalised response list. No code per talk required.

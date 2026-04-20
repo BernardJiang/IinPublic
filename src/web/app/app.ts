@@ -1443,6 +1443,28 @@ export class IinPublicApp {
 
             console.log('✅ Talk response stored');
 
+            // STAT-01 — mirror the response into the generic stats log (fire-and-forget).
+            try {
+              const base = this.getBackendApiBase();
+              if (base && data.talkData?.type) {
+                void fetch(`${base}/api/stats/talks/${encodeURIComponent(data.talkId)}/record`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    responderId: this.currentUser!.id,
+                    talkType: data.talkData.type,
+                    answers: (data.answers || []).map((a: any) => ({
+                      questionId: String(a.questionId ?? ''),
+                      answerId: String(a.answerId ?? ''),
+                      answerText: String(a.answerText ?? ''),
+                    })),
+                  }),
+                }).catch(() => {});
+              }
+            } catch {
+              /* non-fatal */
+            }
+
             // Check if this response is a match
             if (data.talkData) {
               const isMatch = this.checkIfMatch(data.talkData, data.answers);
