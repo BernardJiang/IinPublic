@@ -2,7 +2,7 @@ import { expect, Browser, BrowserContext, Page } from '@playwright/test';
 import { clearGunDatabases, injectIdbClear } from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
 import { afterLoad, afterNav, afterAction, afterSync } from './timing';
-import { webBaseURL } from './ports';
+import { webAppURLStableChatroom } from './ports';
 
 /** Count distinct talk ids across incoming clusters (one merged cluster may hold many `qa_*` keys). */
 export function countIncomingTalkSlots(clusters: unknown): number {
@@ -70,7 +70,9 @@ export async function waitForIncomingTalkClusterOnServer(
       const uid = app?.currentUser?.id;
       if (!uid) return false;
       try {
-        const r = await fetch(`${base}/api/users/${encodeURIComponent(uid)}/incoming-talks`);
+        const r = await fetch(`${base}/api/users/${encodeURIComponent(uid)}/incoming-talks`, {
+          cache: 'no-store',
+        });
         const clusters: unknown = r.ok ? await r.json() : [];
         if (!Array.isArray(clusters)) return false;
         const needle = titleSub.toLowerCase();
@@ -134,7 +136,7 @@ export async function bootstrapUser(
   page.on('console', (m) => console.log(`[${label}]:`, m.text()));
   // Clear the Web Worker's IndexedDB so each user starts with a fresh local Gun graph.
   await injectIdbClear(page);
-  await page.goto(webBaseURL());
+  await page.goto(webAppURLStableChatroom());
   await page.waitForLoadState('load');
   await ensureWindowFitsViewport(page, 640, 1000);
   await afterLoad();
@@ -160,6 +162,105 @@ export async function waitForTabActive(
 
 export async function waitForResponseModalClosed(page: Page): Promise<void> {
   await page.waitForSelector('#talk-response-modal', { state: 'detached', timeout: RESPONSE_MODAL_DETACHED_MS });
+}
+
+/** POST /received + IN list: wait until GET incoming-talks includes this talk id for the page user. */
+export async function waitForIncomingTalkIdOnServer(
+  page: Page,
+  talkId: string,
+  options?: IncomingTalkServerWaitOptions,
+): Promise<void> {
+  const tid = String(talkId || '').trim();
+  if (!tid) throw new Error('waitForIncomingTalkIdOnServer: empty talkId');
+  const timeout = options?.timeout ?? 90_000;
+  const polling = options?.polling ?? 500;
+  await page.waitForFunction(
+    async (id: string) => {
+      const { hostname, protocol, port } = window.location;
+      const webPort = Number(port);
+      const gunPort =
+        (hostname === 'localhost' || hostname === '127.0.0.1') &&
+        Number.isFinite(webPort) &&
+        webPort >= 3001
+          ? webPort - 3001 + 8080
+          : 8080;
+      const base =
+        hostname === 'localhost' || hostname === '127.0.0.1'
+          ? `${protocol}//${hostname}:${gunPort}`
+          : `${protocol}//${hostname}`;
+      const app = (
+        window as unknown as {
+          __iinpublic_app?: { getApp: () => { currentUser?: { id: string } } };
+        }
+      ).__iinpublic_app?.getApp?.();
+      const uid = app?.currentUser?.id;
+      if (!uid) return false;
+      const clusterHasTalk = (c: { latestTalkId?: unknown; talkIds?: unknown }): boolean => {
+        if (String(c?.latestTalkId || '') === id) return true;
+        const t = c?.talkIds;
+        if (t && typeof t === 'object' && !Array.isArray(t) && id in (t as object)) return true;
+        return false;
+      };
+      try {
+        const r = await fetch(`${base}/api/users/${encodeURIComponent(uid)}/incoming-talks`, {
+          cache: 'no-store',
+        });
+        const clusters: unknown = r.ok ? await r.json() : [];
+        if (!Array.isArray(clusters)) return false;
+        return (clusters as { latestTalkId?: unknown; talkIds?: unknown }[]).some(clusterHasTalk);
+      } catch {
+        return false;
+      }
+    },
+    tid,
+    { timeout, polling },
+  );
+}
+
+/**
+ * Open IN row by stable talk id (content-hash `qa_*` or UUID).
+ * Optional `titleSubstring` matches the IN row title when `data-talk-id` / `data-identity-key` are empty in DOM.
+ */
+export async function openIncomingTalkModalByTalkId(
+  page: Page,
+  talkId: string,
+  titleSubstring?: string,
+): Promise<void> {
+  const tid = String(talkId || '').trim();
+  if (!tid) throw new Error('openIncomingTalkModalByTalkId: empty talkId');
+  await page.click('.nav-btn[data-view="talks"]');
+  await waitForTabActive(page, 'talks');
+  await afterSync();
+  await waitForIncomingTalkIdOnServer(page, tid);
+  await syncIncomingFromServer(page);
+  await afterSync();
+  const rowByAttrs = page.locator(
+    `.talk-list-item[data-role="incoming"][data-talk-id="${tid}"], .talk-list-item[data-role="incoming"][data-identity-key="${tid}"]`,
+  );
+  const rowByTitle =
+    titleSubstring && titleSubstring.trim().length > 0
+      ? page.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: titleSubstring })
+      : null;
+  const row = rowByTitle ? rowByAttrs.or(rowByTitle) : rowByAttrs;
+  const deadline = Date.now() + 120000;
+  while (Date.now() < deadline) {
+    await afterSync();
+    try {
+      await expect(row.first()).toBeVisible({ timeout: INCOMING_ROW_POLL_MS });
+      break;
+    } catch {
+      await syncIncomingFromServer(page);
+      await page.click('.nav-btn[data-view="chatrooms"]');
+      await waitForTabActive(page, 'chatrooms');
+      await afterSync();
+      await page.click('.nav-btn[data-view="talks"]');
+      await waitForTabActive(page, 'talks');
+      await afterSync();
+    }
+  }
+  await expect(row.first()).toBeVisible({ timeout: INCOMING_ROW_FINAL_MS });
+  await row.first().locator('button.view-talk-btn').click();
+  await page.waitForSelector('#talk-response-modal .modal-content', { timeout: RESPONSE_MODAL_CONTENT_MS });
 }
 
 /** Open an incoming talk via the View button (more reliable than row click for Gun-synced rows). */

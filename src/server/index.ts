@@ -864,6 +864,8 @@ class IinPublicServer {
             const isAnswered = !!(template && template.answers);
             return {
               ...cluster,
+              /** UI IN list filters on identityKey; always echo canonical key from rawKey/cluster. */
+              identityKey: logical,
               isAnswered,
               isAutoAnswered: !!template?.isAuto,
             };

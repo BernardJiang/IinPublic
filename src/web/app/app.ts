@@ -595,6 +595,7 @@ export class IinPublicApp {
     try {
       const res = await fetch(
         `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/incoming-talks`,
+        { cache: 'no-store' },
       );
       if (!res.ok) return [];
       const clusters = await res.json();
@@ -858,6 +859,7 @@ export class IinPublicApp {
       const base = this.getBackendApiBase();
       const res = await fetch(
         `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/incoming-talks`,
+        { cache: 'no-store' },
       );
       if (!res.ok) return null;
       const clusters = await res.json();
@@ -908,6 +910,7 @@ export class IinPublicApp {
     try {
       const res = await fetch(
         `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/incoming-talks`,
+        { cache: 'no-store' },
       );
       if (!res.ok) return;
       const clusters = await res.json();
@@ -968,6 +971,7 @@ export class IinPublicApp {
       try {
         const res = await fetch(
           `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/incoming-talks`,
+          { cache: 'no-store' },
         );
         if (res.ok) {
           const clusters = await res.json();
@@ -1127,8 +1131,9 @@ export class IinPublicApp {
         });
 
         // Register receivers via API using local talk payload; Gun chatroom announce when server echoes talk.
+        const wantSendToChatroom = (talkData as { sendToChatroom?: boolean }).sendToChatroom !== false;
         const chatroomId = this.chatroomService.getCurrentChatroomId();
-        if (chatroomId) {
+        if (chatroomId && wantSendToChatroom) {
           const synced = await this.waitUntilTalkReadableOnServer(talk.id);
           this.subscribeToTalkResponses(talk.id, talk);
           const receivers = await this.resolveBroadcastReceivers(
@@ -1158,7 +1163,15 @@ export class IinPublicApp {
           console.log('📢 Talk broadcasted to chatroom:', chatroomId);
         }
 
-        this.uiManager.showNotification('Talk created and sent to chatroom!', 'success');
+        let createdMsg = 'Talk created and sent to chatroom!';
+        if (!wantSendToChatroom) {
+          createdMsg =
+            'Talk saved to your list (send-to-room was off). Use Broadcast in Chatrooms when you want others to receive it.';
+        } else if (!chatroomId) {
+          createdMsg =
+            'Talk created. Open Chatrooms, join a room, then use Broadcast so others receive it.';
+        }
+        this.uiManager.showNotification(createdMsg, 'success');
       } catch (error) {
         console.error('Failed to create talk:', error);
         this.uiManager.showNotification(
@@ -1624,14 +1637,32 @@ export class IinPublicApp {
 
       const isSameRoom = this.currentChatroomId === chatroomId;
 
-      if (!isSameRoom && this.currentChatroomId) {
-        console.log(`🔄 User switching from chatroom ${this.currentChatroomId} to ${chatroomId}`);
+      if (!isSameRoom) {
+        if (this.currentChatroomId) {
+          console.log(`🔄 User switching from chatroom ${this.currentChatroomId} to ${chatroomId}`);
 
-        await this.chatroomService.switchChatroom(
-          this.currentUser.id,
-          chatroomId,
-          this.currentUser.stageName,
-        );
+          await this.chatroomService.switchChatroom(
+            this.currentUser.id,
+            chatroomId,
+            this.currentUser.stageName,
+          );
+        } else {
+          // App lost track of room (race / fresh UI) while user opened a room — align service with UI.
+          const svcId = this.chatroomService.getCurrentChatroomId();
+          if (svcId && svcId !== chatroomId) {
+            await this.chatroomService.switchChatroom(
+              this.currentUser.id,
+              chatroomId,
+              this.currentUser.stageName,
+            );
+          } else if (!svcId) {
+            await this.chatroomService.joinChatroom(
+              chatroomId,
+              this.currentUser.id,
+              this.currentUser.stageName,
+            );
+          }
+        }
 
         this.currentChatroomId = chatroomId;
         localStorage.setItem('iinpublic_last_chatroom', chatroomId);
@@ -1639,8 +1670,8 @@ export class IinPublicApp {
         this.subscribeToMessages(chatroomId);
         this.subscribeToTalks(chatroomId);
         console.log(`✅ Switched to ${chatroomId}`);
-      } else if (isSameRoom) {
-        // Same room: ensure we have currentChatroomId set (e.g. first time opening detail)
+      } else {
+        // Same room: ensure app id matches (e.g. first time opening detail after join)
         this.currentChatroomId = chatroomId;
       }
 

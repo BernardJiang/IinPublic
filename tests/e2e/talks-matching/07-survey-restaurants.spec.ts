@@ -1,38 +1,76 @@
 /**
- * Talks matching — restaurant survey (demo, no browser).
+ * Multi-browser demo: restaurant survey — company broadcasts; 10 users answer; stats.
  */
+import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { TalkValidator } from '../../../src/shared/talk-engine';
-import { computeTalkIdFromTalkData } from '../../../src/shared/talk-content-id';
+import { clearGunDatabases } from '../helpers/clear-database';
+import { afterSync } from '../helpers/timing';
+import { bootstrapUser, waitForTabActive } from '../helpers/talks-matching-flow';
+import { disposeE2eSessionList, launchBrowserGrid, shutdownBrowserGrid } from '../helpers/many-browsers';
 import {
-  makeRestaurantSurvey,
-  mergeSurveyCountersInto,
-  simulateRestaurantUsers,
-} from './lib/survey-restaurants';
+  answerSurveyByAnswerIds,
+  emitCreateTalkFromCompanyPage,
+  expectTalkResponsesLine,
+  waitForOutgoingTalkRow,
+} from '../helpers/talk-demo-ui';
+import { makeRestaurantSurvey } from './lib/survey-restaurants';
 
-test.describe('Talks matching — restaurant survey (demo)', () => {
-  test('same wording shares content id; merged waves sum to 20 picks per question', () => {
-    const wave1 = makeRestaurantSurvey();
-    const wave2 = makeRestaurantSurvey();
-    expect(() => TalkValidator.validateTalk(wave1)).not.toThrow();
-    expect(() => TalkValidator.validateTalk(wave2)).not.toThrow();
+type Session = { label: string; context: BrowserContext; page: Page };
 
-    const id1 = computeTalkIdFromTalkData(wave1);
-    const id2 = computeTalkIdFromTalkData(wave2);
-    expect(id1).toBe(id2);
+const burger = ['bg_mc', 'bg_kfc', 'bg_wen', 'bg_ot'] as const;
+const fries = ['fr_md', 'fr_kfc', 'fr_ino', 'fr_ot'] as const;
+const pizza = ['pz_ph', 'pz_gh', 'pz_dom', 'pz_ot'] as const;
 
-    simulateRestaurantUsers(wave1, 7);
-    simulateRestaurantUsers(wave2, 91);
+test.describe('Talks matching — restaurant survey (multi-browser)', () => {
+  test.setTimeout(600_000);
 
-    const combined = makeRestaurantSurvey();
-    mergeSurveyCountersInto(combined, wave1);
-    mergeSurveyCountersInto(combined, wave2);
-    expect(() => TalkValidator.validateTalk(combined)).not.toThrow();
+  let browsers: Browser[] = [];
+  const sessions: Session[] = [];
 
-    for (const q of combined.questions) {
-      const nonIgn = q.answers.filter((a) => !a.isIgnore);
-      const sum = nonIgn.reduce((s, a) => s + (a.counter ?? 0), 0);
-      expect(sum).toBe(20);
+  test.beforeAll(async () => {
+    await clearGunDatabases();
+    browsers = await launchBrowserGrid(11);
+  });
+
+  test.afterAll(async () => {
+    await disposeE2eSessionList(sessions);
+    await shutdownBrowserGrid(browsers);
+    await clearGunDatabases();
+  });
+
+  test('company broadcasts restaurant survey; 10 users answer; stats show 10 responses', async () => {
+    expect(browsers.length).toBe(11);
+    await disposeE2eSessionList(sessions);
+    await clearGunDatabases();
+
+    const runId = Date.now();
+    const title = `E2E Restaurants ${runId}`;
+
+    const company = await bootstrapUser(browsers[0]!, 'Company', 'Food Co');
+    sessions.push({ label: 'Company', context: company.context, page: company.page });
+    const { page: co } = company;
+    await co.click('.chatroom-item:has-text("Global")');
+    await waitForTabActive(co, 'chatrooms');
+    await afterSync();
+
+    for (let i = 1; i <= 10; i += 1) {
+      const u = await bootstrapUser(browsers[i]!, `U${i}`, `Diner${i}`);
+      sessions.push({ label: `U${i}`, context: u.context, page: u.page });
+      await u.page.click('.chatroom-item:has-text("Global")');
+      await waitForTabActive(u.page, 'chatrooms');
+      await afterSync();
     }
+
+    const { id: _id, ...base } = makeRestaurantSurvey();
+    await emitCreateTalkFromCompanyPage(co, { ...base, title });
+    const talkId = await waitForOutgoingTalkRow(co, title);
+
+    for (let u = 0; u < 10; u += 1) {
+      const ids = [burger[u % 4]!, fries[(u + 1) % 4]!, pizza[(u + 2) % 4]!];
+      await answerSurveyByAnswerIds(sessions[u + 1]!.page, title, ids, talkId);
+      await afterSync();
+    }
+
+    await expectTalkResponsesLine(co, title, 10);
   });
 });

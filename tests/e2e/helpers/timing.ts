@@ -34,6 +34,8 @@ export const afterAction = () => wait(100, 1000);
 export const afterNav = () => wait(200, 2000);
 /** Short: 600ms, Long: 4s — after broadcast or multi-user join; Gun needs time to propagate. */
 export const afterSync = () => wait(600, 4000);
+/** Short: 2s, Long: 6s — after createTalk (save) before clicking Broadcast; avoids flaky IN/outgoing sync. */
+export const afterCreateTalkBeforeBroadcast = () => wait(2000, 6000);
 /** Short: 1s, Long: 6s — after page load so Gun can connect and initial sync; required for headcount. */
 export const afterLoad = () => wait(1000, 6000);
 

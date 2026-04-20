@@ -69,6 +69,12 @@ export class UIManager extends EventEmitter {
               <div class="status-bar-content">
                 <span id="status-bar-text">Connecting...</span>
               </div>
+              <div class="status-bar-actions" id="status-bar-actions" style="display: none;">
+                <button type="button" class="btn status-broadcast-btn" id="status-broadcast-talk-btn" title="Send every talk in your OUT list to everyone in this chatroom">
+                  📢 Broadcast to everyone in this room
+                </button>
+                <p class="status-broadcast-hint" id="status-broadcast-hint">Uses talks from <strong>Talks</strong> (your OUT list). Create or copy a talk there first, then broadcast.</p>
+              </div>
             </div>
             
             <!-- Chatroom List -->
@@ -87,13 +93,13 @@ export class UIManager extends EventEmitter {
                   <div class="chatroom-detail-status" id="current-chatroom-status">Loading...</div>
                 </div>
               </div>
+              <div class="chatroom-actions chatroom-actions-top">
+                <button class="btn broadcast-btn" id="broadcast-talk-btn" title="Sends every talk in your Talks → OUT list to all members in this room (same as the bar above)">
+                  📢 Broadcast talk to everyone here
+                </button>
+              </div>
               <div class="chatroom-members-list" id="chatroom-members-list">
                 <p style="text-align: center; padding: 20px; color: #999;">Loading members...</p>
-              </div>
-              <div class="chatroom-actions">
-                <button class="btn broadcast-btn" id="broadcast-talk-btn">
-                  📢 Broadcast Talk to All Users
-                </button>
               </div>
             </div>
           </div>
@@ -300,53 +306,90 @@ export class UIManager extends EventEmitter {
       });
     }
 
-    // Broadcast talk button: only open "create new talk" when 0 talks to broadcast
     const broadcastTalkBtn = document.getElementById('broadcast-talk-btn');
     if (broadcastTalkBtn) {
-      broadcastTalkBtn.addEventListener('click', () => {
-        const broadcastableCount = this.getBroadcastableTalkIds().length;
-        // Prefer live DOM: currentChatroomMembers can lag a Gun re-subscribe or miss updates
-        // when the detail panel was rebuilt, leaving server-side IN registration with zero receivers.
-        const fromDom = Array.from(
-          document.querySelectorAll('#chatroom-members-list .chatroom-member-item[data-user-id]'),
-        ).map((el) => {
-          const node = el as HTMLElement;
-          return {
-            userId: node.dataset.userId || '',
-            stageName: (node.dataset.stageName || 'User').trim() || 'User',
-          };
-        });
-        const members =
-          fromDom.length > 0
-            ? fromDom.filter((m) => m.userId)
-            : this.currentChatroomMembers;
-        this.emit('broadcastTalk', {
-          chatroomId: this.currentChatroom,
-          members,
-        });
-
-        // Highlight members who will receive the broadcast
-        const list = document.getElementById('chatroom-members-list');
-        if (list) {
-          list.querySelectorAll('.chatroom-member-item').forEach((el) => {
-            el.classList.add('broadcast-sent-to');
-          });
-          setTimeout(() => {
-            list.querySelectorAll('.chatroom-member-item').forEach((el) => {
-              el.classList.remove('broadcast-sent-to');
-            });
-          }, 2500);
-        }
-
-        // Only launch create-talk dialog when user has no talks to broadcast; show notification after modal so it stays on top and is visible to E2E
-        if (broadcastableCount === 0) {
-          this.showTalkEditorDialog();
-          setTimeout(() => {
-            this.showNotification('You have no talks to broadcast. Create one first or enable copied talks.', 'info');
-          }, 0);
-        }
-      });
+      broadcastTalkBtn.addEventListener('click', () => this.handleBroadcastTalkFromCurrentRoom(false));
     }
+    const statusBroadcastBtn = document.getElementById('status-broadcast-talk-btn');
+    if (statusBroadcastBtn) {
+      statusBroadcastBtn.addEventListener('click', () => this.handleBroadcastTalkFromCurrentRoom(true));
+    }
+  }
+
+  /**
+   * Send all broadcastable OUT talks to everyone in the current chatroom (Gun announce + server IN registration).
+   * @param ensureDetailVisible — if true, open the room detail panel first so the flow matches “tap room → broadcast” (also scrolls the main broadcast button into view).
+   */
+  private handleBroadcastTalkFromCurrentRoom(ensureDetailVisible: boolean): void {
+    if (!this.currentChatroom) {
+      this.showNotification('Open a chatroom from the list (tap a room), or wait until you are placed in one.', 'info');
+      return;
+    }
+
+    const runBroadcast = (): void => {
+      const broadcastableCount = this.getBroadcastableTalkIds().length;
+      // Union DOM + in-memory list: after opening room detail, Gun debounce can leave one empty while
+      // the other is populated; the app also merges Gun `chatrooms/.../users` when this array is short.
+      const fromDom = Array.from(
+        document.querySelectorAll('#chatroom-members-list .chatroom-member-item[data-user-id]'),
+      ).map((el) => {
+        const node = el as HTMLElement;
+        return {
+          userId: node.dataset.userId || '',
+          stageName: (node.dataset.stageName || 'User').trim() || 'User',
+        };
+      });
+      const byId = new Map<string, { userId: string; stageName: string }>();
+      for (const m of [...this.currentChatroomMembers, ...fromDom]) {
+        const id = (m.userId || '').trim();
+        if (!id) continue;
+        if (!byId.has(id)) byId.set(id, { userId: id, stageName: m.stageName || id });
+      }
+      const members = Array.from(byId.values());
+      this.emit('broadcastTalk', {
+        chatroomId: this.currentChatroom,
+        members,
+      });
+
+      const list = document.getElementById('chatroom-members-list');
+      if (list) {
+        list.querySelectorAll('.chatroom-member-item').forEach((el) => {
+          el.classList.add('broadcast-sent-to');
+        });
+        setTimeout(() => {
+          list.querySelectorAll('.chatroom-member-item').forEach((el) => {
+            el.classList.remove('broadcast-sent-to');
+          });
+        }, 2500);
+      }
+
+      if (broadcastableCount === 0) {
+        this.showTalkEditorDialog();
+        setTimeout(() => {
+          this.showNotification('You have no talks to broadcast. Create one first or enable copied talks.', 'info');
+        }, 0);
+      }
+    };
+
+    if (ensureDetailVisible) {
+      const detail = document.getElementById('chatroom-detail-container');
+      if (detail && detail.style.display === 'none') {
+        this.showChatroomDetail(this.currentChatroom);
+      }
+      // Member list + Gun callbacks can lag ~150–400ms after opening detail; wait so union/DOM isn't empty.
+      setTimeout(() => {
+        document.getElementById('broadcast-talk-btn')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        runBroadcast();
+      }, 750);
+    } else {
+      runBroadcast();
+    }
+  }
+
+  private syncStatusBroadcastButtonVisibility(): void {
+    const wrap = document.getElementById('status-bar-actions');
+    if (!wrap) return;
+    wrap.style.display = this.currentChatroom ? 'block' : 'none';
   }
 
   private setupBottomNavigation(): void {
@@ -747,6 +790,7 @@ export class UIManager extends EventEmitter {
 
     // Store current chatroom
     this.currentChatroom = chatroomId;
+    this.syncStatusBroadcastButtonVisibility();
 
     // Update members list (for now, show placeholder)
     const membersList = document.getElementById('chatroom-members-list');
@@ -1422,6 +1466,7 @@ export class UIManager extends EventEmitter {
     if (info.id) {
       this.currentChatroom = info.id;
     }
+    this.syncStatusBroadcastButtonVisibility();
 
     const chatroomInfo = document.getElementById('chatroom-info');
     if (chatroomInfo && info.id && info.name) {
@@ -1788,6 +1833,14 @@ export class UIManager extends EventEmitter {
           this.showNotification('Match! You both noticed each other.', 'success');
           if (document.body.contains(modal)) document.body.removeChild(modal);
         } else if (isTerminal) {
+          if (talk.type === 'survey') {
+            const qIdx = talk.questions.findIndex((q: { id: string }) => q.id === currentQuestion.id);
+            if (qIdx >= 0 && qIdx < talk.questions.length - 1) {
+              currentQuestion = talk.questions[qIdx + 1];
+              renderQuestion();
+              return;
+            }
+          }
           this.completeTalk(talk, answers, 'mismatch');
           if (document.body.contains(modal)) document.body.removeChild(modal);
         } else if (nextQuestionId) {
@@ -3512,6 +3565,10 @@ export class UIManager extends EventEmitter {
             if (type === 'survey') {
               // Surveys never branch; every answer carries a counter for stats.
               answer.counter = 0;
+              answer.isTerminal = true;
+              if (nextQuestion === 'ignore') {
+                answer.isIgnore = true;
+              }
             } else if (nextQuestion === 'ignore') {
               answer.isIgnore = true;
               answer.isTerminal = true;
@@ -4004,6 +4061,8 @@ export class UIManager extends EventEmitter {
         });
       }
     }
+
+    this.syncStatusBroadcastButtonVisibility();
   }
 
   setMemberMatched(userId: string): void {

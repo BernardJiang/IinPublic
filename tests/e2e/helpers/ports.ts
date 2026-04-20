@@ -56,6 +56,16 @@ export function webBaseURL(idx: number = parallelSlot()): string {
   return `http://127.0.0.1:${webPort(idx)}`;
 }
 
+/**
+ * Initial app URL for most e2e browsers. The webpack client bundle does not receive
+ * `CHATROOM_MAX_CAPACITY` / `E2E_GUN_MEMORY_ONLY`, so CONFIG would default to capacity 3
+ * + FIFO on — out of sync with playwright.config servers (50 + FIFO off). URL params
+ * override CONFIG in the browser (see `src/shared/config.ts` and `03-capacity-eviction.spec.ts`).
+ */
+export function webAppURLStableChatroom(idx: number = parallelSlot()): string {
+  return `${webBaseURL(idx)}/?e2e_capacity=50&e2e_fifo=false`;
+}
+
 /** Base URL for the Gun HTTP/WS endpoint this worker's browsers should talk to. */
 export function gunBaseURL(idx: number = parallelSlot()): string {
   return `http://127.0.0.1:${gunPort(idx)}`;
