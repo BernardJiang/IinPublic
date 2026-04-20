@@ -1,8 +1,8 @@
-import { expect, Browser, BrowserContext, Page } from '@playwright/test';
+import { expect, type APIRequestContext, Browser, BrowserContext, Page } from '@playwright/test';
 import { clearGunDatabases, injectIdbClear } from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
 import { afterLoad, afterNav, afterAction, afterSync } from './timing';
-import { webAppURLStableChatroom } from './ports';
+import { gunBaseURL, webAppURLStableChatroom } from './ports';
 
 /** Count distinct talk ids across incoming clusters (one merged cluster may hold many `qa_*` keys). */
 export function countIncomingTalkSlots(clusters: unknown): number {
@@ -33,13 +33,70 @@ export type IncomingTalkServerWaitOptions = {
   polling?: number;
 };
 
+const noCacheHeaders = { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } as const;
+
+async function fetchIncomingClustersForUser(
+  request: APIRequestContext,
+  uid: string,
+): Promise<unknown[] | null> {
+  const r = await request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(uid)}/incoming-talks`, {
+    headers: noCacheHeaders,
+  });
+  if (!r.ok()) return null;
+  const clusters: unknown = await r.json();
+  return Array.isArray(clusters) ? clusters : null;
+}
+
+function clusterListMatchesTitleSubstring(clusters: unknown[], needleLower: string): boolean {
+  if (!needleLower) return false;
+  for (const c of clusters as { title?: unknown }[]) {
+    if (String(c?.title || '').toLowerCase().includes(needleLower)) return true;
+  }
+  return false;
+}
+
+async function clusterListMatchesTitleViaTalkFetches(
+  request: APIRequestContext,
+  clusters: unknown[],
+  needleLower: string,
+): Promise<boolean> {
+  if (!needleLower) return false;
+  const base = gunBaseURL();
+  for (const c of clusters as { talkIds?: Record<string, unknown> }[]) {
+    const t = c?.talkIds;
+    if (!t || typeof t !== 'object') continue;
+    const ids = Object.keys(t).filter((k) => !k.startsWith('_'));
+    for (const id of ids) {
+      const tr = await request.get(`${base}/api/talks/${encodeURIComponent(id)}`, { headers: noCacheHeaders });
+      if (!tr.ok()) continue;
+      const td = (await tr.json()) as { title?: unknown };
+      if (String(td?.title || '').toLowerCase().includes(needleLower)) return true;
+    }
+  }
+  return false;
+}
+
+async function incomingClustersIncludeTitleSubstring(
+  request: APIRequestContext,
+  uid: string,
+  titleSubstring: string,
+): Promise<boolean> {
+  const clusters = await fetchIncomingClustersForUser(request, uid);
+  if (!clusters) return false;
+  const needle = titleSubstring.toLowerCase();
+  if (clusterListMatchesTitleSubstring(clusters, needle)) return true;
+  return clusterListMatchesTitleViaTalkFetches(request, clusters, needle);
+}
+
 /**
  * Wait until the Gun server's incoming-talks API lists this title (POST /received succeeded).
  * UI can lag Gun replication; this avoids racing only on `.incoming` rows.
  *
- * Predicate is optimized for large IN lists (e.g. 20 broadcasts): no JSON.stringify per poll,
- * and talk-detail fetches run sequentially with early exit instead of fanning out dozens of
- * parallel requests every polling interval.
+ * Polls from the Playwright process (not `page.waitForFunction`) so requests hit {@link gunBaseURL}
+ * and are not blocked by the web app's Helmet CSP (`connect-src 'self'` only allows the webpack origin).
+ *
+ * Predicate is optimized for large IN lists (e.g. 20 broadcasts): talk-detail fetches run sequentially
+ * with early exit instead of fanning out parallel requests every interval.
  */
 export async function waitForIncomingTalkClusterOnServer(
   page: Page,
@@ -48,61 +105,23 @@ export async function waitForIncomingTalkClusterOnServer(
 ): Promise<void> {
   const timeout = options?.timeout ?? 90_000;
   const polling = options?.polling ?? 500;
-  await page.waitForFunction(
-    async (titleSub: string) => {
-      const { hostname, protocol, port } = window.location;
-      const webPort = Number(port);
-      const gunPort =
-        (hostname === 'localhost' || hostname === '127.0.0.1') &&
-        Number.isFinite(webPort) &&
-        webPort >= 3001
-          ? webPort - 3001 + 8080
-          : 8080;
-      const base =
-        hostname === 'localhost' || hostname === '127.0.0.1'
-          ? `${protocol}//${hostname}:${gunPort}`
-          : `${protocol}//${hostname}`;
-      const app = (
+  const uid = await page.evaluate(() =>
+    String(
+      (
         window as unknown as {
           __iinpublic_app?: { getApp: () => { currentUser?: { id: string } } };
         }
-      ).__iinpublic_app?.getApp?.();
-      const uid = app?.currentUser?.id;
-      if (!uid) return false;
-      try {
-        const r = await fetch(`${base}/api/users/${encodeURIComponent(uid)}/incoming-talks`, {
-          cache: 'no-store',
-        });
-        const clusters: unknown = r.ok ? await r.json() : [];
-        if (!Array.isArray(clusters)) return false;
-        const needle = titleSub.toLowerCase();
-        if (!needle) return false;
-        for (const c of clusters as { title?: unknown; talkIds?: unknown }[]) {
-          if (String(c?.title || '').toLowerCase().includes(needle)) return true;
-        }
-        for (const c of clusters as { talkIds?: Record<string, unknown> }[]) {
-          const t = c?.talkIds;
-          if (!t || typeof t !== 'object') continue;
-          const ids = Object.keys(t).filter((k) => !k.startsWith('_'));
-          for (const id of ids) {
-            try {
-              const tr = await fetch(`${base}/api/talks/${encodeURIComponent(id)}`);
-              if (!tr.ok) continue;
-              const td = (await tr.json()) as { title?: unknown };
-              if (String(td?.title || '').toLowerCase().includes(needle)) return true;
-            } catch {
-              /* ignore */
-            }
-          }
-        }
-        return false;
-      } catch {
-        return false;
-      }
-    },
-    titleSubstring,
-    { timeout, polling },
+      ).__iinpublic_app?.getApp?.()?.currentUser?.id || '',
+    ),
   );
+  if (!uid) throw new Error('waitForIncomingTalkClusterOnServer: no currentUser.id (not logged in?)');
+  const request = page.context().request;
+  await expect
+    .poll(() => incomingClustersIncludeTitleSubstring(request, uid, titleSubstring), {
+      timeout,
+      intervals: [polling],
+    })
+    .toBe(true);
 }
 
 /** Await server→UI incoming merge (same data as opening Talks tab; avoids racing fire-and-forget emit). */
@@ -174,47 +193,30 @@ export async function waitForIncomingTalkIdOnServer(
   if (!tid) throw new Error('waitForIncomingTalkIdOnServer: empty talkId');
   const timeout = options?.timeout ?? 90_000;
   const polling = options?.polling ?? 500;
-  await page.waitForFunction(
-    async (id: string) => {
-      const { hostname, protocol, port } = window.location;
-      const webPort = Number(port);
-      const gunPort =
-        (hostname === 'localhost' || hostname === '127.0.0.1') &&
-        Number.isFinite(webPort) &&
-        webPort >= 3001
-          ? webPort - 3001 + 8080
-          : 8080;
-      const base =
-        hostname === 'localhost' || hostname === '127.0.0.1'
-          ? `${protocol}//${hostname}:${gunPort}`
-          : `${protocol}//${hostname}`;
-      const app = (
+  const uid = await page.evaluate(() =>
+    String(
+      (
         window as unknown as {
           __iinpublic_app?: { getApp: () => { currentUser?: { id: string } } };
         }
-      ).__iinpublic_app?.getApp?.();
-      const uid = app?.currentUser?.id;
-      if (!uid) return false;
-      const clusterHasTalk = (c: { latestTalkId?: unknown; talkIds?: unknown }): boolean => {
-        if (String(c?.latestTalkId || '') === id) return true;
-        const t = c?.talkIds;
-        if (t && typeof t === 'object' && !Array.isArray(t) && id in (t as object)) return true;
-        return false;
-      };
-      try {
-        const r = await fetch(`${base}/api/users/${encodeURIComponent(uid)}/incoming-talks`, {
-          cache: 'no-store',
-        });
-        const clusters: unknown = r.ok ? await r.json() : [];
-        if (!Array.isArray(clusters)) return false;
-        return (clusters as { latestTalkId?: unknown; talkIds?: unknown }[]).some(clusterHasTalk);
-      } catch {
-        return false;
-      }
-    },
-    tid,
-    { timeout, polling },
+      ).__iinpublic_app?.getApp?.()?.currentUser?.id || '',
+    ),
   );
+  if (!uid) throw new Error('waitForIncomingTalkIdOnServer: no currentUser.id (not logged in?)');
+  const request = page.context().request;
+  const clusterHasTalk = (c: { latestTalkId?: unknown; talkIds?: unknown }): boolean => {
+    if (String(c?.latestTalkId || '') === tid) return true;
+    const t = c?.talkIds;
+    if (t && typeof t === 'object' && !Array.isArray(t) && tid in (t as object)) return true;
+    return false;
+  };
+  await expect
+    .poll(async () => {
+      const clusters = await fetchIncomingClustersForUser(request, uid);
+      if (!clusters) return false;
+      return clusters.some((c) => clusterHasTalk(c as { latestTalkId?: unknown; talkIds?: unknown }));
+    }, { timeout, intervals: [polling] })
+    .toBe(true);
 }
 
 /**
