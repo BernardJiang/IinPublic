@@ -17,19 +17,18 @@ import {
   buildTalkIdentityKey,
   canonicalIdentityKeyFromStoredCluster,
 } from '../shared/talk-content-id';
-import type { RelationshipLabel } from '../shared/types';
 import {
-  aggregateByAnswer,
-  aggregateByRegion,
-  aggregateByTime,
   bucketKey,
-  summarize,
   type TalkResponse,
   type TalkType,
-  type TimeBucket,
 } from '../shared/talk-stats';
 import { logger } from './logger';
 import { requestLogger } from './middleware/request-logger';
+import { registerChatroomRoutes } from './routes/chatroom-routes';
+import { registerStatsRoutes } from './routes/stats-routes';
+import { registerSystemRoutes } from './routes/system-routes';
+import { registerTalkRoutes } from './routes/talk-routes';
+import { registerUserRoutes } from './routes/user-routes';
 
 class IinPublicServer {
   private app: express.Application;
@@ -713,99 +712,17 @@ class IinPublicServer {
   }
 
   private setupRoutes(): void {
-    // Health check
-    this.app.get('/health', (_req, res) => {
-      res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    registerSystemRoutes(this.app, {
+      gun: this.gun,
+      incomingTalksMap: this.incomingTalksMap,
+      nodeEnv: process.env.NODE_ENV,
     });
 
-    // User routes
-    this.app.post('/api/users', async (_req, res) => {
-      try {
-        const user = await this.userService.createUser(_req.body);
-        res.json(user);
-      } catch (error) {
-        res.status(400).json({ error: (error as Error).message });
-      }
-    });
+    registerUserRoutes(this.app, { userService: this.userService });
 
-    this.app.get('/api/users/:id', async (_req, res) => {
-      try {
-        const user = await this.userService.getUser(_req.params.id);
-        res.json(user);
-      } catch (error) {
-        res.status(404).json({ error: (error as Error).message });
-      }
-    });
-
-    this.app.post('/api/users/:id/known-people', async (req, res) => {
-      try {
-        const { targetId, label } = req.body as { targetId?: string; label?: string };
-        if (!targetId || !label) {
-          res.status(400).json({ error: 'targetId and label required' });
-          return;
-        }
-        await this.userService.addKnownPerson(req.params.id, targetId, label as RelationshipLabel);
-        res.json({ ok: true });
-      } catch (error) {
-        res.status(400).json({ error: (error as Error).message });
-      }
-    });
-
-    this.app.delete('/api/users/:id/known-people/:targetId', async (req, res) => {
-      try {
-        await this.userService.removeKnownPerson(req.params.id, req.params.targetId);
-        res.json({ ok: true });
-      } catch (error) {
-        res.status(400).json({ error: (error as Error).message });
-      }
-    });
-
-    this.app.get('/api/users/:id/known-people', async (req, res) => {
-      try {
-        const list = await this.userService.listKnownPeople(req.params.id);
-        res.json(list);
-      } catch (error) {
-        res.status(400).json({ error: (error as Error).message });
-      }
-    });
-
-    // Talk routes
-    this.app.post('/api/talks', async (req, res) => {
-      try {
-        const talk = await this.talkService.createTalk(req.body);
-        res.json(talk);
-      } catch (error) {
-        res.status(400).json({ error: (error as Error).message });
-      }
-    });
-
-    /** Full talk JSON from server Gun graph (peers may lag replicating to the browser). */
-    this.app.get('/api/talks/:id', async (req, res) => {
-      try {
-        const talk = await this.loadTalkDataFromGraphOrBody(req.params.id);
-        if (!talk) {
-          // 202 (not 404) avoids browser "Failed to load resource" spam while clients poll until replication.
-          res.status(202).json({ pending: true, id: req.params.id });
-          return;
-        }
-        res.json(talk);
-      } catch (error) {
-        res.status(500).json({ error: (error as Error).message });
-      }
-    });
-
-    this.app.post('/api/talks/:id/send', async (req, res) => {
-      try {
-        const job = await this.talkService.sendBulkTalk(
-          req.params.id,
-          req.body.senderId,
-          req.body.targetScope,
-          req.body.maxRecipients,
-        );
-        res.json(job);
-      } catch (error) {
-        res.status(400).json({ error: (error as Error).message });
-      }
+    registerTalkRoutes(this.app, {
+      talkService: this.talkService,
+      loadTalkDataFromGraphOrBody: this.loadTalkDataFromGraphOrBody.bind(this),
     });
 
     this.app.post('/api/talks/:id/received', async (req, res) => {
@@ -1099,136 +1016,15 @@ class IinPublicServer {
       }
     });
 
-    // Chatroom routes
-    this.app.get('/api/chatrooms', async (_req, res) => {
-      try {
-        const chatrooms = await this.chatroomManager.getAllChatrooms();
-        res.json(chatrooms);
-      } catch (error) {
-        res.status(500).json({ error: (error as Error).message });
-      }
+    registerChatroomRoutes(this.app, { chatroomManager: this.chatroomManager });
+
+    registerStatsRoutes(this.app, {
+      talkService: this.talkService,
+      getUserRegion: this.getUserRegion.bind(this),
+      recordTalkStatsResponse: this.recordTalkStatsResponse.bind(this),
+      getTalkResponses: this.getTalkResponses.bind(this),
     });
 
-    this.app.post('/api/chatrooms/:id/join', async (req, res) => {
-      try {
-        await this.chatroomManager.joinChatroom(req.params.id, req.body.userId);
-        res.json({ success: true });
-      } catch (error) {
-        res.status(400).json({ error: (error as Error).message });
-      }
-    });
-
-    // STAT-01 — record a response in the generic stats log.
-    // Called from the client's talkCompleted handler (which writes responses directly to
-    // Gun, bypassing POST /api/talks/:id/response). Keeps stats in sync regardless of path.
-    this.app.post('/api/stats/talks/:id/record', async (req, res) => {
-      try {
-        const talkId = req.params.id;
-        const { responderId, talkType, answers } = req.body as {
-          responderId?: string;
-          talkType?: TalkType;
-          answers?: Array<{ questionId: string; answerId: string; answerText?: string }>;
-        };
-        if (!responderId || !talkType || !Array.isArray(answers)) {
-          res.status(400).json({ error: 'responderId, talkType, answers required' });
-          return;
-        }
-        const region = await this.getUserRegion(responderId);
-        await this.recordTalkStatsResponse({
-          talkId,
-          talkType,
-          responderId,
-          region,
-          answers: answers.map((a) => ({
-            questionId: String(a.questionId),
-            answerId: String(a.answerId),
-            answerText: String(a.answerText ?? ''),
-          })),
-        });
-        res.json({ ok: true });
-      } catch (error) {
-        logger.error({ err: error }, 'stats record error');
-        res.status(500).json({ error: (error as Error).message });
-      }
-    });
-
-    // STAT-01 — generic stats/inquiry endpoints (uniform across tag/flow/survey/route)
-    this.app.get('/api/stats/talks/:id/summary', (req, res) => {
-      const talkId = req.params.id;
-      const responses = this.getTalkResponses(talkId);
-      const talkType = (responses[0]?.talkType ?? 'flow') as TalkType;
-      res.json(summarize(talkId, talkType, responses));
-    });
-
-    this.app.get('/api/stats/talks/:id/by-day', (req, res) => {
-      const talkId = req.params.id;
-      const opts: { from?: number; to?: number } = {};
-      if (req.query.from) opts.from = Number(req.query.from);
-      if (req.query.to) opts.to = Number(req.query.to);
-      const rawBucket = String(req.query.bucket || 'day').toLowerCase();
-      const bucket: TimeBucket = rawBucket === 'week' || rawBucket === 'month' ? rawBucket : 'day';
-      const responses = this.getTalkResponses(talkId, opts);
-      res.json(aggregateByTime(talkId, responses, bucket));
-    });
-
-    this.app.get('/api/stats/talks/:id/by-region', (req, res) => {
-      const talkId = req.params.id;
-      res.json(aggregateByRegion(talkId, this.getTalkResponses(talkId)));
-    });
-
-    this.app.get('/api/stats/talks/:id/by-answer', (req, res) => {
-      const talkId = req.params.id;
-      const questionId = String(req.query.questionId || '');
-      if (!questionId) {
-        res.status(400).json({ error: 'questionId query param required' });
-        return;
-      }
-      res.json(aggregateByAnswer(talkId, this.getTalkResponses(talkId), questionId));
-    });
-
-    // Survey routes
-    this.app.get('/api/surveys/:id/results', async (_req, res) => {
-      try {
-        const results = await this.talkService.getSurveyResults(_req.params.id);
-        res.json(results);
-      } catch (error) {
-        res.status(404).json({ error: (error as Error).message });
-      }
-    });
-
-    // Location privacy validation endpoint
-    this.app.post('/api/validate-privacy', (_req, res) => {
-      try {
-        // This would validate that no high-precision location data is being sent
-        res.json({ valid: true });
-      } catch (error) {
-        res.status(400).json({ error: (error as Error).message });
-      }
-    });
-
-    // Test-only endpoint to clear Gun.js in-memory database
-    if (process.env.NODE_ENV !== 'production') {
-      this.app.post('/api/test/clear-database', (_req, res) => {
-        try {
-          // Clear Gun.js in-memory graph
-          // Gun stores data in gun._.graph which is the in-memory cache
-          if (this.gun && this.gun._ && this.gun._.graph) {
-            logger.info('🧹 Clearing Gun.js in-memory database...');
-            // Create a new empty graph
-            this.gun._.graph = {};
-            // Also clear server-side incoming talks Map
-            this.incomingTalksMap.clear();
-            logger.info('✅ Gun.js in-memory database cleared');
-            res.json({ success: true, message: 'Gun.js in-memory database cleared' });
-          } else {
-            res.status(500).json({ error: 'Gun.js graph not accessible' });
-          }
-        } catch (error) {
-          logger.error({ err: error }, 'Error clearing Gun.js database');
-          res.status(500).json({ error: (error as Error).message });
-        }
-      });
-    }
   }
 
   private setupSocketHandlers(): void {

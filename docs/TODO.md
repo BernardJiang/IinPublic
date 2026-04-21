@@ -45,9 +45,9 @@ Observed in the repo today:
 
 - [x] Fix the Jest haste-map collision caused by nested workspace/package scanning:
   exclude `.claude/` and similar non-project package roots from Jest scanning
-- [ ] Add one reliable repo health command in `package.json`:
+- [x] Add one reliable repo health command in `package.json`:
   typecheck + lint + unit/integration tests + build checks
-- [ ] Verify CI uses that same health command where practical, so local and CI expectations match
+- [x] Verify CI uses that same health command where practical, so local and CI expectations match
 
 ### P1 - Refactor the main maintenance hotspots
 

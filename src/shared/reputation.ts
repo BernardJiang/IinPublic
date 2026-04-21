@@ -66,12 +66,13 @@ export class ReputationManager {
       case 'friend_added':
         updated.friendsCount += value;
         break;
-      case 'star_rating':
+      case 'star_rating': {
         // Update running average
         const totalRating = updated.starRating * updated.reviewCount + value;
         updated.reviewCount += 1;
         updated.starRating = totalRating / updated.reviewCount;
         break;
+      }
       case 'age_verified':
         updated.ageVerificationVotes += value;
         if (updated.ageVerificationVotes >= CONFIG.AGE_VERIFICATION_THRESHOLD) {

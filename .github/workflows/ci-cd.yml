@@ -7,8 +7,8 @@ on:
     branches: [ main ]
 
 jobs:
-  test:
-    name: Test Suite
+  validate:
+    name: Validate
     runs-on: ubuntu-latest
 
     strategy:
@@ -28,17 +28,21 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
-    - name: Run TypeScript type checking
-      run: npm run test:type
-
-    - name: Run unit tests
-      run: npm run test:unit
-
-    - name: Run integration tests
-      run: npm run test:integration
+    - name: Run Health Check
+      run: npm run health
 
     - name: Enforce coverage threshold (80% lines)
       run: npm run test:coverage -- --coverageThreshold='{"global":{"lines":80}}'
+
+    - name: Upload build artifacts
+      if: matrix.node-version == '20.x'
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-files
+        path: |
+          dist/
+          !dist/**/*.map
+        retention-days: 30
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
@@ -48,66 +52,10 @@ jobs:
         flags: unittests
         name: codecov-umbrella
 
-  lint:
-    name: Code Quality
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20.x'
-        cache: 'npm'
-
-    - name: Install dependencies
-      run: npm ci
-
-    - name: Run ESLint
-      run: npm run lint
-
-    - name: Check code formatting
-      run: npx prettier --check "src/**/*.ts"
-
-  build:
-    name: Build Application
-    runs-on: ubuntu-latest
-    needs: [test, lint]
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20.x'
-        cache: 'npm'
-
-    - name: Install dependencies
-      run: npm ci
-
-    - name: Build web application
-      run: npm run build:web
-
-    - name: Build server application
-      run: npm run build:server
-
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-files
-        path: |
-          dist/
-          !dist/**/*.map
-        retention-days: 30
-
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: [validate]
 
     steps:
     - name: Checkout code
@@ -177,7 +125,7 @@ jobs:
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    needs: [build, security, e2e]
+    needs: [validate, security, e2e]
     if: github.ref == 'refs/heads/develop'
     environment: staging
 
@@ -200,7 +148,7 @@ jobs:
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    needs: [build, security, e2e]
+    needs: [validate, security, e2e]
     if: github.ref == 'refs/heads/main'
     environment: production
 
@@ -222,16 +170,16 @@ jobs:
   notify:
     name: Notifications
     runs-on: ubuntu-latest
-    needs: [test, lint, build, security, e2e]
+    needs: [validate, security, e2e]
     if: always()
 
     steps:
     - name: Notify on success
-      if: needs.test.result == 'success' && needs.build.result == 'success' && needs.e2e.result == 'success'
+      if: needs.validate.result == 'success' && needs.e2e.result == 'success'
       run: |
-        echo "✅ All checks passed! Build, tests, and E2E successful."
+        echo "✅ All checks passed! Validation and E2E successful."
 
     - name: Notify on failure
-      if: needs.test.result == 'failure' || needs.build.result == 'failure' || needs.e2e.result == 'failure'
+      if: needs.validate.result == 'failure' || needs.e2e.result == 'failure'
       run: |
-        echo "❌ Build, tests, or E2E failed. Please check the logs."
+        echo "❌ Validation or E2E failed. Please check the logs."

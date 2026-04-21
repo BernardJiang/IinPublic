@@ -58,6 +58,7 @@ platform-specific build commands directly.
 ## Test And Validation
 
 ```bash
+npm run health
 npm test
 npm run test:unit
 npm run test:integration
@@ -66,6 +67,9 @@ npm run test:type
 npm run test:e2e
 npm run lint
 ```
+
+`npm run health` is the main pre-merge validation path. It runs type checking, lint,
+unit tests, integration tests, and the web/server builds.
 
 ## Common Checks
 
