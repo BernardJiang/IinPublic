@@ -11,4 +11,10 @@ Archive candidates already present elsewhere in `docs/` include:
 - legacy reference READMEs from merged sources
 - older plans that describe a different file layout or delivery phase
 
+Imported document files moved here during cleanup:
+
+- `imported/IinPublic_TODO_root.docx`
+- `imported/IinPublic_TODO_specs.docx`
+- `imported/IinPublic_Frontend_Backend_Interface.docx`
+
 Current source-of-truth docs are listed in [Current Docs](../current/README.md).

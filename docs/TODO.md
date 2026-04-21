@@ -23,12 +23,12 @@ Observed in the repo today:
 
 ### P0 - Clean up source of truth
 
-- [ ] Rewrite `README.md` into a short canonical entry point:
+- [x] Rewrite `README.md` into a short canonical entry point:
   project overview, architecture, run commands, test commands, docs map, current status
-- [ ] Rewrite `docs/reports/PROJECT_STATUS.md` so it reflects the current TypeScript repo instead of older merged-project history
-- [ ] Audit `docs/guides/HOW_TO_RUN.md` for accuracy:
+- [x] Rewrite `docs/reports/PROJECT_STATUS.md` so it reflects the current TypeScript repo instead of older merged-project history
+- [x] Audit `docs/guides/HOW_TO_RUN.md` for accuracy:
   ports, commands, prerequisites, and troubleshooting should match `package.json` and the current app
-- [ ] Move outdated or historical material into clearer buckets:
+- [x] Move outdated or historical material into clearer buckets:
   `docs/current/`, `docs/roadmap/`, `docs/archive/` or equivalent
 - [ ] Keep this TODO focused on actual remaining work; remove stale “already built” tasks as they are discovered
 
@@ -36,14 +36,14 @@ Observed in the repo today:
 
 - [ ] Decide which generated outputs should never live in version control:
   `coverage/`, `dist/`, `playwright-report/`, `test-results/`, runtime logs, local app state
-- [ ] Tighten `.gitignore` to match that decision, including `coverage/`
-- [ ] Move obvious historical artifacts out of the main path:
+- [x] Tighten `.gitignore` to match that decision, including `coverage/`
+- [x] Move obvious historical artifacts out of the main path:
   diff files, old reports, screenshots, copied scripts, and imported reference docs that are no longer active
-- [ ] Separate example/reference code from core product code so the main app is easier to scan
+- [x] Separate example/reference code from core product code so the main app is easier to scan
 
 ### P1 - Stabilize local validation
 
-- [ ] Fix the Jest haste-map collision caused by nested workspace/package scanning:
+- [x] Fix the Jest haste-map collision caused by nested workspace/package scanning:
   exclude `.claude/` and similar non-project package roots from Jest scanning
 - [ ] Add one reliable repo health command in `package.json`:
   typecheck + lint + unit/integration tests + build checks
