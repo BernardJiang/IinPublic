@@ -2,6 +2,8 @@ node_modules
 data.json
 radata/
 *.tmp
+*.log
+coverage
 test-screenshots
 playwright-report
 test-results
@@ -10,7 +12,8 @@ test-storage
 dist
 user_data
 logs
-
+.DS_Store
+.claude/worktrees
 
 
 

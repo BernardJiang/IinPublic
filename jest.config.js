@@ -3,6 +3,22 @@ module.exports = {
   testEnvironment: 'node',
   testMatch: ['<rootDir>/src/test/**/*.test.ts'],
   setupFilesAfterEnv: ['<rootDir>/src/test/setup.ts'],
+  modulePathIgnorePatterns: [
+    '<rootDir>/dist/',
+    '<rootDir>/coverage/',
+    '<rootDir>/playwright-report/',
+    '<rootDir>/test-results/',
+    '<rootDir>/.claude/',
+  ],
+  watchPathIgnorePatterns: [
+    '<rootDir>/dist/',
+    '<rootDir>/coverage/',
+    '<rootDir>/playwright-report/',
+    '<rootDir>/test-results/',
+    '<rootDir>/radata/',
+    '<rootDir>/logs/',
+    '<rootDir>/.claude/',
+  ],
   // Prefer TypeScript source files over pre-compiled .js files in src/
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   moduleNameMapper: {
