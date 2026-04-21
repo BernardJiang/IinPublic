@@ -114,8 +114,7 @@ test.describe('Talks matching — generic stats across four talk types (STAT-01)
     const broadcasts: Array<{ kind: TalkKind; title: string; talkId: string; firstQuestionId: string }> = [];
     for (const t of talks) {
       const talk = t.build(runId);
-      const { id: _drop, ...payload } = talk;
-      await emitCreateTalkFromCompanyPage(tom.page, payload);
+      await emitCreateTalkFromCompanyPage(tom.page, talk);
       const talkId = await waitForOutgoingTalkRow(tom.page, talk.title);
       await tom.page.click('.nav-btn[data-view="chatrooms"]');
       await waitForTabActive(tom.page, 'chatrooms');

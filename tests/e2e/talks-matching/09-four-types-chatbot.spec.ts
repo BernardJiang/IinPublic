@@ -75,8 +75,7 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
     const broadcastIds: Array<{ kind: string; title: string; talkId: string }> = [];
     for (const t of talks) {
       const talk = t.build(runId);
-      const { id: _drop, ...payload } = talk;
-      await emitCreateTalkFromCompanyPage(tom.page, payload);
+      await emitCreateTalkFromCompanyPage(tom.page, talk);
       const talkId = await waitForOutgoingTalkRow(tom.page, talk.title);
       await tom.page.click('.nav-btn[data-view="chatrooms"]');
       await waitForTabActive(tom.page, 'chatrooms');

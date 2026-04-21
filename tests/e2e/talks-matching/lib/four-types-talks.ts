@@ -13,7 +13,7 @@ import type { Talk } from '../../../../src/shared/types';
 
 export function makeTagTalk(runId: number): Talk {
   return {
-    id: 'demo-tag',
+    id: `demo-tag-${runId}`,
     title: `E2E FourTypes Tag ${runId}`,
     authorId: 'tom',
     type: 'tag',
@@ -38,7 +38,7 @@ export function makeTagTalk(runId: number): Talk {
 
 export function makeFlowTalk(runId: number): Talk {
   return {
-    id: 'demo-flow',
+    id: `demo-flow-${runId}`,
     title: `E2E FourTypes Flow ${runId}`,
     authorId: 'tom',
     type: 'flow',
@@ -71,7 +71,7 @@ export function makeFlowTalk(runId: number): Talk {
 
 export function makeSurveyTalk(runId: number): Talk {
   return {
-    id: 'demo-survey',
+    id: `demo-survey-${runId}`,
     title: `E2E FourTypes Survey ${runId}`,
     authorId: 'tom',
     type: 'survey',
@@ -100,7 +100,7 @@ export function makeSurveyTalk(runId: number): Talk {
 
 export function makeRouteTalk(runId: number): Talk {
   return {
-    id: 'demo-route',
+    id: `demo-route-${runId}`,
     title: `E2E FourTypes Route ${runId}`,
     authorId: 'tom',
     type: 'route',
