@@ -1,6 +1,5 @@
 import { User } from '../../shared/types';
 import { EventEmitter } from 'events';
-import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
 import { pickLatestTalkIdFromIncomingCluster, isValidTalkId } from '../../shared/incoming-talk-ids';
 import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
 import {
@@ -10,6 +9,19 @@ import {
 } from '../../shared/flattened-answer-keys';
 import { normalizeQuestionKey } from '../../shared/user-utils';
 import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
+import { displayAnswersList as renderAnswersList } from './answers-view';
+import {
+  renderChatroomList as renderChatrooms,
+  showChatroomDetail as openChatroomDetail,
+  syncStatusBroadcastButtonVisibility as syncChatroomBroadcastVisibility,
+  updateChatroomMembers as renderChatroomMembers,
+} from './chatrooms-view';
+import {
+  displayContactsList as renderContactsList,
+  showContactDetail as openContactDetail,
+  showContactsList as openContactsList,
+} from './contacts-view';
+import { displayConversationsList as renderConversationsList } from './conversations-view';
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
@@ -387,9 +399,7 @@ export class UIManager extends EventEmitter {
   }
 
   private syncStatusBroadcastButtonVisibility(): void {
-    const wrap = document.getElementById('status-bar-actions');
-    if (!wrap) return;
-    wrap.style.display = this.currentChatroom ? 'block' : 'none';
+    syncChatroomBroadcastVisibility(this.currentChatroom);
   }
 
   private setupBottomNavigation(): void {
@@ -555,254 +565,75 @@ export class UIManager extends EventEmitter {
   }
 
   showContactsList(): void {
-    const listContainer = document.getElementById('contacts-list-container');
-    const detailContainer = document.getElementById('contact-detail-container');
-    if (listContainer) listContainer.style.display = 'block';
-    if (detailContainer) detailContainer.style.display = 'none';
-    this.displayContactsList();
+    openContactsList({
+      getMyConversations: this.getMyConversations.bind(this),
+      getMyTalks: this.getMyTalks.bind(this),
+      escapeHtml: this.escapeHtml.bind(this),
+      showTalkDetail: this.showTalkDetail.bind(this),
+    });
   }
 
   /** Build list of contacts: users who have at least one match (conversation) with current user. */
   displayContactsList(): void {
-    const listEl = document.getElementById('contacts-list');
-    if (!listEl) return;
-
-    const conversations = this.getMyConversations();
-    const byUser: Record<
-      string,
-      { otherUserName: string; conversations: Array<{ conversationId: string; talkId?: string }> }
-    > = {};
-    for (const [convId, conv] of Object.entries(conversations)) {
-      const c = conv as any;
-      const uid = c.otherUserId;
-      if (!uid) continue;
-      if (!byUser[uid]) {
-        byUser[uid] = { otherUserName: c.otherUserName || 'Unknown', conversations: [] };
-      }
-      byUser[uid].conversations.push({
-        conversationId: convId,
-        talkId: c.talkId,
-      });
-    }
-
-    const contactEntries = Object.entries(byUser).sort(
-      ([, a], [, b]) => b.conversations.length - a.conversations.length,
-    );
-
-    if (contactEntries.length === 0) {
-      listEl.innerHTML = `
-        <p style="text-align: center; padding: 40px 20px; color: #999;">No contacts yet. Match with others via Talks to see them here.</p>
-      `;
-      return;
-    }
-
-    listEl.innerHTML = contactEntries
-      .map(
-        ([userId, { otherUserName, conversations: convs }]) => `
-        <div class="contact-item" data-contact-user-id="${this.escapeHtml(userId)}" data-contact-name="${this.escapeHtml(otherUserName)}" data-contact-count="${convs.length}" style="display: flex; align-items: center; justify-content: space-between; padding: 16px; margin-bottom: 8px; background: white; border-radius: 12px; border: 1px solid #e0e0e0; cursor: pointer;">
-          <div>
-            <div class="contact-item-name" style="font-weight: 600;">${this.escapeHtml(otherUserName)}</div>
-            <div class="contact-item-meta" style="font-size: 0.85em; color: #666;">${convs.length} match(es)</div>
-          </div>
-          <span style="color: #999;">›</span>
-        </div>
-      `,
-      )
-      .join('');
-
-    listEl.querySelectorAll('.contact-item').forEach((el) => {
-      el.addEventListener('click', () => {
-        const userId = (el as HTMLElement).dataset.contactUserId;
-        const name = (el as HTMLElement).dataset.contactName;
-        const count = (el as HTMLElement).dataset.contactCount;
-        if (userId && name) {
-          this.showContactDetail(userId, name, parseInt(count || '0', 10));
-        }
-      });
+    renderContactsList({
+      getMyConversations: this.getMyConversations.bind(this),
+      getMyTalks: this.getMyTalks.bind(this),
+      escapeHtml: this.escapeHtml.bind(this),
+      showTalkDetail: this.showTalkDetail.bind(this),
     });
   }
 
   /** Show list of talks that match the current user and the selected contact. */
   showContactDetail(otherUserId: string, otherUserName: string, matchCount: number): void {
-    const listContainer = document.getElementById('contacts-list-container');
-    const detailContainer = document.getElementById('contact-detail-container');
-    const detailName = document.getElementById('contact-detail-name');
-    const detailMatches = document.getElementById('contact-detail-matches');
-    const talksList = document.getElementById('contact-talks-list');
-    if (!listContainer || !detailContainer || !detailName || !detailMatches || !talksList) return;
-
-    listContainer.style.display = 'none';
-    detailContainer.style.display = 'block';
-    detailName.textContent = otherUserName;
-    detailMatches.textContent = `${matchCount} match(es)`;
-
-    const conversations = this.getMyConversations();
-    const myTalks = this.getMyTalks();
-    const convsWithThisUser = Object.entries(conversations).filter(
-      ([, c]: [string, any]) => c.otherUserId === otherUserId,
+    openContactDetail(
+      {
+        getMyConversations: this.getMyConversations.bind(this),
+        getMyTalks: this.getMyTalks.bind(this),
+        escapeHtml: this.escapeHtml.bind(this),
+        showTalkDetail: this.showTalkDetail.bind(this),
+      },
+      otherUserId,
+      otherUserName,
+      matchCount,
     );
-
-    if (convsWithThisUser.length === 0) {
-      talksList.innerHTML = '<p style="text-align: center; padding: 20px; color: #999;">No matching talks.</p>';
-      return;
-    }
-
-    talksList.innerHTML = convsWithThisUser
-      .map(([, c]: [string, any]) => {
-        const talkId = c.talkId;
-        const talk = talkId ? myTalks[talkId] : null;
-        const title = talk?.title || (talkId ? `Talk ${talkId}` : 'Unknown talk');
-        return `
-          <div class="contact-talk-item" data-talk-id="${talkId || ''}" style="padding: 14px 16px; margin-bottom: 8px; background: #f9f9f9; border-radius: 10px; border: 1px solid #e0e0e0; cursor: pointer;">
-            <div style="font-weight: 600;">${this.escapeHtml(title)}</div>
-          </div>
-        `;
-      })
-      .join('');
-
-    talksList.querySelectorAll('.contact-talk-item').forEach((el) => {
-      el.addEventListener('click', () => {
-        const talkId = (el as HTMLElement).dataset.talkId;
-        if (talkId) this.showTalkDetail(talkId);
-      });
-    });
   }
 
   private renderChatroomList(): void {
-    // Get flat list of all chatrooms from hierarchy
-    const allChatrooms = getFlatChatroomList();
-
-    // Add current location-based chatroom if it's not in the list
-    if (this.currentChatroom && !allChatrooms.find((r) => r.id === this.currentChatroom)) {
-      allChatrooms.unshift({
-        id: this.currentChatroom,
-        name: 'My Location',
-        icon: '📍',
-        level: 0,
-        description: 'Your current location chatroom',
-        hasChildren: false,
-      });
-    }
-
-    // Filter chatrooms based on expanded state
-    const visibleChatrooms = allChatrooms.filter((room) => {
-      // Root level (global and location) are always visible
-      if (room.level === 0) return true;
-
-      // For child nodes, check if parent is expanded
-      if (room.parentId) {
-        return this.expandedChatrooms.has(room.parentId);
-      }
-
-      return true;
+    renderChatrooms({
+      currentChatroom: this.currentChatroom,
+      chatroomMemberCounts: this.chatroomMemberCounts,
+      expandedChatrooms: this.expandedChatrooms,
+      matchedUserIds: this.matchedUserIds,
+      setCurrentChatroom: (chatroomId) => {
+        this.currentChatroom = chatroomId;
+      },
+      setCurrentChatroomMembers: (members) => {
+        this.currentChatroomMembers = members;
+      },
+      escapeHtml: this.escapeHtml.bind(this),
+      renderChatroomList: this.renderChatroomList.bind(this),
+      showTalksFromUserOrConversation: this.showTalksFromUserOrConversation.bind(this),
+      emit: (eventName, payload) => this.emit(eventName, payload),
     });
-
-    // Populate chatroom list
-    const chatroomList = document.getElementById('chatroom-list');
-    if (chatroomList) {
-      chatroomList.innerHTML = visibleChatrooms
-        .map((room) => {
-          const memberCount = this.chatroomMemberCounts.get(room.id) || 0;
-          const isCurrentRoom = this.currentChatroom === room.id;
-          const isExpanded = this.expandedChatrooms.has(room.id);
-          const expandIcon = room.hasChildren ? (isExpanded ? '▼' : '▶') : '';
-
-          return `
-        <div class="chatroom-item ${isCurrentRoom ? 'current-room' : ''}" 
-             data-chatroom-id="${room.id}" 
-             data-level="${room.level}"
-             data-has-children="${room.hasChildren}"
-             style="padding-left: ${room.level * 20 + 16}px;">
-          ${room.hasChildren ? `<div class="chatroom-expand-icon" data-chatroom-id="${room.id}">${expandIcon}</div>` : '<div class="chatroom-expand-icon-placeholder"></div>'}
-          <div class="chatroom-icon">${room.icon}</div>
-          <div class="chatroom-info">
-            <div class="chatroom-name">
-              ${room.name}
-              ${isCurrentRoom ? '<span class="current-room-badge">Current</span>' : ''}
-              <span class="chatroom-headcount">${memberCount > 0 ? `👥 ${memberCount}` : '👥 0'}</span>
-            </div>
-          </div>
-          <div class="chatroom-arrow">›</div>
-        </div>
-      `;
-        })
-        .join('');
-
-      // Add click handlers for expand/collapse icons
-      const expandIcons = chatroomList.querySelectorAll('.chatroom-expand-icon');
-      expandIcons.forEach((icon) => {
-        icon.addEventListener('click', (e) => {
-          e.stopPropagation(); // Prevent triggering the chatroom click
-          const chatroomId = icon.getAttribute('data-chatroom-id');
-          if (chatroomId) {
-            this.toggleChatroomExpanded(chatroomId);
-          }
-        });
-      });
-
-      // Add click handlers to each chatroom item
-      const chatroomItems = chatroomList.querySelectorAll('.chatroom-item');
-      chatroomItems.forEach((item) => {
-        item.addEventListener('click', () => {
-          const chatroomId = item.getAttribute('data-chatroom-id');
-          if (chatroomId) {
-            this.showChatroomDetail(chatroomId);
-          }
-        });
-      });
-    }
-  }
-
-  /**
-   * Toggle expand/collapse state of a chatroom node
-   */
-  private toggleChatroomExpanded(chatroomId: string): void {
-    if (this.expandedChatrooms.has(chatroomId)) {
-      this.expandedChatrooms.delete(chatroomId);
-    } else {
-      this.expandedChatrooms.add(chatroomId);
-    }
-    // Re-render the chatroom list
-    this.renderChatroomList();
   }
 
   showChatroomDetail(chatroomId: string): void {
-    // Hide chatroom list, show detail view
-    const listContainer = document.getElementById('chatroom-list-container');
-    const detailContainer = document.getElementById('chatroom-detail-container');
-
-    if (listContainer) listContainer.style.display = 'none';
-    if (detailContainer) detailContainer.style.display = 'block';
-
-    // Get chatroom name from hierarchy
-    const allChatrooms = getFlatChatroomList();
-    const room = allChatrooms.find((r) => r.id === chatroomId);
-    const roomName = room ? `${room.icon} ${room.name}` : chatroomId;
-
-    // Update header and chatroom info
-    const headerTitle = document.getElementById('header-title');
-    const chatroomTitle = document.getElementById('current-chatroom-title');
-    const chatroomStatus = document.getElementById('current-chatroom-status');
-
-    if (headerTitle) headerTitle.textContent = roomName;
-    if (chatroomTitle) chatroomTitle.textContent = roomName;
-    if (chatroomStatus) chatroomStatus.textContent = 'Loading members...';
-
-    // Store current chatroom
-    this.currentChatroom = chatroomId;
-    this.syncStatusBroadcastButtonVisibility();
-
-    // Update members list (for now, show placeholder)
-    const membersList = document.getElementById('chatroom-members-list');
-    if (membersList) {
-      // Initially show loading state
-      membersList.innerHTML =
-        '<div style="padding: 20px; text-align: center; color: #999;">Loading online users...</div>';
-
-      // Trigger update of chatroom members
-      // This will be populated by updateChatroomMembers() when called from the app
-      this.emit('chatroomChanged', chatroomId);
-    }
+    openChatroomDetail({
+      currentChatroom: this.currentChatroom,
+      chatroomMemberCounts: this.chatroomMemberCounts,
+      expandedChatrooms: this.expandedChatrooms,
+      matchedUserIds: this.matchedUserIds,
+      setCurrentChatroom: (nextChatroomId) => {
+        this.currentChatroom = nextChatroomId;
+      },
+      setCurrentChatroomMembers: (members) => {
+        this.currentChatroomMembers = members;
+      },
+      escapeHtml: this.escapeHtml.bind(this),
+      renderChatroomList: this.renderChatroomList.bind(this),
+      showTalksFromUserOrConversation: this.showTalksFromUserOrConversation.bind(this),
+      emit: (eventName, payload) => this.emit(eventName, payload),
+    }, chatroomId);
   }
 
   displayTalksList(): void {
@@ -1052,86 +883,14 @@ export class UIManager extends EventEmitter {
   }
 
   displayAnswersList(): void {
-    const container = document.getElementById('answers-content');
-    if (!container) return;
-    const myTalks = this.getMyTalks();
-    const answeredEntries = Object.entries(myTalks)
-      .filter(([, t]: [string, any]) => t?.role === 'answered' || t?.role === 'copied')
-      .sort(
-        ([, a]: [string, any], [, b]: [string, any]) =>
-          new Date(b.lastInteraction).getTime() - new Date(a.lastInteraction).getTime(),
-      );
-    const deduped: Array<[string, any]> = [];
-    const seenContent = new Set<string>();
-    for (const [talkId, talk] of answeredEntries) {
-      const full = talk.fullTalk;
-      const contentKey = full ? UIManager.getTalkContentKey(full) : talkId;
-      if (seenContent.has(contentKey)) continue;
-      seenContent.add(contentKey);
-      deduped.push([talkId, talk]);
-    }
-    if (deduped.length === 0) {
-      container.innerHTML = `
-        <div style="padding: 20px; text-align: center; color: #999;">
-          <p>Talks you've received and answered will appear here.</p>
-          <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">View My Answers (preferences)</button>
-        </div>
-      `;
-      const prefsBtn = document.getElementById('view-preferences-btn');
-      if (prefsBtn) prefsBtn.addEventListener('click', () => this.showPreferencesDialog());
-      return;
-    }
-    container.innerHTML = `
-      <div class="answers-view-inner" style="padding: 16px; max-width: min(900px, 95%); margin: 0 auto;">
-        <p style="margin-bottom: 12px; color: #666;">Talks you've received and answered (same question set = one entry, multiple senders):</p>
-        <div id="answers-list" class="answers-list" style="display: flex; flex-direction: column; gap: 10px;"></div>
-        <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">View My Answers (preferences)</button>
-      </div>
-    `;
-    const listEl = document.getElementById('answers-list');
-    if (listEl) {
-      deduped.forEach(([talkId, talk]) => {
-        const outcome = talk.outcome === 'match' ? 'match' : 'mismatch';
-        const senders = talk.senders && talk.senders.length > 0
-          ? talk.senders.length === 1
-            ? `From 1 sender`
-            : `From ${talk.senders.length} senders`
-          : '';
-        const item = document.createElement('div');
-        item.className = 'answer-talk-item';
-        item.dataset.talkId = talkId;
-        item.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-radius: 8px; background: ' + (outcome === 'match' ? '#e8f5e9' : '#fff3e0') + '; border: 1px solid ' + (outcome === 'match' ? '#c8e6c9' : '#ffe0b2') + '; flex-wrap: wrap;';
-        item.innerHTML = `
-          <div style="flex: 1; min-width: 0;">
-            <div style="font-weight: 600;">${this.escapeHtml(talk.title)}</div>
-            <div style="font-size: 0.85em; color: #666;">${senders} · ${outcome === 'match' ? '✓ Match' : '✗ Mismatch'}</div>
-          </div>
-          <div style="display: flex; gap: 8px;">
-            <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">Copy</button>
-            <button type="button" class="btn answer-edit-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">Edit</button>
-          </div>
-        `;
-        listEl.appendChild(item);
-      });
-    }
-    listEl?.querySelectorAll('.answer-copy-talk-btn').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const talkId = (e.currentTarget as HTMLElement).dataset.talkId;
-        if (!talkId) return;
-        this.copyAnsweredTalkToTalks(talkId);
-      });
+    renderAnswersList({
+      getMyTalks: this.getMyTalks.bind(this),
+      escapeHtml: this.escapeHtml.bind(this),
+      copyAnsweredTalkToTalks: this.copyAnsweredTalkToTalks.bind(this),
+      showTalkDetail: this.showTalkDetail.bind(this),
+      showPreferencesDialog: this.showPreferencesDialog.bind(this),
+      getTalkContentKey: UIManager.getTalkContentKey,
     });
-    listEl?.querySelectorAll('.answer-edit-talk-btn').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const talkId = (e.currentTarget as HTMLElement).dataset.talkId;
-        if (!talkId) return;
-        this.showTalkDetail(talkId);
-      });
-    });
-    const prefsBtn = document.getElementById('view-preferences-btn');
-    if (prefsBtn) prefsBtn.addEventListener('click', () => this.showPreferencesDialog());
   }
 
   private copyAnsweredTalkToTalks(talkId: string): void {
@@ -1246,61 +1005,12 @@ export class UIManager extends EventEmitter {
   }
 
   displayConversationsList(): void {
-    const conversationsList = document.getElementById('conversations-list');
-    if (!conversationsList) return;
-
-    // Get conversations from localStorage
-    const myConversations = this.getMyConversations();
-    const conversationEntries = Object.entries(myConversations).sort(
-      ([, a]: [string, any], [, b]: [string, any]) =>
-        new Date(b.lastMessageTime || b.createdAt).getTime() -
-        new Date(a.lastMessageTime || a.createdAt).getTime(),
-    );
-
-    if (conversationEntries.length === 0) {
-      conversationsList.innerHTML = `
-        <div class="empty-state" style="padding: 60px 20px; text-align: center;">
-          <div style="font-size: 3em; margin-bottom: 16px;">💬</div>
-          <p style="font-size: 1.2em; color: #666; margin-bottom: 8px;">No conversations yet</p>
-          <p style="font-size: 0.9em; color: #999;">Match with someone through talks to start chatting!</p>
-        </div>
-      `;
-    } else {
-      conversationsList.innerHTML = conversationEntries
-        .map(
-          ([conversationId, conversation]) => `
-        <div class="conversation-list-item ${conversation.unread ? 'unread' : ''}" data-conversation-id="${conversationId}" data-responded-by-bot="${!!conversation.respondedByBot}">
-          <div class="conversation-avatar-wrapper" style="position: relative;">
-            <div class="conversation-avatar">
-              ${conversation.otherUserName?.charAt(0).toUpperCase() || '?'}
-            </div>
-            ${conversation.respondedByBot ? '<span class="conversation-bot-badge" title="Answered by chatbot">🤖</span>' : ''}
-          </div>
-          <div class="conversation-content">
-            <div class="conversation-header">
-              <div class="conversation-name">${this.escapeHtml(conversation.otherUserName || 'Unknown')}</div>
-              <div class="conversation-time">${this.formatTimeAgo(new Date(conversation.lastMessageTime || conversation.createdAt))}</div>
-            </div>
-            <div class="conversation-preview">
-              ${conversation.unread ? '<span class="unread-badge"></span>' : ''}
-              ${this.escapeHtml(conversation.lastMessage || 'Matched! Start a conversation...')}
-            </div>
-          </div>
-        </div>
-      `,
-        )
-        .join('');
-
-      // Add click handlers to conversation items
-      conversationsList.querySelectorAll('.conversation-list-item').forEach((item) => {
-        item.addEventListener('click', () => {
-          const conversationId = (item as HTMLElement).dataset.conversationId;
-          if (conversationId) {
-            this.showConversationDetail(conversationId);
-          }
-        });
-      });
-    }
+    renderConversationsList({
+      getMyConversations: this.getMyConversations.bind(this),
+      escapeHtml: this.escapeHtml.bind(this),
+      formatTimeAgo: this.formatTimeAgo.bind(this),
+      showConversationDetail: this.showConversationDetail.bind(this),
+    });
   }
 
   private getMyConversations(): Record<string, any> {
@@ -3993,76 +3703,29 @@ export class UIManager extends EventEmitter {
     members: Array<{ userId: string; stageName: string }>,
     currentUserId: string,
   ): void {
-    const chatroomMembersList = document.getElementById('chatroom-members-list');
-    const chatroomStatus = document.getElementById('current-chatroom-status');
-
-    const otherMembers = members.filter((member) => member.userId !== currentUserId);
-
-    // Update member count for current chatroom
     console.log(
       `📊 Updating member count for ${this.currentChatroom}: ${members.length} total members`,
     );
-    this.chatroomMemberCounts.set(this.currentChatroom, members.length);
-
-    // Refresh chatroom list to show updated counts (without changing view)
-    this.renderChatroomList();
-
-    // Always sync broadcast receiver list from Gun (do not gate on detail DOM — avoids empty list)
-    this.currentChatroomMembers = otherMembers;
-
-    // Update Chatrooms detail view (chatroom-members-list)
-    if (chatroomMembersList) {
-      // Update status - show total member count including current user
-      if (chatroomStatus) {
-        chatroomStatus.textContent = `👥 ${members.length} member${members.length !== 1 ? 's' : ''} total`;
-      }
-
-      if (otherMembers.length === 0) {
-        chatroomMembersList.innerHTML = `
-          <div class="empty-state" style="padding: 40px 20px; text-align: center;">
-            <p style="font-size: 1.2em; margin-bottom: 8px;">No other users here yet</p>
-            <p style="font-size: 0.9em; color: #999;">You're the first one in this chatroom!</p>
-          </div>
-        `;
-      } else {
-        chatroomMembersList.innerHTML = otherMembers
-          .map(
-            (member) => {
-              const isMatched = this.matchedUserIds.has(member.userId);
-              return `
-          <div class="chatroom-member-item" data-user-id="${member.userId}" data-stage-name="${this.escapeHtml(member.stageName)}" ${isMatched ? ' data-matched="true"' : ''}>
-            <div class="chatroom-member-avatar">${member.stageName.charAt(0).toUpperCase()}</div>
-            <div class="chatroom-member-info">
-              <div class="chatroom-member-name">${member.stageName}</div>
-              <div class="chatroom-member-status">${isMatched ? 'Matched' : 'Online now'}</div>
-            </div>
-          </div>
-        `;
-            },
-          )
-          .join('');
-
-        // Re-apply matched class for styling
-        chatroomMembersList.querySelectorAll('.chatroom-member-item').forEach((el) => {
-          if ((el as HTMLElement).dataset.matched === 'true') {
-            el.classList.add('member-matched');
-          }
-        });
-
-        // Add click handlers: show talks from this user or open conversation
-        chatroomMembersList.querySelectorAll('.chatroom-member-item').forEach((item) => {
-          item.addEventListener('click', (e) => {
-            const targetUserId = (e.currentTarget as HTMLElement).getAttribute('data-user-id');
-            const stageName = (e.currentTarget as HTMLElement).getAttribute('data-stage-name') || 'User';
-            if (targetUserId) {
-              this.showTalksFromUserOrConversation(targetUserId, stageName);
-            }
-          });
-        });
-      }
-    }
-
-    this.syncStatusBroadcastButtonVisibility();
+    renderChatroomMembers(
+      {
+        currentChatroom: this.currentChatroom,
+        chatroomMemberCounts: this.chatroomMemberCounts,
+        expandedChatrooms: this.expandedChatrooms,
+        matchedUserIds: this.matchedUserIds,
+        setCurrentChatroom: (chatroomId) => {
+          this.currentChatroom = chatroomId;
+        },
+        setCurrentChatroomMembers: (nextMembers) => {
+          this.currentChatroomMembers = nextMembers;
+        },
+        escapeHtml: this.escapeHtml.bind(this),
+        renderChatroomList: this.renderChatroomList.bind(this),
+        showTalksFromUserOrConversation: this.showTalksFromUserOrConversation.bind(this),
+        emit: (eventName, payload) => this.emit(eventName, payload),
+      },
+      members,
+      currentUserId,
+    );
   }
 
   setMemberMatched(userId: string): void {
