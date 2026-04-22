@@ -1,10 +1,6 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import cors from 'cors';
-import helmet from 'helmet';
-import Gun from 'gun';
-import SEA from 'gun/sea';
 import { GunService } from './services/gun-service';
 import { ChatroomManager } from './services/chatroom-manager';
 import { TalkService } from './services/talk-service';
@@ -23,13 +19,14 @@ import {
   type TalkType,
 } from '../shared/talk-stats';
 import { logger } from './logger';
-import { requestLogger } from './middleware/request-logger';
+import { attachGun, configureHttpMiddleware, createSocketServer } from './bootstrap/http-bootstrap';
 import { registerChatroomRoutes } from './routes/chatroom-routes';
 import { registerStatsRoutes } from './routes/stats-routes';
 import { registerTalkDeliveryRoutes } from './routes/talk-delivery-routes';
 import { registerSystemRoutes } from './routes/system-routes';
 import { registerTalkRoutes } from './routes/talk-routes';
 import { registerUserRoutes } from './routes/user-routes';
+import { registerSocketHandlers } from './socket/register-socket-handlers';
 
 class IinPublicServer {
   private app: express.Application;
@@ -55,18 +52,7 @@ class IinPublicServer {
   constructor() {
     this.app = express();
     this.server = createServer(this.app);
-
-    this.io = new Server(this.server, {
-      cors: {
-        // In dev/e2e we may run multiple webpack dev servers on adjacent ports (parallel
-        // Playwright workers), so match any localhost origin rather than a fixed list.
-        origin:
-          process.env.NODE_ENV === 'production'
-            ? ['https://iinpublic.com']
-            : /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
-        methods: ['GET', 'POST'],
-      },
-    });
+    this.io = createSocketServer(this.server);
 
     this.setupMiddleware();
     this.setupGun();
@@ -76,64 +62,11 @@ class IinPublicServer {
   }
 
   private setupGun(): void {
-    // E2E (Playwright): in-memory graph only so POST /api/test/clear-database + deleted radata/
-    // cannot be repopulated from radisk after a clear — otherwise stale chatrooms/users/talks
-    // accumulate and receivers time out waiting for IN rows.
-    const e2eMemoryOnly = process.env.E2E_GUN_MEMORY_ONLY === '1' || process.env.E2E_GUN_MEMORY_ONLY === 'true';
-    this.gun = Gun({
-      web: this.server,
-      localStorage: false, // Server doesn't need localStorage
-      radisk: !e2eMemoryOnly,
-      // Parallel e2e runs multiple Gun HTTP servers (8080, 8081, …). Without this, Gun's
-      // UDP multicast (lib/multicast.js, port 8765) meshes separate processes and splits the
-      // in-memory graph so two browsers on one hub still see different chatroom membership.
-      // Browser AXE is disabled in e2e bundles (web-gun-service); server-side AXE/multicast
-      // must also be off for isolated graphs per hub.
-      ...(e2eMemoryOnly ? { peers: [], axe: false, multicast: false } : {}),
-    });
-    logger.info({ radisk: !e2eMemoryOnly }, '🔫 Gun.js attached to HTTP server');
+    this.gun = attachGun(this.server);
   }
 
   private setupMiddleware(): void {
-    this.app.use(
-      helmet({
-        contentSecurityPolicy: {
-          directives: {
-            defaultSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'"],
-            // Gun.js needs eval; worker scripts are served locally at /node_modules/gun/
-            scriptSrc: ["'self'", "'unsafe-eval'"],
-            imgSrc: ["'self'", 'data:', 'https:'],
-            connectSrc: ["'self'", 'ws:', 'wss:'],
-            workerSrc: ["'self'", 'blob:'],
-          },
-        },
-      }),
-    );
-
-    this.app.use(
-      cors({
-        // See note on socket.io CORS above — parallel e2e workers use 3002+ too.
-        origin:
-          process.env.NODE_ENV === 'production'
-            ? ['https://iinpublic.com']
-            : /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
-        credentials: true,
-      }),
-    );
-
-    this.app.use(express.json({ limit: '10mb' }));
-    this.app.use(express.urlencoded({ extended: true }));
-
-    // Structured request logging (INF-05) — must come after body parsers.
-    this.app.use(requestLogger);
-
-    // Serve static files — public/ first so worker.js is reachable at /worker.js
-    this.app.use(express.static('public'));
-    this.app.use(express.static('.'));
-
-    // Gun.js HTTP endpoint - served by Gun({ web: this.server })
-    this.app.use((Gun as any).serve);
+    configureHttpMiddleware(this.app);
   }
 
   private initializeServices(): void {
@@ -755,146 +688,10 @@ class IinPublicServer {
   }
 
   private setupSocketHandlers(): void {
-    this.io.on('connection', (socket) => {
-      logger.info({ socketId: socket.id }, 'User connected');
-
-      // User authentication and setup
-      socket.on('authenticate', async (data: { userId?: string; pub?: string; signature?: string }) => {
-        try {
-          if (!data?.userId) {
-            socket.emit('auth_error', { error: 'userId required' });
-            return;
-          }
-          if (!data.pub || !data.signature) {
-            socket.emit('auth_error', { error: 'pub and signature required' });
-            socket.disconnect();
-            return;
-          }
-          const verified = await SEA.verify(data.signature, data.pub);
-          if (verified !== data.userId) {
-            socket.emit('auth_error', { error: 'Invalid signature' });
-            socket.disconnect();
-            return;
-          }
-          const user = await this.userService.getUser(data.userId);
-          if (user.pub && user.pub !== data.pub) {
-            socket.emit('auth_error', { error: 'Public key mismatch' });
-            socket.disconnect();
-            return;
-          }
-          socket.data.userId = user.id;
-          socket.data.pub = data.pub;
-          socket.emit('authenticated', { user });
-        } catch (error) {
-          socket.emit('auth_error', { error: (error as Error).message });
-          socket.disconnect();
-        }
-      });
-
-      // Chatroom management
-      socket.on('join_chatroom', async (data) => {
-        try {
-          await this.chatroomManager.joinChatroom(data.chatroomId, socket.data.userId);
-          socket.join(data.chatroomId);
-          socket.emit('joined_chatroom', { chatroomId: data.chatroomId });
-        } catch (error) {
-          socket.emit('error', { error: (error as Error).message });
-        }
-      });
-
-      socket.on('leave_chatroom', async (data) => {
-        try {
-          await this.chatroomManager.leaveChatroom(data.chatroomId, socket.data.userId);
-          socket.leave(data.chatroomId);
-          socket.emit('left_chatroom', { chatroomId: data.chatroomId });
-        } catch (error) {
-          socket.emit('error', { error: (error as Error).message });
-        }
-      });
-
-      socket.on('move_chatroom', async (data) => {
-        try {
-          await this.chatroomManager.moveChatroom(socket.data.userId, data.oldChatroomId, data.newChatroomId);
-          socket.leave(data.oldChatroomId);
-          socket.join(data.newChatroomId);
-          socket.emit('moved_chatroom', { oldChatroomId: data.oldChatroomId, newChatroomId: data.newChatroomId });
-        } catch (error) {
-          socket.emit('error', { error: (error as Error).message });
-        }
-      });
-
-      // Real-time messaging
-      socket.on('send_message', async (data) => {
-        try {
-          // Process message through filters and validation
-          const message = await this.talkService.processMessage(
-            data.conversationId,
-            socket.data.userId,
-            data.message,
-          );
-
-          // Emit to conversation participants
-          socket.to(data.conversationId).emit('new_message', message);
-        } catch (error) {
-          socket.emit('error', { error: (error as Error).message });
-        }
-      });
-
-      // Talk execution
-      socket.on('answer_question', async (data) => {
-        try {
-          const result = await this.talkService.processAnswer(
-            data.conversationId,
-            data.questionId,
-            data.answerId,
-            socket.data.userId,
-          );
-
-          socket.emit('question_answered', result);
-
-          if (result.isComplete) {
-            socket.emit('talk_completed', {
-              conversationId: data.conversationId,
-              result: result.outcome,
-              talkId: result.talkId,
-              matchId: result.matchId,
-            });
-
-            // For match outcomes, emit a dedicated event so clients can react explicitly
-            if (result.outcome === 'match') {
-              socket.emit('talk_matched', {
-                conversationId: data.conversationId,
-                talkId: result.talkId,
-                matchId: result.matchId,
-              });
-            }
-          }
-        } catch (error) {
-          socket.emit('error', { error: (error as Error).message });
-        }
-      });
-
-      // Location updates
-      socket.on('update_location', async (data) => {
-        try {
-          await this.userService.updateUserLocation(socket.data.userId, data.location);
-
-          // Check if user needs to be moved to different chatroom
-          const newChatroom = await this.chatroomManager.findOptimalChatroom(data.location);
-          if (newChatroom) {
-            socket.emit('chatroom_suggestion', { chatroomId: newChatroom });
-          }
-        } catch (error) {
-          socket.emit('error', { error: (error as Error).message });
-        }
-      });
-
-      socket.on('disconnect', () => {
-        logger.info({ socketId: socket.id }, 'User disconnected');
-        if (socket.data.userId) {
-          this.userService.setUserOffline(socket.data.userId);
-        }
-      });
+    registerSocketHandlers(this.io, {
+      chatroomManager: this.chatroomManager,
+      talkService: this.talkService,
+      userService: this.userService,
     });
   }
 
