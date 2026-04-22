@@ -34,6 +34,22 @@ import {
   type AnswerPreferenceMap,
   type MyQuestionAnswerEntry,
 } from './answer-preferences-storage';
+import {
+  clearMyTalks,
+  deleteMyTalkEntry,
+  getMyTalks,
+  patchMyTalk,
+  setMyTalks,
+  type MyTalkEntry,
+} from './my-talks-storage';
+import {
+  getChatbotEnabled,
+  getChatbotTemplate as loadChatbotTemplate,
+  getCopyTalkAutoSave,
+  saveChatbotTemplate as storeChatbotTemplate,
+  setChatbotEnabled,
+  setCopyTalkAutoSave,
+} from './ui-settings-storage';
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
@@ -58,6 +74,10 @@ export class UIManager extends EventEmitter {
 
   getChatroomMemberCount(chatroomId: string): number {
     return this.chatroomMemberCounts.get(chatroomId) || 0;
+  }
+
+  private getMyTalks(): Record<string, any> {
+    return getMyTalks();
   }
 
   initialize(): void {
@@ -505,7 +525,7 @@ export class UIManager extends EventEmitter {
     // Update user info in Me view
     const userInfoMe = document.getElementById('user-info-me');
     if (userInfoMe) {
-      const copyTalkChecked = this.getCopyTalkAutoSave();
+      const copyTalkChecked = getCopyTalkAutoSave();
       userInfoMe.innerHTML = `
         <div class="user-avatar" style="width: 80px; height: 80px; font-size: 2em; margin: 20px auto;">
           ${user.stageName.charAt(0).toUpperCase()}
@@ -522,7 +542,7 @@ export class UIManager extends EventEmitter {
           </label>
           <p style="margin: 8px 0 0 28px; font-size: 0.85em; color: #6b7280;">When off, received talks are not saved to My Talks.</p>
           <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.95em; margin-top: 14px;">
-            <input type="checkbox" id="chatbot-enabled-checkbox" ${this.getChatbotEnabled() ? 'checked' : ''}>
+            <input type="checkbox" id="chatbot-enabled-checkbox" ${getChatbotEnabled() ? 'checked' : ''}>
             <span>Enable chatbot (auto-reply with previous match answers)</span>
           </label>
           <p style="margin: 8px 0 0 28px; font-size: 0.85em; color: #6b7280;">When the same talk is sent to you again, reply automatically with your last match answer. Replies show a bot icon.</p>
@@ -537,13 +557,13 @@ export class UIManager extends EventEmitter {
       const copyTalkCheckbox = document.getElementById('copy-talk-autosave-checkbox') as HTMLInputElement;
       if (copyTalkCheckbox) {
         copyTalkCheckbox.addEventListener('change', () => {
-          this.setCopyTalkAutoSave(copyTalkCheckbox.checked);
+          setCopyTalkAutoSave(copyTalkCheckbox.checked);
         });
       }
       const chatbotCheckbox = document.getElementById('chatbot-enabled-checkbox') as HTMLInputElement;
       if (chatbotCheckbox) {
         chatbotCheckbox.addEventListener('change', () => {
-          this.setChatbotEnabled(chatbotCheckbox.checked);
+          setChatbotEnabled(chatbotCheckbox.checked);
         });
       }
     }
@@ -652,7 +672,7 @@ export class UIManager extends EventEmitter {
     const talksList = document.getElementById('talks-list');
     if (!talksList) return;
 
-    const myTalks = this.getMyTalks();
+    const myTalks = getMyTalks();
 
     // One-time delegation on body: use mousedown so we run before any re-render can replace the DOM (click fires later and target can be gone)
     if (!this.talksListDelegationBound) {
@@ -722,7 +742,7 @@ export class UIManager extends EventEmitter {
     const allEntries = Object.entries(myTalks)
       .sort(
         ([, a]: [string, any], [, b]: [string, any]) =>
-          new Date(b.lastInteraction).getTime() - new Date(a.lastInteraction).getTime(),
+          new Date(b.lastInteraction || 0).getTime() - new Date(a.lastInteraction || 0).getTime(),
       );
     // OUT: talks this user created or copied (can broadcast)
     const outEntries = allEntries.filter(([, t]: [string, any]) => t.role === 'created' || t.role === 'copied');
@@ -773,7 +793,7 @@ export class UIManager extends EventEmitter {
             </div>
           </div>
           <div class="talk-item-meta">
-            <span class="talk-item-time">${this.formatTimeAgo(new Date(talk.lastInteraction))}</span>
+            <span class="talk-item-time">${this.formatTimeAgo(new Date(talk.lastInteraction || 0))}</span>
           </div>
           <div class="talk-item-meta" style="font-size: 0.85em; color: #666;">
             Expiration: ${expText} · Location: ${locText}
@@ -906,7 +926,7 @@ export class UIManager extends EventEmitter {
   }
 
   private copyAnsweredTalkToTalks(talkId: string): void {
-    const myTalks = this.getMyTalks();
+    const myTalks = getMyTalks();
     const talk = myTalks[talkId];
     if (!talk?.fullTalk) {
       this.showNotification('Talk data not found', 'error');
@@ -986,7 +1006,7 @@ export class UIManager extends EventEmitter {
       return;
     }
 
-    const myTalks = this.getMyTalks();
+    const myTalks = getMyTalks();
     const talk = myTalks[tid];
 
     if (talk) {
@@ -2109,18 +2129,8 @@ export class UIManager extends EventEmitter {
   // MY TALKS MANAGEMENT
   // ============================================
 
-  private saveMyTalk(talkData: {
-    talkId: string;
-    title: string;
-    type: string;
-    timestamp: string;
-    role: 'created' | 'answered' | 'copied';
-    fullTalk?: any;
-    outcome?: 'match' | 'mismatch';
-    disabled?: boolean;
-    senders?: string[];
-  }): void {
-    const myTalks = this.getMyTalks();
+  private saveMyTalk(talkData: MyTalkEntry): void {
+    const myTalks = getMyTalks();
     const existing = myTalks[talkData.talkId];
     const full = talkData.fullTalk;
     myTalks[talkData.talkId] = {
@@ -2132,7 +2142,7 @@ export class UIManager extends EventEmitter {
       senders: talkData.senders ?? existing?.senders ?? undefined,
       lastInteraction: new Date().toISOString(),
     };
-    localStorage.setItem('myTalks', JSON.stringify(myTalks));
+    setMyTalks(myTalks);
 
     // Refresh talks list if currently viewing Talks tab
     const talksView = document.getElementById('talks-view');
@@ -2143,7 +2153,7 @@ export class UIManager extends EventEmitter {
 
   /** Talks that can be included in broadcast: created or copied, not disabled, and not expired */
   getBroadcastableTalkIds(): string[] {
-    const myTalks = this.getMyTalks();
+    const myTalks = getMyTalks();
     const now = Date.now();
     return Object.entries(myTalks)
       .filter(([, t]: [string, any]) => {
@@ -2159,7 +2169,7 @@ export class UIManager extends EventEmitter {
    * Full talk from OUT/myTalks when Gun `getTalk` is slow — bulk broadcast must still POST register-receivers.
    */
   getBroadcastTalkPayload(talkId: string): any | null {
-    const myTalks = this.getMyTalks();
+    const myTalks = getMyTalks();
     const row = myTalks[talkId];
     const full = row?.fullTalk;
     if (!full) return null;
@@ -2175,7 +2185,7 @@ export class UIManager extends EventEmitter {
     talk: { id: string; title: string; type: string; questions: any[]; expiresAt?: number | null; locationRadiusMiles?: number | null },
     options: { selfAnswers: { questionId: string; answerId: string }[] },
   ): void {
-    const myTalks = this.getMyTalks();
+    const myTalks = getMyTalks();
     myTalks[talk.id] = {
       ...myTalks[talk.id],
       talkId: talk.id,
@@ -2189,7 +2199,7 @@ export class UIManager extends EventEmitter {
       locationRadiusMiles: talk.locationRadiusMiles ?? undefined,
       lastInteraction: new Date().toISOString(),
     };
-    localStorage.setItem('myTalks', JSON.stringify(myTalks));
+    setMyTalks(myTalks);
 
     // Save self-answers to answer preferences (user's answer list) for chatbot/auto-reply
     const acc: Array<{ questionId: string; answerText?: string }> = [];
@@ -2208,47 +2218,28 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  getCopyTalkAutoSave(): boolean {
-    const v = localStorage.getItem('copyTalkAutoSave');
-    return v === null || v === 'true';
-  }
-
-  setCopyTalkAutoSave(enabled: boolean): void {
-    localStorage.setItem('copyTalkAutoSave', String(enabled));
-  }
-
-  getChatbotEnabled(): boolean {
-    return localStorage.getItem('chatbotEnabled') === 'true';
-  }
-
-  setChatbotEnabled(enabled: boolean): void {
-    localStorage.setItem('chatbotEnabled', String(enabled));
-  }
-
   getChatbotTemplate(talkId: string): { answers: any[]; talkData: any } | null {
-    try {
-      const raw = localStorage.getItem('chatbotTemplates');
-      if (!raw) return null;
-      const templates: Record<string, { answers: any[]; talkData: any }> = JSON.parse(raw);
-      return templates[talkId] || null;
-    } catch {
-      return null;
-    }
+    return loadChatbotTemplate(talkId);
   }
 
   saveChatbotTemplate(talkId: string, data: { answers: any[]; talkData: any }): void {
-    try {
-      const raw = localStorage.getItem('chatbotTemplates');
-      const templates: Record<string, { answers: any[]; talkData: any }> = raw ? JSON.parse(raw) : {};
-      templates[talkId] = data;
-      const cid = computeTalkIdFromTalkData(data.talkData);
-      if (cid && cid !== talkId) {
-        templates[cid] = data;
-      }
-      localStorage.setItem('chatbotTemplates', JSON.stringify(templates));
-    } catch (e) {
-      console.warn('Failed to save chatbot template:', e);
-    }
+    storeChatbotTemplate(talkId, data);
+  }
+
+  getCopyTalkAutoSave(): boolean {
+    return getCopyTalkAutoSave();
+  }
+
+  setCopyTalkAutoSave(enabled: boolean): void {
+    setCopyTalkAutoSave(enabled);
+  }
+
+  getChatbotEnabled(): boolean {
+    return getChatbotEnabled();
+  }
+
+  setChatbotEnabled(enabled: boolean): void {
+    setChatbotEnabled(enabled);
   }
 
   /**
@@ -2257,10 +2248,10 @@ export class UIManager extends EventEmitter {
    * and will not be sent to anyone when broadcasting.
    */
   setTalkDisabled(talkId: string, disabled: boolean): void {
-    const myTalks = this.getMyTalks();
+    const myTalks = getMyTalks();
     if (!myTalks[talkId]) return;
     myTalks[talkId].disabled = !!disabled;
-    localStorage.setItem('myTalks', JSON.stringify(myTalks));
+    setMyTalks(myTalks);
     // Patch visible rows so checkboxes stay in DOM and keep responding (no full list re-render)
     const talksList = document.getElementById('talks-list');
     const rows = talksList?.querySelectorAll(`.talk-list-item[data-talk-id="${talkId}"]`);
@@ -2285,20 +2276,15 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  private getMyTalks(): Record<string, any> {
-    const stored = localStorage.getItem('myTalks');
-    return stored ? JSON.parse(stored) : {};
-  }
-
   showMyTalksDialog(): void {
-    const myTalks = this.getMyTalks();
+    const myTalks = getMyTalks();
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.id = 'my-talks-modal';
 
     const talkEntries = Object.entries(myTalks).sort(
       ([, a]: [string, any], [, b]: [string, any]) =>
-        new Date(b.lastInteraction).getTime() - new Date(a.lastInteraction).getTime(),
+        new Date(b.lastInteraction || 0).getTime() - new Date(a.lastInteraction || 0).getTime(),
     );
 
     modal.innerHTML = `
@@ -2335,7 +2321,7 @@ export class UIManager extends EventEmitter {
                       </div>
                     </div>
                     <div style="font-size: 0.85em; color: #999; margin-bottom: 12px;">
-                      Last interaction: ${new Date(talk.lastInteraction).toLocaleString()}
+                      Last interaction: ${new Date(talk.lastInteraction || 0).toLocaleString()}
                     </div>
                     <div style="font-size: 0.85em; color: #999;">
                       Talk ID: <code style="background: #e5e7eb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em;">${talkId}</code>
@@ -2407,7 +2393,7 @@ export class UIManager extends EventEmitter {
         e.stopPropagation();
         const target = e.currentTarget as HTMLElement;
         const talkId = target.dataset.talkId!;
-        const myTalks = this.getMyTalks();
+        const myTalks = getMyTalks();
         const current = !!myTalks[talkId]?.disabled;
         this.setTalkDisabled(talkId, !current);
         if (document.body.contains(modal)) {
@@ -2436,7 +2422,7 @@ export class UIManager extends EventEmitter {
     if (clearAllBtn) {
       clearAllBtn.addEventListener('click', () => {
         if (confirm('Are you sure you want to clear all talk history?')) {
-          localStorage.removeItem('myTalks');
+          clearMyTalks();
           if (document.body.contains(modal)) {
             document.body.removeChild(modal);
           }
@@ -2457,10 +2443,10 @@ export class UIManager extends EventEmitter {
   }
 
   private deleteMyTalk(talkId: string): void {
-    const myTalks = this.getMyTalks();
-    if (!(talkId in myTalks)) return;
-    delete myTalks[talkId];
-    localStorage.setItem('myTalks', JSON.stringify(myTalks));
+    const myTalks = deleteMyTalkEntry(talkId);
+    if (!(talkId in myTalks) && Object.keys(myTalks).length === 0) {
+      // already absent; continue to clear answered-by-content links if present
+    }
     const answeredByContent = getAnsweredTalkByContent();
     for (const [key, id] of Object.entries(answeredByContent)) {
       if (id === talkId) {
@@ -3263,18 +3249,13 @@ export class UIManager extends EventEmitter {
     const editingTalkId = form.dataset.editingTalkId;
     if (editingTalkId) {
       // Update local myTalks so the list shows the new title when re-rendered after save
-      const myTalks = this.getMyTalks();
-      if (myTalks[editingTalkId]) {
-        myTalks[editingTalkId] = {
-          ...myTalks[editingTalkId],
-          title,
-          type,
-          expiresAt: expiresAt ?? undefined,
-          locationRadiusMiles: locationRadiusMiles ?? undefined,
-          lastInteraction: new Date().toISOString(),
-        };
-        localStorage.setItem('myTalks', JSON.stringify(myTalks));
-      }
+      patchMyTalk(editingTalkId, {
+        title,
+        type,
+        expiresAt: expiresAt ?? undefined,
+        locationRadiusMiles: locationRadiusMiles ?? undefined,
+        lastInteraction: new Date().toISOString(),
+      });
       this.emit('updateTalk', {
         id: editingTalkId,
         title,
@@ -3675,7 +3656,7 @@ export class UIManager extends EventEmitter {
   }
 
   private showTalksFromUserOrConversation(userId: string, stageName: string): void {
-    const myTalks = this.getMyTalks();
+    const myTalks = getMyTalks();
     const talksFromUser = Object.entries(myTalks).filter(
       ([, t]: [string, any]) => (t?.role === 'answered' || t?.role === 'copied') && t?.fullTalk?.authorId === userId,
     );
