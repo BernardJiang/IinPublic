@@ -50,6 +50,7 @@ import {
   setChatbotEnabled,
   setCopyTalkAutoSave,
 } from './ui-settings-storage';
+import { showMyTalksDialog as openMyTalksDialog } from './my-talks-dialog';
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
@@ -2277,168 +2278,23 @@ export class UIManager extends EventEmitter {
   }
 
   showMyTalksDialog(): void {
-    const myTalks = getMyTalks();
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    modal.id = 'my-talks-modal';
-
-    const talkEntries = Object.entries(myTalks).sort(
-      ([, a]: [string, any], [, b]: [string, any]) =>
-        new Date(b.lastInteraction || 0).getTime() - new Date(a.lastInteraction || 0).getTime(),
-    );
-
-    modal.innerHTML = `
-      <div class="modal-content" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
-        <div class="modal-header">
-          <h2 class="modal-title">My Talks</h2>
-          <button class="close-button" id="close-my-talks-modal" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">&times;</button>
-        </div>
-        <div style="padding: 20px;">
-          ${
-            talkEntries.length === 0
-              ? '<p style="text-align: center; color: #666;">You haven\'t created or answered any talks yet. Create or answer a talk to see it here.</p>'
-              : `
-            <p style="margin-bottom: 20px; color: #666;">You have ${talkEntries.length} talk(s) in your history.</p>
-            <div style="max-height: 500px; overflow-y: auto;">
-              ${talkEntries
-                .map(
-                  ([talkId, talk]) => `
-                  <div class="talk-history-item" data-talk-id="${talkId}" style="background: #f9f9f9; border: 2px solid #e0e0e0; border-radius: 12px; padding: 20px; margin-bottom: 15px; cursor: pointer;">
-                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
-                      <div style="flex: 1;">
-                        <div style="font-weight: 600; font-size: 1.1em; color: #333; margin-bottom: 6px;">
-                          ${this.escapeHtml(talk.title)}
-                        </div>
-                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                          <span style="display: inline-block; padding: 4px 12px; background: ${talk.role === 'created' ? '#dbeafe' : talk.role === 'copied' ? '#e0e7ff' : '#dcfce7'}; color: ${talk.role === 'created' ? '#1e40af' : talk.role === 'copied' ? '#3730a3' : '#166534'}; border-radius: 12px; font-size: 0.8em; font-weight: 600;">
-                            ${talk.role === 'created' ? '📝 Created by me' : talk.role === 'copied' ? '📥 Copied' : '✅ Answered by me'}
-                          </span>
-                          <span style="display: inline-block; padding: 4px 12px; background: #f3f4f6; color: #6b7280; border-radius: 12px; font-size: 0.8em; font-weight: 600;">
-                            ${talk.type}
-                          </span>
-                          ${talk.disabled ? '<span style="display: inline-block; padding: 4px 12px; background: #fef3c7; color: #92400e; border-radius: 12px; font-size: 0.8em; font-weight: 600;">🚫 Disabled</span>' : ''}
-                        </div>
-                      </div>
-                    </div>
-                    <div style="font-size: 0.85em; color: #999; margin-bottom: 12px;">
-                      Last interaction: ${new Date(talk.lastInteraction || 0).toLocaleString()}
-                    </div>
-                    <div style="font-size: 0.85em; color: #999;">
-                      Talk ID: <code style="background: #e5e7eb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em;">${talkId}</code>
-                    </div>
-                    <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
-                    <button 
-                      class="toggle-broadcast-my-talks-btn" 
-                      data-talk-id="${talkId}"
-                      style="background: ${talk.disabled ? '#22c55e' : '#f59e0b'}; color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.85em; font-weight: 600;"
-                    >
-                      ${talk.disabled ? '✅ Enable for broadcast' : '🚫 Disable for broadcast'}
-                    </button>
-                    <button 
-                      class="delete-talk-btn" 
-                      data-talk-id="${talkId}"
-                      style="background: #e53e3e; color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.85em; font-weight: 600;"
-                    >
-                      🗑️ Remove from History
-                    </button>
-                    </div>
-                  </div>
-                `,
-                )
-                .join('')}
-            </div>
-            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
-              <button 
-                id="clear-all-talks-btn"
-                style="background: #e53e3e; color: white; border: none; border-radius: 8px; padding: 12px 24px; cursor: pointer; font-weight: 600; font-size: 1em;"
-              >
-                🗑️ Clear All History
-              </button>
-            </div>
-          `
-          }
-        </div>
-      </div>
-    `;
-
-    document.body.appendChild(modal);
-
-    // Close button handler
-    const closeBtn = document.getElementById('close-my-talks-modal');
-    if (closeBtn) {
-      closeBtn.addEventListener('click', () => {
-        if (document.body.contains(modal)) {
-          document.body.removeChild(modal);
-        }
-      });
-    }
-
-    // Delete individual talk handlers
-    modal.querySelectorAll('.delete-talk-btn').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const target = e.currentTarget as HTMLElement;
-        const talkId = target.dataset.talkId!;
+    openMyTalksDialog({
+      getMyTalks,
+      escapeHtml: this.escapeHtml.bind(this),
+      onDeleteTalk: (talkId) => {
         this.deleteMyTalk(talkId);
-        // Refresh the dialog
-        if (document.body.contains(modal)) {
-          document.body.removeChild(modal);
-        }
-        this.showMyTalksDialog();
         this.showNotification('Talk removed from history', 'success');
-      });
-    });
-    modal.querySelectorAll('.toggle-broadcast-my-talks-btn').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const target = e.currentTarget as HTMLElement;
-        const talkId = target.dataset.talkId!;
-        const myTalks = getMyTalks();
-        const current = !!myTalks[talkId]?.disabled;
-        this.setTalkDisabled(talkId, !current);
-        if (document.body.contains(modal)) {
-          document.body.removeChild(modal);
-        }
-        this.showMyTalksDialog();
-      });
-    });
-
-    // Click on talk card to open (edit for created, response view for answered/copied)
-    modal.querySelectorAll('.talk-history-item').forEach((item) => {
-      item.addEventListener('click', (e) => {
-        if ((e.target as HTMLElement).closest('.delete-talk-btn')) return;
-        const talkId = (item as HTMLElement).dataset.talkId;
-        if (talkId) {
-          if (document.body.contains(modal)) {
-            document.body.removeChild(modal);
-          }
-          this.showTalkDetail(talkId);
-        }
-      });
-    });
-
-    // Clear all button handler
-    const clearAllBtn = document.getElementById('clear-all-talks-btn');
-    if (clearAllBtn) {
-      clearAllBtn.addEventListener('click', () => {
-        if (confirm('Are you sure you want to clear all talk history?')) {
-          clearMyTalks();
-          if (document.body.contains(modal)) {
-            document.body.removeChild(modal);
-          }
-          this.showMyTalksDialog();
-          this.showNotification('All talk history cleared', 'success');
-        }
-      });
-    }
-
-    // Close on overlay click
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        if (document.body.contains(modal)) {
-          document.body.removeChild(modal);
-        }
-      }
+      },
+      onToggleBroadcast: (talkId, disabled) => {
+        this.setTalkDisabled(talkId, disabled);
+      },
+      onOpenTalk: (talkId) => {
+        this.showTalkDetail(talkId);
+      },
+      onClearAll: () => {
+        clearMyTalks();
+        this.showNotification('All talk history cleared', 'success');
+      },
     });
   }
 
