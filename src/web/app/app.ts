@@ -1496,26 +1496,25 @@ export class IinPublicApp {
                       : [];
 
                 for (const target of targets) {
-                  gun.get(`users/${target.senderId}`).once(async (authorData: any) => {
-                    const authorName = authorData?.stageName || target.senderName || 'Unknown';
-                    try {
-                      const conversationId = await this.conversationService.createConversation({
-                        userId1: this.currentUser!.id,
-                        userName1: this.currentUser!.stageName,
-                        userId2: target.senderId,
-                        userName2: authorName,
-                        talkId: data.talkId,
-                      });
-                      this.uiManager.addNewConversation({
-                        conversationId,
-                        otherUserId: target.senderId,
-                        otherUserName: authorName,
-                        talkId: data.talkId,
-                      });
-                    } catch (e) {
-                      console.error('Failed to create match conversation:', e);
-                    }
-                  });
+                  const authorData = await this.gunService.getPublicUser(target.senderId);
+                  const authorName = authorData.stageName || target.senderName || 'Unknown';
+                  try {
+                    const conversationId = await this.conversationService.createConversation({
+                      userId1: this.currentUser!.id,
+                      userName1: this.currentUser!.stageName,
+                      userId2: target.senderId,
+                      userName2: authorName,
+                      talkId: data.talkId,
+                    });
+                    this.uiManager.addNewConversation({
+                      conversationId,
+                      otherUserId: target.senderId,
+                      otherUserName: authorName,
+                      talkId: data.talkId,
+                    });
+                  } catch (e) {
+                    console.error('Failed to create match conversation:', e);
+                  }
                 }
               }
             }

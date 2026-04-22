@@ -95,12 +95,8 @@ export class WebConversationService {
   }
 
   private async getUserEpub(userId: string): Promise<string | undefined> {
-    const gun = this.gunService.getGun();
-    return new Promise((resolve) => {
-      gun.get(`users/${userId}`).once((u: any) => {
-        resolve(u?.epub);
-      });
-    });
+    const user = await this.gunService.getPublicUser(userId);
+    return user.epub;
   }
 
   /**

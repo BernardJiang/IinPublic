@@ -70,7 +70,7 @@ Observed in the repo today:
 - [ ] Finish the remaining repo-noise decision and enforce it consistently:
   generated outputs, local state, logs, and test artifacts should stay out of version control
 - [ ] Keep current docs aligned with the working codepaths as the product surface narrows
-- [ ] Tighten the client-side data write boundary so public vs private SEA-backed data paths are explicit instead of ad hoc
+- [x] Tighten the client-side data write boundary so public vs private SEA-backed data paths are explicit instead of ad hoc
 
 ### Core Message / Talk Loop
 

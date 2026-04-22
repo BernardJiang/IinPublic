@@ -2,6 +2,7 @@ import Gun from 'gun';
 import { EventEmitter } from 'events';
 import { GunBridge, GunPair } from './gun-bridge';
 import { getSEA } from '../sea-gun';
+import type { User } from '../../shared/types';
 
 const KEYPAIR_STORAGE = 'iinpublic_keypair';
 
@@ -216,6 +217,11 @@ export class WebGunService extends EventEmitter {
         reject(new Error(`Timeout getting data for key: ${key}`));
       }, 8000);
     });
+  }
+
+  /** Read the public user graph record stored at `users/<id>`. */
+  async getPublicUser(userId: string): Promise<Partial<User>> {
+    return this.get(`users/${userId}`) as Promise<Partial<User>>;
   }
 
   subscribe(key: string, callback: (data: any) => void): () => void {
