@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-04-20
+Last updated: 2026-04-21
 
 This file is the prioritized backlog for the current repository. It is intentionally short.
 It should describe what is still worth doing, not restate features that already exist or
@@ -17,7 +17,7 @@ Observed in the repo today:
 - Logging infrastructure already exists via `src/server/logger.ts` and `src/server/middleware/request-logger.ts`
 - Test tooling already exists for Jest, Playwright, TypeScript, and ESLint
 - Large documentation drift still exists across `README.md`, `docs/`, and status reports
-- Large maintenance hotspots still exist in `src/server/index.ts` and `src/web/ui/ui-manager.ts`
+- Main maintenance hotspots have been reduced by extracting server bootstrap/socket/route modules and multiple UI feature/dialog helpers out of the former monolith files
 
 ## Priorities
 
@@ -51,10 +51,10 @@ Observed in the repo today:
 
 ### P1 - Refactor the main maintenance hotspots
 
-- [ ] Break up `src/server/index.ts` into smaller route, socket, and bootstrap modules without changing behavior
-- [ ] Break up `src/web/ui/ui-manager.ts` by feature area:
+- [x] Break up `src/server/index.ts` into smaller route, socket, and bootstrap modules without changing behavior
+- [x] Break up `src/web/ui/ui-manager.ts` by feature area:
   chatrooms, contacts, talks, conversations, profile, shared render helpers
-- [ ] Add focused regression coverage around the extracted seams before or during the refactor
+- [x] Add focused regression coverage around the extracted seams before or during the refactor
 
 ### P2 - Narrow product work
 
