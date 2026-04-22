@@ -53,6 +53,13 @@ import {
 import { showMyTalksDialog as openMyTalksDialog } from './my-talks-dialog';
 import { showPreferencesDialog as openPreferencesDialog } from './preferences-dialog';
 import { showTalkResponseDialog as openTalkResponseDialog } from './talk-response-dialog';
+import {
+  addAnswerToQuestion as addTalkEditorAnswerToQuestion,
+  addQuestionToForm as addTalkEditorQuestionToForm,
+  appendIgnoreRow as appendTalkEditorIgnoreRow,
+  setupTalkFormHandlers as setupTalkEditorFormHandlers,
+  updateAllAnswerDropdowns as updateTalkEditorAnswerDropdowns,
+} from './talk-editor-form-helpers';
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
@@ -1982,8 +1989,11 @@ export class UIManager extends EventEmitter {
       if (questionsContainer) {
         questionsContainer.innerHTML = '';
         if (existingTalk && Array.isArray(existingTalk.questions) && existingTalk.questions.length > 0) {
-          existingTalk.questions.forEach((q: any, qIndex: number) => {
-            this.addQuestionToForm(qIndex, questionsContainer);
+            existingTalk.questions.forEach((q: any, qIndex: number) => {
+            addTalkEditorQuestionToForm(qIndex, questionsContainer, {
+              refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
+              processTalkForm: this.processTalkForm.bind(this),
+            });
             const questionItem = questionsContainer.querySelector(`[data-question-index="${qIndex}"]`);
             if (questionItem) {
               const textInput = questionItem.querySelector('.question-text') as HTMLInputElement;
@@ -1992,14 +2002,17 @@ export class UIManager extends EventEmitter {
               if (answersContainer && Array.isArray(q.answers)) {
                 answersContainer.innerHTML = '';
                 q.answers.forEach((a: any, aIndex: number) => {
-                  this.addAnswerToQuestion(answersContainer, aIndex);
+                  addTalkEditorAnswerToQuestion(answersContainer, aIndex, {
+                    refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
+                    processTalkForm: this.processTalkForm.bind(this),
+                  });
                   const answerItem = answersContainer.querySelector(`[data-answer-index="${aIndex}"]`);
                   if (answerItem) {
                     const answerInput = answerItem.querySelector('.answer-text') as HTMLInputElement;
                     if (answerInput) answerInput.value = a.text || '';
                   }
                 });
-                this.appendIgnoreRow(answersContainer, qIndex);
+                appendTalkEditorIgnoreRow(answersContainer, qIndex);
               }
             }
           });
@@ -2039,7 +2052,10 @@ export class UIManager extends EventEmitter {
             });
           }
         } else {
-          this.addQuestionToForm(0, questionsContainer);
+          addTalkEditorQuestionToForm(0, questionsContainer, {
+            refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
+            processTalkForm: this.processTalkForm.bind(this),
+          });
         }
       }
 
@@ -2164,254 +2180,21 @@ export class UIManager extends EventEmitter {
         updateFormForType();
       }
 
-      this.setupTalkFormHandlers(modal);
+      setupTalkEditorFormHandlers(modal, {
+        refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
+        processTalkForm: this.processTalkForm.bind(this),
+      });
     };
 
     document.body.appendChild(modal);
     renderForm();
   }
 
-  private setupTalkFormHandlers(modal: HTMLElement): void {
-    const form = document.getElementById('talk-editor-form') as HTMLFormElement;
-    const cancelBtn = document.getElementById('cancel-talk-btn');
-    const addQuestionBtn = document.getElementById('add-question-btn');
-    const questionsContainer = document.getElementById('questions-container');
-
-    // Cancel button
-    cancelBtn?.addEventListener('click', () => {
-      if (document.body.contains(modal)) {
-        document.body.removeChild(modal);
-      }
-    });
-
-    // Add question button
-    addQuestionBtn?.addEventListener('click', () => {
-      const questionCount = questionsContainer?.children.length || 0;
-      this.addQuestionToForm(questionCount, questionsContainer!);
-      this.updateAllAnswerDropdowns();
-    });
-
-    // Form submission — keep the modal open if validation fails so the user
-    // can read the error message and adjust.
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const ok = this.processTalkForm(form);
-      if (ok && document.body.contains(modal)) {
-        document.body.removeChild(modal);
-      }
-    });
-  }
-
-  private addQuestionToForm(index: number, container: HTMLElement): void {
-    const questionDiv = document.createElement('div');
-    questionDiv.className = 'question-item';
-    questionDiv.dataset.questionIndex = index.toString();
-    questionDiv.style.cssText = `
-      background: #f9f9f9;
-      border: 2px solid #e0e0e0;
-      border-radius: 8px;
-      padding: 15px;
-      margin-bottom: 15px;
-    `;
-
-    questionDiv.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-        <strong style="color: #667eea;">Question ${index + 1}</strong>
-        ${index > 0 ? '<button type="button" class="btn-remove-question" style="background: #f44336; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">Remove</button>' : ''}
-      </div>
-      <input 
-        type="text" 
-        class="form-input question-text" 
-        placeholder="Enter your question here (e.g., Do you like coffee?)" 
-        required
-        style="margin-bottom: 10px;"
-      >
-      <div class="answers-container" style="margin-left: 15px;"></div>
-      <button type="button" class="btn-add-answer" style="margin-top: 8px; font-size: 0.9em; background: #4CAF50; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">+ Add Answer</button>
-    `;
-
-    container.appendChild(questionDiv);
-
-    const answersContainer = questionDiv.querySelector('.answers-container') as HTMLElement;
-    this.addAnswerToQuestion(answersContainer, 0);
-    this.addAnswerToQuestion(answersContainer, 1);
-    this.appendIgnoreRow(answersContainer, index);
-
-    // Setup event handlers
-    const removeBtn = questionDiv.querySelector('.btn-remove-question');
-    removeBtn?.addEventListener('click', () => {
-      container.removeChild(questionDiv);
-      this.renumberQuestions();
-      this.updateAllAnswerDropdowns();
-    });
-
-    const addAnswerBtn = questionDiv.querySelector('.btn-add-answer');
-    addAnswerBtn?.addEventListener('click', () => {
-      const answerCount = answersContainer.querySelectorAll('.answer-item').length;
-      this.addAnswerToQuestion(answersContainer, answerCount);
-      this.updateAllAnswerDropdowns();
-    });
-  }
-
-  private addAnswerToQuestion(container: HTMLElement, index: number): void {
-    const questionItem = container.closest('.question-item');
-    const qIdx = questionItem ? parseInt(questionItem.getAttribute('data-question-index') ?? '0', 10) : 0;
-    const answerDiv = document.createElement('div');
-    answerDiv.className = 'answer-item';
-    answerDiv.dataset.answerIndex = index.toString();
-    answerDiv.style.cssText = `
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      margin-bottom: 8px;
-    `;
-    const radioName = `self-answer-q_${qIdx}`;
-    const radioValue = `a_${qIdx}_${index}`;
-    answerDiv.innerHTML = `
-      <input type="radio" name="${radioName}" value="${radioValue}" class="self-answer-radio" title="My answer">
-      <input 
-        type="text" 
-        class="form-input answer-text" 
-        placeholder="Answer ${index + 1}"
-        required
-        style="flex: 1;"
-      >
-      <span style="font-size: 0.9em; color: #666;">→</span>
-      <select class="form-input answer-next" style="flex: 0 0 180px; font-size: 0.9em;">
-        <option value="ignore">Ignore (filter out)</option>
-        <option value="noticed">Noticed (match)</option>
-      </select>
-      ${index > 1 ? '<button type="button" class="btn-remove-answer" style="background: #f44336; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">×</button>' : ''}
-    `;
-
-    const ignoreRow = container.querySelector('.self-answer-ignore-row');
-    if (ignoreRow) {
-      container.insertBefore(answerDiv, ignoreRow);
-    } else {
-      container.appendChild(answerDiv);
-    }
-
-    const nextSelect = answerDiv.querySelector('.answer-next') as HTMLSelectElement;
-    nextSelect?.addEventListener('change', () => {
-      const val = nextSelect.value;
-      if (val && val !== 'ignore' && (val === 'noticed' || val.startsWith('q_'))) {
-        const radio = answerDiv.querySelector(`input[name="${radioName}"]`) as HTMLInputElement;
-        if (radio) radio.checked = true;
-      }
-    });
-
-    const removeBtn = answerDiv.querySelector('.btn-remove-answer');
-    removeBtn?.addEventListener('click', () => {
-      container.removeChild(answerDiv);
-      this.renumberAnswers(container);
-      this.updateAllAnswerDropdowns();
-      this.renumberSelfAnswerRadios(container);
-    });
-  }
-
-  private appendIgnoreRow(container: HTMLElement, qIndex: number): void {
-    if (container.querySelector('.self-answer-ignore-row')) return;
-    const row = document.createElement('div');
-    row.className = 'self-answer-ignore-row';
-    row.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 6px; margin-bottom: 8px;';
-    row.innerHTML = `
-      <input type="radio" name="self-answer-q_${qIndex}" value="ignore" class="self-answer-radio" checked title="My answer">
-      <span style="font-size: 0.9em; color: #666;">Ignore</span>
-    `;
-    container.appendChild(row);
-  }
-
-  private renumberSelfAnswerRadios(answersContainer: HTMLElement): void {
-    const questionItem = answersContainer.closest('.question-item');
-    if (!questionItem) return;
-    const qIndex = parseInt(questionItem.getAttribute('data-question-index') ?? '0', 10);
-    const name = `self-answer-q_${qIndex}`;
-    answersContainer.querySelectorAll('.answer-item').forEach((answerItem, aIdx) => {
-      const radio = answerItem.querySelector('.self-answer-radio') as HTMLInputElement;
-      if (radio) {
-        radio.name = name;
-        radio.value = `a_${qIndex}_${aIdx}`;
-      }
-    });
-    const ignoreRow = answersContainer.querySelector('.self-answer-ignore-row');
-    if (ignoreRow) {
-      const ignoreRadio = ignoreRow.querySelector('input[type="radio"]') as HTMLInputElement;
-      if (ignoreRadio) ignoreRadio.name = name;
-    }
-  }
-
-  private renumberQuestions(): void {
-    const questions = document.querySelectorAll('.question-item');
-    questions.forEach((q, idx) => {
-      q.setAttribute('data-question-index', idx.toString());
-      const header = q.querySelector('strong');
-      if (header) {
-        header.textContent = `Question ${idx + 1}`;
-      }
-      const answersContainer = q.querySelector('.answers-container') as HTMLElement;
-      if (answersContainer) {
-        this.renumberSelfAnswerRadios(answersContainer);
-        const ignoreRow = answersContainer.querySelector('.self-answer-ignore-row input[type="radio"]') as HTMLInputElement;
-        if (ignoreRow) ignoreRow.name = `self-answer-q_${idx}`;
-      }
-    });
-  }
-
-  private renumberAnswers(container: HTMLElement): void {
-    const answers = container.querySelectorAll('.answer-item');
-    answers.forEach((a, idx) => {
-      a.setAttribute('data-answer-index', idx.toString());
-      const input = a.querySelector('.answer-text') as HTMLInputElement;
-      if (input && !input.value) {
-        input.placeholder = `Answer ${idx + 1}`;
-      }
-    });
-  }
-
   private updateAllAnswerDropdowns(): void {
-    const questions = document.querySelectorAll('.question-item');
-
-    // Update each answer dropdown based on its question's position
-    questions.forEach((questionItem, qIdx) => {
-      const answersContainer = questionItem.querySelector('.answers-container');
-      if (!answersContainer) return;
-
-      const answerSelects = answersContainer.querySelectorAll('.answer-next');
-
-      answerSelects.forEach((select) => {
-        const currentValue = (select as HTMLSelectElement).value;
-
-        // Build options: Ignore, Noticed + only later questions (downward branching)
-        const options = [
-          '<option value="ignore">Ignore (filter out)</option>',
-          '<option value="noticed">Noticed (match)</option>',
-        ];
-
-        for (let i = qIdx + 1; i < questions.length; i++) {
-          options.push(`<option value="q_${i}">Go to Question ${i + 1}</option>`);
-        }
-
-        const optionsHtml = options.join('');
-        select.innerHTML = optionsHtml;
-
-        // Restore previous selection if still valid
-        if (currentValue && currentValue !== '') {
-          const optionExists = Array.from(select.children).some(
-            (opt) => (opt as HTMLOptionElement).value === currentValue,
-          );
-          if (optionExists) {
-            (select as HTMLSelectElement).value = currentValue;
-          }
-        }
-      });
+    updateTalkEditorAnswerDropdowns({
+      refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
+      processTalkForm: this.processTalkForm.bind(this),
     });
-
-    // After the generic rebuild, apply per-type constraints on top (flow locks
-    // first-answer to match/next, rest to ignore). No-op for survey/route/tag.
-    const talkTypeSelect = document.getElementById('talk-type') as HTMLSelectElement | null;
-    if (talkTypeSelect) {
-      this.refreshFlowAnswerConstraints(talkTypeSelect.value || 'flow');
-    }
   }
 
   private processTalkForm(form: HTMLFormElement): boolean {
