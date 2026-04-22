@@ -22,6 +22,18 @@ import {
   showContactsList as openContactsList,
 } from './contacts-view';
 import { displayConversationsList as renderConversationsList } from './conversations-view';
+import {
+  clearAnswerPreferences,
+  getAnswerPreferences,
+  getAnsweredTalkByContent,
+  getFlattenedAnswerPreferences,
+  setAnswerPreferences,
+  setAnsweredTalkByContent,
+  setFlattenedAnswerPreferences,
+  setMyQuestionAnswer,
+  type AnswerPreferenceMap,
+  type MyQuestionAnswerEntry,
+} from './answer-preferences-storage';
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
@@ -1599,20 +1611,11 @@ export class UIManager extends EventEmitter {
     return JSON.stringify({ q, loc, title, type: talk.type });
   }
 
-  private getAnsweredByContent(): Record<string, string> {
-    const raw = localStorage.getItem('answeredTalkByContent');
-    return raw ? JSON.parse(raw) : {};
-  }
-
-  private setAnsweredByContent(map: Record<string, string>): void {
-    localStorage.setItem('answeredTalkByContent', JSON.stringify(map));
-  }
-
   private completeTalk(talk: any, answers: any[], outcome?: 'match' | 'mismatch'): void {
     console.log('✅ Talk completed:', talk.id, answers, outcome);
 
     const contentKey = UIManager.getTalkContentKey(talk);
-    const answeredByContent = this.getAnsweredByContent();
+    const answeredByContent = getAnsweredTalkByContent();
     const existingTalkId = answeredByContent[contentKey];
     const myTalks = this.getMyTalks();
     const authorId = talk.authorId || (talk as any).authorId;
@@ -1629,7 +1632,7 @@ export class UIManager extends EventEmitter {
       talkIdToUse = talk.id;
       senders = authorId ? [authorId] : [];
       answeredByContent[contentKey] = talk.id;
-      this.setAnsweredByContent(answeredByContent);
+      setAnsweredTalkByContent(answeredByContent);
     }
 
     const existingEntry = myTalks[talkIdToUse];
@@ -1662,45 +1665,6 @@ export class UIManager extends EventEmitter {
     );
   }
 
-  private getFlattenedAnswerPreferences(): Record<
-    string,
-    {
-      answerId: string;
-      answerText: string;
-      mode: string;
-      talkId?: string;
-      questionText?: string;
-      allAnswers?: any[];
-      timestamp?: string;
-      flatKey?: string;
-    }
-  > {
-    try {
-      const raw = localStorage.getItem('flattenedAnswerPreferences');
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  }
-
-  private setFlattenedAnswerPreferences(
-    map: Record<
-      string,
-      {
-        answerId: string;
-        answerText: string;
-        mode: string;
-        talkId?: string;
-        questionText?: string;
-        allAnswers?: any[];
-        timestamp?: string;
-        flatKey?: string;
-      }
-    >,
-  ): void {
-    localStorage.setItem('flattenedAnswerPreferences', JSON.stringify(map));
-  }
-
   /**
    * Prefer context-aware flat key (cross-talk + multi-question path), then legacy `${talkId}_${questionId}`.
    */
@@ -1725,9 +1689,9 @@ export class UIManager extends EventEmitter {
       previousQAPairs,
       currentQuestion.text || '',
     );
-    const flat = this.getFlattenedAnswerPreferences()[flatKey];
+    const flat = getFlattenedAnswerPreferences()[flatKey];
     if (flat) return flat;
-    const preferences = this.getAnswerPreferences();
+    const preferences = getAnswerPreferences();
     const legacyKey = `${talkInstanceId}_${currentQuestion.id}`;
     return preferences[legacyKey] || null;
   }
@@ -1741,7 +1705,7 @@ export class UIManager extends EventEmitter {
     fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerText?: string }>,
     mode: 'auto' | 'manual' = 'auto',
   ): void {
-    const preferences = this.getAnswerPreferences();
+    const preferences = getAnswerPreferences();
     const legacyKey = `${talkInstanceId}_${currentQuestion.id}`;
     const talkContentHash = computeTalkIdFromTalkData(talk);
     const qIndex = Math.max(
@@ -1769,11 +1733,11 @@ export class UIManager extends EventEmitter {
     };
 
     preferences[legacyKey] = entry;
-    localStorage.setItem('answerPreferences', JSON.stringify(preferences));
+    setAnswerPreferences(preferences);
 
-    const flatMap = this.getFlattenedAnswerPreferences();
+    const flatMap = getFlattenedAnswerPreferences();
     flatMap[flatKey] = entry;
-    this.setFlattenedAnswerPreferences(flatMap);
+    setFlattenedAnswerPreferences(flatMap);
     console.log('💾 Saved answer (flat + legacy):', flatKey, answerText);
   }
 
@@ -1790,23 +1754,7 @@ export class UIManager extends EventEmitter {
       timestamp?: string;
     }
   > {
-    return this.getAnswerPreferences();
-  }
-
-  private getAnswerPreferences(): Record<
-    string,
-    {
-      answerId: string;
-      answerText: string;
-      mode: string;
-      talkId?: string;
-      questionText?: string;
-      allAnswers?: any[];
-      timestamp?: string;
-    }
-  > {
-    const stored = localStorage.getItem('answerPreferences');
-    return stored ? JSON.parse(stored) : {};
+    return getAnswerPreferences();
   }
 
   /**
@@ -1842,23 +1790,6 @@ export class UIManager extends EventEmitter {
     return out;
   }
 
-  private getMyQuestionAnswers(): Record<
-    string,
-    { questionText: string; answerId: string; answerText: string; isIgnored: boolean; timestamp: string; location?: string }
-  > {
-    const stored = localStorage.getItem('myQuestionAnswers');
-    return stored ? JSON.parse(stored) : {};
-  }
-
-  private setMyQuestionAnswer(
-    key: string,
-    value: { questionText: string; answerId: string; answerText: string; isIgnored: boolean; timestamp: string; location?: string },
-  ): void {
-    const all = this.getMyQuestionAnswers();
-    all[key] = value;
-    localStorage.setItem('myQuestionAnswers', JSON.stringify(all));
-  }
-
   /**
    * Called by app when user completes a talk: save each question-answer to myQuestionAnswers (keyed by question text; last wins).
    */
@@ -1876,14 +1807,7 @@ export class UIManager extends EventEmitter {
       if (!questionText) continue;
       const key = normalizeQuestionKey(questionText);
       const isIgnored = a.answerText === 'ignore' || !a.answerText;
-      const entry: {
-        questionText: string;
-        answerId: string;
-        answerText: string;
-        isIgnored: boolean;
-        timestamp: string;
-        location?: string;
-      } = {
+      const entry: MyQuestionAnswerEntry = {
         questionText,
         answerId: a.answerId,
         answerText: isIgnored ? '' : (a.answerText || ''),
@@ -1891,7 +1815,7 @@ export class UIManager extends EventEmitter {
         timestamp,
       };
       if (locationStr != null) entry.location = locationStr;
-      this.setMyQuestionAnswer(key, entry);
+      setMyQuestionAnswer(key, entry);
     }
     const answersView = document.getElementById('answers-view');
     if (answersView?.classList.contains('active')) {
@@ -1900,9 +1824,9 @@ export class UIManager extends EventEmitter {
   }
 
   showPreferencesDialog(): void {
-    const preferences = {
-      ...this.getAnswerPreferences(),
-      ...this.getFlattenedAnswerPreferences(),
+      const preferences = {
+      ...getAnswerPreferences(),
+      ...getFlattenedAnswerPreferences(),
     };
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
@@ -2068,21 +1992,21 @@ export class UIManager extends EventEmitter {
         const newAnswerText = target.options[target.selectedIndex].text;
 
         if (key.startsWith('flat_')) {
-          const prefs = this.getFlattenedAnswerPreferences();
+          const prefs = getFlattenedAnswerPreferences();
           if (prefs[key]) {
             prefs[key].answerId = newAnswerId;
             prefs[key].answerText = newAnswerText;
             prefs[key].timestamp = new Date().toISOString();
-            this.setFlattenedAnswerPreferences(prefs);
+            setFlattenedAnswerPreferences(prefs);
             this.showNotification('Answer updated', 'success');
           }
         } else {
-          const prefs = this.getAnswerPreferences();
+          const prefs = getAnswerPreferences();
           if (prefs[key]) {
             prefs[key].answerId = newAnswerId;
             prefs[key].answerText = newAnswerText;
             prefs[key].timestamp = new Date().toISOString();
-            localStorage.setItem('answerPreferences', JSON.stringify(prefs));
+            setAnswerPreferences(prefs);
             this.showNotification('Answer updated', 'success');
           }
         }
@@ -2096,17 +2020,17 @@ export class UIManager extends EventEmitter {
         const key = target.dataset.prefKey!;
         const isAuto = target.checked;
 
-        const prefs = key.startsWith('flat_')
-          ? this.getFlattenedAnswerPreferences()
-          : this.getAnswerPreferences();
+        const prefs: AnswerPreferenceMap = key.startsWith('flat_')
+          ? getFlattenedAnswerPreferences()
+          : getAnswerPreferences();
         if (!prefs[key]) return;
 
         prefs[key].mode = isAuto ? 'auto' : 'manual';
         prefs[key].timestamp = new Date().toISOString();
         if (key.startsWith('flat_')) {
-          this.setFlattenedAnswerPreferences(prefs);
+          setFlattenedAnswerPreferences(prefs);
         } else {
-          localStorage.setItem('answerPreferences', JSON.stringify(prefs));
+          setAnswerPreferences(prefs);
         }
 
         const toggleSpan = target.nextElementSibling as HTMLElement;
@@ -2149,8 +2073,7 @@ export class UIManager extends EventEmitter {
     if (clearAllBtn) {
       clearAllBtn.addEventListener('click', () => {
         if (confirm('Are you sure you want to clear all saved answers?')) {
-          localStorage.removeItem('answerPreferences');
-          localStorage.removeItem('flattenedAnswerPreferences');
+          clearAnswerPreferences();
           if (document.body.contains(modal)) {
             document.body.removeChild(modal);
           }
@@ -2172,14 +2095,14 @@ export class UIManager extends EventEmitter {
 
   private deleteAnswerPreference(key: string): void {
     if (key.startsWith('flat_')) {
-      const flat = this.getFlattenedAnswerPreferences();
+      const flat = getFlattenedAnswerPreferences();
       delete flat[key];
-      this.setFlattenedAnswerPreferences(flat);
+      setFlattenedAnswerPreferences(flat);
       return;
     }
-    const preferences = this.getAnswerPreferences();
+    const preferences = getAnswerPreferences();
     delete preferences[key];
-    localStorage.setItem('answerPreferences', JSON.stringify(preferences));
+    setAnswerPreferences(preferences);
   }
 
   // ============================================
@@ -2538,11 +2461,11 @@ export class UIManager extends EventEmitter {
     if (!(talkId in myTalks)) return;
     delete myTalks[talkId];
     localStorage.setItem('myTalks', JSON.stringify(myTalks));
-    const answeredByContent = this.getAnsweredByContent();
+    const answeredByContent = getAnsweredTalkByContent();
     for (const [key, id] of Object.entries(answeredByContent)) {
       if (id === talkId) {
         delete answeredByContent[key];
-        this.setAnsweredByContent(answeredByContent);
+        setAnsweredTalkByContent(answeredByContent);
         break;
       }
     }
@@ -2802,7 +2725,7 @@ export class UIManager extends EventEmitter {
           // Set self-answer radios from saved preferences when editing
           const editingId = existingTalk.id;
           if (editingId) {
-            const prefs = this.getAnswerPreferences();
+            const prefs = getAnswerPreferences();
             existingTalk.questions.forEach((q: any, qIndex: number) => {
               const questionId = q.id || `q_${qIndex}`;
               const key = `${editingId}_${questionId}`;
