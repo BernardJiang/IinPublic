@@ -12,8 +12,84 @@ import { generateRandomStageName, normalizeQuestionKey } from '../../shared/user
 import { getSEA } from '../sea-gun';
 import type { GunPair } from './gun-bridge';
 
+type PrivateUserData = Pick<User, 'profile' | 'languages' | 'interests' | 'knownPeople'> & {
+  headshot?: string;
+};
+
+const PRIVATE_USER_DATA_KEY = 'profile';
+
 export class WebUserService {
   constructor(private gunService: WebGunService) {}
+
+  private buildPublicUserRecord(user: User): User {
+    const publicUser: User = {
+      id: user.id,
+      stageName: user.stageName,
+      profile: [],
+      reputation: user.reputation,
+      location: user.location,
+      languages: [],
+      interests: [],
+      createdAt: user.createdAt,
+      lastActive: user.lastActive,
+      knownPeople: [],
+    };
+
+    if (user.pub) publicUser.pub = user.pub;
+    if (user.epub) publicUser.epub = user.epub;
+
+    return publicUser;
+  }
+
+  private buildPrivateUserData(user: User): PrivateUserData {
+    return {
+      profile: user.profile || [],
+      languages: user.languages || ['en'],
+      interests: user.interests || [],
+      knownPeople: user.knownPeople ?? [],
+      ...(user.headshot ? { headshot: user.headshot } : {}),
+    };
+  }
+
+  private async putPrivateUserData(user: User): Promise<void> {
+    const pair = this.gunService.getStoredPair();
+    if (!pair || !user.pub || pair.pub !== user.pub) {
+      return;
+    }
+    await this.gunService.putPrivate(PRIVATE_USER_DATA_KEY, this.buildPrivateUserData(user));
+  }
+
+  private async mergePrivateUserData(user: User): Promise<User> {
+    const pair = this.gunService.getStoredPair();
+    if (!pair || !user.pub || pair.pub !== user.pub) {
+      return user;
+    }
+
+    try {
+      const privateData = (await this.gunService.getPrivate(PRIVATE_USER_DATA_KEY)) as PrivateUserData | null;
+      if (!privateData) {
+        return user;
+      }
+
+      return {
+        ...user,
+        profile: privateData.profile || user.profile || [],
+        languages: privateData.languages || user.languages || ['en'],
+        interests: privateData.interests || user.interests || [],
+        knownPeople: privateData.knownPeople ?? user.knownPeople ?? [],
+        ...(privateData.headshot ? { headshot: privateData.headshot } : {}),
+      };
+    } catch {
+      return user;
+    }
+  }
+
+  async publishIdentityKeys(userId: string, pair: GunPair): Promise<void> {
+    await this.gunService.put(`users/${userId}`, {
+      pub: pair.pub,
+      epub: pair.epub,
+    });
+  }
 
   async createUser(userData: Partial<User>): Promise<User> {
     const userId = uuidv4();
@@ -48,12 +124,14 @@ export class WebUserService {
     if (userData.pub) user.pub = userData.pub;
     if (userData.epub) user.epub = userData.epub;
 
-    await this.gunService.put(`users/${userId}`, user);
+    await this.gunService.put(`users/${userId}`, this.buildPublicUserRecord(user));
+    await this.putPrivateUserData(user);
     return user;
   }
 
   async getUser(userId: string): Promise<User> {
-    return await this.gunService.get(`users/${userId}`);
+    const user = (await this.gunService.get(`users/${userId}`)) as User;
+    return this.mergePrivateUserData(user);
   }
 
   async updateUserLocation(userId: string, location: GPSCoordinate): Promise<void> {
@@ -169,22 +247,20 @@ export class WebUserService {
       label,
       addedAt: new Date(),
     };
-    await this.gunService.put(`users/${userId}/knownPeople/${targetId}`, entry);
     try {
       const u = await this.getUser(userId);
       const list = [...(u.knownPeople || []).filter((k) => k.userId !== targetId), entry];
-      await this.gunService.put(`users/${userId}`, { ...u, knownPeople: list });
+      await this.putPrivateUserData({ ...u, knownPeople: list });
     } catch {
       /* graph may lag */
     }
   }
 
   async removeKnownPerson(userId: string, targetId: string): Promise<void> {
-    await this.gunService.put(`users/${userId}/knownPeople/${targetId}`, null);
     try {
       const u = await this.getUser(userId);
       const list = (u.knownPeople || []).filter((k) => k.userId !== targetId);
-      await this.gunService.put(`users/${userId}`, { ...u, knownPeople: list });
+      await this.putPrivateUserData({ ...u, knownPeople: list });
     } catch {
       /* ignore */
     }

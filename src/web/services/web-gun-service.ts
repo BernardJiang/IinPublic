@@ -202,8 +202,6 @@ export class WebGunService extends EventEmitter {
 
   async get(key: string): Promise<any> {
     return new Promise((resolve, reject) => {
-      let timeout: ReturnType<typeof setTimeout>;
-
       const off = this.gun.get(key).once((data: any) => {
         clearTimeout(timeout);
         if (data === undefined) {
@@ -213,7 +211,7 @@ export class WebGunService extends EventEmitter {
         }
       });
 
-      timeout = setTimeout(() => {
+      const timeout = setTimeout(() => {
         off.off();
         reject(new Error(`Timeout getting data for key: ${key}`));
       }, 8000);
@@ -248,14 +246,57 @@ export class WebGunService extends EventEmitter {
   }
 
   /** Write to the current user's private namespace (AES-encrypted, owner-only). */
-  putPrivate(key: string, data: any): Promise<void> {
-    return this.bridge.putPrivate(key, this.serializeDates(data));
+  async putPrivate(key: string, data: any): Promise<void> {
+    const pair = this.seaPair;
+    if (!pair) {
+      throw new Error('SEA keypair not authenticated');
+    }
+    const SEA = getSEA();
+    const encrypted = await SEA.encrypt(JSON.stringify(this.serializeDates(data)), pair);
+    const parts = key.split('/').filter(Boolean);
+    let ref = this.gun.user().get('private');
+    for (const part of parts) {
+      ref = ref.get(part);
+    }
+    await new Promise<void>((resolve, reject) => {
+      ref.put(encrypted, (ack: any) => {
+        if (ack?.err) {
+          reject(new Error(String(ack.err)));
+        } else {
+          resolve();
+        }
+      });
+    });
   }
 
   /** Read and decrypt from the current user's private namespace. */
   async getPrivate(key: string): Promise<any> {
-    const raw = await this.bridge.getPrivate(key);
-    return this.deserializeDates(raw);
+    const pair = this.seaPair;
+    if (!pair) {
+      throw new Error('SEA keypair not authenticated');
+    }
+    const SEA = getSEA();
+    const parts = key.split('/').filter(Boolean);
+    let ref = this.gun.user().get('private');
+    for (const part of parts) {
+      ref = ref.get(part);
+    }
+    const raw = await new Promise<any>((resolve) => {
+      const timeout = setTimeout(() => resolve(null), 4000);
+      ref.once((data: any) => {
+        clearTimeout(timeout);
+        resolve(data ?? null);
+      });
+    });
+    if (!raw) {
+      return null;
+    }
+    const decrypted = await SEA.decrypt(raw as string, pair);
+    if (!decrypted) {
+      return null;
+    }
+    const parsed = typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted;
+    return this.deserializeDates(parsed);
   }
 
   /* ── Flexible Graph schema ─────────────────────────────────────── */
@@ -326,6 +367,13 @@ export class WebGunService extends EventEmitter {
         }
       });
     });
+
+    try {
+      await this.bridge.login(pair);
+    } catch (error) {
+      console.warn('⚠️ Gun worker bridge login unavailable — private SEA helpers disabled:', error);
+    }
+
     this.seaPair = pair;
     return pair;
   }

@@ -58,10 +58,40 @@ Observed in the repo today:
 
 ### P2 - Narrow product work
 
-- [ ] Re-rank the backlog into:
+- [x] Re-rank the active backlog into:
   foundation, core message/talk loop, UX polish, platforms
-- [ ] Avoid treating Android or iOS work as near-term priority until the core web/server loop is easier to maintain
-- [ ] Turn broad feature ideas into smaller tickets only when they are about to be worked on
+- [x] Avoid treating Android or iOS work as near-term priority until the core web/server loop is easier to maintain
+- [x] Turn broad feature ideas into smaller tickets only when they are about to be worked on
+
+## Phase 2 Backlog
+
+### Foundation
+
+- [ ] Finish the remaining repo-noise decision and enforce it consistently:
+  generated outputs, local state, logs, and test artifacts should stay out of version control
+- [ ] Keep current docs aligned with the working codepaths as the product surface narrows
+- [ ] Tighten the client-side data write boundary so public vs private SEA-backed data paths are explicit instead of ad hoc
+
+### Core Message / Talk Loop
+
+- [ ] Stabilize the end-to-end user path:
+  chatroom presence → talk broadcast → incoming talk registration → answer submission → match/conversation creation
+- [ ] Audit where the server is still compensating for Gun timing/replication issues and decide which paths are authoritative long-term
+- [ ] Make the answer/template/chatbot flow easier to reason about:
+  one clear path for saved answers, auto-reply templates, and talk completion side effects
+
+### UX Polish
+
+- [ ] Reduce UI friction in the core web flow before adding new feature surface:
+  talk creation, answering, match visibility, and conversation entry should feel consistent
+- [ ] Continue splitting remaining UI feature islands out of `src/web/ui/ui-manager.ts` only when the extracted boundary is user-visible or testable
+- [ ] Add narrow tests when a UX-critical seam changes instead of growing a broad speculative backlog
+
+### Platforms
+
+- [ ] Keep Android as maintenance-only for now:
+  do not expand Android or start iOS work until the web/server talk loop is stable and easier to maintain
+- [ ] Revisit platform priorities only after the foundation and core-loop items above are in a better state
 
 ## Already Present
 

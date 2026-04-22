@@ -100,7 +100,7 @@ export class IinPublicApp {
         const pair = this.gunService.getStoredPair();
         if (pair && !this.currentUser.pub) {
           const merged: User = { ...this.currentUser, pub: pair.pub, epub: pair.epub };
-          await this.gunService.put(`users/${this.currentUser.id}`, merged);
+          await this.userService.publishIdentityKeys(this.currentUser.id, pair);
           this.currentUser = merged;
         }
         console.log('👤 Existing user loaded:', this.currentUser.stageName);
@@ -1347,44 +1347,46 @@ export class IinPublicApp {
       const statsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
       await Promise.all(
         data.talkIds.map((talkId) =>
-          new Promise<void>(async (resolve) => {
-            const talk = await this.talkService.getTalk(talkId);
-            if (!talk) {
-              statsMap[talkId] = { responses: 0, matches: 0, ignores: 0 };
-              resolve();
-              return;
-            }
-            const responses: any[] = [];
-            gun
-              .get(`talks/${talkId}`)
-              .get('responses')
-              .map()
-              .once((responseData: any, responseId: string) => {
-                if (responseId.startsWith('_')) return;
-                if (responseData && responseData.answers) responses.push(responseData);
-              });
-            // Allow Gun to deliver all response callbacks
-            setTimeout(() => {
-              let matches = 0;
-              let ignores = 0;
-              for (const r of responses) {
-                try {
-                  const answers = typeof r.answers === 'string' ? JSON.parse(r.answers) : r.answers;
-                  if (Array.isArray(answers) && answers.length > 0) {
-                    const last = answers[answers.length - 1];
-                    const question = talk.questions.find((q: any) => q.id === last.questionId);
-                    const answer = question?.answers?.find((a: any) => a.id === last.answerId);
-                    if (answer?.isMatch) matches += 1;
-                    else if (answer?.isIgnore) ignores += 1;
-                  }
-                } catch {
-                  // skip invalid response
+          this.talkService.getTalk(talkId).then(
+            (talk) =>
+              new Promise<void>((resolve) => {
+                if (!talk) {
+                  statsMap[talkId] = { responses: 0, matches: 0, ignores: 0 };
+                  resolve();
+                  return;
                 }
-              }
-              statsMap[talkId] = { responses: responses.length, matches, ignores };
-              resolve();
-            }, 500);
-          }),
+                const responses: any[] = [];
+                gun
+                  .get(`talks/${talkId}`)
+                  .get('responses')
+                  .map()
+                  .once((responseData: any, responseId: string) => {
+                    if (responseId.startsWith('_')) return;
+                    if (responseData && responseData.answers) responses.push(responseData);
+                  });
+                // Allow Gun to deliver all response callbacks
+                setTimeout(() => {
+                  let matches = 0;
+                  let ignores = 0;
+                  for (const r of responses) {
+                    try {
+                      const answers = typeof r.answers === 'string' ? JSON.parse(r.answers) : r.answers;
+                      if (Array.isArray(answers) && answers.length > 0) {
+                        const last = answers[answers.length - 1];
+                        const question = talk.questions.find((q: any) => q.id === last.questionId);
+                        const answer = question?.answers?.find((a: any) => a.id === last.answerId);
+                        if (answer?.isMatch) matches += 1;
+                        else if (answer?.isIgnore) ignores += 1;
+                      }
+                    } catch {
+                      // skip invalid response
+                    }
+                  }
+                  statsMap[talkId] = { responses: responses.length, matches, ignores };
+                  resolve();
+                }, 500);
+              }),
+          ),
         ),
       );
       this.uiManager.setTalkStats(statsMap);
