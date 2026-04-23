@@ -1,5 +1,6 @@
 import { User } from '../../shared/types';
 import { EventEmitter } from 'events';
+import { formatTimeAgo, formatExpiration, formatLocationRadius, escapeHtml } from './ui-formatters';
 import { pickLatestTalkIdFromIncomingCluster, isValidTalkId } from '../../shared/incoming-talk-ids';
 import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
 import {
@@ -611,7 +612,7 @@ export class UIManager extends EventEmitter {
     openContactsList({
       getMyConversations: this.getMyConversations.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
-      escapeHtml: this.escapeHtml.bind(this),
+      escapeHtml: escapeHtml,
       showTalkDetail: this.showTalkDetail.bind(this),
     });
   }
@@ -621,7 +622,7 @@ export class UIManager extends EventEmitter {
     renderContactsList({
       getMyConversations: this.getMyConversations.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
-      escapeHtml: this.escapeHtml.bind(this),
+      escapeHtml: escapeHtml,
       showTalkDetail: this.showTalkDetail.bind(this),
     });
   }
@@ -632,7 +633,7 @@ export class UIManager extends EventEmitter {
       {
         getMyConversations: this.getMyConversations.bind(this),
         getMyTalks: this.getMyTalks.bind(this),
-        escapeHtml: this.escapeHtml.bind(this),
+        escapeHtml: escapeHtml,
         showTalkDetail: this.showTalkDetail.bind(this),
       },
       otherUserId,
@@ -653,7 +654,7 @@ export class UIManager extends EventEmitter {
       setCurrentChatroomMembers: (members) => {
         this.currentChatroomMembers = members;
       },
-      escapeHtml: this.escapeHtml.bind(this),
+      escapeHtml: escapeHtml,
       renderChatroomList: this.renderChatroomList.bind(this),
       showTalksFromUserOrConversation: this.showTalksFromUserOrConversation.bind(this),
       emit: (eventName, payload) => this.emit(eventName, payload),
@@ -672,7 +673,7 @@ export class UIManager extends EventEmitter {
       setCurrentChatroomMembers: (members) => {
         this.currentChatroomMembers = members;
       },
-      escapeHtml: this.escapeHtml.bind(this),
+      escapeHtml: escapeHtml,
       renderChatroomList: this.renderChatroomList.bind(this),
       showTalksFromUserOrConversation: this.showTalksFromUserOrConversation.bind(this),
       emit: (eventName, payload) => this.emit(eventName, payload),
@@ -789,15 +790,15 @@ export class UIManager extends EventEmitter {
                       ? `<div class="talk-item-matched" style="font-size: 0.85em; color: #2e7d32; margin-top: 4px;">Matched with: ${matchedNames.join(', ')}</div>`
                       : '';
                   const disabled = !!talk.disabled;
-                  const expText = this.formatExpiration(talk.expiresAt);
-                  const locText = this.formatLocationRadius(talk.locationRadiusMiles);
+                  const expText = formatExpiration(talk.expiresAt);
+                  const locText = formatLocationRadius(talk.locationRadiusMiles);
                   const roleBadge = talk.role === 'copied'
                     ? '<span class="talk-badge talk-badge-copied" style="background:#e0e7ff;color:#3730a3;">📋 Copied</span>'
                     : '<span class="talk-badge talk-badge-created" style="background:#dbeafe;color:#1e40af;">📝 Created</span>';
                   return `
         <div class="talk-list-item" data-talk-id="${talkId}" data-role="${talk.role || 'created'}">
           <div class="talk-item-header">
-            <div class="talk-item-title">${this.escapeHtml(talk.title)}</div>
+            <div class="talk-item-title">${escapeHtml(talk.title)}</div>
             <div class="talk-item-badges">
               ${roleBadge}
               <span class="talk-badge talk-badge-type">${talk.type}</span>
@@ -805,7 +806,7 @@ export class UIManager extends EventEmitter {
             </div>
           </div>
           <div class="talk-item-meta">
-            <span class="talk-item-time">${this.formatTimeAgo(new Date(talk.lastInteraction || 0))}</span>
+            <span class="talk-item-time">${formatTimeAgo(new Date(talk.lastInteraction || 0))}</span>
           </div>
           <div class="talk-item-meta" style="font-size: 0.85em; color: #666;">
             Expiration: ${expText} · Location: ${locText}
@@ -853,23 +854,23 @@ export class UIManager extends EventEmitter {
                   : '<span class="talk-badge" style="background:#dbeafe;color:#1d4ed8;font-weight:700;">🆕 New</span>';
                 const incomingType = String(cluster?.type || 'flow').toLowerCase();
                 return `
-        <div class="talk-list-item" data-talk-id="${talkId}" data-identity-key="${this.escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${this.escapeHtml(incomingType)}" style="${isAnswered ? 'background:#fafafa;' : ''}">
+        <div class="talk-list-item" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}" style="${isAnswered ? 'background:#fafafa;' : ''}">
           <div class="talk-item-header">
-            <div class="talk-item-title" style="${titleStyle}">${this.escapeHtml(cluster?.title || 'Incoming Talk')}</div>
+            <div class="talk-item-title" style="${titleStyle}">${escapeHtml(cluster?.title || 'Incoming Talk')}</div>
             <div class="talk-item-badges">
               ${statusBadge}
-              <span class="talk-badge talk-badge-type">${this.escapeHtml(cluster?.type || 'flow')}</span>
+              <span class="talk-badge talk-badge-type">${escapeHtml(cluster?.type || 'flow')}</span>
               <span class="talk-badge" style="background:#eef2ff;color:#3730a3;">👥 ${senderNames.length} sender${senderNames.length !== 1 ? 's' : ''}</span>
             </div>
           </div>
           <div class="talk-item-meta" style="${metaStyle}">
-            <span class="talk-item-time">${this.formatTimeAgo(new Date(cluster?.updatedAt || Date.now()))}</span>
+            <span class="talk-item-time">${formatTimeAgo(new Date(cluster?.updatedAt || Date.now()))}</span>
           </div>
           <div class="talk-item-meta" style="font-size: 0.85em; ${metaStyle}">
-            From: ${this.escapeHtml(senderNames.join(', ') || 'Unknown')}
+            From: ${escapeHtml(senderNames.join(', ') || 'Unknown')}
           </div>
           <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-            <button type="button" class="btn view-talk-btn" data-talk-id="${talkId}" data-identity-key="${this.escapeHtml(identityKey)}" style="padding: 6px 12px; font-size: 0.9em;" ${talkId || identityKey ? '' : 'disabled'}>🔍 View</button>
+            <button type="button" class="btn view-talk-btn" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" style="padding: 6px 12px; font-size: 0.9em;" ${talkId || identityKey ? '' : 'disabled'}>🔍 View</button>
           </div>
         </div>
       `;
@@ -943,7 +944,7 @@ export class UIManager extends EventEmitter {
   displayAnswersList(): void {
     renderAnswersList({
       getMyTalks: this.getMyTalks.bind(this),
-      escapeHtml: this.escapeHtml.bind(this),
+      escapeHtml: escapeHtml,
       copyAnsweredTalkToTalks: this.copyAnsweredTalkToTalks.bind(this),
       showTalkDetail: this.showTalkDetail.bind(this),
       showPreferencesDialog: this.showPreferencesDialog.bind(this),
@@ -975,38 +976,6 @@ export class UIManager extends EventEmitter {
     this.showNotification('Copied to Talks tab', 'success');
     this.displayTalksList();
     this.displayAnswersList();
-  }
-
-  private formatTimeAgo(date: Date): string {
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
-  }
-
-  private formatExpiration(expiresAt: number | null | undefined): string {
-    if (expiresAt == null) return 'Forever';
-    const now = Date.now();
-    if (now > expiresAt) return 'Expired';
-    const oneDay = 24 * 60 * 60 * 1000;
-    const left = expiresAt - now;
-    if (left <= oneDay) return 'Expires in &lt;1d';
-    if (left <= 7 * oneDay) return `Expires in ${Math.floor(left / oneDay)}d`;
-    if (left <= 30 * oneDay) return `Expires in ${Math.floor(left / (7 * oneDay))}w`;
-    if (left <= 365 * oneDay) return `Expires in ${Math.floor(left / (30 * oneDay))}mo`;
-    return `Expires in ${Math.floor(left / (365 * oneDay))}y`;
-  }
-
-  private formatLocationRadius(radiusMiles: number | null | undefined): string {
-    if (radiusMiles == null) return 'Anywhere';
-    return `${radiusMiles} mi`;
   }
 
   /** Resolve a concrete talk UUID for an incoming cluster (Gun may reshape talkIds). */
@@ -1065,8 +1034,8 @@ export class UIManager extends EventEmitter {
   displayConversationsList(): void {
     renderConversationsList({
       getMyConversations: this.getMyConversations.bind(this),
-      escapeHtml: this.escapeHtml.bind(this),
-      formatTimeAgo: this.formatTimeAgo.bind(this),
+      escapeHtml: escapeHtml,
+      formatTimeAgo: formatTimeAgo,
       showConversationDetail: this.showConversationDetail.bind(this),
     });
   }
@@ -1077,17 +1046,18 @@ export class UIManager extends EventEmitter {
   }
 
   showConversationDetail(conversationId: string): void {
-    const overlay = document.getElementById('conversation-detail-overlay');
-
-    if (overlay) overlay.style.display = 'flex';
-
-    this.currentConversationId = conversationId;
-
-    // Get conversation data
     const conversations = this.getMyConversations();
     const conversation = conversations[conversationId];
 
-    if (!conversation) return;
+    if (!conversation) {
+      console.warn('showConversationDetail: conversation not found', conversationId);
+      return;
+    }
+
+    const overlay = document.getElementById('conversation-detail-overlay');
+    if (overlay) overlay.style.display = 'flex';
+
+    this.currentConversationId = conversationId;
 
     // Update header with user name
     const userName = document.getElementById('conversation-user-name');
@@ -1328,7 +1298,7 @@ export class UIManager extends EventEmitter {
     openTalkResponseDialog({
       talk,
       ...(options?.skipAutoAnswer !== undefined ? { skipAutoAnswer: options.skipAutoAnswer } : {}),
-      escapeHtml: this.escapeHtml.bind(this),
+      escapeHtml: escapeHtml,
       showNotification: this.showNotification.bind(this),
       completeTalk: this.completeTalk.bind(this),
       resolveAnswerPreferenceForTalkQuestion: this.resolveAnswerPreferenceForTalkQuestion.bind(this),
@@ -1564,7 +1534,7 @@ export class UIManager extends EventEmitter {
         ...getAnswerPreferences(),
         ...getFlattenedAnswerPreferences(),
       }),
-      escapeHtml: this.escapeHtml.bind(this),
+      escapeHtml: escapeHtml,
       updateAnswer: (key, answerId, answerText) => {
         if (key.startsWith('flat_')) {
           const prefs = getFlattenedAnswerPreferences();
@@ -1775,7 +1745,7 @@ export class UIManager extends EventEmitter {
   showMyTalksDialog(): void {
     openMyTalksDialog({
       getMyTalks,
-      escapeHtml: this.escapeHtml.bind(this),
+      escapeHtml: escapeHtml,
       onDeleteTalk: (talkId) => {
         this.deleteMyTalk(talkId);
         this.showNotification('Talk removed from history', 'success');
@@ -1886,8 +1856,8 @@ export class UIManager extends EventEmitter {
     messageDiv.className = `message ${message.isOwnMessage ? 'sent' : ''}`;
     messageDiv.innerHTML = `
       <div class="message-bubble">
-        ${!message.isOwnMessage ? `<div style="font-weight: bold; font-size: 0.85em; margin-bottom: 4px; color: #667eea;">${this.escapeHtml(message.senderName)}</div>` : ''}
-        <div>${this.escapeHtml(message.text)}</div>
+        ${!message.isOwnMessage ? `<div style="font-weight: bold; font-size: 0.85em; margin-bottom: 4px; color: #667eea;">${escapeHtml(message.senderName)}</div>` : ''}
+        <div>${escapeHtml(message.text)}</div>
         <div class="message-time">${messageTime}</div>
       </div>
     `;
@@ -1898,16 +1868,10 @@ export class UIManager extends EventEmitter {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
 
-  private escapeHtml(text: string): string {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
-
   showTalkEditorDialog(existingTalk?: any): void {
     openTalkEditorDialog({
       existingTalk,
-      escapeHtml: this.escapeHtml.bind(this),
+      escapeHtml: escapeHtml,
       getAnswerPreferences,
       addQuestionToForm: (index, container) =>
         addTalkEditorQuestionToForm(index, container, {
@@ -2233,7 +2197,7 @@ export class UIManager extends EventEmitter {
           return `
             <div class="route-answer" data-qid="${q.id}" data-aid="${a.id}" style="display:flex; align-items:center; gap:8px; margin:4px 0 4px 18px;">
               <span class="route-answer-kind" style="font-size:0.8em; padding:2px 6px; border-radius:10px; background:#eef; color:#334;">${kind}</span>
-              <input type="text" class="form-input route-answer-text" value="${this.escapeHtml(a.text)}" placeholder="Answer text (e.g., Yes.)" data-qid="${q.id}" data-aid="${a.id}" style="flex:1;">
+              <input type="text" class="form-input route-answer-text" value="${escapeHtml(a.text)}" placeholder="Answer text (e.g., Yes.)" data-qid="${q.id}" data-aid="${a.id}" style="flex:1;">
               <button type="button" class="btn route-add-child-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:#667eea; color:white; padding:2px 6px;">+ Child Q</button>
               <button type="button" class="btn route-remove-answer-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:#f44336; color:white; padding:2px 6px;">×</button>
             </div>
@@ -2245,7 +2209,7 @@ export class UIManager extends EventEmitter {
         <div class="route-node" data-qid="${q.id}" style="border:1px solid #ddd; border-radius:6px; padding:8px; margin:6px 0; ${indent} background:#fafafa;">
           <div style="display:flex; align-items:center; gap:8px;">
             <strong style="color:#667eea;">Q:</strong>
-            <input type="text" class="form-input route-question-text" value="${this.escapeHtml(q.text)}" placeholder="Question (end with ?)" data-qid="${q.id}" style="flex:1;">
+            <input type="text" class="form-input route-question-text" value="${escapeHtml(q.text)}" placeholder="Question (end with ?)" data-qid="${q.id}" style="flex:1;">
             <button type="button" class="btn route-add-answer-btn" data-qid="${q.id}" style="font-size:0.8em; background:#4CAF50; color:white; padding:2px 6px;">+ Answer</button>
             ${q.parentAnswer ? `<button type="button" class="btn route-remove-question-btn" data-qid="${q.id}" style="font-size:0.8em; background:#f44336; color:white; padding:2px 6px;">Remove Q</button>` : ''}
           </div>
@@ -2406,7 +2370,7 @@ export class UIManager extends EventEmitter {
     if (errBox) {
       errBox.style.display = 'block';
       errBox.innerHTML = '<strong>Cannot save — please fix:</strong><ul style="margin:6px 0 0 16px; padding:0;">' +
-        errors.map((e) => `<li>${this.escapeHtml(e)}</li>`).join('') +
+        errors.map((e) => `<li>${escapeHtml(e)}</li>`).join('') +
         '</ul>';
       errBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
@@ -2419,7 +2383,7 @@ export class UIManager extends EventEmitter {
     if (banner) {
       banner.style.display = 'block';
       banner.innerHTML = '<strong>Auto-fixed:</strong><ul style="margin:6px 0 0 16px; padding:0;">' +
-        fixes.map((f) => `<li>${this.escapeHtml(f)}</li>`).join('') +
+        fixes.map((f) => `<li>${escapeHtml(f)}</li>`).join('') +
         '</ul>';
     }
   }
@@ -2458,7 +2422,7 @@ export class UIManager extends EventEmitter {
         setCurrentChatroomMembers: (nextMembers) => {
           this.currentChatroomMembers = nextMembers;
         },
-        escapeHtml: this.escapeHtml.bind(this),
+        escapeHtml: escapeHtml,
         renderChatroomList: this.renderChatroomList.bind(this),
         showTalksFromUserOrConversation: this.showTalksFromUserOrConversation.bind(this),
         emit: (eventName, payload) => this.emit(eventName, payload),
@@ -2524,7 +2488,7 @@ export class UIManager extends EventEmitter {
     modal.innerHTML = `
       <div class="modal-content" style="max-width: 420px;">
         <div class="modal-header">
-          <h2 class="modal-title">Talks from ${this.escapeHtml(stageName)}</h2>
+          <h2 class="modal-title">Talks from ${escapeHtml(stageName)}</h2>
           <button class="close-button" id="close-talks-from-user-modal" style="background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
         </div>
         <div style="padding: 16px;">
@@ -2532,7 +2496,7 @@ export class UIManager extends EventEmitter {
             .map(
               ([talkId, talk]) => `
             <div class="talk-from-user-item" data-talk-id="${talkId}" style="padding: 12px; margin-bottom: 8px; background: #f5f5f5; border-radius: 8px; cursor: pointer;">
-              <div style="font-weight: 600;">${this.escapeHtml(talk.title)}</div>
+              <div style="font-weight: 600;">${escapeHtml(talk.title)}</div>
               <div style="font-size: 0.85em; color: #666;">Click to open & answer</div>
             </div>
           `,
@@ -2608,8 +2572,8 @@ export class UIManager extends EventEmitter {
         return `
           <div class="message ${isOwn ? 'message-own' : 'message-other'}">
             <div class="message-content">
-              <div class="message-text">${this.escapeHtml(msg.text)}</div>
-              <div class="message-time">${this.formatTimeAgo(new Date(msg.timestamp))}</div>
+              <div class="message-text">${escapeHtml(msg.text)}</div>
+              <div class="message-time">${formatTimeAgo(new Date(msg.timestamp))}</div>
             </div>
           </div>
         `;
