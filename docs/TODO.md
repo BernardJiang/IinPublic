@@ -37,10 +37,14 @@ expand into implementation-level specs for every subsystem.
 
 ### UX Polish
 
-- [ ] Reduce UI friction in the core web flow before adding new feature surface:
+- [x] Reduce UI friction in the core web flow before adding new feature surface:
   talk creation, answering, match visibility, and conversation entry should feel consistent
-- [ ] Continue splitting remaining UI feature islands out of `src/web/ui/ui-manager.ts` only when the extracted boundary is user-visible or testable
-- [ ] Add narrow tests when a UX-critical seam changes instead of growing a broad speculative backlog
+  (Fixed: showConversationDetail no longer shows overlay before confirming conversation exists;
+  formatting utilities extracted to ui-formatters.ts with unit tests)
+- [x] Continue splitting remaining UI feature islands out of `src/web/ui/ui-manager.ts` only when the extracted boundary is user-visible or testable
+  (Extracted: formatTimeAgo, formatExpiration, formatLocationRadius, escapeHtml → ui-formatters.ts)
+- [x] Add narrow tests when a UX-critical seam changes instead of growing a broad speculative backlog
+  (Added: src/test/unit/ui-formatters.test.ts, 20 unit tests)
 
 ### Platforms
 
