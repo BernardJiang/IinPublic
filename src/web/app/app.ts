@@ -26,6 +26,10 @@ export class IinPublicApp {
   /** One auto chatbot reply per announcer for the same content-hash talk id (same qa_* = same talk; keys are not author-based talk identity). */
   private chatbotAutoReplySentForPair = new Set<string>();
 
+  private buildChatroomTalkAnnouncementKey(logicalTalkId: string, authorId: string): string {
+    return `${logicalTalkId}__${authorId}`;
+  }
+
   constructor() {
     this.gunService = new WebGunService();
     this.userService = new WebUserService(this.gunService);
@@ -340,7 +344,10 @@ export class IinPublicApp {
     authorName: string,
   ): void {
     if (!authorId || authorId === this.currentUser?.id) return;
-    if (!this.uiManager.getChatbotEnabled()) return;
+    if (!this.uiManager.getChatbotEnabled()) {
+      console.log('🤖 Chatbot auto-reply skipped: chatbot disabled', { talkId, authorId });
+      return;
+    }
     const contentId = computeTalkIdFromTalkData(talkData);
     const canAuto =
       !!this.uiManager.getChatbotTemplate(talkId) ||
@@ -348,9 +355,16 @@ export class IinPublicApp {
         contentId !== talkId &&
         !!this.uiManager.getChatbotTemplate(contentId)) ||
       !!this.uiManager.tryBuildChatbotAnswersFromFlattened(talkData);
-    if (!canAuto) return;
+    if (!canAuto) {
+      console.log('🤖 Chatbot auto-reply skipped: no reusable template', { talkId, contentId, authorId });
+      return;
+    }
     const pairKey = `${talkId}::${authorId}`;
-    if (this.chatbotAutoReplySentForPair.has(pairKey)) return;
+    if (this.chatbotAutoReplySentForPair.has(pairKey)) {
+      console.log('🤖 Chatbot auto-reply skipped: pair already handled', { pairKey });
+      return;
+    }
+    console.log('🤖 Chatbot auto-reply triggered', { talkId, contentId, authorId, authorName });
     this.chatbotAutoReplySentForPair.add(pairKey);
     this.tryChatbotReply(talkId, talkData, authorId, authorName);
   }
@@ -370,7 +384,8 @@ export class IinPublicApp {
       console.log('📨 Received talk announcement:', { talkId, talkAnnouncement });
 
       const authorId = String(talkAnnouncement?.authorId || '');
-      const pairKey = `${talkId}::${authorId}`;
+      const logicalTalkId = String(talkAnnouncement?.talkId || talkId);
+      const pairKey = `${logicalTalkId}::${authorId}`;
 
       /**
        * Gun may fire .once and .on in any order, and replay nodes after replication. We must not mark
@@ -389,7 +404,7 @@ export class IinPublicApp {
               talkData,
             );
             this.maybeAutoChatbotReplyToAnnouncer(
-              talkId,
+              logicalTalkId,
               talkData,
               authorId,
               talkAnnouncement.authorName || 'Unknown',
@@ -407,6 +422,10 @@ export class IinPublicApp {
             return;
           }
           console.log('📋 Full talk data:', talkData);
+          const talkWithAuthor = {
+            ...talkData,
+            authorName: talkAnnouncement.authorName || (talkData as any)?.authorName || 'Unknown',
+          };
 
           const firstUi = !seenTalkAuthor.has(pairKey);
           if (firstUi) {
@@ -419,10 +438,10 @@ export class IinPublicApp {
               questionCount: talkData.questions?.length || 0,
               timestamp: talkAnnouncement.timestamp,
               isOwnTalk: talkAnnouncement.authorId === this.currentUser?.id,
-              fullTalk: talkData,
+              fullTalk: talkWithAuthor,
             });
             if (talkAnnouncement.authorId === this.currentUser?.id) {
-              this.subscribeToTalkResponses(talkAnnouncement.talkId, talkData);
+              this.subscribeToTalkResponses(talkAnnouncement.talkId, talkWithAuthor);
             }
           }
 
@@ -431,12 +450,12 @@ export class IinPublicApp {
               talkAnnouncement.talkId,
               talkAnnouncement.authorId,
               talkAnnouncement.authorName || 'Unknown',
-              talkData,
+              talkWithAuthor,
             );
             if (firstUi) {
               this.maybeAutoChatbotReplyToAnnouncer(
-                talkId,
-                talkData,
+                logicalTalkId,
+                talkWithAuthor,
                 authorId,
                 talkAnnouncement.authorName || 'Unknown',
               );
@@ -500,6 +519,8 @@ export class IinPublicApp {
                   userId2: responseData.responderId,
                   userName2: responseData.responderName,
                   talkId: talkId,
+                  respondedByBotForUser1: !!responseData.isChatbotResponse,
+                  respondedByBotForUser2: false,
                 })
                 .then((conversationId) => {
                   // Add conversation to UI
@@ -546,7 +567,14 @@ export class IinPublicApp {
         template = { answers: built, talkData };
       }
     }
-    if (!template || !this.currentUser?.id) return;
+    if (!template || !this.currentUser?.id) {
+      console.log('🤖 Chatbot reply aborted: missing template or user', {
+        talkId,
+        hasTemplate: !!template,
+        hasUser: !!this.currentUser?.id,
+      });
+      return;
+    }
 
     const gun = this.gunService.getGun();
     const responseId = `response-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -562,9 +590,11 @@ export class IinPublicApp {
     };
 
     gun.get(`talks/${talkId}`).get('responses').get(responseId).put(responsePayload);
+    console.log('🤖 Chatbot response stored', { talkId, responseId, authorId, authorName });
 
     const isMatch = this.checkIfMatch(talkData, template.answers);
     if (isMatch) {
+      console.log('🤖 Chatbot reply produced a match', { talkId, authorId, authorName });
       this.conversationService
         .createConversation({
           userId1: this.currentUser.id,
@@ -572,6 +602,8 @@ export class IinPublicApp {
           userId2: authorId,
           userName2: authorName,
           talkId,
+          respondedByBotForUser1: false,
+          respondedByBotForUser2: true,
         })
         .then((conversationId) => {
           this.uiManager.addNewConversation({
@@ -1014,19 +1046,53 @@ export class IinPublicApp {
 
           if (!otherUserId) continue;
 
+          let resolvedOtherUserName = otherUserName ?? 'Unknown';
+          if (
+            !resolvedOtherUserName ||
+            resolvedOtherUserName === 'Unknown' ||
+            resolvedOtherUserName === 'Someone'
+          ) {
+            try {
+              const publicUser = await this.gunService.getPublicUser(otherUserId);
+              if (publicUser?.stageName) {
+                resolvedOtherUserName = publicUser.stageName;
+              }
+            } catch {
+              /* keep placeholder */
+            }
+          }
+
           this.uiManager.addNewConversation({
             conversationId: conversationData.conversationId,
             otherUserId,
-            otherUserName: otherUserName ?? 'Unknown',
+            otherUserName: resolvedOtherUserName,
             talkId: conversationData.talkId,
+            respondedByBot: conversationData.respondedByBot,
           });
         }
       },
     );
   }
 
+  private refreshStatusBar(): void {
+    const chatroomId = this.currentChatroomId || this.chatroomService.getCurrentChatroomId();
+    if (!chatroomId || !this.currentUser) return;
+    const chatroomName = this.getChatroomDisplayName(chatroomId);
+    const memberCount = this.uiManager.getChatroomMemberCount(chatroomId) || 0;
+    this.uiManager.updateStatusBar(
+      this.currentUser.stageName,
+      chatroomName,
+      memberCount,
+      this.uiManager.getTotalMatches(),
+    );
+  }
+
   private setupEventHandlers(): void {
     // Handle UI events
+
+    this.uiManager.on('conversationAdded', () => {
+      this.refreshStatusBar();
+    });
 
     // Handle stage name changes
     this.uiManager.onStageNameChange = async (userId: string, newStageName: string) => {
@@ -1047,14 +1113,7 @@ export class IinPublicApp {
             });
 
             // Force status bar update with new name
-            const chatroomName = this.getChatroomDisplayName(this.currentChatroomId);
-            const memberCount = this.uiManager.getChatroomMemberCount(this.currentChatroomId) || 1;
-            this.uiManager.updateStatusBar(
-              newStageName,
-              chatroomName,
-              memberCount,
-              this.uiManager.getTotalMatches(),
-            );
+            this.refreshStatusBar();
           }
         }
 
@@ -1150,7 +1209,8 @@ export class IinPublicApp {
           }
 
           const gun = this.gunService.getGun();
-          gun.get('chatrooms').get(chatroomId).get('talks').get(talk.id).put({
+          const announcementKey = this.buildChatroomTalkAnnouncementKey(talk.id, talk.authorId);
+          gun.get('chatrooms').get(chatroomId).get('talks').get(announcementKey).put({
             talkId: talk.id,
             title: talk.title,
             authorId: talk.authorId,
@@ -1233,7 +1293,11 @@ export class IinPublicApp {
           }
           // Phase 2: announce all talks in the chatroom via Gun.js AFTER all POSTs complete.
           for (const { tid, talk } of talkPayloads) {
-            gun.get('chatrooms').get(chatroomId).get('talks').get(tid).put({
+            const announcementKey = this.buildChatroomTalkAnnouncementKey(
+              tid,
+              String(talk.authorId || this.currentUser!.id),
+            );
+            gun.get('chatrooms').get(chatroomId).get('talks').get(announcementKey).put({
               talkId: tid,
               title: talk.title,
               authorId: talk.authorId,
@@ -1346,63 +1410,60 @@ export class IinPublicApp {
       const gun = this.gunService.getGun();
       const statsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
       await Promise.all(
-        data.talkIds.map((talkId) =>
-          this.talkService.getTalk(talkId).then(
-            (talk) =>
-              new Promise<void>((resolve) => {
-                if (!talk) {
-                  statsMap[talkId] = { responses: 0, matches: 0, ignores: 0 };
-                  resolve();
-                  return;
-                }
-                const responses: any[] = [];
-                gun
-                  .get(`talks/${talkId}`)
-                  .get('responses')
-                  .map()
-                  .once((responseData: any, responseId: string) => {
-                    if (responseId.startsWith('_')) return;
-                    if (responseData && responseData.answers) responses.push(responseData);
-                  });
-                // Allow Gun to deliver all response callbacks
-                setTimeout(() => {
-                  let matches = 0;
-                  let ignores = 0;
-                  for (const r of responses) {
-                    try {
-                      const answers = typeof r.answers === 'string' ? JSON.parse(r.answers) : r.answers;
-                      if (Array.isArray(answers) && answers.length > 0) {
-                        const last = answers[answers.length - 1];
-                        const question = talk.questions.find((q: any) => q.id === last.questionId);
-                        const answer = question?.answers?.find((a: any) => a.id === last.answerId);
-                        if (answer?.isMatch) matches += 1;
-                        else if (answer?.isIgnore) ignores += 1;
-                      }
-                    } catch {
-                      // skip invalid response
-                    }
-                  }
-                  statsMap[talkId] = { responses: responses.length, matches, ignores };
-                  resolve();
-                }, 500);
-              }),
-          ),
-        ),
+        data.talkIds.map(async (talkId) => {
+          const talk = await this.talkService.getTalk(talkId);
+          if (!talk) {
+            statsMap[talkId] = { responses: 0, matches: 0, ignores: 0 };
+            return;
+          }
+
+          const responses: any[] = await new Promise((resolve) => {
+            const collected: any[] = [];
+            gun
+              .get(`talks/${talkId}`)
+              .get('responses')
+              .map()
+              .once((responseData: any, responseId: string) => {
+                if (responseId.startsWith('_')) return;
+                if (responseData && responseData.answers) collected.push(responseData);
+              });
+            setTimeout(() => resolve(collected), 500);
+          });
+
+          let matches = 0;
+          let ignores = 0;
+          for (const r of responses) {
+            try {
+              const answers = typeof r.answers === 'string' ? JSON.parse(r.answers) : r.answers;
+              if (Array.isArray(answers) && answers.length > 0) {
+                const last = answers[answers.length - 1];
+                const question = talk.questions.find((q: any) => q.id === last.questionId);
+                const answer = question?.answers?.find((a: any) => a.id === last.answerId);
+                if (answer?.isMatch) matches += 1;
+                else if (answer?.isIgnore) ignores += 1;
+              }
+            } catch {
+              // skip invalid response
+            }
+          }
+
+          let totalResponses = responses.length;
+          try {
+            const summary = await this.talkService.queryStats(talkId, 'summary');
+            if (summary && typeof summary.total === 'number') {
+              totalResponses = summary.total;
+            }
+          } catch {
+            // Fall back to Gun-collected responses when the stats endpoint is unavailable.
+          }
+
+          statsMap[talkId] = { responses: totalResponses, matches, ignores };
+        }),
       );
       this.uiManager.setTalkStats(statsMap);
       this.uiManager.displayTalksList();
       // Refresh status bar so match count is shown
-      const chatroomId = this.chatroomService.getCurrentChatroomId();
-      if (chatroomId && this.currentUser) {
-        const chatroomName = this.getChatroomDisplayName(chatroomId);
-        const count = this.uiManager.getChatroomMemberCount(chatroomId) || 0;
-        this.uiManager.updateStatusBar(
-          this.currentUser.stageName,
-          chatroomName,
-          count,
-          this.uiManager.getTotalMatches(),
-        );
-      }
+      this.refreshStatusBar();
     });
 
     this.uiManager.on(
@@ -1425,9 +1486,59 @@ export class IinPublicApp {
             }
           }
 
-          // Store the response in Gun.js
           const chatroomId = this.chatroomService.getCurrentChatroomId();
-          if (chatroomId) {
+          if (!chatroomId) {
+            return;
+          }
+
+          let submittedViaServer = false;
+          let isMatch = !!data.talkData && this.checkIfMatch(data.talkData, data.answers);
+          if (data.talkData && isMatch && !isChatbot) {
+            // Persist the template before awaiting server work so a rapid re-announce can reuse it immediately.
+            this.uiManager.saveChatbotTemplate(data.talkId, {
+              answers: data.answers,
+              talkData: data.talkData,
+            });
+          }
+          const localAuthorName =
+            data.talkData?.authorName && data.talkData.authorName !== 'Unknown'
+              ? data.talkData.authorName
+              : undefined;
+          let serverMatches:
+            | Array<{ senderId: string; senderName: string; conversationId: string; talkId: string }>
+            | null = null;
+          let serverOtherUser:
+            | { userId: string; userName: string; conversationId: string | null; talkId: string }
+            | null = null;
+          if (data.talkData) {
+            try {
+              const serverResult = await this.talkService.submitTalkResponse({
+                talkId: data.talkId,
+                responderId: this.currentUser!.id,
+                responderName: this.currentUser!.stageName,
+                answers: data.answers,
+                talkData: data.talkData,
+                isAuto: !data.answers.some((a: any) => a?.mode === 'manual'),
+                isChatbotResponse: isChatbot,
+              });
+              submittedViaServer = true;
+              isMatch = !!serverResult.isMatch;
+              serverMatches = Array.isArray(serverResult.matches) ? serverResult.matches : [];
+              if (serverResult.otherUserId) {
+                serverOtherUser = {
+                  userId: serverResult.otherUserId,
+                  userName: serverResult.otherUserName || 'Unknown',
+                  conversationId: serverResult.conversationId,
+                  talkId: data.talkId,
+                };
+              }
+              console.log('✅ Talk response stored via server');
+            } catch (error) {
+              console.warn('Talk response server submit failed, falling back to direct Gun write:', error);
+            }
+          }
+
+          if (!submittedViaServer) {
             const gun = this.gunService.getGun();
             const responseId = `resp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -1444,78 +1555,84 @@ export class IinPublicApp {
               });
 
             console.log('✅ Talk response stored');
+          }
 
-            // STAT-01 — mirror the response into the generic stats log (fire-and-forget).
-            try {
-              const base = this.getBackendApiBase();
-              if (base && data.talkData?.type) {
-                void fetch(`${base}/api/stats/talks/${encodeURIComponent(data.talkId)}/record`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    responderId: this.currentUser!.id,
-                    talkType: data.talkData.type,
-                    answers: (data.answers || []).map((a: any) => ({
-                      questionId: String(a.questionId ?? ''),
-                      answerId: String(a.answerId ?? ''),
-                      answerText: String(a.answerText ?? ''),
-                    })),
-                  }),
-                }).catch(() => {});
-              }
-            } catch {
-              /* non-fatal */
+          if (submittedViaServer && isMatch) {
+            const directTargets =
+              serverMatches && serverMatches.length > 0
+                ? serverMatches.map((match) => ({
+                    conversationId: match.conversationId,
+                    otherUserId: match.senderId,
+                    otherUserName:
+                      match.senderName && match.senderName !== 'Unknown' && match.senderName !== 'Someone'
+                        ? match.senderName
+                        : localAuthorName || 'Unknown',
+                    talkId: match.talkId || data.talkId,
+                  }))
+                : serverOtherUser && serverOtherUser.conversationId
+                  ? [
+                      {
+                        conversationId: serverOtherUser.conversationId,
+                        otherUserId: serverOtherUser.userId,
+                        otherUserName:
+                          serverOtherUser.userName &&
+                          serverOtherUser.userName !== 'Unknown' &&
+                          serverOtherUser.userName !== 'Someone'
+                            ? serverOtherUser.userName
+                            : localAuthorName || 'Unknown',
+                        talkId: serverOtherUser.talkId,
+                      },
+                    ]
+                  : [];
+
+            for (const target of directTargets) {
+              this.uiManager.addNewConversation({
+                conversationId: target.conversationId,
+                otherUserId: target.otherUserId,
+                otherUserName: target.otherUserName,
+                talkId: target.talkId,
+                respondedByBot: isChatbot,
+              });
             }
+          }
 
-            // Check if this response is a match
-            if (data.talkData) {
-              const isMatch = this.checkIfMatch(data.talkData, data.answers);
+          if (!submittedViaServer && data.talkData && isMatch) {
+            console.log(`✅ Match! Creating conversation(s) with sender(s)`);
 
-              if (isMatch && !isChatbot) {
-                // Save template for chatbot to reuse when the same talk is received again
-                this.uiManager.saveChatbotTemplate(data.talkId, {
-                  answers: data.answers,
-                  talkData: data.talkData,
+            const senders = await this.getIncomingSendersForMatchedTalk(data.talkData);
+            const targets =
+              senders.length > 0
+                ? senders
+                : data.talkData.authorId
+                  ? [
+                      {
+                        senderId: data.talkData.authorId,
+                        senderName: 'Someone',
+                      },
+                    ]
+                  : [];
+
+            for (const target of targets) {
+              const authorData = await this.gunService.getPublicUser(target.senderId);
+              const authorName = authorData.stageName || target.senderName || 'Unknown';
+              try {
+                const conversationId = await this.conversationService.createConversation({
+                  userId1: this.currentUser!.id,
+                  userName1: this.currentUser!.stageName,
+                  userId2: target.senderId,
+                  userName2: authorName,
+                  talkId: data.talkId,
+                  respondedByBotForUser1: isChatbot,
+                  respondedByBotForUser2: false,
                 });
-              }
-
-              if (isMatch) {
-                console.log(`✅ Match! Creating conversation(s) with sender(s)`);
-
-                const senders = await this.getIncomingSendersForMatchedTalk(data.talkData);
-                const targets =
-                  senders.length > 0
-                    ? senders
-                    : data.talkData.authorId
-                      ? [
-                          {
-                            senderId: data.talkData.authorId,
-                            senderName: 'Someone',
-                          },
-                        ]
-                      : [];
-
-                for (const target of targets) {
-                  const authorData = await this.gunService.getPublicUser(target.senderId);
-                  const authorName = authorData.stageName || target.senderName || 'Unknown';
-                  try {
-                    const conversationId = await this.conversationService.createConversation({
-                      userId1: this.currentUser!.id,
-                      userName1: this.currentUser!.stageName,
-                      userId2: target.senderId,
-                      userName2: authorName,
-                      talkId: data.talkId,
-                    });
-                    this.uiManager.addNewConversation({
-                      conversationId,
-                      otherUserId: target.senderId,
-                      otherUserName: authorName,
-                      talkId: data.talkId,
-                    });
-                  } catch (e) {
-                    console.error('Failed to create match conversation:', e);
-                  }
-                }
+                this.uiManager.addNewConversation({
+                  conversationId,
+                  otherUserId: target.senderId,
+                  otherUserName: authorName,
+                  talkId: data.talkId,
+                });
+              } catch (e) {
+                console.error('Failed to create match conversation:', e);
               }
             }
           }
@@ -1793,7 +1910,8 @@ export class IinPublicApp {
         }
         try {
           const talkData = JSON.parse(wrapper.data);
-          gun.get('chatrooms').get(chatroomId).get('talks').get(talkId).put({
+          const announcementKey = this.buildChatroomTalkAnnouncementKey(talkId, this.currentUser!.id);
+          gun.get('chatrooms').get(chatroomId).get('talks').get(announcementKey).put({
             talkId,
             title: talkData.title,
             authorId: this.currentUser!.id,

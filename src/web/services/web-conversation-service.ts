@@ -21,6 +21,8 @@ export class WebConversationService {
     userId2: string;
     userName2: string;
     talkId: string;
+    respondedByBotForUser1?: boolean;
+    respondedByBotForUser2?: boolean;
   }): Promise<string> {
     const gun = this.gunService.getGun();
 
@@ -33,24 +35,22 @@ export class WebConversationService {
     // Check if conversation already exists
     return new Promise((resolve) => {
       gun.get(`conversations/${conversationId}`).once((existingData: any) => {
-        if (existingData && existingData.data) {
+        if (!(existingData && existingData.data)) {
+          // Store conversation in Gun.js
+          const conversationData = {
+            id: conversationId,
+            participants: [params.userId1, params.userId2],
+            talkId: params.talkId,
+            createdAt: new Date().toISOString(),
+            status: 'active',
+          };
+
+          gun.get(`conversations/${conversationId}`).put({
+            data: JSON.stringify(conversationData),
+          });
+        } else {
           console.log(`ℹ️  Conversation already exists: ${conversationId}`);
-          resolve(conversationId);
-          return;
         }
-
-        // Store conversation in Gun.js
-        const conversationData = {
-          id: conversationId,
-          participants: [params.userId1, params.userId2],
-          talkId: params.talkId,
-          createdAt: new Date().toISOString(),
-          status: 'active',
-        };
-
-        gun.get(`conversations/${conversationId}`).put({
-          data: JSON.stringify(conversationData),
-        });
 
         // Add conversation to each user's conversation list
         gun.get(`users/${params.userId1}`).get('conversations').get(conversationId).put({
@@ -59,6 +59,7 @@ export class WebConversationService {
           otherUserName: params.userName2,
           talkId: params.talkId,
           createdAt: new Date().toISOString(),
+          respondedByBot: !!params.respondedByBotForUser1,
         });
 
         gun.get(`users/${params.userId2}`).get('conversations').get(conversationId).put({
@@ -67,6 +68,7 @@ export class WebConversationService {
           otherUserName: params.userName1,
           talkId: params.talkId,
           createdAt: new Date().toISOString(),
+          respondedByBot: !!params.respondedByBotForUser2,
         });
 
         console.log(`✅ Conversation created: ${conversationId}`);

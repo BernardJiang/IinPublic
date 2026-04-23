@@ -682,6 +682,7 @@ export class UIManager extends EventEmitter {
   displayTalksList(): void {
     const talksList = document.getElementById('talks-list');
     if (!talksList) return;
+    this.syncStatusBarMatchCount();
 
     const myTalks = getMyTalks();
 
@@ -915,10 +916,13 @@ export class UIManager extends EventEmitter {
         });
       });
     }
+
+    this.syncStatusBarMatchCount();
   }
 
   setTalkStats(statsMap: Record<string, { responses: number; matches: number; ignores: number }>): void {
     this.talkStatsMap = { ...this.talkStatsMap, ...statsMap };
+    this.syncStatusBarMatchCount();
   }
 
   setIncomingTalkClusters(clusters: any[]): void {
@@ -1256,15 +1260,31 @@ export class UIManager extends EventEmitter {
 
     if (statusBar && statusBarText) {
       let text = `${stageName} in ${chatroomName} with ${memberCount} ${memberCount === 1 ? 'user' : 'users'}`;
-      if (totalMatches !== undefined && totalMatches > 0) {
-        text += ` · ${totalMatches} match${totalMatches !== 1 ? 'es' : ''}`;
+      const localTotalMatches = this.getTotalMatches();
+      const effectiveTotalMatches = localTotalMatches > 0 ? localTotalMatches : (totalMatches ?? 0);
+      if (effectiveTotalMatches > 0) {
+        text += ` · ${effectiveTotalMatches} match${effectiveTotalMatches !== 1 ? 'es' : ''}`;
       }
       statusBarText.textContent = text;
     }
   }
 
+  private syncStatusBarMatchCount(): void {
+    const statusBarText = document.getElementById('status-bar-text');
+    if (!statusBarText) return;
+    const current = statusBarText.textContent || '';
+    const base = current.replace(/\s*·\s*\d+\s+match(?:es)?\s*$/i, '').trim();
+    const totalMatches = this.getTotalMatches();
+    statusBarText.textContent =
+      totalMatches > 0 ? `${base} · ${totalMatches} match${totalMatches !== 1 ? 'es' : ''}` : base;
+  }
+
   getTotalMatches(): number {
-    return Object.values(this.talkStatsMap).reduce((sum, s) => sum + s.matches, 0);
+    const statsMatches = Object.values(this.talkStatsMap).reduce((sum, s) => sum + s.matches, 0);
+    const conversationMatches = Object.values(this.getMyConversations()).filter((conversation: any) => {
+      return !!conversation && typeof conversation === 'object' && !!conversation.talkId;
+    }).length;
+    return conversationMatches > 0 ? conversationMatches : statsMatches;
   }
 
   displayIncomingTalk(talk: {
@@ -2605,10 +2625,18 @@ export class UIManager extends EventEmitter {
       conversationData.respondedByBot !== undefined
         ? !!conversationData.respondedByBot
         : !!existing?.respondedByBot;
+    const incomingName = conversationData.otherUserName?.trim() || '';
+    const existingName = existing?.otherUserName?.trim() || '';
+    const preferredOtherUserName =
+      incomingName && incomingName !== 'Unknown' && incomingName !== 'Someone'
+        ? incomingName
+        : existingName && existingName !== 'Unknown' && existingName !== 'Someone'
+          ? existingName
+          : incomingName || existingName || 'Unknown';
 
     conversations[conversationData.conversationId] = {
       otherUserId: conversationData.otherUserId,
-      otherUserName: conversationData.otherUserName,
+      otherUserName: preferredOtherUserName,
       talkId: conversationData.talkId,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       lastMessage: existing?.lastMessage ?? null,
@@ -2621,11 +2649,27 @@ export class UIManager extends EventEmitter {
 
     // Update badge
     this.updateMatchBadge();
+    this.syncStatusBarMatchCount();
+    this.emit('conversationAdded', {
+      conversationId: conversationData.conversationId,
+      isNew,
+      totalMatches: this.getTotalMatches(),
+    });
 
     // Only show toast for genuinely new matches (not when re-syncing or opening edit)
     if (isNew) {
       const name = conversationData.otherUserName?.trim() || 'Someone';
-      this.showNotification(`🎉 New match with ${name}!`, 'success');
+      this.showNotification(`Match! You and ${name} can now chat.`, 'success');
+    }
+
+    const contactsTab = document.getElementById('tab-contacts');
+    if (contactsTab?.classList.contains('active')) {
+      this.displayContactsList();
+    }
+
+    const meTab = document.getElementById('tab-me');
+    if (meTab?.classList.contains('active')) {
+      this.displayConversationsList();
     }
   }
 

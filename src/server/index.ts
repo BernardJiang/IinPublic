@@ -548,8 +548,18 @@ class IinPublicServer {
     senderId: string;
     senderName: string;
     talkId: string;
+    respondedByBotForResponder?: boolean;
+    respondedByBotForSender?: boolean;
   }): Promise<{ conversationId: string; otherUserId: string; otherUserName: string }> {
-    const { responderId, responderName, senderId, senderName, talkId } = params;
+    const {
+      responderId,
+      responderName,
+      senderId,
+      senderName,
+      talkId,
+      respondedByBotForResponder,
+      respondedByBotForSender,
+    } = params;
     const sortedIds = [responderId, senderId].sort();
     const conversationId = `conv_${sortedIds[0]}_${sortedIds[1]}_${talkId}`;
     const conversationData = {
@@ -569,6 +579,7 @@ class IinPublicServer {
       otherUserName: senderName,
       talkId,
       createdAt: new Date().toISOString(),
+      respondedByBot: !!respondedByBotForResponder,
     });
     await this.gunService.putPath(['users', senderId, 'conversations', conversationId], {
       conversationId,
@@ -576,6 +587,7 @@ class IinPublicServer {
       otherUserName: responderName,
       talkId,
       createdAt: new Date().toISOString(),
+      respondedByBot: !!respondedByBotForSender,
     });
 
     return { conversationId, otherUserId: senderId, otherUserName: senderName };
@@ -632,6 +644,8 @@ class IinPublicServer {
           senderId: sender.senderId,
           senderName: sender.senderName,
           talkId: targetTalkId,
+          respondedByBotForResponder: false,
+          respondedByBotForSender: isChatbotResponse,
         });
         matches.push({
           senderId: sender.senderId,

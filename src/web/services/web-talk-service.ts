@@ -241,6 +241,38 @@ export class WebTalkService {
     return result;
   }
 
+  async submitTalkResponse(params: {
+    talkId: string;
+    responderId: string;
+    responderName: string;
+    answers: Array<{ questionId: string; answerId: string; answerText?: string; isChecked?: boolean; mode?: string }>;
+    talkData?: unknown;
+    isAuto?: boolean;
+    isChatbotResponse?: boolean;
+  }): Promise<{
+    isMatch: boolean;
+    identityKey: string;
+    matchedCount: number;
+    matches: Array<{ senderId: string; senderName: string; conversationId: string; talkId: string }>;
+    conversationId: string | null;
+    otherUserId: string | null;
+    otherUserName: string | null;
+  }> {
+    const base = this.apiBase?.replace(/\/$/, '');
+    if (!base) {
+      throw new Error('submitTalkResponse requires apiBase');
+    }
+    const res = await fetch(`${base}/api/talks/${encodeURIComponent(params.talkId)}/response`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    if (!res.ok) {
+      throw new Error(`submitTalkResponse failed: ${res.status}`);
+    }
+    return res.json();
+  }
+
   async sendMessage(conversationId: string, senderId: string, message: string): Promise<void> {
     await this.gunService.put(`conversations/${conversationId}/messages/${Date.now()}`, {
       senderId: senderId,
