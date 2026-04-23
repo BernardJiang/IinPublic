@@ -27,6 +27,19 @@ export function checkIfMatch(talkData: Talk | any, answers: SubmittedAnswer[]): 
   return answer.isMatch === true;
 }
 
+export function checkIfIgnore(talkData: Talk | any, answers: SubmittedAnswer[]): boolean {
+  if (talkData.type !== 'flow' && talkData.type !== 'tag') {
+    return false;
+  }
+  const lastAnswer = answers[answers.length - 1];
+  if (!lastAnswer) return false;
+  const question = talkData.questions?.find((q: any) => q.id === lastAnswer.questionId);
+  if (!question) return false;
+  const answer = question.answers?.find((a: any) => a.id === lastAnswer.answerId);
+  if (!answer) return false;
+  return answer.isIgnore === true;
+}
+
 export class TalkValidator {
   /**
    * Validates that a talk structure forms a DAG (no loops)

@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-04-21
+Last updated: 2026-04-22
 
 This file is the prioritized backlog for the current repository. It is intentionally short.
 It should describe what is still worth doing, not restate features that already exist or
@@ -67,7 +67,7 @@ Observed in the repo today:
 
 ### Foundation
 
-- [ ] Finish the remaining repo-noise decision and enforce it consistently:
+- [x] Finish the remaining repo-noise decision and enforce it consistently:
   generated outputs, local state, logs, and test artifacts should stay out of version control
 - [ ] Keep current docs aligned with the working codepaths as the product surface narrows
 - [x] Tighten the client-side data write boundary so public vs private SEA-backed data paths are explicit instead of ad hoc
@@ -77,6 +77,7 @@ Observed in the repo today:
 - [ ] Stabilize the end-to-end user path:
   chatroom presence → talk broadcast → incoming talk registration → answer submission → match/conversation creation
 - [ ] Audit where the server is still compensating for Gun timing/replication issues and decide which paths are authoritative long-term
+  Source of truth in progress: `docs/roadmap/talk-loop-authority.md`
 - [ ] Make the answer/template/chatbot flow easier to reason about:
   one clear path for saved answers, auto-reply templates, and talk completion side effects
 

@@ -1407,61 +1407,27 @@ export class IinPublicApp {
         this.uiManager.displayTalksList();
         return;
       }
-      const gun = this.gunService.getGun();
       const statsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
       await Promise.all(
         data.talkIds.map(async (talkId) => {
-          const talk = await this.talkService.getTalk(talkId);
-          if (!talk) {
-            statsMap[talkId] = { responses: 0, matches: 0, ignores: 0 };
-            return;
-          }
-
-          const responses: any[] = await new Promise((resolve) => {
-            const collected: any[] = [];
-            gun
-              .get(`talks/${talkId}`)
-              .get('responses')
-              .map()
-              .once((responseData: any, responseId: string) => {
-                if (responseId.startsWith('_')) return;
-                if (responseData && responseData.answers) collected.push(responseData);
-              });
-            setTimeout(() => resolve(collected), 500);
-          });
-
-          let matches = 0;
-          let ignores = 0;
-          for (const r of responses) {
-            try {
-              const answers = typeof r.answers === 'string' ? JSON.parse(r.answers) : r.answers;
-              if (Array.isArray(answers) && answers.length > 0) {
-                const last = answers[answers.length - 1];
-                const question = talk.questions.find((q: any) => q.id === last.questionId);
-                const answer = question?.answers?.find((a: any) => a.id === last.answerId);
-                if (answer?.isMatch) matches += 1;
-                else if (answer?.isIgnore) ignores += 1;
-              }
-            } catch {
-              // skip invalid response
-            }
-          }
-
-          let totalResponses = responses.length;
           try {
             const summary = await this.talkService.queryStats(talkId, 'summary');
             if (summary && typeof summary.total === 'number') {
-              totalResponses = summary.total;
+              statsMap[talkId] = {
+                responses: summary.total,
+                matches: typeof summary.matches === 'number' ? summary.matches : 0,
+                ignores: typeof summary.ignores === 'number' ? summary.ignores : 0,
+              };
+              return;
             }
           } catch {
-            // Fall back to Gun-collected responses when the stats endpoint is unavailable.
+            // Fall back to local talk structure inference only when the stats endpoint is unavailable.
           }
 
-          statsMap[talkId] = { responses: totalResponses, matches, ignores };
+          statsMap[talkId] = { responses: 0, matches: 0, ignores: 0 };
         }),
       );
       this.uiManager.setTalkStats(statsMap);
-      this.uiManager.displayTalksList();
       // Refresh status bar so match count is shown
       this.refreshStatusBar();
     });

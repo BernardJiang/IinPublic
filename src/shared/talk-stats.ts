@@ -31,6 +31,7 @@ export interface TalkResponse {
   region: string;
   answers: TalkResponseAnswer[];
   createdAt: number;
+  outcome?: 'match' | 'ignore' | 'other';
 }
 
 export type TimeBucket = 'day' | 'week' | 'month';
@@ -39,6 +40,8 @@ export interface StatsSummary {
   talkId: string;
   talkType: TalkType;
   total: number;
+  matches: number;
+  ignores: number;
   byQuestion: Array<{
     questionId: string;
     total: number;
@@ -109,7 +112,11 @@ function answerTextById(
 
 export function summarize(talkId: string, talkType: TalkType, responses: TalkResponse[]): StatsSummary {
   const byQ: Record<string, Map<string, number>> = {};
+  let matches = 0;
+  let ignores = 0;
   for (const r of responses) {
+    if (r.outcome === 'match') matches += 1;
+    else if (r.outcome === 'ignore') ignores += 1;
     for (const a of r.answers) {
       const m = (byQ[a.questionId] ||= new Map<string, number>());
       m.set(a.answerId, (m.get(a.answerId) ?? 0) + 1);
@@ -126,7 +133,7 @@ export function summarize(talkId: string, talkType: TalkType, responses: TalkRes
     answers.sort((a, b) => b.count - a.count);
     return { questionId, total, answers };
   });
-  return { talkId, talkType, total: responses.length, byQuestion };
+  return { talkId, talkType, total: responses.length, matches, ignores, byQuestion };
 }
 
 export function aggregateByTime(

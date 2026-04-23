@@ -303,8 +303,9 @@ class IinPublicServer {
     responderId: string;
     region: string;
     answers: Array<{ questionId: string; answerId: string; answerText: string }>;
+    outcome?: 'match' | 'ignore' | 'other';
   }): Promise<void> {
-    const { talkId, talkType, responderId, region, answers } = params;
+    const { talkId, talkType, responderId, region, answers, outcome } = params;
     const responseId = `sr_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
     const createdAt = Date.now();
     const record: TalkResponse = {
@@ -319,6 +320,7 @@ class IinPublicServer {
         answerText: a.answerText || '',
       })),
       createdAt,
+      outcome: outcome ?? 'other',
     };
     const list = this.talkResponsesMap.get(talkId) ?? [];
     list.push(record);

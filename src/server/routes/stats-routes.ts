@@ -20,6 +20,7 @@ type StatsRouteDeps = {
     responderId: string;
     region: string;
     answers: Array<{ questionId: string; answerId: string; answerText: string }>;
+    outcome?: 'match' | 'ignore' | 'other';
   }) => Promise<void>;
   getTalkResponses: (talkId: string, opts?: { from?: number; to?: number }) => TalkResponse[];
 };
@@ -37,7 +38,12 @@ export function registerStatsRoutes(app: express.Application, deps: StatsRouteDe
         responderId?: string;
         talkType?: TalkType;
         answers?: Array<{ questionId: string; answerId: string; answerText?: string }>;
+        outcome?: 'match' | 'ignore' | 'other';
       };
+      const outcome =
+        req.body?.outcome === 'match' || req.body?.outcome === 'ignore' || req.body?.outcome === 'other'
+          ? req.body.outcome
+          : undefined;
       if (!responderId || !talkType || !Array.isArray(answers)) {
         res.status(400).json({ error: 'responderId, talkType, answers required' });
         return;
@@ -53,6 +59,7 @@ export function registerStatsRoutes(app: express.Application, deps: StatsRouteDe
           answerId: String(a.answerId),
           answerText: String(a.answerText ?? ''),
         })),
+        outcome,
       });
       res.json({ ok: true });
     } catch (error) {

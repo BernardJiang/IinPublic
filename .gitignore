@@ -1,19 +1,33 @@
-node_modules
-data.json
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+coverage/
+*.tsbuildinfo
+
+# Test artifacts
+playwright-report/
+test-results/
+test-screenshots/
+test-storage/
+.test-storage/
+
+# Runtime and local app state
 radata/
+user_data/
+logs/
+data.json
+
+# Local tooling state
+.ci-test.log
+.cursor/
+.cache/
+.claude/worktrees/
+
+# OS / temp files
+.DS_Store
 *.tmp
 *.log
-coverage
-test-screenshots
-playwright-report
-test-results
-test-storage
-.test-storage
-dist
-user_data
-logs
-.DS_Store
-.claude/worktrees
-
 
 

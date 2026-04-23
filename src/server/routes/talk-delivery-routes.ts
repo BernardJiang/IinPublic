@@ -1,5 +1,5 @@
 import type express from 'express';
-import { checkIfMatch } from '../../shared/talk-engine';
+import { checkIfIgnore, checkIfMatch } from '../../shared/talk-engine';
 import { buildTalkIdentityKey, canonicalIdentityKeyFromStoredCluster } from '../../shared/talk-content-id';
 import { TALK_CONTENT_HASH_ID } from '../../shared/incoming-talk-ids';
 import type { TalkType } from '../../shared/talk-stats';
@@ -57,6 +57,7 @@ type TalkDeliveryRouteDeps = {
     responderId: string;
     region: string;
     answers: Array<{ questionId: string; answerId: string; answerText: string }>;
+    outcome?: 'match' | 'ignore' | 'other';
   }) => Promise<void>;
 };
 
@@ -331,6 +332,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       });
 
       const isMatch = checkIfMatch(talkData, normalizedAnswers);
+      const isIgnore = checkIfIgnore(talkData, normalizedAnswers);
 
       try {
         const region = await getUserRegion(responderId);
@@ -344,6 +346,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
             answerId: String(a.answerId),
             answerText: String(a.answerText ?? ''),
           })),
+          outcome: isMatch ? 'match' : isIgnore ? 'ignore' : 'other',
         });
       } catch (err) {
         logger.warn({ err }, 'stats: failed to record response');

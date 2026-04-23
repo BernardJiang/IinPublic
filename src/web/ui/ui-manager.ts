@@ -922,6 +922,17 @@ export class UIManager extends EventEmitter {
 
   setTalkStats(statsMap: Record<string, { responses: number; matches: number; ignores: number }>): void {
     this.talkStatsMap = { ...this.talkStatsMap, ...statsMap };
+    const talksList = document.getElementById('talks-list');
+    if (talksList) {
+      Object.entries(statsMap).forEach(([talkId, stats]) => {
+        const row = talksList.querySelector(`.talk-list-item[data-talk-id="${talkId}"][data-role="created"],
+          .talk-list-item[data-talk-id="${talkId}"][data-role="copied"]`) as HTMLElement | null;
+        const statsEl = row?.querySelector('.talk-item-stats') as HTMLElement | null;
+        if (statsEl) {
+          statsEl.textContent = `Responses: ${stats.responses} · Matches: ${stats.matches} · Ignores: ${stats.ignores}`;
+        }
+      });
+    }
     this.syncStatusBarMatchCount();
   }
 
