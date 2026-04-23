@@ -108,7 +108,7 @@ export class WebTalkService {
     }
   }
 
-  /** Prefer server graph (authoritative), then retry local Gun until full talk is available. */
+  /** Server is authoritative for complete talk data; Gun is used as a low-latency cache. */
   async getTalkWithRetry(
     talkId: string,
     opts?: { attempts?: number; gapMs?: number },
@@ -129,6 +129,7 @@ export class WebTalkService {
       if (!base) return null;
       try {
         const res = await fetch(`${base}/api/talks/${encodeURIComponent(talkId)}`);
+        // 202 means the server is still replicating — not a permanent failure
         if (res.status === 202) return null;
         if (!res.ok) return null;
         const raw = await res.json();
@@ -142,18 +143,25 @@ export class WebTalkService {
       }
     };
 
-    // Prefer local Gun first; one HTTP fallback at the end (server returns 202 while replicating, not 404).
+    // 1. Quick Gun cache check — no wait.
+    const cached = await this.getTalk(talkId);
+    if (looksComplete(cached)) return cached as Talk;
+
+    // 2. Server is authoritative; try it before entering the retry loop.
+    const fromServer = await tryServer();
+    if (fromServer) return fromServer;
+
+    // 3. Both sources are incomplete (server returned 202 or Gun is still replicating).
+    //    Retry, preferring Gun (lower latency) then server (completeness), until one delivers.
     for (let i = 0; i < attempts; i++) {
+      await new Promise((r) => setTimeout(r, gapMs));
       const t = await this.getTalk(talkId);
       if (looksComplete(t)) return t as Talk;
-      if (i < attempts - 1) await new Promise((r) => setTimeout(r, gapMs));
+      const s = await tryServer();
+      if (s) return s;
     }
 
-    const last = await this.getTalk(talkId);
-    if (looksComplete(last)) return last as Talk;
-    const again = await tryServer();
-    if (again) return again;
-    return looksComplete(last) ? last : null;
+    return null;
   }
 
   async updateTalk(talkId: string, talkData: Partial<Talk>): Promise<Talk> {

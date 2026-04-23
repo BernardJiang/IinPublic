@@ -1,6 +1,6 @@
 # Talk Loop Authority Audit
 
-Last updated: 2026-04-22 (item 1 and 2 from Next Refactor Order completed)
+Last updated: 2026-04-22 (all three items from Next Refactor Order completed)
 
 This note maps the current source-of-truth decisions in the web/server talk loop and highlights
 where the app still compensates for Gun timing or replication behavior.
@@ -16,12 +16,15 @@ paths are authoritative long-term."
 - Primary codepath:
   [src/web/services/web-talk-service.ts](/Users/hongyujiang/IinPublic/src/web/services/web-talk-service.ts)
 - Current behavior:
-  `getTalkWithRetry()` retries local Gun reads first, then does one server GET fallback at the end.
+  `getTalkWithRetry()` checks Gun once (cache), then immediately tries the server (authoritative),
+  then enters a retry loop alternating Gun and server until one returns a complete payload.
 - Practical authority today:
-  Mixed.
-  Local Gun is used for fast availability, but the server graph is treated as the completeness fallback.
-- Why this exists:
-  Gun can surface partial talk objects or delayed nested question/answer arrays during replication.
+  Server.
+  Gun is used as a low-latency cache on the first check only.
+- Why this was changed:
+  The old implementation retried Gun up to 20× before ever calling the server, causing up to
+  5 seconds of unnecessary delay whenever Gun had a partial or missing payload that the server
+  could have served immediately.
 
 ### 2. Incoming talk registration / delivery
 
@@ -99,8 +102,7 @@ paths are authoritative long-term."
 
 ## Active Compensation Paths
 
-- `getTalkWithRetry()` still compensates for partial Gun reads (Gun-first with one server fallback at the end — see item 3 below).
-- `talkCompleted` still has a direct Gun write fallback if server submit fails (response record only; conversation creation now requires the server path).
+- `talkCompleted` still has a direct Gun write fallback if server submit fails (response record only; conversation creation requires the server path).
 - Incoming talk UX still depends on both Gun announcements and server `/incoming-talks` refresh.
 
 ## Recommended Long-Term Authorities
@@ -120,7 +122,7 @@ paths are authoritative long-term."
 
 1. ✅ Remove Gun-derived `matches` / `ignores` aggregation from the Talks tab and expose those counts from the stats API.
 2. ✅ Collapse the direct client-side conversation-creation fallback: removed the Gun `createConversation()` call from the `talkCompleted` fallback path. Conversations now require a successful server submit.
-3. Revisit `getTalkWithRetry()` so the code and comment match one explicit policy instead of a mixed Gun-first/server-final compromise. Current docstring says "Prefer server graph (authoritative)" but the implementation retries Gun 20× first and hits the server only once at the end.
+3. ✅ Revised `getTalkWithRetry()` to match the intended policy: Gun cache check first (no wait), server second (authoritative), then a retry loop alternating both if neither has a complete payload yet.
 
 ## Guardrails
 

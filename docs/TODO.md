@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-04-22
+Last updated: 2026-04-22 (Phase 2 Core Loop audit complete)
 
 This file is the prioritized backlog for the current repository. It is intentionally short.
 It should describe what is still worth doing, not restate features that already exist or
@@ -76,8 +76,8 @@ Observed in the repo today:
 
 - [ ] Stabilize the end-to-end user path:
   chatroom presence → talk broadcast → incoming talk registration → answer submission → match/conversation creation
-- [ ] Audit where the server is still compensating for Gun timing/replication issues and decide which paths are authoritative long-term
-  Source of truth in progress: `docs/roadmap/talk-loop-authority.md`
+- [x] Audit where the server is still compensating for Gun timing/replication issues and decide which paths are authoritative long-term
+  Source of truth: `docs/roadmap/talk-loop-authority.md`
 - [ ] Make the answer/template/chatbot flow easier to reason about:
   one clear path for saved answers, auto-reply templates, and talk completion side effects
 
