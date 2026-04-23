@@ -1,57 +1,53 @@
 # IinPublic Project Status
 
-Last updated: 2026-04-20
+Last updated: 2026-04-23
 
 ## Summary
 
 The current repository is a TypeScript app with three main layers:
 
-- `src/web/` for the browser client
-- `src/server/` for the Express and Socket.IO server
-- `src/shared/` for shared logic and types
+- `src/web/` — browser client, UI manager, Gun client integration
+- `src/server/` — Express server, Socket.IO handlers, Gun server integration
+- `src/shared/` — shared types, talk engine, location logic, moderation helpers
 
-Supporting infrastructure already exists for:
+Supporting infrastructure exists for CI, deploy scripts, Dockerfile, Jest, Playwright, and an Android skeleton.
 
-- CI via `.github/workflows/ci-cd.yml`
-- deploy scripts in `scripts/`
-- containerization via `Dockerfile`
-- unit and integration tests via Jest
-- end-to-end tests via Playwright
-- Android work via `android/`
+## What Is Stable
 
-## What Looks Healthy
+- Core web/server/shared structure is in place and wired together
+- `src/server/index.ts` has been split into route, socket, and bootstrap modules; no longer a monolith
+- `src/web/ui/ui-manager.ts` has been split by feature area; the largest feature islands are extracted
+- Server-side talk loop is end-to-end tested with 14 HTTP-level integration tests (`src/test/integration/talk-loop.test.ts`)
+- Gun authority audit is complete (`docs/roadmap/talk-loop-authority.md`):
+  - Stats, match counts, and conversation creation all go through the server
+  - `getTalkWithRetry()` prefers the server; Gun is a cache only
+  - Client-side Gun conversation-creation fallback has been removed
+- Answer/chatbot template flow is documented and has a single clear execution path
+- Repo noise is resolved: generated outputs, logs, and test artifacts are gitignored; none are tracked
+- Local validation and CI run the same `npm run health` command
 
-- Core web/server/shared structure is in place
-- Test, lint, and build scripts exist in `package.json`
-- Logging infrastructure exists via `src/server/logger.ts`
-- Request logging middleware exists via `src/server/middleware/request-logger.ts`
-- Shared modules already cover location, reputation, talk flow, and related domain logic
+## What Is Still In Progress
+
+- UX polish: talk creation, answering, match visibility, and conversation entry need consistency work
+- Docs alignment: kept current with Phase 2 changes; ongoing as product surface narrows
+- Android: maintenance-only until the web/server loop is stable
 
 ## Current Risks
 
-- `src/server/index.ts` is too large and mixes bootstrap, routes, socket handling, and business logic
-- `src/web/ui/ui-manager.ts` is too large and is the main frontend maintenance hotspot
-- Documentation still contains stale material from older merged sources
-- Repo root still contains generated output and historical artifacts that make navigation harder
-- Jest needs explicit protection from nested workspaces like `.claude/`
-
-## Current Priorities
-
-1. Clean up docs so the repo has a reliable source of truth.
-2. Reduce repo noise and tighten ignore rules for generated/runtime output.
-3. Fix local validation friction, including Jest workspace scanning.
-4. Start extracting modules from the two largest maintenance hotspots.
+- Gun replication timing still affects the incoming-talk path; the server auto-reply path
+  (`POST /api/talks/:id/received`) requires the Gun answer template to be replicated
+  before the new talk arrives — if replication is slow, auto-reply may miss
+- The `talkCompleted` handler has a Gun direct-write fallback for the response record
+  when the server is unreachable; this preserves data but skips match/conversation creation
 
 ## Useful Commands
 
 ```bash
-npm run dev
-npm test
-npm run test:type
-npm run test:e2e
-npm run lint
-npm run build:web
-npm run build:server
+npm run health        # pre-merge check: typecheck + lint + unit + integration + build
+npm test              # unit + integration tests
+npm run test:e2e      # Playwright end-to-end
+npm run dev           # run web + server together
+npm run build         # full build
 ```
 
 ## Doc Map
@@ -61,12 +57,5 @@ Use these first:
 - [README](../../README.md)
 - [How To Run](../guides/HOW_TO_RUN.md)
 - [TODO](../TODO.md)
+- [Talk Loop Authority](../roadmap/talk-loop-authority.md)
 - [Current Docs Map](../current/README.md)
-- [Archive Docs Map](../archive/README.md)
-
-## Near-Term Roadmap
-
-- finish the docs and repo cleanup pass
-- align local validation and CI expectations
-- extract the first server route/bootstrap slice
-- extract the first UI feature slice from `ui-manager`

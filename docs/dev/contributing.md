@@ -1,24 +1,47 @@
-# Contributing guide
+# Contributing
 
-Want to contribute to React Simple Chatbot? Awesome!
-There are many ways you can contribute, see below.
+## Before you start
 
-## Opening issues
+- Run `npm run health` to confirm the repo is clean (typecheck, lint, unit + integration tests, build).
+- Check [docs/TODO.md](../TODO.md) to understand what is currently prioritized.
+- For large changes, open a discussion or check an existing issue first.
 
-Open an issue to report bugs or to propose new features.
+## Branching
 
-- Reporting bugs: describe the bug as clearly as you can, including steps to reproduce, what happened and what you were expecting to happen. Also include browser version, OS and other related software's (npm, Node.js, etc) versions when applicable.
+Work on a feature or fix branch off `main`. Keep branches short-lived and focused.
 
-- Proposing features: explain the proposed feature, what it should do, why it is useful, how users should use it. Give us as much info as possible so it will be easier to discuss, access and implement the proposed feature. When you're unsure about a certain aspect of the feature, feel free to leave it open for others to discuss and find an appropriate solution.
+## Making changes
 
-## Proposing pull requests
+- Match the style of the surrounding code.
+- Add a narrow test when you change a seam that is user-visible or integration-critical.
+  Prefer tests in `src/test/unit/` or `src/test/integration/` over broad speculative coverage.
+- Do not expand Android or iOS surface until the web/server talk loop is stable.
 
-Pull requests are very welcome. Note that if you are going to propose drastic changes, be sure to open an issue for discussion first, to make sure that your PR will be accepted before you spend effort coding it.
+## Validation
 
-Fork the repository, clone it locally and create a branch for your proposed bug fix or new feature. Avoid working directly on the master branch.
+Run the full health check before pushing:
 
-Implement your bug fix or feature, write tests to cover it and make sure all tests are passing (run a final `npm test` to make sure everything is correct). Then commit your changes, push your bug fix/feature branch to the origin (your forked repo) and open a pull request to the upstream (the repository you originally forked)'s master branch.
+```bash
+npm run health
+```
 
-## Documentation
+For end-to-end scenarios:
 
-Documentation is extremely important and takes a fair deal of time and effort to write and keep updated. Please submit any and all improvements you can make to the repository's docs.
+```bash
+npm run test:e2e
+```
+
+## Pull requests
+
+- Keep the PR focused on one concern.
+- The description should explain *why*, not just *what*.
+- CI runs `npm run health` automatically; fix failures before requesting review.
+
+## Docs
+
+If your change affects a user-visible code path, update the relevant doc in `docs/`:
+
+- `docs/guides/HOW_TO_RUN.md` for run/build/test command changes
+- `docs/reports/PROJECT_STATUS.md` for significant architectural changes
+- `docs/roadmap/` for decisions about authority or long-term direction
+- `docs/TODO.md` to mark completed items or add new ones

@@ -73,16 +73,15 @@ Current working docs:
 
 ## Current Status
 
-What is true in this repo today:
+What is stable today:
 
-- TypeScript web, server, and shared layers are present and wired together
-- CI, deploy scripts, Dockerfile, logging, Jest, and Playwright are already in place
-- The main maintenance hotspots are `src/server/index.ts` and `src/web/ui/ui-manager.ts`
-- Documentation has historical drift from older merged sources and is being tightened
+- TypeScript web, server, and shared layers are wired together and tested end-to-end
+- CI, deploy scripts, Dockerfile, logging, Jest, and Playwright are in place
+- Server and UI modules have been split out of the former large files
+- Server-side talk loop (registration → answer → match → conversation) has HTTP-level integration tests
+- Gun authority is audited; server is authoritative for stats, matches, and conversations
 
-Near-term priorities:
+Active work (see [TODO](./docs/TODO.md)):
 
-- keep docs aligned with the actual scripts and file layout
-- reduce repo noise from generated and historical artifacts
-- isolate Jest from nested workspaces like `.claude/`
-- begin extracting smaller modules from the largest files
+- UX polish for the core web flow
+- Ongoing docs alignment as the product surface narrows

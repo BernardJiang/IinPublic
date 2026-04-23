@@ -19,7 +19,8 @@ expand into implementation-level specs for every subsystem.
 
 - [x] Finish the remaining repo-noise decision and enforce it consistently:
   generated outputs, local state, logs, and test artifacts should stay out of version control
-- [ ] Keep current docs aligned with the working codepaths as the product surface narrows
+- [x] Keep current docs aligned with the working codepaths as the product surface narrows
+  (Updated PROJECT_STATUS.md, README, contributing.md; archived repo-cleanup-plan; added talk-loop-authority to current docs map)
 - [x] Tighten the client-side data write boundary so public vs private SEA-backed data paths are explicit instead of ad hoc
 
 ### Core Message / Talk Loop
