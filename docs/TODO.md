@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-04-22 (Phase 2 Core Loop audit complete)
+Last updated: 2026-04-22
 
 This file is the prioritized backlog for the current repository. It is intentionally short.
 It should describe what is still worth doing, not restate features that already exist or
@@ -34,8 +34,9 @@ Observed in the repo today:
 
 ### P0 - Reduce repo noise
 
-- [ ] Decide which generated outputs should never live in version control:
+- [x] Decide which generated outputs should never live in version control:
   `coverage/`, `dist/`, `playwright-report/`, `test-results/`, runtime logs, local app state
+  (Decision made: all covered by `.gitignore`; none are tracked in version control)
 - [x] Tighten `.gitignore` to match that decision, including `coverage/`
 - [x] Move obvious historical artifacts out of the main path:
   diff files, old reports, screenshots, copied scripts, and imported reference docs that are no longer active
@@ -74,8 +75,9 @@ Observed in the repo today:
 
 ### Core Message / Talk Loop
 
-- [ ] Stabilize the end-to-end user path:
+- [x] Stabilize the end-to-end user path:
   chatroom presence → talk broadcast → incoming talk registration → answer submission → match/conversation creation
+  (Fixed: `getClusterSenders` now reads from `incomingTalksMap` first; 14 HTTP-level integration tests added in `src/test/integration/talk-loop.test.ts`)
 - [x] Audit where the server is still compensating for Gun timing/replication issues and decide which paths are authoritative long-term
   Source of truth: `docs/roadmap/talk-loop-authority.md`
 - [ ] Make the answer/template/chatbot flow easier to reason about:

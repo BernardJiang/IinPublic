@@ -499,7 +499,11 @@ class IinPublicServer {
     fallbackSenderId?: string;
   }): Promise<Array<{ senderId: string; senderName: string; talkId: string }>> {
     const { responderId, identityKey, fallbackTalkId, fallbackSenderId } = params;
-    const cluster = await this.getMergedIncomingClusterForUser(responderId, identityKey);
+    // upsertIncomingTalkForUser writes only to incomingTalksMap (not Gun), so prefer the
+    // in-memory map before calling getMergedIncomingClusterForUser (which reads from Gun).
+    const userMap = this.incomingTalksMap.get(responderId);
+    const inMemoryCluster = userMap?.get(identityKey) ?? userMap?.get(fallbackTalkId);
+    const cluster = inMemoryCluster ?? await this.getMergedIncomingClusterForUser(responderId, identityKey);
     const list: Array<{ senderId: string; senderName: string; talkId: string }> = [];
     const seen = new Set<string>();
 
