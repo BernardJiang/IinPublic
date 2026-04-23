@@ -1,6 +1,6 @@
 # Talk Loop Authority Audit
 
-Last updated: 2026-04-22
+Last updated: 2026-04-22 (item 1 and 2 from Next Refactor Order completed)
 
 This note maps the current source-of-truth decisions in the web/server talk loop and highlights
 where the app still compensates for Gun timing or replication behavior.
@@ -61,11 +61,15 @@ paths are authoritative long-term."
   and [src/web/services/web-conversation-service.ts](/Users/hongyujiang/IinPublic/src/web/services/web-conversation-service.ts)
 - Current behavior:
   Server-backed response submission creates or reuses conversations authoritatively.
-  Direct Gun fallback still creates conversations from the client when the server submit path is unavailable.
+  The direct Gun client-side conversation-creation fallback has been removed from the
+  `talkCompleted` handler. When the server submit path is unavailable the raw response
+  is still written to Gun, but no conversation is created until the server is reachable.
 - Practical authority today:
-  Server first, client fallback second.
-- Why this exists:
-  Older flow logic predated the server response endpoint and still survives as a resilience path.
+  Server only.
+- Why the fallback was removed:
+  Client-created conversations bypassed server match logic, produced data inconsistencies,
+  and conflicted with server-side stats. The Gun response write is kept as a last-resort
+  data preservation measure; conversations require the server path.
 
 ### 5. Talk stats in the Talks tab
 
@@ -73,14 +77,13 @@ paths are authoritative long-term."
   [src/web/app/app.ts](/Users/hongyujiang/IinPublic/src/web/app/app.ts)
   event `needTalkStats`
 - Current behavior:
-  `summary.total` comes from `/api/stats/talks/:id/summary`.
-  `matches` and `ignores` are still derived from Gun response scanning.
+  `summary.total`, `summary.matches`, and `summary.ignores` all come from
+  `/api/stats/talks/:id/summary`. Gun response scanning has been removed.
 - Practical authority today:
-  Mixed.
-  Server is authoritative for response totals.
-  Gun is still being used as a UI-derived decoration source for match/ignore counts.
-- Why this exists:
-  It was the lowest-risk bridge to fix the failing tests without rewriting all stats semantics at once.
+  Server.
+- Why Gun scanning was removed:
+  The stats API already tracks `outcome` per response. Aggregating from Gun added a
+  duplicate, drift-prone path with no extra reliability benefit.
 
 ### 6. Status bar match count
 
@@ -96,9 +99,8 @@ paths are authoritative long-term."
 
 ## Active Compensation Paths
 
-- `getTalkWithRetry()` still compensates for partial Gun reads.
-- `talkCompleted` still has a direct Gun write fallback if server submit fails.
-- Talks-tab stats still merge server totals with Gun-derived match/ignore decoration.
+- `getTalkWithRetry()` still compensates for partial Gun reads (Gun-first with one server fallback at the end — see item 3 below).
+- `talkCompleted` still has a direct Gun write fallback if server submit fails (response record only; conversation creation now requires the server path).
 - Incoming talk UX still depends on both Gun announcements and server `/incoming-talks` refresh.
 
 ## Recommended Long-Term Authorities
@@ -116,9 +118,9 @@ paths are authoritative long-term."
 
 ## Next Refactor Order
 
-1. Remove Gun-derived `matches` / `ignores` aggregation from the Talks tab and expose those counts from the stats API.
-2. Collapse the direct client-side conversation-creation fallback behind one narrow recovery path, or remove it if server submit is reliable enough in tests and local use.
-3. Revisit `getTalkWithRetry()` so the code and comment match one explicit policy instead of a mixed Gun-first/server-final compromise.
+1. ✅ Remove Gun-derived `matches` / `ignores` aggregation from the Talks tab and expose those counts from the stats API.
+2. ✅ Collapse the direct client-side conversation-creation fallback: removed the Gun `createConversation()` call from the `talkCompleted` fallback path. Conversations now require a successful server submit.
+3. Revisit `getTalkWithRetry()` so the code and comment match one explicit policy instead of a mixed Gun-first/server-final compromise. Current docstring says "Prefer server graph (authoritative)" but the implementation retries Gun 20× first and hits the server only once at the end.
 
 ## Guardrails
 

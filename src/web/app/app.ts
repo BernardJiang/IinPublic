@@ -618,44 +618,6 @@ export class IinPublicApp {
     }
   }
 
-  /** Senders from merged incoming cluster (same content-hash talk); empty if API/cluster missing. */
-  private async getIncomingSendersForMatchedTalk(talkData: any): Promise<
-    Array<{ senderId: string; senderName: string }>
-  > {
-    if (!this.currentUser?.id || !talkData) return [];
-    const base = this.getBackendApiBase();
-    try {
-      const res = await fetch(
-        `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/incoming-talks`,
-        { cache: 'no-store' },
-      );
-      if (!res.ok) return [];
-      const clusters = await res.json();
-      if (!Array.isArray(clusters)) return [];
-      const key = computeTalkIdFromTalkData(talkData);
-      const cluster = clusters.find(
-        (c: any) =>
-          c &&
-          (c.identityKey === key ||
-            (c.identityAliases &&
-              typeof c.identityAliases === 'object' &&
-              c.identityAliases[key])),
-      );
-      if (!cluster?.senders || typeof cluster.senders !== 'object') return [];
-      const out: Array<{ senderId: string; senderName: string }> = [];
-      for (const s of Object.values(cluster.senders as Record<string, any>)) {
-        const sid = s?.senderId;
-        if (!sid || sid === this.currentUser!.id) continue;
-        out.push({
-          senderId: sid,
-          senderName: s?.senderName || 'Someone',
-        });
-      }
-      return out;
-    } catch {
-      return [];
-    }
-  }
 
   /**
    * HTTP API lives on the Gun server (port 8080 in single-worker dev/e2e, 8080+N for parallel
@@ -1563,44 +1525,11 @@ export class IinPublicApp {
           }
 
           if (!submittedViaServer && data.talkData && isMatch) {
-            console.log(`✅ Match! Creating conversation(s) with sender(s)`);
-
-            const senders = await this.getIncomingSendersForMatchedTalk(data.talkData);
-            const targets =
-              senders.length > 0
-                ? senders
-                : data.talkData.authorId
-                  ? [
-                      {
-                        senderId: data.talkData.authorId,
-                        senderName: 'Someone',
-                      },
-                    ]
-                  : [];
-
-            for (const target of targets) {
-              const authorData = await this.gunService.getPublicUser(target.senderId);
-              const authorName = authorData.stageName || target.senderName || 'Unknown';
-              try {
-                const conversationId = await this.conversationService.createConversation({
-                  userId1: this.currentUser!.id,
-                  userName1: this.currentUser!.stageName,
-                  userId2: target.senderId,
-                  userName2: authorName,
-                  talkId: data.talkId,
-                  respondedByBotForUser1: isChatbot,
-                  respondedByBotForUser2: false,
-                });
-                this.uiManager.addNewConversation({
-                  conversationId,
-                  otherUserId: target.senderId,
-                  otherUserName: authorName,
-                  talkId: data.talkId,
-                });
-              } catch (e) {
-                console.error('Failed to create match conversation:', e);
-              }
-            }
+            // Server is the authority for conversation creation. When the server submit path is
+            // unavailable we cannot safely create a conversation because the server will not know
+            // about it and match/stats state will be inconsistent. The Gun response write above
+            // preserves the raw answer data; the user should retry when the server is reachable.
+            console.warn('Talk response was not submitted via server — skipping conversation creation until server is reachable.');
           }
         } catch (error) {
           console.error('Failed to store talk response:', error);
