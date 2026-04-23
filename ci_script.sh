@@ -2,7 +2,7 @@
 set -euo pipefail
 
 LOG=.ci-test.log
-PW_WORKERS=4 npm run test:e2e >"$LOG" 2>&1 || true
+(npm run health && PW_WORKERS=8 npm run test:e2e) >"$LOG" 2>&1 || true
 
 codex exec --oss "
 Read $LOG.
