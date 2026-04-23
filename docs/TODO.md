@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-04-22
+Last updated: 2026-04-23
 
 This file is the prioritized backlog for the current repository. It is intentionally short.
 It should describe what is still worth doing, not restate features that already exist or
@@ -8,61 +8,10 @@ expand into implementation-level specs for every subsystem.
 
 ## Current Snapshot
 
-Observed in the repo today:
-
-- TypeScript server, shared, and web layers are present under `src/`
-- Android skeleton exists under `android/`
-- CI already exists in `.github/workflows/ci-cd.yml`
-- Deploy scripts and `Dockerfile` already exist
-- Logging infrastructure already exists via `src/server/logger.ts` and `src/server/middleware/request-logger.ts`
-- Test tooling already exists for Jest, Playwright, TypeScript, and ESLint
-- Large documentation drift still exists across `README.md`, `docs/`, and status reports
-- Main maintenance hotspots have been reduced by extracting server bootstrap/socket/route modules and multiple UI feature/dialog helpers out of the former monolith files
-
-## Priorities
-
-### P0 - Clean up source of truth
-
-- [x] Rewrite `README.md` into a short canonical entry point:
-  project overview, architecture, run commands, test commands, docs map, current status
-- [x] Rewrite `docs/reports/PROJECT_STATUS.md` so it reflects the current TypeScript repo instead of older merged-project history
-- [x] Audit `docs/guides/HOW_TO_RUN.md` for accuracy:
-  ports, commands, prerequisites, and troubleshooting should match `package.json` and the current app
-- [x] Move outdated or historical material into clearer buckets:
-  `docs/current/`, `docs/roadmap/`, `docs/archive/` or equivalent
-- [ ] Keep this TODO focused on actual remaining work; remove stale “already built” tasks as they are discovered
-
-### P0 - Reduce repo noise
-
-- [x] Decide which generated outputs should never live in version control:
-  `coverage/`, `dist/`, `playwright-report/`, `test-results/`, runtime logs, local app state
-  (Decision made: all covered by `.gitignore`; none are tracked in version control)
-- [x] Tighten `.gitignore` to match that decision, including `coverage/`
-- [x] Move obvious historical artifacts out of the main path:
-  diff files, old reports, screenshots, copied scripts, and imported reference docs that are no longer active
-- [x] Separate example/reference code from core product code so the main app is easier to scan
-
-### P1 - Stabilize local validation
-
-- [x] Fix the Jest haste-map collision caused by nested workspace/package scanning:
-  exclude `.claude/` and similar non-project package roots from Jest scanning
-- [x] Add one reliable repo health command in `package.json`:
-  typecheck + lint + unit/integration tests + build checks
-- [x] Verify CI uses that same health command where practical, so local and CI expectations match
-
-### P1 - Refactor the main maintenance hotspots
-
-- [x] Break up `src/server/index.ts` into smaller route, socket, and bootstrap modules without changing behavior
-- [x] Break up `src/web/ui/ui-manager.ts` by feature area:
-  chatrooms, contacts, talks, conversations, profile, shared render helpers
-- [x] Add focused regression coverage around the extracted seams before or during the refactor
-
-### P2 - Narrow product work
-
-- [x] Re-rank the active backlog into:
-  foundation, core message/talk loop, UX polish, platforms
-- [x] Avoid treating Android or iOS work as near-term priority until the core web/server loop is easier to maintain
-- [x] Turn broad feature ideas into smaller tickets only when they are about to be worked on
+- TypeScript server, shared, and web layers are stable under `src/`
+- P0/P1/P2 cleanup and refactor phases are complete
+- Server-side talk loop is tested end-to-end; Gun authority audit is complete
+- Remaining work: answer/chatbot flow clarity, UX polish, docs alignment
 
 ## Phase 2 Backlog
 
@@ -80,8 +29,10 @@ Observed in the repo today:
   (Fixed: `getClusterSenders` now reads from `incomingTalksMap` first; 14 HTTP-level integration tests added in `src/test/integration/talk-loop.test.ts`)
 - [x] Audit where the server is still compensating for Gun timing/replication issues and decide which paths are authoritative long-term
   Source of truth: `docs/roadmap/talk-loop-authority.md`
-- [ ] Make the answer/template/chatbot flow easier to reason about:
+- [x] Make the answer/template/chatbot flow easier to reason about:
   one clear path for saved answers, auto-reply templates, and talk completion side effects
+  (Refactored: `talkCompleted` handler extracted to `handleTalkCompleted()` with a 4-step
+  narrative; two-template design (localStorage UI cache vs Gun server auto-reply) documented)
 
 ### UX Polish
 

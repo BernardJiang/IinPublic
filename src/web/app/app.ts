@@ -807,6 +807,137 @@ export class IinPublicApp {
       .catch((e) => console.error('Incoming talk registration request failed:', e));
   }
 
+  /**
+   * Full talk-completion flow. Four sequential steps:
+   *
+   * 1. Sync QA preferences — persist the user's chosen answers to their profile (Gun, SEA-signed).
+   *
+   * 2. Save the client-side chatbot template — stored eagerly in localStorage so the chatbot UI
+   *    can use it for a rapid re-announce before the server round-trip completes. This is a UI
+   *    cache only; it does NOT drive the server auto-reply logic.
+   *
+   * 3. Submit the response to the server — the server is the authority for:
+   *      a. Writing the Gun answer template (`talkAnswerTemplateByUser`) that drives auto-reply
+   *         when a new incoming talk is received via POST /api/talks/:id/received.
+   *      b. Recording stats (`talkResponsesMap`).
+   *      c. Creating match conversations (`createOrGetConversation`).
+   *    If the server is unreachable, the raw answers are written to Gun as a data-preservation
+   *    fallback, but no conversation is created (server is authoritative for match side-effects).
+   *
+   * 4. Update the UI — add any conversations the server returned to the local conversation list.
+   */
+  private async handleTalkCompleted(data: {
+    talkId: string;
+    answers: any[];
+    talkData?: any;
+    isChatbotResponse?: boolean;
+  }): Promise<void> {
+    console.log('📝 User completed talk:', data);
+    const isChatbot = !!data.isChatbotResponse;
+
+    // Step 1 — sync QA preferences
+    if (data.talkData) {
+      const pair = this.gunService.getStoredPair();
+      if (pair) {
+        await this.userService.syncQuestionAnswersFromTalkCompletion(
+          data.talkData,
+          data.answers,
+          this.uiManager.getAnswerPreferencesSnapshot(),
+          pair,
+        );
+      }
+    }
+
+    const chatroomId = this.chatroomService.getCurrentChatroomId();
+    if (!chatroomId) return;
+
+    // Step 2 — save client-side chatbot template (localStorage, UI cache only)
+    // Saved before the server round-trip so a rapid re-announce can use it immediately.
+    // The server saves its own copy to Gun inside submitTalkResponse(); that copy drives
+    // the server-side auto-reply in POST /api/talks/:id/received.
+    const locallyLooksLikeMatch = !!data.talkData && this.checkIfMatch(data.talkData, data.answers);
+    if (data.talkData && locallyLooksLikeMatch && !isChatbot) {
+      this.uiManager.saveChatbotTemplate(data.talkId, {
+        answers: data.answers,
+        talkData: data.talkData,
+      });
+    }
+
+    // Step 3 — submit to server; server saves Gun template, stats, and conversations
+    const localAuthorName =
+      data.talkData?.authorName && data.talkData.authorName !== 'Unknown'
+        ? data.talkData.authorName
+        : undefined;
+    let submittedViaServer = false;
+    let serverIsMatch = false;
+    let serverMatches: Array<{ senderId: string; senderName: string; conversationId: string; talkId: string }> = [];
+
+    if (data.talkData) {
+      try {
+        // isAuto: true when none of the answers were manually chosen (chatbot or all-auto mode).
+        const isAutoResponse = !data.answers.some((a: any) => a?.mode === 'manual');
+        const serverResult = await this.talkService.submitTalkResponse({
+          talkId: data.talkId,
+          responderId: this.currentUser!.id,
+          responderName: this.currentUser!.stageName,
+          answers: data.answers,
+          talkData: data.talkData,
+          isAuto: isAutoResponse,
+          isChatbotResponse: isChatbot,
+        });
+        submittedViaServer = true;
+        serverIsMatch = !!serverResult.isMatch;
+        serverMatches = Array.isArray(serverResult.matches) ? serverResult.matches : [];
+        // Back-fill from the legacy single-match fields when the matches array is empty.
+        if (serverMatches.length === 0 && serverResult.otherUserId && serverResult.conversationId) {
+          serverMatches = [{
+            senderId: serverResult.otherUserId,
+            senderName: serverResult.otherUserName || localAuthorName || 'Unknown',
+            conversationId: serverResult.conversationId,
+            talkId: data.talkId,
+          }];
+        }
+        console.log('✅ Talk response stored via server');
+      } catch (error) {
+        console.warn('Talk response server submit failed, falling back to direct Gun write:', error);
+      }
+    }
+
+    if (!submittedViaServer) {
+      // Data-preservation fallback: record the raw answers in Gun so they aren't lost.
+      // No conversation is created here — server is authoritative for match side-effects.
+      const gun = this.gunService.getGun();
+      const responseId = `resp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      gun.get(`talks/${data.talkId}`).get('responses').get(responseId).put({
+        responderId: this.currentUser!.id,
+        responderName: this.currentUser!.stageName,
+        answers: JSON.stringify(data.answers),
+        submittedAt: new Date().toISOString(),
+        isChatbotResponse: isChatbot,
+      });
+      if (locallyLooksLikeMatch) {
+        console.warn('Talk response was not submitted via server — skipping conversation creation until server is reachable.');
+      }
+    }
+
+    // Step 4 — update UI with conversations the server created
+    if (submittedViaServer && serverIsMatch) {
+      for (const match of serverMatches) {
+        const displayName =
+          match.senderName && match.senderName !== 'Unknown' && match.senderName !== 'Someone'
+            ? match.senderName
+            : localAuthorName || 'Unknown';
+        this.uiManager.addNewConversation({
+          conversationId: match.conversationId,
+          otherUserId: match.senderId,
+          otherUserName: displayName,
+          talkId: match.talkId || data.talkId,
+          respondedByBot: isChatbot,
+        });
+      }
+    }
+  }
+
   private checkIfMatch(talkData: any, answers: any[]): boolean {
     // Matching-type talks and tags both use isMatch on the chosen answer
     if (talkData.type !== 'flow' && talkData.type !== 'tag') {
@@ -1398,141 +1529,9 @@ export class IinPublicApp {
       'talkCompleted',
       async (data: { talkId: string; answers: any[]; talkData?: any; isChatbotResponse?: boolean }) => {
         try {
-          console.log('📝 User completed talk:', data);
-
-          const isChatbot = !!data.isChatbotResponse;
-
-          if (data.talkData) {
-            const pair = this.gunService.getStoredPair();
-            if (pair) {
-              await this.userService.syncQuestionAnswersFromTalkCompletion(
-                data.talkData,
-                data.answers,
-                this.uiManager.getAnswerPreferencesSnapshot(),
-                pair,
-              );
-            }
-          }
-
-          const chatroomId = this.chatroomService.getCurrentChatroomId();
-          if (!chatroomId) {
-            return;
-          }
-
-          let submittedViaServer = false;
-          let isMatch = !!data.talkData && this.checkIfMatch(data.talkData, data.answers);
-          if (data.talkData && isMatch && !isChatbot) {
-            // Persist the template before awaiting server work so a rapid re-announce can reuse it immediately.
-            this.uiManager.saveChatbotTemplate(data.talkId, {
-              answers: data.answers,
-              talkData: data.talkData,
-            });
-          }
-          const localAuthorName =
-            data.talkData?.authorName && data.talkData.authorName !== 'Unknown'
-              ? data.talkData.authorName
-              : undefined;
-          let serverMatches:
-            | Array<{ senderId: string; senderName: string; conversationId: string; talkId: string }>
-            | null = null;
-          let serverOtherUser:
-            | { userId: string; userName: string; conversationId: string | null; talkId: string }
-            | null = null;
-          if (data.talkData) {
-            try {
-              const serverResult = await this.talkService.submitTalkResponse({
-                talkId: data.talkId,
-                responderId: this.currentUser!.id,
-                responderName: this.currentUser!.stageName,
-                answers: data.answers,
-                talkData: data.talkData,
-                isAuto: !data.answers.some((a: any) => a?.mode === 'manual'),
-                isChatbotResponse: isChatbot,
-              });
-              submittedViaServer = true;
-              isMatch = !!serverResult.isMatch;
-              serverMatches = Array.isArray(serverResult.matches) ? serverResult.matches : [];
-              if (serverResult.otherUserId) {
-                serverOtherUser = {
-                  userId: serverResult.otherUserId,
-                  userName: serverResult.otherUserName || 'Unknown',
-                  conversationId: serverResult.conversationId,
-                  talkId: data.talkId,
-                };
-              }
-              console.log('✅ Talk response stored via server');
-            } catch (error) {
-              console.warn('Talk response server submit failed, falling back to direct Gun write:', error);
-            }
-          }
-
-          if (!submittedViaServer) {
-            const gun = this.gunService.getGun();
-            const responseId = `resp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-            gun
-              .get(`talks/${data.talkId}`)
-              .get('responses')
-              .get(responseId)
-              .put({
-                responderId: this.currentUser!.id,
-                responderName: this.currentUser!.stageName,
-                answers: JSON.stringify(data.answers),
-                submittedAt: new Date().toISOString(),
-                isChatbotResponse: isChatbot,
-              });
-
-            console.log('✅ Talk response stored');
-          }
-
-          if (submittedViaServer && isMatch) {
-            const directTargets =
-              serverMatches && serverMatches.length > 0
-                ? serverMatches.map((match) => ({
-                    conversationId: match.conversationId,
-                    otherUserId: match.senderId,
-                    otherUserName:
-                      match.senderName && match.senderName !== 'Unknown' && match.senderName !== 'Someone'
-                        ? match.senderName
-                        : localAuthorName || 'Unknown',
-                    talkId: match.talkId || data.talkId,
-                  }))
-                : serverOtherUser && serverOtherUser.conversationId
-                  ? [
-                      {
-                        conversationId: serverOtherUser.conversationId,
-                        otherUserId: serverOtherUser.userId,
-                        otherUserName:
-                          serverOtherUser.userName &&
-                          serverOtherUser.userName !== 'Unknown' &&
-                          serverOtherUser.userName !== 'Someone'
-                            ? serverOtherUser.userName
-                            : localAuthorName || 'Unknown',
-                        talkId: serverOtherUser.talkId,
-                      },
-                    ]
-                  : [];
-
-            for (const target of directTargets) {
-              this.uiManager.addNewConversation({
-                conversationId: target.conversationId,
-                otherUserId: target.otherUserId,
-                otherUserName: target.otherUserName,
-                talkId: target.talkId,
-                respondedByBot: isChatbot,
-              });
-            }
-          }
-
-          if (!submittedViaServer && data.talkData && isMatch) {
-            // Server is the authority for conversation creation. When the server submit path is
-            // unavailable we cannot safely create a conversation because the server will not know
-            // about it and match/stats state will be inconsistent. The Gun response write above
-            // preserves the raw answer data; the user should retry when the server is reachable.
-            console.warn('Talk response was not submitted via server — skipping conversation creation until server is reachable.');
-          }
+          await this.handleTalkCompleted(data);
         } catch (error) {
-          console.error('Failed to store talk response:', error);
+          console.error('Failed to handle talk completion:', error);
         }
       },
     );
