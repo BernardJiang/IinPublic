@@ -499,6 +499,34 @@ export class WebChatroomService {
     // Track active members for this chatroom
     const activeMembers = new Map<string, any>();
     let updateTimeout: NodeJS.Timeout | null = null;
+    let snapshotCancelled = false;
+
+    const emitCount = () => {
+      let count = 0;
+      for (const [, data] of activeMembers) {
+        if (data && data.isActive === true) {
+          count++;
+        }
+      }
+
+      console.log(`📊 Member count update for ${chatroomId}: ${count} members`);
+      callback(count);
+    };
+
+    // Seed the count from a full snapshot so newly-opened pages do not depend on
+    // Gun replaying every existing member through the incremental map subscription.
+    gun
+      .get('chatrooms')
+      .get(chatroomId)
+      .get('users')
+      .once((usersData: any) => {
+        if (snapshotCancelled || !usersData) return;
+        for (const userId in usersData) {
+          if (userId.startsWith('_')) continue;
+          activeMembers.set(userId, usersData[userId]);
+        }
+        emitCount();
+      });
 
     // Subscribe to each individual user's data using map().on()
     const off = gun
@@ -511,25 +539,28 @@ export class WebChatroomService {
         if (userId.startsWith('_')) return;
 
         // Update our tracking map
-        activeMembers.set(userId, memberData);
+        if (memberData == null || memberData.isActive === false) {
+          activeMembers.delete(userId);
+        } else {
+          activeMembers.set(userId, memberData);
+        }
 
         // Debounce the count update to avoid excessive recalculations
         if (updateTimeout) clearTimeout(updateTimeout);
         updateTimeout = setTimeout(() => {
-          let count = 0;
-          for (const [, data] of activeMembers) {
-            if (data && data.isActive === true) {
-              count++;
-            }
-          }
-
-          console.log(`📊 Member count update for ${chatroomId}: ${count} members`);
-          callback(count);
+          emitCount();
         }, 100); // 100ms debounce
       });
 
     // Store unsubscribe function
-    this.memberCountSubscriptions.set(chatroomId, () => off.off());
+    this.memberCountSubscriptions.set(chatroomId, () => {
+      snapshotCancelled = true;
+      if (updateTimeout) {
+        clearTimeout(updateTimeout);
+        updateTimeout = null;
+      }
+      off.off();
+    });
   }
 
   /**
@@ -552,10 +583,9 @@ export class WebChatroomService {
     try {
       const gun = this.gunService.getGun();
       const capacity = CONFIG.CHATROOM_CAPACITY;
+      const moveUserToChatroom = this.moveUserToChatroom.bind(this);
 
       return new Promise((resolve) => {
-        const self = this; // Capture 'this' for use in callbacks
-
         const activeUsers: Array<{
           userId: string;
           joinedAt: string;
@@ -640,7 +670,7 @@ export class WebChatroomService {
                     console.log(
                       `📍 Moving ${oldestUser.stageName} to child chatroom: ${childChatroomId}`,
                     );
-                    self.moveUserToChatroom(
+                    moveUserToChatroom(
                       oldestUser.userId,
                       chatroomId,
                       childChatroomId,
