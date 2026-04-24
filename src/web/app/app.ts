@@ -1605,6 +1605,16 @@ export class IinPublicApp {
         this.conversationService.subscribeToMessages(data.conversationId, (messages) => {
           console.log('📨 Received conversation messages:', messages);
           this.uiManager.displayConversationMessages(data.conversationId, messages);
+          // When a message update arrives for a conversation the user isn't currently viewing,
+          // record the latest message and mark the conversation unread so the badge appears.
+          if (messages.length > 0) {
+            const last = messages[messages.length - 1];
+            this.uiManager.updateConversationMessage(
+              data.conversationId,
+              String(last.text ?? ''),
+              String(last.timestamp ?? Date.now()),
+            );
+          }
         });
       } catch (error) {
         console.error('Failed to load conversation:', error);
