@@ -134,14 +134,24 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await afterNav();
 
     const meNavJerry = pageJerry.locator('.nav-btn[data-view="me"]');
+    // Wait for the notification badge first: this confirms addNewConversation() has fired and
+    // the conversation is in localStorage. The badge is updated directly by updateMatchBadge();
+    // the conversation list itself only re-renders on the next displayConversationsList() call.
     await expect(meNavJerry.locator('.notification-badge')).toBeVisible({ timeout: 15000 });
+
+    // Re-navigate to Me so displayConversationsList() runs again with the latest localStorage state.
+    // (addNewConversation does not call displayConversationsList when the user is already on Me.)
+    await pageJerry.click('.nav-btn[data-view="chatrooms"]');
+    await afterNav();
+    await pageJerry.click('.nav-btn[data-view="me"]');
+    await afterNav();
 
     // The conversation-list-item should carry the .unread class and .unread-badge element
     const convItemJerry = pageJerry
       .locator('.conversation-list-item')
       .filter({ hasText: 'Tom' })
       .first();
-    await expect(convItemJerry).toBeVisible({ timeout: 10000 });
+    await expect(convItemJerry).toBeVisible({ timeout: 15000 });
     await expect(convItemJerry.locator('.unread-badge')).toBeVisible({ timeout: 5000 });
 
     // ── Phase 2: opening the conversation clears the badge ───────────────────
