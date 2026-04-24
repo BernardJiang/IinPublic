@@ -10,7 +10,7 @@ import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from './helpers/fixtures';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
-import { afterLoad, afterSync, afterNav, afterAction } from './helpers/timing';
+import { afterLoad, afterSync, afterNav, afterAction, headless } from './helpers/timing';
 import { webAppURLStableChatroom } from './helpers/ports';
 import {
   openIncomingTalkModal,
@@ -27,12 +27,12 @@ test.describe('Chatroom peer detail views', () => {
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunDatabases();
     browserTom = await chromium.launch({
-      headless: true,
-      args: ['--window-size=640,1100', '--force-device-scale-factor=1'],
+      headless,
+      args: ['--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
     browserJerry = await chromium.launch({
-      headless: true,
-      args: ['--window-size=640,1100', '--force-device-scale-factor=1'],
+      headless,
+      args: ['--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
   });
 
