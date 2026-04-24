@@ -170,32 +170,39 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
 
 export function updateAllAnswerDropdowns(options: TalkEditorFormHelperOptions): void {
   const questions = document.querySelectorAll('.question-item');
+  const totalQuestions = questions.length;
 
   questions.forEach((questionItem, qIdx) => {
+    const isLastQuestion = qIdx === totalQuestions - 1;
     const answersContainer = questionItem.querySelector('.answers-container');
     if (!answersContainer) return;
 
     const answerSelects = answersContainer.querySelectorAll('.answer-next');
     answerSelects.forEach((select) => {
       const currentValue = (select as HTMLSelectElement).value;
-      const dropdownOptions = [
-        '<option value="ignore">Ignore (filter out)</option>',
-        '<option value="noticed">Noticed (match)</option>',
-      ];
 
-      for (let i = qIdx + 1; i < questions.length; i++) {
-        dropdownOptions.push(`<option value="q_${i}">Go to Question ${i + 1}</option>`);
+      // Last question: Ignore + Noticed only (no "go to next" — there is none).
+      // Non-last questions: Ignore + go-to links only (no Noticed — only the last
+      // question can produce a match; earlier questions must chain forward).
+      const dropdownOptions = ['<option value="ignore">Ignore (filter out)</option>'];
+      if (isLastQuestion) {
+        dropdownOptions.push('<option value="noticed">Noticed (match)</option>');
+      } else {
+        for (let i = qIdx + 1; i < totalQuestions; i++) {
+          dropdownOptions.push(`<option value="q_${i}">Go to Question ${i + 1}</option>`);
+        }
       }
 
       select.innerHTML = dropdownOptions.join('');
 
-      if (currentValue && currentValue !== '') {
-        const optionExists = Array.from(select.children).some(
-          (opt) => (opt as HTMLOptionElement).value === currentValue,
-        );
-        if (optionExists) {
-          (select as HTMLSelectElement).value = currentValue;
-        }
+      const sel = select as HTMLSelectElement;
+      const optionExists = Array.from(sel.options).some((opt) => opt.value === currentValue);
+      if (currentValue && optionExists) {
+        sel.value = currentValue;
+      } else if (!isLastQuestion) {
+        // Previous value is gone (was "noticed" or a now-deleted question id).
+        // Automatically redirect to the immediate next question.
+        sel.value = `q_${qIdx + 1}`;
       }
     });
   });

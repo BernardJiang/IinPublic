@@ -88,7 +88,7 @@ describe('extracted UI helpers', () => {
     expect(badge.textContent).toContain('AUTO');
   });
 
-  it('talk editor form helpers add questions and populate next-question dropdowns', () => {
+  function makeEditorDOM() {
     document.body.innerHTML = `
       <form id="talk-editor-form"></form>
       <button id="cancel-talk-btn" type="button">Cancel</button>
@@ -96,13 +96,18 @@ describe('extracted UI helpers', () => {
       <select id="talk-type"><option value="flow" selected>flow</option></select>
       <div id="questions-container"></div>
     `;
-
-    const options = {
-      refreshFlowAnswerConstraints: jest.fn(),
-      processTalkForm: jest.fn(() => true),
+    return {
+      container: document.getElementById('questions-container') as HTMLElement,
+      options: {
+        refreshFlowAnswerConstraints: jest.fn(),
+        processTalkForm: jest.fn(() => true),
+      },
     };
+  }
 
-    const container = document.getElementById('questions-container') as HTMLElement;
+  it('talk editor form helpers add questions and populate next-question dropdowns', () => {
+    const { container, options } = makeEditorDOM();
+
     addQuestionToForm(0, container, options);
     addQuestionToForm(1, container, options);
     updateAllAnswerDropdowns(options);
@@ -120,5 +125,56 @@ describe('extracted UI helpers', () => {
     const addQuestionBtn = document.getElementById('add-question-btn') as HTMLButtonElement;
     addQuestionBtn.click();
     expect(container.querySelectorAll('.question-item')).toHaveLength(3);
+  });
+
+  it('non-last questions have no Noticed option; last question has Noticed but no Go-to', () => {
+    const { container, options } = makeEditorDOM();
+
+    addQuestionToForm(0, container, options);
+    addQuestionToForm(1, container, options);
+    updateAllAnswerDropdowns(options);
+
+    const q0 = container.querySelector('[data-question-index="0"]') as HTMLElement;
+    const q1 = container.querySelector('[data-question-index="1"]') as HTMLElement;
+
+    // Q1 (non-last): all answer-next selects must NOT have "noticed"
+    q0.querySelectorAll('.answer-next').forEach((sel) => {
+      const vals = Array.from((sel as HTMLSelectElement).options).map((o) => o.value);
+      expect(vals).not.toContain('noticed');
+      expect(vals).toContain('q_1');
+    });
+
+    // Q2 (last): all answer-next selects must have "noticed" and NOT have go-to links
+    q1.querySelectorAll('.answer-next').forEach((sel) => {
+      const vals = Array.from((sel as HTMLSelectElement).options).map((o) => o.value);
+      expect(vals).toContain('noticed');
+      expect(vals).not.toContain('q_1');
+    });
+  });
+
+  it('adding a question auto-converts noticed on the now-non-last question to go-to-next', () => {
+    const { container, options } = makeEditorDOM();
+
+    // Single question — first answer defaults to "noticed" (last question, valid)
+    addQuestionToForm(0, container, options);
+    updateAllAnswerDropdowns(options);
+
+    const q0 = container.querySelector('[data-question-index="0"]') as HTMLElement;
+    const firstSel = q0.querySelector('.answer-next') as HTMLSelectElement;
+
+    // Manually set to "noticed" while Q0 is still the last question
+    firstSel.value = 'noticed';
+    expect(firstSel.value).toBe('noticed');
+
+    // Now add Q1 — Q0 becomes non-last; updateAllAnswerDropdowns fires
+    setupTalkFormHandlers(document.body, options);
+    (document.getElementById('add-question-btn') as HTMLButtonElement).click();
+
+    // Q0's "noticed" must have been auto-converted to "q_1"
+    expect(firstSel.value).toBe('q_1');
+
+    // Q0 dropdown must no longer contain "noticed"
+    const vals = Array.from(firstSel.options).map((o) => o.value);
+    expect(vals).not.toContain('noticed');
   });
 });

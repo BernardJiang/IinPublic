@@ -1056,6 +1056,44 @@ describe('TalkAutofix', () => {
     expect(report.talk.questions[0].answers[1].isIgnore).toBe(true);
   });
 
+  it('converts isMatch on a non-last question first answer to nextQuestionId', () => {
+    // User sets Q1 first answer to "noticed" (isMatch) while Q2 exists.
+    // Autofix must redirect Q1 → Q2 instead of firing match immediately.
+    const talk = {
+      ...makeBase(),
+      type: 'flow' as const,
+      questions: [
+        {
+          id: 'q_0',
+          text: 'Do you play tennis?',
+          answers: [
+            { id: 'a_0_0', text: 'Yes.', isMatch: true, isTerminal: true },
+            { id: 'a_0_1', text: 'No.', isIgnore: true, isTerminal: true },
+          ],
+        },
+        {
+          id: 'q_1',
+          text: 'When are you free?',
+          answers: [
+            { id: 'a_1_0', text: 'This weekend.', isMatch: true, isTerminal: true },
+            { id: 'a_1_1', text: 'Not sure.', isIgnore: true, isTerminal: true },
+          ],
+        },
+      ],
+    };
+    const { talk: fixed, fixes } = TalkAutofix.fix(talk as any);
+    // Q0 first answer must now link to Q1, not fire match
+    const q0first = fixed.questions[0].answers[0];
+    expect(q0first.nextQuestionId).toBe('q_1');
+    expect(q0first.isMatch).toBeFalsy();
+    expect(q0first.isTerminal).toBeFalsy();
+    // Q1 first answer stays as match (it IS the last question)
+    expect(fixed.questions[1].answers[0].isMatch).toBe(true);
+    // At least one fix was reported
+    expect(fixes.some((f) => f.includes('q_0'))).toBe(true);
+    expect(() => TalkValidator.validateTalk(fixed as any)).not.toThrow();
+  });
+
   it('fills in contextHashId for route questions from contextPath', () => {
     const talk = {
       ...makeBase(),
