@@ -567,7 +567,9 @@ export class TalkAutofix {
       const nextId = talk.questions[i + 1]?.id;
       const firstIsMatch = first.isMatch === true;
       const firstIsNext = typeof first.nextQuestionId === 'string' && first.nextQuestionId.length > 0;
-      if (first.isIgnore || (!firstIsMatch && !firstIsNext)) {
+      // Redirect when: ignore, no flags at all, OR match set on a non-last question
+      // (user picked "noticed" on Q1 but there's still a Q2 — must go to Q2 first).
+      if (first.isIgnore || (!firstIsMatch && !firstIsNext) || (firstIsMatch && !!nextId)) {
         delete first.isIgnore;
         if (nextId) {
           first.nextQuestionId = nextId;

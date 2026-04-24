@@ -1379,7 +1379,9 @@ export class UIManager extends EventEmitter {
     }
 
     const existingEntry = myTalks[talkIdToUse];
-    const role = existingEntry?.role === 'copied' ? 'copied' : 'answered';
+    const role = existingEntry?.role === 'copied' ? 'copied'
+               : existingEntry?.role === 'created' ? 'created'
+               : 'answered';
 
     this.saveMyTalk({
       talkId: talkIdToUse,
