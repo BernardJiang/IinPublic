@@ -62,11 +62,15 @@ import {
   updateAllAnswerDropdowns as updateTalkEditorAnswerDropdowns,
 } from './talk-editor-form-helpers';
 import { showTalkEditorDialog as openTalkEditorDialog } from './talk-editor-dialog';
+import { openPeerDetailView } from './user-detail-view';
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
   private currentChatroom: string = 'global';
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
+  private apiBase: string = '';
+  private currentUserId: string = '';
+  private currentUserStageName: string = '';
 
   /** Other users in the current chatroom detail view (excludes self); used for broadcast + server-side IN registration. */
   getCurrentChatroomMembers(): Array<{ userId: string; stageName: string }> {
@@ -86,6 +90,10 @@ export class UIManager extends EventEmitter {
 
   getChatroomMemberCount(chatroomId: string): number {
     return this.chatroomMemberCounts.get(chatroomId) || 0;
+  }
+
+  setApiBase(base: string): void {
+    this.apiBase = base;
   }
 
   private getMyTalks(): Record<string, any> {
@@ -214,6 +222,47 @@ export class UIManager extends EventEmitter {
               <div class="conversation-input-container">
                 <textarea id="conversation-message-input" placeholder="Type a message..." rows="2"></textarea>
                 <button class="btn send-btn" id="send-conversation-message">Send</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Peer Detail Overlay -->
+          <div class="peer-detail-overlay" id="peer-detail-overlay" style="display: none;">
+            <div class="peer-detail-container">
+              <div class="peer-detail-header">
+                <button class="back-btn" id="back-from-peer-detail">‹ Back</button>
+                <div class="peer-detail-info">
+                  <div class="peer-detail-name" id="peer-detail-name">User</div>
+                  <div class="peer-detail-subtitle" id="peer-detail-subtitle">Loading...</div>
+                </div>
+              </div>
+              <div class="peer-detail-body">
+                <div id="peer-stats-section"></div>
+                <div id="peer-conversations-section"></div>
+                <div class="peer-section-header">
+                  <div class="peer-section-title" style="font-weight:700;padding:12px 16px 4px;">Talk History</div>
+                  <div id="peer-history-controls" style="display:none;padding:8px 16px;gap:8px;flex-wrap:wrap;">
+                    <div style="display:flex;gap:6px;">
+                      <button class="btn peer-sort-btn active" data-sort="date" style="padding:4px 10px;font-size:0.85em;">Date</button>
+                      <button class="btn peer-sort-btn" data-sort="outcome" style="padding:4px 10px;font-size:0.85em;">Outcome</button>
+                    </div>
+                    <div style="display:flex;gap:6px;">
+                      <button class="btn peer-filter-tab active" data-filter="all" style="padding:4px 10px;font-size:0.85em;">All</button>
+                      <button class="btn peer-filter-tab" data-filter="sent" style="padding:4px 10px;font-size:0.85em;">Sent</button>
+                      <button class="btn peer-filter-tab" data-filter="received" style="padding:4px 10px;font-size:0.85em;">Received</button>
+                    </div>
+                  </div>
+                </div>
+                <div id="peer-talk-history-list"></div>
+                <div class="peer-send-section">
+                  <label class="peer-auto-mode-label" style="display:flex;align-items:center;gap:8px;padding:12px 16px 4px;font-size:0.9em;cursor:pointer;">
+                    <input type="checkbox" id="peer-auto-mode-checkbox" checked>
+                    <span>Auto mode — send all new talks automatically</span>
+                  </label>
+                  <div style="padding:8px 16px 16px;">
+                    <button class="btn primary-btn" id="peer-send-talks-btn" style="width:100%;">📤 Send My Talks</button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -520,6 +569,8 @@ export class UIManager extends EventEmitter {
   }
 
   showMainInterface(user: User): void {
+    this.currentUserId = user.id;
+    this.currentUserStageName = user.stageName;
     // Update header with user's stageName
     const headerUserInfo = document.getElementById('header-user-info');
     if (headerUserInfo) {
@@ -642,42 +693,29 @@ export class UIManager extends EventEmitter {
     );
   }
 
-  private renderChatroomList(): void {
-    renderChatrooms({
+  private chatroomsDeps(): Parameters<typeof renderChatrooms>[0] {
+    return {
       currentChatroom: this.currentChatroom,
       chatroomMemberCounts: this.chatroomMemberCounts,
       expandedChatrooms: this.expandedChatrooms,
       matchedUserIds: this.matchedUserIds,
-      setCurrentChatroom: (chatroomId) => {
-        this.currentChatroom = chatroomId;
-      },
-      setCurrentChatroomMembers: (members) => {
-        this.currentChatroomMembers = members;
-      },
+      setCurrentChatroom: (chatroomId) => { this.currentChatroom = chatroomId; },
+      setCurrentChatroomMembers: (members) => { this.currentChatroomMembers = members; },
       escapeHtml: escapeHtml,
       renderChatroomList: this.renderChatroomList.bind(this),
-      showTalksFromUserOrConversation: this.showTalksFromUserOrConversation.bind(this),
+      openPeerDetail: this.openPeerDetailForUser.bind(this),
       emit: (eventName, payload) => this.emit(eventName, payload),
-    });
+      currentUserId: this.currentUserId,
+      apiBase: this.apiBase,
+    };
+  }
+
+  private renderChatroomList(): void {
+    renderChatrooms(this.chatroomsDeps());
   }
 
   showChatroomDetail(chatroomId: string): void {
-    openChatroomDetail({
-      currentChatroom: this.currentChatroom,
-      chatroomMemberCounts: this.chatroomMemberCounts,
-      expandedChatrooms: this.expandedChatrooms,
-      matchedUserIds: this.matchedUserIds,
-      setCurrentChatroom: (nextChatroomId) => {
-        this.currentChatroom = nextChatroomId;
-      },
-      setCurrentChatroomMembers: (members) => {
-        this.currentChatroomMembers = members;
-      },
-      escapeHtml: escapeHtml,
-      renderChatroomList: this.renderChatroomList.bind(this),
-      showTalksFromUserOrConversation: this.showTalksFromUserOrConversation.bind(this),
-      emit: (eventName, payload) => this.emit(eventName, payload),
-    }, chatroomId);
+    openChatroomDetail(this.chatroomsDeps(), chatroomId);
   }
 
   displayTalksList(): void {
@@ -2407,29 +2445,11 @@ export class UIManager extends EventEmitter {
     members: Array<{ userId: string; stageName: string }>,
     currentUserId: string,
   ): void {
+    this.currentUserId = currentUserId;
     console.log(
       `📊 Updating member count for ${this.currentChatroom}: ${members.length} total members`,
     );
-    renderChatroomMembers(
-      {
-        currentChatroom: this.currentChatroom,
-        chatroomMemberCounts: this.chatroomMemberCounts,
-        expandedChatrooms: this.expandedChatrooms,
-        matchedUserIds: this.matchedUserIds,
-        setCurrentChatroom: (chatroomId) => {
-          this.currentChatroom = chatroomId;
-        },
-        setCurrentChatroomMembers: (nextMembers) => {
-          this.currentChatroomMembers = nextMembers;
-        },
-        escapeHtml: escapeHtml,
-        renderChatroomList: this.renderChatroomList.bind(this),
-        showTalksFromUserOrConversation: this.showTalksFromUserOrConversation.bind(this),
-        emit: (eventName, payload) => this.emit(eventName, payload),
-      },
-      members,
-      currentUserId,
-    );
+    renderChatroomMembers(this.chatroomsDeps(), members, currentUserId);
   }
 
   setMemberMatched(userId: string): void {
@@ -2455,78 +2475,31 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  private showTalksFromUserOrConversation(userId: string, stageName: string): void {
-    const myTalks = getMyTalks();
-    const talksFromUser = Object.entries(myTalks).filter(
-      ([, t]: [string, any]) => (t?.role === 'answered' || t?.role === 'copied') && t?.fullTalk?.authorId === userId,
-    );
-    const conversations = this.getMyConversations();
-    const hasConversation = Object.values(conversations).some(
-      (c: any) => c.otherUserId === userId,
-    );
-
-    if (talksFromUser.length > 0) {
-      this.showTalksFromUserModal(userId, stageName, talksFromUser);
-    } else if (hasConversation) {
-      this.emit('sendTalkToUser', { userId });
-    } else {
-      this.showNotification(
-        'Match with this user through Talks to start a conversation!',
-        'info',
-      );
-    }
+  private openPeerDetailForUser(userId: string, stageName: string): void {
+    openPeerDetailView(userId, stageName, {
+      currentUserId: this.currentUserId,
+      apiBase: this.apiBase,
+      getMyConversations: this.getMyConversations.bind(this),
+      getMyTalks: this.getMyTalks.bind(this),
+      showConversationDetail: this.showConversationDetail.bind(this),
+      registerTalkForPeer: this.registerTalkForPeer.bind(this),
+    });
   }
 
-  private showTalksFromUserModal(
-    _userId: string,
-    stageName: string,
-    talkEntries: [string, any][],
-  ): void {
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    modal.id = 'talks-from-user-modal';
-    modal.innerHTML = `
-      <div class="modal-content" style="max-width: 420px;">
-        <div class="modal-header">
-          <h2 class="modal-title">Talks from ${escapeHtml(stageName)}</h2>
-          <button class="close-button" id="close-talks-from-user-modal" style="background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
-        </div>
-        <div style="padding: 16px;">
-          ${talkEntries
-            .map(
-              ([talkId, talk]) => `
-            <div class="talk-from-user-item" data-talk-id="${talkId}" style="padding: 12px; margin-bottom: 8px; background: #f5f5f5; border-radius: 8px; cursor: pointer;">
-              <div style="font-weight: 600;">${escapeHtml(talk.title)}</div>
-              <div style="font-size: 0.85em; color: #666;">Click to open & answer</div>
-            </div>
-          `,
-            )
-            .join('')}
-          <p style="margin-top: 12px; font-size: 0.9em; color: #666;">Or go to the <strong>Talks</strong> tab to see all talks.</p>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-
-    const closeBtn = document.getElementById('close-talks-from-user-modal');
-    if (closeBtn) {
-      closeBtn.addEventListener('click', () => {
-        if (document.body.contains(modal)) document.body.removeChild(modal);
-      });
-    }
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        if (document.body.contains(modal)) document.body.removeChild(modal);
-      }
+  private async registerTalkForPeer(talkId: string, talkData: any, peerId: string, peerName: string): Promise<void> {
+    if (!this.apiBase || !this.currentUserId) return;
+    const res = await fetch(`${this.apiBase}/api/talks/${encodeURIComponent(talkId)}/received`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        receiverId: peerId,
+        receiverName: peerName,
+        senderId: this.currentUserId,
+        senderName: this.currentUserStageName,
+        talkData,
+      }),
     });
-
-    modal.querySelectorAll('.talk-from-user-item').forEach((el) => {
-      el.addEventListener('click', () => {
-        const talkId = (el as HTMLElement).dataset.talkId;
-        if (document.body.contains(modal)) document.body.removeChild(modal);
-        if (talkId) this.showTalkDetail(talkId);
-      });
-    });
+    if (!res.ok) throw new Error(`register talk for peer failed: HTTP ${res.status}`);
   }
 
   updateMatchBadge(): void {

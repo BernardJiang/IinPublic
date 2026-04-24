@@ -21,6 +21,7 @@ import {
 import { logger } from './logger';
 import { attachGun, configureHttpMiddleware, createSocketServer } from './bootstrap/http-bootstrap';
 import { registerChatroomRoutes } from './routes/chatroom-routes';
+import { registerPeerRoutes } from './routes/peer-routes';
 import { registerStatsRoutes } from './routes/stats-routes';
 import { registerTalkDeliveryRoutes } from './routes/talk-delivery-routes';
 import { registerSystemRoutes } from './routes/system-routes';
@@ -697,6 +698,11 @@ class IinPublicServer {
     });
 
     registerChatroomRoutes(this.app, { chatroomManager: this.chatroomManager });
+
+    registerPeerRoutes(this.app, {
+      incomingTalksMap: this.incomingTalksMap,
+      talkResponsesMap: this.talkResponsesMap,
+    });
 
     registerStatsRoutes(this.app, {
       talkService: this.talkService,

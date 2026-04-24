@@ -1,0 +1,11 @@
+{
+  "enabledPlugins": {
+    "ralph-loop@claude-plugins-official": true,
+    "claude-mem@thedotmack": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(/Users/hongyujiang/.claude/plugins/cache/claude-plugins-official/ralph-loop/**)"
+    ]
+  }
+}

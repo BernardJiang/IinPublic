@@ -1866,3 +1866,259 @@ body {
   text-align: center;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
+
+/* ============================================================
+   Chatroom member arrow
+   ============================================================ */
+.chatroom-member-arrow {
+  color: #ccc;
+  font-size: 1.2em;
+  margin-left: 4px;
+}
+
+.chatroom-member-item.member-stranger .chatroom-member-status {
+  color: #9ca3af;
+}
+
+.chatroom-member-item.member-known .chatroom-member-status {
+  color: #3b82f6;
+}
+
+/* ============================================================
+   Peer Detail Overlay
+   ============================================================ */
+.peer-detail-overlay {
+  position: fixed;
+  inset: 0;
+  background: white;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.peer-detail-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.peer-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: white;
+  border-bottom: 1px solid #e5e5e5;
+  flex-shrink: 0;
+}
+
+.peer-detail-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.peer-detail-name {
+  font-size: 1.1em;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+.peer-detail-subtitle {
+  font-size: 0.85em;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.peer-detail-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.peer-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 16px;
+}
+
+.peer-stat-card {
+  background: #f9fafb;
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid #e5e7eb;
+}
+
+.peer-stat-card.peer-stat-mutual {
+  grid-column: span 1;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.peer-stat-icon {
+  font-size: 1.4em;
+  flex-shrink: 0;
+}
+
+.peer-stat-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.peer-stat-label {
+  font-size: 0.75em;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 2px;
+}
+
+.peer-stat-value {
+  font-size: 1.1em;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+.peer-stat-sub {
+  font-size: 0.8em;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.peer-section-header {
+  border-top: 1px solid #e5e7eb;
+}
+
+.peer-section-title {
+  font-size: 0.95em;
+  font-weight: 700;
+  color: #374151;
+}
+
+#peer-history-controls {
+  display: flex;
+}
+
+.peer-history-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.peer-outcome-match {
+  background: #f0fdf4;
+}
+
+.peer-outcome-mismatch {
+  background: #fff7f7;
+}
+
+.peer-outcome-pending {
+  background: white;
+}
+
+.peer-history-direction {
+  font-size: 1.2em;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.peer-history-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.peer-history-title {
+  font-size: 0.95em;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 4px;
+}
+
+.peer-talk-type {
+  font-size: 0.75em;
+  background: #e0e7ff;
+  color: #3730a3;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.peer-history-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 0.8em;
+  color: #6b7280;
+  flex-wrap: wrap;
+}
+
+.peer-history-outcome {
+  font-weight: 600;
+}
+
+.peer-outcome-match .peer-history-outcome {
+  color: #15803d;
+}
+
+.peer-outcome-mismatch .peer-history-outcome {
+  color: #b91c1c;
+}
+
+.peer-section-title {
+  font-size: 0.95em;
+  font-weight: 700;
+  color: #374151;
+}
+
+.peer-conv-list {
+  padding: 0 16px 8px;
+}
+
+.peer-conv-item {
+  background: #f9fafb;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 8px;
+  border: 1px solid #e5e7eb;
+}
+
+.peer-conv-talk-title {
+  font-weight: 600;
+  font-size: 0.9em;
+  color: #1a1a1a;
+  margin-bottom: 4px;
+}
+
+.peer-conv-preview {
+  font-size: 0.85em;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+.peer-open-chat-btn {
+  font-size: 0.85em;
+  padding: 6px 14px;
+}
+
+.peer-send-section {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 4px;
+}
+
+.peer-auto-mode-label {
+  color: #374151;
+}
+
+.peer-sort-btn.active,
+.peer-filter-tab.active {
+  background: #1d4ed8;
+  color: white;
+}

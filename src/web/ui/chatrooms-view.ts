@@ -1,4 +1,5 @@
 import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
+import type { PeerRelationshipStats } from '../../server/routes/peer-routes';
 
 type ChatroomMember = { userId: string; stageName: string };
 
@@ -11,8 +12,10 @@ type ChatroomsViewDeps = {
   setCurrentChatroomMembers: (members: ChatroomMember[]) => void;
   escapeHtml: (text: string) => string;
   renderChatroomList: () => void;
-  showTalksFromUserOrConversation: (userId: string, stageName: string) => void;
+  openPeerDetail: (userId: string, stageName: string) => void;
   emit: (eventName: string, payload: unknown) => void;
+  currentUserId: string;
+  apiBase: string;
 };
 
 export function syncStatusBroadcastButtonVisibility(currentChatroom: string): void {
@@ -159,38 +162,106 @@ export function updateChatroomMembers(
         </div>
       `;
     } else {
-      chatroomMembersList.innerHTML = otherMembers
-        .map((member) => {
-          const isMatched = deps.matchedUserIds.has(member.userId);
-          return `
-            <div class="chatroom-member-item" data-user-id="${member.userId}" data-stage-name="${deps.escapeHtml(member.stageName)}" ${isMatched ? ' data-matched="true"' : ''}>
-              <div class="chatroom-member-avatar">${member.stageName.charAt(0).toUpperCase()}</div>
-              <div class="chatroom-member-info">
-                <div class="chatroom-member-name">${member.stageName}</div>
-                <div class="chatroom-member-status">${isMatched ? 'Matched' : 'Online now'}</div>
-              </div>
-            </div>
-          `;
-        })
-        .join('');
-
-      chatroomMembersList.querySelectorAll('.chatroom-member-item').forEach((el) => {
-        if ((el as HTMLElement).dataset.matched === 'true') {
-          el.classList.add('member-matched');
-        }
-      });
-
-      chatroomMembersList.querySelectorAll('.chatroom-member-item').forEach((item) => {
-        item.addEventListener('click', (e) => {
-          const targetUserId = (e.currentTarget as HTMLElement).getAttribute('data-user-id');
-          const stageName = (e.currentTarget as HTMLElement).getAttribute('data-stage-name') || 'User';
-          if (targetUserId) {
-            deps.showTalksFromUserOrConversation(targetUserId, stageName);
-          }
-        });
-      });
+      renderMemberList(chatroomMembersList, otherMembers, deps);
+      if (deps.apiBase && currentUserId) {
+        void loadMemberStats(chatroomMembersList, otherMembers, currentUserId, deps);
+      }
     }
   }
 
   syncStatusBroadcastButtonVisibility(deps.currentChatroom);
+}
+
+function renderMemberList(
+  container: HTMLElement,
+  members: ChatroomMember[],
+  deps: ChatroomsViewDeps,
+  statsMap?: Map<string, PeerRelationshipStats>,
+): void {
+  const sorted = statsMap ? sortMembersByRelationship(members, statsMap) : members;
+
+  container.innerHTML = sorted
+    .map((member) => {
+      const isMatched = deps.matchedUserIds.has(member.userId);
+      const stats = statsMap?.get(member.userId);
+      const statusText = buildMemberStatusText(isMatched, stats);
+      const relationClass = stats
+        ? (stats.sent.talks + stats.received.talks === 0 ? 'member-stranger' : 'member-known')
+        : '';
+      return `
+        <div class="chatroom-member-item ${isMatched ? 'member-matched' : ''} ${relationClass}" data-user-id="${deps.escapeHtml(member.userId)}" data-stage-name="${deps.escapeHtml(member.stageName)}"${isMatched ? ' data-matched="true"' : ''}>
+          <div class="chatroom-member-avatar">${member.stageName.charAt(0).toUpperCase()}</div>
+          <div class="chatroom-member-info">
+            <div class="chatroom-member-name">${deps.escapeHtml(member.stageName)}</div>
+            <div class="chatroom-member-status">${statusText}</div>
+          </div>
+          <div class="chatroom-member-arrow">›</div>
+        </div>
+      `;
+    })
+    .join('');
+
+  container.querySelectorAll('.chatroom-member-item').forEach((item) => {
+    item.addEventListener('click', () => {
+      const targetUserId = (item as HTMLElement).dataset.userId;
+      const stageName = (item as HTMLElement).dataset.stageName || 'User';
+      if (targetUserId) {
+        deps.openPeerDetail(targetUserId, stageName);
+      }
+    });
+  });
+}
+
+function sortMembersByRelationship(
+  members: ChatroomMember[],
+  statsMap: Map<string, PeerRelationshipStats>,
+): ChatroomMember[] {
+  return [...members].sort((a, b) => {
+    const sa = statsMap.get(a.userId);
+    const sb = statsMap.get(b.userId);
+    const totalA = sa ? sa.sent.talks + sa.received.talks : 0;
+    const totalB = sb ? sb.sent.talks + sb.received.talks : 0;
+    // Strangers (0 talks) first
+    if (totalA === 0 && totalB > 0) return -1;
+    if (totalB === 0 && totalA > 0) return 1;
+    // Among non-strangers: more interaction → later (show newer acquaintances near top)
+    return totalB - totalA;
+  });
+}
+
+function buildMemberStatusText(isMatched: boolean, stats?: PeerRelationshipStats): string {
+  if (!stats) return isMatched ? 'Matched' : 'Online now';
+  const total = stats.sent.talks + stats.received.talks;
+  if (total === 0) return 'Stranger';
+  const parts: string[] = [];
+  if (stats.sent.talks > 0) parts.push(`Sent ${stats.sent.talks}/${stats.sent.matches} matched`);
+  if (stats.received.talks > 0) parts.push(`Received ${stats.received.talks}/${stats.received.matches} matched`);
+  if (stats.mutualTagCount > 0) parts.push(`${stats.mutualTagCount} mutual tag${stats.mutualTagCount !== 1 ? 's' : ''}`);
+  return parts.join(' · ') || 'Online now';
+}
+
+async function loadMemberStats(
+  container: HTMLElement,
+  members: ChatroomMember[],
+  currentUserId: string,
+  deps: ChatroomsViewDeps,
+): Promise<void> {
+  const statsMap = new Map<string, PeerRelationshipStats>();
+  await Promise.all(
+    members.map(async (member) => {
+      try {
+        const res = await fetch(
+          `${deps.apiBase}/api/users/${encodeURIComponent(currentUserId)}/peers/${encodeURIComponent(member.userId)}/relationship`,
+        );
+        if (res.ok) {
+          const stats: PeerRelationshipStats = await res.json();
+          statsMap.set(member.userId, stats);
+        }
+      } catch {
+        // skip — member remains without stats
+      }
+    }),
+  );
+  // Re-render with stats (sorted)
+  renderMemberList(container, members, deps, statsMap);
 }

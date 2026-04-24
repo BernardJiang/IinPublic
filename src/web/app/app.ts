@@ -48,6 +48,7 @@ export class IinPublicApp {
 
     // Initialize UI
     this.uiManager.initialize();
+    this.uiManager.setApiBase(this.getBackendApiBase());
 
     // Get or create user
     await this.initializeUser();
