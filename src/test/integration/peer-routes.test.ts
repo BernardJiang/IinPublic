@@ -25,8 +25,18 @@ function buildTestServer() {
 
   const incomingTalksMap: Map<string, Map<string, any>> = new Map();
   const talkResponsesMap: Map<string, TalkResponse[]> = new Map();
+  const stageNames = new Map<string, string>([
+    [ALICE, 'Alice'],
+    [BOB, 'Bob'],
+    [CAROL, 'Carol'],
+  ]);
 
-  registerPeerRoutes(app, { incomingTalksMap, talkResponsesMap });
+  registerPeerRoutes(app, {
+    incomingTalksMap,
+    talkResponsesMap,
+    getUserStageName: async (userId: string, fallbackName?: string) =>
+      stageNames.get(userId) || fallbackName || 'Unknown',
+  });
 
   return { app, incomingTalksMap, talkResponsesMap };
 }

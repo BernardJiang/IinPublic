@@ -55,6 +55,9 @@ module.exports = {
                 ? process.env.CHATROOM_ENABLE_FIFO
                 : 'false',
             ),
+            'process.env.IINPUBLIC_STAGE_SEED': JSON.stringify(
+              process.env.IINPUBLIC_STAGE_SEED || '',
+            ),
           }),
         ]
       : [
@@ -64,6 +67,7 @@ module.exports = {
             // Web client reads this in web-gun-service (AXE off for e2e only). Must be defined here
             // so the bundle does not reference bare `process` in the browser (webpack 5).
             DISABLE_HMR: process.env.DISABLE_HMR || 'false',
+            IINPUBLIC_STAGE_SEED: process.env.IINPUBLIC_STAGE_SEED || '',
           }),
         ]),
     // Ignore Gun.js dynamic requires that are Node.js-only and must not be

@@ -7,6 +7,52 @@ type AnswersViewDeps = {
   getTalkContentKey: (talk: any) => string;
 };
 
+function getQuestionTextMap(talk: any): Map<string, string> {
+  const map = new Map<string, string>();
+  const questions = Array.isArray(talk?.questions) ? talk.questions : [];
+  for (const question of questions) {
+    const id = String(question?.id || '').trim();
+    const text = String(question?.text || '').trim();
+    if (id) map.set(id, text || id);
+  }
+  return map;
+}
+
+function getAnswerDisplayText(
+  talk: any,
+  entry: { questionId: string; answerId: string; answerText?: string },
+): string {
+  const rawText = String(entry.answerText || '').trim();
+  if (rawText && rawText.toLowerCase() !== 'ignore') return rawText;
+  const questions = Array.isArray(talk?.questions) ? talk.questions : [];
+  const question = questions.find((item: any) => String(item?.id || '') === entry.questionId);
+  const answer = Array.isArray(question?.answers)
+    ? question.answers.find((item: any) => String(item?.id || '') === entry.answerId)
+    : null;
+  return String(answer?.text || '').trim() || 'Ignored';
+}
+
+function renderCompletedAnswersHtml(talk: any, completedAnswers: Array<{ questionId: string; answerId: string; answerText?: string }>, escapeHtml: (text: string) => string): string {
+  if (!Array.isArray(completedAnswers) || completedAnswers.length === 0) {
+    return '<div style="font-size: 0.85em; color: #666;">Answer details were not captured for this talk yet.</div>';
+  }
+
+  const questionTextMap = getQuestionTextMap(talk);
+  return completedAnswers
+    .map((entry, index) => {
+      const questionText = questionTextMap.get(entry.questionId) || `Question ${index + 1}`;
+      const answerText = getAnswerDisplayText(talk, entry);
+      return `
+        <div class="answer-outcome-item" style="padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.72); border: 1px solid rgba(148,163,184,0.2);">
+          <div style="font-size: 0.82em; color: #64748b; margin-bottom: 4px;">Q${index + 1}</div>
+          <div style="font-weight: 600; color: #1f2937;">${escapeHtml(questionText)}</div>
+          <div style="margin-top: 6px; color: #0f766e;">${escapeHtml(answerText)}</div>
+        </div>
+      `;
+    })
+    .join('');
+}
+
 export function displayAnswersList(deps: AnswersViewDeps): void {
   const container = document.getElementById('answers-content');
   if (!container) return;
@@ -58,18 +104,32 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
           ? 'From 1 sender'
           : `From ${talk.senders.length} senders`
         : '';
+      const completedAnswers = Array.isArray(talk.completedAnswers) ? talk.completedAnswers : [];
+      const questionCount = completedAnswers.length || (Array.isArray(talk.fullTalk?.questions) ? talk.fullTalk.questions.length : 0);
+      const statsLine = [
+        senders,
+        `${questionCount} question${questionCount !== 1 ? 's' : ''}`,
+        outcome === 'match' ? '✓ Match' : '✗ Mismatch',
+      ]
+        .filter(Boolean)
+        .join(' · ');
       const item = document.createElement('div');
       item.className = 'answer-talk-item';
       item.dataset.talkId = talkId;
-      item.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-radius: 8px; background: ' + (outcome === 'match' ? '#e8f5e9' : '#fff3e0') + '; border: 1px solid ' + (outcome === 'match' ? '#c8e6c9' : '#ffe0b2') + '; flex-wrap: wrap;';
+      item.style.cssText = 'display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border-radius: 12px; background: ' + (outcome === 'match' ? '#e8f5e9' : '#fff7ed') + '; border: 1px solid ' + (outcome === 'match' ? '#c8e6c9' : '#fed7aa') + ';';
       item.innerHTML = `
-        <div style="flex: 1; min-width: 0;">
-          <div style="font-weight: 600;">${deps.escapeHtml(talk.title)}</div>
-          <div style="font-size: 0.85em; color: #666;">${senders} · ${outcome === 'match' ? '✓ Match' : '✗ Mismatch'}</div>
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+          <div style="flex: 1; min-width: 0;">
+            <div style="font-weight: 700;">${deps.escapeHtml(talk.title)}</div>
+            <div style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(statsLine)}</div>
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">Copy</button>
+            <button type="button" class="btn answer-edit-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">Edit</button>
+          </div>
         </div>
-        <div style="display: flex; gap: 8px;">
-          <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">Copy</button>
-          <button type="button" class="btn answer-edit-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">Edit</button>
+        <div class="answer-question-list" style="display: grid; gap: 8px;">
+          ${renderCompletedAnswersHtml(talk.fullTalk, completedAnswers, deps.escapeHtml)}
         </div>
       `;
       listEl.appendChild(item);

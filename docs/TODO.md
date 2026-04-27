@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-04-23
+Last updated: 2026-04-26
 
 This file is the prioritized backlog for the current repository. It is intentionally short.
 It should describe what is still worth doing, not restate features that already exist or
@@ -11,7 +11,7 @@ expand into implementation-level specs for every subsystem.
 - TypeScript server, shared, and web layers are stable under `src/`
 - P0/P1/P2 cleanup and refactor phases are complete
 - Server-side talk loop is tested end-to-end; Gun authority audit is complete
-- Remaining work: answer/chatbot flow clarity, UX polish, docs alignment
+- Remaining work: contact/user-surface UX, talks navigation, answer visibility, docs alignment
 
 ## Phase 2 Backlog
 
@@ -45,6 +45,26 @@ expand into implementation-level specs for every subsystem.
   (Extracted: formatTimeAgo, formatExpiration, formatLocationRadius, escapeHtml → ui-formatters.ts)
 - [x] Add narrow tests when a UX-critical seam changes instead of growing a broad speculative backlog
   (Added: src/test/unit/ui-formatters.test.ts, 20 unit tests)
+- [ ] Fix the chatroom member list so it can scroll vertically when a room contains more users than fit onscreen
+- [ ] Replace the duplicate chatroom broadcast buttons (`Broadcast talks to everyone here` / `Broadcast to everyone in this room`)
+  with one top-level navigation/status bar action so the room-level broadcast entry point is unified
+- [ ] Add a contacts list that shows every user the current user has exchanged talks with:
+  include both inbound and outbound talk relationships, and show per-contact stats for exchanged talks,
+  common tags, user-defined relationship, and private nickname display rules
+- [ ] Unify the user profile/detail surface across chatroom member lists and contacts:
+  clicking a stage name in a chatroom should open the same detail view as the contacts list, with a sparse
+  fallback state when the two users have no prior contact history
+- [ ] Add top-level navigation on the Talks tab for `IN`, `OUT`, and back so users can switch lists without
+  scrolling to the bottom of the current section
+- [ ] Expand the Answer tab so each entry shows the question, the current user's answer, and relevant answer stats together
+- [ ] Add end-to-end coverage for each of the UX items above so they can be verified independently:
+  chatroom member-list scrolling, unified broadcast bar, contacts list/stat display, shared user detail view,
+  Talks tab `IN`/`OUT` navigation, and Answer tab combined question/answer/stat rendering
+- [ ] Add reusable manual test stages with simple dev commands such as `npm run dev:stage-empty`,
+  `dev:stage-user1`, `dev:stage-user2-match`, and `dev:stage-user3-network` so feature work can start from
+  seeded states:
+  empty app, one user with drafted talks, two users with exchanged matched/mismatched talks, and three users
+  with cross-user talk history
 
 ### Platforms
 

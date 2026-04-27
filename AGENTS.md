@@ -210,3 +210,78 @@ The goal: Be helpful without being annoying. Check in a few times a day, do usef
 ## Make It Yours
 
 This is a starting point. Add your own conventions, style, and rules as you figure out what works.
+
+
+<claude-mem-context>
+# Memory Context
+
+# [IinPublic] recent context, 2026-04-27 12:01am PDT
+
+Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
+Format: ID TIME TYPE TITLE
+Fetch details: get_observations([IDs]) | Search: mem-search skill
+
+Stats: 50 obs (18,854t read) | 750,325t work | 97% savings
+
+### Apr 23, 2026
+S2 Debug and refactor E2E tests for chatroom peer-detail views to fix test isolation and modal interaction issues (Apr 23 at 11:08 PM)
+S1 ralph-loop:help — User requested help documentation for the /ralph-loop command (Apr 23 at 11:08 PM)
+S3 Fix broken `test:e2e` suite — both `PW_WORKERS=8 npm run test:e2e` and `npm run test:e2e` must pass after a large commit that introduced a whack-a-mole regression pattern. (Apr 23 at 11:15 PM)
+### Apr 25, 2026
+S4 Refactor subscribeToMemberCount in web-chatroom-service.ts to simplify Gun.js member count seeding (Apr 25 at 12:46 PM)
+S5 Monitor Re-Armed to Watch Playwright PID 26650 for Completion (Apr 25 at 1:01 PM)
+S6 Monitor e2e test suite completion for IinPublic project (Apr 25 at 1:12 PM)
+### Apr 26, 2026
+59 8:15p 🔵 Project Tech Stack and npm Script Inventory Confirmed
+60 " 🔵 Chatroom Member List Already Has Stats Loading but No Scroll Fix
+64 8:17p 🔵 Peer Relationship API Is In-Memory Only — No Persistence Between Server Restarts
+65 " 🔵 KnownPerson Has Relationship Label But No Nickname Field
+66 " 🔵 Talks Tab Renders IN Section Before OUT — Scrolling Required to Reach OUT Talks
+67 " 🔵 Two Duplicate Broadcast Buttons Confirmed in Chatrooms View HTML
+68 " 🔵 Chatroom Member List Has Correct Scroll CSS — Bug Likely in Parent Flex Container Height
+69 " ⚖️ Implementation Plan Ordered by Layout Dependencies First
+70 " 🔴 Duplicate Broadcast Buttons Unified Into Single Status Bar Action
+71 " 🟣 Talks Tab Now Has IN / OUT / All Navigation Bar with Back Button
+72 " 🔴 Chatroom Member List Scroll Fixed via CSS Container and overflow:hidden
+73 8:18p 🔵 All 140 Unit Tests Pass After ui-manager.ts and CSS Changes
+74 " 🔵 KnownPerson Nickname Absence Confirmed in Unit Tests — Schema Extension Required
+75 " 🔵 Server-Side Incoming Talk Cluster Structure Fully Mapped
+76 8:19p 🟣 KnownPerson Schema Extended with Optional nickname Field
+77 " 🟣 New GET /api/users/:userId/peers Endpoint Returns Full Contact List with Stats
+78 8:20p 🔵 peer-routes.ts Patch Failed — File Still in Pre-Refactor State
+79 " 🔄 peer-routes.ts Refactor Re-Applied with Corrected Patch Context
+80 8:29p 🔴 Chatroom Member List Scroll Chain Fixed
+81 " 🔴 Duplicate Broadcast Button Removed
+82 " 🟣 Talks Tab IN/OUT/All Navigation Bar
+83 " 🟣 KnownPerson Nickname Field Added End-to-End
+84 " 🟣 New GET /api/users/:userId/peers Endpoint
+85 " 🟣 Contacts View Rewritten to Use /peers Endpoint
+86 " 🟣 Peer Detail View Enhanced with Nickname and Relationship Display
+87 " 🟣 Answers Tab Shows Original Questions and Selected Answers
+88 " 🟣 E2E Specs Added for All New UX Features
+89 " 🟣 Seeded Dev Stage npm Scripts Added
+90 8:31p 🟣 Dev Stage Seed Module Created (dev-stage-seeds.ts)
+91 " 🟣 Stage Seed Auto-Applied in index.ts After App Init
+92 " ✅ All 5 Feature Items Fully Implemented and Green
+93 11:08p 🔵 Integration Test Failing Due to Missing `getUserStageName` in PeerRouteDeps
+94 " 🔵 Integration Test Run Crashes with EPERM: Socket Listen Forbidden on macOS
+95 11:09p 🔴 Fixed Missing `getUserStageName` Mock in peer-routes Integration Test
+96 11:19p 🟣 Contacts View Now Uses Centralized `getPeerName` for Display Name Resolution
+97 11:20p 🟣 UIManager Gains Persistent Peer Name Cache with Multi-Source Resolution
+98 11:25p 🔵 Two E2E Test Failures in Contacts Tab: Stale Name Display and Incorrect Talk Count
+99 11:26p 🔴 Fixed Contact Detail Panel Not Updating Contact Name After Click
+100 " 🔴 Fixed Operator Precedence Bug in Talk Count Calculation
+101 " ✅ Wired showContactDetail into UIManager and Supplied getMyTalks Dependency
+102 " ⚖️ Accepted 2 Talks as Correct Count in E2E Test 12 Rather Than Fixing Test Isolation
+103 11:34p 🔴 Removed Duplicate openPeerDetail Call from Contact Item Click Handler
+104 " 🔴 Fixed Answer Display Text Falling Back to Literal "ignore" String in Answers View
+105 " ✅ Updated E2E Test 12 to Assert Contact Detail Panel Instead of Peer Detail Overlay
+106 11:46p 🔵 E2E Test 12 Fails Only When Run in Full Suite Due to Conversation List State
+107 " 🔵 Test 12 Structure: Three-Browser E2E with BeforeEach Session Reset
+108 " 🔵 Conversation List Items Rendered from localStorage, Not Live GunDB State
+109 11:47p 🔵 addNewConversation Only Re-renders List When 'me' Tab Is Currently Active
+110 " 🔴 Fixed Wrong DOM Selector for Active Tab Check in addNewConversation
+111 " ✅ Fix Verified: TypeScript Types Clean, All 140 Unit Tests Pass
+
+Access 750k tokens of past work via get_observations([IDs]) or mem-search skill.
+</claude-mem-context>

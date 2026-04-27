@@ -63,11 +63,14 @@ import {
 } from './talk-editor-form-helpers';
 import { showTalkEditorDialog as openTalkEditorDialog } from './talk-editor-dialog';
 import { openPeerDetailView } from './user-detail-view';
+import type { KnownPerson } from '../../shared/types';
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
+  private currentUser?: User;
   private currentChatroom: string = 'global';
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
+  private talksViewMode: 'all' | 'in' | 'out' = 'all';
   private apiBase: string = '';
   private currentUserId: string = '';
   private currentUserStageName: string = '';
@@ -134,7 +137,7 @@ export class UIManager extends EventEmitter {
                 <span id="status-bar-text">Connecting...</span>
               </div>
               <div class="status-bar-actions" id="status-bar-actions" style="display: none;">
-                <button type="button" class="btn status-broadcast-btn" id="status-broadcast-talk-btn" title="Send every talk in your OUT list to everyone in this chatroom">
+                <button type="button" class="btn status-broadcast-btn" id="broadcast-talk-btn" title="Send every talk in your OUT list to everyone in this chatroom">
                   📢 Broadcast to everyone in this room
                 </button>
                 <p class="status-broadcast-hint" id="status-broadcast-hint">Uses talks from <strong>Talks</strong> (your OUT list). Create or copy a talk there first, then broadcast.</p>
@@ -156,11 +159,6 @@ export class UIManager extends EventEmitter {
                   <div class="chatroom-detail-title" id="current-chatroom-title">Global Chatroom</div>
                   <div class="chatroom-detail-status" id="current-chatroom-status">Loading...</div>
                 </div>
-              </div>
-              <div class="chatroom-actions chatroom-actions-top">
-                <button class="btn broadcast-btn" id="broadcast-talk-btn" title="Sends every talk in your Talks → OUT list to all members in this room (same as the bar above)">
-                  📢 Broadcast talk to everyone here
-                </button>
               </div>
               <div class="chatroom-members-list" id="chatroom-members-list">
                 <p style="text-align: center; padding: 20px; color: #999;">Loading members...</p>
@@ -199,6 +197,22 @@ export class UIManager extends EventEmitter {
                 <button class="btn create-talk-btn" id="create-talk-btn-talks">
                   ➕ Create New Talk
                 </button>
+              </div>
+              <div class="talks-nav-bar" id="talks-nav-bar">
+                <button class="btn talks-nav-back" id="talks-nav-back" type="button" style="display: none;">
+                  ‹ Back
+                </button>
+                <div class="talks-nav-tabs">
+                  <button class="btn talks-nav-btn active" id="talks-nav-all" data-talks-mode="all" type="button">
+                    All
+                  </button>
+                  <button class="btn talks-nav-btn" id="talks-nav-in" data-talks-mode="in" type="button">
+                    IN
+                  </button>
+                  <button class="btn talks-nav-btn" id="talks-nav-out" data-talks-mode="out" type="button">
+                    OUT
+                  </button>
+                </div>
               </div>
               <div class="talks-list" id="talks-list">
                 <p style="text-align: center; padding: 40px 20px; color: #999;">No talks yet. Create your first talk!</p>
@@ -413,19 +427,31 @@ export class UIManager extends EventEmitter {
 
     const broadcastTalkBtn = document.getElementById('broadcast-talk-btn');
     if (broadcastTalkBtn) {
-      broadcastTalkBtn.addEventListener('click', () => this.handleBroadcastTalkFromCurrentRoom(false));
+      broadcastTalkBtn.addEventListener('click', () => this.handleBroadcastTalkFromCurrentRoom());
     }
-    const statusBroadcastBtn = document.getElementById('status-broadcast-talk-btn');
-    if (statusBroadcastBtn) {
-      statusBroadcastBtn.addEventListener('click', () => this.handleBroadcastTalkFromCurrentRoom(true));
+
+    document.querySelectorAll('.talks-nav-btn').forEach((button) => {
+      button.addEventListener('click', () => {
+        const nextMode = (button as HTMLElement).dataset.talksMode as 'all' | 'in' | 'out' | undefined;
+        if (!nextMode) return;
+        this.talksViewMode = nextMode;
+        this.displayTalksList();
+      });
+    });
+
+    const talksNavBack = document.getElementById('talks-nav-back');
+    if (talksNavBack) {
+      talksNavBack.addEventListener('click', () => {
+        this.talksViewMode = 'all';
+        this.displayTalksList();
+      });
     }
   }
 
   /**
    * Send all broadcastable OUT talks to everyone in the current chatroom (Gun announce + server IN registration).
-   * @param ensureDetailVisible — if true, open the room detail panel first so the flow matches “tap room → broadcast” (also scrolls the main broadcast button into view).
    */
-  private handleBroadcastTalkFromCurrentRoom(ensureDetailVisible: boolean): void {
+  private handleBroadcastTalkFromCurrentRoom(): void {
     if (!this.currentChatroom) {
       this.showNotification('Open a chatroom from the list (tap a room), or wait until you are placed in one.', 'info');
       return;
@@ -475,20 +501,7 @@ export class UIManager extends EventEmitter {
         }, 0);
       }
     };
-
-    if (ensureDetailVisible) {
-      const detail = document.getElementById('chatroom-detail-container');
-      if (detail && detail.style.display === 'none') {
-        this.showChatroomDetail(this.currentChatroom);
-      }
-      // Member list + Gun callbacks can lag ~150–400ms after opening detail; wait so union/DOM isn't empty.
-      setTimeout(() => {
-        document.getElementById('broadcast-talk-btn')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        runBroadcast();
-      }, 750);
-    } else {
-      runBroadcast();
-    }
+    runBroadcast();
   }
 
   private syncStatusBroadcastButtonVisibility(): void {
@@ -569,6 +582,7 @@ export class UIManager extends EventEmitter {
   }
 
   showMainInterface(user: User): void {
+    this.currentUser = user;
     this.currentUserId = user.id;
     this.currentUserStageName = user.stageName;
     // Update header with user's stageName
@@ -661,35 +675,41 @@ export class UIManager extends EventEmitter {
 
   showContactsList(): void {
     openContactsList({
-      getMyConversations: this.getMyConversations.bind(this),
-      getMyTalks: this.getMyTalks.bind(this),
+      apiBase: this.apiBase,
+      currentUserId: this.currentUserId,
       escapeHtml: escapeHtml,
-      showTalkDetail: this.showTalkDetail.bind(this),
+      getKnownPeople: this.getKnownPeople.bind(this),
+      getPeerName: this.getPeerName.bind(this),
+      openPeerDetail: this.openPeerDetailForUser.bind(this),
+      getMyTalks: this.getMyTalks.bind(this),
     });
   }
 
-  /** Build list of contacts: users who have at least one match (conversation) with current user. */
   displayContactsList(): void {
     renderContactsList({
-      getMyConversations: this.getMyConversations.bind(this),
-      getMyTalks: this.getMyTalks.bind(this),
+      apiBase: this.apiBase,
+      currentUserId: this.currentUserId,
       escapeHtml: escapeHtml,
-      showTalkDetail: this.showTalkDetail.bind(this),
+      getKnownPeople: this.getKnownPeople.bind(this),
+      getPeerName: this.getPeerName.bind(this),
+      openPeerDetail: this.openPeerDetailForUser.bind(this),
+      getMyTalks: this.getMyTalks.bind(this),
     });
   }
 
-  /** Show list of talks that match the current user and the selected contact. */
-  showContactDetail(otherUserId: string, otherUserName: string, matchCount: number): void {
-    openContactDetail(
+  showContactDetail(otherUserId: string, otherUserName: string): void {
+    void openContactDetail(
       {
-        getMyConversations: this.getMyConversations.bind(this),
-        getMyTalks: this.getMyTalks.bind(this),
+        apiBase: this.apiBase,
+        currentUserId: this.currentUserId,
         escapeHtml: escapeHtml,
-        showTalkDetail: this.showTalkDetail.bind(this),
+        getKnownPeople: this.getKnownPeople.bind(this),
+        getPeerName: this.getPeerName.bind(this),
+        openPeerDetail: this.openPeerDetailForUser.bind(this),
+        getMyTalks: this.getMyTalks.bind(this),
       },
       otherUserId,
       otherUserName,
-      matchCount,
     );
   }
 
@@ -800,6 +820,15 @@ export class UIManager extends EventEmitter {
     // IN: backend-consolidated incoming talks (content-hash merged)
     const backendInEntries = (this.incomingTalkClusters || []).filter((c: any) => c && c.identityKey);
     const inEntries = backendInEntries;
+    const talksNavBack = document.getElementById('talks-nav-back');
+    const activeMode = this.talksViewMode;
+
+    document.querySelectorAll('.talks-nav-btn').forEach((button) => {
+      button.classList.toggle('active', (button as HTMLElement).dataset.talksMode === activeMode);
+    });
+    if (talksNavBack) {
+      talksNavBack.style.display = activeMode === 'all' ? 'none' : 'inline-flex';
+    }
 
     if (allEntries.length === 0 && inEntries.length === 0) {
       talksList.innerHTML = `
@@ -929,7 +958,21 @@ export class UIManager extends EventEmitter {
              </div>${inHtml}`
           : '';
 
-      talksList.innerHTML = sectionIn + sectionOut;
+      if (activeMode === 'in') {
+        talksList.innerHTML = sectionIn || `
+          <div class="empty-state" style="padding: 40px 20px; text-align: center; color: #999;">
+            No incoming talks yet.
+          </div>
+        `;
+      } else if (activeMode === 'out') {
+        talksList.innerHTML = sectionOut || `
+          <div class="empty-state" style="padding: 40px 20px; text-align: center; color: #999;">
+            No outgoing talks yet.
+          </div>
+        `;
+      } else {
+        talksList.innerHTML = sectionIn + sectionOut;
+      }
 
       // Request stats for out talks (created/copied) only
       if (outEntries.length > 0) {
@@ -977,6 +1020,14 @@ export class UIManager extends EventEmitter {
 
   setIncomingTalkClusters(clusters: any[]): void {
     this.incomingTalkClusters = Array.isArray(clusters) ? clusters : [];
+    for (const cluster of this.incomingTalkClusters) {
+      const senders = cluster?.senders && typeof cluster.senders === 'object' ? cluster.senders : {};
+      for (const sender of Object.values(senders) as Array<{ senderId?: string; senderName?: string }>) {
+        const senderId = String(sender?.senderId || '').trim();
+        const senderName = String(sender?.senderName || '').trim();
+        if (senderId && senderName) this.rememberPeerName(senderId, senderName);
+      }
+    }
   }
 
   displayAnswersList(): void {
@@ -1008,6 +1059,7 @@ export class UIManager extends EventEmitter {
       timestamp: talk.lastInteraction || new Date().toISOString(),
       role: 'copied',
       fullTalk: talk.fullTalk,
+      completedAnswers: talk.completedAnswers,
       outcome: talk.outcome,
       senders: talk.senders,
     });
@@ -1390,6 +1442,11 @@ export class UIManager extends EventEmitter {
       timestamp: talk.createdAt || new Date().toISOString(),
       role,
       fullTalk: existingTalkId && myTalks[existingTalkId]?.fullTalk ? myTalks[existingTalkId].fullTalk : talk,
+      completedAnswers: answers.map((answer) => ({
+        questionId: answer.questionId,
+        answerId: answer.answerId,
+        ...(answer.answerText ? { answerText: answer.answerText } : {}),
+      })),
       outcome: outcome ?? existingEntry?.outcome ?? 'mismatch',
       senders,
     });
@@ -2448,6 +2505,11 @@ export class UIManager extends EventEmitter {
     currentUserId: string,
   ): void {
     this.currentUserId = currentUserId;
+    for (const member of members) {
+      if (member.userId && member.stageName) {
+        this.rememberPeerName(member.userId, member.stageName);
+      }
+    }
     console.log(
       `📊 Updating member count for ${this.currentChatroom}: ${members.length} total members`,
     );
@@ -2478,14 +2540,58 @@ export class UIManager extends EventEmitter {
   }
 
   private openPeerDetailForUser(userId: string, stageName: string): void {
-    openPeerDetailView(userId, stageName, {
+    const knownPerson = this.getKnownPerson(userId);
+    const deps = {
       currentUserId: this.currentUserId,
       apiBase: this.apiBase,
       getMyConversations: this.getMyConversations.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
       showConversationDetail: this.showConversationDetail.bind(this),
       registerTalkForPeer: this.registerTalkForPeer.bind(this),
-    });
+      ...(knownPerson ? { knownPerson } : {}),
+    };
+    openPeerDetailView(userId, stageName, deps);
+  }
+
+  private getKnownPeople(): KnownPerson[] {
+    return Array.isArray(this.currentUser?.knownPeople) ? this.currentUser!.knownPeople! : [];
+  }
+
+  private getKnownPerson(userId: string): KnownPerson | undefined {
+    return this.getKnownPeople().find((entry) => entry.userId === userId);
+  }
+
+  private getPeerName(userId: string, fallbackName?: string): string {
+    const conversationMatch = Object.values(this.getMyConversations()).find(
+      (conversation: any) => conversation.otherUserId === userId && conversation.otherUserName,
+    ) as { otherUserName?: string } | undefined;
+    const currentMember = this.currentChatroomMembers.find((member) => member.userId === userId);
+    const incomingSenderName = this.incomingTalkClusters
+      .flatMap((cluster: any) => Object.values(cluster?.senders || {}) as Array<{ senderId?: string; senderName?: string }>)
+      .find((sender) => sender?.senderId === userId && sender?.senderName)?.senderName;
+    const cachedName = this.getPeerNameCache()[userId];
+    const resolved = conversationMatch?.otherUserName || currentMember?.stageName || incomingSenderName || cachedName || fallbackName || 'Unknown';
+    if (resolved && resolved !== 'Unknown') this.rememberPeerName(userId, resolved);
+    return resolved;
+  }
+
+  private getPeerNameCache(): Record<string, string> {
+    try {
+      const raw = localStorage.getItem('peerNameCache');
+      return raw ? JSON.parse(raw) as Record<string, string> : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private rememberPeerName(userId: string, stageName: string): void {
+    const trimmedId = String(userId || '').trim();
+    const trimmedName = String(stageName || '').trim();
+    if (!trimmedId || !trimmedName) return;
+    const cache = this.getPeerNameCache();
+    if (cache[trimmedId] === trimmedName) return;
+    cache[trimmedId] = trimmedName;
+    localStorage.setItem('peerNameCache', JSON.stringify(cache));
   }
 
   private async registerTalkForPeer(talkId: string, talkData: any, peerId: string, peerName: string): Promise<void> {
@@ -2612,12 +2718,12 @@ export class UIManager extends EventEmitter {
       this.showNotification(`Match! You and ${name} can now chat.`, 'success');
     }
 
-    const contactsTab = document.getElementById('tab-contacts');
+    const contactsTab = document.querySelector('.nav-btn[data-view="contacts"]');
     if (contactsTab?.classList.contains('active')) {
       this.displayContactsList();
     }
 
-    const meTab = document.getElementById('tab-me');
+    const meTab = document.querySelector('.nav-btn[data-view="me"]');
     if (meTab?.classList.contains('active')) {
       this.displayConversationsList();
     }

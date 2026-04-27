@@ -7,6 +7,11 @@ export type MyTalkEntry = {
   timestamp: string;
   role: MyTalkRole;
   fullTalk?: any;
+  completedAnswers?: Array<{
+    questionId: string;
+    answerId: string;
+    answerText?: string;
+  }> | undefined;
   outcome?: 'match' | 'mismatch' | undefined;
   disabled?: boolean | undefined;
   expiresAt?: number | undefined;

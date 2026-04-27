@@ -1,5 +1,6 @@
 import './styles/main.css';
 import { IinPublicApp } from './app/app';
+import { applyDevStageSeed } from './dev-stage-seeds';
 import { LocationPrivacy } from '../shared/location';
 import { GPSCoordinate } from '../shared/types';
 
@@ -64,6 +65,14 @@ class WebApp {
 
       // Initialize the main app
       await this.app.initialize(location);
+
+      const stageSeed = typeof process !== 'undefined' && process.env
+        ? process.env.IINPUBLIC_STAGE_SEED || ''
+        : '';
+      if (stageSeed) {
+        console.log(`🧪 Applying dev stage seed: ${stageSeed}`);
+        await applyDevStageSeed(this.app as any, stageSeed);
+      }
 
       console.log('✅ IinPublic Web App initialized successfully');
     } catch (error) {

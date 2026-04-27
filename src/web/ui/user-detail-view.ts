@@ -1,5 +1,6 @@
 import { escapeHtml, formatTimeAgo } from './ui-formatters';
 import type { PeerRelationshipStats, TalkHistoryItem } from '../../server/routes/peer-routes';
+import type { KnownPerson } from '../../shared/types';
 
 export type UserDetailViewDeps = {
   currentUserId: string;
@@ -8,6 +9,7 @@ export type UserDetailViewDeps = {
   getMyTalks: () => Record<string, any>;
   showConversationDetail: (conversationId: string) => void;
   registerTalkForPeer: (talkId: string, talkData: any, peerId: string, peerName: string) => Promise<void>;
+  knownPerson?: KnownPerson;
 };
 
 type SortMode = 'date' | 'outcome';
@@ -35,9 +37,9 @@ export function openPeerDetailView(
 
   // Set header
   const nameEl = document.getElementById('peer-detail-name');
-  if (nameEl) nameEl.textContent = peerName;
+  if (nameEl) nameEl.textContent = getPrimaryDisplayName(peerName, deps.knownPerson);
   const subtitleEl = document.getElementById('peer-detail-subtitle');
-  if (subtitleEl) subtitleEl.textContent = 'Loading...';
+  if (subtitleEl) subtitleEl.textContent = buildLoadingSubtitle(peerName, deps.knownPerson);
 
   // Reset sections
   const statsEl = document.getElementById('peer-stats-section');
@@ -93,7 +95,7 @@ export function openPeerDetailView(
   }
 
   // Load data
-  fetchAndRenderStats(peerId, deps);
+  fetchAndRenderStats(peerId, peerName, deps);
   fetchAndRenderHistory(peerId, deps);
 }
 
@@ -103,7 +105,7 @@ export function closePeerDetailView(): void {
   currentState = null;
 }
 
-async function fetchAndRenderStats(peerId: string, deps: UserDetailViewDeps): Promise<void> {
+async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserDetailViewDeps): Promise<void> {
   const statsEl = document.getElementById('peer-stats-section');
   try {
     const res = await fetch(
@@ -114,12 +116,11 @@ async function fetchAndRenderStats(peerId: string, deps: UserDetailViewDeps): Pr
 
     const subtitleEl = document.getElementById('peer-detail-subtitle');
     if (subtitleEl) {
-      const total = stats.sent.talks + stats.received.talks;
-      subtitleEl.textContent = total === 0 ? 'Stranger' : `${total} talk${total !== 1 ? 's' : ''} exchanged`;
+      subtitleEl.textContent = buildStatsSubtitle(peerName, stats, deps.knownPerson);
     }
 
     if (statsEl) {
-      statsEl.innerHTML = renderStatsHtml(stats);
+      statsEl.innerHTML = renderStatsHtml(stats, deps.knownPerson);
     }
 
     // Render matched conversations below stats
@@ -129,11 +130,23 @@ async function fetchAndRenderStats(peerId: string, deps: UserDetailViewDeps): Pr
   }
 }
 
-function renderStatsHtml(stats: PeerRelationshipStats): string {
+function renderStatsHtml(stats: PeerRelationshipStats, knownPerson?: KnownPerson): string {
   const sentIcon = stats.sent.talks === 0 ? '📤' : '📤';
   const receivedIcon = stats.received.talks === 0 ? '📥' : '📥';
+  const nickname = String(knownPerson?.nickname || '').trim();
+  const relationship = knownPerson?.label
+    ? knownPerson.label.charAt(0).toUpperCase() + knownPerson.label.slice(1)
+    : 'No relationship set';
   return `
     <div class="peer-stats-grid">
+      <div class="peer-stat-card">
+        <div class="peer-stat-icon">🧾</div>
+        <div class="peer-stat-body">
+          <div class="peer-stat-label">Talks Exchanged</div>
+          <div class="peer-stat-value">${stats.totalTalks}</div>
+          <div class="peer-stat-sub">${relationship}</div>
+        </div>
+      </div>
       <div class="peer-stat-card">
         <div class="peer-stat-icon">${sentIcon}</div>
         <div class="peer-stat-body">
@@ -150,6 +163,14 @@ function renderStatsHtml(stats: PeerRelationshipStats): string {
           <div class="peer-stat-sub">${stats.received.matches} matched</div>
         </div>
       </div>
+      ${nickname ? `
+      <div class="peer-stat-card peer-stat-mutual">
+        <div class="peer-stat-icon">🏷️</div>
+        <div class="peer-stat-body">
+          <div class="peer-stat-label">Nickname</div>
+          <div class="peer-stat-value">${escapeHtml(nickname)}</div>
+        </div>
+      </div>` : ''}
       ${stats.mutualMatchedTalks > 0 ? `
       <div class="peer-stat-card peer-stat-mutual">
         <div class="peer-stat-icon">🤝</div>
@@ -168,6 +189,38 @@ function renderStatsHtml(stats: PeerRelationshipStats): string {
       </div>` : ''}
     </div>
   `;
+}
+
+function getPrimaryDisplayName(stageName: string, knownPerson?: KnownPerson): string {
+  const nickname = String(knownPerson?.nickname || '').trim();
+  const baseStageName = String(stageName || 'Unknown').trim() || 'Unknown';
+  if (!nickname) return baseStageName;
+  return nickname;
+}
+
+function buildLoadingSubtitle(stageName: string, knownPerson?: KnownPerson): string {
+  const nickname = String(knownPerson?.nickname || '').trim();
+  const baseStageName = String(stageName || 'Unknown').trim() || 'Unknown';
+  if (nickname && nickname.toLowerCase() !== baseStageName.toLowerCase()) {
+    return `Stage name: ${baseStageName} · Loading...`;
+  }
+  return 'Loading...';
+}
+
+function buildStatsSubtitle(stageName: string, stats: PeerRelationshipStats, knownPerson?: KnownPerson): string {
+  const nickname = String(knownPerson?.nickname || '').trim();
+  const baseStageName = String(stageName || 'Unknown').trim() || 'Unknown';
+  const relationship = knownPerson?.label
+    ? knownPerson.label.charAt(0).toUpperCase() + knownPerson.label.slice(1)
+    : null;
+  const parts: string[] = [];
+  if (nickname && nickname.toLowerCase() !== baseStageName.toLowerCase()) {
+    parts.push(`Stage name: ${baseStageName}`);
+  }
+  if (relationship) parts.push(relationship);
+  const stageLine = stats.totalTalks === 0 ? 'Stranger' : `${stats.totalTalks} talk${stats.totalTalks !== 1 ? 's' : ''} exchanged`;
+  parts.push(stageLine);
+  return parts.join(' · ');
 }
 
 function renderMatchedConversations(peerId: string, deps: UserDetailViewDeps): void {

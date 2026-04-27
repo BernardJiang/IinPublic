@@ -3,6 +3,7 @@ export type RelationshipLabel = 'friend' | 'relative' | 'coworker' | 'acquaintan
 export interface KnownPerson {
   userId: string;
   label: RelationshipLabel;
+  nickname?: string;
   addedAt: Date;
 }
 

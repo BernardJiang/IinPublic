@@ -702,6 +702,8 @@ class IinPublicServer {
     registerPeerRoutes(this.app, {
       incomingTalksMap: this.incomingTalksMap,
       talkResponsesMap: this.talkResponsesMap,
+      getUserStageName: async (userId: string, fallbackName?: string) =>
+        this.getUserStageName(userId, fallbackName || 'Unknown'),
     });
 
     registerStatsRoutes(this.app, {

@@ -241,10 +241,16 @@ export class WebUserService {
     });
   }
 
-  async addKnownPerson(userId: string, targetId: string, label: RelationshipLabel): Promise<void> {
+  async addKnownPerson(
+    userId: string,
+    targetId: string,
+    label: RelationshipLabel,
+    nickname?: string,
+  ): Promise<void> {
     const entry: KnownPerson = {
       userId: targetId,
       label,
+      ...(nickname ? { nickname } : {}),
       addedAt: new Date(),
     };
     try {

@@ -39,10 +39,16 @@ export class UserService {
     return user;
   }
 
-  async addKnownPerson(userId: string, targetId: string, label: RelationshipLabel): Promise<void> {
+  async addKnownPerson(
+    userId: string,
+    targetId: string,
+    label: RelationshipLabel,
+    nickname?: string,
+  ): Promise<void> {
     const entry = {
       userId: targetId,
       label,
+      ...(nickname ? { nickname } : {}),
       addedAt: new Date().toISOString(),
     };
     await this.gunService.putPath(['users', userId, 'knownPeople', targetId], entry);
@@ -50,7 +56,7 @@ export class UserService {
       const u = await this.getUser(userId);
       const list: KnownPerson[] = [
         ...(u.knownPeople || []).filter((k) => k.userId !== targetId),
-        { userId: targetId, label, addedAt: new Date(entry.addedAt) },
+        { userId: targetId, label, ...(nickname ? { nickname } : {}), addedAt: new Date(entry.addedAt) },
       ];
       await this.gunService.put(`users/${userId}`, { ...u, knownPeople: list });
     } catch {
@@ -83,6 +89,7 @@ export class UserService {
           items.push({
             userId: data.userId || key,
             label: data.label,
+            ...(data.nickname ? { nickname: data.nickname } : {}),
             addedAt: new Date(data.addedAt),
           });
         });
