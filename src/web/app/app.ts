@@ -25,6 +25,8 @@ export class IinPublicApp {
   private processedTalkResponseKeys = new Set<string>();
   /** One auto chatbot reply per announcer for the same content-hash talk id (same qa_* = same talk; keys are not author-based talk identity). */
   private chatbotAutoReplySentForPair = new Set<string>();
+  /** Bounded retries for template races (announcement can arrive before manual answer persistence finishes). */
+  private chatbotAutoReplyRetryCountByPair = new Map<string, number>();
 
   private buildChatroomTalkAnnouncementKey(logicalTalkId: string, authorId: string): string {
     return `${logicalTalkId}__${authorId}`;
@@ -345,6 +347,11 @@ export class IinPublicApp {
     authorName: string,
   ): void {
     if (!authorId || authorId === this.currentUser?.id) return;
+    const pairKey = `${talkId}::${authorId}`;
+    if (this.chatbotAutoReplySentForPair.has(pairKey)) {
+      console.log('🤖 Chatbot auto-reply skipped: pair already handled', { pairKey });
+      return;
+    }
     if (!this.uiManager.getChatbotEnabled()) {
       console.log('🤖 Chatbot auto-reply skipped: chatbot disabled', { talkId, authorId });
       return;
@@ -357,14 +364,24 @@ export class IinPublicApp {
         !!this.uiManager.getChatbotTemplate(contentId)) ||
       !!this.uiManager.tryBuildChatbotAnswersFromFlattened(talkData);
     if (!canAuto) {
-      console.log('🤖 Chatbot auto-reply skipped: no reusable template', { talkId, contentId, authorId });
+      const retries = this.chatbotAutoReplyRetryCountByPair.get(pairKey) ?? 0;
+      if (retries < 6) {
+        this.chatbotAutoReplyRetryCountByPair.set(pairKey, retries + 1);
+        setTimeout(() => {
+          this.maybeAutoChatbotReplyToAnnouncer(talkId, talkData, authorId, authorName);
+        }, 250);
+      } else {
+        this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
+        console.log('🤖 Chatbot auto-reply skipped: no reusable template', {
+          talkId,
+          contentId,
+          authorId,
+          retries,
+        });
+      }
       return;
     }
-    const pairKey = `${talkId}::${authorId}`;
-    if (this.chatbotAutoReplySentForPair.has(pairKey)) {
-      console.log('🤖 Chatbot auto-reply skipped: pair already handled', { pairKey });
-      return;
-    }
+    this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
     console.log('🤖 Chatbot auto-reply triggered', { talkId, contentId, authorId, authorName });
     this.chatbotAutoReplySentForPair.add(pairKey);
     this.tryChatbotReply(talkId, talkData, authorId, authorName);
@@ -488,59 +505,71 @@ export class IinPublicApp {
 
         const dedupeKey = `${talkId}::${responseId}`;
         if (this.processedTalkResponseKeys.has(dedupeKey)) return;
-        this.processedTalkResponseKeys.add(dedupeKey);
 
         console.log('📬 Received talk response:', responseData);
 
-        if (responseData && responseData.responderId && responseData.answers) {
-          // Don't notify for own responses
-          if (responseData.responderId === this.currentUser?.id) return;
+        // Gun can emit partial objects before replication completes; wait for a complete payload.
+        if (!(responseData && responseData.responderId && responseData.answers)) {
+          return;
+        }
 
-          // Chatbot responses include authorId: only that author should get the match/conversation
-          if (responseData.authorId && responseData.authorId !== this.currentUser?.id) return;
+        // Don't notify for own responses
+        if (responseData.responderId === this.currentUser?.id) {
+          this.processedTalkResponseKeys.add(dedupeKey);
+          return;
+        }
 
-          try {
-            const answers = JSON.parse(responseData.answers);
+        // Chatbot responses include authorId: only that author should get the match/conversation
+        if (responseData.authorId && responseData.authorId !== this.currentUser?.id) {
+          this.processedTalkResponseKeys.add(dedupeKey);
+          return;
+        }
 
-            // Check if this is a match
-            const isMatch = this.checkIfMatch(talkData, answers);
+        try {
+          const answers = Array.isArray(responseData.answers)
+            ? responseData.answers
+            : JSON.parse(String(responseData.answers));
+          this.processedTalkResponseKeys.add(dedupeKey);
 
-            if (isMatch) {
-              this.uiManager.showNotification(
-                `Match! ${responseData.responderName} noticed you on "${talkData.title}"`,
-                'success',
-              );
-              console.log(`✅ Match detected with ${responseData.responderName}`);
+          // Check if this is a match
+          const isMatch = this.checkIfMatch(talkData, answers);
 
-              // Create conversation between the two users
-              this.conversationService
-                .createConversation({
-                  userId1: this.currentUser!.id,
-                  userName1: this.currentUser!.stageName,
-                  userId2: responseData.responderId,
-                  userName2: responseData.responderName,
+          if (isMatch) {
+            this.uiManager.showNotification(
+              `Match! ${responseData.responderName} noticed you on "${talkData.title}"`,
+              'success',
+            );
+            console.log(`✅ Match detected with ${responseData.responderName}`);
+
+            // Create conversation between the two users
+            this.conversationService
+              .createConversation({
+                userId1: this.currentUser!.id,
+                userName1: this.currentUser!.stageName,
+                userId2: responseData.responderId,
+                userName2: responseData.responderName,
+                talkId: talkId,
+                respondedByBotForUser1: !!responseData.isChatbotResponse,
+                respondedByBotForUser2: false,
+              })
+              .then((conversationId) => {
+                // Add conversation to UI
+                this.uiManager.addNewConversation({
+                  conversationId,
+                  otherUserId: responseData.responderId,
+                  otherUserName: responseData.responderName,
                   talkId: talkId,
-                  respondedByBotForUser1: !!responseData.isChatbotResponse,
-                  respondedByBotForUser2: false,
-                })
-                .then((conversationId) => {
-                  // Add conversation to UI
-                  this.uiManager.addNewConversation({
-                    conversationId,
-                    otherUserId: responseData.responderId,
-                    otherUserName: responseData.responderName,
-                    talkId: talkId,
-                    respondedByBot: !!responseData.isChatbotResponse,
-                  });
-                  this.uiManager.setMemberMatched(responseData.responderId);
-                })
-                .catch((error) => {
-                  console.error('Failed to create conversation:', error);
+                  respondedByBot: !!responseData.isChatbotResponse,
                 });
-            }
-          } catch (error) {
-            console.error('Error processing talk response:', error);
+                this.uiManager.setMemberMatched(responseData.responderId);
+              })
+              .catch((error) => {
+                console.error('Failed to create conversation:', error);
+              });
           }
+        } catch (error) {
+          // Leave unprocessed so a later complete payload can still be handled.
+          console.error('Error processing talk response:', error);
         }
       });
   }
@@ -1114,6 +1143,64 @@ export class IinPublicApp {
     await this.refreshIncomingTalkClustersFromApi();
   }
 
+  private async ingestConversationRecords(conversations: any[]): Promise<void> {
+    if (!this.currentUser) return;
+
+    for (const conversationData of conversations) {
+      // Gun stores otherUserId/otherUserName; legacy or other sources may use userId1/userId2
+      const otherUserId =
+        conversationData.otherUserId ??
+        (conversationData.userId1 === this.currentUser.id
+          ? conversationData.userId2
+          : conversationData.userId1);
+      const otherUserName =
+        conversationData.otherUserName ??
+        (conversationData.userId1 === this.currentUser.id
+          ? conversationData.userName2
+          : conversationData.userName1);
+
+      if (!otherUserId) continue;
+
+      let resolvedOtherUserName = otherUserName ?? 'Unknown';
+      if (
+        !resolvedOtherUserName ||
+        resolvedOtherUserName === 'Unknown' ||
+        resolvedOtherUserName === 'Someone'
+      ) {
+        try {
+          const publicUser = await this.gunService.getPublicUser(otherUserId);
+          if (publicUser?.stageName) {
+            resolvedOtherUserName = publicUser.stageName;
+          }
+        } catch {
+          /* keep placeholder */
+        }
+        if (
+          !resolvedOtherUserName ||
+          resolvedOtherUserName === 'Unknown' ||
+          resolvedOtherUserName === 'Someone'
+        ) {
+          try {
+            const fullUser = await this.userService.getUser(otherUserId);
+            if (fullUser?.stageName) {
+              resolvedOtherUserName = fullUser.stageName;
+            }
+          } catch {
+            /* keep placeholder */
+          }
+        }
+      }
+
+      this.uiManager.addNewConversation({
+        conversationId: conversationData.conversationId,
+        otherUserId,
+        otherUserName: resolvedOtherUserName,
+        talkId: conversationData.talkId,
+        respondedByBot: conversationData.respondedByBot,
+      });
+    }
+  }
+
   private subscribeToUserConversations(): void {
     if (!this.currentUser) return;
 
@@ -1123,47 +1210,7 @@ export class IinPublicApp {
       this.currentUser.id,
       async (conversations) => {
         console.log('📨 New conversations detected:', conversations);
-
-        // Process each conversation
-        for (const conversationData of conversations) {
-          // Gun stores otherUserId/otherUserName; legacy or other sources may use userId1/userId2
-          const otherUserId =
-            conversationData.otherUserId ??
-            (conversationData.userId1 === this.currentUser!.id
-              ? conversationData.userId2
-              : conversationData.userId1);
-          const otherUserName =
-            conversationData.otherUserName ??
-            (conversationData.userId1 === this.currentUser!.id
-              ? conversationData.userName2
-              : conversationData.userName1);
-
-          if (!otherUserId) continue;
-
-          let resolvedOtherUserName = otherUserName ?? 'Unknown';
-          if (
-            !resolvedOtherUserName ||
-            resolvedOtherUserName === 'Unknown' ||
-            resolvedOtherUserName === 'Someone'
-          ) {
-            try {
-              const publicUser = await this.gunService.getPublicUser(otherUserId);
-              if (publicUser?.stageName) {
-                resolvedOtherUserName = publicUser.stageName;
-              }
-            } catch {
-              /* keep placeholder */
-            }
-          }
-
-          this.uiManager.addNewConversation({
-            conversationId: conversationData.conversationId,
-            otherUserId,
-            otherUserName: resolvedOtherUserName,
-            talkId: conversationData.talkId,
-            respondedByBot: conversationData.respondedByBot,
-          });
-        }
+        await this.ingestConversationRecords(conversations);
       },
     );
   }
@@ -1649,6 +1696,16 @@ export class IinPublicApp {
         }
       },
     );
+
+    this.uiManager.on('needConversationSync', async () => {
+      if (!this.currentUser) return;
+      try {
+        const snapshot = await this.conversationService.getUserConversationsSnapshot(this.currentUser.id);
+        await this.ingestConversationRecords(snapshot);
+      } catch (error) {
+        console.warn('Conversation sync snapshot failed:', error);
+      }
+    });
 
     this.uiManager.on('requestLocationUpdate', async () => {
       try {

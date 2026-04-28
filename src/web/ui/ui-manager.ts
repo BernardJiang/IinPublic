@@ -573,8 +573,9 @@ export class UIManager extends EventEmitter {
           this.displayAnswersList();
         }
 
-        // Special handling for me view: refresh conversations list
+        // Special handling for me view: refresh conversations list and request a source sync.
         if (targetView === 'me') {
+          this.emit('needConversationSync');
           this.displayConversationsList();
         }
       });
@@ -2676,11 +2677,8 @@ export class UIManager extends EventEmitter {
     const existing = conversations[conversationData.conversationId];
     const isNew = !existing;
 
-    // Gun sync (subscribeToUserConversations) omits respondedByBot — do not wipe a bot badge set by match/chatbot handlers.
-    const respondedByBot =
-      conversationData.respondedByBot !== undefined
-        ? !!conversationData.respondedByBot
-        : !!existing?.respondedByBot;
+    // Keep bot provenance sticky once true; some sync paths can emit records without this field.
+    const respondedByBot = !!existing?.respondedByBot || conversationData.respondedByBot === true;
     const incomingName = conversationData.otherUserName?.trim() || '';
     const existingName = existing?.otherUserName?.trim() || '';
     const preferredOtherUserName =
@@ -2689,10 +2687,14 @@ export class UIManager extends EventEmitter {
         : existingName && existingName !== 'Unknown' && existingName !== 'Someone'
           ? existingName
           : incomingName || existingName || 'Unknown';
+    const resolvedOtherUserName = this.getPeerName(
+      conversationData.otherUserId,
+      preferredOtherUserName,
+    );
 
     conversations[conversationData.conversationId] = {
       otherUserId: conversationData.otherUserId,
-      otherUserName: preferredOtherUserName,
+      otherUserName: resolvedOtherUserName,
       talkId: conversationData.talkId,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       lastMessage: existing?.lastMessage ?? null,
@@ -2743,6 +2745,17 @@ export class UIManager extends EventEmitter {
 
       localStorage.setItem('myConversations', JSON.stringify(conversations));
       this.updateMatchBadge();
+      this.syncStatusBarMatchCount();
+
+      const meTab = document.querySelector('.nav-btn[data-view="me"]');
+      if (meTab?.classList.contains('active')) {
+        this.displayConversationsList();
+      }
+
+      const contactsTab = document.querySelector('.nav-btn[data-view="contacts"]');
+      if (contactsTab?.classList.contains('active')) {
+        this.displayContactsList();
+      }
     }
   }
 }

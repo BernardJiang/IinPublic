@@ -238,6 +238,35 @@ export class WebConversationService {
   }
 
   /**
+   * One-shot snapshot of user's conversations from Gun.
+   */
+  async getUserConversationsSnapshot(userId: string): Promise<any[]> {
+    const gun = this.gunService.getGun();
+    return new Promise((resolve) => {
+      gun
+        .get(`users/${userId}`)
+        .get('conversations')
+        .once((raw: any) => {
+          if (!raw || typeof raw !== 'object') {
+            resolve([]);
+            return;
+          }
+          const entries = Object.entries(raw)
+            .filter(([key]) => !key.startsWith('_'))
+            .map(([conversationId, value]) => {
+              if (!value || typeof value !== 'object') return null;
+              return {
+                ...(value as Record<string, unknown>),
+                conversationId: (value as any).conversationId || conversationId,
+              };
+            })
+            .filter((item) => item && (item as any).otherUserId);
+          resolve(entries as any[]);
+        });
+    });
+  }
+
+  /**
    * Subscribe to user's conversations list
    */
   subscribeToUserConversations(
@@ -245,7 +274,7 @@ export class WebConversationService {
     callback: (conversations: any[]) => void,
   ): () => void {
     const gun = this.gunService.getGun();
-    const processedConversations = new Set<string>();
+    const seenPayloadByConversation = new Map<string, string>();
 
     gun
       .get(`users/${userId}`)
@@ -253,15 +282,29 @@ export class WebConversationService {
       .map()
       .on((conversationData: any, conversationId: string) => {
         if (conversationId.startsWith('_')) return;
-        if (processedConversations.has(conversationId)) return;
 
-        processedConversations.add(conversationId);
-        console.log(`🔔 New conversation detected: ${conversationId}`, conversationData);
-
-        // Trigger callback with conversation data
-        if (conversationData && conversationData.otherUserId) {
-          callback([conversationData]);
+        // Gun can emit partial values before the full object is replicated. Ignore these and wait.
+        if (!conversationData || typeof conversationData !== 'object' || !conversationData.otherUserId) {
+          return;
         }
+
+        const normalized = {
+          ...conversationData,
+          conversationId: conversationData.conversationId || conversationId,
+        };
+
+        const signature = JSON.stringify({
+          otherUserId: normalized.otherUserId,
+          otherUserName: normalized.otherUserName || '',
+          talkId: normalized.talkId || '',
+          createdAt: normalized.createdAt || '',
+          respondedByBot: !!normalized.respondedByBot,
+        });
+        if (seenPayloadByConversation.get(conversationId) === signature) return;
+
+        seenPayloadByConversation.set(conversationId, signature);
+        console.log(`🔔 Conversation update detected: ${conversationId}`, normalized);
+        callback([normalized]);
       });
 
     return () => {
