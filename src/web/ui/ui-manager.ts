@@ -1,4 +1,4 @@
-import { User } from '../../shared/types';
+import { User, type GPSCoordinate, type KnownPerson, type TalkIntakeFilters } from '../../shared/types';
 import { EventEmitter } from 'events';
 import { formatTimeAgo, formatExpiration, formatLocationRadius, escapeHtml } from './ui-formatters';
 import { pickLatestTalkIdFromIncomingCluster, isValidTalkId } from '../../shared/incoming-talk-ids';
@@ -63,7 +63,11 @@ import {
 } from './talk-editor-form-helpers';
 import { showTalkEditorDialog as openTalkEditorDialog } from './talk-editor-dialog';
 import { openPeerDetailView } from './user-detail-view';
-import type { KnownPerson } from '../../shared/types';
+import {
+  filterIncomingTalkClusters,
+  getTalkIntakeFilters,
+  setTalkIntakeFilters,
+} from './talk-intake-filters';
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
@@ -74,6 +78,7 @@ export class UIManager extends EventEmitter {
   private apiBase: string = '';
   private currentUserId: string = '';
   private currentUserStageName: string = '';
+  private currentLocation: GPSCoordinate | undefined = undefined;
 
   /** Other users in the current chatroom detail view (excludes self); used for broadcast + server-side IN registration. */
   getCurrentChatroomMembers(): Array<{ userId: string; stageName: string }> {
@@ -97,6 +102,10 @@ export class UIManager extends EventEmitter {
 
   setApiBase(base: string): void {
     this.apiBase = base;
+  }
+
+  setCurrentLocation(location: GPSCoordinate | undefined): void {
+    this.currentLocation = location;
   }
 
   private getMyTalks(): Record<string, any> {
@@ -604,6 +613,19 @@ export class UIManager extends EventEmitter {
     const userInfoMe = document.getElementById('user-info-me');
     if (userInfoMe) {
       const copyTalkChecked = getCopyTalkAutoSave();
+      const talkFilters = user.talkFilters || {
+        ...getTalkIntakeFilters(),
+        allowedLanguages: Array.isArray(user.languages) && user.languages.length > 0 ? user.languages : ['en'],
+      };
+      setTalkIntakeFilters(talkFilters);
+      const reputation = user.reputation || ({} as typeof user.reputation);
+      const reviewCount = reputation.reviewCount ?? 0;
+      const starRating = Number(reputation.starRating ?? 0);
+      const friendsCount = reputation.friendsCount ?? 0;
+      const matchesFound = reputation.matchesFound ?? 0;
+      const likedCount = reputation.likedCount ?? 0;
+      const dislikedCount = reputation.dislikedCount ?? 0;
+      const isCreditVisible = reputation.isHidden !== true;
       userInfoMe.innerHTML = `
         <div class="user-avatar" style="width: 80px; height: 80px; font-size: 2em; margin: 20px auto;">
           ${user.stageName.charAt(0).toUpperCase()}
@@ -625,6 +647,75 @@ export class UIManager extends EventEmitter {
           </label>
           <p style="margin: 8px 0 0 28px; font-size: 0.85em; color: #6b7280;">When the same talk is sent to you again, reply automatically with your last match answer. Replies show a bot icon.</p>
         </div>
+        <div style="margin-top: 20px; padding: 16px; background: #f8fafc; border-radius: 12px; text-align: left;">
+          <div style="font-weight: 700; color: #111827; margin-bottom: 12px;">Talk Filters</div>
+          <div style="display:grid; gap: 12px;">
+            <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
+              <label style="display:flex; flex-direction:column; gap:4px; font-size:0.9em;">
+                <span>Min distance (miles)</span>
+                <input type="number" id="talk-filter-min-distance" min="0" step="1" value="${talkFilters.minDistanceMiles ?? ''}" style="padding:8px;border:1px solid #d1d5db;border-radius:8px;">
+              </label>
+              <label style="display:flex; flex-direction:column; gap:4px; font-size:0.9em;">
+                <span>Max distance (miles)</span>
+                <input type="number" id="talk-filter-max-distance" min="0" step="1" value="${talkFilters.maxDistanceMiles ?? ''}" style="padding:8px;border:1px solid #d1d5db;border-radius:8px;">
+              </label>
+            </div>
+            <label style="display:flex; flex-direction:column; gap:4px; font-size:0.9em;">
+              <span>Ignore talks sent before</span>
+              <input type="datetime-local" id="talk-filter-sent-after" value="${talkFilters.sentAfter ? new Date(talkFilters.sentAfter).toISOString().slice(0, 16) : ''}" style="padding:8px;border:1px solid #d1d5db;border-radius:8px;">
+            </label>
+            <label style="display:flex; flex-direction:column; gap:4px; font-size:0.9em;">
+              <span>Allowed languages (comma separated)</span>
+              <input type="text" id="talk-filter-languages" value="${escapeHtml(talkFilters.allowedLanguages.join(', '))}" placeholder="en, zh" style="padding:8px;border:1px solid #d1d5db;border-radius:8px;">
+            </label>
+            <div style="display:flex; flex-wrap:wrap; gap:10px;">
+              <label style="display:flex; align-items:center; gap:8px; font-size:0.9em;">
+                <input type="checkbox" id="talk-filter-grammar" ${talkFilters.requireGoodGrammar ? 'checked' : ''}>
+                <span>Ignore grammar errors</span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; font-size:0.9em;">
+                <input type="checkbox" id="talk-filter-dirty-words" ${talkFilters.blockDirtyWords ? 'checked' : ''}>
+                <span>Ignore dirty words</span>
+              </label>
+            </div>
+            <div>
+              <div style="font-size:0.9em; margin-bottom:6px;">Allowed talk types</div>
+              <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                ${(['tag', 'flow', 'route', 'survey'] as const)
+                  .map(
+                    (type) => `
+                      <label style="display:flex; align-items:center; gap:6px; font-size:0.9em; padding:6px 10px; border:1px solid #d1d5db; border-radius:999px; background:white;">
+                        <input type="checkbox" class="talk-filter-type" value="${type}" ${talkFilters.allowedTalkTypes.includes(type) ? 'checked' : ''}>
+                        <span>${type}</span>
+                      </label>
+                    `,
+                  )
+                  .join('')}
+              </div>
+            </div>
+          </div>
+          <p style="margin: 10px 0 0 0; font-size: 0.82em; color: #6b7280;">These filters hide incoming talks that do not match your current intake rules.</p>
+        </div>
+        <div style="margin-top: 20px; padding: 16px; background: #fff7ed; border-radius: 12px; text-align: left;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
+            <div>
+              <div style="font-weight: 700; color: #111827;">Credit</div>
+              <div style="font-size: 0.82em; color: #6b7280;">Read-only reputation summary from other users' interactions.</div>
+            </div>
+            <label style="display:flex; align-items:center; gap:8px; font-size:0.85em;">
+              <input type="checkbox" id="credit-visibility-checkbox" ${isCreditVisible ? 'checked' : ''}>
+              <span>Show to others</span>
+            </label>
+          </div>
+          <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
+            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">Reviews</div><div style="font-size:1.15em;font-weight:700;">${reviewCount}</div></div>
+            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">Star rating</div><div style="font-size:1.15em;font-weight:700;">${starRating.toFixed(1)}</div></div>
+            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">Friends</div><div style="font-size:1.15em;font-weight:700;">${friendsCount}</div></div>
+            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">Liked</div><div style="font-size:1.15em;font-weight:700;">${likedCount}</div></div>
+            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">Disliked</div><div style="font-size:1.15em;font-weight:700;">${dislikedCount}</div></div>
+            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">Matches</div><div style="font-size:1.15em;font-weight:700;">${matchesFound}</div></div>
+          </div>
+        </div>
       `;
 
       // Add event listener for edit stage name button
@@ -642,6 +733,65 @@ export class UIManager extends EventEmitter {
       if (chatbotCheckbox) {
         chatbotCheckbox.addEventListener('change', () => {
           setChatbotEnabled(chatbotCheckbox.checked);
+        });
+      }
+      const syncTalkFilters = () => {
+        const minDistanceEl = document.getElementById('talk-filter-min-distance') as HTMLInputElement | null;
+        const maxDistanceEl = document.getElementById('talk-filter-max-distance') as HTMLInputElement | null;
+        const sentAfterEl = document.getElementById('talk-filter-sent-after') as HTMLInputElement | null;
+        const languagesEl = document.getElementById('talk-filter-languages') as HTMLInputElement | null;
+        const grammarEl = document.getElementById('talk-filter-grammar') as HTMLInputElement | null;
+        const dirtyEl = document.getElementById('talk-filter-dirty-words') as HTMLInputElement | null;
+        const typeEls = Array.from(document.querySelectorAll('.talk-filter-type')) as HTMLInputElement[];
+        const nextFilters: TalkIntakeFilters = {
+          allowedLanguages: (languagesEl?.value || 'en')
+            .split(',')
+            .map((part) => part.trim().toLowerCase())
+            .filter(Boolean),
+          requireGoodGrammar: !!grammarEl?.checked,
+          blockDirtyWords: !!dirtyEl?.checked,
+          allowedTalkTypes: typeEls.filter((el) => el.checked).map((el) => el.value as any),
+        };
+        if (minDistanceEl && minDistanceEl.value !== '') {
+          nextFilters.minDistanceMiles = Number(minDistanceEl.value);
+        }
+        if (maxDistanceEl && maxDistanceEl.value !== '') {
+          nextFilters.maxDistanceMiles = Number(maxDistanceEl.value);
+        }
+        if (sentAfterEl?.value) {
+          nextFilters.sentAfter = new Date(sentAfterEl.value).toISOString();
+        }
+        if (nextFilters.allowedTalkTypes.length === 0) {
+          nextFilters.allowedTalkTypes = ['flow', 'survey', 'tag', 'route'];
+        }
+        if (nextFilters.allowedLanguages.length === 0) {
+          nextFilters.allowedLanguages = ['en'];
+        }
+        setTalkIntakeFilters(nextFilters);
+        if (this.currentUser) this.currentUser.talkFilters = nextFilters;
+        this.emit('updateTalkFilters', nextFilters);
+        const talksView = document.getElementById('talks-view');
+        if (talksView?.classList.contains('active')) this.displayTalksList();
+      };
+      [
+        'talk-filter-min-distance',
+        'talk-filter-max-distance',
+        'talk-filter-sent-after',
+        'talk-filter-languages',
+        'talk-filter-grammar',
+        'talk-filter-dirty-words',
+      ].forEach((id) => {
+        const el = document.getElementById(id) as HTMLInputElement | null;
+        el?.addEventListener('change', syncTalkFilters);
+      });
+      document.querySelectorAll('.talk-filter-type').forEach((el) => {
+        el.addEventListener('change', syncTalkFilters);
+      });
+      const creditVisibilityCheckbox = document.getElementById('credit-visibility-checkbox') as HTMLInputElement | null;
+      if (creditVisibilityCheckbox) {
+        creditVisibilityCheckbox.addEventListener('change', () => {
+          if (this.currentUser) this.currentUser.reputation.isHidden = !creditVisibilityCheckbox.checked;
+          this.emit('setCreditVisibility', { visible: creditVisibilityCheckbox.checked });
         });
       }
     }
@@ -680,9 +830,12 @@ export class UIManager extends EventEmitter {
       currentUserId: this.currentUserId,
       escapeHtml: escapeHtml,
       getKnownPeople: this.getKnownPeople.bind(this),
+      getKnownPerson: this.getKnownPerson.bind(this),
       getPeerName: this.getPeerName.bind(this),
       openPeerDetail: this.openPeerDetailForUser.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
+      saveKnownPerson: this.saveKnownPerson.bind(this),
+      submitPeerReview: this.submitPeerReview.bind(this),
     });
   }
 
@@ -692,9 +845,12 @@ export class UIManager extends EventEmitter {
       currentUserId: this.currentUserId,
       escapeHtml: escapeHtml,
       getKnownPeople: this.getKnownPeople.bind(this),
+      getKnownPerson: this.getKnownPerson.bind(this),
       getPeerName: this.getPeerName.bind(this),
       openPeerDetail: this.openPeerDetailForUser.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
+      saveKnownPerson: this.saveKnownPerson.bind(this),
+      submitPeerReview: this.submitPeerReview.bind(this),
     });
   }
 
@@ -705,9 +861,12 @@ export class UIManager extends EventEmitter {
         currentUserId: this.currentUserId,
         escapeHtml: escapeHtml,
         getKnownPeople: this.getKnownPeople.bind(this),
+        getKnownPerson: this.getKnownPerson.bind(this),
         getPeerName: this.getPeerName.bind(this),
         openPeerDetail: this.openPeerDetailForUser.bind(this),
         getMyTalks: this.getMyTalks.bind(this),
+        saveKnownPerson: this.saveKnownPerson.bind(this),
+        submitPeerReview: this.submitPeerReview.bind(this),
       },
       otherUserId,
       otherUserName,
@@ -819,7 +978,13 @@ export class UIManager extends EventEmitter {
     // OUT: talks this user created or copied (can broadcast)
     const outEntries = allEntries.filter(([, t]: [string, any]) => t.role === 'created' || t.role === 'copied');
     // IN: backend-consolidated incoming talks (content-hash merged)
-    const backendInEntries = (this.incomingTalkClusters || []).filter((c: any) => c && c.identityKey);
+    const rawIncomingEntries = (this.incomingTalkClusters || []).filter((c: any) => c && c.identityKey);
+    const incomingFilterResult = filterIncomingTalkClusters(
+      rawIncomingEntries,
+      this.currentUser?.talkFilters || getTalkIntakeFilters(),
+      this.currentLocation,
+    );
+    const backendInEntries = incomingFilterResult.visible;
     const inEntries = backendInEntries;
     const talksNavBack = document.getElementById('talks-nav-back');
     const activeMode = this.talksViewMode;
@@ -955,14 +1120,14 @@ export class UIManager extends EventEmitter {
       const sectionIn =
         inEntries.length > 0
           ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: #374151; background: #f3f4f6; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
-               <span style="font-size: 1.2em;">📥</span> IN <span style="font-size: 0.8em; font-weight: 400; color: #6b7280;">(${inEntries.length} talk${inEntries.length !== 1 ? 's' : ''} · consolidated by content)</span>
+               <span style="font-size: 1.2em;">📥</span> IN <span style="font-size: 0.8em; font-weight: 400; color: #6b7280;">(${inEntries.length} talk${inEntries.length !== 1 ? 's' : ''} · consolidated by content${incomingFilterResult.hiddenCount > 0 ? ` · ${incomingFilterResult.hiddenCount} filtered` : ''})</span>
              </div>${inHtml}`
           : '';
 
       if (activeMode === 'in') {
         talksList.innerHTML = sectionIn || `
           <div class="empty-state" style="padding: 40px 20px; text-align: center; color: #999;">
-            No incoming talks yet.
+            ${incomingFilterResult.hiddenCount > 0 ? `All incoming talks are currently filtered out (${incomingFilterResult.hiddenCount}).` : 'No incoming talks yet.'}
           </div>
         `;
       } else if (activeMode === 'out') {
@@ -2560,6 +2725,39 @@ export class UIManager extends EventEmitter {
 
   private getKnownPerson(userId: string): KnownPerson | undefined {
     return this.getKnownPeople().find((entry) => entry.userId === userId);
+  }
+
+  private async saveKnownPerson(
+    userId: string,
+    details: {
+      label: KnownPerson['label'];
+      nickname?: string;
+      customLabel?: string;
+      rating?: number;
+      notes?: string;
+    },
+  ): Promise<void> {
+    if (!this.currentUser) return;
+    const nextEntry: KnownPerson = {
+      userId,
+      label: details.label,
+      ...(details.nickname ? { nickname: details.nickname } : {}),
+      ...(details.customLabel ? { customLabel: details.customLabel } : {}),
+      ...(typeof details.rating === 'number' ? { rating: details.rating } : {}),
+      ...(details.notes ? { notes: details.notes } : {}),
+      addedAt: new Date(),
+    };
+    const knownPeople = [
+      ...(this.currentUser.knownPeople || []).filter((entry) => entry.userId !== userId),
+      nextEntry,
+    ];
+    this.currentUser.knownPeople = knownPeople;
+    this.emit('saveKnownPerson', { userId, ...details });
+    this.displayContactsList();
+  }
+
+  private async submitPeerReview(userId: string, rating: number): Promise<void> {
+    this.emit('submitPeerReview', { userId, rating });
   }
 
   private getPeerName(userId: string, fallbackName?: string): string {

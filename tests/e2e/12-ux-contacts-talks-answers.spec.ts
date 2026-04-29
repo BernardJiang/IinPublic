@@ -151,7 +151,8 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
     await expect(answersContent.getByText('Tom Out Talk').first()).toBeVisible({ timeout: 15000 });
     await expect(answersContent.getByText('Do you want to join Tom?').first()).toBeVisible({ timeout: 10000 });
     await expect(answersContent.getByText('No thanks.').first()).toBeVisible({ timeout: 10000 });
-    await expect(answersContent.getByText(/1 question/i).first()).toBeVisible({ timeout: 10000 });
+    await expect(answersContent.getByText(/1 item/i).first()).toBeVisible({ timeout: 10000 });
+    await expect(answersContent.getByText(/answered 1 time/i).first()).toBeVisible({ timeout: 10000 });
     await expect(answersContent.getByText(/Mismatch/i).first()).toBeVisible({ timeout: 10000 });
   });
 });

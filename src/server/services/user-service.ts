@@ -18,6 +18,8 @@ export class UserService {
         matchesFound: 0,
         friendsCount: 0,
         mutualFriendsCount: 0,
+        likedCount: 0,
+        dislikedCount: 0,
         starRating: 3.0,
         reviewCount: 0,
         ageVerified: false,
@@ -44,11 +46,15 @@ export class UserService {
     targetId: string,
     label: RelationshipLabel,
     nickname?: string,
+    extras?: { customLabel?: string; rating?: number; notes?: string },
   ): Promise<void> {
     const entry = {
       userId: targetId,
       label,
       ...(nickname ? { nickname } : {}),
+      ...(extras?.customLabel ? { customLabel: extras.customLabel } : {}),
+      ...(typeof extras?.rating === 'number' ? { rating: extras.rating } : {}),
+      ...(extras?.notes ? { notes: extras.notes } : {}),
       addedAt: new Date().toISOString(),
     };
     await this.gunService.putPath(['users', userId, 'knownPeople', targetId], entry);
@@ -56,7 +62,15 @@ export class UserService {
       const u = await this.getUser(userId);
       const list: KnownPerson[] = [
         ...(u.knownPeople || []).filter((k) => k.userId !== targetId),
-        { userId: targetId, label, ...(nickname ? { nickname } : {}), addedAt: new Date(entry.addedAt) },
+        {
+          userId: targetId,
+          label,
+          ...(nickname ? { nickname } : {}),
+          ...(extras?.customLabel ? { customLabel: extras.customLabel } : {}),
+          ...(typeof extras?.rating === 'number' ? { rating: extras.rating } : {}),
+          ...(extras?.notes ? { notes: extras.notes } : {}),
+          addedAt: new Date(entry.addedAt),
+        },
       ];
       await this.gunService.put(`users/${userId}`, { ...u, knownPeople: list });
     } catch {

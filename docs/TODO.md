@@ -56,7 +56,14 @@ expand into implementation-level specs for every subsystem.
   fallback state when the two users have no prior contact history
 - [ ] Add top-level navigation on the Talks tab for `IN`, `OUT`, and back so users can switch lists without
   scrolling to the bottom of the current section
-- [ ] Expand the Answer tab so each entry shows the question, the current user's answer, and relevant answer stats together
+- [ ] Expand the Answer tab so each entry shows the question, whether it is a tag vs question, the current user's chosen state,
+  context hash visibility for branch-based questions, and per-entry metadata such as time, location, and answer counters
+- [ ] Add talk intake filters on the Me tab so the current user can ignore incoming talks by location, time, language,
+  grammar, dirty words, and talk type
+- [ ] Add a read-only credit section on the Me tab that summarizes the current user's reputation/review state and lets the
+  user choose whether to display that section to others
+- [ ] Add richer relationship management from Contacts so a user can set relationship, nickname, rating, and inspect the
+  other person's credit/review summary from a dedicated dialog
 - [ ] Add end-to-end coverage for each of the UX items above so they can be verified independently:
   chatroom member-list scrolling, unified broadcast bar, contacts list/stat display, shared user detail view,
   Talks tab `IN`/`OUT` navigation, and Answer tab combined question/answer/stat rendering

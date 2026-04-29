@@ -4,6 +4,7 @@ import {
   QuestionAnswer,
   KnownPerson,
   RelationshipLabel,
+  TalkIntakeFilters,
 } from '../../shared/types';
 import { LocationPrivacy } from '../../shared/location';
 import { WebGunService } from './web-gun-service';
@@ -11,8 +12,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { generateRandomStageName, normalizeQuestionKey } from '../../shared/user-utils';
 import { getSEA } from '../sea-gun';
 import type { GunPair } from './gun-bridge';
+import { ReputationManager } from '../../shared/reputation';
 
-type PrivateUserData = Pick<User, 'profile' | 'languages' | 'interests' | 'knownPeople'> & {
+type PrivateUserData = Pick<User, 'profile' | 'languages' | 'interests' | 'knownPeople' | 'talkFilters'> & {
   headshot?: string;
 };
 
@@ -47,6 +49,7 @@ export class WebUserService {
       languages: user.languages || ['en'],
       interests: user.interests || [],
       knownPeople: user.knownPeople ?? [],
+      ...(user.talkFilters ? { talkFilters: user.talkFilters } : {}),
       ...(user.headshot ? { headshot: user.headshot } : {}),
     };
   }
@@ -77,6 +80,9 @@ export class WebUserService {
         languages: privateData.languages || user.languages || ['en'],
         interests: privateData.interests || user.interests || [],
         knownPeople: privateData.knownPeople ?? user.knownPeople ?? [],
+        ...((privateData.talkFilters ?? user.talkFilters)
+          ? { talkFilters: privateData.talkFilters ?? user.talkFilters! }
+          : {}),
         ...(privateData.headshot ? { headshot: privateData.headshot } : {}),
       };
     } catch {
@@ -105,6 +111,8 @@ export class WebUserService {
         matchesFound: 0,
         friendsCount: 0,
         mutualFriendsCount: 0,
+        likedCount: 0,
+        dislikedCount: 0,
         starRating: 3.0,
         reviewCount: 0,
         ageVerified: false,
@@ -115,6 +123,12 @@ export class WebUserService {
       location: userData.location || { region: '', chatrooms: [] },
       languages: userData.languages || ['en'],
       interests: userData.interests || [],
+      talkFilters: userData.talkFilters || {
+        allowedLanguages: userData.languages || ['en'],
+        requireGoodGrammar: false,
+        blockDirtyWords: false,
+        allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
+      },
       createdAt: now,
       lastActive: now,
       knownPeople: userData.knownPeople ?? [],
@@ -246,11 +260,15 @@ export class WebUserService {
     targetId: string,
     label: RelationshipLabel,
     nickname?: string,
+    extras?: { customLabel?: string; rating?: number; notes?: string },
   ): Promise<void> {
     const entry: KnownPerson = {
       userId: targetId,
       label,
       ...(nickname ? { nickname } : {}),
+      ...(extras?.customLabel ? { customLabel: extras.customLabel } : {}),
+      ...(typeof extras?.rating === 'number' ? { rating: extras.rating } : {}),
+      ...(extras?.notes ? { notes: extras.notes } : {}),
       addedAt: new Date(),
     };
     try {
@@ -270,5 +288,29 @@ export class WebUserService {
     } catch {
       /* ignore */
     }
+  }
+
+  async updateTalkFilters(userId: string, talkFilters: TalkIntakeFilters): Promise<void> {
+    const user = await this.getUser(userId);
+    await this.putPrivateUserData({ ...user, talkFilters });
+  }
+
+  async updateReputationVisibility(userId: string, isHidden: boolean): Promise<void> {
+    const user = await this.getUser(userId);
+    await this.gunService.put(`users/${userId}/reputation`, {
+      ...user.reputation,
+      isHidden,
+    });
+  }
+
+  async submitPeerReview(targetUserId: string, rating: number): Promise<void> {
+    const targetUser = await this.getUser(targetUserId);
+    let updated = ReputationManager.updateReputation(targetUser.reputation, 'star_rating', rating);
+    if (rating >= 4) {
+      updated = ReputationManager.updateReputation(updated, 'liked');
+    } else if (rating <= 2) {
+      updated = ReputationManager.updateReputation(updated, 'disliked');
+    }
+    await this.gunService.put(`users/${targetUserId}/reputation`, updated);
   }
 }

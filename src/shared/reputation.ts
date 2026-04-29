@@ -13,6 +13,8 @@ export class ReputationManager {
     score += reputation.matchesFound * 2;
     score += reputation.friendsCount * 1;
     score += reputation.mutualFriendsCount * 3;
+    score += reputation.likedCount * 0.5;
+    score -= reputation.dislikedCount * 0.75;
     score += (reputation.starRating - 3) * 5; // 3 is neutral
     
     if (reputation.ageVerified) {
@@ -66,6 +68,12 @@ export class ReputationManager {
       case 'friend_added':
         updated.friendsCount += value;
         break;
+      case 'liked':
+        updated.likedCount += value;
+        break;
+      case 'disliked':
+        updated.dislikedCount += value;
+        break;
       case 'star_rating': {
         // Update running average
         const totalRating = updated.starRating * updated.reviewCount + value;
@@ -93,6 +101,8 @@ export type ReputationAction =
   | 'talk_sent'
   | 'match_found'
   | 'friend_added'
+  | 'liked'
+  | 'disliked'
   | 'star_rating'
   | 'age_verified'
   | 'blocked';

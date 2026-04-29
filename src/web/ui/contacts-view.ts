@@ -6,9 +6,15 @@ type ContactsViewDeps = {
   currentUserId: string;
   escapeHtml: (text: string) => string;
   getKnownPeople: () => KnownPerson[];
+  getKnownPerson: (userId: string) => KnownPerson | undefined;
   getPeerName: (userId: string, fallbackName?: string) => string;
   openPeerDetail: (userId: string, stageName: string) => void;
   getMyTalks: () => Record<string, any>;
+  saveKnownPerson: (
+    userId: string,
+    details: { label: KnownPerson['label']; nickname?: string; customLabel?: string; rating?: number; notes?: string },
+  ) => Promise<void>;
+  submitPeerReview: (userId: string, rating: number) => Promise<void>;
 };
 
 function formatRelationshipLabel(label?: string): string {
@@ -31,6 +37,115 @@ function buildMetaLine(summary: PeerSummary, known?: KnownPerson): string {
     formatRelationshipLabel(known?.label),
   ];
   return parts.join(' · ');
+}
+
+function closeRelationshipModal(): void {
+  document.getElementById('contact-relationship-modal')?.remove();
+}
+
+async function openRelationshipDialog(
+  deps: ContactsViewDeps,
+  userId: string,
+  stageName: string,
+): Promise<void> {
+  closeRelationshipModal();
+  const known = deps.getKnownPerson(userId);
+  let publicUser: any = null;
+  try {
+    const res = await fetch(`${deps.apiBase}/api/users/${encodeURIComponent(userId)}`);
+    if (res.ok) publicUser = await res.json();
+  } catch {
+    publicUser = null;
+  }
+  const reputation = publicUser?.reputation || null;
+  const modal = document.createElement('div');
+  modal.id = 'contact-relationship-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.45);display:flex;align-items:center;justify-content:center;z-index:4000;padding:20px;';
+  modal.innerHTML = `
+    <div style="width:min(640px, 96vw); max-height:90vh; overflow:auto; background:white; border-radius:16px; box-shadow:0 20px 60px rgba(15,23,42,0.2);">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; border-bottom:1px solid #e5e7eb;">
+        <div>
+          <div style="font-weight:700; font-size:1.05em;">Relationship & Credit</div>
+          <div style="font-size:0.88em; color:#64748b;">${deps.escapeHtml(stageName)}</div>
+        </div>
+        <button type="button" id="close-contact-relationship-modal" style="background:none;border:none;font-size:24px;cursor:pointer;color:#64748b;">&times;</button>
+      </div>
+      <div style="padding:18px; display:grid; gap:16px;">
+        <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px;">
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
+            <span>Relationship</span>
+            <select id="contact-relationship-label" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">
+              ${['friend', 'relative', 'coworker', 'acquaintance', 'partner', 'custom']
+                .map((label) => `<option value="${label}" ${(known?.label || '') === label ? 'selected' : ''}>${label}</option>`)
+                .join('')}
+            </select>
+          </label>
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
+            <span>Nickname</span>
+            <input id="contact-relationship-nickname" type="text" value="${deps.escapeHtml(String(known?.nickname || ''))}" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">
+          </label>
+        </div>
+        <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
+          <span>Custom label</span>
+          <input id="contact-relationship-custom-label" type="text" value="${deps.escapeHtml(String(known?.customLabel || ''))}" placeholder="Only used when relationship is custom" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">
+        </label>
+        <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px;">
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
+            <span>My rating</span>
+            <select id="contact-relationship-rating" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">
+              <option value="">No rating</option>
+              ${[1, 2, 3, 4, 5]
+                .map((rating) => `<option value="${rating}" ${known?.rating === rating ? 'selected' : ''}>${rating} star${rating === 1 ? '' : 's'}</option>`)
+                .join('')}
+            </select>
+          </label>
+          <div style="padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;background:#f8fafc;">
+            <div style="font-size:0.8em;color:#64748b;">Public credit</div>
+            ${
+              reputation && !reputation.isHidden
+                ? `<div style="margin-top:6px;font-weight:700;">${Number(reputation.starRating || 0).toFixed(1)} ★</div>
+                   <div style="font-size:0.88em;color:#475569;margin-top:4px;">${reputation.reviewCount || 0} reviews · ${reputation.friendsCount || 0} friends · ${reputation.likedCount || 0} liked · ${reputation.dislikedCount || 0} disliked</div>`
+                : '<div style="margin-top:6px;color:#94a3b8;">This user hides their credit section.</div>'
+            }
+          </div>
+        </div>
+        <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
+          <span>Notes</span>
+          <textarea id="contact-relationship-notes" rows="4" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">${deps.escapeHtml(String(known?.notes || ''))}</textarea>
+        </label>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:10px; padding:16px 18px; border-top:1px solid #e5e7eb;">
+        <button type="button" class="btn" id="contact-relationship-close-btn">Close</button>
+        <button type="button" class="btn primary-btn" id="contact-relationship-save-btn">Save</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  const close = () => closeRelationshipModal();
+  (document.getElementById('close-contact-relationship-modal') as HTMLButtonElement | null)?.addEventListener('click', close);
+  (document.getElementById('contact-relationship-close-btn') as HTMLButtonElement | null)?.addEventListener('click', close);
+  (document.getElementById('contact-relationship-save-btn') as HTMLButtonElement | null)?.addEventListener('click', async () => {
+    const label = (document.getElementById('contact-relationship-label') as HTMLSelectElement).value as KnownPerson['label'];
+    const nickname = (document.getElementById('contact-relationship-nickname') as HTMLInputElement).value.trim();
+    const customLabel = (document.getElementById('contact-relationship-custom-label') as HTMLInputElement).value.trim();
+    const ratingRaw = (document.getElementById('contact-relationship-rating') as HTMLSelectElement).value;
+    const notes = (document.getElementById('contact-relationship-notes') as HTMLTextAreaElement).value.trim();
+    const rating = ratingRaw ? Number(ratingRaw) : undefined;
+    await deps.saveKnownPerson(userId, {
+      label,
+      ...(nickname ? { nickname } : {}),
+      ...(customLabel ? { customLabel } : {}),
+      ...(typeof rating === 'number' ? { rating } : {}),
+      ...(notes ? { notes } : {}),
+    });
+    if (typeof rating === 'number' && rating !== known?.rating) {
+      await deps.submitPeerReview(userId, rating);
+    }
+    close();
+  });
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) close();
+  });
 }
 
 export function showContactsList(deps: ContactsViewDeps): void {
@@ -119,6 +234,20 @@ export async function showContactDetail(
   detailName.textContent = otherUserName;
   detailMatches.textContent = 'Loading…';
   talksList.innerHTML = '<p style="text-align: center; padding: 20px; color: #999;">Loading…</p>';
+  const detailInfo = document.getElementById('contact-detail-info');
+  document.getElementById('contact-edit-relationship-btn')?.remove();
+  if (detailInfo) {
+    const button = document.createElement('button');
+    button.id = 'contact-edit-relationship-btn';
+    button.className = 'btn';
+    button.type = 'button';
+    button.textContent = 'Relationship & Credit';
+    button.style.cssText = 'margin-top:8px;padding:6px 12px;font-size:0.85em;';
+    button.addEventListener('click', () => {
+      void openRelationshipDialog(deps, otherUserId, otherUserName);
+    });
+    detailInfo.appendChild(button);
+  }
 
   try {
     const [relationshipRes, historyRes] = await Promise.all([

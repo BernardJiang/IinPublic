@@ -76,6 +76,8 @@ describe('WebUserService', () => {
         matchesFound: 0,
         friendsCount: 0,
         mutualFriendsCount: 0,
+        likedCount: 0,
+        dislikedCount: 0,
         starRating: 3,
         reviewCount: 0,
         ageVerified: false,
@@ -114,6 +116,12 @@ describe('WebUserService', () => {
             addedAt: new Date('2026-04-21T11:00:00.000Z'),
           },
         ],
+        talkFilters: {
+          allowedLanguages: ['en', 'zh'],
+          requireGoodGrammar: true,
+          blockDirtyWords: true,
+          allowedTalkTypes: ['tag', 'flow'],
+        },
       }),
       getStoredPair: jest.fn(() => pair),
     };
@@ -126,6 +134,7 @@ describe('WebUserService', () => {
     expect(user.languages).toEqual(['en', 'fr']);
     expect(user.profile).toHaveLength(1);
     expect(user.knownPeople).toHaveLength(1);
+    expect(user.talkFilters?.allowedLanguages).toEqual(['en', 'zh']);
   });
 
   it('publishes identity keys without rewriting private user fields', async () => {

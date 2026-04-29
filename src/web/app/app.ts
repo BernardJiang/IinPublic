@@ -51,6 +51,7 @@ export class IinPublicApp {
     // Initialize UI
     this.uiManager.initialize();
     this.uiManager.setApiBase(this.getBackendApiBase());
+    this.uiManager.setCurrentLocation(location);
 
     // Get or create user
     await this.initializeUser();
@@ -1235,6 +1236,57 @@ export class IinPublicApp {
       this.refreshStatusBar();
     });
 
+    this.uiManager.on('updateTalkFilters', async (filters: any) => {
+      if (!this.currentUser) return;
+      this.currentUser.talkFilters = filters;
+      try {
+        await this.userService.updateTalkFilters(this.currentUser.id, filters);
+      } catch (error) {
+        console.warn('Failed to persist talk filters:', error);
+      }
+    });
+
+    this.uiManager.on('setCreditVisibility', async (data: { visible: boolean }) => {
+      if (!this.currentUser) return;
+      this.currentUser.reputation.isHidden = !data.visible;
+      try {
+        await this.userService.updateReputationVisibility(this.currentUser.id, !data.visible);
+      } catch (error) {
+        console.warn('Failed to persist credit visibility:', error);
+      }
+    });
+
+    this.uiManager.on(
+      'saveKnownPerson',
+      async (data: { userId: string; label: any; nickname?: string; customLabel?: string; rating?: number; notes?: string }) => {
+        if (!this.currentUser) return;
+        try {
+          const extras = {
+            ...(data.customLabel ? { customLabel: data.customLabel } : {}),
+            ...(typeof data.rating === 'number' ? { rating: data.rating } : {}),
+            ...(data.notes ? { notes: data.notes } : {}),
+          };
+          await this.userService.addKnownPerson(
+            this.currentUser.id,
+            data.userId,
+            data.label,
+            data.nickname,
+            extras,
+          );
+        } catch (error) {
+          console.warn('Failed to save known person:', error);
+        }
+      },
+    );
+
+    this.uiManager.on('submitPeerReview', async (data: { userId: string; rating: number }) => {
+      try {
+        await this.userService.submitPeerReview(data.userId, data.rating);
+      } catch (error) {
+        console.warn('Failed to submit peer review:', error);
+      }
+    });
+
     // Handle stage name changes
     this.uiManager.onStageNameChange = async (userId: string, newStageName: string) => {
       try {
@@ -1322,6 +1374,14 @@ export class IinPublicApp {
         const talk = await this.talkService.createTalk({
           ...talkData,
           authorId: this.currentUser!.id,
+          ...(this.currentLocation
+            ? {
+                authorLocation: {
+                  latitude: this.currentLocation.latitude,
+                  longitude: this.currentLocation.longitude,
+                },
+              }
+            : {}),
         });
 
         console.log('✅ Talk created:', talk);

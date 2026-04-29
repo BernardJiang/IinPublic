@@ -12,6 +12,8 @@ describe('ReputationManager', () => {
       matchesFound: 3,
       friendsCount: 20,
       mutualFriendsCount: 5,
+      likedCount: 7,
+      dislikedCount: 1,
       starRating: 4.2,
       reviewCount: 8,
       ageVerified: true,
@@ -72,6 +74,8 @@ describe('ReputationManager', () => {
         matchesFound: 0,
         friendsCount: 0,
         mutualFriendsCount: 0,
+        likedCount: 0,
+        dislikedCount: 0,
         starRating: 0,
         reviewCount: 0,
         ageVerified: false,
@@ -167,6 +171,13 @@ describe('ReputationManager', () => {
     it('should increment block count', () => {
       const updatedRep = ReputationManager.updateReputation(mockReputation, 'blocked');
       expect(updatedRep.blockCount).toBe(mockReputation.blockCount + 1);
+    });
+
+    it('should increment liked and disliked counters', () => {
+      const liked = ReputationManager.updateReputation(mockReputation, 'liked');
+      const disliked = ReputationManager.updateReputation(mockReputation, 'disliked');
+      expect(liked.likedCount).toBe(mockReputation.likedCount + 1);
+      expect(disliked.dislikedCount).toBe(mockReputation.dislikedCount + 1);
     });
 
     it('should not modify original reputation object', () => {

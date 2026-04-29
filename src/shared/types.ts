@@ -1,9 +1,22 @@
-export type RelationshipLabel = 'friend' | 'relative' | 'coworker' | 'acquaintance';
+export type RelationshipLabel = 'friend' | 'relative' | 'coworker' | 'acquaintance' | 'partner' | 'custom';
+
+export interface TalkIntakeFilters {
+  minDistanceMiles?: number;
+  maxDistanceMiles?: number;
+  sentAfter?: string;
+  allowedLanguages: string[];
+  requireGoodGrammar: boolean;
+  blockDirtyWords: boolean;
+  allowedTalkTypes: Array<'flow' | 'survey' | 'tag' | 'route'>;
+}
 
 export interface KnownPerson {
   userId: string;
   label: RelationshipLabel;
+  customLabel?: string;
   nickname?: string;
+  rating?: number;
+  notes?: string;
   addedAt: Date;
 }
 
@@ -23,6 +36,7 @@ export interface User {
   /** SEA ephemeral public key for ECDH messaging */
   epub?: string;
   knownPeople?: KnownPerson[];
+  talkFilters?: TalkIntakeFilters;
 }
 
 export interface QuestionAnswer {
@@ -39,6 +53,8 @@ export interface Reputation {
   matchesFound: number;
   friendsCount: number;
   mutualFriendsCount: number;
+  likedCount: number;
+  dislikedCount: number;
   starRating: number;
   reviewCount: number;
   ageVerified: boolean;

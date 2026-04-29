@@ -30,12 +30,30 @@ export function registerUserRoutes(
 
   app.post('/api/users/:id/known-people', async (req, res) => {
     try {
-      const { targetId, label, nickname } = req.body as { targetId?: string; label?: string; nickname?: string };
+      const { targetId, label, nickname, customLabel, rating, notes } = req.body as {
+        targetId?: string;
+        label?: string;
+        nickname?: string;
+        customLabel?: string;
+        rating?: number;
+        notes?: string;
+      };
       if (!targetId || !label) {
         res.status(400).json({ error: 'targetId and label required' });
         return;
       }
-      await userService.addKnownPerson(req.params.id, targetId, label as RelationshipLabel, nickname);
+      const extras = {
+        ...(customLabel ? { customLabel } : {}),
+        ...(typeof rating === 'number' ? { rating } : {}),
+        ...(notes ? { notes } : {}),
+      };
+      await userService.addKnownPerson(
+        req.params.id,
+        targetId,
+        label as RelationshipLabel,
+        nickname,
+        extras,
+      );
       res.json({ ok: true });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });

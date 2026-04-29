@@ -466,6 +466,14 @@ class IinPublicServer {
       identityKey,
       title: talkData?.title || existing.title || '',
       type: talkData?.type || existing.type || 'flow',
+      language: talkData?.language || existing.language || 'en',
+      authorLocation:
+        talkData?.authorLocation && typeof talkData.authorLocation === 'object'
+          ? {
+              latitude: Number(talkData.authorLocation.latitude),
+              longitude: Number(talkData.authorLocation.longitude),
+            }
+          : existing.authorLocation,
       /** JSON string only — Gun.put rejects nested arrays on this path. */
       questionsJson: questionsJsonForNode || undefined,
       questionCount: Array.isArray(talkData?.questions) ? talkData.questions.length : existing.questionCount || 0,
