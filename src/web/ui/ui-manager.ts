@@ -1004,7 +1004,7 @@ export class UIManager extends EventEmitter {
   }
 
   setTalkStats(statsMap: Record<string, { responses: number; matches: number; ignores: number }>): void {
-    this.talkStatsMap = { ...this.talkStatsMap, ...statsMap };
+    this.talkStatsMap = { ...statsMap };
     const talksList = document.getElementById('talks-list');
     if (talksList) {
       Object.entries(statsMap).forEach(([talkId, stats]) => {

@@ -4,12 +4,13 @@ import { logger } from '../logger';
 type RegisterSystemRoutesDeps = {
   gun: any;
   incomingTalksMap: Map<string, Map<string, any>>;
+  clearTalkResponseStats: () => void;
   nodeEnv: string | undefined;
 };
 
 export function registerSystemRoutes(
   app: express.Application,
-  { gun, incomingTalksMap, nodeEnv }: RegisterSystemRoutesDeps,
+  { gun, incomingTalksMap, clearTalkResponseStats, nodeEnv }: RegisterSystemRoutesDeps,
 ): void {
   // Health check
   app.get('/health', (_req, res) => {
@@ -38,6 +39,7 @@ export function registerSystemRoutes(
           gun._.graph = {};
           // Also clear server-side incoming talks Map
           incomingTalksMap.clear();
+          clearTalkResponseStats();
           logger.info('✅ Gun.js in-memory database cleared');
           res.json({ success: true, message: 'Gun.js in-memory database cleared' });
         } else {

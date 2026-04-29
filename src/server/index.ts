@@ -378,6 +378,13 @@ class IinPublicServer {
     );
   }
 
+  private clearTalkResponseStats(): void {
+    this.talkResponsesMap.clear();
+    this.statsIdx.byDay.clear();
+    this.statsIdx.byRegion.clear();
+    this.statsIdx.byTalkAnswer.clear();
+  }
+
   /** Gun cannot store `questions: [...]` on incoming cluster nodes; we keep `questionsJson` instead. */
   private clusterNodeForIdentityLookup(v: unknown): any {
     let base = v;
@@ -670,6 +677,7 @@ class IinPublicServer {
     registerSystemRoutes(this.app, {
       gun: this.gun,
       incomingTalksMap: this.incomingTalksMap,
+      clearTalkResponseStats: this.clearTalkResponseStats.bind(this),
       nodeEnv: process.env.NODE_ENV,
     });
 
