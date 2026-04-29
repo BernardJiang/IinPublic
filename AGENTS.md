@@ -215,13 +215,13 @@ This is a starting point. Add your own conventions, style, and rules as you figu
 <claude-mem-context>
 # Memory Context
 
-# [IinPublic] recent context, 2026-04-27 12:01am PDT
+# [IinPublic] recent context, 2026-04-29 12:11am PDT
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (18,854t read) | 750,325t work | 97% savings
+Stats: 50 obs (21,313t read) | 304,865t work | 93% savings
 
 ### Apr 23, 2026
 S2 Debug and refactor E2E tests for chatroom peer-detail views to fix test isolation and modal interaction issues (Apr 23 at 11:08 PM)
@@ -231,57 +231,57 @@ S3 Fix broken `test:e2e` suite — both `PW_WORKERS=8 npm run test:e2e` and `npm
 S4 Refactor subscribeToMemberCount in web-chatroom-service.ts to simplify Gun.js member count seeding (Apr 25 at 12:46 PM)
 S5 Monitor Re-Armed to Watch Playwright PID 26650 for Completion (Apr 25 at 1:01 PM)
 S6 Monitor e2e test suite completion for IinPublic project (Apr 25 at 1:12 PM)
-### Apr 26, 2026
-59 8:15p 🔵 Project Tech Stack and npm Script Inventory Confirmed
-60 " 🔵 Chatroom Member List Already Has Stats Loading but No Scroll Fix
-64 8:17p 🔵 Peer Relationship API Is In-Memory Only — No Persistence Between Server Restarts
-65 " 🔵 KnownPerson Has Relationship Label But No Nickname Field
-66 " 🔵 Talks Tab Renders IN Section Before OUT — Scrolling Required to Reach OUT Talks
-67 " 🔵 Two Duplicate Broadcast Buttons Confirmed in Chatrooms View HTML
-68 " 🔵 Chatroom Member List Has Correct Scroll CSS — Bug Likely in Parent Flex Container Height
-69 " ⚖️ Implementation Plan Ordered by Layout Dependencies First
-70 " 🔴 Duplicate Broadcast Buttons Unified Into Single Status Bar Action
-71 " 🟣 Talks Tab Now Has IN / OUT / All Navigation Bar with Back Button
-72 " 🔴 Chatroom Member List Scroll Fixed via CSS Container and overflow:hidden
-73 8:18p 🔵 All 140 Unit Tests Pass After ui-manager.ts and CSS Changes
-74 " 🔵 KnownPerson Nickname Absence Confirmed in Unit Tests — Schema Extension Required
-75 " 🔵 Server-Side Incoming Talk Cluster Structure Fully Mapped
-76 8:19p 🟣 KnownPerson Schema Extended with Optional nickname Field
-77 " 🟣 New GET /api/users/:userId/peers Endpoint Returns Full Contact List with Stats
-78 8:20p 🔵 peer-routes.ts Patch Failed — File Still in Pre-Refactor State
-79 " 🔄 peer-routes.ts Refactor Re-Applied with Corrected Patch Context
-80 8:29p 🔴 Chatroom Member List Scroll Chain Fixed
-81 " 🔴 Duplicate Broadcast Button Removed
-82 " 🟣 Talks Tab IN/OUT/All Navigation Bar
-83 " 🟣 KnownPerson Nickname Field Added End-to-End
-84 " 🟣 New GET /api/users/:userId/peers Endpoint
-85 " 🟣 Contacts View Rewritten to Use /peers Endpoint
-86 " 🟣 Peer Detail View Enhanced with Nickname and Relationship Display
-87 " 🟣 Answers Tab Shows Original Questions and Selected Answers
-88 " 🟣 E2E Specs Added for All New UX Features
-89 " 🟣 Seeded Dev Stage npm Scripts Added
-90 8:31p 🟣 Dev Stage Seed Module Created (dev-stage-seeds.ts)
-91 " 🟣 Stage Seed Auto-Applied in index.ts After App Init
-92 " ✅ All 5 Feature Items Fully Implemented and Green
-93 11:08p 🔵 Integration Test Failing Due to Missing `getUserStageName` in PeerRouteDeps
-94 " 🔵 Integration Test Run Crashes with EPERM: Socket Listen Forbidden on macOS
-95 11:09p 🔴 Fixed Missing `getUserStageName` Mock in peer-routes Integration Test
-96 11:19p 🟣 Contacts View Now Uses Centralized `getPeerName` for Display Name Resolution
-97 11:20p 🟣 UIManager Gains Persistent Peer Name Cache with Multi-Source Resolution
-98 11:25p 🔵 Two E2E Test Failures in Contacts Tab: Stale Name Display and Incorrect Talk Count
-99 11:26p 🔴 Fixed Contact Detail Panel Not Updating Contact Name After Click
-100 " 🔴 Fixed Operator Precedence Bug in Talk Count Calculation
-101 " ✅ Wired showContactDetail into UIManager and Supplied getMyTalks Dependency
-102 " ⚖️ Accepted 2 Talks as Correct Count in E2E Test 12 Rather Than Fixing Test Isolation
-103 11:34p 🔴 Removed Duplicate openPeerDetail Call from Contact Item Click Handler
-104 " 🔴 Fixed Answer Display Text Falling Back to Literal "ignore" String in Answers View
-105 " ✅ Updated E2E Test 12 to Assert Contact Detail Panel Instead of Peer Detail Overlay
-106 11:46p 🔵 E2E Test 12 Fails Only When Run in Full Suite Due to Conversation List State
-107 " 🔵 Test 12 Structure: Three-Browser E2E with BeforeEach Session Reset
-108 " 🔵 Conversation List Items Rendered from localStorage, Not Live GunDB State
-109 11:47p 🔵 addNewConversation Only Re-renders List When 'me' Tab Is Currently Active
-110 " 🔴 Fixed Wrong DOM Selector for Active Tab Check in addNewConversation
-111 " ✅ Fix Verified: TypeScript Types Clean, All 140 Unit Tests Pass
+### Apr 28, 2026
+154 10:55p 🔵 Incoming-Talks Pipeline: Filter Hook Point is GET /api/users/:id/incoming-talks
+155 " 🔵 Tag Talk Structure: Single Boolean Match/Ignore Question — Maps Directly to Checked/Unchecked Display
+157 10:56p 🔵 ReputationService Stores Peer-Generated Reputation Data in Gun at users/{userId}/reputation
+158 " 🔵 KnownPeople Write Path Gap: UI Manager Has No addKnownPerson Method or Event
+159 " 🟣 Shared Type System Extended: TalkIntakeFilters, Extended KnownPerson, likedCount/dislikedCount on Reputation
+160 10:57p 🟣 WebUserService Extended: TalkIntakeFilters Persistence, Extended KnownPerson Write, Reputation Visibility Control, and Peer Review
+161 " 🟣 Server-Side UserService Parity: Extended KnownPerson extras and likedCount/dislikedCount Initialization
+162 " 🟣 REST API: POST /api/users/:id/known-people Now Accepts Extended Relationship Fields
+163 " 🔵 Test Files Need Reputation Object Updates After likedCount/dislikedCount Addition
+164 " 🟣 New Module: src/web/ui/talk-intake-filters.ts — Client-Side Talk Cluster Filtering Engine
+165 10:58p 🟣 authorLocation Now Propagated from App Through Talk Creation to Incoming Cluster
+166 " 🔵 UIManager Stores incomingTalkClusters as Private Array — Filter Must Be Applied at Display Time
+167 " ✅ UIManager Now Imports Filter Utilities and Stores currentLocation Field
+168 10:59p ✅ UIManager.setCurrentLocation() Public Setter Added
+169 " 🟣 Me Tab: Talk Filters UI and Credit Section Rendered in showMainInterface()
+170 11:00p 🟣 Talks Tab IN List Now Filtered by Talk Intake Rules with Filtered-Count Display
+171 " 🟣 UIManager: saveKnownPerson and submitPeerReview Methods Added and Wired to Contacts View
+172 11:01p 🟣 Contacts View: Relationship & Credit Dialog Implemented with Full KnownPerson Form and Peer Credit Display
+173 " 🔴 contacts-view.ts: Relationship Button Stale ID Guard Fixed — Now Always Removed and Re-created
+174 " 🟣 app.ts: Four New UIManager Event Handlers and Location Initialization Complete the Feature Wiring
+175 11:02p ✅ Old answers-view.ts Deleted — Replaced by New Implementation
+176 " 🟣 answers-view.ts Rewritten: Tag vs Question Distinction, ContextHash Display, and Per-Entry Metadata
+177 11:03p 🔴 Me Tab Credit Section: Safe Defaults for likedCount/dislikedCount on Existing Users
+178 " 🔵 Exact Reputation Object Literals in Test Files Identified — All Missing likedCount/dislikedCount
+179 " 🟣 Unit Tests Updated: Reputation Fixtures Fixed and New liked/disliked + talkFilters Tests Added
+180 11:04p 🟣 New Unit Test File: talk-intake-filters.test.ts Covers Type/Time, Language/DirtyWords, and Distance Filters
+181 11:14p 🔵 E2E Test 01-login-single-user-headcount Structure and Failing Context
+182 11:15p 🔵 Root Cause Traced: Headcount Race Condition Between Gun.js Subscription Fire Order and Playwright Assertion
+183 " 🔵 Actual Test Failure Root Cause: App Crash on Re-Login in UIManager.showMainInterface
+184 11:16p 🔵 Exact Bug Located: reputation.starRating.toFixed(1) Called Without Null Guard in ui-manager.ts:707
+185 " 🔴 Fixed UIManager Crash on Re-Login: Null-Safe Reputation Fields in showMainInterface
+186 " 🔴 App No Longer Crashes on Re-Login After Reputation Null-Safety Fix
+187 11:17p 🔴 E2E Test 01-login-single-user-headcount Now Passes After Reputation Fix
+188 11:45p 🔵 E2E Test Failures and Missing Test Coverage for New Feature
+189 11:46p 🔵 E2E Test Structure for UX Contacts/Talks/Answers Flow
+190 " 🔵 Partial Match E2E Test: Two Responders — One Match, One Mismatch
+191 " 🔵 New Unit Test Files and talk-intake-filters Module Are Untracked
+192 11:47p 🔵 Live E2E Run Reveals Answer Storage Bug: answerText="ignore" and isMatch=undefined
+193 11:48p 🔵 Test 1 Exact Failure: answers-content Missing "/1 question/i" Text
+194 " 🔵 Partial Match Test 2: Core Logic Works, answerText Bug Confirmed for Mismatch Answers
+195 11:49p 🔵 Historical Context: Both Failing Tests Were Previously Passing or Known Broken
+196 11:50p 🔵 Talk IDs and Answer IDs Are Deterministic/Content-Based, Not Random
+197 11:51p 🔵 Second E2E Run: Partial Match Test Now Passes, Only One Test Remaining Broken
+198 " 🔵 Other E2E Tests Also Assert Mismatch/Match Labels in #answers-content; No E2E Tests for New Features
+199 11:52p 🟣 Me-Tab Talk Filters and Credit Section Implemented in ui-manager.ts
+200 " 🟣 Contact Relationship Modal Implemented in contacts-view.ts with Full KnownPerson Editing
+201 " 🔵 Root Cause Found: answers-view Renders "N items" Not "N questions" — Test Expects "/1 question/i"
+202 11:53p 🔴 Fixed 12-ux-contacts-talks-answers Test: Adapted Assertion from "1 question" to "1 item"
+203 " 🟣 New E2E Tests Added for Me-Tab Filters/Credit and Contacts Relationship Dialog
+204 " ✅ Three E2E Test Files Written to Disk: Fix + Two New Specs
 
-Access 750k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 305k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>
