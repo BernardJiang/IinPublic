@@ -19,6 +19,7 @@ type PrivateUserData = Pick<User, 'profile' | 'languages' | 'interests' | 'known
 };
 
 const PRIVATE_USER_DATA_KEY = 'profile';
+const PUBLIC_PROFILE_FOUNDATION_KEY = 'user-public-profile';
 
 export class WebUserService {
   constructor(private gunService: WebGunService) {}
@@ -27,11 +28,11 @@ export class WebUserService {
     const publicUser: User = {
       id: user.id,
       stageName: user.stageName,
-      profile: [],
+      profile: user.profile || [],
       reputation: user.reputation,
       location: user.location,
-      languages: [],
-      interests: [],
+      languages: user.languages || ['en'],
+      interests: user.interests || [],
       createdAt: user.createdAt,
       lastActive: user.lastActive,
       knownPeople: [],
@@ -39,6 +40,7 @@ export class WebUserService {
 
     if (user.pub) publicUser.pub = user.pub;
     if (user.epub) publicUser.epub = user.epub;
+    if (user.headshot) publicUser.headshot = user.headshot;
 
     return publicUser;
   }
@@ -52,6 +54,27 @@ export class WebUserService {
       ...(user.talkFilters ? { talkFilters: user.talkFilters } : {}),
       ...(user.headshot ? { headshot: user.headshot } : {}),
     };
+  }
+
+  private buildPublicProfileFoundation(user: User): {
+    headshot?: string;
+    languagesJson: string;
+    profileJson: string;
+    interestsJson: string;
+  } {
+    return {
+      ...(user.headshot ? { headshot: user.headshot } : {}),
+      languagesJson: JSON.stringify(user.languages || ['en']),
+      profileJson: JSON.stringify(user.profile || []),
+      interestsJson: JSON.stringify(user.interests || []),
+    };
+  }
+
+  private async putPublicProfileFoundation(user: User): Promise<void> {
+    await this.gunService.put(
+      `${PUBLIC_PROFILE_FOUNDATION_KEY}/${user.id}`,
+      this.buildPublicProfileFoundation(user),
+    );
   }
 
   private async putPrivateUserData(user: User): Promise<void> {
@@ -139,6 +162,7 @@ export class WebUserService {
     if (userData.epub) user.epub = userData.epub;
 
     await this.gunService.put(`users/${userId}`, this.buildPublicUserRecord(user));
+    await this.putPublicProfileFoundation(user);
     await this.putPrivateUserData(user);
     return user;
   }
@@ -162,6 +186,30 @@ export class WebUserService {
 
   async updateStageName(userId: string, newStageName: string): Promise<void> {
     await this.gunService.put(`users/${userId}`, { stageName: newStageName });
+  }
+
+  async updateProfileFoundation(
+    userId: string,
+    updates: {
+      headshot?: string;
+      languages: string[];
+      profile: QuestionAnswer[];
+    },
+  ): Promise<User> {
+    const user = await this.getUser(userId);
+    const nextUser: User = {
+      ...user,
+      languages: updates.languages,
+      profile: updates.profile,
+      ...(updates.headshot ? { headshot: updates.headshot } : {}),
+    };
+    if (!updates.headshot && nextUser.headshot) {
+      delete (nextUser as Partial<User>).headshot;
+    }
+    await this.gunService.put(`users/${userId}`, this.buildPublicUserRecord(nextUser));
+    await this.putPublicProfileFoundation(nextUser);
+    await this.putPrivateUserData(nextUser);
+    return nextUser;
   }
 
   /**

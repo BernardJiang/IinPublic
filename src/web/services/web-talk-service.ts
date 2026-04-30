@@ -11,11 +11,11 @@ export class WebTalkService {
     private apiBase?: string,
   ) {}
 
-  /** Gun sometimes exposes arrays as { _isArray, _length, 0, 1, ... } after graph merge. */
+  /** Gun sometimes exposes arrays as wrapped objects after graph merge. */
   private normalizeAnswersArray(answers: any): any[] {
     if (Array.isArray(answers)) return answers;
-    if (answers && typeof answers === 'object' && answers._isArray) {
-      const alen = Number(answers._length) || 0;
+    if (answers && typeof answers === 'object' && (answers._isArray || answers.isArray)) {
+      const alen = Number(answers._length ?? answers.length) || 0;
       const ans: any[] = [];
       for (let j = 0; j < alen; j++) {
         if (Object.prototype.hasOwnProperty.call(answers, String(j))) ans.push(answers[String(j)]);
@@ -45,8 +45,8 @@ export class WebTalkService {
     if (Array.isArray(q)) {
       return { ...talk, questions: q.map((qu) => this.normalizeQuestion(qu)) } as Talk;
     }
-    if (q && typeof q === 'object' && q._isArray) {
-      const len = Number(q._length) || 0;
+    if (q && typeof q === 'object' && (q._isArray || q.isArray)) {
+      const len = Number(q._length ?? q.length) || 0;
       const arr: any[] = [];
       for (let i = 0; i < len; i++) {
         if (!Object.prototype.hasOwnProperty.call(q, String(i))) continue;

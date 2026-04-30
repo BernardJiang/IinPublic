@@ -108,11 +108,15 @@ export function closePeerDetailView(): void {
 async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserDetailViewDeps): Promise<void> {
   const statsEl = document.getElementById('peer-stats-section');
   try {
-    const res = await fetch(
-      `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(peerId)}/relationship`,
-    );
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const stats: PeerRelationshipStats = await res.json();
+    const [statsRes, userRes] = await Promise.all([
+      fetch(
+        `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(peerId)}/relationship`,
+      ),
+      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(peerId)}`),
+    ]);
+    if (!statsRes.ok) throw new Error(`HTTP ${statsRes.status}`);
+    const stats: PeerRelationshipStats = await statsRes.json();
+    const publicUser = userRes.ok ? await userRes.json() : null;
 
     const subtitleEl = document.getElementById('peer-detail-subtitle');
     if (subtitleEl) {
@@ -120,7 +124,7 @@ async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserD
     }
 
     if (statsEl) {
-      statsEl.innerHTML = renderStatsHtml(stats, deps.knownPerson);
+      statsEl.innerHTML = renderProfileHtml(publicUser) + renderStatsHtml(stats, deps.knownPerson);
     }
 
     // Render matched conversations below stats
@@ -128,6 +132,40 @@ async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserD
   } catch (err) {
     if (statsEl) statsEl.innerHTML = '<div style="padding:12px;color:#c00;">Could not load stats.</div>';
   }
+}
+
+function renderProfileHtml(publicUser: any): string {
+  const headshot = String(publicUser?.headshot || '').trim();
+  const languages = Array.isArray(publicUser?.languages) ? publicUser.languages.filter(Boolean) : [];
+  const profile = Array.isArray(publicUser?.profile) ? publicUser.profile.filter((qa: any) => qa?.question && qa?.answer) : [];
+  return `
+    <div class="peer-stat-card" style="margin-bottom:12px;">
+      <div style="display:flex; gap:12px; align-items:flex-start;">
+        <div class="user-avatar" style="width:56px; height:56px; font-size:1.5em; flex-shrink:0;">${escapeHtml(headshot || '?')}</div>
+        <div style="min-width:0; flex:1;">
+          <div style="font-weight:700; color:#111827;">Public Profile</div>
+          <div style="font-size:0.85em; color:#475569; margin-top:4px;">Languages: ${escapeHtml(languages.length > 0 ? languages.join(', ') : 'Not listed')}</div>
+          <div style="display:grid; gap:8px; margin-top:10px;">
+            ${
+              profile.length > 0
+                ? profile
+                    .slice(0, 4)
+                    .map(
+                      (qa: any) => `
+                        <div style="padding:8px 10px; border-radius:10px; background:#f8fafc; border:1px solid #e2e8f0;">
+                          <div style="font-size:0.78em; color:#64748b;">${escapeHtml(String(qa.question))}</div>
+                          <div style="font-size:0.92em; font-weight:600; color:#111827; margin-top:2px;">${escapeHtml(String(qa.answer))}</div>
+                        </div>
+                      `,
+                    )
+                    .join('')
+                : '<div style="font-size:0.85em; color:#94a3b8;">No public profile attributes listed.</div>'
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function renderStatsHtml(stats: PeerRelationshipStats, knownPerson?: KnownPerson): string {

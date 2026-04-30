@@ -39,6 +39,41 @@ describe('Service Integration Tests', () => {
     jest.clearAllMocks();
   });
 
+  describe('GunService normalization', () => {
+    it('deserializes Gun array objects back into arrays', async () => {
+      const mockGun = gunService.getGun();
+      mockGun.once.mockImplementationOnce((cb: (data: unknown) => void) => {
+        cb({
+          stageName: 'Tom',
+          languages: { _isArray: true, _length: 2, 0: 'en', 1: 'zh' },
+          profile: {
+            _isArray: true,
+            _length: 1,
+            0: {
+              id: 'profile_1',
+              question: 'Favorite drink',
+              answer: 'Coffee',
+              isAuto: false,
+              answeredAt: '2026-04-29T12:00:00.000Z',
+            },
+          },
+        });
+      });
+
+      const result = await gunService.get('users/user-1');
+
+      expect(result.languages).toEqual(['en', 'zh']);
+      expect(Array.isArray(result.profile)).toBe(true);
+      expect(result.profile[0]).toEqual(
+        expect.objectContaining({
+          question: 'Favorite drink',
+          answer: 'Coffee',
+        }),
+      );
+      expect(result.profile[0].answeredAt).toBeInstanceOf(Date);
+    });
+  });
+
   describe('UserService Integration', () => {
     it('should create user and store in Gun database', async () => {
       const userData = {
@@ -86,12 +121,42 @@ describe('Service Integration Tests', () => {
         lastActive: new Date(),
       };
 
-      const mockGet = jest.spyOn(gunService, 'get').mockResolvedValue(mockUser);
+      const mockGet = jest.spyOn(gunService, 'get')
+        .mockResolvedValueOnce(mockUser)
+        .mockResolvedValueOnce({
+          headshot: '😎',
+          languagesJson: JSON.stringify(['en', 'zh']),
+          profileJson: JSON.stringify([
+            {
+              id: 'profile_1',
+              question: 'Favorite drink',
+              answer: 'Coffee',
+              isAuto: false,
+              answeredAt: '2026-04-29T12:00:00.000Z',
+            },
+          ]),
+          interestsJson: JSON.stringify([]),
+        });
 
       const retrievedUser = await userService.getUser('user123');
 
-      expect(retrievedUser).toEqual(mockUser);
+      expect(retrievedUser).toEqual({
+        ...mockUser,
+        headshot: '😎',
+        languages: ['en', 'zh'],
+        profile: [
+          {
+            id: 'profile_1',
+            question: 'Favorite drink',
+            answer: 'Coffee',
+            isAuto: false,
+            answeredAt: '2026-04-29T12:00:00.000Z',
+          },
+        ],
+        interests: [],
+      });
       expect(mockGet).toHaveBeenCalledWith('users/user123');
+      expect(mockGet).toHaveBeenCalledWith('user-public-profile/user123');
     });
   });
 

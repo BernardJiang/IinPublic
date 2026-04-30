@@ -1,4 +1,4 @@
-import { User, type GPSCoordinate, type KnownPerson, type TalkIntakeFilters } from '../../shared/types';
+import { User, type GPSCoordinate, type KnownPerson, type TalkIntakeFilters, type QuestionAnswer } from '../../shared/types';
 import { EventEmitter } from 'events';
 import { formatTimeAgo, formatExpiration, formatLocationRadius, escapeHtml } from './ui-formatters';
 import { pickLatestTalkIdFromIncomingCluster, isValidTalkId } from '../../shared/incoming-talk-ids';
@@ -95,6 +95,10 @@ export class UIManager extends EventEmitter {
 
   // Callback for stage name changes
   public onStageNameChange?: (userId: string, newStageName: string) => Promise<void>;
+  public onProfileChange?: (
+    userId: string,
+    updates: { headshot?: string; languages: string[]; profile: QuestionAnswer[] },
+  ) => Promise<void>;
 
   getChatroomMemberCount(chatroomId: string): number {
     return this.chatroomMemberCounts.get(chatroomId) || 0;
@@ -618,6 +622,14 @@ export class UIManager extends EventEmitter {
         allowedLanguages: Array.isArray(user.languages) && user.languages.length > 0 ? user.languages : ['en'],
       };
       setTalkIntakeFilters(talkFilters);
+      const headshot = String(user.headshot || '').trim();
+      const profileAnswers = Array.isArray(user.profile) ? user.profile : [];
+      const profilePreview = profileAnswers.length > 0
+        ? profileAnswers
+            .slice(0, 4)
+            .map((qa) => `<div style="padding:8px 10px;border-radius:10px;background:white;border:1px solid #e5e7eb;"><div style="font-size:0.78em;color:#64748b;">${escapeHtml(qa.question)}</div><div style="font-size:0.92em;font-weight:600;color:#111827;margin-top:2px;">${escapeHtml(qa.answer)}</div></div>`)
+            .join('')
+        : '<div style="font-size:0.88em;color:#6b7280;">No public profile attributes yet.</div>';
       const reputation = user.reputation || ({} as typeof user.reputation);
       const reviewCount = reputation.reviewCount ?? 0;
       const starRating = Number(reputation.starRating ?? 0);
@@ -628,12 +640,27 @@ export class UIManager extends EventEmitter {
       const isCreditVisible = reputation.isHidden !== true;
       userInfoMe.innerHTML = `
         <div class="user-avatar" style="width: 80px; height: 80px; font-size: 2em; margin: 20px auto;">
-          ${user.stageName.charAt(0).toUpperCase()}
+          ${escapeHtml(headshot || user.stageName.charAt(0).toUpperCase())}
         </div>
         <div style="text-align: center; margin-top: 10px;">
           <div style="font-size: 1.2em; font-weight: 600;">${user.stageName}</div>
           <div style="font-size: 0.9em; color: #999; margin-top: 5px;">Online</div>
-          <button class="btn" id="edit-stagename-btn" data-testid="edit-stage-name-button" style="margin-top: 10px;">Edit Stage Name</button>
+          <div style="display:flex; justify-content:center; gap:10px; flex-wrap:wrap; margin-top:10px;">
+            <button class="btn" id="edit-stagename-btn" data-testid="edit-stage-name-button">Edit Stage Name</button>
+            <button class="btn" id="edit-profile-btn" data-testid="edit-profile-button">Edit Profile</button>
+          </div>
+        </div>
+        <div style="margin-top: 20px; padding: 16px; background: #ffffff; border-radius: 12px; text-align: left; border:1px solid #e5e7eb;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px;">
+            <div style="font-weight:700; color:#111827;">Profile</div>
+            <div style="font-size:0.82em; color:#6b7280;">Public to peers</div>
+          </div>
+          <div style="font-size:0.88em; color:#374151; margin-bottom:10px;">
+            Languages: ${escapeHtml((Array.isArray(user.languages) && user.languages.length > 0 ? user.languages.join(', ') : 'en'))}
+          </div>
+          <div style="display:grid; gap:8px;">
+            ${profilePreview}
+          </div>
         </div>
         <div style="margin-top: 20px; padding: 16px; background: #f9fafb; border-radius: 12px; text-align: left;">
           <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.95em;">
@@ -722,6 +749,10 @@ export class UIManager extends EventEmitter {
       const editBtn = document.getElementById('edit-stagename-btn');
       if (editBtn) {
         editBtn.addEventListener('click', () => this.showEditStageNameDialog(user));
+      }
+      const editProfileBtn = document.getElementById('edit-profile-btn');
+      if (editProfileBtn) {
+        editProfileBtn.addEventListener('click', () => this.showEditProfileDialog(user));
       }
       const copyTalkCheckbox = document.getElementById('copy-talk-autosave-checkbox') as HTMLInputElement;
       if (copyTalkCheckbox) {
@@ -1430,6 +1461,155 @@ export class UIManager extends EventEmitter {
           }
         } else {
           alert('Stage name must be at least 3 characters long.');
+        }
+      });
+    });
+  }
+
+  async showEditProfileDialog(user: User): Promise<void> {
+    const currentProfile = Array.isArray(user.profile) ? user.profile : [];
+    const currentLanguages = Array.isArray(user.languages) && user.languages.length > 0 ? user.languages : ['en'];
+    const currentHeadshot = String(user.headshot || '').trim();
+    return new Promise((resolve, reject) => {
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      const profileRowsHtml = currentProfile.length > 0
+        ? currentProfile
+            .map(
+              (qa, index) => `
+                <div class="profile-qa-row" data-index="${index}" style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:8px; margin-bottom:8px;">
+                  <input type="text" class="form-input profile-question-input" value="${escapeHtml(qa.question)}" placeholder="Question">
+                  <input type="text" class="form-input profile-answer-input" value="${escapeHtml(qa.answer)}" placeholder="Answer">
+                  <button type="button" class="btn remove-profile-qa-btn" style="background:#ef4444;">Remove</button>
+                </div>
+              `,
+            )
+            .join('')
+        : `
+          <div class="profile-qa-row" data-index="0" style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:8px; margin-bottom:8px;">
+            <input type="text" class="form-input profile-question-input" placeholder="Question">
+            <input type="text" class="form-input profile-answer-input" placeholder="Answer">
+            <button type="button" class="btn remove-profile-qa-btn" style="background:#ef4444;">Remove</button>
+          </div>
+        `;
+      const headshotChoices = ['🙂', '😎', '🤠', '🎾', '☕', '🌟', '🐱', '🦊'];
+      modal.innerHTML = `
+        <div class="modal-content" style="max-width:760px;">
+          <div class="modal-header">
+            <h2 class="modal-title">Edit Profile</h2>
+            <p>Update your public profile basics shown to peers.</p>
+          </div>
+          <form id="edit-profile-form">
+            <div class="form-group">
+              <label class="form-label">Headshot</label>
+              <div style="display:flex; flex-wrap:wrap; gap:8px;" id="headshot-choice-group">
+                ${headshotChoices
+                  .map(
+                    (choice) => `
+                      <label style="display:flex; align-items:center; justify-content:center; width:52px; height:52px; border:1px solid #d1d5db; border-radius:14px; cursor:pointer; font-size:1.5em; background:${choice === currentHeadshot ? '#e0f2fe' : 'white'};">
+                        <input type="radio" name="profile-headshot" value="${choice}" ${choice === currentHeadshot ? 'checked' : ''} style="display:none;">
+                        <span>${choice}</span>
+                      </label>
+                    `,
+                  )
+                  .join('')}
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Languages</label>
+              <input type="text" class="form-input" id="profile-languages-input" value="${escapeHtml(currentLanguages.join(', '))}" placeholder="en, zh">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Profile Attributes</label>
+              <div id="profile-qa-list">${profileRowsHtml}</div>
+              <button type="button" class="btn" id="add-profile-qa-btn">Add Attribute</button>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn" id="cancel-profile-btn" style="background: #6c757d;">Cancel</button>
+              <button type="submit" class="btn" id="save-profile-btn">Save Profile</button>
+            </div>
+          </form>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      const close = () => {
+        if (document.body.contains(modal)) document.body.removeChild(modal);
+      };
+
+      const bindRemoveButtons = () => {
+        modal.querySelectorAll('.remove-profile-qa-btn').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const row = (btn as HTMLElement).closest('.profile-qa-row');
+            row?.remove();
+          });
+        });
+      };
+      bindRemoveButtons();
+
+      const addBtn = document.getElementById('add-profile-qa-btn') as HTMLButtonElement | null;
+      addBtn?.addEventListener('click', () => {
+        const list = document.getElementById('profile-qa-list');
+        if (!list) return;
+        const row = document.createElement('div');
+        row.className = 'profile-qa-row';
+        row.style.cssText = 'display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:8px; margin-bottom:8px;';
+        row.innerHTML = `
+          <input type="text" class="form-input profile-question-input" placeholder="Question">
+          <input type="text" class="form-input profile-answer-input" placeholder="Answer">
+          <button type="button" class="btn remove-profile-qa-btn" style="background:#ef4444;">Remove</button>
+        `;
+        list.appendChild(row);
+        bindRemoveButtons();
+      });
+
+      const cancelBtn = document.getElementById('cancel-profile-btn') as HTMLButtonElement | null;
+      cancelBtn?.addEventListener('click', () => {
+        close();
+        resolve();
+      });
+
+      const form = document.getElementById('edit-profile-form') as HTMLFormElement | null;
+      form?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const selectedHeadshot = (modal.querySelector('input[name="profile-headshot"]:checked') as HTMLInputElement | null)?.value?.trim() || '';
+        const languagesInput = (document.getElementById('profile-languages-input') as HTMLInputElement | null)?.value || '';
+        const languages = languagesInput
+          .split(',')
+          .map((part) => part.trim().toLowerCase())
+          .filter(Boolean);
+        const profile: QuestionAnswer[] = Array.from(modal.querySelectorAll('.profile-qa-row'))
+          .map((row, index) => {
+            const question = ((row.querySelector('.profile-question-input') as HTMLInputElement | null)?.value || '').trim();
+            const answer = ((row.querySelector('.profile-answer-input') as HTMLInputElement | null)?.value || '').trim();
+            if (!question || !answer) return null;
+            const existingId = currentProfile[index]?.id;
+            return {
+              id: existingId || `profile_${Date.now()}_${index}`,
+              question,
+              answer,
+              isAuto: false,
+              answeredAt: currentProfile[index]?.answeredAt || new Date(),
+            } as QuestionAnswer;
+          })
+          .filter((item): item is QuestionAnswer => !!item);
+
+        if (languages.length === 0) {
+          alert('Please enter at least one language.');
+          return;
+        }
+
+        try {
+          await this.onProfileChange?.(user.id, {
+            ...(selectedHeadshot ? { headshot: selectedHeadshot } : {}),
+            languages,
+            profile,
+          });
+          close();
+          resolve();
+        } catch (error) {
+          alert('Failed to update profile. Please try again.');
+          reject(error);
         }
       });
     });

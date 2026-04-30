@@ -1317,6 +1317,24 @@ export class IinPublicApp {
       }
     };
 
+    this.uiManager.onProfileChange = async (
+      userId: string,
+      updates: { headshot?: string; languages: string[]; profile: Array<{ id: string; question: string; answer: string; isAuto: boolean; answeredAt: Date }> },
+    ) => {
+      try {
+        const updatedUser = await this.userService.updateProfileFoundation(userId, updates);
+        if (this.currentUser && this.currentUser.id === userId) {
+          this.currentUser = updatedUser;
+          this.uiManager.showMainInterface(this.currentUser);
+          this.refreshStatusBar();
+        }
+        this.uiManager.showNotification('Profile updated successfully!', 'success');
+      } catch (error) {
+        console.error('Failed to update profile foundation:', error);
+        throw error;
+      }
+    };
+
     // Handle "Send Talk" button click on user - now opens conversation if exists
     this.uiManager.on('sendTalkToUser', async (data: { userId: string }) => {
       console.log('👤 User clicked:', data.userId);

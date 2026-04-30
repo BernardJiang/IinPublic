@@ -5,6 +5,16 @@ import { generateRandomStageName } from '../../shared/user-utils';
 export class UserService {
   constructor(private gunService: GunService) {}
 
+  private parseJsonArray<T>(value: unknown, fallback: T[]): T[] {
+    if (typeof value !== 'string') return fallback;
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed as T[] : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
   async createUser(userData: Partial<User>): Promise<User> {
     // Server-side user creation logic
     const user: User = {
@@ -112,7 +122,25 @@ export class UserService {
   }
 
   async getUser(userId: string): Promise<User> {
-    return await this.gunService.get(`users/${userId}`);
+    const user = await this.gunService.get(`users/${userId}`) as User;
+    const publicProfile = await this.gunService.get(`user-public-profile/${userId}`).catch(() => null) as
+      | {
+          headshot?: string;
+          languagesJson?: string;
+          profileJson?: string;
+          interestsJson?: string;
+        }
+      | null;
+    if (!publicProfile) {
+      return user;
+    }
+    return {
+      ...user,
+      ...(publicProfile.headshot ? { headshot: publicProfile.headshot } : {}),
+      languages: this.parseJsonArray(publicProfile.languagesJson, user.languages || ['en']),
+      profile: this.parseJsonArray(publicProfile.profileJson, user.profile || []),
+      interests: this.parseJsonArray(publicProfile.interestsJson, user.interests || []),
+    };
   }
 
   async updateUserLocation(userId: string, location: GPSCoordinate): Promise<void> {

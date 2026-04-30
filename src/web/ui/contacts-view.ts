@@ -43,6 +43,38 @@ function closeRelationshipModal(): void {
   document.getElementById('contact-relationship-modal')?.remove();
 }
 
+function renderPublicProfileSummary(deps: ContactsViewDeps, publicUser: any): string {
+  const headshot = String(publicUser?.headshot || '').trim();
+  const languages = Array.isArray(publicUser?.languages) ? publicUser.languages.filter(Boolean) : [];
+  const profile = Array.isArray(publicUser?.profile) ? publicUser.profile.filter((qa: any) => qa?.question && qa?.answer) : [];
+  return `
+    <div style="display:flex; gap:12px; align-items:flex-start; margin-top:10px; padding:12px; border-radius:12px; background:#f8fafc; border:1px solid #e2e8f0;">
+      <div class="user-avatar" style="width:52px; height:52px; font-size:1.4em; flex-shrink:0;">${deps.escapeHtml(headshot || '?')}</div>
+      <div style="min-width:0; flex:1;">
+        <div style="font-size:0.82em; color:#64748b;">Public Profile</div>
+        <div style="font-size:0.88em; color:#334155; margin-top:4px;">Languages: ${deps.escapeHtml(languages.length > 0 ? languages.join(', ') : 'Not listed')}</div>
+        <div style="display:grid; gap:6px; margin-top:8px;">
+          ${
+            profile.length > 0
+              ? profile
+                  .slice(0, 3)
+                  .map(
+                    (qa: any) => `
+                      <div style="padding:8px 10px; border-radius:10px; background:white; border:1px solid #e5e7eb;">
+                        <div style="font-size:0.75em; color:#64748b;">${deps.escapeHtml(String(qa.question))}</div>
+                        <div style="font-size:0.9em; font-weight:600; color:#111827; margin-top:2px;">${deps.escapeHtml(String(qa.answer))}</div>
+                      </div>
+                    `,
+                  )
+                  .join('')
+              : '<div style="font-size:0.82em; color:#94a3b8;">No public profile attributes listed.</div>'
+          }
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 async function openRelationshipDialog(
   deps: ContactsViewDeps,
   userId: string,
@@ -237,6 +269,7 @@ export async function showContactDetail(
   const detailInfo = document.getElementById('contact-detail-info');
   document.getElementById('contact-edit-relationship-btn')?.remove();
   if (detailInfo) {
+    detailInfo.querySelector('.contact-public-profile-summary')?.remove();
     const button = document.createElement('button');
     button.id = 'contact-edit-relationship-btn';
     button.className = 'btn';
@@ -250,15 +283,23 @@ export async function showContactDetail(
   }
 
   try {
-    const [relationshipRes, historyRes] = await Promise.all([
+    const [relationshipRes, historyRes, userRes] = await Promise.all([
       fetch(`${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(otherUserId)}/relationship`),
       fetch(`${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(otherUserId)}/talk-history`),
+      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(otherUserId)}`),
     ]);
 
     const relationship = relationshipRes.ok ? await relationshipRes.json() : null;
     const history = historyRes.ok ? await historyRes.json() : [];
+    const publicUser = userRes.ok ? await userRes.json() : null;
     const totalTalks = relationship?.totalTalks ?? (Array.isArray(history) ? history.length : 0);
     detailMatches.textContent = `${totalTalks} talk${totalTalks !== 1 ? 's' : ''}`;
+    if (detailInfo) {
+      const summary = document.createElement('div');
+      summary.className = 'contact-public-profile-summary';
+      summary.innerHTML = renderPublicProfileSummary(deps, publicUser);
+      detailInfo.appendChild(summary);
+    }
 
     if (!Array.isArray(history) || history.length === 0) {
       talksList.innerHTML = '<p style="text-align: center; padding: 20px; color: #999;">No talks exchanged yet.</p>';

@@ -125,7 +125,7 @@ export class WebGunService extends EventEmitter {
     if (obj === undefined || obj === null) return null;
     if (obj instanceof Date) return obj.toISOString();
     if (Array.isArray(obj)) {
-      const arrayObj: any = { _isArray: true, _length: obj.length };
+      const arrayObj: any = { _isArray: true, _length: obj.length, isArray: true, length: obj.length };
       obj.forEach((item, index) => {
         const serialized = this.serializeDates(item);
         if (serialized !== null && serialized !== undefined) {
@@ -153,9 +153,9 @@ export class WebGunService extends EventEmitter {
     if (typeof obj === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(obj)) {
       return new Date(obj);
     }
-    if (obj && typeof obj === 'object' && obj._isArray) {
+    if (obj && typeof obj === 'object' && (obj._isArray || obj.isArray)) {
       const result: any[] = [];
-      const length = obj._length || 0;
+      const length = obj._length || obj.length || 0;
       for (let i = 0; i < length; i++) {
         if (Object.prototype.hasOwnProperty.call(obj, i.toString())) {
           result[i] = this.deserializeDates(obj[i.toString()]);

@@ -43,16 +43,25 @@ describe('WebUserService', () => {
       epub: pair.epub,
     });
 
-    expect(gunService.put).toHaveBeenCalledTimes(1);
+    expect(gunService.put).toHaveBeenCalledTimes(2);
     const publicRecord = gunService.put.mock.calls[0][1] as User;
     expect(publicRecord.stageName).toBe('Alice');
     expect(publicRecord.pub).toBe(pair.pub);
     expect(publicRecord.epub).toBe(pair.epub);
-    expect(publicRecord.profile).toEqual([]);
-    expect(publicRecord.languages).toEqual([]);
-    expect(publicRecord.interests).toEqual([]);
+    expect(publicRecord.profile).toEqual(user.profile);
+    expect(publicRecord.languages).toEqual(['en', 'fr']);
+    expect(publicRecord.interests).toEqual([{ id: 'coffee', name: 'Coffee', category: 'other', popularity: 1 }]);
     expect(publicRecord.knownPeople).toEqual([]);
-    expect(publicRecord.headshot).toBeUndefined();
+    expect(publicRecord.headshot).toBe('data:image/png;base64,abc');
+    const createdUserId = publicRecord.id;
+    expect(gunService.put).toHaveBeenCalledWith(
+      `user-public-profile/${createdUserId}`,
+      expect.objectContaining({
+        headshot: 'data:image/png;base64,abc',
+        languagesJson: JSON.stringify(['en', 'fr']),
+        profileJson: JSON.stringify(user.profile),
+      }),
+    );
 
     expect(gunService.putPrivate).toHaveBeenCalledWith(
       'profile',
@@ -149,5 +158,87 @@ describe('WebUserService', () => {
       pub: pair.pub,
       epub: pair.epub,
     });
+  });
+
+  it('updates profile foundation fields in both public and private storage', async () => {
+    const currentUser: User = {
+      id: 'user-1',
+      stageName: 'Alice',
+      headshot: '🙂',
+      profile: [],
+      reputation: {
+        questionsAnswered: 0,
+        talksSent: 0,
+        matchesFound: 0,
+        friendsCount: 0,
+        mutualFriendsCount: 0,
+        likedCount: 0,
+        dislikedCount: 0,
+        starRating: 3,
+        reviewCount: 0,
+        ageVerified: false,
+        ageVerificationVotes: 0,
+        blockCount: 0,
+        isHidden: false,
+      },
+      location: { region: 'region-1', chatrooms: [] },
+      languages: ['en'],
+      interests: [],
+      createdAt: new Date('2026-04-21T10:00:00.000Z'),
+      lastActive: new Date('2026-04-21T10:00:00.000Z'),
+      knownPeople: [],
+      pub: pair.pub,
+      epub: pair.epub,
+    };
+    const gunService = {
+      get: jest.fn().mockResolvedValue(currentUser),
+      getPrivate: jest.fn().mockResolvedValue(null),
+      put: jest.fn().mockResolvedValue(undefined),
+      putPrivate: jest.fn().mockResolvedValue(undefined),
+      getStoredPair: jest.fn(() => pair),
+    };
+
+    const service = new WebUserService(gunService as any);
+    const updated = await service.updateProfileFoundation('user-1', {
+      headshot: '😎',
+      languages: ['en', 'zh'],
+      profile: [
+        {
+          id: 'profile_1',
+          question: 'Favorite drink',
+          answer: 'Coffee',
+          isAuto: false,
+          answeredAt: new Date('2026-04-21T10:00:00.000Z'),
+        },
+      ],
+    });
+
+    expect(updated.headshot).toBe('😎');
+    expect(updated.languages).toEqual(['en', 'zh']);
+    expect(updated.profile).toHaveLength(1);
+    expect(gunService.put).toHaveBeenCalledWith(
+      'users/user-1',
+      expect.objectContaining({
+        headshot: '😎',
+        languages: ['en', 'zh'],
+        profile: updated.profile,
+      }),
+    );
+    expect(gunService.put).toHaveBeenCalledWith(
+      'user-public-profile/user-1',
+      expect.objectContaining({
+        headshot: '😎',
+        languagesJson: JSON.stringify(['en', 'zh']),
+        profileJson: JSON.stringify(updated.profile),
+      }),
+    );
+    expect(gunService.putPrivate).toHaveBeenCalledWith(
+      'profile',
+      expect.objectContaining({
+        headshot: '😎',
+        languages: ['en', 'zh'],
+        profile: updated.profile,
+      }),
+    );
   });
 });

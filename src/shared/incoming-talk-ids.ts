@@ -27,8 +27,8 @@ function isTalkIdMapKey(k: string): boolean {
 function visitTalkIdsNode(node: unknown, out: Record<string, string>): void {
   if (node == null || typeof node !== 'object') return;
   const n = node as Record<string, unknown>;
-  if (n._isArray) {
-    const len = Number(n._length) || 0;
+  if (n._isArray || n.isArray) {
+    const len = Number(n._length ?? n.length) || 0;
     for (let i = 0; i < len; i++) {
       if (Object.prototype.hasOwnProperty.call(n, String(i))) visitTalkIdsNode(n[String(i)], out);
     }
@@ -55,8 +55,8 @@ function firstLastTalkIdFromSenders(sendersRaw: unknown): string {
   if (!sendersRaw || typeof sendersRaw !== 'object') return '';
   const root = sendersRaw as Record<string, unknown>;
   const rows: unknown[] = [];
-  if (root._isArray) {
-    const len = Number(root._length) || 0;
+  if (root._isArray || root.isArray) {
+    const len = Number(root._length ?? root.length) || 0;
     for (let i = 0; i < len; i++) {
       if (Object.prototype.hasOwnProperty.call(root, String(i))) rows.push(root[String(i)]);
     }

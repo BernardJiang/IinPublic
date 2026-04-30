@@ -34,6 +34,60 @@ export class GunService {
     this.setupEventHandlers();
   }
 
+  private serializeDates(obj: any): any {
+    if (obj === undefined || obj === null) return null;
+    if (obj instanceof Date) return obj.toISOString();
+    if (Array.isArray(obj)) {
+      const arrayObj: any = { _isArray: true, _length: obj.length, isArray: true, length: obj.length };
+      obj.forEach((item, index) => {
+        const serialized = this.serializeDates(item);
+        if (serialized !== null && serialized !== undefined) {
+          arrayObj[index.toString()] = serialized;
+        }
+      });
+      return arrayObj;
+    }
+    if (obj && typeof obj === 'object') {
+      const serialized: any = {};
+      for (const key in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+          const value = this.serializeDates(obj[key]);
+          if (value !== undefined && value !== null) {
+            serialized[key] = value;
+          }
+        }
+      }
+      return serialized;
+    }
+    return obj;
+  }
+
+  private deserializeDates(obj: any): any {
+    if (typeof obj === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(obj)) {
+      return new Date(obj);
+    }
+    if (obj && typeof obj === 'object' && (obj._isArray || obj.isArray)) {
+      const result: any[] = [];
+      const length = obj._length || obj.length || 0;
+      for (let i = 0; i < length; i++) {
+        if (Object.prototype.hasOwnProperty.call(obj, i.toString())) {
+          result[i] = this.deserializeDates(obj[i.toString()]);
+        }
+      }
+      return result;
+    }
+    if (obj && typeof obj === 'object') {
+      const deserialized: any = {};
+      for (const key in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+          deserialized[key] = this.deserializeDates(obj[key]);
+        }
+      }
+      return deserialized;
+    }
+    return obj;
+  }
+
   private setupEventHandlers(): void {
     this.gun.on('hi', (peer: any) => {
       logger.info({ peerId: peer.id }, 'Gun.js peer connected');
@@ -56,7 +110,7 @@ export class GunService {
    */
   public async put(key: string, data: any): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.gun.get(key).put(data, (ack: any) => {
+      this.gun.get(key).put(this.serializeDates(data), (ack: any) => {
         if (ack.err) {
           reject(new Error(ack.err));
         } else {
@@ -76,7 +130,7 @@ export class GunService {
           if (data === undefined) {
             reject(new Error(`No data found for key: ${key}`));
           } else {
-            resolve(data);
+            resolve(this.deserializeDates(data));
           }
         },
         { wait: 1000 },
@@ -98,7 +152,7 @@ export class GunService {
         }
         ref.once(
           (data: any) => {
-            resolve(data);
+            resolve(this.deserializeDates(data));
           },
           { wait: 2000 },
         );
@@ -116,7 +170,7 @@ export class GunService {
     for (const seg of path) {
       ref = ref.get(seg);
     }
-    ref.put(data); // fire-and-forget: ack callback can hang in-memory; data is written synchronously
+    ref.put(this.serializeDates(data)); // fire-and-forget: ack callback can hang in-memory; data is written synchronously
     return Promise.resolve();
   }
 
