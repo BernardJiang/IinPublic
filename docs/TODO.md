@@ -1,103 +1,106 @@
 # IinPublic TODO
 
-Last updated: 2026-04-26
+Last updated: 2026-04-29
 
-This file is the prioritized backlog for the current repository. It is intentionally short.
-It should describe what is still worth doing, not restate features that already exist or
-expand into implementation-level specs for every subsystem.
+This file is the prioritized backlog for the current repository. It should track the
+highest-value spec gaps that still exist in the working codebase, not features that are
+already present behind tests.
 
 ## Current Snapshot
 
-- TypeScript server, shared, and web layers are stable under `src/`
-- P0/P1/P2 cleanup and refactor phases are complete
-- Server-side talk loop is tested end-to-end; Gun authority audit is complete
-- Remaining work: contact/user-surface UX, talks navigation, answer visibility, docs alignment
+Implemented and covered now:
 
-## Phase 2 Backlog
+- Core web/server/shared talk loop is stable and tested end-to-end
+- Chatroom member list scroll + single status-bar broadcast action are live
+- Contacts list, shared peer/detail view, Talks `IN` / `OUT` navigation, and richer Answers cards are live
+- Me-tab intake filters + credit visibility and Contacts relationship editing are live
+- Seeded dev entry points exist: `dev:stage-empty`, `dev:stage-user1`, `dev:stage-user2-match`, `dev:stage-user3-network`
 
-### Foundation
+The backlog below focuses on the biggest remaining gaps between the current implementation
+and `docs/specs/iinpublic-technical-specification.md`.
 
-- [x] Finish the remaining repo-noise decision and enforce it consistently:
-  generated outputs, local state, logs, and test artifacts should stay out of version control
-- [x] Keep current docs aligned with the working codepaths as the product surface narrows
-  (Updated PROJECT_STATUS.md, README, contributing.md; archived repo-cleanup-plan; added talk-loop-authority to current docs map)
-- [x] Tighten the client-side data write boundary so public vs private SEA-backed data paths are explicit instead of ad hoc
+## Priority Backlog
 
-### Core Message / Talk Loop
+### P0 — Close the largest product/spec gaps
 
-- [x] Stabilize the end-to-end user path:
-  chatroom presence → talk broadcast → incoming talk registration → answer submission → match/conversation creation
-  (Fixed: `getClusterSenders` now reads from `incomingTalksMap` first; 14 HTTP-level integration tests added in `src/test/integration/talk-loop.test.ts`)
-- [x] Audit where the server is still compensating for Gun timing/replication issues and decide which paths are authoritative long-term
-  Source of truth: `docs/roadmap/talk-loop-authority.md`
-- [x] Make the answer/template/chatbot flow easier to reason about:
-  one clear path for saved answers, auto-reply templates, and talk completion side effects
-  (Refactored: `talkCompleted` handler extracted to `handleTalkCompleted()` with a 4-step
-  narrative; two-template design (localStorage UI cache vs Gun server auto-reply) documented)
+- [ ] Complete the user identity/profile surface:
+  add editable headshot selection, editable understood languages, and profile question/answer attributes on the Me tab,
+  then show the appropriate public subset in peer/contact detail views
+  (Spec: FR-UM-3, FR-UM-4, FR-BF-2)
+- [ ] Move intake and moderation rules from mostly client-side preference/UI logic into enforced server-side delivery rules:
+  language, grammar, dirty-words, distance/time, and age-gated talk filtering should be applied when incoming talks are registered/delivered,
+  not only when the receiver opens the web UI
+  (Spec: FR-BF-3..6, FR-SP-3, FR-SP-7, FR-SP-8)
+- [ ] Add a real blocking system with persistence, endpoints, and UI actions:
+  block/unblock a user, prevent blocked users from sending talks or viewing profile/detail surfaces, and feed block counts back into reputation/send capacity
+  (Spec: FR-SP-4..6)
+- [ ] Add age-verification and adult-content gating end to end:
+  capture verification state, require age-gate-first flows for adult talks, and hide adult talks from unverified/underage users
+  (Spec: FR-SP-7, FR-SP-8)
 
-### UX Polish
+### P1 — Add the missing room and targeting model
 
-- [x] Reduce UI friction in the core web flow before adding new feature surface:
-  talk creation, answering, match visibility, and conversation entry should feel consistent
-  (Fixed: showConversationDetail no longer shows overlay before confirming conversation exists;
-  formatting utilities extracted to ui-formatters.ts with unit tests)
-- [x] Continue splitting remaining UI feature islands out of `src/web/ui/ui-manager.ts` only when the extracted boundary is user-visible or testable
-  (Extracted: formatTimeAgo, formatExpiration, formatLocationRadius, escapeHtml → ui-formatters.ts)
-- [x] Add narrow tests when a UX-critical seam changes instead of growing a broad speculative backlog
-  (Added: src/test/unit/ui-formatters.test.ts, 20 unit tests)
-- [ ] Fix the chatroom member list so it can scroll vertically when a room contains more users than fit onscreen
-- [ ] Replace the duplicate chatroom broadcast buttons (`Broadcast talks to everyone here` / `Broadcast to everyone in this room`)
-  with one top-level navigation/status bar action so the room-level broadcast entry point is unified
-- [ ] Add a contacts list that shows every user the current user has exchanged talks with:
-  include both inbound and outbound talk relationships, and show per-contact stats for exchanged talks,
-  common tags, user-defined relationship, and private nickname display rules
-- [ ] Unify the user profile/detail surface across chatroom member lists and contacts:
-  clicking a stage name in a chatroom should open the same detail view as the contacts list, with a sparse
-  fallback state when the two users have no prior contact history
-- [ ] Add top-level navigation on the Talks tab for `IN`, `OUT`, and back so users can switch lists without
-  scrolling to the bottom of the current section
-- [ ] Expand the Answer tab so each entry shows the question, whether it is a tag vs question, the current user's chosen state,
-  context hash visibility for branch-based questions, and per-entry metadata such as time, location, and answer counters
-- [ ] Add talk intake filters on the Me tab so the current user can ignore incoming talks by location, time, language,
-  grammar, dirty words, and talk type
-- [ ] Add a read-only credit section on the Me tab that summarizes the current user's reputation/review state and lets the
-  user choose whether to display that section to others
-- [ ] Add richer relationship management from Contacts so a user can set relationship, nickname, rating, and inspect the
-  other person's credit/review summary from a dedicated dialog
-- [ ] Add end-to-end coverage for each of the UX items above so they can be verified independently:
-  chatroom member-list scrolling, unified broadcast bar, contacts list/stat display, shared user detail view,
-  Talks tab `IN`/`OUT` navigation, and Answer tab combined question/answer/stat rendering
-- [ ] Add reusable manual test stages with simple dev commands such as `npm run dev:stage-empty`,
-  `dev:stage-user1`, `dev:stage-user2-match`, and `dev:stage-user3-network` so feature work can start from
-  seeded states:
-  empty app, one user with drafted talks, two users with exchanged matched/mismatched talks, and three users
-  with cross-user talk history
+- [ ] Implement user-defined and business chatrooms with create/rename/delete flows, metadata storage, and membership management
+  (Spec: FR-CR-5, FR-CR-6)
+- [ ] Support multi-room membership + explicit travel mode so a user can belong to several location rooms and actively travel to one remote room at a time
+  (Spec: FR-CR-9, FR-CR-10)
+- [ ] Add tag catalogs/popularity plus the mandatory tag/location preamble for every talk before bulk sending,
+  and use those tags as actual targeting criteria during broadcast
+  (Spec: FR-TG-2, FR-TG-4..6, FR-BM-5, FR-BM-6)
+- [ ] Expand bulk-send targeting beyond “current room broadcast” with selectable audience scope, distance radius, tag filters, and user-count preview
+  (Spec: FR-BM-1..5, UI §13.4)
 
-### Platforms
+### P2 — Complete analytics, guardrails, and docs
 
-- [ ] Keep Android as maintenance-only for now:
-  do not expand Android or start iOS work until the web/server talk loop is stable and easier to maintain
-- [ ] Revisit platform priorities only after the foundation and core-loop items above are in a better state
+- [ ] Build a survey analytics/results surface instead of only storing counters on answers:
+  per-question distributions, percentages, anonymity defaults, and follow-up handling for “Let’s talk in person” survey endings
+  (Spec: FR-SV-2..5, UI §13.5)
+- [ ] Add actual send/receive rate-limit enforcement and tests for cooldown behaviour
+  (Spec: FR-SP-1, FR-SP-2)
+- [ ] Refresh current docs so they match the post-Apr-29 implementation:
+  `README.md`, `docs/reports/PROJECT_STATUS.md`, and any spec-delta notes should stop listing recently completed UX work as missing
+- [ ] Extend automated coverage around the missing server-enforced moderation, block, age-gate, custom-chatroom, and targeting flows so the next feature pass is protected
+  (Spec: FR-BTD-4, §15)
 
-## Already Present
+## Suggested Execution Order
 
-These items were previously tracked as missing or incomplete, but code or infrastructure for
-them already exists in the repo and they should not stay in the active TODO as greenfield work:
+1. **Profile foundation**
+   - Add shared/server/web support for editable `headshot`, `languages`, and profile Q/A writes
+   - Expose those controls in Me and read paths in peer/contact detail views
+   - Cover with unit + one focused E2E profile flow
+2. **Server-enforced moderation**
+   - Define one delivery-time filter pipeline on the server
+   - Reuse existing intake-filter data where possible, but make server results authoritative
+   - Add integration tests around `/received` / incoming-talk registration
+3. **Blocking + age gating**
+   - Add persistence + routes first
+   - Wire talk delivery/profile visibility checks
+   - Add UI affordances after the permissions layer exists
+4. **Chatroom model expansion**
+   - Introduce custom/business room schemas and CRUD
+   - Then add travel/multi-membership semantics
+   - Only after that expand bulk-send targeting beyond the current room action
+5. **Survey dashboard + rate limits + docs cleanup**
+   - Finish the remaining analytics/admin surfaces
+   - Add cooldown enforcement tests
+   - Update status docs once the new server rules land
 
-- CI workflow
-- Deploy scripts
-- `Dockerfile`
-- Structured logger
-- Request logging middleware
-- Rate limiting/content moderation foundations
-- Talk stats/shared supporting utilities
-- Android project skeleton
+## Done Recently — do not re-add as greenfield work
+
+- Chatroom member-list scrolling
+- Unified broadcast action in the status/chatroom surface
+- Contacts list with exchanged-talk stats
+- Shared peer detail between chatroom members and contacts
+- Talks tab `IN` / `OUT` / back navigation
+- Expanded Answers rendering with question/answer metadata
+- Me-tab intake filters and credit visibility
+- Contacts relationship dialog and peer credit summary
+- Seeded dev-stage commands for local feature work
 
 ## Working Rule
 
 When updating this file:
 
-- Prefer status and priority over implementation detail
-- Link to the file or doc that is the source of truth
-- Remove completed items instead of letting the backlog grow forever
-- If a task needs a full execution plan, put that plan in `docs/roadmap/`
+- Prefer spec gaps and execution priority over implementation detail
+- Remove completed items instead of keeping stale “missing” work around
+- If a task needs a deeper implementation plan, create a focused doc in `docs/roadmap/`
