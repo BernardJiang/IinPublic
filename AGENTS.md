@@ -215,13 +215,13 @@ This is a starting point. Add your own conventions, style, and rules as you figu
 <claude-mem-context>
 # Memory Context
 
-# [IinPublic] recent context, 2026-04-29 12:11am PDT
+# [IinPublic] recent context, 2026-04-29 11:12pm PDT
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (21,313t read) | 304,865t work | 93% savings
+Stats: 50 obs (21,823t read) | 393,036t work | 94% savings
 
 ### Apr 23, 2026
 S2 Debug and refactor E2E tests for chatroom peer-detail views to fix test isolation and modal interaction issues (Apr 23 at 11:08 PM)
@@ -232,15 +232,7 @@ S4 Refactor subscribeToMemberCount in web-chatroom-service.ts to simplify Gun.js
 S5 Monitor Re-Armed to Watch Playwright PID 26650 for Completion (Apr 25 at 1:01 PM)
 S6 Monitor e2e test suite completion for IinPublic project (Apr 25 at 1:12 PM)
 ### Apr 28, 2026
-154 10:55p 🔵 Incoming-Talks Pipeline: Filter Hook Point is GET /api/users/:id/incoming-talks
-155 " 🔵 Tag Talk Structure: Single Boolean Match/Ignore Question — Maps Directly to Checked/Unchecked Display
-157 10:56p 🔵 ReputationService Stores Peer-Generated Reputation Data in Gun at users/{userId}/reputation
-158 " 🔵 KnownPeople Write Path Gap: UI Manager Has No addKnownPerson Method or Event
-159 " 🟣 Shared Type System Extended: TalkIntakeFilters, Extended KnownPerson, likedCount/dislikedCount on Reputation
-160 10:57p 🟣 WebUserService Extended: TalkIntakeFilters Persistence, Extended KnownPerson Write, Reputation Visibility Control, and Peer Review
-161 " 🟣 Server-Side UserService Parity: Extended KnownPerson extras and likedCount/dislikedCount Initialization
-162 " 🟣 REST API: POST /api/users/:id/known-people Now Accepts Extended Relationship Fields
-163 " 🔵 Test Files Need Reputation Object Updates After likedCount/dislikedCount Addition
+163 10:57p 🔵 Test Files Need Reputation Object Updates After likedCount/dislikedCount Addition
 164 " 🟣 New Module: src/web/ui/talk-intake-filters.ts — Client-Side Talk Cluster Filtering Engine
 165 10:58p 🟣 authorLocation Now Propagated from App Through Talk Creation to Incoming Cluster
 166 " 🔵 UIManager Stores incomingTalkClusters as Private Array — Filter Must Be Applied at Display Time
@@ -282,6 +274,15 @@ S6 Monitor e2e test suite completion for IinPublic project (Apr 25 at 1:12 PM)
 202 11:53p 🔴 Fixed 12-ux-contacts-talks-answers Test: Adapted Assertion from "1 question" to "1 item"
 203 " 🟣 New E2E Tests Added for Me-Tab Filters/Credit and Contacts Relationship Dialog
 204 " ✅ Three E2E Test Files Written to Disk: Fix + Two New Specs
+### Apr 29, 2026
+205 8:49p 🔵 IinPublic Project State Loaded from Memory Files
+206 " 🔵 IinPublic Spec and TODO Backlog Structure Mapped
+207 8:50p 🔵 Several TODO Items Already Implemented — dev:stage Scripts and Broadcast Bar Test
+208 " 🔵 Spec Functional Requirements Not Yet Implemented — Filters, Tag Preamble, Reputation Detail
+209 " 🔵 Core Data Model Fully Typed — Most Spec Fields Present, UI Gaps Remain
+210 8:51p 🔵 Route Editor Is Custom DOM Tree, Not Cytoscape — Spec's CytoscapeTalkEditor Not Implemented
+211 " 🔵 E2E Tests Confirm Implemented Features and Key DOM Selectors
+212 8:52p ✅ docs/TODO.md Rewritten with Spec-Gap-Driven Priority Backlog
 
-Access 305k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 393k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

@@ -6,6 +6,8 @@ This file is the prioritized backlog for the current repository. It should track
 highest-value spec gaps that still exist in the working codebase, not features that are
 already present behind tests.
 
+Detailed evidence for these gaps lives in `docs/roadmap/spec-gap-matrix.md`.
+
 ## Current Snapshot
 
 Implemented and covered now:
@@ -42,8 +44,9 @@ and `docs/specs/iinpublic-technical-specification.md`.
 
 - [ ] Implement user-defined and business chatrooms with create/rename/delete flows, metadata storage, and membership management
   (Spec: FR-CR-5, FR-CR-6)
-- [ ] Support multi-room membership + explicit travel mode so a user can belong to several location rooms and actively travel to one remote room at a time
-  (Spec: FR-CR-9, FR-CR-10)
+- [ ] Support explicit travel mode with single-room presence only:
+  a user may switch to one remote room at a time, and when travelling they should no longer appear in any home-region room until they return
+  (Spec intent override for FR-CR-9, FR-CR-10)
 - [ ] Add tag catalogs/popularity plus the mandatory tag/location preamble for every talk before bulk sending,
   and use those tags as actual targeting criteria during broadcast
   (Spec: FR-TG-2, FR-TG-4..6, FR-BM-5, FR-BM-6)
@@ -77,9 +80,9 @@ and `docs/specs/iinpublic-technical-specification.md`.
    - Wire talk delivery/profile visibility checks
    - Add UI affordances after the permissions layer exists
 4. **Chatroom model expansion**
-   - Introduce custom/business room schemas and CRUD
-   - Then add travel/multi-membership semantics
-   - Only after that expand bulk-send targeting beyond the current room action
+  - Introduce custom/business room schemas and CRUD
+  - Then add single-room travel semantics
+  - Only after that expand bulk-send targeting beyond the current room action
 5. **Survey dashboard + rate limits + docs cleanup**
    - Finish the remaining analytics/admin surfaces
    - Add cooldown enforcement tests
