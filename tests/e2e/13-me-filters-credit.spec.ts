@@ -2,6 +2,7 @@ import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from './helpers/fixtures';
 import { clearGunDatabases } from './helpers/clear-database';
 import { afterSync, afterAction } from './helpers/timing';
+import { gunBaseURL } from './helpers/ports';
 import {
   bootstrapUser,
   openIncomingTalkModal,
@@ -115,13 +116,30 @@ test.describe('Me tab filters and credit visibility', () => {
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 
+    const jerryUserId = await pageJerry.evaluate(
+      () => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '',
+    );
+    await expect
+      .poll(
+        async () => {
+          const res = await pageTom.request.get(
+            `${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}/incoming-talks`,
+          );
+          if (!res.ok()) return 'request-failed';
+          const rows = await res.json() as Array<{ title?: string }>;
+          return rows.map((row) => row.title || '').sort().join('|');
+        },
+        { timeout: 20000, message: 'server-side incoming talks should exclude filtered survey talks' },
+      )
+      .toBe('Filtered Flow Talk');
+
     await pageJerry.click('.nav-btn[data-view="talks"]');
     await afterSync();
     await expect(
       pageJerry.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: 'Filtered Flow Talk' }).first(),
     ).toBeVisible({ timeout: 15000 });
+    await expect(pageJerry.locator('.talk-list-item[data-role="incoming"]')).toHaveCount(1, { timeout: 15000 });
     await expect(pageJerry.locator('#talks-list')).not.toContainText('Filtered Survey Talk');
-    await expect(pageJerry.locator('#talks-list')).toContainText(/1 filtered/i);
 
     await openIncomingTalkModal(pageJerry, 'Filtered Flow Talk');
     await pageJerry.locator('input.choice-radio[data-answer-text="Yes"][data-mode="manual"]').first().click();

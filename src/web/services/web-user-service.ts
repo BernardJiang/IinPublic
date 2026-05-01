@@ -20,6 +20,7 @@ type PrivateUserData = Pick<User, 'profile' | 'languages' | 'interests' | 'known
 
 const PRIVATE_USER_DATA_KEY = 'profile';
 const PUBLIC_PROFILE_FOUNDATION_KEY = 'user-public-profile';
+const PUBLIC_TALK_FILTERS_KEY = 'user-talk-filters';
 
 export class WebUserService {
   constructor(private gunService: WebGunService) {}
@@ -75,6 +76,12 @@ export class WebUserService {
       `${PUBLIC_PROFILE_FOUNDATION_KEY}/${user.id}`,
       this.buildPublicProfileFoundation(user),
     );
+  }
+
+  private async putPublicTalkFilters(userId: string, talkFilters: TalkIntakeFilters): Promise<void> {
+    await this.gunService.put(`${PUBLIC_TALK_FILTERS_KEY}/${userId}`, {
+      filtersJson: JSON.stringify(talkFilters),
+    });
   }
 
   private async putPrivateUserData(user: User): Promise<void> {
@@ -163,6 +170,12 @@ export class WebUserService {
 
     await this.gunService.put(`users/${userId}`, this.buildPublicUserRecord(user));
     await this.putPublicProfileFoundation(user);
+    await this.putPublicTalkFilters(userId, user.talkFilters || {
+      allowedLanguages: user.languages || ['en'],
+      requireGoodGrammar: false,
+      blockDirtyWords: false,
+      allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
+    });
     await this.putPrivateUserData(user);
     return user;
   }
@@ -340,6 +353,7 @@ export class WebUserService {
 
   async updateTalkFilters(userId: string, talkFilters: TalkIntakeFilters): Promise<void> {
     const user = await this.getUser(userId);
+    await this.putPublicTalkFilters(userId, talkFilters);
     await this.putPrivateUserData({ ...user, talkFilters });
   }
 

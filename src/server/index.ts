@@ -710,6 +710,7 @@ class IinPublicServer {
       buildAnswerTemplateEntries: this.buildAnswerTemplateEntries.bind(this),
       saveUserAnswerTemplateByContent: this.saveUserAnswerTemplateByContent.bind(this),
       getUserRegion: this.getUserRegion.bind(this),
+      getUserDeliveryContext: this.userService.getUserDeliveryContext.bind(this.userService),
       recordTalkStatsResponse: this.recordTalkStatsResponse.bind(this),
     });
 

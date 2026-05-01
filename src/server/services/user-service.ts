@@ -1,6 +1,9 @@
-import { User, GPSCoordinate, RelationshipLabel, KnownPerson } from '../../shared/types';
+import { User, GPSCoordinate, RelationshipLabel, KnownPerson, TalkIntakeFilters } from '../../shared/types';
 import { GunService } from './gun-service';
 import { generateRandomStageName } from '../../shared/user-utils';
+import { getDefaultTalkIntakeFilters } from '../../shared/talk-intake-filters';
+
+const PUBLIC_TALK_FILTERS_KEY = 'user-talk-filters';
 
 export class UserService {
   constructor(private gunService: GunService) {}
@@ -10,6 +13,26 @@ export class UserService {
     try {
       const parsed = JSON.parse(value);
       return Array.isArray(parsed) ? parsed as T[] : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private parseTalkFilters(value: unknown, seedLanguages?: string[]): TalkIntakeFilters {
+    const fallback = getDefaultTalkIntakeFilters(seedLanguages);
+    if (typeof value !== 'string') return fallback;
+    try {
+      const parsed = JSON.parse(value) as Partial<TalkIntakeFilters>;
+      return {
+        ...fallback,
+        ...parsed,
+        allowedLanguages: Array.isArray(parsed.allowedLanguages) && parsed.allowedLanguages.length > 0
+          ? parsed.allowedLanguages
+          : fallback.allowedLanguages,
+        allowedTalkTypes: Array.isArray(parsed.allowedTalkTypes) && parsed.allowedTalkTypes.length > 0
+          ? parsed.allowedTalkTypes
+          : fallback.allowedTalkTypes,
+      };
     } catch {
       return fallback;
     }
@@ -48,6 +71,9 @@ export class UserService {
     };
 
     await this.gunService.put(`users/${user.id}`, user);
+    await this.gunService.put(`${PUBLIC_TALK_FILTERS_KEY}/${user.id}`, {
+      filtersJson: JSON.stringify(userData.talkFilters || getDefaultTalkIntakeFilters(user.languages)),
+    });
     return user;
   }
 
@@ -140,6 +166,43 @@ export class UserService {
       languages: this.parseJsonArray(publicProfile.languagesJson, user.languages || ['en']),
       profile: this.parseJsonArray(publicProfile.profileJson, user.profile || []),
       interests: this.parseJsonArray(publicProfile.interestsJson, user.interests || []),
+    };
+  }
+
+  async getUserTalkFilters(userId: string): Promise<TalkIntakeFilters> {
+    const userNode = await this.gunService.get(`users/${userId}`) as Partial<User>;
+    const filtersNode = await this.gunService.get(`${PUBLIC_TALK_FILTERS_KEY}/${userId}`).catch(() => null) as
+      | { filtersJson?: string }
+      | null;
+    return this.parseTalkFilters(filtersNode?.filtersJson, userNode?.languages);
+  }
+
+  async getUserDeliveryContext(userId: string): Promise<{
+    talkFilters: TalkIntakeFilters;
+    ageVerified: boolean;
+    location?: GPSCoordinate;
+  }> {
+    const userNode = await this.gunService.get(`users/${userId}`) as Partial<User>;
+    const talkFilters = await this.getUserTalkFilters(userId);
+    const rawLocation = (userNode as any)?.location?.trueLocation || (userNode as any)?.location;
+    const location =
+      rawLocation &&
+      typeof rawLocation.latitude === 'number' &&
+      typeof rawLocation.longitude === 'number' &&
+      typeof rawLocation.accuracy === 'number'
+        ? {
+            latitude: Number(rawLocation.latitude),
+            longitude: Number(rawLocation.longitude),
+            accuracy: Number(rawLocation.accuracy),
+            timestamp: rawLocation.timestamp instanceof Date
+              ? rawLocation.timestamp
+              : new Date(rawLocation.timestamp || Date.now()),
+          }
+        : undefined;
+    return {
+      talkFilters,
+      ageVerified: !!userNode?.reputation?.ageVerified,
+      ...(location ? { location } : {}),
     };
   }
 

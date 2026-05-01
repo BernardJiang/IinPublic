@@ -43,7 +43,7 @@ describe('WebUserService', () => {
       epub: pair.epub,
     });
 
-    expect(gunService.put).toHaveBeenCalledTimes(2);
+    expect(gunService.put).toHaveBeenCalledTimes(3);
     const publicRecord = gunService.put.mock.calls[0][1] as User;
     expect(publicRecord.stageName).toBe('Alice');
     expect(publicRecord.pub).toBe(pair.pub);
@@ -60,6 +60,17 @@ describe('WebUserService', () => {
         headshot: 'data:image/png;base64,abc',
         languagesJson: JSON.stringify(['en', 'fr']),
         profileJson: JSON.stringify(user.profile),
+      }),
+    );
+    expect(gunService.put).toHaveBeenCalledWith(
+      `user-talk-filters/${createdUserId}`,
+      expect.objectContaining({
+        filtersJson: JSON.stringify({
+          allowedLanguages: ['en', 'fr'],
+          requireGoodGrammar: false,
+          blockDirtyWords: false,
+          allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
+        }),
       }),
     );
 
@@ -238,6 +249,84 @@ describe('WebUserService', () => {
         headshot: '😎',
         languages: ['en', 'zh'],
         profile: updated.profile,
+      }),
+    );
+  });
+
+  it('updates talk filters in both public mirror and private storage', async () => {
+    const currentUser: User = {
+      id: 'user-1',
+      stageName: 'Alice',
+      profile: [],
+      reputation: {
+        questionsAnswered: 0,
+        talksSent: 0,
+        matchesFound: 0,
+        friendsCount: 0,
+        mutualFriendsCount: 0,
+        likedCount: 0,
+        dislikedCount: 0,
+        starRating: 3,
+        reviewCount: 0,
+        ageVerified: false,
+        ageVerificationVotes: 0,
+        blockCount: 0,
+        isHidden: false,
+      },
+      location: { region: 'region-1', chatrooms: [] },
+      languages: ['en'],
+      interests: [],
+      createdAt: new Date('2026-04-21T10:00:00.000Z'),
+      lastActive: new Date('2026-04-21T10:00:00.000Z'),
+      knownPeople: [],
+      pub: pair.pub,
+      epub: pair.epub,
+      talkFilters: {
+        allowedLanguages: ['en'],
+        requireGoodGrammar: false,
+        blockDirtyWords: false,
+        allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
+      },
+    };
+    const gunService = {
+      get: jest.fn().mockResolvedValue(currentUser),
+      getPrivate: jest.fn().mockResolvedValue(null),
+      put: jest.fn().mockResolvedValue(undefined),
+      putPrivate: jest.fn().mockResolvedValue(undefined),
+      getStoredPair: jest.fn(() => pair),
+    };
+    const service = new WebUserService(gunService as any);
+
+    await service.updateTalkFilters('user-1', {
+      allowedLanguages: ['zh'],
+      requireGoodGrammar: true,
+      blockDirtyWords: true,
+      allowedTalkTypes: ['tag'],
+      minDistanceMiles: 5,
+    });
+
+    expect(gunService.put).toHaveBeenCalledWith(
+      'user-talk-filters/user-1',
+      expect.objectContaining({
+        filtersJson: JSON.stringify({
+          allowedLanguages: ['zh'],
+          requireGoodGrammar: true,
+          blockDirtyWords: true,
+          allowedTalkTypes: ['tag'],
+          minDistanceMiles: 5,
+        }),
+      }),
+    );
+    expect(gunService.putPrivate).toHaveBeenCalledWith(
+      'profile',
+      expect.objectContaining({
+        talkFilters: expect.objectContaining({
+          allowedLanguages: ['zh'],
+          requireGoodGrammar: true,
+          blockDirtyWords: true,
+          allowedTalkTypes: ['tag'],
+          minDistanceMiles: 5,
+        }),
       }),
     );
   });

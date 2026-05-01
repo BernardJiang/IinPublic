@@ -14,6 +14,7 @@ import { registerStatsRoutes } from '../../server/routes/stats-routes';
 import { checkIfMatch } from '../../shared/talk-engine';
 import { buildTalkIdentityKey } from '../../shared/talk-content-id';
 import { TALK_CONTENT_HASH_ID } from '../../shared/incoming-talk-ids';
+import { getDefaultTalkIntakeFilters } from '../../shared/talk-intake-filters';
 import { bucketKey, type TalkResponse, type TalkType } from '../../shared/talk-stats';
 
 // ---------------------------------------------------------------------------
@@ -66,6 +67,11 @@ function buildTestServer() {
     byRegion: new Map<string, Set<string>>(),
     byTalkAnswer: new Map<string, Set<string>>(),
   };
+  const userDeliveryContext = new Map<string, {
+    talkFilters: ReturnType<typeof getDefaultTalkIntakeFilters>;
+    ageVerified: boolean;
+    location?: { latitude: number; longitude: number; accuracy: number; timestamp: Date };
+  }>();
 
   // Stub GunService — null reads, no-op writes.
   const gunService = {
@@ -122,6 +128,15 @@ function buildTestServer() {
 
   async function getUserRegion(_userId: string): Promise<string> {
     return 'test-region';
+  }
+
+  async function getUserDeliveryContext(userId: string) {
+    return (
+      userDeliveryContext.get(userId) || {
+        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        ageVerified: false,
+      }
+    );
   }
 
   async function upsertIncomingTalkForUser(params: {
@@ -271,6 +286,7 @@ function buildTestServer() {
     buildAnswerTemplateEntries,
     saveUserAnswerTemplateByContent,
     getUserRegion,
+    getUserDeliveryContext,
     recordTalkStatsResponse,
   });
 
@@ -281,7 +297,7 @@ function buildTestServer() {
     getTalkResponses,
   });
 
-  return { app, incomingTalksMap, talkResponsesMap };
+  return { app, incomingTalksMap, talkResponsesMap, userDeliveryContext };
 }
 
 // ---------------------------------------------------------------------------
@@ -319,6 +335,27 @@ describe('Talk loop — incoming registration → answer submission → match �
         .send({ receiverId: RESPONDER_ID, senderId: SENDER_ID });
       expect(res.status).toBe(404);
     });
+
+    it('does not register a talk when receiver filters reject it', async () => {
+      const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
+      userDeliveryContext.set(RESPONDER_ID, {
+        talkFilters: {
+          ...getDefaultTalkIntakeFilters(['en']),
+          allowedTalkTypes: ['tag'],
+        },
+        ageVerified: false,
+      });
+
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/received`)
+        .send({ receiverId: RESPONDER_ID, senderId: SENDER_ID, senderName: SENDER_NAME, talkData: TALK_DATA });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registered).toBe(false);
+      expect(res.body.filteredOut).toBe(true);
+      expect(res.body.rejectedBy).toContain('intake_filters');
+      expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
+    });
   });
 
   describe('GET /api/users/:id/incoming-talks — inbox', () => {
@@ -355,6 +392,38 @@ describe('Talk loop — incoming registration → answer submission → match �
       const res = await request(app).get(`/api/users/${RESPONDER_ID}/incoming-talks`);
       expect(res.body).toHaveLength(1);
       expect(Object.keys(res.body[0].senders)).toHaveLength(2);
+    });
+  });
+
+  describe('POST /api/talks/:id/register-receivers-for-broadcast', () => {
+    it('registers only receivers whose server-side filters allow the talk', async () => {
+      const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
+      userDeliveryContext.set(RESPONDER_ID, {
+        talkFilters: {
+          ...getDefaultTalkIntakeFilters(['en']),
+          allowedTalkTypes: ['tag'],
+        },
+        ageVerified: false,
+      });
+      userDeliveryContext.set('user_carol', {
+        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        ageVerified: false,
+      });
+
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/register-receivers-for-broadcast`)
+        .send({
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          receiverIds: [RESPONDER_ID, 'user_carol'],
+          talkData: TALK_DATA,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registered).toBe(1);
+      expect(res.body.filteredOut).toBe(1);
+      expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
+      expect(incomingTalksMap.get('user_carol')?.size).toBe(1);
     });
   });
 

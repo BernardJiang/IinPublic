@@ -2,7 +2,9 @@ import type express from 'express';
 import { checkIfIgnore, checkIfMatch } from '../../shared/talk-engine';
 import { buildTalkIdentityKey, canonicalIdentityKeyFromStoredCluster } from '../../shared/talk-content-id';
 import { TALK_CONTENT_HASH_ID } from '../../shared/incoming-talk-ids';
+import { talkPassesIntakeFilters } from '../../shared/talk-intake-filters';
 import type { TalkType } from '../../shared/talk-stats';
+import type { GPSCoordinate, TalkIntakeFilters } from '../../shared/types';
 import { logger } from '../logger';
 import { GunService } from '../services/gun-service';
 
@@ -51,6 +53,11 @@ type TalkDeliveryRouteDeps = {
     isAuto: boolean;
   }) => Promise<void>;
   getUserRegion: (userId: string) => Promise<string>;
+  getUserDeliveryContext: (userId: string) => Promise<{
+    talkFilters: TalkIntakeFilters;
+    ageVerified: boolean;
+    location?: GPSCoordinate;
+  }>;
   recordTalkStatsResponse: (params: {
     talkId: string;
     talkType: TalkType;
@@ -76,8 +83,33 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
     buildAnswerTemplateEntries,
     saveUserAnswerTemplateByContent,
     getUserRegion,
+    getUserDeliveryContext,
     recordTalkStatsResponse,
   } = deps;
+
+  function filterReasonsForTalk(
+    talkData: any,
+    context: { talkFilters: TalkIntakeFilters; ageVerified: boolean; location?: GPSCoordinate },
+  ): string[] {
+    const reasons: string[] = [];
+    const subject = {
+      title: talkData?.title,
+      type: talkData?.type,
+      language: talkData?.language,
+      createdAt: talkData?.createdAt,
+      updatedAt: talkData?.updatedAt ?? talkData?.createdAt,
+      authorLocation: talkData?.authorLocation,
+      questions: Array.isArray(talkData?.questions) ? talkData.questions : [],
+      isAdult: !!talkData?.isAdult,
+    };
+    if (!talkPassesIntakeFilters(subject, context.talkFilters, context.location)) {
+      reasons.push('intake_filters');
+    }
+    if (talkData?.isAdult && !context.ageVerified) {
+      reasons.push('age_gate');
+    }
+    return reasons;
+  }
 
   app.post('/api/talks/:id/received', async (req, res) => {
     try {
@@ -97,6 +129,13 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       const talkData = await loadTalkDataFromGraphOrBody(talkId, bodyTalkData);
       if (!talkData) {
         res.status(404).json({ error: 'Talk not found' });
+        return;
+      }
+
+      const receiverContext = await getUserDeliveryContext(receiverId);
+      const rejectedBy = filterReasonsForTalk(talkData, receiverContext);
+      if (rejectedBy.length > 0) {
+        res.json({ registered: false, filteredOut: true, rejectedBy });
         return;
       }
 
@@ -200,8 +239,15 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       }
       const resolvedSenderName = senderName || (await getUserStageName(senderId, 'Someone'));
       let registered = 0;
+      let filteredOut = 0;
       for (const receiverId of receiverIds) {
         if (!receiverId || receiverId === senderId) continue;
+        const receiverContext = await getUserDeliveryContext(receiverId);
+        const rejectedBy = filterReasonsForTalk(talkData, receiverContext);
+        if (rejectedBy.length > 0) {
+          filteredOut += 1;
+          continue;
+        }
         await upsertIncomingTalkForUser({
           receiverId,
           talkId,
@@ -212,7 +258,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         registered += 1;
       }
       clearTimeout(hardTimeout);
-      if (!res.headersSent) res.json({ ok: true, registered });
+      if (!res.headersSent) res.json({ ok: true, registered, filteredOut });
     } catch (error) {
       clearTimeout(hardTimeout);
       logger.error({ err: error }, 'register-receivers-for-broadcast error');

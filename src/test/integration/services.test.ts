@@ -158,6 +158,33 @@ describe('Service Integration Tests', () => {
       expect(mockGet).toHaveBeenCalledWith('users/user123');
       expect(mockGet).toHaveBeenCalledWith('user-public-profile/user123');
     });
+
+    it('should retrieve server-enforced talk filters from the public mirror', async () => {
+      const mockGet = jest.spyOn(gunService, 'get')
+        .mockResolvedValueOnce({
+          id: 'user123',
+          languages: ['en'],
+          reputation: { ageVerified: false },
+        })
+        .mockResolvedValueOnce({
+          filtersJson: JSON.stringify({
+            allowedLanguages: ['zh'],
+            requireGoodGrammar: true,
+            blockDirtyWords: true,
+            allowedTalkTypes: ['tag'],
+          }),
+        });
+
+      const filters = await userService.getUserTalkFilters('user123');
+
+      expect(filters).toEqual({
+        allowedLanguages: ['zh'],
+        requireGoodGrammar: true,
+        blockDirtyWords: true,
+        allowedTalkTypes: ['tag'],
+      });
+      expect(mockGet).toHaveBeenCalledWith('user-talk-filters/user123');
+    });
   });
 
   describe('TalkService Integration', () => {
