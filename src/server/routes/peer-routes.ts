@@ -30,6 +30,11 @@ type PeerRouteDeps = {
   incomingTalksMap: Map<string, Map<string, any>>;
   talkResponsesMap: Map<string, TalkResponse[]>;
   getUserStageName: (userId: string, fallbackName?: string) => Promise<string>;
+  getBlockStatus: (viewerId: string, targetId: string) => Promise<{
+    blocked: boolean;
+    blockedBy: boolean;
+    eitherBlocked: boolean;
+  }>;
 };
 
 /** Deduplicate clusters — the map may alias the same object under multiple keys. */
@@ -177,7 +182,7 @@ function computeLastInteractionAt(
 }
 
 export function registerPeerRoutes(app: express.Application, deps: PeerRouteDeps): void {
-  const { incomingTalksMap, talkResponsesMap, getUserStageName } = deps;
+  const { incomingTalksMap, talkResponsesMap, getUserStageName, getBlockStatus } = deps;
 
   app.get('/api/users/:userId/peers', async (req, res) => {
     const { userId } = req.params;
@@ -208,14 +213,19 @@ export function registerPeerRoutes(app: express.Application, deps: PeerRouteDeps
       }
     }
 
-    const summaries: PeerSummary[] = await Promise.all(
-      Array.from(peerIds).map(async (peerId) => ({
-        peerId,
-        stageName: await getUserStageName(peerId, 'Unknown'),
-        lastInteractionAt: computeLastInteractionAt(incomingTalksMap, userId, peerId),
-        stats: computeRelationshipStats(incomingTalksMap, talkResponsesMap, userId, peerId),
-      })),
+    const summariesRaw = await Promise.all(
+      Array.from(peerIds).map(async (peerId) => {
+        const blockStatus = await getBlockStatus(userId, peerId);
+        if (blockStatus.blockedBy) return null;
+        return {
+          peerId,
+          stageName: await getUserStageName(peerId, 'Unknown'),
+          lastInteractionAt: computeLastInteractionAt(incomingTalksMap, userId, peerId),
+          stats: computeRelationshipStats(incomingTalksMap, talkResponsesMap, userId, peerId),
+        };
+      }),
     );
+    const summaries = summariesRaw.filter(Boolean) as PeerSummary[];
 
     summaries.sort((a, b) => {
       const timeDiff =
@@ -231,10 +241,16 @@ export function registerPeerRoutes(app: express.Application, deps: PeerRouteDeps
    * GET /api/users/:userId/peers/:peerId/relationship
    * Returns interaction stats between two users derived from server-side in-memory state.
    */
-  app.get('/api/users/:userId/peers/:peerId/relationship', (req, res) => {
+  app.get('/api/users/:userId/peers/:peerId/relationship', async (req, res) => {
     const { userId, peerId } = req.params;
     if (!userId || !peerId) {
       res.status(400).json({ error: 'userId and peerId required' });
+      return;
+    }
+
+    const blockStatus = await getBlockStatus(userId, peerId);
+    if (blockStatus.blockedBy) {
+      res.status(403).json({ error: 'Relationship details are not available', blockedBy: true });
       return;
     }
 
@@ -245,10 +261,16 @@ export function registerPeerRoutes(app: express.Application, deps: PeerRouteDeps
    * GET /api/users/:userId/peers/:peerId/talk-history
    * Returns talks exchanged between two users with direction and outcome, sorted newest first.
    */
-  app.get('/api/users/:userId/peers/:peerId/talk-history', (req, res) => {
+  app.get('/api/users/:userId/peers/:peerId/talk-history', async (req, res) => {
     const { userId, peerId } = req.params;
     if (!userId || !peerId) {
       res.status(400).json({ error: 'userId and peerId required' });
+      return;
+    }
+
+    const blockStatus = await getBlockStatus(userId, peerId);
+    if (blockStatus.blockedBy) {
+      res.status(403).json({ error: 'Talk history is not available', blockedBy: true });
       return;
     }
 

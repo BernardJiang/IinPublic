@@ -14,8 +14,11 @@ import { afterLoad, afterSync, afterNav, afterAction, headless } from './helpers
 import { webAppURLStableChatroom } from './helpers/ports';
 import {
   openIncomingTalkModal,
+  syncIncomingFromServer,
+  waitForIncomingTalkClusterOnServer,
   waitForResponseModalClosed,
   waitForTabActive,
+  resetTalksMatchingSession,
 } from './helpers/talks-matching-flow';
 
 test.describe('Chatroom peer detail views', () => {
@@ -34,6 +37,10 @@ test.describe('Chatroom peer detail views', () => {
       headless,
       args: ['--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
+  });
+
+  test.beforeEach(async () => {
+    await clearGunDatabases();
   });
 
   test.afterAll(async () => {
@@ -72,9 +79,16 @@ test.describe('Chatroom peer detail views', () => {
     return { ctxTom, pageTom, ctxJerry, pageJerry };
   }
 
-  async function teardown(ctxTom?: BrowserContext, ctxJerry?: BrowserContext): Promise<void> {
-    await ctxTom?.close().catch(() => {});
-    await ctxJerry?.close().catch(() => {});
+  async function teardown(
+    ctxTom?: BrowserContext,
+    ctxJerry?: BrowserContext,
+    pageTom?: Page,
+    pageJerry?: Page,
+  ): Promise<void> {
+    await resetTalksMatchingSession(
+      { tom: pageTom, jerry: pageJerry },
+      { tom: ctxTom, jerry: ctxJerry },
+    );
   }
 
   async function setStageNameAndGoToChatrooms(page: Page, name: string): Promise<void> {
@@ -118,7 +132,7 @@ test.describe('Chatroom peer detail views', () => {
       const status = jerryItem.locator('.chatroom-member-status');
       await expect(status).toHaveText('Stranger', { timeout: 15_000 });
     } finally {
-      await teardown(ctxTom, ctxJerry);
+      await teardown(ctxTom, ctxJerry, pageTom, pageJerry);
     }
   });
 
@@ -147,7 +161,7 @@ test.describe('Chatroom peer detail views', () => {
       await pageTom.click('#back-from-peer-detail');
       await expect(pageTom.locator('#peer-detail-overlay')).not.toBeVisible({ timeout: 5_000 });
     } finally {
-      await teardown(ctxTom, ctxJerry);
+      await teardown(ctxTom, ctxJerry, pageTom, pageJerry);
     }
   });
 
@@ -167,7 +181,7 @@ test.describe('Chatroom peer detail views', () => {
       await pageTom.fill('#talk-title', 'Tennis Peer Test');
       await pageTom.selectOption('#talk-type', 'flow');
       const q = pageTom.locator('.question-item').first();
-      await q.locator('.question-text').fill('Want to play tennis?');
+      await q.locator('.question-text').fill('Peer detail test: want to play tennis?');
       await q.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes, lets play.');
       await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
       await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No thanks.');
@@ -215,7 +229,7 @@ test.describe('Chatroom peer detail views', () => {
 
       await pageTom.click('#back-from-peer-detail');
     } finally {
-      await teardown(ctxTom, ctxJerry);
+      await teardown(ctxTom, ctxJerry, pageTom, pageJerry);
     }
   });
 
@@ -232,7 +246,7 @@ test.describe('Chatroom peer detail views', () => {
       await pageTom.fill('#talk-title', 'Send Test Talk');
       await pageTom.selectOption('#talk-type', 'flow');
       const q = pageTom.locator('.question-item').first();
-      await q.locator('.question-text').fill('Any sport?');
+      await q.locator('.question-text').fill('Peer detail auto-send test: any sport?');
       await q.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes');
       await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
       await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
@@ -266,11 +280,14 @@ test.describe('Chatroom peer detail views', () => {
       // Jerry should see the talk in their Talks tab
       await pageJerry.click('.nav-btn[data-view="talks"]');
       await afterNav();
+      await waitForIncomingTalkClusterOnServer(pageJerry, 'Send Test Talk');
+      await syncIncomingFromServer(pageJerry);
+      await afterSync();
       await expect(pageJerry.locator('#talks-list')).toContainText('Send Test Talk', { timeout: 20_000 });
 
       await pageTom.click('#back-from-peer-detail');
     } finally {
-      await teardown(ctxTom, ctxJerry);
+      await teardown(ctxTom, ctxJerry, pageTom, pageJerry);
     }
   });
 
@@ -287,7 +304,7 @@ test.describe('Chatroom peer detail views', () => {
       await pageTom.fill('#talk-title', 'Manual Mode Talk');
       await pageTom.selectOption('#talk-type', 'flow');
       const q = pageTom.locator('.question-item').first();
-      await q.locator('.question-text').fill('Ready?');
+      await q.locator('.question-text').fill('Peer detail manual-send test: ready?');
       await q.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes');
       await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
       await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
@@ -326,7 +343,7 @@ test.describe('Chatroom peer detail views', () => {
 
       await pageTom.click('#back-from-peer-detail');
     } finally {
-      await teardown(ctxTom, ctxJerry);
+      await teardown(ctxTom, ctxJerry, pageTom, pageJerry);
     }
   });
 });

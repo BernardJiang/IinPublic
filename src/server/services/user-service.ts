@@ -4,6 +4,8 @@ import { generateRandomStageName } from '../../shared/user-utils';
 import { getDefaultTalkIntakeFilters } from '../../shared/talk-intake-filters';
 
 const PUBLIC_TALK_FILTERS_KEY = 'user-talk-filters';
+const USER_BLOCKS_KEY = 'user-blocks';
+const USER_BLOCKED_BY_KEY = 'user-blocked-by';
 
 export class UserService {
   constructor(private gunService: GunService) {}
@@ -16,6 +18,24 @@ export class UserService {
     } catch {
       return fallback;
     }
+  }
+
+  private extractTruthyChildKeys(value: unknown): string[] {
+    if (!value || typeof value !== 'object') return [];
+    return Object.entries(value as Record<string, unknown>)
+      .filter(([key, child]) => !key.startsWith('_') && child != null)
+      .map(([key]) => key);
+  }
+
+  private async applyBlockCountDelta(targetUserId: string, delta: number): Promise<void> {
+    const user = await this.getUser(targetUserId);
+    const nextValue = Math.max(0, Number(user.reputation?.blockCount || 0) + delta);
+    if (nextValue === Number(user.reputation?.blockCount || 0)) return;
+    const nextReputation = {
+      ...user.reputation,
+      blockCount: nextValue,
+    };
+    await this.gunService.put(`users/${targetUserId}/reputation`, nextReputation);
   }
 
   private parseTalkFilters(value: unknown, seedLanguages?: string[]): TalkIntakeFilters {
@@ -74,6 +94,14 @@ export class UserService {
     await this.gunService.put(`${PUBLIC_TALK_FILTERS_KEY}/${user.id}`, {
       filtersJson: JSON.stringify(userData.talkFilters || getDefaultTalkIntakeFilters(user.languages)),
     });
+    for (const blockedUserId of user.blockedUserIds || []) {
+      await this.gunService.putPath([USER_BLOCKS_KEY, user.id, blockedUserId], {
+        blockedAt: new Date().toISOString(),
+      });
+      await this.gunService.putPath([USER_BLOCKED_BY_KEY, blockedUserId, user.id], {
+        blockedAt: new Date().toISOString(),
+      });
+    }
     return user;
   }
 
@@ -167,6 +195,65 @@ export class UserService {
       profile: this.parseJsonArray(publicProfile.profileJson, user.profile || []),
       interests: this.parseJsonArray(publicProfile.interestsJson, user.interests || []),
     };
+  }
+
+  async getBlockedUserIds(userId: string): Promise<string[]> {
+    const node = await this.gunService.get(`${USER_BLOCKS_KEY}/${userId}`).catch(() => null);
+    return this.extractTruthyChildKeys(node);
+  }
+
+  async isBlocked(blockerId: string, targetId: string): Promise<boolean> {
+    if (!blockerId || !targetId) return false;
+    const node = await this.gunService.getPath([USER_BLOCKS_KEY, blockerId, targetId]);
+    return !!node;
+  }
+
+  async getBlockStatus(viewerId: string, targetId: string): Promise<{
+    blocked: boolean;
+    blockedBy: boolean;
+    eitherBlocked: boolean;
+  }> {
+    const [blocked, blockedBy] = await Promise.all([
+      this.isBlocked(viewerId, targetId),
+      this.isBlocked(targetId, viewerId),
+    ]);
+    return {
+      blocked,
+      blockedBy,
+      eitherBlocked: blocked || blockedBy,
+    };
+  }
+
+  async blockUser(blockerId: string, targetId: string): Promise<{ changed: boolean; blockedUserIds: string[] }> {
+    if (!blockerId || !targetId) {
+      throw new Error('blockerId and targetId required');
+    }
+    if (blockerId === targetId) {
+      throw new Error('Cannot block yourself');
+    }
+    const alreadyBlocked = await this.isBlocked(blockerId, targetId);
+    if (alreadyBlocked) {
+      return { changed: false, blockedUserIds: await this.getBlockedUserIds(blockerId) };
+    }
+    const blockedAt = new Date().toISOString();
+    await this.gunService.putPath([USER_BLOCKS_KEY, blockerId, targetId], { blockedAt });
+    await this.gunService.putPath([USER_BLOCKED_BY_KEY, targetId, blockerId], { blockedAt });
+    await this.applyBlockCountDelta(targetId, 1);
+    return { changed: true, blockedUserIds: await this.getBlockedUserIds(blockerId) };
+  }
+
+  async unblockUser(blockerId: string, targetId: string): Promise<{ changed: boolean; blockedUserIds: string[] }> {
+    if (!blockerId || !targetId) {
+      throw new Error('blockerId and targetId required');
+    }
+    const alreadyBlocked = await this.isBlocked(blockerId, targetId);
+    if (!alreadyBlocked) {
+      return { changed: false, blockedUserIds: await this.getBlockedUserIds(blockerId) };
+    }
+    await this.gunService.putPath([USER_BLOCKS_KEY, blockerId, targetId], null);
+    await this.gunService.putPath([USER_BLOCKED_BY_KEY, targetId, blockerId], null);
+    await this.applyBlockCountDelta(targetId, -1);
+    return { changed: true, blockedUserIds: await this.getBlockedUserIds(blockerId) };
   }
 
   async getUserTalkFilters(userId: string): Promise<TalkIntakeFilters> {

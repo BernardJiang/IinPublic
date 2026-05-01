@@ -711,6 +711,7 @@ class IinPublicServer {
       saveUserAnswerTemplateByContent: this.saveUserAnswerTemplateByContent.bind(this),
       getUserRegion: this.getUserRegion.bind(this),
       getUserDeliveryContext: this.userService.getUserDeliveryContext.bind(this.userService),
+      getBlockStatus: this.userService.getBlockStatus.bind(this.userService),
       recordTalkStatsResponse: this.recordTalkStatsResponse.bind(this),
     });
 
@@ -721,6 +722,7 @@ class IinPublicServer {
       talkResponsesMap: this.talkResponsesMap,
       getUserStageName: async (userId: string, fallbackName?: string) =>
         this.getUserStageName(userId, fallbackName || 'Unknown'),
+      getBlockStatus: this.userService.getBlockStatus.bind(this.userService),
     });
 
     registerStatsRoutes(this.app, {

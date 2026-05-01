@@ -80,7 +80,7 @@ test.describe('Talks matching — chatbot + bot badge', () => {
     await pageTom.fill('#talk-title', CHATBOT_TALK_TITLE);
     await pageTom.selectOption('#talk-type', 'flow');
     const q = pageTom.locator('.question-item').first();
-    await q.locator('.question-text').fill('Want tennis?');
+    await q.locator('.question-text').fill('Chatbot badge test: want tennis?');
     await q.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes, lets play.');
     await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
     await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No thanks.');

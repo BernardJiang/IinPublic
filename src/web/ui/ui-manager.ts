@@ -288,6 +288,7 @@ export class UIManager extends EventEmitter {
                   </label>
                   <div style="padding:8px 16px 16px;">
                     <button class="btn primary-btn" id="peer-send-talks-btn" style="width:100%;">📤 Send My Talks</button>
+                    <button class="btn" id="peer-block-user-btn" style="width:100%;margin-top:8px;">Block User</button>
                   </div>
                 </div>
               </div>
@@ -862,11 +863,13 @@ export class UIManager extends EventEmitter {
       escapeHtml: escapeHtml,
       getKnownPeople: this.getKnownPeople.bind(this),
       getKnownPerson: this.getKnownPerson.bind(this),
+      isBlockedByMe: this.isBlockedByMe.bind(this),
       getPeerName: this.getPeerName.bind(this),
       openPeerDetail: this.openPeerDetailForUser.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
       saveKnownPerson: this.saveKnownPerson.bind(this),
       submitPeerReview: this.submitPeerReview.bind(this),
+      setBlocked: this.setBlocked.bind(this),
     });
   }
 
@@ -877,11 +880,13 @@ export class UIManager extends EventEmitter {
       escapeHtml: escapeHtml,
       getKnownPeople: this.getKnownPeople.bind(this),
       getKnownPerson: this.getKnownPerson.bind(this),
+      isBlockedByMe: this.isBlockedByMe.bind(this),
       getPeerName: this.getPeerName.bind(this),
       openPeerDetail: this.openPeerDetailForUser.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
       saveKnownPerson: this.saveKnownPerson.bind(this),
       submitPeerReview: this.submitPeerReview.bind(this),
+      setBlocked: this.setBlocked.bind(this),
     });
   }
 
@@ -893,11 +898,13 @@ export class UIManager extends EventEmitter {
         escapeHtml: escapeHtml,
         getKnownPeople: this.getKnownPeople.bind(this),
         getKnownPerson: this.getKnownPerson.bind(this),
+        isBlockedByMe: this.isBlockedByMe.bind(this),
         getPeerName: this.getPeerName.bind(this),
         openPeerDetail: this.openPeerDetailForUser.bind(this),
         getMyTalks: this.getMyTalks.bind(this),
         saveKnownPerson: this.saveKnownPerson.bind(this),
         submitPeerReview: this.submitPeerReview.bind(this),
+        setBlocked: this.setBlocked.bind(this),
       },
       otherUserId,
       otherUserName,
@@ -2894,6 +2901,8 @@ export class UIManager extends EventEmitter {
       getMyTalks: this.getMyTalks.bind(this),
       showConversationDetail: this.showConversationDetail.bind(this),
       registerTalkForPeer: this.registerTalkForPeer.bind(this),
+      isBlockedByMe: this.isBlockedByMe.bind(this),
+      setBlocked: this.setBlocked.bind(this),
       ...(knownPerson ? { knownPerson } : {}),
     };
     openPeerDetailView(userId, stageName, deps);
@@ -2905,6 +2914,10 @@ export class UIManager extends EventEmitter {
 
   private getKnownPerson(userId: string): KnownPerson | undefined {
     return this.getKnownPeople().find((entry) => entry.userId === userId);
+  }
+
+  private isBlockedByMe(userId: string): boolean {
+    return Array.isArray(this.currentUser?.blockedUserIds) && this.currentUser!.blockedUserIds!.includes(userId);
   }
 
   private async saveKnownPerson(
@@ -2938,6 +2951,15 @@ export class UIManager extends EventEmitter {
 
   private async submitPeerReview(userId: string, rating: number): Promise<void> {
     this.emit('submitPeerReview', { userId, rating });
+  }
+
+  private async setBlocked(userId: string, blocked: boolean): Promise<void> {
+    if (!this.currentUser) return;
+    this.currentUser.blockedUserIds = blocked
+      ? Array.from(new Set([...(this.currentUser.blockedUserIds || []), userId]))
+      : (this.currentUser.blockedUserIds || []).filter((candidate) => candidate !== userId);
+    this.emit('setUserBlocked', { userId, blocked });
+    this.displayContactsList();
   }
 
   private getPeerName(userId: string, fallbackName?: string): string {

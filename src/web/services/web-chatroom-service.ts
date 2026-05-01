@@ -319,9 +319,29 @@ export class WebChatroomService {
     }
 
     const gun = this.gunService.getGun();
-    gun.get('chatrooms').get(chatroomId).get('users').get(userId).put({
-      leftAt: new Date().toISOString(),
-      isActive: false,
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      const timeoutId = setTimeout(finish, 1500);
+      gun
+        .get('chatrooms')
+        .get(chatroomId)
+        .get('users')
+        .get(userId)
+        .put(
+          {
+            leftAt: new Date().toISOString(),
+            isActive: false,
+          },
+          () => {
+            clearTimeout(timeoutId);
+            finish();
+          },
+        );
     });
     console.log(`✅ Initiated leave for chatroom: ${chatroomId}`);
   }

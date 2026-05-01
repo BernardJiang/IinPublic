@@ -58,6 +58,11 @@ type TalkDeliveryRouteDeps = {
     ageVerified: boolean;
     location?: GPSCoordinate;
   }>;
+  getBlockStatus: (viewerId: string, targetId: string) => Promise<{
+    blocked: boolean;
+    blockedBy: boolean;
+    eitherBlocked: boolean;
+  }>;
   recordTalkStatsResponse: (params: {
     talkId: string;
     talkType: TalkType;
@@ -84,6 +89,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
     saveUserAnswerTemplateByContent,
     getUserRegion,
     getUserDeliveryContext,
+    getBlockStatus,
     recordTalkStatsResponse,
   } = deps;
 
@@ -133,7 +139,11 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       }
 
       const receiverContext = await getUserDeliveryContext(receiverId);
+      const blockStatus = await getBlockStatus(receiverId, senderId);
       const rejectedBy = filterReasonsForTalk(talkData, receiverContext);
+      if (blockStatus.eitherBlocked) {
+        rejectedBy.push('blocked_user');
+      }
       if (rejectedBy.length > 0) {
         res.json({ registered: false, filteredOut: true, rejectedBy });
         return;
@@ -243,7 +253,11 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       for (const receiverId of receiverIds) {
         if (!receiverId || receiverId === senderId) continue;
         const receiverContext = await getUserDeliveryContext(receiverId);
+        const blockStatus = await getBlockStatus(receiverId, senderId);
         const rejectedBy = filterReasonsForTalk(talkData, receiverContext);
+        if (blockStatus.eitherBlocked) {
+          rejectedBy.push('blocked_user');
+        }
         if (rejectedBy.length > 0) {
           filteredOut += 1;
           continue;

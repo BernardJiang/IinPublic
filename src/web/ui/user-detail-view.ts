@@ -9,6 +9,8 @@ export type UserDetailViewDeps = {
   getMyTalks: () => Record<string, any>;
   showConversationDetail: (conversationId: string) => void;
   registerTalkForPeer: (talkId: string, talkData: any, peerId: string, peerName: string) => Promise<void>;
+  isBlockedByMe: (userId: string) => boolean;
+  setBlocked: (userId: string, blocked: boolean) => Promise<void>;
   knownPerson?: KnownPerson;
 };
 
@@ -94,6 +96,17 @@ export function openPeerDetailView(
     fresh.addEventListener('click', () => handleSendMyTalks());
   }
 
+  const blockBtn = document.getElementById('peer-block-user-btn');
+  if (blockBtn) {
+    const fresh = blockBtn.cloneNode(true) as HTMLElement;
+    blockBtn.replaceWith(fresh);
+    fresh.textContent = deps.isBlockedByMe(peerId) ? 'Unblock User' : 'Block User';
+    fresh.addEventListener('click', async () => {
+      await deps.setBlocked(peerId, !deps.isBlockedByMe(peerId));
+      closePeerDetailView();
+    });
+  }
+
   // Load data
   fetchAndRenderStats(peerId, peerName, deps);
   fetchAndRenderHistory(peerId, deps);
@@ -112,8 +125,23 @@ async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserD
       fetch(
         `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(peerId)}/relationship`,
       ),
-      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(peerId)}`),
+      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(peerId)}?viewerId=${encodeURIComponent(deps.currentUserId)}`),
     ]);
+    if (statsRes.status === 403 || userRes.status === 403) {
+      const subtitleEl = document.getElementById('peer-detail-subtitle');
+      if (subtitleEl) subtitleEl.textContent = 'This user blocked you. Detail view is unavailable.';
+      if (statsEl) {
+        statsEl.innerHTML = `
+          <div class="peer-stat-card">
+            <div style="font-weight:700;color:#b91c1c;">Profile unavailable</div>
+            <div style="font-size:0.9em;color:#7f1d1d;margin-top:6px;">Blocked users cannot view this detail surface.</div>
+          </div>
+        `;
+      }
+      const sendBtn = document.getElementById('peer-send-talks-btn') as HTMLButtonElement | null;
+      if (sendBtn) sendBtn.disabled = true;
+      return;
+    }
     if (!statsRes.ok) throw new Error(`HTTP ${statsRes.status}`);
     const stats: PeerRelationshipStats = await statsRes.json();
     const publicUser = userRes.ok ? await userRes.json() : null;
@@ -126,6 +154,8 @@ async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserD
     if (statsEl) {
       statsEl.innerHTML = renderProfileHtml(publicUser) + renderStatsHtml(stats, deps.knownPerson);
     }
+    const sendBtn = document.getElementById('peer-send-talks-btn') as HTMLButtonElement | null;
+    if (sendBtn) sendBtn.disabled = deps.isBlockedByMe(peerId);
 
     // Render matched conversations below stats
     renderMatchedConversations(peerId, deps);

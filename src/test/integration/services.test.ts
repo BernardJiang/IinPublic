@@ -185,6 +185,84 @@ describe('Service Integration Tests', () => {
       });
       expect(mockGet).toHaveBeenCalledWith('user-talk-filters/user123');
     });
+
+    it('should persist block mirrors and update block count when blocking and unblocking', async () => {
+      const baseUser = {
+        id: 'viewer',
+        stageName: 'Viewer',
+        profile: [],
+        reputation: {
+          questionsAnswered: 0,
+          talksSent: 0,
+          matchesFound: 0,
+          friendsCount: 0,
+          mutualFriendsCount: 0,
+          likedCount: 0,
+          dislikedCount: 0,
+          starRating: 3,
+          reviewCount: 0,
+          ageVerified: false,
+          ageVerificationVotes: 0,
+          blockCount: 0,
+          isHidden: false,
+        },
+        location: { region: 'test-region', chatrooms: [] },
+        languages: ['en'],
+        interests: [],
+        createdAt: new Date(),
+        lastActive: new Date(),
+      };
+      const targetUser = {
+        ...baseUser,
+        id: 'target',
+        stageName: 'Target',
+      };
+
+      let isBlocked = false;
+      jest.spyOn(gunService, 'get').mockImplementation(async (key: string) => {
+        switch (key) {
+          case 'user-blocks/viewer':
+            return isBlocked ? { target: { blockedAt: '2026-04-30T00:00:00.000Z' } } : {};
+          case 'users/viewer':
+            return baseUser;
+          case 'users/target':
+            return targetUser;
+          case 'user-public-profile/target':
+            return null;
+          default:
+            return null;
+        }
+      });
+      jest.spyOn(gunService, 'getPath').mockImplementation(async (path: string[]) => {
+        if (path.join('/') === 'user-blocks/viewer/target') {
+          return isBlocked ? { blockedAt: '2026-04-30T00:00:00.000Z' } : null;
+        }
+        return null;
+      });
+
+      const putPathSpy = jest.spyOn(gunService, 'putPath').mockImplementation(async (path: string[], value: unknown) => {
+        if (path.join('/') === 'user-blocks/viewer/target') {
+          isBlocked = value != null;
+        }
+      });
+      const putSpy = jest.spyOn(gunService, 'put').mockResolvedValue(undefined);
+
+      const blockResult = await userService.blockUser('viewer', 'target');
+      expect(blockResult.changed).toBe(true);
+      expect(blockResult.blockedUserIds).toEqual(['target']);
+      expect(putPathSpy).toHaveBeenCalledWith(['user-blocks', 'viewer', 'target'], expect.any(Object));
+      expect(putPathSpy).toHaveBeenCalledWith(['user-blocked-by', 'target', 'viewer'], expect.any(Object));
+      expect(putSpy).toHaveBeenCalledWith(
+        'users/target/reputation',
+        expect.objectContaining({ blockCount: 1 }),
+      );
+
+      const unblockResult = await userService.unblockUser('viewer', 'target');
+      expect(unblockResult.changed).toBe(true);
+      expect(unblockResult.blockedUserIds).toEqual([]);
+      expect(putPathSpy).toHaveBeenCalledWith(['user-blocks', 'viewer', 'target'], null);
+      expect(putPathSpy).toHaveBeenCalledWith(['user-blocked-by', 'target', 'viewer'], null);
+    });
   });
 
   describe('TalkService Integration', () => {

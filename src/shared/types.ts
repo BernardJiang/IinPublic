@@ -36,6 +36,7 @@ export interface User {
   /** SEA ephemeral public key for ECDH messaging */
   epub?: string;
   knownPeople?: KnownPerson[];
+  blockedUserIds?: string[];
   talkFilters?: TalkIntakeFilters;
 }
 

@@ -21,6 +21,14 @@ export function registerUserRoutes(
 
   app.get('/api/users/:id', async (req, res) => {
     try {
+      const viewerId = typeof req.query.viewerId === 'string' ? req.query.viewerId : '';
+      if (viewerId && viewerId !== req.params.id) {
+        const blockStatus = await userService.getBlockStatus(viewerId, req.params.id);
+        if (blockStatus.blockedBy) {
+          res.status(403).json({ error: 'Profile is not available', blockedBy: true });
+          return;
+        }
+      }
       const user = await userService.getUser(req.params.id);
       res.json(user);
     } catch (error) {
@@ -73,6 +81,47 @@ export function registerUserRoutes(
     try {
       const list = await userService.listKnownPeople(req.params.id);
       res.json(list);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  app.get('/api/users/:id/blocks', async (req, res) => {
+    try {
+      const blockedUserIds = await userService.getBlockedUserIds(req.params.id);
+      res.json({ blockedUserIds });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  app.get('/api/users/:id/block-status/:targetId', async (req, res) => {
+    try {
+      const status = await userService.getBlockStatus(req.params.id, req.params.targetId);
+      res.json(status);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  app.post('/api/users/:id/blocks', async (req, res) => {
+    try {
+      const { targetId } = req.body as { targetId?: string };
+      if (!targetId) {
+        res.status(400).json({ error: 'targetId required' });
+        return;
+      }
+      const result = await userService.blockUser(req.params.id, targetId);
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  app.delete('/api/users/:id/blocks/:targetId', async (req, res) => {
+    try {
+      const result = await userService.unblockUser(req.params.id, req.params.targetId);
+      res.json({ ok: true, ...result });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }

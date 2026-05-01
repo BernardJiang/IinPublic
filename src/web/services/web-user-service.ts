@@ -14,16 +14,34 @@ import { getSEA } from '../sea-gun';
 import type { GunPair } from './gun-bridge';
 import { ReputationManager } from '../../shared/reputation';
 
-type PrivateUserData = Pick<User, 'profile' | 'languages' | 'interests' | 'knownPeople' | 'talkFilters'> & {
+type PrivateUserData = Pick<User, 'profile' | 'languages' | 'interests' | 'knownPeople' | 'blockedUserIds' | 'talkFilters'> & {
   headshot?: string;
 };
 
 const PRIVATE_USER_DATA_KEY = 'profile';
 const PUBLIC_PROFILE_FOUNDATION_KEY = 'user-public-profile';
 const PUBLIC_TALK_FILTERS_KEY = 'user-talk-filters';
+const USER_BLOCKS_KEY = 'user-blocks';
+const USER_BLOCKED_BY_KEY = 'user-blocked-by';
 
 export class WebUserService {
   constructor(private gunService: WebGunService) {}
+
+  private async putNested(path: string[], data: any): Promise<void> {
+    const gun = this.gunService.getGun();
+    await new Promise<void>((resolve, reject) => {
+      let ref: any = gun;
+      for (const segment of path) {
+        ref = ref.get(segment);
+      }
+      const timeoutId = setTimeout(() => reject(new Error('Nested Gun put timed out')), 5000);
+      ref.put(data, (ack: any) => {
+        clearTimeout(timeoutId);
+        if (ack?.err) reject(new Error(String(ack.err)));
+        else resolve();
+      });
+    });
+  }
 
   private buildPublicUserRecord(user: User): User {
     const publicUser: User = {
@@ -52,6 +70,7 @@ export class WebUserService {
       languages: user.languages || ['en'],
       interests: user.interests || [],
       knownPeople: user.knownPeople ?? [],
+      blockedUserIds: user.blockedUserIds ?? [],
       ...(user.talkFilters ? { talkFilters: user.talkFilters } : {}),
       ...(user.headshot ? { headshot: user.headshot } : {}),
     };
@@ -110,6 +129,7 @@ export class WebUserService {
         languages: privateData.languages || user.languages || ['en'],
         interests: privateData.interests || user.interests || [],
         knownPeople: privateData.knownPeople ?? user.knownPeople ?? [],
+        blockedUserIds: privateData.blockedUserIds ?? user.blockedUserIds ?? [],
         ...((privateData.talkFilters ?? user.talkFilters)
           ? { talkFilters: privateData.talkFilters ?? user.talkFilters! }
           : {}),
@@ -349,6 +369,45 @@ export class WebUserService {
     } catch {
       /* ignore */
     }
+  }
+
+  async blockUser(userId: string, targetId: string): Promise<string[]> {
+    if (!userId || !targetId) throw new Error('userId and targetId required');
+    if (userId === targetId) throw new Error('Cannot block yourself');
+    const user = await this.getUser(userId);
+    const blockedUserIds = Array.from(new Set([...(user.blockedUserIds || []), targetId]));
+    if (!user.blockedUserIds?.includes(targetId)) {
+      const targetUser = await this.getUser(targetId);
+      await this.gunService.put(`users/${targetId}/reputation`, {
+        ...targetUser.reputation,
+        blockCount: Math.max(0, Number(targetUser.reputation?.blockCount || 0) + 1),
+      });
+    }
+    await this.putNested([USER_BLOCKS_KEY, userId, targetId], {
+      blockedAt: new Date().toISOString(),
+    });
+    await this.putNested([USER_BLOCKED_BY_KEY, targetId, userId], {
+      blockedAt: new Date().toISOString(),
+    });
+    await this.putPrivateUserData({ ...user, blockedUserIds });
+    return blockedUserIds;
+  }
+
+  async unblockUser(userId: string, targetId: string): Promise<string[]> {
+    if (!userId || !targetId) throw new Error('userId and targetId required');
+    const user = await this.getUser(userId);
+    const blockedUserIds = (user.blockedUserIds || []).filter((candidate) => candidate !== targetId);
+    if (user.blockedUserIds?.includes(targetId)) {
+      const targetUser = await this.getUser(targetId);
+      await this.gunService.put(`users/${targetId}/reputation`, {
+        ...targetUser.reputation,
+        blockCount: Math.max(0, Number(targetUser.reputation?.blockCount || 0) - 1),
+      });
+    }
+    await this.putNested([USER_BLOCKS_KEY, userId, targetId], null);
+    await this.putNested([USER_BLOCKED_BY_KEY, targetId, userId], null);
+    await this.putPrivateUserData({ ...user, blockedUserIds });
+    return blockedUserIds;
   }
 
   async updateTalkFilters(userId: string, talkFilters: TalkIntakeFilters): Promise<void> {

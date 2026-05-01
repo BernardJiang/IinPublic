@@ -30,15 +30,21 @@ function buildTestServer() {
     [BOB, 'Bob'],
     [CAROL, 'Carol'],
   ]);
+  const blockedByUser = new Map<string, Set<string>>();
 
   registerPeerRoutes(app, {
     incomingTalksMap,
     talkResponsesMap,
     getUserStageName: async (userId: string, fallbackName?: string) =>
       stageNames.get(userId) || fallbackName || 'Unknown',
+    getBlockStatus: async (viewerId: string, targetId: string) => {
+      const blocked = blockedByUser.get(viewerId)?.has(targetId) ?? false;
+      const blockedBy = blockedByUser.get(targetId)?.has(viewerId) ?? false;
+      return { blocked, blockedBy, eitherBlocked: blocked || blockedBy };
+    },
   });
 
-  return { app, incomingTalksMap, talkResponsesMap };
+  return { app, incomingTalksMap, talkResponsesMap, blockedByUser };
 }
 
 function addIncoming(
@@ -194,6 +200,15 @@ describe('GET /api/users/:userId/peers/:peerId/relationship', () => {
     expect(res.body.sent.talks).toBe(0);
     expect(res.body.mutualMatchedTalks).toBe(0);
   });
+
+  it('returns 403 when the peer blocked the viewer', async () => {
+    const { app, blockedByUser } = buildTestServer();
+    blockedByUser.set(BOB, new Set([ALICE]));
+
+    const res = await request(app).get(`/api/users/${ALICE}/peers/${BOB}/relationship`);
+    expect(res.status).toBe(403);
+    expect(res.body.blockedBy).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -271,5 +286,14 @@ describe('GET /api/users/:userId/peers/:peerId/talk-history', () => {
 
     const res = await request(app).get(`/api/users/${ALICE}/peers/${BOB}/talk-history`);
     expect(res.body).toHaveLength(0);
+  });
+
+  it('returns 403 when the peer blocked the viewer', async () => {
+    const { app, blockedByUser } = buildTestServer();
+    blockedByUser.set(BOB, new Set([ALICE]));
+
+    const res = await request(app).get(`/api/users/${ALICE}/peers/${BOB}/talk-history`);
+    expect(res.status).toBe(403);
+    expect(res.body.blockedBy).toBe(true);
   });
 });

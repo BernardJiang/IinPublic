@@ -7,6 +7,7 @@ type ContactsViewDeps = {
   escapeHtml: (text: string) => string;
   getKnownPeople: () => KnownPerson[];
   getKnownPerson: (userId: string) => KnownPerson | undefined;
+  isBlockedByMe: (userId: string) => boolean;
   getPeerName: (userId: string, fallbackName?: string) => string;
   openPeerDetail: (userId: string, stageName: string) => void;
   getMyTalks: () => Record<string, any>;
@@ -15,6 +16,7 @@ type ContactsViewDeps = {
     details: { label: KnownPerson['label']; nickname?: string; customLabel?: string; rating?: number; notes?: string },
   ) => Promise<void>;
   submitPeerReview: (userId: string, rating: number) => Promise<void>;
+  setBlocked: (userId: string, blocked: boolean) => Promise<void>;
 };
 
 function formatRelationshipLabel(label?: string): string {
@@ -83,13 +85,21 @@ async function openRelationshipDialog(
   closeRelationshipModal();
   const known = deps.getKnownPerson(userId);
   let publicUser: any = null;
+  let blockedBy = false;
   try {
-    const res = await fetch(`${deps.apiBase}/api/users/${encodeURIComponent(userId)}`);
-    if (res.ok) publicUser = await res.json();
+    const res = await fetch(
+      `${deps.apiBase}/api/users/${encodeURIComponent(userId)}?viewerId=${encodeURIComponent(deps.currentUserId)}`,
+    );
+    if (res.ok) {
+      publicUser = await res.json();
+    } else if (res.status === 403) {
+      blockedBy = true;
+    }
   } catch {
     publicUser = null;
   }
   const reputation = publicUser?.reputation || null;
+  const blockedByMe = deps.isBlockedByMe(userId);
   const modal = document.createElement('div');
   modal.id = 'contact-relationship-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.45);display:flex;align-items:center;justify-content:center;z-index:4000;padding:20px;';
@@ -145,10 +155,19 @@ async function openRelationshipDialog(
           <span>Notes</span>
           <textarea id="contact-relationship-notes" rows="4" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">${deps.escapeHtml(String(known?.notes || ''))}</textarea>
         </label>
+        <div style="padding:12px; border-radius:12px; border:1px solid ${blockedBy ? '#fecaca' : blockedByMe ? '#fde68a' : '#e5e7eb'}; background:${blockedBy ? '#fef2f2' : blockedByMe ? '#fffbeb' : '#f8fafc'};">
+          <div style="font-weight:700; color:#111827;">Block status</div>
+          <div id="contact-block-status-text" style="font-size:0.88em; color:#475569; margin-top:4px;">
+            ${blockedBy ? 'This user blocked you. Their profile and delivery surfaces are hidden.' : blockedByMe ? 'You blocked this user. Talks will no longer be delivered between you.' : 'No block is active.'}
+          </div>
+        </div>
       </div>
-      <div style="display:flex; justify-content:flex-end; gap:10px; padding:16px 18px; border-top:1px solid #e5e7eb;">
-        <button type="button" class="btn" id="contact-relationship-close-btn">Close</button>
-        <button type="button" class="btn primary-btn" id="contact-relationship-save-btn">Save</button>
+      <div style="display:flex; justify-content:space-between; gap:10px; padding:16px 18px; border-top:1px solid #e5e7eb;">
+        <button type="button" class="btn" id="contact-block-toggle-btn" style="${blockedBy ? 'display:none;' : ''}">${blockedByMe ? 'Unblock User' : 'Block User'}</button>
+        <div style="display:flex; gap:10px;">
+          <button type="button" class="btn" id="contact-relationship-close-btn">Close</button>
+          <button type="button" class="btn primary-btn" id="contact-relationship-save-btn">Save</button>
+        </div>
       </div>
     </div>
   `;
@@ -156,6 +175,10 @@ async function openRelationshipDialog(
   const close = () => closeRelationshipModal();
   (document.getElementById('close-contact-relationship-modal') as HTMLButtonElement | null)?.addEventListener('click', close);
   (document.getElementById('contact-relationship-close-btn') as HTMLButtonElement | null)?.addEventListener('click', close);
+  (document.getElementById('contact-block-toggle-btn') as HTMLButtonElement | null)?.addEventListener('click', async () => {
+    await deps.setBlocked(userId, !blockedByMe);
+    close();
+  });
   (document.getElementById('contact-relationship-save-btn') as HTMLButtonElement | null)?.addEventListener('click', async () => {
     const label = (document.getElementById('contact-relationship-label') as HTMLSelectElement).value as KnownPerson['label'];
     const nickname = (document.getElementById('contact-relationship-nickname') as HTMLInputElement).value.trim();
@@ -222,10 +245,13 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
         const resolvedStageName = deps.getPeerName(peer.peerId, peer.stageName);
         const displayName = buildDisplayName(resolvedStageName, known);
         const relationship = formatRelationshipLabel(known?.label);
+        const blockedBadge = deps.isBlockedByMe(peer.peerId)
+          ? '<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#fff7ed;color:#c2410c;font-size:0.72em;font-weight:700;margin-left:8px;">Blocked</span>'
+          : '';
         return `
           <div class="contact-item" data-contact-user-id="${deps.escapeHtml(peer.peerId)}" data-contact-name="${deps.escapeHtml(resolvedStageName)}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 8px; background: white; border-radius: 12px; border: 1px solid #e0e0e0; cursor: pointer;">
             <div style="min-width: 0;">
-              <div class="contact-item-name" style="font-weight: 700;">${deps.escapeHtml(displayName)}</div>
+              <div class="contact-item-name" style="font-weight: 700;">${deps.escapeHtml(displayName)}${blockedBadge}</div>
               <div class="contact-item-meta" style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(buildMetaLine(peer, known))}</div>
               <div class="contact-item-meta" style="font-size: 0.8em; color: #94a3b8; margin-top: 4px;">Sent ${peer.stats.sent.talks} · Received ${peer.stats.received.talks} · Relationship: ${deps.escapeHtml(relationship)}</div>
             </div>
@@ -286,8 +312,13 @@ export async function showContactDetail(
     const [relationshipRes, historyRes, userRes] = await Promise.all([
       fetch(`${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(otherUserId)}/relationship`),
       fetch(`${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(otherUserId)}/talk-history`),
-      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(otherUserId)}`),
+      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(otherUserId)}?viewerId=${encodeURIComponent(deps.currentUserId)}`),
     ]);
+    if (relationshipRes.status === 403 || historyRes.status === 403 || userRes.status === 403) {
+      detailMatches.textContent = 'Unavailable';
+      talksList.innerHTML = '<p style="text-align: center; padding: 20px; color: #c2410c;">This user has blocked you. Details are not available.</p>';
+      return;
+    }
 
     const relationship = relationshipRes.ok ? await relationshipRes.json() : null;
     const history = historyRes.ok ? await historyRes.json() : [];

@@ -894,6 +894,14 @@ export class IinPublicApp {
       });
     }
 
+    // A manual response already handled this sender/talk pair. Do not let later Gun replays
+    // or duplicate room announcements trigger a chatbot follow-up to the same announcer.
+    if (!isChatbot && this.currentUser?.id && data.talkData?.authorId) {
+      const pairKey = `${data.talkId}::${String(data.talkData.authorId)}`;
+      this.chatbotAutoReplySentForPair.add(pairKey);
+      this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
+    }
+
     // Step 3 — submit to server; server saves Gun template, stats, and conversations
     const localAuthorName =
       data.talkData?.authorName && data.talkData.authorName !== 'Unknown'
@@ -1284,6 +1292,22 @@ export class IinPublicApp {
         await this.userService.submitPeerReview(data.userId, data.rating);
       } catch (error) {
         console.warn('Failed to submit peer review:', error);
+      }
+    });
+
+    this.uiManager.on('setUserBlocked', async (data: { userId: string; blocked: boolean }) => {
+      if (!this.currentUser) return;
+      try {
+        const blockedUserIds = data.blocked
+          ? await this.userService.blockUser(this.currentUser.id, data.userId)
+          : await this.userService.unblockUser(this.currentUser.id, data.userId);
+        this.currentUser.blockedUserIds = blockedUserIds;
+        this.uiManager.showNotification(
+          data.blocked ? 'User blocked. Talk delivery is now disabled.' : 'User unblocked.',
+          'success',
+        );
+      } catch (error) {
+        console.warn('Failed to update block state:', error);
       }
     });
 
@@ -1983,14 +2007,15 @@ export class IinPublicApp {
     this.uiManager.showTalkResponseDialog(talk, { skipAutoAnswer: false });
   }
 
-  public manualCleanup(): void {
+  public async manualCleanup(): Promise<void> {
     // Manually trigger cleanup (for E2E tests where beforeunload may not fire)
     console.log('🧹 Manual cleanup called');
     if (this.currentUser && this.currentChatroomId) {
       console.log(`🧹 Cleanup: user=${this.currentUser.id}, chatroom=${this.currentChatroomId}`);
+      this.chatroomService.unsubscribeAllMemberCounts();
       // Leave current chatroom
-      this.chatroomService.leaveChatroom(this.currentChatroomId, this.currentUser.id);
-      this.userService.setUserStatus(this.currentUser.id, 'offline');
+      await this.chatroomService.leaveChatroom(this.currentChatroomId, this.currentUser.id);
+      await this.userService.setUserStatus(this.currentUser.id, 'offline');
       console.log('✅ Manual cleanup complete');
     } else {
       console.log('⚠️ Manual cleanup skipped - no user or chatroom');

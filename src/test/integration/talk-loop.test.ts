@@ -72,6 +72,7 @@ function buildTestServer() {
     ageVerified: boolean;
     location?: { latitude: number; longitude: number; accuracy: number; timestamp: Date };
   }>();
+  const blockedByUser = new Map<string, Set<string>>();
 
   // Stub GunService — null reads, no-op writes.
   const gunService = {
@@ -137,6 +138,12 @@ function buildTestServer() {
         ageVerified: false,
       }
     );
+  }
+
+  async function getBlockStatus(viewerId: string, targetId: string) {
+    const blocked = blockedByUser.get(viewerId)?.has(targetId) ?? false;
+    const blockedBy = blockedByUser.get(targetId)?.has(viewerId) ?? false;
+    return { blocked, blockedBy, eitherBlocked: blocked || blockedBy };
   }
 
   async function upsertIncomingTalkForUser(params: {
@@ -287,6 +294,7 @@ function buildTestServer() {
     saveUserAnswerTemplateByContent,
     getUserRegion,
     getUserDeliveryContext,
+    getBlockStatus,
     recordTalkStatsResponse,
   });
 
@@ -297,7 +305,7 @@ function buildTestServer() {
     getTalkResponses,
   });
 
-  return { app, incomingTalksMap, talkResponsesMap, userDeliveryContext };
+  return { app, incomingTalksMap, talkResponsesMap, userDeliveryContext, blockedByUser };
 }
 
 // ---------------------------------------------------------------------------
@@ -354,6 +362,21 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(res.body.registered).toBe(false);
       expect(res.body.filteredOut).toBe(true);
       expect(res.body.rejectedBy).toContain('intake_filters');
+      expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
+    });
+
+    it('does not register a talk when either user blocked the other', async () => {
+      const { app, incomingTalksMap, blockedByUser } = buildTestServer();
+      blockedByUser.set(RESPONDER_ID, new Set([SENDER_ID]));
+
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/received`)
+        .send({ receiverId: RESPONDER_ID, senderId: SENDER_ID, senderName: SENDER_NAME, talkData: TALK_DATA });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registered).toBe(false);
+      expect(res.body.filteredOut).toBe(true);
+      expect(res.body.rejectedBy).toContain('blocked_user');
       expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
     });
   });
@@ -424,6 +447,26 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(res.body.filteredOut).toBe(1);
       expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
       expect(incomingTalksMap.get('user_carol')?.size).toBe(1);
+    });
+
+    it('skips blocked peers during broadcast registration', async () => {
+      const { app, incomingTalksMap, blockedByUser } = buildTestServer();
+      blockedByUser.set('user_carol', new Set([SENDER_ID]));
+
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/register-receivers-for-broadcast`)
+        .send({
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          receiverIds: [RESPONDER_ID, 'user_carol'],
+          talkData: TALK_DATA,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registered).toBe(1);
+      expect(res.body.filteredOut).toBe(1);
+      expect(incomingTalksMap.get(RESPONDER_ID)?.size).toBe(1);
+      expect(incomingTalksMap.get('user_carol')).toBeUndefined();
     });
   });
 

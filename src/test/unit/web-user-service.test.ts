@@ -81,6 +81,7 @@ describe('WebUserService', () => {
         profile: user.profile,
         languages: ['en', 'fr'],
         knownPeople: user.knownPeople,
+        blockedUserIds: [],
       }),
     );
   });
@@ -136,6 +137,7 @@ describe('WebUserService', () => {
             addedAt: new Date('2026-04-21T11:00:00.000Z'),
           },
         ],
+        blockedUserIds: ['blocked-1'],
         talkFilters: {
           allowedLanguages: ['en', 'zh'],
           requireGoodGrammar: true,
@@ -154,6 +156,7 @@ describe('WebUserService', () => {
     expect(user.languages).toEqual(['en', 'fr']);
     expect(user.profile).toHaveLength(1);
     expect(user.knownPeople).toHaveLength(1);
+    expect(user.blockedUserIds).toEqual(['blocked-1']);
     expect(user.talkFilters?.allowedLanguages).toEqual(['en', 'zh']);
   });
 
@@ -329,5 +332,62 @@ describe('WebUserService', () => {
         }),
       }),
     );
+  });
+
+  it('persists block and unblock state in the public mirror and private profile data', async () => {
+    const currentUser: User = {
+      id: 'user-1',
+      stageName: 'Alice',
+      profile: [],
+      reputation: {
+        questionsAnswered: 0,
+        talksSent: 0,
+        matchesFound: 0,
+        friendsCount: 0,
+        mutualFriendsCount: 0,
+        likedCount: 0,
+        dislikedCount: 0,
+        starRating: 3,
+        reviewCount: 0,
+        ageVerified: false,
+        ageVerificationVotes: 0,
+        blockCount: 0,
+        isHidden: false,
+      },
+      location: { region: 'region-1', chatrooms: [] },
+      languages: ['en'],
+      interests: [],
+      createdAt: new Date('2026-04-21T10:00:00.000Z'),
+      lastActive: new Date('2026-04-21T10:00:00.000Z'),
+      knownPeople: [],
+      blockedUserIds: [],
+      pub: pair.pub,
+      epub: pair.epub,
+    };
+    const gunService = {
+      get: jest.fn().mockResolvedValue(currentUser),
+      getPrivate: jest.fn().mockResolvedValue(null),
+      put: jest.fn().mockResolvedValue(undefined),
+      putPrivate: jest.fn().mockResolvedValue(undefined),
+      getStoredPair: jest.fn(() => pair),
+    };
+    const service = new WebUserService(gunService as any);
+
+    const blocked = await service.blockUser('user-1', 'user-2');
+    expect(blocked).toEqual(['user-2']);
+    expect(gunService.put).toHaveBeenCalledWith(
+      'user-blocks/user-1/user-2',
+      expect.objectContaining({ blockedAt: expect.any(String) }),
+    );
+    expect(gunService.put).toHaveBeenCalledWith(
+      'user-blocked-by/user-2/user-1',
+      expect.objectContaining({ blockedAt: expect.any(String) }),
+    );
+
+    gunService.get.mockResolvedValue({ ...currentUser, blockedUserIds: ['user-2'] });
+    const unblocked = await service.unblockUser('user-1', 'user-2');
+    expect(unblocked).toEqual([]);
+    expect(gunService.put).toHaveBeenCalledWith('user-blocks/user-1/user-2', null);
+    expect(gunService.put).toHaveBeenCalledWith('user-blocked-by/user-2/user-1', null);
   });
 });
