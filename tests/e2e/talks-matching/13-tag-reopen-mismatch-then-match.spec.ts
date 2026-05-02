@@ -14,6 +14,7 @@ import {
   openIncomingTalkModal,
   resetTalksMatchingSession,
   finalCleanupPages,
+  syncIncomingFromServer,
 } from '../helpers/talks-matching-flow';
 
 const TAG_TITLE = 'E2E Tag Reopen Coffee';
@@ -103,6 +104,11 @@ test.describe('Talks matching — tag: reopen mismatch, change to match', () => 
     await pageTom.locator('#tag-match-checkbox').check();
     await pageTom.click('#tag-submit-btn');
     await waitForResponseModalClosed(pageTom);
+    await afterSync();
+    await afterSync(); // Extra sync for Gun replication in parallel workers
+
+    // Trigger Alice to sync incoming clusters (refreshes Gun .on() listeners)
+    await syncIncomingFromServer(pageAlice);
     await afterSync();
 
     // Both sides see a match toast
