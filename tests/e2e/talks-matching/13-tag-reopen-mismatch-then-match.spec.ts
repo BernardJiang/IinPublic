@@ -111,9 +111,13 @@ test.describe('Talks matching — tag: reopen mismatch, change to match', () => 
     await syncIncomingFromServer(pageAlice);
     await afterSync();
 
-    // Both sides see a match toast
-    await expect(pageTom.getByText('Match!').first()).toBeVisible({ timeout: 15000 });
-    await expect(pageAlice.getByText('Match!').first()).toBeVisible({ timeout: 15000 });
+    // Both sides reflect the match in the status bar (durable, unlike ephemeral toast)
+    await pageTom.click('.nav-btn[data-view="talks"]');
+    await afterSync();
+    await expect(pageTom.locator('#status-bar-text')).toContainText(/1 match/i, { timeout: 15000 });
+    await pageAlice.click('.nav-btn[data-view="talks"]');
+    await afterSync();
+    await expect(pageAlice.locator('#status-bar-text')).toContainText(/1 match/i, { timeout: 15000 });
 
     // Tom's Answers tab: same tag now shows Match
     await pageTom.click('.nav-btn[data-view="answers"]');

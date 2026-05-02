@@ -100,6 +100,7 @@ test.describe('Talks matching — one match one mismatch from two responders', (
     await pageJerry.locator('input.choice-radio[data-answer-text="Yes"][data-mode="manual"]').first().click();
     await waitForResponseModalClosed(pageJerry);
     await waitForTabActive(pageJerry, 'talks');
+    await waitForTabActive(pageTom, 'chatrooms'); // Tom receives match → app auto-navigates, conversation saved to localStorage
     await afterSync();
 
     // Bob answers mismatch
