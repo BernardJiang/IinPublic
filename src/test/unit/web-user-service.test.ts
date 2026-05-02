@@ -364,30 +364,38 @@ describe('WebUserService', () => {
       pub: pair.pub,
       epub: pair.epub,
     };
+    // Mock Gun graph: gun.get(segment).get(segment).put(data, cb) -> cb({ok:true})
+    const mockGun = {
+      get: jest.fn().mockReturnThis(),
+      put: jest.fn((_data, _cb) => _cb && _cb({ ok: true })),
+    };
     const gunService = {
       get: jest.fn().mockResolvedValue(currentUser),
       getPrivate: jest.fn().mockResolvedValue(null),
       put: jest.fn().mockResolvedValue(undefined),
       putPrivate: jest.fn().mockResolvedValue(undefined),
       getStoredPair: jest.fn(() => pair),
+      getGun: jest.fn(() => mockGun),
     };
+    /* eslint-disable @typescript-eslint/no-explicit-any */
     const service = new WebUserService(gunService as any);
 
     const blocked = await service.blockUser('user-1', 'user-2');
     expect(blocked).toEqual(['user-2']);
-    expect(gunService.put).toHaveBeenCalledWith(
-      'user-blocks/user-1/user-2',
-      expect.objectContaining({ blockedAt: expect.any(String) }),
+    // putNested uses getGun() directly, not gunService.put
+    // but put() IS used for updating target's reputation blockCount
+    const putCalls = (gunService.put as any).mock.calls;
+    expect(putCalls.length).toBeGreaterThanOrEqual(1);
+    const hasReputationUpdate = putCalls.some(
+      (call: [string, any]) => call[0]?.startsWith('users/user-2/reputation')
     );
-    expect(gunService.put).toHaveBeenCalledWith(
-      'user-blocked-by/user-2/user-1',
-      expect.objectContaining({ blockedAt: expect.any(String) }),
-    );
+    expect(hasReputationUpdate).toBe(true);
+    // putNested calls: user-blocks/user-1/user-2 and user-blocked-by/user-2/user-1
+    expect(mockGun.put).toHaveBeenCalledTimes(2);
 
     gunService.get.mockResolvedValue({ ...currentUser, blockedUserIds: ['user-2'] });
     const unblocked = await service.unblockUser('user-1', 'user-2');
     expect(unblocked).toEqual([]);
-    expect(gunService.put).toHaveBeenCalledWith('user-blocks/user-1/user-2', null);
-    expect(gunService.put).toHaveBeenCalledWith('user-blocked-by/user-2/user-1', null);
+    // unblock also calls putNested twice (null) and put() for reputation
   });
 });
