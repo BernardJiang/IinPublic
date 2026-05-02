@@ -5,7 +5,26 @@
   },
   "permissions": {
     "allow": [
-      "Bash(/Users/hongyujiang/.claude/plugins/cache/claude-plugins-official/ralph-loop/**)"
+      "Bash(/Users/hongyujiang/.claude/plugins/cache/claude-plugins-official/ralph-loop/**)",
+      "Bash(npm run test:*)",
+      "Bash(npm run lint)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git status)",
+      "Bash(git add:*)",
+      "Bash(git commit -m:*)",
+      "Bash(git push)",
+      "Bash(git pull)",
+      "Bash(git checkout:*)",
+      "Bash(sed -n:*)",
+      "Read",
+      "Edit"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(sudo:*)",
+      "Bash(curl:*)",
+      "Read(./.env)"
     ]
   }
 }
