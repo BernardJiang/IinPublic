@@ -215,61 +215,24 @@ This is a starting point. Add your own conventions, style, and rules as you figu
 <claude-mem-context>
 # Memory Context
 
-# [IinPublic] recent context, 2026-04-30 10:23pm PDT
+# [IinPublic] recent context, 2026-05-01 9:27pm PDT
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (21,823t read) | 393,036t work | 94% savings
+Stats: 50 obs (22,068t read) | 326,742t work | 93% savings
 
 ### Apr 23, 2026
 S2 Debug and refactor E2E tests for chatroom peer-detail views to fix test isolation and modal interaction issues (Apr 23 at 11:08 PM)
-S1 ralph-loop:help — User requested help documentation for the /ralph-loop command (Apr 23 at 11:08 PM)
 S3 Fix broken `test:e2e` suite — both `PW_WORKERS=8 npm run test:e2e` and `npm run test:e2e` must pass after a large commit that introduced a whack-a-mole regression pattern. (Apr 23 at 11:15 PM)
 ### Apr 25, 2026
 S4 Refactor subscribeToMemberCount in web-chatroom-service.ts to simplify Gun.js member count seeding (Apr 25 at 12:46 PM)
 S5 Monitor Re-Armed to Watch Playwright PID 26650 for Completion (Apr 25 at 1:01 PM)
 S6 Monitor e2e test suite completion for IinPublic project (Apr 25 at 1:12 PM)
+S7 Replace fragile "Match!" toast assertions in spec 13 lines 115-116 with durable UI checks, and audit all test scripts for similar issues (Apr 25 at 1:12 PM)
 ### Apr 28, 2026
-163 10:57p 🔵 Test Files Need Reputation Object Updates After likedCount/dislikedCount Addition
-164 " 🟣 New Module: src/web/ui/talk-intake-filters.ts — Client-Side Talk Cluster Filtering Engine
-165 10:58p 🟣 authorLocation Now Propagated from App Through Talk Creation to Incoming Cluster
-166 " 🔵 UIManager Stores incomingTalkClusters as Private Array — Filter Must Be Applied at Display Time
-167 " ✅ UIManager Now Imports Filter Utilities and Stores currentLocation Field
-168 10:59p ✅ UIManager.setCurrentLocation() Public Setter Added
-169 " 🟣 Me Tab: Talk Filters UI and Credit Section Rendered in showMainInterface()
-170 11:00p 🟣 Talks Tab IN List Now Filtered by Talk Intake Rules with Filtered-Count Display
-171 " 🟣 UIManager: saveKnownPerson and submitPeerReview Methods Added and Wired to Contacts View
-172 11:01p 🟣 Contacts View: Relationship & Credit Dialog Implemented with Full KnownPerson Form and Peer Credit Display
-173 " 🔴 contacts-view.ts: Relationship Button Stale ID Guard Fixed — Now Always Removed and Re-created
-174 " 🟣 app.ts: Four New UIManager Event Handlers and Location Initialization Complete the Feature Wiring
-175 11:02p ✅ Old answers-view.ts Deleted — Replaced by New Implementation
-176 " 🟣 answers-view.ts Rewritten: Tag vs Question Distinction, ContextHash Display, and Per-Entry Metadata
-177 11:03p 🔴 Me Tab Credit Section: Safe Defaults for likedCount/dislikedCount on Existing Users
-178 " 🔵 Exact Reputation Object Literals in Test Files Identified — All Missing likedCount/dislikedCount
-179 " 🟣 Unit Tests Updated: Reputation Fixtures Fixed and New liked/disliked + talkFilters Tests Added
-180 11:04p 🟣 New Unit Test File: talk-intake-filters.test.ts Covers Type/Time, Language/DirtyWords, and Distance Filters
-181 11:14p 🔵 E2E Test 01-login-single-user-headcount Structure and Failing Context
-182 11:15p 🔵 Root Cause Traced: Headcount Race Condition Between Gun.js Subscription Fire Order and Playwright Assertion
-183 " 🔵 Actual Test Failure Root Cause: App Crash on Re-Login in UIManager.showMainInterface
-184 11:16p 🔵 Exact Bug Located: reputation.starRating.toFixed(1) Called Without Null Guard in ui-manager.ts:707
-185 " 🔴 Fixed UIManager Crash on Re-Login: Null-Safe Reputation Fields in showMainInterface
-186 " 🔴 App No Longer Crashes on Re-Login After Reputation Null-Safety Fix
-187 11:17p 🔴 E2E Test 01-login-single-user-headcount Now Passes After Reputation Fix
-188 11:45p 🔵 E2E Test Failures and Missing Test Coverage for New Feature
-189 11:46p 🔵 E2E Test Structure for UX Contacts/Talks/Answers Flow
-190 " 🔵 Partial Match E2E Test: Two Responders — One Match, One Mismatch
-191 " 🔵 New Unit Test Files and talk-intake-filters Module Are Untracked
-192 11:47p 🔵 Live E2E Run Reveals Answer Storage Bug: answerText="ignore" and isMatch=undefined
-193 11:48p 🔵 Test 1 Exact Failure: answers-content Missing "/1 question/i" Text
-194 " 🔵 Partial Match Test 2: Core Logic Works, answerText Bug Confirmed for Mismatch Answers
-195 11:49p 🔵 Historical Context: Both Failing Tests Were Previously Passing or Known Broken
-196 11:50p 🔵 Talk IDs and Answer IDs Are Deterministic/Content-Based, Not Random
-197 11:51p 🔵 Second E2E Run: Partial Match Test Now Passes, Only One Test Remaining Broken
-198 " 🔵 Other E2E Tests Also Assert Mismatch/Match Labels in #answers-content; No E2E Tests for New Features
 199 11:52p 🟣 Me-Tab Talk Filters and Credit Section Implemented in ui-manager.ts
-200 " 🟣 Contact Relationship Modal Implemented in contacts-view.ts with Full KnownPerson Editing
 201 " 🔵 Root Cause Found: answers-view Renders "N items" Not "N questions" — Test Expects "/1 question/i"
 202 11:53p 🔴 Fixed 12-ux-contacts-talks-answers Test: Adapted Assertion from "1 question" to "1 item"
 203 " 🟣 New E2E Tests Added for Me-Tab Filters/Credit and Contacts Relationship Dialog
@@ -283,6 +246,48 @@ S6 Monitor e2e test suite completion for IinPublic project (Apr 25 at 1:12 PM)
 210 8:51p 🔵 Route Editor Is Custom DOM Tree, Not Cytoscape — Spec's CytoscapeTalkEditor Not Implemented
 211 " 🔵 E2E Tests Confirm Implemented Features and Key DOM Selectors
 212 8:52p ✅ docs/TODO.md Rewritten with Spec-Gap-Driven Priority Backlog
+### May 1, 2026
+213 7:10p 🔵 Fragile Match Toast Assertions in E2E Tag Reopen Test
+214 " 🔵 Match Toast Assertion Scope: Only Spec 13 Has Fragile Positive toBeVisible Checks
+215 " 🔵 Durable Match Assertion Patterns Used in Other Specs
+216 7:11p 🔵 Spec 11 Provides Exact Negative-Match Verification Pattern Mirroring What Spec 13 Needs Positively
+217 " 🔴 Replaced Ephemeral Toast Assertions with Durable Status Bar Checks in Spec 13
+S8 Spec 12 — Added waitForTabActive(pageTom, 'chatrooms') After Jerry's Match to Ensure Conversation Persisted Before Bob's Response (May 1 at 7:11 PM)
+218 7:14p 🔵 Spec 12 Confirmed Clean — Uses Status Bar and Conversation List for Match Verification
+219 " 🔵 conversation-list-item Elements Sourced from localStorage myConversations
+220 " 🔵 displayConversationsList Triggered on "me" Tab Navigation
+221 7:18p 🔵 afterSync Wait Range (600ms–4000ms) Explains Why Toast Assertions Are Fragile
+222 7:19p 🔴 Spec 12 — Added waitForTabActive(pageTom, 'chatrooms') After Jerry's Match to Ensure Conversation Persisted Before Bob's Response
+S9 Replace fragile "Match!" toast assertions in spec 13 lines 115-116 with durable checks, and audit all test scripts for similar issues (May 1 at 7:19 PM)
+S10 E2E Tests 12 & 13: Replaced Ephemeral Toast Assertions with Durable UI State Checks (May 1 at 7:19 PM)
+223 7:26p ✅ All 35 Tests Passing — Changes Committed
+224 7:27p 🔴 E2E Tests 12 & 13: Replaced Ephemeral Toast Assertions with Durable UI State Checks
+225 " 🔵 Recent Git History: Series of E2E and Unit Test Fixes on `dev` Branch
+S11 Git commit flaky E2E test fixes for tests 12 and 13 after all 35 tests passed (May 1 at 7:27 PM)
+226 7:28p 🔵 IinPublic Project Backlog: Full Priority Breakdown from docs/TODO.md
+227 7:29p 🔵 Profile Surface Partially Implemented: Headshot + Languages Exist, Profile Q&amp;A Missing from Shared Types
+228 " 🔵 Profile Q&amp;A (FR-UM-3) Fully Implemented in UI and Shared Types — Persistence Layer Is the Open Question
+229 " 🔵 onProfileChange Is Wired in app.ts; Two Separate Q&amp;A Systems Coexist
+230 7:30p 🔵 Profile Editing Fully Wired End-to-End via userService.updateProfileFoundation()
+231 " 🔵 updateProfileFoundation Persists to GunDB via Three Write Paths — Profile Editing is Fully Complete
+232 7:31p 🔵 Profile Editing Has E2E Coverage in Test 04; Full E2E Suite Structure Mapped
+233 7:32p 🔵 Blocking System Substantially Complete: Service Methods, REST Routes, UI, and E2E Coverage All Present
+234 " 🔵 Age-Gating Partially Implemented: Server Filter Exists, UI Verification Flow Missing
+235 " 🔵 Server-Side Moderation Incomplete: Only Language Filter Storage Found, No Dirty-Word/Grammar/Distance Enforcement in Delivery Routes
+236 " 🔵 Server-Enforced Moderation IS Complete: talkPassesIntakeFilters() Applied at Delivery Time in POST /api/talks/:id/received
+237 7:33p 🔵 P1/P2 Backlog Gap Audit: Custom Chatrooms and Tag Catalogs Absent; Survey Analytics Partially Present
+238 " 🔵 Survey Analytics UI Not Built: Server Endpoint Exists but No Web Client Rendering
+239 " 🔵 Send/Receive Rate-Limit Enforcement Absent from Server: P2 Item Confirmed Unimplemented
+240 7:34p 🔵 Age Verification Is Vote-Based via Reputation System, Not a Self-Declared UI Flow
+241 " 🔵 Age Verification Design: Adult Talks Must Include Verification Question as First Question (FR-SP-7)
+242 7:35p 🔵 submitPeerReview Updates star_rating/liked/disliked Reputation — Does Not Increment ageVerificationVotes
+243 " 🔵 AGE_VERIFICATION_THRESHOLD Is 3 Votes; ageVerified Read from GunDB Reputation Node at Delivery
+244 " 🔵 ReputationManager Supports 9 Event Types Including Dedicated 'age_verified' Event
+245 7:36p 🔵 Chatrooms Are Statically Defined via CHATROOM_HIERARCHY; No REST Endpoint for Profile Updates
+246 7:40p 🔵 Peer Review Submitted via Contact Relationship Dialog Star Rating; Talk Type Select Is Hidden
+247 " ⚖️ Age-Gating UI Implementation Plan: Exact Insertion Points Identified Across 5 Files
+248 7:41p 🔵 web-user-service.ts Makes No REST API Calls — Age-Verify Vote Should Use GunDB Directly Like submitPeerReview
+249 7:42p 🟣 isAdult Checkbox Added to Talk Editor Form
 
-Access 393k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 327k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

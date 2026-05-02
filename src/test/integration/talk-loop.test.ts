@@ -49,6 +49,13 @@ const TALK_DATA = {
   usageCount: 0,
 };
 
+const ADULT_TALK_DATA = {
+  ...TALK_DATA,
+  id: 'talk_adult_123',
+  title: 'Adults only meetup',
+  isAdult: true,
+};
+
 const MATCHING_ANSWERS = [{ questionId: 'q1', answerId: 'a_blue', answerText: 'Blue' }];
 const NON_MATCHING_ANSWERS = [{ questionId: 'q1', answerId: 'a_red', answerText: 'Red' }];
 
@@ -379,6 +386,25 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(res.body.rejectedBy).toContain('blocked_user');
       expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
     });
+
+    it('does not register an adult talk for a receiver who is not age verified by default', async () => {
+      const { app, incomingTalksMap } = buildTestServer();
+
+      const res = await request(app)
+        .post(`/api/talks/${ADULT_TALK_DATA.id}/received`)
+        .send({
+          receiverId: RESPONDER_ID,
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          talkData: ADULT_TALK_DATA,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registered).toBe(false);
+      expect(res.body.filteredOut).toBe(true);
+      expect(res.body.rejectedBy).toContain('age_gate');
+      expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
+    });
   });
 
   describe('GET /api/users/:id/incoming-talks — inbox', () => {
@@ -467,6 +493,35 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(res.body.filteredOut).toBe(1);
       expect(incomingTalksMap.get(RESPONDER_ID)?.size).toBe(1);
       expect(incomingTalksMap.get('user_carol')).toBeUndefined();
+    });
+
+    it('registers an adult talk only for age-verified receivers and skips unverified ones', async () => {
+      const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
+      const adultReceiverId = 'user_jerry';
+      const defaultReceiverId = 'user_bob';
+      userDeliveryContext.set(adultReceiverId, {
+        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        ageVerified: true,
+      });
+      userDeliveryContext.set(defaultReceiverId, {
+        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        ageVerified: false,
+      });
+
+      const res = await request(app)
+        .post(`/api/talks/${ADULT_TALK_DATA.id}/register-receivers-for-broadcast`)
+        .send({
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          receiverIds: [adultReceiverId, defaultReceiverId],
+          talkData: ADULT_TALK_DATA,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registered).toBe(1);
+      expect(res.body.filteredOut).toBe(1);
+      expect(incomingTalksMap.get(adultReceiverId)?.size).toBe(1);
+      expect(incomingTalksMap.get(defaultReceiverId)).toBeUndefined();
     });
   });
 

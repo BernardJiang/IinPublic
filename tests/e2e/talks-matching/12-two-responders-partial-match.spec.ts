@@ -19,6 +19,42 @@ import {
 
 const TALK_TITLE = 'E2E Partial Match Tennis';
 
+async function requestConversationSync(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as any).__iinpublic_app?.getApp?.()?.uiManager?.emit?.('needConversationSync');
+  });
+}
+
+async function waitForConversationBadgeCount(page: Page, expectedCount: number): Promise<void> {
+  await expect
+    .poll(
+      async () =>
+        page
+          .locator('.nav-btn[data-view="me"] .notification-badge')
+          .textContent()
+          .then((text) => Number.parseInt(String(text || '0').trim(), 10) || 0)
+          .catch(() => 0),
+      { timeout: 30000, message: `Me badge should show ${expectedCount} unread conversation(s)` },
+    )
+    .toBe(expectedCount);
+}
+
+async function waitForConversationVisible(page: Page, otherUserName: string): Promise<void> {
+  const row = page.locator('.conversation-list-item').filter({ hasText: otherUserName }).first();
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    await requestConversationSync(page);
+    await page.click('.nav-btn[data-view="chatrooms"]');
+    await waitForTabActive(page, 'chatrooms');
+    await afterSync();
+    await page.click('.nav-btn[data-view="me"]');
+    await waitForTabActive(page, 'me');
+    await afterSync();
+    if (await row.isVisible().catch(() => false)) return;
+  }
+  await expect(row).toBeVisible({ timeout: 5_000 });
+}
+
 test.describe('Talks matching — one match one mismatch from two responders', () => {
   let browsers: ThreeBrowsers;
   let browserTom: Browser;
@@ -76,6 +112,9 @@ test.describe('Talks matching — one match one mismatch from two responders', (
     await pageBob.click('.chatroom-item:has-text("Global")');
     await afterSync();
 
+    await pageTom.click('.nav-btn[data-view="chatrooms"]');
+    await waitForTabActive(pageTom, 'chatrooms');
+
     await pageTom.click('#create-talk-btn');
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', TALK_TITLE);
@@ -112,27 +151,14 @@ test.describe('Talks matching — one match one mismatch from two responders', (
     await waitForTabActive(pageBob, 'talks');
     await afterSync();
 
-    // Tom: status bar shows exactly 1 match
-    await pageTom.click('.nav-btn[data-view="talks"]');
-    await afterSync();
-    await expect(pageTom.locator('#status-bar-text')).toContainText(/1 match(es)?/i, { timeout: 25000 });
+    // Tom: exactly one unread match badge, and only Jerry appears in conversations
+    await waitForConversationBadgeCount(pageTom, 1);
+    await waitForConversationVisible(pageTom, 'Jerry');
+    await expect(pageTom.locator('.conversation-list-item')).toHaveCount(1, { timeout: 10000 });
+    await expect(pageTom.locator('.conversation-list-item').filter({ hasText: 'Bob' }).first()).not.toBeVisible();
 
-    // Tom: Jerry appears in conversations, Bob does not
-    await pageTom.click('.nav-btn[data-view="me"]');
-    await afterSync();
-    await expect(
-      pageTom.locator('.conversation-list-item').filter({ hasText: 'Jerry' }).first(),
-    ).toBeVisible({ timeout: 20000 });
-    // Bob must not have a conversation with Tom
-    await expect(
-      pageTom.locator('.conversation-list-item').filter({ hasText: 'Bob' }).first(),
-    ).not.toBeVisible();
-
-    // Jerry: has conversation with Tom
-    await pageJerry.click('.nav-btn[data-view="me"]');
-    await afterSync();
-    await expect(
-      pageJerry.locator('.conversation-list-item').filter({ hasText: 'Tom' }).first(),
-    ).toBeVisible({ timeout: 20000 });
+    // Jerry: has conversation with Tom as well
+    await waitForConversationBadgeCount(pageJerry, 1);
+    await waitForConversationVisible(pageJerry, 'Tom');
   });
 });
