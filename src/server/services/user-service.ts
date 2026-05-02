@@ -2,6 +2,7 @@ import { User, GPSCoordinate, RelationshipLabel, KnownPerson, TalkIntakeFilters 
 import { GunService } from './gun-service';
 import { generateRandomStageName } from '../../shared/user-utils';
 import { getDefaultTalkIntakeFilters } from '../../shared/talk-intake-filters';
+import { ReputationManager } from '../../shared/reputation';
 
 const PUBLIC_TALK_FILTERS_KEY = 'user-talk-filters';
 const USER_BLOCKS_KEY = 'user-blocks';
@@ -299,5 +300,11 @@ export class UserService {
 
   async setUserOffline(userId: string): Promise<void> {
     await this.gunService.put(`users/${userId}/status`, 'offline');
+  }
+
+  async vouchAgeVerified(targetUserId: string): Promise<void> {
+    const user = await this.getUser(targetUserId);
+    const updated = ReputationManager.updateReputation(user.reputation, 'age_verified', 1);
+    await this.gunService.put(`users/${targetUserId}/reputation`, updated);
   }
 }

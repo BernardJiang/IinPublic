@@ -434,4 +434,10 @@ export class WebUserService {
     }
     await this.gunService.put(`users/${targetUserId}/reputation`, updated);
   }
+
+  async vouchAgeVerified(targetUserId: string): Promise<void> {
+    const targetUser = await this.getUser(targetUserId);
+    const updated = ReputationManager.updateReputation(targetUser.reputation, 'age_verified', 1);
+    await this.gunService.put(`users/${targetUserId}/reputation`, updated);
+  }
 }

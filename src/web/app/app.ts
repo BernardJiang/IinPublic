@@ -1295,6 +1295,15 @@ export class IinPublicApp {
       }
     });
 
+    this.uiManager.on('vouchAgeVerified', async (data: { userId: string }) => {
+      try {
+        await this.userService.vouchAgeVerified(data.userId);
+        this.uiManager.showNotification('Age verification vote submitted.', 'success');
+      } catch (error) {
+        console.warn('Failed to vouch age:', error);
+      }
+    });
+
     this.uiManager.on('setUserBlocked', async (data: { userId: string; blocked: boolean }) => {
       if (!this.currentUser) return;
       try {

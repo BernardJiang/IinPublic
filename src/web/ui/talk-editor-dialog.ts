@@ -117,6 +117,12 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
               <span>Send to Chatroom</span>
             </label>
           </div>
+          <div class="form-group" id="talk-adult-group">
+            <label class="talk-send-chatroom-label" style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+              <input type="checkbox" id="talk-is-adult" aria-label="Adult content (18+)" ${existingTalk?.isAdult ? 'checked' : ''}>
+              <span>🔞 Adult content (18+) — only delivered to age-verified users</span>
+            </label>
+          </div>
           <div class="modal-actions">
             <button type="button" class="btn" id="cancel-talk-btn" style="background: #ccc; color: #333;">Cancel</button>
             <button type="submit" class="btn" id="talk-submit-btn">${isEdit ? 'Save changes' : 'Create'}</button>

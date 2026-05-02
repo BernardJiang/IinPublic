@@ -638,6 +638,7 @@ export class UIManager extends EventEmitter {
       const matchesFound = reputation.matchesFound ?? 0;
       const likedCount = reputation.likedCount ?? 0;
       const dislikedCount = reputation.dislikedCount ?? 0;
+      const ageVerified = reputation.ageVerified === true;
       const isCreditVisible = reputation.isHidden !== true;
       userInfoMe.innerHTML = `
         <div class="user-avatar" style="width: 80px; height: 80px; font-size: 2em; margin: 20px auto;">
@@ -742,6 +743,7 @@ export class UIManager extends EventEmitter {
             <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">Liked</div><div style="font-size:1.15em;font-weight:700;">${likedCount}</div></div>
             <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">Disliked</div><div style="font-size:1.15em;font-weight:700;">${dislikedCount}</div></div>
             <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">Matches</div><div style="font-size:1.15em;font-weight:700;">${matchesFound}</div></div>
+            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;grid-column:span 2;"><div style="font-size:0.78em;color:#9a3412;">Age verified</div><div style="font-size:1.15em;font-weight:700;">${ageVerified ? '✓ 18+' : '—'}</div></div>
           </div>
         </div>
       `;
@@ -869,6 +871,7 @@ export class UIManager extends EventEmitter {
       getMyTalks: this.getMyTalks.bind(this),
       saveKnownPerson: this.saveKnownPerson.bind(this),
       submitPeerReview: this.submitPeerReview.bind(this),
+      vouchAgeVerified: this.vouchAgeVerified.bind(this),
       setBlocked: this.setBlocked.bind(this),
     });
   }
@@ -886,6 +889,7 @@ export class UIManager extends EventEmitter {
       getMyTalks: this.getMyTalks.bind(this),
       saveKnownPerson: this.saveKnownPerson.bind(this),
       submitPeerReview: this.submitPeerReview.bind(this),
+      vouchAgeVerified: this.vouchAgeVerified.bind(this),
       setBlocked: this.setBlocked.bind(this),
     });
   }
@@ -904,6 +908,7 @@ export class UIManager extends EventEmitter {
         getMyTalks: this.getMyTalks.bind(this),
         saveKnownPerson: this.saveKnownPerson.bind(this),
         submitPeerReview: this.submitPeerReview.bind(this),
+        vouchAgeVerified: this.vouchAgeVerified.bind(this),
         setBlocked: this.setBlocked.bind(this),
       },
       otherUserId,
@@ -2474,7 +2479,7 @@ export class UIManager extends EventEmitter {
       title,
       authorId: '',
       type,
-      isAdult: false,
+      isAdult: !!(document.getElementById('talk-is-adult') as HTMLInputElement | null)?.checked,
       language: 'en',
       tags: [],
       questions,
@@ -2951,6 +2956,10 @@ export class UIManager extends EventEmitter {
 
   private async submitPeerReview(userId: string, rating: number): Promise<void> {
     this.emit('submitPeerReview', { userId, rating });
+  }
+
+  private async vouchAgeVerified(userId: string): Promise<void> {
+    this.emit('vouchAgeVerified', { userId });
   }
 
   private async setBlocked(userId: string, blocked: boolean): Promise<void> {

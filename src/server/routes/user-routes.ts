@@ -126,4 +126,13 @@ export function registerUserRoutes(
       res.status(400).json({ error: (error as Error).message });
     }
   });
+
+  app.post('/api/users/:id/age-verify', async (req, res) => {
+    try {
+      await userService.vouchAgeVerified(req.params.id);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
 }

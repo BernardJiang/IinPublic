@@ -16,6 +16,7 @@ type ContactsViewDeps = {
     details: { label: KnownPerson['label']; nickname?: string; customLabel?: string; rating?: number; notes?: string },
   ) => Promise<void>;
   submitPeerReview: (userId: string, rating: number) => Promise<void>;
+  vouchAgeVerified: (userId: string) => Promise<void>;
   setBlocked: (userId: string, blocked: boolean) => Promise<void>;
 };
 
@@ -163,6 +164,7 @@ async function openRelationshipDialog(
         </div>
       </div>
       <div style="display:flex; justify-content:space-between; gap:10px; padding:16px 18px; border-top:1px solid #e5e7eb;">
+        <button type="button" class="btn" id="contact-age-vouch-btn" title="Vouch that this person is 18+" style="${blockedBy || blockedByMe ? 'display:none;' : ''}">Vouch 18+</button>
         <button type="button" class="btn" id="contact-block-toggle-btn" style="${blockedBy ? 'display:none;' : ''}">${blockedByMe ? 'Unblock User' : 'Block User'}</button>
         <div style="display:flex; gap:10px;">
           <button type="button" class="btn" id="contact-relationship-close-btn">Close</button>
@@ -175,6 +177,10 @@ async function openRelationshipDialog(
   const close = () => closeRelationshipModal();
   (document.getElementById('close-contact-relationship-modal') as HTMLButtonElement | null)?.addEventListener('click', close);
   (document.getElementById('contact-relationship-close-btn') as HTMLButtonElement | null)?.addEventListener('click', close);
+  (document.getElementById('contact-age-vouch-btn') as HTMLButtonElement | null)?.addEventListener('click', async () => {
+    await deps.vouchAgeVerified(userId);
+    close();
+  });
   (document.getElementById('contact-block-toggle-btn') as HTMLButtonElement | null)?.addEventListener('click', async () => {
     await deps.setBlocked(userId, !blockedByMe);
     close();
