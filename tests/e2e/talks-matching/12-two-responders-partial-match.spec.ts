@@ -151,6 +151,15 @@ test.describe('Talks matching — one match one mismatch from two responders', (
     await waitForTabActive(pageBob, 'talks');
     await afterSync();
 
+    // Force Tom to sync conversations from Gun before checking the badge.
+    // In the full suite the server graph is large (accumulated from tests 01-11),
+    // so after clearGunDatabases() the 2s wait isn't enough for replication to
+    // converge. Explicit sync requests prevent the stale-conversation race.
+    await requestConversationSync(pageTom);
+    await afterSync();
+    await requestConversationSync(pageTom);
+    await afterSync();
+
     // Tom: exactly one unread match badge, and only Jerry appears in conversations
     await waitForConversationBadgeCount(pageTom, 1);
     await waitForConversationVisible(pageTom, 'Jerry');
