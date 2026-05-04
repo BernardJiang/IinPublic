@@ -26,17 +26,36 @@ async function requestConversationSync(page: Page): Promise<void> {
 }
 
 async function waitForConversationBadgeCount(page: Page, expectedCount: number): Promise<void> {
-  await expect
-    .poll(
-      async () =>
-        page
-          .locator('.nav-btn[data-view="me"] .notification-badge')
-          .textContent()
-          .then((text) => Number.parseInt(String(text || '0').trim(), 10) || 0)
-          .catch(() => 0),
-      { timeout: 30000, message: `Me badge should show ${expectedCount} unread conversation(s)` },
-    )
-    .toBe(expectedCount);
+  /**
+   * Poll with active conversation sync on every iteration.
+   *
+   * Why: after clearGunDatabases() resets gun._.graph = {}, the server
+   * graph is empty but clients still replicate incrementally. When the
+   * full suite runs (tests 01-11), the accumulated graph is large, so
+   * a .once() snapshot taken immediately after the clear may return
+   * stale/empty data. The badge reads from localStorage which is only
+   * updated when the sync handler ingests fresh Gun data, so we must
+   * keep re-syncing until the badge converges.
+   */
+  const deadline = Date.now() + 45_000;
+  while (Date.now() < deadline) {
+    // Ask Tom's client to pull the latest conversations from Gun
+    await requestConversationSync(page);
+    // Give Gun time to replicate the snapshot response
+    await afterSync();
+
+    const badge = page.locator('.nav-btn[data-view="me"] .notification-badge');
+    try {
+      const text = await badge.textContent();
+      const count = Number.parseInt(String(text || '0').trim(), 10) || 0;
+      if (count === expectedCount) return;
+    } catch {
+      // Badge not yet rendered — count stays 0
+    }
+    // Wait between sync + read cycles
+    await afterSync();
+  }
+  throw new Error(`Me badge did not converge to ${expectedCount} within 45 s`);
 }
 
 async function waitForConversationVisible(page: Page, otherUserName: string): Promise<void> {
