@@ -388,7 +388,10 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         answers: normalizedAnswers,
         senders,
         isChatbotResponse: !!isChatbotResponse,
-        storeOnSourceTalk: false,
+        // Always write the response to Gun so the broadcaster's subscribeToTalkResponses
+        // subscription fires reliably (Path A). Without this, manual responses never reach
+        // the broadcaster's Gun subscription — only the unreliable WebSocket push (Path B).
+        storeOnSourceTalk: true,
       });
 
       const isMatch = checkIfMatch(talkData, normalizedAnswers);
