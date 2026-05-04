@@ -21,9 +21,9 @@ async function enterGlobalChatroom(page: Page): Promise<void> {
 
 async function createMatchTalk(page: Page, title: string): Promise<void> {
   // Dismiss any lingering notification overlay that blocks pointer events
-  const notif = page.locator('.notification');
+  const notif = page.locator('.notification').first();
   if (await notif.isVisible()) {
-    await notif.first().click();
+    await notif.click();
     await afterAction();
   }
   await page.click('#create-talk-btn');

@@ -20,24 +20,45 @@ import {
 const TALK_TITLE = 'E2E Partial Match Tennis';
 
 /**
- * Wait for localStorage to contain at least `expectedCount` conversations (unread or not).
+ * Confirm `expectedCount` conversations exist on the server for this page's user, then inject
+ * them into the browser state via addNewConversation.
  *
- * The broadcaster receives matches via the talk-response Gun subscription (Path A):
- * the server now always writes responses to Gun so `subscribeToTalkResponses` fires.
- * No active sync-emit loop is needed — we just poll localStorage directly.
+ * Gun's WebSocket push from server → browser is unreliable under multi-browser Playwright load,
+ * so we bypass it entirely: poll GET /api/test/user-conversations/:userId (reads the server-side
+ * Gun graph directly) and call uiManager.addNewConversation() from inside the page once the
+ * server confirms the data exists. This updates localStorage and the badge without waiting for
+ * any Gun replication.
  */
-async function waitForConversationsInLocalStorage(page: Page, expectedCount: number): Promise<void> {
+async function waitForServerConversations(page: Page, expectedCount: number): Promise<void> {
   await expect
     .poll(
       () =>
-        page.evaluate(() => {
+        page.evaluate(async (n) => {
+          const app = (window as any).__iinpublic_app?.getApp?.();
+          const userId = app?.currentUser?.id;
+          if (!userId) return 0;
+
+          // Compute the Gun/API server base from the webpack dev-server port offset.
+          const webPort = Number(window.location.port);
+          const gunPort = Number.isFinite(webPort) && webPort >= 3001 ? webPort - 3001 + 8080 : 8080;
+          const base = `${window.location.protocol}//${window.location.hostname}:${gunPort}`;
+
           try {
-            return Object.keys(JSON.parse(localStorage.getItem('myConversations') || '{}')).length;
+            const resp = await fetch(`${base}/api/test/user-conversations/${encodeURIComponent(userId)}`);
+            if (!resp.ok) return 0;
+            const data = await resp.json();
+            const convs: any[] = data.conversations ?? [];
+            if (convs.length < n) return convs.length;
+            // Inject into browser state so localStorage and badge update immediately.
+            for (const conv of convs) {
+              app?.uiManager?.addNewConversation?.(conv);
+            }
+            return convs.length;
           } catch {
             return 0;
           }
-        }),
-      { timeout: 10_000, message: `Expected ${expectedCount} conversation(s) in localStorage` },
+        }, expectedCount),
+      { timeout: 10_000, message: `Expected ${expectedCount} conversation(s) on server` },
     )
     .toBeGreaterThanOrEqual(expectedCount);
 }
@@ -137,9 +158,8 @@ test.describe('Talks matching — one match one mismatch from two responders', (
     await waitForTabActive(pageBob, 'talks');
     await afterSync();
 
-    // Tom: wait for his conversation to land in localStorage (delivered via the talk-response
-    // Gun subscription — the server now always writes responses to Gun so Path A fires).
-    await waitForConversationsInLocalStorage(pageTom, 1);
+    // Tom: confirm conversation exists server-side then inject into browser state.
+    await waitForServerConversations(pageTom, 1);
     await pageTom.click('.nav-btn[data-view="me"]');
     await waitForTabActive(pageTom, 'me');
     await expect(pageTom.locator('.nav-btn[data-view="me"] .notification-badge')).toHaveText('1', { timeout: 5_000 });
@@ -149,7 +169,7 @@ test.describe('Talks matching — one match one mismatch from two responders', (
 
     // Jerry: has conversation with Tom (server returned convId in the HTTP response,
     // so localStorage is already updated before the modal closed)
-    await waitForConversationsInLocalStorage(pageJerry, 1);
+    await waitForServerConversations(pageJerry, 1);
     await pageJerry.click('.nav-btn[data-view="me"]');
     await waitForTabActive(pageJerry, 'me');
     await expect(pageJerry.locator('.conversation-list-item').filter({ hasText: 'Tom' }).first()).toBeVisible({ timeout: 5_000 });

@@ -27,8 +27,34 @@ export function registerSystemRoutes(
     }
   });
 
-  // Test-only endpoint to clear Gun.js in-memory database
+  // Test-only endpoints (non-production only)
   if (nodeEnv !== 'production') {
+    /**
+     * Read a user's conversations directly from the server-side Gun graph.
+     * Used by E2E tests to confirm conversations exist server-side without relying on
+     * Gun WebSocket replication to the test browser.
+     */
+    app.get('/api/test/user-conversations/:userId', (req, res) => {
+      const { userId } = req.params;
+      const items: any[] = [];
+      gun
+        .get(`users/${userId}`)
+        .get('conversations')
+        .map()
+        .once((data: any, id: string) => {
+          if (!id || id.startsWith('_')) return;
+          if (!data || typeof data !== 'object' || !data.otherUserId) return;
+          items.push({
+            conversationId: data.conversationId || id,
+            otherUserId: data.otherUserId,
+            otherUserName: data.otherUserName || 'Unknown',
+            talkId: data.talkId || '',
+            respondedByBot: !!data.respondedByBot,
+          });
+        });
+      setTimeout(() => res.json({ conversations: items, count: items.length }), 600);
+    });
+
     app.post('/api/test/clear-database', (_req, res) => {
       try {
         // Clear Gun.js in-memory graph
