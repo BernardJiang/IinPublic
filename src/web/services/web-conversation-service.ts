@@ -15,7 +15,7 @@ export class WebConversationService {
   /**
    * Create a new conversation between two users after a match
    */
-  async createConversation(params: {
+  createConversation(params: {
     userId1: string;
     userName1: string;
     userId2: string;
@@ -26,55 +26,46 @@ export class WebConversationService {
   }): Promise<string> {
     const gun = this.gunService.getGun();
 
-    // Create a unique conversation ID (sorted user IDs to ensure consistency)
     const sortedIds = [params.userId1, params.userId2].sort();
     const conversationId = `conv_${sortedIds[0]}_${sortedIds[1]}_${params.talkId}`;
 
     console.log(`💬 Creating conversation: ${conversationId}`);
 
-    // Check if conversation already exists
-    return new Promise((resolve) => {
-      gun.get(`conversations/${conversationId}`).once((existingData: any) => {
-        if (!(existingData && existingData.data)) {
-          // Store conversation in Gun.js
-          const conversationData = {
-            id: conversationId,
-            participants: [params.userId1, params.userId2],
-            talkId: params.talkId,
-            createdAt: new Date().toISOString(),
-            status: 'active',
-          };
+    // Gun.put is idempotent — no need to .once()-check first.
+    // Skipping the existence check eliminates a Gun round-trip that can stall
+    // the match notification path for several seconds on a busy graph.
+    const conversationData = {
+      id: conversationId,
+      participants: [params.userId1, params.userId2],
+      talkId: params.talkId,
+      createdAt: new Date().toISOString(),
+      status: 'active',
+    };
 
-          gun.get(`conversations/${conversationId}`).put({
-            data: JSON.stringify(conversationData),
-          });
-        } else {
-          console.log(`ℹ️  Conversation already exists: ${conversationId}`);
-        }
-
-        // Add conversation to each user's conversation list
-        gun.get(`users/${params.userId1}`).get('conversations').get(conversationId).put({
-          conversationId,
-          otherUserId: params.userId2,
-          otherUserName: params.userName2,
-          talkId: params.talkId,
-          createdAt: new Date().toISOString(),
-          respondedByBot: !!params.respondedByBotForUser1,
-        });
-
-        gun.get(`users/${params.userId2}`).get('conversations').get(conversationId).put({
-          conversationId,
-          otherUserId: params.userId1,
-          otherUserName: params.userName1,
-          talkId: params.talkId,
-          createdAt: new Date().toISOString(),
-          respondedByBot: !!params.respondedByBotForUser2,
-        });
-
-        console.log(`✅ Conversation created: ${conversationId}`);
-        resolve(conversationId);
-      });
+    gun.get(`conversations/${conversationId}`).put({
+      data: JSON.stringify(conversationData),
     });
+
+    gun.get(`users/${params.userId1}`).get('conversations').get(conversationId).put({
+      conversationId,
+      otherUserId: params.userId2,
+      otherUserName: params.userName2,
+      talkId: params.talkId,
+      createdAt: new Date().toISOString(),
+      respondedByBot: !!params.respondedByBotForUser1,
+    });
+
+    gun.get(`users/${params.userId2}`).get('conversations').get(conversationId).put({
+      conversationId,
+      otherUserId: params.userId1,
+      otherUserName: params.userName1,
+      talkId: params.talkId,
+      createdAt: new Date().toISOString(),
+      respondedByBot: !!params.respondedByBotForUser2,
+    });
+
+    console.log(`✅ Conversation created: ${conversationId}`);
+    return Promise.resolve(conversationId);
   }
 
   private async getOtherParticipantId(conversationId: string, myId: string): Promise<string | undefined> {
@@ -239,30 +230,32 @@ export class WebConversationService {
 
   /**
    * One-shot snapshot of user's conversations from Gun.
+   *
+   * Uses .map().once() so Gun resolves each child soul-reference before invoking
+   * the callback. Calling .once() directly on the parent node returns a map of
+   * opaque soul references ({#: '...'}), which have no otherUserId and get
+   * filtered out — use .map().once() (same pattern as listKnownPeople) to get
+   * the actual conversation objects.
    */
   async getUserConversationsSnapshot(userId: string): Promise<any[]> {
     const gun = this.gunService.getGun();
+    const items: any[] = [];
     return new Promise((resolve) => {
       gun
         .get(`users/${userId}`)
         .get('conversations')
-        .once((raw: any) => {
-          if (!raw || typeof raw !== 'object') {
-            resolve([]);
-            return;
-          }
-          const entries = Object.entries(raw)
-            .filter(([key]) => !key.startsWith('_'))
-            .map(([conversationId, value]) => {
-              if (!value || typeof value !== 'object') return null;
-              return {
-                ...(value as Record<string, unknown>),
-                conversationId: (value as any).conversationId || conversationId,
-              };
-            })
-            .filter((item) => item && (item as any).otherUserId);
-          resolve(entries as any[]);
+        .map()
+        .once((conversationData: any, conversationId: string) => {
+          if (!conversationId || conversationId.startsWith('_')) return;
+          if (!conversationData || typeof conversationData !== 'object') return;
+          if (!conversationData.otherUserId) return;
+          items.push({
+            ...conversationData,
+            conversationId: conversationData.conversationId || conversationId,
+          });
         });
+      // Allow Gun time to resolve all child nodes before resolving.
+      setTimeout(() => resolve(items), 500);
     });
   }
 
