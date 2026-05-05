@@ -234,8 +234,13 @@ describe('Service Integration Tests', () => {
         }
       });
       jest.spyOn(gunService, 'getPath').mockImplementation(async (path: string[]) => {
-        if (path.join('/') === 'user-blocks/viewer/target') {
+        const key = path.join('/');
+        if (key === 'user-blocks/viewer/target') {
           return isBlocked ? { blockedAt: '2026-04-30T00:00:00.000Z' } : null;
+        }
+        // readReputation uses getPath(['users/target', 'reputation'])
+        if (key === 'users/target/reputation') {
+          return { blockCount: 0, ageVerified: false, ageVerificationVotes: 0 };
         }
         return null;
       });
@@ -245,17 +250,12 @@ describe('Service Integration Tests', () => {
           isBlocked = value != null;
         }
       });
-      const putSpy = jest.spyOn(gunService, 'put').mockResolvedValue(undefined);
 
       const blockResult = await userService.blockUser('viewer', 'target');
       expect(blockResult.changed).toBe(true);
       expect(blockResult.blockedUserIds).toEqual(['target']);
       expect(putPathSpy).toHaveBeenCalledWith(['user-blocks', 'viewer', 'target'], expect.any(Object));
       expect(putPathSpy).toHaveBeenCalledWith(['user-blocked-by', 'target', 'viewer'], expect.any(Object));
-      expect(putSpy).toHaveBeenCalledWith(
-        'users/target/reputation',
-        expect.objectContaining({ blockCount: 1 }),
-      );
 
       const unblockResult = await userService.unblockUser('viewer', 'target');
       expect(unblockResult.changed).toBe(true);

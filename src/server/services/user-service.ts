@@ -1,4 +1,4 @@
-import { User, GPSCoordinate, RelationshipLabel, KnownPerson, TalkIntakeFilters } from '../../shared/types';
+import { User, Reputation, GPSCoordinate, RelationshipLabel, KnownPerson, TalkIntakeFilters } from '../../shared/types';
 import { GunService } from './gun-service';
 import { generateRandomStageName } from '../../shared/user-utils';
 import { getDefaultTalkIntakeFilters } from '../../shared/talk-intake-filters';
@@ -28,15 +28,43 @@ export class UserService {
       .map(([key]) => key);
   }
 
+  private static readonly DEFAULT_REPUTATION: Reputation = {
+    questionsAnswered: 0, talksSent: 0, matchesFound: 0, friendsCount: 0,
+    mutualFriendsCount: 0, likedCount: 0, dislikedCount: 0, starRating: 3.0,
+    reviewCount: 0, ageVerified: false, ageVerificationVotes: 0, blockCount: 0, isHidden: false,
+  };
+
+  /**
+   * Read the reputation sub-node via getPath(['users/id', 'reputation']).
+   * getPath chains gun.get('users/id').get('reputation') which follows Gun's
+   * linked sub-node reference regardless of how the data was originally stored.
+   * Returns defaults if the node is not found or times out.
+   */
+  private async readReputation(userId: string): Promise<Reputation> {
+    try {
+      const data = await this.gunService.getPath([`users/${userId}`, 'reputation']);
+      if (!data || typeof data !== 'object') return { ...UserService.DEFAULT_REPUTATION };
+      const { _, ...rep } = data as any;
+      return { ...UserService.DEFAULT_REPUTATION, ...rep } as Reputation;
+    } catch {
+      return { ...UserService.DEFAULT_REPUTATION };
+    }
+  }
+
+  /**
+   * Write updated reputation via gun.get('users/id').get('reputation').put().
+   * Fire-and-forget (no ack wait) — Gun's in-memory put is synchronous so the
+   * next readReputation call will see the updated data immediately.
+   */
+  private writeReputation(userId: string, reputation: Reputation): void {
+    this.gunService.getGun().get(`users/${userId}`).get('reputation').put(reputation);
+  }
+
   private async applyBlockCountDelta(targetUserId: string, delta: number): Promise<void> {
-    const user = await this.getUser(targetUserId);
-    const nextValue = Math.max(0, Number(user.reputation?.blockCount || 0) + delta);
-    if (nextValue === Number(user.reputation?.blockCount || 0)) return;
-    const nextReputation = {
-      ...user.reputation,
-      blockCount: nextValue,
-    };
-    await this.gunService.put(`users/${targetUserId}/reputation`, nextReputation);
+    const reputation = await this.readReputation(targetUserId);
+    const nextValue = Math.max(0, Number(reputation.blockCount || 0) + delta);
+    if (nextValue === Number(reputation.blockCount || 0)) return;
+    this.writeReputation(targetUserId, { ...reputation, blockCount: nextValue });
   }
 
   private parseTalkFilters(value: unknown, seedLanguages?: string[]): TalkIntakeFilters {
@@ -287,9 +315,10 @@ export class UserService {
               : new Date(rawLocation.timestamp || Date.now()),
           }
         : undefined;
+    const reputation = await this.readReputation(userId);
     return {
       talkFilters,
-      ageVerified: !!userNode?.reputation?.ageVerified,
+      ageVerified: !!reputation.ageVerified,
       ...(location ? { location } : {}),
     };
   }
@@ -303,10 +332,8 @@ export class UserService {
   }
 
   async vouchAgeVerified(targetUserId: string): Promise<void> {
-    const user = await this.getUser(targetUserId);
-    const updatedReputation = ReputationManager.updateReputation(user.reputation, 'age_verified', 1);
-    // Write back to the full user soul so getUserDeliveryContext reads the updated ageVerified flag.
-    // Writing only to users/${id}/reputation (a separate Gun soul) does not update users/${id}.
-    await this.gunService.put(`users/${targetUserId}`, { ...user, reputation: updatedReputation });
+    const reputation = await this.readReputation(targetUserId);
+    const updated = ReputationManager.updateReputation(reputation, 'age_verified', 1);
+    this.writeReputation(targetUserId, updated);
   }
 }
