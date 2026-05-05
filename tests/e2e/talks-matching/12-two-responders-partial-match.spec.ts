@@ -7,6 +7,7 @@ import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { clearGunDatabases } from '../helpers/clear-database';
 import { afterSync, afterAction } from '../helpers/timing';
+import { gunBaseURL } from '../helpers/ports';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../helpers/talks-matching-browsers';
 import {
   bootstrapUser,
@@ -25,42 +26,37 @@ const TALK_TITLE = 'E2E Partial Match Tennis';
  *
  * Gun's WebSocket push from server → browser is unreliable under multi-browser Playwright load,
  * so we bypass it entirely: poll GET /api/test/user-conversations/:userId (reads the server-side
- * Gun graph directly) and call uiManager.addNewConversation() from inside the page once the
- * server confirms the data exists. This updates localStorage and the badge without waiting for
- * any Gun replication.
+ * Gun graph directly, using page.request from the test process with the correct parallelSlot port)
+ * and call uiManager.addNewConversation() from inside the page once the server confirms the data
+ * exists. This updates localStorage and the badge without waiting for any Gun replication.
  */
 async function waitForServerConversations(page: Page, expectedCount: number): Promise<void> {
+  const userId = await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.id ?? '');
+  if (!userId) throw new Error('waitForServerConversations: could not get userId from page');
+
+  const url = `${gunBaseURL()}/api/test/user-conversations/${encodeURIComponent(userId)}`;
+
+  let convs: any[] = [];
   await expect
     .poll(
-      () =>
-        page.evaluate(async (n) => {
-          const app = (window as any).__iinpublic_app?.getApp?.();
-          const userId = app?.currentUser?.id;
-          if (!userId) return 0;
-
-          // Compute the Gun/API server base from the webpack dev-server port offset.
-          const webPort = Number(window.location.port);
-          const gunPort = Number.isFinite(webPort) && webPort >= 3001 ? webPort - 3001 + 8080 : 8080;
-          const base = `${window.location.protocol}//${window.location.hostname}:${gunPort}`;
-
-          try {
-            const resp = await fetch(`${base}/api/test/user-conversations/${encodeURIComponent(userId)}`);
-            if (!resp.ok) return 0;
-            const data = await resp.json();
-            const convs: any[] = data.conversations ?? [];
-            if (convs.length < n) return convs.length;
-            // Inject into browser state so localStorage and badge update immediately.
-            for (const conv of convs) {
-              app?.uiManager?.addNewConversation?.(conv);
-            }
-            return convs.length;
-          } catch {
-            return 0;
-          }
-        }, expectedCount),
-      { timeout: 10_000, message: `Expected ${expectedCount} conversation(s) on server` },
+      async () => {
+        const res = await page.request.get(url);
+        if (!res.ok()) return 0;
+        const data = (await res.json()) as { conversations: any[] };
+        convs = data.conversations ?? [];
+        return convs.length;
+      },
+      { timeout: 10_000, message: `Expected ${expectedCount} conversation(s) on server for user ${userId}` },
     )
     .toBeGreaterThanOrEqual(expectedCount);
+
+  // Inject into browser state so localStorage and badge update immediately.
+  await page.evaluate((conversations) => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    for (const conv of conversations) {
+      app?.uiManager?.addNewConversation?.(conv);
+    }
+  }, convs);
 }
 
 test.describe('Talks matching — one match one mismatch from two responders', () => {

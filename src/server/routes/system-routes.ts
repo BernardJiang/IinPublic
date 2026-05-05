@@ -4,13 +4,14 @@ import { logger } from '../logger';
 type RegisterSystemRoutesDeps = {
   gun: any;
   incomingTalksMap: Map<string, Map<string, any>>;
+  conversationsMap: Map<string, Map<string, any>>;
   clearTalkResponseStats: () => void;
   nodeEnv: string | undefined;
 };
 
 export function registerSystemRoutes(
   app: express.Application,
-  { gun, incomingTalksMap, clearTalkResponseStats, nodeEnv }: RegisterSystemRoutesDeps,
+  { gun, incomingTalksMap, conversationsMap, clearTalkResponseStats, nodeEnv }: RegisterSystemRoutesDeps,
 ): void {
   // Health check
   app.get('/health', (_req, res) => {
@@ -29,30 +30,11 @@ export function registerSystemRoutes(
 
   // Test-only endpoints (non-production only)
   if (nodeEnv !== 'production') {
-    /**
-     * Read a user's conversations directly from the server-side Gun graph.
-     * Used by E2E tests to confirm conversations exist server-side without relying on
-     * Gun WebSocket replication to the test browser.
-     */
     app.get('/api/test/user-conversations/:userId', (req, res) => {
       const { userId } = req.params;
-      const items: any[] = [];
-      gun
-        .get(`users/${userId}`)
-        .get('conversations')
-        .map()
-        .once((data: any, id: string) => {
-          if (!id || id.startsWith('_')) return;
-          if (!data || typeof data !== 'object' || !data.otherUserId) return;
-          items.push({
-            conversationId: data.conversationId || id,
-            otherUserId: data.otherUserId,
-            otherUserName: data.otherUserName || 'Unknown',
-            talkId: data.talkId || '',
-            respondedByBot: !!data.respondedByBot,
-          });
-        });
-      setTimeout(() => res.json({ conversations: items, count: items.length }), 600);
+      const userMap = conversationsMap.get(userId);
+      const conversations = userMap ? Array.from(userMap.values()) : [];
+      res.json({ conversations, count: conversations.length });
     });
 
     app.post('/api/test/clear-database', (_req, res) => {
@@ -61,10 +43,9 @@ export function registerSystemRoutes(
         // Gun stores data in gun._.graph which is the in-memory cache
         if (gun && gun._ && gun._.graph) {
           logger.info('🧹 Clearing Gun.js in-memory database...');
-          // Create a new empty graph
           gun._.graph = {};
-          // Also clear server-side incoming talks Map
           incomingTalksMap.clear();
+          conversationsMap.clear();
           clearTalkResponseStats();
           logger.info('✅ Gun.js in-memory database cleared');
           res.json({ success: true, message: 'Gun.js in-memory database cleared' });

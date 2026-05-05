@@ -41,6 +41,8 @@ class IinPublicServer {
   private reputationService!: ReputationService;
   /** Server-side store for incomingTalksByUser — bypasses Gun.js to avoid event-loop stall on bulk writes. */
   private incomingTalksMap: Map<string, Map<string, any>> = new Map();
+  /** Server-side store for conversations per user — Gun.js graph is unreliable in E2E mode (radisk:false). */
+  private conversationsMap: Map<string, Map<string, any>> = new Map();
   /** STAT-01 — normalized per-talk response log for the generic stats/inquiry layer. */
   private talkResponsesMap: Map<string, TalkResponse[]> = new Map();
   /** STAT-01 — secondary indices (in-memory mirror of idx/... graph paths). */
@@ -595,22 +597,30 @@ class IinPublicServer {
     await this.gunService.putPath(['conversations', conversationId], {
       data: JSON.stringify(conversationData),
     });
-    await this.gunService.putPath(['users', responderId, 'conversations', conversationId], {
+    const responderEntry = {
       conversationId,
       otherUserId: senderId,
       otherUserName: senderName,
       talkId,
       createdAt: new Date().toISOString(),
       respondedByBot: !!respondedByBotForResponder,
-    });
-    await this.gunService.putPath(['users', senderId, 'conversations', conversationId], {
+    };
+    const senderEntry = {
       conversationId,
       otherUserId: responderId,
       otherUserName: responderName,
       talkId,
       createdAt: new Date().toISOString(),
       respondedByBot: !!respondedByBotForSender,
-    });
+    };
+
+    if (!this.conversationsMap.has(responderId)) this.conversationsMap.set(responderId, new Map());
+    this.conversationsMap.get(responderId)!.set(conversationId, responderEntry);
+    if (!this.conversationsMap.has(senderId)) this.conversationsMap.set(senderId, new Map());
+    this.conversationsMap.get(senderId)!.set(conversationId, senderEntry);
+
+    await this.gunService.putPath(['users', responderId, 'conversations', conversationId], responderEntry);
+    await this.gunService.putPath(['users', senderId, 'conversations', conversationId], senderEntry);
 
     return { conversationId, otherUserId: senderId, otherUserName: senderName };
   }
@@ -685,6 +695,7 @@ class IinPublicServer {
     registerSystemRoutes(this.app, {
       gun: this.gun,
       incomingTalksMap: this.incomingTalksMap,
+      conversationsMap: this.conversationsMap,
       clearTalkResponseStats: this.clearTalkResponseStats.bind(this),
       nodeEnv: process.env.NODE_ENV,
     });
