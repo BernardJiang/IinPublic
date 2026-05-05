@@ -304,7 +304,9 @@ export class UserService {
 
   async vouchAgeVerified(targetUserId: string): Promise<void> {
     const user = await this.getUser(targetUserId);
-    const updated = ReputationManager.updateReputation(user.reputation, 'age_verified', 1);
-    await this.gunService.put(`users/${targetUserId}/reputation`, updated);
+    const updatedReputation = ReputationManager.updateReputation(user.reputation, 'age_verified', 1);
+    // Write back to the full user soul so getUserDeliveryContext reads the updated ageVerified flag.
+    // Writing only to users/${id}/reputation (a separate Gun soul) does not update users/${id}.
+    await this.gunService.put(`users/${targetUserId}`, { ...user, reputation: updatedReputation });
   }
 }
