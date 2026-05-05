@@ -2,11 +2,12 @@ import { User, Reputation, GPSCoordinate, RelationshipLabel, KnownPerson, TalkIn
 import { GunService } from './gun-service';
 import { generateRandomStageName } from '../../shared/user-utils';
 import { getDefaultTalkIntakeFilters } from '../../shared/talk-intake-filters';
-import { ReputationManager } from '../../shared/reputation';
+import { CONFIG } from '../../shared/config';
 
 const PUBLIC_TALK_FILTERS_KEY = 'user-talk-filters';
 const USER_BLOCKS_KEY = 'user-blocks';
 const USER_BLOCKED_BY_KEY = 'user-blocked-by';
+const AGE_VERIF_KEY = 'user-age-verification';
 
 export class UserService {
   constructor(private gunService: GunService) {}
@@ -21,14 +22,7 @@ export class UserService {
     }
   }
 
-  private extractTruthyChildKeys(value: unknown): string[] {
-    if (!value || typeof value !== 'object') return [];
-    return Object.entries(value as Record<string, unknown>)
-      .filter(([key, child]) => !key.startsWith('_') && child != null)
-      .map(([key]) => key);
-  }
-
-  private static readonly DEFAULT_REPUTATION: Reputation = {
+private static readonly DEFAULT_REPUTATION: Reputation = {
     questionsAnswered: 0, talksSent: 0, matchesFound: 0, friendsCount: 0,
     mutualFriendsCount: 0, likedCount: 0, dislikedCount: 0, starRating: 3.0,
     reviewCount: 0, ageVerified: false, ageVerificationVotes: 0, blockCount: 0, isHidden: false,
@@ -227,8 +221,16 @@ export class UserService {
   }
 
   async getBlockedUserIds(userId: string): Promise<string[]> {
-    const node = await this.gunService.get(`${USER_BLOCKS_KEY}/${userId}`).catch(() => null);
-    return this.extractTruthyChildKeys(node);
+    // Use chained navigation to match how the browser writes blocks via putNested.
+    // gun.get('user-blocks/userId') is a flat soul unrelated to gun.get('user-blocks').get(userId).
+    const gun = this.gunService.getGun();
+    return new Promise((resolve) => {
+      const ids: string[] = [];
+      gun.get(USER_BLOCKS_KEY).get(userId).map().once((data: any, key: string) => {
+        if (data != null && key && !key.startsWith('_')) ids.push(key);
+      });
+      setTimeout(() => resolve(ids), 500);
+    });
   }
 
   async isBlocked(blockerId: string, targetId: string): Promise<boolean> {
@@ -315,10 +317,10 @@ export class UserService {
               : new Date(rawLocation.timestamp || Date.now()),
           }
         : undefined;
-    const reputation = await this.readReputation(userId);
+    const ageVerified = await this.readAgeVerified(userId);
     return {
       talkFilters,
-      ageVerified: !!reputation.ageVerified,
+      ageVerified,
       ...(location ? { location } : {}),
     };
   }
@@ -331,9 +333,31 @@ export class UserService {
     await this.gunService.put(`users/${userId}/status`, 'offline');
   }
 
+  /**
+   * Read age-verified flag from the server-owned path that the browser never writes to,
+   * avoiding Gun peer-sync races with the user's reputation sub-node.
+   */
+  private readAgeVerified(userId: string): Promise<boolean> {
+    const gun = this.gunService.getGun();
+    return new Promise((resolve) => {
+      let settled = false;
+      const settle = (v: boolean) => { if (!settled) { settled = true; resolve(v); } };
+      gun.get(AGE_VERIF_KEY).get(userId).once((data: any) => settle(!!data?.verified));
+      setTimeout(() => settle(false), 1000);
+    });
+  }
+
   async vouchAgeVerified(targetUserId: string): Promise<void> {
-    const reputation = await this.readReputation(targetUserId);
-    const updated = ReputationManager.updateReputation(reputation, 'age_verified', 1);
-    this.writeReputation(targetUserId, updated);
+    // Read current votes from the server-owned path (browser never writes here).
+    const gun = this.gunService.getGun();
+    const current = await new Promise<any>((resolve) => {
+      let settled = false;
+      const settle = (v: any) => { if (!settled) { settled = true; resolve(v); } };
+      gun.get(AGE_VERIF_KEY).get(targetUserId).once((data: any) => settle(data));
+      setTimeout(() => settle(null), 500);
+    });
+    const votes = Number(current?.votes || 0) + 1;
+    const verified = votes >= CONFIG.AGE_VERIFICATION_THRESHOLD;
+    gun.get(AGE_VERIF_KEY).get(targetUserId).put({ votes, verified });
   }
 }

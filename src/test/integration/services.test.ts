@@ -221,8 +221,6 @@ describe('Service Integration Tests', () => {
       let isBlocked = false;
       jest.spyOn(gunService, 'get').mockImplementation(async (key: string) => {
         switch (key) {
-          case 'user-blocks/viewer':
-            return isBlocked ? { target: { blockedAt: '2026-04-30T00:00:00.000Z' } } : {};
           case 'users/viewer':
             return baseUser;
           case 'users/target':
@@ -251,6 +249,11 @@ describe('Service Integration Tests', () => {
         }
       });
 
+      // getBlockedUserIds now uses raw Gun map().once() — spy on it directly
+      const getBlockedSpy = jest.spyOn(userService, 'getBlockedUserIds')
+        .mockResolvedValueOnce(['target'])
+        .mockResolvedValueOnce([]);
+
       const blockResult = await userService.blockUser('viewer', 'target');
       expect(blockResult.changed).toBe(true);
       expect(blockResult.blockedUserIds).toEqual(['target']);
@@ -262,6 +265,7 @@ describe('Service Integration Tests', () => {
       expect(unblockResult.blockedUserIds).toEqual([]);
       expect(putPathSpy).toHaveBeenCalledWith(['user-blocks', 'viewer', 'target'], null);
       expect(putPathSpy).toHaveBeenCalledWith(['user-blocked-by', 'target', 'viewer'], null);
+      expect(getBlockedSpy).toHaveBeenCalledTimes(2);
     });
   });
 
