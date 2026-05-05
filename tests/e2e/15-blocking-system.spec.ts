@@ -161,4 +161,121 @@ test.describe('Blocking system', () => {
     await expect(pageJerry.locator('#peer-stats-section')).toContainText('Profile unavailable', { timeout: 10000 });
     await expect(pageJerry.locator('#peer-detail-subtitle')).toContainText('blocked', { timeout: 10000 });
   });
+
+  test('unblock resumes talk delivery', async () => {
+    const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
+    contextTom = tom.context;
+    pageTom = tom.page;
+    await pageTom.click('.chatroom-item:has-text("Global")');
+    await afterSync();
+
+    const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
+    contextJerry = jerry.context;
+    pageJerry = jerry.page;
+    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await afterSync();
+
+    const tomUserId = await pageTom.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
+    const jerryUserId = await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
+
+    // Establish a contact relationship (Jerry answers Tom's warmup talk)
+    await createMatchTalk(pageTom, 'Unblock Warmup Talk');
+    await pageTom.click('#broadcast-talk-btn');
+    await afterAction();
+    await waitForTabActive(pageTom, 'chatrooms');
+    await openIncomingTalkModal(pageJerry, 'Unblock Warmup Talk');
+    await pageJerry.locator('input.choice-radio[data-answer-text="Yes"][data-mode="manual"]').first().click();
+    await waitForResponseModalClosed(pageJerry);
+    await afterSync();
+
+    // Tom blocks Jerry
+    await pageTom.click('.nav-btn[data-view="contacts"]');
+    await afterSync();
+    const jerryContact = pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'Jerry' }).first();
+    await expect(jerryContact).toBeVisible({ timeout: 15000 });
+    await jerryContact.click();
+    await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
+    await pageTom.click('#contact-edit-relationship-btn');
+    await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10000 });
+    await pageTom.click('#contact-block-toggle-btn'); // Block
+    await expect(pageTom.locator('#contact-relationship-modal')).toHaveCount(0, { timeout: 10000 });
+
+    await expect
+      .poll(
+        async () => {
+          const res = await pageTom.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(tomUserId)}/blocks`);
+          if (!res.ok()) return [];
+          return (await res.json() as { blockedUserIds: string[] }).blockedUserIds;
+        },
+        { timeout: 15000 },
+      )
+      .toContain(jerryUserId);
+
+    // Verify block stops delivery
+    await pageTom.click('#back-to-contacts-list');
+    await afterAction();
+    await enterGlobalChatroom(pageTom);
+    await createMatchTalk(pageTom, 'Blocked Talk');
+    await pageTom.click('#broadcast-talk-btn');
+    await afterAction();
+    await waitForTabActive(pageTom, 'chatrooms');
+
+    await expect
+      .poll(
+        async () => {
+          const res = await pageTom.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}/incoming-talks`);
+          if (!res.ok()) return false;
+          const clusters = await res.json() as Array<{ title?: string }>;
+          return clusters.some((c) => String(c.title || '').includes('Blocked Talk'));
+        },
+        { timeout: 12000 },
+      )
+      .toBe(false);
+
+    // Tom unblocks Jerry via contacts dialog
+    await pageTom.click('.nav-btn[data-view="contacts"]');
+    await afterSync();
+    const jerryContactBlocked = pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'Jerry' }).first();
+    await expect(jerryContactBlocked).toBeVisible({ timeout: 10000 });
+    await jerryContactBlocked.click();
+    await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
+    await pageTom.click('#contact-edit-relationship-btn');
+    await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10000 });
+    await expect(pageTom.locator('#contact-block-toggle-btn')).toContainText('Unblock User');
+    await pageTom.click('#contact-block-toggle-btn'); // Unblock
+    await expect(pageTom.locator('#contact-relationship-modal')).toHaveCount(0, { timeout: 10000 });
+
+    // Verify block is cleared on the server
+    await expect
+      .poll(
+        async () => {
+          const res = await pageTom.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(tomUserId)}/blocks`);
+          if (!res.ok()) return [jerryUserId]; // treat failure as still blocked
+          return (await res.json() as { blockedUserIds: string[] }).blockedUserIds;
+        },
+        { timeout: 15000 },
+      )
+      .not.toContain(jerryUserId);
+
+    // After unblock, delivery should resume
+    await pageTom.click('#back-to-contacts-list');
+    await afterAction();
+    await enterGlobalChatroom(pageTom);
+    await createMatchTalk(pageTom, 'Post-Unblock Talk');
+    await pageTom.click('#broadcast-talk-btn');
+    await afterAction();
+    await waitForTabActive(pageTom, 'chatrooms');
+
+    await expect
+      .poll(
+        async () => {
+          const res = await pageTom.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}/incoming-talks`);
+          if (!res.ok()) return false;
+          const clusters = await res.json() as Array<{ title?: string }>;
+          return clusters.some((c) => String(c.title || '').includes('Post-Unblock Talk'));
+        },
+        { timeout: 12000, message: 'Jerry should receive talk after Tom unblocks her' },
+      )
+      .toBe(true);
+  });
 });
