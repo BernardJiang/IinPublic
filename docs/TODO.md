@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-05-03
+Last updated: 2026-05-05
 
 This file is the prioritized backlog for the current repository. It should track the
 highest-value spec gaps that still exist in the working codebase, not features that are
@@ -16,8 +16,11 @@ Implemented and covered now:
 - Chatroom member list scroll + single status-bar broadcast action are live
 - Contacts list, shared peer/detail view, Talks `IN` / `OUT` navigation, and richer Answers cards are live
 - Me-tab intake filters + credit visibility and Contacts relationship editing are live
+- Me-tab profile editor (headshot, languages, public Q&A) and public profile on peer/contact views are live
+- Survey talks: **Results** on each OUT row opens aggregated stats (`GET /api/stats/talks/:id/summary`)
 - Seeded dev entry points exist: `dev:stage-empty`, `dev:stage-user1`, `dev:stage-user2-match`, `dev:stage-user3-network`
-- Age-gating UI implemented: `isAdult` talk flag, age-verify vouch button, Credit badge
+- Age-gating UI implemented: `isAdult` talk flag, age-verify vouch button, Credit badge; E2E in `tests/e2e/16-age-gating.spec.ts`
+- Blocking + unblock flows and E2E in `tests/e2e/15-blocking-system.spec.ts`
 
 The backlog below focuses on the biggest remaining gaps between the current implementation
 and `docs/specs/iinpublic-technical-specification.md`.
@@ -26,23 +29,14 @@ and `docs/specs/iinpublic-technical-specification.md`.
 
 ### P0 — Close the largest product/spec gaps
 
-- [ ] Complete the user identity/profile surface:
-  add editable headshot selection, editable understood languages, and profile question/answer attributes on the Me tab,
-  then show the appropriate public subset in peer/contact detail views
-  (Spec: FR-UM-3, FR-UM-4, FR-BF-2)
+- [ ] Profile polish vs spec: field-level privacy (hide specific Q&A from certain viewers), interests surface, and any FR-UM deltas not yet mirrored in Gun/public-profile paths
+  (Spec: FR-UM-3..8, FR-BF-2 — core Me editor + public subset in peer/contact already exist)
 - [ ] Move intake and moderation rules from mostly client-side preference/UI logic into enforced server-side delivery rules:
   language, grammar, dirty-words, distance/time, and age-gated talk filtering should be applied when incoming talks are registered/delivered,
   not only when the receiver opens the web UI
   (Spec: FR-BF-3..6, FR-SP-3, FR-SP-7, FR-SP-8)
-- [ ] Add a real blocking system with persistence, endpoints, and UI actions:
-  block/unblock a user, prevent blocked users from sending talks or viewing profile/detail surfaces, and feed block counts back into reputation/send capacity
-  (Spec: FR-SP-4..6)
-- [ ] Add E2E test for age-verification and adult-content gating:
-  Tom creates an adult talk, Jerry is age-verified (3 vouch calls), Bob is not; verify Bob does not receive it, Jerry does
-  (Spec: FR-SP-7, FR-SP-8 — UI implemented in 48186cc, e2e test pending)
-- [ ] Add E2E test for unblocking a user:
-  extend test 15 to verify unblock + confirmation that talk delivery resumes
-  (e2e-test-coverage.md: Critical Gap #1)
+- [ ] Blocking + reputation integration: feed block counts (and related limits) into reputation/send capacity where the spec calls for it
+  (Spec: FR-SP-4..6 — block/unblock, routes, UI, and delivery gating are in place)
 
 ### P1 — Add the missing room and targeting model
 
@@ -69,9 +63,8 @@ and `docs/specs/iinpublic-technical-specification.md`.
 - [ ] Add retry or explicit synchronization guard in tests that depend on Gun graph stability after `clearGunDatabases()`:
   prevents timeout failures when Gun sync tears down mid-write during parallel runs
   (testing-benchmarks.md — W1/W2 remain recommended for CI until disk race is fixed)
-- [ ] Build a survey analytics/results surface instead of only storing counters on answers:
-  per-question distributions, percentages, anonymity defaults, and follow-up handling for "Let's talk in person" survey endings
-  (Spec: FR-SV-2..5, UI §13.5)
+- [ ] Extend survey analytics beyond the Talks-tab **Results** modal (STAT-01 summary): dedicated dashboard, anonymity defaults, exports, and follow-up handling for survey endings
+  (Spec: FR-SV-2..5, UI §13.5 — per-question counts/% now visible for survey OUT rows)
 - [ ] Add actual send/receive rate-limit enforcement and tests for cooldown behaviour
   (Spec: FR-SP-1, FR-SP-2)
 - [ ] Add E2E tests for reputation system flows:
@@ -106,29 +99,21 @@ and `docs/specs/iinpublic-technical-specification.md`.
 
 ## Suggested Execution Order
 
-1. **Fix clearGunDatabases disk race** (P1 — unblocks reliable multi-worker CI)
-2. **Age-gating E2E test** (P0 — feature is live, test coverage is missing)
-3. **Unblocking E2E test** (P0 — extend test 15)
-4. **Profile foundation**
-   - Add shared/server/web support for editable `headshot`, `languages`, and profile Q/A writes
-   - Expose those controls in Me and read paths in peer/contact detail views
-   - Cover with unit + one focused E2E profile flow
-5. **Server-enforced moderation**
+1. **Fix clearGunDatabases disk race** (P1 — done for memory-only E2E; revisit if radisk returns)
+2. ~~Age-gating E2E~~ / ~~Unblocking E2E~~ — covered by `16-age-gating.spec.ts` and `15-blocking-system.spec.ts`
+3. **Profile spec deltas** — privacy rules, interests, doc/test alignment (`04-profile-edit-stage-name.spec.ts` + editor exist)
+4. **Server-enforced moderation**
    - Define one delivery-time filter pipeline on the server
    - Reuse existing intake-filter data where possible, but make server results authoritative
    - Add integration tests around `/received` / incoming-talk registration
-6. **Blocking system completion**
-   - Persistence + routes are in place; add unblock UI and E2E coverage
-7. **Chatroom model expansion**
+5. **Blocking ↔ reputation** — wire block metrics into capacity/score where required
+6. **Chatroom model expansion**
    - Introduce custom/business room schemas and CRUD
    - Then add single-room travel semantics
    - Only after that expand bulk-send targeting beyond the current room action
    - Add multi-chatroom and hierarchy E2E tests alongside
-8. **Survey dashboard + rate limits + reputation + docs cleanup**
-   - Finish the remaining analytics/admin surfaces
-   - Add cooldown enforcement tests
-   - Add reputation system E2E tests
-   - Update status docs once the new server rules land
+7. **Survey dashboard depth + rate limits + reputation + docs cleanup**
+   - Build on Talks **Results**; add cooldown enforcement tests, reputation E2E, status doc refresh after server rules land
 
 ## Done Recently — do not re-add as greenfield work
 
@@ -141,6 +126,7 @@ and `docs/specs/iinpublic-technical-specification.md`.
 - Expanded Answers rendering with question/answer metadata
 - Me-tab intake filters and credit visibility
 - Contacts relationship dialog and peer credit summary
+- Survey OUT-row results modal (STAT-01 summary API)
 - Seeded dev-stage commands for local feature work
 
 ## Working Rule

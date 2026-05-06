@@ -10,6 +10,7 @@ import {
 } from '../../shared/flattened-answer-keys';
 import { normalizeQuestionKey } from '../../shared/user-utils';
 import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
+import type { StatsSummary } from '../../shared/talk-stats';
 import { displayAnswersList as renderAnswersList } from './answers-view';
 import {
   renderChatroomList as renderChatrooms,
@@ -978,6 +979,16 @@ export class UIManager extends EventEmitter {
             }
             return;
           }
+          const surveyStatsBtn = target.closest('.survey-stats-btn');
+          if (surveyStatsBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const talkId = (surveyStatsBtn as HTMLElement).dataset.talkId;
+            if (talkId) {
+              setTimeout(() => void this.showSurveyStatsDialog(talkId), 0);
+            }
+            return;
+          }
           const viewBtn = target.closest('.view-talk-btn');
           if (viewBtn) {
             e.preventDefault();
@@ -1071,6 +1082,11 @@ export class UIManager extends EventEmitter {
                   const roleBadge = talk.role === 'copied'
                     ? '<span class="talk-badge talk-badge-copied" style="background:#e0e7ff;color:#3730a3;">📋 Copied</span>'
                     : '<span class="talk-badge talk-badge-created" style="background:#dbeafe;color:#1e40af;">📝 Created</span>';
+                  const talkTypeLower = String(talk.type || talk.fullTalk?.type || '').toLowerCase();
+                  const surveyStatsBtn =
+                    talkTypeLower === 'survey'
+                      ? `<button type="button" class="btn survey-stats-btn" data-talk-id="${escapeHtml(talkId)}" data-testid="survey-stats-button" style="padding: 6px 12px; font-size: 0.9em; background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;">📊 Results</button>`
+                      : '';
                   return `
         <div class="talk-list-item" data-talk-id="${talkId}" data-role="${talk.role || 'created'}">
           <div class="talk-item-header">
@@ -1092,6 +1108,7 @@ export class UIManager extends EventEmitter {
           </div>
           ${matchedLine}
           <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            ${surveyStatsBtn}
             <button type="button" class="btn edit-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">✏️ Edit</button>
             <label class="talk-disable-broadcast-label" style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.9em;">
               <input type="checkbox" class="talk-disable-broadcast-checkbox" data-talk-id="${talkId}" ${disabled ? 'checked' : ''}>
@@ -1625,6 +1642,105 @@ export class UIManager extends EventEmitter {
         }
       });
     });
+  }
+
+  /**
+   * Survey creators: show aggregated response counts from GET /api/stats/talks/:id/summary (STAT-01).
+   */
+  private async showSurveyStatsDialog(talkId: string): Promise<void> {
+    const entry = this.getMyTalks()[talkId];
+    const title = escapeHtml(String(entry?.title || 'Survey').trim() || 'Survey');
+    if (!this.apiBase) {
+      this.showNotification('Connect to the server to load survey results.', 'error');
+      return;
+    }
+    const questionLabel = (questionId: string): string => {
+      const qs = entry?.fullTalk?.questions;
+      if (!Array.isArray(qs)) return questionId;
+      const q = qs.find((x: { id?: string }) => x?.id === questionId);
+      const text = (q?.text && String(q.text).trim()) || '';
+      return text || questionId;
+    };
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width:640px;">
+        <div class="modal-header">
+          <h2 class="modal-title">Survey results</h2>
+          <p style="margin:0;color:#64748b;font-size:0.92em;">${title}</p>
+        </div>
+        <div id="survey-stats-body" style="padding:8px 0 16px;min-height:120px;">
+          <p style="text-align:center;color:#64748b;">Loading…</p>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="survey-stats-close-btn" style="background:#6c757d;">Close</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    const close = (): void => {
+      if (document.body.contains(modal)) document.body.removeChild(modal);
+    };
+    modal.querySelector('#survey-stats-close-btn')?.addEventListener('click', close);
+    modal.addEventListener('click', (ev) => {
+      if (ev.target === modal) close();
+    });
+
+    const body = modal.querySelector('#survey-stats-body');
+    try {
+      const res = await fetch(
+        `${this.apiBase}/api/stats/talks/${encodeURIComponent(talkId)}/summary`,
+        { cache: 'no-store' },
+      );
+      if (!res.ok) {
+        const errText = await res.text().catch(() => res.statusText);
+        if (body) {
+          body.innerHTML = `<p style="color:#b91c1c;">Could not load results (${res.status}). ${escapeHtml(errText.slice(0, 200))}</p>`;
+        }
+        return;
+      }
+      const summary = (await res.json()) as StatsSummary;
+      const parts: string[] = [];
+      parts.push(
+        `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;font-size:0.9em;color:#334155;">
+          <span><strong>${summary.total}</strong> responses</span>
+          <span>·</span>
+          <span><strong>${summary.matches}</strong> matches</span>
+          <span>·</span>
+          <span><strong>${summary.ignores}</strong> ignores</span>
+        </div>`,
+      );
+      if (!summary.byQuestion || summary.byQuestion.length === 0) {
+        parts.push(
+          '<p style="color:#64748b;font-size:0.92em;">No per-question breakdown yet. Responses will appear here after people answer.</p>',
+        );
+      } else {
+        for (const q of summary.byQuestion) {
+          const qTitle = escapeHtml(questionLabel(q.questionId));
+          const rows = q.answers
+            .map(
+              (a) => `
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:8px;background:#f8fafc;margin-top:6px;border:1px solid #e2e8f0;">
+              <span style="min-width:0;">${escapeHtml(a.answerText || a.answerId)}</span>
+              <span style="flex-shrink:0;font-weight:600;">${a.count} <span style="color:#64748b;font-weight:500;">(${a.percentage}%)</span></span>
+            </div>`,
+            )
+            .join('');
+          parts.push(`
+            <div style="margin-top:18px;">
+              <div style="font-weight:700;font-size:0.95em;color:#0f172a;margin-bottom:4px;">${qTitle}</div>
+              <div style="font-size:0.8em;color:#64748b;">${q.total} answer${q.total !== 1 ? 's' : ''} recorded</div>
+              ${rows}
+            </div>`);
+        }
+      }
+      if (body) body.innerHTML = parts.join('');
+    } catch {
+      if (body) {
+        body.innerHTML = '<p style="color:#b91c1c;">Network error while loading survey results.</p>';
+      }
+    }
   }
 
   displayNewMessage(message: any): void {
