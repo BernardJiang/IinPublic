@@ -353,7 +353,7 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     const current = await new Promise<any>((resolve) => {
       let settled = false;
       const settle = (v: any) => { if (!settled) { settled = true; resolve(v); } };
-      gun.get(AGE_VERIF_KEY).get(targetUserId).once((data: any) => settle(data));
+      gun.get(AGE_VERIF_KEY).get(targetUserId).once((data: any) => settle(data), { wait: 50 });
       setTimeout(() => settle(null), 500);
     });
     const votes = Number(current?.votes || 0) + 1;

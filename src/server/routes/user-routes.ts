@@ -23,8 +23,9 @@ export function registerUserRoutes(
     try {
       const viewerId = typeof req.query.viewerId === 'string' ? req.query.viewerId : '';
       if (viewerId && viewerId !== req.params.id) {
-        const blockStatus = await userService.getBlockStatus(viewerId, req.params.id);
-        if (blockStatus.blockedBy) {
+        // Only need the "blocked by target" direction — one Gun read instead of two.
+        const blockedByTarget = await userService.isBlocked(req.params.id, viewerId);
+        if (blockedByTarget) {
           res.status(403).json({ error: 'Profile is not available', blockedBy: true });
           return;
         }

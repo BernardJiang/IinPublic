@@ -124,18 +124,23 @@ export class GunService {
    * Retrieve data by key
    */
   public async get(key: string): Promise<any> {
-    return new Promise((resolve, reject) => {
-      this.gun.get(key).once(
-        (data: any) => {
-          if (data === undefined) {
-            reject(new Error(`No data found for key: ${key}`));
-          } else {
-            resolve(this.deserializeDates(data));
-          }
-        },
-        { wait: 1000 },
-      ); // Wait up to 1 second for data
-    });
+    return Promise.race([
+      new Promise<any>((resolve, reject) => {
+        this.gun.get(key).once(
+          (data: any) => {
+            if (data === undefined) {
+              reject(new Error(`No data found for key: ${key}`));
+            } else {
+              resolve(this.deserializeDates(data));
+            }
+          },
+          { wait: 1000 },
+        );
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Timeout reading key: ${key}`)), 3000),
+      ),
+    ]);
   }
 
   /**
