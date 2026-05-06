@@ -2,7 +2,7 @@ import type express from 'express';
 import { checkIfIgnore, checkIfMatch } from '../../shared/talk-engine';
 import { buildTalkIdentityKey, canonicalIdentityKeyFromStoredCluster } from '../../shared/talk-content-id';
 import { TALK_CONTENT_HASH_ID } from '../../shared/incoming-talk-ids';
-import { talkPassesIntakeFilters } from '../../shared/talk-intake-filters';
+import { intakeFilterRejectReasons } from '../../shared/talk-intake-filters';
 import type { TalkType } from '../../shared/talk-stats';
 import type { GPSCoordinate, TalkIntakeFilters } from '../../shared/types';
 import { logger } from '../logger';
@@ -108,9 +108,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       questions: Array.isArray(talkData?.questions) ? talkData.questions : [],
       isAdult: !!talkData?.isAdult,
     };
-    if (!talkPassesIntakeFilters(subject, context.talkFilters, context.location)) {
-      reasons.push('intake_filters');
-    }
+    reasons.push(...intakeFilterRejectReasons(subject, context.talkFilters, context.location));
     if (talkData?.isAdult && !context.ageVerified) {
       reasons.push('age_gate');
     }

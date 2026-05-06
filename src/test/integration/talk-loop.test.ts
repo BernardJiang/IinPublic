@@ -368,7 +368,7 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(res.status).toBe(200);
       expect(res.body.registered).toBe(false);
       expect(res.body.filteredOut).toBe(true);
-      expect(res.body.rejectedBy).toContain('intake_filters');
+      expect(res.body.rejectedBy).toContain('intake_talk_type');
       expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
     });
 

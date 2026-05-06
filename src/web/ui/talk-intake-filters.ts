@@ -4,6 +4,7 @@ export {
   type IncomingTalkFilterSubject as IncomingTalkCluster,
   filterIncomingTalkClusters,
   talkPassesIntakeFilters,
+  intakeFilterRejectReasons,
 } from '../../shared/talk-intake-filters';
 
 const TALK_FILTERS_KEY = 'iinpublic_talk_intake_filters';

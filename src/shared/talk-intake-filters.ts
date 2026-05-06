@@ -67,20 +67,21 @@ function haversineMiles(a: GPSCoordinate, b: { latitude: number; longitude: numb
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-export function talkPassesIntakeFilters(
+/** Stable codes for `rejectedBy` when talk intake filters fail (server delivery path). */
+export function intakeFilterRejectReasons(
   subject: IncomingTalkFilterSubject,
   filters: TalkIntakeFilters,
   currentLocation?: GPSCoordinate,
-): boolean {
+): string[] {
   const type = String(subject.type || 'flow').toLowerCase() as 'flow' | 'survey' | 'tag' | 'route';
   if (Array.isArray(filters.allowedTalkTypes) && filters.allowedTalkTypes.length > 0) {
-    if (!filters.allowedTalkTypes.includes(type)) return false;
+    if (!filters.allowedTalkTypes.includes(type)) return ['intake_talk_type'];
   }
 
   if (filters.sentAfter) {
     const sentAt = new Date(subject.updatedAt || subject.createdAt || 0).getTime();
     const minTime = new Date(filters.sentAfter).getTime();
-    if (!Number.isNaN(sentAt) && !Number.isNaN(minTime) && sentAt < minTime) return false;
+    if (!Number.isNaN(sentAt) && !Number.isNaN(minTime) && sentAt < minTime) return ['intake_sent_after'];
   }
 
   if (
@@ -89,8 +90,12 @@ export function talkPassesIntakeFilters(
     (typeof filters.minDistanceMiles === 'number' || typeof filters.maxDistanceMiles === 'number')
   ) {
     const distance = haversineMiles(currentLocation, subject.authorLocation);
-    if (typeof filters.minDistanceMiles === 'number' && distance < filters.minDistanceMiles) return false;
-    if (typeof filters.maxDistanceMiles === 'number' && distance > filters.maxDistanceMiles) return false;
+    if (typeof filters.minDistanceMiles === 'number' && distance < filters.minDistanceMiles) {
+      return ['intake_min_distance'];
+    }
+    if (typeof filters.maxDistanceMiles === 'number' && distance > filters.maxDistanceMiles) {
+      return ['intake_max_distance'];
+    }
   }
 
   const subjectText = buildSubjectText(subject);
@@ -98,7 +103,7 @@ export function talkPassesIntakeFilters(
     const knownLanguage = String(subject.language || '').trim().toLowerCase();
     const normalizedAllowedLanguages = filters.allowedLanguages.map((lang) => lang.toLowerCase());
     if (knownLanguage) {
-      if (!normalizedAllowedLanguages.includes(knownLanguage)) return false;
+      if (!normalizedAllowedLanguages.includes(knownLanguage)) return ['intake_language'];
     } else if (
       !ContentFilter.applyFilters(
         subjectText,
@@ -112,7 +117,7 @@ export function talkPassesIntakeFilters(
         normalizedAllowedLanguages,
       ).passed
     ) {
-      return false;
+      return ['intake_language'];
     }
   }
 
@@ -128,7 +133,7 @@ export function talkPassesIntakeFilters(
       },
       filters.allowedLanguages,
     );
-    if (!result.passed) return false;
+    if (!result.passed) return ['intake_grammar'];
   }
 
   if (filters.blockDirtyWords) {
@@ -143,10 +148,18 @@ export function talkPassesIntakeFilters(
       },
       filters.allowedLanguages,
     );
-    if (!result.passed) return false;
+    if (!result.passed) return ['intake_dirty_words'];
   }
 
-  return true;
+  return [];
+}
+
+export function talkPassesIntakeFilters(
+  subject: IncomingTalkFilterSubject,
+  filters: TalkIntakeFilters,
+  currentLocation?: GPSCoordinate,
+): boolean {
+  return intakeFilterRejectReasons(subject, filters, currentLocation).length === 0;
 }
 
 export function filterIncomingTalkClusters(
