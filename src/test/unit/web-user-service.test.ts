@@ -225,17 +225,20 @@ describe('WebUserService', () => {
           answeredAt: new Date('2026-04-21T10:00:00.000Z'),
         },
       ],
+      interests: [{ id: 'int_tennis', name: 'Tennis', category: 'other', popularity: 1 }],
     });
 
     expect(updated.headshot).toBe('😎');
     expect(updated.languages).toEqual(['en', 'zh']);
     expect(updated.profile).toHaveLength(1);
+    expect(updated.interests).toEqual([{ id: 'int_tennis', name: 'Tennis', category: 'other', popularity: 1 }]);
     expect(gunService.put).toHaveBeenCalledWith(
       'users/user-1',
       expect.objectContaining({
         headshot: '😎',
         languages: ['en', 'zh'],
         profile: updated.profile,
+        interests: updated.interests,
       }),
     );
     expect(gunService.put).toHaveBeenCalledWith(
@@ -244,6 +247,7 @@ describe('WebUserService', () => {
         headshot: '😎',
         languagesJson: JSON.stringify(['en', 'zh']),
         profileJson: JSON.stringify(updated.profile),
+        interestsJson: JSON.stringify(updated.interests),
       }),
     );
     expect(gunService.putPrivate).toHaveBeenCalledWith(
@@ -252,6 +256,7 @@ describe('WebUserService', () => {
         headshot: '😎',
         languages: ['en', 'zh'],
         profile: updated.profile,
+        interests: updated.interests,
       }),
     );
   });

@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-05-05
+Last updated: 2026-05-06
 
 This file is the prioritized backlog for the current repository. It should track the
 highest-value spec gaps that still exist in the working codebase, not features that are
@@ -16,7 +16,7 @@ Implemented and covered now:
 - Chatroom member list scroll + single status-bar broadcast action are live
 - Contacts list, shared peer/detail view, Talks `IN` / `OUT` navigation, and richer Answers cards are live
 - Me-tab intake filters + credit visibility and Contacts relationship editing are live
-- Me-tab profile editor (headshot, languages, public Q&A) and public profile on peer/contact views are live
+- Me-tab profile editor (headshot, languages, interests, public Q&A) and public profile (incl. interests) on peer/contact views are live
 - Survey talks: **Results** on each OUT row opens aggregated stats (`GET /api/stats/talks/:id/summary`)
 - Seeded dev entry points exist: `dev:stage-empty`, `dev:stage-user1`, `dev:stage-user2-match`, `dev:stage-user3-network`
 - Age-gating UI implemented: `isAdult` talk flag, age-verify vouch button, Credit badge; E2E in `tests/e2e/16-age-gating.spec.ts`
@@ -29,8 +29,8 @@ and `docs/specs/iinpublic-technical-specification.md`.
 
 ### P0 — Close the largest product/spec gaps
 
-- [ ] Profile polish vs spec: field-level privacy (hide specific Q&A from certain viewers), interests surface, and any FR-UM deltas not yet mirrored in Gun/public-profile paths
-  (Spec: FR-UM-3..8, FR-BF-2 — core Me editor + public subset in peer/contact already exist)
+- [ ] Profile polish vs spec: field-level privacy (hide specific Q&A from certain viewers), tag catalog / category beyond `other` for interests, and any remaining FR-UM deltas
+  (Spec: FR-UM-3..8, FR-BF-2 — Me editor + languages + interests + Q&A + public subset on peer/contact are live)
 - [ ] Move intake and moderation rules from mostly client-side preference/UI logic into enforced server-side delivery rules:
   language, grammar, dirty-words, distance/time, and age-gated talk filtering should be applied when incoming talks are registered/delivered,
   not only when the receiver opens the web UI
@@ -101,7 +101,7 @@ and `docs/specs/iinpublic-technical-specification.md`.
 
 1. **Fix clearGunDatabases disk race** (P1 — done for memory-only E2E; revisit if radisk returns)
 2. ~~Age-gating E2E~~ / ~~Unblocking E2E~~ — covered by `16-age-gating.spec.ts` and `15-blocking-system.spec.ts`
-3. **Profile spec deltas** — privacy rules, interests, doc/test alignment (`04-profile-edit-stage-name.spec.ts` + editor exist)
+3. **Profile spec deltas** — per-viewer privacy, interest catalog/categories, doc/test alignment (`04-profile-edit-stage-name.spec.ts` + editor exist)
 4. **Server-enforced moderation**
    - Define one delivery-time filter pipeline on the server
    - Reuse existing intake-filter data where possible, but make server results authoritative

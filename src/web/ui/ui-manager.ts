@@ -1,4 +1,11 @@
-import { User, type GPSCoordinate, type KnownPerson, type TalkIntakeFilters, type QuestionAnswer } from '../../shared/types';
+import {
+  User,
+  type GPSCoordinate,
+  type KnownPerson,
+  type TalkIntakeFilters,
+  type QuestionAnswer,
+  type Tag,
+} from '../../shared/types';
 import { EventEmitter } from 'events';
 import { formatTimeAgo, formatExpiration, formatLocationRadius, escapeHtml } from './ui-formatters';
 import { pickLatestTalkIdFromIncomingCluster, isValidTalkId } from '../../shared/incoming-talk-ids';
@@ -8,7 +15,7 @@ import {
   sessionAnswersToQAPairs,
   type QAPair,
 } from '../../shared/flattened-answer-keys';
-import { normalizeQuestionKey } from '../../shared/user-utils';
+import { normalizeQuestionKey, interestsFromCommaInput } from '../../shared/user-utils';
 import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
 import type { StatsSummary } from '../../shared/talk-stats';
 import { displayAnswersList as renderAnswersList } from './answers-view';
@@ -98,7 +105,7 @@ export class UIManager extends EventEmitter {
   public onStageNameChange?: (userId: string, newStageName: string) => Promise<void>;
   public onProfileChange?: (
     userId: string,
-    updates: { headshot?: string; languages: string[]; profile: QuestionAnswer[] },
+    updates: { headshot?: string; languages: string[]; profile: QuestionAnswer[]; interests: Tag[] },
   ) => Promise<void>;
 
   getChatroomMemberCount(chatroomId: string): number {
@@ -626,6 +633,9 @@ export class UIManager extends EventEmitter {
       setTalkIntakeFilters(talkFilters);
       const headshot = String(user.headshot || '').trim();
       const profileAnswers = Array.isArray(user.profile) ? user.profile : [];
+      const interestNames = Array.isArray(user.interests)
+        ? user.interests.map((t: Tag) => String(t?.name || '').trim()).filter(Boolean)
+        : [];
       const profilePreview = profileAnswers.length > 0
         ? profileAnswers
             .slice(0, 4)
@@ -660,6 +670,13 @@ export class UIManager extends EventEmitter {
           </div>
           <div style="font-size:0.88em; color:#374151; margin-bottom:10px;">
             Languages: ${escapeHtml((Array.isArray(user.languages) && user.languages.length > 0 ? user.languages.join(', ') : 'en'))}
+          </div>
+          <div style="font-size:0.88em; color:#374151; margin-bottom:10px;">
+            Interests: ${
+              interestNames.length > 0
+                ? escapeHtml(interestNames.join(', '))
+                : '<span style="color:#94a3b8;">Add in Edit Profile</span>'
+            }
           </div>
           <div style="display:grid; gap:8px;">
             ${profilePreview}
@@ -1499,6 +1516,8 @@ export class UIManager extends EventEmitter {
     const currentProfile = Array.isArray(user.profile) ? user.profile : [];
     const currentLanguages = Array.isArray(user.languages) && user.languages.length > 0 ? user.languages : ['en'];
     const currentHeadshot = String(user.headshot || '').trim();
+    const currentInterests = Array.isArray(user.interests) ? user.interests : [];
+    const interestsFieldValue = currentInterests.map((t) => String(t.name || '').trim()).filter(Boolean).join(', ');
     return new Promise((resolve, reject) => {
       const modal = document.createElement('div');
       modal.className = 'modal-overlay';
@@ -1547,6 +1566,11 @@ export class UIManager extends EventEmitter {
             <div class="form-group">
               <label class="form-label">Languages</label>
               <input type="text" class="form-input" id="profile-languages-input" value="${escapeHtml(currentLanguages.join(', '))}" placeholder="en, zh">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Interests</label>
+              <input type="text" class="form-input" id="profile-interests-input" value="${escapeHtml(interestsFieldValue)}" placeholder="e.g. tennis, coffee, hiking">
+              <small style="color:#666;font-size:0.85em;">Comma-separated. Shown on your public profile.</small>
             </div>
             <div class="form-group">
               <label class="form-label">Profile Attributes</label>
@@ -1607,6 +1631,8 @@ export class UIManager extends EventEmitter {
           .split(',')
           .map((part) => part.trim().toLowerCase())
           .filter(Boolean);
+        const interestsRaw = (document.getElementById('profile-interests-input') as HTMLInputElement | null)?.value || '';
+        const interests = interestsFromCommaInput(interestsRaw);
         const profile: QuestionAnswer[] = Array.from(modal.querySelectorAll('.profile-qa-row'))
           .map((row, index) => {
             const question = ((row.querySelector('.profile-question-input') as HTMLInputElement | null)?.value || '').trim();
@@ -1633,6 +1659,7 @@ export class UIManager extends EventEmitter {
             ...(selectedHeadshot ? { headshot: selectedHeadshot } : {}),
             languages,
             profile,
+            interests,
           });
           close();
           resolve();

@@ -1,3 +1,38 @@
+import type { Tag } from './types';
+
+/**
+ * Parses a comma / semicolon / newline separated list into {@link Tag} records
+ * for the user's public interests (category `other` until catalog UX exists).
+ */
+export function interestsFromCommaInput(raw: string): Tag[] {
+  const parts = raw
+    .split(/[,;\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 24);
+  const seen = new Set<string>();
+  const out: Tag[] = [];
+  for (let i = 0; i < parts.length; i += 1) {
+    const name = parts[i].slice(0, 80);
+    if (!name) continue;
+    const slugBase = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 48);
+    const slug = slugBase || `n-${i}`;
+    if (seen.has(slug)) continue;
+    seen.add(slug);
+    out.push({
+      id: `int_${slug}`,
+      name,
+      category: 'other',
+      popularity: 1,
+    });
+  }
+  return out;
+}
+
 /**
  * Generates a random stage name in the format: UserXXXXXXXXXXXXXX
  * where X is a random alphanumeric character (0-9, a-z)

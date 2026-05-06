@@ -167,6 +167,9 @@ async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserD
 function renderProfileHtml(publicUser: any): string {
   const headshot = String(publicUser?.headshot || '').trim();
   const languages = Array.isArray(publicUser?.languages) ? publicUser.languages.filter(Boolean) : [];
+  const interests = Array.isArray(publicUser?.interests)
+    ? publicUser.interests.map((t: { name?: string }) => String(t?.name || '').trim()).filter(Boolean)
+    : [];
   const profile = Array.isArray(publicUser?.profile) ? publicUser.profile.filter((qa: any) => qa?.question && qa?.answer) : [];
   return `
     <div class="peer-stat-card" style="margin-bottom:12px;">
@@ -175,6 +178,7 @@ function renderProfileHtml(publicUser: any): string {
         <div style="min-width:0; flex:1;">
           <div style="font-weight:700; color:#111827;">Public Profile</div>
           <div style="font-size:0.85em; color:#475569; margin-top:4px;">Languages: ${escapeHtml(languages.length > 0 ? languages.join(', ') : 'Not listed')}</div>
+          <div style="font-size:0.85em; color:#475569; margin-top:4px;">Interests: ${escapeHtml(interests.length > 0 ? interests.join(', ') : 'Not listed')}</div>
           <div style="display:grid; gap:8px; margin-top:10px;">
             ${
               profile.length > 0

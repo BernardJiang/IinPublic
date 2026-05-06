@@ -1,4 +1,4 @@
-import { User, GPSCoordinate, Talk } from '../../shared/types';
+import { User, GPSCoordinate, Talk, type Tag } from '../../shared/types';
 import { WebGunService } from '../services/web-gun-service';
 import { WebUserService } from '../services/web-user-service';
 import { WebChatroomService } from '../services/web-chatroom-service';
@@ -1352,7 +1352,12 @@ export class IinPublicApp {
 
     this.uiManager.onProfileChange = async (
       userId: string,
-      updates: { headshot?: string; languages: string[]; profile: Array<{ id: string; question: string; answer: string; isAuto: boolean; answeredAt: Date }> },
+      updates: {
+        headshot?: string;
+        languages: string[];
+        profile: Array<{ id: string; question: string; answer: string; isAuto: boolean; answeredAt: Date }>;
+        interests: Tag[];
+      },
     ) => {
       try {
         const updatedUser = await this.userService.updateProfileFoundation(userId, updates);

@@ -5,6 +5,7 @@ import {
   KnownPerson,
   RelationshipLabel,
   TalkIntakeFilters,
+  type Tag,
 } from '../../shared/types';
 import { LocationPrivacy } from '../../shared/location';
 import { WebGunService } from './web-gun-service';
@@ -227,6 +228,7 @@ export class WebUserService {
       headshot?: string;
       languages: string[];
       profile: QuestionAnswer[];
+      interests?: Tag[];
     },
   ): Promise<User> {
     const user = await this.getUser(userId);
@@ -234,6 +236,7 @@ export class WebUserService {
       ...user,
       languages: updates.languages,
       profile: updates.profile,
+      ...(updates.interests !== undefined ? { interests: updates.interests } : {}),
       ...(updates.headshot ? { headshot: updates.headshot } : {}),
     };
     if (!updates.headshot && nextUser.headshot) {

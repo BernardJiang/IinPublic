@@ -52,6 +52,9 @@ let contactDetailUserProfileCache: { userId: string; publicUser: any } | null = 
 function renderPublicProfileSummary(deps: ContactsViewDeps, publicUser: any): string {
   const headshot = String(publicUser?.headshot || '').trim();
   const languages = Array.isArray(publicUser?.languages) ? publicUser.languages.filter(Boolean) : [];
+  const interests = Array.isArray(publicUser?.interests)
+    ? publicUser.interests.map((t: { name?: string }) => String(t?.name || '').trim()).filter(Boolean)
+    : [];
   const profile = Array.isArray(publicUser?.profile) ? publicUser.profile.filter((qa: any) => qa?.question && qa?.answer) : [];
   return `
     <div style="display:flex; gap:12px; align-items:flex-start; margin-top:10px; padding:12px; border-radius:12px; background:#f8fafc; border:1px solid #e2e8f0;">
@@ -59,6 +62,7 @@ function renderPublicProfileSummary(deps: ContactsViewDeps, publicUser: any): st
       <div style="min-width:0; flex:1;">
         <div style="font-size:0.82em; color:#64748b;">Public Profile</div>
         <div style="font-size:0.88em; color:#334155; margin-top:4px;">Languages: ${deps.escapeHtml(languages.length > 0 ? languages.join(', ') : 'Not listed')}</div>
+        <div style="font-size:0.88em; color:#334155; margin-top:4px;">Interests: ${deps.escapeHtml(interests.length > 0 ? interests.join(', ') : 'Not listed')}</div>
         <div style="display:grid; gap:6px; margin-top:8px;">
           ${
             profile.length > 0

@@ -1,5 +1,6 @@
 import {
   generateRandomStageName,
+  interestsFromCommaInput,
   isValidStageName,
   normalizeQuestionKey,
 } from '../../shared/user-utils';
@@ -7,6 +8,22 @@ import {
 describe('normalizeQuestionKey', () => {
   it('trims and lowercases for preference keys', () => {
     expect(normalizeQuestionKey('  Hello World  ')).toBe('hello world');
+  });
+});
+
+describe('interestsFromCommaInput', () => {
+  it('parses comma and semicolon separated tokens into Tag records', () => {
+    const tags = interestsFromCommaInput('Coffee, Tennis; Hiking');
+    expect(tags).toHaveLength(3);
+    expect(tags[0]).toMatchObject({ name: 'Coffee', category: 'other', popularity: 1 });
+    expect(tags[0].id).toMatch(/^int_/);
+    expect(tags[1].name).toBe('Tennis');
+    expect(tags[2].name).toBe('Hiking');
+  });
+
+  it('dedupes by slug and returns empty for blank input', () => {
+    expect(interestsFromCommaInput('a, a , A')).toHaveLength(1);
+    expect(interestsFromCommaInput('  \n  ')).toEqual([]);
   });
 });
 
