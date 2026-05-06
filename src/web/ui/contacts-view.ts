@@ -46,6 +46,9 @@ function closeRelationshipModal(): void {
   document.getElementById('contact-relationship-modal')?.remove();
 }
 
+/** Set in showContactDetail after a successful profile fetch; cleared when opening another contact. Avoids a duplicate GET /api/users/:id when opening Relationship & Credit. */
+let contactDetailUserProfileCache: { userId: string; publicUser: any } | null = null;
+
 function renderPublicProfileSummary(deps: ContactsViewDeps, publicUser: any): string {
   const headshot = String(publicUser?.headshot || '').trim();
   const languages = Array.isArray(publicUser?.languages) ? publicUser.languages.filter(Boolean) : [];
@@ -78,6 +81,53 @@ function renderPublicProfileSummary(deps: ContactsViewDeps, publicUser: any): st
   `;
 }
 
+function relationshipModalCreditInnerHtml(publicUser: any, blockedBy: boolean): string {
+  if (blockedBy) {
+    return '<div style="margin-top:6px;color:#94a3b8;">Profile unavailable.</div>';
+  }
+  if (!publicUser) {
+    return '<div style="margin-top:6px;color:#94a3b8;">Could not load public credit.</div>';
+  }
+  const reputation = publicUser?.reputation || null;
+  if (reputation && !reputation.isHidden) {
+    return `<div style="margin-top:6px;font-weight:700;">${Number(reputation.starRating || 0).toFixed(1)} ★</div>
+            <div style="font-size:0.88em;color:#475569;margin-top:4px;">${reputation.reviewCount || 0} reviews · ${reputation.friendsCount || 0} friends · ${reputation.likedCount || 0} liked · ${reputation.dislikedCount || 0} disliked</div>`;
+  }
+  return '<div style="margin-top:6px;color:#94a3b8;">This user hides their credit section.</div>';
+}
+
+function applyRelationshipModalProfileFetch(
+  blockedByMe: boolean,
+  publicUser: any,
+  blockedBy: boolean,
+): void {
+  const creditPanel = document.getElementById('contact-relationship-credit-panel');
+  if (creditPanel) {
+    creditPanel.innerHTML = `<div style="font-size:0.8em;color:#64748b;">Public credit</div>${relationshipModalCreditInnerHtml(publicUser, blockedBy)}`;
+  }
+  const wrap = document.getElementById('contact-block-status-wrap');
+  const statusText = document.getElementById('contact-block-status-text');
+  if (wrap && statusText) {
+    if (blockedBy) {
+      wrap.style.borderColor = '#fecaca';
+      wrap.style.background = '#fef2f2';
+      statusText.textContent = 'This user blocked you. Their profile and delivery surfaces are hidden.';
+    } else if (blockedByMe) {
+      wrap.style.borderColor = '#fde68a';
+      wrap.style.background = '#fffbeb';
+      statusText.textContent = 'You blocked this user. Talks will no longer be delivered between you.';
+    } else {
+      wrap.style.borderColor = '#e5e7eb';
+      wrap.style.background = '#f8fafc';
+      statusText.textContent = 'No block is active.';
+    }
+  }
+  if (blockedBy) {
+    document.getElementById('contact-block-toggle-btn')?.style.setProperty('display', 'none');
+    document.getElementById('contact-age-vouch-btn')?.style.setProperty('display', 'none');
+  }
+}
+
 async function openRelationshipDialog(
   deps: ContactsViewDeps,
   userId: string,
@@ -85,22 +135,8 @@ async function openRelationshipDialog(
 ): Promise<void> {
   closeRelationshipModal();
   const known = deps.getKnownPerson(userId);
-  let publicUser: any = null;
-  let blockedBy = false;
-  try {
-    const res = await fetch(
-      `${deps.apiBase}/api/users/${encodeURIComponent(userId)}?viewerId=${encodeURIComponent(deps.currentUserId)}`,
-    );
-    if (res.ok) {
-      publicUser = await res.json();
-    } else if (res.status === 403) {
-      blockedBy = true;
-    }
-  } catch {
-    publicUser = null;
-  }
-  const reputation = publicUser?.reputation || null;
   const blockedByMe = deps.isBlockedByMe(userId);
+
   const modal = document.createElement('div');
   modal.id = 'contact-relationship-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.45);display:flex;align-items:center;justify-content:center;z-index:4000;padding:20px;';
@@ -142,30 +178,25 @@ async function openRelationshipDialog(
                 .join('')}
             </select>
           </label>
-          <div style="padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;background:#f8fafc;">
+          <div id="contact-relationship-credit-panel" style="padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;background:#f8fafc;">
             <div style="font-size:0.8em;color:#64748b;">Public credit</div>
-            ${
-              reputation && !reputation.isHidden
-                ? `<div style="margin-top:6px;font-weight:700;">${Number(reputation.starRating || 0).toFixed(1)} ★</div>
-                   <div style="font-size:0.88em;color:#475569;margin-top:4px;">${reputation.reviewCount || 0} reviews · ${reputation.friendsCount || 0} friends · ${reputation.likedCount || 0} liked · ${reputation.dislikedCount || 0} disliked</div>`
-                : '<div style="margin-top:6px;color:#94a3b8;">This user hides their credit section.</div>'
-            }
+            <div style="margin-top:6px;color:#94a3b8;">Loading…</div>
           </div>
         </div>
         <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
           <span>Notes</span>
           <textarea id="contact-relationship-notes" rows="4" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">${deps.escapeHtml(String(known?.notes || ''))}</textarea>
         </label>
-        <div style="padding:12px; border-radius:12px; border:1px solid ${blockedBy ? '#fecaca' : blockedByMe ? '#fde68a' : '#e5e7eb'}; background:${blockedBy ? '#fef2f2' : blockedByMe ? '#fffbeb' : '#f8fafc'};">
+        <div id="contact-block-status-wrap" style="padding:12px; border-radius:12px; border:1px solid ${blockedByMe ? '#fde68a' : '#e5e7eb'}; background:${blockedByMe ? '#fffbeb' : '#f8fafc'};">
           <div style="font-weight:700; color:#111827;">Block status</div>
           <div id="contact-block-status-text" style="font-size:0.88em; color:#475569; margin-top:4px;">
-            ${blockedBy ? 'This user blocked you. Their profile and delivery surfaces are hidden.' : blockedByMe ? 'You blocked this user. Talks will no longer be delivered between you.' : 'No block is active.'}
+            ${blockedByMe ? 'You blocked this user. Talks will no longer be delivered between you.' : 'No block is active.'}
           </div>
         </div>
       </div>
       <div style="display:flex; justify-content:space-between; gap:10px; padding:16px 18px; border-top:1px solid #e5e7eb;">
-        <button type="button" class="btn" id="contact-age-vouch-btn" title="Vouch that this person is 18+" style="${blockedBy || blockedByMe ? 'display:none;' : ''}">Vouch 18+</button>
-        <button type="button" class="btn" id="contact-block-toggle-btn" style="${blockedBy ? 'display:none;' : ''}">${blockedByMe ? 'Unblock User' : 'Block User'}</button>
+        <button type="button" class="btn" id="contact-age-vouch-btn" title="Vouch that this person is 18+" style="${blockedByMe ? 'display:none;' : ''}">Vouch 18+</button>
+        <button type="button" class="btn" id="contact-block-toggle-btn">${blockedByMe ? 'Unblock User' : 'Block User'}</button>
         <div style="display:flex; gap:10px;">
           <button type="button" class="btn" id="contact-relationship-close-btn">Close</button>
           <button type="button" class="btn primary-btn" id="contact-relationship-save-btn">Save</button>
@@ -207,6 +238,35 @@ async function openRelationshipDialog(
   modal.addEventListener('click', (event) => {
     if (event.target === modal) close();
   });
+
+  const cached = contactDetailUserProfileCache?.userId === userId ? contactDetailUserProfileCache.publicUser : undefined;
+  if (cached !== undefined) {
+    applyRelationshipModalProfileFetch(blockedByMe, cached, false);
+    return;
+  }
+
+  const profileUrl = `${deps.apiBase}/api/users/${encodeURIComponent(userId)}?viewerId=${encodeURIComponent(deps.currentUserId)}`;
+  const ac = new AbortController();
+  const timeoutId = window.setTimeout(() => ac.abort(), 12_000);
+  let publicUser: any = null;
+  let blockedBy = false;
+  try {
+    const res = await fetch(profileUrl, { signal: ac.signal });
+    if (res.ok) {
+      try {
+        publicUser = await res.json();
+      } catch {
+        publicUser = null;
+      }
+    } else if (res.status === 403) {
+      blockedBy = true;
+    }
+  } catch {
+    publicUser = null;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+  applyRelationshipModalProfileFetch(blockedByMe, publicUser, blockedBy);
 }
 
 export function showContactsList(deps: ContactsViewDeps): void {
@@ -293,6 +353,7 @@ export async function showContactDetail(
   const talksList = document.getElementById('contact-talks-list');
   if (!listContainer || !detailContainer || !detailName || !detailMatches || !talksList) return;
 
+  contactDetailUserProfileCache = null;
   listContainer.style.display = 'none';
   detailContainer.style.display = 'block';
   detailName.textContent = otherUserName;
@@ -329,6 +390,7 @@ export async function showContactDetail(
     const relationship = relationshipRes.ok ? await relationshipRes.json() : null;
     const history = historyRes.ok ? await historyRes.json() : [];
     const publicUser = userRes.ok ? await userRes.json() : null;
+    contactDetailUserProfileCache = { userId: otherUserId, publicUser };
     const totalTalks = relationship?.totalTalks ?? (Array.isArray(history) ? history.length : 0);
     detailMatches.textContent = `${totalTalks} talk${totalTalks !== 1 ? 's' : ''}`;
     if (detailInfo) {
