@@ -1311,6 +1311,7 @@ export class IinPublicApp {
           ? await this.userService.blockUser(this.currentUser.id, data.userId)
           : await this.userService.unblockUser(this.currentUser.id, data.userId);
         this.currentUser.blockedUserIds = blockedUserIds;
+        this.uiManager.adoptSessionUser(this.currentUser);
         this.uiManager.showNotification(
           data.blocked ? 'User blocked. Talk delivery is now disabled.' : 'User unblocked.',
           'success',

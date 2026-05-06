@@ -91,8 +91,9 @@ export function openPeerDetailView(
   // Send-my-talks button
   const sendBtn = document.getElementById('peer-send-talks-btn');
   if (sendBtn) {
-    const fresh = sendBtn.cloneNode(true) as HTMLElement;
+    const fresh = sendBtn.cloneNode(true) as HTMLButtonElement;
     sendBtn.replaceWith(fresh);
+    fresh.disabled = deps.isBlockedByMe(peerId);
     fresh.addEventListener('click', () => handleSendMyTalks());
   }
 
@@ -116,6 +117,28 @@ export function closePeerDetailView(): void {
   const overlay = document.getElementById('peer-detail-overlay');
   if (overlay) overlay.style.display = 'none';
   currentState = null;
+}
+
+/** Server-authoritative block edges for disabling Send My Talks (matches register-receivers / delivery). */
+async function applySendButtonFromBlockStatus(
+  peerId: string,
+  deps: UserDetailViewDeps,
+): Promise<void> {
+  const sendBtn = document.getElementById('peer-send-talks-btn') as HTMLButtonElement | null;
+  if (!sendBtn) return;
+  try {
+    const r = await fetch(
+      `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/block-status/${encodeURIComponent(peerId)}`,
+    );
+    if (r.ok) {
+      const s = (await r.json()) as { eitherBlocked?: boolean; blocked?: boolean; blockedBy?: boolean };
+      sendBtn.disabled = Boolean(s.eitherBlocked || s.blocked || s.blockedBy);
+      return;
+    }
+  } catch {
+    /* fall through */
+  }
+  sendBtn.disabled = deps.isBlockedByMe(peerId);
 }
 
 async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserDetailViewDeps): Promise<void> {
@@ -154,13 +177,13 @@ async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserD
     if (statsEl) {
       statsEl.innerHTML = renderProfileHtml(publicUser) + renderStatsHtml(stats, deps.knownPerson);
     }
-    const sendBtn = document.getElementById('peer-send-talks-btn') as HTMLButtonElement | null;
-    if (sendBtn) sendBtn.disabled = deps.isBlockedByMe(peerId);
+    await applySendButtonFromBlockStatus(peerId, deps);
 
     // Render matched conversations below stats
     renderMatchedConversations(peerId, deps);
   } catch (err) {
     if (statsEl) statsEl.innerHTML = '<div style="padding:12px;color:#c00;">Could not load stats.</div>';
+    await applySendButtonFromBlockStatus(peerId, deps);
   }
 }
 

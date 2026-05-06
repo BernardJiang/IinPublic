@@ -608,6 +608,16 @@ export class UIManager extends EventEmitter {
     });
   }
 
+  /**
+   * Point session state at the app's current `User` reference after server-backed updates
+   * (e.g. block/unblock) so `isBlockedByMe` is not stale on a divergent object.
+   */
+  adoptSessionUser(user: User): void {
+    this.currentUser = user;
+    this.currentUserId = user.id;
+    this.currentUserStageName = user.stageName;
+  }
+
   showMainInterface(user: User): void {
     this.currentUser = user;
     this.currentUserId = user.id;
