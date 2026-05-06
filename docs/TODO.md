@@ -29,7 +29,8 @@ and `docs/specs/iinpublic-technical-specification.md`.
 
 ### P0 — Close the largest product/spec gaps
 
-- [ ] Profile polish vs spec: field-level privacy (hide specific Q&A from certain viewers), tag catalog / category beyond `other` for interests, and any remaining FR-UM deltas
+- [ ] Profile polish vs spec (remaining): per-viewer allowlists, reputation-section visibility (FR-UM-7), deeper FR-UM audit
+  (2026-05-06: Q&A visibility public / contacts-only / private in Me editor; `GET /api/users/:id?viewerId=` strips rows server-side; interests use `TagCategory` catalog + default picker + auto category for known tokens.)
   (Spec: FR-UM-3..8, FR-BF-2 — Me editor + languages + interests + Q&A + public subset on peer/contact are live)
 - [ ] Move intake and moderation rules from mostly client-side preference/UI logic into enforced server-side delivery rules:
   language, grammar, dirty-words, distance/time, and age-gated talk filtering should be applied when incoming talks are registered/delivered,

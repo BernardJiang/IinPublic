@@ -159,6 +159,92 @@ describe('Service Integration Tests', () => {
       expect(mockGet).toHaveBeenCalledWith('user-public-profile/user123');
     });
 
+    it('filters profile Q&A for GET user by visibility and known-people', async () => {
+      const mockUser = {
+        id: 'user123',
+        stageName: 'TestUser',
+        profile: [],
+        reputation: {
+          questionsAnswered: 5,
+          talksSent: 3,
+          matchesFound: 1,
+          friendsCount: 10,
+          mutualFriendsCount: 2,
+          likedCount: 0,
+          dislikedCount: 0,
+          starRating: 4.0,
+          reviewCount: 4,
+          ageVerified: true,
+          ageVerificationVotes: 8,
+          blockCount: 0,
+          isHidden: false,
+        },
+        location: { region: 'test-region', chatrooms: [] },
+        languages: ['en'],
+        interests: [],
+        createdAt: new Date(),
+        lastActive: new Date(),
+      };
+      const profileJson = JSON.stringify([
+        {
+          id: 'p1',
+          question: 'Public',
+          answer: 'Yes',
+          isAuto: false,
+          answeredAt: '2026-04-29T12:00:00.000Z',
+          visibility: 'public',
+        },
+        {
+          id: 'p2',
+          question: 'Secret',
+          answer: 'No',
+          isAuto: false,
+          answeredAt: '2026-04-29T12:00:00.000Z',
+          visibility: 'private',
+        },
+        {
+          id: 'p3',
+          question: 'Friends',
+          answer: 'Maybe',
+          isAuto: false,
+          answeredAt: '2026-04-29T12:00:00.000Z',
+          visibility: 'contacts_only',
+        },
+      ]);
+      const getSpy = jest.spyOn(gunService, 'get').mockImplementation(async (key: string) => {
+        if (key === 'users/user123') return mockUser;
+        if (key === 'user-public-profile/user123') {
+          return {
+            languagesJson: JSON.stringify(['en']),
+            profileJson,
+            interestsJson: JSON.stringify([]),
+          };
+        }
+        return null;
+      });
+      let knownEntry: { userId: string; label: string; addedAt: string } | null = null;
+      const pathSpy = jest.spyOn(gunService, 'getPath').mockImplementation(async (path: string[]) => {
+        if (path.join('/') === 'users/user123/knownPeople/viewer9') return knownEntry;
+        return null;
+      });
+
+      const stranger = await userService.getUser('user123', { viewerId: 'viewer9' });
+      expect(stranger.profile.map((p) => p.id)).toEqual(['p1']);
+
+      knownEntry = { userId: 'viewer9', label: 'friend', addedAt: '2026-01-01T00:00:00.000Z' };
+      const asContact = await userService.getUser('user123', { viewerId: 'viewer9' });
+      expect(asContact.profile.map((p) => p.id).sort()).toEqual(['p1', 'p3']);
+
+      const anon = await userService.getUser('user123', { viewerId: null });
+      expect(anon.profile.map((p) => p.id)).toEqual(['p1']);
+
+      const self = await userService.getUser('user123', { viewerId: 'user123' });
+      expect(self.profile.map((p) => p.id).sort()).toEqual(['p1', 'p2', 'p3']);
+
+      getSpy.mockRestore();
+      pathSpy.mockRestore();
+    });
+
     it('should retrieve server-enforced talk filters from the public mirror', async () => {
       const mockGet = jest.spyOn(gunService, 'get')
         .mockResolvedValueOnce({

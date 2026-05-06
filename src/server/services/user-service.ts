@@ -3,6 +3,7 @@ import { GunService } from './gun-service';
 import { generateRandomStageName } from '../../shared/user-utils';
 import { getDefaultTalkIntakeFilters } from '../../shared/talk-intake-filters';
 import { CONFIG } from '../../shared/config';
+import { filterProfileAttributesForViewer } from '../../shared/profile-privacy';
 
 const PUBLIC_TALK_FILTERS_KEY = 'user-talk-filters';
 const USER_BLOCKS_KEY = 'user-blocks';
@@ -198,7 +199,11 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     });
   }
 
-  async getUser(userId: string): Promise<User> {
+  /**
+   * @param view Omit for internal/server callers that need the full stored profile.
+   * From HTTP pass `{ viewerId }`: use `null` when the query is absent (stranger); same id as `userId` returns full profile rows.
+   */
+  async getUser(userId: string, view?: { viewerId: string | null }): Promise<User> {
     const user = await this.gunService.get(`users/${userId}`) as User;
     const publicProfile = await this.gunService.get(`user-public-profile/${userId}`).catch(() => null) as
       | {
@@ -211,13 +216,29 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     if (!publicProfile) {
       return user;
     }
+    let profile = this.parseJsonArray(publicProfile.profileJson, user.profile || []);
+    if (view !== undefined) {
+      const raw = view.viewerId;
+      const v = typeof raw === 'string' ? raw.trim() : '';
+      if (!v || v !== userId) {
+        const viewerIsContact = v.length > 0 ? await this.isKnownPerson(userId, v) : false;
+        profile = filterProfileAttributesForViewer(profile, { viewerIsContact });
+      }
+    }
     return {
       ...user,
       ...(publicProfile.headshot ? { headshot: publicProfile.headshot } : {}),
       languages: this.parseJsonArray(publicProfile.languagesJson, user.languages || ['en']),
-      profile: this.parseJsonArray(publicProfile.profileJson, user.profile || []),
+      profile,
       interests: this.parseJsonArray(publicProfile.interestsJson, user.interests || []),
     };
+  }
+
+  /** True if `ownerId` has saved `candidateId` under knownPeople (public Gun path). */
+  async isKnownPerson(ownerId: string, candidateId: string): Promise<boolean> {
+    if (!ownerId || !candidateId) return false;
+    const node = await this.gunService.getPath(['users', ownerId, 'knownPeople', candidateId]);
+    return !!(node && typeof node === 'object' && (node as { userId?: string }).userId);
   }
 
   async getBlockedUserIds(userId: string): Promise<string[]> {

@@ -2,6 +2,8 @@ import {
   User,
   type GPSCoordinate,
   type KnownPerson,
+  type ProfileAttributeVisibility,
+  type TagCategory,
   type TalkIntakeFilters,
   type QuestionAnswer,
   type Tag,
@@ -16,6 +18,8 @@ import {
   type QAPair,
 } from '../../shared/flattened-answer-keys';
 import { normalizeQuestionKey, interestsFromCommaInput } from '../../shared/user-utils';
+import { PROFILE_VISIBILITY_LABELS, normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
+import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../shared/interest-catalog';
 import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
 import type { StatsSummary } from '../../shared/talk-stats';
 import { displayAnswersList as renderAnswersList } from './answers-view';
@@ -639,7 +643,14 @@ export class UIManager extends EventEmitter {
       const profilePreview = profileAnswers.length > 0
         ? profileAnswers
             .slice(0, 4)
-            .map((qa) => `<div style="padding:8px 10px;border-radius:10px;background:white;border:1px solid #e5e7eb;"><div style="font-size:0.78em;color:#64748b;">${escapeHtml(qa.question)}</div><div style="font-size:0.92em;font-weight:600;color:#111827;margin-top:2px;">${escapeHtml(qa.answer)}</div></div>`)
+            .map((qa) => {
+              const vis = normalizeProfileAttributeVisibility(qa.visibility);
+              const visNote =
+                vis === 'public'
+                  ? ''
+                  : `<div style="font-size:0.72em;color:#64748b;margin-top:2px;">${escapeHtml(PROFILE_VISIBILITY_LABELS[vis])}</div>`;
+              return `<div style="padding:8px 10px;border-radius:10px;background:white;border:1px solid #e5e7eb;"><div style="font-size:0.78em;color:#64748b;">${escapeHtml(qa.question)}</div>${visNote}<div style="font-size:0.92em;font-weight:600;color:#111827;margin-top:2px;">${escapeHtml(qa.answer)}</div></div>`;
+            })
             .join('')
         : '<div style="font-size:0.88em;color:#6b7280;">No public profile attributes yet.</div>';
       const reputation = user.reputation || ({} as typeof user.reputation);
@@ -666,7 +677,7 @@ export class UIManager extends EventEmitter {
         <div style="margin-top: 20px; padding: 16px; background: #ffffff; border-radius: 12px; text-align: left; border:1px solid #e5e7eb;">
           <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px;">
             <div style="font-weight:700; color:#111827;">Profile</div>
-            <div style="font-size:0.82em; color:#6b7280;">Public to peers</div>
+            <div style="font-size:0.82em; color:#6b7280;">Visibility per Q&amp;A (see Edit Profile)</div>
           </div>
           <div style="font-size:0.88em; color:#374151; margin-bottom:10px;">
             Languages: ${escapeHtml((Array.isArray(user.languages) && user.languages.length > 0 ? user.languages.join(', ') : 'en'))}
@@ -1518,25 +1529,56 @@ export class UIManager extends EventEmitter {
     const currentHeadshot = String(user.headshot || '').trim();
     const currentInterests = Array.isArray(user.interests) ? user.interests : [];
     const interestsFieldValue = currentInterests.map((t) => String(t.name || '').trim()).filter(Boolean).join(', ');
+    const dominantInterestCategory = (): TagCategory => {
+      const cats = currentInterests.map((t) => t.category).filter(Boolean) as TagCategory[];
+      if (cats.length === 0) return 'other';
+      const counts = new Map<TagCategory, number>();
+      for (const c of cats) counts.set(c, (counts.get(c) || 0) + 1);
+      let best: TagCategory = 'other';
+      let n = 0;
+      for (const [c, k] of counts) {
+        if (k > n) {
+          n = k;
+          best = c;
+        }
+      }
+      return best;
+    };
+    const defaultInterestCategory = dominantInterestCategory();
+    const visibilityOptionsHtml = (current: ProfileAttributeVisibility) =>
+      (['public', 'contacts_only', 'private'] as const)
+        .map(
+          (v) =>
+            `<option value="${v}"${v === current ? ' selected' : ''}>${escapeHtml(PROFILE_VISIBILITY_LABELS[v])}</option>`,
+        )
+        .join('');
+    const interestCategoryOptionsHtml = INTEREST_CATEGORY_SELECT_ORDER.map(
+      (cat) =>
+        `<option value="${cat}"${cat === defaultInterestCategory ? ' selected' : ''}>${escapeHtml(
+          INTEREST_CATEGORY_LABELS[cat],
+        )}</option>`,
+    ).join('');
     return new Promise((resolve, reject) => {
       const modal = document.createElement('div');
       modal.className = 'modal-overlay';
       const profileRowsHtml = currentProfile.length > 0
         ? currentProfile
             .map(
-              (qa, index) => `
-                <div class="profile-qa-row" data-index="${index}" style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:8px; margin-bottom:8px;">
+              (qa) => `
+                <div class="profile-qa-row" data-qa-id="${escapeHtml(qa.id)}" style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(154px,auto) auto; gap:8px; margin-bottom:8px; align-items:start;">
                   <input type="text" class="form-input profile-question-input" value="${escapeHtml(qa.question)}" placeholder="Question">
                   <input type="text" class="form-input profile-answer-input" value="${escapeHtml(qa.answer)}" placeholder="Answer">
+                  <select class="form-input profile-visibility-select" title="Who can see this row on your public profile">${visibilityOptionsHtml(normalizeProfileAttributeVisibility(qa.visibility))}</select>
                   <button type="button" class="btn remove-profile-qa-btn" style="background:#ef4444;">Remove</button>
                 </div>
               `,
             )
             .join('')
         : `
-          <div class="profile-qa-row" data-index="0" style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:8px; margin-bottom:8px;">
+          <div class="profile-qa-row" data-qa-id="" style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(154px,auto) auto; gap:8px; margin-bottom:8px; align-items:start;">
             <input type="text" class="form-input profile-question-input" placeholder="Question">
             <input type="text" class="form-input profile-answer-input" placeholder="Answer">
+            <select class="form-input profile-visibility-select" title="Who can see this row on your public profile">${visibilityOptionsHtml('public')}</select>
             <button type="button" class="btn remove-profile-qa-btn" style="background:#ef4444;">Remove</button>
           </div>
         `;
@@ -1545,7 +1587,7 @@ export class UIManager extends EventEmitter {
         <div class="modal-content" style="max-width:760px;">
           <div class="modal-header">
             <h2 class="modal-title">Edit Profile</h2>
-            <p>Update your public profile basics shown to peers.</p>
+            <p>Update profile basics. Q&amp;A visibility controls what others see when they load your profile (contacts are people you add in Relationships).</p>
           </div>
           <form id="edit-profile-form">
             <div class="form-group">
@@ -1569,8 +1611,10 @@ export class UIManager extends EventEmitter {
             </div>
             <div class="form-group">
               <label class="form-label">Interests</label>
-              <input type="text" class="form-input" id="profile-interests-input" value="${escapeHtml(interestsFieldValue)}" placeholder="e.g. tennis, coffee, hiking">
-              <small style="color:#666;font-size:0.85em;">Comma-separated. Shown on your public profile.</small>
+              <input type="text" class="form-input" id="profile-interests-input" value="${escapeHtml(interestsFieldValue)}" placeholder="e.g. tennis, coffee, Hiking">
+              <label class="form-label" style="margin-top:10px;">Default category for typed interests</label>
+              <select class="form-input" id="profile-interest-category-default">${interestCategoryOptionsHtml}</select>
+              <small style="color:#666;font-size:0.85em;">Known words (e.g. Hiking, Open to work) pick a category automatically; others use the default.</small>
             </div>
             <div class="form-group">
               <label class="form-label">Profile Attributes</label>
@@ -1606,10 +1650,13 @@ export class UIManager extends EventEmitter {
         if (!list) return;
         const row = document.createElement('div');
         row.className = 'profile-qa-row';
-        row.style.cssText = 'display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:8px; margin-bottom:8px;';
+        row.setAttribute('data-qa-id', '');
+        row.style.cssText =
+          'display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(154px,auto) auto; gap:8px; margin-bottom:8px; align-items:start;';
         row.innerHTML = `
           <input type="text" class="form-input profile-question-input" placeholder="Question">
           <input type="text" class="form-input profile-answer-input" placeholder="Answer">
+          <select class="form-input profile-visibility-select" title="Who can see this row on your public profile">${visibilityOptionsHtml('public')}</select>
           <button type="button" class="btn remove-profile-qa-btn" style="background:#ef4444;">Remove</button>
         `;
         list.appendChild(row);
@@ -1632,19 +1679,28 @@ export class UIManager extends EventEmitter {
           .map((part) => part.trim().toLowerCase())
           .filter(Boolean);
         const interestsRaw = (document.getElementById('profile-interests-input') as HTMLInputElement | null)?.value || '';
-        const interests = interestsFromCommaInput(interestsRaw);
+        const defaultCatRaw = (document.getElementById('profile-interest-category-default') as HTMLSelectElement | null)?.value;
+        const defaultCat: TagCategory =
+          defaultCatRaw && defaultCatRaw in INTEREST_CATEGORY_LABELS ? (defaultCatRaw as TagCategory) : 'other';
+        const interests = interestsFromCommaInput(interestsRaw, defaultCat);
+        const byId = new Map(currentProfile.map((qa) => [qa.id, qa]));
         const profile: QuestionAnswer[] = Array.from(modal.querySelectorAll('.profile-qa-row'))
           .map((row, index) => {
             const question = ((row.querySelector('.profile-question-input') as HTMLInputElement | null)?.value || '').trim();
             const answer = ((row.querySelector('.profile-answer-input') as HTMLInputElement | null)?.value || '').trim();
             if (!question || !answer) return null;
-            const existingId = currentProfile[index]?.id;
+            const rowEl = row as HTMLElement;
+            const attrId = rowEl.dataset.qaId?.trim();
+            const prev = attrId ? byId.get(attrId) : undefined;
+            const visRaw = (row.querySelector('.profile-visibility-select') as HTMLSelectElement | null)?.value;
+            const visibility = normalizeProfileAttributeVisibility(visRaw);
             return {
-              id: existingId || `profile_${Date.now()}_${index}`,
+              id: attrId || `profile_${Date.now()}_${index}`,
               question,
               answer,
               isAuto: false,
-              answeredAt: currentProfile[index]?.answeredAt || new Date(),
+              answeredAt: prev?.answeredAt || new Date(),
+              ...(visibility === 'public' ? {} : { visibility }),
             } as QuestionAnswer;
           })
           .filter((item): item is QuestionAnswer => !!item);

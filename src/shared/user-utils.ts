@@ -1,10 +1,11 @@
-import type { Tag } from './types';
+import type { Tag, TagCategory } from './types';
+import { categoryForInterestToken } from './interest-catalog';
 
 /**
- * Parses a comma / semicolon / newline separated list into {@link Tag} records
- * for the user's public interests (category `other` until catalog UX exists).
+ * Parses a comma / semicolon / newline separated list into {@link Tag} records.
+ * Known labels from {@link INTEREST_SUGGESTIONS_BY_CATEGORY} get that category; others use `defaultCategory`.
  */
-export function interestsFromCommaInput(raw: string): Tag[] {
+export function interestsFromCommaInput(raw: string, defaultCategory: TagCategory = 'other'): Tag[] {
   const parts = raw
     .split(/[,;\n]+/)
     .map((s) => s.trim())
@@ -26,7 +27,7 @@ export function interestsFromCommaInput(raw: string): Tag[] {
     out.push({
       id: `int_${slug}`,
       name,
-      category: 'other',
+      category: categoryForInterestToken(name, defaultCategory),
       popularity: 1,
     });
   }

@@ -25,6 +25,13 @@ describe('interestsFromCommaInput', () => {
     expect(interestsFromCommaInput('a, a , A')).toHaveLength(1);
     expect(interestsFromCommaInput('  \n  ')).toEqual([]);
   });
+
+  it('assigns catalog category for known interest tokens and default for unknown', () => {
+    const hiking = interestsFromCommaInput('Hiking', 'other');
+    expect(hiking[0]?.category).toBe('community');
+    const custom = interestsFromCommaInput('xyz-unknown', 'jobs');
+    expect(custom[0]?.category).toBe('jobs');
+  });
 });
 
 describe('generateRandomStageName', () => {

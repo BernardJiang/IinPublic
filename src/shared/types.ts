@@ -40,12 +40,17 @@ export interface User {
   talkFilters?: TalkIntakeFilters;
 }
 
+/** Who may see this profile Q&A on peer/contact surfaces (API applies this for non-owners). */
+export type ProfileAttributeVisibility = 'public' | 'contacts_only' | 'private';
+
 export interface QuestionAnswer {
   id: string;
   question: string;
   answer: string;
   isAuto: boolean; // true = auto (chatbot can reuse), false = manual
   answeredAt: Date;
+  /** Omit or `public` — legacy rows treated as public. */
+  visibility?: ProfileAttributeVisibility;
 }
 
 export interface Reputation {

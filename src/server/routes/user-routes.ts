@@ -21,16 +21,18 @@ export function registerUserRoutes(
 
   app.get('/api/users/:id', async (req, res) => {
     try {
-      const viewerId = typeof req.query.viewerId === 'string' ? req.query.viewerId : '';
-      if (viewerId && viewerId !== req.params.id) {
+      const rawViewer = req.query.viewerId;
+      const qViewer = typeof rawViewer === 'string' ? rawViewer.trim() : '';
+      if (qViewer && qViewer !== req.params.id) {
         // Only need the "blocked by target" direction — one Gun read instead of two.
-        const blockedByTarget = await userService.isBlocked(req.params.id, viewerId);
+        const blockedByTarget = await userService.isBlocked(req.params.id, qViewer);
         if (blockedByTarget) {
           res.status(403).json({ error: 'Profile is not available', blockedBy: true });
           return;
         }
       }
-      const user = await userService.getUser(req.params.id);
+      const profileViewer = qViewer.length > 0 ? qViewer : null;
+      const user = await userService.getUser(req.params.id, { viewerId: profileViewer });
       res.json(user);
     } catch (error) {
       res.status(404).json({ error: (error as Error).message });

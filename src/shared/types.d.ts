@@ -10,12 +10,14 @@ export interface User {
     createdAt: Date;
     lastActive: Date;
 }
+export type ProfileAttributeVisibility = 'public' | 'contacts_only' | 'private';
 export interface QuestionAnswer {
     id: string;
     question: string;
     answer: string;
     isAuto: boolean;
     answeredAt: Date;
+    visibility?: ProfileAttributeVisibility;
 }
 export interface Reputation {
     questionsAnswered: number;
