@@ -6,6 +6,7 @@ import { gunBaseURL } from './helpers/ports';
 import {
   bootstrapUser,
   openIncomingTalkModal,
+  waitForIncomingTalkClusterOnServer,
   waitForResponseModalClosed,
   waitForTabActive,
   resetTalksMatchingSession,
@@ -31,7 +32,8 @@ async function createMatchTalk(page: Page, title: string): Promise<void> {
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
   const q = page.locator('.question-item').first();
-  await q.locator('.question-text').fill('Blocking test: want coffee?');
+  // Keep flow content unique per talk so content-hash ids don't collapse multiple sends.
+  await q.locator('.question-text').fill(`Blocking test (${title}): want coffee?`);
   await q.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes');
   await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
   await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
@@ -266,16 +268,6 @@ test.describe('Blocking system', () => {
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 
-    await expect
-      .poll(
-        async () => {
-          const res = await pageTom.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}/incoming-talks`);
-          if (!res.ok()) return false;
-          const clusters = await res.json() as Array<{ title?: string }>;
-          return clusters.some((c) => String(c.title || '').includes('Post-Unblock Talk'));
-        },
-        { timeout: 12000, message: 'Jerry should receive talk after Tom unblocks her' },
-      )
-      .toBe(true);
+    await waitForIncomingTalkClusterOnServer(pageJerry, 'Post-Unblock Talk');
   });
 });

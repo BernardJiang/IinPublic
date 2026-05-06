@@ -23,7 +23,7 @@ export function getDefaultTalkIntakeFilters(seedLanguages?: string[]): TalkIntak
 }
 
 function parseQuestionsText(subject: IncomingTalkFilterSubject): string[] {
-  if (Array.isArray(subject.questions)) {
+  if (Array.isArray(subject.questions) && subject.questions.length > 0) {
     return subject.questions.flatMap((question) => {
       const parts = [String(question?.text || '').trim()];
       for (const answer of Array.isArray(question?.answers) ? question.answers : []) {

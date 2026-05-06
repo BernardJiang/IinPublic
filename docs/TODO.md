@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-05-06
+Last updated: 2026-05-07
 
 This file is the prioritized backlog for the current repository. It should track the
 highest-value spec gaps that still exist in the working codebase, not features that are
@@ -16,7 +16,7 @@ Implemented and covered now:
 - Chatroom member list scroll + single status-bar broadcast action are live
 - Contacts list, shared peer/detail view, Talks `IN` / `OUT` navigation, and richer Answers cards are live
 - Me-tab intake filters + credit visibility and Contacts relationship editing are live
-- Me-tab profile editor (headshot, languages, interests, public Q&A) and public profile (incl. interests) on peer/contact views are live
+- Me-tab profile editor (headshot, languages, interests, public Q&A, per-row visibility) and public profile on peer/contact views are live; server filters Q&A on `GET /api/users/:id`
 - Survey talks: **Results** on each OUT row opens aggregated stats (`GET /api/stats/talks/:id/summary`)
 - Seeded dev entry points exist: `dev:stage-empty`, `dev:stage-user1`, `dev:stage-user2-match`, `dev:stage-user3-network`
 - Age-gating UI implemented: `isAdult` talk flag, age-verify vouch button, Credit badge; E2E in `tests/e2e/16-age-gating.spec.ts`
@@ -29,12 +29,9 @@ and `docs/specs/iinpublic-technical-specification.md`.
 
 ### P0 — Close the largest product/spec gaps
 
-- [ ] Profile polish vs spec (remaining): per-viewer allowlists, reputation-section visibility (FR-UM-7), deeper FR-UM audit
-  (2026-05-06: Q&A visibility public / contacts-only / private in Me editor; `GET /api/users/:id?viewerId=` strips rows server-side; interests use `TagCategory` catalog + default picker + auto category for known tokens.)
-  (Spec: FR-UM-3..8, FR-BF-2 — Me editor + languages + interests + Q&A + public subset on peer/contact are live)
-- [ ] Move intake and moderation rules from mostly client-side preference/UI logic into enforced server-side delivery rules:
-  language, grammar, dirty-words, distance/time, and age-gated talk filtering should be applied when incoming talks are registered/delivered,
-  not only when the receiver opens the web UI
+- [x] Profile polish (shipped 2026-05-06): Q&A visibility (public / contacts-only / private), server-side filtering on user fetch, interest `TagCategory` catalog + defaults. **Remaining:** per-viewer allowlists, reputation-section visibility (FR-UM-7), deeper FR-UM audit.
+- [ ] Intake & moderation — **delivery path:** `POST /api/talks/:id/received` and `register-receivers-for-broadcast` already apply shared `intakeFilterRejectReasons` + `age_gate` + blocks (`talk-delivery-routes.ts`). **Still open:** stronger moderation (custom word lists, rate limits FR-SP-1/2), sender-side enforcement, and any spec gaps not covered by `ContentFilter` / intake filters.
+  (2026-05-07: receiver GPS for distance rules is also read from `users/:id/location` where the web client writes blurred location.)
   (Spec: FR-BF-3..6, FR-SP-3, FR-SP-7, FR-SP-8)
 - [ ] Blocking + reputation integration: feed block counts (and related limits) into reputation/send capacity where the spec calls for it
   (Spec: FR-SP-4..6 — block/unblock, routes, UI, and delivery gating are in place)

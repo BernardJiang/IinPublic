@@ -106,6 +106,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       updatedAt: talkData?.updatedAt ?? talkData?.createdAt,
       authorLocation: talkData?.authorLocation,
       questions: Array.isArray(talkData?.questions) ? talkData.questions : [],
+      questionsJson: typeof talkData?.questionsJson === 'string' ? talkData.questionsJson : undefined,
       isAdult: !!talkData?.isAdult,
     };
     reasons.push(...intakeFilterRejectReasons(subject, context.talkFilters, context.location));

@@ -316,6 +316,30 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     return this.parseTalkFilters(filtersNode?.filtersJson, userNode?.languages);
   }
 
+  /**
+   * Normalize blurred or raw location nodes from Gun into GPS for intake distance rules.
+   * Web client writes `users/:id/location` (often with `trueLocation`); parent `users/:id` may not embed it.
+   */
+  private parseStoredLocationForDelivery(raw: unknown): GPSCoordinate | undefined {
+    if (!raw || typeof raw !== 'object') return undefined;
+    const o = raw as Record<string, unknown>;
+    const inner = o.trueLocation && typeof o.trueLocation === 'object' ? (o.trueLocation as Record<string, unknown>) : o;
+    if (
+      typeof inner.latitude !== 'number' ||
+      typeof inner.longitude !== 'number' ||
+      typeof inner.accuracy !== 'number'
+    ) {
+      return undefined;
+    }
+    const ts = inner.timestamp;
+    return {
+      latitude: Number(inner.latitude),
+      longitude: Number(inner.longitude),
+      accuracy: Number(inner.accuracy),
+      timestamp: ts instanceof Date ? ts : new Date(typeof ts === 'string' || typeof ts === 'number' ? ts : Date.now()),
+    };
+  }
+
   async getUserDeliveryContext(userId: string): Promise<{
     talkFilters: TalkIntakeFilters;
     ageVerified: boolean;
@@ -323,21 +347,15 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
   }> {
     const userNode = await this.gunService.get(`users/${userId}`) as Partial<User>;
     const talkFilters = await this.getUserTalkFilters(userId);
-    const rawLocation = (userNode as any)?.location?.trueLocation || (userNode as any)?.location;
-    const location =
-      rawLocation &&
-      typeof rawLocation.latitude === 'number' &&
-      typeof rawLocation.longitude === 'number' &&
-      typeof rawLocation.accuracy === 'number'
-        ? {
-            latitude: Number(rawLocation.latitude),
-            longitude: Number(rawLocation.longitude),
-            accuracy: Number(rawLocation.accuracy),
-            timestamp: rawLocation.timestamp instanceof Date
-              ? rawLocation.timestamp
-              : new Date(rawLocation.timestamp || Date.now()),
-          }
-        : undefined;
+    let location = this.parseStoredLocationForDelivery((userNode as { location?: unknown })?.location as unknown);
+    if (!location) {
+      try {
+        const locNode = await this.gunService.get(`users/${userId}/location`);
+        location = this.parseStoredLocationForDelivery(locNode);
+      } catch {
+        /* no separate location key */
+      }
+    }
     const ageVerified = await this.readAgeVerified(userId);
     return {
       talkFilters,
@@ -359,13 +377,10 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
    * avoiding Gun peer-sync races with the user's reputation sub-node.
    */
   private readAgeVerified(userId: string): Promise<boolean> {
-    const gun = this.gunService.getGun();
-    return new Promise((resolve) => {
-      let settled = false;
-      const settle = (v: boolean) => { if (!settled) { settled = true; resolve(v); } };
-      gun.get(AGE_VERIF_KEY).get(userId).once((data: any) => settle(!!data?.verified));
-      setTimeout(() => settle(false), 1000);
-    });
+    return this.gunService
+      .getPath([AGE_VERIF_KEY, userId])
+      .then((data) => !!(data as { verified?: boolean } | undefined)?.verified)
+      .catch(() => false);
   }
 
   async vouchAgeVerified(targetUserId: string): Promise<void> {
@@ -379,6 +394,16 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     });
     const votes = Number(current?.votes || 0) + 1;
     const verified = votes >= CONFIG.AGE_VERIFICATION_THRESHOLD;
-    gun.get(AGE_VERIF_KEY).get(targetUserId).put({ votes, verified });
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const settle = () => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+      gun.get(AGE_VERIF_KEY).get(targetUserId).put({ votes, verified }, () => settle());
+      setTimeout(settle, 500);
+    });
   }
 }

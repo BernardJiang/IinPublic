@@ -10,6 +10,7 @@ import { afterAction, afterSync, headless } from './helpers/timing';
 import { gunBaseURL } from './helpers/ports';
 import {
   bootstrapUser,
+  waitForIncomingTalkClusterOnServer,
   waitForTabActive,
   resetTalksMatchingSession,
 } from './helpers/talks-matching-flow';
@@ -124,17 +125,7 @@ test.describe('Age-gating — adult talk blocked for unverified user', () => {
     await waitForTabActive(pageTom, 'chatrooms');
 
     // Jerry (age-verified) should receive the adult talk
-    await expect
-      .poll(
-        async () => {
-          const res = await pageTom.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}/incoming-talks`);
-          if (!res.ok()) return false;
-          const clusters = (await res.json()) as Array<{ title?: string }>;
-          return clusters.some((c) => String(c.title ?? '').includes(ADULT_TALK_TITLE));
-        },
-        { timeout: 12_000, message: 'Jerry (age-verified) should receive the adult talk' },
-      )
-      .toBe(true);
+    await waitForIncomingTalkClusterOnServer(pageJerry, ADULT_TALK_TITLE);
 
     // Bob (not age-verified) should NOT receive the adult talk — the server already processed
     // the broadcast by the time Jerry's assertion passed, so no additional wait is needed.

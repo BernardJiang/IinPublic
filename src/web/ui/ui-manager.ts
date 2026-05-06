@@ -2683,12 +2683,13 @@ export class UIManager extends EventEmitter {
     // ── Validate (with best-effort autofix) before we emit anything ────────
     // Build a minimal Talk-shaped object for the validator. Fields the
     // validator doesn't care about are filled with placeholders.
+    const isAdult = !!(document.getElementById('talk-is-adult') as HTMLInputElement | null)?.checked;
     const candidate = {
       id: '',
       title,
       authorId: '',
       type,
-      isAdult: !!(document.getElementById('talk-is-adult') as HTMLInputElement | null)?.checked,
+      isAdult,
       language: 'en',
       tags: [],
       questions,
@@ -2724,6 +2725,7 @@ export class UIManager extends EventEmitter {
         id: editingTalkId,
         title,
         type,
+        isAdult,
         questions,
         language: 'en',
         tags: [],
@@ -2734,6 +2736,7 @@ export class UIManager extends EventEmitter {
       this.emit('createTalk', {
         title,
         type,
+        isAdult,
         questions,
         language: 'en',
         tags: [],

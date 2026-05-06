@@ -405,6 +405,65 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(res.body.rejectedBy).toContain('age_gate');
       expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
     });
+
+    it('does not register when receiver maxDistance intake rejects author location', async () => {
+      const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
+      userDeliveryContext.set(RESPONDER_ID, {
+        talkFilters: {
+          ...getDefaultTalkIntakeFilters(['en']),
+          maxDistanceMiles: 50,
+        },
+        ageVerified: false,
+        location: {
+          latitude: 37.7749,
+          longitude: -122.4194,
+          accuracy: 100,
+          timestamp: new Date(),
+        },
+      });
+      const farTalk = {
+        ...TALK_DATA,
+        authorLocation: { latitude: 40.7128, longitude: -74.006 },
+      };
+
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/received`)
+        .send({ receiverId: RESPONDER_ID, senderId: SENDER_ID, senderName: SENDER_NAME, talkData: farTalk });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registered).toBe(false);
+      expect(res.body.filteredOut).toBe(true);
+      expect(res.body.rejectedBy).toContain('intake_max_distance');
+      expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
+    });
+
+    it('does not register when dirty-word intake applies to questionsJson-only payload', async () => {
+      const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
+      userDeliveryContext.set(RESPONDER_ID, {
+        talkFilters: {
+          ...getDefaultTalkIntakeFilters(['en']),
+          blockDirtyWords: true,
+        },
+        ageVerified: false,
+      });
+      const talk = {
+        ...TALK_DATA,
+        questions: [],
+        questionsJson: JSON.stringify([
+          { text: 'Fake bot message spam', answers: [{ text: 'ok' }] },
+        ]),
+      };
+
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/received`)
+        .send({ receiverId: RESPONDER_ID, senderId: SENDER_ID, senderName: SENDER_NAME, talkData: talk });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registered).toBe(false);
+      expect(res.body.filteredOut).toBe(true);
+      expect(res.body.rejectedBy).toContain('intake_dirty_words');
+      expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
+    });
   });
 
   describe('GET /api/users/:id/incoming-talks — inbox', () => {
