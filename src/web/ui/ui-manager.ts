@@ -107,6 +107,8 @@ export class UIManager extends EventEmitter {
   private talksListDelegationBound = false;
   private incomingTalkClusters: any[] = [];
   private customChatrooms: CustomChatroomRow[] = [];
+  private travelModeActive: boolean = false;
+  private travelHomeChatroomId: string | undefined = undefined;
 
   // Callback for stage name changes
   public onStageNameChange?: (userId: string, newStageName: string) => Promise<void>;
@@ -217,8 +219,10 @@ export class UIManager extends EventEmitter {
             
             <!-- Chatroom List -->
             <div class="chatroom-list-container" id="chatroom-list-container">
-              <div class="chatroom-list-toolbar" style="padding: 8px 12px; border-bottom: 1px solid #eee;">
+              <div class="chatroom-list-toolbar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap;">
                 <button type="button" class="btn" id="create-custom-chatroom-btn" data-testid="create-custom-chatroom-btn">➕ New room</button>
+                <button type="button" class="btn" id="toggle-travel-mode-btn" data-testid="toggle-travel-mode-btn">🧳 Travel mode</button>
+                <button type="button" class="btn" id="return-home-btn" data-testid="return-home-btn" style="display:none;">🏠 Return home</button>
               </div>
               <div class="chatroom-list" id="chatroom-list">
                 <p style="text-align: center; padding: 20px; color: #999;">Loading chatrooms...</p>
@@ -497,6 +501,20 @@ export class UIManager extends EventEmitter {
     if (createCustomRoomBtn) {
       createCustomRoomBtn.addEventListener('click', () => {
         void this.handleCreateCustomChatroomClick();
+      });
+    }
+
+    const travelToggleBtn = document.getElementById('toggle-travel-mode-btn');
+    if (travelToggleBtn) {
+      travelToggleBtn.addEventListener('click', () => {
+        this.emit('toggleTravelMode', {});
+      });
+    }
+
+    const returnHomeBtn = document.getElementById('return-home-btn');
+    if (returnHomeBtn) {
+      returnHomeBtn.addEventListener('click', () => {
+        this.emit('returnHomeFromTravel', {});
       });
     }
 
@@ -960,6 +978,28 @@ export class UIManager extends EventEmitter {
     this.renderChatroomList();
   }
 
+  setTravelModeState(state: { active: boolean; homeChatroomId?: string }): void {
+    this.travelModeActive = !!state.active;
+    this.travelHomeChatroomId = state.homeChatroomId;
+    const travelBtn = document.getElementById('toggle-travel-mode-btn');
+    if (travelBtn) {
+      travelBtn.textContent = this.travelModeActive ? '🧳 Travelling' : '🧳 Travel mode';
+      travelBtn.classList.toggle('primary-btn', this.travelModeActive);
+    }
+    const homeBtn = document.getElementById('return-home-btn');
+    if (homeBtn) {
+      homeBtn.style.display = this.travelModeActive ? 'inline-flex' : 'none';
+    }
+  }
+
+  isTravelModeActive(): boolean {
+    return this.travelModeActive;
+  }
+
+  getTravelHomeChatroomId(): string | undefined {
+    return this.travelHomeChatroomId;
+  }
+
   showContactsList(): void {
     openContactsList({
       apiBase: this.apiBase,
@@ -1208,6 +1248,16 @@ export class UIManager extends EventEmitter {
 
   showChatroomDetail(chatroomId: string): void {
     openChatroomDetail(this.chatroomsDeps(), chatroomId);
+  }
+
+  /**
+   * Programmatic room switches (outside the Chatrooms detail click path) still need
+   * the chatroom list highlight to stay in sync.
+   */
+  setCurrentChatroomId(chatroomId: string): void {
+    if (!chatroomId) return;
+    this.currentChatroom = chatroomId;
+    this.renderChatroomList();
   }
 
   displayTalksList(): void {

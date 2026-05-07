@@ -28,6 +28,9 @@ export class IinPublicApp {
   /** Bounded retries for template races (announcement can arrive before manual answer persistence finishes). */
   private chatbotAutoReplyRetryCountByPair = new Map<string, number>();
   private subscribedMemberCountRoomIds = new Set<string>();
+  private travelModeActive: boolean = false;
+  private travelHomeChatroomId: string | undefined = undefined;
+  private travelChatroomId: string | undefined = undefined;
 
   private buildChatroomTalkAnnouncementKey(logicalTalkId: string, authorId: string): string {
     return `${logicalTalkId}__${authorId}`;
@@ -197,6 +200,7 @@ export class IinPublicApp {
 
     // Get last chatroom from localStorage (for re-entry logic)
     const lastChatroomId = localStorage.getItem('iinpublic_last_chatroom') || undefined;
+    this.loadTravelModeStateFromStorage();
 
     // Find optimal chatroom using hierarchical assignment
     const chatroomId = await this.chatroomService.findOptimalChatroomHierarchical(
@@ -310,6 +314,58 @@ export class IinPublicApp {
 
     // Update chatroom info
     this.uiManager.updateChatroomInfo({ id: chatroomId, name: `Chatroom: ${chatroomId}` });
+
+    // If travel mode is active, switch once to the selected travel chatroom (single-room presence).
+    if (this.travelModeActive && this.travelChatroomId && this.travelChatroomId !== chatroomId) {
+      this.travelHomeChatroomId = chatroomId;
+      this.persistTravelModeStateToStorage();
+      this.uiManager.setTravelModeState({
+        active: true,
+        ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
+      });
+      await this.chatroomService.switchChatroom(this.currentUser.id, this.travelChatroomId, this.currentUser.stageName);
+      this.currentChatroomId = this.travelChatroomId;
+      localStorage.setItem('iinpublic_last_chatroom', this.currentChatroomId);
+      this.subscribeToMessages(this.currentChatroomId);
+      this.subscribeToTalks(this.currentChatroomId);
+      this.uiManager.setCurrentChatroomId(this.currentChatroomId);
+      this.chatroomService.subscribeToMembers(this.currentChatroomId, (members) => {
+        this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
+        const chatroomName = this.getChatroomDisplayName(this.currentChatroomId!);
+        this.uiManager.updateStatusBar(
+          this.currentUser!.stageName,
+          chatroomName,
+          members.length,
+          this.uiManager.getTotalMatches(),
+        );
+      });
+    } else {
+      this.uiManager.setTravelModeState({
+        active: this.travelModeActive,
+        ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
+      });
+    }
+  }
+
+  private loadTravelModeStateFromStorage(): void {
+    const active = localStorage.getItem('iinpublic_travel_mode') === '1';
+    const home = localStorage.getItem('iinpublic_travel_home') || undefined;
+    const travel = localStorage.getItem('iinpublic_travel_room') || undefined;
+    this.travelModeActive = active;
+    this.travelHomeChatroomId = home;
+    this.travelChatroomId = travel;
+    this.uiManager.setTravelModeState({
+      active: this.travelModeActive,
+      ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
+    });
+  }
+
+  private persistTravelModeStateToStorage(): void {
+    localStorage.setItem('iinpublic_travel_mode', this.travelModeActive ? '1' : '0');
+    if (this.travelHomeChatroomId) localStorage.setItem('iinpublic_travel_home', this.travelHomeChatroomId);
+    else localStorage.removeItem('iinpublic_travel_home');
+    if (this.travelChatroomId) localStorage.setItem('iinpublic_travel_room', this.travelChatroomId);
+    else localStorage.removeItem('iinpublic_travel_room');
   }
 
   /**
@@ -1845,6 +1901,11 @@ export class IinPublicApp {
         if (this.currentUser) {
           await this.userService.updateUserLocation(this.currentUser.id, newLocation);
 
+          if (this.travelModeActive) {
+            this.uiManager.showNotification('Travel mode is on — location updated without switching rooms.', 'info');
+            return;
+          }
+
           // Check if we need to switch chatrooms
           const newChatroomId = await this.chatroomService.findOptimalChatroom(newLocation);
           const currentChatroomId = this.chatroomService.getCurrentChatroomId();
@@ -1860,6 +1921,75 @@ export class IinPublicApp {
           'error',
         );
       }
+    });
+
+    this.uiManager.on('toggleTravelMode', async () => {
+      if (!this.currentUser) return;
+      this.travelModeActive = !this.travelModeActive;
+      if (this.travelModeActive) {
+        // Enter travel mode: lock in current room as home (if not set).
+        this.travelHomeChatroomId = this.currentChatroomId || this.chatroomService.getCurrentChatroomId() || undefined;
+        this.uiManager.setTravelModeState({
+          active: true,
+          ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
+        });
+        this.persistTravelModeStateToStorage();
+        this.uiManager.showNotification('Travel mode enabled. Select any room to travel there.', 'info');
+      } else {
+        // Exit travel mode: return to home room if known.
+        const home = this.travelHomeChatroomId;
+        this.travelChatroomId = undefined;
+        this.persistTravelModeStateToStorage();
+        this.uiManager.setTravelModeState({ active: false });
+        if (home && this.currentChatroomId !== home) {
+          await this.chatroomService.switchChatroom(this.currentUser.id, home, this.currentUser.stageName);
+          this.currentChatroomId = home;
+          localStorage.setItem('iinpublic_last_chatroom', home);
+          this.subscribeToMessages(home);
+          this.subscribeToTalks(home);
+          this.uiManager.setCurrentChatroomId(home);
+        this.chatroomService.subscribeToMembers(home, (members) => {
+          this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
+          const chatroomName = this.getChatroomDisplayName(home);
+          this.uiManager.updateStatusBar(
+            this.currentUser!.stageName,
+            chatroomName,
+            members.length,
+            this.uiManager.getTotalMatches(),
+          );
+        });
+        }
+        this.uiManager.showNotification('Returned to home room.', 'success');
+      }
+    });
+
+    this.uiManager.on('returnHomeFromTravel', async () => {
+      if (!this.currentUser) return;
+      const home = this.travelHomeChatroomId;
+      if (!this.travelModeActive || !home) return;
+      this.travelModeActive = false;
+      this.travelChatroomId = undefined;
+      this.persistTravelModeStateToStorage();
+      this.uiManager.setTravelModeState({ active: false });
+      if (this.currentChatroomId !== home) {
+        await this.chatroomService.switchChatroom(this.currentUser.id, home, this.currentUser.stageName);
+        this.currentChatroomId = home;
+        localStorage.setItem('iinpublic_last_chatroom', home);
+        this.subscribeToMessages(home);
+        this.subscribeToTalks(home);
+        this.uiManager.setCurrentChatroomId(home);
+        this.chatroomService.subscribeToMembers(home, (members) => {
+          this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
+          const chatroomName = this.getChatroomDisplayName(home);
+          this.uiManager.updateStatusBar(
+            this.currentUser!.stageName,
+            chatroomName,
+            members.length,
+            this.uiManager.getTotalMatches(),
+          );
+        });
+      }
+      this.uiManager.showNotification('Returned home.', 'success');
     });
 
     this.uiManager.on(
@@ -1966,6 +2096,25 @@ export class IinPublicApp {
     this.uiManager.on('chatroomChanged', async (chatroomId: string) => {
       if (!this.currentUser) {
         return;
+      }
+
+      // In travel mode, every room switch becomes “the” travel destination (single remote room at a time).
+      if (this.travelModeActive) {
+        if (!this.travelHomeChatroomId) {
+          this.travelHomeChatroomId = this.currentChatroomId || this.chatroomService.getCurrentChatroomId() || undefined;
+        }
+        if (chatroomId !== this.travelHomeChatroomId) {
+          this.travelChatroomId = chatroomId;
+        }
+        this.persistTravelModeStateToStorage();
+        this.uiManager.setTravelModeState({
+          active: true,
+          ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
+        });
+      } else {
+        // Not travelling: treat switches as normal.
+        this.travelChatroomId = undefined;
+        this.persistTravelModeStateToStorage();
       }
 
       const isSameRoom = this.currentChatroomId === chatroomId;
