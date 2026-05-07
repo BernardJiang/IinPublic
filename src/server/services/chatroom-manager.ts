@@ -6,15 +6,24 @@ export class ChatroomManager {
     private gunService: GunService
   ) {}
 
+  private async getPathWithRetry(path: string[], maxAttempts: number = 6, delayMs: number = 150): Promise<any> {
+    for (let i = 0; i < maxAttempts; i++) {
+      const value = await this.gunService.getPath(path);
+      if (value != null) return value;
+      if (i < maxAttempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+    return undefined;
+  }
+
   async getAllChatrooms(): Promise<any[]> {
-    const raw = await this.gunService.getPath(['chatrooms']);
+    const raw = await this.getPathWithRetry(['chatroomMeta'], 6, 150);
     if (!raw || typeof raw !== 'object') return [];
     const list: any[] = [];
-    for (const [id, node] of Object.entries(raw as Record<string, any>)) {
-      if (!id || id.startsWith('_') || !node || typeof node !== 'object') continue;
-      const meta = (node as any).meta && typeof (node as any).meta === 'object'
-        ? (node as any).meta
-        : node;
+    for (const [id, meta] of Object.entries(raw as Record<string, any>)) {
+      if (!id || id.startsWith('_')) continue;
+      if (!meta || typeof meta !== 'object') continue;
       if (meta?.isActive === false) continue;
       list.push({
         id,
@@ -32,11 +41,8 @@ export class ChatroomManager {
   }
 
   async getChatroom(chatroomId: string): Promise<any | null> {
-    const node = await this.gunService.getPath(['chatrooms', chatroomId]);
-    if (!node || typeof node !== 'object') return null;
-    const meta = (node as any).meta && typeof (node as any).meta === 'object'
-      ? (node as any).meta
-      : node;
+    const meta = await this.getPathWithRetry(['chatroomMeta', chatroomId], 6, 150);
+    if (!meta || typeof meta !== 'object') return null;
     return {
       id: chatroomId,
       ...meta,
@@ -69,6 +75,7 @@ export class ChatroomManager {
       throw new Error('chatroom name is required');
     }
     await this.gunService.putPath(['chatrooms', id, 'meta'], room);
+    await this.gunService.putPath(['chatroomMeta', id], room);
     return room;
   }
 
@@ -92,6 +99,7 @@ export class ChatroomManager {
     };
     if (!next.name) throw new Error('chatroom name is required');
     await this.gunService.putPath(['chatrooms', chatroomId, 'meta'], next);
+    await this.gunService.putPath(['chatroomMeta', chatroomId], next);
     return next;
   }
 
@@ -100,7 +108,7 @@ export class ChatroomManager {
   }
 
   async getActiveMembersWithStageName(chatroomId: string): Promise<Array<{ userId: string; stageName: string }>> {
-    const users = await this.gunService.getPath(['chatrooms', chatroomId, 'users']);
+    const users = await this.getPathWithRetry(['chatroomMembers', chatroomId]);
     if (!users || typeof users !== 'object') return [];
     const members: Array<{ userId: string; stageName: string }> = [];
     for (const [userId, data] of Object.entries(users as Record<string, any>)) {
@@ -115,22 +123,36 @@ export class ChatroomManager {
   }
 
   async joinChatroom(chatroomId: string, userId: string, stageName?: string): Promise<void> {
-    await this.gunService.put(`chatrooms/${chatroomId}/users/${userId}`, {
+    const memberData = {
       joinedAt: new Date(),
       isActive: true,
       ...(stageName ? { stageName } : {}),
+    };
+    await this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], {
+      ...memberData,
     });
-    const headcount = await this.gunService.get(`chatrooms/${chatroomId}/headcount`) || 0;
-    await this.gunService.put(`chatrooms/${chatroomId}/headcount`, headcount + 1);
+    await this.gunService.putPath(['chatroomMembers', chatroomId, userId], {
+      ...memberData,
+    });
+    const current = await this.gunService.getPath(['chatrooms', chatroomId, 'headcount']);
+    const headcount = Number(current) || 0;
+    await this.gunService.putPath(['chatrooms', chatroomId, 'headcount'], headcount + 1);
   }
 
   async leaveChatroom(chatroomId: string, userId: string): Promise<void> {
-    await this.gunService.put(`chatrooms/${chatroomId}/users/${userId}`, {
+    const leftData = {
       leftAt: new Date(),
       isActive: false
+    };
+    await this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], {
+      ...leftData,
     });
-    const headcount = await this.gunService.get(`chatrooms/${chatroomId}/headcount`) || 0;
-    await this.gunService.put(`chatrooms/${chatroomId}/headcount`, Math.max(0, headcount - 1));
+    await this.gunService.putPath(['chatroomMembers', chatroomId, userId], {
+      ...leftData,
+    });
+    const current = await this.gunService.getPath(['chatrooms', chatroomId, 'headcount']);
+    const headcount = Number(current) || 0;
+    await this.gunService.putPath(['chatrooms', chatroomId, 'headcount'], Math.max(0, headcount - 1));
   }
 
   async moveChatroom(userId: string, oldChatroomId: string, newChatroomId: string): Promise<void> {
