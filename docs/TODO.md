@@ -33,15 +33,17 @@ and `docs/specs/iinpublic-technical-specification.md`.
 - [ ] Intake & moderation — **delivery path:** `POST /api/talks/:id/received` and `register-receivers-for-broadcast` already apply shared `intakeFilterRejectReasons` + `age_gate` + blocks (`talk-delivery-routes.ts`). **Still open:** stronger moderation (custom word lists, rate limits FR-SP-1/2), sender-side enforcement, and any spec gaps not covered by `ContentFilter` / intake filters.
   (2026-05-07: receiver GPS for distance rules is also read from `users/:id/location` where the web client writes blurred location.)
   (Spec: FR-BF-3..6, FR-SP-3, FR-SP-7, FR-SP-8)
-- [ ] Blocking + reputation integration: feed block counts (and related limits) into reputation/send capacity where the spec calls for it
-  (Spec: FR-SP-4..6 — block/unblock, routes, UI, and delivery gating are in place)
+- [x] Blocking + reputation integration (shipped 2026-05-06): `register-receivers-for-broadcast` now enforces sender bulk capacity derived from reputation (including block-count penalties), with integration coverage for capped and zero-capacity senders.
+  **Remaining:** full rate-limit/cooldown enforcement stays tracked under FR-SP-1/2.
+  (Spec: FR-SP-4..6)
 
 ### P1 — Add the missing room and targeting model
 
-- [ ] Fix shared disk race in `clearGunDatabases()`:
-  remove the `radata/`, `data1.json`, `data.json` deletes (servers run with `E2E_GUN_MEMORY_ONLY=1` so disk persistence is unused);
-  if disk persistence is ever needed, switch to per-worker paths (`radata_w{N}/`, `data1_w{N}.json`)
-  (testing-benchmarks.md — cross-worker disk race causes ~12.5% suite failure at W4)
+- [x] Fix shared disk race in `clearGunDatabases()` (shipped 2026-05-07):
+  `tests/e2e/helpers/clear-database.ts` now clears only `POST /api/test/clear-database` + browser IndexedDB.
+  No disk deletes remain in the E2E cleanup path because Playwright servers run with `E2E_GUN_MEMORY_ONLY=1`.
+  If disk persistence is reintroduced, use per-worker paths (`radata_w{N}/`, `data1_w{N}.json`) instead of shared files.
+  (testing-benchmarks.md — cross-worker disk race was ~12.5% suite failure at W4)
 - [ ] Implement user-defined and business chatrooms with create/rename/delete flows, metadata storage, and membership management
   (Spec: FR-CR-5, FR-CR-6)
 - [ ] Support explicit travel mode with single-room presence only:

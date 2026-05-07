@@ -80,6 +80,7 @@ function buildTestServer() {
     location?: { latitude: number; longitude: number; accuracy: number; timestamp: Date };
   }>();
   const blockedByUser = new Map<string, Set<string>>();
+  const senderBulkCapacity = new Map<string, number>();
 
   // Stub GunService — null reads, no-op writes.
   const gunService = {
@@ -151,6 +152,10 @@ function buildTestServer() {
     const blocked = blockedByUser.get(viewerId)?.has(targetId) ?? false;
     const blockedBy = blockedByUser.get(targetId)?.has(viewerId) ?? false;
     return { blocked, blockedBy, eitherBlocked: blocked || blockedBy };
+  }
+
+  async function getSenderBulkSendCapacity(senderId: string) {
+    return senderBulkCapacity.get(senderId) ?? 1000;
   }
 
   async function upsertIncomingTalkForUser(params: {
@@ -302,6 +307,7 @@ function buildTestServer() {
     getUserRegion,
     getUserDeliveryContext,
     getBlockStatus,
+    getSenderBulkSendCapacity,
     recordTalkStatsResponse,
   });
 
@@ -312,7 +318,7 @@ function buildTestServer() {
     getTalkResponses,
   });
 
-  return { app, incomingTalksMap, talkResponsesMap, userDeliveryContext, blockedByUser };
+  return { app, incomingTalksMap, talkResponsesMap, userDeliveryContext, blockedByUser, senderBulkCapacity };
 }
 
 // ---------------------------------------------------------------------------
@@ -581,6 +587,50 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(res.body.filteredOut).toBe(1);
       expect(incomingTalksMap.get(adultReceiverId)?.size).toBe(1);
       expect(incomingTalksMap.get(defaultReceiverId)).toBeUndefined();
+    });
+
+    it('caps broadcast registration by sender bulk capacity', async () => {
+      const { app, incomingTalksMap, senderBulkCapacity } = buildTestServer();
+      senderBulkCapacity.set(SENDER_ID, 1);
+
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/register-receivers-for-broadcast`)
+        .send({
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          receiverIds: [RESPONDER_ID, 'user_carol'],
+          talkData: TALK_DATA,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registered).toBe(1);
+      expect(res.body.senderCapacity).toBe(1);
+      expect(res.body.capacityDropped).toBe(1);
+      expect(res.body.filteredOut).toBe(1);
+      expect(incomingTalksMap.get(RESPONDER_ID)?.size).toBe(1);
+      expect(incomingTalksMap.get('user_carol')).toBeUndefined();
+    });
+
+    it('drops all receivers when sender bulk capacity is zero', async () => {
+      const { app, incomingTalksMap, senderBulkCapacity } = buildTestServer();
+      senderBulkCapacity.set(SENDER_ID, 0);
+
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/register-receivers-for-broadcast`)
+        .send({
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          receiverIds: [RESPONDER_ID, 'user_carol'],
+          talkData: TALK_DATA,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registered).toBe(0);
+      expect(res.body.senderCapacity).toBe(0);
+      expect(res.body.capacityDropped).toBe(2);
+      expect(res.body.filteredOut).toBe(2);
+      expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
+      expect(incomingTalksMap.get('user_carol')).toBeUndefined();
     });
   });
 

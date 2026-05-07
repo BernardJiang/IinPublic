@@ -63,6 +63,7 @@ type TalkDeliveryRouteDeps = {
     blockedBy: boolean;
     eitherBlocked: boolean;
   }>;
+  getSenderBulkSendCapacity: (senderId: string) => Promise<number>;
   recordTalkStatsResponse: (params: {
     talkId: string;
     talkType: TalkType;
@@ -90,6 +91,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
     getUserRegion,
     getUserDeliveryContext,
     getBlockStatus,
+    getSenderBulkSendCapacity,
     recordTalkStatsResponse,
   } = deps;
 
@@ -246,11 +248,28 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         res.status(403).json({ error: 'senderId must match talk author' });
         return;
       }
+      const senderCapacityRaw = await getSenderBulkSendCapacity(senderId);
+      const senderCapacity = Math.max(0, Number.isFinite(senderCapacityRaw) ? Math.floor(senderCapacityRaw) : 0);
+      const uniqueReceiverIds = Array.from(new Set(receiverIds.filter((id) => !!id && id !== senderId)));
+      if (senderCapacity === 0) {
+        clearTimeout(hardTimeout);
+        if (!res.headersSent) {
+          res.json({
+            ok: true,
+            registered: 0,
+            filteredOut: uniqueReceiverIds.length,
+            senderCapacity,
+            capacityDropped: uniqueReceiverIds.length,
+          });
+        }
+        return;
+      }
+      const receiverIdsCapped = uniqueReceiverIds.slice(0, senderCapacity);
+      const capacityDropped = Math.max(0, uniqueReceiverIds.length - receiverIdsCapped.length);
       const resolvedSenderName = senderName || (await getUserStageName(senderId, 'Someone'));
       let registered = 0;
-      let filteredOut = 0;
-      for (const receiverId of receiverIds) {
-        if (!receiverId || receiverId === senderId) continue;
+      let filteredOut = capacityDropped;
+      for (const receiverId of receiverIdsCapped) {
         const receiverContext = await getUserDeliveryContext(receiverId);
         const blockStatus = await getBlockStatus(receiverId, senderId);
         const rejectedBy = filterReasonsForTalk(talkData, receiverContext);
@@ -271,7 +290,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         registered += 1;
       }
       clearTimeout(hardTimeout);
-      if (!res.headersSent) res.json({ ok: true, registered, filteredOut });
+      if (!res.headersSent) res.json({ ok: true, registered, filteredOut, senderCapacity, capacityDropped });
     } catch (error) {
       clearTimeout(hardTimeout);
       logger.error({ err: error }, 'register-receivers-for-broadcast error');
