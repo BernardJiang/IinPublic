@@ -344,8 +344,26 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     talkFilters: TalkIntakeFilters;
     ageVerified: boolean;
     location?: GPSCoordinate;
+    /** Normalized lowercase interest names (profile) for bulk-send tag targeting overlap. */
+    interestTokens: string[];
   }> {
     const userNode = await this.gunService.get(`users/${userId}`) as Partial<User>;
+    let interestTokens: string[] = [];
+    try {
+      const u = await this.getUser(userId);
+      interestTokens =
+        Array.isArray(u.interests) && u.interests.length > 0
+          ? u.interests
+              .map((t) =>
+                typeof t?.name === 'string'
+                  ? t.name.trim().toLowerCase()
+                  : ''
+              )
+              .filter(Boolean)
+          : [];
+    } catch {
+      interestTokens = [];
+    }
     const talkFilters = await this.getUserTalkFilters(userId);
     let location = this.parseStoredLocationForDelivery((userNode as { location?: unknown })?.location as unknown);
     if (!location) {
@@ -360,6 +378,7 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     return {
       talkFilters,
       ageVerified,
+      interestTokens,
       ...(location ? { location } : {}),
     };
   }

@@ -11,6 +11,7 @@ import {
   waitForResponseModalClosed,
   waitForTabActive,
 } from './helpers/talks-matching-flow';
+import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
 import {
   launchThreeBrowsers,
   shutdownThreeBrowsers,
@@ -113,6 +114,8 @@ test.describe('Me tab filters and credit visibility', () => {
     await createSurveyTalk(pageTom, 'Filtered Survey Talk', 'How was the meetup?');
 
     await pageTom.click('#broadcast-talk-btn');
+
+    await confirmBroadcastTagPreambleIfVisible(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 

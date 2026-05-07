@@ -45,13 +45,12 @@ and `docs/specs/iinpublic-technical-specification.md`.
   No disk deletes remain in the E2E cleanup path because Playwright servers run with `E2E_GUN_MEMORY_ONLY=1`.
   If disk persistence is reintroduced, use per-worker paths (`radata_w{N}/`, `data1_w{N}.json`) instead of shared files.
   (testing-benchmarks.md — cross-worker disk race was ~12.5% suite failure at W4)
-- [x] User-defined and business chatrooms (shipped 2026-05-06): REST + Gun metadata (`chatroom-manager` / `chatroom-routes`), membership APIs, and **web** create / rename / delete (`➕ New room`, owner actions on room detail). **Remaining:** travel-mode single-room presence (next P1 item), richer business profile UX, FIFO vs per-room capacity alignment on the client.
+- [x] User-defined and business chatrooms (shipped 2026-05-06): REST + Gun metadata (`chatroom-manager` / `chatroom-routes`), membership APIs, and **web** create / rename / delete (`➕ New room`, owner actions on room detail). **Remaining:** richer business profile UX, FIFO vs per-room capacity alignment on the client.
   (Spec: FR-CR-5, FR-CR-6)
-- [ ] Support explicit travel mode with single-room presence only:
+- [x] Support explicit travel mode with single-room presence only:
   a user may switch to one remote room at a time, and when travelling they should no longer appear in any home-region room until they return
   (Spec intent override for FR-CR-9, FR-CR-10)
-- [ ] Add tag catalogs/popularity plus the mandatory tag/location preamble for every talk before bulk sending,
-  and use those tags as actual targeting criteria during broadcast
+- [ ] Add tag catalog **popularity** (FR-TG popularity signal still open). **Shipped 2026-05-07:** curated broadcast tag catalog, mandatory tag/location preamble before bulk broadcast, server `broadcastTargetTags` targeting against profile interests (`tag_targeting` in `register-receivers-for-broadcast`), integration + unit coverage.
   (Spec: FR-TG-2, FR-TG-4..6, FR-BM-5, FR-BM-6)
 - [ ] Expand bulk-send targeting beyond "current room broadcast" with selectable audience scope, distance radius, tag filters, and user-count preview
   (Spec: FR-BM-1..5, UI §13.4)
@@ -109,9 +108,8 @@ and `docs/specs/iinpublic-technical-specification.md`.
    - Add integration tests around `/received` / incoming-talk registration
 5. **Blocking ↔ reputation** — wire block metrics into capacity/score where required
 6. **Chatroom model expansion**
-   - Custom/business room schemas, CRUD API, and web create/rename/delete are live; next focus single-room travel semantics
-   - Then add single-room travel semantics
-   - Only after that expand bulk-send targeting beyond the current room action
+   - Custom/business room schemas, CRUD API, web create/rename/delete, travel single-room semantics, broadcast tag preamble/targeting chunk are live (see backlog for popularity + wider audience-scope gaps)
+   - Expand bulk-send targeting beyond the current room action
    - Add multi-chatroom and hierarchy E2E tests alongside
 7. **Survey dashboard depth + rate limits + reputation + docs cleanup**
    - Build on Talks **Results**; add cooldown enforcement tests, reputation E2E, status doc refresh after server rules land

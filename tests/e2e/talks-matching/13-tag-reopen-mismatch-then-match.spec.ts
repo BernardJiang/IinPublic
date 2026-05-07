@@ -8,6 +8,7 @@ import { test, expect } from '../helpers/fixtures';
 import { clearGunDatabases } from '../helpers/clear-database';
 import { afterSync, afterAction } from '../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../helpers/talks-matching-browsers';
+import { confirmBroadcastTagPreambleIfVisible } from '../helpers/broadcast-preamble';
 import {
   bootstrapUser,
   waitForResponseModalClosed,
@@ -79,6 +80,7 @@ test.describe('Talks matching — tag: reopen mismatch, change to match', () => 
     await pageAlice.click('#talk-editor-form button[type="submit"]');
     await afterSync();
     await pageAlice.click('#broadcast-talk-btn');
+    await confirmBroadcastTagPreambleIfVisible(pageAlice);
     await afterAction();
 
     // Tom opens the tag and leaves the checkbox unchecked → mismatch

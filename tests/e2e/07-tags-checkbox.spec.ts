@@ -6,6 +6,7 @@ import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
 import { gunBaseURL, webBaseURL, e2eTestScreenshotsDir } from './helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
+import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
 
 test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
   let browserAlice: Browser;
@@ -144,6 +145,8 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     await afterSync();
 
     await pageAlice.click('#broadcast-talk-btn');
+
+    await confirmBroadcastTagPreambleIfVisible(pageAlice);
     await afterAction();
     // Poll server until Tom has received both tags (broadcast takes time to register)
     const tomUserId = await pageTom.evaluate(

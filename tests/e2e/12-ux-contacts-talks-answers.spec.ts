@@ -10,6 +10,7 @@ import {
   waitForResponseModalClosed,
   waitForTabActive,
 } from './helpers/talks-matching-flow';
+import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
 import {
   launchThreeBrowsers,
   shutdownThreeBrowsers,
@@ -86,10 +87,14 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
     await createSimpleFlowTalk(pageJerry, 'Jerry Out Talk', 'Do you want to join Jerry?');
 
     await pageTom.click('#broadcast-talk-btn');
+
+    await confirmBroadcastTagPreambleIfVisible(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 
     await pageJerry.click('#broadcast-talk-btn');
+
+    await confirmBroadcastTagPreambleIfVisible(pageJerry);
     await afterAction();
     await waitForTabActive(pageJerry, 'chatrooms');
 

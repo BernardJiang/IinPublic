@@ -3,6 +3,7 @@ import { test, expect } from './helpers/fixtures';
 import { clearGunDatabases } from './helpers/clear-database';
 import { afterAction, afterSync, headless } from './helpers/timing';
 import { gunBaseURL } from './helpers/ports';
+import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
 import {
   bootstrapUser,
   openIncomingTalkModal,
@@ -92,6 +93,7 @@ test.describe('Blocking system', () => {
 
     await createMatchTalk(pageTom, 'Blocking Warmup Talk');
     await pageTom.click('#broadcast-talk-btn');
+    await confirmBroadcastTagPreambleIfVisible(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 
@@ -140,6 +142,7 @@ test.describe('Blocking system', () => {
 
     await createMatchTalk(pageTom, 'Blocked Delivery Talk');
     await pageTom.click('#broadcast-talk-btn');
+    await confirmBroadcastTagPreambleIfVisible(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 
@@ -183,6 +186,7 @@ test.describe('Blocking system', () => {
     // Establish a contact relationship (Jerry answers Tom's warmup talk)
     await createMatchTalk(pageTom, 'Unblock Warmup Talk');
     await pageTom.click('#broadcast-talk-btn');
+    await confirmBroadcastTagPreambleIfVisible(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
     await openIncomingTalkModal(pageJerry, 'Unblock Warmup Talk');
@@ -219,6 +223,7 @@ test.describe('Blocking system', () => {
     await enterGlobalChatroom(pageTom);
     await createMatchTalk(pageTom, 'Blocked Talk');
     await pageTom.click('#broadcast-talk-btn');
+    await confirmBroadcastTagPreambleIfVisible(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 
@@ -265,6 +270,7 @@ test.describe('Blocking system', () => {
     await enterGlobalChatroom(pageTom);
     await createMatchTalk(pageTom, 'Post-Unblock Talk');
     await pageTom.click('#broadcast-talk-btn');
+    await confirmBroadcastTagPreambleIfVisible(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 

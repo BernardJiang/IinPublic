@@ -6,6 +6,7 @@ import { test, expect } from '../helpers/fixtures';
 import { clearGunDatabases } from '../helpers/clear-database';
 import { afterSync, afterNav } from '../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../helpers/talks-matching-browsers';
+import { confirmBroadcastTagPreambleIfVisible } from '../helpers/broadcast-preamble';
 import {
   bootstrapUser,
   waitForTabActive,
@@ -88,6 +89,7 @@ test.describe('Talks matching — chatbot + bot badge', () => {
     await pageTom.click('#talk-editor-form button[type="submit"]');
     await afterSync();
     await pageTom.click('#broadcast-talk-btn');
+    await confirmBroadcastTagPreambleIfVisible(pageTom);
     await waitForTabActive(pageTom, 'chatrooms');
 
     await pageJerry.click('.nav-btn[data-view="me"]');

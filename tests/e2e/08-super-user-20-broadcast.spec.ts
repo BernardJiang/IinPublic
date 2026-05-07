@@ -5,6 +5,7 @@ import { clearGunDatabases } from './helpers/clear-database';
 import { delay, headless, afterAction, afterNav, afterLoad } from './helpers/timing';
 import { gunBaseURL, e2eTestScreenshotsDir } from './helpers/ports';
 import { countIncomingTalkSlots } from './helpers/talks-matching-flow';
+import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
 import {
   TAG_NAMES,
   TALK_TITLES,
@@ -156,6 +157,7 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     await pageTechSupport.click('.chatroom-item:has-text("Global")');
     await afterNav();
     await pageTechSupport.click('#broadcast-talk-btn');
+    await confirmBroadcastTagPreambleIfVisible(pageTechSupport);
     await waitForTabActive(pageTechSupport, 'chatrooms');
 
     const techSupportWaitsForBroadcastToast = async () => {

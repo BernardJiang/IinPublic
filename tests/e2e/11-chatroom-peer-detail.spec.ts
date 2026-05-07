@@ -12,6 +12,7 @@ import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, headless } from './helpers/timing';
 import { webAppURLStableChatroom } from './helpers/ports';
+import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
 import {
   openIncomingTalkModal,
   syncIncomingFromServer,
@@ -177,6 +178,7 @@ test.describe('Chatroom peer detail views', () => {
 
       // Tom creates and broadcasts a talk
       await pageTom.click('#broadcast-talk-btn');
+      await confirmBroadcastTagPreambleIfVisible(pageTom);
       await pageTom.waitForSelector('#talk-editor-form', { timeout: 15_000 });
       await pageTom.fill('#talk-title', 'Tennis Peer Test');
       await pageTom.selectOption('#talk-type', 'flow');
@@ -192,6 +194,7 @@ test.describe('Chatroom peer detail views', () => {
       // Re-enter the chatroom detail and broadcast
       await enterGlobalChatroom(pageTom);
       await pageTom.click('#broadcast-talk-btn');
+      await confirmBroadcastTagPreambleIfVisible(pageTom);
       await afterSync();
       await waitForTabActive(pageTom, 'chatrooms');
 

@@ -9,6 +9,7 @@ import { clearGunDatabases } from '../helpers/clear-database';
 import { afterSync, afterAction } from '../helpers/timing';
 import { gunBaseURL } from '../helpers/ports';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../helpers/talks-matching-browsers';
+import { confirmBroadcastTagPreambleIfVisible } from '../helpers/broadcast-preamble';
 import {
   bootstrapUser,
   waitForTabActive,
@@ -132,6 +133,7 @@ test.describe('Talks matching — one match one mismatch from two responders', (
     await pageTom.click('#talk-editor-form button[type="submit"]');
     await afterSync();
     await pageTom.click('#broadcast-talk-btn');
+    await confirmBroadcastTagPreambleIfVisible(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 

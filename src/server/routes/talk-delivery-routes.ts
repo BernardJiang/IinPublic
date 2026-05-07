@@ -5,6 +5,7 @@ import { TALK_CONTENT_HASH_ID } from '../../shared/incoming-talk-ids';
 import { intakeFilterRejectReasons } from '../../shared/talk-intake-filters';
 import type { TalkType } from '../../shared/talk-stats';
 import type { GPSCoordinate, TalkIntakeFilters } from '../../shared/types';
+import { receiverPassesBroadcastTagTargeting } from '../../shared/broadcast-tag-targeting';
 import { logger } from '../logger';
 import { GunService } from '../services/gun-service';
 
@@ -57,6 +58,7 @@ type TalkDeliveryRouteDeps = {
     talkFilters: TalkIntakeFilters;
     ageVerified: boolean;
     location?: GPSCoordinate;
+    interestTokens: string[];
   }>;
   getBlockStatus: (viewerId: string, targetId: string) => Promise<{
     blocked: boolean;
@@ -97,7 +99,12 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
 
   function filterReasonsForTalk(
     talkData: any,
-    context: { talkFilters: TalkIntakeFilters; ageVerified: boolean; location?: GPSCoordinate },
+    context: {
+      talkFilters: TalkIntakeFilters;
+      ageVerified: boolean;
+      location?: GPSCoordinate;
+      interestTokens: string[];
+    },
   ): string[] {
     const reasons: string[] = [];
     const subject = {
@@ -223,12 +230,19 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
     }, 20000);
     try {
       const talkId = req.params.id;
-      const { senderId, senderName, receiverIds, talkData: bodyTalkData } = req.body as {
-        senderId: string;
-        senderName?: string;
-        receiverIds: string[];
-        talkData?: unknown;
-      };
+      const { senderId, senderName, receiverIds, talkData: bodyTalkData, broadcastTargetTags: rawBt } =
+        req.body as {
+          senderId: string;
+          senderName?: string;
+          receiverIds: string[];
+          talkData?: unknown;
+          broadcastTargetTags?: unknown;
+        };
+      const broadcastTargetTags = Array.isArray(rawBt)
+        ? rawBt
+            .map((x: unknown) => (typeof x === 'string' ? x.trim() : ''))
+            .filter((x: string) => x.length > 0)
+        : [];
       logger.info({ talkId, senderId, receiverCount: receiverIds.length }, '[register-receivers] registering receivers');
       if (!senderId || !Array.isArray(receiverIds)) {
         clearTimeout(hardTimeout);
@@ -273,6 +287,16 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         const receiverContext = await getUserDeliveryContext(receiverId);
         const blockStatus = await getBlockStatus(receiverId, senderId);
         const rejectedBy = filterReasonsForTalk(talkData, receiverContext);
+        if (
+          broadcastTargetTags.length > 0 &&
+          !receiverPassesBroadcastTagTargeting({
+            broadcastTargetTags,
+            talkTags: Array.isArray((talkData as { tags?: unknown })?.tags) ? (talkData as { tags: any[] }).tags : [],
+            receiverInterestTokens: receiverContext.interestTokens,
+          })
+        ) {
+          rejectedBy.push('tag_targeting');
+        }
         if (blockStatus.eitherBlocked) {
           rejectedBy.push('blocked_user');
         }

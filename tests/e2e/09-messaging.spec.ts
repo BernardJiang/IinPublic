@@ -5,6 +5,7 @@ import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
 import { webBaseURL } from './helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
+import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
 
 test.describe('Direct messaging between matched users', () => {
   let browserTom: Browser;
@@ -121,6 +122,8 @@ test.describe('Direct messaging between matched users', () => {
     await afterSync();
 
     await pageTom.click('#broadcast-talk-btn');
+
+    await confirmBroadcastTagPreambleIfVisible(pageTom);
     await afterAction();
     await afterSync();
 

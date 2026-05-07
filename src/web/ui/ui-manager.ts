@@ -20,6 +20,7 @@ import {
 import { normalizeQuestionKey, interestsFromCommaInput } from '../../shared/user-utils';
 import { PROFILE_VISIBILITY_LABELS, normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../shared/interest-catalog';
+import { BROADCAST_TAG_CATALOG_ENTRIES } from '../../shared/broadcast-tag-catalog';
 import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
 import { getFlatChatroomList, CHATROOM_HIERARCHY } from '../../shared/chatroom-hierarchy';
 import type { StatsSummary } from '../../shared/talk-stats';
@@ -82,6 +83,7 @@ import {
   getTalkIntakeFilters,
   setTalkIntakeFilters,
 } from './talk-intake-filters';
+import { LocationPrivacy } from '../../shared/location';
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
@@ -170,6 +172,95 @@ export class UIManager extends EventEmitter {
       .split('-')
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
+  }
+
+  /**
+   * Before bulk broadcast: confirm blurred location summary and choose ≥1 targeting tag(s).
+   * Tags overlap with receivers' profile interests server-side (`register-receivers-for-broadcast`).
+   */
+  showBroadcastTagPreamble(): Promise<{ tags: string[] } | null> {
+    return new Promise((resolve) => {
+      const blurred = this.currentLocation
+        ? LocationPrivacy.blurLocation(this.currentLocation)
+        : null;
+      const regionPhrase =
+        (blurred?.region?.trim()?.length ?? 0) > 0
+          ? blurred!.region!.trim()
+          : 'unknown (enable location for distance rules)';
+      const regionHtml = `<strong>Approximate broadcast region:</strong> ${escapeHtml(regionPhrase)}`;
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.setAttribute('data-testid', 'broadcast-preamble-modal');
+      modal.innerHTML = `
+        <div class="modal-content" style="max-width:460px;">
+          <div class="modal-header">
+            <h2 class="modal-title">Before you broadcast</h2>
+            <p style="color:#444;font-size:0.92em;line-height:1.35;margin-top:6px;">
+              Receivers with profile interests must share at least one selected tag or a tag on each talk (recipients without interests remain eligible).
+            </p>
+            <p style="margin-top:10px;font-size:0.88em;color:#374151;line-height:1.35;">
+              ${regionHtml}
+            </p>
+          </div>
+          <div style="padding:8px 20px 0;font-size:0.82em;color:#64748b;">Pick at least one tag</div>
+          <div id="broadcast-preamble-chips" style="padding:12px 20px; display:flex; flex-wrap:wrap; gap:8px; max-height:220px; overflow-y:auto;">
+            ${BROADCAST_TAG_CATALOG_ENTRIES.map(
+              (e) =>
+                `<button type="button" class="btn broadcast-chip" style="font-size:0.85em;">${escapeHtml(e.label)}</button>`,
+            ).join('')}
+          </div>
+          <div class="modal-actions" style="margin-top:8px;">
+            <button type="button" class="btn" id="broadcast-preamble-cancel" style="background:#6c757d;">Cancel</button>
+            <button type="button" class="btn primary-btn" id="broadcast-preamble-send" data-testid="broadcast-preamble-send">Broadcast</button>
+          </div>
+        </div>`;
+
+      document.body.appendChild(modal);
+
+      const selected = new Set<string>();
+      const chipWrap = modal.querySelector('#broadcast-preamble-chips');
+      chipWrap?.querySelectorAll('.broadcast-chip').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const label = String((btn as HTMLButtonElement).textContent || '').trim();
+          if (!label) return;
+          const el = btn as HTMLElement;
+          if (selected.has(label)) {
+            selected.delete(label);
+            el.style.boxShadow = 'none';
+            el.style.background = '';
+          } else {
+            selected.add(label);
+            el.style.boxShadow = 'inset 0 0 0 2px #6366f1';
+            el.style.background = '#eef2ff';
+          }
+        });
+      });
+
+      const cleanup = () => {
+        document.body.removeChild(modal);
+      };
+
+      modal.querySelector('#broadcast-preamble-cancel')?.addEventListener('click', () => {
+        cleanup();
+        resolve(null);
+      });
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          cleanup();
+          resolve(null);
+        }
+      });
+      modal.querySelector('#broadcast-preamble-send')?.addEventListener('click', () => {
+        const tags = Array.from(selected.values());
+        if (tags.length < 1) {
+          this.showNotification('Choose at least one tag before broadcasting.', 'warning');
+          return;
+        }
+        cleanup();
+        resolve({ tags });
+      });
+    });
   }
 
   private getMyTalks(): Record<string, any> {
@@ -553,56 +644,73 @@ export class UIManager extends EventEmitter {
    * Send all broadcastable OUT talks to everyone in the current chatroom (Gun announce + server IN registration).
    */
   private handleBroadcastTalkFromCurrentRoom(): void {
+    void this.runBroadcastFromCurrentRoom();
+  }
+
+  private async runBroadcastFromCurrentRoom(): Promise<void> {
     if (!this.currentChatroom) {
       this.showNotification('Open a chatroom from the list (tap a room), or wait until you are placed in one.', 'info');
       return;
     }
 
-    const runBroadcast = (): void => {
-      const broadcastableCount = this.getBroadcastableTalkIds().length;
-      // Union DOM + in-memory list: after opening room detail, Gun debounce can leave one empty while
-      // the other is populated; the app also merges Gun `chatrooms/.../users` when this array is short.
-      const fromDom = Array.from(
-        document.querySelectorAll('#chatroom-members-list .chatroom-member-item[data-user-id]'),
-      ).map((el) => {
+    // `saveCreatedTalk` runs after `await talkService.createTalk()`; the editor closes synchronously on submit,
+    // so a fast Broadcast click can run before OUT rows exist. Briefly retry before opening the editor.
+    let broadcastableIds = this.getBroadcastableTalkIds();
+    if (broadcastableIds.length === 0) {
+      for (let i = 0; i < 20; i++) {
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, 75);
+        });
+        broadcastableIds = this.getBroadcastableTalkIds();
+        if (broadcastableIds.length > 0) break;
+      }
+    }
+
+    const broadcastableCount = broadcastableIds.length;
+    if (broadcastableCount === 0) {
+      this.showTalkEditorDialog();
+      setTimeout(() => {
+        this.showNotification('You have no talks to broadcast. Create one first or enable copied talks.', 'info');
+      }, 0);
+      return;
+    }
+
+    const preamble = await this.showBroadcastTagPreamble();
+    if (!preamble) return;
+
+    const fromDom = Array.from(document.querySelectorAll('#chatroom-members-list .chatroom-member-item[data-user-id]')).map(
+      (el) => {
         const node = el as HTMLElement;
         return {
           userId: node.dataset.userId || '',
           stageName: (node.dataset.stageName || 'User').trim() || 'User',
         };
-      });
-      const byId = new Map<string, { userId: string; stageName: string }>();
-      for (const m of [...this.currentChatroomMembers, ...fromDom]) {
-        const id = (m.userId || '').trim();
-        if (!id) continue;
-        if (!byId.has(id)) byId.set(id, { userId: id, stageName: m.stageName || id });
-      }
-      const members = Array.from(byId.values());
-      this.emit('broadcastTalk', {
-        chatroomId: this.currentChatroom,
-        members,
-      });
+      },
+    );
+    const byId = new Map<string, { userId: string; stageName: string }>();
+    for (const m of [...this.currentChatroomMembers, ...fromDom]) {
+      const id = (m.userId || '').trim();
+      if (!id) continue;
+      if (!byId.has(id)) byId.set(id, { userId: id, stageName: m.stageName || id });
+    }
+    const members = Array.from(byId.values());
+    this.emit('broadcastTalk', {
+      chatroomId: this.currentChatroom,
+      members,
+      broadcastTargetTags: preamble.tags,
+    });
 
-      const list = document.getElementById('chatroom-members-list');
-      if (list) {
+    const list = document.getElementById('chatroom-members-list');
+    if (list) {
+      list.querySelectorAll('.chatroom-member-item').forEach((el) => {
+        el.classList.add('broadcast-sent-to');
+      });
+      setTimeout(() => {
         list.querySelectorAll('.chatroom-member-item').forEach((el) => {
-          el.classList.add('broadcast-sent-to');
+          el.classList.remove('broadcast-sent-to');
         });
-        setTimeout(() => {
-          list.querySelectorAll('.chatroom-member-item').forEach((el) => {
-            el.classList.remove('broadcast-sent-to');
-          });
-        }, 2500);
-      }
-
-      if (broadcastableCount === 0) {
-        this.showTalkEditorDialog();
-        setTimeout(() => {
-          this.showNotification('You have no talks to broadcast. Create one first or enable copied talks.', 'info');
-        }, 0);
-      }
-    };
-    runBroadcast();
+      }, 2500);
+    }
   }
 
   private syncStatusBroadcastButtonVisibility(): void {

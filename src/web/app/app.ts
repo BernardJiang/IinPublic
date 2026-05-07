@@ -754,6 +754,7 @@ export class IinPublicApp {
     talkId: string,
     talk: Talk,
     members: Array<{ userId: string; stageName: string }>,
+    broadcastTargetTags?: string[],
   ): Promise<boolean> {
     const me = this.currentUser;
     if (!me?.id || members.length === 0) return true;
@@ -776,6 +777,9 @@ export class IinPublicApp {
               senderName: me.stageName,
               receiverIds,
               talkData: talk,
+              ...(broadcastTargetTags && broadcastTargetTags.length > 0
+                ? { broadcastTargetTags }
+                : {}),
             }),
             signal: controller.signal,
           },
@@ -1571,7 +1575,11 @@ export class IinPublicApp {
     // Broadcast all my created talks to all other users in the current room
     this.uiManager.on(
       'broadcastTalk',
-      async (data: { chatroomId: string; members: Array<{ userId: string; stageName: string }> }) => {
+      async (data: {
+        chatroomId: string;
+        members: Array<{ userId: string; stageName: string }>;
+        broadcastTargetTags?: string[];
+      }) => {
         try {
           const chatroomId = data.chatroomId || this.chatroomService.getCurrentChatroomId();
           if (!chatroomId || !this.currentUser) {
@@ -1585,6 +1593,7 @@ export class IinPublicApp {
             return;
           }
           const receivers = await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
+          const broadcastTargetTags = data.broadcastTargetTags;
           const targetCount = receivers.length;
           console.log(`📢 broadcastTalk: ${targetCount} receivers resolved`);
           if (targetCount === 0) {
@@ -1614,7 +1623,9 @@ export class IinPublicApp {
           for (let i = 0; i < talkPayloads.length; i += REGISTER_BATCH) {
             const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
             await Promise.all(
-              batch.map(({ tid, talk }) => this.registerReceiversOnServerForTalk(tid, talk, receivers)),
+              batch.map(({ tid, talk }) =>
+                this.registerReceiversOnServerForTalk(tid, talk, receivers, broadcastTargetTags),
+              ),
             );
             sent += batch.length;
           }

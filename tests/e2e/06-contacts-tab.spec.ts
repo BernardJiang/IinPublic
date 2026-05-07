@@ -5,6 +5,7 @@ import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
 import { gunBaseURL, webBaseURL } from './helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
+import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
 
 test.describe('Contacts tab: list of users with matches, click to see matching talks', () => {
   let browserTom: Browser;
@@ -149,6 +150,8 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await afterSync();
 
     await pageTom.click('#broadcast-talk-btn');
+
+    await confirmBroadcastTagPreambleIfVisible(pageTom);
     await afterSync();
     // Poll server until Jerry has received both talks (broadcast takes time to register)
     const jerryUserId = await pageJerry.evaluate(

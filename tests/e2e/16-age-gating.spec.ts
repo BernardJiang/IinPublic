@@ -8,6 +8,7 @@ import { test, expect } from './helpers/fixtures';
 import { clearGunDatabases } from './helpers/clear-database';
 import { afterAction, afterSync, headless } from './helpers/timing';
 import { gunBaseURL } from './helpers/ports';
+import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
 import {
   bootstrapUser,
   waitForIncomingTalkClusterOnServer,
@@ -121,6 +122,7 @@ test.describe('Age-gating — adult talk blocked for unverified user', () => {
     await waitForTabActive(pageTom, 'chatrooms');
     await createAdultTalk(pageTom, ADULT_TALK_TITLE);
     await pageTom.click('#broadcast-talk-btn');
+    await confirmBroadcastTagPreambleIfVisible(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 

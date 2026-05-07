@@ -12,6 +12,7 @@ import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
 import { webAppURLStableChatroom } from './helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
+import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
 
 test.describe('Unread badge on Me tab after match and new message', () => {
   let browserTom: Browser;
@@ -114,6 +115,7 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await pageTom.click('#talk-editor-form button[type="submit"]');
     await afterSync();
     await pageTom.click('#broadcast-talk-btn');
+    await confirmBroadcastTagPreambleIfVisible(pageTom);
     await afterAction();
     await afterSync();
 

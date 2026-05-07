@@ -10,6 +10,7 @@ import {
   waitForResponseModalClosed,
   waitForTabActive,
 } from './helpers/talks-matching-flow';
+import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
 import {
   launchThreeBrowsers,
   shutdownThreeBrowsers,
@@ -84,6 +85,7 @@ test.describe('Contacts relationship dialog', () => {
 
     await createMatchTalk(pageTom, 'Relationship Match Talk');
     await pageTom.click('#broadcast-talk-btn');
+    await confirmBroadcastTagPreambleIfVisible(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 

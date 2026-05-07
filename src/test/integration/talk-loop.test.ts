@@ -78,6 +78,7 @@ function buildTestServer() {
     talkFilters: ReturnType<typeof getDefaultTalkIntakeFilters>;
     ageVerified: boolean;
     location?: { latitude: number; longitude: number; accuracy: number; timestamp: Date };
+    interestTokens?: string[];
   }>();
   const blockedByUser = new Map<string, Set<string>>();
   const senderBulkCapacity = new Map<string, number>();
@@ -140,12 +141,13 @@ function buildTestServer() {
   }
 
   async function getUserDeliveryContext(userId: string) {
-    return (
-      userDeliveryContext.get(userId) || {
-        talkFilters: getDefaultTalkIntakeFilters(['en']),
-        ageVerified: false,
-      }
-    );
+    const defaults = {
+      talkFilters: getDefaultTalkIntakeFilters(['en']),
+      ageVerified: false,
+      interestTokens: [] as string[],
+    };
+    const fromMap = userDeliveryContext.get(userId);
+    return fromMap ? { ...defaults, ...fromMap } : defaults;
   }
 
   async function getBlockStatus(viewerId: string, targetId: string) {
@@ -558,6 +560,56 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(res.body.filteredOut).toBe(1);
       expect(incomingTalksMap.get(RESPONDER_ID)?.size).toBe(1);
       expect(incomingTalksMap.get('user_carol')).toBeUndefined();
+    });
+
+    it('skips receivers without overlapping interests when broadcastTargetTags is set', async () => {
+      const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
+      userDeliveryContext.set(RESPONDER_ID, {
+        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        ageVerified: false,
+        interestTokens: ['tennis'],
+      });
+      userDeliveryContext.set('user_carol', {
+        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        ageVerified: false,
+        interestTokens: ['cooking'],
+      });
+
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/register-receivers-for-broadcast`)
+        .send({
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          receiverIds: [RESPONDER_ID, 'user_carol'],
+          talkData: TALK_DATA,
+          broadcastTargetTags: ['Tennis'],
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registered).toBe(1);
+      expect(res.body.filteredOut).toBe(1);
+      expect(incomingTalksMap.get(RESPONDER_ID)?.size).toBe(1);
+      expect(incomingTalksMap.get('user_carol')).toBeUndefined();
+    });
+
+    it('registers all receivers when broadcastTargetTags set but receivers have no profile interests', async () => {
+      const { app, incomingTalksMap } = buildTestServer();
+
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/register-receivers-for-broadcast`)
+        .send({
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          receiverIds: [RESPONDER_ID, 'user_carol'],
+          talkData: TALK_DATA,
+          broadcastTargetTags: ['anything'],
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registered).toBe(2);
+      expect(res.body.filteredOut).toBe(0);
+      expect(incomingTalksMap.get(RESPONDER_ID)?.size).toBe(1);
+      expect(incomingTalksMap.get('user_carol')?.size).toBe(1);
     });
 
     it('registers an adult talk only for age-verified receivers and skips unverified ones', async () => {

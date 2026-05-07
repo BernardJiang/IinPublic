@@ -2,6 +2,7 @@ import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from './helpers/fixtures';
 import { clearGunDatabases } from './helpers/clear-database';
 import { afterSync, afterAction, afterNav, afterLoad, delay, headless } from './helpers/timing';
+import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
 import {
   MATCH_ANSWER,
   IGNORE_ANSWER,
@@ -99,6 +100,8 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await afterSync();
 
     await pageTechSupport.click('#broadcast-talk-btn');
+
+    await confirmBroadcastTagPreambleIfVisible(pageTechSupport);
     await afterSync();
     await afterSync();
 
@@ -142,6 +145,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await afterNav();
     await expect(pageTom.locator('#broadcast-talk-btn')).toBeVisible({ timeout: 10000 });
     await pageTom.click('#broadcast-talk-btn');
+    await confirmBroadcastTagPreambleIfVisible(pageTom);
     await waitForTabActive(pageTom, 'chatrooms');
     const talkEditorModal = pageTom.locator('#talk-editor-modal');
     if (await talkEditorModal.isVisible()) {
@@ -163,6 +167,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterAction();
     await pageTom.click('#broadcast-talk-btn');
+    await confirmBroadcastTagPreambleIfVisible(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 

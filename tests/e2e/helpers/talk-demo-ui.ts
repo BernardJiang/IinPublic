@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test';
 import { expect } from './fixtures';
 import { afterCreateTalkBeforeBroadcast, afterSync } from './timing';
 import { openIncomingTalkModal, openIncomingTalkModalByTalkId, waitForResponseModalClosed } from './talks-matching-flow';
+import { confirmBroadcastTagPreambleIfVisible } from './broadcast-preamble';
 
 async function clickChatroomBroadcastButton(page: Page): Promise<void> {
   const statusBtn = page.locator('#status-broadcast-talk-btn');
@@ -16,6 +17,7 @@ async function clickChatroomBroadcastButton(page: Page): Promise<void> {
     await roomBtn.click();
   }
   await afterSync();
+  await confirmBroadcastTagPreambleIfVisible(page);
 }
 
 /** Same create path as the Create Talk button; then wait and click Broadcast so receivers reliably see the talk. */
