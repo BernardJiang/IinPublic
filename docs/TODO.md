@@ -50,8 +50,9 @@ and `docs/specs/iinpublic-technical-specification.md`.
 - [x] Support explicit travel mode with single-room presence only:
   a user may switch to one remote room at a time, and when travelling they should no longer appear in any home-region room until they return
   (Spec intent override for FR-CR-9, FR-CR-10)
-- [ ] Add tag catalog **popularity** (FR-TG popularity signal still open). **Shipped 2026-05-07:** curated broadcast tag catalog, mandatory tag/location preamble before bulk broadcast, server `broadcastTargetTags` targeting against profile interests (`tag_targeting` in `register-receivers-for-broadcast`), integration + unit coverage.
-  (Spec: FR-TG-2, FR-TG-4..6, FR-BM-5, FR-BM-6)
+- [x] Tag catalog + bulk broadcast preamble + interest targeting (**shipped** 2026-05-07): curated catalog, mandatory preamble modal, server `broadcastTargetTags` ∩ profile interests (`tag_targeting`).
+- [ ] Tag / interest **analytics depth** beyond broadcast pick counts — trend windows, surfaced in Me or admin dashboards, richer FR-TG/FR-BM reporting.
+  (**Shipped incremental 2026-05-07:** in-memory cumulative counts per slug on `POST .../register-receivers-for-broadcast`, `GET /api/stats/broadcast-tags`, preamble chips sorted by popularity when API available.)
 - [ ] Expand bulk-send targeting beyond "current room broadcast" with selectable audience scope, distance radius, tag filters, and user-count preview
   (Spec: FR-BM-1..5, UI §13.4)
 - [ ] Add E2E tests for multi-chatroom broadcasts and chatroom hierarchy navigation:

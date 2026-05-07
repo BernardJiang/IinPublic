@@ -11,6 +11,7 @@ import express from 'express';
 import request from 'supertest';
 import { registerTalkDeliveryRoutes } from '../../server/routes/talk-delivery-routes';
 import { registerStatsRoutes } from '../../server/routes/stats-routes';
+import { BroadcastTagPopularityStore } from '../../server/services/broadcast-tag-popularity-store';
 import { checkIfMatch } from '../../shared/talk-engine';
 import { buildTalkIdentityKey } from '../../shared/talk-content-id';
 import { TALK_CONTENT_HASH_ID } from '../../shared/incoming-talk-ids';
@@ -82,6 +83,7 @@ function buildTestServer() {
   }>();
   const blockedByUser = new Map<string, Set<string>>();
   const senderBulkCapacity = new Map<string, number>();
+  const broadcastTagPopularityStore = new BroadcastTagPopularityStore();
 
   // Stub GunService — null reads, no-op writes.
   const gunService = {
@@ -311,6 +313,7 @@ function buildTestServer() {
     getBlockStatus,
     getSenderBulkSendCapacity,
     recordTalkStatsResponse,
+    recordBroadcastTargetTagUses: (tags: string[]) => broadcastTagPopularityStore.recordFromTargetTags(tags),
   });
 
   registerStatsRoutes(app, {
@@ -318,9 +321,18 @@ function buildTestServer() {
     getUserRegion,
     recordTalkStatsResponse,
     getTalkResponses,
+    getBroadcastTagPopularity: () => broadcastTagPopularityStore.getSnapshot(),
   });
 
-  return { app, incomingTalksMap, talkResponsesMap, userDeliveryContext, blockedByUser, senderBulkCapacity };
+  return {
+    app,
+    incomingTalksMap,
+    talkResponsesMap,
+    userDeliveryContext,
+    blockedByUser,
+    senderBulkCapacity,
+    broadcastTagPopularityStore,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -683,6 +695,46 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(res.body.filteredOut).toBe(2);
       expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
       expect(incomingTalksMap.get('user_carol')).toBeUndefined();
+    });
+
+    it('records broadcast tag picks on register-receivers and exposes GET /api/stats/broadcast-tags', async () => {
+      const { app } = buildTestServer();
+      const stats0 = await request(app).get('/api/stats/broadcast-tags');
+      expect(stats0.status).toBe(200);
+      expect(stats0.body.tags).toEqual([]);
+
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/register-receivers-for-broadcast`)
+        .send({
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          receiverIds: [RESPONDER_ID],
+          talkData: TALK_DATA,
+          broadcastTargetTags: ['Coffee', 'coffee', ' Tennis '],
+        });
+      expect(res.status).toBe(200);
+
+      const stats = await request(app).get('/api/stats/broadcast-tags');
+      expect(stats.status).toBe(200);
+      const byId = Object.fromEntries(
+        (stats.body.tags as Array<{ id: string; count: number }>).map((x) => [x.id, x.count]),
+      );
+      expect(byId.coffee).toBe(1);
+      expect(byId.tennis).toBe(1);
+    });
+
+    it('does not bump popularity when broadcastTargetTags omitted', async () => {
+      const { app } = buildTestServer();
+      await request(app)
+        .post(`/api/talks/${talkId}/register-receivers-for-broadcast`)
+        .send({
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          receiverIds: [RESPONDER_ID],
+          talkData: TALK_DATA,
+        });
+      const stats = await request(app).get('/api/stats/broadcast-tags');
+      expect(stats.body.tags).toEqual([]);
     });
   });
 

@@ -25,6 +25,7 @@ import { registerChatroomRoutes } from './routes/chatroom-routes';
 import { registerPeerRoutes } from './routes/peer-routes';
 import { registerStatsRoutes } from './routes/stats-routes';
 import { registerTalkDeliveryRoutes } from './routes/talk-delivery-routes';
+import { BroadcastTagPopularityStore } from './services/broadcast-tag-popularity-store';
 import { registerSystemRoutes } from './routes/system-routes';
 import { registerTalkRoutes } from './routes/talk-routes';
 import { registerUserRoutes } from './routes/user-routes';
@@ -52,6 +53,8 @@ class IinPublicServer {
     byRegion: new Map<string, Set<string>>(),
     byTalkAnswer: new Map<string, Set<string>>(),
   };
+
+  private broadcastTagPopularityStore = new BroadcastTagPopularityStore();
 
   constructor() {
     this.app = express();
@@ -735,6 +738,8 @@ class IinPublicServer {
         }
       },
       recordTalkStatsResponse: this.recordTalkStatsResponse.bind(this),
+      recordBroadcastTargetTagUses: (tags: string[]) =>
+        this.broadcastTagPopularityStore.recordFromTargetTags(tags),
     });
 
     registerChatroomRoutes(this.app, { chatroomManager: this.chatroomManager });
@@ -752,6 +757,7 @@ class IinPublicServer {
       getUserRegion: this.getUserRegion.bind(this),
       recordTalkStatsResponse: this.recordTalkStatsResponse.bind(this),
       getTalkResponses: this.getTalkResponses.bind(this),
+      getBroadcastTagPopularity: () => this.broadcastTagPopularityStore.getSnapshot(),
     });
 
   }

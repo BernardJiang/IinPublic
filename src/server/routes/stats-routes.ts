@@ -23,10 +23,17 @@ type StatsRouteDeps = {
     outcome?: 'match' | 'ignore' | 'other';
   }) => Promise<void>;
   getTalkResponses: (talkId: string, opts?: { from?: number; to?: number }) => TalkResponse[];
+  /** Broadcast preamble tag picks (slug → cumulative count) */
+  getBroadcastTagPopularity?: () => Array<{ id: string; count: number }>;
 };
 
 export function registerStatsRoutes(app: express.Application, deps: StatsRouteDeps): void {
-  const { talkService, getUserRegion, recordTalkStatsResponse, getTalkResponses } = deps;
+  const { talkService, getUserRegion, recordTalkStatsResponse, getTalkResponses, getBroadcastTagPopularity } = deps;
+
+  app.get('/api/stats/broadcast-tags', (_req, res) => {
+    const tags = getBroadcastTagPopularity?.() ?? [];
+    res.json({ tags });
+  });
 
   // STAT-01 — record a response in the generic stats log.
   // Called from the client's talkCompleted handler (which writes responses directly to

@@ -20,6 +20,11 @@ function slugFromLabel(label: string): string {
     .slice(0, 64);
 }
 
+/** Stable slug aligned with catalog entries — used server-side for popularity aggregation. */
+export function broadcastTagSlugFromLabel(raw: string): string {
+  return slugFromLabel(raw);
+}
+
 /** Flatten `INTEREST_SUGGESTIONS_BY_CATEGORY` plus a short global staples row. */
 function buildBroadcastCatalogEntries(): BroadcastCatalogEntry[] {
   const out: BroadcastCatalogEntry[] = [];

@@ -177,18 +177,57 @@ export class UIManager extends EventEmitter {
   /**
    * Before bulk broadcast: confirm blurred location summary and choose ≥1 targeting tag(s).
    * Tags overlap with receivers' profile interests server-side (`register-receivers-for-broadcast`).
+   * Chip order favors higher server-side popularity when stats are reachable.
    */
   showBroadcastTagPreamble(): Promise<{ tags: string[] } | null> {
-    return new Promise((resolve) => {
-      const blurred = this.currentLocation
-        ? LocationPrivacy.blurLocation(this.currentLocation)
-        : null;
-      const regionPhrase =
-        (blurred?.region?.trim()?.length ?? 0) > 0
-          ? blurred!.region!.trim()
-          : 'unknown (enable location for distance rules)';
-      const regionHtml = `<strong>Approximate broadcast region:</strong> ${escapeHtml(regionPhrase)}`;
+    return this.openBroadcastTagPreambleModal();
+  }
 
+  private async openBroadcastTagPreambleModal(): Promise<{ tags: string[] } | null> {
+    let orderedEntries = [...BROADCAST_TAG_CATALOG_ENTRIES];
+    const base = (this.apiBase || '').trim();
+    if (base) {
+      try {
+        const c = new AbortController();
+        const tid = window.setTimeout(() => c.abort(), 2500);
+        try {
+          const res = await fetch(`${base}/api/stats/broadcast-tags`, { signal: c.signal });
+          if (res.ok) {
+            const body = (await res.json()) as { tags?: Array<{ id?: string; count?: number }> };
+            const rows = Array.isArray(body.tags) ? body.tags : [];
+            const countById = new Map<string, number>();
+            for (const row of rows) {
+              const id = String(row?.id || '').trim();
+              if (!id) continue;
+              countById.set(id, Math.max(0, Math.floor(Number(row?.count ?? 0))) || 0);
+            }
+            orderedEntries.sort(
+              (a, b) =>
+                (countById.get(b.id) ?? 0) - (countById.get(a.id) ?? 0) || a.label.localeCompare(b.label),
+            );
+          }
+        } finally {
+          window.clearTimeout(tid);
+        }
+      } catch {
+        /* fallback: static catalog order */
+      }
+    }
+
+    const blurred = this.currentLocation
+      ? LocationPrivacy.blurLocation(this.currentLocation)
+      : null;
+    const regionPhrase =
+      (blurred?.region?.trim()?.length ?? 0) > 0
+        ? blurred!.region!.trim()
+        : 'unknown (enable location for distance rules)';
+    const regionHtml = `<strong>Approximate broadcast region:</strong> ${escapeHtml(regionPhrase)}`;
+
+    const chipButtonsHtml = orderedEntries
+      .map((e) => `<button type="button" class="btn broadcast-chip" style="font-size:0.85em;">${escapeHtml(e.label)}</button>`)
+      .join('');
+
+    return await new Promise((resolve) => {
       const modal = document.createElement('div');
       modal.className = 'modal-overlay';
       modal.setAttribute('data-testid', 'broadcast-preamble-modal');
@@ -203,12 +242,9 @@ export class UIManager extends EventEmitter {
               ${regionHtml}
             </p>
           </div>
-          <div style="padding:8px 20px 0;font-size:0.82em;color:#64748b;">Pick at least one tag</div>
+          <div style="padding:8px 20px 0;font-size:0.82em;color:#64748b;">Pick at least one tag (popular choices listed first)</div>
           <div id="broadcast-preamble-chips" style="padding:12px 20px; display:flex; flex-wrap:wrap; gap:8px; max-height:220px; overflow-y:auto;">
-            ${BROADCAST_TAG_CATALOG_ENTRIES.map(
-              (e) =>
-                `<button type="button" class="btn broadcast-chip" style="font-size:0.85em;">${escapeHtml(e.label)}</button>`,
-            ).join('')}
+            ${chipButtonsHtml}
           </div>
           <div class="modal-actions" style="margin-top:8px;">
             <button type="button" class="btn" id="broadcast-preamble-cancel" style="background:#6c757d;">Cancel</button>

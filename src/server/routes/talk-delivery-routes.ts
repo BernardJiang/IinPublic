@@ -74,6 +74,8 @@ type TalkDeliveryRouteDeps = {
     answers: Array<{ questionId: string; answerId: string; answerText: string }>;
     outcome?: 'match' | 'ignore' | 'other';
   }) => Promise<void>;
+  /** When set, incremented once per valid register-receivers call that includes targeting tags */
+  recordBroadcastTargetTagUses?: (tagStrings: string[]) => void;
 };
 
 export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkDeliveryRouteDeps): void {
@@ -95,6 +97,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
     getBlockStatus,
     getSenderBulkSendCapacity,
     recordTalkStatsResponse,
+    recordBroadcastTargetTagUses,
   } = deps;
 
   function filterReasonsForTalk(
@@ -261,6 +264,9 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         clearTimeout(hardTimeout);
         res.status(403).json({ error: 'senderId must match talk author' });
         return;
+      }
+      if (broadcastTargetTags.length > 0) {
+        recordBroadcastTargetTagUses?.(broadcastTargetTags);
       }
       const senderCapacityRaw = await getSenderBulkSendCapacity(senderId);
       const senderCapacity = Math.max(0, Number.isFinite(senderCapacityRaw) ? Math.floor(senderCapacityRaw) : 0);
