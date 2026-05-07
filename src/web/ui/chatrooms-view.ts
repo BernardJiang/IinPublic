@@ -3,11 +3,20 @@ import type { PeerRelationshipStats } from '../../server/routes/peer-routes';
 
 type ChatroomMember = { userId: string; stageName: string };
 
+export type CustomChatroomRow = {
+  id: string;
+  name: string;
+  type: string;
+  description?: string;
+  createdBy?: string;
+};
+
 type ChatroomsViewDeps = {
   currentChatroom: string;
   chatroomMemberCounts: Map<string, number>;
   expandedChatrooms: Set<string>;
   matchedUserIds: Set<string>;
+  customChatrooms: ReadonlyArray<CustomChatroomRow>;
   setCurrentChatroom: (chatroomId: string) => void;
   setCurrentChatroomMembers: (members: ChatroomMember[]) => void;
   escapeHtml: (text: string) => string;
@@ -24,16 +33,25 @@ export function syncStatusBroadcastButtonVisibility(currentChatroom: string): vo
   wrap.style.display = currentChatroom ? 'block' : 'none';
 }
 
+function hierarchyIds(): Set<string> {
+  return new Set(getFlatChatroomList().map((r) => r.id));
+}
+
+function customRoomIcon(type: string): string {
+  return type === 'business' ? '🏪' : '💬';
+}
+
 export function renderChatroomList(deps: ChatroomsViewDeps): void {
   const allChatrooms = getFlatChatroomList();
 
   if (deps.currentChatroom && !allChatrooms.find((room) => room.id === deps.currentChatroom)) {
+    const customFallback = deps.customChatrooms.find((c) => c.id === deps.currentChatroom);
     allChatrooms.unshift({
       id: deps.currentChatroom,
-      name: 'My Location',
-      icon: '📍',
+      name: customFallback?.name || 'My Location',
+      icon: customFallback ? customRoomIcon(customFallback.type) : '📍',
       level: 0,
-      description: 'Your current location chatroom',
+      description: customFallback?.description || 'Your current location chatroom',
       hasChildren: false,
     });
   }
@@ -46,10 +64,24 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     return true;
   });
 
+  const skipCustom = hierarchyIds();
+  const customNodes = deps.customChatrooms
+    .filter((c) => c.id && !skipCustom.has(c.id))
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      icon: customRoomIcon(c.type),
+      level: 0,
+      description: c.description || '',
+      hasChildren: false as const,
+    }));
+
+  const rows = [...visibleChatrooms, ...customNodes];
+
   const chatroomList = document.getElementById('chatroom-list');
   if (!chatroomList) return;
 
-  chatroomList.innerHTML = visibleChatrooms
+  chatroomList.innerHTML = rows
     .map((room) => {
       const memberCount = deps.chatroomMemberCounts.get(room.id) || 0;
       const isCurrentRoom = deps.currentChatroom === room.id;
@@ -113,9 +145,14 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
   if (listContainer) listContainer.style.display = 'none';
   if (detailContainer) detailContainer.style.display = 'block';
 
+  const custom = deps.customChatrooms.find((c) => c.id === chatroomId);
   const allChatrooms = getFlatChatroomList();
   const room = allChatrooms.find((entry) => entry.id === chatroomId);
-  const roomName = room ? `${room.icon} ${room.name}` : chatroomId;
+  const roomName = custom
+    ? `${customRoomIcon(custom.type)} ${custom.name}`
+    : room
+      ? `${room.icon} ${room.name}`
+      : chatroomId;
 
   const headerTitle = document.getElementById('header-title');
   const chatroomTitle = document.getElementById('current-chatroom-title');
@@ -127,6 +164,29 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
 
   deps.setCurrentChatroom(chatroomId);
   syncStatusBroadcastButtonVisibility(chatroomId);
+
+  const ownerBar = document.getElementById('chatroom-owner-bar');
+  if (ownerBar) {
+    if (custom && deps.currentUserId && custom.createdBy === deps.currentUserId) {
+      ownerBar.style.display = 'block';
+      ownerBar.innerHTML = `
+        <div style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 0 8px;">
+          <button type="button" class="btn" id="chatroom-rename-btn" data-testid="chatroom-rename-btn">Rename</button>
+          <button type="button" class="btn" id="chatroom-delete-btn" data-testid="chatroom-delete-btn" style="background:#b33;color:#fff;">Delete room</button>
+        </div>`;
+      ownerBar.querySelector('#chatroom-rename-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deps.emit('renameCustomChatroom', { chatroomId });
+      });
+      ownerBar.querySelector('#chatroom-delete-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deps.emit('deleteCustomChatroom', { chatroomId });
+      });
+    } else {
+      ownerBar.style.display = 'none';
+      ownerBar.innerHTML = '';
+    }
+  }
 
   const membersList = document.getElementById('chatroom-members-list');
   if (membersList) {

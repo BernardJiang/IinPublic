@@ -6,7 +6,7 @@ import { WebTalkService } from '../services/web-talk-service';
 import { WebConversationService } from '../services/web-conversation-service';
 import { UIManager } from '../ui/ui-manager';
 import { LocationPrivacy } from '../../shared/location';
-import { getAllChatroomIds, CHATROOM_HIERARCHY } from '../../shared/chatroom-hierarchy';
+import { getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { buildTalkIdentityKey, computeTalkIdFromTalkData } from '../../shared/talk-content-id';
 
@@ -27,6 +27,7 @@ export class IinPublicApp {
   private chatbotAutoReplySentForPair = new Set<string>();
   /** Bounded retries for template races (announcement can arrive before manual answer persistence finishes). */
   private chatbotAutoReplyRetryCountByPair = new Map<string, number>();
+  private subscribedMemberCountRoomIds = new Set<string>();
 
   private buildChatroomTalkAnnouncementKey(logicalTalkId: string, authorId: string): string {
     return `${logicalTalkId}__${authorId}`;
@@ -67,12 +68,39 @@ export class IinPublicApp {
 
     // Subscribe to member counts for all chatrooms (real-time updates)
     this.subscribeToAllChatroomMemberCounts();
+    void this.refreshCustomChatroomsFromServer().then(() => {
+      // Custom rooms may introduce additional IDs not present at startup.
+      this.subscribeToAllChatroomMemberCounts();
+    });
   }
 
   /**
    * Subscribe to member count updates for all chatrooms in the UI list
    * This allows showing real-time headcount badges that update when users join/leave
    */
+  private async refreshCustomChatroomsFromServer(): Promise<void> {
+    try {
+      const base = this.getBackendApiBase();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+      const res = await fetch(`${base}/api/chatrooms`, { signal: controller.signal }).finally(() => {
+        clearTimeout(timeout);
+      });
+      if (!res.ok) return;
+      const rows = (await res.json()) as Array<{
+        id: string;
+        name: string;
+        type: string;
+        description?: string;
+        createdBy?: string;
+      }>;
+      if (!Array.isArray(rows)) return;
+      this.uiManager.setCustomChatroomsFromServer(rows);
+    } catch (e) {
+      console.warn('refreshCustomChatroomsFromServer failed:', e);
+    }
+  }
+
   private subscribeToAllChatroomMemberCounts(): void {
     // Get all chatroom IDs from the hierarchy
     const chatroomIds = getAllChatroomIds();
@@ -84,10 +112,18 @@ export class IinPublicApp {
       console.log(`📍 Also subscribing to current location-based chatroom: ${currentChatroomId}`);
     }
 
+    for (const id of this.uiManager.getCustomChatroomIds()) {
+      if (id && !chatroomIds.includes(id)) {
+        chatroomIds.push(id);
+      }
+    }
+
     console.log('📊 Subscribing to member counts for all chatrooms...');
     console.log(`   Total chatrooms: ${chatroomIds.length}`);
 
     chatroomIds.forEach((chatroomId) => {
+      if (!chatroomId || this.subscribedMemberCountRoomIds.has(chatroomId)) return;
+      this.subscribedMemberCountRoomIds.add(chatroomId);
       this.chatroomService.subscribeToMemberCount(chatroomId, (count) => {
         console.log(`  - ${chatroomId}: ${count} members`);
         this.uiManager.setChatroomMemberCount(chatroomId, count);
@@ -280,30 +316,7 @@ export class IinPublicApp {
    * Get a user-friendly display name for a chatroom
    */
   private getChatroomDisplayName(chatroomId: string): string {
-    // Look up proper display name from the chatroom hierarchy
-    const findChatroom = (node: any): string | null => {
-      if (node.id === chatroomId) {
-        return node.name;
-      }
-      if (node.children) {
-        for (const child of node.children) {
-          const result = findChatroom(child);
-          if (result) return result;
-        }
-      }
-      return null;
-    };
-
-    const displayName = findChatroom(CHATROOM_HIERARCHY);
-    if (displayName) {
-      return displayName;
-    }
-
-    // Fallback: Capitalize and format the chatroom ID
-    return chatroomId
-      .split('-')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
+    return this.uiManager.resolveChatroomTitle(chatroomId);
   }
 
   /**
@@ -1846,6 +1859,107 @@ export class IinPublicApp {
           'Failed to update location: ' + (error as Error).message,
           'error',
         );
+      }
+    });
+
+    this.uiManager.on(
+      'createCustomChatroom',
+      async (payload: {
+        type: 'business' | 'custom';
+        name: string;
+        description?: string;
+        capacity?: number;
+        businessInfo?: { headline?: string };
+      }) => {
+        if (!this.currentUser) return;
+        const base = this.getBackendApiBase();
+        try {
+          const res = await fetch(`${base}/api/chatrooms`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: payload.name,
+              type: payload.type,
+              createdBy: this.currentUser.id,
+              ...(payload.description != null ? { description: payload.description } : {}),
+              ...(payload.capacity != null ? { capacity: payload.capacity } : {}),
+              ...(payload.businessInfo != null ? { businessInfo: payload.businessInfo } : {}),
+            }),
+          });
+          const text = await res.text();
+          if (!res.ok) {
+            this.uiManager.showNotification(text || 'Could not create room.', 'error');
+            return;
+          }
+          await this.refreshCustomChatroomsFromServer();
+          this.subscribeToAllChatroomMemberCounts();
+          this.uiManager.showNotification('Room created.', 'success');
+        } catch (e) {
+          this.uiManager.showNotification('Could not create room: ' + (e as Error).message, 'error');
+        }
+      },
+    );
+
+    this.uiManager.on('renameCustomChatroom', async (data: { chatroomId: string }) => {
+      if (!this.currentUser) return;
+      const meta = this.uiManager.getCustomChatroomMeta(data.chatroomId);
+      const next = await this.uiManager.showRenameCustomChatroomDialog(meta?.name || data.chatroomId);
+      if (!next) return;
+      const base = this.getBackendApiBase();
+      try {
+        const res = await fetch(`${base}/api/chatrooms/${encodeURIComponent(data.chatroomId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: this.currentUser.id, name: next }),
+        });
+        const text = await res.text();
+        if (!res.ok) {
+          this.uiManager.showNotification(text || 'Rename failed.', 'error');
+          return;
+        }
+        await this.refreshCustomChatroomsFromServer();
+        const chatroomName = this.getChatroomDisplayName(data.chatroomId);
+        const headcount = this.uiManager.getChatroomMemberCount(data.chatroomId) || 1;
+        this.uiManager.updateStatusBar(
+          this.currentUser.stageName,
+          chatroomName,
+          headcount,
+          this.uiManager.getTotalMatches(),
+        );
+        const titleEl = document.getElementById('current-chatroom-title');
+        const headerEl = document.getElementById('header-title');
+        if (titleEl) titleEl.textContent = chatroomName;
+        if (headerEl && document.getElementById('chatroom-detail-container')?.style.display !== 'none') {
+          headerEl.textContent = chatroomName;
+        }
+        this.uiManager.showNotification('Room renamed.', 'success');
+      } catch (e) {
+        this.uiManager.showNotification('Rename failed: ' + (e as Error).message, 'error');
+      }
+    });
+
+    this.uiManager.on('deleteCustomChatroom', async (data: { chatroomId: string }) => {
+      if (!this.currentUser) return;
+      if (!confirm('Delete this room? It will disappear from the list for everyone.')) return;
+      const base = this.getBackendApiBase();
+      try {
+        const res = await fetch(
+          `${base}/api/chatrooms/${encodeURIComponent(data.chatroomId)}?userId=${encodeURIComponent(this.currentUser.id)}`,
+          { method: 'DELETE' },
+        );
+        const text = await res.text();
+        if (!res.ok) {
+          this.uiManager.showNotification(text || 'Delete failed.', 'error');
+          return;
+        }
+        await this.refreshCustomChatroomsFromServer();
+        if (this.currentChatroomId === data.chatroomId) {
+          this.uiManager.showChatroomList();
+        }
+        this.subscribeToAllChatroomMemberCounts();
+        this.uiManager.showNotification('Room deleted.', 'success');
+      } catch (e) {
+        this.uiManager.showNotification('Delete failed: ' + (e as Error).message, 'error');
       }
     });
 

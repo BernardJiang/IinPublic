@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-05-07
+Last updated: 2026-05-06
 
 This file is the prioritized backlog for the current repository. It should track the
 highest-value spec gaps that still exist in the working codebase, not features that are
@@ -21,6 +21,7 @@ Implemented and covered now:
 - Seeded dev entry points exist: `dev:stage-empty`, `dev:stage-user1`, `dev:stage-user2-match`, `dev:stage-user3-network`
 - Age-gating UI implemented: `isAdult` talk flag, age-verify vouch button, Credit badge; E2E in `tests/e2e/16-age-gating.spec.ts`
 - Blocking + unblock flows and E2E in `tests/e2e/15-blocking-system.spec.ts`
+- Custom/business chatrooms: REST + Gun metadata, E2E API spec `tests/e2e/17-chatroom-custom-business-api.spec.ts`, and web **Chatrooms** tab (`➕ New room`, owner rename/delete on room detail)
 
 The backlog below focuses on the biggest remaining gaps between the current implementation
 and `docs/specs/iinpublic-technical-specification.md`.
@@ -30,7 +31,7 @@ and `docs/specs/iinpublic-technical-specification.md`.
 ### P0 — Close the largest product/spec gaps
 
 - [x] Profile polish (shipped 2026-05-06): Q&A visibility (public / contacts-only / private), server-side filtering on user fetch, interest `TagCategory` catalog + defaults. **Remaining:** per-viewer allowlists, reputation-section visibility (FR-UM-7), deeper FR-UM audit.
-- [ ] Intake & moderation — **delivery path:** `POST /api/talks/:id/received` and `register-receivers-for-broadcast` already apply shared `intakeFilterRejectReasons` + `age_gate` + blocks (`talk-delivery-routes.ts`). **Still open:** stronger moderation (custom word lists, rate limits FR-SP-1/2), sender-side enforcement, and any spec gaps not covered by `ContentFilter` / intake filters.
+- [ ] Intake & moderation — **delivery path (shipped):** `POST /api/talks/:id/received` and `register-receivers-for-broadcast` apply shared `intakeFilterRejectReasons` + `age_gate` + blocks (`talk-delivery-routes.ts`). Leave this **unchecked** until **extended** moderation lands: custom word lists, rate limits (FR-SP-1/2), sender-side enforcement, and remaining `ContentFilter` / intake gaps.
   (2026-05-07: receiver GPS for distance rules is also read from `users/:id/location` where the web client writes blurred location.)
   (Spec: FR-BF-3..6, FR-SP-3, FR-SP-7, FR-SP-8)
 - [x] Blocking + reputation integration (shipped 2026-05-06): `register-receivers-for-broadcast` now enforces sender bulk capacity derived from reputation (including block-count penalties), with integration coverage for capped and zero-capacity senders.
@@ -44,7 +45,7 @@ and `docs/specs/iinpublic-technical-specification.md`.
   No disk deletes remain in the E2E cleanup path because Playwright servers run with `E2E_GUN_MEMORY_ONLY=1`.
   If disk persistence is reintroduced, use per-worker paths (`radata_w{N}/`, `data1_w{N}.json`) instead of shared files.
   (testing-benchmarks.md — cross-worker disk race was ~12.5% suite failure at W4)
-- [ ] Implement user-defined and business chatrooms with create/rename/delete flows, metadata storage, and membership management
+- [x] User-defined and business chatrooms (shipped 2026-05-06): REST + Gun metadata (`chatroom-manager` / `chatroom-routes`), membership APIs, and **web** create / rename / delete (`➕ New room`, owner actions on room detail). **Remaining:** travel-mode single-room presence (next P1 item), richer business profile UX, FIFO vs per-room capacity alignment on the client.
   (Spec: FR-CR-5, FR-CR-6)
 - [ ] Support explicit travel mode with single-room presence only:
   a user may switch to one remote room at a time, and when travelling they should no longer appear in any home-region room until they return
@@ -108,7 +109,7 @@ and `docs/specs/iinpublic-technical-specification.md`.
    - Add integration tests around `/received` / incoming-talk registration
 5. **Blocking ↔ reputation** — wire block metrics into capacity/score where required
 6. **Chatroom model expansion**
-   - Introduce custom/business room schemas and CRUD
+   - Custom/business room schemas, CRUD API, and web create/rename/delete are live; next focus single-room travel semantics
    - Then add single-room travel semantics
    - Only after that expand bulk-send targeting beyond the current room action
    - Add multi-chatroom and hierarchy E2E tests alongside

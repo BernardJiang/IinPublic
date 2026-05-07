@@ -21,9 +21,11 @@ import { normalizeQuestionKey, interestsFromCommaInput } from '../../shared/user
 import { PROFILE_VISIBILITY_LABELS, normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../shared/interest-catalog';
 import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
+import { getFlatChatroomList, CHATROOM_HIERARCHY } from '../../shared/chatroom-hierarchy';
 import type { StatsSummary } from '../../shared/talk-stats';
 import { displayAnswersList as renderAnswersList } from './answers-view';
 import {
+  type CustomChatroomRow,
   renderChatroomList as renderChatrooms,
   showChatroomDetail as openChatroomDetail,
   syncStatusBroadcastButtonVisibility as syncChatroomBroadcastVisibility,
@@ -104,6 +106,7 @@ export class UIManager extends EventEmitter {
   private talkStatsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
   private talksListDelegationBound = false;
   private incomingTalkClusters: any[] = [];
+  private customChatrooms: CustomChatroomRow[] = [];
 
   // Callback for stage name changes
   public onStageNameChange?: (userId: string, newStageName: string) => Promise<void>;
@@ -122,6 +125,49 @@ export class UIManager extends EventEmitter {
 
   setCurrentLocation(location: GPSCoordinate | undefined): void {
     this.currentLocation = location;
+  }
+
+  setCustomChatroomsFromServer(rows: CustomChatroomRow[]): void {
+    this.customChatrooms = Array.isArray(rows) ? [...rows] : [];
+    this.renderChatroomList();
+  }
+
+  getCustomChatroomIds(): string[] {
+    return this.customChatrooms.map((r) => r.id).filter(Boolean);
+  }
+
+  getCustomChatroomMeta(chatroomId: string): CustomChatroomRow | undefined {
+    return this.customChatrooms.find((c) => c.id === chatroomId);
+  }
+
+  /**
+   * Title for status bar and headers: custom/business rooms, hierarchy, then formatted id.
+   */
+  resolveChatroomTitle(chatroomId: string): string {
+    const custom = this.customChatrooms.find((c) => c.id === chatroomId);
+    if (custom) {
+      const icon = custom.type === 'business' ? '🏪' : '💬';
+      return `${icon} ${custom.name}`;
+    }
+    const flat = getFlatChatroomList();
+    const node = flat.find((n) => n.id === chatroomId);
+    if (node) return `${node.icon} ${node.name}`;
+    const findInTree = (node: typeof CHATROOM_HIERARCHY): string | null => {
+      if (node.id === chatroomId) return node.name;
+      if (node.children) {
+        for (const ch of node.children) {
+          const r = findInTree(ch);
+          if (r) return r;
+        }
+      }
+      return null;
+    };
+    const treeName = findInTree(CHATROOM_HIERARCHY);
+    if (treeName) return treeName;
+    return chatroomId
+      .split('-')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
   }
 
   private getMyTalks(): Record<string, any> {
@@ -171,6 +217,9 @@ export class UIManager extends EventEmitter {
             
             <!-- Chatroom List -->
             <div class="chatroom-list-container" id="chatroom-list-container">
+              <div class="chatroom-list-toolbar" style="padding: 8px 12px; border-bottom: 1px solid #eee;">
+                <button type="button" class="btn" id="create-custom-chatroom-btn" data-testid="create-custom-chatroom-btn">➕ New room</button>
+              </div>
               <div class="chatroom-list" id="chatroom-list">
                 <p style="text-align: center; padding: 20px; color: #999;">Loading chatrooms...</p>
               </div>
@@ -185,6 +234,7 @@ export class UIManager extends EventEmitter {
                   <div class="chatroom-detail-status" id="current-chatroom-status">Loading...</div>
                 </div>
               </div>
+              <div id="chatroom-owner-bar" style="display: none; padding: 0 16px;"></div>
               <div class="chatroom-members-list" id="chatroom-members-list">
                 <p style="text-align: center; padding: 20px; color: #999;">Loading members...</p>
               </div>
@@ -440,6 +490,13 @@ export class UIManager extends EventEmitter {
     if (backToChatroomsBtn) {
       backToChatroomsBtn.addEventListener('click', () => {
         this.showChatroomList();
+      });
+    }
+
+    const createCustomRoomBtn = document.getElementById('create-custom-chatroom-btn');
+    if (createCustomRoomBtn) {
+      createCustomRoomBtn.addEventListener('click', () => {
+        void this.handleCreateCustomChatroomClick();
       });
     }
 
@@ -889,6 +946,12 @@ export class UIManager extends EventEmitter {
     if (listContainer) listContainer.style.display = 'block';
     if (detailContainer) detailContainer.style.display = 'none';
 
+    const ownerBar = document.getElementById('chatroom-owner-bar');
+    if (ownerBar) {
+      ownerBar.style.display = 'none';
+      ownerBar.innerHTML = '';
+    }
+
     // Update header
     const headerTitle = document.getElementById('header-title');
     if (headerTitle) headerTitle.textContent = 'Chatrooms';
@@ -961,6 +1024,7 @@ export class UIManager extends EventEmitter {
       chatroomMemberCounts: this.chatroomMemberCounts,
       expandedChatrooms: this.expandedChatrooms,
       matchedUserIds: this.matchedUserIds,
+      customChatrooms: this.customChatrooms,
       setCurrentChatroom: (chatroomId) => { this.currentChatroom = chatroomId; },
       setCurrentChatroomMembers: (members) => { this.currentChatroomMembers = members; },
       escapeHtml: escapeHtml,
@@ -970,6 +1034,172 @@ export class UIManager extends EventEmitter {
       currentUserId: this.currentUserId,
       apiBase: this.apiBase,
     };
+  }
+
+  private async handleCreateCustomChatroomClick(): Promise<void> {
+    if (!this.currentUserId) {
+      this.showNotification('Sign in required to create a room.', 'error');
+      return;
+    }
+    const payload = await this.showCreateCustomChatroomDialog();
+    if (payload) {
+      this.emit('createCustomChatroom', payload);
+    }
+  }
+
+  showCreateCustomChatroomDialog(): Promise<{
+    type: 'business' | 'custom';
+    name: string;
+    description?: string;
+    capacity?: number;
+    businessInfo?: { headline?: string };
+  } | null> {
+    return new Promise((resolve) => {
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content" style="max-width:420px;">
+          <div class="modal-header">
+            <h2 class="modal-title">New chatroom</h2>
+            <p style="color:#666;font-size:0.9em;">Create a community or business room. Anyone can join from the list.</p>
+          </div>
+          <form id="create-custom-chatroom-form">
+            <div class="form-group">
+              <label class="form-label">Type</label>
+              <select class="form-input" id="custom-room-type" name="type">
+                <option value="custom">Community / custom</option>
+                <option value="business">Business</option>
+              </select>
+            </div>
+            <div class="form-group" id="custom-room-business-headline-group" style="display:none;">
+              <label class="form-label">Business headline (optional)</label>
+              <input type="text" class="form-input" id="custom-room-business-headline" maxlength="120" placeholder="Short tagline" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Name</label>
+              <input type="text" class="form-input" id="custom-room-name" name="name" required minlength="2" maxlength="80" data-testid="custom-room-name-input" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Description (optional)</label>
+              <textarea class="form-input" id="custom-room-description" rows="2" maxlength="500"></textarea>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Capacity (optional)</label>
+              <input type="number" class="form-input" id="custom-room-capacity" min="1" max="50000" placeholder="Default 50" />
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn" id="cancel-custom-room-btn" style="background:#6c757d;">Cancel</button>
+              <button type="submit" class="btn primary-btn" data-testid="custom-room-submit-btn">Create</button>
+            </div>
+          </form>
+        </div>`;
+      document.body.appendChild(modal);
+
+      const typeSel = modal.querySelector('#custom-room-type') as HTMLSelectElement;
+      const bizGroup = modal.querySelector('#custom-room-business-headline-group') as HTMLElement;
+      const syncBiz = () => {
+        bizGroup.style.display = typeSel.value === 'business' ? 'block' : 'none';
+      };
+      typeSel.addEventListener('change', syncBiz);
+      syncBiz();
+
+      const cleanup = () => {
+        document.body.removeChild(modal);
+      };
+
+      modal.querySelector('#cancel-custom-room-btn')?.addEventListener('click', () => {
+        cleanup();
+        resolve(null);
+      });
+
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          cleanup();
+          resolve(null);
+        }
+      });
+
+      const form = modal.querySelector('#create-custom-chatroom-form') as HTMLFormElement;
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const type = typeSel.value === 'business' ? 'business' : 'custom';
+        const name = (modal.querySelector('#custom-room-name') as HTMLInputElement).value.trim();
+        const description = (modal.querySelector('#custom-room-description') as HTMLTextAreaElement).value.trim();
+        const capRaw = (modal.querySelector('#custom-room-capacity') as HTMLInputElement).value.trim();
+        const capacity = capRaw ? Math.floor(Number(capRaw)) : undefined;
+        const headline = (modal.querySelector('#custom-room-business-headline') as HTMLInputElement).value.trim();
+        if (name.length < 2) {
+          this.showNotification('Name must be at least 2 characters.', 'warning');
+          return;
+        }
+        const out: {
+          type: 'business' | 'custom';
+          name: string;
+          description?: string;
+          capacity?: number;
+          businessInfo?: { headline?: string };
+        } = { type, name };
+        if (description) out.description = description;
+        if (capacity != null && Number.isFinite(capacity) && capacity > 0) out.capacity = capacity;
+        if (type === 'business' && headline) out.businessInfo = { headline };
+        cleanup();
+        resolve(out);
+      });
+    });
+  }
+
+  showRenameCustomChatroomDialog(currentName: string): Promise<string | null> {
+    return new Promise((resolve) => {
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content" style="max-width:400px;">
+          <div class="modal-header">
+            <h2 class="modal-title">Rename room</h2>
+            <p class="rename-custom-room-current" style="color:#666;font-size:0.9em;"></p>
+          </div>
+          <form id="rename-custom-chatroom-form">
+            <div class="form-group">
+              <label class="form-label">New name</label>
+              <input type="text" class="form-input" id="rename-custom-room-name" required minlength="2" maxlength="80" data-testid="rename-custom-room-input" />
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn" id="cancel-rename-room-btn" style="background:#6c757d;">Cancel</button>
+              <button type="submit" class="btn primary-btn">Save</button>
+            </div>
+          </form>
+        </div>`;
+      document.body.appendChild(modal);
+      const curEl = modal.querySelector('.rename-custom-room-current');
+      if (curEl) curEl.textContent = `Current: ${currentName}`;
+      (modal.querySelector('#rename-custom-room-name') as HTMLInputElement).value = currentName;
+
+      const cleanup = () => {
+        document.body.removeChild(modal);
+      };
+
+      modal.querySelector('#cancel-rename-room-btn')?.addEventListener('click', () => {
+        cleanup();
+        resolve(null);
+      });
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          cleanup();
+          resolve(null);
+        }
+      });
+      const form = modal.querySelector('#rename-custom-chatroom-form') as HTMLFormElement;
+      form.addEventListener('submit', (ev) => {
+        ev.preventDefault();
+        const next = (modal.querySelector('#rename-custom-room-name') as HTMLInputElement).value.trim();
+        if (next.length < 2) {
+          this.showNotification('Name must be at least 2 characters.', 'warning');
+          return;
+        }
+        cleanup();
+        resolve(next);
+      });
+    });
   }
 
   private renderChatroomList(): void {
