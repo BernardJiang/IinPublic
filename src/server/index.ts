@@ -18,6 +18,7 @@ import {
   type TalkResponse,
   type TalkType,
 } from '../shared/talk-stats';
+import { CONFIG } from '../shared/config';
 import { logger } from './logger';
 import { attachGun, configureHttpMiddleware, createSocketServer } from './bootstrap/http-bootstrap';
 import { registerChatroomRoutes } from './routes/chatroom-routes';
@@ -723,6 +724,16 @@ class IinPublicServer {
       getUserRegion: this.getUserRegion.bind(this),
       getUserDeliveryContext: this.userService.getUserDeliveryContext.bind(this.userService),
       getBlockStatus: this.userService.getBlockStatus.bind(this.userService),
+      getSenderBulkSendCapacity: async (senderId: string) => {
+        try {
+          const sender = await this.userService.getUser(senderId);
+          if (!sender) return CONFIG.DEFAULT_BULK_LIMIT;
+          const cap = await this.reputationService.getBulkSendCapacity(sender);
+          return Number.isFinite(cap) ? Math.max(0, Math.floor(cap)) : CONFIG.DEFAULT_BULK_LIMIT;
+        } catch {
+          return CONFIG.DEFAULT_BULK_LIMIT;
+        }
+      },
       recordTalkStatsResponse: this.recordTalkStatsResponse.bind(this),
     });
 
