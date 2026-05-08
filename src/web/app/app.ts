@@ -1650,21 +1650,28 @@ export class IinPublicApp {
           const REGISTER_BATCH = 5;
           for (let i = 0; i < talkPayloads.length; i += REGISTER_BATCH) {
             const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
-            await Promise.all(
-              batch.map(({ tid, talk }) =>
-                this.registerReceiversOnServerForTalk(
+            // Cancellation semantics: if creator deletes/disables a talk while Phase 1 is in-flight,
+            // we must skip registering receivers for that talk (and also skip Gun announce in Phase 2).
+            const broadcastableNow = new Set(this.uiManager.getBroadcastableTalkIds());
+            // registerReceiversOnServerForTalk returns boolean (ok vs error) — count only non-skipped calls.
+            const batchResults = await Promise.all(
+              batch.map(({ tid, talk }) => {
+                if (!broadcastableNow.has(tid)) return Promise.resolve(false);
+                return this.registerReceiversOnServerForTalk(
                   tid,
                   talk,
                   receivers,
                   broadcastTargetTags,
                   broadcastMaxDistanceMiles,
-                ),
-              ),
+                );
+              }),
             );
-            sent += batch.length;
+            sent += batchResults.filter(Boolean).length;
           }
           // Phase 2: Gun announce — single room only (no descendant hierarchy fan-out).
+          const broadcastableNowForGun = new Set(this.uiManager.getBroadcastableTalkIds());
           for (const { tid, talk } of talkPayloads) {
+            if (!broadcastableNowForGun.has(tid)) continue;
             const announcementKey = this.buildChatroomTalkAnnouncementKey(
               tid,
               String(talk.authorId || this.currentUser!.id),
