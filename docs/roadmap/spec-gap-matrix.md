@@ -1,6 +1,6 @@
 # IinPublic Spec-Gap Matrix
 
-Last updated: 2026-04-29
+Last updated: 2026-05-07
 
 Purpose: map the biggest remaining requirements in
 `docs/specs/iinpublic-technical-specification.md` to the current codebase, with
@@ -19,7 +19,7 @@ This file is the evidence map behind that queue.
 
 | Area | Spec refs | Status | Current evidence | Main gaps |
 |---|---|---|---|---|
-| Profile foundation | FR-UM-2..8, FR-BF-2, UI-1 | Partial | `src/shared/types.ts:23-40` defines `headshot`, `profile`, `languages`, `interests`, `reputation`; `src/server/services/user-service.ts:8-42` persists those fields on create; `src/web/ui/ui-manager.ts:629-718` renders Me profile, filters, and credit; `tests/e2e/04-profile-edit-stage-name.spec.ts:1-120` covers stage-name editing | Me UI still only edits stage name, filters, and credit visibility. No headshot picker, no editable languages UI, no editable profile Q/A attribute surface, and no public profile subset rendered in peer/contact detail views. |
+| Profile foundation | FR-UM-2..8, FR-BF-2, UI-1 | Complete | `src/shared/types.ts:23-40` defines `headshot`, `profile`, `languages`, `interests`, `reputation`; `src/server/services/user-service.ts:getUser()` persists and resolves those fields; viewer-specific filtering uses `src/shared/profile-privacy.ts` via `GET /api/users/:id?viewerId=...`; Me profile editor + per-row visibility are implemented in `src/web/ui/ui-manager.ts` and public profile rendering in `src/web/ui/user-detail-view.ts`/`src/web/ui/contacts-view.ts`; E2E coverage includes `tests/e2e/04-profile-edit-stage-name.spec.ts` and `tests/e2e/24-profile-privacy-visibility.spec.ts` | Remaining focus is on reputation/credit section allowlists (FR-UM-7) and deeper FR-UM audit; profile Q&A visibility itself is now end-to-end implemented and tested. |
 | Intake filters and moderation | FR-BF-1..6, FR-SP-7..8 | Partial | `src/shared/types.ts:3-11` defines `TalkIntakeFilters`; `src/web/ui/talk-intake-filters.ts:15-168` applies distance/time/language/grammar/dirty-word/type filters; `src/web/ui/ui-manager.ts:650-796` exposes filter controls on Me; `src/web/app/app.ts:1239-1255` persists filter and credit-visibility changes; `tests/e2e/13-me-filters-credit.spec.ts:87-139` covers UI behavior | Filtering remains client-side presentation logic for incoming talks. `src/server/routes/talk-delivery-routes.ts:82-220` registers and fans out talks with no authoritative moderation pipeline. No age-gate-first enforcement on delivery, and no adult-content suppression for underage users. |
 | Reputation and abuse prevention | FR-UM-6..7, FR-BM-3, FR-SP-4..6 | Partial | `src/shared/reputation.ts:4-108` calculates reputation score, bulk-send capacity, and updates block/like/dislike metrics; `src/shared/types.ts:50-64` models reputation fields; `src/web/ui/ui-manager.ts:699-717` renders read-only credit metrics and visibility toggle; `src/web/ui/contacts-view.ts:46-145` supports peer rating plus relationship notes; `src/test/unit/reputation.test.ts:42-149` covers score/capacity math | There is no real blocking system in the main app/server paths: no block/unblock endpoints, no block list UI, no enforcement in talk delivery, profile visibility, or conversations. Reputation math exists, but the abuse-prevention path is not connected to runtime permissions. |
 | Chatroom model expansion | FR-CR-1..10, UI-7 | Partial | `src/shared/types.ts:79-99` already models `global`, `location`, `business`, and `custom` chatroom types; `src/server/routes/chatroom-routes.ts:12-24` supports listing and joining; `src/server/services/chatroom-manager.ts:13-39` supports join/leave/move with a stub `findOptimalChatroom`; `tests/e2e/03-capacity-eviction.spec.ts:10-192` covers capacity/FIFO behavior | No CRUD routes or UI for custom/business chatrooms. No brand/address owner flows. Travel-mode semantics, traveller badges, and remote-room selection flow are still missing. Product direction is now single active room only, so any future travel implementation should remove the user from their home-region room while travelling instead of keeping multi-room presence. Server chatroom selection logic is still effectively stubbed to `global`. |
@@ -38,15 +38,14 @@ What exists:
   `src/shared/types.ts:23-40`
 - Server user creation preserves `headshot`, `profile`, `languages`, and `interests`:
   `src/server/services/user-service.ts:8-42`
-- The Me tab currently renders only stage name, toggles, filters, and credit:
-  `src/web/ui/ui-manager.ts:629-718`
+- The Me tab includes the full profile editor surface (headshot, languages, interests, and per-row profile Q&A visibility):
+  `src/web/ui/ui-manager.ts`
+- Peer/contact detail views render a viewer-filtered public profile subset using server-side filtering on `GET /api/users/:id?viewerId=...`:
+  `src/shared/profile-privacy.ts` + `src/web/ui/user-detail-view.ts` / `src/web/ui/contacts-view.ts`
 
 What is missing:
 
-- No editor for `headshot`.
-- No editor for `languages`.
-- No profile Q/A editor for `profile`.
-- No peer/contact rendering of the public profile subset.
+- Reputation/credit section visibility allowlists (FR-UM-7) and a deeper FR-UM audit still need broader verification.
 
 Best implementation starting points:
 

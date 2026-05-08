@@ -1,6 +1,6 @@
 # IinPublic Project Status
 
-Last updated: 2026-04-23
+Last updated: 2026-05-07
 
 ## Summary
 
@@ -25,6 +25,7 @@ Supporting infrastructure exists for CI, deploy scripts, Dockerfile, Jest, Playw
 - Answer/chatbot template flow is documented and has a single clear execution path
 - Repo noise is resolved: generated outputs, logs, and test artifacts are gitignored; none are tracked
 - Local validation and CI run the same `npm run health` command
+- Profile editor + viewer-filtered public profile rendering (including per-row Q&A visibility) are live and end-to-end tested
 
 ## What Is Still In Progress
 

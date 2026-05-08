@@ -80,6 +80,7 @@ What is stable today:
 - Server and UI modules have been split out of the former large files
 - Server-side talk loop (registration → answer → match → conversation) has HTTP-level integration tests
 - Gun authority is audited; server is authoritative for stats, matches, and conversations
+- Me-tab profile editor (headshot, languages, interests, profile Q&A with per-row visibility) and viewer-filtered public profile rendering in peer/contact views are live
 
 Active work (see [TODO](./docs/TODO.md)):
 
