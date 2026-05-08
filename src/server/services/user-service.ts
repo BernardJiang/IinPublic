@@ -39,8 +39,12 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     try {
       const data = await this.gunService.getPath([`users/${userId}`, 'reputation']);
       if (!data || typeof data !== 'object') return { ...UserService.DEFAULT_REPUTATION };
-      const { _, ...rep } = data as any;
-      return { ...UserService.DEFAULT_REPUTATION, ...rep } as Reputation;
+      const { _, ...rest } = data as any;
+      // Gun may wrap stored objects under a nested `#` key; unwrap for stable reads.
+      const repCandidate = rest && typeof rest === 'object' && (rest['#'] && typeof rest['#'] === 'object')
+        ? rest['#']
+        : rest;
+      return { ...UserService.DEFAULT_REPUTATION, ...(repCandidate as any) } as Reputation;
     } catch {
       return { ...UserService.DEFAULT_REPUTATION };
     }
@@ -228,8 +232,13 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
         profile = filterProfileAttributesForViewer(profile, { viewerIsContact });
       }
     }
+
+    // Server reputation updates are written to `users/<id>/reputation`.
+    // Ensure we always resolve that sub-node into the returned object.
+    const reputation = await this.readReputation(userId);
     return {
       ...user,
+      reputation,
       ...(publicProfile.headshot ? { headshot: publicProfile.headshot } : {}),
       languages: this.parseJsonArray(publicProfile.languagesJson, user.languages || ['en']),
       profile,

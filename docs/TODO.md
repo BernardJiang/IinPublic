@@ -70,9 +70,8 @@ and `docs/specs/iinpublic-technical-specification.md`.
   (Spec: FR-SV-2..5, UI §13.5 — per-question counts/% now visible for survey OUT rows)
 - [x] Add **daily/weekly numeric quotas** (distinct from symmetric cooldown) and tests for hard caps per `CONFIG.RATE_LIMITS` (**implemented** 2026-05-07): server-enforced counters for sender+receiver edges with UTC day + UTC Monday week resets; reject codes `daily_talk_send_rate_limit` / `daily_talk_receive_rate_limit` and `weekly_talk_send_rate_limit` / `weekly_talk_receive_rate_limit`.
   (Spec: FR-SP-1, FR-SP-2 — symmetric cooldown + tests shipped via `IINPUBLIC_SYMMETRIC_TALK_EDGE_COOLDOWN_MS`)
-- [ ] Add E2E tests for reputation system flows:
-  vouch age-verify votes accumulating to threshold, star rating impact, block count propagation
-  (e2e-test-coverage.md: Medium Gap #10)
+- [x] Add E2E tests for reputation system flows: vouch age-verify votes accumulating to threshold, star rating impact, block count propagation
+  (e2e-test-coverage.md: Medium Gap #10) (implemented 2026-05-08)
 - [ ] Add E2E tests for messaging edge cases:
   message read receipts, messaging history persistence across re-login, messaging after unblock
   (e2e-test-coverage.md: Medium Gap #5)

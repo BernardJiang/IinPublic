@@ -5,6 +5,7 @@ import {
   KnownPerson,
   RelationshipLabel,
   TalkIntakeFilters,
+  type Reputation,
   type Tag,
 } from '../../shared/types';
 import { LocationPrivacy } from '../../shared/location';
@@ -27,6 +28,59 @@ const USER_BLOCKED_BY_KEY = 'user-blocked-by';
 
 export class WebUserService {
   constructor(private gunService: WebGunService) {}
+
+  private static readonly DEFAULT_REPUTATION: Reputation = {
+    questionsAnswered: 0,
+    talksSent: 0,
+    matchesFound: 0,
+    friendsCount: 0,
+    mutualFriendsCount: 0,
+    likedCount: 0,
+    dislikedCount: 0,
+    starRating: 3.0,
+    reviewCount: 0,
+    ageVerified: false,
+    ageVerificationVotes: 0,
+    blockCount: 0,
+    isHidden: false,
+  };
+
+  private async readReputationSubNode(userId: string): Promise<Reputation> {
+    const gun = this.gunService.getGun();
+    const repRaw = await new Promise<any>((resolve) => {
+      let settled = false;
+      const settle = (v: any) => {
+        if (settled) return;
+        settled = true;
+        resolve(v);
+      };
+      gun.get(`users/${userId}`).get('reputation').once((data: any) => settle(data));
+      setTimeout(() => settle(null), 1000);
+    });
+
+    if (!repRaw || typeof repRaw !== 'object') return { ...WebUserService.DEFAULT_REPUTATION };
+    const { _, ...rest } = repRaw as any;
+    // Gun may wrap stored objects under a nested `#` key; unwrap for stable reads.
+    const repCandidate = rest && typeof rest === 'object' && (rest['#'] && typeof rest['#'] === 'object')
+      ? rest['#']
+      : rest;
+    const merged = { ...WebUserService.DEFAULT_REPUTATION, ...(repCandidate as any) } as any;
+    return {
+      questionsAnswered: Number(merged.questionsAnswered ?? 0),
+      talksSent: Number(merged.talksSent ?? 0),
+      matchesFound: Number(merged.matchesFound ?? 0),
+      friendsCount: Number(merged.friendsCount ?? 0),
+      mutualFriendsCount: Number(merged.mutualFriendsCount ?? 0),
+      likedCount: Number(merged.likedCount ?? 0),
+      dislikedCount: Number(merged.dislikedCount ?? 0),
+      starRating: Number(merged.starRating ?? WebUserService.DEFAULT_REPUTATION.starRating),
+      reviewCount: Number(merged.reviewCount ?? 0),
+      ageVerified: !!merged.ageVerified,
+      ageVerificationVotes: Number(merged.ageVerificationVotes ?? 0),
+      blockCount: Number(merged.blockCount ?? 0),
+      isHidden: !!merged.isHidden,
+    };
+  }
 
   private async putNested(path: string[], data: any): Promise<void> {
     const gun = this.gunService.getGun();
@@ -203,7 +257,8 @@ export class WebUserService {
 
   async getUser(userId: string): Promise<User> {
     const user = (await this.gunService.get(`users/${userId}`)) as User;
-    return this.mergePrivateUserData(user);
+    const reputation = await this.readReputationSubNode(userId);
+    return this.mergePrivateUserData({ ...user, reputation });
   }
 
   async updateUserLocation(userId: string, location: GPSCoordinate): Promise<void> {
