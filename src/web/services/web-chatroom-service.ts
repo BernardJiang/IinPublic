@@ -354,44 +354,46 @@ export class WebChatroomService {
     this.subscribeToMemberCount(newChatroomId, () => {});
   }
 
+  /**
+   * Snapshot active user ids for a room. Uses a short `map().on` observation window so we do not
+   * resolve on the first partial replica (e.g. only the sender) before peers replicate — the old
+   * `.once` + "resolve as soon as length > 0" path often dropped other members and yielded 0
+   * broadcast receivers while the UI already listed them.
+   */
   async getActiveMembers(chatroomId: string): Promise<string[]> {
     try {
-      const members: string[] = [];
       const gun = this.gunService.getGun();
+      const activeYes = new Set<string>();
 
-      return new Promise((resolve) => {
+      return await new Promise((resolve) => {
         let settled = false;
-        const finish = () => {
+        const finish = (ids: string[]) => {
           if (settled) return;
           settled = true;
-          resolve([...members]);
+          try {
+            off.off();
+          } catch {
+            /* Gun peer */
+          }
+          resolve(ids);
         };
 
-        const timeoutId = setTimeout(finish, 2000);
-
-        gun
+        const off = gun
           .get('chatrooms')
           .get(chatroomId)
           .get('users')
-          .once((usersData: any) => {
-            if (settled) return;
-            members.length = 0;
-            if (usersData) {
-              for (const userId in usersData) {
-                if (userId.startsWith('_')) continue; // Skip Gun.js metadata
-                const memberData = usersData[userId];
-                if (memberData && memberData.isActive) {
-                  members.push(userId);
-                }
-              }
-            }
-            // Do not resolve on empty — Gun often fires .once once with undefined before users exist;
-            // clearing the timeout then returned [] immediately and broke broadcast receiver resolution.
-            if (members.length > 0) {
-              clearTimeout(timeoutId);
-              finish();
+          .map()
+          .on((memberData: any, userId: string) => {
+            if (userId.startsWith('_')) return;
+            if (memberData && memberData.isActive === true) {
+              activeYes.add(userId);
+            } else {
+              activeYes.delete(userId);
             }
           });
+
+        const OBSERVE_MS = 1400;
+        setTimeout(() => finish([...activeYes]), OBSERVE_MS);
       });
     } catch (error) {
       console.error('Error getting active members:', error);

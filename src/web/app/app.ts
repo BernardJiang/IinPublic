@@ -841,14 +841,11 @@ export class IinPublicApp {
     await mergeGunOnce();
 
     if (gunMemberIds.length === 0) {
-      for (let i = 0; i < 16; i++) {
-        await new Promise((r) => setTimeout(r, 200));
+      for (let i = 0; i < 8; i++) {
+        await new Promise((r) => setTimeout(r, 250));
         await mergeGunOnce();
         if (gunMemberIds.length > 0) break;
       }
-    } else {
-      await new Promise((r) => setTimeout(r, 150));
-      await mergeGunOnce();
     }
 
     return gunMemberIds.map((userId) => ({
