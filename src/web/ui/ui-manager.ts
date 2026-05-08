@@ -96,11 +96,10 @@ export class UIManager extends EventEmitter {
   private currentUserStageName: string = '';
   private currentLocation: GPSCoordinate | undefined = undefined;
 
-  /** Resolves merged receiver ids for `POST /api/talks/broadcast-receiver-preview` when scope spans multiple rooms (set by `IinPublicApp`). */
+  /** Resolves receiver ids merged with Gun for `POST /api/talks/broadcast-receiver-preview` (same chatroom only; set by `IinPublicApp`). */
   private broadcastAudiencePreviewCollector?:
     | ((args: {
         chatroomId: string;
-        audienceScope: 'room' | 'subtree';
         members: Array<{ userId: string; stageName: string }>;
       }) => Promise<string[]>)
     | undefined;
@@ -145,7 +144,6 @@ export class UIManager extends EventEmitter {
       | ((
           args: {
             chatroomId: string;
-            audienceScope: 'room' | 'subtree';
             members: Array<{ userId: string; stageName: string }>;
           },
         ) => Promise<string[]>)
@@ -198,16 +196,15 @@ export class UIManager extends EventEmitter {
   }
 
   /**
-   * Before bulk broadcast: confirm blurred location summary, audience scope / optional distance,
+   * Before bulk broadcast: confirm blurred location summary, optional max recipient distance cap,
    * and choose ≥1 targeting tag(s). Tags intersect receivers' interests server-side
-   * (`register-receivers-for-broadcast`). Chip order favors popularity when `/api/stats/broadcast-tags` works.
+   * (`register-receivers-for-broadcast`). Delivery is **this chatroom only** (never descendant hierarchy rooms).
    */
   showBroadcastTagPreamble(ctx: {
     chatroomId: string;
     members: Array<{ userId: string; stageName: string }>;
   }): Promise<{
     tags: string[];
-    broadcastAudienceScope: 'room' | 'subtree';
     broadcastMaxDistanceMiles?: number;
   } | null> {
     return this.openBroadcastTagPreambleModal(ctx);
@@ -218,7 +215,6 @@ export class UIManager extends EventEmitter {
     members: Array<{ userId: string; stageName: string }>;
   }): Promise<{
     tags: string[];
-    broadcastAudienceScope: 'room' | 'subtree';
     broadcastMaxDistanceMiles?: number;
   } | null> {
     let orderedEntries = [...BROADCAST_TAG_CATALOG_ENTRIES];
@@ -287,17 +283,11 @@ export class UIManager extends EventEmitter {
               ${regionHtml}
             </p>
           </div>
+          <div style="padding:12px 20px 0;font-size:0.82em;line-height:1.4;color:#475569;font-style:italic;">
+            Reach is limited to others in this same chatroom (not sub-rooms under it in the list).
+          </div>
           <div style="padding:12px 20px 0;font-size:0.85em;line-height:1.45;color:#334155;">
-            <div style="font-weight:600;margin-bottom:6px;">Audience</div>
-            <label style="display:flex;gap:8px;margin:4px 0;align-items:center;cursor:pointer;">
-              <input type="radio" name="broadcast-audience-scope" value="room" checked />
-              <span>This chatroom only</span>
-            </label>
-            <label style="display:flex;gap:8px;margin:4px 0;align-items:center;cursor:pointer;">
-              <input type="radio" name="broadcast-audience-scope" value="subtree" />
-              <span>This room + descendant rooms</span>
-            </label>
-            <div style="margin-top:10px;">
+            <div style="margin-top:0;">
               <label for="broadcast-max-distance-select" style="display:block;margin-bottom:4px;">Max receiver distance (from sender / talk pin)</label>
               <select id="broadcast-max-distance-select" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid #cbd5e1;">
                 ${distanceOptionsHtml}
@@ -321,11 +311,6 @@ export class UIManager extends EventEmitter {
       let previewGeneration = 0;
       let previewDebounceTimer: number | undefined;
 
-      const readAudienceScope = (): 'room' | 'subtree' => {
-        const el = modal.querySelector('input[name="broadcast-audience-scope"]:checked') as HTMLInputElement | null;
-        return el?.value === 'subtree' ? 'subtree' : 'room';
-      };
-
       const readMaxDistance = (): number | undefined => {
         const sel = modal.querySelector('#broadcast-max-distance-select') as HTMLSelectElement | null;
         const v = sel?.value ?? '';
@@ -347,7 +332,6 @@ export class UIManager extends EventEmitter {
         const base = (this.apiBase || '').trim();
         const firstBid = this.getBroadcastableTalkIds()[0];
         const fp = firstBid ? this.getBroadcastTalkPayload(firstBid) : null;
-        const audienceScope = readAudienceScope();
         const broadcastMaxDistanceMiles = readMaxDistance();
 
         let receiverIds = ctx.members.map((m) => m.userId).filter((id) => id && id !== senderId);
@@ -355,7 +339,6 @@ export class UIManager extends EventEmitter {
           try {
             receiverIds = await this.broadcastAudiencePreviewCollector({
               chatroomId: ctx.chatroomId,
-              audienceScope,
               members: ctx.members,
             });
           } catch {
@@ -422,9 +405,6 @@ export class UIManager extends EventEmitter {
         });
       });
 
-      modal.querySelectorAll('input[name="broadcast-audience-scope"]').forEach((el) =>
-        el.addEventListener('change', scheduleAudiencePreviewRefresh),
-      );
       modal.querySelector('#broadcast-max-distance-select')?.addEventListener('change', scheduleAudiencePreviewRefresh);
 
       const cleanup = () => {
@@ -452,7 +432,6 @@ export class UIManager extends EventEmitter {
         cleanup();
         resolve({
           tags,
-          broadcastAudienceScope: readAudienceScope(),
           ...(typeof maxDm === 'number' ? { broadcastMaxDistanceMiles: maxDm } : {}),
         });
       });
@@ -497,6 +476,7 @@ export class UIManager extends EventEmitter {
             <div class="status-bar" id="status-bar">
               <div class="status-bar-content">
                 <span id="status-bar-text">Connecting...</span>
+                <span id="broadcast-bulk-ack" data-testid="broadcast-bulk-ack" hidden></span>
               </div>
               <div class="status-bar-actions" id="status-bar-actions" style="display: none;">
                 <button type="button" class="btn status-broadcast-btn" id="broadcast-talk-btn" title="Send every talk in your OUT list to everyone in this chatroom">
@@ -900,7 +880,6 @@ export class UIManager extends EventEmitter {
       chatroomId: this.currentChatroom,
       members,
       broadcastTargetTags: preamble.tags,
-      broadcastAudienceScope: preamble.broadcastAudienceScope,
       broadcastMaxDistanceMiles: preamble.broadcastMaxDistanceMiles,
     });
 
@@ -2477,6 +2456,17 @@ export class UIManager extends EventEmitter {
         </div>
       `;
     }
+  }
+
+  /**
+   * Durable bulk-send outcome for QA/E2E. Success toasts auto-hide after ~3s while register-receivers
+   * can run much longer, so tests should assert on these attributes instead of toast text.
+   */
+  setBroadcastBulkAck(talksSent: number, receiversResolved: number): void {
+    const el = document.getElementById('broadcast-bulk-ack');
+    if (!el) return;
+    el.dataset.broadcastTalksSent = String(talksSent);
+    el.dataset.broadcastReceivers = String(receiversResolved);
   }
 
   updateStatusBar(

@@ -4,9 +4,8 @@ import { clearGunDatabases } from './helpers/clear-database';
 import { afterSync, delay, headless } from './helpers/timing';
 import { bootstrapUser, waitForTabActive } from './helpers/talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
-
-const BROADCAST_TOAST_ONE_USER =
-  /Sent 1 talk to 1 user (?:(\(the room\)\.)|in the room\.|\(\d+ rooms\)\.)/;
+import { waitForBroadcastBulkAck } from './helpers/broadcast-ack';
+import { gunBaseURL } from './helpers/ports';
 
 /**
  * Chatroom list → expand parent row → open a hierarchy leaf (e.g. United States under North America).
@@ -97,7 +96,7 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
       await confirmBroadcastTagPreambleIfVisible(pageTom);
       await waitForTabActive(pageTom, 'chatrooms');
 
-      await expect(pageTom.getByText(BROADCAST_TOAST_ONE_USER)).toBeVisible({ timeout: 120_000 });
+      await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 1 });
 
       await pageJerry.click('.nav-btn[data-view="talks"]');
       await waitForTabActive(pageJerry, 'talks');
@@ -115,9 +114,9 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
     }
   });
 
-  test('Broadcaster on North America + subtree audience still registers peer in United States child room', async () => {
-    const tom = await bootstrapUser(browserTom, 'Tom2', 'Tom');
-    const jerry = await bootstrapUser(browserJerry, 'Jerry2', 'Jerry');
+  test('Broadcaster on North America does not register inbox for peer joined only under United States', async () => {
+    const tom = await bootstrapUser(browserTom, 'TomNA', 'Tom');
+    const jerry = await bootstrapUser(browserJerry, 'JerryUSA', 'Jerry');
     const pageTom = tom.page;
     const pageJerry = jerry.page;
     try {
@@ -131,25 +130,48 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
         timeout: 20_000,
       });
 
-      await createSimpleFlowTalk(pageTom, 'Continent subtree broadcast');
+      await createSimpleFlowTalk(pageTom, 'Parent-room-only isolation');
 
       await pageTom.click('.nav-btn[data-view="chatrooms"]');
       await waitForTabActive(pageTom, 'chatrooms');
       await afterSync();
       await pageTom.click('#broadcast-talk-btn');
-      await confirmBroadcastTagPreambleIfVisible(pageTom, { audienceScope: 'subtree' });
+      await confirmBroadcastTagPreambleIfVisible(pageTom);
       await waitForTabActive(pageTom, 'chatrooms');
 
-      await expect(pageTom.getByText(BROADCAST_TOAST_ONE_USER)).toBeVisible({ timeout: 180_000 });
+      // Tom is the only Gun member under `north-america`; Jerry is under `usa` only.
+      await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 0 });
 
-      await pageJerry.click('.nav-btn[data-view="talks"]');
-      await waitForTabActive(pageJerry, 'talks');
-      await afterSync();
-      await expect(
-        pageJerry.locator('.talk-list-item[data-role="incoming"]').filter({
-          hasText: 'Continent subtree broadcast',
-        }),
-      ).toBeVisible({ timeout: 90_000 });
+      const jerryId = await pageJerry.evaluate(
+        () =>
+          (
+            window as unknown as {
+              __iinpublic_app?: { getApp: () => { currentUser?: { id: string } } };
+            }
+          ).__iinpublic_app?.getApp?.()?.currentUser?.id || '',
+      );
+      expect(jerryId.length).toBeGreaterThan(0);
+
+      await expect
+        .poll(
+          async () => {
+            const res = await pageTom.request.get(
+              `${gunBaseURL()}/api/users/${encodeURIComponent(jerryId)}/incoming-talks`,
+              { headers: { 'Cache-Control': 'no-cache' } },
+            );
+            if (!res.ok()) return 'bad-status';
+            const rows = (await res.json()) as Array<{ title?: string }>;
+            return rows.some((r) => String(r.title || '').includes('Parent-room-only isolation'))
+              ? 'found'
+              : 'absent';
+          },
+          {
+            timeout: 25_000,
+            intervals: [500],
+            message: 'USA-only peer must not get IN registration from North America parent broadcast',
+          },
+        )
+        .toBe('absent');
     } finally {
       await pageTom.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
       await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});

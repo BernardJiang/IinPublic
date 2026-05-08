@@ -53,10 +53,10 @@ and `docs/specs/iinpublic-technical-specification.md`.
 - [x] Tag catalog + bulk broadcast preamble + interest targeting (**shipped** 2026-05-07): curated catalog, mandatory preamble modal, server `broadcastTargetTags` ∩ profile interests (`tag_targeting`).
 - [ ] Tag / interest **analytics depth** beyond broadcast pick counts — trend windows, surfaced in Me or admin dashboards, richer FR-TG/FR-BM reporting.
   (**Shipped incremental 2026-05-07:** in-memory cumulative counts per slug on `POST .../register-receivers-for-broadcast`, `GET /api/stats/broadcast-tags`, preamble chips sorted by popularity when API available.)
-- [x] Bulk-send targeting beyond single-room (**shipped** 2026-05-07): preamble audience **room vs hierarchy subtree**, optional **distance cap** (`broadcast_max_distance`), **preview** endpoint `POST /api/talks/broadcast-receiver-preview`, wired client + subtree Gun announce + integration coverage.
-  (FR-BM-1..5 / UI §13.4 surface area; richer **analytics** still open above.)
+- [x] Bulk-send from chatrooms: **same chatroom id only** (FR-BM-7) — no implicit delivery to descendant hierarchy rooms; optional **distance cap** (`broadcast_max_distance`); **`POST /api/talks/broadcast-receiver-preview`** for eligible-count preview; wired client + single-room Gun announce + integration coverage.
+  (FR-BM-1..5, FR-BM-7 / UI §13.4 surface area; richer **analytics** still open above.)
 - [x] Add E2E tests for multi-chatroom broadcasts and chatroom hierarchy navigation:
-  `tests/e2e/19-chatroom-hierarchy-broadcast.spec.ts` — Global list expand, **USA** + **Germany** paths, regional broadcast, **North America + subtree** reaching a **USA** peer.
+  `tests/e2e/19-chatroom-hierarchy-broadcast.spec.ts` — hierarchy expand, **USA** + **Germany** paths, regional broadcast **in the same leaf room**, and **regression**: parent (**North America**) broadcast does **not** register inbox for a peer joined only under **USA**.
   (e2e-test-coverage.md: Critical Gaps #2, #3)
 
 ### P2 — Complete analytics, guardrails, and docs

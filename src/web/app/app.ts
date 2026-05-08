@@ -6,7 +6,7 @@ import { WebTalkService } from '../services/web-talk-service';
 import { WebConversationService } from '../services/web-conversation-service';
 import { UIManager } from '../ui/ui-manager';
 import { LocationPrivacy } from '../../shared/location';
-import { getAllChatroomIds, getChatroomSubtreeIds } from '../../shared/chatroom-hierarchy';
+import { getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { buildTalkIdentityKey, computeTalkIdFromTalkData } from '../../shared/talk-content-id';
 
@@ -813,9 +813,10 @@ export class IinPublicApp {
 
   /**
    * Other users who should receive server-side IN registration for a broadcast.
-   * Merge UI members with Gun `chatrooms/.../users` ids. Do not return UI-only early: the detail
-   * panel can show an empty list (or debounce lag) while the graph already has other members, which
-   * used to skip all register-receivers POSTs and leave only a single Gun-driven /received.
+   * **Gun `chatrooms/<id>/users` is authoritative** for who is in the room. We only use the UI
+   * member list to fill nicer `stageName`s. A naive merge used to keep stale UI rows from a prior
+   * room (e.g. Global) after switching to a parent/child node, which incorrectly registered bulk
+   * sends for users who were no longer in that chatroom id.
    */
   private async resolveBroadcastReceivers(
     chatroomId: string,
@@ -824,60 +825,45 @@ export class IinPublicApp {
     const me = this.currentUser?.id;
     if (!me) return [];
 
-    const byId = new Map<string, { userId: string; stageName: string }>();
+    const uiNameById = new Map<string, string>();
     for (const m of uiMembers || []) {
       if (!m.userId || m.userId === me) continue;
       const name = String(m.stageName || m.userId).trim() || m.userId;
-      byId.set(m.userId, { userId: m.userId, stageName: name });
+      uiNameById.set(m.userId, name);
     }
 
+    let gunMemberIds: string[] = [];
     const mergeGunOnce = async () => {
       const ids = await this.chatroomService.getActiveMembers(chatroomId);
-      for (const id of ids) {
-        if (!id || id === me || byId.has(id)) continue;
-        byId.set(id, { userId: id, stageName: id });
-      }
+      gunMemberIds = [...new Set(ids.filter((id) => !!id && id !== me))];
     };
 
     await mergeGunOnce();
 
-    if (byId.size === 0) {
+    if (gunMemberIds.length === 0) {
       for (let i = 0; i < 16; i++) {
         await new Promise((r) => setTimeout(r, 200));
         await mergeGunOnce();
-        if (byId.size > 0) break;
+        if (gunMemberIds.length > 0) break;
       }
     } else {
       await new Promise((r) => setTimeout(r, 150));
       await mergeGunOnce();
     }
 
-    return Array.from(byId.values());
+    return gunMemberIds.map((userId) => ({
+      userId,
+      stageName: uiNameById.get(userId) || userId,
+    }));
   }
 
-  /** Unique receiver ids for broadcast audience preview (room vs hierarchy subtree). */
+  /** Merges Gun members with UI list ids for bulk-send audience preview (same chatroom only). */
   private async collectBroadcastAudienceReceiverIds(args: {
     chatroomId: string;
-    audienceScope: 'room' | 'subtree';
     members: Array<{ userId: string; stageName: string }>;
   }): Promise<string[]> {
     const me = this.currentUser?.id?.trim();
     if (!me) return [];
-    if (args.audienceScope === 'subtree') {
-      const subtree = getChatroomSubtreeIds(args.chatroomId);
-      const roomIds = subtree.length > 0 ? subtree : [args.chatroomId];
-      const idSet = new Set<string>();
-      for (const roomId of roomIds) {
-        const merged = await this.resolveBroadcastReceivers(
-          roomId,
-          roomId === args.chatroomId ? args.members : [],
-        );
-        for (const m of merged) {
-          if (m.userId && m.userId !== me) idSet.add(m.userId);
-        }
-      }
-      return [...idSet];
-    }
     const merged = await this.resolveBroadcastReceivers(args.chatroomId, args.members);
     return merged.map((m) => m.userId).filter((id) => id && id !== me);
   }
@@ -1608,14 +1594,13 @@ export class IinPublicApp {
       }
     });
 
-    // Broadcast broadcastable OUT talks: server register + Gun announce (room or subtree scope)
+    // Broadcast broadcastable OUT talks: server register + Gun announce (current chatroom only)
     this.uiManager.on(
       'broadcastTalk',
       async (data: {
         chatroomId: string;
         members: Array<{ userId: string; stageName: string }>;
         broadcastTargetTags?: string[];
-        broadcastAudienceScope?: 'room' | 'subtree';
         broadcastMaxDistanceMiles?: number;
       }) => {
         try {
@@ -1631,19 +1616,7 @@ export class IinPublicApp {
             return;
           }
 
-          const useSubtree = data.broadcastAudienceScope === 'subtree';
-          const subtreeIds = useSubtree ? getChatroomSubtreeIds(chatroomId) : [];
-          const roomIds =
-            useSubtree && subtreeIds.length > 0 ? subtreeIds : [chatroomId];
-
-          const receiversById = new Map<string, { userId: string; stageName: string }>();
-          for (const rid of roomIds) {
-            const merged = await this.resolveBroadcastReceivers(rid, rid === chatroomId ? (data.members ?? []) : []);
-            for (const m of merged) {
-              if (!receiversById.has(m.userId)) receiversById.set(m.userId, m);
-            }
-          }
-          const receivers = Array.from(receiversById.values());
+          const receivers = await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
 
           const broadcastTargetTags = data.broadcastTargetTags;
           const broadcastMaxDistanceMiles =
@@ -1656,7 +1629,7 @@ export class IinPublicApp {
           console.log(`📢 broadcastTalk: ${targetCount} receivers resolved`);
           if (targetCount === 0) {
             console.warn(
-              '⚠️ broadcastTalk: no receivers resolved (UI members + Gun fallback empty). IN list will not populate for others.',
+              '⚠️ broadcastTalk: no receivers resolved (no other active members in this chatroom id per Gun). IN list will not populate for others.',
             );
           }
           const gun = this.gunService.getGun();
@@ -1693,13 +1666,13 @@ export class IinPublicApp {
             );
             sent += batch.length;
           }
-          // Phase 2: announce all talks via Gun AFTER all POSTs complete (every room in scope).
+          // Phase 2: Gun announce — single room only (no descendant hierarchy fan-out).
           for (const { tid, talk } of talkPayloads) {
             const announcementKey = this.buildChatroomTalkAnnouncementKey(
               tid,
               String(talk.authorId || this.currentUser!.id),
             );
-            const payload = {
+            gun.get('chatrooms').get(chatroomId).get('talks').get(announcementKey).put({
               talkId: tid,
               title: talk.title,
               authorId: talk.authorId,
@@ -1707,17 +1680,11 @@ export class IinPublicApp {
               type: talk.type,
               timestamp: new Date().toISOString(),
               questionCount: talk.questions?.length ?? 0,
-            };
-            for (const rid of roomIds) {
-              gun.get('chatrooms').get(rid).get('talks').get(announcementKey).put(payload);
-            }
+            });
           }
-          const scopePhrase =
-            useSubtree && subtreeIds.length > 0
-              ? `${roomIds.length} room${roomIds.length !== 1 ? 's' : ''}`
-              : 'the room';
+          this.uiManager.setBroadcastBulkAck(sent, targetCount);
           this.uiManager.showNotification(
-            `Sent ${sent} talk${sent !== 1 ? 's' : ''} to ${targetCount} user${targetCount !== 1 ? 's' : ''} (${scopePhrase}).`,
+            `Sent ${sent} talk${sent !== 1 ? 's' : ''} to ${targetCount} user${targetCount !== 1 ? 's' : ''} in this chatroom.`,
             'success',
           );
         } catch (error) {

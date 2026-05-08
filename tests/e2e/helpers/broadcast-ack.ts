@@ -1,0 +1,29 @@
+import { expect, type Page } from '@playwright/test';
+
+/**
+ * Wait until the app records a completed bulk broadcast on `#broadcast-bulk-ack`.
+ * Prefer this over matching success toast text: toasts auto-dismiss after ~3s while
+ * `register-receivers-for-broadcast` can still be running for a long time.
+ */
+export async function waitForBroadcastBulkAck(
+  page: Page,
+  expected: { talksSent: number; receivers: number },
+  timeout = 120_000,
+): Promise<void> {
+  const loc = page.locator('[data-testid="broadcast-bulk-ack"]');
+  await expect
+    .poll(
+      async () => {
+        const sent = await loc.getAttribute('data-broadcast-talks-sent');
+        const recv = await loc.getAttribute('data-broadcast-receivers');
+        if (sent === String(expected.talksSent) && recv === String(expected.receivers)) return 'ok';
+        return `${sent ?? '?'}/${recv ?? '?'}`;
+      },
+      {
+        timeout,
+        intervals: [200, 400, 800],
+        message: `broadcast-bulk-ack: expect talksSent=${expected.talksSent} receivers=${expected.receivers}`,
+      },
+    )
+    .toBe('ok');
+}

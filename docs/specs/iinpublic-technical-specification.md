@@ -322,6 +322,7 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
   - Other user-defined chatrooms
   - Filtered subsets (tags, distance radius)
 - **FR-BM-6**: When a talk is auto-captured from chat, its stored draft SHALL include the mandatory tags/location preamble (FR-TG-6) before bulk sending is allowed.
+- **FR-BM-7 (Same chatroom bulk send)**: When bulk sending from a **chatrooms** context, receivers SHALL be limited to users present in **that chatroom node only**. The system SHALL NOT implicitly deliver bulk sends to descendant rooms in the location hierarchy (e.g. broadcasting from **North America** MUST NOT reach members joined only under **United States**). Reach to other hierarchy nodes requires the sender to join that node explicitly.
 
 ### 3.8 Spam Prevention & Moderation
 
@@ -1439,6 +1440,8 @@ const BulkSendComponents = {
 };
 ```
 
+Bulk send from the Chatrooms UI SHALL honor **FR-BM-7**: the audience is the **current room id** only (plus optional tag/distance filters on that pool). There is no “parent room + all sub-rooms” fan-out; otherwise senders could stay on a high-level room and reach everyone below without joining leaf rooms.
+
 ### 13.5 Survey Analytics Dashboard
 
 ```javascript
@@ -1919,7 +1922,7 @@ The following items are known open questions or planned post-MVP work:
 | Survey type flag | FR-TK-6, FR-SV-1 | `TalkSchema.isSurvey` |
 | Auto flow capture | FR-TK-7 | `AutoCapturePattern`, `src-shared/talks/TalkEngine.ts` |
 | Editor-only for branching/survey | FR-TK-8, FR-SV-6 | `TalkEditor` guards |
-| Bulk send + batching | FR-BM-1 – FR-BM-6, §6.2 | `BulkTalkSender` |
+| Bulk send + batching | FR-BM-1 – FR-BM-7, §6.2 | `BulkTalkSender` |
 | Rate limits + block-based capacity | FR-SP-1 – FR-SP-6 | `RateLimiter`, `ReputationManager` |
 | Age verification / adult gating | FR-SP-7, FR-SP-8 | `ContentFilter` |
 | Survey aggregation | FR-SV-1 – FR-SV-5, §12.6 | `SurveyManager` |

@@ -2,8 +2,6 @@ import type { GPSCoordinate } from './types';
 import { receiverPassesBroadcastTagTargeting } from './broadcast-tag-targeting';
 import { haversineMilesBetween } from './talk-intake-filters';
 
-export type BulkBroadcastAudienceScope = 'room' | 'subtree';
-
 /**
  * Audience filters applied at bulk register/receiver-preview time (receiver-side checks only).
  */

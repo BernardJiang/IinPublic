@@ -10,12 +10,13 @@ Covers **`docs/TODO.md` P1** item: multi-chatroom / hierarchy behaviours beyond 
 2. **Regional broadcast (same leaf room)**  
    Tom and Jerry both in **United States**. Tom OUT-broadcasts one flow talk; preamble confirmed; Jerry’s **Talks → IN** shows the talk title.
 
-3. **Continent room + subtree audience**  
-   Tom opens **North America** (internal node). Jerry stays in **United States**. Tom broadcasts with preamble **“This room + descendant rooms”** so receiver resolution includes child rooms; Jerry still receives server/Gun delivery.
+3. **Parent room must not fan out to child rooms**  
+   Tom joins **North America** (internal node). Jerry joins **United States** only. Tom broadcasts; Jerry MUST NOT appear in bulk receiver registration (asserted via `GET /api/users/:id/incoming-talks` staying absent for the broadcast title).
 
 4. **Second region smoke — Europe → Germany**  
    Confirms another branch of `CHATROOM_HIERARCHY` opens without depending on member sync.
 
-## Helper change
+## Helpers
 
-- `tests/e2e/helpers/broadcast-preamble.ts` accepts optional `{ audienceScope: 'subtree' }` to drive the bulk-send preamble radios in subtree tests.
+- `tests/e2e/helpers/broadcast-preamble.ts` — confirms tag preamble (chip + Send) when the bulk-send modal is shown.
+- `tests/e2e/helpers/broadcast-ack.ts` — waits for `#broadcast-bulk-ack` data attributes (bulk send can outlast the 3s success toast).

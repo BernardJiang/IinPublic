@@ -6,6 +6,7 @@ import { delay, headless, afterAction, afterNav, afterLoad } from './helpers/tim
 import { gunBaseURL, e2eTestScreenshotsDir } from './helpers/ports';
 import { countIncomingTalkSlots } from './helpers/talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
+import { waitForBroadcastBulkAck } from './helpers/broadcast-ack';
 import {
   TAG_NAMES,
   TALK_TITLES,
@@ -160,10 +161,8 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     await confirmBroadcastTagPreambleIfVisible(pageTechSupport);
     await waitForTabActive(pageTechSupport, 'chatrooms');
 
-    const techSupportWaitsForBroadcastToast = async () => {
-      await expect(
-        pageTechSupport.getByText(/Sent 20 talks to 1 user (?:(\(the room\)\.)|in the room\.)/),
-      ).toBeVisible({ timeout: 120_000 });
+    const techSupportWaitsForBroadcastAck = async () => {
+      await waitForBroadcastBulkAck(pageTechSupport, { talksSent: 20, receivers: 1 });
     };
 
     const tomAnswersEachIncomingAsItArrives = async () => {
@@ -187,7 +186,7 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
       }
     };
 
-    await Promise.all([techSupportWaitsForBroadcastToast(), tomAnswersEachIncomingAsItArrives()]);
+    await Promise.all([techSupportWaitsForBroadcastAck(), tomAnswersEachIncomingAsItArrives()]);
 
     console.log('\n📍 STEP 8: End verification — TechSupport and Tom both confirm 20 completed (no earlier batch wait)');
     await afterLoad();

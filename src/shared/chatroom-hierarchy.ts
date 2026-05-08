@@ -145,28 +145,9 @@ export const CHATROOM_HIERARCHY: ChatroomNode = {
 };
 
 /**
- * `rootRoomId` and all descendant hierarchy rooms (depth-first). Empty array if id is not under `CHATROOM_HIERARCHY`.
+ * Flatten the tree structure into a list of all chatroom IDs
+ * Useful for subscribing to all chatrooms
  */
-export function getChatroomSubtreeIds(rootRoomId: string): string[] {
-  const out: string[] = [];
-  const walk = (node: ChatroomNode): void => {
-    out.push(node.id);
-    if (node.children) node.children.forEach(walk);
-  };
-  const find = (node: ChatroomNode): boolean => {
-    if (node.id === rootRoomId) {
-      walk(node);
-      return true;
-    }
-    for (const c of node.children || []) {
-      if (find(c)) return true;
-    }
-    return false;
-  };
-  find(CHATROOM_HIERARCHY);
-  return out;
-}
-
 export function getAllChatroomIds(): string[] {
   const ids: string[] = [];
 
