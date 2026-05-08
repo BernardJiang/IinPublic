@@ -2,12 +2,13 @@ import type express from 'express';
 import { checkIfIgnore, checkIfMatch } from '../../shared/talk-engine';
 import { buildTalkIdentityKey, canonicalIdentityKeyFromStoredCluster } from '../../shared/talk-content-id';
 import { TALK_CONTENT_HASH_ID } from '../../shared/incoming-talk-ids';
-import { intakeFilterRejectReasons } from '../../shared/talk-intake-filters';
+import { intakeFilterRejectReasons, subjectTextMatchesBlockedTerms } from '../../shared/talk-intake-filters';
 import type { TalkType } from '../../shared/talk-stats';
 import type { GPSCoordinate, TalkIntakeFilters } from '../../shared/types';
 import { appendBulkBroadcastDeliveryRejections } from '../../shared/bulk-broadcast-audience';
 import { logger } from '../logger';
 import { GunService } from '../services/gun-service';
+import type { SymmetricTalkEdgeRateLimiter } from '../services/symmetric-talk-edge-rate-limit';
 
 type TalkDeliveryRouteDeps = {
   gunService: GunService;
@@ -76,6 +77,9 @@ type TalkDeliveryRouteDeps = {
   }) => Promise<void>;
   /** When set, incremented once per valid register-receivers call that includes targeting tags */
   recordBroadcastTargetTagUses?: (tagStrings: string[]) => void;
+  /** Server-wide substring blocklist (`IINPUBLIC_SERVER_BLOCKED_TERMS`). */
+  getServerBlockedTerms?: () => string[];
+  symmetricTalkEdgeLimiter?: SymmetricTalkEdgeRateLimiter;
 };
 
 export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkDeliveryRouteDeps): void {
@@ -98,6 +102,8 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
     getSenderBulkSendCapacity,
     recordTalkStatsResponse,
     recordBroadcastTargetTagUses,
+    getServerBlockedTerms,
+    symmetricTalkEdgeLimiter,
   } = deps;
 
   function filterReasonsForTalk(
@@ -122,6 +128,10 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       isAdult: !!talkData?.isAdult,
     };
     reasons.push(...intakeFilterRejectReasons(subject, context.talkFilters, context.location));
+    const serverTerms = getServerBlockedTerms?.() ?? [];
+    if (serverTerms.length > 0 && subjectTextMatchesBlockedTerms(subject, serverTerms)) {
+      reasons.push('moderation_server_terms');
+    }
     if (talkData?.isAdult && !context.ageVerified) {
       reasons.push('age_gate');
     }
@@ -242,6 +252,11 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       const receiverIdsCapped = uniqueReceiverIds.slice(0, senderCapacity);
       const capacityDropped = Math.max(0, uniqueReceiverIds.length - receiverIdsCapped.length);
       const senderPivot = await resolveBulkSenderPivot(senderId, talkData);
+      const nowPrev = Date.now();
+      const senderColdForPreview =
+        !symmetricTalkEdgeLimiter ||
+        symmetricTalkEdgeLimiter.cooldownMs <= 0 ||
+        symmetricTalkEdgeLimiter.isCold(senderId, nowPrev);
       let eligibleReceivers = 0;
       for (const receiverId of receiverIdsCapped) {
         const rejectedBy = await computeBulkRejectionsForReceiver(
@@ -252,7 +267,16 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
           broadcastMaxDistanceMiles,
           senderPivot,
         );
-        if (rejectedBy.length === 0) eligibleReceivers += 1;
+        if (rejectedBy.length > 0) continue;
+        if (!senderColdForPreview) continue;
+        if (
+          symmetricTalkEdgeLimiter &&
+          symmetricTalkEdgeLimiter.cooldownMs > 0 &&
+          !symmetricTalkEdgeLimiter.isCold(receiverId, nowPrev)
+        ) {
+          continue;
+        }
+        eligibleReceivers += 1;
       }
       res.json({
         totalCandidates: uniqueReceiverIds.length,
@@ -298,6 +322,16 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         return;
       }
 
+      const now = Date.now();
+      if (
+        symmetricTalkEdgeLimiter &&
+        symmetricTalkEdgeLimiter.cooldownMs > 0 &&
+        (!symmetricTalkEdgeLimiter.isCold(senderId, now) || !symmetricTalkEdgeLimiter.isCold(receiverId, now))
+      ) {
+        res.json({ registered: false, filteredOut: true, rejectedBy: ['symmetric_rate_limit'] });
+        return;
+      }
+
       const resolvedSenderName = senderName || (await getUserStageName(senderId, 'Someone'));
       const resolvedReceiverName = receiverName || (await getUserStageName(receiverId, 'Someone'));
 
@@ -308,6 +342,10 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         senderId,
         senderName: resolvedSenderName,
       });
+
+      if (symmetricTalkEdgeLimiter && symmetricTalkEdgeLimiter.cooldownMs > 0) {
+        symmetricTalkEdgeLimiter.touchPair(senderId, receiverId, Date.now());
+      }
 
       const savedTemplate = await gunService.getPath([
         'talkAnswerTemplateByUser',
@@ -426,6 +464,25 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       const resolvedSenderName = senderName || (await getUserStageName(senderId, 'Someone'));
       let registered = 0;
       let filteredOut = capacityDropped;
+      const nowBulk = Date.now();
+      if (
+        symmetricTalkEdgeLimiter &&
+        symmetricTalkEdgeLimiter.cooldownMs > 0 &&
+        !symmetricTalkEdgeLimiter.isCold(senderId, nowBulk)
+      ) {
+        clearTimeout(hardTimeout);
+        if (!res.headersSent) {
+          res.json({
+            ok: true,
+            registered: 0,
+            filteredOut: receiverIdsCapped.length + capacityDropped,
+            senderCapacity,
+            capacityDropped,
+            symmetricRateLimited: true,
+          });
+        }
+        return;
+      }
       for (const receiverId of receiverIdsCapped) {
         const rejectedBy = await computeBulkRejectionsForReceiver(
           receiverId,
@@ -439,6 +496,14 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
           filteredOut += 1;
           continue;
         }
+        if (
+          symmetricTalkEdgeLimiter &&
+          symmetricTalkEdgeLimiter.cooldownMs > 0 &&
+          !symmetricTalkEdgeLimiter.isCold(receiverId, nowBulk)
+        ) {
+          filteredOut += 1;
+          continue;
+        }
         await upsertIncomingTalkForUser({
           receiverId,
           talkId,
@@ -446,7 +511,13 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
           senderId,
           senderName: resolvedSenderName,
         });
+        if (symmetricTalkEdgeLimiter && symmetricTalkEdgeLimiter.cooldownMs > 0) {
+          symmetricTalkEdgeLimiter.touch(receiverId, nowBulk);
+        }
         registered += 1;
+      }
+      if (registered > 0 && symmetricTalkEdgeLimiter && symmetricTalkEdgeLimiter.cooldownMs > 0) {
+        symmetricTalkEdgeLimiter.touch(senderId, nowBulk);
       }
       clearTimeout(hardTimeout);
       if (!res.headersSent) res.json({ ok: true, registered, filteredOut, senderCapacity, capacityDropped });

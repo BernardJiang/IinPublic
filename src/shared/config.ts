@@ -53,6 +53,11 @@ export const CONFIG = {
     MESSAGE_PER_MINUTE: 60,
     BULK_SEND_DAILY: 5,
   },
+  /** Min milliseconds between a user's send/receive talk edges (0 = off). Env: IINPUBLIC_SYMMETRIC_TALK_EDGE_COOLDOWN_MS */
+  SYMMETRIC_TALK_EDGE_COOLDOWN_MS: Math.max(
+    0,
+    parseInt(getEnv('IINPUBLIC_SYMMETRIC_TALK_EDGE_COOLDOWN_MS', '0'), 10) || 0,
+  ),
 
   // Talk structure
   MAX_QUESTIONS_PER_TALK: 20,

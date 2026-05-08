@@ -26,6 +26,8 @@ import { registerPeerRoutes } from './routes/peer-routes';
 import { registerStatsRoutes } from './routes/stats-routes';
 import { registerTalkDeliveryRoutes } from './routes/talk-delivery-routes';
 import { BroadcastTagPopularityStore } from './services/broadcast-tag-popularity-store';
+import { SymmetricTalkEdgeRateLimiter } from './services/symmetric-talk-edge-rate-limit';
+import { getServerBlockedTerms } from './server-blocked-terms';
 import { registerSystemRoutes } from './routes/system-routes';
 import { registerTalkRoutes } from './routes/talk-routes';
 import { registerUserRoutes } from './routes/user-routes';
@@ -55,6 +57,7 @@ class IinPublicServer {
   };
 
   private broadcastTagPopularityStore = new BroadcastTagPopularityStore();
+  private symmetricTalkEdgeRateLimiter = new SymmetricTalkEdgeRateLimiter(CONFIG.SYMMETRIC_TALK_EDGE_COOLDOWN_MS);
 
   constructor() {
     this.app = express();
@@ -389,6 +392,8 @@ class IinPublicServer {
     this.statsIdx.byDay.clear();
     this.statsIdx.byRegion.clear();
     this.statsIdx.byTalkAnswer.clear();
+    this.broadcastTagPopularityStore.resetForTesting();
+    this.symmetricTalkEdgeRateLimiter.resetForTesting();
   }
 
   /** Gun cannot store `questions: [...]` on incoming cluster nodes; we keep `questionsJson` instead. */
@@ -740,6 +745,8 @@ class IinPublicServer {
       recordTalkStatsResponse: this.recordTalkStatsResponse.bind(this),
       recordBroadcastTargetTagUses: (tags: string[]) =>
         this.broadcastTagPopularityStore.recordFromTargetTags(tags),
+      getServerBlockedTerms: () => getServerBlockedTerms(),
+      symmetricTalkEdgeLimiter: this.symmetricTalkEdgeRateLimiter,
     });
 
     registerChatroomRoutes(this.app, { chatroomManager: this.chatroomManager });
@@ -758,6 +765,7 @@ class IinPublicServer {
       recordTalkStatsResponse: this.recordTalkStatsResponse.bind(this),
       getTalkResponses: this.getTalkResponses.bind(this),
       getBroadcastTagPopularity: () => this.broadcastTagPopularityStore.getSnapshot(),
+      getBroadcastTagTrends: (days: number) => this.broadcastTagPopularityStore.getTrends(days),
     });
 
   }

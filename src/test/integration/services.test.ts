@@ -268,6 +268,7 @@ describe('Service Integration Tests', () => {
         requireGoodGrammar: true,
         blockDirtyWords: true,
         allowedTalkTypes: ['tag'],
+        customBlockedTerms: [],
       });
       expect(mockGet).toHaveBeenCalledWith('user-talk-filters/user123');
     });

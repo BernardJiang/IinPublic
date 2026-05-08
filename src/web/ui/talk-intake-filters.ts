@@ -1,5 +1,5 @@
 import type { TalkIntakeFilters } from '../../shared/types';
-import { getDefaultTalkIntakeFilters } from '../../shared/talk-intake-filters';
+import { getDefaultTalkIntakeFilters, normalizeCustomBlockedTerms } from '../../shared/talk-intake-filters';
 export {
   type IncomingTalkFilterSubject as IncomingTalkCluster,
   filterIncomingTalkClusters,
@@ -23,6 +23,7 @@ export function getTalkIntakeFilters(): TalkIntakeFilters {
       allowedTalkTypes: Array.isArray(parsed.allowedTalkTypes) && parsed.allowedTalkTypes.length > 0
         ? parsed.allowedTalkTypes
         : ['flow', 'survey', 'tag', 'route'],
+      customBlockedTerms: normalizeCustomBlockedTerms(parsed.customBlockedTerms ?? []),
     };
   } catch {
     return getDefaultTalkIntakeFilters();

@@ -8,6 +8,8 @@ export interface TalkIntakeFilters {
   requireGoodGrammar: boolean;
   blockDirtyWords: boolean;
   allowedTalkTypes: Array<'flow' | 'survey' | 'tag' | 'route'>;
+  /** Receiver-defined substrings (normalized server-side) that reject matching talk text. */
+  customBlockedTerms?: string[];
 }
 
 export interface KnownPerson {

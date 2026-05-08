@@ -12,6 +12,7 @@ import request from 'supertest';
 import { registerTalkDeliveryRoutes } from '../../server/routes/talk-delivery-routes';
 import { registerStatsRoutes } from '../../server/routes/stats-routes';
 import { BroadcastTagPopularityStore } from '../../server/services/broadcast-tag-popularity-store';
+import { SymmetricTalkEdgeRateLimiter } from '../../server/services/symmetric-talk-edge-rate-limit';
 import { checkIfMatch } from '../../shared/talk-engine';
 import { buildTalkIdentityKey } from '../../shared/talk-content-id';
 import { TALK_CONTENT_HASH_ID } from '../../shared/incoming-talk-ids';
@@ -64,7 +65,10 @@ const NON_MATCHING_ANSWERS = [{ questionId: 'q1', answerId: 'a_red', answerText:
 // Test server factory
 // ---------------------------------------------------------------------------
 
-function buildTestServer() {
+function buildTestServer(opts?: {
+  symmetricCooldownMs?: number;
+  getServerBlockedTerms?: () => string[];
+}) {
   const app = express();
   app.use(express.json());
 
@@ -84,6 +88,7 @@ function buildTestServer() {
   const blockedByUser = new Map<string, Set<string>>();
   const senderBulkCapacity = new Map<string, number>();
   const broadcastTagPopularityStore = new BroadcastTagPopularityStore();
+  const symmetricTalkEdgeLimiter = new SymmetricTalkEdgeRateLimiter(opts?.symmetricCooldownMs ?? 0);
 
   // Stub GunService — null reads, no-op writes.
   const gunService = {
@@ -314,6 +319,8 @@ function buildTestServer() {
     getSenderBulkSendCapacity,
     recordTalkStatsResponse,
     recordBroadcastTargetTagUses: (tags: string[]) => broadcastTagPopularityStore.recordFromTargetTags(tags),
+    symmetricTalkEdgeLimiter,
+    ...(opts?.getServerBlockedTerms ? { getServerBlockedTerms: opts.getServerBlockedTerms } : {}),
   });
 
   registerStatsRoutes(app, {
@@ -322,6 +329,7 @@ function buildTestServer() {
     recordTalkStatsResponse,
     getTalkResponses,
     getBroadcastTagPopularity: () => broadcastTagPopularityStore.getSnapshot(),
+    getBroadcastTagTrends: (days: number) => broadcastTagPopularityStore.getTrends(days),
   });
 
   return {
@@ -483,6 +491,55 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(res.body.filteredOut).toBe(true);
       expect(res.body.rejectedBy).toContain('intake_dirty_words');
       expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
+    });
+
+    it('does not register when receiver custom blocked phrases match talk text', async () => {
+      const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
+      userDeliveryContext.set(RESPONDER_ID, {
+        talkFilters: {
+          ...getDefaultTalkIntakeFilters(['en']),
+          customBlockedTerms: ['forbiddenword'],
+        },
+        ageVerified: false,
+      });
+      const talk = { ...TALK_DATA, title: 'Title with forbiddenword inside' };
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/received`)
+        .send({ receiverId: RESPONDER_ID, senderId: SENDER_ID, senderName: SENDER_NAME, talkData: talk });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registered).toBe(false);
+      expect(res.body.rejectedBy).toContain('intake_custom_blocked_terms');
+      expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
+    });
+
+    it('does not register when server-wide blocked terms match talk text', async () => {
+      const { app, incomingTalksMap } = buildTestServer({
+        getServerBlockedTerms: () => ['serverbad'],
+      });
+      const talk = { ...TALK_DATA, title: 'Hello serverbad there' };
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/received`)
+        .send({ receiverId: RESPONDER_ID, senderId: SENDER_ID, senderName: SENDER_NAME, talkData: talk });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registered).toBe(false);
+      expect(res.body.rejectedBy).toContain('moderation_server_terms');
+      expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
+    });
+
+    it('rejects a second /received for the same pair while symmetric cooldown is active', async () => {
+      const { app } = buildTestServer({ symmetricCooldownMs: 3_600_000 });
+      await request(app)
+        .post(`/api/talks/${talkId}/received`)
+        .send({ receiverId: RESPONDER_ID, senderId: SENDER_ID, senderName: SENDER_NAME, talkData: TALK_DATA });
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/received`)
+        .send({ receiverId: RESPONDER_ID, senderId: SENDER_ID, senderName: SENDER_NAME, talkData: TALK_DATA });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registered).toBe(false);
+      expect(res.body.rejectedBy).toContain('symmetric_rate_limit');
     });
   });
 
@@ -675,6 +732,31 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(incomingTalksMap.get('user_carol')).toBeUndefined();
     });
 
+    it('returns symmetricRateLimited when sender is still in cooldown after a prior bulk', async () => {
+      const { app, incomingTalksMap } = buildTestServer({ symmetricCooldownMs: 3_600_000 });
+      await request(app)
+        .post(`/api/talks/${talkId}/register-receivers-for-broadcast`)
+        .send({
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          receiverIds: [RESPONDER_ID],
+          talkData: TALK_DATA,
+        });
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/register-receivers-for-broadcast`)
+        .send({
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          receiverIds: ['user_carol'],
+          talkData: TALK_DATA,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registered).toBe(0);
+      expect(res.body.symmetricRateLimited).toBe(true);
+      expect(incomingTalksMap.get('user_carol')).toBeUndefined();
+    });
+
     it('drops all receivers when sender bulk capacity is zero', async () => {
       const { app, incomingTalksMap, senderBulkCapacity } = buildTestServer();
       senderBulkCapacity.set(SENDER_ID, 0);
@@ -721,6 +803,33 @@ describe('Talk loop — incoming registration → answer submission → match �
       );
       expect(byId.coffee).toBe(1);
       expect(byId.tennis).toBe(1);
+    });
+
+    it('exposes GET /api/stats/broadcast-tags/trends with UTC day buckets', async () => {
+      jest.useFakeTimers({ advanceTimers: true });
+      jest.setSystemTime(new Date('2026-05-07T12:00:00.000Z'));
+      try {
+        const { app } = buildTestServer();
+        await request(app)
+          .post(`/api/talks/${talkId}/register-receivers-for-broadcast`)
+          .send({
+            senderId: SENDER_ID,
+            senderName: SENDER_NAME,
+            receiverIds: [RESPONDER_ID],
+            talkData: TALK_DATA,
+            broadcastTargetTags: ['Coffee'],
+          });
+        const tr = await request(app).get('/api/stats/broadcast-tags/trends?days=3');
+        expect(tr.status).toBe(200);
+        expect(tr.body.days).toContain('2026-05-07');
+        const coffee = (tr.body.tags as Array<{ id: string; total: number; byDay: number[] }>).find(
+          (t) => t.id === 'coffee',
+        );
+        expect(coffee?.total).toBe(1);
+        expect(coffee?.byDay?.some((n: number) => n >= 1)).toBe(true);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('does not bump popularity when broadcastTargetTags omitted', async () => {

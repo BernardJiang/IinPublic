@@ -44,4 +44,13 @@ describe('intakeFilterRejectReasons', () => {
   it('returns empty array when subject passes', () => {
     expect(intakeFilterRejectReasons({ type: 'flow', title: 'Hi', language: 'en' }, baseFilters)).toEqual([]);
   });
+
+  it('returns intake_custom_blocked_terms when a custom phrase matches', () => {
+    expect(
+      intakeFilterRejectReasons(
+        { type: 'flow', title: 'Win a prize today', language: 'en' },
+        { ...baseFilters, customBlockedTerms: ['prize', 'lottery'] },
+      ),
+    ).toEqual(['intake_custom_blocked_terms']);
+  });
 });

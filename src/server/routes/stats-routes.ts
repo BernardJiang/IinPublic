@@ -10,6 +10,7 @@ import {
 } from '../../shared/talk-stats';
 import { logger } from '../logger';
 import { TalkService } from '../services/talk-service';
+import type { BroadcastTagTrendSnapshot } from '../services/broadcast-tag-popularity-store';
 
 type StatsRouteDeps = {
   talkService: TalkService;
@@ -25,14 +26,30 @@ type StatsRouteDeps = {
   getTalkResponses: (talkId: string, opts?: { from?: number; to?: number }) => TalkResponse[];
   /** Broadcast preamble tag picks (slug → cumulative count) */
   getBroadcastTagPopularity?: () => Array<{ id: string; count: number }>;
+  /** UTC day-bucketed bumps for targeting preamble tags */
+  getBroadcastTagTrends?: (lastNDays: number) => BroadcastTagTrendSnapshot;
 };
 
 export function registerStatsRoutes(app: express.Application, deps: StatsRouteDeps): void {
-  const { talkService, getUserRegion, recordTalkStatsResponse, getTalkResponses, getBroadcastTagPopularity } = deps;
+  const {
+    talkService,
+    getUserRegion,
+    recordTalkStatsResponse,
+    getTalkResponses,
+    getBroadcastTagPopularity,
+    getBroadcastTagTrends,
+  } = deps;
 
   app.get('/api/stats/broadcast-tags', (_req, res) => {
     const tags = getBroadcastTagPopularity?.() ?? [];
     res.json({ tags });
+  });
+
+  app.get('/api/stats/broadcast-tags/trends', (req, res) => {
+    const raw = Number(req.query.days);
+    const days = Number.isFinite(raw) ? raw : 7;
+    const snapshot = getBroadcastTagTrends?.(days) ?? { days: [], tags: [] };
+    res.json(snapshot);
   });
 
   // STAT-01 — record a response in the generic stats log.

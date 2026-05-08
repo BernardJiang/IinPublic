@@ -84,6 +84,7 @@ import {
   setTalkIntakeFilters,
 } from './talk-intake-filters';
 import { LocationPrivacy } from '../../shared/location';
+import { normalizeCustomBlockedTerms } from '../../shared/talk-intake-filters';
 
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
@@ -193,6 +194,58 @@ export class UIManager extends EventEmitter {
       .split('-')
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
+  }
+
+  private async refreshMeBroadcastTagTrends(): Promise<void> {
+    const host = document.getElementById('me-broadcast-tag-trends');
+    if (!host) return;
+    const base = (this.apiBase || '').trim();
+    if (!base) {
+      host.innerHTML =
+        '<p style="font-size:0.85em;color:#6b7280;margin:0;">Connect to the app server to load broadcast tag trends.</p>';
+      return;
+    }
+    host.innerHTML = '<p style="font-size:0.85em;color:#6b7280;margin:0;">Loading…</p>';
+    try {
+      const c = new AbortController();
+      const tid = window.setTimeout(() => c.abort(), 4000);
+      const res = await fetch(`${base}/api/stats/broadcast-tags/trends?days=7`, { signal: c.signal });
+      window.clearTimeout(tid);
+      if (!res.ok) throw new Error(String(res.status));
+      const body = (await res.json()) as {
+        days?: string[];
+        tags?: Array<{ id?: string; total?: number; byDay?: number[] }>;
+      };
+      const days = Array.isArray(body.days) ? body.days : [];
+      const tags = Array.isArray(body.tags) ? body.tags : [];
+      if (tags.length === 0) {
+        host.innerHTML =
+          '<p style="font-size:0.85em;color:#6b7280;margin:0;">No broadcast targeting data yet. Bulk sends with preamble tags populate this view.</p>';
+        return;
+      }
+      const top = tags.slice(0, 8);
+      const head =
+        '<tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid #e5e7eb;">Tag</th><th style="text-align:right;padding:4px 8px;border-bottom:1px solid #e5e7eb;">Window</th><th style="text-align:left;padding:4px 8px;border-bottom:1px solid #e5e7eb;">Daily (UTC)</th></tr>';
+      const rows = top
+        .map((row) => {
+          const id = escapeHtml(String(row.id || ''));
+          const byDay = Array.isArray(row.byDay) ? row.byDay : [];
+          const sumWindow = byDay.reduce((a, b) => a + (Number(b) || 0), 0);
+          const mini = days
+            .map((d, i) => `${escapeHtml(d.slice(5))}:${byDay[i] ?? 0}`)
+            .join(' ');
+          return `<tr><td style="padding:6px 8px;font-weight:600;">${id}</td><td style="padding:6px 8px;text-align:right;">${sumWindow}</td><td style="padding:6px 8px;font-size:0.78em;color:#374151;">${mini}</td></tr>`;
+        })
+        .join('');
+      host.innerHTML = `
+        <p style="font-size:0.82em;color:#6b7280;margin:0 0 10px 0;">Rolling UTC day buckets for broadcast preamble tags (interest targeting).</p>
+        <div style="overflow:auto;max-width:100%;">
+          <table style="width:100%;border-collapse:collapse;font-size:0.88em;">${head}${rows}</table>
+        </div>`;
+    } catch {
+      host.innerHTML =
+        '<p style="font-size:0.85em;color:#b45309;margin:0;">Could not load broadcast tag trends.</p>';
+    }
   }
 
   /**
@@ -1127,8 +1180,16 @@ export class UIManager extends EventEmitter {
                   .join('')}
               </div>
             </div>
+            <label style="display:flex; flex-direction:column; gap:4px; font-size:0.9em;">
+              <span>Custom blocked phrases (optional)</span>
+              <textarea id="talk-filter-custom-blocked" rows="3" placeholder="Comma or lines, e.g. wire transfer, prize winner" style="padding:8px;border:1px solid #d1d5db;border-radius:8px;font-family:inherit;resize:vertical;">${escapeHtml((talkFilters.customBlockedTerms ?? []).join(', '))}</textarea>
+            </label>
           </div>
           <p style="margin: 10px 0 0 0; font-size: 0.82em; color: #6b7280;">These filters hide incoming talks that do not match your current intake rules.</p>
+        </div>
+        <div style="margin-top: 20px; padding: 16px; background: #f0fdf4; border-radius: 12px; text-align: left; border:1px solid #bbf7d0;">
+          <div style="font-weight: 700; color: #111827; margin-bottom: 8px;">Broadcast tag trends</div>
+          <div id="me-broadcast-tag-trends" data-testid="me-broadcast-tag-trends"></div>
         </div>
         <div style="margin-top: 20px; padding: 16px; background: #fff7ed; border-radius: 12px; text-align: left;">
           <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
@@ -1152,6 +1213,8 @@ export class UIManager extends EventEmitter {
           </div>
         </div>
       `;
+
+      void this.refreshMeBroadcastTagTrends();
 
       // Add event listener for edit stage name button
       const editBtn = document.getElementById('edit-stagename-btn');
@@ -1182,6 +1245,11 @@ export class UIManager extends EventEmitter {
         const grammarEl = document.getElementById('talk-filter-grammar') as HTMLInputElement | null;
         const dirtyEl = document.getElementById('talk-filter-dirty-words') as HTMLInputElement | null;
         const typeEls = Array.from(document.querySelectorAll('.talk-filter-type')) as HTMLInputElement[];
+        const customBlockedEl = document.getElementById('talk-filter-custom-blocked') as HTMLTextAreaElement | null;
+        const customParts = (customBlockedEl?.value ?? '')
+          .split(/[\n,]+/)
+          .map((s) => s.trim())
+          .filter(Boolean);
         const nextFilters: TalkIntakeFilters = {
           allowedLanguages: (languagesEl?.value || 'en')
             .split(',')
@@ -1190,6 +1258,7 @@ export class UIManager extends EventEmitter {
           requireGoodGrammar: !!grammarEl?.checked,
           blockDirtyWords: !!dirtyEl?.checked,
           allowedTalkTypes: typeEls.filter((el) => el.checked).map((el) => el.value as any),
+          customBlockedTerms: normalizeCustomBlockedTerms(customParts),
         };
         if (minDistanceEl && minDistanceEl.value !== '') {
           nextFilters.minDistanceMiles = Number(minDistanceEl.value);
@@ -1223,6 +1292,7 @@ export class UIManager extends EventEmitter {
         const el = document.getElementById(id) as HTMLInputElement | null;
         el?.addEventListener('change', syncTalkFilters);
       });
+      document.getElementById('talk-filter-custom-blocked')?.addEventListener('input', syncTalkFilters);
       document.querySelectorAll('.talk-filter-type').forEach((el) => {
         el.addEventListener('change', syncTalkFilters);
       });

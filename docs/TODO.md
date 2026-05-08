@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-05-09
+Last updated: 2026-05-07
 
 This file is the prioritized backlog for the current repository. It should track the
 highest-value spec gaps that still exist in the working codebase, not features that are
@@ -31,7 +31,7 @@ and `docs/specs/iinpublic-technical-specification.md`.
 ### P0 — Close the largest product/spec gaps
 
 - [x] Profile polish (shipped 2026-05-06): Q&A visibility (public / contacts-only / private), server-side filtering on user fetch, interest `TagCategory` catalog + defaults. **Remaining:** per-viewer allowlists, reputation-section visibility (FR-UM-7), deeper FR-UM audit.
-- [ ] Intake & moderation — **delivery path (shipped):** `POST /api/talks/:id/received` and `register-receivers-for-broadcast` apply shared `intakeFilterRejectReasons` + `age_gate` + blocks (`talk-delivery-routes.ts`). Leave this **unchecked** until **extended** moderation lands: custom word lists, rate limits (FR-SP-1/2), sender-side enforcement, and remaining `ContentFilter` / intake gaps.
+- [x] Intake & moderation — **extended (2026-05-07):** custom blocked phrases on `TalkIntakeFilters` (Me → Talk Filters), server list via `IINPUBLIC_SERVER_BLOCKED_TERMS`, symmetric send/receive cooldown via `IINPUBLIC_SYMMETRIC_TALK_EDGE_COOLDOWN_MS` on `/received`, bulk register (and preview eligibility). Reject codes include `intake_custom_blocked_terms`, `moderation_server_terms`, `symmetric_rate_limit`. Daily/weekly numeric caps from CONFIG remain a further step (see P2).
   (2026-05-07: receiver GPS for distance rules is also read from `users/:id/location` where the web client writes blurred location.)
   (Spec: FR-BF-3..6, FR-SP-3, FR-SP-7, FR-SP-8)
 - [x] Blocking + reputation integration (shipped 2026-05-06): `register-receivers-for-broadcast` now enforces sender bulk capacity derived from reputation (including block-count penalties), with integration coverage for capped and zero-capacity senders.
@@ -51,8 +51,8 @@ and `docs/specs/iinpublic-technical-specification.md`.
   a user may switch to one remote room at a time, and when travelling they should no longer appear in any home-region room until they return
   (Spec intent override for FR-CR-9, FR-CR-10)
 - [x] Tag catalog + bulk broadcast preamble + interest targeting (**shipped** 2026-05-07): curated catalog, mandatory preamble modal, server `broadcastTargetTags` ∩ profile interests (`tag_targeting`).
-- [ ] Tag / interest **analytics depth** beyond broadcast pick counts — trend windows, surfaced in Me or admin dashboards, richer FR-TG/FR-BM reporting.
-  (**Shipped incremental 2026-05-07:** in-memory cumulative counts per slug on `POST .../register-receivers-for-broadcast`, `GET /api/stats/broadcast-tags`, preamble chips sorted by popularity when API available.)
+- [x] Tag / interest **analytics depth** — rolling **UTC day** windows in `BroadcastTagPopularityStore`, `GET /api/stats/broadcast-tags/trends?days=N`, **Me** tab “Broadcast tag trends” table; cumulative `GET /api/stats/broadcast-tags` unchanged for preamble chip sorting.
+  (**Earlier 2026-05-07:** in-memory cumulative counts per slug on `POST .../register-receivers-for-broadcast`.)
 - [x] Bulk-send from chatrooms: **same chatroom id only** (FR-BM-7) — no implicit delivery to descendant hierarchy rooms; optional **distance cap** (`broadcast_max_distance`); **`POST /api/talks/broadcast-receiver-preview`** for eligible-count preview; wired client + single-room Gun announce + integration coverage.
   (FR-BM-1..5, FR-BM-7 / UI §13.4 surface area; richer **analytics** still open above.)
 - [x] Add E2E tests for multi-chatroom broadcasts and chatroom hierarchy navigation:
@@ -68,8 +68,8 @@ and `docs/specs/iinpublic-technical-specification.md`.
   (testing-benchmarks.md — W1/W2 still valid if radisk/disk persistence returns)
 - [ ] Extend survey analytics beyond the Talks-tab **Results** modal (STAT-01 summary): dedicated dashboard, anonymity defaults, exports, and follow-up handling for survey endings
   (Spec: FR-SV-2..5, UI §13.5 — per-question counts/% now visible for survey OUT rows)
-- [ ] Add actual send/receive rate-limit enforcement and tests for cooldown behaviour
-  (Spec: FR-SP-1, FR-SP-2)
+- [ ] Add **daily/weekly numeric quotas** (distinct from symmetric cooldown) and tests if product requires hard caps per CONFIG.RATE_LIMITS
+  (Spec: FR-SP-1, FR-SP-2 — symmetric cooldown + tests shipped via `IINPUBLIC_SYMMETRIC_TALK_EDGE_COOLDOWN_MS`)
 - [ ] Add E2E tests for reputation system flows:
   vouch age-verify votes accumulating to threshold, star rating impact, block count propagation
   (e2e-test-coverage.md: Medium Gap #10)

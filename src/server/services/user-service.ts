@@ -1,7 +1,7 @@
 import { User, Reputation, GPSCoordinate, RelationshipLabel, KnownPerson, TalkIntakeFilters } from '../../shared/types';
 import { GunService } from './gun-service';
 import { generateRandomStageName } from '../../shared/user-utils';
-import { getDefaultTalkIntakeFilters } from '../../shared/talk-intake-filters';
+import { getDefaultTalkIntakeFilters, normalizeCustomBlockedTerms } from '../../shared/talk-intake-filters';
 import { CONFIG } from '../../shared/config';
 import { filterProfileAttributesForViewer } from '../../shared/profile-privacy';
 
@@ -76,6 +76,9 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
         allowedTalkTypes: Array.isArray(parsed.allowedTalkTypes) && parsed.allowedTalkTypes.length > 0
           ? parsed.allowedTalkTypes
           : fallback.allowedTalkTypes,
+        customBlockedTerms: normalizeCustomBlockedTerms(
+          parsed.customBlockedTerms ?? fallback.customBlockedTerms,
+        ),
       };
     } catch {
       return fallback;

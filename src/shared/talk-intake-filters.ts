@@ -13,12 +13,35 @@ export type IncomingTalkFilterSubject = {
   isAdult?: boolean;
 };
 
+const MAX_CUSTOM_BLOCKED_TERMS = 50;
+const MAX_CUSTOM_TERM_LEN = 48;
+
+/** Normalize per-user custom blocked phrases from JSON or UI (lowercase, deduped, capped). */
+export function normalizeCustomBlockedTerms(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (out.length >= MAX_CUSTOM_BLOCKED_TERMS) break;
+    const t = String(item ?? '')
+      .trim()
+      .toLowerCase()
+      .slice(0, MAX_CUSTOM_TERM_LEN);
+    if (t.length < 2) continue;
+    if (seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
+}
+
 export function getDefaultTalkIntakeFilters(seedLanguages?: string[]): TalkIntakeFilters {
   return {
     allowedLanguages: Array.isArray(seedLanguages) && seedLanguages.length > 0 ? seedLanguages : ['en'],
     requireGoodGrammar: false,
     blockDirtyWords: false,
     allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
+    customBlockedTerms: [],
   };
 }
 
@@ -52,6 +75,16 @@ function parseQuestionsText(subject: IncomingTalkFilterSubject): string[] {
 
 function buildSubjectText(subject: IncomingTalkFilterSubject): string {
   return [subject.title || '', ...parseQuestionsText(subject)].filter(Boolean).join('. ');
+}
+
+/** Case-insensitive substring match against talk title + question/answer text. */
+export function subjectTextMatchesBlockedTerms(
+  subject: IncomingTalkFilterSubject,
+  terms: readonly string[],
+): boolean {
+  if (!terms.length) return false;
+  const haystack = buildSubjectText(subject).toLowerCase();
+  return terms.some((t) => t.length > 0 && haystack.includes(t.toLowerCase()));
 }
 
 /** Miles between two WGS84 points — shared with bulk broadcast targeting. */
@@ -153,6 +186,11 @@ export function intakeFilterRejectReasons(
       filters.allowedLanguages,
     );
     if (!result.passed) return ['intake_dirty_words'];
+  }
+
+  const custom = normalizeCustomBlockedTerms(filters.customBlockedTerms);
+  if (custom.length > 0 && subjectTextMatchesBlockedTerms(subject, custom)) {
+    return ['intake_custom_blocked_terms'];
   }
 
   return [];
