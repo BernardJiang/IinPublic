@@ -72,9 +72,8 @@ and `docs/specs/iinpublic-technical-specification.md`.
   (Spec: FR-SP-1, FR-SP-2 — symmetric cooldown + tests shipped via `IINPUBLIC_SYMMETRIC_TALK_EDGE_COOLDOWN_MS`)
 - [x] Add E2E tests for reputation system flows: vouch age-verify votes accumulating to threshold, star rating impact, block count propagation
   (e2e-test-coverage.md: Medium Gap #10) (implemented 2026-05-08)
-- [ ] Add E2E tests for messaging edge cases:
-  message read receipts, messaging history persistence across re-login, messaging after unblock
-  (e2e-test-coverage.md: Medium Gap #5)
+- [x] Add E2E tests for messaging edge cases: message read receipts, messaging history persistence across re-login, messaging after unblock
+  (e2e-test-coverage.md: Medium Gap #5) (implemented 2026-05-08)
 - [ ] Add E2E tests for talk deletion by creator mid-broadcast, broadcast cancellation/abortion,
   and talk matching across chatroom boundaries
   (e2e-test-coverage.md: Medium Gaps #6, #8, #9)
