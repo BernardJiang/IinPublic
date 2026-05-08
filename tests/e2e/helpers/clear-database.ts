@@ -1,6 +1,43 @@
 import type { Page } from '@playwright/test';
 import { gunBaseURL } from './ports';
 
+/** Let in-memory graph swaps and any in-flight relay frames drain (parallel E2E). */
+const SETTLE_AFTER_CLEAR_MS = 250;
+
+const CLEAR_POST_MAX_ATTEMPTS = 12;
+
+const CLEAR_POST_INITIAL_BACKOFF_MS = 80;
+
+/** Poll until the Gun/API process for this worker answers /health (Playwright webServer startup). */
+const HEALTH_POLL_INTERVAL_MS = 100;
+
+const HEALTH_POLL_MAX_WAIT_MS = 25_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Wait until `GET /health` succeeds on this worker's Gun port.
+ * Use before destructive clears so we do not spam POSTs while the server is still binding.
+ */
+export async function waitForGunApiReady(maxWaitMs = HEALTH_POLL_MAX_WAIT_MS): Promise<void> {
+  const healthUrl = `${gunBaseURL()}/health`;
+  const deadline = Date.now() + maxWaitMs;
+  let lastErr = '';
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(healthUrl, { method: 'GET' });
+      if (res.ok) return;
+      lastErr = `${res.status} ${res.statusText}`;
+    } catch (e) {
+      lastErr = (e as Error).message;
+    }
+    await sleep(HEALTH_POLL_INTERVAL_MS);
+  }
+  throw new Error(`waitForGunApiReady: ${healthUrl} not reachable after ${maxWaitMs}ms (${lastErr})`);
+}
+
 /**
  * Clear all Gun.js databases (client IndexedDB + server in-memory graph).
  *
@@ -8,17 +45,45 @@ import { gunBaseURL } from './ports';
  * so no filesystem cleanup is needed. The HTTP endpoint clears the server's in-memory
  * graph, incomingTalksMap, and conversationsMap atomically. Each worker targets only
  * its own server port, so parallel workers never interfere.
+ *
+ * **Synchronization:** polls `/health` first, retries `POST /api/test/clear-database` with
+ * exponential backoff on network or 5xx errors, then waits a short settle window so Gun
+ * sync teardown mid-clear is less likely to race the next test (`docs/TODO.md` P2).
  */
-export async function clearGunDatabases() {
+export async function clearGunDatabases(): Promise<void> {
+  await waitForGunApiReady();
+
   const clearUrl = `${gunBaseURL()}/api/test/clear-database`;
-  try {
-    const response = await fetch(clearUrl, { method: 'POST' });
-    if (!response.ok) {
-      console.warn('  ⚠️ Failed to clear Gun.js server database:', response.statusText);
+  let lastErr = '';
+
+  for (let attempt = 0; attempt < CLEAR_POST_MAX_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(clearUrl, { method: 'POST' });
+      const raw = await response.text();
+      let body: { success?: boolean; error?: string } = {};
+      try {
+        body = raw ? (JSON.parse(raw) as typeof body) : {};
+      } catch {
+        /* non-JSON body */
+      }
+
+      if (response.ok && body.success !== false) {
+        await sleep(SETTLE_AFTER_CLEAR_MS);
+        return;
+      }
+
+      lastErr = body.error || `${response.status} ${response.statusText} ${raw.slice(0, 120)}`;
+    } catch (error) {
+      lastErr = (error as Error).message;
     }
-  } catch (error) {
-    console.warn(`  ⚠️ Could not connect to Gun.js server at ${clearUrl}:`, (error as Error).message);
+
+    const backoff = Math.min(2000, CLEAR_POST_INITIAL_BACKOFF_MS * 2 ** attempt);
+    await sleep(backoff);
   }
+
+  throw new Error(
+    `clearGunDatabases: POST ${clearUrl} failed after ${CLEAR_POST_MAX_ATTEMPTS} attempts (${lastErr})`,
+  );
 }
 
 /**

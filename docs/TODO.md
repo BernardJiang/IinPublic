@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-05-08
+Last updated: 2026-05-09
 
 This file is the prioritized backlog for the current repository. It should track the
 highest-value spec gaps that still exist in the working codebase, not features that are
@@ -61,9 +61,11 @@ and `docs/specs/iinpublic-technical-specification.md`.
 
 ### P2 — Complete analytics, guardrails, and docs
 
-- [ ] Add retry or explicit synchronization guard in tests that depend on Gun graph stability after `clearGunDatabases()`:
-  prevents timeout failures when Gun sync tears down mid-write during parallel runs
-  (testing-benchmarks.md — W1/W2 remain recommended for CI until disk race is fixed)
+- [x] Add retry or explicit synchronization guard after `clearGunDatabases()` (**shipped** 2026-05-09):
+  `tests/e2e/helpers/clear-database.ts` polls `GET /health` until the worker Gun server is up, retries
+  `POST /api/test/clear-database` with exponential backoff on failure, then **250ms settle** after a
+  successful clear. Throws if the graph cannot be cleared (fail-fast vs. continuing on a dirty graph).
+  (testing-benchmarks.md — W1/W2 still valid if radisk/disk persistence returns)
 - [ ] Extend survey analytics beyond the Talks-tab **Results** modal (STAT-01 summary): dedicated dashboard, anonymity defaults, exports, and follow-up handling for survey endings
   (Spec: FR-SV-2..5, UI §13.5 — per-question counts/% now visible for survey OUT rows)
 - [ ] Add actual send/receive rate-limit enforcement and tests for cooldown behaviour
