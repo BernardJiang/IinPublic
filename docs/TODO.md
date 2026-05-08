@@ -53,8 +53,8 @@ and `docs/specs/iinpublic-technical-specification.md`.
 - [x] Tag catalog + bulk broadcast preamble + interest targeting (**shipped** 2026-05-07): curated catalog, mandatory preamble modal, server `broadcastTargetTags` ∩ profile interests (`tag_targeting`).
 - [ ] Tag / interest **analytics depth** beyond broadcast pick counts — trend windows, surfaced in Me or admin dashboards, richer FR-TG/FR-BM reporting.
   (**Shipped incremental 2026-05-07:** in-memory cumulative counts per slug on `POST .../register-receivers-for-broadcast`, `GET /api/stats/broadcast-tags`, preamble chips sorted by popularity when API available.)
-- [ ] Expand bulk-send targeting beyond "current room broadcast" with selectable audience scope, distance radius, tag filters, and user-count preview
-  (Spec: FR-BM-1..5, UI §13.4)
+- [x] Bulk-send targeting beyond single-room (**shipped** 2026-05-07): preamble audience **room vs hierarchy subtree**, optional **distance cap** (`broadcast_max_distance`), **preview** endpoint `POST /api/talks/broadcast-receiver-preview`, wired client + subtree Gun announce + integration coverage.
+  (FR-BM-1..5 / UI §13.4 surface area; richer **analytics** still open above.)
 - [ ] Add E2E tests for multi-chatroom broadcasts and chatroom hierarchy navigation:
   broadcast to region-specific rooms (e.g., "North America"), navigate Global → Region → City hierarchy
   (e2e-test-coverage.md: Critical Gaps #2, #3)

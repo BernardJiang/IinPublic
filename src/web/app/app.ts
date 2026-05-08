@@ -6,7 +6,7 @@ import { WebTalkService } from '../services/web-talk-service';
 import { WebConversationService } from '../services/web-conversation-service';
 import { UIManager } from '../ui/ui-manager';
 import { LocationPrivacy } from '../../shared/location';
-import { getAllChatroomIds } from '../../shared/chatroom-hierarchy';
+import { getAllChatroomIds, getChatroomSubtreeIds } from '../../shared/chatroom-hierarchy';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { buildTalkIdentityKey, computeTalkIdFromTalkData } from '../../shared/talk-content-id';
 
@@ -56,6 +56,9 @@ export class IinPublicApp {
     this.uiManager.initialize();
     this.uiManager.setApiBase(this.getBackendApiBase());
     this.uiManager.setCurrentLocation(location);
+    this.uiManager.setBroadcastAudiencePreviewCollector((args) =>
+      this.collectBroadcastAudienceReceiverIds(args),
+    );
 
     // Get or create user
     await this.initializeUser();
@@ -755,6 +758,7 @@ export class IinPublicApp {
     talk: Talk,
     members: Array<{ userId: string; stageName: string }>,
     broadcastTargetTags?: string[],
+    broadcastMaxDistanceMiles?: number,
   ): Promise<boolean> {
     const me = this.currentUser;
     if (!me?.id || members.length === 0) return true;
@@ -779,6 +783,11 @@ export class IinPublicApp {
               talkData: talk,
               ...(broadcastTargetTags && broadcastTargetTags.length > 0
                 ? { broadcastTargetTags }
+                : {}),
+              ...(typeof broadcastMaxDistanceMiles === 'number' &&
+              Number.isFinite(broadcastMaxDistanceMiles) &&
+              broadcastMaxDistanceMiles > 0
+                ? { broadcastMaxDistanceMiles }
                 : {}),
             }),
             signal: controller.signal,
@@ -844,6 +853,33 @@ export class IinPublicApp {
     }
 
     return Array.from(byId.values());
+  }
+
+  /** Unique receiver ids for broadcast audience preview (room vs hierarchy subtree). */
+  private async collectBroadcastAudienceReceiverIds(args: {
+    chatroomId: string;
+    audienceScope: 'room' | 'subtree';
+    members: Array<{ userId: string; stageName: string }>;
+  }): Promise<string[]> {
+    const me = this.currentUser?.id?.trim();
+    if (!me) return [];
+    if (args.audienceScope === 'subtree') {
+      const subtree = getChatroomSubtreeIds(args.chatroomId);
+      const roomIds = subtree.length > 0 ? subtree : [args.chatroomId];
+      const idSet = new Set<string>();
+      for (const roomId of roomIds) {
+        const merged = await this.resolveBroadcastReceivers(
+          roomId,
+          roomId === args.chatroomId ? args.members : [],
+        );
+        for (const m of merged) {
+          if (m.userId && m.userId !== me) idSet.add(m.userId);
+        }
+      }
+      return [...idSet];
+    }
+    const merged = await this.resolveBroadcastReceivers(args.chatroomId, args.members);
+    return merged.map((m) => m.userId).filter((id) => id && id !== me);
   }
 
   /**
@@ -1572,13 +1608,15 @@ export class IinPublicApp {
       }
     });
 
-    // Broadcast all my created talks to all other users in the current room
+    // Broadcast broadcastable OUT talks: server register + Gun announce (room or subtree scope)
     this.uiManager.on(
       'broadcastTalk',
       async (data: {
         chatroomId: string;
         members: Array<{ userId: string; stageName: string }>;
         broadcastTargetTags?: string[];
+        broadcastAudienceScope?: 'room' | 'subtree';
+        broadcastMaxDistanceMiles?: number;
       }) => {
         try {
           const chatroomId = data.chatroomId || this.chatroomService.getCurrentChatroomId();
@@ -1592,8 +1630,28 @@ export class IinPublicApp {
             // UI already shows this notification when broadcastableCount === 0; skip duplicate to avoid double toast
             return;
           }
-          const receivers = await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
+
+          const useSubtree = data.broadcastAudienceScope === 'subtree';
+          const subtreeIds = useSubtree ? getChatroomSubtreeIds(chatroomId) : [];
+          const roomIds =
+            useSubtree && subtreeIds.length > 0 ? subtreeIds : [chatroomId];
+
+          const receiversById = new Map<string, { userId: string; stageName: string }>();
+          for (const rid of roomIds) {
+            const merged = await this.resolveBroadcastReceivers(rid, rid === chatroomId ? (data.members ?? []) : []);
+            for (const m of merged) {
+              if (!receiversById.has(m.userId)) receiversById.set(m.userId, m);
+            }
+          }
+          const receivers = Array.from(receiversById.values());
+
           const broadcastTargetTags = data.broadcastTargetTags;
+          const broadcastMaxDistanceMiles =
+            typeof data.broadcastMaxDistanceMiles === 'number' &&
+            Number.isFinite(data.broadcastMaxDistanceMiles) &&
+            data.broadcastMaxDistanceMiles > 0
+              ? data.broadcastMaxDistanceMiles
+              : undefined;
           const targetCount = receivers.length;
           console.log(`📢 broadcastTalk: ${targetCount} receivers resolved`);
           if (targetCount === 0) {
@@ -1624,18 +1682,24 @@ export class IinPublicApp {
             const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
             await Promise.all(
               batch.map(({ tid, talk }) =>
-                this.registerReceiversOnServerForTalk(tid, talk, receivers, broadcastTargetTags),
+                this.registerReceiversOnServerForTalk(
+                  tid,
+                  talk,
+                  receivers,
+                  broadcastTargetTags,
+                  broadcastMaxDistanceMiles,
+                ),
               ),
             );
             sent += batch.length;
           }
-          // Phase 2: announce all talks in the chatroom via Gun.js AFTER all POSTs complete.
+          // Phase 2: announce all talks via Gun AFTER all POSTs complete (every room in scope).
           for (const { tid, talk } of talkPayloads) {
             const announcementKey = this.buildChatroomTalkAnnouncementKey(
               tid,
               String(talk.authorId || this.currentUser!.id),
             );
-            gun.get('chatrooms').get(chatroomId).get('talks').get(announcementKey).put({
+            const payload = {
               talkId: tid,
               title: talk.title,
               authorId: talk.authorId,
@@ -1643,10 +1707,17 @@ export class IinPublicApp {
               type: talk.type,
               timestamp: new Date().toISOString(),
               questionCount: talk.questions?.length ?? 0,
-            });
+            };
+            for (const rid of roomIds) {
+              gun.get('chatrooms').get(rid).get('talks').get(announcementKey).put(payload);
+            }
           }
+          const scopePhrase =
+            useSubtree && subtreeIds.length > 0
+              ? `${roomIds.length} room${roomIds.length !== 1 ? 's' : ''}`
+              : 'the room';
           this.uiManager.showNotification(
-            `Sent ${sent} talk${sent !== 1 ? 's' : ''} to ${targetCount} user${targetCount !== 1 ? 's' : ''} in the room.`,
+            `Sent ${sent} talk${sent !== 1 ? 's' : ''} to ${targetCount} user${targetCount !== 1 ? 's' : ''} (${scopePhrase}).`,
             'success',
           );
         } catch (error) {

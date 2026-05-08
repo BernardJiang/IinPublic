@@ -96,6 +96,15 @@ export class UIManager extends EventEmitter {
   private currentUserStageName: string = '';
   private currentLocation: GPSCoordinate | undefined = undefined;
 
+  /** Resolves merged receiver ids for `POST /api/talks/broadcast-receiver-preview` when scope spans multiple rooms (set by `IinPublicApp`). */
+  private broadcastAudiencePreviewCollector?:
+    | ((args: {
+        chatroomId: string;
+        audienceScope: 'room' | 'subtree';
+        members: Array<{ userId: string; stageName: string }>;
+      }) => Promise<string[]>)
+    | undefined;
+
   /** Other users in the current chatroom detail view (excludes self); used for broadcast + server-side IN registration. */
   getCurrentChatroomMembers(): Array<{ userId: string; stageName: string }> {
     return [...this.currentChatroomMembers];
@@ -129,6 +138,20 @@ export class UIManager extends EventEmitter {
 
   setCurrentLocation(location: GPSCoordinate | undefined): void {
     this.currentLocation = location;
+  }
+
+  setBroadcastAudiencePreviewCollector(
+    fn:
+      | ((
+          args: {
+            chatroomId: string;
+            audienceScope: 'room' | 'subtree';
+            members: Array<{ userId: string; stageName: string }>;
+          },
+        ) => Promise<string[]>)
+      | undefined,
+  ): void {
+    this.broadcastAudiencePreviewCollector = fn;
   }
 
   setCustomChatroomsFromServer(rows: CustomChatroomRow[]): void {
@@ -175,15 +198,29 @@ export class UIManager extends EventEmitter {
   }
 
   /**
-   * Before bulk broadcast: confirm blurred location summary and choose ≥1 targeting tag(s).
-   * Tags overlap with receivers' profile interests server-side (`register-receivers-for-broadcast`).
-   * Chip order favors higher server-side popularity when stats are reachable.
+   * Before bulk broadcast: confirm blurred location summary, audience scope / optional distance,
+   * and choose ≥1 targeting tag(s). Tags intersect receivers' interests server-side
+   * (`register-receivers-for-broadcast`). Chip order favors popularity when `/api/stats/broadcast-tags` works.
    */
-  showBroadcastTagPreamble(): Promise<{ tags: string[] } | null> {
-    return this.openBroadcastTagPreambleModal();
+  showBroadcastTagPreamble(ctx: {
+    chatroomId: string;
+    members: Array<{ userId: string; stageName: string }>;
+  }): Promise<{
+    tags: string[];
+    broadcastAudienceScope: 'room' | 'subtree';
+    broadcastMaxDistanceMiles?: number;
+  } | null> {
+    return this.openBroadcastTagPreambleModal(ctx);
   }
 
-  private async openBroadcastTagPreambleModal(): Promise<{ tags: string[] } | null> {
+  private async openBroadcastTagPreambleModal(ctx: {
+    chatroomId: string;
+    members: Array<{ userId: string; stageName: string }>;
+  }): Promise<{
+    tags: string[];
+    broadcastAudienceScope: 'room' | 'subtree';
+    broadcastMaxDistanceMiles?: number;
+  } | null> {
     let orderedEntries = [...BROADCAST_TAG_CATALOG_ENTRIES];
     const base = (this.apiBase || '').trim();
     if (base) {
@@ -223,6 +260,14 @@ export class UIManager extends EventEmitter {
         : 'unknown (enable location for distance rules)';
     const regionHtml = `<strong>Approximate broadcast region:</strong> ${escapeHtml(regionPhrase)}`;
 
+    const distanceOptionsHtml = ['', '5', '10', '25', '50', '100', '250', '500']
+      .map((mi) =>
+        mi === ''
+          ? '<option value="">No distance limit</option>'
+          : `<option value="${mi}">${mi} mi</option>`,
+      )
+      .join('');
+
     const chipButtonsHtml = orderedEntries
       .map((e) => `<button type="button" class="btn broadcast-chip" style="font-size:0.85em;">${escapeHtml(e.label)}</button>`)
       .join('');
@@ -242,6 +287,24 @@ export class UIManager extends EventEmitter {
               ${regionHtml}
             </p>
           </div>
+          <div style="padding:12px 20px 0;font-size:0.85em;line-height:1.45;color:#334155;">
+            <div style="font-weight:600;margin-bottom:6px;">Audience</div>
+            <label style="display:flex;gap:8px;margin:4px 0;align-items:center;cursor:pointer;">
+              <input type="radio" name="broadcast-audience-scope" value="room" checked />
+              <span>This chatroom only</span>
+            </label>
+            <label style="display:flex;gap:8px;margin:4px 0;align-items:center;cursor:pointer;">
+              <input type="radio" name="broadcast-audience-scope" value="subtree" />
+              <span>This room + descendant rooms</span>
+            </label>
+            <div style="margin-top:10px;">
+              <label for="broadcast-max-distance-select" style="display:block;margin-bottom:4px;">Max receiver distance (from sender / talk pin)</label>
+              <select id="broadcast-max-distance-select" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid #cbd5e1;">
+                ${distanceOptionsHtml}
+              </select>
+            </div>
+            <p data-testid="broadcast-audience-preview" style="margin-top:10px;color:#4338ca;font-size:0.92em;line-height:1.35;min-height:1.35em;"></p>
+          </div>
           <div style="padding:8px 20px 0;font-size:0.82em;color:#64748b;">Pick at least one tag (popular choices listed first)</div>
           <div id="broadcast-preamble-chips" style="padding:12px 20px; display:flex; flex-wrap:wrap; gap:8px; max-height:220px; overflow-y:auto;">
             ${chipButtonsHtml}
@@ -255,6 +318,91 @@ export class UIManager extends EventEmitter {
       document.body.appendChild(modal);
 
       const selected = new Set<string>();
+      let previewGeneration = 0;
+      let previewDebounceTimer: number | undefined;
+
+      const readAudienceScope = (): 'room' | 'subtree' => {
+        const el = modal.querySelector('input[name="broadcast-audience-scope"]:checked') as HTMLInputElement | null;
+        return el?.value === 'subtree' ? 'subtree' : 'room';
+      };
+
+      const readMaxDistance = (): number | undefined => {
+        const sel = modal.querySelector('#broadcast-max-distance-select') as HTMLSelectElement | null;
+        const v = sel?.value ?? '';
+        if (v === '') return undefined;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : undefined;
+      };
+
+      const scheduleAudiencePreviewRefresh = (): void => {
+        if (previewDebounceTimer !== undefined) window.clearTimeout(previewDebounceTimer);
+        previewDebounceTimer = window.setTimeout(() => void runAudiencePreviewRefresh(), 400);
+      };
+
+      const runAudiencePreviewRefresh = async (): Promise<void> => {
+        const previewEl = modal.querySelector('[data-testid="broadcast-audience-preview"]');
+        if (!(previewEl instanceof HTMLElement)) return;
+        const seq = ++previewGeneration;
+        const senderId = (this.currentUserId || '').trim();
+        const base = (this.apiBase || '').trim();
+        const firstBid = this.getBroadcastableTalkIds()[0];
+        const fp = firstBid ? this.getBroadcastTalkPayload(firstBid) : null;
+        const audienceScope = readAudienceScope();
+        const broadcastMaxDistanceMiles = readMaxDistance();
+
+        let receiverIds = ctx.members.map((m) => m.userId).filter((id) => id && id !== senderId);
+        if (this.broadcastAudiencePreviewCollector) {
+          try {
+            receiverIds = await this.broadcastAudiencePreviewCollector({
+              chatroomId: ctx.chatroomId,
+              audienceScope,
+              members: ctx.members,
+            });
+          } catch {
+            /* keep primary-room ids */
+          }
+        }
+
+        if (!senderId || !fp || !base) {
+          if (seq === previewGeneration) previewEl.textContent = '';
+          return;
+        }
+
+        previewEl.textContent = 'Estimating audience…';
+
+        try {
+          const controller = new AbortController();
+          const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+          const res = await fetch(`${base}/api/talks/broadcast-receiver-preview`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({
+              senderId,
+              receiverIds,
+              talkId: fp.id,
+              talkData: fp,
+              broadcastTargetTags: Array.from(selected.values()),
+              broadcastMaxDistanceMiles,
+            }),
+          }).finally(() => window.clearTimeout(timeoutId));
+          if (seq !== previewGeneration) return;
+          if (!res.ok) {
+            previewEl.textContent = 'Could not estimate audience (server error).';
+            return;
+          }
+          const body = (await res.json()) as {
+            totalCandidates?: number;
+            eligibleReceivers?: number;
+          };
+          const pool = typeof body.totalCandidates === 'number' ? body.totalCandidates : receiverIds.length;
+          const elig = typeof body.eligibleReceivers === 'number' ? body.eligibleReceivers : 0;
+          previewEl.textContent = `Audience pool ~${pool} users; after intake & filters ~${elig} likely receive the talk here.`;
+        } catch {
+          if (seq === previewGeneration) previewEl.textContent = '';
+        }
+      };
+
       const chipWrap = modal.querySelector('#broadcast-preamble-chips');
       chipWrap?.querySelectorAll('.broadcast-chip').forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -270,10 +418,17 @@ export class UIManager extends EventEmitter {
             el.style.boxShadow = 'inset 0 0 0 2px #6366f1';
             el.style.background = '#eef2ff';
           }
+          scheduleAudiencePreviewRefresh();
         });
       });
 
+      modal.querySelectorAll('input[name="broadcast-audience-scope"]').forEach((el) =>
+        el.addEventListener('change', scheduleAudiencePreviewRefresh),
+      );
+      modal.querySelector('#broadcast-max-distance-select')?.addEventListener('change', scheduleAudiencePreviewRefresh);
+
       const cleanup = () => {
+        if (previewDebounceTimer !== undefined) window.clearTimeout(previewDebounceTimer);
         document.body.removeChild(modal);
       };
 
@@ -293,9 +448,16 @@ export class UIManager extends EventEmitter {
           this.showNotification('Choose at least one tag before broadcasting.', 'warning');
           return;
         }
+        const maxDm = readMaxDistance();
         cleanup();
-        resolve({ tags });
+        resolve({
+          tags,
+          broadcastAudienceScope: readAudienceScope(),
+          ...(typeof maxDm === 'number' ? { broadcastMaxDistanceMiles: maxDm } : {}),
+        });
       });
+
+      window.setTimeout(() => void runAudiencePreviewRefresh(), 0);
     });
   }
 
@@ -711,9 +873,6 @@ export class UIManager extends EventEmitter {
       return;
     }
 
-    const preamble = await this.showBroadcastTagPreamble();
-    if (!preamble) return;
-
     const fromDom = Array.from(document.querySelectorAll('#chatroom-members-list .chatroom-member-item[data-user-id]')).map(
       (el) => {
         const node = el as HTMLElement;
@@ -730,10 +889,19 @@ export class UIManager extends EventEmitter {
       if (!byId.has(id)) byId.set(id, { userId: id, stageName: m.stageName || id });
     }
     const members = Array.from(byId.values());
+
+    const preamble = await this.showBroadcastTagPreamble({
+      chatroomId: this.currentChatroom,
+      members,
+    });
+    if (!preamble) return;
+
     this.emit('broadcastTalk', {
       chatroomId: this.currentChatroom,
       members,
       broadcastTargetTags: preamble.tags,
+      broadcastAudienceScope: preamble.broadcastAudienceScope,
+      broadcastMaxDistanceMiles: preamble.broadcastMaxDistanceMiles,
     });
 
     const list = document.getElementById('chatroom-members-list');

@@ -54,7 +54,11 @@ function buildSubjectText(subject: IncomingTalkFilterSubject): string {
   return [subject.title || '', ...parseQuestionsText(subject)].filter(Boolean).join('. ');
 }
 
-function haversineMiles(a: GPSCoordinate, b: { latitude: number; longitude: number }): number {
+/** Miles between two WGS84 points — shared with bulk broadcast targeting. */
+export function haversineMilesBetween(
+  a: GPSCoordinate | { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number },
+): number {
   const R = 3958.8;
   const toRad = (deg: number) => (deg * Math.PI) / 180;
   const dLat = toRad(b.latitude - a.latitude);
@@ -89,7 +93,7 @@ export function intakeFilterRejectReasons(
     subject.authorLocation &&
     (typeof filters.minDistanceMiles === 'number' || typeof filters.maxDistanceMiles === 'number')
   ) {
-    const distance = haversineMiles(currentLocation, subject.authorLocation);
+    const distance = haversineMilesBetween(currentLocation, subject.authorLocation);
     if (typeof filters.minDistanceMiles === 'number' && distance < filters.minDistanceMiles) {
       return ['intake_min_distance'];
     }

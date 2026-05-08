@@ -736,6 +736,104 @@ describe('Talk loop — incoming registration → answer submission → match �
       const stats = await request(app).get('/api/stats/broadcast-tags');
       expect(stats.body.tags).toEqual([]);
     });
+
+    it('skips receivers outside broadcastMaxDistanceMiles from sender pivot', async () => {
+      const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
+      userDeliveryContext.set(SENDER_ID, {
+        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        ageVerified: false,
+        location: {
+          latitude: 37.7749,
+          longitude: -122.4194,
+          accuracy: 10,
+          timestamp: new Date(),
+        },
+      });
+      userDeliveryContext.set(RESPONDER_ID, {
+        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        ageVerified: false,
+        location: {
+          latitude: 40.7128,
+          longitude: -74.006,
+          accuracy: 10,
+          timestamp: new Date(),
+        },
+      });
+
+      const resFar = await request(app)
+        .post(`/api/talks/${talkId}/register-receivers-for-broadcast`)
+        .send({
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          receiverIds: [RESPONDER_ID],
+          talkData: TALK_DATA,
+          broadcastMaxDistanceMiles: 500,
+        });
+      expect(resFar.status).toBe(200);
+      expect(resFar.body.registered).toBe(0);
+      expect(resFar.body.filteredOut).toBe(1);
+      expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
+
+      const resOk = await request(app)
+        .post(`/api/talks/${talkId}/register-receivers-for-broadcast`)
+        .send({
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          receiverIds: [RESPONDER_ID],
+          talkData: TALK_DATA,
+        });
+      expect(resOk.status).toBe(200);
+      expect(resOk.body.registered).toBe(1);
+      expect(incomingTalksMap.get(RESPONDER_ID)?.size).toBe(1);
+    });
+  });
+
+  describe('POST /api/talks/broadcast-receiver-preview', () => {
+    it('returns eligible preview counts with broadcastMaxDistanceMiles', async () => {
+      const { app, userDeliveryContext } = buildTestServer();
+      userDeliveryContext.set(SENDER_ID, {
+        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        ageVerified: false,
+        location: {
+          latitude: 37.7749,
+          longitude: -122.4194,
+          accuracy: 10,
+          timestamp: new Date(),
+        },
+      });
+      userDeliveryContext.set(RESPONDER_ID, {
+        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        ageVerified: false,
+        location: {
+          latitude: 40.7128,
+          longitude: -74.006,
+          accuracy: 10,
+          timestamp: new Date(),
+        },
+      });
+
+      const far = await request(app)
+        .post('/api/talks/broadcast-receiver-preview')
+        .send({
+          senderId: SENDER_ID,
+          receiverIds: [RESPONDER_ID],
+          talkData: TALK_DATA,
+          broadcastMaxDistanceMiles: 500,
+        });
+      expect(far.status).toBe(200);
+      expect(far.body.totalCandidates).toBe(1);
+      expect(far.body.eligibleReceivers).toBe(0);
+
+      const unfilt = await request(app)
+        .post('/api/talks/broadcast-receiver-preview')
+        .send({
+          senderId: SENDER_ID,
+          receiverIds: [RESPONDER_ID],
+          talkData: TALK_DATA,
+        });
+      expect(unfilt.status).toBe(200);
+      expect(unfilt.body.eligibleReceivers).toBe(1);
+    });
   });
 
   describe('POST /api/talks/:id/response — answer submission', () => {

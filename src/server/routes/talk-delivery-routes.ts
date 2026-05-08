@@ -5,7 +5,7 @@ import { TALK_CONTENT_HASH_ID } from '../../shared/incoming-talk-ids';
 import { intakeFilterRejectReasons } from '../../shared/talk-intake-filters';
 import type { TalkType } from '../../shared/talk-stats';
 import type { GPSCoordinate, TalkIntakeFilters } from '../../shared/types';
-import { receiverPassesBroadcastTagTargeting } from '../../shared/broadcast-tag-targeting';
+import { appendBulkBroadcastDeliveryRejections } from '../../shared/bulk-broadcast-audience';
 import { logger } from '../logger';
 import { GunService } from '../services/gun-service';
 
@@ -128,6 +128,144 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
     return reasons;
   }
 
+  async function resolveBulkSenderPivot(senderId: string, talkData: any): Promise<
+    | {
+        latitude: number;
+        longitude: number;
+      }
+    | undefined
+  > {
+    const snd = await getUserDeliveryContext(senderId);
+    if (snd.location) {
+      return { latitude: snd.location.latitude, longitude: snd.location.longitude };
+    }
+    const a = talkData?.authorLocation;
+    if (
+      a &&
+      typeof a.latitude === 'number' &&
+      typeof a.longitude === 'number' &&
+      Number.isFinite(a.latitude) &&
+      Number.isFinite(a.longitude)
+    ) {
+      return { latitude: a.latitude, longitude: a.longitude };
+    }
+    return undefined;
+  }
+
+  function parseBulkBroadcastTargetTags(raw: unknown): string[] {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((x: unknown) => (typeof x === 'string' ? x.trim() : ''))
+      .filter((x: string) => x.length > 0);
+  }
+
+  function parseBulkBroadcastMaxDistanceMiles(raw: unknown): number | undefined {
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return undefined;
+    return Math.min(Math.floor(raw), 12_451);
+  }
+
+  async function computeBulkRejectionsForReceiver(
+    receiverId: string,
+    senderId: string,
+    talkData: any,
+    broadcastTargetTags: string[],
+    broadcastMaxDistanceMiles: number | undefined,
+    senderPivot: { latitude: number; longitude: number } | undefined,
+  ): Promise<string[]> {
+    const receiverContext = await getUserDeliveryContext(receiverId);
+    const rejectedBy = filterReasonsForTalk(talkData, receiverContext);
+    const talkTagsArr = Array.isArray((talkData as { tags?: unknown })?.tags)
+      ? (talkData as { tags: any[] }).tags
+      : [];
+    appendBulkBroadcastDeliveryRejections(rejectedBy, {
+      broadcastTargetTags,
+      receiverInterestTokens: receiverContext.interestTokens,
+      ...(talkTagsArr.length > 0 ? { talkTags: talkTagsArr } : {}),
+      ...(typeof broadcastMaxDistanceMiles === 'number' && broadcastMaxDistanceMiles > 0
+        ? { broadcastMaxDistanceMiles }
+        : {}),
+      ...(senderPivot ? { senderPivot } : {}),
+      ...(receiverContext.location ? { receiverLocation: receiverContext.location } : {}),
+    });
+    const blockStatus = await getBlockStatus(receiverId, senderId);
+    if (blockStatus.eitherBlocked) {
+      rejectedBy.push('blocked_user');
+    }
+    return rejectedBy;
+  }
+
+  app.post('/api/talks/broadcast-receiver-preview', async (req, res) => {
+    try {
+      const { senderId, receiverIds, talkId, talkData: bodyTalkData, broadcastTargetTags: rawBt, broadcastMaxDistanceMiles: rawMaxDm } =
+        req.body as {
+          senderId: string;
+          receiverIds: string[];
+          talkId?: string;
+          talkData?: unknown;
+          broadcastTargetTags?: unknown;
+          broadcastMaxDistanceMiles?: unknown;
+        };
+      const broadcastTargetTags = parseBulkBroadcastTargetTags(rawBt);
+      const broadcastMaxDistanceMiles = parseBulkBroadcastMaxDistanceMiles(rawMaxDm);
+      if (!senderId || !Array.isArray(receiverIds)) {
+        res.status(400).json({ error: 'senderId and receiverIds[] required' });
+        return;
+      }
+      let talkData: any | null = null;
+      const tidRaw = typeof talkId === 'string' ? talkId.trim() : '';
+      if (tidRaw) {
+        talkData = await loadTalkDataFromGraphOrBody(tidRaw, bodyTalkData);
+      } else if (bodyTalkData && typeof bodyTalkData === 'object') {
+        talkData = bodyTalkData as any;
+      }
+      if (!talkData) {
+        res.status(404).json({ error: 'talkId or embedded talk payload required for preview' });
+        return;
+      }
+      if (String(talkData?.authorId) !== String(senderId)) {
+        res.status(403).json({ error: 'senderId must match talk author' });
+        return;
+      }
+      const senderCapacityRaw = await getSenderBulkSendCapacity(senderId);
+      const senderCapacity = Math.max(0, Number.isFinite(senderCapacityRaw) ? Math.floor(senderCapacityRaw) : 0);
+      const uniqueReceiverIds = Array.from(new Set(receiverIds.filter((id) => !!id && id !== senderId)));
+      if (senderCapacity === 0) {
+        res.json({
+          totalCandidates: uniqueReceiverIds.length,
+          cappedPoolSize: 0,
+          eligibleReceivers: 0,
+          senderCapacity,
+          capacityDropped: uniqueReceiverIds.length,
+        });
+        return;
+      }
+      const receiverIdsCapped = uniqueReceiverIds.slice(0, senderCapacity);
+      const capacityDropped = Math.max(0, uniqueReceiverIds.length - receiverIdsCapped.length);
+      const senderPivot = await resolveBulkSenderPivot(senderId, talkData);
+      let eligibleReceivers = 0;
+      for (const receiverId of receiverIdsCapped) {
+        const rejectedBy = await computeBulkRejectionsForReceiver(
+          receiverId,
+          senderId,
+          talkData,
+          broadcastTargetTags,
+          broadcastMaxDistanceMiles,
+          senderPivot,
+        );
+        if (rejectedBy.length === 0) eligibleReceivers += 1;
+      }
+      res.json({
+        totalCandidates: uniqueReceiverIds.length,
+        cappedPoolSize: receiverIdsCapped.length,
+        eligibleReceivers,
+        senderCapacity,
+        capacityDropped,
+      });
+    } catch (error) {
+      logger.error({ err: error }, 'broadcast-receiver-preview error');
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
   app.post('/api/talks/:id/received', async (req, res) => {
     try {
       const talkId = req.params.id;
@@ -233,19 +371,17 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
     }, 20000);
     try {
       const talkId = req.params.id;
-      const { senderId, senderName, receiverIds, talkData: bodyTalkData, broadcastTargetTags: rawBt } =
+      const { senderId, senderName, receiverIds, talkData: bodyTalkData, broadcastTargetTags: rawBt, broadcastMaxDistanceMiles: rawMaxDm } =
         req.body as {
           senderId: string;
           senderName?: string;
           receiverIds: string[];
           talkData?: unknown;
           broadcastTargetTags?: unknown;
+          broadcastMaxDistanceMiles?: unknown;
         };
-      const broadcastTargetTags = Array.isArray(rawBt)
-        ? rawBt
-            .map((x: unknown) => (typeof x === 'string' ? x.trim() : ''))
-            .filter((x: string) => x.length > 0)
-        : [];
+      const broadcastTargetTags = parseBulkBroadcastTargetTags(rawBt);
+      const broadcastMaxDistanceMiles = parseBulkBroadcastMaxDistanceMiles(rawMaxDm);
       logger.info({ talkId, senderId, receiverCount: receiverIds.length }, '[register-receivers] registering receivers');
       if (!senderId || !Array.isArray(receiverIds)) {
         clearTimeout(hardTimeout);
@@ -268,6 +404,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       if (broadcastTargetTags.length > 0) {
         recordBroadcastTargetTagUses?.(broadcastTargetTags);
       }
+      const senderPivot = await resolveBulkSenderPivot(senderId, talkData);
       const senderCapacityRaw = await getSenderBulkSendCapacity(senderId);
       const senderCapacity = Math.max(0, Number.isFinite(senderCapacityRaw) ? Math.floor(senderCapacityRaw) : 0);
       const uniqueReceiverIds = Array.from(new Set(receiverIds.filter((id) => !!id && id !== senderId)));
@@ -290,22 +427,14 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       let registered = 0;
       let filteredOut = capacityDropped;
       for (const receiverId of receiverIdsCapped) {
-        const receiverContext = await getUserDeliveryContext(receiverId);
-        const blockStatus = await getBlockStatus(receiverId, senderId);
-        const rejectedBy = filterReasonsForTalk(talkData, receiverContext);
-        if (
-          broadcastTargetTags.length > 0 &&
-          !receiverPassesBroadcastTagTargeting({
-            broadcastTargetTags,
-            talkTags: Array.isArray((talkData as { tags?: unknown })?.tags) ? (talkData as { tags: any[] }).tags : [],
-            receiverInterestTokens: receiverContext.interestTokens,
-          })
-        ) {
-          rejectedBy.push('tag_targeting');
-        }
-        if (blockStatus.eitherBlocked) {
-          rejectedBy.push('blocked_user');
-        }
+        const rejectedBy = await computeBulkRejectionsForReceiver(
+          receiverId,
+          senderId,
+          talkData,
+          broadcastTargetTags,
+          broadcastMaxDistanceMiles,
+          senderPivot,
+        );
         if (rejectedBy.length > 0) {
           filteredOut += 1;
           continue;
