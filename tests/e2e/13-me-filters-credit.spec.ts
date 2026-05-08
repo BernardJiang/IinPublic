@@ -119,6 +119,13 @@ test.describe('Me tab filters and credit visibility', () => {
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 
+    /** Broadcast handlers run async after the preamble closes; toast is the durable completion signal (same wording as bulk-send success in app.ts). */
+    await expect(
+      pageTom.getByText(/Sent 2 talks to 1 user (?:(\(the room\)\.)|in the room\.)/),
+    ).toBeVisible({
+      timeout: 120_000,
+    });
+
     const jerryUserId = await pageJerry.evaluate(
       () => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '',
     );

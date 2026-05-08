@@ -162,7 +162,7 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
 
     const techSupportWaitsForBroadcastToast = async () => {
       await expect(
-        pageTechSupport.getByText(/Sent 20 talks to 1 user in the room\./),
+        pageTechSupport.getByText(/Sent 20 talks to 1 user (?:(\(the room\)\.)|in the room\.)/),
       ).toBeVisible({ timeout: 120_000 });
     };
 
