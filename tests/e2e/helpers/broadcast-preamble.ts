@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { afterAction } from './timing';
 
 /**
  * After clicking Broadcast:
@@ -7,7 +8,10 @@ import type { Page } from '@playwright/test';
  *
  * Uses Promise.race so either path settles without a 25s deadlock.
  */
-export async function confirmBroadcastTagPreambleIfVisible(page: Page): Promise<void> {
+export async function confirmBroadcastTagPreambleIfVisible(
+  page: Page,
+  options?: { audienceScope?: 'room' | 'subtree' },
+): Promise<void> {
   const preamble = page.locator('[data-testid="broadcast-preamble-modal"]');
   const editor = page.locator('#talk-editor-modal');
 
@@ -17,6 +21,11 @@ export async function confirmBroadcastTagPreambleIfVisible(page: Page): Promise<
   ]);
 
   if (winner === 'editor') return;
+
+  if (options?.audienceScope === 'subtree') {
+    await preamble.locator('input[name="broadcast-audience-scope"][value="subtree"]').check();
+    await afterAction();
+  }
 
   await preamble.locator('.broadcast-chip').first().click();
   await page.locator('[data-testid="broadcast-preamble-send"]').click();
