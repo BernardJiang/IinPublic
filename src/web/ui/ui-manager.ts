@@ -23,7 +23,7 @@ import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../
 import { BROADCAST_TAG_CATALOG_ENTRIES } from '../../shared/broadcast-tag-catalog';
 import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
 import { getFlatChatroomList, CHATROOM_HIERARCHY } from '../../shared/chatroom-hierarchy';
-import type { StatsSummary } from '../../shared/talk-stats';
+import type { StatsByRegion, StatsByTime, StatsSummary } from '../../shared/talk-stats';
 import { displayAnswersList as renderAnswersList } from './answers-view';
 import {
   type CustomChatroomRow,
@@ -120,6 +120,7 @@ export class UIManager extends EventEmitter {
   private customChatrooms: CustomChatroomRow[] = [];
   private travelModeActive: boolean = false;
   private travelHomeChatroomId: string | undefined = undefined;
+  private static readonly SURVEY_ANONYMITY_MIN_COUNT = 3;
 
   // Callback for stage name changes
   public onStageNameChange?: (userId: string, newStageName: string) => Promise<void>;
@@ -2399,15 +2400,16 @@ export class UIManager extends EventEmitter {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.innerHTML = `
-      <div class="modal-content" style="max-width:640px;">
+      <div class="modal-content" style="max-width:860px;">
         <div class="modal-header">
-          <h2 class="modal-title">Survey results</h2>
+          <h2 class="modal-title">Survey analytics dashboard</h2>
           <p style="margin:0;color:#64748b;font-size:0.92em;">${title}</p>
         </div>
         <div id="survey-stats-body" style="padding:8px 0 16px;min-height:120px;">
           <p style="text-align:center;color:#64748b;">Loading…</p>
         </div>
         <div class="modal-actions">
+          <button type="button" class="btn" id="survey-stats-followup-btn" style="background:#2563eb;">Create follow-up survey</button>
           <button type="button" class="btn" id="survey-stats-close-btn" style="background:#6c757d;">Close</button>
         </div>
       </div>
@@ -2421,60 +2423,270 @@ export class UIManager extends EventEmitter {
       if (ev.target === modal) close();
     });
 
-    const body = modal.querySelector('#survey-stats-body');
+    const body = modal.querySelector('#survey-stats-body') as HTMLElement | null;
+    const followUpBtn = modal.querySelector('#survey-stats-followup-btn') as HTMLButtonElement | null;
     try {
-      const res = await fetch(
-        `${this.apiBase}/api/stats/talks/${encodeURIComponent(talkId)}/summary`,
-        { cache: 'no-store' },
-      );
-      if (!res.ok) {
-        const errText = await res.text().catch(() => res.statusText);
+      const [summaryRes, byDayRes, byRegionRes] = await Promise.all([
+        fetch(`${this.apiBase}/api/stats/talks/${encodeURIComponent(talkId)}/summary`, { cache: 'no-store' }),
+        fetch(`${this.apiBase}/api/stats/talks/${encodeURIComponent(talkId)}/by-day?bucket=day`, { cache: 'no-store' }),
+        fetch(`${this.apiBase}/api/stats/talks/${encodeURIComponent(talkId)}/by-region`, { cache: 'no-store' }),
+      ]);
+      if (!summaryRes.ok || !byDayRes.ok || !byRegionRes.ok) {
+        const firstBad = [summaryRes, byDayRes, byRegionRes].find((r) => !r.ok) as Response;
+        const errText = await firstBad.text().catch(() => firstBad.statusText);
         if (body) {
-          body.innerHTML = `<p style="color:#b91c1c;">Could not load results (${res.status}). ${escapeHtml(errText.slice(0, 200))}</p>`;
+          body.innerHTML = `<p style="color:#b91c1c;">Could not load dashboard (${firstBad.status}). ${escapeHtml(errText.slice(0, 200))}</p>`;
         }
         return;
       }
-      const summary = (await res.json()) as StatsSummary;
-      const parts: string[] = [];
-      parts.push(
-        `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;font-size:0.9em;color:#334155;">
-          <span><strong>${summary.total}</strong> responses</span>
-          <span>·</span>
-          <span><strong>${summary.matches}</strong> matches</span>
-          <span>·</span>
-          <span><strong>${summary.ignores}</strong> ignores</span>
-        </div>`,
-      );
+      const summary = (await summaryRes.json()) as StatsSummary;
+      const byDay = (await byDayRes.json()) as StatsByTime;
+      const byRegion = (await byRegionRes.json()) as StatsByRegion;
+      if (followUpBtn) {
+        followUpBtn.disabled = false;
+        followUpBtn.addEventListener('click', () => {
+          const closeModal = (): void => {
+            if (document.body.contains(modal)) document.body.removeChild(modal);
+          };
+          closeModal();
+          this.createSurveyFollowUpFromStats(entry, summary, questionLabel);
+        });
+      }
+      this.renderSurveyStatsDashboard(body, summary, byDay, byRegion, questionLabel, title);
+    } catch {
+      if (body) {
+        body.innerHTML = '<p style="color:#b91c1c;">Network error while loading survey analytics dashboard.</p>';
+      }
+    }
+  }
+
+  private renderSurveyStatsDashboard(
+    body: HTMLElement | null,
+    summary: StatsSummary,
+    byDay: StatsByTime,
+    byRegion: StatsByRegion,
+    questionLabel: (questionId: string) => string,
+    title: string,
+  ): void {
+    if (!body) return;
+    const anonymityMasking = summary.total < UIManager.SURVEY_ANONYMITY_MIN_COUNT;
+    const render = (maskSmallCounts: boolean): void => {
+      const cards = `
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:14px;">
+          ${this.surveyMetricCard('Responses', String(summary.total))}
+          ${this.surveyMetricCard('Questions', String(summary.byQuestion?.length || 0))}
+          ${this.surveyMetricCard('Regions', String(byRegion.series?.length || 0))}
+          ${this.surveyMetricCard('Latest day bucket', escapeHtml(byDay.series?.[byDay.series.length - 1]?.bucket || '—'))}
+        </div>`;
+      const privacyLine = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.9em;color:#334155;">
+          <input type="checkbox" id="survey-anon-toggle" ${maskSmallCounts ? 'checked' : ''}>
+          <span>Anonymize small cohorts (< ${UIManager.SURVEY_ANONYMITY_MIN_COUNT} responses)</span>
+        </label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" class="btn" id="survey-export-summary-btn" style="padding:6px 10px;background:#0f766e;">Export summary CSV</button>
+          <button type="button" class="btn" id="survey-export-day-btn" style="padding:6px 10px;background:#0f766e;">Export by-day CSV</button>
+          <button type="button" class="btn" id="survey-export-region-btn" style="padding:6px 10px;background:#0f766e;">Export region CSV</button>
+        </div>
+      </div>`;
+
+      const byQuestionParts: string[] = [];
       if (!summary.byQuestion || summary.byQuestion.length === 0) {
-        parts.push(
-          '<p style="color:#64748b;font-size:0.92em;">No per-question breakdown yet. Responses will appear here after people answer.</p>',
-        );
+        byQuestionParts.push('<p style="color:#64748b;font-size:0.92em;">No per-question breakdown yet. Responses will appear here after people answer.</p>');
       } else {
         for (const q of summary.byQuestion) {
+          const hideQuestion = maskSmallCounts && q.total < UIManager.SURVEY_ANONYMITY_MIN_COUNT;
           const qTitle = escapeHtml(questionLabel(q.questionId));
-          const rows = q.answers
-            .map(
-              (a) => `
-            <div style="display:flex;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:8px;background:#f8fafc;margin-top:6px;border:1px solid #e2e8f0;">
-              <span style="min-width:0;">${escapeHtml(a.answerText || a.answerId)}</span>
-              <span style="flex-shrink:0;font-weight:600;">${a.count} <span style="color:#64748b;font-weight:500;">(${a.percentage}%)</span></span>
-            </div>`,
-            )
-            .join('');
-          parts.push(`
-            <div style="margin-top:18px;">
+          const rows = hideQuestion
+            ? `<div style="margin-top:8px;padding:10px;border-radius:8px;border:1px dashed #cbd5e1;background:#f8fafc;color:#64748b;">Hidden to preserve anonymity until this question has at least ${UIManager.SURVEY_ANONYMITY_MIN_COUNT} responses.</div>`
+            : q.answers
+                .map(
+                  (a) => `
+              <div style="display:flex;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:8px;background:#f8fafc;margin-top:6px;border:1px solid #e2e8f0;">
+                <span style="min-width:0;">${escapeHtml(a.answerText || a.answerId)}</span>
+                <span style="flex-shrink:0;font-weight:600;">${a.count} <span style="color:#64748b;font-weight:500;">(${a.percentage}%)</span></span>
+              </div>`,
+                )
+                .join('');
+          byQuestionParts.push(`
+            <div style="margin-top:16px;">
               <div style="font-weight:700;font-size:0.95em;color:#0f172a;margin-bottom:4px;">${qTitle}</div>
               <div style="font-size:0.8em;color:#64748b;">${q.total} answer${q.total !== 1 ? 's' : ''} recorded</div>
               ${rows}
             </div>`);
         }
       }
-      if (body) body.innerHTML = parts.join('');
-    } catch {
-      if (body) {
-        body.innerHTML = '<p style="color:#b91c1c;">Network error while loading survey results.</p>';
+
+      const dayRows = (byDay.series || [])
+        .map((item) => `<tr><td style="padding:6px 8px;border-top:1px solid #e2e8f0;">${escapeHtml(item.bucket)}</td><td style="padding:6px 8px;border-top:1px solid #e2e8f0;text-align:right;">${item.count}</td></tr>`)
+        .join('');
+      const regionRows = (byRegion.series || [])
+        .map((item) => {
+          const hidden = maskSmallCounts && item.count < UIManager.SURVEY_ANONYMITY_MIN_COUNT;
+          return `<tr><td style="padding:6px 8px;border-top:1px solid #e2e8f0;">${hidden ? 'Hidden region' : escapeHtml(item.region || 'unknown')}</td><td style="padding:6px 8px;border-top:1px solid #e2e8f0;text-align:right;">${hidden ? '—' : item.count}</td></tr>`;
+        })
+        .join('');
+      const followUpCandidates = (summary.byQuestion || []).filter(
+        (q) => q.total > 0 && q.total < Math.max(UIManager.SURVEY_ANONYMITY_MIN_COUNT, Math.ceil(summary.total * 0.6)),
+      );
+      const followUpHint =
+        followUpCandidates.length === 0
+          ? '<p style="margin:8px 0 0;color:#64748b;font-size:0.9em;">No immediate follow-up gaps detected.</p>'
+          : `<p style="margin:8px 0 0;color:#334155;font-size:0.9em;">Follow-up candidates: ${followUpCandidates
+              .map((q) => escapeHtml(questionLabel(q.questionId)))
+              .join(', ')}</p>`;
+
+      body.innerHTML = `
+        ${cards}
+        ${privacyLine}
+        <div style="margin-top:14px;padding:12px;border:1px solid #e2e8f0;border-radius:8px;">
+          <div style="font-weight:700;color:#0f172a;">Per-question distribution</div>
+          ${byQuestionParts.join('')}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+          <div style="padding:12px;border:1px solid #e2e8f0;border-radius:8px;">
+            <div style="font-weight:700;color:#0f172a;">Responses by day</div>
+            <table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:0.9em;">
+              <thead><tr><th style="text-align:left;padding:6px 8px;">Bucket</th><th style="text-align:right;padding:6px 8px;">Count</th></tr></thead>
+              <tbody>${dayRows || '<tr><td colspan="2" style="padding:8px;color:#64748b;">No responses yet.</td></tr>'}</tbody>
+            </table>
+          </div>
+          <div style="padding:12px;border:1px solid #e2e8f0;border-radius:8px;">
+            <div style="font-weight:700;color:#0f172a;">Responses by region</div>
+            <table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:0.9em;">
+              <thead><tr><th style="text-align:left;padding:6px 8px;">Region</th><th style="text-align:right;padding:6px 8px;">Count</th></tr></thead>
+              <tbody>${regionRows || '<tr><td colspan="2" style="padding:8px;color:#64748b;">No regional data yet.</td></tr>'}</tbody>
+            </table>
+          </div>
+        </div>
+        <div style="margin-top:12px;padding:12px;border:1px dashed #cbd5e1;border-radius:8px;background:#f8fafc;">
+          <div style="font-weight:700;color:#0f172a;">Follow-up handling</div>
+          <p style="margin:8px 0 0;color:#64748b;font-size:0.9em;">Use "Create follow-up survey" to start a new survey from this dashboard. It pre-fills questions from your current survey and labels it as a follow-up to ${escapeHtml(title)}.</p>
+          ${followUpHint}
+        </div>`;
+
+      body.querySelector('#survey-anon-toggle')?.addEventListener('change', (event) => {
+        const checked = !!(event.target as HTMLInputElement | null)?.checked;
+        render(checked);
+      });
+      body.querySelector('#survey-export-summary-btn')?.addEventListener('click', () => {
+        this.downloadCsv(`survey-summary-${summary.talkId}.csv`, this.toSurveySummaryCsv(summary, questionLabel));
+      });
+      body.querySelector('#survey-export-day-btn')?.addEventListener('click', () => {
+        this.downloadCsv(`survey-by-day-${summary.talkId}.csv`, this.toByDayCsv(byDay));
+      });
+      body.querySelector('#survey-export-region-btn')?.addEventListener('click', () => {
+        this.downloadCsv(`survey-by-region-${summary.talkId}.csv`, this.toByRegionCsv(byRegion, maskSmallCounts));
+      });
+    };
+
+    render(anonymityMasking);
+  }
+
+  private surveyMetricCard(label: string, value: string): string {
+    return `<div style="padding:10px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;">
+      <div style="font-size:0.78em;color:#64748b;">${escapeHtml(label)}</div>
+      <div style="font-size:1.2em;font-weight:700;color:#0f172a;">${escapeHtml(value)}</div>
+    </div>`;
+  }
+
+  private toSurveySummaryCsv(summary: StatsSummary, questionLabel: (questionId: string) => string): string {
+    const lines = ['question_id,question,answer_id,answer,count,percentage'];
+    for (const q of summary.byQuestion || []) {
+      for (const a of q.answers || []) {
+        lines.push(
+          [
+            q.questionId,
+            questionLabel(q.questionId),
+            a.answerId,
+            a.answerText || a.answerId,
+            String(a.count),
+            String(a.percentage),
+          ]
+            .map((part) => this.escapeCsvCell(part))
+            .join(','),
+        );
       }
     }
+    return lines.join('\n');
+  }
+
+  private toByDayCsv(byDay: StatsByTime): string {
+    const lines = ['bucket,count'];
+    for (const item of byDay.series || []) {
+      lines.push([item.bucket, String(item.count)].map((part) => this.escapeCsvCell(part)).join(','));
+    }
+    return lines.join('\n');
+  }
+
+  private toByRegionCsv(byRegion: StatsByRegion, maskSmallCounts: boolean): string {
+    const lines = ['region,count'];
+    for (const item of byRegion.series || []) {
+      const hide = maskSmallCounts && item.count < UIManager.SURVEY_ANONYMITY_MIN_COUNT;
+      lines.push(
+        [hide ? 'hidden_region' : item.region || 'unknown', hide ? '' : String(item.count)]
+          .map((part) => this.escapeCsvCell(part))
+          .join(','),
+      );
+    }
+    return lines.join('\n');
+  }
+
+  private escapeCsvCell(value: string): string {
+    const str = String(value ?? '');
+    const escaped = str.replace(/"/g, '""');
+    return /[",\n]/.test(escaped) ? `"${escaped}"` : escaped;
+  }
+
+  private downloadCsv(filename: string, csvBody: string): void {
+    const blob = new Blob([csvBody], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+    this.showNotification(`Exported ${filename}`, 'success');
+  }
+
+  private createSurveyFollowUpFromStats(
+    entry: any,
+    summary: StatsSummary,
+    questionLabel: (questionId: string) => string,
+  ): void {
+    const sourceQuestions = Array.isArray(entry?.fullTalk?.questions) ? entry.fullTalk.questions : [];
+    const copiedQuestions = sourceQuestions
+      .slice(0, 4)
+      .map((q: any, qIdx: number) => ({
+        id: `q_${qIdx}`,
+        text: String(q?.text || questionLabel(String(q?.id || `q_${qIdx}`)) || '').trim(),
+        answers: Array.isArray(q?.answers)
+          ? q.answers.slice(0, 6).map((a: any, aIdx: number) => ({
+              id: `a_${qIdx}_${aIdx}`,
+              text: String(a?.text || '').trim() || `Option ${aIdx + 1}`,
+              isTerminal: true,
+              counter: 0,
+            }))
+          : [],
+      }))
+      .filter((q: any) => q.text && Array.isArray(q.answers) && q.answers.length > 0);
+    if (copiedQuestions.length === 0) {
+      copiedQuestions.push({
+        id: 'q_0',
+        text: 'What should we improve next based on this survey?',
+        answers: [
+          { id: 'a_0_0', text: 'Follow-up details', isTerminal: true, counter: 0 },
+          { id: 'a_0_1', text: 'No follow-up needed', isTerminal: true, counter: 0 },
+        ],
+      });
+    }
+    this.showTalkEditorDialog({
+      title: `Follow-up: ${String(entry?.title || summary.talkId).trim()}`,
+      type: 'survey',
+      questions: copiedQuestions,
+    });
   }
 
   displayNewMessage(message: any): void {
