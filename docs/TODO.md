@@ -68,7 +68,7 @@ and `docs/specs/iinpublic-technical-specification.md`.
   (testing-benchmarks.md — W1/W2 still valid if radisk/disk persistence returns)
 - [x] Extend survey analytics beyond the Talks-tab **Results** modal (**shipped** 2026-05-07): dedicated survey analytics dashboard (summary + by-day + by-region), anonymity-default masking for low-count cohorts, CSV exports (summary/day/region), and follow-up survey creation from the dashboard.
   (Spec: FR-SV-2..5, UI §13.5 — per-question counts/% now visible for survey OUT rows)
-- [ ] Add **daily/weekly numeric quotas** (distinct from symmetric cooldown) and tests if product requires hard caps per CONFIG.RATE_LIMITS
+- [x] Add **daily/weekly numeric quotas** (distinct from symmetric cooldown) and tests for hard caps per `CONFIG.RATE_LIMITS` (**implemented** 2026-05-07): server-enforced counters for sender+receiver edges with UTC day + UTC Monday week resets; reject codes `daily_talk_send_rate_limit` / `daily_talk_receive_rate_limit` and `weekly_talk_send_rate_limit` / `weekly_talk_receive_rate_limit`.
   (Spec: FR-SP-1, FR-SP-2 — symmetric cooldown + tests shipped via `IINPUBLIC_SYMMETRIC_TALK_EDGE_COOLDOWN_MS`)
 - [ ] Add E2E tests for reputation system flows:
   vouch age-verify votes accumulating to threshold, star rating impact, block count propagation

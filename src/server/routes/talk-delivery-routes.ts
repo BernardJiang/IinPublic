@@ -9,6 +9,7 @@ import { appendBulkBroadcastDeliveryRejections } from '../../shared/bulk-broadca
 import { logger } from '../logger';
 import { GunService } from '../services/gun-service';
 import type { SymmetricTalkEdgeRateLimiter } from '../services/symmetric-talk-edge-rate-limit';
+import type { DailyWeeklyTalkEdgeQuotaRateLimiter } from '../services/daily-weekly-talk-edge-quota-rate-limit';
 
 type TalkDeliveryRouteDeps = {
   gunService: GunService;
@@ -80,6 +81,7 @@ type TalkDeliveryRouteDeps = {
   /** Server-wide substring blocklist (`IINPUBLIC_SERVER_BLOCKED_TERMS`). */
   getServerBlockedTerms?: () => string[];
   symmetricTalkEdgeLimiter?: SymmetricTalkEdgeRateLimiter;
+  dailyWeeklyTalkEdgeQuotaRateLimiter?: DailyWeeklyTalkEdgeQuotaRateLimiter;
 };
 
 export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkDeliveryRouteDeps): void {
@@ -104,6 +106,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
     recordBroadcastTargetTagUses,
     getServerBlockedTerms,
     symmetricTalkEdgeLimiter,
+    dailyWeeklyTalkEdgeQuotaRateLimiter,
   } = deps;
 
   function filterReasonsForTalk(
@@ -276,6 +279,10 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         ) {
           continue;
         }
+        if (dailyWeeklyTalkEdgeQuotaRateLimiter) {
+          const quota = dailyWeeklyTalkEdgeQuotaRateLimiter.checkEdgeQuotas(senderId, receiverId, nowPrev);
+          if (!quota.ok) continue;
+        }
         eligibleReceivers += 1;
       }
       res.json({
@@ -331,6 +338,13 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         res.json({ registered: false, filteredOut: true, rejectedBy: ['symmetric_rate_limit'] });
         return;
       }
+      if (dailyWeeklyTalkEdgeQuotaRateLimiter) {
+        const quota = dailyWeeklyTalkEdgeQuotaRateLimiter.checkEdgeQuotas(senderId, receiverId, now);
+        if (!quota.ok) {
+          res.json({ registered: false, filteredOut: true, rejectedBy: quota.rejectedBy });
+          return;
+        }
+      }
 
       const resolvedSenderName = senderName || (await getUserStageName(senderId, 'Someone'));
       const resolvedReceiverName = receiverName || (await getUserStageName(receiverId, 'Someone'));
@@ -342,6 +356,8 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         senderId,
         senderName: resolvedSenderName,
       });
+
+      dailyWeeklyTalkEdgeQuotaRateLimiter?.consumeEdgeQuotas(senderId, receiverId, now);
 
       if (symmetricTalkEdgeLimiter && symmetricTalkEdgeLimiter.cooldownMs > 0) {
         symmetricTalkEdgeLimiter.touchPair(senderId, receiverId, Date.now());
@@ -504,6 +520,13 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
           filteredOut += 1;
           continue;
         }
+        if (dailyWeeklyTalkEdgeQuotaRateLimiter) {
+          const quota = dailyWeeklyTalkEdgeQuotaRateLimiter.checkEdgeQuotas(senderId, receiverId, nowBulk);
+          if (!quota.ok) {
+            filteredOut += 1;
+            continue;
+          }
+        }
         await upsertIncomingTalkForUser({
           receiverId,
           talkId,
@@ -511,6 +534,9 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
           senderId,
           senderName: resolvedSenderName,
         });
+
+        dailyWeeklyTalkEdgeQuotaRateLimiter?.consumeEdgeQuotas(senderId, receiverId, nowBulk);
+
         if (symmetricTalkEdgeLimiter && symmetricTalkEdgeLimiter.cooldownMs > 0) {
           symmetricTalkEdgeLimiter.touch(receiverId, nowBulk);
         }

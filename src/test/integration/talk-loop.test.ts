@@ -13,6 +13,7 @@ import { registerTalkDeliveryRoutes } from '../../server/routes/talk-delivery-ro
 import { registerStatsRoutes } from '../../server/routes/stats-routes';
 import { BroadcastTagPopularityStore } from '../../server/services/broadcast-tag-popularity-store';
 import { SymmetricTalkEdgeRateLimiter } from '../../server/services/symmetric-talk-edge-rate-limit';
+import { DailyWeeklyTalkEdgeQuotaRateLimiter } from '../../server/services/daily-weekly-talk-edge-quota-rate-limit';
 import { checkIfMatch } from '../../shared/talk-engine';
 import { buildTalkIdentityKey } from '../../shared/talk-content-id';
 import { TALK_CONTENT_HASH_ID } from '../../shared/incoming-talk-ids';
@@ -67,6 +68,8 @@ const NON_MATCHING_ANSWERS = [{ questionId: 'q1', answerId: 'a_red', answerText:
 
 function buildTestServer(opts?: {
   symmetricCooldownMs?: number;
+  talkSendDailyLimit?: number;
+  talkSendWeeklyLimit?: number;
   getServerBlockedTerms?: () => string[];
 }) {
   const app = express();
@@ -89,6 +92,10 @@ function buildTestServer(opts?: {
   const senderBulkCapacity = new Map<string, number>();
   const broadcastTagPopularityStore = new BroadcastTagPopularityStore();
   const symmetricTalkEdgeLimiter = new SymmetricTalkEdgeRateLimiter(opts?.symmetricCooldownMs ?? 0);
+  const dailyWeeklyTalkEdgeQuotaRateLimiter = new DailyWeeklyTalkEdgeQuotaRateLimiter({
+    daily: opts?.talkSendDailyLimit ?? 0,
+    weekly: opts?.talkSendWeeklyLimit ?? 0,
+  });
 
   // Stub GunService — null reads, no-op writes.
   const gunService = {
@@ -320,6 +327,7 @@ function buildTestServer(opts?: {
     recordTalkStatsResponse,
     recordBroadcastTargetTagUses: (tags: string[]) => broadcastTagPopularityStore.recordFromTargetTags(tags),
     symmetricTalkEdgeLimiter,
+    dailyWeeklyTalkEdgeQuotaRateLimiter,
     ...(opts?.getServerBlockedTerms ? { getServerBlockedTerms: opts.getServerBlockedTerms } : {}),
   });
 
@@ -540,6 +548,173 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(res.status).toBe(200);
       expect(res.body.registered).toBe(false);
       expect(res.body.rejectedBy).toContain('symmetric_rate_limit');
+    });
+
+    it('rejects when sender daily talk quota is exceeded', async () => {
+      const { app, incomingTalksMap } = buildTestServer({
+        talkSendDailyLimit: 1,
+        talkSendWeeklyLimit: 1000,
+      });
+
+      const res1 = await request(app)
+        .post(`/api/talks/${talkId}/received`)
+        .send({ receiverId: RESPONDER_ID, senderId: SENDER_ID, senderName: SENDER_NAME, talkData: TALK_DATA });
+      expect(res1.status).toBe(200);
+      expect(res1.body.registered).toBe(true);
+
+      const secondReceiverId = 'user_carol';
+      const secondReceiverName = 'Carol';
+      const res2 = await request(app)
+        .post(`/api/talks/${talkId}/received`)
+        .send({
+          receiverId: secondReceiverId,
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          receiverName: secondReceiverName,
+          talkData: TALK_DATA,
+        });
+      expect(res2.status).toBe(200);
+      expect(res2.body.registered).toBe(false);
+      expect(res2.body.filteredOut).toBe(true);
+      expect(res2.body.rejectedBy).toContain('daily_talk_send_rate_limit');
+      expect(res2.body.rejectedBy).not.toContain('daily_talk_receive_rate_limit');
+      expect(incomingTalksMap.get(secondReceiverId)).toBeUndefined();
+    });
+
+    it('rejects when receiver daily talk quota is exceeded', async () => {
+      const { app, incomingTalksMap } = buildTestServer({
+        talkSendDailyLimit: 1,
+        talkSendWeeklyLimit: 1000,
+      });
+
+      // Alice -> Bob: allowed (sender and receiver each hit count 1)
+      const res1 = await request(app)
+        .post(`/api/talks/${talkId}/received`)
+        .send({ receiverId: RESPONDER_ID, senderId: SENDER_ID, senderName: SENDER_NAME, talkData: TALK_DATA });
+      expect(res1.status).toBe(200);
+      expect(res1.body.registered).toBe(true);
+
+      // Carol -> Bob: receiver is now at daily cap, so edge should be rejected.
+      const secondSenderId = 'user_carol';
+      const res2 = await request(app)
+        .post(`/api/talks/${talkId}/received`)
+        .send({
+          receiverId: RESPONDER_ID,
+          senderId: secondSenderId,
+          senderName: 'Carol',
+          talkData: TALK_DATA,
+        });
+      expect(res2.status).toBe(200);
+      expect(res2.body.registered).toBe(false);
+      expect(res2.body.filteredOut).toBe(true);
+      expect(res2.body.rejectedBy).toContain('daily_talk_receive_rate_limit');
+      expect(res2.body.rejectedBy).not.toContain('daily_talk_send_rate_limit');
+
+      const receiverClusters = incomingTalksMap.get(RESPONDER_ID);
+      expect(receiverClusters).toBeDefined();
+      const clusters = Array.from(receiverClusters!.values());
+      expect(clusters).toHaveLength(1);
+      const cluster = clusters[0] as any;
+      expect(Object.keys(cluster.senders)).toContain(SENDER_ID);
+      expect(Object.keys(cluster.senders)).not.toContain(secondSenderId);
+    });
+
+    it('resets sender daily quotas at UTC day boundary', async () => {
+      jest.useFakeTimers({ advanceTimers: true });
+      jest.setSystemTime(new Date('2026-05-07T12:00:00.000Z'));
+      try {
+        const { app, incomingTalksMap } = buildTestServer({
+          talkSendDailyLimit: 1,
+          talkSendWeeklyLimit: 1000,
+        });
+
+        const res1 = await request(app)
+          .post(`/api/talks/${talkId}/received`)
+          .send({ receiverId: RESPONDER_ID, senderId: SENDER_ID, senderName: SENDER_NAME, talkData: TALK_DATA });
+        expect(res1.status).toBe(200);
+        expect(res1.body.registered).toBe(true);
+
+        const secondReceiverId = 'user_carol';
+        const res2 = await request(app)
+          .post(`/api/talks/${talkId}/received`)
+          .send({
+            receiverId: secondReceiverId,
+            senderId: SENDER_ID,
+            senderName: SENDER_NAME,
+            receiverName: 'Carol',
+            talkData: TALK_DATA,
+          });
+        expect(res2.status).toBe(200);
+        expect(res2.body.registered).toBe(false);
+        expect(res2.body.rejectedBy).toContain('daily_talk_send_rate_limit');
+        expect(incomingTalksMap.get(secondReceiverId)).toBeUndefined();
+
+        // Next day (UTC)
+        jest.setSystemTime(new Date('2026-05-08T12:00:00.000Z'));
+        const res3 = await request(app)
+          .post(`/api/talks/${talkId}/received`)
+          .send({
+            receiverId: secondReceiverId,
+            senderId: SENDER_ID,
+            senderName: SENDER_NAME,
+            receiverName: 'Carol',
+            talkData: TALK_DATA,
+          });
+        expect(res3.status).toBe(200);
+        expect(res3.body.registered).toBe(true);
+        expect(incomingTalksMap.get(secondReceiverId)).toBeDefined();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('enforces weekly talk quota (and resets next week)', async () => {
+      jest.useFakeTimers({ advanceTimers: true });
+      jest.setSystemTime(new Date('2026-05-07T12:00:00.000Z')); // Thu; week starts Mon
+      try {
+        const { app, incomingTalksMap } = buildTestServer({
+          talkSendDailyLimit: 1000,
+          talkSendWeeklyLimit: 1,
+        });
+
+        const res1 = await request(app)
+          .post(`/api/talks/${talkId}/received`)
+          .send({ receiverId: RESPONDER_ID, senderId: SENDER_ID, senderName: SENDER_NAME, talkData: TALK_DATA });
+        expect(res1.status).toBe(200);
+        expect(res1.body.registered).toBe(true);
+
+        const secondReceiverId = 'user_carol';
+        const res2 = await request(app)
+          .post(`/api/talks/${talkId}/received`)
+          .send({
+            receiverId: secondReceiverId,
+            senderId: SENDER_ID,
+            senderName: SENDER_NAME,
+            receiverName: 'Carol',
+            talkData: TALK_DATA,
+          });
+        expect(res2.status).toBe(200);
+        expect(res2.body.registered).toBe(false);
+        expect(res2.body.rejectedBy).toContain('weekly_talk_send_rate_limit');
+        expect(incomingTalksMap.get(secondReceiverId)).toBeUndefined();
+
+        // Next week Monday (UTC)
+        jest.setSystemTime(new Date('2026-05-11T12:00:00.000Z'));
+        const res3 = await request(app)
+          .post(`/api/talks/${talkId}/received`)
+          .send({
+            receiverId: secondReceiverId,
+            senderId: SENDER_ID,
+            senderName: SENDER_NAME,
+            receiverName: 'Carol',
+            talkData: TALK_DATA,
+          });
+        expect(res3.status).toBe(200);
+        expect(res3.body.registered).toBe(true);
+        expect(incomingTalksMap.get(secondReceiverId)).toBeDefined();
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 

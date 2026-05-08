@@ -27,6 +27,7 @@ import { registerStatsRoutes } from './routes/stats-routes';
 import { registerTalkDeliveryRoutes } from './routes/talk-delivery-routes';
 import { BroadcastTagPopularityStore } from './services/broadcast-tag-popularity-store';
 import { SymmetricTalkEdgeRateLimiter } from './services/symmetric-talk-edge-rate-limit';
+import { DailyWeeklyTalkEdgeQuotaRateLimiter } from './services/daily-weekly-talk-edge-quota-rate-limit';
 import { getServerBlockedTerms } from './server-blocked-terms';
 import { registerSystemRoutes } from './routes/system-routes';
 import { registerTalkRoutes } from './routes/talk-routes';
@@ -58,6 +59,10 @@ class IinPublicServer {
 
   private broadcastTagPopularityStore = new BroadcastTagPopularityStore();
   private symmetricTalkEdgeRateLimiter = new SymmetricTalkEdgeRateLimiter(CONFIG.SYMMETRIC_TALK_EDGE_COOLDOWN_MS);
+  private dailyWeeklyTalkEdgeQuotaRateLimiter = new DailyWeeklyTalkEdgeQuotaRateLimiter({
+    daily: CONFIG.RATE_LIMITS.TALK_SEND_DAILY,
+    weekly: CONFIG.RATE_LIMITS.TALK_SEND_WEEKLY,
+  });
 
   constructor() {
     this.app = express();
@@ -394,6 +399,7 @@ class IinPublicServer {
     this.statsIdx.byTalkAnswer.clear();
     this.broadcastTagPopularityStore.resetForTesting();
     this.symmetricTalkEdgeRateLimiter.resetForTesting();
+    this.dailyWeeklyTalkEdgeQuotaRateLimiter.resetForTesting();
   }
 
   /** Gun cannot store `questions: [...]` on incoming cluster nodes; we keep `questionsJson` instead. */
@@ -747,6 +753,7 @@ class IinPublicServer {
         this.broadcastTagPopularityStore.recordFromTargetTags(tags),
       getServerBlockedTerms: () => getServerBlockedTerms(),
       symmetricTalkEdgeLimiter: this.symmetricTalkEdgeRateLimiter,
+      dailyWeeklyTalkEdgeQuotaRateLimiter: this.dailyWeeklyTalkEdgeQuotaRateLimiter,
     });
 
     registerChatroomRoutes(this.app, { chatroomManager: this.chatroomManager });
