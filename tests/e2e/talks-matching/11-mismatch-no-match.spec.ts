@@ -1,6 +1,6 @@
 /**
  * Tom broadcasts a flow talk. Jerry answers the ignore (mismatch) branch.
- * Verifies: no Match! toast on either side, Tom's status bar shows no match,
+ * Verifies: no match on either side (status bar), Tom's status bar shows no match,
  * Jerry's Answers tab lists the talk with a Mismatch label.
  */
 import { Browser, BrowserContext, Page } from '@playwright/test';
@@ -17,6 +17,7 @@ import {
   resetTalksMatchingSession,
   finalCleanupPages,
 } from '../helpers/talks-matching-flow';
+import { waitForStatusBarMatchCountAtMost } from '../helpers/durable-ui';
 
 const TALK_TITLE = 'E2E Mismatch No Match Flow';
 
@@ -101,19 +102,10 @@ test.describe('Talks matching — mismatch path yields no match', () => {
     await waitForResponseModalClosed(pageJerry);
     await waitForTabActive(pageJerry, 'talks');
 
-    // Allow time for any match toast that would have appeared
     await afterSync();
 
-    // Neither side should see a Match! notification
-    await expect(pageJerry.getByText('Match!').first()).not.toBeVisible();
-    await expect(pageTom.getByText('Match!').first()).not.toBeVisible();
-
-    // Tom's status bar must not advertise a match
-    await pageTom.click('.nav-btn[data-view="talks"]');
-    await afterSync();
-    await expect(pageTom.locator('#status-bar-text')).not.toContainText(/\d+ match/i, {
-      timeout: 10000,
-    });
+    await waitForStatusBarMatchCountAtMost(pageJerry, 0);
+    await waitForStatusBarMatchCountAtMost(pageTom, 0);
 
     // Jerry's Answers tab: talk listed with Mismatch label
     await pageJerry.click('.nav-btn[data-view="answers"]');

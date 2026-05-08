@@ -12,6 +12,7 @@ import {
   waitForTabActive,
   resetTalksMatchingSession,
 } from './helpers/talks-matching-flow';
+import { dismissNotificationOverlays } from './helpers/durable-ui';
 
 async function enterGlobalChatroom(page: Page): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
@@ -22,12 +23,7 @@ async function enterGlobalChatroom(page: Page): Promise<void> {
 }
 
 async function createMatchTalk(page: Page, title: string): Promise<void> {
-  // Dismiss any lingering notification overlay that blocks pointer events
-  const notif = page.locator('.notification').first();
-  if (await notif.isVisible()) {
-    await notif.click();
-    await afterAction();
-  }
+  await dismissNotificationOverlays(page);
   await page.click('#create-talk-btn');
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);

@@ -13,6 +13,7 @@ import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './
 import { webAppURLStableChatroom } from './helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
+import { waitForStatusBarMatchCountAtLeast } from './helpers/durable-ui';
 
 test.describe('Unread badge on Me tab after match and new message', () => {
   let browserTom: Browser;
@@ -125,7 +126,7 @@ test.describe('Unread badge on Me tab after match and new message', () => {
       .locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`)
       .first()
       .click();
-    await expect(pageJerry.getByText('Match!').first()).toBeVisible({ timeout: 15000 });
+    await waitForStatusBarMatchCountAtLeast(pageJerry, 1);
     await waitForResponseModalClosed(pageJerry);
     await afterSync();
 

@@ -17,6 +17,7 @@ import {
   finalCleanupPages,
   syncIncomingFromServer,
 } from '../helpers/talks-matching-flow';
+import { waitForStatusBarMatchCountAtMost } from '../helpers/durable-ui';
 
 const TAG_TITLE = 'E2E Tag Reopen Coffee';
 
@@ -91,9 +92,8 @@ test.describe('Talks matching — tag: reopen mismatch, change to match', () => 
     await waitForResponseModalClosed(pageTom);
     await afterSync();
 
-    // Verify no match after first submission
-    await expect(pageTom.getByText('Match!').first()).not.toBeVisible();
-    await expect(pageAlice.getByText('Match!').first()).not.toBeVisible();
+    await waitForStatusBarMatchCountAtMost(pageTom, 0);
+    await waitForStatusBarMatchCountAtMost(pageAlice, 0);
 
     // Tom's Answers tab: tag listed with Mismatch
     await pageTom.click('.nav-btn[data-view="answers"]');

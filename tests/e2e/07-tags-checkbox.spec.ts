@@ -7,6 +7,7 @@ import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './
 import { gunBaseURL, webBaseURL, e2eTestScreenshotsDir } from './helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
+import { waitForStatusBarMatchCountAtLeast } from './helpers/durable-ui';
 
 test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
   let browserAlice: Browser;
@@ -98,12 +99,6 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     return { context, page };
   }
 
-  async function waitForNotification(page: Page, contains: string, label: string): Promise<void> {
-    const locator = page.getByText(contains, { exact: false }).first();
-    await expect(locator).toBeVisible({ timeout: 15000 });
-    console.log(`✅ ${label} saw notification: "${contains}"`);
-  }
-
   test('Alice creates Coffee and Cat tags, sends to Tom; Tom answers Coffee checked, Cat unchecked; Alice confirms one match (Coffee)', async () => {
     // 1) Alice and Tom enter Global
     console.log('\n📍 STEP 1: Alice and Tom enter Global');
@@ -171,11 +166,11 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     await expect(pageTom.locator('.tag-match-checkbox')).toBeVisible();
     await pageTom.locator('#tag-match-checkbox').check();
     await pageTom.click('#tag-submit-btn');
-    await expect(pageTom.getByText('Match!').first()).toBeVisible({ timeout: 15000 });
+    await waitForStatusBarMatchCountAtLeast(pageTom, 1);
     await waitForResponseModalClosed(pageTom);
 
-    // 5) Alice sees match notification for Coffee (one match)
-    await expect(pageAlice.getByText('Match!').first()).toBeVisible({ timeout: 15000 });
+    // 5) Alice sees the match on the status bar (durable)
+    await waitForStatusBarMatchCountAtLeast(pageAlice, 1);
 
     // 6) Tom opens Cat tag, leaves checkbox unchecked, submits → ignore
     console.log('\n📍 STEP 6: Tom opens Cat, leaves checkbox unchecked → ignore');

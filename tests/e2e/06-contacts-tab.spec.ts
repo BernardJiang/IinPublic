@@ -6,6 +6,7 @@ import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './
 import { gunBaseURL, webBaseURL } from './helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
+import { waitForStatusBarMatchCountAtLeast } from './helpers/durable-ui';
 
 test.describe('Contacts tab: list of users with matches, click to see matching talks', () => {
   let browserTom: Browser;
@@ -92,13 +93,6 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     return { context, page };
   }
 
-  /** Wait for a toast notification (avoids matching other on-page text). */
-  async function waitForNotification(page: Page, contains: string, label: string): Promise<void> {
-    const notification = page.locator('.notification').filter({ hasText: contains });
-    await expect(notification.first()).toBeVisible({ timeout: 15000 });
-    console.log(`✅ ${label} saw: "${contains}"`);
-  }
-
   test('Contacts tab shows users with matches; click contact shows matching talks', async () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
@@ -172,7 +166,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
 
     await openIncomingTalkModal(pageJerry, TALK_TENNIS);
     await pageJerry.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
-    await expect(pageJerry.getByText('Match!').first()).toBeVisible({ timeout: 15000 });
+    await waitForStatusBarMatchCountAtLeast(pageJerry, 1);
     await waitForResponseModalClosed(pageJerry);
     await afterAction();
 
@@ -182,7 +176,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
 
     await openIncomingTalkModal(pageBob, TALK_COFFEE);
     await pageBob.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER_COFFEE}"][data-mode="manual"]`).first().click();
-    await expect(pageBob.getByText('Match!').first()).toBeVisible({ timeout: 15000 });
+    await waitForStatusBarMatchCountAtLeast(pageBob, 1);
     await waitForResponseModalClosed(pageBob);
     await afterAction();
 
@@ -190,9 +184,8 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await pageBob.locator(`input.choice-radio[data-answer-text="${IGNORE_ANSWER}"][data-mode="manual"]`).first().click();
     await waitForResponseModalClosed(pageBob);
 
-    await expect(pageTom.getByText('Match!').first()).toBeVisible({ timeout: 15000 });
+    await waitForStatusBarMatchCountAtLeast(pageTom, 2);
     await afterSync();
-    // Second Match! toast may already be dismissed; assert stable state (2 contacts) instead
     await pageTom.click('.nav-btn[data-view="contacts"]');
     await afterAction();
     await expect(pageTom.locator('#contacts-list .contact-item')).toHaveCount(2, { timeout: 15000 });

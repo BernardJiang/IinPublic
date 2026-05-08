@@ -6,6 +6,7 @@ import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './
 import { webBaseURL } from './helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
+import { waitForStatusBarMatchCountAtLeast } from './helpers/durable-ui';
 
 test.describe('Direct messaging between matched users', () => {
   let browserTom: Browser;
@@ -133,12 +134,11 @@ test.describe('Direct messaging between matched users', () => {
       .locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`)
       .first()
       .click();
-    await expect(pageJerry.getByText('Match!').first()).toBeVisible({ timeout: 15000 });
+    await waitForStatusBarMatchCountAtLeast(pageJerry, 1);
     await waitForResponseModalClosed(pageJerry);
     await afterSync();
 
-    // Tom sees the match toast too
-    await expect(pageTom.getByText('Match!').first()).toBeVisible({ timeout: 15000 });
+    await waitForStatusBarMatchCountAtLeast(pageTom, 1);
     await afterSync();
 
     // ── Tom opens the conversation and sends a message ───────────────────────

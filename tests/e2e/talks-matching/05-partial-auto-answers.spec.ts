@@ -20,25 +20,14 @@ import {
   resetTalksMatchingSession,
   finalCleanupPages,
 } from '../helpers/talks-matching-flow';
+import { dismissNotificationOverlays } from '../helpers/durable-ui';
 
 const TITLE_SUN = 'E2E Partial Auto Sun';
 const TITLE_SAT = 'E2E Partial Auto Sat';
 
-/**
- * Toast overlays (e.g. “🎉 New match…”, “Match! … noticed…”) sit over the header. Playwright will not
- * click through them. Prefer tapping each toast (app removes on click); fall back to stripping the
- * DOM if anything lingers (slow auto-dismiss races).
- */
+/** Remove notification overlays so header clicks reach the create-talk control. */
 async function dismissBlockingNotifications(page: Page): Promise<void> {
-  const anyToast = page.locator('.notification');
-  for (let i = 0; i < 24; i++) {
-    const n = await anyToast.count();
-    if (n === 0) break;
-    await anyToast.last().click({ timeout: 3000 });
-  }
-  await page.evaluate(() => {
-    document.querySelectorAll('.notification').forEach((el) => el.remove());
-  });
+  await dismissNotificationOverlays(page);
 }
 
 /** Fill a 3-question linear matching talk; last question Yes → match, No → ignore. */

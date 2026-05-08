@@ -177,7 +177,12 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await pageTom.waitForSelector('#my-talks-modal', { timeout: 5000 });
     await pageTom.locator('.talk-history-item').filter({ hasText: copyTalkTitle }).first().locator('.delete-talk-btn').click();
     await afterNav();
-    await expect(pageTom.getByText('Talk removed from history')).toBeVisible({ timeout: 5000 });
+    await expect
+      .poll(
+        async () => pageTom.locator('#my-talks-modal .talk-history-item').filter({ hasText: copyTalkTitle }).count(),
+        { message: 'history row removed without relying on toast', timeout: 10_000 },
+      )
+      .toBe(0);
     await pageTom.click('#close-my-talks-modal');
     await afterAction();
     await pageTom.click('#view-my-talks-btn');
