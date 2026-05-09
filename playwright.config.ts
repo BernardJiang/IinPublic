@@ -55,6 +55,8 @@ export default defineConfig({
   testDir: './tests/e2e',
   // Keep tests in a file serial so shared beforeAll/afterAll and multi-step flows stay ordered.
   // Parallelism is across files only (different workers still use isolated ports + artifacts).
+  // Playwright schedules files in lexicographic path order; put the slowest specs first (e.g.
+  // `00-*.spec.ts`) so PW_WORKERS>1 starts long jobs immediately and avoids a single-worker tail.
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
