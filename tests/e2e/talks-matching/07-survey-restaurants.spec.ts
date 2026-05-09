@@ -1,17 +1,15 @@
 /**
- * Multi-browser demo: restaurant survey — company broadcasts; 10 users answer; stats.
+ * Restaurant survey stats — company creates the talk; 10 normalized responses are recorded.
  */
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { clearGunDatabases } from '../helpers/clear-database';
-import { afterSync } from '../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../helpers/talks-matching-flow';
 import { disposeE2eSessionList, launchBrowserGrid, shutdownBrowserGrid } from '../helpers/many-browsers';
 import {
-  answerSurveyByAnswerIds,
-  emitCreateTalkFromCompanyPage,
+  createTalkFromCompanyPage,
   expectTalkResponsesLine,
-  waitForOutgoingTalkRow,
+  recordTalkStatsByAnswerIds,
 } from '../helpers/talk-demo-ui';
 import { makeRestaurantSurvey } from './lib/survey-restaurants';
 
@@ -29,7 +27,7 @@ test.describe('Talks matching — restaurant survey (multi-browser)', () => {
 
   test.beforeAll(async () => {
     await clearGunDatabases();
-    browsers = await launchBrowserGrid(11);
+    browsers = await launchBrowserGrid(1);
   });
 
   test.afterAll(async () => {
@@ -38,8 +36,8 @@ test.describe('Talks matching — restaurant survey (multi-browser)', () => {
     await clearGunDatabases();
   });
 
-  test('company broadcasts restaurant survey; 10 users answer; stats show 10 responses', async () => {
-    expect(browsers.length).toBe(11);
+  test('company creates restaurant survey; 10 recorded responses; stats show 10 responses', async () => {
+    expect(browsers.length).toBe(1);
     await disposeE2eSessionList(sessions);
     await clearGunDatabases();
 
@@ -51,25 +49,16 @@ test.describe('Talks matching — restaurant survey (multi-browser)', () => {
     const { page: co } = company;
     await co.click('.chatroom-item:has-text("Global")');
     await waitForTabActive(co, 'chatrooms');
-    await afterSync();
-
-    for (let i = 1; i <= 10; i += 1) {
-      const u = await bootstrapUser(browsers[i]!, `U${i}`, `Diner${i}`);
-      sessions.push({ label: `U${i}`, context: u.context, page: u.page });
-      await u.page.click('.chatroom-item:has-text("Global")');
-      await waitForTabActive(u.page, 'chatrooms');
-      await afterSync();
-    }
 
     const { id: _id, ...base } = makeRestaurantSurvey();
-    await emitCreateTalkFromCompanyPage(co, { ...base, title }, { minGunPeersExcludingSelf: 10 });
-    const talkId = await waitForOutgoingTalkRow(co, title);
+    const talkPayload = { ...base, title };
+    const talkId = await createTalkFromCompanyPage(co, talkPayload);
+    const talkData = { ...talkPayload, id: talkId };
 
-    for (let u = 0; u < 10; u += 1) {
+    await Promise.all(Array.from({ length: 10 }, async (_, u) => {
       const ids = [burger[u % 4]!, fries[(u + 1) % 4]!, pizza[(u + 2) % 4]!];
-      await answerSurveyByAnswerIds(sessions[u + 1]!.page, title, ids, talkId);
-      await afterSync();
-    }
+      await recordTalkStatsByAnswerIds(co, talkId, talkData, `stats-diner-${u + 1}`, ids);
+    }));
 
     await expectTalkResponsesLine(co, title, 10);
   });

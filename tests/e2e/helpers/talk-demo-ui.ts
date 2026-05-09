@@ -4,8 +4,13 @@
 import type { Page } from '@playwright/test';
 import { expect } from './fixtures';
 import { afterCreateTalkBeforeBroadcast, afterSync } from './timing';
-import { openIncomingTalkModal, openIncomingTalkModalByTalkId, waitForResponseModalClosed } from './talks-matching-flow';
+import {
+  openIncomingTalkModal,
+  openIncomingTalkModalByTalkId,
+  waitForResponseModalClosed,
+} from './talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from './broadcast-preamble';
+import { gunBaseURL } from './ports';
 
 async function clickChatroomBroadcastButton(page: Page): Promise<void> {
   const statusBtn = page.locator('#status-broadcast-talk-btn');
@@ -89,6 +94,69 @@ export async function clickBroadcastUntilBulkAck(page: Page): Promise<void> {
 
 export type EmitCreateTalkFromCompanyOpts = { minGunPeersExcludingSelf?: number };
 
+/** Create through the app path but keep it in OUT only; useful when a spec validates stats, not delivery. */
+export async function createTalkFromCompanyPage(page: Page, talkPayload: unknown): Promise<string> {
+  const json = JSON.stringify(talkPayload, (_k, v) => (v instanceof Date ? (v as Date).toISOString() : v));
+  const title = String((talkPayload as { title?: unknown })?.title || '');
+  if (!title) throw new Error('createTalkFromCompanyPage requires a title');
+  await page.evaluate((payloadJson: string) => {
+    const app = (window as unknown as { __iinpublic_app?: { getApp: () => { uiManager: { emit: (ev: string, data: unknown) => void } } } })
+      .__iinpublic_app?.getApp?.();
+    if (!app?.uiManager?.emit) throw new Error('App or uiManager.emit not available');
+    app.uiManager.emit('createTalk', { ...JSON.parse(payloadJson), sendToChatroom: false });
+  }, json);
+  return waitForOutgoingTalkRow(page, title);
+}
+
+export async function createTalksFromCompanyPage(
+  page: Page,
+  talkPayloads: unknown[],
+): Promise<Array<{ title: string; talkId: string; talkData: any }>> {
+  const json = JSON.stringify(talkPayloads, (_k, v) => (v instanceof Date ? (v as Date).toISOString() : v));
+  const titles = talkPayloads.map((payload) => String((payload as { title?: unknown })?.title || ''));
+  if (titles.some((title) => !title)) throw new Error('createTalksFromCompanyPage requires every payload to have a title');
+  await page.evaluate((payloadsJson: string) => {
+    const app = (window as unknown as { __iinpublic_app?: { getApp: () => { uiManager: { emit: (ev: string, data: unknown) => void } } } })
+      .__iinpublic_app?.getApp?.();
+    if (!app?.uiManager?.emit) throw new Error('App or uiManager.emit not available');
+    for (const payload of JSON.parse(payloadsJson)) {
+      app.uiManager.emit('createTalk', { ...payload, sendToChatroom: false });
+    }
+  }, json);
+  await page.click('.nav-btn[data-view="talks"]');
+  await expect(page.locator('.nav-btn[data-view="talks"].active')).toBeVisible({ timeout: 15_000 });
+  await expect
+    .poll(
+      async () =>
+        page.evaluate((expectedTitles) => {
+          const raw = localStorage.getItem('myTalks');
+          const myTalks = raw ? JSON.parse(raw) : {};
+          const createdTitles = new Set(
+            Object.values(myTalks)
+              .filter((talk: any) => talk?.role === 'created')
+              .map((talk: any) => String(talk?.title || '')),
+          );
+          return expectedTitles.filter((title) => !createdTitles.has(title)).join(',');
+        }, titles),
+      { timeout: 60_000, intervals: [200, 500, 1000] },
+    )
+    .toBe('');
+  return page.evaluate((expectedTitles) => {
+    const raw = localStorage.getItem('myTalks');
+    const myTalks = raw ? JSON.parse(raw) : {};
+    return expectedTitles.map((title) => {
+      const entry = Object.entries(myTalks).find(([, talk]: [string, any]) =>
+        talk?.role === 'created' && talk?.title === title,
+      );
+      if (!entry) throw new Error(`No created talk in myTalks for "${title}"`);
+      const [talkId, talk] = entry as [string, any];
+      const talkData = talk?.fullTalk;
+      if (!talkData) throw new Error(`No local fullTalk for "${title}"`);
+      return { title, talkId, talkData };
+    });
+  }, titles);
+}
+
 /** Same create path as the Create Talk button; then wait and click Broadcast so receivers reliably see the talk. */
 export async function emitCreateTalkFromCompanyPage(
   page: Page,
@@ -126,6 +194,182 @@ export async function waitForOutgoingTalkRow(page: Page, titleSubstring: string,
   const tid = await row.first().getAttribute('data-talk-id');
   if (!tid) throw new Error(`No data-talk-id on created row for "${titleSubstring}"`);
   return tid;
+}
+
+async function currentUserIdentity(page: Page): Promise<{ id: string; name: string }> {
+  return page.evaluate(() => {
+    const currentUser = (
+      window as unknown as {
+        __iinpublic_app?: {
+          getApp: () => { currentUser?: { id?: string; stageName?: string } };
+        };
+      }
+    ).__iinpublic_app?.getApp?.()?.currentUser;
+    return {
+      id: String(currentUser?.id || ''),
+      name: String(currentUser?.stageName || 'Someone'),
+    };
+  });
+}
+
+function answersForIds(
+  talkData: any,
+  answerIds: string[],
+): Array<{ questionId: string; answerId: string; answerText: string; isChecked: boolean; mode: 'manual' }> {
+  return answerIds.map((answerId) => {
+    const question = (talkData?.questions || []).find((q: any) =>
+      (q?.answers || []).some((a: any) => String(a?.id) === answerId),
+    );
+    const answer = question?.answers?.find((a: any) => String(a?.id) === answerId);
+    if (!question || !answer) {
+      throw new Error(`Answer id "${answerId}" not found in talk "${talkData?.title || talkData?.id || 'unknown'}"`);
+    }
+    return {
+      questionId: String(question.id),
+      answerId,
+      answerText: String(answer.text ?? ''),
+      isChecked: answer.isMatch === true,
+      mode: 'manual',
+    };
+  });
+}
+
+export async function fetchTalkData(page: Page, talkId: string): Promise<any> {
+  const res = await page.context().request.get(`${gunBaseURL()}/api/talks/${encodeURIComponent(talkId)}`, {
+    headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+  });
+  if (!res.ok()) throw new Error(`GET /api/talks/${talkId} failed: ${res.status()}`);
+  return res.json();
+}
+
+/**
+ * Fast path for stats/demo specs: wait until broadcast delivery has registered,
+ * then POST the same response payload the UI submits after a modal is completed.
+ */
+export async function submitTalkResponseByAnswerIds(
+  page: Page,
+  talkId: string,
+  talkData: any,
+  answerIds: string[],
+): Promise<void> {
+  const responder = await currentUserIdentity(page);
+  if (!responder.id) throw new Error('submitTalkResponseByAnswerIds: page has no current user id');
+  const res = await page.context().request.post(`${gunBaseURL()}/api/talks/${encodeURIComponent(talkId)}/response`, {
+    data: {
+      talkId,
+      responderId: responder.id,
+      responderName: responder.name,
+      answers: answersForIds(talkData, answerIds),
+      talkData,
+      isAuto: false,
+      isChatbotResponse: false,
+    },
+  });
+  if (!res.ok()) {
+    throw new Error(`POST /api/talks/${talkId}/response failed: ${res.status()} ${await res.text()}`);
+  }
+}
+
+export async function recordTalkStatsByAnswerIds(
+  page: Page,
+  talkId: string,
+  talkData: any,
+  responderId: string,
+  answerIds: string[],
+  outcome: 'match' | 'ignore' | 'other' = 'other',
+): Promise<void> {
+  const answers = answersForIds(talkData, answerIds);
+  const res = await page.context().request.post(`${gunBaseURL()}/api/stats/talks/${encodeURIComponent(talkId)}/record`, {
+    data: {
+      responderId,
+      talkType: talkData?.type || 'flow',
+      answers,
+      outcome,
+    },
+  });
+  if (!res.ok()) {
+    throw new Error(`POST /api/stats/talks/${talkId}/record failed: ${res.status()} ${await res.text()}`);
+  }
+}
+
+/**
+ * Fast UI-side completion: bypass repeated modal clicks while still using UIManager.completeTalk,
+ * so local "Answers" state and the app's server submission path both run.
+ */
+export async function completeTalkInAppByAnswerIds(
+  page: Page,
+  talkId: string,
+  talkData: any,
+  answerIds: string[],
+  outcome: 'match' | 'mismatch',
+): Promise<void> {
+  const answers = answersForIds(talkData, answerIds);
+  await page.evaluate(
+    ({ talk, completedAnswers, completedOutcome }) => {
+      const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+      const completeTalk = app?.uiManager?.completeTalk;
+      if (typeof completeTalk !== 'function') {
+        throw new Error('UIManager.completeTalk is not available');
+      }
+      completeTalk.call(app.uiManager, talk, completedAnswers, completedOutcome);
+    },
+    { talk: talkData, completedAnswers: answers, completedOutcome: outcome },
+  );
+  await expect
+    .poll(
+      async () => {
+        const res = await page.context().request.get(
+          `${gunBaseURL()}/api/stats/talks/${encodeURIComponent(talkId)}/summary`,
+          { headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } },
+        );
+        if (!res.ok()) return 0;
+        const summary = (await res.json()) as { total?: number };
+        return Number(summary.total ?? 0);
+      },
+      { timeout: 30_000, intervals: [300, 600, 1000] },
+    )
+    .toBeGreaterThanOrEqual(1);
+}
+
+export async function completeTalksInAppByAnswerIds(
+  page: Page,
+  completions: Array<{ talkId: string; talkData: any; answerIds: string[]; outcome: 'match' | 'mismatch' }>,
+): Promise<void> {
+  const completed = completions.map(({ talkId, talkData, answerIds, outcome }) => ({
+    talkId,
+    talkData,
+    answers: answersForIds(talkData, answerIds),
+    outcome,
+  }));
+  await page.evaluate((items) => {
+    const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+    const completeTalk = app?.uiManager?.completeTalk;
+    if (typeof completeTalk !== 'function') {
+      throw new Error('UIManager.completeTalk is not available');
+    }
+    for (const item of items) {
+      completeTalk.call(app.uiManager, item.talkData, item.answers, item.outcome);
+    }
+  }, completed);
+  await expect
+    .poll(
+      async () => {
+        const totals = await Promise.all(
+          completed.map(async ({ talkId }) => {
+            const res = await page.context().request.get(
+              `${gunBaseURL()}/api/stats/talks/${encodeURIComponent(talkId)}/summary`,
+              { headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } },
+            );
+            if (!res.ok()) return 0;
+            const summary = (await res.json()) as { total?: number };
+            return Number(summary.total ?? 0);
+          }),
+        );
+        return totals.filter((total) => total >= 1).length;
+      },
+      { timeout: 60_000, intervals: [300, 600, 1000] },
+    )
+    .toBe(completed.length);
 }
 
 /** Answer each survey question in order using manual radios (`data-answer-id` from talk JSON). */

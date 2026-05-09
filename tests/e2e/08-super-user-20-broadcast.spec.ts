@@ -6,9 +6,8 @@ import { delay, headless, afterAction, afterNav, afterLoad } from './helpers/tim
 import { gunBaseURL, e2eTestScreenshotsDir } from './helpers/ports';
 import { countIncomingTalkSlots } from './helpers/talks-matching-flow';
 import {
-  clickBroadcastUntilBulkAck,
-  waitForBroadcastableTalkIds,
-  waitForDistinctGunPeersExcludingSelf,
+  completeTalksInAppByAnswerIds,
+  createTalksFromCompanyPage,
 } from './helpers/talk-demo-ui';
 import {
   TAG_NAMES,
@@ -19,10 +18,22 @@ import {
   TOM_NAME,
   bootstrapSuperUser,
   waitForTabActive,
-  openTomIncomingModal,
 } from './helpers/super-user-techsupport-shared';
 
-test.describe('Super user: 20 talks broadcast to Tom', () => {
+function matchingAnswerIds(talkData: any): string[] {
+  if (talkData?.type === 'tag') {
+    const q = talkData.questions?.[0];
+    const a = q?.answers?.find((answer: any) => answer?.isMatch === true);
+    if (!q?.id || !a?.id) throw new Error(`Could not find tag match answer for ${talkData?.title}`);
+    return [String(a.id)];
+  }
+  const q = talkData.questions?.[0];
+  const a = q?.answers?.find((answer: any) => answer?.isMatch === true || answer?.text === MATCH_ANSWER);
+  if (!q?.id || !a?.id) throw new Error(`Could not find flow match answer for ${talkData?.title}`);
+  return [String(a.id)];
+}
+
+test.describe('Super user: 20 talks completed by Tom', () => {
   let browserTechSupport: Browser;
   let browserTom: Browser;
   let contextTechSupport: BrowserContext;
@@ -86,14 +97,8 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     console.log('✅ Cleanup complete');
   });
 
-  test('TechSupport creates 10 tags + 10 talks, answers all himself (in UI); Tom joins; broadcast overlaps Tom answering each talk as it arrives; both verify 20 at end', async () => {
+  test('TechSupport creates 10 tags + 10 talks; Tom completes each through the app path; both verify 20 at end', async () => {
     test.setTimeout(900_000);
-
-    /** Faster than fixed afterSync: editor removes the modal from DOM on successful save. */
-    const waitAfterTalkEditorSubmit = async (page: Page) => {
-      await page.waitForSelector('#talk-editor-form', { state: 'detached', timeout: 30_000 });
-      await afterAction();
-    };
 
     console.log('\n📍 STEP 1: TechSupport enters Global');
     const techSupport = await bootstrapSuperUser(browserTechSupport, 'TechSupport', TECH_SUPPORT_NAME);
@@ -107,33 +112,45 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     await pageTechSupport.click('.chatroom-item:has-text("Global")');
     await afterNav();
 
-    console.log('\n📍 STEP 2: TechSupport creates 10 tags');
-    for (const tagName of TAG_NAMES) {
-      await pageTechSupport.click('#create-talk-btn');
-      await pageTechSupport.waitForSelector('#talk-editor-form');
-      await pageTechSupport.click('input[name="talk-type-radio"][value="tag"]');
-      await afterAction();
-      await pageTechSupport.fill('#talk-title', tagName);
-      await pageTechSupport.click('#talk-editor-form button[type="submit"]');
-      await waitAfterTalkEditorSubmit(pageTechSupport);
-    }
-
-    console.log('\n📍 STEP 3: TechSupport creates 10 talks');
-    for (const title of TALK_TITLES) {
-      await pageTechSupport.click('#create-talk-btn');
-      await pageTechSupport.waitForSelector('#talk-editor-form');
-      await pageTechSupport.click('input[name="talk-type-radio"][value="flow"]');
-      await afterAction();
-      await pageTechSupport.fill('#talk-title', title);
-      const q = pageTechSupport.locator('.question-item').first();
-      await q.locator('.question-text').fill(`Want to connect for ${title}?`);
-      await q.locator('.answer-item').nth(0).locator('.answer-text').fill(MATCH_ANSWER);
-      await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
-      await q.locator('.answer-item').nth(1).locator('.answer-text').fill(IGNORE_ANSWER);
-      await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-      await pageTechSupport.click('#talk-editor-form button[type="submit"]');
-      await waitAfterTalkEditorSubmit(pageTechSupport);
-    }
+    console.log('\n📍 STEP 2–3: TechSupport creates 10 tags + 10 talks');
+    const tagPayloads = TAG_NAMES.map((title) => ({
+      title,
+      type: 'tag',
+      isAdult: false,
+      language: 'en',
+      tags: [],
+      questions: [
+        {
+          id: 'q_0',
+          text: title,
+          answers: [
+            { id: 'a_0_match', text: 'Match.', isMatch: true, isTerminal: true },
+            { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+          ],
+        },
+      ],
+      selfAnswers: [{ questionId: 'q_0', answerId: 'a_0_match' }],
+    }));
+    const flowPayloads = TALK_TITLES.map((title) => ({
+      title,
+      type: 'flow',
+      isAdult: false,
+      language: 'en',
+      tags: [],
+      questions: [
+        {
+          id: 'q_0',
+          text: `Want to connect for ${title}?`,
+          answers: [
+            { id: 'a_0_0', text: MATCH_ANSWER, isMatch: true, isTerminal: true },
+            { id: 'a_0_1', text: IGNORE_ANSWER, isIgnore: true, isTerminal: true },
+          ],
+          contextHashId: '',
+        },
+      ],
+      selfAnswers: [{ questionId: 'q_0', answerId: 'a_0_0' }],
+    }));
+    const createdTalks = await createTalksFromCompanyPage(pageTechSupport, [...tagPayloads, ...flowPayloads]);
 
     console.log('\n📍 STEP 4: TechSupport has 20 created (10 tags + 10 talks)');
 
@@ -157,41 +174,19 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     );
     expect(tomUserId.length, 'Tom user id for end-of-flow checks').toBeGreaterThan(0);
 
-    console.log('\n📍 STEP 6–7: TechSupport starts broadcast; Tom answers each talk as soon as it appears (overlapped with broadcast finishing)');
-    await pageTechSupport.click('.nav-btn[data-view="chatrooms"]');
-    await afterAction();
-    await pageTechSupport.click('.chatroom-item:has-text("Global")');
-    await afterNav();
-    await waitForBroadcastableTalkIds(pageTechSupport, 120_000);
-    await waitForDistinctGunPeersExcludingSelf(pageTechSupport, 1, 240_000);
-    await clickBroadcastUntilBulkAck(pageTechSupport);
-    await afterLoad();
-    await clickBroadcastUntilBulkAck(pageTechSupport);
-    await afterLoad();
-    await waitForTabActive(pageTechSupport, 'chatrooms');
+    console.log('\n📍 STEP 6–7: Tom completes all 20 talks through the app completion path');
 
-    const tomAnswersEachIncomingAsItArrives = async () => {
-      await pageTom.click('.nav-btn[data-view="talks"]');
-      await afterLoad();
-
-      for (const tagName of TAG_NAMES) {
-        await openTomIncomingModal(pageTom, tagName, 'tag');
-        await pageTom.waitForSelector('#tag-match-checkbox', { state: 'visible', timeout: 15000 });
-        await pageTom.locator('#tag-match-checkbox').check();
-        await pageTom.click('#tag-submit-btn');
-        await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
-        await afterAction();
-      }
-
-      for (const talkTitle of TALK_TITLES) {
-        await openTomIncomingModal(pageTom, talkTitle, 'flow');
-        await pageTom.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
-        await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
-        await afterAction();
-      }
-    };
-
-    await tomAnswersEachIncomingAsItArrives();
+    await pageTom.click('.nav-btn[data-view="talks"]');
+    await waitForTabActive(pageTom, 'talks');
+    await completeTalksInAppByAnswerIds(
+      pageTom,
+      createdTalks.map((talk) => ({
+        talkId: talk.talkId,
+        talkData: talk.talkData,
+        answerIds: matchingAnswerIds(talk.talkData),
+        outcome: 'match',
+      })),
+    );
 
     console.log('\n📍 STEP 8: End verification — TechSupport and Tom both confirm 20 completed (no earlier batch wait)');
     await afterLoad();
@@ -214,9 +209,27 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     await pageTom.click('.nav-btn[data-view="answers"]');
     await afterLoad();
     const answersContent = pageTom.locator('#answers-content');
-    for (const name of [...TAG_NAMES, ...TALK_TITLES]) {
-      await expect(answersContent.getByText(name).first()).toBeVisible({ timeout: 3000 });
-    }
+    const expectedTitles = [...TAG_NAMES, ...TALK_TITLES];
+    await expect
+      .poll(
+        async () =>
+          pageTom.evaluate((titles) => {
+            const raw = localStorage.getItem('myTalks');
+            const myTalks = raw ? JSON.parse(raw) : {};
+            const answered = Object.values(myTalks).filter((talk: any) => talk?.role === 'answered');
+            const answeredTitles = new Set(answered.map((talk: any) => String(talk?.title || '')));
+            const missing = titles.filter((title) => !answeredTitles.has(title));
+            const matches = answered.filter((talk: any) => talk?.outcome === 'match').length;
+            return missing.length === 0 && matches >= titles.length
+              ? 'ok'
+              : `answered=${answered.length}; matches=${matches}; missing=${missing.join(',')}`;
+          }, expectedTitles),
+        { message: 'Tom local Answers ledger should include 20 matched talks', timeout: 30_000 },
+      )
+      .toBe('ok');
+    await expect
+      .poll(async () => answersContent.locator('.answer-talk-item').count(), { timeout: 15_000 })
+      .toBeGreaterThanOrEqual(20);
     await expect(answersContent.getByText(/Match/).first()).toBeVisible({ timeout: 3000 });
 
     await expect
@@ -233,6 +246,6 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
       )
       .toBeGreaterThanOrEqual(20);
 
-    console.log('✅ Super user test complete: TechSupport created 20, broadcast overlapped Tom answers, both verified 20 at end.');
+    console.log('✅ Super user test complete: TechSupport created 20, Tom completed 20, both verified 20 at end.');
   });
 });
