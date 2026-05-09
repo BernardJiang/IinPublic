@@ -4,11 +4,9 @@ import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
 import { gunBaseURL, webAppURLStableChatroom } from './helpers/ports';
-import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
 import {
-  clickBroadcastUntilBulkAck,
-  waitForBroadcastableTalkIds,
-  waitForDistinctGunPeersExcludingSelf,
+  completeTalkInAppByAnswerIds,
+  createTalksFromCompanyPage,
 } from './helpers/talk-demo-ui';
 import { waitForStatusBarMatchCountAtLeast } from './helpers/durable-ui';
 
@@ -29,6 +27,10 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
   const MATCH_ANSWER_COFFEE = 'Yes, coffee sounds good.';
   const IGNORE_ANSWER = 'No thanks.';
   const IGNORE_ANSWER_COFFEE = 'Not now.';
+  const TENNIS_MATCH_ID = 'a_tennis_yes';
+  const TENNIS_IGNORE_ID = 'a_tennis_no';
+  const COFFEE_MATCH_ID = 'a_coffee_yes';
+  const COFFEE_IGNORE_ID = 'a_coffee_no';
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunDatabases();
@@ -97,6 +99,32 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     return { context, page };
   }
 
+  async function currentUserId(page: Page): Promise<string> {
+    return page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
+  }
+
+  async function waitForPeerHistoryTitle(
+    viewer: Page,
+    userId: string,
+    peerId: string,
+    title: string,
+  ): Promise<void> {
+    await expect
+      .poll(
+        async () => {
+          const res = await viewer.request.get(
+            `${gunBaseURL()}/api/users/${encodeURIComponent(userId)}/peers/${encodeURIComponent(peerId)}/talk-history`,
+            { headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } },
+          );
+          if (!res.ok()) return [];
+          const history = (await res.json()) as Array<{ title?: string }>;
+          return history.map((item) => String(item.title || ''));
+        },
+        { message: `${title} should be in peer talk history`, timeout: 15_000, intervals: [200, 500, 1000] },
+      )
+      .toContain(title);
+  }
+
   test('Contacts tab shows users with matches; click contact shows matching talks', async () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
@@ -121,78 +149,54 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterNav();
 
-    await pageTom.click('#create-talk-btn');
-    await pageTom.waitForSelector('#talk-editor-form');
-    await pageTom.fill('#talk-title', TALK_TENNIS);
-    await pageTom.selectOption('#talk-type', 'flow');
-    const q1 = pageTom.locator('.question-item').first();
-    await q1.locator('.question-text').fill('Want a tennis partner?');
-    await q1.locator('.answer-item').nth(0).locator('.answer-text').fill(MATCH_ANSWER);
-    await q1.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
-    await q1.locator('.answer-item').nth(1).locator('.answer-text').fill(IGNORE_ANSWER);
-    await q1.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-    await pageTom.click('#talk-editor-form button[type="submit"]');
-    await afterSync();
+    const [tennis, coffee] = await createTalksFromCompanyPage(pageTom, [
+      {
+        title: TALK_TENNIS,
+        type: 'flow',
+        language: 'en',
+        questions: [{
+          id: 'q_tennis',
+          text: 'Want a tennis partner?',
+          answers: [
+            { id: TENNIS_MATCH_ID, text: MATCH_ANSWER, isMatch: true, isTerminal: true },
+            { id: TENNIS_IGNORE_ID, text: IGNORE_ANSWER, isIgnore: true, isTerminal: true },
+          ],
+        }],
+        selfAnswers: [{ questionId: 'q_tennis', answerId: TENNIS_MATCH_ID }],
+      },
+      {
+        title: TALK_COFFEE,
+        type: 'flow',
+        language: 'en',
+        questions: [{
+          id: 'q_coffee',
+          text: 'Want to grab coffee?',
+          answers: [
+            { id: COFFEE_MATCH_ID, text: MATCH_ANSWER_COFFEE, isMatch: true, isTerminal: true },
+            { id: COFFEE_IGNORE_ID, text: IGNORE_ANSWER_COFFEE, isIgnore: true, isTerminal: true },
+          ],
+        }],
+        selfAnswers: [{ questionId: 'q_coffee', answerId: COFFEE_MATCH_ID }],
+      },
+    ]);
 
-    await pageTom.click('#create-talk-btn');
-    await pageTom.waitForSelector('#talk-editor-form');
-    await pageTom.fill('#talk-title', TALK_COFFEE);
-    await pageTom.selectOption('#talk-type', 'flow');
-    const q2 = pageTom.locator('.question-item').first();
-    await q2.locator('.question-text').fill('Want to grab coffee?');
-    await q2.locator('.answer-item').nth(0).locator('.answer-text').fill(MATCH_ANSWER_COFFEE);
-    await q2.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
-    await q2.locator('.answer-item').nth(1).locator('.answer-text').fill(IGNORE_ANSWER_COFFEE);
-    await q2.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-    await pageTom.click('#talk-editor-form button[type="submit"]');
-    await afterSync();
-
-    await pageTom.click('.nav-btn[data-view="chatrooms"]');
-    await afterAction();
-    await pageTom.click('.chatroom-item:has-text("Global")');
-    await afterNav();
-    await waitForBroadcastableTalkIds(pageTom, 120_000);
-    await waitForDistinctGunPeersExcludingSelf(pageTom, 2, 240_000);
-    await clickBroadcastUntilBulkAck(pageTom);
-    await afterSync();
-    await clickBroadcastUntilBulkAck(pageTom);
-    await afterSync();
-    // Poll server until Jerry has received both talks (broadcast takes time to register)
-    const jerryUserId = await pageJerry.evaluate(
-      () => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '',
-    );
-    await expect
-      .poll(
-        async () => {
-          const res = await pageTom.request.get(
-            `${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}/incoming-talks`,
-          );
-          if (!res.ok()) return 0;
-          return (await res.json() as any[]).length;
-        },
-        { message: 'Jerry should have incoming talks after broadcast', timeout: 60_000 },
-      )
-      .toBeGreaterThanOrEqual(1);
-
-    await openIncomingTalkModal(pageJerry, TALK_TENNIS);
-    await pageJerry.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`).first().click();
+    await completeTalkInAppByAnswerIds(pageJerry, tennis.talkId, tennis.talkData, [TENNIS_MATCH_ID], 'match');
     await waitForStatusBarMatchCountAtLeast(pageJerry, 1);
-    await waitForResponseModalClosed(pageJerry);
-    await afterAction();
 
-    await openIncomingTalkModal(pageJerry, TALK_COFFEE);
-    await pageJerry.locator(`input.choice-radio[data-answer-text="${IGNORE_ANSWER_COFFEE}"][data-mode="manual"]`).first().click();
-    await waitForResponseModalClosed(pageJerry);
+    await completeTalkInAppByAnswerIds(pageJerry, coffee.talkId, coffee.talkData, [COFFEE_IGNORE_ID], 'mismatch');
 
-    await openIncomingTalkModal(pageBob, TALK_COFFEE);
-    await pageBob.locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER_COFFEE}"][data-mode="manual"]`).first().click();
+    await completeTalkInAppByAnswerIds(pageBob, coffee.talkId, coffee.talkData, [COFFEE_MATCH_ID], 'match');
     await waitForStatusBarMatchCountAtLeast(pageBob, 1);
-    await waitForResponseModalClosed(pageBob);
-    await afterAction();
 
-    await openIncomingTalkModal(pageBob, TALK_TENNIS);
-    await pageBob.locator(`input.choice-radio[data-answer-text="${IGNORE_ANSWER}"][data-mode="manual"]`).first().click();
-    await waitForResponseModalClosed(pageBob);
+    await completeTalkInAppByAnswerIds(pageBob, tennis.talkId, tennis.talkData, [TENNIS_IGNORE_ID], 'mismatch');
+
+    const tomUserId = await currentUserId(pageTom);
+    const jerryUserId = await currentUserId(pageJerry);
+    const bobUserId = await currentUserId(pageBob);
+    await waitForPeerHistoryTitle(pageTom, tomUserId, jerryUserId, TALK_TENNIS);
+    await waitForPeerHistoryTitle(pageTom, tomUserId, bobUserId, TALK_COFFEE);
+    await waitForPeerHistoryTitle(pageJerry, jerryUserId, tomUserId, TALK_TENNIS);
+    await waitForPeerHistoryTitle(pageBob, bobUserId, tomUserId, TALK_COFFEE);
 
     await waitForStatusBarMatchCountAtLeast(pageTom, 2);
     await afterSync();

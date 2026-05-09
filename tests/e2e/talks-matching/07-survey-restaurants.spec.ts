@@ -20,7 +20,7 @@ const fries = ['fr_md', 'fr_kfc', 'fr_ino', 'fr_ot'] as const;
 const pizza = ['pz_ph', 'pz_gh', 'pz_dom', 'pz_ot'] as const;
 
 test.describe('Talks matching — restaurant survey (multi-browser)', () => {
-  test.setTimeout(600_000);
+  test.setTimeout(120_000);
 
   let browsers: Browser[] = [];
   const sessions: Session[] = [];

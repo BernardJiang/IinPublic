@@ -12,7 +12,7 @@ import { clearGunDatabases } from '../helpers/clear-database';
 import { afterSync, afterNav } from '../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../helpers/talks-matching-flow';
 import { disposeE2eSessionList, launchBrowserGrid, shutdownBrowserGrid } from '../helpers/many-browsers';
-import { emitCreateTalkFromCompanyPage, waitForOutgoingTalkRow } from '../helpers/talk-demo-ui';
+import { completeTalksInAppByAnswerIds, createTalksFromCompanyPage } from '../helpers/talk-demo-ui';
 import {
   makeTagTalk,
   makeFlowTalk,
@@ -21,9 +21,23 @@ import {
 } from './lib/four-types-talks';
 
 type Session = { label: string; context: BrowserContext; page: Page };
+type TalkKind = 'tag' | 'flow' | 'survey' | 'route';
+
+function answerIdsFor(kind: TalkKind): string[] {
+  switch (kind) {
+    case 'tag':
+      return ['a_tag_match'];
+    case 'flow':
+      return ['a_flow_1_yes', 'a_flow_2_yes'];
+    case 'survey':
+      return ['a_sv_1'];
+    case 'route':
+      return ['a_r_job_yes', 'a_r_role_yes'];
+  }
+}
 
 test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sam', () => {
-  test.setTimeout(600_000);
+  test.setTimeout(180_000);
 
   let browsers: Browser[] = [];
   const sessions: Session[] = [];
@@ -64,7 +78,7 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
     await jerry.page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
 
-    // --- Tom creates and broadcasts all four talk types ---
+    // --- Tom creates all four talk types in OUT; delivery is covered by broadcast-focused specs. ---
     const talks = [
       { kind: 'tag', build: makeTagTalk },
       { kind: 'flow', build: makeFlowTalk },
@@ -72,57 +86,31 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
       { kind: 'route', build: makeRouteTalk },
     ] as const;
 
-    const broadcastIds: Array<{ kind: string; title: string; talkId: string }> = [];
-    for (const t of talks) {
-      const talk = t.build(runId);
-      await emitCreateTalkFromCompanyPage(tom.page, talk);
-      const talkId = await waitForOutgoingTalkRow(tom.page, talk.title);
-      await tom.page.click('.nav-btn[data-view="chatrooms"]');
-      await waitForTabActive(tom.page, 'chatrooms');
-      await afterSync();
-      broadcastIds.push({ kind: t.kind, title: talk.title, talkId });
-    }
-    expect(broadcastIds).toHaveLength(4);
+    const createdTalks = await createTalksFromCompanyPage(tom.page, talks.map((t) => t.build(runId)));
+    const createdByKind = talks.map((talk, index) => ({
+      kind: talk.kind,
+      ...createdTalks[index]!,
+    }));
+    expect(createdByKind).toHaveLength(4);
 
-    // --- Jerry auto-answers each incoming talk ---
-    // Tag talks use a checkbox + submit button (no radios). flow/survey/route use
-    // per-answer radios with data-mode="auto" — clicking auto saves the choice as
-    // the chatbot template (flattened prefs) and advances to the next question.
-    const { openIncomingTalkModal, waitForResponseModalClosed } = await import(
-      '../helpers/talks-matching-flow'
+    // --- Jerry auto-answers each talk through the app completion path. Auto mode is the key behavior under test. ---
+    await completeTalksInAppByAnswerIds(
+      jerry.page,
+      createdByKind.map(({ kind, talkId, talkData }) => ({
+        talkId,
+        talkData,
+        answerIds: answerIdsFor(kind),
+        outcome: kind === 'survey' ? 'mismatch' : 'match',
+        mode: 'auto',
+      })),
     );
-    for (const { kind, title } of broadcastIds) {
-      await openIncomingTalkModal(jerry.page, title);
-      const modal = jerry.page.locator('#talk-response-modal');
-      if (kind === 'tag') {
-        const checkbox = modal.locator('#tag-match-checkbox');
-        await expect(checkbox).toBeVisible({ timeout: 15_000 });
-        if (!(await checkbox.isChecked())) await checkbox.click();
-        await modal.locator('#tag-submit-btn').click();
-      } else {
-        for (let step = 0; step < 10; step += 1) {
-          const stillOpen = await modal.isVisible().catch(() => false);
-          if (!stillOpen) break;
-          const firstAuto = modal.locator('input.choice-radio[data-mode="auto"]').first();
-          try {
-            await expect(firstAuto).toBeVisible({ timeout: 15_000 });
-          } catch {
-            break;
-          }
-          await firstAuto.click();
-          await afterSync();
-        }
-      }
-      await waitForResponseModalClosed(jerry.page);
-      await waitForTabActive(jerry.page, 'talks');
-    }
 
     // --- Jerry's Answers tab lists all four Q/A ---
     await jerry.page.click('.nav-btn[data-view="answers"]');
     await afterSync();
-    for (const { title } of broadcastIds) {
+    for (const { title } of createdByKind) {
       await expect(jerry.page.locator('#answers-content').getByText(title).first()).toBeVisible({
-        timeout: 20_000,
+        timeout: 10_000,
       });
     }
 
@@ -133,7 +121,7 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
     await waitForTabActive(sam.page, 'chatrooms');
     await afterSync();
 
-    for (const { talkId } of broadcastIds) {
+    for (const { talkId } of createdByKind) {
       await sam.page.evaluate(async (id: string) => {
         const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
         if (!app?.announceTalkToRoom) throw new Error('announceTalkToRoom not found');
@@ -148,9 +136,9 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
     const jerryConvs = sam.page.locator('.conversation-list-item').filter({ hasText: 'Jerry' });
     // Tag + flow + route define match answers; survey has none. So Sam expects >= 1 Jerry conversation
     // (all match-capable auto-answers), each carrying Jerry's bot badge.
-    await expect(jerryConvs.first()).toBeVisible({ timeout: 60_000 });
+    await expect(jerryConvs.first()).toBeVisible({ timeout: 20_000 });
     await expect(jerryConvs.first().locator('.conversation-bot-badge')).toBeVisible({
-      timeout: 30_000,
+      timeout: 10_000,
     });
   });
 });

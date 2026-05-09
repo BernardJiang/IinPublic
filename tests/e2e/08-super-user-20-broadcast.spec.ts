@@ -98,7 +98,7 @@ test.describe('Super user: 20 talks completed by Tom', () => {
   });
 
   test('TechSupport creates 10 tags + 10 talks; Tom completes each through the app path; both verify 20 at end', async () => {
-    test.setTimeout(900_000);
+    test.setTimeout(120_000);
 
     console.log('\n📍 STEP 1: TechSupport enters Global');
     const techSupport = await bootstrapSuperUser(browserTechSupport, 'TechSupport', TECH_SUPPORT_NAME);
@@ -200,7 +200,7 @@ test.describe('Super user: 20 talks completed by Tom', () => {
           const t = (await statusBar.textContent()) || '';
           return /20\s+match(?:es)?/i.test(t);
         },
-        { message: 'TechSupport status bar should report 20 matches', timeout: 240_000 },
+        { message: 'TechSupport status bar should report 20 matches', timeout: 60_000 },
       )
       .toBe(true);
     const matchedLines = await pageTechSupport.getByText(/Matched with:/).count();

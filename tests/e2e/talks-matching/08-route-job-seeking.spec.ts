@@ -16,7 +16,7 @@ import { getJobRouteScenarios, prepareValidatedJobRouteTalk } from './lib/route-
 type Session = { label: string; context: BrowserContext; page: Page };
 
 test.describe('Talks matching — job seeker route (multi-browser)', () => {
-  test.setTimeout(600_000);
+  test.setTimeout(120_000);
 
   let browsers: Browser[] = [];
   const sessions: Session[] = [];

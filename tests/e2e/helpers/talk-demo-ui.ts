@@ -87,7 +87,7 @@ export async function clickBroadcastUntilBulkAck(page: Page): Promise<void> {
         const sent = Number(await loc.getAttribute('data-broadcast-talks-sent'));
         return Number.isFinite(gen) && gen > start && Number.isFinite(sent) && sent >= 1;
       },
-      { timeout: 300_000, intervals: [200, 500, 1000, 2000] },
+      { timeout: 120_000, intervals: [200, 500, 1000, 2000] },
     )
     .toBe(true);
 }
@@ -138,7 +138,7 @@ export async function createTalksFromCompanyPage(
           );
           return expectedTitles.filter((title) => !createdTitles.has(title)).join(',');
         }, titles),
-      { timeout: 60_000, intervals: [200, 500, 1000] },
+      { timeout: 20_000, intervals: [200, 500, 1000] },
     )
     .toBe('');
   return page.evaluate((expectedTitles) => {
@@ -215,7 +215,8 @@ async function currentUserIdentity(page: Page): Promise<{ id: string; name: stri
 function answersForIds(
   talkData: any,
   answerIds: string[],
-): Array<{ questionId: string; answerId: string; answerText: string; isChecked: boolean; mode: 'manual' }> {
+  mode: 'manual' | 'auto' = 'manual',
+): Array<{ questionId: string; answerId: string; answerText: string; isChecked: boolean; mode: 'manual' | 'auto' }> {
   return answerIds.map((answerId) => {
     const question = (talkData?.questions || []).find((q: any) =>
       (q?.answers || []).some((a: any) => String(a?.id) === answerId),
@@ -229,7 +230,7 @@ function answersForIds(
       answerId,
       answerText: String(answer.text ?? ''),
       isChecked: answer.isMatch === true,
-      mode: 'manual',
+      mode,
     };
   });
 }
@@ -302,8 +303,9 @@ export async function completeTalkInAppByAnswerIds(
   talkData: any,
   answerIds: string[],
   outcome: 'match' | 'mismatch',
+  mode: 'manual' | 'auto' = 'manual',
 ): Promise<void> {
-  const answers = answersForIds(talkData, answerIds);
+  const answers = answersForIds(talkData, answerIds, mode);
   await page.evaluate(
     ({ talk, completedAnswers, completedOutcome }) => {
       const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
@@ -333,12 +335,12 @@ export async function completeTalkInAppByAnswerIds(
 
 export async function completeTalksInAppByAnswerIds(
   page: Page,
-  completions: Array<{ talkId: string; talkData: any; answerIds: string[]; outcome: 'match' | 'mismatch' }>,
+  completions: Array<{ talkId: string; talkData: any; answerIds: string[]; outcome: 'match' | 'mismatch'; mode?: 'manual' | 'auto' }>,
 ): Promise<void> {
-  const completed = completions.map(({ talkId, talkData, answerIds, outcome }) => ({
+  const completed = completions.map(({ talkId, talkData, answerIds, outcome, mode }) => ({
     talkId,
     talkData,
-    answers: answersForIds(talkData, answerIds),
+    answers: answersForIds(talkData, answerIds, mode ?? 'manual'),
     outcome,
   }));
   await page.evaluate((items) => {
@@ -367,7 +369,7 @@ export async function completeTalksInAppByAnswerIds(
         );
         return totals.filter((total) => total >= 1).length;
       },
-      { timeout: 60_000, intervals: [300, 600, 1000] },
+      { timeout: 30_000, intervals: [300, 600, 1000] },
     )
     .toBe(completed.length);
 }
@@ -436,7 +438,7 @@ export async function expectTalkResponsesLine(
         const stats = await row.first().locator('.talk-item-stats').textContent().catch(() => '');
         return stats ?? '';
       },
-      { timeout: 240_000 },
+      { timeout: 30_000 },
     )
     .toContain(needle);
 }

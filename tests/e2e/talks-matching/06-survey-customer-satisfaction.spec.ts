@@ -17,7 +17,7 @@ import { makeSurveyTalk } from './lib/survey-customer-satisfaction';
 type Session = { label: string; context: BrowserContext; page: Page };
 
 test.describe('Talks matching — survey customer satisfaction (multi-browser)', () => {
-  test.setTimeout(600_000);
+  test.setTimeout(120_000);
 
   let browsers: Browser[] = [];
   const sessions: Session[] = [];

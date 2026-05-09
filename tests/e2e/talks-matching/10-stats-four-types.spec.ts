@@ -42,7 +42,7 @@ function answerIdsFor(kind: TalkKind): string[] {
 
 test.describe('Talks matching — generic stats across four talk types (STAT-01)', () => {
   /** Stats API coverage across all four talk types. */
-  test.setTimeout(1_200_000);
+  test.setTimeout(120_000);
 
   let browsers: Browser[] = [];
   const sessions: Session[] = [];
@@ -125,7 +125,7 @@ test.describe('Talks matching — generic stats across four talk types (STAT-01)
             const j = (await r.json()) as { total?: number };
             return Number(j.total ?? -1);
           },
-          { timeout: 60_000 },
+          { timeout: 15_000 },
         )
         .toBe(2);
 
