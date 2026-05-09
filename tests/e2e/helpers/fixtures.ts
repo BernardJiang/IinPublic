@@ -13,6 +13,7 @@
 
 import { test as base, expect } from '@playwright/test';
 import { setE2eParallelSlotFromWorker, webBaseURL } from './ports';
+import { clearE2eBrowserTabTitleRunContext, setE2eBrowserTabTitleRunContext } from './e2e-tab-title';
 
 export const test = base.extend<{
   /** Worker parallel index (0 … workers−1); also initializes ports.ts slot. */
@@ -29,6 +30,15 @@ export const test = base.extend<{
     void e2eWorkerSlot;
     await use(webBaseURL());
   },
+  /** Sets per-test metadata used by attachE2eBrowserTabLabel (spec file, worker, test title). */
+  _e2eTabTitleContext: [
+    async ({}, use, testInfo) => {
+      setE2eBrowserTabTitleRunContext(testInfo);
+      await use();
+      clearE2eBrowserTabTitleRunContext();
+    },
+    { auto: true },
+  ],
 });
 
 export { expect };

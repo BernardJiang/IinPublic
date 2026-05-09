@@ -9,6 +9,7 @@ import {
   createTalksFromCompanyPage,
 } from './helpers/talk-demo-ui';
 import { waitForStatusBarMatchCountAtLeast } from './helpers/durable-ui';
+import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 
 test.describe('Contacts tab: list of users with matches, click to see matching talks', () => {
   let browserTom: Browser;
@@ -96,6 +97,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await afterNav();
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
+    attachE2eBrowserTabLabel(page, label);
     return { context, page };
   }
 

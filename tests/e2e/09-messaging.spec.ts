@@ -10,6 +10,7 @@ import {
   waitForBroadcastableTalkIds,
   waitForDistinctGunPeersExcludingSelf,
 } from './helpers/talk-demo-ui';
+import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 
 test.describe('Direct messaging between matched users', () => {
   let browserTom: Browser;
@@ -81,6 +82,7 @@ test.describe('Direct messaging between matched users', () => {
     await afterNav();
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
+    attachE2eBrowserTabLabel(page, label);
     return { context, page };
   }
 

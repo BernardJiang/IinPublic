@@ -13,6 +13,7 @@ import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, headless } from './helpers/timing';
 import { webAppURLStableChatroom } from './helpers/ports';
 import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
+import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 import {
   openIncomingTalkModal,
   syncIncomingFromServer,
@@ -76,6 +77,9 @@ test.describe('Chatroom peer detail views', () => {
     await ensureWindowFitsViewport(pageJerry, 640, 1000);
     await afterLoad();
     await setStageNameAndGoToChatrooms(pageJerry, jerryName);
+
+    attachE2eBrowserTabLabel(pageTom, `Tom (${tomName})`);
+    attachE2eBrowserTabLabel(pageJerry, `Jerry (${jerryName})`);
 
     return { ctxTom, pageTom, ctxJerry, pageJerry };
   }

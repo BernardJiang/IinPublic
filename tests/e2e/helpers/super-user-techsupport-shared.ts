@@ -6,6 +6,7 @@ import { afterLoad, afterNav, afterAction, afterSync } from './timing';
 import { webAppURLStableChatroom } from './ports';
 import { wait } from './timing';
 import { syncIncomingFromServer, waitForIncomingTalkClusterOnServer } from './talks-matching-flow';
+import { attachE2eBrowserTabLabel } from './e2e-tab-title';
 
 export const TECH_SUPPORT_NAME = 'TechSupport';
 export const TOM_NAME = 'Tom';
@@ -75,6 +76,7 @@ export async function bootstrapSuperUser(
 
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
+  attachE2eBrowserTabLabel(page, label);
   return { context, page };
 }
 

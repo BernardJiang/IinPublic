@@ -16,6 +16,7 @@ import { webBaseURL } from './helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
 import { waitForStatusBarMatchCountAtLeast } from './helpers/durable-ui';
+import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 
 async function getCurrentUserId(page: Page): Promise<string> {
   return page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id ?? '');
@@ -79,6 +80,8 @@ test.describe('Messaging edge cases', () => {
 
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
+
+    attachE2eBrowserTabLabel(page, label);
 
     if (label === 'Tom') {
       contextTom = context;
@@ -189,6 +192,7 @@ test.describe('Messaging edge cases', () => {
     await pageJerry.waitForLoadState('load');
     await ensureWindowFitsViewport(pageJerry, 640, 1000);
     await afterLoad();
+    attachE2eBrowserTabLabel(pageJerry, 'Jerry (fresh tab)');
 
     // Re-open conversation and verify message is still present.
     await openConversation(pageJerry, 'Tom');

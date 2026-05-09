@@ -6,6 +6,7 @@ import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
 import { webBaseURL, e2eTestStorageDir } from './helpers/ports';
+import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 
 /**
  * Navigate to the app with e2e_capacity=3 and e2e_fifo=true URL params so the
@@ -61,6 +62,7 @@ test.describe('Capacity and eviction', () => {
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 640, 600);
     await afterLoad();
+    attachE2eBrowserTabLabel(page, label);
     return page;
   }
 
@@ -152,24 +154,28 @@ test.describe('Capacity and eviction', () => {
     await page1.waitForLoadState('load');
     await afterLoad();
     await afterNav();
+    attachE2eBrowserTabLabel(page1, 'U1 re-enter');
 
     context2 = await reenterContext(browser2, 'cap-user2.json');
     page2 = await context2.newPage();
     await page2.goto(webBaseURL() + E2E_URL);
     await page2.waitForLoadState('load');
     await afterLoad();
+    attachE2eBrowserTabLabel(page2, 'U2 re-enter');
 
     context3 = await reenterContext(browser3, 'cap-user3.json');
     page3 = await context3.newPage();
     await page3.goto(webBaseURL() + E2E_URL);
     await page3.waitForLoadState('load');
     await afterLoad();
+    attachE2eBrowserTabLabel(page3, 'U3 re-enter');
 
     context4 = await reenterContext(browser4, 'cap-user4.json');
     page4 = await context4.newPage();
     await page4.goto(webBaseURL() + E2E_URL);
     await page4.waitForLoadState('load');
     await afterLoad();
+    attachE2eBrowserTabLabel(page4, 'U4 re-enter');
 
     await afterSync();
     await expectStatusBar(page1, 'North America', 'U1 persistence check');

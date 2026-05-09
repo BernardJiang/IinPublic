@@ -1,6 +1,7 @@
 import { expect, type APIRequestContext, Browser, BrowserContext, Page } from '@playwright/test';
 import { clearGunDatabases, injectIdbClear } from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
+import { attachE2eBrowserTabLabel } from './e2e-tab-title';
 import { afterLoad, afterNav, afterAction, afterSync } from './timing';
 import { gunBaseURL, webAppURLStableChatroom } from './ports';
 
@@ -169,6 +170,7 @@ export async function bootstrapUser(
   await afterNav();
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
+  attachE2eBrowserTabLabel(page, label);
   return { context, page };
 }
 

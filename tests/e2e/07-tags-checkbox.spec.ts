@@ -8,6 +8,7 @@ import { gunBaseURL, webBaseURL, e2eTestScreenshotsDir } from './helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
 import { waitForStatusBarMatchCountAtLeast } from './helpers/durable-ui';
+import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 
 test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
   let browserAlice: Browser;
@@ -96,6 +97,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
 
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
+    attachE2eBrowserTabLabel(page, label);
     return { context, page };
   }
 

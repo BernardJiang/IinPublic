@@ -17,6 +17,7 @@ import {
   waitForBroadcastableTalkIds,
   waitForDistinctGunPeersExcludingSelf,
 } from './helpers/talk-demo-ui';
+import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 
 test.describe('Unread badge on Me tab after match and new message', () => {
   let browserTom: Browser;
@@ -87,6 +88,7 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await afterNav();
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
+    attachE2eBrowserTabLabel(page, label);
     return { context, page };
   }
 

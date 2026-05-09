@@ -12,6 +12,7 @@ import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterAction, afterNav, afterSync, headless } from './helpers/timing';
 import { gunBaseURL, webBaseURL } from './helpers/ports';
+import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 
 test.describe('Profile privacy visibility', () => {
   let browser: Browser;
@@ -64,6 +65,7 @@ test.describe('Profile privacy visibility', () => {
     await nextPage.click('#edit-stagename-form button[type="submit"]');
     await afterNav();
 
+    attachE2eBrowserTabLabel(nextPage, stageName);
     return { context: nextContext, page: nextPage };
   }
 

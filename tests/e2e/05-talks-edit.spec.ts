@@ -4,6 +4,7 @@ import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
 import { webBaseURL } from './helpers/ports';
+import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 
 test.describe('Talks: create and edit', () => {
   let browser: Browser;
@@ -47,6 +48,7 @@ test.describe('Talks: create and edit', () => {
     await afterNav();
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
+    attachE2eBrowserTabLabel(page, stageName);
   }
 
   test('Create talk, Talks tab shows it with Edit; Edit opens with prefilled data', async () => {

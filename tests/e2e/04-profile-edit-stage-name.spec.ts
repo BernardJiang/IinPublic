@@ -5,6 +5,7 @@ import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterNav, afterAction, delay, headless } from './helpers/timing';
 import { webBaseURL, gunBaseURL, e2eTestScreenshotsDir } from './helpers/ports';
+import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 
 test.describe('Profile foundation', () => {
   let browser: Browser;
@@ -57,6 +58,7 @@ test.describe('Profile foundation', () => {
     await nextPage.fill('#new-stage-name', stageName);
     await nextPage.click('#edit-stagename-form button[type="submit"]');
     await afterNav();
+    attachE2eBrowserTabLabel(nextPage, stageName);
     return { context: nextContext, page: nextPage };
   }
 

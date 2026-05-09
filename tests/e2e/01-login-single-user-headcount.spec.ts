@@ -6,6 +6,7 @@ import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, delay, headless } from './helpers/timing';
 import { webBaseURL, e2eTestScreenshotsDir } from './helpers/ports';
+import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 
 test.describe('Login — single user headcount', () => {
   let browser: Browser;
@@ -39,6 +40,7 @@ test.describe('Login — single user headcount', () => {
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 960, 1200);
     await afterLoad();
+    attachE2eBrowserTabLabel(page, 'User1');
 
     const headcount = page.locator('.chatroom-item:has-text("Global") .chatroom-headcount');
     await headcount.waitFor({ state: 'visible', timeout: 5000 });
@@ -55,6 +57,7 @@ test.describe('Login — single user headcount', () => {
     await page.waitForLoadState('load');
     await afterNav();
     await afterLoad();
+    attachE2eBrowserTabLabel(page, 'User1 re-login');
     await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('1');
     await page.screenshot({ path: path.join(screenshotDir, '02-re-login.png'), fullPage: true });
 

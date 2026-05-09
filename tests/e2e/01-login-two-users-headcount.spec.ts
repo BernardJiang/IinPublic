@@ -5,6 +5,7 @@ import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { wait, afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
 import { webBaseURL, e2eTestScreenshotsDir } from './helpers/ports';
+import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 
 test.describe('Login — two users headcount', () => {
   let browser: Browser;
@@ -46,6 +47,7 @@ test.describe('Login — two users headcount', () => {
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 960, 1200);
     await afterLoad();
+    attachE2eBrowserTabLabel(page, 'User1');
     await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('1');
 
     context2 = await browser2.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
@@ -56,6 +58,7 @@ test.describe('Login — two users headcount', () => {
     await page2.waitForLoadState('load');
     await ensureWindowFitsViewport(page2, 960, 1200);
     await afterLoad();
+    attachE2eBrowserTabLabel(page2, 'User2');
     await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('2', { timeout: 15000 });
     await expect(page2.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('2', { timeout: 15000 });
 
@@ -72,6 +75,7 @@ test.describe('Login — two users headcount', () => {
     await page2.waitForLoadState('load');
     await afterNav();
     await afterLoad();
+    attachE2eBrowserTabLabel(page2, 'User2 re-login');
     await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('2', { timeout: 15000 });
     await expect(page2.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('2', { timeout: 15000 });
 

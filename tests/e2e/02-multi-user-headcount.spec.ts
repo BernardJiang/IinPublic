@@ -6,6 +6,7 @@ import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { wait, afterLoad, afterSync, afterNav, delay, headless } from './helpers/timing';
 import { webBaseURL, e2eTestScreenshotsDir, e2eTestStorageDir } from './helpers/ports';
+import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 
 test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () => {
   let browser1: Browser;
@@ -81,6 +82,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await page1.waitForLoadState('load');
     await ensureWindowFitsViewport(page1, 640, 800);
     await afterLoad();
+    attachE2eBrowserTabLabel(page1, 'User1');
     await expectHeadcount(page1, 1, 'User 1');
 
     context2 = await newContext(browser2);
@@ -91,6 +93,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await page2.waitForLoadState('load');
     await ensureWindowFitsViewport(page2, 640, 800);
     await afterLoad();
+    attachE2eBrowserTabLabel(page2, 'User2');
     await expectHeadcount(page1, 2, 'User 1');
     await expectHeadcount(page2, 2, 'User 2');
 
@@ -102,6 +105,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await page3.waitForLoadState('load');
     await ensureWindowFitsViewport(page3, 640, 800);
     await afterLoad();
+    attachE2eBrowserTabLabel(page3, 'User3');
     await expectHeadcount(page1, 3, 'User 1');
     await expectHeadcount(page2, 3, 'User 2');
     await expectHeadcount(page3, 3, 'User 3');
@@ -139,6 +143,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await page2.waitForLoadState('load');
     await afterNav();
     await afterLoad();
+    attachE2eBrowserTabLabel(page2, 'User2 re-enter');
     await expectHeadcount(page2, 1, 'User 2');
 
     context3 = await browser3.newContext({
@@ -152,6 +157,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await page3.waitForLoadState('load');
     await afterNav();
     await afterLoad();
+    attachE2eBrowserTabLabel(page3, 'User3 re-enter');
     await expectHeadcount(page2, 2, 'User 2');
     await expectHeadcount(page3, 2, 'User 3');
 
@@ -166,6 +172,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await page1.waitForLoadState('load');
     await afterNav();
     await afterLoad();
+    attachE2eBrowserTabLabel(page1, 'User1 re-enter');
     await expectHeadcount(page1, 3, 'User 1');
     await expectHeadcount(page2, 3, 'User 2');
     await expectHeadcount(page3, 3, 'User 3');

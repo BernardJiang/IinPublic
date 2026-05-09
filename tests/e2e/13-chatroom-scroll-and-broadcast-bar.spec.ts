@@ -4,6 +4,7 @@ import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterNav, afterAction, afterSync, headless } from './helpers/timing';
 import { webAppURLStableChatroom } from './helpers/ports';
+import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 
 async function bootstrapCompactUser(
   browser: Browser,
@@ -30,6 +31,7 @@ async function bootstrapCompactUser(
   await afterNav();
   await page.click('.chatroom-item[data-chatroom-id="global"]');
   await afterSync();
+  attachE2eBrowserTabLabel(page, label);
   return { context, page };
 }
 

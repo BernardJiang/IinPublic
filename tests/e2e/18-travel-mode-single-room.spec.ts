@@ -4,6 +4,7 @@ import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, delay, headless } from './helpers/timing';
 import { webBaseURL } from './helpers/ports';
+import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 
 test.describe('Chatrooms — travel mode single-room presence', () => {
   let browser: Browser;
@@ -32,6 +33,7 @@ test.describe('Chatrooms — travel mode single-room presence', () => {
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 960, 1200);
     await afterLoad();
+    attachE2eBrowserTabLabel(page, 'travel');
 
     // Start in Global.
     await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('1');
