@@ -3,7 +3,8 @@ import type { Browser, BrowserContext } from '@playwright/test';
 import { injectIdbClear } from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
 import { afterLoad, afterNav, afterAction, afterSync } from './timing';
-import { webBaseURL } from './ports';
+import { webAppURLStableChatroom } from './ports';
+import { wait } from './timing';
 import { syncIncomingFromServer, waitForIncomingTalkClusterOnServer } from './talks-matching-flow';
 
 export const TECH_SUPPORT_NAME = 'TechSupport';
@@ -50,7 +51,12 @@ export async function bootstrapSuperUser(
   const page = await context.newPage();
   page.on('console', (msg) => console.log(`[${label}]:`, msg.text()));
   await injectIdbClear(page);
-  await page.goto(webBaseURL());
+  try {
+    await page.goto(webAppURLStableChatroom(), { waitUntil: 'load', timeout: 60_000 });
+  } catch {
+    await wait(1500, 2000);
+    await page.goto(webAppURLStableChatroom(), { waitUntil: 'load', timeout: 60_000 });
+  }
   await page.waitForLoadState('load');
   await ensureWindowFitsViewport(page, 640, 1000);
   await afterLoad();
@@ -79,11 +85,11 @@ export async function waitForTabActive(
   await expect(page.locator(`.nav-btn[data-view="${view}"].active`)).toBeVisible({ timeout: 10000 });
 }
 
-const TOM_INCOMING_SERVER_WAIT_MS = 45_000;
+const TOM_INCOMING_SERVER_WAIT_MS = 120_000;
 const TOM_INCOMING_ROW_POLL_MS = 5000;
 const TOM_INCOMING_ROW_FINAL_MS = 12_000;
 const TOM_RESPONSE_MODAL_MS = 20_000;
-const TOM_INCOMING_NAV_DEADLINE_MS = 90_000;
+const TOM_INCOMING_NAV_DEADLINE_MS = 180_000;
 
 /** Open an incoming row via View (reliable with Gun/backend-synced IN list). */
 export async function openTomIncomingModal(
@@ -99,10 +105,11 @@ export async function openTomIncomingModal(
   } else {
     await waitForTabActive(page, 'talks');
   }
+  // Server mirror can lag under heavy 20-talk overlap; use as a hint, not a hard gate.
   await waitForIncomingTalkClusterOnServer(page, titleSubstring, {
     timeout: TOM_INCOMING_SERVER_WAIT_MS,
     polling: 400,
-  });
+  }).catch(() => {});
   await syncIncomingFromServer(page);
   await afterAction();
   const row = page

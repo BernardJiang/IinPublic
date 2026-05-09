@@ -137,6 +137,9 @@ describe('Service Integration Tests', () => {
           ]),
           interestsJson: JSON.stringify([]),
         });
+      const mockGetPath = jest
+        .spyOn(gunService, 'getPath')
+        .mockResolvedValueOnce(mockUser.reputation as any);
 
       const retrievedUser = await userService.getUser('user123');
 
@@ -157,6 +160,7 @@ describe('Service Integration Tests', () => {
       });
       expect(mockGet).toHaveBeenCalledWith('users/user123');
       expect(mockGet).toHaveBeenCalledWith('user-public-profile/user123');
+      expect(mockGetPath).toHaveBeenCalledWith(['users/user123', 'reputation']);
     });
 
     it('filters profile Q&A for GET user by visibility and known-people', async () => {

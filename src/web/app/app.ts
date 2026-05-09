@@ -768,7 +768,7 @@ export class IinPublicApp {
     console.log(`📡 POSTing register-receivers: talkId=${talkId} receivers=${receiverIds.length}`);
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 25000);
+      const timeoutId = setTimeout(() => controller.abort(), 300_000);
       let res: Response;
       try {
         res = await fetch(

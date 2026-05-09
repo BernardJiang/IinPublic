@@ -134,11 +134,11 @@ export class GunService {
               resolve(this.deserializeDates(data));
             }
           },
-          { wait: 1000 },
+          { wait: 2000 },
         );
       }),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Timeout reading key: ${key}`)), 3000),
+        setTimeout(() => reject(new Error(`Timeout reading key: ${key}`)), 8000),
       ),
     ]);
   }

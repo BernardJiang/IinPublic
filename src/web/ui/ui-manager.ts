@@ -2749,6 +2749,8 @@ export class UIManager extends EventEmitter {
     if (!el) return;
     el.dataset.broadcastTalksSent = String(talksSent);
     el.dataset.broadcastReceivers = String(receiversResolved);
+    const prev = Number(el.dataset.broadcastBulkGen ?? '0');
+    el.dataset.broadcastBulkGen = String(Number.isFinite(prev) ? prev + 1 : 1);
   }
 
   updateStatusBar(
@@ -2786,7 +2788,9 @@ export class UIManager extends EventEmitter {
     const conversationMatches = Object.values(this.getMyConversations()).filter((conversation: any) => {
       return !!conversation && typeof conversation === 'object' && !!conversation.talkId;
     }).length;
-    return conversationMatches > 0 ? conversationMatches : statsMatches;
+    // Use the higher of the two: per-talk stats update immediately on responses, while
+    // Gun-backed conversations can lag (bulk matches would otherwise show "1 match" forever).
+    return Math.max(statsMatches, conversationMatches);
   }
 
   displayIncomingTalk(talk: {

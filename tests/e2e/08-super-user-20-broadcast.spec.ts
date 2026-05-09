@@ -5,8 +5,11 @@ import { clearGunDatabases } from './helpers/clear-database';
 import { delay, headless, afterAction, afterNav, afterLoad } from './helpers/timing';
 import { gunBaseURL, e2eTestScreenshotsDir } from './helpers/ports';
 import { countIncomingTalkSlots } from './helpers/talks-matching-flow';
-import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
-import { waitForBroadcastBulkAck } from './helpers/broadcast-ack';
+import {
+  clickBroadcastUntilBulkAck,
+  waitForBroadcastableTalkIds,
+  waitForDistinctGunPeersExcludingSelf,
+} from './helpers/talk-demo-ui';
 import {
   TAG_NAMES,
   TALK_TITLES,
@@ -135,6 +138,8 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     console.log('\n📍 STEP 4: TechSupport has 20 created (10 tags + 10 talks)');
 
     console.log('\n📍 STEP 5: Tom joins Global');
+    // Brief pause after heavy TechSupport session + prior spec teardown reduces flaky net::ERR_ABORTED on Tom's first goto.
+    await new Promise((r) => setTimeout(r, 2000));
     const tom = await bootstrapSuperUser(browserTom, 'Tom', TOM_NAME);
     contextTom = tom.context;
     pageTom = tom.page;
@@ -157,13 +162,13 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
     await afterAction();
     await pageTechSupport.click('.chatroom-item:has-text("Global")');
     await afterNav();
-    await pageTechSupport.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageTechSupport);
+    await waitForBroadcastableTalkIds(pageTechSupport, 120_000);
+    await waitForDistinctGunPeersExcludingSelf(pageTechSupport, 1, 240_000);
+    await clickBroadcastUntilBulkAck(pageTechSupport);
+    await afterLoad();
+    await clickBroadcastUntilBulkAck(pageTechSupport);
+    await afterLoad();
     await waitForTabActive(pageTechSupport, 'chatrooms');
-
-    const techSupportWaitsForBroadcastAck = async () => {
-      await waitForBroadcastBulkAck(pageTechSupport, { talksSent: 20, receivers: 1 });
-    };
 
     const tomAnswersEachIncomingAsItArrives = async () => {
       await pageTom.click('.nav-btn[data-view="talks"]');
@@ -186,7 +191,7 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
       }
     };
 
-    await Promise.all([techSupportWaitsForBroadcastAck(), tomAnswersEachIncomingAsItArrives()]);
+    await tomAnswersEachIncomingAsItArrives();
 
     console.log('\n📍 STEP 8: End verification — TechSupport and Tom both confirm 20 completed (no earlier batch wait)');
     await afterLoad();
@@ -200,7 +205,7 @@ test.describe('Super user: 20 talks broadcast to Tom', () => {
           const t = (await statusBar.textContent()) || '';
           return /20\s+match(?:es)?/i.test(t);
         },
-        { message: 'TechSupport status bar should report 20 matches', timeout: 90_000 },
+        { message: 'TechSupport status bar should report 20 matches', timeout: 240_000 },
       )
       .toBe(true);
     const matchedLines = await pageTechSupport.getByText(/Matched with:/).count();

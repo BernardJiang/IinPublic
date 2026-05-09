@@ -8,6 +8,7 @@ import {
   openIncomingTalkModal,
   resetTalksMatchingSession,
   finalCleanupPages,
+  syncIncomingFromServer,
   waitForResponseModalClosed,
   waitForTabActive,
 } from './helpers/talks-matching-flow';
@@ -140,6 +141,8 @@ test.describe('Me tab filters and credit visibility', () => {
       .toBe('Filtered Flow Talk');
 
     await pageJerry.click('.nav-btn[data-view="talks"]');
+    await afterSync();
+    await syncIncomingFromServer(pageJerry);
     await afterSync();
     await expect(
       pageJerry.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: 'Filtered Flow Talk' }).first(),

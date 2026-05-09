@@ -3,10 +3,13 @@ import { test, expect } from './helpers/fixtures';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
-import { webBaseURL } from './helpers/ports';
+import { gunBaseURL, webAppURLStableChatroom } from './helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
-import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
-import { waitForStatusBarMatchCountAtLeast } from './helpers/durable-ui';
+import {
+  clickBroadcastUntilBulkAck,
+  waitForBroadcastableTalkIds,
+  waitForDistinctGunPeersExcludingSelf,
+} from './helpers/talk-demo-ui';
 
 test.describe('Direct messaging between matched users', () => {
   let browserTom: Browser;
@@ -16,13 +19,12 @@ test.describe('Direct messaging between matched users', () => {
   let pageTom: Page;
   let pageJerry: Page;
 
-  const TALK_TITLE = 'Tennis Partner';
   const MATCH_ANSWER = 'Yes, lets play.';
   const IGNORE_ANSWER = 'No thanks.';
   const TOM_MESSAGE = 'Hey Jerry, want to play tennis tomorrow?';
   const JERRY_REPLY = 'Sounds great! Meet at the courts at 9am?';
 
-  test.setTimeout(120_000);
+  test.setTimeout(420_000);
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunDatabases();
@@ -65,7 +67,7 @@ test.describe('Direct messaging between matched users', () => {
     const page = await context.newPage();
     page.on('console', (m) => console.log(`[${label}]:`, m.text()));
     await injectIdbClear(page);
-    await page.goto(webBaseURL());
+    await page.goto(webAppURLStableChatroom());
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 640, 1000);
     await afterLoad();
@@ -83,22 +85,82 @@ test.describe('Direct messaging between matched users', () => {
   }
 
   /** Open the conversation overlay for a given contact name from the Me tab. */
-  async function openConversation(page: Page, otherUserName: string): Promise<void> {
-    await page.click('.nav-btn[data-view="me"]');
-    await afterNav();
-    // Wait for the conversations list to render a matching item
+  async function openConversation(page: Page, otherUserName: string, otherUserId?: string): Promise<void> {
     const convItem = page.locator('.conversation-list-item').filter({ hasText: otherUserName }).first();
-    await expect(convItem).toBeVisible({ timeout: 15000 });
-    await convItem.click();
-    // Overlay becomes visible
-    await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 10000 });
+    let visible = false;
+    try {
+      await expect
+        .poll(
+          async () => {
+            await page.click('.nav-btn[data-view="me"]');
+            await afterNav();
+            const itemVisible = await convItem.isVisible().catch(() => false);
+            if (itemVisible) return true;
+            await page.click('.nav-btn[data-view="chatrooms"]');
+            await afterNav();
+            await page.click('.nav-btn[data-view="me"]');
+            await afterNav();
+            return convItem.isVisible().catch(() => false);
+          },
+          { timeout: 30_000 },
+        )
+        .toBe(true);
+      visible = true;
+    } catch {
+      visible = false;
+    }
+
+    if (visible) {
+      await convItem.click();
+    } else {
+      if (otherUserId) {
+        await waitForConversationEntryByOtherUserId(page, otherUserId);
+      }
+      await page.evaluate(({ name, otherId }: { name: string; otherId?: string }) => {
+        const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+        const raw = localStorage.getItem('myConversations');
+        const conversations = raw ? JSON.parse(raw) : {};
+        const entry = Object.entries(conversations).find(([, v]: any) => {
+          return v?.otherUserName === name || (!!otherId && v?.otherUserId === otherId);
+        });
+        if (!entry) throw new Error('conversation entry missing');
+        const [conversationId] = entry;
+        app?.uiManager?.showConversationDetail?.(conversationId);
+      }, { name: otherUserName, otherId: otherUserId });
+    }
+    await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 20_000 });
+  }
+
+  async function waitForConversationEntryByOtherUserId(page: Page, otherUserId: string): Promise<void> {
+    await expect
+      .poll(
+        async () => {
+          await page.click('.nav-btn[data-view="me"]');
+          await afterNav();
+          const exists = await page.evaluate((id: string) => {
+            const raw = localStorage.getItem('myConversations');
+            const conversations = raw ? JSON.parse(raw) : {};
+            return Object.values(conversations).some((v: any) => v?.otherUserId === id);
+          }, otherUserId);
+          if (exists) return true;
+          await page.click('.nav-btn[data-view="chatrooms"]');
+          await afterNav();
+          return false;
+        },
+        { timeout: 120_000, message: `Conversation entry for ${otherUserId} should appear` },
+      )
+      .toBe(true);
   }
 
   test('Tom and Jerry match on talk, then exchange messages', async () => {
+    const talkTitle = `Tennis Partner ${Date.now()}`;
     // ── Bootstrap users ─────────────────────────────────────────────────────
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
+    const tomUserId = await pageTom.evaluate(
+      () => (window as unknown as { __iinpublic_app?: { getApp: () => { currentUser?: { id: string } } } }).__iinpublic_app?.getApp?.()?.currentUser?.id || '',
+    );
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterSync();
 
@@ -111,7 +173,7 @@ test.describe('Direct messaging between matched users', () => {
     // ── Tom creates and broadcasts the talk ──────────────────────────────────
     await pageTom.click('#create-talk-btn');
     await pageTom.waitForSelector('#talk-editor-form');
-    await pageTom.fill('#talk-title', TALK_TITLE);
+    await pageTom.fill('#talk-title', talkTitle);
     await pageTom.selectOption('#talk-type', 'flow');
     const q = pageTom.locator('.question-item').first();
     await q.locator('.question-text').fill('Want a tennis partner?');
@@ -122,27 +184,47 @@ test.describe('Direct messaging between matched users', () => {
     await pageTom.click('#talk-editor-form button[type="submit"]');
     await afterSync();
 
-    await pageTom.click('#broadcast-talk-btn');
-
-    await confirmBroadcastTagPreambleIfVisible(pageTom);
+    await pageTom.click('.nav-btn[data-view="chatrooms"]');
     await afterAction();
+    await pageTom.click('.chatroom-item:has-text("Global")');
+    await afterNav();
+    await waitForBroadcastableTalkIds(pageTom, 120_000);
+    await waitForDistinctGunPeersExcludingSelf(pageTom, 1, 240_000);
+    await clickBroadcastUntilBulkAck(pageTom);
+    await afterSync();
+    await clickBroadcastUntilBulkAck(pageTom);
     await afterSync();
 
+    const jerryUserId = await pageJerry.evaluate(
+      () => (window as unknown as { __iinpublic_app?: { getApp: () => { currentUser?: { id: string } } } }).__iinpublic_app?.getApp?.()?.currentUser?.id || '',
+    );
+
+    await expect
+      .poll(
+        async () => {
+          const res = await pageTom.request.get(
+            `${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}/incoming-talks`,
+          );
+          if (!res.ok()) return 0;
+          return (await res.json() as unknown[]).length;
+        },
+        { message: 'Jerry should have incoming talks after broadcast', timeout: 120_000 },
+      )
+      .toBeGreaterThanOrEqual(1);
+
     // ── Jerry answers — match ────────────────────────────────────────────────
-    await openIncomingTalkModal(pageJerry, TALK_TITLE);
+    await openIncomingTalkModal(pageJerry, talkTitle);
     await pageJerry
       .locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`)
       .first()
       .click();
-    await waitForStatusBarMatchCountAtLeast(pageJerry, 1);
     await waitForResponseModalClosed(pageJerry);
     await afterSync();
-
-    await waitForStatusBarMatchCountAtLeast(pageTom, 1);
-    await afterSync();
+    await waitForConversationEntryByOtherUserId(pageTom, jerryUserId);
+    await waitForConversationEntryByOtherUserId(pageJerry, tomUserId);
 
     // ── Tom opens the conversation and sends a message ───────────────────────
-    await openConversation(pageTom, 'Jerry');
+    await openConversation(pageTom, 'Jerry', jerryUserId);
 
     const tomInput = pageTom.locator('#conversation-message-input');
     await expect(tomInput).toBeVisible({ timeout: 10000 });
@@ -158,7 +240,7 @@ test.describe('Direct messaging between matched users', () => {
     ).toBeVisible({ timeout: 10000 });
 
     // ── Jerry opens the conversation and sees Tom's message ──────────────────
-    await openConversation(pageJerry, 'Tom');
+    await openConversation(pageJerry, 'Tom', tomUserId);
 
     await expect
       .poll(

@@ -112,8 +112,9 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
     await expect(contactItem).toBeVisible({ timeout: 15000 });
     await expect(contactItem).toContainText('2 talks');
     await contactItem.click();
+    await afterSync();
     await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
-    await expect(pageTom.locator('.contact-talk-item').filter({ hasText: 'Tom Out Talk' }).first()).toBeVisible({ timeout: 10000 });
+    await expect(pageTom.locator('.contact-talk-item').filter({ hasText: 'Tom Out Talk' }).first()).toBeVisible({ timeout: 30000 });
     await pageTom.click('#back-to-contacts-list');
     await afterAction();
 

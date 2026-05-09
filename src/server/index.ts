@@ -34,6 +34,9 @@ import { registerTalkRoutes } from './routes/talk-routes';
 import { registerUserRoutes } from './routes/user-routes';
 import { registerSocketHandlers } from './socket/register-socket-handlers';
 
+const E2E_GUN_MEMORY_ONLY =
+  process.env.E2E_GUN_MEMORY_ONLY === '1' || process.env.E2E_GUN_MEMORY_ONLY === 'true';
+
 class IinPublicServer {
   private app: express.Application;
   private server: any;
@@ -58,10 +61,13 @@ class IinPublicServer {
   };
 
   private broadcastTagPopularityStore = new BroadcastTagPopularityStore();
-  private symmetricTalkEdgeRateLimiter = new SymmetricTalkEdgeRateLimiter(CONFIG.SYMMETRIC_TALK_EDGE_COOLDOWN_MS);
+  private symmetricTalkEdgeRateLimiter = new SymmetricTalkEdgeRateLimiter(
+    E2E_GUN_MEMORY_ONLY ? 0 : CONFIG.SYMMETRIC_TALK_EDGE_COOLDOWN_MS,
+  );
   private dailyWeeklyTalkEdgeQuotaRateLimiter = new DailyWeeklyTalkEdgeQuotaRateLimiter({
-    daily: CONFIG.RATE_LIMITS.TALK_SEND_DAILY,
-    weekly: CONFIG.RATE_LIMITS.TALK_SEND_WEEKLY,
+    // Keep production limits, but allow high-fanout e2e scenarios in in-memory mode.
+    daily: E2E_GUN_MEMORY_ONLY ? Number.MAX_SAFE_INTEGER : CONFIG.RATE_LIMITS.TALK_SEND_DAILY,
+    weekly: E2E_GUN_MEMORY_ONLY ? Number.MAX_SAFE_INTEGER : CONFIG.RATE_LIMITS.TALK_SEND_WEEKLY,
   });
 
   constructor() {

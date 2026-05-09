@@ -46,17 +46,36 @@ export class WebUserService {
   };
 
   private async readReputationSubNode(userId: string): Promise<Reputation> {
-    const gun = this.gunService.getGun();
-    const repRaw = await new Promise<any>((resolve) => {
-      let settled = false;
-      const settle = (v: any) => {
-        if (settled) return;
-        settled = true;
-        resolve(v);
-      };
-      gun.get(`users/${userId}`).get('reputation').once((data: any) => settle(data));
-      setTimeout(() => settle(null), 1000);
-    });
+    let repRaw: any = null;
+    // Prefer direct Gun sub-node reads when available, but remain compatible with
+    // unit-test mocks that only implement get()/put() helpers.
+    const gun = typeof (this.gunService as any).getGun === 'function'
+      ? (this.gunService as any).getGun()
+      : null;
+    const canReadSubNode =
+      !!gun &&
+      typeof gun.get === 'function' &&
+      typeof gun.get(`users/${userId}`)?.get === 'function' &&
+      typeof gun.get(`users/${userId}`).get('reputation')?.once === 'function';
+
+    if (canReadSubNode) {
+      repRaw = await new Promise<any>((resolve) => {
+        let settled = false;
+        const settle = (v: any) => {
+          if (settled) return;
+          settled = true;
+          resolve(v);
+        };
+        gun.get(`users/${userId}`).get('reputation').once((data: any) => settle(data));
+        setTimeout(() => settle(null), 1000);
+      });
+    } else {
+      try {
+        repRaw = await this.gunService.get(`users/${userId}/reputation`);
+      } catch {
+        repRaw = null;
+      }
+    }
 
     if (!repRaw || typeof repRaw !== 'object') return { ...WebUserService.DEFAULT_REPUTATION };
     const { _, ...rest } = repRaw as any;

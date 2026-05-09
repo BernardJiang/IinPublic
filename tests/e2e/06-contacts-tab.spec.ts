@@ -3,9 +3,13 @@ import { test, expect } from './helpers/fixtures';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
-import { gunBaseURL, webBaseURL } from './helpers/ports';
+import { gunBaseURL, webAppURLStableChatroom } from './helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
-import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
+import {
+  clickBroadcastUntilBulkAck,
+  waitForBroadcastableTalkIds,
+  waitForDistinctGunPeersExcludingSelf,
+} from './helpers/talk-demo-ui';
 import { waitForStatusBarMatchCountAtLeast } from './helpers/durable-ui';
 
 test.describe('Contacts tab: list of users with matches, click to see matching talks', () => {
@@ -76,7 +80,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     const page = await context.newPage();
     page.on('console', (m) => console.log(`[${label}]:`, m.text()));
     await injectIdbClear(page);
-    await page.goto(webBaseURL());
+    await page.goto(webAppURLStableChatroom());
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 640, 1000);
     await afterLoad();
@@ -143,9 +147,15 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await pageTom.click('#talk-editor-form button[type="submit"]');
     await afterSync();
 
-    await pageTom.click('#broadcast-talk-btn');
-
-    await confirmBroadcastTagPreambleIfVisible(pageTom);
+    await pageTom.click('.nav-btn[data-view="chatrooms"]');
+    await afterAction();
+    await pageTom.click('.chatroom-item:has-text("Global")');
+    await afterNav();
+    await waitForBroadcastableTalkIds(pageTom, 120_000);
+    await waitForDistinctGunPeersExcludingSelf(pageTom, 2, 240_000);
+    await clickBroadcastUntilBulkAck(pageTom);
+    await afterSync();
+    await clickBroadcastUntilBulkAck(pageTom);
     await afterSync();
     // Poll server until Jerry has received both talks (broadcast takes time to register)
     const jerryUserId = await pageJerry.evaluate(

@@ -13,7 +13,7 @@ import { clearGunDatabases } from '../helpers/clear-database';
 import { afterSync } from '../helpers/timing';
 import {
   bootstrapUser,
-  openIncomingTalkModal,
+  openIncomingTalkModalByTalkId,
   waitForResponseModalClosed,
   waitForTabActive,
 } from '../helpers/talks-matching-flow';
@@ -35,8 +35,8 @@ type TalkKind = 'tag' | 'flow' | 'survey' | 'route';
  * per-question radios with data-mode="manual" — we pick the first match-capable radio
  * each step and let the modal advance until it closes.
  */
-async function manualAnswer(page: Page, kind: TalkKind, title: string): Promise<void> {
-  await openIncomingTalkModal(page, title);
+async function manualAnswer(page: Page, kind: TalkKind, title: string, talkId: string): Promise<void> {
+  await openIncomingTalkModalByTalkId(page, talkId, title);
   const modal = page.locator('#talk-response-modal');
   if (kind === 'tag') {
     const checkbox = modal.locator('#tag-match-checkbox');
@@ -64,7 +64,8 @@ async function manualAnswer(page: Page, kind: TalkKind, title: string): Promise<
 }
 
 test.describe('Talks matching — generic stats across four talk types (STAT-01)', () => {
-  test.setTimeout(600_000);
+  /** Four dual bulk-ack broadcasts + eight manual answer flows + stats API polling can exceed 10m on CI. */
+  test.setTimeout(1_200_000);
 
   let browsers: Browser[] = [];
   const sessions: Session[] = [];
@@ -114,7 +115,7 @@ test.describe('Talks matching — generic stats across four talk types (STAT-01)
     const broadcasts: Array<{ kind: TalkKind; title: string; talkId: string; firstQuestionId: string }> = [];
     for (const t of talks) {
       const talk = t.build(runId);
-      await emitCreateTalkFromCompanyPage(tom.page, talk);
+      await emitCreateTalkFromCompanyPage(tom.page, talk, { minGunPeersExcludingSelf: 2 });
       const talkId = await waitForOutgoingTalkRow(tom.page, talk.title);
       await tom.page.click('.nav-btn[data-view="chatrooms"]');
       await waitForTabActive(tom.page, 'chatrooms');
@@ -129,8 +130,8 @@ test.describe('Talks matching — generic stats across four talk types (STAT-01)
     expect(broadcasts).toHaveLength(4);
 
     // --- Jerry and Sam each answer all 4 talks manually ---
-    for (const b of broadcasts) await manualAnswer(jerry.page, b.kind, b.title);
-    for (const b of broadcasts) await manualAnswer(sam.page, b.kind, b.title);
+    for (const b of broadcasts) await manualAnswer(jerry.page, b.kind, b.title, b.talkId);
+    for (const b of broadcasts) await manualAnswer(sam.page, b.kind, b.title, b.talkId);
 
     // --- Verify /api/stats for every talk ---
     const request = tom.page.context().request;

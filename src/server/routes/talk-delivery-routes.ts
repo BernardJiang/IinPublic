@@ -2,7 +2,11 @@ import type express from 'express';
 import { checkIfIgnore, checkIfMatch } from '../../shared/talk-engine';
 import { buildTalkIdentityKey, canonicalIdentityKeyFromStoredCluster } from '../../shared/talk-content-id';
 import { TALK_CONTENT_HASH_ID } from '../../shared/incoming-talk-ids';
-import { intakeFilterRejectReasons, subjectTextMatchesBlockedTerms } from '../../shared/talk-intake-filters';
+import {
+  getDefaultTalkIntakeFilters,
+  intakeFilterRejectReasons,
+  subjectTextMatchesBlockedTerms,
+} from '../../shared/talk-intake-filters';
 import type { TalkType } from '../../shared/talk-stats';
 import type { GPSCoordinate, TalkIntakeFilters } from '../../shared/types';
 import { appendBulkBroadcastDeliveryRejections } from '../../shared/bulk-broadcast-audience';
@@ -185,7 +189,20 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
     broadcastMaxDistanceMiles: number | undefined,
     senderPivot: { latitude: number; longitude: number } | undefined,
   ): Promise<string[]> {
-    const receiverContext = await getUserDeliveryContext(receiverId);
+    let receiverContext: Awaited<ReturnType<typeof getUserDeliveryContext>>;
+    try {
+      receiverContext = await getUserDeliveryContext(receiverId);
+    } catch (error) {
+      logger.warn(
+        { err: error, receiverId, senderId },
+        '[register-receivers] receiver delivery context unavailable; using permissive fallback',
+      );
+      receiverContext = {
+        talkFilters: getDefaultTalkIntakeFilters([String(talkData?.language || 'en')]),
+        ageVerified: false,
+        interestTokens: [],
+      };
+    }
     const rejectedBy = filterReasonsForTalk(talkData, receiverContext);
     const talkTagsArr = Array.isArray((talkData as { tags?: unknown })?.tags)
       ? (talkData as { tags: any[] }).tags
@@ -200,7 +217,16 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       ...(senderPivot ? { senderPivot } : {}),
       ...(receiverContext.location ? { receiverLocation: receiverContext.location } : {}),
     });
-    const blockStatus = await getBlockStatus(receiverId, senderId);
+    let blockStatus: Awaited<ReturnType<typeof getBlockStatus>>;
+    try {
+      blockStatus = await getBlockStatus(receiverId, senderId);
+    } catch (error) {
+      logger.warn(
+        { err: error, receiverId, senderId },
+        '[register-receivers] block status unavailable; assuming unblocked',
+      );
+      blockStatus = { blocked: false, blockedBy: false, eitherBlocked: false };
+    }
     if (blockStatus.eitherBlocked) {
       rejectedBy.push('blocked_user');
     }
@@ -422,7 +448,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         logger.warn({ talkId: req.params.id }, '[register-receivers] hard timeout');
         res.status(504).json({ error: 'timeout', registered: 0 });
       }
-    }, 20000);
+    }, 300_000);
     try {
       const talkId = req.params.id;
       const { senderId, senderName, receiverIds, talkData: bodyTalkData, broadcastTargetTags: rawBt, broadcastMaxDistanceMiles: rawMaxDm } =

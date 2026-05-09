@@ -62,7 +62,7 @@ test.describe('Talks matching — restaurant survey (multi-browser)', () => {
     }
 
     const { id: _id, ...base } = makeRestaurantSurvey();
-    await emitCreateTalkFromCompanyPage(co, { ...base, title });
+    await emitCreateTalkFromCompanyPage(co, { ...base, title }, { minGunPeersExcludingSelf: 10 });
     const talkId = await waitForOutgoingTalkRow(co, title);
 
     for (let u = 0; u < 10; u += 1) {

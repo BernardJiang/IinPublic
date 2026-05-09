@@ -59,7 +59,7 @@ test.describe('Talks matching — job seeker route (multi-browser)', () => {
 
     const raw = prepareValidatedJobRouteTalk();
     const { id: _drop, ...rest } = raw;
-    await emitCreateTalkFromCompanyPage(co, { ...rest, title });
+    await emitCreateTalkFromCompanyPage(co, { ...rest, title }, { minGunPeersExcludingSelf: 10 });
     const talkId = await waitForOutgoingTalkRow(co, title);
 
     const scenarios = getJobRouteScenarios();

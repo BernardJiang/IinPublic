@@ -205,9 +205,13 @@ export async function waitForIncomingTalkIdOnServer(
   if (!uid) throw new Error('waitForIncomingTalkIdOnServer: no currentUser.id (not logged in?)');
   const request = page.context().request;
   const clusterHasTalk = (c: { latestTalkId?: unknown; talkIds?: unknown }): boolean => {
-    if (String(c?.latestTalkId || '') === tid) return true;
+    const latest = String(c?.latestTalkId || '');
+    if (latest === tid || latest.startsWith(`${tid}__`)) return true;
     const t = c?.talkIds;
-    if (t && typeof t === 'object' && !Array.isArray(t) && tid in (t as object)) return true;
+    if (t && typeof t === 'object' && !Array.isArray(t)) {
+      const keys = Object.keys(t as Record<string, unknown>);
+      if (keys.some((k) => k === tid || k.startsWith(`${tid}__`))) return true;
+    }
     return false;
   };
   await expect

@@ -79,7 +79,7 @@ test.describe('Survey analytics dashboard', () => {
     const runId = Date.now();
     const { id: _ignoredId, ...survey } = makeRestaurantSurvey();
     const title = `E2E Survey Dashboard ${runId}`;
-    await emitCreateTalkFromCompanyPage(pageTom, { ...survey, title });
+    await emitCreateTalkFromCompanyPage(pageTom, { ...survey, title }, { minGunPeersExcludingSelf: 2 });
     const talkId = await waitForOutgoingTalkRow(pageTom, title);
 
     await answerSurveyByAnswerIds(pageJerry, title, ['bg_mc', 'fr_md', 'pz_ph'], talkId);

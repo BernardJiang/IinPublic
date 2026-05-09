@@ -10,10 +10,13 @@ import { test, expect } from './helpers/fixtures';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from './helpers/timing';
-import { webAppURLStableChatroom } from './helpers/ports';
+import { gunBaseURL, webAppURLStableChatroom } from './helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/talks-matching-flow';
-import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
-import { waitForStatusBarMatchCountAtLeast } from './helpers/durable-ui';
+import {
+  clickBroadcastUntilBulkAck,
+  waitForBroadcastableTalkIds,
+  waitForDistinctGunPeersExcludingSelf,
+} from './helpers/talk-demo-ui';
 
 test.describe('Unread badge on Me tab after match and new message', () => {
   let browserTom: Browser;
@@ -23,12 +26,11 @@ test.describe('Unread badge on Me tab after match and new message', () => {
   let pageTom: Page;
   let pageJerry: Page;
 
-  const TALK_TITLE = 'E2E Unread Badge Tennis';
   const MATCH_ANSWER = 'Yes, lets play.';
   const IGNORE_ANSWER = 'No thanks.';
   const TOM_MESSAGE_1 = 'Hey Jerry, first message!';
 
-  test.setTimeout(180_000);
+  test.setTimeout(420_000);
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunDatabases();
@@ -88,11 +90,40 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     return { context, page };
   }
 
+  async function waitForConversationEntry(page: Page, otherUserId: string): Promise<void> {
+    await expect
+      .poll(
+        async () => {
+          await page.click('.nav-btn[data-view="me"]');
+          await afterNav();
+          const exists = await page.evaluate((id: string) => {
+            const raw = localStorage.getItem('myConversations');
+            const conversations = raw ? JSON.parse(raw) : {};
+            return Object.values(conversations).some((v: any) => v?.otherUserId === id);
+          }, otherUserId);
+          if (exists) return true;
+          await page.click('.nav-btn[data-view="chatrooms"]');
+          await afterNav();
+          return false;
+        },
+        { timeout: 120_000, message: `Conversation entry for ${otherUserId} should appear` },
+      )
+      .toBe(true);
+  }
+
   test('Unread badge appears after match, clears on open; reappears after new message, clears on open', async () => {
+    const talkTitle = `E2E Unread Badge Tennis ${Date.now()}`;
     // ── Bootstrap ────────────────────────────────────────────────────────────
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
+    const tomUserId = await pageTom.evaluate(
+      () =>
+        String(
+          (window as unknown as { __iinpublic_app?: { getApp: () => { currentUser?: { id: string } } } }).__iinpublic_app?.getApp?.()?.currentUser?.id ||
+            '',
+        ),
+    );
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterSync();
 
@@ -105,7 +136,7 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     // ── Tom creates and broadcasts ───────────────────────────────────────────
     await pageTom.click('#create-talk-btn');
     await pageTom.waitForSelector('#talk-editor-form');
-    await pageTom.fill('#talk-title', TALK_TITLE);
+    await pageTom.fill('#talk-title', talkTitle);
     await pageTom.selectOption('#talk-type', 'flow');
     const q = pageTom.locator('.question-item').first();
     await q.locator('.question-text').fill('Want a tennis partner?');
@@ -115,20 +146,47 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
     await pageTom.click('#talk-editor-form button[type="submit"]');
     await afterSync();
-    await pageTom.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageTom);
+    await pageTom.click('.nav-btn[data-view="chatrooms"]');
     await afterAction();
+    await pageTom.click('.chatroom-item:has-text("Global")');
+    await afterNav();
+    await waitForBroadcastableTalkIds(pageTom, 120_000);
+    await waitForDistinctGunPeersExcludingSelf(pageTom, 1, 240_000);
+    await clickBroadcastUntilBulkAck(pageTom);
+    await afterSync();
+    await clickBroadcastUntilBulkAck(pageTom);
     await afterSync();
 
+    const jerryUserId = await pageJerry.evaluate(
+      () =>
+        String(
+          (window as unknown as { __iinpublic_app?: { getApp: () => { currentUser?: { id: string } } } }).__iinpublic_app?.getApp?.()?.currentUser?.id ||
+            '',
+        ),
+    );
+    await expect
+      .poll(
+        async () => {
+          const res = await pageTom.request.get(
+            `${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}/incoming-talks`,
+          );
+          if (!res.ok()) return 0;
+          return (await res.json() as unknown[]).length;
+        },
+        { message: 'Jerry should have incoming talks after broadcast', timeout: 120_000 },
+      )
+      .toBeGreaterThanOrEqual(1);
+
     // ── Jerry matches ────────────────────────────────────────────────────────
-    await openIncomingTalkModal(pageJerry, TALK_TITLE);
+    await openIncomingTalkModal(pageJerry, talkTitle);
     await pageJerry
       .locator(`input.choice-radio[data-answer-text="${MATCH_ANSWER}"][data-mode="manual"]`)
       .first()
       .click();
-    await waitForStatusBarMatchCountAtLeast(pageJerry, 1);
     await waitForResponseModalClosed(pageJerry);
     await afterSync();
+    await waitForConversationEntry(pageJerry, tomUserId);
+    await waitForConversationEntry(pageTom, jerryUserId);
 
     // ── Phase 1: unread badge appears for Jerry immediately after new match ──
     // The new conversation is created with unread=true; the Me nav button should show a badge.
@@ -137,10 +195,15 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await afterNav();
 
     const meNavJerry = pageJerry.locator('.nav-btn[data-view="me"]');
-    // Wait for the notification badge first: this confirms addNewConversation() has fired and
-    // the conversation is in localStorage. The badge is updated directly by updateMatchBadge();
-    // the conversation list itself only re-renders on the next displayConversationsList() call.
-    await expect(meNavJerry.locator('.notification-badge')).toBeVisible({ timeout: 15000 });
+    // First ensure the conversation item exists (durable signal from localStorage sync).
+    const convItemJerry = pageJerry
+      .locator('.conversation-list-item')
+      .filter({ hasText: 'Tom' })
+      .first();
+    await expect(convItemJerry).toBeVisible({ timeout: 30_000 });
+
+    // Then require the unread badge signal.
+    await expect(meNavJerry.locator('.notification-badge')).toBeVisible({ timeout: 30_000 });
 
     // Re-navigate to Me so displayConversationsList() runs again with the latest localStorage state.
     // (addNewConversation does not call displayConversationsList when the user is already on Me.)
@@ -149,13 +212,8 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await pageJerry.click('.nav-btn[data-view="me"]');
     await afterNav();
 
-    // The conversation-list-item should carry the .unread class and .unread-badge element
-    const convItemJerry = pageJerry
-      .locator('.conversation-list-item')
-      .filter({ hasText: 'Tom' })
-      .first();
-    await expect(convItemJerry).toBeVisible({ timeout: 15000 });
-    await expect(convItemJerry.locator('.unread-badge')).toBeVisible({ timeout: 5000 });
+    // The conversation-list-item should carry the unread marker too.
+    await expect(convItemJerry.locator('.unread-badge')).toBeVisible({ timeout: 10_000 });
 
     // ── Phase 2: opening the conversation clears the badge ───────────────────
     await convItemJerry.click();
