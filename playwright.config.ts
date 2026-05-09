@@ -57,6 +57,8 @@ export default defineConfig({
   // Parallelism is across files only (different workers still use isolated ports + artifacts).
   // Playwright schedules files in lexicographic path order; put the slowest specs first (e.g.
   // `00-*.spec.ts`) so PW_WORKERS>1 starts long jobs immediately and avoids a single-worker tail.
+  // Heavy suites that used to share one file (serial tests) are split into multiple `*.spec.ts`
+  // files so each long flow can occupy its own worker in parallel.
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

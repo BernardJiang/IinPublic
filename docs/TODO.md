@@ -20,7 +20,7 @@ Implemented and covered now:
 - Survey talks: **Results** on each OUT row opens aggregated stats (`GET /api/stats/talks/:id/summary`)
 - Seeded dev entry points exist: `dev:stage-empty`, `dev:stage-user1`, `dev:stage-user2-match`, `dev:stage-user3-network`
 - Age-gating UI implemented: `isAdult` talk flag, age-verify vouch button, Credit badge; E2E in `tests/e2e/16-age-gating.spec.ts`
-- Blocking + unblock flows and E2E in `tests/e2e/15-blocking-system.spec.ts`
+- Blocking + unblock flows and E2E in `tests/e2e/15a-blocking-unblock-resumes-talk-delivery.spec.ts` and `tests/e2e/15b-blocking-stops-delivery-and-peer-visibility.spec.ts`
 - Custom/business chatrooms: REST + Gun metadata, E2E API spec `tests/e2e/17-chatroom-custom-business-api.spec.ts`, and web **Chatrooms** tab (`➕ New room`, owner rename/delete on room detail)
 
 The backlog below focuses on the biggest remaining gaps between the current implementation
@@ -101,7 +101,7 @@ and `docs/specs/iinpublic-technical-specification.md`.
 ## Suggested Execution Order
 
 1. **Fix clearGunDatabases disk race** (P1 — done for memory-only E2E; revisit if radisk returns)
-2. ~~Age-gating E2E~~ / ~~Unblocking E2E~~ — covered by `16-age-gating.spec.ts` and `15-blocking-system.spec.ts`
+2. ~~Age-gating E2E~~ / ~~Unblocking E2E~~ — covered by `16-age-gating.spec.ts` and `15a-blocking-unblock-resumes-talk-delivery.spec.ts`
 3. **Profile spec deltas** — per-viewer privacy, interest catalog/categories, doc/test alignment (`04-profile-edit-stage-name.spec.ts` + editor exist)
 4. **Server-enforced moderation**
    - Define one delivery-time filter pipeline on the server

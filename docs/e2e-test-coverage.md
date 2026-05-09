@@ -27,7 +27,7 @@ Plain English translations have been written for all 30 test spec files across b
 | 13-chatroom-scroll-and-broadcast-bar | Member list scroll, unified broadcast button |
 | 13-me-filters-credit | Talk type filters, credit visibility toggle |
 | 14-contacts-relationship-credit | Nickname, label, rating, notes persistence |
-| 15-blocking-system | Block user, delivery stop, profile unavailable |
+| 15a-blocking-unblock-resumes-talk-delivery, 15b-blocking-stops-delivery-and-peer-visibility | Block user, delivery stop, profile unavailable; unblock resumes delivery |
 
 ### tests/e2e/talks-matching/ (13 translations)
 
