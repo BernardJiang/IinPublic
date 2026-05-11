@@ -1,27 +1,26 @@
-# Test: Two Users — Headcount Changes & Room Navigation
+# Test: Two Users — Headcount 1→2→1→2 With Chatroom Navigation
 
-**Features tested:** Real-time headcount updates between two users, chatroom switching
+**File:** 01-login-two-users-headcount.spec.ts  
+**Features tested:** Multi-user headcount, chatroom switching, headcount updates on join/leave, persistence across re-login, screenshots
 
 ---
 
 ## What this test does (in plain English):
 
-1. **User 1 logs in** and lands in the "Global" chatroom. Headcount shows `1`.
+1. **Setup:** Two browsers are launched. Databases are cleared. Two browser contexts and pages are created with IndexedDB cleared.
 
-2. **User 2 logs in** in a separate browser. Both User 1 and User 2 should now see the "Global" headcount change to `2`.
+2. **User 1 logs in:** Headcount for "Global" chatroom shows `1`. Screenshot saved.
 
-3. **User 2 leaves** (cleans up and closes their page). After a short wait, User 1 should see the "Global" headcount drop back to `1`.
+3. **User 2 logs in:** Headcount on BOTH browsers updates to show `2` in the "Global" chatroom. Screenshot saved. This confirms real-time headcount sync via Gun.js.
 
-4. **User 2 logs back in.** Both users should see the headcount go back to `2`.
+4. **User 2 exits:** User 2 calls `manualCleanup()`, waits, closes the page. After sync, User 1's headcount drops back to `1`.
 
-5. **User 2 navigates to the "North America" chatroom** instead of "Global". After switching, User 1 should see the "Global" headcount drop to `1`, and User 2 should see the "North America" headcount show `1`.
+5. **User 2 re-logs in (same session):** A new page opens in User 2's context. Headcount on both browsers goes back to `2`. This persists User 2's identity.
 
-6. **User 2 navigates back** to the chatroom list using the back button.
+6. **User 2 clicks into "North America" room:** Global headcount drops back to `1` on User 1's browser (User 2 left the room). "North America" room shows `1`. User 2 sees the "back to chatrooms" button and clicks it.
 
-7. **Both users leave** the app.
+> **Why this matters:** Verifies that chatroom headcounts correctly reflect users joining and leaving rooms in real-time, and that user identities persist across page close/reopen.
 
-## Verifications:
+---
 
-- ✅ Global headcount follows the pattern: 1 → 2 → 1 → 2 → 1 (when second user switches rooms)
-- ✅ When User 2 switches from Global to North America, both rooms show correct separate headcounts
-- ✅ Back button returns to the chatroom list
+**Helpers used:** `clearGunDatabases`, `injectIdbClear`, `ensureWindowFitsViewport`, `afterLoad`, `afterSync`, `afterNav`, `afterAction`, `wait`, `attachE2eBrowserTabLabel`

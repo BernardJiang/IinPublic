@@ -1,38 +1,29 @@
-# Test: Profile Editing — Stage Name & Public Profile
+# Test: Profile — Edit Stage Name and Public Profile, Peer Visibility
 
-**Features tested:** User profile creation, stage name editing, public profile Q&A fields, real-time profile visibility between peers
+**File:** 04-profile-edit-stage-name.spec.ts  
+**Features tested:** Stage name editing, public profile Q&A editing, profile persistence, server-side propagation, peer visibility of profile data, avatar setting, multi-browser
 
 ---
 
 ## What this test does (in plain English):
 
-### Step 1: First user (Tom) sets up profile
+1. **Setup:** Two browsers launched (Tom's browser and Jerry's browser). Databases are cleared. Tom logs in with stage name "Tom".
 
-1. **Tom logs in** as a new user.
-2. **Tom edits their "Stage Name"** to "Tom" — this is their display name.
-3. **Tom confirms the stage name appears** both on their profile page and in the header bar.
-4. **Tom edits their public profile** with the following details:
-   - Avatar: 😎 emoji
-   - Languages: "en, zh" (English and Chinese)
-   - Q1: "Favorite drink" → answer "Coffee"
-   - Q2: "Usual city" → answer "San Francisco"
-5. **Tom saves the profile.**
-6. **The test checks the server API** to verify Tom's profile data (languages and 2 profile Q&As) was properly saved and propagated to the backend.
+2. **Tom creates profile:** Tom edits stage name to "Tom", verifies the stage name appears in the UI header.
 
-### Step 2: Second user (Jerry) sees Tom's profile
+3. **Tom edits public profile:** Clicks "Edit Profile", selects avatar emoji (😎), sets languages to "en, zh", adds two Q&A entries:
+   - "Favorite drink" → "Coffee"
+   - "Usual city" → "San Francisco"
+   Clicks save.
 
-7. **Jerry logs in** as a separate user.
-8. **Both Tom and Jerry enter the "Global" chatroom.**
-9. **Jerry sees Tom in the member list**, clicks on Tom's name.
-10. **Jerry views Tom's peer detail overlay** and confirms all of Tom's profile information is visible:
-    - Stage name: "Tom"
-    - Avatar: 😎
-    - Languages: "en, zh"
-    - Q&A: "Favorite drink → Coffee", "Usual city → San Francisco"
+4. **Verification — Profile displays on Tom's own page:** The profile section shows languages, Q&A entries, and the emoji avatar. The server API is polled to confirm the user object has `languages: [en, zh]` and `profile` array with 2 entries.
 
-## Verifications:
+5. **Jerry (peer) logs in, navigates to Global chatroom with Tom:** Jerry clicks on Tom's name in the chatroom member list. Tom's profile detail overlay opens for Jerry.
 
-- ✅ Stage name is saved and appears in the header/profile after editing
-- ✅ Public profile fields (avatar, languages, Q&A pairs) are saved correctly on the server
-- ✅ Another user in the same chatroom can view the profile via the peer detail overlay
-- ✅ Profile data syncs in real-time between users through Gun.js
+6. **Verification — Jerry sees Tom's complete profile:** Jerry can see "Public Profile", "Languages: en, zh", "Favorite drink: Coffee", "Usual city: San Francisco", and the 😎 emoji avatar.
+
+> **Why this matters:** Verifies that profile edits (stage name, avatar, languages, Q&A) persist to the server and are visible to other users viewing the profile — proving cross-user profile sync works.
+
+---
+
+**Helpers used:** `clearGunDatabases`, `injectIdbClear`, `ensureWindowFitsViewport`, `afterLoad`, `afterNav`, `afterAction`, `attachE2eBrowserTabLabel`

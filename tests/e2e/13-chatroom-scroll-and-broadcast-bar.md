@@ -1,32 +1,24 @@
-# Test: Chatroom UX — Member List Scroll & Unified Broadcast
+# Test: Chatroom UX — Member List Scroll and Unified Broadcast Bar
 
-**Features tested:** Member list scrolling behavior, single broadcast button per chatroom
+**File:** 13-chatroom-scroll-and-broadcast-bar.spec.ts
+**Features tested:** Chatroom member list scrolling, unified broadcast button, status bar broadcast text, viewport overflow
 
 ---
 
 ## What this test does (in plain English):
 
-This is a UI/UX test. 8 users join the "Global" chatroom.
+1. **Setup:** Single browser. An "Owner" user and 7 "Peer" users all log in with a compact viewport (640x540) and enter the Global chatroom.
 
-1. **The "Owner" user joins** the Global chatroom
-2. **7 "Peer" users** (Peer1 through Peer7) join the same chatroom
+2. **Verification — 7 member items** appear in the chatroom member list.
 
-### Verification:
+3. **Verification — Only 1 broadcast button** exists (not duplicated).
 
-3. **The Owner sees 7 members** in the member list
-4. **There is exactly ONE "Broadcast My Talks" button** on the page (not duplicated)
-5. **The status bar** says "Broadcast to everyone in this room" (the unified broadcast text)
-6. **The old broadcast text** ("Broadcast talk to everyone here") does NOT appear anywhere
+4. **Verification — Status bar** says "Broadcast to everyone in this room". The old text "Broadcast talk to everyone here" does NOT appear (zero count).
 
-### Scrolling test:
+5. **Verification — Member list is scrollable:** The `scrollHeight` is greater than `clientHeight`, and scrolling to the bottom actually changes `scrollTop`.
 
-7. **The member list** (#chatroom-members-list) is tested to verify it scrolls:
-   - The total scroll height is taller than the visible area
-   - Scrolling to the bottom actually changes the scroll position
+> **Why this matters:** Verifies that chatroom detail UI has a single unified broadcast action, no duplicate buttons, and the member list scrolls when it overflows (important for UX on small viewports).
 
-## Verifications:
+---
 
-- ✅ Member list shows all 7 peers when 8 people are in the room
-- ✅ Exactly one broadcast action exists (no duplicated buttons)
-- ✅ Status bar shows the correct unified broadcast label
-- ✅ The member list is vertically scrollable when many users are present
+**Helpers used:** `clearGunDatabases`, `injectIdbClear`, `afterLoad`, `afterNav`, `afterAction`, `afterSync`, `attachE2eBrowserTabLabel`

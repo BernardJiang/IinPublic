@@ -1,88 +1,84 @@
-# Test: Chatroom Peer Detail Views (5 scenarios)
+# Test: Chatroom Peer Detail — Stranger Status, Overlay, Talk History, Send My Talks (Auto + Manual)
 
-**Features tested:** Member status display, peer detail overlay, talk history, "Send My Talks" in both auto and manual modes
+**File:** 11-chatroom-peer-detail.spec.ts
+**Features tested:** Chatroom member list, Stranger status, peer detail overlay, talk history with sort/filter, Send My Talks auto mode, Send My Talks manual mode picker, multi-browser
 
----
-
-This test file contains **5 separate sub-tests**, each with its own fresh setup and teardown:
-
-## Sub-test 1: Stranger Status
-
-**What it does:**
-1. **Tom and Jerry** both join the "Global" chatroom
-2. **Tom waits** for Jerry to appear in the member list
-3. **Jerry's status** shows as "Stranger" (because they have had no prior interaction yet)
-
-**Verifications:**
-- ✅ Jerry appears in the member list
-- ✅ Jerry's status is labeled "Stranger"
+This spec contains **5 sub-tests**, each with fresh database setup (`beforeEach` clears DB).
 
 ---
 
-## Sub-test 2: Open/Close Peer Detail Overlay
+## Sub-test 1: Member list shows "Stranger" status for unknown user
 
-**What it does:**
-1. **Tom and Jerry** both join the "Global" chatroom
-2. **Tom clicks on Jerry** in the member list
-3. **Jerry's peer detail overlay** opens, showing Jerry's name, stats section, and a "Send My Talks" button
-4. **Tom clicks the back button** → the overlay closes
+1. **Setup:** Tom (TomS) and Jerry (JerryS) both log in and enter the Global chatroom.
 
-**Verifications:**
-- ✅ Clicking a member opens their detail overlay
-- ✅ The overlay shows the member's name, stats, and send button
-- ✅ The back button closes the overlay
+2. **Tom waits for Jerry to appear** in the member list.
+
+3. **Verification:** Jerry's status shows "Stranger" — meaning they haven't had any talk history yet.
+
+> **Why this matters:** Confirms that new users in the same chatroom are correctly labeled as "Stranger" before any interactions.
 
 ---
 
-## Sub-test 3: Talk History After Exchange
+## Sub-test 2: Clicking a chatroom member opens the peer detail overlay
 
-**What it does:**
-1. **Tom creates and broadcasts** a talk ("Tennis Peer Test")
-2. **Jerry receives and answers** with "Yes" (match)
-3. **Tom opens Jerry's peer detail** and sees:
-   - Talk history controls (sort/filter buttons)
-   - At least one history item (the Tennis Peer Test exchange)
-4. **Tom sorts by outcome** and **filters to "Sent"** items
-5. **Tom closes** the overlay
+1. **Setup:** Tom (TomOv) and Jerry (JerryOv) both enter Global chatroom.
 
-**Verifications:**
-- ✅ Peer detail shows talk history after a talk exchange
-- ✅ Sort by outcome works
-- ✅ Filter to "Sent only" shows at least 1 item
+2. **Tom waits for Jerry to appear** in the member list, then clicks on Jerry's name.
+
+3. **Verification — Peer detail overlay opens:** Shows Jerry's name, a stats section, and a "Send My Talks" button. Jerry's name is non-empty.
+
+4. **Back button closes it.** The overlay is no longer visible.
+
+> **Why this matters:** Verifies the peer detail overlay opens/closes correctly with the expected UI elements present.
 
 ---
 
-## Sub-test 4: Send My Talks — Auto Mode
+## Sub-test 3: Peer detail shows talk history after a talk exchange
 
-**What it does:**
-1. **Tom creates a talk** ("Send Test Talk") that hasn't been sent to Jerry yet
-2. **Both join** the "Global" chatroom
-3. **Tom opens Jerry's peer detail**
-4. **Auto mode is checked by default**
-5. **Tom clicks "Send My Talks"** → it sends all unsent talks to Jerry
-6. **The button text changes** to confirm the send
-7. **Jerry checks his Talks tab** → "Send Test Talk" appears
+1. **Setup:** Tom (TomTH) and Jerry (JerryTH) both enter Global chatroom.
 
-**Verifications:**
-- ✅ Auto mode is enabled by default
-- ✅ "Send My Talks" sends unsent talks to the selected peer
-- ✅ The recipient sees the talks in their Talks tab
+2. **Tom creates and broadcasts a talk** titled "Tennis Peer Test" with the question "Peer detail test: want to play tennis?" (match: "Yes, lets play.", ignore: "No thanks.").
+
+3. **Jerry opens the incoming talk and matches** by selecting "Yes, lets play."
+
+4. **Tom enters the chatroom, clicks Jerry** to open peer detail.
+
+5. **Verification — Talk history appears:** History controls are visible. At least one peer-history-item is shown. Sort by "outcome" works (button has active class). Filter to "sent" only works (at least 1 sent item counted).
+
+> **Why this matters:** Confirms that after a successful talk exchange, the peer detail view shows talk history with sort and filter functionality.
 
 ---
 
-## Sub-test 5: Send My Talks — Manual Mode
+## Sub-test 4: Send My Talks — auto mode sends unsent talks to peer
 
-**What it does:**
-1. **Tom creates a talk** ("Manual Mode Talk")
-2. **Both join** the "Global" chatroom
-3. **Tom opens Jerry's peer detail**
-4. **Tom unchecks the auto mode** checkbox (switches to manual mode)
-5. **Tom clicks "Send My Talks"** → a **picker modal opens** (showing which talks to send)
-6. **Tom cancels** the picker → it closes
-7. **Tom closes** the overlay
+1. **Setup:** Tom (TomSend) and Jerry (JerrySend) both enter Global chatroom.
 
-**Verifications:**
-- ✅ Auto mode checkbox is checked by default
-- ✅ Unchecking auto mode switches to manual mode
-- ✅ Clicking "Send My Talks" in manual mode opens a selection picker
-- ✅ Cancel button closes the picker
+2. **Tom creates a talk** titled "Send Test Talk" (not yet sent to Jerry — no broadcast).
+
+3. **Tom opens Jerry's peer detail.** Auto mode checkbox is checked by default.
+
+4. **Tom clicks "Send My Talks"** — the talk is delivered to Jerry. Button text changes from "📤 Send My Talks".
+
+5. **Verification — Jerry sees the talk:** Jerry navigates to Talks tab, server confirms "Send Test Talk" is in Jerry's incoming talks, and the talks list shows it.
+
+> **Why this matters:** Verifies that "Send My Talks" in auto mode delivers unsent talks directly to a specific peer without requiring a full broadcast.
+
+---
+
+## Sub-test 5: Send My Talks — manual mode shows picker modal
+
+1. **Setup:** Tom (TomMan) and Jerry (JerryMan) both enter Global chatroom.
+
+2. **Tom creates a talk** titled "Manual Mode Talk".
+
+3. **Tom opens Jerry's peer detail**, unchecks the auto mode checkbox (switching to manual mode).
+
+4. **Tom clicks "Send My Talks"** — a picker modal opens (#peer-send-picker-modal) instead of auto-sending.
+
+5. **Tom clicks cancel** — the picker modal closes.
+
+> **Why this matters:** Verifies that switching from auto to manual mode changes the "Send My Talks" behavior to show a talk selection picker modal.
+
+---
+
+**Helpers used (shared across sub-tests):** `clearGunDatabases`, `injectIdbClear`, `afterLoad`, `afterSync`, `afterNav`, `afterAction`, `openIncomingTalkModal`, `confirmBroadcastTagPreambleIfVisible`, `syncIncomingFromServer`, `waitForIncomingTalkClusterOnServer`, `waitForResponseModalClosed`, `waitForTabActive`, `resetTalksMatchingSession`

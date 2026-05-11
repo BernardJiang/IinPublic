@@ -1,43 +1,28 @@
-# Test: Super User — Copy Talk, Broadcast Toggle & Delete
+# Test: Super User — Copy Talk: Receive, Disable Broadcast, Re-enable, Delete
 
-**Features tested:** Copying a received talk to your own collection, enabling/disabling broadcast for copied talks, deleting talks from history
+**File:** 08-super-user-copy-talk.spec.ts  
+**Features tested:** Copy talk feature, disable/enable broadcast toggle for copied talks, broadcast filtering, delete copied talk, multi-browser
 
 ---
 
 ## What this test does (in plain English):
 
-Two users: "TechSupport" (talk creator) and "Tom" (talk receiver and copier).
+1. **Setup:** Two browsers — TechSupport and Tom — both log in via `bootstrapSuperUser` and join "Global" chatroom.
 
-### Step 1: TechSupport creates and broadcasts one talk
+2. **TechSupport creates a flow-type talk** titled "CopyTestTalk" with the question "Want to connect for CopyTestTalk?" and two answers (match/ignore). Submits and broadcasts it.
 
-1. **TechSupport creates a talk** called "CopyTestTalk" with a simple question: "Want to connect for CopyTestTalk?" (Yes/No)
-2. **TechSupport broadcasts it** to the chatroom
+3. **Tom receives and answers the talk:** Tom opens the incoming talk, selects the matching answer ("Yes, lets play."), and the modal closes.
 
-### Step 2: Tom receives, answers, and copies the talk
+4. **Tom copies the talk:** In the Answers tab, Tom clicks the "Copy Talk" button on "CopyTestTalk". Then in the Talks tab, the talk appears as a "copied" role item.
 
-3. **Tom receives the talk** in his Talks tab, opens it, and answers "Yes, match." → it's saved to his Answers tab
-4. **Tom copies the talk** from the Answers tab → it now appears in his Talks list as a "Copied" talk
-5. **Tom disables broadcast** for the copied talk (toggles a switch)
+5. **Tom disables broadcast for the copied talk:** Clicks the "Disable Broadcast" checkbox on the copied talk. Clicks Broadcast button — no talks are broadcast (the talk editor modal opens instead, which is cancelled).
 
-### Step 3: Verify disabling removes it from broadcast
+6. **Tom re-enables broadcast:** Unclicks the disable checkbox. Clicks Broadcast — this time the talk IS broadcast (confirms the toggle works correctly).
 
-6. **Tom clicks "Broadcast"** → the system should NOT include "CopyTestTalk" because broadcast was disabled
+7. **Tom deletes the copied talk:** Opens "Me" → "View My Talks", clicks delete on "CopyTestTalk". Verifies via polling that the talk is gone from the history (count = 0). Re-opens the my-talks modal to double-check.
 
-### Step 4: Re-enable and verify it's back
+> **Why this matters:** Verifies the copy-talk lifecycle: received talks can be copied, the broadcast toggle correctly includes/excludes copied talks from broadcast, and deletion removes them from the user's talk history.
 
-7. **Tom re-enables broadcast** for "CopyTestTalk"
-8. **Tom clicks "Broadcast"** → now "CopyTestTalk" should be included
+---
 
-### Step 5: Delete the copied talk
-
-9. **Tom opens "My Talks"** from the Me tab
-10. **Tom deletes "CopyTestTalk"** from his talk history
-11. **The UI shows "Talk removed from history"** confirmation
-12. **Tom opens "My Talks" again** → "CopyTestTalk" is gone
-
-## Verifications:
-
-- ✅ Received talks can be copied to the user's own talk collection
-- ✅ Disabling broadcast for a copied talk excludes it from broadcast
-- ✅ Re-enabling broadcast includes it again
-- ✅ Deleting a talk removes it permanently from the talk history
+**Helpers used:** `clearGunDatabases`, `bootstrapSuperUser`, `confirmBroadcastTagPreambleIfVisible`, `waitForTabActive`, `afterLoad`, `afterSync`, `afterNav`, `afterAction`

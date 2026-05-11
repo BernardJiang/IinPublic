@@ -1,20 +1,24 @@
-# Test: Single User Login & Headcount
+# Test: Single User — Login, Headcount, Exit, and Re-Login Persistence
 
-**Features tested:** User authentication, session persistence, real-time headcount sync
+**File:** 01-login-single-user-headcount.spec.ts  
+**Features tested:** User login, headcount display, session persistence, browser tab labels, screenshots
 
 ---
 
 ## What this test does (in plain English):
 
-1. **A user (Tom) logs into the app** — the test launches a browser window that opens the IinPublic app for the first time.
+1. **Setup:** Databases are cleared. A browser is launched and a page context is created with IndexedDB cleared (`injectIdbClear`).
 
-2. **The user lands in the "Global" chatroom.** The headcount displayed next to the "Global" chatroom should show `1` (only Tom is there).
+2. **User logs in:** The user navigates to the app root URL and waits for the page to fully load with Gun sync.
 
-3. **Tom leaves the app** — the test simulates Tom logging out or closing the browser.
+3. **Verification — Headcount shows "1":** The "Global" chatroom headcount indicator shows `1`, confirming the new user is counted. A full-page screenshot is saved.
 
-4. **Tom logs back in** — a new page is opened for the same user session. The headcount for "Global" should again show `1`, confirming that Tom's session was persisted correctly and he was automatically re-connected to the chatroom.
+4. **User exits:** `manualCleanup()` is called and the page is closed.
 
-## Verifications:
+5. **User re-logs in (same session):** A new page is opened in the same browser context and navigates to the app. After Gun sync, the headcount shows `1` again — the user's identity persisted across page close/reopen. Another screenshot is saved.
 
-- ✅ After first login, "Global" chatroom headcount shows "1"
-- ✅ After leaving and rejoining, headcount still shows "1" (session persistence works)
+> **Why this matters:** Verifies that user sessions persist (via IndexedDB) so that closing and reopening a tab re-connects the same user with the correct headcount.
+
+---
+
+**Helpers used:** `clearGunDatabases`, `injectIdbClear`, `ensureWindowFitsViewport`, `afterLoad`, `afterSync`, `afterNav`, `attachE2eBrowserTabLabel`

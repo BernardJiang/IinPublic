@@ -1,55 +1,28 @@
-# Test: UX — Contacts, Talks Navigation, and Answers Details
+# Test: UX Polish — Contacts Include Mismatched Peers, IN/OUT Split, Answers Detail
 
-**Features tested:** Contacts include mismatched contacts, contacts and chatroom detail share the same peer info, Talk list splits into Incoming/Outgoing, Answers tab shows question + answer details
+**File:** 12-ux-contacts-talks-answers.spec.ts
+**Features tested:** Contacts tab showing mismatched peers, peer detail from both contacts and chatroom, Talks tab IN/OUT navigation, Answers tab detail display, three-browser
 
 ---
 
 ## What this test does (in plain English):
 
-Two users: Tom and Jerry, both in the "Global" chatroom.
+1. **Setup:** Three browsers (Tom, Jerry, Bob) launched via `launchThreeBrowsers`. Tom and Jerry join Global chatroom.
 
-### Step 1: Each user creates and broadcasts a talk
+2. **Tom creates "Tom Out Talk"**, **Jerry creates "Jerry Out Talk"**. Both broadcast their respective talks.
 
-1. **Tom creates** "Tom Out Talk" (question: "Do you want to join Tom?")
-2. **Jerry creates** "Jerry Out Talk" (question: "Do you want to join Jerry?")
-3. **Tom broadcasts** his talk, **Jerry broadcasts** his talk
+3. **Jerry answers "Tom Out Talk" with "No thanks."** (mismatch/no match).
 
-### Step 2: Jerry answers Tom's talk
+4. **Verification — Tom's contacts tab:** Shows Jerry as a contact (even though there was no *match* — contacts include mismatched peers). The contact item says "2 talks". Clicking Jerry shows the "Tom Out Talk" in Jerry's contact detail.
 
-4. **Jerry receives Tom's talk** and answers "No thanks." (mismatch — NOT a match)
+5. **Verification — Chatroom peer detail:** Tom enters the Global chatroom, clicks Jerry's name — the same peer detail overlay opens with Jerry's name (contacts and chatroom show the same detail view).
 
-### Step 3: Tom's Contacts tab shows Jerry anyway
+6. **Verification — Talks tab IN/OUT split:** Tom's Talks tab shows both IN and OUT tabs. "Back" shows all talks, "IN" shows only Jerry's talk (incoming), "OUT" shows only Tom's own talk (outgoing). "Back" shows both again.
 
-5. **Tom opens Contacts tab** → Jerry appears (even though they only have a mismatch, not a match)
-6. **Tom clicks Jerry** → Jerry's contact detail shows:
-   - Jerry's name
-   - "2 talks" (both Tom's and Jerry's talks)
-   - "Tom Out Talk" is listed
+7. **Verification — Jerry's Answers tab:** Shows "Tom Out Talk" with the question "Do you want to join Tom?", the selected answer "No thanks.", "1 item" count, "answered 1 time", and "Mismatch" status.
 
-### Step 4: Same person from Chatroom vs Contacts
+> **Why this matters:** Verifies end-to-end UX polish: contacts include mismatched peers (not just matches), IN/OUT navigation works correctly, and answers show full question + answer detail.
 
-7. **Tom opens the Global chatroom** and clicks Jerry
-8. **Jerry's peer detail overlay** opens (showing Jerry's name) — same information as the Contacts tab
+---
 
-### Step 5: Talks tab split navigation
-
-9. **Tom opens the Talks tab** → sees both "Tom Out Talk" and "Jerry Out Talk" listed
-10. **Tom clicks "IN" filter** → only shows "Jerry Out Talk" (talks Jerry sent to Tom)
-11. **Tom clicks "OUT" filter** → only shows "Tom Out Talk" (talks Tom sent)
-12. **Tom clicks "Back"** → shows both talks again
-
-### Step 6: Jerry's Answers tab details
-
-13. **Jerry opens the Answers tab** → sees:
-    - The talk title "Tom Out Talk"
-    - The original question: "Do you want to join Tom?"
-    - His answer: "No thanks."
-    - "1 item", "answered 1 time"
-    - Labeled as "Mismatch"
-
-## Verifications:
-
-- ✅ Contacts list includes users who only interacted via mismatch (not just matches)
-- ✅ Chatroom member detail and Contacts detail show the same peer
-- ✅ Talks tab can be filtered by Incoming (IN) or Outgoing (OUT)
-- ✅ Answers tab shows the question text, the answer given, and the Match/Mismatch status
+**Helpers used:** `clearGunDatabases`, `bootstrapUser`, `launchThreeBrowsers`, `shutdownThreeBrowsers`, `resetTalksMatchingSession`, `finalCleanupPages`, `openIncomingTalkModal`, `confirmBroadcastTagPreambleIfVisible`, `waitForResponseModalClosed`, `waitForTabActive`

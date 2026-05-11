@@ -1,34 +1,32 @@
-# Test: Talk Creation, Listing, and Editing
+# Test: Talk Editor — Create Talk, View in Talks Tab, Edit with Prefilled Data
 
-**Features tested:** Creating a "flow-type" talk, viewing talks in the Talks tab, editing existing talks with prefilled data
+**File:** 05-talks-edit.spec.ts  
+**Features tested:** Talk creation, talk listing in Talks tab, edit talk with prefilled data, title update, flow-type talks
 
 ---
 
 ## What this test does (in plain English):
 
-1. **A user logs in** and calls themselves "EditTestUser".
+1. **Setup:** Single browser launched. Databases are cleared. User "EditTestUser" logs in and navigates to Chatrooms.
 
-2. **The user creates a new talk** called "Coffee Meetup" with one question:
+2. **User creates a talk:** Clicks "Create Talk", fills in the talk editor:
+   - Title: "Coffee Meetup"
+   - Type: "flow"
    - Question: "Do you drink coffee?"
-   - Answer option 1: "Yes" → marked as "noticed" (matching branch)
-   - Answer option 2: "No" → marked as "ignore" (non-matching branch)
+   - Answer 1: "Yes" → status: "noticed" (match)
+   - Answer 2: "No" → status: "ignore" (no match)
+   Submits the form. After sync, the talk appears.
 
-3. **The user navigates to the Talks tab** and confirms:
-   - The "Coffee Meetup" talk appears in the list
-   - It shows a "Created" badge (indicating the user is the talk's creator)
-   - An "Edit" button is visible
+3. **Verification — Talks tab shows the talk:** The user clicks the Talks tab. The talk appears with its title, a "created" badge, and an "Edit" button.
 
-4. **The user clicks Edit.** The talk editor modal opens with:
-   - The title "Coffee Meetup" already filled in
-   - Talk type set to "flow" already selected
-   - The question and answer options already prefilled
+4. **User clicks Edit:** The talk editor modal opens with all data prefilled — the existing title, type, question, and answers are visible.
 
-5. **The user changes the title** to "Coffee Meetup (Edited)" and saves.
+5. **User edits the title** to "Coffee Meetup (Edited)" and saves.
 
-6. **The user confirms the updated title** appears in the Talks tab.
+6. **Verification — Updated title appears in the list:** After sync, the talk in the list now shows the updated title.
 
-## Verifications:
+> **Why this matters:** Verifies the complete talk CRUD cycle: creation, listing with badges, editing with prefilled data, and title updates persisting correctly.
 
-- ✅ New talks appear in the Talks tab with the "Created" badge and Edit button
-- ✅ Clicking Edit opens the editor with all existing data pre-filled
-- ✅ After editing and saving, the changes are reflected in the Talks tab
+---
+
+**Helpers used:** `clearGunDatabases`, `injectIdbClear`, `ensureWindowFitsViewport`, `afterLoad`, `afterSync`, `afterNav`, `afterAction`, `attachE2eBrowserTabLabel`

@@ -1,44 +1,26 @@
-# Test: Direct Messaging Between Matched Users
+# Test: Direct Messaging — Tom and Jerry Match on Talk, Then Exchange Messages
 
-**Features tested:** Real-time 1-on-1 messaging, conversation creation after a match, bidirectional message delivery
+**File:** 09-messaging.spec.ts  
+**Features tested:** Talk matching triggering conversation creation, direct messaging between matched users, bidirectional message delivery, conversation overlay, multi-browser
 
 ---
 
 ## What this test does (in plain English):
 
-Two users: Tom and Jerry, both in the "Global" chatroom.
+1. **Setup:** Two browsers — Tom and Jerry — both log in and join "Global" chatroom. Test timeout is 420 seconds (7 minutes) due to long Gun sync waits.
 
-### Step 1: Tom creates and broadcasts a talk
+2. **Tom creates and broadcasts a talk** titled "Tennis Partner": "Want a tennis partner?" with match answer "Yes, lets play." and ignore answer "No thanks." Tom uses `clickBroadcastUntilBulkAck` helper to broadcast, then polls server to confirm Jerry received the incoming talk.
 
-1. **Tom creates a talk** called "Tennis Partner" with the question: "Want a tennis partner?" (Yes/No)
-2. **Tom broadcasts it** to the chatroom
+3. **Jerry opens the incoming talk and matches** by selecting "Yes, lets play." After the match, conversation entries are created for both users (poll-localStorage for the other user's ID to appear as a conversation).
 
-### Step 2: Jerry matches
+4. **Tom opens conversation with Jerry** via `openConversation` helper, types "Hey Jerry, want to play tennis tomorrow?", and sends. Tom sees his own message appear.
 
-3. **Jerry receives the talk** in his Talks tab, opens it, and answers "Yes, let's play."
-4. **"Match!" notification appears** for both Jerry and Tom
-5. A conversation is automatically created between Tom and Jerry
+5. **Jerry opens conversation with Tom** and sees Tom's message arrive (polls until visible).
 
-### Step 3: Tom sends a message
+6. **Jerry replies** with "Sounds great! Meet at the courts at 9am?" — Jerry sees the reply, and Tom (still on his conversation overlay) also sees Jerry's reply arrive.
 
-6. **Tom opens the conversation** with Jerry from the Me tab
-7. **Tom types and sends:** "Hey Jerry, want to play tennis tomorrow?"
-8. **Tom sees his own message** in the conversation thread
+> **Why this matters:** Verifies the complete messaging flow: match → conversation created → bidirectional real-time messaging works with correct message delivery in both directions.
 
-### Step 4: Jerry receives and replies
+---
 
-9. **Jerry opens the conversation** with Tom
-10. **Jerry sees Tom's message** appear in real-time
-11. **Jerry types and replies:** "Sounds great! Meet at the courts at 9am?"
-12. **Jerry sees his own reply** in the conversation
-
-### Step 5: Tom receives Jerry's reply
-
-13. **Tom sees Jerry's reply** appear in the conversation (Tom's conversation overlay is still open)
-
-## Verifications:
-
-- ✅ After a match, a conversation is created between the two users
-- ✅ Messages sent by one user appear in real-time on the other user's screen
-- ✅ Both users can see the full conversation thread with both sides' messages
-- ✅ Messages persist in the conversation history
+**Helpers used:** `clearGunDatabases`, `injectIdbClear`, `afterLoad`, `afterSync`, `afterNav`, `afterAction`, `openIncomingTalkModal`, `waitForResponseModalClosed`, `clickBroadcastUntilBulkAck`, `waitForBroadcastableTalkIds`, `waitForDistinctGunPeersExcludingSelf`

@@ -1,20 +1,26 @@
 # Test: Broadcast Cancellation — Creator Clears All Talks Mid-Flight
 
-**Spec file:** `00-broadcast-abort-clear-all.spec.ts`
-
-**Features tested:** Broadcast cancellation, clear-all-talks functionality, API routing interception
+**File:** 00-broadcast-abort-clear-all.spec.ts  
+**Features tested:** Broadcast cancellation, clear-all-talks, register batch delay, multi-browser
 
 ---
 
 ## What this test does (in plain English):
 
-1. **Actor(s):** Tom (first browser) and Jerry (second browser) — both bootstrapped with the `bootstrapUser` helper
-2. **Action:** Tom creates 10 flow talks with titles "Broadcast Abort Talk 1" through "Broadcast Abort Talk 10"
-3. **Action:** The test intercepts the `/api/talks/*/register-receivers-for-broadcast` API calls using `pageTom.route()`. When the 5th registration call fires, a "ready to clear" signal is sent
-4. **Action:** Tom clicks Broadcast and confirms the tag preamble (uses `confirmBroadcastTagPreambleIfVisible` helper which picks a random tag chip and sends)
-5. **Action:** Once the 5th registration is reached, Tom navigates to Me → View My Talks → Clicks Clear All Talks button, accepts the dialog confirmation
-6. **Action:** Tom returns to the Chatrooms tab
-7. **Action:** The test waits for broadcast bulk acknowledgment with `minSent: 0` — meaning 0 talks actually got delivered
-8. **Verification:** Jerry should NOT receive "Broadcast Abort Talk 6" or "Broadcast Abort Talk 10" (the ones that were being registered when Tom cleared all) — verified by polling the incoming-talks API with `incomingClustersIncludeTitleSubstring` helper
+1. **Setup:** Tom (stage name "Tom Abort") and Jerry (stage name "Jerry Abort") both log into separate browsers. Databases are cleared before starting.
 
-> **Why this matters:** Verifies that when a creator clears all talks during an ongoing broadcast operation, the remaining registration batches are cancelled and receivers don't see talks that should have been deleted
+2. **Tom creates 10 talks** titled "Broadcast Abort Talk 1" through "Broadcast Abort Talk 10" using the `createSimpleFlowTalk` helper and navigates to the Chatrooms tab.
+
+3. **Tom clicks Broadcast** to send all 10 talks to the network. A network route intercepts the `register-receivers-for-broadcast` API calls — on the 5th registration request, a signal is sent and the request is delayed by 10 seconds.
+
+4. **Mid-flight, Tom clears ALL talks:** Once the signal fires, Tom navigates to "Me" → "View My Talks", clicks "Clear All Talks", confirms the dialog, and navigates back to Chatrooms.
+
+5. **Broadcast batch acknowledgment** is waited for via `waitForBroadcastBulkAckMinSent` (1 receiver, minSent may be 0 since talks were cleared).
+
+6. **Verification — Jerry should NOT receive the remaining talks (6-10):** The test polls Jerry's `/api/users/jerry/incoming-talks` endpoint and confirms that talks #6 and #10 were NOT delivered to Jerry. Since Tom cleared all talks mid-broadcast, the remaining batches were skipped.
+
+> **Why this matters:** Ensures that when a creator cancels all talks while a broadcast is still propagating, remaining sends are skipped and recipients don't receive incomplete or cancelled talks.
+
+---
+
+**Helpers used:** `bootstrapUser`, `createSimpleFlowTalk`, `goToChatrooms`, `confirmBroadcastTagPreambleIfVisible`, `clearGunDatabases`, `afterSync`, `afterNav`, `afterAction`, `waitForBroadcastBulkAckMinSent`, `incomingClustersIncludeTitleSubstring`

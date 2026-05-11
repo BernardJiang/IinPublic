@@ -1,40 +1,35 @@
-# Test: Super User — Broadcast 20 Talks Simultaneously
+# Test: Super User — TechSupport Creates 20 Talks (10 Tags + 10 Talks), Tom Completes All
 
-**Features tested:** Large-scale broadcast (10 tags + 10 flow talks = 20 items), concurrent receiving and answering, end-to-end match verification for all 20 talks
+**File:** 08-super-user-20-broadcast.spec.ts  
+**Features tested:** Bulk talk creation via super user/companyp page, large-scale broadcast (20 talks), bulk completion by responder, status bar verification, incoming-talks API count, localStorage ledger verification
 
 ---
 
 ## What this test does (in plain English):
 
-Two users: "TechSupport" (the broadcaster) and "Tom" (the receiver).
+1. **Setup:** Two browsers — TechSupport and Tom — both log in via `bootstrapSuperUser` and join "Global" chatroom.
 
-### Step 1: TechSupport creates 20 talks
+2. **TechSupport creates 20 talks** using the company page demo (API-based creation):
+   - 10 tag-type talks (from `TAG_NAMES` list)
+   - 10 flow-type talks (from `TALK_TITLES` list)
+   All are created with 1 question each, matching/ignoring answers, and self-answers set to match.
 
-1. **TechSupport creates 10 tags:** Coffee, Cat, Tennis, Jobs, Food, Music, Travel, Books, Movies, Sports
-2. **TechSupport creates 10 flow talks:** Tennis Partner, Coffee Meetup, Job Search, Foodie, Music Lover, Travel Buddy, Book Club, Movie Night, Sports Fan, Hiking (each with a Yes/No question)
+3. **Tom joins Global.** Waits for broadcast delivery. Polls the incoming-talks API to confirm Tom has received talks.
 
-### Step 2: Tom joins the chatroom
+4. **Tom completes all 20 talks** using `completeTalksInAppByAnswerIds` — each talk is opened and answered with the matching answer. Timeout extended to 120 seconds.
 
-3. **Tom enters the "Global" chatroom** (same room as TechSupport)
+5. **TechSupport end-of-flow verification:**
+   - Opens Talks tab — confirms at least one "Matched with:" line
+   - Status bar shows "20 matches"
+   - Poll confirms 20 matches in status bar text
 
-### Step 3: Simultaneous broadcast and answering
+6. **Tom end-of-flow verification:**
+   - Answers tab: polls localStorage to confirm all 20 expected titles are present with "answered" role and "match" outcome
+   - Answers tab UI: shows at least 20 answer-talk-item entries with "Match" text
+   - Server API: polls `/api/users/tom/incoming-talks` to confirm at least 20 talk slots remain
 
-4. **TechSupport clicks "Broadcast"** — this starts sending all 20 talks to Tom
-5. **At the same time,** Tom starts going through each incoming talk and answering:
-   - For tags: checks the checkbox (match)
-   - For flow talks: selects "Yes, match." (match)
-6. Both actions happen **in parallel** — Tom answers as each talk arrives
+> **Why this matters:** Verifies the system handles 20 simultaneous broadcasts — creation, delivery, completion, and end-state verification all work correctly at this scale. Performance and data integrity under load.
 
-### Step 4: End verification
+---
 
-7. **TechSupport's status bar** shows "20 matches" — all 20 talks resulted in matches
-8. **Tom's Answers tab** lists all 20 talks (all 10 tags + all 10 flow talks) with Match status
-9. **Server API confirms** Tom has received 20 talk slots
-
-## Verifications:
-
-- ✅ Broadcast of 20 talks completes successfully
-- ✅ All 20 incoming talks are delivered to Tom in the same chatroom
-- ✅ Tom can answer all 20 talks (both tags and flow types) as they arrive
-- ✅ Both TechSupport and Tom see 20 total matches
-- ✅ The server API reflects all 20 talks in Tom's incoming list
+**Helpers used:** `clearGunDatabases`, `bootstrapSuperUser`, `createTalksFromCompanyPage`, `completeTalksInAppByAnswerIds`, `waitForTabActive`, `countIncomingTalkSlots`

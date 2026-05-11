@@ -1,42 +1,28 @@
-# Test: Message Unread Badge Lifecycle
+# Test: Unread Badge on Me Tab — Appears After Match, Clears on Open, Reappears After New Message
 
-**Features tested:** Unread badge display on Me tab, badge clearing on read, badge reappearing after new messages
+**File:** 10-message-unread-badge.spec.ts  
+**Features tested:** Unread conversation badge lifecycle, notification badge on Me nav button, badge clear on conversation open, badge reappear on new message, multi-browser
 
 ---
 
 ## What this test does (in plain English):
 
-Two users: Tom and Jerry, both in the "Global" chatroom.
+1. **Setup:** Two browsers — Tom and Jerry — both log in and join "Global" chatroom.
 
-### Phase 1: Match creates an unread badge
+2. **Tom creates and broadcasts a talk** titled "E2E Unread Badge Tennis" with the same tennis question pattern. Jerry receives it and matches. Conversation entries are created for both.
 
-1. **Tom creates and broadcasts a talk** ("E2E Unread Badge Tennis")
-2. **Jerry answers the talk** with "Yes, let's play." → **"Match!"** appears for both
-3. **A conversation is automatically created** between Tom and Jerry
-4. **Jerry navigates to the Me tab** → he sees a **notification badge** on the Me tab icon showing that he has an unread conversation
-5. **Tom's conversation** appears in Jerry's conversation list with an **unread badge indicator**
+3. **Phase 1 — Unread badge appears for Jerry immediately after the new match:** Jerry navigates to the Me tab. The Me nav button shows a notification badge, and the conversation list item for Tom shows an unread-badge. (The match creates the conversation with `unread=true`.)
 
-### Phase 2: Opening the conversation clears the badge
+4. **Phase 2 — Opening the conversation clears the badge:** Jerry clicks on Tom's conversation. The conversation overlay opens. Jerry clicks back. The notification badge on Jerry's Me button disappears.
 
-6. **Jerry opens the conversation** with Tom → the overlay shows
-7. **Jerry closes the conversation** → when he views the Me tab again, the badge is **gone** (it's been marked as read)
+5. **Phase 3 — Tom sends a message while Jerry's overlay is closed:** Tom opens his conversation with Jerry and sends "Hey Jerry, first message!"
 
-### Phase 3: New message re-creates the badge
+6. **Phase 4 — Jerry's unread badge reappears:** The notification badge on Jerry's Me nav button and the conversation item unread-badge both appear again.
 
-8. **Tom opens the conversation** with Jerry
-9. **Tom sends a new message:** "Hey Jerry, first message!"
-10. **Jerry's Me tab badge** reappears (Jerry has an unread message again)
-11. **Tom's conversation item** in Jerry's list shows the unread indicator again
+7. **Phase 5 — Jerry opens the conversation again — badge clears:** Jerry clicks Tom's conversation, sees the new message, clicks back — notification badge disappears once more.
 
-### Phase 4: Opening clears it once more
+> **Why this matters:** Verifies the complete unread badge lifecycle: badge appears on new match → clears on open → reappears on new message → clears on open again. Proper unread state management.
 
-12. **Jerry opens the conversation** → he sees Tom's message
-13. **Jerry closes the conversation** → the badge disappears again
+---
 
-## Verifications:
-
-- ✅ After a match, the Me tab shows an unread conversation badge
-- ✅ The conversation item shows an unread indicator
-- ✅ Opening the conversation clears the badge (marks as read)
-- ✅ A new incoming message re-creates the badge
-- ✅ Opening the conversation again clears the badge once more
+**Helpers used:** `clearGunDatabases`, `injectIdbClear`, `afterLoad`, `afterSync`, `afterNav`, `afterAction`, `openIncomingTalkModal`, `waitForResponseModalClosed`, `clickBroadcastUntilBulkAck`, `waitForConversationEntry`

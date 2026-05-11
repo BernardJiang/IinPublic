@@ -1,42 +1,30 @@
-# Test: Me Tab — Incoming Talk Filters & Credit Visibility
+# Test: Me Tab Filters and Credit Visibility Toggle
 
-**Features tested:** Filtering unwanted talk types in Me tab settings, server respecting filters (not delivering filtered talks), credit visibility toggle persistence
+**File:** 13-me-filters-credit.spec.ts
+**Features tested:** Talk type filters (survey/flow), credit visibility toggle, filtered broadcast delivery, peer relationship modal
 
 ---
 
 ## What this test does (in plain English):
 
-Two users: Tom and Jerry, both in the "Global" chatroom.
+1. **Setup:** Three browsers (Tom, Jerry, Bob) launched. Tom and Jerry join Global chatroom.
 
-### Step 1: Jerry configures filters
+2. **Jerry adjusts Me tab settings:** Unchecks the "survey" talk type filter (so Jerry won't receive surveys) and unchecks "credit visibility" (hiding public credit). Navigates back and forth — settings persist.
 
-1. **Jerry opens the Me tab**
-2. **Jerry unchecks the "Survey" filter** (meaning: "I don't want to receive survey-type talks")
-3. **Jerry also toggles off the "Credit Visibility"** (hides his profile credit from others)
-4. **Jerry navigates away and back** → both settings are **persisted** (still unchecked)
+3. **Tom creates and broadcasts two talks:**
+   - "Filtered Flow Talk" (flow type: "Want to play tennis?")
+   - "Filtered Survey Talk" (survey type: "How was the meetup?")
 
-### Step 2: Tom creates one flow talk and one survey talk
+4. **Verification — Server-side filtering:** Polls `/api/users/jerry/incoming-talks` — only "Filtered Flow Talk" arrives. The survey talk was filtered out server-side because Jerry disabled survey reception.
 
-5. **Tom creates a Flow talk** ("Filtered Flow Talk" — question: "Want to play tennis?")
-6. **Tom creates a Survey talk** ("Filtered Survey Talk" — question: "How was the meetup?")
+5. **Verification — Jerry's Talks tab:** Shows only "Filtered Flow Talk". "Filtered Survey Talk" is absent. Jerry has exactly 1 incoming talk.
 
-### Step 3: Tom broadcasts both talks
+6. **Jerry answers the flow talk with "Yes"** (match).
 
-7. **Tom broadcasts** (sends both talks to Jerry)
-8. **The server API is checked** → Jerry only receives "Filtered Flow Talk" (the Survey talk was filtered out server-side)
+7. **Verification — Credit visibility preserved in contact detail:** Tom opens his contacts, clicks Jerry, clicks "Edit Relationship" — the relationship modal shows "Public credit" text (the credit visibility setting is preserved and visible in the relationship dialog).
 
-### Step 4: Jerry's Talks tab confirms
+> **Why this matters:** Verifies that Me tab talk type filters work at the server level (not just UI filtering), credit visibility settings persist across navigation, and the relationship modal correctly reflects privacy settings.
 
-9. **Jerry opens the Talks tab** → only shows "Filtered Flow Talk" (the survey is NOT shown)
-10. **Jerry answers the flow talk** with "Yes" → match
+---
 
-### Step 5: Tom's contacts — credit visibility check
-
-11. **Tom opens Contacts**, clicks Jerry, opens the relationship editor → sees "Public credit" information
-
-## Verifications:
-
-- ✅ Talk type filters persist after navigating away from the Me tab
-- ✅ The server respects the filter and only delivers allowed talk types
-- ✅ Filtered talks don't appear in the receiver's Talks tab
-- ✅ Credit visibility toggle persists and is accessible in the contact relationship settings
+**Helpers used:** `clearGunDatabases`, `bootstrapUser`, `launchThreeBrowsers`, `resetTalksMatchingSession`, `finalCleanupPages`, `syncIncomingFromServer`, `openIncomingTalkModal`, `confirmBroadcastTagPreambleIfVisible`, `waitForBroadcastBulkAck`, `waitForResponseModalClosed`, `waitForTabActive`
