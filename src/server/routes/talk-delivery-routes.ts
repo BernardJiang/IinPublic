@@ -18,6 +18,10 @@ import {
   findAutoAnswer,
   type ExactChatbotMemoryState,
 } from '../../shared/exact-chatbot-memory';
+import {
+  readExactChatbotMemoryForUser,
+  writeExactChatbotMemoryForUser,
+} from '../exact-chatbot-memory-store';
 
 type TalkDeliveryRouteDeps = {
   gunService: GunService;
@@ -456,12 +460,11 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         symmetricTalkEdgeLimiter.touchPair(senderId, receiverId, Date.now());
       }
 
-      const exactMemory =
-        (await gunService.getPath(['exactChatbotMemoryByUser', receiverId])) as ExactChatbotMemoryState | undefined;
+      const exactMemory = await readExactChatbotMemoryForUser(gunService, receiverId);
       if (exactMemory && typeof exactMemory === 'object') {
         const exactAutoAnswers = mapExactMemoryToTalk(exactMemory, receiverId, talkData);
         if (Array.isArray(exactAutoAnswers) && exactAutoAnswers.length === 0) {
-          await gunService.putPath(['exactChatbotMemoryByUser', receiverId], exactMemory);
+          await writeExactChatbotMemoryForUser(gunService, receiverId, exactMemory);
           res.json({
             registered: true,
             identityKey,
@@ -482,7 +485,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
             storeOnSourceTalk: true,
           });
 
-          await gunService.putPath(['exactChatbotMemoryByUser', receiverId], exactMemory);
+          await writeExactChatbotMemoryForUser(gunService, receiverId, exactMemory);
 
           res.json({
             registered: true,

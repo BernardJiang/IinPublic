@@ -34,12 +34,14 @@ import { registerTalkRoutes } from './routes/talk-routes';
 import { registerUserRoutes } from './routes/user-routes';
 import { registerSocketHandlers } from './socket/register-socket-handlers';
 import {
-  createEmptyExactChatbotMemoryState,
   savePermanentAnswer,
   saveSuppressedQuestion,
   saveTemporaryAnswer,
-  type ExactChatbotMemoryState,
 } from '../shared/exact-chatbot-memory';
+import {
+  readOrCreateExactChatbotMemoryForUser,
+  writeExactChatbotMemoryForUser,
+} from './exact-chatbot-memory-store';
 
 const E2E_GUN_MEMORY_ONLY =
   process.env.E2E_GUN_MEMORY_ONLY === '1' || process.env.E2E_GUN_MEMORY_ONLY === 'true';
@@ -585,16 +587,7 @@ class IinPublicServer {
     isAuto: boolean;
   }): Promise<void> {
     const { responderId, responderName, identityKey, answers, templateEntries, isAuto } = params;
-    const existingExactMemory =
-      (await this.gunService.getPath(['exactChatbotMemoryByUser', responderId])) as ExactChatbotMemoryState | undefined;
-    const exactMemory: ExactChatbotMemoryState =
-      existingExactMemory && typeof existingExactMemory === 'object'
-        ? {
-            users: existingExactMemory.users || {},
-            questions: existingExactMemory.questions || {},
-            answers: existingExactMemory.answers || {},
-          }
-        : createEmptyExactChatbotMemoryState();
+    const exactMemory = await readOrCreateExactChatbotMemoryForUser(this.gunService, responderId);
 
     for (const entry of templateEntries) {
       if (!entry.questionText) continue;
@@ -606,7 +599,7 @@ class IinPublicServer {
         saveTemporaryAnswer(exactMemory, responderId, entry.questionText, entry.answerText);
       }
     }
-    await this.gunService.putPath(['exactChatbotMemoryByUser', responderId], exactMemory);
+    await writeExactChatbotMemoryForUser(this.gunService, responderId, exactMemory);
 
     await this.gunService.putPath(['talkAnswerTemplateByUser', responderId, identityKey], {
       responderId,
