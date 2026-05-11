@@ -42,14 +42,23 @@ import {
   clearAnswerPreferences,
   getAnswerPreferences,
   getAnsweredTalkByContent,
+  getExactChatbotMemory,
   getFlattenedAnswerPreferences,
   setAnswerPreferences,
   setAnsweredTalkByContent,
+  setExactChatbotMemory,
   setFlattenedAnswerPreferences,
   setMyQuestionAnswer,
   type AnswerPreferenceMap,
   type MyQuestionAnswerEntry,
 } from './answer-preferences-storage';
+import {
+  findAutoAnswer,
+  LOCAL_EXACT_CHATBOT_USER_ID,
+  savePermanentAnswer,
+  saveSuppressedQuestion,
+  saveTemporaryAnswer,
+} from '../../shared/exact-chatbot-memory';
 import {
   clearMyTalks,
   deleteMyTalkEntry,
@@ -2909,7 +2918,7 @@ export class UIManager extends EventEmitter {
     talk: any,
     questionIndex: number,
     previousQAPairs: QAPair[],
-    currentQuestion: { id: string; text?: string },
+    currentQuestion: { id: string; text?: string; answers?: any[] },
     talkInstanceId: string,
   ): {
     answerId: string;
@@ -2917,7 +2926,48 @@ export class UIManager extends EventEmitter {
     mode: string;
     questionText?: string;
     allAnswers?: any[];
+    autoAnswerAction?: string;
+    autoAnswerReason?: string;
   } | null {
+    const exactMemory = getExactChatbotMemory();
+    const currentOptions = (currentQuestion.answers || []).map((answer: any) => String(answer?.text || ''));
+    if (currentQuestion.text && currentOptions.length > 0) {
+      const exact = findAutoAnswer(
+        exactMemory,
+        LOCAL_EXACT_CHATBOT_USER_ID,
+        currentQuestion.text,
+        currentOptions,
+      );
+      setExactChatbotMemory(exactMemory);
+      if (exact.action === 'SKIP') {
+        return {
+          answerId: 'ignore',
+          answerText: 'ignore',
+          mode: 'auto',
+          questionText: currentQuestion.text || '',
+          allAnswers: currentQuestion.answers || [],
+          autoAnswerAction: exact.action,
+          autoAnswerReason: exact.reason,
+        };
+      }
+      if (exact.action === 'ANSWER' && exact.answerText) {
+        const matchingAnswer = (currentQuestion.answers || []).find((answer: any) => {
+          return String(answer?.text || '').trim() === exact.answerText;
+        });
+        if (matchingAnswer?.id) {
+          return {
+            answerId: matchingAnswer.id,
+            answerText: String(matchingAnswer.text || exact.answerText),
+            mode: 'auto',
+            questionText: currentQuestion.text || '',
+            allAnswers: currentQuestion.answers || [],
+            autoAnswerAction: exact.action,
+            autoAnswerReason: exact.reason,
+          };
+        }
+      }
+    }
+
     const talkContentHash = computeTalkIdFromTalkData(talk);
     const flatKey = buildAnswerPreferenceLookupKey(
       talk,
@@ -2940,8 +2990,20 @@ export class UIManager extends EventEmitter {
     answerId: string,
     answerText: string,
     fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerText?: string }>,
-    mode: 'auto' | 'manual' = 'auto',
+    mode: 'auto' | 'manual' | 'permanent' | 'suppressed' = 'auto',
   ): void {
+    const exactMemory = getExactChatbotMemory();
+    if (currentQuestion.text) {
+      if (mode === 'suppressed') {
+        saveSuppressedQuestion(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text);
+      } else if (mode === 'permanent') {
+        savePermanentAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText);
+      } else if (mode === 'auto') {
+        saveTemporaryAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText);
+      }
+      setExactChatbotMemory(exactMemory);
+    }
+
     const preferences = getAnswerPreferences();
     const legacyKey = `${talkInstanceId}_${currentQuestion.id}`;
     const talkContentHash = computeTalkIdFromTalkData(talk);
@@ -2961,7 +3023,7 @@ export class UIManager extends EventEmitter {
     const entry = {
       answerId,
       answerText,
-      mode,
+      mode: mode === 'permanent' ? 'auto' : mode === 'suppressed' ? 'manual' : mode,
       talkId: talkInstanceId,
       questionText: currentQuestion.text || '',
       allAnswers: currentQuestion.answers || [],
@@ -2975,7 +3037,7 @@ export class UIManager extends EventEmitter {
     const flatMap = getFlattenedAnswerPreferences();
     flatMap[flatKey] = entry;
     setFlattenedAnswerPreferences(flatMap);
-    console.log('💾 Saved answer (flat + legacy):', flatKey, answerText);
+    console.log('💾 Saved answer (exact + flat + legacy):', flatKey, answerText, mode);
   }
 
   /** Snapshot for syncing encrypted/auto answers to Gun (Phase 2). */
@@ -3011,6 +3073,7 @@ export class UIManager extends EventEmitter {
       const q = questions[i];
       const pref = this.resolveAnswerPreferenceForTalkQuestion(talkData, i, pairs, q, gunId);
       if (!pref || pref.mode !== 'auto') return null;
+      if (pref.answerId === 'ignore') return null;
       const ans = q.answers?.find((a: { id: string }) => a.id === pref.answerId);
       if (!ans) return null;
       out.push({

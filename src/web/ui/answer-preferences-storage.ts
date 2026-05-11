@@ -9,6 +9,11 @@ export type AnswerPreferenceEntry = {
   flatKey?: string;
 };
 
+import {
+  createEmptyExactChatbotMemoryState,
+  type ExactChatbotMemoryState,
+} from '../../shared/exact-chatbot-memory';
+
 export type AnswerPreferenceMap = Record<string, AnswerPreferenceEntry>;
 
 export type MyQuestionAnswerEntry = {
@@ -60,6 +65,26 @@ export function setFlattenedAnswerPreferences(map: AnswerPreferenceMap): void {
 export function clearAnswerPreferences(): void {
   localStorage.removeItem('answerPreferences');
   localStorage.removeItem('flattenedAnswerPreferences');
+  localStorage.removeItem('exactChatbotMemory');
+}
+
+export function getExactChatbotMemory(): ExactChatbotMemoryState {
+  try {
+    const raw = localStorage.getItem('exactChatbotMemory');
+    if (!raw) return createEmptyExactChatbotMemoryState();
+    const parsed = JSON.parse(raw) as Partial<ExactChatbotMemoryState>;
+    return {
+      users: parsed.users && typeof parsed.users === 'object' ? parsed.users : {},
+      questions: parsed.questions && typeof parsed.questions === 'object' ? parsed.questions : {},
+      answers: parsed.answers && typeof parsed.answers === 'object' ? parsed.answers : {},
+    };
+  } catch {
+    return createEmptyExactChatbotMemoryState();
+  }
+}
+
+export function setExactChatbotMemory(value: ExactChatbotMemoryState): void {
+  localStorage.setItem('exactChatbotMemory', JSON.stringify(value));
 }
 
 export function getMyQuestionAnswers(): Record<string, MyQuestionAnswerEntry> {

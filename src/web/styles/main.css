@@ -1288,17 +1288,17 @@ body {
   filter: brightness(0.97);
 }
 
-/* Answer modal: 2×N+1 table-style grid – Auto | Manual columns, Yes/No/Ignore on the right */
+/* Answer modal: table-style grid – Auto | Manual | Permanent columns, answers on the right */
 .answer-radio-grid {
   display: flex;
   flex-direction: column;
   gap: 0;
-  max-width: 280px;
+  max-width: 380px;
 }
 
 .answer-grid-header {
   display: grid;
-  grid-template-columns: 36px 36px 1fr;
+  grid-template-columns: 48px 56px 78px 1fr;
   gap: 12px 8px;
   padding: 8px 0;
   font-size: 0.9em;
@@ -1309,7 +1309,7 @@ body {
 
 .answer-grid-row {
   display: grid;
-  grid-template-columns: 36px 36px 1fr;
+  grid-template-columns: 48px 56px 78px 1fr;
   gap: 12px 8px;
   align-items: center;
   padding: 10px 0;

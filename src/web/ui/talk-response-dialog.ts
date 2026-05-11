@@ -1,11 +1,15 @@
 import { sessionAnswersToQAPairs } from '../../shared/flattened-answer-keys';
 
+type AnswerSelectionMode = 'auto' | 'manual' | 'permanent';
+
 type SavedPreference = {
   answerId: string;
   answerText: string;
   mode: string;
   questionText?: string;
   allAnswers?: any[];
+  autoAnswerAction?: string;
+  autoAnswerReason?: string;
 } | null;
 
 type TalkResponseDialogOptions = {
@@ -28,7 +32,7 @@ type TalkResponseDialogOptions = {
     answerId: string,
     answerText: string,
     fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerText?: string }>,
-    mode?: 'auto' | 'manual',
+    mode?: 'auto' | 'manual' | 'permanent' | 'suppressed',
   ) => void;
 };
 
@@ -123,7 +127,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
   }
 
   let currentQuestion = talk.questions[0];
-  const answers: { questionId: string; answerId: string; answerText: string; mode?: 'auto' | 'manual' }[] = [];
+  const answers: { questionId: string; answerId: string; answerText: string; mode?: AnswerSelectionMode }[] = [];
 
   const renderQuestion = (): void => {
     if (!currentQuestion) {
@@ -145,6 +149,18 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         );
 
     if (savedPreference && savedPreference.mode === 'auto') {
+      if (savedPreference.answerId === 'ignore') {
+        answers.push({
+          questionId: currentQuestion.id,
+          answerId: 'ignore',
+          answerText: 'ignore',
+          mode: 'auto',
+        });
+        options.showNotification('Talk ignored - no match (auto)', 'info');
+        options.completeTalk(talk, answers, 'mismatch');
+        closeModal();
+        return;
+      }
       const answer = currentQuestion.answers.find((a: any) => a.id === savedPreference.answerId);
       if (answer) {
         answers.push({
@@ -223,7 +239,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           </div>
           <div class="answer-radio-grid" role="radiogroup" aria-label="Choose answer and mode">
             <div class="answer-grid-header">
-              <span>Auto</span><span>Manual</span><span></span>
+              <span>Auto</span><span>Manual</span><span>Permanent</span><span></span>
             </div>
             ${currentQuestion.answers
               .map((answer: any) => {
@@ -248,6 +264,14 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
                   data-is-match="${answer.isMatch || false}"
                   data-next-question-id="${answer.nextQuestionId || ''}"
                   ${prevMode === 'manual' ? 'checked' : ''}></label>
+                <label class="answer-grid-cell"><input type="radio" name="${choiceRadioName}" value="${answer.id}_permanent" class="choice-radio"
+                  data-answer-id="${answer.id}"
+                  data-answer-text="${options.escapeHtml(answer.text)}"
+                  data-mode="permanent"
+                  data-is-terminal="${answer.isTerminal || false}"
+                  data-is-ignore="${answer.isIgnore || false}"
+                  data-is-match="${answer.isMatch || false}"
+                  data-next-question-id="${answer.nextQuestionId || ''}"></label>
                 <span class="answer-grid-label">${options.escapeHtml(answer.text)}</span>
               </div>
             `;
@@ -264,6 +288,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
                 data-next-question-id=""
                 ${previousChoice?.answerId === 'ignore' ? 'checked' : ''}></label>
               <span class="answer-grid-cell"></span>
+              <span class="answer-grid-cell"></span>
               <span class="answer-grid-label">Ignore</span>
             </div>
           </div>
@@ -275,7 +300,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       const answerId = radio.dataset.answerId!;
       const isIgnore = radio.dataset.isIgnore === 'true';
       const answerText = radio.dataset.answerText || '';
-      const answerMode = (radio.dataset.mode || 'manual') as 'auto' | 'manual';
+      const answerMode = (radio.dataset.mode || 'manual') as AnswerSelectionMode;
       const isTerminal = radio.dataset.isTerminal === 'true';
       const isMatch = radio.dataset.isMatch === 'true';
       const nextQuestionId = radio.dataset.nextQuestionId || '';
@@ -287,17 +312,15 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         mode: answerMode,
       });
 
-      if (!isIgnore) {
-        options.saveAnswerPreference(
-          talk,
-          talk.id,
-          currentQuestion,
-          answerId,
-          answerText,
-          answers.map((a) => ({ questionId: a.questionId, answerText: a.answerText })),
-          answerMode,
-        );
-      }
+      options.saveAnswerPreference(
+        talk,
+        talk.id,
+        currentQuestion,
+        answerId,
+        isIgnore ? 'ignore' : answerText,
+        answers.map((a) => ({ questionId: a.questionId, answerText: a.answerText })),
+        isIgnore ? 'suppressed' : answerMode,
+      );
 
       if (isIgnore) {
         options.showNotification('Talk ignored - no match', 'info');

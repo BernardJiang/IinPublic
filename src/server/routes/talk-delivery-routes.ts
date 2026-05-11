@@ -14,6 +14,10 @@ import { logger } from '../logger';
 import { GunService } from '../services/gun-service';
 import type { SymmetricTalkEdgeRateLimiter } from '../services/symmetric-talk-edge-rate-limit';
 import type { DailyWeeklyTalkEdgeQuotaRateLimiter } from '../services/daily-weekly-talk-edge-quota-rate-limit';
+import {
+  findAutoAnswer,
+  type ExactChatbotMemoryState,
+} from '../../shared/exact-chatbot-memory';
 
 type TalkDeliveryRouteDeps = {
   gunService: GunService;
@@ -112,6 +116,69 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
     symmetricTalkEdgeLimiter,
     dailyWeeklyTalkEdgeQuotaRateLimiter,
   } = deps;
+
+  function mapExactMemoryToTalk(
+    exactMemory: ExactChatbotMemoryState,
+    receiverId: string,
+    talkData: any,
+  ): Array<{ questionId: string; answerId: string; answerText?: string; isChecked?: boolean; mode?: string }> | null {
+    const questions = Array.isArray(talkData?.questions) ? talkData.questions : [];
+    if (questions.length === 0) return null;
+
+    const byId = new Map<string, any>();
+    questions.forEach((question: any) => {
+      if (question?.id) byId.set(String(question.id), question);
+    });
+
+    const answers: Array<{ questionId: string; answerId: string; answerText?: string; isChecked?: boolean; mode?: string }> = [];
+    let question = questions[0];
+    const seen = new Set<string>();
+
+    while (question && !seen.has(String(question.id))) {
+      seen.add(String(question.id));
+      const optionTexts = (Array.isArray(question.answers) ? question.answers : []).map((answer: any) =>
+        String(answer?.text || ''),
+      );
+      const result = findAutoAnswer(exactMemory, receiverId, String(question.text || ''), optionTexts);
+      if (result.action === 'SKIP') {
+        return [];
+      }
+      if (result.action !== 'ANSWER' || !result.answerText) {
+        return null;
+      }
+
+      const selected = (Array.isArray(question.answers) ? question.answers : []).find(
+        (answer: any) => String(answer?.text || '').trim() === result.answerText,
+      );
+      if (!selected?.id || selected.isIgnore) {
+        return [];
+      }
+
+      answers.push({
+        questionId: question.id,
+        answerId: selected.id,
+        answerText: selected.text,
+        isChecked: selected.isMatch === true,
+        mode: 'auto',
+      });
+
+      if (selected.isMatch || selected.isTerminal) {
+        break;
+      }
+      if (selected.nextQuestionId) {
+        question = byId.get(String(selected.nextQuestionId));
+        continue;
+      }
+      if (talkData?.type === 'survey') {
+        const idx = questions.findIndex((candidate: any) => candidate?.id === question.id);
+        question = idx >= 0 ? questions[idx + 1] : undefined;
+        continue;
+      }
+      break;
+    }
+
+    return answers.length > 0 ? answers : null;
+  }
 
   function filterReasonsForTalk(
     talkData: any,
@@ -387,6 +454,46 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
 
       if (symmetricTalkEdgeLimiter && symmetricTalkEdgeLimiter.cooldownMs > 0) {
         symmetricTalkEdgeLimiter.touchPair(senderId, receiverId, Date.now());
+      }
+
+      const exactMemory =
+        (await gunService.getPath(['exactChatbotMemoryByUser', receiverId])) as ExactChatbotMemoryState | undefined;
+      if (exactMemory && typeof exactMemory === 'object') {
+        const exactAutoAnswers = mapExactMemoryToTalk(exactMemory, receiverId, talkData);
+        if (Array.isArray(exactAutoAnswers) && exactAutoAnswers.length === 0) {
+          await gunService.putPath(['exactChatbotMemoryByUser', receiverId], exactMemory);
+          res.json({
+            registered: true,
+            identityKey,
+            autoResponded: false,
+            reason: 'exact_chatbot_memory_skip',
+          });
+          return;
+        }
+        if (exactAutoAnswers && exactAutoAnswers.length > 0) {
+          const matches = await fanoutResponseToSenders({
+            talkData,
+            sourceTalkId: talkId,
+            responderId: receiverId,
+            responderName: resolvedReceiverName,
+            answers: exactAutoAnswers,
+            senders: [{ senderId, senderName: resolvedSenderName, talkId }],
+            isChatbotResponse: true,
+            storeOnSourceTalk: true,
+          });
+
+          await gunService.putPath(['exactChatbotMemoryByUser', receiverId], exactMemory);
+
+          res.json({
+            registered: true,
+            identityKey,
+            autoResponded: true,
+            isMatch: matches.length > 0,
+            matches,
+            reason: 'exact_chatbot_memory',
+          });
+          return;
+        }
       }
 
       const savedTemplate = await gunService.getPath([

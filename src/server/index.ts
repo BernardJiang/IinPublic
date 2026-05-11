@@ -33,6 +33,13 @@ import { registerSystemRoutes } from './routes/system-routes';
 import { registerTalkRoutes } from './routes/talk-routes';
 import { registerUserRoutes } from './routes/user-routes';
 import { registerSocketHandlers } from './socket/register-socket-handlers';
+import {
+  createEmptyExactChatbotMemoryState,
+  savePermanentAnswer,
+  saveSuppressedQuestion,
+  saveTemporaryAnswer,
+  type ExactChatbotMemoryState,
+} from '../shared/exact-chatbot-memory';
 
 const E2E_GUN_MEMORY_ONLY =
   process.env.E2E_GUN_MEMORY_ONLY === '1' || process.env.E2E_GUN_MEMORY_ONLY === 'true';
@@ -242,7 +249,7 @@ class IinPublicServer {
   private buildAnswerTemplateEntries(
     talkData: any,
     answers: Array<{ questionId: string; answerId: string; answerText?: string; isChecked?: boolean; mode?: string }>,
-  ): Array<{ questionText: string; answerText: string; mode: string; isChecked: boolean }> {
+  ): Array<{ questionText: string; answerText: string; mode: string; isChecked: boolean; isIgnore: boolean }> {
     const questions = Array.isArray(talkData?.questions) ? talkData.questions : [];
     return answers.map((answer) => {
       const question = questions.find((q: any) => q.id === answer.questionId);
@@ -252,6 +259,7 @@ class IinPublicServer {
         answerText: String(answer.answerText ?? selected?.text ?? '').trim(),
         mode: String(answer.mode || 'manual'),
         isChecked: answer.isChecked === true || selected?.isMatch === true,
+        isIgnore: answer.answerId === 'ignore' || selected?.isIgnore === true,
       };
     });
   }
@@ -573,10 +581,33 @@ class IinPublicServer {
     responderName: string;
     identityKey: string;
     answers: Array<{ questionId: string; answerId: string; answerText?: string; isChecked?: boolean; mode?: string }>;
-    templateEntries: Array<{ questionText: string; answerText: string; mode: string; isChecked: boolean }>;
+    templateEntries: Array<{ questionText: string; answerText: string; mode: string; isChecked: boolean; isIgnore?: boolean }>;
     isAuto: boolean;
   }): Promise<void> {
     const { responderId, responderName, identityKey, answers, templateEntries, isAuto } = params;
+    const existingExactMemory =
+      (await this.gunService.getPath(['exactChatbotMemoryByUser', responderId])) as ExactChatbotMemoryState | undefined;
+    const exactMemory: ExactChatbotMemoryState =
+      existingExactMemory && typeof existingExactMemory === 'object'
+        ? {
+            users: existingExactMemory.users || {},
+            questions: existingExactMemory.questions || {},
+            answers: existingExactMemory.answers || {},
+          }
+        : createEmptyExactChatbotMemoryState();
+
+    for (const entry of templateEntries) {
+      if (!entry.questionText) continue;
+      if (entry.isIgnore || entry.mode === 'suppressed') {
+        saveSuppressedQuestion(exactMemory, responderId, entry.questionText);
+      } else if (entry.mode === 'permanent') {
+        savePermanentAnswer(exactMemory, responderId, entry.questionText, entry.answerText);
+      } else if (entry.mode === 'auto') {
+        saveTemporaryAnswer(exactMemory, responderId, entry.questionText, entry.answerText);
+      }
+    }
+    await this.gunService.putPath(['exactChatbotMemoryByUser', responderId], exactMemory);
+
     await this.gunService.putPath(['talkAnswerTemplateByUser', responderId, identityKey], {
       responderId,
       responderName,
