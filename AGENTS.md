@@ -215,79 +215,79 @@ This is a starting point. Add your own conventions, style, and rules as you figu
 <claude-mem-context>
 # Memory Context
 
-# [IinPublic] recent context, 2026-05-01 9:27pm PDT
+# [IinPublic] recent context, 2026-05-10 6:27pm PDT
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (22,068t read) | 326,742t work | 93% savings
+Stats: 50 obs (20,977t read) | 447,553t work | 95% savings
 
-### Apr 23, 2026
-S2 Debug and refactor E2E tests for chatroom peer-detail views to fix test isolation and modal interaction issues (Apr 23 at 11:08 PM)
-S3 Fix broken `test:e2e` suite — both `PW_WORKERS=8 npm run test:e2e` and `npm run test:e2e` must pass after a large commit that introduced a whack-a-mole regression pattern. (Apr 23 at 11:15 PM)
 ### Apr 25, 2026
 S4 Refactor subscribeToMemberCount in web-chatroom-service.ts to simplify Gun.js member count seeding (Apr 25 at 12:46 PM)
 S5 Monitor Re-Armed to Watch Playwright PID 26650 for Completion (Apr 25 at 1:01 PM)
 S6 Monitor e2e test suite completion for IinPublic project (Apr 25 at 1:12 PM)
 S7 Replace fragile "Match!" toast assertions in spec 13 lines 115-116 with durable UI checks, and audit all test scripts for similar issues (Apr 25 at 1:12 PM)
-### Apr 28, 2026
-199 11:52p 🟣 Me-Tab Talk Filters and Credit Section Implemented in ui-manager.ts
-201 " 🔵 Root Cause Found: answers-view Renders "N items" Not "N questions" — Test Expects "/1 question/i"
-202 11:53p 🔴 Fixed 12-ux-contacts-talks-answers Test: Adapted Assertion from "1 question" to "1 item"
-203 " 🟣 New E2E Tests Added for Me-Tab Filters/Credit and Contacts Relationship Dialog
-204 " ✅ Three E2E Test Files Written to Disk: Fix + Two New Specs
-### Apr 29, 2026
-205 8:49p 🔵 IinPublic Project State Loaded from Memory Files
-206 " 🔵 IinPublic Spec and TODO Backlog Structure Mapped
-207 8:50p 🔵 Several TODO Items Already Implemented — dev:stage Scripts and Broadcast Bar Test
-208 " 🔵 Spec Functional Requirements Not Yet Implemented — Filters, Tag Preamble, Reputation Detail
-209 " 🔵 Core Data Model Fully Typed — Most Spec Fields Present, UI Gaps Remain
-210 8:51p 🔵 Route Editor Is Custom DOM Tree, Not Cytoscape — Spec's CytoscapeTalkEditor Not Implemented
-211 " 🔵 E2E Tests Confirm Implemented Features and Key DOM Selectors
-212 8:52p ✅ docs/TODO.md Rewritten with Spec-Gap-Driven Priority Backlog
 ### May 1, 2026
-213 7:10p 🔵 Fragile Match Toast Assertions in E2E Tag Reopen Test
-214 " 🔵 Match Toast Assertion Scope: Only Spec 13 Has Fragile Positive toBeVisible Checks
-215 " 🔵 Durable Match Assertion Patterns Used in Other Specs
-216 7:11p 🔵 Spec 11 Provides Exact Negative-Match Verification Pattern Mirroring What Spec 13 Needs Positively
-217 " 🔴 Replaced Ephemeral Toast Assertions with Durable Status Bar Checks in Spec 13
 S8 Spec 12 — Added waitForTabActive(pageTom, 'chatrooms') After Jerry's Match to Ensure Conversation Persisted Before Bob's Response (May 1 at 7:11 PM)
-218 7:14p 🔵 Spec 12 Confirmed Clean — Uses Status Bar and Conversation List for Match Verification
-219 " 🔵 conversation-list-item Elements Sourced from localStorage myConversations
-220 " 🔵 displayConversationsList Triggered on "me" Tab Navigation
-221 7:18p 🔵 afterSync Wait Range (600ms–4000ms) Explains Why Toast Assertions Are Fragile
-222 7:19p 🔴 Spec 12 — Added waitForTabActive(pageTom, 'chatrooms') After Jerry's Match to Ensure Conversation Persisted Before Bob's Response
 S9 Replace fragile "Match!" toast assertions in spec 13 lines 115-116 with durable checks, and audit all test scripts for similar issues (May 1 at 7:19 PM)
 S10 E2E Tests 12 & 13: Replaced Ephemeral Toast Assertions with Durable UI State Checks (May 1 at 7:19 PM)
-223 7:26p ✅ All 35 Tests Passing — Changes Committed
-224 7:27p 🔴 E2E Tests 12 & 13: Replaced Ephemeral Toast Assertions with Durable UI State Checks
-225 " 🔵 Recent Git History: Series of E2E and Unit Test Fixes on `dev` Branch
 S11 Git commit flaky E2E test fixes for tests 12 and 13 after all 35 tests passed (May 1 at 7:27 PM)
-226 7:28p 🔵 IinPublic Project Backlog: Full Priority Breakdown from docs/TODO.md
-227 7:29p 🔵 Profile Surface Partially Implemented: Headshot + Languages Exist, Profile Q&amp;A Missing from Shared Types
-228 " 🔵 Profile Q&amp;A (FR-UM-3) Fully Implemented in UI and Shared Types — Persistence Layer Is the Open Question
-229 " 🔵 onProfileChange Is Wired in app.ts; Two Separate Q&amp;A Systems Coexist
-230 7:30p 🔵 Profile Editing Fully Wired End-to-End via userService.updateProfileFoundation()
-231 " 🔵 updateProfileFoundation Persists to GunDB via Three Write Paths — Profile Editing is Fully Complete
-232 7:31p 🔵 Profile Editing Has E2E Coverage in Test 04; Full E2E Suite Structure Mapped
-233 7:32p 🔵 Blocking System Substantially Complete: Service Methods, REST Routes, UI, and E2E Coverage All Present
-234 " 🔵 Age-Gating Partially Implemented: Server Filter Exists, UI Verification Flow Missing
-235 " 🔵 Server-Side Moderation Incomplete: Only Language Filter Storage Found, No Dirty-Word/Grammar/Distance Enforcement in Delivery Routes
-236 " 🔵 Server-Enforced Moderation IS Complete: talkPassesIntakeFilters() Applied at Delivery Time in POST /api/talks/:id/received
-237 7:33p 🔵 P1/P2 Backlog Gap Audit: Custom Chatrooms and Tag Catalogs Absent; Survey Analytics Partially Present
-238 " 🔵 Survey Analytics UI Not Built: Server Endpoint Exists but No Web Client Rendering
-239 " 🔵 Send/Receive Rate-Limit Enforcement Absent from Server: P2 Item Confirmed Unimplemented
-240 7:34p 🔵 Age Verification Is Vote-Based via Reputation System, Not a Self-Declared UI Flow
-241 " 🔵 Age Verification Design: Adult Talks Must Include Verification Question as First Question (FR-SP-7)
-242 7:35p 🔵 submitPeerReview Updates star_rating/liked/disliked Reputation — Does Not Increment ageVerificationVotes
-243 " 🔵 AGE_VERIFICATION_THRESHOLD Is 3 Votes; ageVerified Read from GunDB Reputation Node at Delivery
-244 " 🔵 ReputationManager Supports 9 Event Types Including Dedicated 'age_verified' Event
-245 7:36p 🔵 Chatrooms Are Statically Defined via CHATROOM_HIERARCHY; No REST Endpoint for Profile Updates
-246 7:40p 🔵 Peer Review Submitted via Contact Relationship Dialog Star Rating; Talk Type Select Is Hidden
-247 " ⚖️ Age-Gating UI Implementation Plan: Exact Insertion Points Identified Across 5 Files
-248 7:41p 🔵 web-user-service.ts Makes No REST API Calls — Age-Verify Vote Should Use GunDB Directly Like submitPeerReview
-249 7:42p 🟣 isAdult Checkbox Added to Talk Editor Form
+S12 E2E Test Reliability Issue: Toast Notification Assertions Are Transient (May 1 at 7:27 PM)
+### May 3, 2026
+S13 Fix transient toast assertions in E2E tests + Age-gating UI feature (isAdult talk flag, age-verify vouch, Credit badge) (May 3 at 1:40 PM)
+### May 5, 2026
+263 8:12p 🔵 GunService.get() Uses 1s Wait With No Timeout Fallback — Different Behavior Than getPath()
+264 8:13p 🔵 resetTalksMatchingSession() Calls clearGunDatabases() Before Each Test — Guarantees Cold Gun State
+265 8:16p 🔵 Age-gating system architecture discovery
+266 " 🔵 isAdult flag captured from UI checkbox on form submission
+267 8:17p 🔴 Fix two Gun path bugs in blocking and age-verification (commit 5844752)
+268 " ✅ Refactored age verification to server-owned Gun path with vote-based logic
+269 8:20p 🔵 Block count modifications use shared reputation sub-node, age verification uses isolated server path
+270 8:22p 🔵 Gun linked sub-nodes require chained reads; fire-and-forget writes for immediate consistency
+271 8:26p 🔵 Age-gating system: complete end-to-end architecture
+272 8:27p ✅ Add hard timeout to gun-service.ts get() method
+273 " ✅ Add Gun wait option to age verification vote read in vouchAgeVerified
+274 " ✅ Remove debug logging from openRelationshipDialog in contacts-view.ts
+275 " ✅ Remove final debug log from openRelationshipDialog
+277 8:34p 🔵 Test 15 failure: Relationship modal not appearing on button click
+278 8:43p 🔵 Contact edit relationship button created in showContactDetail function
+279 8:44p 🔵 openRelationshipDialog creates and appends modal asynchronously via fetch
+### May 10, 2026
+280 6:04p ✅ Chatbot QA Memory Logic Requirements Merged into Technical Specification
+281 " 🔵 Project File Layout Clarified: Spec and TODO Paths Differ from User's Request
+282 6:05p 🔵 Chatbot QA Memory Logic Document: Full Content Mapped Before Merge
+283 " ✅ Technical Spec Extended with Chatbot Exact Memory Logic Requirements (FR-QA-7 through FR-QA-13)
+284 " ✅ Technical Spec §7.5 and §7.7 Updated with Chatbot Memory Mode Table and GUN Paths
+285 " ✅ Technical Spec §12 Expanded: ChatbotQuestionMemorySchema, Index Schemas, and New §12.3 Exact Chatbot Memory API
+286 6:06p ✅ Technical Spec Cross-References Fixed and Chatbot Memory Test Cases Added to Implementation Roadmap
+287 " ✅ Acceptance Test TC-QA-01 Added to Spec for Exact Chatbot Memory Reuse
+288 " 🔴 Cross-Reference Matrix Missing Chatbot Memory Entries (FR-QA-7..13 and §12.3)
+289 6:07p ✅ Spec §15.6, §17, and §18 Updated to Register Chatbot Memory Feature Completely
+290 " ✅ docs/TODO.md Updated with Four P0 Action Items for Exact Chatbot Memory Implementation
+291 " 🔵 Git Diff Confirms Complete Chatbot Memory Merge: All Changes Verified Across Both Files
+292 " ✅ TC-QA-01 Corrected: SUPPRESSED Step Uses Separate "Favorite color?" Question
+293 " ✅ Session Memory File Created: memory/2026-05-11.md
+294 6:15p ✅ Chatbot QA Memory Logic Merged into Technical Specification and TODO Updated
+295 6:16p ✅ Chatbot Memory Spec Committed to dev Branch (93421b6)
+296 " 🔵 IinPublic Project Structure: GunDB + React + TypeScript with Full Server/Web/Test Layout
+297 " 🔵 Existing Chatbot Auto-Reply Architecture: Template + FlatKey + Per-Pair Dedup
+298 " 🔵 Talk Response Dialog: Auto vs Manual Mode, Per-Question Answer Persistence, and Context-Path Navigation
+299 " 🔵 Talk Completion Flow: 4-Step Server-Authoritative Pipeline with Gun Fallback
+300 6:17p 🔵 Talk Subscription: firstUi vs Replay Distinction and Chatbot Trigger Timing
+301 " 🔵 WebGunService Dual-Mode: Direct Gun Instance + GunBridge Worker for SEA/IndexedDB
+302 6:18p 🟣 New Chatbot Memory Module: src/shared/exact-chatbot-memory.ts
+303 " ✅ Wired ExactChatbotMemory into Storage Layer and UIManager Imports
+304 " 🟣 ExactChatbotMemory Integrated into UIManager Answer Resolution and Save Paths
+305 6:19p 🟣 Talk Response Dialog Gains Permanent Mode Column and Suppress-on-Ignore Behavior
+306 " 🔴 CSS Answer Grid Fixed for 3-Column Layout (Auto | Manual | Permanent)
+307 " 🟣 Unit Tests Added for exact-chatbot-memory Module
+308 6:20p 🔵 TypeScript Errors Found: exactOptionalPropertyTypes Mismatch and answers Array Missing 'permanent' Mode
+309 " 🔴 TypeScript Errors Fixed in exact-chatbot-memory.ts and talk-response-dialog.ts; All Tests Pass
+310 " ✅ Web Build Passes (Exit 0) with Exact Chatbot Memory Integration; 7 Files Unstaged
+311 " 🔵 Server-Side Chatbot Auto-Reply Architecture: talkAnswerTemplateByUser Gun Path and Text-Normalized Answer Mapping
+312 6:21p 🟣 Server-Side Exact Chatbot Memory Persistence Added to Gun at exactChatbotMemoryByUser/{responderId}
+313 6:22p 🟣 Server Route Gains mapExactMemoryToTalk: Exact Memory-Driven Talk Traversal for Auto-Reply
 
-Access 327k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 448k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>
