@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-05-07
+Last updated: 2026-05-11
 
 This file is the prioritized backlog for the current repository. It should track the
 highest-value spec gaps that still exist in the working codebase, not features that are
@@ -30,6 +30,18 @@ and `docs/specs/iinpublic-technical-specification.md`.
 
 ### P0 — Close the largest product/spec gaps
 
+- [ ] Implement exact chatbot Q/A memory logic from `docs/specs/iinpublic-technical-specification.md` FR-QA-7..13 / §12.3:
+  deterministic `normalizeText`, `makeQuestionId`, `makeAnswerId`, `TEMPORARY` / `PERMANENT` / `SUPPRESSED` modes, newest-to-oldest temporary fallback, permanent-answer skip semantics, suppressed-question skip semantics, and append-only auto-use telemetry.
+  (Source merged from `docs/gun_chatbot_qa_memory_logic (1).md`)
+- [ ] Wire exact chatbot memory into the live talk/conversation flow:
+  normal option pick saves `TEMPORARY`; custom answer or "make permanent" saves `PERMANENT`; Ignore saves `SUPPRESSED`; incoming exact questions call `findAutoAnswer()` and return `ANSWER` / `ASK_USER` / `SKIP` with reason codes before rendering chips.
+  (Spec: FR-QA-7..13, §7.5, §12.3)
+- [ ] Update the answer UI for chatbot memory state:
+  expose a clear permanent/custom action on answer chips or custom-answer entry, preserve the existing public/manual lock semantics, show when an answer was chatbot-generated, and surface auto-use count / latest auto-use timestamp where answer history is shown.
+  (Spec: FR-QA-10, FR-QA-12, UI §13.3/§13.6)
+- [ ] Add unit/integration tests for exact chatbot memory:
+  no history asks user; temporary history scans newest-to-oldest; permanent answer present auto-answers; permanent answer missing skips without temporary fallback; suppressed question skips; exact normalized IDs reject non-matching text; auto-use appends `uses/{useEventId}` and repairs cached counters.
+  (Spec: TC-QA-01, FR-QA-7..13)
 - [x] Profile polish (shipped 2026-05-06): Q&A visibility (public / contacts-only / private), server-side filtering on user fetch, interest `TagCategory` catalog + defaults. **Remaining:** per-viewer allowlists, reputation-section visibility (FR-UM-7), deeper FR-UM audit.
 - [x] Intake & moderation — **extended (2026-05-07):** custom blocked phrases on `TalkIntakeFilters` (Me → Talk Filters), server list via `IINPUBLIC_SERVER_BLOCKED_TERMS`, symmetric send/receive cooldown via `IINPUBLIC_SYMMETRIC_TALK_EDGE_COOLDOWN_MS` on `/received`, bulk register (and preview eligibility). Reject codes include `intake_custom_blocked_terms`, `moderation_server_terms`, `symmetric_rate_limit`. Daily/weekly numeric caps from CONFIG remain a further step (see P2).
   (2026-05-07: receiver GPS for distance rules is also read from `users/:id/location` where the web client writes blurred location.)

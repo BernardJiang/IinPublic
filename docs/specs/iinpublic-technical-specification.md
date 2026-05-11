@@ -76,6 +76,9 @@ The system supports:
 | **Talk** | The umbrella term for any of the four types: Tag, Flow, Survey, or Route. |
 | **Auto Answer** | A public answer marked as re-usable by the user's chatbot. Stored with `visibility: 'auto'`. |
 | **Manual Answer** | A private answer not re-used by the chatbot. Stored with `visibility: 'manual'`, SEA-encrypted. |
+| **Temporary Answer** | A reusable chatbot memory entry selected normally by the user. It may be auto-used only when the same exact question appears and the current option set contains that exact saved answer. |
+| **Permanent Answer** | A fixed/custom chatbot memory entry chosen by the user. It takes priority over temporary history; if the current option set contains it, the chatbot answers automatically, otherwise the chatbot skips the question. |
+| **Suppressed Question** | A question the user ignored or skipped. In chatbot memory this is stored as `SUPPRESSED`, meaning the exact question is skipped forever unless the user later changes the saved state. |
 | **Chatroom** | A public, location-based or user-defined "place" where users can find each other; all conversations remain one-on-one. |
 | **Business Chatroom** | A user-defined chatroom bound to a specific brand and address (e.g., a bar). |
 | **Traveller** | A user present in a chatroom outside their blurred true-location region. |
@@ -229,6 +232,13 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
   - **Manual**: private, not re-used (`visibility: 'manual'`, SEA-encrypted).
 - **FR-QA-5**: When a question is re-asked and the user has an auto answer, the chatbot SHALL answer automatically and mark the reply as chatbot-generated.
 - **FR-QA-6**: For manual answers, the chatbot MAY remind the user of their prior manual answer but SHALL NOT answer automatically.
+- **FR-QA-7 (Exact Chatbot Memory)**: Chatbot reuse SHALL be pure deterministic logic: no AI, fuzzy matching, semantic matching, synonym matching, or raw-text search. The lookup key SHALL be a deterministic question ID made from normalized exact question text.
+- **FR-QA-8 (Answer Memory Modes)**: For each exact question, chatbot memory SHALL support only `TEMPORARY`, `PERMANENT`, and `SUPPRESSED` modes.
+- **FR-QA-9 (Temporary Answer Reuse)**: A normally selected option SHALL be saved as `TEMPORARY`. On future presentations of the same exact question, the chatbot SHALL scan temporary history newest-to-oldest and auto-answer with the first saved answer whose exact answer ID exists in the current option set. If no temporary history answer exists in the current option set, the system SHALL ask the user again.
+- **FR-QA-10 (Permanent Answer Priority)**: A custom answer, or an option explicitly marked permanent/custom, SHALL be saved as `PERMANENT`. Permanent answers SHALL take priority over all temporary history. If the current option set contains the permanent answer, the chatbot SHALL auto-answer. If it does not, the chatbot SHALL skip the question and SHALL NOT search temporary history.
+- **FR-QA-11 (Suppressed Question Semantics)**: Ignoring or skipping a question SHALL save the exact question as `SUPPRESSED`. A suppressed question SHALL be skipped on all future appearances of that exact question until the user explicitly changes or clears the saved memory.
+- **FR-QA-12 (Auto-Use Metrics)**: Every chatbot auto-use of a saved answer SHALL record how many times that saved answer was used automatically and the latest auto-use timestamp. In distributed GUN storage, append-only use events SHALL be the source of truth; cached counters may be maintained for display.
+- **FR-QA-13 (Deterministic IDs)**: Question and answer IDs SHALL be generated from normalized text using a stable hash such as SHA-256 with prefixes `q_` and `a_`. Normalization SHALL at minimum trim surrounding whitespace. If case-sensitive exact matching is desired, normalization SHALL NOT lowercase text; if case-insensitive exact matching is desired, normalization MAY lowercase text consistently for both questions and answers.
 
 **Inline Syntax (chat auto-capture):**
 
@@ -671,6 +681,16 @@ Private answers are stored in the user's own SEA-encrypted Gun node (`~<pub>/ans
 
 **UI requirement:** Each answer chip/card shows a lock icon toggle. Locked = private/manual. Unlocked = public/auto.
 
+Public/auto answers are further classified by chatbot memory mode:
+
+| Mode | Created By | Chatbot behaviour |
+|---|---|---|
+| `TEMPORARY` | User selects an option normally | Reuse only if the same exact question appears and this exact answer is present in the current option set. Search temporary history newest-to-oldest. |
+| `PERMANENT` | User types a custom answer or marks an option as permanent/custom | Highest priority. Reuse if present in the current option set; otherwise skip the question. |
+| `SUPPRESSED` | User ignores/skips the question | Skip the exact question on future appearances. |
+
+Manual/private answers are outside this auto-memory state machine. They may be shown back to the user as reminders, but they are never auto-selected.
+
 ### 7.6 Conversation Modes (Auto / Manual)
 
 Every user operates in one of two conversation modes controlling how aggressively the chatbot acts on their behalf.
@@ -696,6 +716,7 @@ Even in Auto mode the chatbot never repeats `"manual"` (private) answers.
 
 - **Answers are mutable.** A user can change any answer at any time.
 - **History is append-only and immutable.** Every change creates a new history entry signed with the user's SEA keypair. No entry can be deleted or modified.
+- Chatbot auto-use telemetry is also append-only. For each answer history event, `uses/{useEventId}` records a `usedAt` timestamp. `autoUseCount` and `lastAutoUsedAt` are convenience cache fields derived from the append-only use events and MAY be repaired by recounting them.
 
 ```typescript
 interface AnswerRecord {
@@ -719,6 +740,9 @@ interface AnswerRecord {
 Gun paths:
 - Active answer: `~<userPub>/answers/<questionId>/current`
 - History log: `~<userPub>/answers/<questionId>/history/<timestamp>`
+- Exact chatbot memory: `/users/{userId}/questions/{questionId}/summary`
+- Exact chatbot memory history: `/users/{userId}/questions/{questionId}/history/{eventId}`
+- Auto-use source of truth: `/users/{userId}/questions/{questionId}/history/{eventId}/uses/{useEventId}`
 
 ### 7.8 SEA Encryption per User Dataset
 
@@ -1163,6 +1187,10 @@ export interface IPlatformCapabilities {
 ```javascript
 /iinpublic
 ├── /users/{userId}
+│   └── /questions/{questionId}
+│       ├── /summary
+│       └── /history/{eventId}
+│           └── /uses/{useEventId}
 ├── /chatrooms/{chatroomId}
 ├── /talks/{talkId}
 ├── /conversations/{conversationId}
@@ -1170,7 +1198,9 @@ export interface IPlatformCapabilities {
 ├── /survey-responses/{surveyId}
 ├── /survey-aggregations/{surveyId}
 ├── /reputation/{userId}
-└── /tags/{tagId}
+├── /tags/{tagId}
+├── /questions/{questionId}
+└── /answers/{answerId}
 ```
 
 ### 12.2 Data Schemas
@@ -1251,9 +1281,98 @@ const AnswerRecordSchema = {
   visibility: 'auto|manual',   // auto = chatbot may reuse; manual = private
   recordedAt: 'number'
 };
+
+// Exact chatbot memory for one user's exact question.
+//
+// IDs:
+//   normalizeText(text) = text.trim() by default.
+//   questionId = 'q_' + sha256(normalizeText(questionText))
+//   answerId   = 'a_' + sha256(normalizeText(answerText))
+//
+// Matching is exact over normalized text-derived IDs. No fuzzy or semantic lookup.
+const ChatbotQuestionMemorySchema = {
+  questionText: 'string',
+  summary: {
+    mode: 'TEMPORARY|PERMANENT|SUPPRESSED',
+    suppressed: 'boolean',
+    permanentAnswerId: 'string|null',
+    permanentAnswerText: 'string|null',
+    latestTemporaryAnswerId: 'string|null',
+    latestTemporaryAnswerText: 'string|null',
+    updatedAt: 'number'
+  },
+  history: {
+    '[eventId]': {
+      mode: 'TEMPORARY|PERMANENT|SUPPRESSED',
+      answerId: 'string|null',
+      answerText: 'string|null',
+      createdAt: 'number',
+      // Cached display fields. Source of truth is uses.
+      autoUseCount: 'number',
+      lastAutoUsedAt: 'number|null',
+      uses: {
+        '[useEventId]': {
+          usedAt: 'number'
+        }
+      }
+    }
+  }
+};
+
+const ChatbotQuestionIndexSchema = {
+  text: 'string'
+};
+
+const ChatbotAnswerIndexSchema = {
+  text: 'string'
+};
 ```
 
-### 12.3 First-Run Experience
+### 12.3 Exact Chatbot Memory API
+
+The exact chatbot memory API SHALL expose deterministic helpers and persistence functions shared by browser and server code:
+
+```typescript
+type AnswerMode = 'TEMPORARY' | 'PERMANENT' | 'SUPPRESSED';
+type AutoAnswerAction = 'ANSWER' | 'ASK_USER' | 'SKIP';
+type AutoAnswerReason =
+  | 'NO_HISTORY'
+  | 'QUESTION_SUPPRESSED'
+  | 'PERMANENT_MATCH'
+  | 'PERMANENT_ANSWER_NOT_IN_CURRENT_OPTIONS'
+  | 'TEMPORARY_HISTORY_MATCH'
+  | 'NO_VALID_HISTORY_ANSWER';
+
+interface AutoAnswerResult {
+  action: AutoAnswerAction;
+  reason: AutoAnswerReason;
+  answerId?: string;
+  answerText?: string;
+  matchedEventId?: string;
+}
+```
+
+Required helpers:
+
+- `normalizeText(text)` trims surrounding whitespace and applies any configured case-folding consistently.
+- `makeQuestionId(questionText)` returns `q_` plus a stable hash of normalized question text.
+- `makeAnswerId(answerText)` returns `a_` plus a stable hash of normalized answer text.
+- `saveTemporaryAnswer(gun, userId, questionText, answerText)` writes a `TEMPORARY` history event and updates summary latest-temporary fields.
+- `savePermanentAnswer(gun, userId, questionText, answerText)` writes a `PERMANENT` history event and updates summary permanent fields.
+- `saveSuppressedQuestion(gun, userId, questionText)` writes a `SUPPRESSED` history event and marks summary suppressed.
+- `findAutoAnswer(gun, userId, questionText, currentOptions)` returns `ANSWER`, `ASK_USER`, or `SKIP` with the reason codes above.
+- `appendAutoUse(gun, userId, questionId, eventId)` appends a `uses/{useEventId}` entry and may update cached `autoUseCount` / `lastAutoUsedAt`.
+
+Decision order:
+
+1. If no memory exists for the exact question, return `ASK_USER / NO_HISTORY`.
+2. If the question is `SUPPRESSED`, return `SKIP / QUESTION_SUPPRESSED`.
+3. If the question has a `PERMANENT` answer and the current option set contains that exact answer ID, append an auto-use event and return `ANSWER / PERMANENT_MATCH`.
+4. If the question has a `PERMANENT` answer but the current option set does not contain that exact answer ID, return `SKIP / PERMANENT_ANSWER_NOT_IN_CURRENT_OPTIONS`.
+5. Otherwise, read temporary history events newest-to-oldest. If a temporary answer ID exists in the current option set, append an auto-use event and return `ANSWER / TEMPORARY_HISTORY_MATCH`.
+6. If no temporary history answer matches the current option set, return `ASK_USER / NO_VALID_HISTORY_ANSWER`.
+
+### 12.4 First-Run Experience
 
 On the very first launch:
 
@@ -1278,7 +1397,7 @@ async function initFirstRun(): Promise<UserSession> {
 }
 ```
 
-### 12.4 User Management API
+### 12.5 User Management API
 
 ```javascript
 class UserManager {
@@ -1314,7 +1433,7 @@ class UserManager {
 }
 ```
 
-### 12.5 Talk System API
+### 12.6 Talk System API
 
 ```javascript
 class TalkManager {
@@ -1358,7 +1477,7 @@ class TalkManager {
 }
 ```
 
-### 12.6 Survey Aggregation API
+### 12.7 Survey Aggregation API
 
 ```javascript
 class SurveyManager {
@@ -1508,7 +1627,7 @@ const ReputationPrivacy = {
 ### Phase 1: Core Infrastructure (Weeks 1–4)
 
 #### Week 1–2: Gun.js Backend Setup
-**Tasks:** Hierarchical chatroom system, location blur, Gun SEA authentication, first-run flow (§12.3), `financialDataFilter`, `privacyClassifier`, basic answer visibility model.
+**Tasks:** Hierarchical chatroom system, location blur, Gun SEA authentication, first-run flow (§12.4), `financialDataFilter`, `privacyClassifier`, basic answer visibility model.
 
 ```javascript
 describe('Chatroom Management', () => {
@@ -1534,7 +1653,7 @@ describe('Security Filters', () => {
 ---
 
 #### Week 3–4: Basic Talk System
-**Tasks:** Talk validation (DAG, no cycles), answer visibility model, immutable answer history, versioned answer buckets, bulk send with queuing, auto-capture pattern detection, tag system and mandatory preamble.
+**Tasks:** Talk validation (DAG, no cycles), answer visibility model, exact chatbot memory (§12.3), immutable answer history, versioned answer buckets, bulk send with queuing, auto-capture pattern detection, tag system and mandatory preamble.
 
 ```javascript
 describe('Talk Constraints', () => {
@@ -1546,6 +1665,23 @@ describe('Talk Constraints', () => {
   });
   test('chatbot does not repeat private answers', () => {
     expect(chatbotCanRepeat({ visibility: 'manual' })).toBe(false);
+  });
+  test('chatbot reuses exact temporary history newest to oldest', async () => {
+    await saveTemporaryAnswer(gun, userId, 'Favorite fruit?', 'Apple');
+    await saveTemporaryAnswer(gun, userId, 'Favorite fruit?', 'Banana');
+    await expect(findAutoAnswer(gun, userId, 'Favorite fruit?', ['Apple', 'Orange']))
+      .resolves.toMatchObject({ action: 'ANSWER', answerText: 'Apple' });
+  });
+  test('permanent answer missing from options skips instead of falling back', async () => {
+    await saveTemporaryAnswer(gun, userId, 'Favorite fruit?', 'Apple');
+    await savePermanentAnswer(gun, userId, 'Favorite fruit?', 'Orange');
+    await expect(findAutoAnswer(gun, userId, 'Favorite fruit?', ['Apple', 'Banana']))
+      .resolves.toMatchObject({ action: 'SKIP', reason: 'PERMANENT_ANSWER_NOT_IN_CURRENT_OPTIONS' });
+  });
+  test('suppressed question is always skipped', async () => {
+    await saveSuppressedQuestion(gun, userId, 'Favorite fruit?');
+    await expect(findAutoAnswer(gun, userId, 'Favorite fruit?', ['Apple']))
+      .resolves.toMatchObject({ action: 'SKIP', reason: 'QUESTION_SUPPRESSED' });
   });
   test('mandatory preamble is attached before bulk send', async () => {
     const draft = await autoCaptureTalk(chatHistory);
@@ -1628,6 +1764,30 @@ const testEnvironments = {
 ### 15.3 Scenario-Based Acceptance Tests (from SRS §6)
 
 These test cases are the primary acceptance criteria. All must pass before each phase gate.
+
+---
+
+#### TC-QA-01: Exact Chatbot Memory Reuse
+
+**Goal:** Verify exact question/answer memory rules (FR-QA-7 through FR-QA-13).
+
+**Preconditions:** User A has chatbot auto-answer mode enabled and receives the exact question `"Favorite fruit?"` with changing option sets.
+
+**Steps:**
+1. User A receives options `["Apple", "Banana", "Orange"]`, selects `"Apple"` normally, and does not mark it permanent.
+2. User A later receives the same exact question with options `["Mango", "Pear", "Banana"]`.
+3. User A selects `"Banana"` normally.
+4. User A later receives the same exact question with options `["Apple", "Orange", "Grape"]`.
+5. User A marks `"Orange"` as permanent/custom.
+6. User A later receives options `["Apple", "Banana", "Grape"]`.
+7. For a separate exact question, `"Favorite color?"`, User A chooses Ignore.
+
+**Expected Results:**
+- Step 2 asks the user because temporary `"Apple"` is not in the current option set.
+- Step 4 auto-answers `"Apple"` by scanning temporary history newest-to-oldest and records an append-only auto-use event for the matching history entry.
+- Step 6 skips because permanent `"Orange"` is not in the current option set, and it does not fall back to temporary `"Banana"` or `"Apple"`.
+- After Step 7, future appearances of `"Favorite color?"` are skipped as `SUPPRESSED`.
+- All matching uses deterministic normalized text IDs for the exact question and exact answers.
 
 ---
 
@@ -1820,6 +1980,7 @@ describe('Write Pipeline Security', () => {
 ```javascript
 const regressionTests = [
   // From SRS acceptance tests
+  'TC-QA-01_exact_chatbot_memory_reuse',
   'TC-TEN-01_tennis_partner_matching',
   'TC-DATE-01_dating_adult_content_gate',
   'TC-BUY-01_buying_used_item',
@@ -1877,6 +2038,7 @@ The following items are known open questions or planned post-MVP work:
 - **Stranger-first trust**: All users start as strangers; encryption and known-person labelling are opt-in per relationship.
 - **Three-tier message channels**: public / known (one-way encrypted) / mutual (ECDH) with distinct UI badges.
 - **Public/private answer visibility**: Per-answer `auto` vs `manual` flag; chatbot only repeats `auto` answers.
+- **Exact chatbot memory**: Chatbot answer reuse is deterministic over normalized question/answer IDs with `TEMPORARY`, `PERMANENT`, and `SUPPRESSED` modes. Permanent answers override temporary history; suppressed questions skip forever; append-only use events are the source of truth for auto-use metrics.
 - **Immutable SEA-signed answer history**: History is append-only with signatures; current answer is mutable.
 - **Gun HAM CRDT authority**: No custom conflict resolution — Gun's own HAM is the single source of truth.
 - **Versioned talk answers**: Concurrent edits and answers isolated by version number; merged after edit saves.
@@ -1900,8 +2062,8 @@ The following items are known open questions or planned post-MVP work:
 
 | Requirement / Design Decision | Section | Implemented in |
 |---|---|---|
-| Unique ID at first use, no login | FR-UM-1, §12.3 | `initFirstRun()`, Gun SEA key pair |
-| StageName (not unique, changeable) | FR-UM-2, §12.3 | `gun.user().get('profile')` |
+| Unique ID at first use, no login | FR-UM-1, §12.4 | `initFirstRun()`, Gun SEA key pair |
+| StageName (not unique, changeable) | FR-UM-2, §12.4 | `gun.user().get('profile')` |
 | Headshot + chatbot overlay | FR-UM-4, FR-UM-5, §13.3 | `UserAvatar`, `MessageList` |
 | Reputation section (read-only) | FR-UM-6, FR-UM-7 | `ReputationManager`, `PrivacyToggle` |
 | Language / grammar / dirty word filters | FR-BF-1 – FR-BF-6 | `src/filters/contentFilters.ts` |
@@ -1913,6 +2075,7 @@ The following items are known open questions or planned post-MVP work:
 | Traveller mode | FR-CR-10 | `user.settings.travelMode` |
 | Auto / manual answer visibility | FR-QA-4, §7.5 | `src-shared/data/models.ts` |
 | Chatbot auto-answers public only | FR-QA-5, §7.5 | `chatbotCanRepeat()` |
+| Exact chatbot memory modes and metrics | FR-QA-7 – FR-QA-13, §12.3 | `ChatbotQuestionMemorySchema`, `findAutoAnswer()` |
 | Question/answer syntax (`**`, `*`) | FR-QA-1, FR-QA-2, §13.6 | `AutoCapturePattern`, `SmartMessageInput` |
 | Tag system + Craigslist catalogs | FR-TG-1 – FR-TG-5 | `TagManager` |
 | Mandatory preamble | FR-TG-6 | `TalkEngine.attachPreamble()` |
@@ -1925,7 +2088,7 @@ The following items are known open questions or planned post-MVP work:
 | Bulk send + batching | FR-BM-1 – FR-BM-7, §6.2 | `BulkTalkSender` |
 | Rate limits + block-based capacity | FR-SP-1 – FR-SP-6 | `RateLimiter`, `ReputationManager` |
 | Age verification / adult gating | FR-SP-7, FR-SP-8 | `ContentFilter` |
-| Survey aggregation | FR-SV-1 – FR-SV-5, §12.6 | `SurveyManager` |
+| Survey aggregation | FR-SV-1 – FR-SV-5, §12.7 | `SurveyManager` |
 | Build/test/deploy scripts | FR-BTD-1 – FR-BTD-7 | `package.json`, CI/CD pipeline |
 | No central data collection | NFR-S-1, §7.1 | Architecture — no server writes |
 | P2P only; direct chats not persisted | NFR-S-1, §7.1, §7.2 | `server.js`, Gun relay config |
