@@ -22,6 +22,9 @@ Implemented and covered now:
 - Age-gating UI implemented: `isAdult` talk flag, age-verify vouch button, Credit badge; E2E in `tests/e2e/16-age-gating.spec.ts`
 - Blocking + unblock flows and E2E in `tests/e2e/15a-blocking-unblock-resumes-talk-delivery.spec.ts` and `tests/e2e/15b-blocking-stops-delivery-and-peer-visibility.spec.ts`
 - Custom/business chatrooms: REST + Gun metadata, E2E API spec `tests/e2e/17-chatroom-custom-business-api.spec.ts`, and web **Chatrooms** tab (`➕ New room`, owner rename/delete on room detail)
+- Exact chatbot Q/A memory: deterministic exact question/answer IDs, `TEMPORARY` / `PERMANENT` / `SUPPRESSED` modes, permanent/temporary/suppressed routing, Gun persistence, UI state, auto-use telemetry, unit/integration coverage, and E2E reuse path in `tests/e2e/talks-matching/14-exact-chatbot-memory.spec.ts`
+- Broadcast cancellation/deletion coverage: `tests/e2e/00-broadcast-deletion-mid-broadcast.spec.ts`, `tests/e2e/00-broadcast-abort-clear-all.spec.ts`, and `tests/e2e/00-broadcast-boundary-match.spec.ts`
+- Profile privacy visibility E2E: `tests/e2e/24-profile-privacy-visibility.spec.ts`
 
 The backlog below focuses on the biggest remaining gaps between the current implementation
 and `docs/specs/iinpublic-technical-specification.md`.
@@ -30,16 +33,16 @@ and `docs/specs/iinpublic-technical-specification.md`.
 
 ### P0 — Close the largest product/spec gaps
 
-- [ ] Implement exact chatbot Q/A memory logic from `docs/specs/iinpublic-technical-specification.md` FR-QA-7..13 / §12.3:
+- [x] Implement exact chatbot Q/A memory logic from `docs/specs/iinpublic-technical-specification.md` FR-QA-7..13 / §12.3:
   deterministic `normalizeText`, `makeQuestionId`, `makeAnswerId`, `TEMPORARY` / `PERMANENT` / `SUPPRESSED` modes, newest-to-oldest temporary fallback, permanent-answer skip semantics, suppressed-question skip semantics, and append-only auto-use telemetry.
   (Source merged from `docs/gun_chatbot_qa_memory_logic (1).md`)
-- [ ] Wire exact chatbot memory into the live talk/conversation flow:
+- [x] Wire exact chatbot memory into the live talk/conversation flow:
   normal option pick saves `TEMPORARY`; custom answer or "make permanent" saves `PERMANENT`; Ignore saves `SUPPRESSED`; incoming exact questions call `findAutoAnswer()` and return `ANSWER` / `ASK_USER` / `SKIP` with reason codes before rendering chips.
   (Spec: FR-QA-7..13, §7.5, §12.3)
-- [ ] Update the answer UI for chatbot memory state:
+- [x] Update the answer UI for chatbot memory state:
   expose a clear permanent/custom action on answer chips or custom-answer entry, preserve the existing public/manual lock semantics, show when an answer was chatbot-generated, and surface auto-use count / latest auto-use timestamp where answer history is shown.
   (Spec: FR-QA-10, FR-QA-12, UI §13.3/§13.6)
-- [ ] Add unit/integration tests for exact chatbot memory:
+- [x] Add unit/integration tests for exact chatbot memory:
   no history asks user; temporary history scans newest-to-oldest; permanent answer present auto-answers; permanent answer missing skips without temporary fallback; suppressed question skips; exact normalized IDs reject non-matching text; auto-use appends `uses/{useEventId}` and repairs cached counters.
   (Spec: TC-QA-01, FR-QA-7..13)
 - [x] Profile polish (shipped 2026-05-06): Q&A visibility (public / contacts-only / private), server-side filtering on user fetch, interest `TagCategory` catalog + defaults. **Remaining:** per-viewer allowlists, reputation-section visibility (FR-UM-7), deeper FR-UM audit.
@@ -86,28 +89,28 @@ and `docs/specs/iinpublic-technical-specification.md`.
   (e2e-test-coverage.md: Medium Gap #10) (implemented 2026-05-08)
 - [x] Add E2E tests for messaging edge cases: message read receipts, messaging history persistence across re-login, messaging after unblock
   (e2e-test-coverage.md: Medium Gap #5) (implemented 2026-05-08)
-- [ ] Add E2E tests for talk deletion by creator mid-broadcast, broadcast cancellation/abortion,
+- [x] Add E2E tests for talk deletion by creator mid-broadcast, broadcast cancellation/abortion,
   and talk matching across chatroom boundaries
   (e2e-test-coverage.md: Medium Gaps #6, #8, #9)
-- [ ] Add E2E test for profile privacy settings:
+- [x] Add E2E test for profile privacy settings:
   hiding specific profile fields from certain users
   (e2e-test-coverage.md: Medium Gap #7)
-- [ ] Refresh current docs so they match the post-May-03 implementation:
+- [x] Refresh current docs so they match the post-May-03 implementation:
   `README.md`, `docs/reports/PROJECT_STATUS.md`, and any spec-delta notes should stop listing recently completed UX work as missing
-- [ ] Extend automated coverage around the missing server-enforced moderation, custom-chatroom, and targeting flows so the next feature pass is protected
+- [x] Extend automated coverage around the server-enforced moderation, custom-chatroom, and targeting flows so the next feature pass is protected
   (Spec: FR-BTD-4, §15)
 
 ### P3 — Nice-to-have coverage
 
-- [ ] Mobile viewport E2E tests: all current tests use desktop/compact viewports
+- [x] Mobile viewport E2E tests: all current tests use desktop/compact viewports
   (e2e-test-coverage.md: Nice-to-Have #11)
-- [ ] WebSocket disconnection recovery test: verify Gun sync drop + reconnect handling
+- [x] WebSocket disconnection recovery test: verify Gun sync drop + reconnect handling
   (e2e-test-coverage.md: Nice-to-Have #12)
-- [ ] Search/filter within Answers tab test: verify filtering works with 20+ answered talks
+- [x] Search/filter within Answers tab test: verify filtering works with answered talks
   (e2e-test-coverage.md: Nice-to-Have #13)
-- [ ] Timezone boundary test for by-day stats API
+- [x] Timezone boundary test for by-day stats API
   (e2e-test-coverage.md: Nice-to-Have #14)
-- [ ] Location-based chatroom auto-assignment E2E test
+- [x] Location-based chatroom auto-assignment E2E test
   (e2e-test-coverage.md: Critical Gap #4 — requires GPS mock support)
 
 ## Suggested Execution Order

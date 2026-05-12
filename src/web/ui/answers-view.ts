@@ -1,5 +1,14 @@
+import {
+  LOCAL_EXACT_CHATBOT_USER_ID,
+  makeAnswerId,
+  makeQuestionId,
+  readHistory,
+  type ExactChatbotMemoryState,
+} from '../../shared/exact-chatbot-memory';
+
 type AnswersViewDeps = {
   getMyTalks: () => Record<string, any>;
+  getExactChatbotMemory?: () => ExactChatbotMemoryState;
   escapeHtml: (text: string) => string;
   copyAnsweredTalkToTalks: (talkId: string) => void;
   showTalkDetail: (talkId: string) => void;
@@ -7,7 +16,7 @@ type AnswersViewDeps = {
   getTalkContentKey: (talk: any) => string;
 };
 
-type AnswerEntry = { questionId: string; answerId: string; answerText?: string };
+type AnswerEntry = { questionId: string; answerId: string; answerText?: string; mode?: string };
 
 type AnswerItemModel = {
   kind: 'tag' | 'question';
@@ -17,6 +26,19 @@ type AnswerItemModel = {
   contextPath: string[];
   answeredCount: number;
   answerCounter?: number;
+  mode?: string;
+  chatbotGenerated: boolean;
+  autoUseCount: number;
+  latestAutoUseAt?: number;
+};
+
+type AnswerTalkRenderModel = {
+  talkId: string;
+  title: string;
+  metadata: string;
+  outcome: 'match' | 'mismatch';
+  items: AnswerItemModel[];
+  searchText: string;
 };
 
 export function getAnswerDisplayText(
@@ -46,6 +68,7 @@ export function buildAnswerItemModels(
   talk: any,
   completedAnswers: AnswerEntry[],
   answeredCount: number,
+  exactMemory?: ExactChatbotMemoryState,
 ): AnswerItemModel[] {
   if (!Array.isArray(completedAnswers) || completedAnswers.length === 0) return [];
   const questions = Array.isArray(talk?.questions) ? talk.questions : [];
@@ -61,6 +84,15 @@ export function buildAnswerItemModels(
         ? 'Checked'
         : 'Unchecked'
       : getAnswerDisplayText(talk, entry);
+    const questionId = makeQuestionId(prompt);
+    const answerId = makeAnswerId(choice);
+    const questionMemory = exactMemory?.users?.[LOCAL_EXACT_CHATBOT_USER_ID]?.[questionId];
+    const matchingHistory = readHistory(questionMemory || null).filter((event) => event.answerId === answerId);
+    const autoUseCount = matchingHistory.reduce((total, event) => total + (event.autoUseCount || 0), 0);
+    const latestAutoUseAt = matchingHistory.reduce<number | undefined>((latest, event) => {
+      if (event.lastAutoUsedAt == null) return latest;
+      return latest == null ? event.lastAutoUsedAt : Math.max(latest, event.lastAutoUsedAt);
+    }, undefined);
     return {
       kind: isTag ? 'tag' : 'question',
       prompt,
@@ -71,6 +103,10 @@ export function buildAnswerItemModels(
       contextPath: formatQuestionContext(question),
       answeredCount,
       ...(typeof answer?.counter === 'number' ? { answerCounter: answer.counter } : {}),
+      ...(entry.mode ? { mode: entry.mode } : {}),
+      chatbotGenerated: entry.mode === 'auto',
+      autoUseCount,
+      ...(latestAutoUseAt != null ? { latestAutoUseAt } : {}),
     };
   });
 }
@@ -90,6 +126,11 @@ function renderAnswerItemsHtml(
         </div>
         <div style="font-weight: 600; color: #1f2937; margin-top: 4px;">${escapeHtml(item.prompt)}</div>
         <div style="margin-top: 6px; color: ${item.kind === 'tag' ? '#7c3aed' : '#0f766e'}; font-weight: 600;">${escapeHtml(item.choice)}</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; font-size:0.78em; color:#475569;">
+          ${item.mode ? `<span style="padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3730a3;">${escapeHtml(item.mode === 'auto' ? 'Chatbot-generated' : item.mode === 'permanent' ? 'Permanent' : 'Manual')}</span>` : ''}
+          ${item.autoUseCount > 0 ? `<span style="padding:2px 8px; border-radius:999px; background:#ecfdf5; color:#047857;">Auto-used ${item.autoUseCount} time${item.autoUseCount === 1 ? '' : 's'}</span>` : ''}
+          ${item.latestAutoUseAt ? `<span>Latest auto-use ${escapeHtml(new Date(item.latestAutoUseAt).toLocaleString())}</span>` : ''}
+        </div>
         ${
           item.contextHash || item.contextPath.length > 0
             ? `<div style="margin-top:8px; font-size:0.82em; color:#475569;">
@@ -103,11 +144,18 @@ function renderAnswerItemsHtml(
     .join('');
 }
 
+export function answerTalkMatchesQuery(model: AnswerTalkRenderModel, rawQuery: string): boolean {
+  const query = rawQuery.trim().toLowerCase();
+  if (!query) return true;
+  return model.searchText.includes(query);
+}
+
 export function displayAnswersList(deps: AnswersViewDeps): void {
   const container = document.getElementById('answers-content');
   if (!container) return;
 
   const myTalks = deps.getMyTalks();
+  const exactMemory = deps.getExactChatbotMemory?.();
   const answeredEntries = Object.entries(myTalks)
     .filter(([, talk]) => talk?.role === 'answered' || talk?.role === 'copied')
     .sort(([, a], [, b]) => new Date(b.lastInteraction || 0).getTime() - new Date(a.lastInteraction || 0).getTime());
@@ -146,12 +194,14 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
   container.innerHTML = `
     <div class="answers-view-inner" style="padding: 16px; max-width: min(980px, 96%); margin: 0 auto;">
       <p style="margin-bottom: 12px; color: #666;">Talks you've received and answered, grouped by the same question set:</p>
+      <input id="answers-search-input" class="form-input" type="search" placeholder="Search answers" style="width:100%; margin-bottom:12px;">
       <div id="answers-list" class="answers-list" style="display: flex; flex-direction: column; gap: 12px;"></div>
       <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">View My Answers (preferences)</button>
     </div>
   `;
 
   const listEl = document.getElementById('answers-list');
+  const renderModels: AnswerTalkRenderModel[] = [];
   if (listEl) {
     deduped.forEach(({ talkId, talk, answeredCount }) => {
       const outcome = talk.outcome === 'match' ? 'match' : 'mismatch';
@@ -173,9 +223,25 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         locationText,
         `answered ${answeredCount} time${answeredCount === 1 ? '' : 's'}`,
       ].filter(Boolean).join(' · ');
+      const answerItems = buildAnswerItemModels(talk.fullTalk, completedAnswers, answeredCount, exactMemory);
+      const searchText = [
+        talk.title,
+        metadata,
+        outcome,
+        ...answerItems.flatMap((answerItem) => [answerItem.prompt, answerItem.choice, answerItem.mode || '']),
+      ].join(' ').toLowerCase();
+      renderModels.push({
+        talkId,
+        title: talk.title,
+        metadata,
+        outcome,
+        items: answerItems,
+        searchText,
+      });
       const item = document.createElement('div');
       item.className = 'answer-talk-item';
       item.dataset.talkId = talkId;
+      item.dataset.searchText = searchText;
       item.style.cssText = `display:flex; flex-direction:column; gap:12px; padding:14px 16px; border-radius:12px; background:${outcome === 'match' ? '#e8f5e9' : '#fff7ed'}; border:1px solid ${outcome === 'match' ? '#c8e6c9' : '#fed7aa'};`;
       item.innerHTML = `
         <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
@@ -190,12 +256,21 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
           </div>
         </div>
         <div class="answer-question-list" style="display: grid; gap: 8px;">
-          ${renderAnswerItemsHtml(buildAnswerItemModels(talk.fullTalk, completedAnswers, answeredCount), deps.escapeHtml)}
+          ${renderAnswerItemsHtml(answerItems, deps.escapeHtml)}
         </div>
       `;
       listEl.appendChild(item);
     });
   }
+
+  const searchInput = document.getElementById('answers-search-input') as HTMLInputElement | null;
+  searchInput?.addEventListener('input', () => {
+    const query = searchInput.value;
+    listEl?.querySelectorAll<HTMLElement>('.answer-talk-item').forEach((item) => {
+      const model = renderModels.find((candidate) => candidate.talkId === item.dataset.talkId);
+      item.style.display = model && answerTalkMatchesQuery(model, query) ? 'flex' : 'none';
+    });
+  });
 
   listEl?.querySelectorAll('.answer-copy-talk-btn').forEach((btn) => {
     btn.addEventListener('click', (e) => {

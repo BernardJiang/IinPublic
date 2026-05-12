@@ -19,6 +19,13 @@ import { buildTalkIdentityKey } from '../../shared/talk-content-id';
 import { TALK_CONTENT_HASH_ID } from '../../shared/incoming-talk-ids';
 import { getDefaultTalkIntakeFilters } from '../../shared/talk-intake-filters';
 import { bucketKey, type TalkResponse, type TalkType } from '../../shared/talk-stats';
+import {
+  createEmptyExactChatbotMemoryState,
+  savePermanentAnswer,
+  saveSuppressedQuestion,
+  saveTemporaryAnswer,
+  type ExactChatbotMemoryState,
+} from '../../shared/exact-chatbot-memory';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -71,6 +78,7 @@ function buildTestServer(opts?: {
   talkSendDailyLimit?: number;
   talkSendWeeklyLimit?: number;
   getServerBlockedTerms?: () => string[];
+  exactMemoryByUser?: Map<string, ExactChatbotMemoryState>;
 }) {
   const app = express();
   app.use(express.json());
@@ -97,10 +105,22 @@ function buildTestServer(opts?: {
     weekly: opts?.talkSendWeeklyLimit ?? 0,
   });
 
-  // Stub GunService — null reads, no-op writes.
+  const exactMemoryByUser = opts?.exactMemoryByUser ?? new Map<string, ExactChatbotMemoryState>();
+
+  // Stub GunService — exact chatbot memory reads/writes are backed by an in-memory map.
   const gunService = {
-    getPath: jest.fn().mockResolvedValue(null),
-    putPath: jest.fn().mockResolvedValue(undefined),
+    getPath: jest.fn().mockImplementation(async (path: string[]) => {
+      if (path[0] === 'exactChatbotMemoryByUser' && path[1]) {
+        const state = exactMemoryByUser.get(path[1]);
+        return state ? { stateJson: JSON.stringify(state), updatedAt: new Date().toISOString() } : null;
+      }
+      return null;
+    }),
+    putPath: jest.fn().mockImplementation(async (path: string[], value: any) => {
+      if (path[0] === 'exactChatbotMemoryByUser' && path[1] && value?.stateJson) {
+        exactMemoryByUser.set(path[1], JSON.parse(value.stateJson));
+      }
+    }),
   } as any;
 
   // ---- Pure helpers (mirrors of IinPublicServer private methods) -----------
@@ -348,6 +368,7 @@ function buildTestServer(opts?: {
     blockedByUser,
     senderBulkCapacity,
     broadcastTagPopularityStore,
+    exactMemoryByUser,
   };
 }
 
@@ -369,6 +390,69 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(res.body.registered).toBe(true);
       expect(typeof res.body.identityKey).toBe('string');
       expect(res.body.identityKey.length).toBeGreaterThan(0);
+    });
+
+    it('auto-responds from exact chatbot memory when a compatible permanent answer exists', async () => {
+      const exactMemoryByUser = new Map<string, ExactChatbotMemoryState>();
+      const state = createEmptyExactChatbotMemoryState();
+      savePermanentAnswer(state, RESPONDER_ID, 'Favourite colour?', 'Blue', 1000);
+      exactMemoryByUser.set(RESPONDER_ID, state);
+      const { app } = buildTestServer({ exactMemoryByUser });
+
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/received`)
+        .send({ receiverId: RESPONDER_ID, senderId: SENDER_ID, senderName: SENDER_NAME, talkData: TALK_DATA });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        registered: true,
+        autoResponded: true,
+        isMatch: true,
+        reason: 'exact_chatbot_memory',
+      });
+      const updated = exactMemoryByUser.get(RESPONDER_ID)!;
+      const event = Object.values(Object.values(updated.users[RESPONDER_ID])[0].history)[0];
+      expect(event.autoUseCount).toBe(1);
+    });
+
+    it('registers but skips auto-response when a permanent answer is absent from current options', async () => {
+      const exactMemoryByUser = new Map<string, ExactChatbotMemoryState>();
+      const state = createEmptyExactChatbotMemoryState();
+      saveTemporaryAnswer(state, RESPONDER_ID, 'Favourite colour?', 'Blue', 1000);
+      savePermanentAnswer(state, RESPONDER_ID, 'Favourite colour?', 'Green', 2000);
+      exactMemoryByUser.set(RESPONDER_ID, state);
+      const { app } = buildTestServer({ exactMemoryByUser });
+
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/received`)
+        .send({ receiverId: RESPONDER_ID, senderId: SENDER_ID, senderName: SENDER_NAME, talkData: TALK_DATA });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        registered: true,
+        autoResponded: false,
+        reason: 'exact_chatbot_memory_skip',
+      });
+    });
+
+    it('registers but skips auto-response for suppressed exact questions', async () => {
+      const exactMemoryByUser = new Map<string, ExactChatbotMemoryState>();
+      const state = createEmptyExactChatbotMemoryState();
+      saveTemporaryAnswer(state, RESPONDER_ID, 'Favourite colour?', 'Blue', 1000);
+      saveSuppressedQuestion(state, RESPONDER_ID, 'Favourite colour?', 2000);
+      exactMemoryByUser.set(RESPONDER_ID, state);
+      const { app } = buildTestServer({ exactMemoryByUser });
+
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/received`)
+        .send({ receiverId: RESPONDER_ID, senderId: SENDER_ID, senderName: SENDER_NAME, talkData: TALK_DATA });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        registered: true,
+        autoResponded: false,
+        reason: 'exact_chatbot_memory_skip',
+      });
     });
 
     it('returns 400 when receiverId or senderId is missing', async () => {
@@ -1233,6 +1317,40 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(res.body.total).toBe(1);
       expect(res.body.matches).toBe(0);
       expect(res.body.ignores).toBe(1);
+    });
+
+    it('buckets by-day stats on UTC calendar boundaries', async () => {
+      const { app, talkResponsesMap } = buildTestServer();
+      talkResponsesMap.set(talkId, [
+        {
+          responseId: 'r_before_midnight',
+          talkId,
+          talkType: 'flow',
+          responderId: 'u1',
+          region: 'test-region',
+          answers: MATCHING_ANSWERS,
+          createdAt: Date.parse('2026-05-11T23:59:59.000Z'),
+          outcome: 'match',
+        },
+        {
+          responseId: 'r_after_midnight',
+          talkId,
+          talkType: 'flow',
+          responderId: 'u2',
+          region: 'test-region',
+          answers: MATCHING_ANSWERS,
+          createdAt: Date.parse('2026-05-12T00:00:00.000Z'),
+          outcome: 'match',
+        },
+      ]);
+
+      const res = await request(app).get(`/api/stats/talks/${talkId}/by-day?bucket=day`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.series).toEqual([
+        { bucket: '2026-05-11', count: 1 },
+        { bucket: '2026-05-12', count: 1 },
+      ]);
     });
   });
 });

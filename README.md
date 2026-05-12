@@ -81,8 +81,9 @@ What is stable today:
 - Server-side talk loop (registration → answer → match → conversation) has HTTP-level integration tests
 - Gun authority is audited; server is authoritative for stats, matches, and conversations
 - Me-tab profile editor (headshot, languages, interests, profile Q&A with per-row visibility) and viewer-filtered public profile rendering in peer/contact views are live
+- Age gating, blocking/unblock, reputation flows, custom/business chatrooms, travel mode, survey analytics, cancellation handling, and exact chatbot Q/A memory are implemented with focused coverage
 
 Active work (see [TODO](./docs/TODO.md)):
 
-- UX polish for the core web flow
-- Ongoing docs alignment as the product surface narrows
+- Nice-to-have coverage for mobile layout, reconnect recovery, Answers search/filter, timezone boundaries, and GPS auto-assignment
+- Ongoing docs alignment as the product surface changes

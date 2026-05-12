@@ -1948,6 +1948,7 @@ export class UIManager extends EventEmitter {
   displayAnswersList(): void {
     renderAnswersList({
       getMyTalks: this.getMyTalks.bind(this),
+      getExactChatbotMemory,
       escapeHtml: escapeHtml,
       copyAnsweredTalkToTalks: this.copyAnsweredTalkToTalks.bind(this),
       showTalkDetail: this.showTalkDetail.bind(this),
@@ -2890,6 +2891,7 @@ export class UIManager extends EventEmitter {
         questionId: answer.questionId,
         answerId: answer.answerId,
         ...(answer.answerText ? { answerText: answer.answerText } : {}),
+        ...(answer.mode ? { mode: answer.mode } : {}),
       })),
       outcome: outcome ?? existingEntry?.outcome ?? 'mismatch',
       senders,

@@ -11,6 +11,7 @@ export type MyTalkEntry = {
     questionId: string;
     answerId: string;
     answerText?: string;
+    mode?: string;
   }> | undefined;
   outcome?: 'match' | 'mismatch' | undefined;
   disabled?: boolean | undefined;

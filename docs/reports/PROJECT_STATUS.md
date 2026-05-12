@@ -1,6 +1,6 @@
 # IinPublic Project Status
 
-Last updated: 2026-05-07
+Last updated: 2026-05-12
 
 ## Summary
 
@@ -17,7 +17,7 @@ Supporting infrastructure exists for CI, deploy scripts, Dockerfile, Jest, Playw
 - Core web/server/shared structure is in place and wired together
 - `src/server/index.ts` has been split into route, socket, and bootstrap modules; no longer a monolith
 - `src/web/ui/ui-manager.ts` has been split by feature area; the largest feature islands are extracted
-- Server-side talk loop is end-to-end tested with 14 HTTP-level integration tests (`src/test/integration/talk-loop.test.ts`)
+- Server-side talk loop is end-to-end tested with HTTP-level integration tests (`src/test/integration/talk-loop.test.ts`)
 - Gun authority audit is complete (`docs/roadmap/talk-loop-authority.md`):
   - Stats, match counts, and conversation creation all go through the server
   - `getTalkWithRetry()` prefers the server; Gun is a cache only
@@ -26,11 +26,12 @@ Supporting infrastructure exists for CI, deploy scripts, Dockerfile, Jest, Playw
 - Repo noise is resolved: generated outputs, logs, and test artifacts are gitignored; none are tracked
 - Local validation and CI run the same `npm run health` command
 - Profile editor + viewer-filtered public profile rendering (including per-row Q&A visibility) are live and end-to-end tested
+- Age gating, blocking/unblock, reputation flows, custom/business chatrooms, travel mode, survey analytics, cancellation handling, and exact chatbot Q/A memory are live with focused unit/integration/E2E coverage
 
 ## What Is Still In Progress
 
-- UX polish: talk creation, answering, match visibility, and conversation entry need consistency work
-- Docs alignment: kept current with Phase 2 changes; ongoing as product surface narrows
+- Nice-to-have automated coverage: mobile-specific layout, reconnect recovery, Answers search/filter, timezone stats boundaries, and GPS auto-assignment
+- Docs alignment: ongoing as product surface changes
 - Android: maintenance-only until the web/server loop is stable
 
 ## Current Risks

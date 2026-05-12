@@ -1,6 +1,6 @@
 # IinPublic Spec-Gap Matrix
 
-Last updated: 2026-05-07
+Last updated: 2026-05-12
 
 Purpose: map the biggest remaining requirements in
 `docs/specs/iinpublic-technical-specification.md` to the current codebase, with
@@ -20,13 +20,14 @@ This file is the evidence map behind that queue.
 | Area | Spec refs | Status | Current evidence | Main gaps |
 |---|---|---|---|---|
 | Profile foundation | FR-UM-2..8, FR-BF-2, UI-1 | Complete | `src/shared/types.ts:23-40` defines `headshot`, `profile`, `languages`, `interests`, `reputation`; `src/server/services/user-service.ts:getUser()` persists and resolves those fields; viewer-specific filtering uses `src/shared/profile-privacy.ts` via `GET /api/users/:id?viewerId=...`; Me profile editor + per-row visibility are implemented in `src/web/ui/ui-manager.ts` and public profile rendering in `src/web/ui/user-detail-view.ts`/`src/web/ui/contacts-view.ts`; E2E coverage includes `tests/e2e/04-profile-edit-stage-name.spec.ts` and `tests/e2e/24-profile-privacy-visibility.spec.ts` | Remaining focus is on reputation/credit section allowlists (FR-UM-7) and deeper FR-UM audit; profile Q&A visibility itself is now end-to-end implemented and tested. |
-| Intake filters and moderation | FR-BF-1..6, FR-SP-7..8 | Partial | `src/shared/types.ts:3-11` defines `TalkIntakeFilters`; `src/web/ui/talk-intake-filters.ts:15-168` applies distance/time/language/grammar/dirty-word/type filters; `src/web/ui/ui-manager.ts:650-796` exposes filter controls on Me; `src/web/app/app.ts:1239-1255` persists filter and credit-visibility changes; `tests/e2e/13-me-filters-credit.spec.ts:87-139` covers UI behavior | Filtering remains client-side presentation logic for incoming talks. `src/server/routes/talk-delivery-routes.ts:82-220` registers and fans out talks with no authoritative moderation pipeline. No age-gate-first enforcement on delivery, and no adult-content suppression for underage users. |
-| Reputation and abuse prevention | FR-UM-6..7, FR-BM-3, FR-SP-4..6 | Partial | `src/shared/reputation.ts:4-108` calculates reputation score, bulk-send capacity, and updates block/like/dislike metrics; `src/shared/types.ts:50-64` models reputation fields; `src/web/ui/ui-manager.ts:699-717` renders read-only credit metrics and visibility toggle; `src/web/ui/contacts-view.ts:46-145` supports peer rating plus relationship notes; `src/test/unit/reputation.test.ts:42-149` covers score/capacity math | There is no real blocking system in the main app/server paths: no block/unblock endpoints, no block list UI, no enforcement in talk delivery, profile visibility, or conversations. Reputation math exists, but the abuse-prevention path is not connected to runtime permissions. |
-| Chatroom model expansion | FR-CR-1..10, UI-7 | Partial | `src/shared/types.ts:79-99` already models `global`, `location`, `business`, and `custom` chatroom types; `src/server/routes/chatroom-routes.ts:12-24` supports listing and joining; `src/server/services/chatroom-manager.ts:13-39` supports join/leave/move with a stub `findOptimalChatroom`; `tests/e2e/03-capacity-eviction.spec.ts:10-192` covers capacity/FIFO behavior | No CRUD routes or UI for custom/business chatrooms. No brand/address owner flows. Travel-mode semantics, traveller badges, and remote-room selection flow are still missing. Product direction is now single active room only, so any future travel implementation should remove the user from their home-region room while travelling instead of keeping multi-room presence. Server chatroom selection logic is still effectively stubbed to `global`. |
-| Tags and bulk-targeting | FR-TG-1..6, FR-BM-1..7, UI §13.4 | Partial | `src/shared/types.ts:227-245` models tags and categories; tag talks are supported in the talk model and response UI (`src/shared/types.ts:141-174`, `src/web/ui/talk-response-dialog.ts:48-85`); same-chatroom broadcast exists through the status-bar action and server receiver registration (`src/web/ui/ui-manager.ts:335-432`, `src/server/routes/talk-delivery-routes.ts`); `tests/e2e/07-tags-checkbox.spec.ts`, `tests/e2e/13-chatroom-scroll-and-broadcast-bar.spec.ts`, and `tests/e2e/19-chatroom-hierarchy-broadcast.spec.ts` cover current behavior | Tag/interest analytics depth and richer dashboards remain open. Bulk send from chatrooms is explicitly **one room id** (FR-BM-7): no implicit fan-out to descendant hierarchy rooms. |
-| Survey analytics | FR-SV-1..6, UI-4 | Partial | Survey talks and counters exist in the shared model (`src/shared/types.ts:141-220`); server stats endpoints exist in `src/server/routes/stats-routes.ts:71-112`; answers/stats logic is covered by `tests/e2e/talks-matching/06-survey-customer-satisfaction.spec.ts:1-220`, `tests/e2e/talks-matching/07-survey-restaurants.spec.ts:1-220`, and `tests/e2e/talks-matching/10-stats-four-types.spec.ts:1-220` | There is no dedicated survey analytics UI/dashboard in the main web app. Anonymous/default aggregated results are only available through endpoints/tests, not through a user-facing results surface. |
-| Rate limiting and cooldowns | FR-SP-1..3 | Partial | Reputation-based bulk capacity exists in `src/shared/reputation.ts:30-46`; config and tests exercise capacity math rather than real throttling | No server-enforced send/receive cooldown layer was found in the main request paths. No persistent per-user rate-limit state, no rejection path in delivery routes, and no E2E/integration tests for cooldown behavior. |
-| Coverage and doc alignment | FR-BTD-4, §15 | Partial | E2E coverage exists for stage name, tags, capacity eviction, contacts, messaging, answer cards, filters, and relationship/credit flows under `tests/e2e/`; unit coverage exists for reputation, answers view, intake filters, and user service under `src/test/unit/` | The new implementation is ahead of the docs in some places and behind the spec in others. Missing automated coverage remains for server-enforced moderation, blocking, age gating, custom/business chatrooms, richer bulk targeting, and true rate limiting. |
+| Intake filters and moderation | FR-BF-1..6, FR-SP-7..8 | Implemented | `src/shared/types.ts` defines `TalkIntakeFilters`; `src/shared/talk-intake-filters.ts` contains shared reject-reason logic; `src/server/routes/talk-delivery-routes.ts` applies receiver filters, server blocked terms, distance, adult gating, blocking, symmetric cooldown, and daily/weekly quota checks on `/received` and broadcast receiver registration; coverage includes `src/test/integration/talk-loop.test.ts`, `tests/e2e/13-me-filters-credit.spec.ts`, and `tests/e2e/16-age-gating.spec.ts` | Remaining polish is broader moderation UX and any future centralized reporting/appeal model. |
+| Reputation and abuse prevention | FR-UM-6..7, FR-BM-3, FR-SP-4..6 | Implemented | `src/shared/reputation.ts` calculates reputation score and bulk-send capacity; runtime flows include block/unblock, age vouch threshold, peer star rating, and capacity enforcement. Coverage includes `tests/e2e/15a-blocking-unblock-resumes-talk-delivery.spec.ts`, `tests/e2e/15b-blocking-stops-delivery-and-peer-visibility.spec.ts`, and `tests/e2e/21*.spec.ts` | Remaining focus is reputation-section visibility allowlists and deeper audit of all profile/credit surfaces. |
+| Chatroom model expansion | FR-CR-1..10, UI-7 | Implemented | Custom/business chatroom REST + Gun metadata, web create/rename/delete, single-room travel mode, and hierarchy broadcast behavior are covered by `tests/e2e/17-chatroom-custom-business-api.spec.ts`, `tests/e2e/18-travel-mode-single-room.spec.ts`, and `tests/e2e/19-chatroom-hierarchy-broadcast.spec.ts` | Richer business profile UX and GPS-based auto-assignment remain future work. |
+| Tags and bulk-targeting | FR-TG-1..6, FR-BM-1..7, UI §13.4 | Implemented | Curated tag catalog, broadcast preamble, interest targeting, distance cap, same-room-only delivery, preview endpoint, cumulative popularity, and daily trend endpoint/UI are implemented and covered by unit/integration/E2E tests including `tests/e2e/19-chatroom-hierarchy-broadcast.spec.ts` | Future work is deeper analytics presentation beyond the current trends table. |
+| Survey analytics | FR-SV-1..6, UI-4 | Implemented | Survey talks, stats endpoints, Talks-row Results modal, dedicated analytics dashboard, low-count anonymity masking, CSV exports, and follow-up survey creation are covered by `tests/e2e/20-survey-analytics-dashboard.spec.ts` and talks-matching survey specs | Future work is visualization polish. |
+| Rate limiting and cooldowns | FR-SP-1..3 | Implemented | `src/server/services/symmetric-talk-edge-rate-limit.ts` and `src/server/services/daily-weekly-talk-edge-quota-rate-limit.ts` enforce symmetric cooldowns and UTC daily/weekly quotas in delivery routes; `src/test/integration/talk-loop.test.ts` covers rejection and UTC reset behavior | Persistence across server restarts may need a later hardening pass if in-memory counters are not sufficient. |
+| Exact chatbot memory | FR-QA-7..13, §12.3 | Implemented | `src/shared/exact-chatbot-memory.ts`, `src/server/exact-chatbot-memory-store.ts`, `src/web/ui/talk-response-dialog.ts`, `src/web/ui/answers-view.ts`, and delivery route integration implement exact IDs, temporary/permanent/suppressed modes, auto-use telemetry, UI state, and server auto-response. Coverage includes `src/test/unit/exact-chatbot-memory.test.ts`, `src/test/unit/answers-view.test.ts`, `src/test/integration/talk-loop.test.ts`, and `tests/e2e/talks-matching/14-exact-chatbot-memory.spec.ts` | Future work is UI polish for custom free-text permanent answers if the product adds free-text answer entry. |
+| Coverage and doc alignment | FR-BTD-4, §15 | Partial | E2E coverage now includes stage name/profile privacy, tags, capacity eviction, contacts, messaging, answer cards, filters, relationship/credit, age gating, blocking, custom/business chatrooms, travel mode, hierarchy broadcast, survey dashboard, reputation, cancellation, and exact chatbot memory | Remaining automated gaps are mostly nice-to-have coverage: mobile-specific layout, websocket reconnection, Answers search/filter, timezone stats boundary, and GPS auto-assignment. |
 
 ## Gap Notes By Area
 
@@ -62,17 +63,10 @@ What exists:
 - The web app persists those preferences through:
   `src/web/app/app.ts:1239-1255`
 
-Why this is still a gap:
+Current state:
 
-- Registration and fanout routes in
-  `src/server/routes/talk-delivery-routes.ts:82-220`
-  do not consult user language lists, grammar filters, dirty-word filters,
-  distance/time limits, or age state before delivering/registering incoming talks.
-
-Likely implementation seam:
-
-- Add one authoritative server-side eligibility pipeline inside talk registration
-  and/or receiver registration flow, then expose filtered reasons to the UI.
+- The server delivery route now owns the authoritative eligibility pipeline for incoming registration and broadcast receiver registration.
+- Rejection reasons are exposed in API responses and covered by integration/E2E tests.
 
 ### 3. Blocking and Age Gating
 
@@ -82,13 +76,9 @@ What exists:
   `src/shared/types.ts:50-64`
   and `src/shared/reputation.ts:20-27`, `84-92`
 
-What is missing:
+Current state:
 
-- No production block list management endpoints in `src/server/routes/`.
-- No user-facing block/unblock action in `src/web/ui/`.
-- No delivery-time checks that reject blocked senders.
-- No age-verification UI/workflow in the main app.
-- No “adult talk first-question must be age verification” enforcement.
+- Block/unblock, delivery rejection, peer visibility, reputation block-count propagation, age-vouch threshold, and adult-talk delivery filtering are implemented and covered.
 
 ### 4. Chatroom Expansion
 
@@ -103,9 +93,7 @@ What exists:
 
 What is missing:
 
-- Create/rename/delete custom or business rooms.
-- Business metadata management.
-- Explicit single-room travel mode and traveller markers.
+- GPS-based automatic chatroom assignment still needs production GPS mock support and E2E coverage.
 
 ### 5. Survey Dashboard
 
@@ -116,11 +104,9 @@ What exists:
 - Counter fields on survey answers:
   `src/shared/types.ts:214-219`
 
-What is missing:
+Current state:
 
-- A dedicated survey results screen in the main UI.
-- User-facing charts/distributions/percentages.
-- An explicit anonymous-by-default presentation model in the web app.
+- Survey results are visible from OUT rows and the dedicated dashboard, with anonymous low-count masking and CSV export.
 
 ### 6. Rate Limits
 
@@ -129,11 +115,9 @@ What exists:
 - Reputation-based bulk capacity:
   `src/shared/reputation.ts:30-46`
 
-What is missing:
+Current state:
 
-- Time-based cooldown enforcement in the server routes.
-- Stored send/receive timestamps used as policy.
-- Automated tests that prove rejection and recovery after cooldown windows.
+- Symmetric cooldown and daily/weekly quotas are enforced in server routes and covered by integration tests.
 
 ## Recommended Next Docs Passes
 

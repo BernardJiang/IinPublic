@@ -1947,33 +1947,7 @@ export class IinPublicApp {
     });
 
     this.uiManager.on('requestLocationUpdate', async () => {
-      try {
-        const newLocation = await LocationPrivacy.getCurrentLocation();
-        this.currentLocation = newLocation;
-
-        if (this.currentUser) {
-          await this.userService.updateUserLocation(this.currentUser.id, newLocation);
-
-          if (this.travelModeActive) {
-            this.uiManager.showNotification('Travel mode is on — location updated without switching rooms.', 'info');
-            return;
-          }
-
-          // Check if we need to switch chatrooms
-          const newChatroomId = await this.chatroomService.findOptimalChatroom(newLocation);
-          const currentChatroomId = this.chatroomService.getCurrentChatroomId();
-
-          if (newChatroomId !== currentChatroomId) {
-            await this.chatroomService.switchChatroom(this.currentUser.id, newChatroomId);
-            this.uiManager.showNotification('Moved to new chatroom based on location', 'info');
-          }
-        }
-      } catch (error) {
-        this.uiManager.showNotification(
-          'Failed to update location: ' + (error as Error).message,
-          'error',
-        );
-      }
+      await this.updateLocationAndMaybeSwitch();
     });
 
     this.uiManager.on('toggleTravelMode', async () => {
@@ -2286,6 +2260,38 @@ export class IinPublicApp {
   // E2E Testing helpers - expose private state for manual cleanup in tests
   public getCurrentChatroomId(): string | undefined {
     return this.currentChatroomId;
+  }
+
+  public async updateLocationAndMaybeSwitch(nextLocation?: GPSCoordinate): Promise<void> {
+    try {
+      const newLocation = nextLocation || (await LocationPrivacy.getCurrentLocation());
+      this.currentLocation = newLocation;
+
+      if (this.currentUser) {
+        await this.userService.updateUserLocation(this.currentUser.id, newLocation);
+
+        if (this.travelModeActive) {
+          this.uiManager.showNotification('Travel mode is on — location updated without switching rooms.', 'info');
+          return;
+        }
+
+        const newChatroomId = await this.chatroomService.findOptimalChatroom(newLocation);
+        const currentChatroomId = this.chatroomService.getCurrentChatroomId();
+
+        if (newChatroomId !== currentChatroomId) {
+          await this.chatroomService.switchChatroom(this.currentUser.id, newChatroomId);
+          this.currentChatroomId = newChatroomId;
+          this.uiManager.setCurrentChatroomId(newChatroomId);
+          this.uiManager.showNotification('Moved to new chatroom based on location', 'info');
+        }
+      }
+    } catch (error) {
+      this.uiManager.showNotification(
+        'Failed to update location: ' + (error as Error).message,
+        'error',
+      );
+      throw error;
+    }
   }
 
   /**
