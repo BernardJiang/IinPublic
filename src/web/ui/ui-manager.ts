@@ -23,7 +23,7 @@ import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../
 import { BROADCAST_TAG_CATALOG_ENTRIES } from '../../shared/broadcast-tag-catalog';
 import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
 import { getFlatChatroomList, CHATROOM_HIERARCHY } from '../../shared/chatroom-hierarchy';
-import type { StatsByRegion, StatsByTime, StatsSummary } from '../../shared/talk-stats';
+import type { StatsByRegion, StatsByTime, StatsDashboard, StatsSummary } from '../../shared/talk-stats';
 import { displayAnswersList as renderAnswersList } from './answers-view';
 import {
   type CustomChatroomRow,
@@ -705,6 +705,15 @@ export class UIManager extends EventEmitter {
             </div>
           </div>
 
+          <!-- Statistics View -->
+          <div class="view-panel" id="statistics-view">
+            <div class="view-content" id="statistics-content">
+              <div style="padding: 20px; text-align: center; color: #64748b;">
+                <p>Statistics dashboard will load here.</p>
+              </div>
+            </div>
+          </div>
+
           <!-- Me View -->
           <div class="view-panel" id="me-view">
             <div class="view-content">
@@ -745,6 +754,10 @@ export class UIManager extends EventEmitter {
           <button class="nav-btn" data-view="answers">
             <div class="nav-icon">📝</div>
             <div class="nav-label">Answers</div>
+          </button>
+          <button class="nav-btn" data-view="statistics" data-testid="bottom-navigation-button-statistics">
+            <div class="nav-icon">📊</div>
+            <div class="nav-label">Stats</div>
           </button>
           <button class="nav-btn" data-view="me" data-testid="bottom-navigation-button-me">
             <div class="nav-icon">👤</div>
@@ -992,6 +1005,7 @@ export class UIManager extends EventEmitter {
             contacts: 'Contacts',
             talks: 'Talks',
             answers: 'My Answers',
+            statistics: 'Statistics',
             me: 'Me',
           };
           headerTitle.textContent = titles[targetView] || 'IinPublic';
@@ -1026,6 +1040,10 @@ export class UIManager extends EventEmitter {
         // Special handling for answers view: show answered talks with match/mismatch
         if (targetView === 'answers') {
           this.displayAnswersList();
+        }
+
+        if (targetView === 'statistics') {
+          void this.displayStatisticsDashboard();
         }
 
         // Special handling for me view: refresh conversations list and request a source sync.
@@ -1955,6 +1973,120 @@ export class UIManager extends EventEmitter {
       showPreferencesDialog: this.showPreferencesDialog.bind(this),
       getTalkContentKey: UIManager.getTalkContentKey,
     });
+  }
+
+  private async displayStatisticsDashboard(): Promise<void> {
+    const container = document.getElementById('statistics-content');
+    if (!container) return;
+    const base = (this.apiBase || '').trim();
+    if (!base) {
+      container.innerHTML = '<div style="padding:20px;color:#b45309;">Connect to the server to load statistics.</div>';
+      return;
+    }
+    container.innerHTML = '<div style="padding:20px;color:#64748b;">Loading statistics…</div>';
+    try {
+      const qs = this.currentUserId ? `?viewerId=${encodeURIComponent(this.currentUserId)}` : '';
+      const res = await fetch(`${base}/api/stats/dashboard${qs}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const dashboard = (await res.json()) as StatsDashboard;
+      this.renderStatisticsDashboard(container, dashboard);
+    } catch (error) {
+      container.innerHTML = `<div style="padding:20px;color:#b91c1c;">Could not load statistics: ${escapeHtml((error as Error).message)}</div>`;
+    }
+  }
+
+  private renderStatisticsDashboard(container: HTMLElement, dashboard: StatsDashboard): void {
+    const totals = dashboard.totals || { talks: 0, responses: 0, matches: 0, ignores: 0, matchRate: 0 };
+    const typeRows = (dashboard.byTalkType || [])
+      .map((row) => `
+        <tr>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;">${escapeHtml(row.talkType)}</td>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.responses}</td>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.matches}</td>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.matchRate}%</td>
+        </tr>`)
+      .join('');
+    const talkRows = (dashboard.topTalks || [])
+      .map((row) => `
+        <tr>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;max-width:220px;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(row.talkId)}</td>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;">${escapeHtml(row.talkType)}</td>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.responses}</td>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.matches}</td>
+        </tr>`)
+      .join('');
+    const roomRows = (dashboard.chatrooms?.regions || [])
+      .slice(0, 8)
+      .map((row) => `
+        <tr>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;">${row.masked ? 'Hidden region' : escapeHtml(row.region)}</td>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.masked ? '—' : row.count}</td>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.masked ? '—' : `${row.matchRate}%`}</td>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.masked ? '—' : `${row.localCount}/${row.travellerCount}`}</td>
+        </tr>`)
+      .join('');
+    const peerRows = (dashboard.peers?.peers || [])
+      .slice(0, 8)
+      .map((row) => `
+        <tr>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;max-width:180px;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(row.peerId)}</td>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.responses}</td>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.matches}</td>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.matchRate}%</td>
+        </tr>`)
+      .join('');
+    const tagRows = (dashboard.broadcastTags?.popularity || [])
+      .slice(0, 8)
+      .map((row) => `
+        <tr>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;">${escapeHtml(row.id)}</td>
+          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.count}</td>
+        </tr>`)
+      .join('');
+    const latestBucket = dashboard.timeSeries?.day?.[dashboard.timeSeries.day.length - 1]?.bucket || '—';
+    container.innerHTML = `
+      <div style="padding:16px;max-width:min(1040px,96%);margin:0 auto;">
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px;">
+          <div>
+            <h2 style="margin:0 0 4px;font-size:1.25em;color:#0f172a;">Statistics dashboard</h2>
+            <p style="margin:0;color:#64748b;font-size:0.9em;">Generated ${escapeHtml(new Date(dashboard.generatedAt).toLocaleString())}</p>
+          </div>
+          <button type="button" class="btn" id="statistics-refresh-btn" style="padding:6px 10px;">Refresh</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-bottom:14px;">
+          ${this.surveyMetricCard('Talks', String(totals.talks))}
+          ${this.surveyMetricCard('Responses', String(totals.responses))}
+          ${this.surveyMetricCard('Matches', String(totals.matches))}
+          ${this.surveyMetricCard('Match rate', `${totals.matchRate}%`)}
+          ${this.surveyMetricCard('Latest day', latestBucket)}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+          ${this.renderStatsTable('By talk type', ['Type', 'Responses', 'Matches', 'Match rate'], typeRows)}
+          ${this.renderStatsTable('Top talks', ['Talk', 'Type', 'Responses', 'Matches'], talkRows)}
+          ${this.renderStatsTable('Chatroom and location', ['Region', 'Responses', 'Match rate', 'Local/Travel'], roomRows)}
+          ${this.renderStatsTable('Peer and reputation summary', ['Peer', 'Responses', 'Matches', 'Match rate'], peerRows)}
+          ${this.renderStatsTable('Broadcast tags', ['Tag', 'Uses'], tagRows)}
+          <div style="padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;">
+            <div style="font-weight:700;color:#0f172a;margin-bottom:8px;">Privacy and source of truth</div>
+            <p style="margin:0 0 6px;color:#475569;font-size:0.88em;">Minimum cohort: ${dashboard.privacy?.minCohortSize ?? 3}; location: blurred regions only; CSV small-cohort masking: ${dashboard.privacy?.csvExportsMaskSmallCohorts ? 'on' : 'off'}.</p>
+            <p style="margin:0;color:#475569;font-size:0.88em;">Events are append-only Gun mirrors with in-memory derived indices for fast reads.</p>
+          </div>
+        </div>
+      </div>`;
+    container.querySelector('#statistics-refresh-btn')?.addEventListener('click', () => {
+      void this.displayStatisticsDashboard();
+    });
+  }
+
+  private renderStatsTable(title: string, headers: string[], rows: string): string {
+    return `
+      <div style="padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:white;overflow:auto;">
+        <div style="font-weight:700;color:#0f172a;margin-bottom:8px;">${escapeHtml(title)}</div>
+        <table style="width:100%;border-collapse:collapse;font-size:0.88em;">
+          <thead><tr>${headers.map((header, index) => `<th style="text-align:${index === 0 ? 'left' : 'right'};padding:6px 8px;">${escapeHtml(header)}</th>`).join('')}</tr></thead>
+          <tbody>${rows || `<tr><td colspan="${headers.length}" style="padding:8px;color:#64748b;">No data yet.</td></tr>`}</tbody>
+        </table>
+      </div>`;
   }
 
   private copyAnsweredTalkToTalks(talkId: string): void {

@@ -1569,10 +1569,13 @@ Current implementation baseline:
 - `GET /api/stats/talks/:id/by-day` returns UTC day/week/month-compatible time buckets.
 - `GET /api/stats/talks/:id/by-region` returns region buckets with low-count masking in the UI.
 - `GET /api/stats/talks/:id/by-answer?questionId=...` returns per-answer breakdowns.
+- `GET /api/stats/talks/:id/time-series` returns day/week/month series in one response.
+- `GET /api/stats/talks/:id/cross-question?questionA=...&questionB=...` returns cross-question answer correlation cells with small-cohort masks.
+- `GET /api/stats/chatrooms`, `GET /api/stats/peers`, and `GET /api/stats/dashboard` expose dashboard-level chatroom/location, peer/reputation, and source-of-truth summaries.
 - `GET /api/stats/broadcast-tags` and `/trends?days=N` expose cumulative and UTC-day broadcast tag demand.
-- The web dashboard supports survey summary, by-day, by-region, CSV exports, low-count anonymity masking, and follow-up survey creation.
+- The web dashboards support survey summary, by-day, by-region, CSV exports, low-count anonymity masking, follow-up survey creation, and a dedicated cross-talk Statistics tab.
 
-Future statistics expansion should add cross-question correlations, skip/completion rates, richer chart controls, chatroom/location analytics, peer/reputation analytics, and durable persistence where analytics must survive server restart.
+Future statistics expansion should focus on visualization polish, skip/completion rates where source timestamps are available, richer chart controls, and production hardening for any analytics that must survive cache loss beyond the current Gun-mirrored response event log.
 
 ```javascript
 const SurveyComponents = {
@@ -2035,7 +2038,7 @@ The following items are known open questions or planned post-MVP work:
 4. **Advanced ML-based matching**: Current matching is rule-based (DAG traversal). Post-MVP, a lightweight ML ranker could improve match quality and suggest relevant talks.
 5. **Group chat**: All current conversations are one-on-one. Group chat capability is a post-MVP feature.
 6. **Push notifications**: Current notifications are in-app only. True background push notifications (FCM on Android, APNs on iOS) are needed for production.
-7. **Statistics expansion**: Baseline survey, talk, peer, and broadcast-tag statistics exist. A richer statistics layer is planned for cross-question survey analysis, durable counters, chatroom/location analytics, peer/reputation analytics polish, and unified dashboard navigation.
+7. **Statistics expansion**: Baseline survey, talk, peer, chatroom/location, dashboard, and broadcast-tag statistics exist. Follow-up work is visualization polish, skip/completion-rate enrichment where source timestamps exist, and production durability review for derived caches.
 8. **Web peer stability**: Browser-based Gun peers lose connectivity on tab close or sleep. A service worker peer or persistent relay strategy is needed for production reliability.
 9. **Key backup and recovery**: If a user loses their device, their SEA key pair is lost and identity cannot be recovered. A secure key backup/export mechanism is needed.
 10. **iOS key storage**: Android uses Keystore for key storage; the iOS equivalent (Secure Enclave / Keychain) needs design work.

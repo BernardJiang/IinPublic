@@ -327,6 +327,10 @@ function buildTestServer(opts?: {
     );
   }
 
+  function getAllTalkResponses(): Map<string, TalkResponse[]> {
+    return new Map(talkResponsesMap);
+  }
+
   registerTalkDeliveryRoutes(app, {
     gunService,
     incomingTalksMap,
@@ -356,6 +360,7 @@ function buildTestServer(opts?: {
     getUserRegion,
     recordTalkStatsResponse,
     getTalkResponses,
+    getAllTalkResponses,
     getBroadcastTagPopularity: () => broadcastTagPopularityStore.getSnapshot(),
     getBroadcastTagTrends: (days: number) => broadcastTagPopularityStore.getTrends(days),
   });
@@ -1351,6 +1356,95 @@ describe('Talk loop — incoming registration → answer submission → match �
         { bucket: '2026-05-11', count: 1 },
         { bucket: '2026-05-12', count: 1 },
       ]);
+    });
+
+    it('exposes expanded statistics dashboard, time-series, cross-question, chatroom, and peer endpoints', async () => {
+      const { app, talkResponsesMap } = buildTestServer();
+      talkResponsesMap.set(talkId, [
+        {
+          responseId: 'r1',
+          talkId,
+          talkType: 'survey',
+          responderId: 'user_bob',
+          region: 'region_west',
+          chatroomId: 'room_west',
+          answers: [
+            { questionId: 'q1', answerId: 'a_blue', answerText: 'Blue' },
+            { questionId: 'q2', answerId: 'a_tennis', answerText: 'Tennis' },
+          ],
+          createdAt: Date.parse('2026-05-11T12:00:00.000Z'),
+          outcome: 'match',
+        },
+        {
+          responseId: 'r2',
+          talkId,
+          talkType: 'survey',
+          responderId: 'user_carla',
+          region: 'region_west',
+          chatroomId: 'room_west',
+          answers: [
+            { questionId: 'q1', answerId: 'a_blue', answerText: 'Blue' },
+            { questionId: 'q2', answerId: 'a_soccer', answerText: 'Soccer' },
+          ],
+          createdAt: Date.parse('2026-05-12T12:00:00.000Z'),
+          outcome: 'ignore',
+        },
+        {
+          responseId: 'r3',
+          talkId,
+          talkType: 'survey',
+          responderId: 'user_dana',
+          region: 'region_east',
+          chatroomId: 'room_east',
+          isTraveller: true,
+          answers: [
+            { questionId: 'q1', answerId: 'a_green', answerText: 'Green' },
+            { questionId: 'q2', answerId: 'a_tennis', answerText: 'Tennis' },
+          ],
+          createdAt: Date.parse('2026-05-19T12:00:00.000Z'),
+          outcome: 'match',
+        },
+      ]);
+
+      const dashboard = await request(app).get('/api/stats/dashboard?viewerId=user_alice');
+      expect(dashboard.status).toBe(200);
+      expect(dashboard.body.totals).toMatchObject({ talks: 1, responses: 3, matches: 2, ignores: 1 });
+      expect(dashboard.body.privacy).toMatchObject({ minCohortSize: 3, preciseLocationExposed: false });
+      expect(dashboard.body.sourceOfTruth.responseEvents).toBe('append-only-gun-mirrored');
+
+      const timeSeries = await request(app).get(`/api/stats/talks/${talkId}/time-series`);
+      expect(timeSeries.status).toBe(200);
+      expect(timeSeries.body.day.series).toHaveLength(3);
+      expect(timeSeries.body.month.series).toEqual([{ bucket: '2026-05', count: 3 }]);
+
+      const cross = await request(app).get(
+        `/api/stats/talks/${talkId}/cross-question?questionA=q1&questionB=q2`,
+      );
+      expect(cross.status).toBe(200);
+      expect(cross.body.totalPairs).toBe(3);
+      expect(cross.body.cells).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ answerAId: 'a_blue', answerBId: 'a_tennis', count: 1, masked: true }),
+        ]),
+      );
+
+      const chatrooms = await request(app).get('/api/stats/chatrooms');
+      expect(chatrooms.status).toBe(200);
+      expect(chatrooms.body.regions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ region: 'room_west', count: 2, matchRate: 50, masked: true }),
+          expect.objectContaining({ region: 'room_east', travellerCount: 1, matchRate: 100, masked: true }),
+        ]),
+      );
+
+      const peers = await request(app).get('/api/stats/peers?viewerId=user_alice');
+      expect(peers.status).toBe(200);
+      expect(peers.body.peers).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ peerId: 'user_bob', responses: 1, matches: 1, matchRate: 100 }),
+          expect.objectContaining({ peerId: 'user_carla', ignores: 1 }),
+        ]),
+      );
     });
   });
 });

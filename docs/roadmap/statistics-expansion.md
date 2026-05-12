@@ -15,7 +15,15 @@ Implemented today:
   - `GET /api/stats/talks/:id/by-day`
   - `GET /api/stats/talks/:id/by-region`
   - `GET /api/stats/talks/:id/by-answer?questionId=...`
+- Expanded query endpoints:
+  - `GET /api/stats/talks/:id/time-series`
+  - `GET /api/stats/talks/:id/cross-question?questionA=...&questionB=...`
+  - `GET /api/stats/talks/:id/chatrooms`
+  - `GET /api/stats/chatrooms`
+  - `GET /api/stats/peers`
+  - `GET /api/stats/dashboard`
 - Survey analytics modal/dashboard with summary cards, question distribution, by-day and by-region views.
+- Dedicated Statistics tab for cross-talk dashboard navigation.
 - Low-count masking in survey analytics UI.
 - CSV exports for survey summary, day buckets, and region buckets.
 - Follow-up survey creation from the survey analytics dashboard.
@@ -27,17 +35,21 @@ Implemented today:
 1. Source of truth:
    Decide which statistics are server-authoritative, Gun-mirrored, recomputed from append-only events,
    or allowed to remain ephemeral.
+   **Current decision:** normalized response events are append-only and Gun-mirrored; in-memory indices are derived caches; broadcast tag counters are server trend buckets; quota counters remain server-cache state.
 
 2. Privacy:
    Define minimum cohort sizes, region granularity, time bucket granularity, per-viewer permission checks,
    and CSV export masking rules.
+   **Current decision:** no precise locations in stats; regions use blurred/chatroom ids; small cohorts are masked at fewer than three responses; exports keep small-cohort masking enabled.
 
 3. Schema:
    Add shared TypeScript response schemas before expanding endpoints. New stats endpoints should not return
    ad hoc JSON shapes.
+   **Current decision:** shared schemas and aggregators live in `src/shared/talk-stats.ts`.
 
 4. Retention:
    Decide whether raw response events are retained forever, compacted into buckets, or user-prunable.
+   **Current decision:** raw stats response events are retained as Gun-mirrored append-only records; compaction/user pruning remains a production policy follow-up.
 
 ## Feature Backlog
 

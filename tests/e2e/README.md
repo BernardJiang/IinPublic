@@ -22,7 +22,7 @@ End-to-end tests for the IinPublic real-time Talk system using Playwright. Tests
 | `helpers/talks-matching-browsers.ts`, `helpers/talks-matching-flow.ts` | Shared browser launch + Tom/Jerry/Bob flows |
 | `06-contacts-tab.spec.ts` | Contacts list, click contact → matching talks |
 | `07-tags-checkbox.spec.ts` | Tag create, checkbox match/ignore |
-| `08-super-user-20-broadcast.spec.ts` | 10 tags + 10 talks, broadcast 20, Tom answers all |
+| `00d-super-user-20-broadcast.spec.ts` | 10 tags + 10 talks, broadcast 20, Tom answers all |
 | `08-super-user-copy-talk.spec.ts` | Copy talk: broadcast disable/enable + delete from My Talks |
 | `helpers/super-user-techsupport-shared.ts` | Shared bootstrap + Tom incoming modal helpers for `08-*` |
 

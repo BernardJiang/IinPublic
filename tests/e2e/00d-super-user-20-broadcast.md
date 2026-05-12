@@ -1,6 +1,6 @@
 # Test: Super User — TechSupport Creates 20 Talks (10 Tags + 10 Talks), Tom Completes All
 
-**File:** 08-super-user-20-broadcast.spec.ts  
+**File:** 00d-super-user-20-broadcast.spec.ts
 **Features tested:** Bulk talk creation via super user/companyp page, large-scale broadcast (20 talks), bulk completion by responder, status bar verification, incoming-talks API count, localStorage ledger verification
 
 ---

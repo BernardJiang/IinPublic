@@ -31,7 +31,7 @@ The spec areas below are merged into the current implementation and should not b
 - Custom/business chatrooms, hierarchy navigation, single-room travel mode, and same-room broadcast delivery.
 - Tag catalog, mandatory broadcast preamble, interest targeting, distance caps, tag popularity, and tag trend stats.
 - Talk creation, matching, answer history, contacts, messaging, cancellation/deletion paths, and exact chatbot Q/A memory.
-- Generic per-talk stats endpoints, survey analytics dashboard, low-count masking, CSV exports, follow-up survey creation, and peer relationship stats.
+- Generic per-talk stats endpoints, cross-question/time-series/chatroom/peer/dashboard stats, dedicated Statistics tab, survey analytics dashboard, low-count masking, CSV exports, follow-up survey creation, and peer relationship stats.
 
 ## Maintenance Rules
 

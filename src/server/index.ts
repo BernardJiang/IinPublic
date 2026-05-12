@@ -352,6 +352,8 @@ class IinPublicServer {
       })),
       createdAt,
       outcome: outcome ?? 'other',
+      chatroomId: region,
+      isTraveller: false,
     };
     const list = this.talkResponsesMap.get(talkId) ?? [];
     list.push(record);
@@ -398,14 +400,71 @@ class IinPublicServer {
     }
   }
 
-  private getTalkResponses(talkId: string, opts?: { from?: number; to?: number }): TalkResponse[] {
+  private parseTalkStatsNode(talkId: string, node: any): TalkResponse | null {
+    if (!node || typeof node !== 'object') return null;
+    const responseId = String(node.responseId || '').trim();
+    if (!responseId || responseId.startsWith('_')) return null;
+    let answers: TalkResponse['answers'] = [];
+    if (typeof node.answersJson === 'string') {
+      try {
+        const parsed = JSON.parse(node.answersJson);
+        if (Array.isArray(parsed)) answers = parsed;
+      } catch {
+        answers = [];
+      }
+    } else if (Array.isArray(node.answers)) {
+      answers = node.answers;
+    }
+    return {
+      responseId,
+      talkId: String(node.talkId || talkId),
+      talkType: (node.talkType || 'flow') as TalkType,
+      responderId: String(node.responderId || ''),
+      region: String(node.region || 'unknown'),
+      answers: answers.map((answer: any) => ({
+        questionId: String(answer?.questionId || ''),
+        answerId: String(answer?.answerId || ''),
+        answerText: String(answer?.answerText || ''),
+      })),
+      createdAt: Number(node.createdAt || 0),
+      outcome: node.outcome === 'match' || node.outcome === 'ignore' || node.outcome === 'other' ? node.outcome : 'other',
+      chatroomId: typeof node.chatroomId === 'string' ? node.chatroomId : String(node.region || 'unknown'),
+      isTraveller: node.isTraveller === true,
+    };
+  }
+
+  private async hydrateTalkResponsesFromGun(talkId: string): Promise<TalkResponse[]> {
+    try {
+      const statsNode = await this.gunService.getPath(['talks', talkId, 'stats']);
+      if (!statsNode || typeof statsNode !== 'object') return [];
+      const responses: TalkResponse[] = [];
+      for (const [key, value] of Object.entries(statsNode)) {
+        if (key.startsWith('_')) continue;
+        const record = this.parseTalkStatsNode(talkId, value);
+        if (record) responses.push(record);
+      }
+      responses.sort((a, b) => a.createdAt - b.createdAt);
+      if (responses.length > 0) this.talkResponsesMap.set(talkId, responses);
+      return responses;
+    } catch (error) {
+      logger.warn({ err: error, talkId }, 'stats: failed to hydrate Gun mirrored responses');
+      return [];
+    }
+  }
+
+  private async getTalkResponses(talkId: string, opts?: { from?: number; to?: number }): Promise<TalkResponse[]> {
     const list = this.talkResponsesMap.get(talkId) ?? [];
-    if (!opts?.from && !opts?.to) return list;
-    return list.filter(
+    const source = list.length > 0 ? list : await this.hydrateTalkResponsesFromGun(talkId);
+    if (!opts?.from && !opts?.to) return source;
+    return source.filter(
       (r) =>
         (opts.from == null || r.createdAt >= opts.from) &&
         (opts.to == null || r.createdAt <= opts.to),
     );
+  }
+
+  private async getAllTalkResponses(): Promise<Map<string, TalkResponse[]>> {
+    return new Map(this.talkResponsesMap);
   }
 
   private clearTalkResponseStats(): void {
@@ -801,6 +860,7 @@ class IinPublicServer {
       getUserRegion: this.getUserRegion.bind(this),
       recordTalkStatsResponse: this.recordTalkStatsResponse.bind(this),
       getTalkResponses: this.getTalkResponses.bind(this),
+      getAllTalkResponses: this.getAllTalkResponses.bind(this),
       getBroadcastTagPopularity: () => this.broadcastTagPopularityStore.getSnapshot(),
       getBroadcastTagTrends: (days: number) => this.broadcastTagPopularityStore.getTrends(days),
     });

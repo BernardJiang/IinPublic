@@ -86,9 +86,9 @@ What is stable today:
 - Gun authority is audited; server is authoritative for stats, matches, and conversations
 - Me-tab profile editor (headshot, languages, interests, profile Q&A with per-row visibility) and viewer-filtered public profile rendering in peer/contact views are live
 - Age gating, blocking/unblock, reputation flows, custom/business chatrooms, travel mode, survey analytics, cancellation handling, and exact chatbot Q/A memory are implemented with focused coverage
-- Statistics baseline is implemented: per-talk summary/by-day/by-region/by-answer endpoints, survey analytics dashboard, CSV exports, broadcast tag popularity/trends, and peer relationship stats
+- Statistics baseline is implemented: typed shared schemas, per-talk summary/by-day/by-region/by-answer/time-series/cross-question endpoints, chatroom/peer/dashboard stats endpoints, dedicated Statistics tab, survey analytics dashboard, CSV exports, broadcast tag popularity/trends, and peer relationship stats
 
 Active work (see [TODO](./docs/TODO.md)):
 
-- Statistics expansion: cross-question analytics, richer time-series controls, chatroom/location stats, peer/reputation analytics polish, durable counters, and unified dashboard navigation
-- Ongoing docs alignment with the technical specification as statistics features land
+- Statistics follow-up is mostly visualization polish and production durability review
+- Ongoing docs alignment with the technical specification as product details change
