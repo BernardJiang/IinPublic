@@ -1,5 +1,5 @@
 /**
- * Statistics dashboard E2E: direct stats events are visible from the Stats tab.
+ * Contextual statistics E2E: direct stats events are visible on product tabs without a Stats tab.
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from './helpers/fixtures';
@@ -50,16 +50,13 @@ test.describe('Statistics dashboard', () => {
     await p.waitForLoadState('load');
     await afterSync();
 
-    await p.locator('.nav-btn[data-view="statistics"]').click();
+    await expect(p.locator('.nav-btn[data-view="statistics"]')).toHaveCount(0);
+    await p.locator('.nav-btn[data-view="talks"]').click();
     await afterNav();
 
-    await expect(p.locator('#statistics-view')).toBeVisible();
-    await expect(p.locator('#statistics-content')).toContainText('Statistics dashboard', { timeout: 20_000 });
-    await expect(p.locator('#statistics-content')).toContainText('Responses');
-    await expect(p.locator('#statistics-content')).toContainText('3');
-    await expect(p.locator('#statistics-content')).toContainText('Match rate');
-    await expect(p.locator('#statistics-content')).toContainText('survey');
-    await expect(p.locator('#statistics-content')).toContainText('Peer and reputation summary');
-    await expect(p.locator('#statistics-content')).toContainText('append-only Gun mirrors');
+    await expect(p.locator('#talks-view')).toBeVisible();
+    await expect(p.locator('#talks-stats-strip')).toContainText('Stats:', { timeout: 20_000 });
+    await expect(p.locator('#talks-stats-strip')).toContainText('3 responses');
+    await expect(p.locator('#talks-stats-strip')).toContainText('match rate');
   });
 });

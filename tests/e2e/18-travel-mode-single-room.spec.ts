@@ -6,7 +6,7 @@ import { afterLoad, afterSync, delay, headless } from './helpers/timing';
 import { webBaseURL } from './helpers/ports';
 import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 
-test.describe('Chatrooms — travel mode single-room presence', () => {
+test.describe('Chatrooms — return home single-room presence', () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
@@ -25,7 +25,7 @@ test.describe('Chatrooms — travel mode single-room presence', () => {
     await clearGunDatabases();
   });
 
-  test('travel mode: remembers home and returns home', async () => {
+  test('return home uses the smallest regional room for this location', async () => {
     context = await browser.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     page = await context.newPage();
     await injectIdbClear(page);
@@ -38,10 +38,8 @@ test.describe('Chatrooms — travel mode single-room presence', () => {
     // Start in Global.
     await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('1');
 
-    // Enable travel mode.
-    await page.click('#toggle-travel-mode-btn');
-    await afterSync();
     await expect(page.locator('#return-home-btn')).toBeVisible();
+    await expect(page.locator('#return-home-btn')).toBeEnabled();
 
     // Travel to North America.
     await page.click('.chatroom-item:has-text("North America")');
@@ -52,15 +50,14 @@ test.describe('Chatrooms — travel mode single-room presence', () => {
     await afterSync();
     await expect(page.locator('.chatroom-item.current-room:has-text("North America")')).toBeVisible();
 
-    // Return home → Global.
+    // Return home → smallest regional room for the default test location (USA).
     await page.click('#return-home-btn');
     await afterSync();
     // Best-practice: assert on the authoritative, stable status bar text (not list highlight timing).
-    await expect(page.locator('#status-bar-text')).toContainText('Global', { timeout: 45000 });
+    await expect(page.locator('#status-bar-text')).toContainText('United States', { timeout: 45000 });
 
     await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());
     await page.close();
     await context.close();
   });
 });
-

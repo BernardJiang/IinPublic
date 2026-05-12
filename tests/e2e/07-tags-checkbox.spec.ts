@@ -188,7 +188,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     await expect(statusBar).toContainText(/1 match(es)?/, { timeout: 15000 });
 
     // 8) Tom's Answer tab: Coffee = Match, Cat = Mismatch
-    await pageTom.click('.nav-btn[data-view="answers"]');
+    await pageTom.click('.nav-btn[data-view="me"]');
     await afterSync();
     const tomContent = pageTom.locator('#answers-content');
     await expect(tomContent.getByText(TAG_COFFEE).first()).toBeVisible({ timeout: 10000 });

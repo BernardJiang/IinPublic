@@ -5,6 +5,7 @@
 
 import { GPSCoordinate } from './types';
 import { CHATROOM_HIERARCHY, ChatroomNode } from './chatroom-hierarchy';
+import { LocationPrivacy } from './location';
 
 /**
  * Get the hierarchical chatroom path for a location
@@ -186,9 +187,15 @@ export function findAppropriateChildChatroom(
   // Find the index of current chatroom in the path
   const currentIndex = locationPath.indexOf(currentChatroomId);
 
-  // If not found or already at the most specific level, return null
-  if (currentIndex === -1 || currentIndex === locationPath.length - 1) {
+  // If not found, there is no safe hierarchy move.
+  if (currentIndex === -1) {
     return null;
+  }
+
+  // If already at the smallest named hierarchy room, create a blurred regional room.
+  if (currentIndex === locationPath.length - 1) {
+    const blurred = LocationPrivacy.blurLocation(userLocation);
+    return LocationPrivacy.generateChatroomId(blurred.region, 0);
   }
 
   // Return the next level down in the path

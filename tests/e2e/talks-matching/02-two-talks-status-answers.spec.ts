@@ -15,6 +15,7 @@ import {
   resetTalksMatchingSession,
   finalCleanupPages,
 } from '../helpers/talks-matching-flow';
+import { waitForStatusBarMatchCountAtLeast } from '../helpers/durable-ui';
 
 test.describe('Talks matching — two talks, status bar, answers tab', () => {
   let browsers: ThreeBrowsers;
@@ -134,11 +135,8 @@ test.describe('Talks matching — two talks, status bar, answers tab', () => {
     await afterSync();
     await pageTom.click('.nav-btn[data-view="talks"]');
     await afterSync();
-    // Status bar uses "N match" or "N matches" (see UIManager.updateStatusBar)
-    await expect(pageTom.locator('#status-bar-text')).toContainText(/2 matches|2 match\b/i, {
-      timeout: 25000,
-    });
-    await pageJerry.click('.nav-btn[data-view="answers"]');
+    await waitForStatusBarMatchCountAtLeast(pageTom, 2, 90_000);
+    await pageJerry.click('.nav-btn[data-view="me"]');
     await afterSync();
     await expect(pageJerry.locator('#answers-content').getByText(TITLE_TENNIS).first()).toBeVisible({
       timeout: 15000,

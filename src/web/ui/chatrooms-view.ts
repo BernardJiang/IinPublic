@@ -28,9 +28,9 @@ type ChatroomsViewDeps = {
 };
 
 export function syncStatusBroadcastButtonVisibility(currentChatroom: string): void {
-  const wrap = document.getElementById('status-bar-actions');
-  if (!wrap) return;
-  wrap.style.display = currentChatroom ? 'block' : 'none';
+  const button = document.getElementById('broadcast-talk-btn') as HTMLButtonElement | null;
+  if (!button) return;
+  button.disabled = !currentChatroom;
 }
 
 function hierarchyIds(): Set<string> {
@@ -144,6 +144,8 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
 
   if (listContainer) listContainer.style.display = 'none';
   if (detailContainer) detailContainer.style.display = 'block';
+  const backBtn = document.getElementById('back-to-chatrooms') as HTMLElement | null;
+  if (backBtn) backBtn.style.display = 'inline-flex';
 
   const custom = deps.customChatrooms.find((c) => c.id === chatroomId);
   const allChatrooms = getFlatChatroomList();

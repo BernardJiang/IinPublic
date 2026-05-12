@@ -151,7 +151,7 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
     await expect(pageTom.locator('#talks-list')).toContainText('Tom Out Talk');
     await expect(pageTom.locator('#talks-list')).toContainText('Jerry Out Talk');
 
-    await pageJerry.click('.nav-btn[data-view="answers"]');
+    await pageJerry.click('.nav-btn[data-view="me"]');
     await afterSync();
     const answersContent = pageJerry.locator('#answers-content');
     await expect(answersContent.getByText('Tom Out Talk').first()).toBeVisible({ timeout: 15000 });

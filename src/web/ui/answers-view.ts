@@ -104,7 +104,7 @@ export function buildAnswerItemModels(
       answeredCount,
       ...(typeof answer?.counter === 'number' ? { answerCounter: answer.counter } : {}),
       ...(entry.mode ? { mode: entry.mode } : {}),
-      chatbotGenerated: entry.mode === 'auto',
+      chatbotGenerated: entry.mode === 'auto' || entry.mode === 'permanent',
       autoUseCount,
       ...(latestAutoUseAt != null ? { latestAutoUseAt } : {}),
     };
@@ -116,8 +116,17 @@ function renderAnswerItemsHtml(
   escapeHtml: (text: string) => string,
 ): string {
   return items
-    .map((item, index) => `
-      <div class="answer-outcome-item" style="padding: 12px; border-radius: 10px; background: rgba(255,255,255,0.78); border: 1px solid rgba(148,163,184,0.22);">
+    .map((item, index) => {
+      const isConditional = !!item.contextHash || item.contextPath.length > 0 || item.kind !== 'tag';
+      const modeGroup = item.chatbotGenerated ? 'auto' : isConditional ? 'conditional' : 'manual';
+      const tone =
+        modeGroup === 'auto'
+          ? 'background:#ecfdf5;border-color:#bbf7d0;'
+          : modeGroup === 'conditional'
+            ? 'background:#fef9c3;border-color:#fde68a;'
+            : 'background:#fef2f2;border-color:#fecaca;';
+      return `
+      <div class="answer-outcome-item answer-mode-${modeGroup}" data-answer-mode="${modeGroup}" style="padding: 12px; border-radius: 10px; ${tone} border-width: 1px; border-style: solid;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
           <div style="font-size:0.8em; color:#64748b;">${item.kind === 'tag' ? 'Tag' : `Question ${index + 1}`}</div>
           <div style="font-size:0.78em; color:#64748b;">
@@ -140,7 +149,8 @@ function renderAnswerItemsHtml(
             : ''
         }
       </div>
-    `)
+    `;
+    })
     .join('');
 }
 

@@ -23,6 +23,7 @@ import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../
 import { BROADCAST_TAG_CATALOG_ENTRIES } from '../../shared/broadcast-tag-catalog';
 import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
 import { getFlatChatroomList, CHATROOM_HIERARCHY } from '../../shared/chatroom-hierarchy';
+import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import type { StatsByRegion, StatsByTime, StatsDashboard, StatsSummary } from '../../shared/talk-stats';
 import { displayAnswersList as renderAnswersList } from './answers-view';
 import {
@@ -148,6 +149,26 @@ export class UIManager extends EventEmitter {
 
   setCurrentLocation(location: GPSCoordinate | undefined): void {
     this.currentLocation = location;
+    this.syncReturnHomeButton();
+    if (this.currentUser) this.renderSettingsView(this.currentUser);
+  }
+
+  private getHomeChatroomId(): string {
+    if (this.travelHomeChatroomId) return this.travelHomeChatroomId;
+    if (this.currentLocation) {
+      const path = getLocationChatroomPath(this.currentLocation);
+      return path[path.length - 1] || 'global';
+    }
+    return 'global';
+  }
+
+  private syncReturnHomeButton(): void {
+    const btn = document.getElementById('return-home-btn') as HTMLButtonElement | null;
+    if (!btn) return;
+    const home = this.getHomeChatroomId();
+    const away = !!this.currentChatroom && this.currentChatroom !== home;
+    btn.disabled = !away;
+    btn.title = away ? `Return to ${this.resolveChatroomTitle(home)}` : 'Already in your home room';
   }
 
   setBroadcastAudiencePreviewCollector(
@@ -541,21 +562,20 @@ export class UIManager extends EventEmitter {
                 <span id="status-bar-text">Connecting...</span>
                 <span id="broadcast-bulk-ack" data-testid="broadcast-bulk-ack" hidden></span>
               </div>
-              <div class="status-bar-actions" id="status-bar-actions" style="display: none;">
-                <button type="button" class="btn status-broadcast-btn" id="broadcast-talk-btn" title="Send every talk in your OUT list to everyone in this chatroom">
-                  📢 Broadcast to everyone in this room
-                </button>
-                <p class="status-broadcast-hint" id="status-broadcast-hint">Uses talks from <strong>Talks</strong> (your OUT list). Create or copy a talk there first, then broadcast.</p>
-              </div>
             </div>
+            <div class="tab-action-bar chatroom-action-bar" id="chatroom-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <button class="back-btn" id="back-to-chatrooms" style="display:none;">‹ Back</button>
+              <button type="button" class="btn" id="create-custom-chatroom-btn" data-testid="create-custom-chatroom-btn">New Room</button>
+              <button type="button" class="btn" id="return-home-btn" data-testid="return-home-btn" disabled>Return Home</button>
+              <button type="button" class="btn status-broadcast-btn" id="broadcast-talk-btn" title="Send every talk in your OUT list to everyone in this chatroom">
+                Broadcast
+              </button>
+              <span class="status-broadcast-hint" id="status-broadcast-hint" style="font-size:0.82em;color:#64748b;">Uses talks from Talks OUT.</span>
+            </div>
+            <div class="embedded-stats-strip" id="chatrooms-stats-strip" style="padding:8px 12px;color:#64748b;font-size:0.88em;"></div>
             
             <!-- Chatroom List -->
             <div class="chatroom-list-container" id="chatroom-list-container">
-              <div class="chatroom-list-toolbar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap;">
-                <button type="button" class="btn" id="create-custom-chatroom-btn" data-testid="create-custom-chatroom-btn">➕ New room</button>
-                <button type="button" class="btn" id="toggle-travel-mode-btn" data-testid="toggle-travel-mode-btn">🧳 Travel mode</button>
-                <button type="button" class="btn" id="return-home-btn" data-testid="return-home-btn" style="display:none;">🏠 Return home</button>
-              </div>
               <div class="chatroom-list" id="chatroom-list">
                 <p style="text-align: center; padding: 20px; color: #999;">Loading chatrooms...</p>
               </div>
@@ -564,7 +584,6 @@ export class UIManager extends EventEmitter {
             <!-- Chatroom Detail (Hidden by default) -->
             <div class="chatroom-detail-container" id="chatroom-detail-container" style="display: none;">
               <div class="chatroom-detail-header">
-                <button class="back-btn" id="back-to-chatrooms">‹ Back</button>
                 <div class="chatroom-detail-info" id="chatroom-detail-info">
                   <div class="chatroom-detail-title" id="current-chatroom-title">Global Chatroom</div>
                   <div class="chatroom-detail-status" id="current-chatroom-status">Loading...</div>
@@ -580,6 +599,28 @@ export class UIManager extends EventEmitter {
           <!-- Contacts View (users who have matches with current user) -->
           <div class="view-panel" id="contacts-view">
             <div class="view-content">
+              <div class="status-bar contacts-status-bar">
+                <div class="status-bar-content"><span id="contacts-status-text">Contacts from exchanged talks</span></div>
+              </div>
+              <div class="tab-action-bar contacts-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <button class="back-btn" id="back-to-contacts-list" style="display:none;">‹ Back</button>
+                <input class="form-input" id="contacts-filter-name" type="search" placeholder="Filter by name" style="flex:1 1 160px; min-width:0;">
+                <select class="form-input" id="contacts-filter-relation" style="flex:0 0 150px;">
+                  <option value="all">All relations</option>
+                  <option value="friend">Friends</option>
+                  <option value="relative">Relatives</option>
+                  <option value="coworker">Coworkers</option>
+                  <option value="acquaintance">Acquaintances</option>
+                  <option value="custom">Custom</option>
+                </select>
+                <select class="form-input" id="contacts-sort-order" style="flex:0 0 150px;">
+                  <option value="recent">Recent</option>
+                  <option value="talks">Talk count</option>
+                  <option value="matches">Matches</option>
+                  <option value="name">Name</option>
+                </select>
+              </div>
+              <div class="embedded-stats-strip" id="contacts-stats-strip" style="padding:8px 12px;color:#64748b;font-size:0.88em;"></div>
               <div class="contacts-list-container" id="contacts-list-container">
                 <div class="contacts-list" id="contacts-list">
                   <p style="text-align: center; padding: 40px 20px; color: #999;">No contacts yet. Match with others via Talks to see them here.</p>
@@ -588,7 +629,6 @@ export class UIManager extends EventEmitter {
               <!-- Contact detail: list of talks with this user (hidden by default) -->
               <div class="contact-detail-container" id="contact-detail-container" style="display: none;">
                 <div class="contact-detail-header">
-                  <button class="back-btn" id="back-to-contacts-list">‹ Back</button>
                   <div class="contact-detail-info" id="contact-detail-info">
                     <div class="contact-detail-name" id="contact-detail-name">Contact</div>
                     <div class="contact-detail-matches" id="contact-detail-matches">0 matches</div>
@@ -604,12 +644,13 @@ export class UIManager extends EventEmitter {
           <!-- Talks View -->
           <div class="view-panel" id="talks-view">
             <div class="view-content">
-              <div class="talks-header">
-                <button class="btn create-talk-btn" id="create-talk-btn-talks">
-                  ➕ Create New Talk
-                </button>
+              <div class="status-bar talks-status-bar">
+                <div class="status-bar-content"><span id="talks-status-text">Incoming talks are consolidated by content.</span></div>
               </div>
-              <div class="talks-nav-bar" id="talks-nav-bar">
+              <div class="tab-action-bar talks-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <button class="btn create-talk-btn" id="create-talk-btn-talks">
+                  Create New Talk
+                </button>
                 <button class="btn talks-nav-back" id="talks-nav-back" type="button" style="display: none;">
                   ‹ Back
                 </button>
@@ -625,6 +666,7 @@ export class UIManager extends EventEmitter {
                   </button>
                 </div>
               </div>
+              <div class="embedded-stats-strip" id="talks-stats-strip" style="padding:8px 12px;color:#64748b;font-size:0.88em;"></div>
               <div class="talks-list" id="talks-list">
                 <p style="text-align: center; padding: 40px 20px; color: #999;">No talks yet. Create your first talk!</p>
               </div>
@@ -693,30 +735,20 @@ export class UIManager extends EventEmitter {
             </div>
           </div>
 
-          <!-- Answers View -->
-          <div class="view-panel" id="answers-view">
-            <div class="view-content" id="answers-content">
-              <div style="padding: 20px; text-align: center; color: #999;">
-                <p>Your answered questions will appear here.</p>
-                <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">
-                  View My Answers
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Statistics View -->
-          <div class="view-panel" id="statistics-view">
-            <div class="view-content" id="statistics-content">
-              <div style="padding: 20px; text-align: center; color: #64748b;">
-                <p>Statistics dashboard will load here.</p>
-              </div>
-            </div>
-          </div>
-
           <!-- Me View -->
           <div class="view-panel" id="me-view">
             <div class="view-content">
+              <div class="status-bar me-status-bar">
+                <div class="status-bar-content"><span id="me-status-text">Profile, conversations, and answered talks</span></div>
+              </div>
+              <div class="tab-action-bar me-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <button class="btn me-answer-filter active" data-me-answer-filter="all" type="button">All</button>
+                <button class="btn me-answer-filter" data-me-answer-filter="auto" type="button">Auto</button>
+                <button class="btn me-answer-filter" data-me-answer-filter="manual" type="button">Manual</button>
+                <button class="btn me-answer-filter" data-me-answer-filter="conditional" type="button">Conditional</button>
+                <button class="btn primary-btn" id="me-view-preferences-btn" type="button">Preferences</button>
+              </div>
+              <div class="embedded-stats-strip" id="me-stats-strip" style="padding:8px 12px;color:#64748b;font-size:0.88em;"></div>
               <div class="user-profile">
                 <div class="user-info" id="user-info-me"></div>
                 <div class="profile-actions">
@@ -732,6 +764,26 @@ export class UIManager extends EventEmitter {
                 <h3 style="font-size: 1em; margin-bottom: 12px; color: #666;">Conversations</h3>
                 <div id="conversations-list"></div>
               </div>
+              <div class="answers-section" style="margin-top: 24px;">
+                <div id="answers-content">
+                  <div style="padding: 20px; text-align: center; color: #999;">
+                    <p>Your answered questions will appear here.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Settings View -->
+          <div class="view-panel" id="settings-view">
+            <div class="view-content">
+              <div class="status-bar settings-status-bar">
+                <div class="status-bar-content"><span id="settings-status-text">Feature and filter controls</span></div>
+              </div>
+              <div class="tab-action-bar settings-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <button class="btn" id="settings-refresh-location-btn" type="button">Refresh Location</button>
+              </div>
+              <div id="settings-content" style="padding:16px;max-width:min(980px,96%);margin:0 auto;"></div>
             </div>
           </div>
 
@@ -751,17 +803,13 @@ export class UIManager extends EventEmitter {
             <div class="nav-icon">📢</div>
             <div class="nav-label">Talks</div>
           </button>
-          <button class="nav-btn" data-view="answers">
-            <div class="nav-icon">📝</div>
-            <div class="nav-label">Answers</div>
-          </button>
-          <button class="nav-btn" data-view="statistics" data-testid="bottom-navigation-button-statistics">
-            <div class="nav-icon">📊</div>
-            <div class="nav-label">Stats</div>
-          </button>
           <button class="nav-btn" data-view="me" data-testid="bottom-navigation-button-me">
             <div class="nav-icon">👤</div>
             <div class="nav-label">Me</div>
+          </button>
+          <button class="nav-btn" data-view="settings" data-testid="bottom-navigation-button-settings">
+            <div class="nav-icon">⚙️</div>
+            <div class="nav-label">Settings</div>
           </button>
         </div>
       </div>
@@ -826,6 +874,12 @@ export class UIManager extends EventEmitter {
         this.showPreferencesDialog();
       });
     }
+    const meViewPreferencesBtn = document.getElementById('me-view-preferences-btn');
+    if (meViewPreferencesBtn) {
+      meViewPreferencesBtn.addEventListener('click', () => {
+        this.showPreferencesDialog();
+      });
+    }
 
     const myAnswersBtn = document.getElementById('my-answers-btn');
     if (myAnswersBtn) {
@@ -849,19 +903,25 @@ export class UIManager extends EventEmitter {
       });
     }
 
-    const travelToggleBtn = document.getElementById('toggle-travel-mode-btn');
-    if (travelToggleBtn) {
-      travelToggleBtn.addEventListener('click', () => {
-        this.emit('toggleTravelMode', {});
-      });
-    }
-
     const returnHomeBtn = document.getElementById('return-home-btn');
     if (returnHomeBtn) {
       returnHomeBtn.addEventListener('click', () => {
         this.emit('returnHomeFromTravel', {});
       });
     }
+    const settingsRefreshLocationBtn = document.getElementById('settings-refresh-location-btn');
+    if (settingsRefreshLocationBtn) {
+      settingsRefreshLocationBtn.addEventListener('click', () => {
+        this.emit('requestLocationUpdate', {});
+      });
+    }
+    document.querySelectorAll('.me-answer-filter').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('.me-answer-filter').forEach((btn) => btn.classList.remove('active'));
+        button.classList.add('active');
+        this.applyMeAnswerFilter((button as HTMLElement).dataset.meAnswerFilter || 'all');
+      });
+    });
 
     // Back to contacts list button
     const backToContactsListBtn = document.getElementById('back-to-contacts-list');
@@ -1004,9 +1064,8 @@ export class UIManager extends EventEmitter {
             chatrooms: 'Chatrooms',
             contacts: 'Contacts',
             talks: 'Talks',
-            answers: 'My Answers',
-            statistics: 'Statistics',
             me: 'Me',
+            settings: 'Settings',
           };
           headerTitle.textContent = titles[targetView] || 'IinPublic';
         }
@@ -1023,33 +1082,33 @@ export class UIManager extends EventEmitter {
         // Special handling for chatrooms view
         if (targetView === 'chatrooms') {
           this.showChatroomList();
+          void this.displayContextualStatistics('chatrooms-stats-strip');
         }
 
         // Special handling for contacts view
         if (targetView === 'contacts') {
           this.dismissMatchNotifications();
           this.showContactsList();
+          void this.displayContextualStatistics('contacts-stats-strip');
         }
 
         // Special handling for talks view
         if (targetView === 'talks') {
           this.emit('needIncomingTalkClusters');
           this.displayTalksList();
-        }
-
-        // Special handling for answers view: show answered talks with match/mismatch
-        if (targetView === 'answers') {
-          this.displayAnswersList();
-        }
-
-        if (targetView === 'statistics') {
-          void this.displayStatisticsDashboard();
+          void this.displayContextualStatistics('talks-stats-strip');
         }
 
         // Special handling for me view: refresh conversations list and request a source sync.
         if (targetView === 'me') {
           this.emit('needConversationSync');
           this.displayConversationsList();
+          this.displayAnswersList();
+          void this.displayContextualStatistics('me-stats-strip');
+        }
+
+        if (targetView === 'settings') {
+          if (this.currentUser) this.renderSettingsView(this.currentUser);
         }
       });
     });
@@ -1327,11 +1386,14 @@ export class UIManager extends EventEmitter {
       const creditVisibilityCheckbox = document.getElementById('credit-visibility-checkbox') as HTMLInputElement | null;
       if (creditVisibilityCheckbox) {
         creditVisibilityCheckbox.addEventListener('change', () => {
-          if (this.currentUser) this.currentUser.reputation.isHidden = !creditVisibilityCheckbox.checked;
+          if (this.currentUser?.reputation) this.currentUser.reputation.isHidden = !creditVisibilityCheckbox.checked;
           this.emit('setCreditVisibility', { visible: creditVisibilityCheckbox.checked });
         });
       }
     }
+
+    this.renderSettingsView(user);
+    this.displayAnswersList();
 
     const chatroomInfo = document.getElementById('chatroom-info');
     if (chatroomInfo) {
@@ -1352,6 +1414,8 @@ export class UIManager extends EventEmitter {
 
     if (listContainer) listContainer.style.display = 'block';
     if (detailContainer) detailContainer.style.display = 'none';
+    const backBtn = document.getElementById('back-to-chatrooms') as HTMLElement | null;
+    if (backBtn) backBtn.style.display = 'none';
 
     const ownerBar = document.getElementById('chatroom-owner-bar');
     if (ownerBar) {
@@ -1365,20 +1429,17 @@ export class UIManager extends EventEmitter {
 
     // Render the chatroom list
     this.renderChatroomList();
+    this.syncReturnHomeButton();
   }
 
   setTravelModeState(state: { active: boolean; homeChatroomId?: string }): void {
     this.travelModeActive = !!state.active;
     this.travelHomeChatroomId = state.homeChatroomId;
-    const travelBtn = document.getElementById('toggle-travel-mode-btn');
-    if (travelBtn) {
-      travelBtn.textContent = this.travelModeActive ? '🧳 Travelling' : '🧳 Travel mode';
-      travelBtn.classList.toggle('primary-btn', this.travelModeActive);
-    }
     const homeBtn = document.getElementById('return-home-btn');
     if (homeBtn) {
-      homeBtn.style.display = this.travelModeActive ? 'inline-flex' : 'none';
+      homeBtn.style.display = 'inline-flex';
     }
+    this.syncReturnHomeButton();
   }
 
   isTravelModeActive(): boolean {
@@ -1454,7 +1515,10 @@ export class UIManager extends EventEmitter {
       expandedChatrooms: this.expandedChatrooms,
       matchedUserIds: this.matchedUserIds,
       customChatrooms: this.customChatrooms,
-      setCurrentChatroom: (chatroomId) => { this.currentChatroom = chatroomId; },
+      setCurrentChatroom: (chatroomId) => {
+        this.currentChatroom = chatroomId;
+        this.syncReturnHomeButton();
+      },
       setCurrentChatroomMembers: (members) => { this.currentChatroomMembers = members; },
       escapeHtml: escapeHtml,
       renderChatroomList: this.renderChatroomList.bind(this),
@@ -1637,6 +1701,9 @@ export class UIManager extends EventEmitter {
 
   showChatroomDetail(chatroomId: string): void {
     openChatroomDetail(this.chatroomsDeps(), chatroomId);
+    const backBtn = document.getElementById('back-to-chatrooms') as HTMLElement | null;
+    if (backBtn) backBtn.style.display = 'inline-flex';
+    this.syncReturnHomeButton();
   }
 
   /**
@@ -1647,6 +1714,7 @@ export class UIManager extends EventEmitter {
     if (!chatroomId) return;
     this.currentChatroom = chatroomId;
     this.renderChatroomList();
+    this.syncReturnHomeButton();
   }
 
   displayTalksList(): void {
@@ -1749,6 +1817,10 @@ export class UIManager extends EventEmitter {
     const inEntries = backendInEntries;
     const talksNavBack = document.getElementById('talks-nav-back');
     const activeMode = this.talksViewMode;
+    const talksStatus = document.getElementById('talks-status-text');
+    if (talksStatus) {
+      talksStatus.textContent = `${inEntries.length} incoming · ${outEntries.length} outgoing · sorted by latest activity`;
+    }
 
     document.querySelectorAll('.talks-nav-btn').forEach((button) => {
       button.classList.toggle('active', (button as HTMLElement).dataset.talksMode === activeMode);
@@ -1794,8 +1866,13 @@ export class UIManager extends EventEmitter {
                     talkTypeLower === 'survey'
                       ? `<button type="button" class="btn survey-stats-btn" data-talk-id="${escapeHtml(talkId)}" data-testid="survey-stats-button" style="padding: 6px 12px; font-size: 0.9em; background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;">📊 Results</button>`
                       : '';
+                  const typeAccent =
+                    talkTypeLower === 'tag' ? '#7c3aed'
+                    : talkTypeLower === 'survey' ? '#059669'
+                    : talkTypeLower === 'route' ? '#d97706'
+                    : '#2563eb';
                   return `
-        <div class="talk-list-item" data-talk-id="${talkId}" data-role="${talk.role || 'created'}">
+        <div class="talk-list-item talk-type-${escapeHtml(talkTypeLower || 'flow')}" data-talk-id="${talkId}" data-role="${talk.role || 'created'}" data-talk-type="${escapeHtml(talkTypeLower || 'flow')}" style="border-left:5px solid ${typeAccent};">
           <div class="talk-item-header">
             <div class="talk-item-title">${escapeHtml(talk.title)}</div>
             <div class="talk-item-badges">
@@ -1853,8 +1930,13 @@ export class UIManager extends EventEmitter {
                   ? '<span class="talk-badge" style="background:#f3f4f6;color:#6b7280;">✅ Answered</span>'
                   : '<span class="talk-badge" style="background:#dbeafe;color:#1d4ed8;font-weight:700;">🆕 New</span>';
                 const incomingType = String(cluster?.type || 'flow').toLowerCase();
+                const typeAccent =
+                  incomingType === 'tag' ? '#7c3aed'
+                  : incomingType === 'survey' ? '#059669'
+                  : incomingType === 'route' ? '#d97706'
+                  : '#2563eb';
                 return `
-        <div class="talk-list-item" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}" style="${isAnswered ? 'background:#fafafa;' : ''}">
+        <div class="talk-list-item talk-type-${escapeHtml(incomingType)}" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}" style="border-left:5px solid ${typeAccent}; ${isAnswered ? 'background:#fafafa;' : ''}">
           <div class="talk-item-header">
             <div class="talk-item-title" style="${titleStyle}">${escapeHtml(cluster?.title || 'Incoming Talk')}</div>
             <div class="talk-item-badges">
@@ -1973,6 +2055,142 @@ export class UIManager extends EventEmitter {
       showPreferencesDialog: this.showPreferencesDialog.bind(this),
       getTalkContentKey: UIManager.getTalkContentKey,
     });
+    const activeFilter = (document.querySelector('.me-answer-filter.active') as HTMLElement | null)?.dataset.meAnswerFilter || 'all';
+    this.applyMeAnswerFilter(activeFilter);
+  }
+
+  private applyMeAnswerFilter(filter: string): void {
+    document.querySelectorAll<HTMLElement>('#answers-content .answer-outcome-item').forEach((item) => {
+      const mode = item.dataset.answerMode || 'manual';
+      item.style.display = filter === 'all' || filter === mode ? 'block' : 'none';
+    });
+  }
+
+  private renderSettingsView(user: User): void {
+    const container = document.getElementById('settings-content');
+    if (!container) return;
+    const talkFilters = user.talkFilters || {
+      ...getTalkIntakeFilters(),
+      allowedLanguages: Array.isArray(user.languages) && user.languages.length > 0 ? user.languages : ['en'],
+    };
+    setTalkIntakeFilters(talkFilters);
+    const reputation = user.reputation || ({} as typeof user.reputation);
+    const home = this.getHomeChatroomId();
+    const locationText = this.currentLocation
+      ? `${this.currentLocation.latitude.toFixed(3)}, ${this.currentLocation.longitude.toFixed(3)}`
+      : 'Unknown';
+    container.innerHTML = `
+      <div style="display:grid;gap:14px;">
+        <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
+          <div style="font-weight:700;color:#111827;margin-bottom:10px;">Languages</div>
+          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
+            <span>Profile languages</span>
+            <input type="text" class="form-input" id="settings-profile-languages" value="${escapeHtml((user.languages || ['en']).join(', '))}" placeholder="en, zh">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
+            <span>Incoming talk language filter</span>
+            <input type="text" class="form-input" id="settings-filter-languages" value="${escapeHtml((talkFilters.allowedLanguages || ['en']).join(', '))}" placeholder="en, zh">
+          </label>
+        </section>
+        <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
+          <div style="font-weight:700;color:#111827;margin-bottom:10px;">Talk Behavior</div>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;">
+            <input type="checkbox" id="settings-copy-talk-autosave" ${getCopyTalkAutoSave() ? 'checked' : ''}>
+            <span>Auto-save received talks (copy talk)</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;margin-top:12px;">
+            <input type="checkbox" id="settings-chatbot-enabled" ${getChatbotEnabled() ? 'checked' : ''}>
+            <span>Enable chatbot</span>
+          </label>
+        </section>
+        <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
+          <div style="font-weight:700;color:#111827;margin-bottom:10px;">Distance and Home</div>
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
+              <span>Min distance (miles)</span>
+              <input type="number" class="form-input" id="settings-min-distance" min="0" step="1" value="${talkFilters.minDistanceMiles ?? ''}">
+            </label>
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
+              <span>Max distance (miles)</span>
+              <input type="number" class="form-input" id="settings-max-distance" min="0" step="1" value="${talkFilters.maxDistanceMiles ?? ''}">
+            </label>
+          </div>
+          <div style="margin-top:10px;font-size:0.9em;color:#475569;">Home room: <strong>${escapeHtml(this.resolveChatroomTitle(home))}</strong></div>
+          <div style="margin-top:4px;font-size:0.82em;color:#64748b;">Location: ${escapeHtml(locationText)}</div>
+        </section>
+        <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
+          <div style="font-weight:700;color:#111827;margin-bottom:10px;">Content Filters</div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;">
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-grammar-filter" ${talkFilters.requireGoodGrammar ? 'checked' : ''}> Grammar filter</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-dirty-words-filter" ${talkFilters.blockDirtyWords ? 'checked' : ''}> Dirty words filter</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-credit-visible" ${reputation.isHidden === true ? '' : 'checked'}> Show reputation/credit</label>
+          </div>
+          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
+            <span>Custom blocked phrases</span>
+            <textarea class="form-input" id="settings-custom-blocked" rows="3">${escapeHtml((talkFilters.customBlockedTerms || []).join(', '))}</textarea>
+          </label>
+        </section>
+      </div>
+    `;
+    this.bindSettingsControls();
+  }
+
+  private bindSettingsControls(): void {
+    const sync = () => {
+      const filterLanguages = (document.getElementById('settings-filter-languages') as HTMLInputElement | null)?.value || 'en';
+      const profileLanguages = (document.getElementById('settings-profile-languages') as HTMLInputElement | null)?.value || filterLanguages;
+      const minDistanceEl = document.getElementById('settings-min-distance') as HTMLInputElement | null;
+      const maxDistanceEl = document.getElementById('settings-max-distance') as HTMLInputElement | null;
+      const customBlockedEl = document.getElementById('settings-custom-blocked') as HTMLTextAreaElement | null;
+      const nextFilters: TalkIntakeFilters = {
+        allowedLanguages: filterLanguages.split(',').map((part) => part.trim().toLowerCase()).filter(Boolean),
+        requireGoodGrammar: !!(document.getElementById('settings-grammar-filter') as HTMLInputElement | null)?.checked,
+        blockDirtyWords: !!(document.getElementById('settings-dirty-words-filter') as HTMLInputElement | null)?.checked,
+        allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
+        customBlockedTerms: normalizeCustomBlockedTerms((customBlockedEl?.value || '').split(/[\n,]+/).map((part) => part.trim()).filter(Boolean)),
+      };
+      if (nextFilters.allowedLanguages.length === 0) nextFilters.allowedLanguages = ['en'];
+      if (minDistanceEl?.value) nextFilters.minDistanceMiles = Number(minDistanceEl.value);
+      if (maxDistanceEl?.value) nextFilters.maxDistanceMiles = Number(maxDistanceEl.value);
+      setTalkIntakeFilters(nextFilters);
+      if (this.currentUser) {
+        this.currentUser.languages = profileLanguages.split(',').map((part) => part.trim().toLowerCase()).filter(Boolean);
+        this.currentUser.talkFilters = nextFilters;
+      }
+      this.emit('updateTalkFilters', nextFilters);
+      if (document.getElementById('talks-view')?.classList.contains('active')) this.displayTalksList();
+    };
+    ['settings-profile-languages', 'settings-filter-languages', 'settings-min-distance', 'settings-max-distance', 'settings-grammar-filter', 'settings-dirty-words-filter'].forEach((id) => {
+      document.getElementById(id)?.addEventListener('change', sync);
+    });
+    document.getElementById('settings-custom-blocked')?.addEventListener('input', sync);
+    document.getElementById('settings-copy-talk-autosave')?.addEventListener('change', (event) => {
+      setCopyTalkAutoSave((event.currentTarget as HTMLInputElement).checked);
+    });
+    document.getElementById('settings-chatbot-enabled')?.addEventListener('change', (event) => {
+      setChatbotEnabled((event.currentTarget as HTMLInputElement).checked);
+    });
+    document.getElementById('settings-credit-visible')?.addEventListener('change', (event) => {
+      const visible = (event.currentTarget as HTMLInputElement).checked;
+      if (this.currentUser?.reputation) this.currentUser.reputation.isHidden = !visible;
+      this.emit('setCreditVisibility', { visible });
+    });
+  }
+
+  private async displayContextualStatistics(elementId: string): Promise<void> {
+    const element = document.getElementById(elementId);
+    if (!element || !this.apiBase) return;
+    try {
+      const qs = this.currentUserId ? `?viewerId=${encodeURIComponent(this.currentUserId)}` : '';
+      const res = await fetch(`${this.apiBase}/api/stats/dashboard${qs}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const dashboard = (await res.json()) as StatsDashboard;
+      const totals = dashboard.totals || { talks: 0, responses: 0, matches: 0, ignores: 0, matchRate: 0 };
+      const room = dashboard.chatrooms?.regions?.[0];
+      element.textContent = `Stats: ${totals.responses} responses · ${totals.matches} matches · ${totals.matchRate}% match rate${room ? ` · top room ${room.masked ? 'hidden' : room.region}` : ''}`;
+    } catch {
+      element.textContent = 'Stats: no data yet';
+    }
   }
 
   private async displayStatisticsDashboard(): Promise<void> {
@@ -3251,8 +3469,8 @@ export class UIManager extends EventEmitter {
       if (locationStr != null) entry.location = locationStr;
       setMyQuestionAnswer(key, entry);
     }
-    const answersView = document.getElementById('answers-view');
-    if (answersView?.classList.contains('active')) {
+    const meView = document.getElementById('me-view');
+    if (meView?.classList.contains('active')) {
       this.displayAnswersList();
     }
   }
@@ -3381,6 +3599,7 @@ export class UIManager extends EventEmitter {
     options: { selfAnswers: { questionId: string; answerId: string }[] },
   ): void {
     const myTalks = getMyTalks();
+    const uncheckedTag = talk.type === 'tag' && options.selfAnswers.some((answer) => answer.answerId === 'ignore' || answer.answerId.includes('ignore'));
     myTalks[talk.id] = {
       ...myTalks[talk.id],
       talkId: talk.id,
@@ -3389,7 +3608,7 @@ export class UIManager extends EventEmitter {
       timestamp: new Date().toISOString(),
       role: 'created',
       fullTalk: talk,
-      disabled: false,
+      disabled: uncheckedTag,
       expiresAt: talk.expiresAt ?? undefined,
       locationRadiusMiles: talk.locationRadiusMiles ?? undefined,
       lastInteraction: new Date().toISOString(),

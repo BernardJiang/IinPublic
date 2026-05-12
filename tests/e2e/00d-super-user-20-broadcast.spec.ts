@@ -206,7 +206,7 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     const matchedLines = await pageTechSupport.getByText(/Matched with:/).count();
     expect(matchedLines).toBeGreaterThanOrEqual(1);
 
-    await pageTom.click('.nav-btn[data-view="answers"]');
+    await pageTom.click('.nav-btn[data-view="me"]');
     await afterLoad();
     const answersContent = pageTom.locator('#answers-content');
     const expectedTitles = [...TAG_NAMES, ...TALK_TITLES];

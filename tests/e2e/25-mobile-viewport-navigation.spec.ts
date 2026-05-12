@@ -36,7 +36,15 @@ test.describe('Mobile viewport navigation', () => {
     expect(page).toBeTruthy();
     const p = page!;
 
-    for (const view of ['chatrooms', 'contacts', 'talks', 'answers', 'statistics', 'me']) {
+    await expect(p.locator('.bottom-nav .nav-label')).toHaveText([
+      'Chatrooms',
+      'Contacts',
+      'Talks',
+      'Me',
+      'Settings',
+    ]);
+
+    for (const view of ['chatrooms', 'contacts', 'talks', 'me', 'settings']) {
       await p.locator(`.nav-btn[data-view="${view}"]`).click();
       await afterNav();
       await expect(p.locator(`#${view}-view`)).toBeVisible({ timeout: 15_000 });

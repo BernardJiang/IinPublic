@@ -6,6 +6,7 @@ import { WebTalkService } from '../services/web-talk-service';
 import { WebConversationService } from '../services/web-conversation-service';
 import { UIManager } from '../ui/ui-manager';
 import { LocationPrivacy } from '../../shared/location';
+import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { buildTalkIdentityKey, computeTalkIdFromTalkData } from '../../shared/talk-content-id';
@@ -1992,10 +1993,11 @@ export class IinPublicApp {
 
     this.uiManager.on('returnHomeFromTravel', async () => {
       if (!this.currentUser) return;
-      const home = this.travelHomeChatroomId;
-      if (!this.travelModeActive || !home) return;
+      const locationPath = this.currentLocation ? getLocationChatroomPath(this.currentLocation) : [];
+      const home = this.travelHomeChatroomId || locationPath[locationPath.length - 1] || 'global';
       this.travelModeActive = false;
       this.travelChatroomId = undefined;
+      this.travelHomeChatroomId = home;
       this.persistTravelModeStateToStorage();
       this.uiManager.setTravelModeState({ active: false });
       if (this.currentChatroomId !== home) {

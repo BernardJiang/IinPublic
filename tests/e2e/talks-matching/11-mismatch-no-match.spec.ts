@@ -108,7 +108,7 @@ test.describe('Talks matching — mismatch path yields no match', () => {
     await waitForStatusBarMatchCountAtMost(pageTom, 0);
 
     // Jerry's Answers tab: talk listed with Mismatch label
-    await pageJerry.click('.nav-btn[data-view="answers"]');
+    await pageJerry.click('.nav-btn[data-view="me"]');
     await afterSync();
     const answersContent = pageJerry.locator('#answers-content');
     await expect(answersContent.getByText(TALK_TITLE).first()).toBeVisible({ timeout: 15000 });

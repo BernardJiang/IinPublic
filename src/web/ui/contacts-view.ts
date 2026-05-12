@@ -278,6 +278,8 @@ export function showContactsList(deps: ContactsViewDeps): void {
   const detailContainer = document.getElementById('contact-detail-container');
   if (listContainer) listContainer.style.display = 'block';
   if (detailContainer) detailContainer.style.display = 'none';
+  const backBtn = document.getElementById('back-to-contacts-list') as HTMLElement | null;
+  if (backBtn) backBtn.style.display = 'none';
   void displayContactsList(deps);
 }
 
@@ -301,6 +303,69 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
     const knownMap = new Map(
       deps.getKnownPeople().map((entry) => [entry.userId, entry] as const),
     );
+    const controls = {
+      name: document.getElementById('contacts-filter-name') as HTMLInputElement | null,
+      relation: document.getElementById('contacts-filter-relation') as HTMLSelectElement | null,
+      sort: document.getElementById('contacts-sort-order') as HTMLSelectElement | null,
+    };
+    const savedState = (() => {
+      try {
+        return JSON.parse(localStorage.getItem('iinpublic_contacts_tab_state') || '{}') as {
+          name?: string;
+          relation?: string;
+          sort?: string;
+          scrollTop?: number;
+        };
+      } catch {
+        return {};
+      }
+    })();
+    if (controls.name && controls.name.value === '' && savedState.name) controls.name.value = savedState.name;
+    if (controls.relation && savedState.relation) controls.relation.value = savedState.relation;
+    if (controls.sort && savedState.sort) controls.sort.value = savedState.sort;
+    const persistControls = () => {
+      localStorage.setItem('iinpublic_contacts_tab_state', JSON.stringify({
+        name: controls.name?.value || '',
+        relation: controls.relation?.value || 'all',
+        sort: controls.sort?.value || 'recent',
+        scrollTop: listEl.scrollTop || 0,
+      }));
+    };
+    ['input', 'change'].forEach((eventName) => {
+      controls.name?.addEventListener(eventName, () => {
+        persistControls();
+        void displayContactsList(deps);
+      }, { once: true });
+      controls.relation?.addEventListener(eventName, () => {
+        persistControls();
+        void displayContactsList(deps);
+      }, { once: true });
+      controls.sort?.addEventListener(eventName, () => {
+        persistControls();
+        void displayContactsList(deps);
+      }, { once: true });
+    });
+
+    const nameFilter = (controls.name?.value || '').trim().toLowerCase();
+    const relationFilter = controls.relation?.value || 'all';
+    const sortOrder = controls.sort?.value || 'recent';
+    const visiblePeers = peers
+      .filter((peer) => {
+        const known = knownMap.get(peer.peerId);
+        const resolvedStageName = deps.getPeerName(peer.peerId, peer.stageName);
+        const displayName = buildDisplayName(resolvedStageName, known).toLowerCase();
+        if (nameFilter && !displayName.includes(nameFilter)) return false;
+        if (relationFilter !== 'all' && known?.label !== relationFilter) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortOrder === 'name') {
+          return deps.getPeerName(a.peerId, a.stageName).localeCompare(deps.getPeerName(b.peerId, b.stageName));
+        }
+        if (sortOrder === 'matches') return b.stats.mutualMatchedTalks - a.stats.mutualMatchedTalks;
+        if (sortOrder === 'talks') return b.stats.totalTalks - a.stats.totalTalks;
+        return new Date(b.lastInteractionAt || 0).getTime() - new Date(a.lastInteractionAt || 0).getTime();
+      });
 
     if (peers.length === 0) {
       listEl.innerHTML = `
@@ -308,8 +373,17 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
       `;
       return;
     }
+    if (visiblePeers.length === 0) {
+      listEl.innerHTML = `
+        <p style="text-align: center; padding: 40px 20px; color: #999;">No contacts match these filters.</p>
+      `;
+      return;
+    }
 
-    listEl.innerHTML = peers
+    const status = document.getElementById('contacts-status-text');
+    if (status) status.textContent = `${visiblePeers.length} contact${visiblePeers.length === 1 ? '' : 's'} from exchanged talks`;
+
+    listEl.innerHTML = visiblePeers
       .map((peer) => {
         const known = knownMap.get(peer.peerId);
         const resolvedStageName = deps.getPeerName(peer.peerId, peer.stageName);
@@ -340,6 +414,10 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
         }
       });
     });
+    window.setTimeout(() => {
+      if (typeof savedState.scrollTop === 'number') listEl.scrollTop = savedState.scrollTop;
+    }, 0);
+    listEl.addEventListener('scroll', persistControls, { passive: true });
   } catch {
     listEl.innerHTML = '<p style="text-align: center; padding: 40px 20px; color: #c00;">Could not load contacts.</p>';
   }
@@ -360,6 +438,8 @@ export async function showContactDetail(
   contactDetailUserProfileCache = null;
   listContainer.style.display = 'none';
   detailContainer.style.display = 'block';
+  const backBtn = document.getElementById('back-to-contacts-list') as HTMLElement | null;
+  if (backBtn) backBtn.style.display = 'inline-flex';
   detailName.textContent = otherUserName;
   detailMatches.textContent = 'Loading…';
   talksList.innerHTML = '<p style="text-align: center; padding: 20px; color: #999;">Loading…</p>';

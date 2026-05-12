@@ -106,7 +106,7 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
     );
 
     // --- Jerry's Answers tab lists all four Q/A ---
-    await jerry.page.click('.nav-btn[data-view="answers"]');
+    await jerry.page.click('.nav-btn[data-view="me"]');
     await afterSync();
     for (const { title } of createdByKind) {
       await expect(jerry.page.locator('#answers-content').getByText(title).first()).toBeVisible({

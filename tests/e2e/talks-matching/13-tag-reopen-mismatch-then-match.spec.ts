@@ -96,7 +96,7 @@ test.describe('Talks matching — tag: reopen mismatch, change to match', () => 
     await waitForStatusBarMatchCountAtMost(pageAlice, 0);
 
     // Tom's Answers tab: tag listed with Mismatch
-    await pageTom.click('.nav-btn[data-view="answers"]');
+    await pageTom.click('.nav-btn[data-view="me"]');
     await afterSync();
     await expect(pageTom.locator('#answers-content').getByText(TAG_TITLE).first()).toBeVisible({ timeout: 15000 });
     await expect(pageTom.locator('#answers-content').getByText(/Mismatch/i).first()).toBeVisible({ timeout: 10000 });
@@ -122,7 +122,7 @@ test.describe('Talks matching — tag: reopen mismatch, change to match', () => 
     await expect(pageAlice.locator('#status-bar-text')).toContainText(/1 match/i, { timeout: 15000 });
 
     // Tom's Answers tab: same tag now shows Match
-    await pageTom.click('.nav-btn[data-view="answers"]');
+    await pageTom.click('.nav-btn[data-view="me"]');
     await afterSync();
     await expect(pageTom.locator('#answers-content').getByText(TAG_TITLE).first()).toBeVisible({ timeout: 10000 });
     await expect(pageTom.locator('#answers-content').getByText(/\bMatch\b/i).first()).toBeVisible({ timeout: 10000 });

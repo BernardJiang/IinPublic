@@ -21,45 +21,27 @@ The major spec features implemented so far are merged into the current docs base
 - Talk lifecycle coverage for cancellation/deletion, matching, contacts, messaging, and answer history
 - Survey analytics dashboard with summary/by-day/by-region views, low-count masking, CSV exports, and follow-up survey creation
 
-## P0 — Statistics Expansion Design
+## P0 — UI Navigation and Control Surfaces
 
-- [x] Create the focused statistics roadmap:
-  [docs/roadmap/statistics-expansion.md](roadmap/statistics-expansion.md).
-- [x] Decide the statistics source-of-truth model.
-  Document which metrics are server-authoritative in memory, mirrored to Gun, append-only,
-  recomputable, or intentionally ephemeral.
-- [x] Define privacy and anonymity rules for every stats surface.
-  Include minimum cohort sizes, region/time bucketing rules, per-viewer permission checks,
-  and rules for exported CSV data.
-- [x] Define shared stats response schemas in `src/shared/` before adding more endpoints.
-  Current endpoints already expose summary, by-day, by-region, by-answer, broadcast-tag popularity,
-  and broadcast-tag trends; future endpoints should reuse typed schema contracts.
+- [x] Set the bottom navigation to exactly Chatrooms, Contacts, Talks, Me, Settings.
+- [x] Merge Answers into Me and list answered question/answer pairs there with all/selected filters.
+- [x] Remove the Statistics bottom tab and expose statistics contextually on product surfaces.
+- [x] Move user-controlled settings into Settings: languages, multi-language filter, auto-save received talks,
+  chatbot, distance, home location, grammar/dirty-word filters, and reputation/credit visibility.
 
-## P1 — Statistics Product Work
+## P1 — Tab-Specific Workflow Polish
 
-- [x] Add cross-question survey analytics.
-  Examples: answer correlation, segmented answer distribution, skip rate, completion rate,
-  and time-to-answer where timestamps are available.
-- [x] Add richer time-series statistics.
-  Support day/week/month selection consistently across talk, survey, broadcast-tag, and chatroom stats.
-- [x] Add chatroom/location analytics.
-  Track room activity, broadcast reach, response rate, match rate, traveller vs local split,
-  and region-level trends without exposing precise user location.
-- [x] Add peer/reputation analytics polish.
-  Summarize relationship history, mutual tags, match quality, block/rating impact, and visibility controls
-  in a way that respects profile/reputation privacy.
-- [x] Add a statistics dashboard navigation surface.
-  Avoid scattering stats only inside row-level modals; give creators one place to scan recent talks,
-  surveys, tags, and rooms.
+- [x] Chatrooms: add a top status bar plus action bar with New Room, Return Home, Broadcast, and detail Back.
+- [x] Chatrooms: define home as the smallest regional room matching the user's location and enable Return Home only away from home.
+- [x] Chatrooms: allow selecting a room user, sending all talks to that user, or manually sending messages; allow broadcasting before or after opening the member list.
+- [x] Contacts: add status/action bars, default to users who exchanged talks, show peer stats, support filters/sort, and restore the last tab position.
+- [x] Talks: add status/action bars, visually differentiate tag/flow/survey/route talks, consolidate duplicate incoming talks, remove answered incoming talks, copy to outgoing when enabled, sort talks, disable unchecked tags in outgoing, and open editor popups from outgoing rows.
+- [x] Me: add status/action bars, show answered talks by type, and color answer rows green/manual red/conditional yellow for chatbot behavior.
 
-## P2 — Hardening and Verification
+## P2 — Verification
 
-- [x] Persist stats counters that must survive server restarts.
-  Daily/weekly quota counters and current stats indices are in-memory unless explicitly mirrored or recomputed.
-- [x] Add integration tests for any new stats endpoint.
-  Cover empty data, UTC boundaries, filter parameters, privacy masking, and malformed input.
-- [x] Add E2E tests for the statistics dashboard once the UI expands beyond the current survey modal.
-- [x] Keep `docs/roadmap/spec-gap-matrix.md` and `docs/reports/PROJECT_STATUS.md` updated when a stats feature ships.
+- [x] Add an E2E script that assumes room capacity 3 and fills 1 global room, 6 continental rooms, and 1 USA room with 25 people, verifying automatic smaller regional room creation.
+- [x] Run `PW_WORKERS=10 npm run test:e2e` after the UI changes.
 
 ## Working Rule
 

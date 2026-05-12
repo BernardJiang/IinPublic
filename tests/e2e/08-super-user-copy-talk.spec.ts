@@ -118,7 +118,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await pageTom.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
     await afterAction();
 
-    await pageTom.click('.nav-btn[data-view="answers"]');
+    await pageTom.click('.nav-btn[data-view="me"]');
     await afterNav();
     await expect(pageTom.locator('#answers-content').getByText(copyTalkTitle).first()).toBeVisible({ timeout: 15000 });
     await pageTom
