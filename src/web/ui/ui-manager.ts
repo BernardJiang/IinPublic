@@ -96,6 +96,41 @@ import {
 import { LocationPrivacy } from '../../shared/location';
 import { normalizeCustomBlockedTerms } from '../../shared/talk-intake-filters';
 
+const TALK_TYPE_VALUES: TalkIntakeFilters['allowedTalkTypes'] = ['flow', 'survey', 'tag', 'route'];
+
+function normalizeStringList(value: unknown, fallback: string[] = []): string[] {
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : [];
+  const normalized = raw
+    .map((part) => String(part || '').trim())
+    .filter(Boolean);
+  return normalized.length > 0 ? normalized : fallback;
+}
+
+function normalizeTalkFilterShape(
+  value: unknown,
+  fallbackLanguages: string[] = ['en'],
+): TalkIntakeFilters {
+  const stored = value && typeof value === 'object' ? value as Partial<TalkIntakeFilters> : {};
+  const defaults = getTalkIntakeFilters();
+  const allowedTalkTypes = Array.isArray(stored.allowedTalkTypes)
+    ? stored.allowedTalkTypes.filter((type): type is TalkIntakeFilters['allowedTalkTypes'][number] =>
+        TALK_TYPE_VALUES.includes(type as TalkIntakeFilters['allowedTalkTypes'][number]),
+      )
+    : [];
+
+  return {
+    ...defaults,
+    ...stored,
+    allowedLanguages: normalizeStringList(stored.allowedLanguages, fallbackLanguages).map((lang) => lang.toLowerCase()),
+    allowedTalkTypes: allowedTalkTypes.length > 0 ? allowedTalkTypes : TALK_TYPE_VALUES,
+    customBlockedTerms: normalizeCustomBlockedTerms(normalizeStringList(stored.customBlockedTerms, [])),
+  };
+}
+
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
   private currentUser?: User;
@@ -1119,12 +1154,16 @@ export class UIManager extends EventEmitter {
    * (e.g. block/unblock) so `isBlockedByMe` is not stale on a divergent object.
    */
   adoptSessionUser(user: User): void {
+    user.languages = normalizeStringList(user.languages, ['en']).map((lang) => lang.toLowerCase());
+    user.talkFilters = normalizeTalkFilterShape(user.talkFilters, user.languages);
     this.currentUser = user;
     this.currentUserId = user.id;
     this.currentUserStageName = user.stageName;
   }
 
   showMainInterface(user: User): void {
+    user.languages = normalizeStringList(user.languages, ['en']).map((lang) => lang.toLowerCase());
+    user.talkFilters = normalizeTalkFilterShape(user.talkFilters, user.languages);
     this.currentUser = user;
     this.currentUserId = user.id;
     this.currentUserStageName = user.stageName;
@@ -1146,10 +1185,8 @@ export class UIManager extends EventEmitter {
     const userInfoMe = document.getElementById('user-info-me');
     if (userInfoMe) {
       const copyTalkChecked = getCopyTalkAutoSave();
-      const talkFilters = user.talkFilters || {
-        ...getTalkIntakeFilters(),
-        allowedLanguages: Array.isArray(user.languages) && user.languages.length > 0 ? user.languages : ['en'],
-      };
+      const talkFilters = normalizeTalkFilterShape(user.talkFilters, user.languages);
+      user.talkFilters = talkFilters;
       setTalkIntakeFilters(talkFilters);
       const headshot = String(user.headshot || '').trim();
       const profileAnswers = Array.isArray(user.profile) ? user.profile : [];
@@ -2069,10 +2106,10 @@ export class UIManager extends EventEmitter {
   private renderSettingsView(user: User): void {
     const container = document.getElementById('settings-content');
     if (!container) return;
-    const talkFilters = user.talkFilters || {
-      ...getTalkIntakeFilters(),
-      allowedLanguages: Array.isArray(user.languages) && user.languages.length > 0 ? user.languages : ['en'],
-    };
+    const profileLanguages = normalizeStringList(user.languages, ['en']).map((lang) => lang.toLowerCase());
+    user.languages = profileLanguages;
+    const talkFilters = normalizeTalkFilterShape(user.talkFilters, profileLanguages);
+    user.talkFilters = talkFilters;
     setTalkIntakeFilters(talkFilters);
     const reputation = user.reputation || ({} as typeof user.reputation);
     const home = this.getHomeChatroomId();
@@ -2085,11 +2122,11 @@ export class UIManager extends EventEmitter {
           <div style="font-weight:700;color:#111827;margin-bottom:10px;">Languages</div>
           <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
             <span>Profile languages</span>
-            <input type="text" class="form-input" id="settings-profile-languages" value="${escapeHtml((user.languages || ['en']).join(', '))}" placeholder="en, zh">
+            <input type="text" class="form-input" id="settings-profile-languages" value="${escapeHtml(profileLanguages.join(', '))}" placeholder="en, zh">
           </label>
           <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
             <span>Incoming talk language filter</span>
-            <input type="text" class="form-input" id="settings-filter-languages" value="${escapeHtml((talkFilters.allowedLanguages || ['en']).join(', '))}" placeholder="en, zh">
+            <input type="text" class="form-input" id="settings-filter-languages" value="${escapeHtml(talkFilters.allowedLanguages.join(', '))}" placeholder="en, zh">
           </label>
         </section>
         <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">

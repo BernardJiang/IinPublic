@@ -62,4 +62,51 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#settings-dirty-words-filter')).toBeVisible();
     await expect(p.locator('#settings-credit-visible')).toBeVisible();
   });
+
+  test('settings tolerates legacy string-valued profile and filter fields', async () => {
+    const p = page!;
+    await p.evaluate(() => {
+      const app = (window as any).__iinpublic_app.getApp();
+      const ui = app.uiManager;
+      ui.showMainInterface({
+        id: 'legacy-user',
+        stageName: 'Legacy User',
+        profile: [],
+        reputation: {
+          questionsAnswered: 0,
+          talksSent: 0,
+          matchesFound: 0,
+          friendsCount: 0,
+          mutualFriendsCount: 0,
+          likedCount: 0,
+          dislikedCount: 0,
+          starRating: 3,
+          reviewCount: 0,
+          ageVerified: false,
+          ageVerificationVotes: 0,
+          blockCount: 0,
+          isHidden: false,
+        },
+        location: { region: 'region_37.77_-122.42', chatrooms: ['global'] },
+        languages: 'en, zh',
+        interests: [],
+        createdAt: new Date(),
+        lastActive: new Date(),
+        talkFilters: {
+          allowedLanguages: 'en, zh',
+          requireGoodGrammar: true,
+          blockDirtyWords: false,
+          allowedTalkTypes: 'flow',
+          customBlockedTerms: 'spam, scam',
+        },
+      });
+    });
+
+    await p.locator('.nav-btn[data-view="settings"]').click();
+    await afterNav();
+    await expect(p.locator('body')).not.toContainText('Oops! Something went wrong');
+    await expect(p.locator('#settings-profile-languages')).toHaveValue('en, zh');
+    await expect(p.locator('#settings-filter-languages')).toHaveValue('en, zh');
+    await expect(p.locator('#settings-custom-blocked')).toHaveValue('spam, scam');
+  });
 });
