@@ -2,7 +2,7 @@
 ## Software Requirements, Architecture, Security, Data, Network, Mobile & API Interfaces
 
 > **Version:** 3.0 — merged from SRS (projectplan.md), Design Spec v1, and Design Spec v2
-> **Date:** 2026-04-13
+> **Date:** 2026-05-12
 > **Status:** Authoritative — single source of truth for all requirements and design decisions
 
 ---
@@ -1563,6 +1563,17 @@ Bulk send from the Chatrooms UI SHALL honor **FR-BM-7**: the audience is the **c
 
 ### 13.5 Survey Analytics Dashboard
 
+Current implementation baseline:
+
+- `GET /api/stats/talks/:id/summary` returns response/match/ignore totals and answer distribution.
+- `GET /api/stats/talks/:id/by-day` returns UTC day/week/month-compatible time buckets.
+- `GET /api/stats/talks/:id/by-region` returns region buckets with low-count masking in the UI.
+- `GET /api/stats/talks/:id/by-answer?questionId=...` returns per-answer breakdowns.
+- `GET /api/stats/broadcast-tags` and `/trends?days=N` expose cumulative and UTC-day broadcast tag demand.
+- The web dashboard supports survey summary, by-day, by-region, CSV exports, low-count anonymity masking, and follow-up survey creation.
+
+Future statistics expansion should add cross-question correlations, skip/completion rates, richer chart controls, chatroom/location analytics, peer/reputation analytics, and durable persistence where analytics must survive server restart.
+
 ```javascript
 const SurveyComponents = {
   resultsChart: { component: 'SurveyChartRenderer',
@@ -2024,7 +2035,7 @@ The following items are known open questions or planned post-MVP work:
 4. **Advanced ML-based matching**: Current matching is rule-based (DAG traversal). Post-MVP, a lightweight ML ranker could improve match quality and suggest relevant talks.
 5. **Group chat**: All current conversations are one-on-one. Group chat capability is a post-MVP feature.
 6. **Push notifications**: Current notifications are in-app only. True background push notifications (FCM on Android, APNs on iOS) are needed for production.
-7. **Analytics dashboards**: Survey and reputation analytics are currently minimal. A richer dashboard (time series, cross-question correlations) is a post-MVP enhancement.
+7. **Statistics expansion**: Baseline survey, talk, peer, and broadcast-tag statistics exist. A richer statistics layer is planned for cross-question survey analysis, durable counters, chatroom/location analytics, peer/reputation analytics polish, and unified dashboard navigation.
 8. **Web peer stability**: Browser-based Gun peers lose connectivity on tab close or sleep. A service worker peer or persistent relay strategy is needed for production reliability.
 9. **Key backup and recovery**: If a user loses their device, their SEA key pair is lost and identity cannot be recovered. A secure key backup/export mechanism is needed.
 10. **iOS key storage**: Android uses Keystore for key storage; the iOS equivalent (Secure Enclave / Keychain) needs design work.

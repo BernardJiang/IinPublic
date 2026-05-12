@@ -64,10 +64,14 @@ npm run lint
 
 Current working docs:
 
+- [Docs Home](./docs/README.md)
+- [Technical Specification](./docs/specs/iinpublic-technical-specification.md)
 - [How To Run](./docs/guides/HOW_TO_RUN.md)
 - [Project Status](./docs/reports/PROJECT_STATUS.md)
 - [Contributing](./docs/dev/contributing.md)
 - [TODO](./docs/TODO.md)
+- [Spec Gap Matrix](./docs/roadmap/spec-gap-matrix.md)
+- [Statistics Expansion Roadmap](./docs/roadmap/statistics-expansion.md)
 - [Current Docs Map](./docs/current/README.md)
 - [Archive Docs Map](./docs/archive/README.md)
 
@@ -82,8 +86,9 @@ What is stable today:
 - Gun authority is audited; server is authoritative for stats, matches, and conversations
 - Me-tab profile editor (headshot, languages, interests, profile Q&A with per-row visibility) and viewer-filtered public profile rendering in peer/contact views are live
 - Age gating, blocking/unblock, reputation flows, custom/business chatrooms, travel mode, survey analytics, cancellation handling, and exact chatbot Q/A memory are implemented with focused coverage
+- Statistics baseline is implemented: per-talk summary/by-day/by-region/by-answer endpoints, survey analytics dashboard, CSV exports, broadcast tag popularity/trends, and peer relationship stats
 
 Active work (see [TODO](./docs/TODO.md)):
 
-- Nice-to-have coverage for mobile layout, reconnect recovery, Answers search/filter, timezone boundaries, and GPS auto-assignment
-- Ongoing docs alignment as the product surface changes
+- Statistics expansion: cross-question analytics, richer time-series controls, chatroom/location stats, peer/reputation analytics polish, durable counters, and unified dashboard navigation
+- Ongoing docs alignment with the technical specification as statistics features land

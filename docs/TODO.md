@@ -1,153 +1,68 @@
 # IinPublic TODO
 
-Last updated: 2026-05-11
+Last updated: 2026-05-12
 
-This file is the prioritized backlog for the current repository. It should track the
-highest-value spec gaps that still exist in the working codebase, not features that are
-already present behind tests.
+This is the forward backlog for the current repository. Completed feature ledgers belong in
+[Project Status](reports/PROJECT_STATUS.md) or the [Spec Gap Matrix](roadmap/spec-gap-matrix.md),
+not in TODO.
 
-Detailed evidence for these gaps lives in `docs/roadmap/spec-gap-matrix.md`.
+Authoritative product scope lives in
+[docs/specs/iinpublic-technical-specification.md](specs/iinpublic-technical-specification.md).
 
-## Current Snapshot
+## Current Focus
 
-Implemented and covered now:
+The major spec features implemented so far are merged into the current docs baseline:
 
-- Core web/server/shared talk loop is stable and tested end-to-end
-- Chatroom member list scroll + single status-bar broadcast action are live
-- Contacts list, shared peer/detail view, Talks `IN` / `OUT` navigation, and richer Answers cards are live
-- Me-tab intake filters + credit visibility and Contacts relationship editing are live
-- Me-tab profile editor (headshot, languages, interests, public Q&A, per-row visibility) and public profile on peer/contact views are live; server filters Q&A on `GET /api/users/:id`
-- Survey talks: **Results** on each OUT row opens aggregated stats (`GET /api/stats/talks/:id/summary`)
-- Seeded dev entry points exist: `dev:stage-empty`, `dev:stage-user1`, `dev:stage-user2-match`, `dev:stage-user3-network`
-- Age-gating UI implemented: `isAdult` talk flag, age-verify vouch button, Credit badge; E2E in `tests/e2e/16-age-gating.spec.ts`
-- Blocking + unblock flows and E2E in `tests/e2e/15a-blocking-unblock-resumes-talk-delivery.spec.ts` and `tests/e2e/15b-blocking-stops-delivery-and-peer-visibility.spec.ts`
-- Custom/business chatrooms: REST + Gun metadata, E2E API spec `tests/e2e/17-chatroom-custom-business-api.spec.ts`, and web **Chatrooms** tab (`➕ New room`, owner rename/delete on room detail)
-- Exact chatbot Q/A memory: deterministic exact question/answer IDs, `TEMPORARY` / `PERMANENT` / `SUPPRESSED` modes, permanent/temporary/suppressed routing, Gun persistence, UI state, auto-use telemetry, unit/integration coverage, and E2E reuse path in `tests/e2e/talks-matching/14-exact-chatbot-memory.spec.ts`
-- Broadcast cancellation/deletion coverage: `tests/e2e/00-broadcast-deletion-mid-broadcast.spec.ts`, `tests/e2e/00-broadcast-abort-clear-all.spec.ts`, and `tests/e2e/00-broadcast-boundary-match.spec.ts`
-- Profile privacy visibility E2E: `tests/e2e/24-profile-privacy-visibility.spec.ts`
+- Profile editing and viewer-filtered profile privacy
+- Server-enforced intake/moderation filters, age gating, blocking/unblock, reputation, and rate limits
+- Custom/business chatrooms, hierarchy navigation, same-room broadcast delivery, and single-room travel mode
+- Tag catalog, broadcast preamble, interest targeting, distance caps, tag popularity, and tag trend stats
+- Exact chatbot Q/A memory with temporary/permanent/suppressed modes and auto-use telemetry
+- Talk lifecycle coverage for cancellation/deletion, matching, contacts, messaging, and answer history
+- Survey analytics dashboard with summary/by-day/by-region views, low-count masking, CSV exports, and follow-up survey creation
 
-The backlog below focuses on the biggest remaining gaps between the current implementation
-and `docs/specs/iinpublic-technical-specification.md`.
+## P0 — Statistics Expansion Design
 
-## Priority Backlog
+- [x] Create the focused statistics roadmap:
+  [docs/roadmap/statistics-expansion.md](roadmap/statistics-expansion.md).
+- [ ] Decide the statistics source-of-truth model.
+  Document which metrics are server-authoritative in memory, mirrored to Gun, append-only,
+  recomputable, or intentionally ephemeral.
+- [ ] Define privacy and anonymity rules for every stats surface.
+  Include minimum cohort sizes, region/time bucketing rules, per-viewer permission checks,
+  and rules for exported CSV data.
+- [ ] Define shared stats response schemas in `src/shared/` before adding more endpoints.
+  Current endpoints already expose summary, by-day, by-region, by-answer, broadcast-tag popularity,
+  and broadcast-tag trends; future endpoints should reuse typed schema contracts.
 
-### P0 — Close the largest product/spec gaps
+## P1 — Statistics Product Work
 
-- [x] Implement exact chatbot Q/A memory logic from `docs/specs/iinpublic-technical-specification.md` FR-QA-7..13 / §12.3:
-  deterministic `normalizeText`, `makeQuestionId`, `makeAnswerId`, `TEMPORARY` / `PERMANENT` / `SUPPRESSED` modes, newest-to-oldest temporary fallback, permanent-answer skip semantics, suppressed-question skip semantics, and append-only auto-use telemetry.
-  (Source merged from `docs/gun_chatbot_qa_memory_logic (1).md`)
-- [x] Wire exact chatbot memory into the live talk/conversation flow:
-  normal option pick saves `TEMPORARY`; custom answer or "make permanent" saves `PERMANENT`; Ignore saves `SUPPRESSED`; incoming exact questions call `findAutoAnswer()` and return `ANSWER` / `ASK_USER` / `SKIP` with reason codes before rendering chips.
-  (Spec: FR-QA-7..13, §7.5, §12.3)
-- [x] Update the answer UI for chatbot memory state:
-  expose a clear permanent/custom action on answer chips or custom-answer entry, preserve the existing public/manual lock semantics, show when an answer was chatbot-generated, and surface auto-use count / latest auto-use timestamp where answer history is shown.
-  (Spec: FR-QA-10, FR-QA-12, UI §13.3/§13.6)
-- [x] Add unit/integration tests for exact chatbot memory:
-  no history asks user; temporary history scans newest-to-oldest; permanent answer present auto-answers; permanent answer missing skips without temporary fallback; suppressed question skips; exact normalized IDs reject non-matching text; auto-use appends `uses/{useEventId}` and repairs cached counters.
-  (Spec: TC-QA-01, FR-QA-7..13)
-- [x] Profile polish (shipped 2026-05-06): Q&A visibility (public / contacts-only / private), server-side filtering on user fetch, interest `TagCategory` catalog + defaults. **Remaining:** per-viewer allowlists, reputation-section visibility (FR-UM-7), deeper FR-UM audit.
-- [x] Intake & moderation — **extended (2026-05-07):** custom blocked phrases on `TalkIntakeFilters` (Me → Talk Filters), server list via `IINPUBLIC_SERVER_BLOCKED_TERMS`, symmetric send/receive cooldown via `IINPUBLIC_SYMMETRIC_TALK_EDGE_COOLDOWN_MS` on `/received`, bulk register (and preview eligibility). Reject codes include `intake_custom_blocked_terms`, `moderation_server_terms`, `symmetric_rate_limit`. Daily/weekly numeric caps from CONFIG remain a further step (see P2).
-  (2026-05-07: receiver GPS for distance rules is also read from `users/:id/location` where the web client writes blurred location.)
-  (Spec: FR-BF-3..6, FR-SP-3, FR-SP-7, FR-SP-8)
-- [x] Blocking + reputation integration (shipped 2026-05-06): `register-receivers-for-broadcast` now enforces sender bulk capacity derived from reputation (including block-count penalties), with integration coverage for capped and zero-capacity senders.
-  **Remaining:** full rate-limit/cooldown enforcement stays tracked under FR-SP-1/2.
-  (Spec: FR-SP-4..6)
+- [ ] Add cross-question survey analytics.
+  Examples: answer correlation, segmented answer distribution, skip rate, completion rate,
+  and time-to-answer where timestamps are available.
+- [ ] Add richer time-series statistics.
+  Support day/week/month selection consistently across talk, survey, broadcast-tag, and chatroom stats.
+- [ ] Add chatroom/location analytics.
+  Track room activity, broadcast reach, response rate, match rate, traveller vs local split,
+  and region-level trends without exposing precise user location.
+- [ ] Add peer/reputation analytics polish.
+  Summarize relationship history, mutual tags, match quality, block/rating impact, and visibility controls
+  in a way that respects profile/reputation privacy.
+- [ ] Add a statistics dashboard navigation surface.
+  Avoid scattering stats only inside row-level modals; give creators one place to scan recent talks,
+  surveys, tags, and rooms.
 
-### P1 — Add the missing room and targeting model
+## P2 — Hardening and Verification
 
-- [x] Fix shared disk race in `clearGunDatabases()` (shipped 2026-05-07):
-  `tests/e2e/helpers/clear-database.ts` now clears only `POST /api/test/clear-database` + browser IndexedDB.
-  No disk deletes remain in the E2E cleanup path because Playwright servers run with `E2E_GUN_MEMORY_ONLY=1`.
-  If disk persistence is reintroduced, use per-worker paths (`radata_w{N}/`, `data1_w{N}.json`) instead of shared files.
-  (testing-benchmarks.md — cross-worker disk race was ~12.5% suite failure at W4)
-- [x] User-defined and business chatrooms (shipped 2026-05-06): REST + Gun metadata (`chatroom-manager` / `chatroom-routes`), membership APIs, and **web** create / rename / delete (`➕ New room`, owner actions on room detail). **Remaining:** richer business profile UX, FIFO vs per-room capacity alignment on the client.
-  (Spec: FR-CR-5, FR-CR-6)
-- [x] Support explicit travel mode with single-room presence only:
-  a user may switch to one remote room at a time, and when travelling they should no longer appear in any home-region room until they return
-  (Spec intent override for FR-CR-9, FR-CR-10)
-- [x] Tag catalog + bulk broadcast preamble + interest targeting (**shipped** 2026-05-07): curated catalog, mandatory preamble modal, server `broadcastTargetTags` ∩ profile interests (`tag_targeting`).
-- [x] Tag / interest **analytics depth** — rolling **UTC day** windows in `BroadcastTagPopularityStore`, `GET /api/stats/broadcast-tags/trends?days=N`, **Me** tab “Broadcast tag trends” table; cumulative `GET /api/stats/broadcast-tags` unchanged for preamble chip sorting.
-  (**Earlier 2026-05-07:** in-memory cumulative counts per slug on `POST .../register-receivers-for-broadcast`.)
-- [x] Bulk-send from chatrooms: **same chatroom id only** (FR-BM-7) — no implicit delivery to descendant hierarchy rooms; optional **distance cap** (`broadcast_max_distance`); **`POST /api/talks/broadcast-receiver-preview`** for eligible-count preview; wired client + single-room Gun announce + integration coverage.
-  (FR-BM-1..5, FR-BM-7 / UI §13.4 surface area; richer **analytics** still open above.)
-- [x] Add E2E tests for multi-chatroom broadcasts and chatroom hierarchy navigation:
-  `tests/e2e/19-chatroom-hierarchy-broadcast.spec.ts` — hierarchy expand, **USA** + **Germany** paths, regional broadcast **in the same leaf room**, and **regression**: parent (**North America**) broadcast does **not** register inbox for a peer joined only under **USA**.
-  (e2e-test-coverage.md: Critical Gaps #2, #3)
-
-### P2 — Complete analytics, guardrails, and docs
-
-- [x] Add retry or explicit synchronization guard after `clearGunDatabases()` (**shipped** 2026-05-09):
-  `tests/e2e/helpers/clear-database.ts` polls `GET /health` until the worker Gun server is up, retries
-  `POST /api/test/clear-database` with exponential backoff on failure, then **250ms settle** after a
-  successful clear. Throws if the graph cannot be cleared (fail-fast vs. continuing on a dirty graph).
-  (testing-benchmarks.md — W1/W2 still valid if radisk/disk persistence returns)
-- [x] Extend survey analytics beyond the Talks-tab **Results** modal (**shipped** 2026-05-07): dedicated survey analytics dashboard (summary + by-day + by-region), anonymity-default masking for low-count cohorts, CSV exports (summary/day/region), and follow-up survey creation from the dashboard.
-  (Spec: FR-SV-2..5, UI §13.5 — per-question counts/% now visible for survey OUT rows)
-- [x] Add **daily/weekly numeric quotas** (distinct from symmetric cooldown) and tests for hard caps per `CONFIG.RATE_LIMITS` (**implemented** 2026-05-07): server-enforced counters for sender+receiver edges with UTC day + UTC Monday week resets; reject codes `daily_talk_send_rate_limit` / `daily_talk_receive_rate_limit` and `weekly_talk_send_rate_limit` / `weekly_talk_receive_rate_limit`.
-  (Spec: FR-SP-1, FR-SP-2 — symmetric cooldown + tests shipped via `IINPUBLIC_SYMMETRIC_TALK_EDGE_COOLDOWN_MS`)
-- [x] Add E2E tests for reputation system flows: vouch age-verify votes accumulating to threshold, star rating impact, block count propagation
-  (e2e-test-coverage.md: Medium Gap #10) (implemented 2026-05-08)
-- [x] Add E2E tests for messaging edge cases: message read receipts, messaging history persistence across re-login, messaging after unblock
-  (e2e-test-coverage.md: Medium Gap #5) (implemented 2026-05-08)
-- [x] Add E2E tests for talk deletion by creator mid-broadcast, broadcast cancellation/abortion,
-  and talk matching across chatroom boundaries
-  (e2e-test-coverage.md: Medium Gaps #6, #8, #9)
-- [x] Add E2E test for profile privacy settings:
-  hiding specific profile fields from certain users
-  (e2e-test-coverage.md: Medium Gap #7)
-- [x] Refresh current docs so they match the post-May-03 implementation:
-  `README.md`, `docs/reports/PROJECT_STATUS.md`, and any spec-delta notes should stop listing recently completed UX work as missing
-- [x] Extend automated coverage around the server-enforced moderation, custom-chatroom, and targeting flows so the next feature pass is protected
-  (Spec: FR-BTD-4, §15)
-
-### P3 — Nice-to-have coverage
-
-- [x] Mobile viewport E2E tests: all current tests use desktop/compact viewports
-  (e2e-test-coverage.md: Nice-to-Have #11)
-- [x] WebSocket disconnection recovery test: verify Gun sync drop + reconnect handling
-  (e2e-test-coverage.md: Nice-to-Have #12)
-- [x] Search/filter within Answers tab test: verify filtering works with answered talks
-  (e2e-test-coverage.md: Nice-to-Have #13)
-- [x] Timezone boundary test for by-day stats API
-  (e2e-test-coverage.md: Nice-to-Have #14)
-- [x] Location-based chatroom auto-assignment E2E test
-  (e2e-test-coverage.md: Critical Gap #4 — requires GPS mock support)
-
-## Suggested Execution Order
-
-1. **Fix clearGunDatabases disk race** (P1 — done for memory-only E2E; revisit if radisk returns)
-2. ~~Age-gating E2E~~ / ~~Unblocking E2E~~ — covered by `16-age-gating.spec.ts` and `15a-blocking-unblock-resumes-talk-delivery.spec.ts`
-3. **Profile spec deltas** — per-viewer privacy, interest catalog/categories, doc/test alignment (`04-profile-edit-stage-name.spec.ts` + editor exist)
-4. **Server-enforced moderation**
-   - Define one delivery-time filter pipeline on the server
-   - Reuse existing intake-filter data where possible, but make server results authoritative
-   - Add integration tests around `/received` / incoming-talk registration
-5. **Blocking ↔ reputation** — wire block metrics into capacity/score where required
-6. **Chatroom model expansion**
-   - Custom/business room schemas, CRUD API, web create/rename/delete, travel single-room semantics, broadcast tag preamble/targeting chunk are live (see backlog for popularity + wider audience-scope gaps)
-   - Expand bulk-send targeting beyond the current room action
-   - Add multi-chatroom and hierarchy E2E tests alongside
-7. **Survey dashboard depth + rate limits + reputation + docs cleanup**
-   - Build on Talks **Results**; add cooldown enforcement tests, reputation E2E, status doc refresh after server rules land
-
-## Done Recently — do not re-add as greenfield work
-
-- Age-gating UI: `isAdult` talk flag in editor, age-verify vouch button in contacts dialog, "Age verified" Credit badge
-- Chatroom member-list scrolling
-- Unified broadcast action in the status/chatroom surface
-- Contacts list with exchanged-talk stats
-- Shared peer detail between chatroom members and contacts
-- Talks tab `IN` / `OUT` / back navigation
-- Expanded Answers rendering with question/answer metadata
-- Me-tab intake filters and credit visibility
-- Contacts relationship dialog and peer credit summary
-- Survey OUT-row results modal (STAT-01 summary API)
-- Seeded dev-stage commands for local feature work
+- [ ] Persist stats counters that must survive server restarts.
+  Daily/weekly quota counters and current stats indices are in-memory unless explicitly mirrored or recomputed.
+- [ ] Add integration tests for any new stats endpoint.
+  Cover empty data, UTC boundaries, filter parameters, privacy masking, and malformed input.
+- [ ] Add E2E tests for the statistics dashboard once the UI expands beyond the current survey modal.
+- [ ] Keep `docs/roadmap/spec-gap-matrix.md` and `docs/reports/PROJECT_STATUS.md` updated when a stats feature ships.
 
 ## Working Rule
 
-When updating this file:
-
-- Prefer spec gaps and execution priority over implementation detail
-- Remove completed items instead of keeping stale "missing" work around
-- If a task needs a deeper implementation plan, create a focused doc in `docs/roadmap/`
+- Remove completed TODOs instead of keeping stale checked-off work.
+- Link each future item to the technical specification or a focused roadmap doc.
+- Archive old snapshots under `docs/archive/` when they stop representing the current repo.
