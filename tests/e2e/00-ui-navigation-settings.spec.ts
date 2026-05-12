@@ -41,10 +41,25 @@ test.describe('UI navigation and settings shell', () => {
 
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
+    await expect(p.locator('#status-bar-text')).not.toContainText(/User.* in /);
     await expect(p.locator('#chatroom-action-bar')).toContainText('New Room');
     await expect(p.locator('#chatroom-action-bar')).toContainText('Return Home');
     await expect(p.locator('#chatroom-action-bar')).toContainText('Broadcast');
+    await expect(p.locator('body')).not.toContainText('Uses talks from Talks OUT');
     await expect(p.locator('#return-home-btn')).toBeEnabled();
+    await expect(p.locator('#chatrooms-stats-strip')).toHaveCount(0);
+    await expect
+      .poll(async () => {
+        return p.locator('#broadcast-talk-btn').evaluate((button) => {
+          const bar = document.getElementById('chatroom-action-bar')?.getBoundingClientRect();
+          const rect = button.getBoundingClientRect();
+          return {
+            compact: rect.width < 180,
+            sameRow: bar ? Math.abs(rect.top - bar.top) < 16 : false,
+          };
+        });
+      })
+      .toEqual({ compact: true, sameRow: true });
 
     await p.locator('.nav-btn[data-view="me"]').click();
     await afterNav();

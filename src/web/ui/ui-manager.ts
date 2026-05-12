@@ -605,10 +605,7 @@ export class UIManager extends EventEmitter {
               <button type="button" class="btn status-broadcast-btn" id="broadcast-talk-btn" title="Send every talk in your OUT list to everyone in this chatroom">
                 Broadcast
               </button>
-              <span class="status-broadcast-hint" id="status-broadcast-hint" style="font-size:0.82em;color:#64748b;">Uses talks from Talks OUT.</span>
             </div>
-            <div class="embedded-stats-strip" id="chatrooms-stats-strip" style="padding:8px 12px;color:#64748b;font-size:0.88em;"></div>
-            
             <!-- Chatroom List -->
             <div class="chatroom-list-container" id="chatroom-list-container">
               <div class="chatroom-list" id="chatroom-list">
@@ -1117,7 +1114,6 @@ export class UIManager extends EventEmitter {
         // Special handling for chatrooms view
         if (targetView === 'chatrooms') {
           this.showChatroomList();
-          void this.displayContextualStatistics('chatrooms-stats-strip');
         }
 
         // Special handling for contacts view
@@ -3151,7 +3147,7 @@ export class UIManager extends EventEmitter {
   }
 
   updateStatusBar(
-    stageName: string,
+    _stageName: string,
     chatroomName: string,
     memberCount: number,
     totalMatches?: number,
@@ -3160,7 +3156,7 @@ export class UIManager extends EventEmitter {
     const statusBarText = document.getElementById('status-bar-text');
 
     if (statusBar && statusBarText) {
-      let text = `${stageName} in ${chatroomName} with ${memberCount} ${memberCount === 1 ? 'user' : 'users'}`;
+      let text = `${chatroomName} · ${memberCount} ${memberCount === 1 ? 'user' : 'users'}`;
       const localTotalMatches = this.getTotalMatches();
       const effectiveTotalMatches = localTotalMatches > 0 ? localTotalMatches : (totalMatches ?? 0);
       if (effectiveTotalMatches > 0) {
