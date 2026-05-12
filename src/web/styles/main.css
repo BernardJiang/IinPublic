@@ -148,6 +148,10 @@ body {
   white-space: nowrap;
 }
 
+.header-status-text[hidden] {
+  display: none;
+}
+
 /* View Container */
 .view-container {
   flex: 1;

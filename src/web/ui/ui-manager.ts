@@ -582,7 +582,11 @@ export class UIManager extends EventEmitter {
           <div class="header-title" id="header-title"></div>
           <div class="header-status" id="header-status" style="display: none;">
             <div class="header-user-info" id="header-user-info"></div>
-            <span class="header-status-text" id="status-bar-text">Connecting...</span>
+            <span class="header-status-text" id="status-bar-text" data-header-status-view="chatrooms">Connecting...</span>
+            <span class="header-status-text" id="contacts-status-text" data-header-status-view="contacts" hidden>Contacts from exchanged talks</span>
+            <span class="header-status-text" id="talks-status-text" data-header-status-view="talks" hidden>Incoming talks are consolidated by content.</span>
+            <span class="header-status-text" id="me-status-text" data-header-status-view="me" hidden>Profile, conversations, and answered talks</span>
+            <span class="header-status-text" id="settings-status-text" data-header-status-view="settings" hidden>Feature and filter controls</span>
             <span id="broadcast-bulk-ack" data-testid="broadcast-bulk-ack" hidden></span>
           </div>
           <div class="header-actions" id="header-actions">
@@ -628,9 +632,6 @@ export class UIManager extends EventEmitter {
           <!-- Contacts View (users who have matches with current user) -->
           <div class="view-panel" id="contacts-view">
             <div class="view-content">
-              <div class="status-bar contacts-status-bar">
-                <div class="status-bar-content"><span id="contacts-status-text">Contacts from exchanged talks</span></div>
-              </div>
               <div class="tab-action-bar contacts-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
                 <button class="back-btn" id="back-to-contacts-list" style="display:none;">‹ Back</button>
                 <input class="form-input" id="contacts-filter-name" type="search" placeholder="Filter by name" style="flex:1 1 160px; min-width:0;">
@@ -673,9 +674,6 @@ export class UIManager extends EventEmitter {
           <!-- Talks View -->
           <div class="view-panel" id="talks-view">
             <div class="view-content">
-              <div class="status-bar talks-status-bar">
-                <div class="status-bar-content"><span id="talks-status-text">Incoming talks are consolidated by content.</span></div>
-              </div>
               <div class="tab-action-bar talks-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
                 <button class="btn create-talk-btn" id="create-talk-btn-talks">
                   Create New Talk
@@ -767,9 +765,6 @@ export class UIManager extends EventEmitter {
           <!-- Me View -->
           <div class="view-panel" id="me-view">
             <div class="view-content">
-              <div class="status-bar me-status-bar">
-                <div class="status-bar-content"><span id="me-status-text">Profile, conversations, and answered talks</span></div>
-              </div>
               <div class="tab-action-bar me-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
                 <button class="btn me-answer-filter active" data-me-answer-filter="all" type="button">All</button>
                 <button class="btn me-answer-filter" data-me-answer-filter="auto" type="button">Auto</button>
@@ -806,9 +801,6 @@ export class UIManager extends EventEmitter {
           <!-- Settings View -->
           <div class="view-panel" id="settings-view">
             <div class="view-content">
-              <div class="status-bar settings-status-bar">
-                <div class="status-bar-content"><span id="settings-status-text">Feature and filter controls</span></div>
-              </div>
               <div class="tab-action-bar settings-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
                 <button class="btn" id="settings-refresh-location-btn" type="button">Refresh Location</button>
               </div>
@@ -1089,22 +1081,17 @@ export class UIManager extends EventEmitter {
 
         // Update header title and actions
         if (headerTitle) {
-          const titles: Record<string, string> = {
-            chatrooms: '',
-            contacts: 'Contacts',
-            talks: 'Talks',
-            me: 'Me',
-            settings: 'Settings',
-          };
-          headerTitle.textContent = titles[targetView] || 'IinPublic';
+          headerTitle.textContent = '';
         }
+        this.syncHeaderStatusView(targetView);
 
         // Show/hide create talk button based on view
         if (headerActions) {
+          headerActions.style.display = 'flex';
           if (targetView === 'chatrooms' || targetView === 'talks') {
-            headerActions.style.display = 'flex';
+            headerActions.style.visibility = 'visible';
           } else {
-            headerActions.style.display = 'none';
+            headerActions.style.visibility = 'hidden';
           }
         }
 
@@ -1139,6 +1126,12 @@ export class UIManager extends EventEmitter {
           if (this.currentUser) this.renderSettingsView(this.currentUser);
         }
       });
+    });
+  }
+
+  private syncHeaderStatusView(viewName: string): void {
+    document.querySelectorAll<HTMLElement>('.header-status-text[data-header-status-view]').forEach((status) => {
+      status.hidden = status.dataset.headerStatusView !== viewName;
     });
   }
 

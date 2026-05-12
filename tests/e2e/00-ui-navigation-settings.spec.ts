@@ -80,14 +80,39 @@ test.describe('UI navigation and settings shell', () => {
       .toEqual({ active: false, background: 'rgb(255, 255, 255)' });
     await expect(p.locator('.chatroom-item.current-room[data-chatroom-id="asia"]')).toBeVisible();
 
+    await p.locator('.nav-btn[data-view="contacts"]').click();
+    await afterNav();
+    await expect(p.locator('#header-title')).toBeEmpty();
+    await expect(p.locator('#contacts-status-text')).toBeVisible();
+    await expect(p.locator('#contacts-status-text')).toContainText('Contacts from exchanged talks');
+    await expect(p.locator('#contacts-view .status-bar')).toHaveCount(0);
+    await expect(p.locator('.contacts-action-bar')).toBeVisible();
+
+    await p.locator('.nav-btn[data-view="talks"]').click();
+    await afterNav();
+    await expect(p.locator('#header-title')).toBeEmpty();
+    await expect(p.locator('#talks-status-text')).toBeVisible();
+    await expect(p.locator('#talks-status-text')).toContainText(/incoming|Incoming/);
+    await expect(p.locator('#talks-view .status-bar')).toHaveCount(0);
+    await expect(p.locator('.talks-action-bar')).toBeVisible();
+
     await p.locator('.nav-btn[data-view="me"]').click();
     await afterNav();
+    await expect(p.locator('#header-title')).toBeEmpty();
+    await expect(p.locator('#me-status-text')).toBeVisible();
+    await expect(p.locator('#me-status-text')).toContainText('Profile');
+    await expect(p.locator('#me-view .status-bar')).toHaveCount(0);
     await expect(p.locator('#me-view')).toBeVisible();
     await expect(p.locator('#answers-content')).toBeVisible();
     await expect(p.locator('.me-answer-filter')).toHaveText(['All', 'Auto', 'Manual', 'Conditional']);
 
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
+    await expect(p.locator('#header-title')).toBeEmpty();
+    await expect(p.locator('#settings-status-text')).toBeVisible();
+    await expect(p.locator('#settings-status-text')).toContainText('Feature and filter controls');
+    await expect(p.locator('#settings-view .status-bar')).toHaveCount(0);
+    await expect(p.locator('.settings-action-bar')).toBeVisible();
     await expect(p.locator('#settings-view')).toBeVisible();
     await expect(p.locator('#settings-content')).toContainText('Languages');
     await expect(p.locator('#settings-copy-talk-autosave')).toBeVisible();
