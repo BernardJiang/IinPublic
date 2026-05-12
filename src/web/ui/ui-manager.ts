@@ -579,8 +579,12 @@ export class UIManager extends EventEmitter {
       <div class="app-container">
         <!-- Top Header -->
         <div class="top-header" id="top-header">
-          <div class="header-title" id="header-title">Chatrooms</div>
-          <div class="header-user-info" id="header-user-info" style="display: none;"></div>
+          <div class="header-title" id="header-title"></div>
+          <div class="header-status" id="header-status" style="display: none;">
+            <div class="header-user-info" id="header-user-info"></div>
+            <span class="header-status-text" id="status-bar-text">Connecting...</span>
+            <span id="broadcast-bulk-ack" data-testid="broadcast-bulk-ack" hidden></span>
+          </div>
           <div class="header-actions" id="header-actions">
             <button class="header-btn" id="create-talk-btn">➕</button>
           </div>
@@ -591,13 +595,6 @@ export class UIManager extends EventEmitter {
           
           <!-- Chatrooms View (Default) -->
           <div class="view-panel active" id="chatrooms-view">
-            <!-- Status Bar (Always visible, shows current user and chatroom info) -->
-            <div class="status-bar" id="status-bar">
-              <div class="status-bar-content">
-                <span id="status-bar-text">Connecting...</span>
-                <span id="broadcast-bulk-ack" data-testid="broadcast-bulk-ack" hidden></span>
-              </div>
-            </div>
             <div class="tab-action-bar chatroom-action-bar" id="chatroom-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
               <button class="back-btn" id="back-to-chatrooms" style="display:none;">‹ Back</button>
               <button type="button" class="btn" id="create-custom-chatroom-btn" data-testid="create-custom-chatroom-btn">New Room</button>
@@ -1093,7 +1090,7 @@ export class UIManager extends EventEmitter {
         // Update header title and actions
         if (headerTitle) {
           const titles: Record<string, string> = {
-            chatrooms: 'Chatrooms',
+            chatrooms: '',
             contacts: 'Contacts',
             talks: 'Talks',
             me: 'Me',
@@ -1105,7 +1102,7 @@ export class UIManager extends EventEmitter {
         // Show/hide create talk button based on view
         if (headerActions) {
           if (targetView === 'chatrooms' || targetView === 'talks') {
-            headerActions.style.display = 'block';
+            headerActions.style.display = 'flex';
           } else {
             headerActions.style.display = 'none';
           }
@@ -1163,18 +1160,19 @@ export class UIManager extends EventEmitter {
     this.currentUser = user;
     this.currentUserId = user.id;
     this.currentUserStageName = user.stageName;
-    // Update header with user's stageName
+    // Update the persistent header identity without duplicating the generated stage name.
+    const headerStatus = document.getElementById('header-status');
     const headerUserInfo = document.getElementById('header-user-info');
     if (headerUserInfo) {
       headerUserInfo.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <div class="user-avatar" style="width: 32px; height: 32px; font-size: 0.9em;">
-            ${user.stageName.charAt(0).toUpperCase()}
-          </div>
-          <div style="font-size: 0.95em; font-weight: 500; color: white;" data-testid="user-stage-name">${user.stageName}</div>
+        <div class="user-avatar">
+          ${user.stageName.charAt(0).toUpperCase()}
         </div>
+        <span class="visually-hidden" data-testid="user-stage-name">${user.stageName}</span>
       `;
-      headerUserInfo.style.display = 'block';
+    }
+    if (headerStatus) {
+      headerStatus.style.display = 'flex';
     }
 
     // Update user info in Me view
@@ -1456,9 +1454,9 @@ export class UIManager extends EventEmitter {
       ownerBar.innerHTML = '';
     }
 
-    // Update header
+    // Chatrooms is already identified in the bottom navigation; keep the header focused on status.
     const headerTitle = document.getElementById('header-title');
-    if (headerTitle) headerTitle.textContent = 'Chatrooms';
+    if (headerTitle) headerTitle.textContent = '';
 
     // Render the chatroom list
     this.renderChatroomList();
@@ -3152,10 +3150,9 @@ export class UIManager extends EventEmitter {
     memberCount: number,
     totalMatches?: number,
   ): void {
-    const statusBar = document.getElementById('status-bar');
     const statusBarText = document.getElementById('status-bar-text');
 
-    if (statusBar && statusBarText) {
+    if (statusBarText) {
       let text = `${chatroomName} · ${memberCount} ${memberCount === 1 ? 'user' : 'users'}`;
       const localTotalMatches = this.getTotalMatches();
       const effectiveTotalMatches = localTotalMatches > 0 ? localTotalMatches : (totalMatches ?? 0);

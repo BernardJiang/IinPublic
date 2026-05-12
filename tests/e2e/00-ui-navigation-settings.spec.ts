@@ -41,7 +41,10 @@ test.describe('UI navigation and settings shell', () => {
 
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
+    await expect(p.locator('#header-title')).toBeEmpty();
+    await expect(p.locator('#header-status')).toBeVisible();
     await expect(p.locator('#status-bar-text')).not.toContainText(/User.* in /);
+    await expect(p.locator('#chatrooms-view > #status-bar')).toHaveCount(0);
     await expect(p.locator('#chatroom-action-bar')).toContainText('New Room');
     await expect(p.locator('#chatroom-action-bar')).toContainText('Return Home');
     await expect(p.locator('#chatroom-action-bar')).toContainText('Broadcast');
@@ -60,6 +63,22 @@ test.describe('UI navigation and settings shell', () => {
         });
       })
       .toEqual({ compact: true, sameRow: true });
+    await p.locator('.chatroom-item[data-chatroom-id="asia"]').click();
+    await afterNav();
+    await p.locator('#back-to-chatrooms').click();
+    await afterNav();
+    await expect
+      .poll(async () => {
+        return p.locator('.chatroom-item[data-chatroom-id="global"]').evaluate((row) => {
+          const style = window.getComputedStyle(row);
+          return {
+            active: row.classList.contains('current-room'),
+            background: style.backgroundImage === 'none' ? style.backgroundColor : style.backgroundImage,
+          };
+        });
+      })
+      .toEqual({ active: false, background: 'rgb(255, 255, 255)' });
+    await expect(p.locator('.chatroom-item.current-room[data-chatroom-id="asia"]')).toBeVisible();
 
     await p.locator('.nav-btn[data-view="me"]').click();
     await afterNav();
