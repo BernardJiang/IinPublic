@@ -57,10 +57,6 @@ export class IinPublicApp {
     this.uiManager.initialize();
     this.uiManager.setApiBase(this.getBackendApiBase());
     this.uiManager.setCurrentLocation(location);
-    this.uiManager.setBroadcastAudiencePreviewCollector((args) =>
-      this.collectBroadcastAudienceReceiverIds(args),
-    );
-
     // Get or create user
     await this.initializeUser();
 
@@ -856,16 +852,6 @@ export class IinPublicApp {
   }
 
   /** Merges Gun members with UI list ids for bulk-send audience preview (same chatroom only). */
-  private async collectBroadcastAudienceReceiverIds(args: {
-    chatroomId: string;
-    members: Array<{ userId: string; stageName: string }>;
-  }): Promise<string[]> {
-    const me = this.currentUser?.id?.trim();
-    if (!me) return [];
-    const merged = await this.resolveBroadcastReceivers(args.chatroomId, args.members);
-    return merged.map((m) => m.userId).filter((id) => id && id !== me);
-  }
-
   /**
    * Wait until GET /api/talks/:id returns full talk JSON from the server graph so POST /received
    * and receivers’ incoming list can resolve the same id before we announce in the chatroom.
@@ -1945,6 +1931,45 @@ export class IinPublicApp {
             'Failed to send message: ' + (error as Error).message,
             'error',
           );
+        }
+      },
+    );
+
+    // Direct message from peer detail overlay — find or create a conversation then send
+    this.uiManager.on(
+      'sendDirectMessage',
+      async (data: { peerId: string; peerName: string; text: string; resolve: () => void; reject: (e: unknown) => void }) => {
+        try {
+          if (!this.currentUser) throw new Error('Not logged in');
+          const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+          const existing = Object.values(conversations).find(
+            (conv: any) => conv.otherUserId === data.peerId,
+          ) as any;
+          let conversationId: string;
+          if (existing?.conversationId) {
+            conversationId = existing.conversationId;
+          } else {
+            conversationId = await this.conversationService.createConversation({
+              userId1: this.currentUser.id,
+              userName1: this.currentUser.stageName,
+              userId2: data.peerId,
+              userName2: data.peerName,
+              talkId: 'direct',
+            });
+            await this.ingestConversationRecords([{
+              conversationId,
+              otherUserId: data.peerId,
+              otherUserName: data.peerName,
+              talkId: 'direct',
+              createdAt: new Date().toISOString(),
+            }]);
+          }
+          await this.conversationService.sendMessage(conversationId, this.currentUser.id, data.text);
+          data.resolve();
+        } catch (error) {
+          console.error('Failed to send direct message:', error);
+          this.uiManager.showNotification('Failed to send message: ' + (error as Error).message, 'error');
+          data.reject(error);
         }
       },
     );

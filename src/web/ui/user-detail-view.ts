@@ -11,6 +11,7 @@ export type UserDetailViewDeps = {
   registerTalkForPeer: (talkId: string, talkData: any, peerId: string, peerName: string) => Promise<void>;
   isBlockedByMe: (userId: string) => boolean;
   setBlocked: (userId: string, blocked: boolean) => Promise<void>;
+  sendDirectMessage: (peerId: string, peerName: string, text: string) => Promise<void>;
   knownPerson?: KnownPerson;
 };
 
@@ -105,6 +106,34 @@ export function openPeerDetailView(
     fresh.addEventListener('click', async () => {
       await deps.setBlocked(peerId, !deps.isBlockedByMe(peerId));
       closePeerDetailView();
+    });
+  }
+
+  // DM compose input
+  const dmInput = document.getElementById('peer-dm-input') as HTMLTextAreaElement | null;
+  if (dmInput) dmInput.value = '';
+  const dmSendBtn = document.getElementById('peer-dm-send-btn');
+  if (dmSendBtn) {
+    const fresh = dmSendBtn.cloneNode(true) as HTMLButtonElement;
+    dmSendBtn.replaceWith(fresh);
+    fresh.addEventListener('click', async () => {
+      const inp = document.getElementById('peer-dm-input') as HTMLTextAreaElement | null;
+      const text = inp?.value?.trim() ?? '';
+      if (!text) return;
+      fresh.disabled = true;
+      fresh.textContent = '⏳ Sending…';
+      try {
+        await deps.sendDirectMessage(peerId, peerName, text);
+        if (inp) inp.value = '';
+        fresh.textContent = '✓ Sent';
+        setTimeout(() => {
+          fresh.disabled = false;
+          fresh.textContent = '💬 Send Message';
+        }, 2000);
+      } catch {
+        fresh.disabled = false;
+        fresh.textContent = '💬 Send Message';
+      }
     });
   }
 

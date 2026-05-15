@@ -20,7 +20,6 @@ import {
 import { normalizeQuestionKey, interestsFromCommaInput } from '../../shared/user-utils';
 import { PROFILE_VISIBILITY_LABELS, normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../shared/interest-catalog';
-import { BROADCAST_TAG_CATALOG_ENTRIES } from '../../shared/broadcast-tag-catalog';
 import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
 import { getFlatChatroomList, CHATROOM_HIERARCHY } from '../../shared/chatroom-hierarchy';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
@@ -98,7 +97,6 @@ import {
   getTalkIntakeFilters,
   setTalkIntakeFilters,
 } from './talk-intake-filters';
-import { LocationPrivacy } from '../../shared/location';
 import { normalizeCustomBlockedTerms } from '../../shared/talk-intake-filters';
 
 const TALK_TYPE_VALUES: TalkIntakeFilters['allowedTalkTypes'] = ['flow', 'survey', 'tag', 'route'];
@@ -146,14 +144,6 @@ export class UIManager extends EventEmitter {
   private currentUserId: string = '';
   private currentUserStageName: string = '';
   private currentLocation: GPSCoordinate | undefined = undefined;
-
-  /** Resolves receiver ids merged with Gun for `POST /api/talks/broadcast-receiver-preview` (same chatroom only; set by `IinPublicApp`). */
-  private broadcastAudiencePreviewCollector?:
-    | ((args: {
-        chatroomId: string;
-        members: Array<{ userId: string; stageName: string }>;
-      }) => Promise<string[]>)
-    | undefined;
 
   /** Other users in the current chatroom detail view (excludes self); used for broadcast + server-side IN registration. */
   getCurrentChatroomMembers(): Array<{ userId: string; stageName: string }> {
@@ -210,19 +200,6 @@ export class UIManager extends EventEmitter {
     const away = !!this.currentChatroom && this.currentChatroom !== home;
     btn.disabled = !away;
     btn.title = away ? `Return to ${this.resolveChatroomTitle(home)}` : 'Already in your home room';
-  }
-
-  setBroadcastAudiencePreviewCollector(
-    fn:
-      | ((
-          args: {
-            chatroomId: string;
-            members: Array<{ userId: string; stageName: string }>;
-          },
-        ) => Promise<string[]>)
-      | undefined,
-  ): void {
-    this.broadcastAudiencePreviewCollector = fn;
   }
 
   setCustomChatroomsFromServer(rows: CustomChatroomRow[]): void {
@@ -329,251 +306,6 @@ export class UIManager extends EventEmitter {
       host.innerHTML =
         '<p style="font-size:0.85em;color:#b45309;margin:0;">Could not load broadcast tag trends.</p>';
     }
-  }
-
-  /**
-   * Before bulk broadcast: confirm blurred location summary, optional max recipient distance cap,
-   * and choose ≥1 targeting tag(s). Tags intersect receivers' interests server-side
-   * (`register-receivers-for-broadcast`). Delivery is **this chatroom only** (never descendant hierarchy rooms).
-   */
-  showBroadcastTagPreamble(ctx: {
-    chatroomId: string;
-    members: Array<{ userId: string; stageName: string }>;
-  }): Promise<{
-    tags: string[];
-    broadcastMaxDistanceMiles?: number;
-  } | null> {
-    return this.openBroadcastTagPreambleModal(ctx);
-  }
-
-  private async openBroadcastTagPreambleModal(ctx: {
-    chatroomId: string;
-    members: Array<{ userId: string; stageName: string }>;
-  }): Promise<{
-    tags: string[];
-    broadcastMaxDistanceMiles?: number;
-  } | null> {
-    let orderedEntries = [...BROADCAST_TAG_CATALOG_ENTRIES];
-    const base = (this.apiBase || '').trim();
-    if (base) {
-      try {
-        const c = new AbortController();
-        const tid = window.setTimeout(() => c.abort(), 2500);
-        try {
-          const res = await fetch(`${base}/api/stats/broadcast-tags`, { signal: c.signal });
-          if (res.ok) {
-            const body = (await res.json()) as { tags?: Array<{ id?: string; count?: number }> };
-            const rows = Array.isArray(body.tags) ? body.tags : [];
-            const countById = new Map<string, number>();
-            for (const row of rows) {
-              const id = String(row?.id || '').trim();
-              if (!id) continue;
-              countById.set(id, Math.max(0, Math.floor(Number(row?.count ?? 0))) || 0);
-            }
-            orderedEntries.sort(
-              (a, b) =>
-                (countById.get(b.id) ?? 0) - (countById.get(a.id) ?? 0) || a.label.localeCompare(b.label),
-            );
-          }
-        } finally {
-          window.clearTimeout(tid);
-        }
-      } catch {
-        /* fallback: static catalog order */
-      }
-    }
-
-    const blurred = this.currentLocation
-      ? LocationPrivacy.blurLocation(this.currentLocation)
-      : null;
-    const regionPhrase =
-      (blurred?.region?.trim()?.length ?? 0) > 0
-        ? blurred!.region!.trim()
-        : 'unknown (enable location for distance rules)';
-    const regionHtml = `<strong>Approximate broadcast region:</strong> ${escapeHtml(regionPhrase)}`;
-
-    const distanceOptionsHtml = ['', '5', '10', '25', '50', '100', '250', '500']
-      .map((mi) =>
-        mi === ''
-          ? '<option value="">No distance limit</option>'
-          : `<option value="${mi}">${mi} mi</option>`,
-      )
-      .join('');
-
-    const chipButtonsHtml = orderedEntries
-      .map((e) => `<button type="button" class="btn broadcast-chip" style="font-size:0.85em;">${escapeHtml(e.label)}</button>`)
-      .join('');
-
-    return await new Promise((resolve) => {
-      const modal = document.createElement('div');
-      modal.className = 'modal-overlay';
-      modal.setAttribute('data-testid', 'broadcast-preamble-modal');
-      modal.innerHTML = `
-        <div class="modal-content" style="max-width:460px;">
-          <div class="modal-header">
-            <h2 class="modal-title">Before you broadcast</h2>
-            <p style="color:#444;font-size:0.92em;line-height:1.35;margin-top:6px;">
-              Receivers with profile interests must share at least one selected tag or a tag on each talk (recipients without interests remain eligible).
-            </p>
-            <p style="margin-top:10px;font-size:0.88em;color:#374151;line-height:1.35;">
-              ${regionHtml}
-            </p>
-          </div>
-          <div style="padding:12px 20px 0;font-size:0.82em;line-height:1.4;color:#475569;font-style:italic;">
-            Reach is limited to others in this same chatroom (not sub-rooms under it in the list).
-          </div>
-          <div style="padding:12px 20px 0;font-size:0.85em;line-height:1.45;color:#334155;">
-            <div style="margin-top:0;">
-              <label for="broadcast-max-distance-select" style="display:block;margin-bottom:4px;">Max receiver distance (from sender / talk pin)</label>
-              <select id="broadcast-max-distance-select" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid #cbd5e1;">
-                ${distanceOptionsHtml}
-              </select>
-            </div>
-            <p data-testid="broadcast-audience-preview" style="margin-top:10px;color:#4338ca;font-size:0.92em;line-height:1.35;min-height:1.35em;"></p>
-          </div>
-          <div style="padding:8px 20px 0;font-size:0.82em;color:#64748b;">Pick at least one tag (popular choices listed first)</div>
-          <div id="broadcast-preamble-chips" style="padding:12px 20px; display:flex; flex-wrap:wrap; gap:8px; max-height:220px; overflow-y:auto;">
-            ${chipButtonsHtml}
-          </div>
-          <div class="modal-actions" style="margin-top:8px;">
-            <button type="button" class="btn" id="broadcast-preamble-cancel" style="background:#6c757d;">Cancel</button>
-            <button type="button" class="btn primary-btn" id="broadcast-preamble-send" data-testid="broadcast-preamble-send">Broadcast</button>
-          </div>
-        </div>`;
-
-      document.body.appendChild(modal);
-
-      const selected = new Set<string>();
-      let previewGeneration = 0;
-      let previewDebounceTimer: number | undefined;
-
-      const readMaxDistance = (): number | undefined => {
-        const sel = modal.querySelector('#broadcast-max-distance-select') as HTMLSelectElement | null;
-        const v = sel?.value ?? '';
-        if (v === '') return undefined;
-        const n = Number(v);
-        return Number.isFinite(n) ? n : undefined;
-      };
-
-      const scheduleAudiencePreviewRefresh = (): void => {
-        if (previewDebounceTimer !== undefined) window.clearTimeout(previewDebounceTimer);
-        previewDebounceTimer = window.setTimeout(() => void runAudiencePreviewRefresh(), 400);
-      };
-
-      const runAudiencePreviewRefresh = async (): Promise<void> => {
-        const previewEl = modal.querySelector('[data-testid="broadcast-audience-preview"]');
-        if (!(previewEl instanceof HTMLElement)) return;
-        const seq = ++previewGeneration;
-        const senderId = (this.currentUserId || '').trim();
-        const base = (this.apiBase || '').trim();
-        const firstBid = this.getBroadcastableTalkIds()[0];
-        const fp = firstBid ? this.getBroadcastTalkPayload(firstBid) : null;
-        const broadcastMaxDistanceMiles = readMaxDistance();
-
-        let receiverIds = ctx.members.map((m) => m.userId).filter((id) => id && id !== senderId);
-        if (this.broadcastAudiencePreviewCollector) {
-          try {
-            receiverIds = await this.broadcastAudiencePreviewCollector({
-              chatroomId: ctx.chatroomId,
-              members: ctx.members,
-            });
-          } catch {
-            /* keep primary-room ids */
-          }
-        }
-
-        if (!senderId || !fp || !base) {
-          if (seq === previewGeneration) previewEl.textContent = '';
-          return;
-        }
-
-        previewEl.textContent = 'Estimating audience…';
-
-        try {
-          const controller = new AbortController();
-          const timeoutId = window.setTimeout(() => controller.abort(), 8000);
-          const res = await fetch(`${base}/api/talks/broadcast-receiver-preview`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: controller.signal,
-            body: JSON.stringify({
-              senderId,
-              receiverIds,
-              talkId: fp.id,
-              talkData: fp,
-              broadcastTargetTags: Array.from(selected.values()),
-              broadcastMaxDistanceMiles,
-            }),
-          }).finally(() => window.clearTimeout(timeoutId));
-          if (seq !== previewGeneration) return;
-          if (!res.ok) {
-            previewEl.textContent = 'Could not estimate audience (server error).';
-            return;
-          }
-          const body = (await res.json()) as {
-            totalCandidates?: number;
-            eligibleReceivers?: number;
-          };
-          const pool = typeof body.totalCandidates === 'number' ? body.totalCandidates : receiverIds.length;
-          const elig = typeof body.eligibleReceivers === 'number' ? body.eligibleReceivers : 0;
-          previewEl.textContent = `Audience pool ~${pool} users; after intake & filters ~${elig} likely receive the talk here.`;
-        } catch {
-          if (seq === previewGeneration) previewEl.textContent = '';
-        }
-      };
-
-      const chipWrap = modal.querySelector('#broadcast-preamble-chips');
-      chipWrap?.querySelectorAll('.broadcast-chip').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          const label = String((btn as HTMLButtonElement).textContent || '').trim();
-          if (!label) return;
-          const el = btn as HTMLElement;
-          if (selected.has(label)) {
-            selected.delete(label);
-            el.style.boxShadow = 'none';
-            el.style.background = '';
-          } else {
-            selected.add(label);
-            el.style.boxShadow = 'inset 0 0 0 2px #6366f1';
-            el.style.background = '#eef2ff';
-          }
-          scheduleAudiencePreviewRefresh();
-        });
-      });
-
-      modal.querySelector('#broadcast-max-distance-select')?.addEventListener('change', scheduleAudiencePreviewRefresh);
-
-      const cleanup = () => {
-        if (previewDebounceTimer !== undefined) window.clearTimeout(previewDebounceTimer);
-        document.body.removeChild(modal);
-      };
-
-      modal.querySelector('#broadcast-preamble-cancel')?.addEventListener('click', () => {
-        cleanup();
-        resolve(null);
-      });
-      modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-          cleanup();
-          resolve(null);
-        }
-      });
-      modal.querySelector('#broadcast-preamble-send')?.addEventListener('click', () => {
-        const tags = Array.from(selected.values());
-        if (tags.length < 1) {
-          this.showNotification('Choose at least one tag before broadcasting.', 'warning');
-          return;
-        }
-        const maxDm = readMaxDistance();
-        cleanup();
-        resolve({
-          tags,
-          ...(typeof maxDm === 'number' ? { broadcastMaxDistanceMiles: maxDm } : {}),
-        });
-      });
-
-      window.setTimeout(() => void runAudiencePreviewRefresh(), 0);
-    });
   }
 
   private getMyTalks(): Record<string, any> {
@@ -818,6 +550,11 @@ export class UIManager extends EventEmitter {
                   </label>
                   <div style="padding:8px 16px 16px;">
                     <button class="btn primary-btn" id="peer-send-talks-btn" style="width:100%;">📤 Send My Talks</button>
+                    <div style="margin-top:12px;">
+                      <div style="font-size:0.85em;color:#64748b;margin-bottom:4px;">Send a direct message</div>
+                      <textarea id="peer-dm-input" rows="2" placeholder="Type a message…" data-testid="peer-dm-input" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.9em;resize:none;"></textarea>
+                      <button class="btn primary-btn" id="peer-dm-send-btn" data-testid="peer-dm-send-btn" style="width:100%;margin-top:6px;">💬 Send Message</button>
+                    </div>
                     <button class="btn" id="peer-block-user-btn" style="width:100%;margin-top:8px;">Block User</button>
                   </div>
                 </div>
@@ -4648,6 +4385,11 @@ export class UIManager extends EventEmitter {
       registerTalkForPeer: this.registerTalkForPeer.bind(this),
       isBlockedByMe: this.isBlockedByMe.bind(this),
       setBlocked: this.setBlocked.bind(this),
+      sendDirectMessage: (peerId: string, peerName: string, text: string) => {
+        return new Promise<void>((resolve, reject) => {
+          this.emit('sendDirectMessage', { peerId, peerName, text, resolve, reject });
+        });
+      },
       ...(knownPerson ? { knownPerson } : {}),
     };
     openPeerDetailView(userId, stageName, deps);
