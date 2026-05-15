@@ -95,16 +95,21 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#talks-status-text')).toContainText(/incoming|Incoming/);
     await expect(p.locator('#talks-view .status-bar')).toHaveCount(0);
     await expect(p.locator('.talks-action-bar')).toBeVisible();
+    await expect(p.locator('#create-talk-btn-talks')).toHaveCount(0);
+    await expect(p.locator('#talks-view')).not.toContainText('Create New Talk');
 
     await p.locator('.nav-btn[data-view="me"]').click();
     await afterNav();
     await expect(p.locator('#header-title')).toBeEmpty();
     await expect(p.locator('#me-status-text')).toBeVisible();
-    await expect(p.locator('#me-status-text')).toContainText('Profile');
+    await expect(p.locator('#me-status-text')).toContainText('Answered question history');
     await expect(p.locator('#me-view .status-bar')).toHaveCount(0);
     await expect(p.locator('#me-view')).toBeVisible();
     await expect(p.locator('#answers-content')).toBeVisible();
     await expect(p.locator('.me-answer-filter')).toHaveText(['All', 'Auto', 'Manual', 'Conditional']);
+    await expect(p.locator('#me-view')).not.toContainText('My Talks');
+    await expect(p.locator('#me-view')).not.toContainText('My Answers');
+    await expect(p.locator('#me-view')).not.toContainText('Conversations');
 
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
@@ -115,11 +120,110 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('.settings-action-bar')).toBeVisible();
     await expect(p.locator('#settings-view')).toBeVisible();
     await expect(p.locator('#settings-content')).toContainText('Languages');
+    await expect(p.locator('#settings-edit-stagename-btn')).toBeVisible();
+    await expect(p.locator('#settings-edit-profile-btn')).toBeVisible();
     await expect(p.locator('#settings-copy-talk-autosave')).toBeVisible();
     await expect(p.locator('#settings-chatbot-enabled')).toBeVisible();
+    await expect(p.locator('#settings-home-room')).toBeVisible();
     await expect(p.locator('#settings-grammar-filter')).toBeVisible();
     await expect(p.locator('#settings-dirty-words-filter')).toBeVisible();
     await expect(p.locator('#settings-credit-visible')).toBeVisible();
+    await expect(p.locator('.settings-talk-filter-type')).toHaveCount(4);
+
+    await p.locator('#settings-home-room').selectOption('california');
+    await expect
+      .poll(async () => p.evaluate(() => localStorage.getItem('iinpublic_travel_home')))
+      .toBe('california');
+    await expect(p.locator('#return-home-btn')).toBeEnabled();
+
+    await p.locator('#settings-home-room').selectOption('global');
+    await expect
+      .poll(async () => p.evaluate(() => localStorage.getItem('iinpublic_travel_home')))
+      .toBe('global');
+    await expect(p.locator('#return-home-btn')).toBeEnabled();
+  });
+
+  test('custom room creation opens the newly created room', async () => {
+    const p = page!;
+    const roomName = `Mesa College ${Date.now()}`;
+
+    await p.locator('.nav-btn[data-view="chatrooms"]').click();
+    await afterNav();
+    await p.locator('#create-custom-chatroom-btn').click();
+    await p.locator('#custom-room-name').fill(roomName);
+    await p.locator('[data-testid="custom-room-submit-btn"]').click();
+
+    await expect(p.locator('#current-chatroom-title')).toContainText(roomName, { timeout: 20_000 });
+
+    await p.locator('#back-to-chatrooms').click();
+    await afterNav();
+    await expect(p.locator('#chatroom-list')).toContainText(roomName);
+  });
+
+  test('auto-copy keeps answered talks in OUT and stores flat answer history', async () => {
+    const p = page!;
+
+    await p.locator('.nav-btn[data-view="settings"]').click();
+    await afterNav();
+    await p.locator('#settings-copy-talk-autosave').check();
+
+    const result = await p.evaluate(() => {
+      const app = (window as any).__iinpublic_app.getApp();
+      const ui = app.uiManager as any;
+      const talk = {
+        id: 'incoming_flat_history_1',
+        title: 'Flat History Incoming Talk',
+        type: 'flow',
+        authorId: 'sender-flat-history',
+        createdAt: '2026-05-14T12:00:00.000Z',
+        locationRadiusMiles: 5,
+        questions: [
+          {
+            id: 'q1',
+            text: 'Preferred campus food?',
+            answers: [
+              { id: 'a1', text: 'Tacos', isMatch: true, counter: 2 },
+              { id: 'a2', text: 'Pizza', isMatch: false },
+            ],
+          },
+        ],
+      };
+      ui.completeTalk(talk, [{ questionId: 'q1', answerId: 'a1', answerText: 'Tacos', mode: 'manual' }], 'match');
+      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const history = JSON.parse(localStorage.getItem('myAnswerHistory') || '{}');
+      const record = Object.values(history)[0] as any;
+      return {
+        role: myTalks.incoming_flat_history_1?.role,
+        outTitle: myTalks.incoming_flat_history_1?.title,
+        historyCount: Object.keys(history).length,
+        record,
+        serializedRecord: JSON.stringify(record),
+      };
+    });
+
+    expect(result.role).toBe('copied');
+    expect(result.outTitle).toBe('Flat History Incoming Talk');
+    expect(result.historyCount).toBe(1);
+    expect(result.record.title).toBe('Flat History Incoming Talk');
+    expect(result.record.items).toEqual([
+      expect.objectContaining({
+        questionId: 'q1',
+        answerId: 'a1',
+        prompt: 'Preferred campus food?',
+        choice: 'Tacos',
+        kind: 'question',
+      }),
+    ]);
+    expect(result.serializedRecord).not.toContain('"questions"');
+
+    await p.locator('.nav-btn[data-view="talks"]').click();
+    await afterNav();
+    await expect(p.locator('.talk-list-item[data-role="copied"]').filter({ hasText: 'Flat History Incoming Talk' })).toBeVisible();
+
+    await p.locator('.nav-btn[data-view="me"]').click();
+    await afterNav();
+    await expect(p.locator('#answers-content')).toContainText('Preferred campus food?');
+    await expect(p.locator('#answers-content')).toContainText('Tacos');
   });
 
   test('settings tolerates legacy string-valued profile and filter fields', async () => {
@@ -167,5 +271,39 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#settings-profile-languages')).toHaveValue('en, zh');
     await expect(p.locator('#settings-filter-languages')).toHaveValue('en, zh');
     await expect(p.locator('#settings-custom-blocked')).toHaveValue('spam, scam');
+  });
+
+  test('broadcast history suppresses unchanged repeat room sends', async () => {
+    const p = page!;
+    const result = await p.evaluate(() => {
+      const app = (window as any).__iinpublic_app.getApp();
+      const ui = app.uiManager as any;
+      const talk = {
+        id: 'repeat_talk_1',
+        title: 'Repeat Guard',
+        type: 'flow',
+        role: 'created',
+        lastInteraction: '2026-05-14T00:00:00.000Z',
+        fullTalk: {
+          id: 'repeat_talk_1',
+          title: 'Repeat Guard',
+          type: 'flow',
+          questions: [{ id: 'q1', text: 'Repeat?', answers: [{ id: 'a1', text: 'Yes', isMatch: true }] }],
+        },
+      };
+      localStorage.setItem('myTalks', JSON.stringify({ repeat_talk_1: talk }));
+      const before = ui.getUnsentBroadcastTalkIds('global', ['peer-1']);
+      ui.recordBroadcastConversation('global', ['repeat_talk_1'], [{ userId: 'peer-1' }]);
+      const afterSame = ui.getUnsentBroadcastTalkIds('global', ['peer-1']);
+      localStorage.setItem('myTalks', JSON.stringify({
+        repeat_talk_1: { ...talk, lastInteraction: '2026-05-14T00:01:00.000Z' },
+      }));
+      const afterUpdate = ui.getUnsentBroadcastTalkIds('global', ['peer-1']);
+      return { before, afterSame, afterUpdate };
+    });
+
+    expect(result.before).toEqual(['repeat_talk_1']);
+    expect(result.afterSame).toEqual([]);
+    expect(result.afterUpdate).toEqual(['repeat_talk_1']);
   });
 });

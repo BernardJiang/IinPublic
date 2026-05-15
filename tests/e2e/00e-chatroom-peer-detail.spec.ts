@@ -97,10 +97,10 @@ test.describe('Chatroom peer detail views', () => {
   }
 
   async function setStageNameAndGoToChatrooms(page: Page, name: string): Promise<void> {
-    await page.click('.nav-btn[data-view="me"]');
+    await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    await page.waitForSelector('#edit-stagename-btn');
-    await page.click('#edit-stagename-btn');
+    await page.waitForSelector('#settings-edit-stagename-btn');
+    await page.click('#settings-edit-stagename-btn');
     await afterAction();
     await page.fill('#new-stage-name', name);
     await page.click('#edit-stagename-form button[type="submit"]');

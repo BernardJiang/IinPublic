@@ -158,18 +158,31 @@ test.describe('Talks matching — one match one mismatch from two responders', (
 
     // Tom: confirm conversation exists server-side then inject into browser state.
     await waitForServerConversations(pageTom, 1);
-    await pageTom.click('.nav-btn[data-view="me"]');
-    await waitForTabActive(pageTom, 'me');
     await expect(pageTom.locator('.nav-btn[data-view="me"] .notification-badge')).toHaveText('1', { timeout: 5_000 });
-    await expect(pageTom.locator('.conversation-list-item').filter({ hasText: 'Jerry' }).first()).toBeVisible({ timeout: 5_000 });
-    await expect(pageTom.locator('.conversation-list-item')).toHaveCount(1, { timeout: 5_000 });
-    await expect(pageTom.locator('.conversation-list-item').filter({ hasText: 'Bob' }).first()).not.toBeVisible();
+    await expect
+      .poll(
+        async () =>
+          pageTom.evaluate(() => {
+            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            const names = Object.values(conversations).map((conversation: any) => conversation?.otherUserName);
+            return { count: names.length, hasJerry: names.includes('Jerry'), hasBob: names.includes('Bob') };
+          }),
+        { timeout: 5_000 },
+      )
+      .toEqual({ count: 1, hasJerry: true, hasBob: false });
 
     // Jerry: has conversation with Tom (server returned convId in the HTTP response,
     // so localStorage is already updated before the modal closed)
     await waitForServerConversations(pageJerry, 1);
-    await pageJerry.click('.nav-btn[data-view="me"]');
-    await waitForTabActive(pageJerry, 'me');
-    await expect(pageJerry.locator('.conversation-list-item').filter({ hasText: 'Tom' }).first()).toBeVisible({ timeout: 5_000 });
+    await expect
+      .poll(
+        async () =>
+          pageJerry.evaluate(() => {
+            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            return Object.values(conversations).some((conversation: any) => conversation?.otherUserName === 'Tom');
+          }),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
   });
 });

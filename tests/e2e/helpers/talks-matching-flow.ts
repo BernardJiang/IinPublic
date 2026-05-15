@@ -160,10 +160,10 @@ export async function bootstrapUser(
   await page.waitForLoadState('load');
   await ensureWindowFitsViewport(page, 640, 1000);
   await afterLoad();
-  await page.click('.nav-btn[data-view="me"]');
+  await page.click('.nav-btn[data-view="settings"]');
   await afterNav();
-  await page.waitForSelector('#edit-stagename-btn');
-  await page.click('#edit-stagename-btn');
+  await page.waitForSelector('#settings-edit-stagename-btn');
+  await page.click('#settings-edit-stagename-btn');
   await afterAction();
   await page.fill('#new-stage-name', stageName);
   await page.click('#edit-stagename-form button[type="submit"]');

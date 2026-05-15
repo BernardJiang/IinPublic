@@ -5,9 +5,11 @@ import {
   readHistory,
   type ExactChatbotMemoryState,
 } from '../../shared/exact-chatbot-memory';
+import type { FlatAnswerHistoryRecord } from './answer-history-storage';
 
 type AnswersViewDeps = {
   getMyTalks: () => Record<string, any>;
+  getFlatAnswerHistory?: () => Record<string, FlatAnswerHistoryRecord>;
   getExactChatbotMemory?: () => ExactChatbotMemoryState;
   escapeHtml: (text: string) => string;
   copyAnsweredTalkToTalks: (talkId: string) => void;
@@ -40,6 +42,36 @@ type AnswerTalkRenderModel = {
   items: AnswerItemModel[];
   searchText: string;
 };
+
+function buildAnswerItemModelsFromFlatRecord(
+  record: FlatAnswerHistoryRecord,
+  answeredCount: number,
+  exactMemory?: ExactChatbotMemoryState,
+): AnswerItemModel[] {
+  return (record.items || []).map((item) => {
+    const questionMemory = exactMemory?.users?.[LOCAL_EXACT_CHATBOT_USER_ID]?.[makeQuestionId(item.prompt)];
+    const matchingHistory = readHistory(questionMemory || null).filter(
+      (event) => event.answerId === makeAnswerId(item.choice),
+    );
+    const autoUseCount = matchingHistory.reduce((total, event) => total + (event.autoUseCount || 0), 0);
+    const latestAutoUseAt = matchingHistory.reduce<number | undefined>((latest, event) => {
+      if (event.lastAutoUsedAt == null) return latest;
+      return latest == null ? event.lastAutoUsedAt : Math.max(latest, event.lastAutoUsedAt);
+    }, undefined);
+    return {
+      kind: item.kind,
+      prompt: item.prompt,
+      choice: item.choice,
+      ...(item.contextHash ? { contextHash: item.contextHash } : {}),
+      contextPath: Array.isArray(item.contextPath) ? item.contextPath : [],
+      answeredCount,
+      ...(item.mode ? { mode: item.mode } : {}),
+      chatbotGenerated: item.mode === 'auto' || item.mode === 'permanent',
+      autoUseCount,
+      ...(latestAutoUseAt != null ? { latestAutoUseAt } : {}),
+    };
+  });
+}
 
 export function getAnswerDisplayText(
   talk: any,
@@ -165,12 +197,29 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
   if (!container) return;
 
   const myTalks = deps.getMyTalks();
+  const flatHistory = deps.getFlatAnswerHistory?.() || {};
   const exactMemory = deps.getExactChatbotMemory?.();
-  const answeredEntries = Object.entries(myTalks)
+  const answeredEntriesFromFlatHistory = Object.entries(flatHistory)
+    .sort(([, a], [, b]) => new Date(b.answeredAt || 0).getTime() - new Date(a.answeredAt || 0).getTime());
+  const answeredEntries = answeredEntriesFromFlatHistory.length > 0 ? [] : Object.entries(myTalks)
     .filter(([, talk]) => talk?.role === 'answered' || talk?.role === 'copied')
     .sort(([, a], [, b]) => new Date(b.lastInteraction || 0).getTime() - new Date(a.lastInteraction || 0).getTime());
 
   const grouped = new Map<string, { talkId: string; talk: any; answeredCount: number }>();
+  const groupedFlat = new Map<string, { id: string; record: FlatAnswerHistoryRecord; answeredCount: number }>();
+  for (const [id, record] of answeredEntriesFromFlatHistory) {
+    const contentKey = `${record.type}:${record.title}:${record.items.map((item) => `${item.prompt}->${item.choice}`).join('|')}`;
+    const existing = groupedFlat.get(contentKey);
+    if (existing) {
+      existing.answeredCount += 1;
+      if (new Date(record.answeredAt || 0).getTime() > new Date(existing.record.answeredAt || 0).getTime()) {
+        existing.record = record;
+        existing.id = id;
+      }
+      continue;
+    }
+    groupedFlat.set(contentKey, { id, record, answeredCount: 1 });
+  }
   for (const [talkId, talk] of answeredEntries) {
     const full = talk.fullTalk;
     const contentKey = full ? deps.getTalkContentKey(full) : talkId;
@@ -189,12 +238,15 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
   const deduped = Array.from(grouped.values()).sort(
     (a, b) => new Date(b.talk.lastInteraction || 0).getTime() - new Date(a.talk.lastInteraction || 0).getTime(),
   );
+  const dedupedFlat = Array.from(groupedFlat.values()).sort(
+    (a, b) => new Date(b.record.answeredAt || 0).getTime() - new Date(a.record.answeredAt || 0).getTime(),
+  );
 
-  if (deduped.length === 0) {
+  if (deduped.length === 0 && dedupedFlat.length === 0) {
     container.innerHTML = `
       <div style="padding: 20px; text-align: center; color: #999;">
         <p>Talks you've received and answered will appear here.</p>
-        <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">View My Answers (preferences)</button>
+        <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">Preferences</button>
       </div>
     `;
     document.getElementById('view-preferences-btn')?.addEventListener('click', () => deps.showPreferencesDialog());
@@ -206,13 +258,72 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       <p style="margin-bottom: 12px; color: #666;">Talks you've received and answered, grouped by the same question set:</p>
       <input id="answers-search-input" class="form-input" type="search" placeholder="Search answers" style="width:100%; margin-bottom:12px;">
       <div id="answers-list" class="answers-list" style="display: flex; flex-direction: column; gap: 12px;"></div>
-      <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">View My Answers (preferences)</button>
+      <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">Preferences</button>
     </div>
   `;
 
   const listEl = document.getElementById('answers-list');
   const renderModels: AnswerTalkRenderModel[] = [];
   if (listEl) {
+    dedupedFlat.forEach(({ id, record, answeredCount }) => {
+      const outcome = record.outcome === 'match' ? 'match' : 'mismatch';
+      const answeredAt = new Date(record.answeredAt || Date.now());
+      const locationText = record.locationRadiusMiles != null
+        ? `Within ${record.locationRadiusMiles} mile${record.locationRadiusMiles === 1 ? '' : 's'}`
+        : 'Anywhere';
+      const senders = record.senderIds.length === 1
+        ? 'From 1 sender'
+        : record.senderIds.length > 1
+          ? `From ${record.senderIds.length} senders`
+          : '';
+      const answerItems = buildAnswerItemModelsFromFlatRecord(record, answeredCount, exactMemory);
+      const metadata = [
+        senders,
+        `${answerItems.length} item${answerItems.length === 1 ? '' : 's'}`,
+        answeredAt.toLocaleString(),
+        locationText,
+        `answered ${answeredCount} time${answeredCount === 1 ? '' : 's'}`,
+      ].filter(Boolean).join(' · ');
+      const searchText = [
+        record.title,
+        record.type,
+        metadata,
+        outcome,
+        ...answerItems.flatMap((answerItem) => [answerItem.prompt, answerItem.choice, answerItem.mode || '']),
+      ].join(' ').toLowerCase();
+      renderModels.push({
+        talkId: id,
+        title: record.title,
+        metadata,
+        outcome,
+        items: answerItems,
+        searchText,
+      });
+      const item = document.createElement('div');
+      item.className = `answer-talk-item talk-type-${deps.escapeHtml(String(record.type || 'flow').toLowerCase())}`;
+      item.dataset.talkId = id;
+      item.dataset.sourceTalkId = record.talkId;
+      item.dataset.searchText = searchText;
+      item.style.cssText = `display:flex; flex-direction:column; gap:12px; padding:14px 16px; border-radius:12px; background:${outcome === 'match' ? '#e8f5e9' : '#fff7ed'}; border:1px solid ${outcome === 'match' ? '#c8e6c9' : '#fed7aa'};`;
+      item.innerHTML = `
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+          <div style="flex: 1; min-width: 0;">
+            <div style="font-weight: 700;">${deps.escapeHtml(record.title)}</div>
+            <div style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(metadata)}</div>
+            <div style="font-size: 0.82em; color: #64748b; margin-top: 4px;">${outcome === 'match' ? '✓ Match' : '✗ Mismatch'} · ${deps.escapeHtml(record.type)}</div>
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${deps.escapeHtml(record.talkId)}" style="padding: 6px 12px; font-size: 0.9em;">Copy</button>
+            <button type="button" class="btn answer-edit-talk-btn" data-talk-id="${deps.escapeHtml(record.talkId)}" style="padding: 6px 12px; font-size: 0.9em;">Edit</button>
+          </div>
+        </div>
+        <div class="answer-question-list" style="display: grid; gap: 8px;">
+          ${renderAnswerItemsHtml(answerItems, deps.escapeHtml)}
+        </div>
+      `;
+      listEl.appendChild(item);
+    });
+
     deduped.forEach(({ talkId, talk, answeredCount }) => {
       const outcome = talk.outcome === 'match' ? 'match' : 'mismatch';
       const senders = talk.senders && talk.senders.length > 0

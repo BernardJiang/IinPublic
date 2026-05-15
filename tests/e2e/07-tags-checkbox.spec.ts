@@ -83,10 +83,10 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     await ensureWindowFitsViewport(page, 640, 1000);
     await afterLoad();
 
-    await page.click('.nav-btn[data-view="me"]');
+    await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    await page.waitForSelector('#edit-stagename-btn');
-    await page.click('#edit-stagename-btn');
+    await page.waitForSelector('#settings-edit-stagename-btn');
+    await page.click('#settings-edit-stagename-btn');
     await afterAction();
     await page.fill('#new-stage-name', stageName);
     await page.click('#edit-stagename-form button[type="submit"]');
@@ -162,22 +162,21 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
       )
       .toBeGreaterThanOrEqual(1);
 
-    // 4) Tom opens Coffee tag, checks checkbox, submits → match
-    console.log('\n📍 STEP 4: Tom opens Coffee, checks checkbox, submits → match');
+    // 4) Tom opens Coffee tag and checks Match; checkbox change completes the answer.
+    console.log('\n📍 STEP 4: Tom opens Coffee and checks Match → match');
     await openIncomingTalkModal(pageTom, TAG_COFFEE);
     await expect(pageTom.locator('.tag-match-checkbox')).toBeVisible();
-    await pageTom.locator('#tag-match-checkbox').check();
-    await pageTom.click('#tag-submit-btn');
-    await waitForStatusBarMatchCountAtLeast(pageTom, 1);
+    await pageTom.locator('#tag-match-checkbox').click({ noWaitAfter: true });
+    await expect(pageTom.locator('#tag-submit-btn')).toHaveCount(0);
     await waitForResponseModalClosed(pageTom);
 
     // 5) Alice sees the match on the status bar (durable)
     await waitForStatusBarMatchCountAtLeast(pageAlice, 1);
 
-    // 6) Tom opens Cat tag, leaves checkbox unchecked, submits → ignore
+    // 6) Tom opens Cat tag and chooses Ignore; checkbox change completes the answer.
     console.log('\n📍 STEP 6: Tom opens Cat, leaves checkbox unchecked → ignore');
     await openIncomingTalkModal(pageTom, TAG_CAT);
-    await pageTom.click('#tag-submit-btn');
+    await pageTom.locator('#tag-ignore-checkbox').click({ noWaitAfter: true });
     await waitForResponseModalClosed(pageTom);
 
     // 7) Alice confirms one match: Talks tab shows "Matched with: Tom" for Coffee; status shows 1 match

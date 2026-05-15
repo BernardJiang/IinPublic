@@ -171,23 +171,17 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 
-    await pageTom.click('.nav-btn[data-view="me"]');
+    await pageTom.click('.nav-btn[data-view="talks"]');
     await afterNav();
-    await pageTom.click('#view-my-talks-btn');
-    await pageTom.waitForSelector('#my-talks-modal', { timeout: 5000 });
-    await pageTom.locator('.talk-history-item').filter({ hasText: copyTalkTitle }).first().locator('.delete-talk-btn').click();
+    await pageTom.locator('.talk-list-item').filter({ hasText: copyTalkTitle }).first().locator('.remove-talk-btn').click();
     await afterNav();
     await expect
       .poll(
-        async () => pageTom.locator('#my-talks-modal .talk-history-item').filter({ hasText: copyTalkTitle }).count(),
+        async () => pageTom.locator('.talk-list-item').filter({ hasText: copyTalkTitle }).count(),
         { message: 'history row removed without relying on toast', timeout: 10_000 },
       )
       .toBe(0);
-    await pageTom.click('#close-my-talks-modal');
-    await afterAction();
-    await pageTom.click('#view-my-talks-btn');
-    await afterNav();
-    await expect(pageTom.locator('.talk-history-item').filter({ hasText: copyTalkTitle })).toHaveCount(0);
+    await expect(pageTom.locator('.talk-list-item').filter({ hasText: copyTalkTitle })).toHaveCount(0);
 
     console.log('✅ Copy-talk test complete: receive saved, disabled filtered from broadcast, enable included, delete removed.');
   });

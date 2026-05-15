@@ -4,7 +4,7 @@
  * as flattened preferences.  Jerry's Answers tab then lists all four Q/A — some
  * questions have a contextHashId (flow / route later steps), others don't (tag, survey,
  * first question of flow/route).  Sam joins and re-announces the same four talk ids;
- * Jerry's chatbot replies automatically, so Sam sees four match conversations with Jerry.
+ * Jerry's chatbot replies automatically, so Sam stores bot-attributed match conversations with Jerry.
  */
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
@@ -71,9 +71,9 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
     await afterSync();
 
     // Enable Jerry's chatbot BEFORE answering so auto-mode answers are saved as bot templates.
-    await jerry.page.click('.nav-btn[data-view="me"]');
+    await jerry.page.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    const chatbotCheckbox = jerry.page.locator('#chatbot-enabled-checkbox');
+    const chatbotCheckbox = jerry.page.locator('#settings-chatbot-enabled');
     if (!(await chatbotCheckbox.isChecked())) await chatbotCheckbox.click();
     await jerry.page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
@@ -130,15 +130,13 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
       await afterSync();
     }
 
-    // Sam's Me tab should eventually show conversations with Jerry (one per matched talk).
-    await sam.page.click('.nav-btn[data-view="me"]');
-    await afterSync();
-    const jerryConvs = sam.page.locator('.conversation-list-item').filter({ hasText: 'Jerry' });
-    // Tag + flow + route define match answers; survey has none. So Sam expects >= 1 Jerry conversation
-    // (all match-capable auto-answers), each carrying Jerry's bot badge.
-    await expect(jerryConvs.first()).toBeVisible({ timeout: 20_000 });
-    await expect(jerryConvs.first().locator('.conversation-bot-badge')).toBeVisible({
-      timeout: 10_000,
-    });
+    // Tag + flow + route define match answers; survey has none. So Sam expects at least one
+    // bot-attributed Jerry conversation stored locally.
+    await sam.page.waitForFunction(() => {
+      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      return Object.values(conversations).some(
+        (conversation: any) => conversation?.otherUserName === 'Jerry' && conversation.respondedByBot === true,
+      );
+    }, null, { timeout: 20_000 });
   });
 });

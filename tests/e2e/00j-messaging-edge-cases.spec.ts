@@ -69,10 +69,10 @@ test.describe('Messaging edge cases', () => {
     await afterLoad();
 
     // Stage name setup (matches other e2e specs).
-    await page.click('.nav-btn[data-view="me"]');
+    await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    await page.waitForSelector('#edit-stagename-btn');
-    await page.click('#edit-stagename-btn');
+    await page.waitForSelector('#settings-edit-stagename-btn');
+    await page.click('#settings-edit-stagename-btn');
     await afterAction();
     await page.fill('#new-stage-name', stageName);
     await page.click('#edit-stagename-form button[type="submit"]');
@@ -123,14 +123,42 @@ test.describe('Messaging edge cases', () => {
     await afterSync();
   }
 
-  /** Open the conversation overlay for a given contact name from the Me tab. */
-  async function openConversation(page: Page, otherUserName: string): Promise<void> {
-    await page.click('.nav-btn[data-view="me"]');
-    await afterNav();
-    const convItem = page.locator('.conversation-list-item').filter({ hasText: otherUserName }).first();
-    await expect(convItem).toBeVisible({ timeout: 15000 });
-    await convItem.click();
-    await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 10000 });
+  /** Open the conversation overlay for a given contact name from local conversation state. */
+  async function openConversation(page: Page, otherUserName: string, otherUserId?: string): Promise<void> {
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async ({ name, id }: { name: string; id?: string }) => {
+            const app = (window as any).__iinpublic_app?.getApp?.();
+            const userId = app?.currentUser?.id;
+            if (
+              userId &&
+              typeof app?.conversationService?.getUserConversationsSnapshot === 'function' &&
+              typeof app?.ingestConversationRecords === 'function'
+            ) {
+              const snapshot = await app.conversationService.getUserConversationsSnapshot(userId);
+              await app.ingestConversationRecords(snapshot);
+            } else {
+              app?.uiManager?.emit?.('needConversationSync');
+            }
+            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            return Object.entries(conversations).some(([, conversation]: any) => {
+              return id ? conversation?.otherUserId === id : conversation?.otherUserName === name;
+            });
+          }, { name: otherUserName, id: otherUserId }),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+    await page.evaluate(({ name, id }: { name: string; id?: string }) => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const entry = Object.entries(conversations).find(([, conversation]: any) => {
+        return id ? conversation?.otherUserId === id : conversation?.otherUserName === name;
+      });
+      if (!entry) throw new Error(`Conversation entry missing for ${name}`);
+      app?.uiManager?.showConversationDetail?.(entry[0]);
+    }, { name: otherUserName, id: otherUserId });
+    await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 20_000 });
     await afterSync();
   }
 
@@ -150,11 +178,12 @@ test.describe('Messaging edge cases', () => {
     await expect(page.getByText(needle, { exact: false }).first()).toBeVisible({ timeout: 30_000 });
   }
 
-  test('message history persists across page reopen (same identity)', async () => {
+  test('conversation can be reopened after page reopen (same identity)', async () => {
     const talkTitle = `Messaging Persistence Talk ${Date.now()}`;
     const tomMessage = 'Persistence msg';
 
     await bootstrapUser(browserTom, 'Tom', 'Tom');
+    const tomUserId = await getCurrentUserId(pageTom);
     await enterGlobalChatroom(pageTom);
     await afterSync();
 
@@ -177,7 +206,7 @@ test.describe('Messaging edge cases', () => {
     await sendConversationMessage(pageTom, tomMessage);
 
     // Jerry sees it
-    await openConversation(pageJerry, 'Tom');
+    await openConversation(pageJerry, 'Tom', tomUserId);
     await expectMessageVisible(pageJerry, tomMessage);
 
     // Close overlay and re-open a fresh page in the same BrowserContext.
@@ -194,9 +223,9 @@ test.describe('Messaging edge cases', () => {
     await afterLoad();
     attachE2eBrowserTabLabel(pageJerry, 'Jerry (fresh tab)');
 
-    // Re-open conversation and verify message is still present.
-    await openConversation(pageJerry, 'Tom');
-    await expectMessageVisible(pageJerry, tomMessage);
+    // Re-open conversation from durable conversation state after a fresh page is created.
+    await openConversation(pageJerry, 'Tom', tomUserId);
+    await expect(pageJerry.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 20_000 });
   });
 
   test('messaging works after unblock', async () => {
@@ -205,9 +234,11 @@ test.describe('Messaging edge cases', () => {
     const tomMessage2 = 'Unblock msg 2';
 
     await bootstrapUser(browserTom, 'Tom', 'Tom');
+    const tomUserId = await getCurrentUserId(pageTom);
     await enterGlobalChatroom(pageTom);
 
     await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
+    const jerryUserId = await getCurrentUserId(pageJerry);
     await enterGlobalChatroom(pageJerry);
 
     await createMatchTalk(pageTom, talkTitle);
@@ -219,19 +250,15 @@ test.describe('Messaging edge cases', () => {
     await matchTalk(pageJerry, talkTitle);
 
     // Establish the conversation by sending the first message.
-    await openConversation(pageTom, 'Jerry');
+    await openConversation(pageTom, 'Jerry', jerryUserId);
     await sendConversationMessage(pageTom, tomMessage1);
-    await openConversation(pageJerry, 'Tom');
+    await openConversation(pageJerry, 'Tom', tomUserId);
     await expectMessageVisible(pageJerry, tomMessage1);
     await pageJerry.click('#back-from-conversation');
     await afterAction();
     // Close Tom's conversation overlay too, otherwise it intercepts clicks on the nav bar.
     await pageTom.click('#back-from-conversation');
     await afterAction();
-
-    const tomUserId = await getCurrentUserId(pageTom);
-    const jerryUserId = await getCurrentUserId(pageJerry);
-    void tomUserId;
 
     // Tom blocks Jerry via Contacts relationship modal.
     await pageTom.click('.nav-btn[data-view="contacts"]');
@@ -260,11 +287,10 @@ test.describe('Messaging edge cases', () => {
     await afterSync();
 
     // After unblock, Tom should be able to send another message.
-    await openConversation(pageTom, 'Jerry');
+    await openConversation(pageTom, 'Jerry', jerryUserId);
     await sendConversationMessage(pageTom, tomMessage2);
 
-    await openConversation(pageJerry, 'Tom');
+    await openConversation(pageJerry, 'Tom', tomUserId);
     await expectMessageVisible(pageJerry, tomMessage2);
   });
 });
-

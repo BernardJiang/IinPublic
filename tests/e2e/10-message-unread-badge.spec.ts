@@ -1,5 +1,5 @@
 /**
- * Unread badge lifecycle on the Me tab:
+ * Unread badge lifecycle:
  * 1. A new match immediately marks the conversation unread → badge on Me nav.
  * 2. Opening the conversation clears the badge.
  * 3. A new message arriving while the overlay is closed marks it unread again.
@@ -78,10 +78,10 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 640, 1000);
     await afterLoad();
-    await page.click('.nav-btn[data-view="me"]');
+    await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    await page.waitForSelector('#edit-stagename-btn');
-    await page.click('#edit-stagename-btn');
+    await page.waitForSelector('#settings-edit-stagename-btn');
+    await page.click('#settings-edit-stagename-btn');
     await afterAction();
     await page.fill('#new-stage-name', stageName);
     await page.click('#edit-stagename-form button[type="submit"]');
@@ -96,21 +96,42 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await expect
       .poll(
         async () => {
-          await page.click('.nav-btn[data-view="me"]');
-          await afterNav();
-          const exists = await page.evaluate((id: string) => {
+          return page.evaluate((id: string) => {
             const raw = localStorage.getItem('myConversations');
             const conversations = raw ? JSON.parse(raw) : {};
             return Object.values(conversations).some((v: any) => v?.otherUserId === id);
           }, otherUserId);
-          if (exists) return true;
-          await page.click('.nav-btn[data-view="chatrooms"]');
-          await afterNav();
-          return false;
         },
         { timeout: 120_000, message: `Conversation entry for ${otherUserId} should appear` },
       )
       .toBe(true);
+  }
+
+  async function openConversationByOtherUserId(page: Page, otherUserId: string): Promise<void> {
+    await waitForConversationEntry(page, otherUserId);
+    await page.evaluate((id: string) => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const entry = Object.entries(conversations).find(([, conversation]: any) => conversation?.otherUserId === id);
+      if (!entry) throw new Error(`Conversation entry missing for ${id}`);
+      app?.uiManager?.showConversationDetail?.(entry[0]);
+    }, otherUserId);
+    await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 20_000 });
+    await afterSync();
+  }
+
+  async function expectConversationUnread(page: Page, otherUserId: string, expected: boolean): Promise<void> {
+    await expect
+      .poll(
+        async () =>
+          page.evaluate((id: string) => {
+            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            const entry = Object.values(conversations).find((conversation: any) => conversation?.otherUserId === id);
+            return !!(entry as any)?.unread;
+          }, otherUserId),
+        { timeout: 30_000 },
+      )
+      .toBe(expected);
   }
 
   test('Unread badge appears after match, clears on open; reappears after new message, clears on open', async () => {
@@ -156,8 +177,6 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await waitForDistinctGunPeersExcludingSelf(pageTom, 1, 240_000);
     await clickBroadcastUntilBulkAck(pageTom);
     await afterSync();
-    await clickBroadcastUntilBulkAck(pageTom);
-    await afterSync();
 
     const jerryUserId = await pageJerry.evaluate(
       () =>
@@ -197,46 +216,23 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await afterNav();
 
     const meNavJerry = pageJerry.locator('.nav-btn[data-view="me"]');
-    // First ensure the conversation item exists (durable signal from localStorage sync).
-    const convItemJerry = pageJerry
-      .locator('.conversation-list-item')
-      .filter({ hasText: 'Tom' })
-      .first();
-    await expect(convItemJerry).toBeVisible({ timeout: 30_000 });
-
-    // Then require the unread badge signal.
+    // First ensure the durable local conversation state exists, then require the unread badge signal.
+    await expectConversationUnread(pageJerry, tomUserId, true);
     await expect(meNavJerry.locator('.notification-badge')).toBeVisible({ timeout: 30_000 });
 
-    // Re-navigate to Me so displayConversationsList() runs again with the latest localStorage state.
-    // (addNewConversation does not call displayConversationsList when the user is already on Me.)
-    await pageJerry.click('.nav-btn[data-view="chatrooms"]');
-    await afterNav();
-    await pageJerry.click('.nav-btn[data-view="me"]');
-    await afterNav();
-
-    // The conversation-list-item should carry the unread marker too.
-    await expect(convItemJerry.locator('.unread-badge')).toBeVisible({ timeout: 10_000 });
-
     // ── Phase 2: opening the conversation clears the badge ───────────────────
-    await convItemJerry.click();
-    await expect(pageJerry.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 10000 });
-    await afterSync();
+    await openConversationByOtherUserId(pageJerry, tomUserId);
 
     // Navigate away to trigger Me-tab re-render with updated state
     await pageJerry.click('#back-from-conversation');
     await afterAction();
 
+    await expectConversationUnread(pageJerry, tomUserId, false);
     await expect(meNavJerry.locator('.notification-badge')).not.toBeVisible({ timeout: 10000 });
 
     // ── Phase 3: Tom sends a message while Jerry's overlay is closed ─────────
     // Tom opens conversation first
-    await pageTom.click('.nav-btn[data-view="me"]');
-    await afterNav();
-    await expect(
-      pageTom.locator('.conversation-list-item').filter({ hasText: 'Jerry' }).first(),
-    ).toBeVisible({ timeout: 20000 });
-    await pageTom.locator('.conversation-list-item').filter({ hasText: 'Jerry' }).first().click();
-    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 10000 });
+    await openConversationByOtherUserId(pageTom, jerryUserId);
 
     const tomInput = pageTom.locator('#conversation-message-input');
     await expect(tomInput).toBeVisible({ timeout: 10000 });
@@ -254,12 +250,10 @@ test.describe('Unread badge on Me tab after match and new message', () => {
       )
       .toBe(true);
 
-    // The conversation item also shows unread-badge again
-    await expect(convItemJerry.locator('.unread-badge')).toBeVisible({ timeout: 10000 });
+    await expectConversationUnread(pageJerry, tomUserId, true);
 
     // ── Phase 5: Jerry opens conversation — badge clears ─────────────────────
-    await convItemJerry.click();
-    await expect(pageJerry.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 10000 });
+    await openConversationByOtherUserId(pageJerry, tomUserId);
     // Verify Tom's message arrived
     await expect
       .poll(
@@ -276,6 +270,7 @@ test.describe('Unread badge on Me tab after match and new message', () => {
 
     await pageJerry.click('#back-from-conversation');
     await afterAction();
+    await expectConversationUnread(pageJerry, tomUserId, false);
     await expect(meNavJerry.locator('.notification-badge')).not.toBeVisible({ timeout: 10000 });
   });
 });

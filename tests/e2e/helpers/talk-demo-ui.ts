@@ -179,10 +179,6 @@ export async function emitCreateTalkFromCompanyPage(
   await clickBroadcastUntilBulkAck(page);
   await afterSync();
   await afterSync();
-  // In multi-browser e2e, some late-joining peers can miss the first fanout window.
-  // A second idempotent broadcast pass makes delivery deterministic without changing behavior.
-  await clickBroadcastUntilBulkAck(page);
-  await afterSync();
 }
 
 export async function waitForOutgoingTalkRow(page: Page, titleSubstring: string, timeoutMs = 120_000): Promise<string> {
@@ -337,27 +333,14 @@ export async function completeTalksInAppByAnswerIds(
   page: Page,
   completions: Array<{ talkId: string; talkData: any; answerIds: string[]; outcome: 'match' | 'mismatch'; mode?: 'manual' | 'auto' }>,
 ): Promise<void> {
-  const completed = completions.map(({ talkId, talkData, answerIds, outcome, mode }) => ({
-    talkId,
-    talkData,
-    answers: answersForIds(talkData, answerIds, mode ?? 'manual'),
-    outcome,
-  }));
-  await page.evaluate((items) => {
-    const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
-    const completeTalk = app?.uiManager?.completeTalk;
-    if (typeof completeTalk !== 'function') {
-      throw new Error('UIManager.completeTalk is not available');
-    }
-    for (const item of items) {
-      completeTalk.call(app.uiManager, item.talkData, item.answers, item.outcome);
-    }
-  }, completed);
+  for (const { talkId, talkData, answerIds, outcome, mode } of completions) {
+    await completeTalkInAppByAnswerIds(page, talkId, talkData, answerIds, outcome, mode ?? 'manual');
+  }
   await expect
     .poll(
       async () => {
         const totals = await Promise.all(
-          completed.map(async ({ talkId }) => {
+          completions.map(async ({ talkId }) => {
             const res = await page.context().request.get(
               `${gunBaseURL()}/api/stats/talks/${encodeURIComponent(talkId)}/summary`,
               { headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } },
@@ -371,7 +354,7 @@ export async function completeTalksInAppByAnswerIds(
       },
       { timeout: 30_000, intervals: [300, 600, 1000] },
     )
-    .toBe(completed.length);
+    .toBe(completions.length);
 }
 
 /** Answer each survey question in order using manual radios (`data-answer-id` from talk JSON). */

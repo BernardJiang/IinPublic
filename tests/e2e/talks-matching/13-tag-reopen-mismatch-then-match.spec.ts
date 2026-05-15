@@ -1,7 +1,6 @@
 /**
  * Alice creates a tag, broadcasts. Tom opens it and leaves the checkbox unchecked (mismatch).
- * Tom then reopens the same tag row and checks the checkbox → match.
- * Verifies the reopen/change path for tag-type talks.
+ * Answered incoming tags are removed from IN and retained in Me history.
  */
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
@@ -15,13 +14,12 @@ import {
   openIncomingTalkModal,
   resetTalksMatchingSession,
   finalCleanupPages,
-  syncIncomingFromServer,
 } from '../helpers/talks-matching-flow';
 import { waitForStatusBarMatchCountAtMost } from '../helpers/durable-ui';
 
 const TAG_TITLE = 'E2E Tag Reopen Coffee';
 
-test.describe('Talks matching — tag: reopen mismatch, change to match', () => {
+test.describe('Talks matching — tag answer removed from IN', () => {
   let browsers: ThreeBrowsers;
   let browserAlice: Browser;
   let browserTom: Browser;
@@ -87,8 +85,7 @@ test.describe('Talks matching — tag: reopen mismatch, change to match', () => 
     // Tom opens the tag and leaves the checkbox unchecked → mismatch
     await afterSync();
     await openIncomingTalkModal(pageTom, TAG_TITLE);
-    // Do NOT check the box — submit as-is (ignore/mismatch)
-    await pageTom.click('#tag-submit-btn');
+    await pageTom.locator('#tag-ignore-checkbox').click({ noWaitAfter: true });
     await waitForResponseModalClosed(pageTom);
     await afterSync();
 
@@ -101,30 +98,11 @@ test.describe('Talks matching — tag: reopen mismatch, change to match', () => 
     await expect(pageTom.locator('#answers-content').getByText(TAG_TITLE).first()).toBeVisible({ timeout: 15000 });
     await expect(pageTom.locator('#answers-content').getByText(/Mismatch/i).first()).toBeVisible({ timeout: 10000 });
 
-    // Tom reopens the same tag row and this time checks the checkbox
-    await openIncomingTalkModal(pageTom, TAG_TITLE);
-    await pageTom.locator('#tag-match-checkbox').check();
-    await pageTom.click('#tag-submit-btn');
-    await waitForResponseModalClosed(pageTom);
-    await afterSync();
-    await afterSync(); // Extra sync for Gun replication in parallel workers
-
-    // Trigger Alice to sync incoming clusters (refreshes Gun .on() listeners)
-    await syncIncomingFromServer(pageAlice);
-    await afterSync();
-
-    // Both sides reflect the match in the status bar (durable, unlike ephemeral toast)
+    // Answered incoming tags are removed from IN, so the old reopen path is no longer available.
     await pageTom.click('.nav-btn[data-view="talks"]');
     await afterSync();
-    await expect(pageTom.locator('#status-bar-text')).toContainText(/1 match/i, { timeout: 15000 });
-    await pageAlice.click('.nav-btn[data-view="talks"]');
+    await pageTom.click('#talks-nav-in');
     await afterSync();
-    await expect(pageAlice.locator('#status-bar-text')).toContainText(/1 match/i, { timeout: 15000 });
-
-    // Tom's Answers tab: same tag now shows Match
-    await pageTom.click('.nav-btn[data-view="me"]');
-    await afterSync();
-    await expect(pageTom.locator('#answers-content').getByText(TAG_TITLE).first()).toBeVisible({ timeout: 10000 });
-    await expect(pageTom.locator('#answers-content').getByText(/\bMatch\b/i).first()).toBeVisible({ timeout: 10000 });
+    await expect(pageTom.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: TAG_TITLE })).toHaveCount(0);
   });
 });

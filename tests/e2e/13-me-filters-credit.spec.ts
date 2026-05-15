@@ -101,16 +101,16 @@ test.describe('Me tab filters and credit visibility', () => {
     await pageJerry.click('.chatroom-item:has-text("Global")');
     await afterSync();
 
-    await pageJerry.click('.nav-btn[data-view="me"]');
+    await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
-    await pageJerry.locator('.talk-filter-type[value="survey"]').uncheck();
-    await pageJerry.locator('#credit-visibility-checkbox').uncheck();
+    await pageJerry.locator('.settings-talk-filter-type[value="survey"]').uncheck();
+    await pageJerry.locator('#settings-credit-visible').uncheck();
     await afterAction();
     await pageJerry.click('.nav-btn[data-view="chatrooms"]');
     await afterSync();
-    await pageJerry.click('.nav-btn[data-view="me"]');
+    await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
-    await expect(pageJerry.locator('#credit-visibility-checkbox')).not.toBeChecked();
+    await expect(pageJerry.locator('#settings-credit-visible')).not.toBeChecked();
 
     await createFlowTalk(pageTom, 'Filtered Flow Talk', 'Want to play tennis?');
     await createSurveyTalk(pageTom, 'Filtered Survey Talk', 'How was the meetup?');

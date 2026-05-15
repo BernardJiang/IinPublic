@@ -1,6 +1,6 @@
 /**
  * Chatroom hierarchy definition
- * Tree structure: Global → Continents → Countries
+ * Tree structure: Global → Continents → Countries → State/region
  */
 
 export interface ChatroomNode {
@@ -13,7 +13,7 @@ export interface ChatroomNode {
 
 /**
  * Hierarchical chatroom structure
- * Global (root) → Continents → Countries (2 per continent for now)
+ * Global (root) → Continents → Countries → representative state/region rooms
  */
 export const CHATROOM_HIERARCHY: ChatroomNode = {
   id: 'global',
@@ -32,12 +32,46 @@ export const CHATROOM_HIERARCHY: ChatroomNode = {
           name: 'United States',
           icon: '🇺🇸',
           description: 'United States chatroom',
+          children: [
+            {
+              id: 'california',
+              name: 'California',
+              icon: '🌉',
+              description: 'California regional chatroom',
+            },
+            {
+              id: 'new-york-state',
+              name: 'New York',
+              icon: '🗽',
+              description: 'New York regional chatroom',
+            },
+            {
+              id: 'texas',
+              name: 'Texas',
+              icon: '⭐',
+              description: 'Texas regional chatroom',
+            },
+          ],
         },
         {
           id: 'canada',
           name: 'Canada',
           icon: '🇨🇦',
           description: 'Canada chatroom',
+          children: [
+            {
+              id: 'ontario',
+              name: 'Ontario',
+              icon: '🍁',
+              description: 'Ontario regional chatroom',
+            },
+            {
+              id: 'british-columbia',
+              name: 'British Columbia',
+              icon: '🏔️',
+              description: 'British Columbia regional chatroom',
+            },
+          ],
         },
       ],
     },
@@ -52,12 +86,34 @@ export const CHATROOM_HIERARCHY: ChatroomNode = {
           name: 'Brazil',
           icon: '🇧🇷',
           description: 'Brazil chatroom',
+          children: [
+            {
+              id: 'sao-paulo-state',
+              name: 'Sao Paulo',
+              icon: '🏙️',
+              description: 'Sao Paulo regional chatroom',
+            },
+            {
+              id: 'rio-de-janeiro-state',
+              name: 'Rio de Janeiro',
+              icon: '🏖️',
+              description: 'Rio de Janeiro regional chatroom',
+            },
+          ],
         },
         {
           id: 'argentina',
           name: 'Argentina',
           icon: '🇦🇷',
           description: 'Argentina chatroom',
+          children: [
+            {
+              id: 'buenos-aires-province',
+              name: 'Buenos Aires',
+              icon: '🏙️',
+              description: 'Buenos Aires regional chatroom',
+            },
+          ],
         },
       ],
     },
@@ -72,12 +128,40 @@ export const CHATROOM_HIERARCHY: ChatroomNode = {
           name: 'United Kingdom',
           icon: '🇬🇧',
           description: 'United Kingdom chatroom',
+          children: [
+            {
+              id: 'england',
+              name: 'England',
+              icon: '🏙️',
+              description: 'England regional chatroom',
+            },
+            {
+              id: 'scotland',
+              name: 'Scotland',
+              icon: '🏔️',
+              description: 'Scotland regional chatroom',
+            },
+          ],
         },
         {
           id: 'germany',
           name: 'Germany',
           icon: '🇩🇪',
           description: 'Germany chatroom',
+          children: [
+            {
+              id: 'bavaria',
+              name: 'Bavaria',
+              icon: '🏔️',
+              description: 'Bavaria regional chatroom',
+            },
+            {
+              id: 'berlin-state',
+              name: 'Berlin',
+              icon: '🏙️',
+              description: 'Berlin regional chatroom',
+            },
+          ],
         },
       ],
     },
@@ -92,12 +176,40 @@ export const CHATROOM_HIERARCHY: ChatroomNode = {
           name: 'China',
           icon: '🇨🇳',
           description: 'China chatroom',
+          children: [
+            {
+              id: 'guangdong',
+              name: 'Guangdong',
+              icon: '🏙️',
+              description: 'Guangdong regional chatroom',
+            },
+            {
+              id: 'beijing-municipality',
+              name: 'Beijing',
+              icon: '🏛️',
+              description: 'Beijing regional chatroom',
+            },
+          ],
         },
         {
           id: 'japan',
           name: 'Japan',
           icon: '🇯🇵',
           description: 'Japan chatroom',
+          children: [
+            {
+              id: 'tokyo-metropolis',
+              name: 'Tokyo',
+              icon: '🏙️',
+              description: 'Tokyo regional chatroom',
+            },
+            {
+              id: 'kansai',
+              name: 'Kansai',
+              icon: '⛩️',
+              description: 'Kansai regional chatroom',
+            },
+          ],
         },
       ],
     },
@@ -112,12 +224,34 @@ export const CHATROOM_HIERARCHY: ChatroomNode = {
           name: 'Nigeria',
           icon: '🇳🇬',
           description: 'Nigeria chatroom',
+          children: [
+            {
+              id: 'lagos-state',
+              name: 'Lagos',
+              icon: '🏙️',
+              description: 'Lagos regional chatroom',
+            },
+          ],
         },
         {
           id: 'south-africa',
           name: 'South Africa',
           icon: '🇿🇦',
           description: 'South Africa chatroom',
+          children: [
+            {
+              id: 'western-cape',
+              name: 'Western Cape',
+              icon: '⛰️',
+              description: 'Western Cape regional chatroom',
+            },
+            {
+              id: 'gauteng',
+              name: 'Gauteng',
+              icon: '🏙️',
+              description: 'Gauteng regional chatroom',
+            },
+          ],
         },
       ],
     },
@@ -132,12 +266,34 @@ export const CHATROOM_HIERARCHY: ChatroomNode = {
           name: 'Australia',
           icon: '🇦🇺',
           description: 'Australia chatroom',
+          children: [
+            {
+              id: 'new-south-wales',
+              name: 'New South Wales',
+              icon: '🌉',
+              description: 'New South Wales regional chatroom',
+            },
+            {
+              id: 'victoria-au',
+              name: 'Victoria',
+              icon: '🏙️',
+              description: 'Victoria regional chatroom',
+            },
+          ],
         },
         {
           id: 'new-zealand',
           name: 'New Zealand',
           icon: '🇳🇿',
           description: 'New Zealand chatroom',
+          children: [
+            {
+              id: 'auckland-region',
+              name: 'Auckland',
+              icon: '🌋',
+              description: 'Auckland regional chatroom',
+            },
+          ],
         },
       ],
     },

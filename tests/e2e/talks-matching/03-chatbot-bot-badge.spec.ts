@@ -1,5 +1,5 @@
 /**
- * Jerry manual match + chatbot; Bob re-announce; Tom vs Bob bot badge on Jerry conversation.
+ * Jerry manual match + chatbot; Bob re-announces; Tom vs Bob bot attribution on Jerry conversation.
  */
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
@@ -57,7 +57,7 @@ test.describe('Talks matching — chatbot + bot badge', () => {
     await clearGunDatabases();
   });
 
-  test('Tom manual match, Bob bot match; Tom no bot icon, Bob has bot icon', async () => {
+  test('Tom manual match, Bob bot match; Tom stores manual attribution, Bob stores bot attribution', async () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
@@ -92,9 +92,9 @@ test.describe('Talks matching — chatbot + bot badge', () => {
     await confirmBroadcastTagPreambleIfVisible(pageTom);
     await waitForTabActive(pageTom, 'chatrooms');
 
-    await pageJerry.click('.nav-btn[data-view="me"]');
+    await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    const chatbotCheckbox = pageJerry.locator('#chatbot-enabled-checkbox');
+    const chatbotCheckbox = pageJerry.locator('#settings-chatbot-enabled');
     if (!(await chatbotCheckbox.isChecked())) await chatbotCheckbox.click();
     await pageJerry.click('.nav-btn[data-view="talks"]');
     await afterSync();
@@ -126,16 +126,19 @@ test.describe('Talks matching — chatbot + bot badge', () => {
     await afterSync();
     await waitForTabActive(pageBob, 'chatrooms');
 
-    await pageTom.click('.nav-btn[data-view="me"]');
-    await afterSync();
-    await expect(
-      pageTom.locator('.conversation-list-item').filter({ hasText: 'Jerry' }).first().locator('.conversation-bot-badge'),
-    ).not.toBeVisible();
-    await pageBob.click('.nav-btn[data-view="me"]');
-    await afterSync();
+    await pageTom.waitForFunction(() => {
+      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      return Object.values(conversations).some(
+        (conversation: any) => conversation?.otherUserName === 'Jerry' && conversation.respondedByBot === false,
+      );
+    });
+
     // Bob's match with Jerry came from Jerry's chatbot reply to Bob's re-announce; allow Gun sync.
-    await expect(
-      pageBob.locator('.conversation-list-item').filter({ hasText: 'Jerry' }).first().locator('.conversation-bot-badge'),
-    ).toBeVisible({ timeout: 20000 });
+    await pageBob.waitForFunction(() => {
+      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      return Object.values(conversations).some(
+        (conversation: any) => conversation?.otherUserName === 'Jerry' && conversation.respondedByBot === true,
+      );
+    }, null, { timeout: 20_000 });
   });
 });

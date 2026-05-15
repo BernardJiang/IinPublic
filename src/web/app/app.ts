@@ -1598,6 +1598,7 @@ export class IinPublicApp {
       async (data: {
         chatroomId: string;
         members: Array<{ userId: string; stageName: string }>;
+        talkIds?: string[];
         broadcastTargetTags?: string[];
         broadcastMaxDistanceMiles?: number;
       }) => {
@@ -1607,7 +1608,9 @@ export class IinPublicApp {
             this.uiManager.showNotification('No chatroom selected.', 'error');
             return;
           }
-          const broadcastableIds = this.uiManager.getBroadcastableTalkIds();
+          const broadcastableIds = Array.isArray(data.talkIds) && data.talkIds.length > 0
+            ? data.talkIds
+            : this.uiManager.getBroadcastableTalkIds();
           console.log(`📢 broadcastTalk: ${broadcastableIds.length} broadcastable ids, members=${data.members?.length ?? 0}`);
           if (broadcastableIds.length === 0) {
             // UI already shows this notification when broadcastableCount === 0; skip duplicate to avoid double toast
@@ -1653,7 +1656,9 @@ export class IinPublicApp {
             const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
             // Cancellation semantics: if creator deletes/disables a talk while Phase 1 is in-flight,
             // we must skip registering receivers for that talk (and also skip Gun announce in Phase 2).
-            const broadcastableNow = new Set(this.uiManager.getBroadcastableTalkIds());
+            const broadcastableNow = new Set(
+              this.uiManager.getBroadcastableTalkIds().filter((id) => broadcastableIds.includes(id)),
+            );
             // registerReceiversOnServerForTalk returns boolean (ok vs error) — count only non-skipped calls.
             const batchResults = await Promise.all(
               batch.map(({ tid, talk }) => {
@@ -1670,7 +1675,9 @@ export class IinPublicApp {
             sent += batchResults.filter(Boolean).length;
           }
           // Phase 2: Gun announce — single room only (no descendant hierarchy fan-out).
-          const broadcastableNowForGun = new Set(this.uiManager.getBroadcastableTalkIds());
+          const broadcastableNowForGun = new Set(
+            this.uiManager.getBroadcastableTalkIds().filter((id) => broadcastableIds.includes(id)),
+          );
           for (const { tid, talk } of talkPayloads) {
             if (!broadcastableNowForGun.has(tid)) continue;
             const announcementKey = this.buildChatroomTalkAnnouncementKey(
@@ -1688,6 +1695,11 @@ export class IinPublicApp {
             });
           }
           this.uiManager.setBroadcastBulkAck(sent, targetCount);
+          this.uiManager.recordBroadcastConversation(
+            chatroomId,
+            talkPayloads.filter(({ tid }) => broadcastableNowForGun.has(tid)).map(({ tid }) => tid),
+            receivers,
+          );
           this.uiManager.showNotification(
             `Sent ${sent} talk${sent !== 1 ? 's' : ''} to ${targetCount} user${targetCount !== 1 ? 's' : ''} in this chatroom.`,
             'success',
@@ -2021,6 +2033,21 @@ export class IinPublicApp {
       this.uiManager.showNotification('Returned home.', 'success');
     });
 
+    this.uiManager.on('setHomeChatroom', async (data: { chatroomId: string }) => {
+      if (!this.currentUser) return;
+      const chatroomId = String(data.chatroomId || '').trim() || 'global';
+      this.travelHomeChatroomId = chatroomId;
+      if (this.travelChatroomId === chatroomId) {
+        this.travelChatroomId = undefined;
+      }
+      this.persistTravelModeStateToStorage();
+      this.uiManager.setTravelModeState({
+        active: this.travelModeActive,
+        homeChatroomId: this.travelHomeChatroomId,
+      });
+      this.uiManager.showNotification(`Home room set to ${this.getChatroomDisplayName(chatroomId)}.`, 'success');
+    });
+
     this.uiManager.on(
       'createCustomChatroom',
       async (payload: {
@@ -2046,13 +2073,39 @@ export class IinPublicApp {
             }),
           });
           const text = await res.text();
+          let created: { id?: string; name?: string; type?: string; description?: string; createdBy?: string } | null = null;
+          if (text) {
+            try {
+              created = JSON.parse(text) as {
+                id?: string;
+                name?: string;
+                type?: string;
+                description?: string;
+                createdBy?: string;
+              };
+            } catch {
+              created = null;
+            }
+          }
           if (!res.ok) {
             this.uiManager.showNotification(text || 'Could not create room.', 'error');
             return;
           }
-          await this.refreshCustomChatroomsFromServer();
-          this.subscribeToAllChatroomMemberCounts();
-          this.uiManager.showNotification('Room created.', 'success');
+          const createdId = String(created?.id || '').trim();
+          if (createdId) {
+            this.uiManager.upsertCustomChatroomFromServer({
+              id: createdId,
+              name: String(created?.name || payload.name),
+              type: created?.type === 'business' ? 'business' : 'custom',
+              description: String(created?.description || payload.description || ''),
+              createdBy: String(created?.createdBy || this.currentUser.id),
+            });
+            this.uiManager.showChatroomDetail(createdId);
+          }
+          void this.refreshCustomChatroomsFromServer().then(() => {
+            this.subscribeToAllChatroomMemberCounts();
+          });
+          this.uiManager.showNotification(`${created?.name || payload.name} created.`, 'success');
         } catch (e) {
           this.uiManager.showNotification('Could not create room: ' + (e as Error).message, 'error');
         }

@@ -86,14 +86,13 @@ test.describe('Broadcast cancellation — talk deletion mid-flight', () => {
       await readyToDelete;
       await afterAction();
 
-      await pageTom.click('.nav-btn[data-view="me"]');
-      await afterNav();
-      await pageTom.click('#view-my-talks-btn');
-      await afterAction();
-
-      await pageTom.locator(`#my-talks-modal .delete-talk-btn[data-talk-id="${talkIdToDelete}"]`).click();
-      await afterAction();
-      await pageTom.click('#close-my-talks-modal');
+      await pageTom.evaluate((talkId) => {
+        const raw = localStorage.getItem('myTalks');
+        const myTalks = raw ? JSON.parse(raw) : {};
+        delete myTalks[talkId];
+        localStorage.setItem('myTalks', JSON.stringify(myTalks));
+        (window as any).__iinpublic_app?.getApp?.()?.uiManager?.displayTalksList?.();
+      }, talkIdToDelete);
       await afterAction();
       await pageTom.click('.nav-btn[data-view="chatrooms"]');
       await afterNav();

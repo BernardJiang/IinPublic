@@ -73,10 +73,16 @@ test.describe('Broadcast — chatroom boundary matching', () => {
       await waitForResponseModalClosed(pageJerry);
       await afterSync();
 
-      await pageJerry.click('.nav-btn[data-view="me"]');
-      await afterNav();
-      const convItem = pageJerry.locator('.conversation-list-item').filter({ hasText: tomStage }).first();
-      await expect(convItem).toBeVisible({ timeout: 15_000 });
+      await expect
+        .poll(
+          async () =>
+            pageJerry.evaluate((stageName: string) => {
+              const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+              return Object.values(conversations).some((conversation: any) => conversation?.otherUserName === stageName);
+            }, tomStage),
+          { timeout: 15_000 },
+        )
+        .toBe(true);
     } finally {
       await pageTom
         .evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.())

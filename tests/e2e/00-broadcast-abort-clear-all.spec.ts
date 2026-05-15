@@ -82,15 +82,10 @@ test.describe('Broadcast cancellation — clear all mid-flight', () => {
       await readyToClear;
       await afterAction();
 
-      await pageTom.click('.nav-btn[data-view="me"]');
-      await afterNav();
-      await pageTom.click('#view-my-talks-btn');
-      await afterAction();
-
-      pageTom.once('dialog', (d) => d.accept());
-      await pageTom.click('#clear-all-talks-btn');
-      await afterAction();
-      await pageTom.click('#close-my-talks-modal');
+      await pageTom.evaluate(() => {
+        localStorage.removeItem('myTalks');
+        (window as any).__iinpublic_app?.getApp?.()?.uiManager?.displayTalksList?.();
+      });
       await afterAction();
       await pageTom.click('.nav-btn[data-view="chatrooms"]');
       await afterNav();

@@ -69,6 +69,11 @@ import {
   type MyTalkEntry,
 } from './my-talks-storage';
 import {
+  getFlatAnswerHistory,
+  upsertFlatAnswerHistory,
+  type FlatAnswerHistoryItem,
+} from './answer-history-storage';
+import {
   getChatbotEnabled,
   getChatbotTemplate as loadChatbotTemplate,
   getCopyTalkAutoSave,
@@ -161,6 +166,7 @@ export class UIManager extends EventEmitter {
   // private newMatchesCount: number = 0; // TODO: implement match count tracking
   private talkStatsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
   private talksListDelegationBound = false;
+  private chatroomActionDelegationBound = false;
   private incomingTalkClusters: any[] = [];
   private customChatrooms: CustomChatroomRow[] = [];
   private travelModeActive: boolean = false;
@@ -221,6 +227,17 @@ export class UIManager extends EventEmitter {
 
   setCustomChatroomsFromServer(rows: CustomChatroomRow[]): void {
     this.customChatrooms = Array.isArray(rows) ? [...rows] : [];
+    this.renderChatroomList();
+  }
+
+  upsertCustomChatroomFromServer(row: CustomChatroomRow): void {
+    if (!row?.id) return;
+    const existingIndex = this.customChatrooms.findIndex((candidate) => candidate.id === row.id);
+    if (existingIndex >= 0) {
+      this.customChatrooms[existingIndex] = row;
+    } else {
+      this.customChatrooms.push(row);
+    }
     this.renderChatroomList();
   }
 
@@ -563,6 +580,55 @@ export class UIManager extends EventEmitter {
     return getMyTalks();
   }
 
+  private getBroadcastHistory(): Record<string, { sentAt: string; chatroomId: string; receiverIds: string[]; location?: string }> {
+    try {
+      const raw = localStorage.getItem('broadcastConversationHistory');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private getBroadcastRevisionKey(talkId: string, talk: any): string {
+    const fullTalk = talk?.fullTalk || talk || {};
+    const contentKey = UIManager.getTalkContentKey(fullTalk);
+    const updated = String(talk?.updatedAt || talk?.lastInteraction || fullTalk?.updatedAt || fullTalk?.timestamp || '');
+    return `${talkId}:${contentKey}:${updated}`;
+  }
+
+  private getUnsentBroadcastTalkIds(chatroomId: string, receiverIds: string[]): string[] {
+    const sortedReceivers = [...new Set(receiverIds)].sort();
+    const receiverKey = sortedReceivers.join(',');
+    const history = this.getBroadcastHistory();
+    return this.getBroadcastableTalkIds().filter((talkId) => {
+      const talk = this.getMyTalks()[talkId];
+      const key = `${chatroomId}|${receiverKey}|${this.getBroadcastRevisionKey(talkId, talk)}`;
+      return !history[key];
+    });
+  }
+
+  recordBroadcastConversation(chatroomId: string, talkIds: string[], receivers: Array<{ userId: string }>): void {
+    const receiverIds = receivers.map((r) => String(r.userId || '').trim()).filter(Boolean).sort();
+    const receiverKey = receiverIds.join(',');
+    const location = this.currentLocation
+      ? `${this.currentLocation.latitude.toFixed(3)},${this.currentLocation.longitude.toFixed(3)}`
+      : undefined;
+    const history = this.getBroadcastHistory();
+    const sentAt = new Date().toISOString();
+    for (const talkId of talkIds) {
+      const talk = this.getMyTalks()[talkId];
+      if (!talk) continue;
+      const key = `${chatroomId}|${receiverKey}|${this.getBroadcastRevisionKey(talkId, talk)}`;
+      history[key] = {
+        sentAt,
+        chatroomId,
+        receiverIds,
+        ...(location ? { location } : {}),
+      };
+    }
+    localStorage.setItem('broadcastConversationHistory', JSON.stringify(history));
+  }
+
   initialize(): void {
     const container = document.getElementById('app');
     if (!container) {
@@ -585,7 +651,7 @@ export class UIManager extends EventEmitter {
             <span class="header-status-text" id="status-bar-text" data-header-status-view="chatrooms">Connecting...</span>
             <span class="header-status-text" id="contacts-status-text" data-header-status-view="contacts" hidden>Contacts from exchanged talks</span>
             <span class="header-status-text" id="talks-status-text" data-header-status-view="talks" hidden>Incoming talks are consolidated by content.</span>
-            <span class="header-status-text" id="me-status-text" data-header-status-view="me" hidden>Profile, conversations, and answered talks</span>
+            <span class="header-status-text" id="me-status-text" data-header-status-view="me" hidden>Answered question history</span>
             <span class="header-status-text" id="settings-status-text" data-header-status-view="settings" hidden>Feature and filter controls</span>
             <span id="broadcast-bulk-ack" data-testid="broadcast-bulk-ack" hidden></span>
           </div>
@@ -675,9 +741,6 @@ export class UIManager extends EventEmitter {
           <div class="view-panel" id="talks-view">
             <div class="view-content">
               <div class="tab-action-bar talks-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                <button class="btn create-talk-btn" id="create-talk-btn-talks">
-                  Create New Talk
-                </button>
                 <button class="btn talks-nav-back" id="talks-nav-back" type="button" style="display: none;">
                   ‹ Back
                 </button>
@@ -773,21 +836,6 @@ export class UIManager extends EventEmitter {
                 <button class="btn primary-btn" id="me-view-preferences-btn" type="button">Preferences</button>
               </div>
               <div class="embedded-stats-strip" id="me-stats-strip" style="padding:8px 12px;color:#64748b;font-size:0.88em;"></div>
-              <div class="user-profile">
-                <div class="user-info" id="user-info-me"></div>
-                <div class="profile-actions">
-                  <button class="profile-btn" id="view-my-talks-btn">
-                    📋 My Talks
-                  </button>
-                  <button class="profile-btn" id="my-answers-btn">
-                    📝 My Answers
-                  </button>
-                </div>
-              </div>
-              <div class="conversations-section" style="margin-top: 24px;">
-                <h3 style="font-size: 1em; margin-bottom: 12px; color: #666;">Conversations</h3>
-                <div id="conversations-list"></div>
-              </div>
               <div class="answers-section" style="margin-top: 24px;">
                 <div id="answers-content">
                   <div style="padding: 20px; text-align: center; color: #999;">
@@ -874,21 +922,6 @@ export class UIManager extends EventEmitter {
       });
     }
 
-    // Create talk button in Talks view
-    const createTalkBtnTalks = document.getElementById('create-talk-btn-talks');
-    if (createTalkBtnTalks) {
-      createTalkBtnTalks.addEventListener('click', () => {
-        this.showTalkEditorDialog();
-      });
-    }
-
-    const viewMyTalksBtn = document.getElementById('view-my-talks-btn');
-    if (viewMyTalksBtn) {
-      viewMyTalksBtn.addEventListener('click', () => {
-        this.showMyTalksDialog();
-      });
-    }
-
     const viewPreferencesBtn = document.getElementById('view-preferences-btn');
     if (viewPreferencesBtn) {
       viewPreferencesBtn.addEventListener('click', () => {
@@ -902,13 +935,6 @@ export class UIManager extends EventEmitter {
       });
     }
 
-    const myAnswersBtn = document.getElementById('my-answers-btn');
-    if (myAnswersBtn) {
-      myAnswersBtn.addEventListener('click', () => {
-        this.showPreferencesDialog();
-      });
-    }
-
     // Back to chatrooms button
     const backToChatroomsBtn = document.getElementById('back-to-chatrooms');
     if (backToChatroomsBtn) {
@@ -917,10 +943,14 @@ export class UIManager extends EventEmitter {
       });
     }
 
-    const createCustomRoomBtn = document.getElementById('create-custom-chatroom-btn');
-    if (createCustomRoomBtn) {
-      createCustomRoomBtn.addEventListener('click', () => {
-        void this.handleCreateCustomChatroomClick();
+    if (!this.chatroomActionDelegationBound) {
+      this.chatroomActionDelegationBound = true;
+      document.body.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest('#create-custom-chatroom-btn')) {
+          e.preventDefault();
+          void this.handleCreateCustomChatroomClick();
+        }
       });
     }
 
@@ -1027,17 +1057,17 @@ export class UIManager extends EventEmitter {
     }
     const members = Array.from(byId.values());
 
-    const preamble = await this.showBroadcastTagPreamble({
-      chatroomId: this.currentChatroom,
-      members,
-    });
-    if (!preamble) return;
+    const receiverIds = members.map((m) => m.userId).filter((id) => id && id !== this.currentUserId);
+    const talkIds = this.getUnsentBroadcastTalkIds(this.currentChatroom, receiverIds);
+    if (talkIds.length === 0) {
+      this.showNotification('Everything current has already been broadcast to this room.', 'info');
+      return;
+    }
 
     this.emit('broadcastTalk', {
       chatroomId: this.currentChatroom,
       members,
-      broadcastTargetTags: preamble.tags,
-      broadcastMaxDistanceMiles: preamble.broadcastMaxDistanceMiles,
+      talkIds,
     });
 
     const list = document.getElementById('chatroom-members-list');
@@ -1117,7 +1147,6 @@ export class UIManager extends EventEmitter {
         // Special handling for me view: refresh conversations list and request a source sync.
         if (targetView === 'me') {
           this.emit('needConversationSync');
-          this.displayConversationsList();
           this.displayAnswersList();
           void this.displayContextualStatistics('me-stats-strip');
         }
@@ -1440,6 +1469,14 @@ export class UIManager extends EventEmitter {
     if (detailContainer) detailContainer.style.display = 'none';
     const backBtn = document.getElementById('back-to-chatrooms') as HTMLElement | null;
     if (backBtn) backBtn.style.display = 'none';
+    const createCustomRoomBtn = document.getElementById('create-custom-chatroom-btn') as HTMLButtonElement | null;
+    if (createCustomRoomBtn) {
+      createCustomRoomBtn.onclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void this.handleCreateCustomChatroomClick();
+      };
+    }
 
     const ownerBar = document.getElementById('chatroom-owner-bar');
     if (ownerBar) {
@@ -1554,13 +1591,51 @@ export class UIManager extends EventEmitter {
   }
 
   private async handleCreateCustomChatroomClick(): Promise<void> {
-    if (!this.currentUserId) {
-      this.showNotification('Sign in required to create a room.', 'error');
-      return;
-    }
     const payload = await this.showCreateCustomChatroomDialog();
     if (payload) {
-      this.emit('createCustomChatroom', payload);
+      const creatorId = this.currentUserId || this.currentUser?.id || localStorage.getItem('iinpublic_user_id') || 'local-user';
+      try {
+        const res = await fetch(`${this.apiBase}/api/chatrooms`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: payload.name,
+            type: payload.type,
+            createdBy: creatorId,
+            ...(payload.description != null ? { description: payload.description } : {}),
+            ...(payload.capacity != null ? { capacity: payload.capacity } : {}),
+            ...(payload.businessInfo != null ? { businessInfo: payload.businessInfo } : {}),
+          }),
+        });
+        const text = await res.text();
+        if (!res.ok) {
+          this.showNotification(text || 'Could not create room.', 'error');
+          return;
+        }
+        const created = text
+          ? JSON.parse(text) as {
+              id?: string;
+              name?: string;
+              type?: string;
+              description?: string;
+              createdBy?: string;
+            }
+          : null;
+        const createdId = String(created?.id || '').trim();
+        if (createdId) {
+          this.upsertCustomChatroomFromServer({
+            id: createdId,
+            name: String(created?.name || payload.name),
+            type: created?.type === 'business' ? 'business' : 'custom',
+            description: String(created?.description || payload.description || ''),
+            createdBy: String(created?.createdBy || creatorId),
+          });
+          this.showChatroomDetail(createdId);
+        }
+        this.showNotification(`${created?.name || payload.name} created.`, 'success');
+      } catch (e) {
+        this.showNotification('Could not create room: ' + (e as Error).message, 'error');
+      }
     }
   }
 
@@ -1837,7 +1912,20 @@ export class UIManager extends EventEmitter {
       this.currentUser?.talkFilters || getTalkIntakeFilters(),
       this.currentLocation,
     );
-    const backendInEntries = incomingFilterResult.visible;
+    const answeredByContent = getAnsweredTalkByContent();
+    const backendInEntries = incomingFilterResult.visible.filter((cluster: any) => {
+      if (cluster?.isAnswered) return false;
+      const identityKey = String(cluster?.identityKey || '');
+      if (identityKey && answeredByContent[identityKey]) return false;
+      try {
+        const latestTalk = cluster?.latestTalk;
+        if (latestTalk && answeredByContent[UIManager.getTalkContentKey(latestTalk)]) return false;
+        if (latestTalk && answeredByContent[computeTalkIdFromTalkData(latestTalk)]) return false;
+      } catch {
+        /* keep visible if the cluster cannot be locally identified */
+      }
+      return true;
+    });
     const inEntries = backendInEntries;
     const talksNavBack = document.getElementById('talks-nav-back');
     const activeMode = this.talksViewMode;
@@ -2074,6 +2162,7 @@ export class UIManager extends EventEmitter {
       getMyTalks: this.getMyTalks.bind(this),
       getExactChatbotMemory,
       escapeHtml: escapeHtml,
+      getFlatAnswerHistory,
       copyAnsweredTalkToTalks: this.copyAnsweredTalkToTalks.bind(this),
       showTalkDetail: this.showTalkDetail.bind(this),
       showPreferencesDialog: this.showPreferencesDialog.bind(this),
@@ -2100,11 +2189,42 @@ export class UIManager extends EventEmitter {
     setTalkIntakeFilters(talkFilters);
     const reputation = user.reputation || ({} as typeof user.reputation);
     const home = this.getHomeChatroomId();
+    const headshot = String(user.headshot || '').trim();
+    const interestNames = Array.isArray(user.interests)
+      ? user.interests.map((t: Tag) => String(t?.name || '').trim()).filter(Boolean)
+      : [];
     const locationText = this.currentLocation
       ? `${this.currentLocation.latitude.toFixed(3)}, ${this.currentLocation.longitude.toFixed(3)}`
       : 'Unknown';
+    const homeOptions = [
+      ...getFlatChatroomList().map((room) => ({
+        id: room.id,
+        label: `${'-- '.repeat(room.level)}${room.icon} ${room.name}`,
+      })),
+      ...this.customChatrooms.map((room) => ({
+        id: room.id,
+        label: `${room.type === 'business' ? '🏪' : '💬'} ${room.name}`,
+      })),
+    ];
     container.innerHTML = `
       <div style="display:grid;gap:14px;">
+        <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+            <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+              <div class="user-avatar" style="width:48px;height:48px;font-size:1.25em;flex:0 0 auto;">
+                ${escapeHtml(headshot || user.stageName.charAt(0).toUpperCase())}
+              </div>
+              <div style="min-width:0;">
+                <div style="font-weight:700;color:#111827;">${escapeHtml(user.stageName)}</div>
+                <div style="font-size:0.86em;color:#64748b;">Interests: ${interestNames.length > 0 ? escapeHtml(interestNames.join(', ')) : 'None listed'}</div>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn" id="settings-edit-stagename-btn" data-testid="edit-stage-name-button" type="button">Edit Stage Name</button>
+              <button class="btn" id="settings-edit-profile-btn" data-testid="edit-profile-button" type="button">Edit Profile</button>
+            </div>
+          </div>
+        </section>
         <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
           <div style="font-weight:700;color:#111827;margin-bottom:10px;">Languages</div>
           <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
@@ -2139,7 +2259,16 @@ export class UIManager extends EventEmitter {
               <input type="number" class="form-input" id="settings-max-distance" min="0" step="1" value="${talkFilters.maxDistanceMiles ?? ''}">
             </label>
           </div>
-          <div style="margin-top:10px;font-size:0.9em;color:#475569;">Home room: <strong>${escapeHtml(this.resolveChatroomTitle(home))}</strong></div>
+          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
+            <span>Home room</span>
+            <select class="form-input" id="settings-home-room">
+              ${homeOptions
+                .map((room) => `
+                  <option value="${escapeHtml(room.id)}" ${room.id === home ? 'selected' : ''}>${escapeHtml(room.label)}</option>
+                `)
+                .join('')}
+            </select>
+          </label>
           <div style="margin-top:4px;font-size:0.82em;color:#64748b;">Location: ${escapeHtml(locationText)}</div>
         </section>
         <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
@@ -2148,6 +2277,19 @@ export class UIManager extends EventEmitter {
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-grammar-filter" ${talkFilters.requireGoodGrammar ? 'checked' : ''}> Grammar filter</label>
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-dirty-words-filter" ${talkFilters.blockDirtyWords ? 'checked' : ''}> Dirty words filter</label>
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-credit-visible" ${reputation.isHidden === true ? '' : 'checked'}> Show reputation/credit</label>
+          </div>
+          <div style="margin-top:12px;">
+            <div style="font-size:0.9em;margin-bottom:6px;">Allowed talk types</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;">
+              ${(['tag', 'flow', 'route', 'survey'] as const)
+                .map((type) => `
+                  <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid #d1d5db;border-radius:999px;background:white;">
+                    <input type="checkbox" class="settings-talk-filter-type" value="${type}" ${talkFilters.allowedTalkTypes.includes(type) ? 'checked' : ''}>
+                    <span>${type}</span>
+                  </label>
+                `)
+                .join('')}
+            </div>
           </div>
           <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
             <span>Custom blocked phrases</span>
@@ -2160,20 +2302,29 @@ export class UIManager extends EventEmitter {
   }
 
   private bindSettingsControls(): void {
+    document.getElementById('settings-edit-stagename-btn')?.addEventListener('click', () => {
+      if (this.currentUser) this.showEditStageNameDialog(this.currentUser);
+    });
+    document.getElementById('settings-edit-profile-btn')?.addEventListener('click', () => {
+      if (this.currentUser) this.showEditProfileDialog(this.currentUser);
+    });
+
     const sync = () => {
       const filterLanguages = (document.getElementById('settings-filter-languages') as HTMLInputElement | null)?.value || 'en';
       const profileLanguages = (document.getElementById('settings-profile-languages') as HTMLInputElement | null)?.value || filterLanguages;
       const minDistanceEl = document.getElementById('settings-min-distance') as HTMLInputElement | null;
       const maxDistanceEl = document.getElementById('settings-max-distance') as HTMLInputElement | null;
       const customBlockedEl = document.getElementById('settings-custom-blocked') as HTMLTextAreaElement | null;
+      const typeEls = Array.from(document.querySelectorAll('.settings-talk-filter-type')) as HTMLInputElement[];
       const nextFilters: TalkIntakeFilters = {
         allowedLanguages: filterLanguages.split(',').map((part) => part.trim().toLowerCase()).filter(Boolean),
         requireGoodGrammar: !!(document.getElementById('settings-grammar-filter') as HTMLInputElement | null)?.checked,
         blockDirtyWords: !!(document.getElementById('settings-dirty-words-filter') as HTMLInputElement | null)?.checked,
-        allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
+        allowedTalkTypes: typeEls.filter((el) => el.checked).map((el) => el.value as any),
         customBlockedTerms: normalizeCustomBlockedTerms((customBlockedEl?.value || '').split(/[\n,]+/).map((part) => part.trim()).filter(Boolean)),
       };
       if (nextFilters.allowedLanguages.length === 0) nextFilters.allowedLanguages = ['en'];
+      if (nextFilters.allowedTalkTypes.length === 0) nextFilters.allowedTalkTypes = ['flow', 'survey', 'tag', 'route'];
       if (minDistanceEl?.value) nextFilters.minDistanceMiles = Number(minDistanceEl.value);
       if (maxDistanceEl?.value) nextFilters.maxDistanceMiles = Number(maxDistanceEl.value);
       setTalkIntakeFilters(nextFilters);
@@ -2187,7 +2338,15 @@ export class UIManager extends EventEmitter {
     ['settings-profile-languages', 'settings-filter-languages', 'settings-min-distance', 'settings-max-distance', 'settings-grammar-filter', 'settings-dirty-words-filter'].forEach((id) => {
       document.getElementById(id)?.addEventListener('change', sync);
     });
+    document.querySelectorAll('.settings-talk-filter-type').forEach((el) => {
+      el.addEventListener('change', sync);
+    });
     document.getElementById('settings-custom-blocked')?.addEventListener('input', sync);
+    document.getElementById('settings-home-room')?.addEventListener('change', (event) => {
+      this.emit('setHomeChatroom', {
+        chatroomId: (event.currentTarget as HTMLSelectElement).value,
+      });
+    });
     document.getElementById('settings-copy-talk-autosave')?.addEventListener('change', (event) => {
       setCopyTalkAutoSave((event.currentTarget as HTMLInputElement).checked);
     });
@@ -3245,13 +3404,25 @@ export class UIManager extends EventEmitter {
       talkIdToUse = talk.id;
       senders = authorId ? [authorId] : [];
       answeredByContent[contentKey] = talk.id;
+      try {
+        answeredByContent[computeTalkIdFromTalkData(talk)] = talk.id;
+      } catch {
+        /* keep legacy content key only */
+      }
       setAnsweredTalkByContent(answeredByContent);
     }
 
     const existingEntry = myTalks[talkIdToUse];
     const role = existingEntry?.role === 'copied' ? 'copied'
                : existingEntry?.role === 'created' ? 'created'
+               : getCopyTalkAutoSave() ? 'copied'
                : 'answered';
+    const completedAnswers = answers.map((answer) => ({
+      questionId: answer.questionId,
+      answerId: answer.answerId,
+      ...(answer.answerText ? { answerText: answer.answerText } : {}),
+      ...(answer.mode ? { mode: answer.mode } : {}),
+    }));
 
     this.saveMyTalk({
       talkId: talkIdToUse,
@@ -3260,15 +3431,11 @@ export class UIManager extends EventEmitter {
       timestamp: talk.createdAt || new Date().toISOString(),
       role,
       fullTalk: existingTalkId && myTalks[existingTalkId]?.fullTalk ? myTalks[existingTalkId].fullTalk : talk,
-      completedAnswers: answers.map((answer) => ({
-        questionId: answer.questionId,
-        answerId: answer.answerId,
-        ...(answer.answerText ? { answerText: answer.answerText } : {}),
-        ...(answer.mode ? { mode: answer.mode } : {}),
-      })),
+      completedAnswers,
       outcome: outcome ?? existingEntry?.outcome ?? 'mismatch',
       senders,
     });
+    this.saveFlatAnswerHistoryRecord(talkIdToUse, talk, completedAnswers, outcome ?? existingEntry?.outcome ?? 'mismatch', senders);
 
     this.emit('talkCompleted', {
       talkId: talk.id,
@@ -3284,6 +3451,60 @@ export class UIManager extends EventEmitter {
           : 'Survey response submitted! Thank you.',
       'success',
     );
+  }
+
+  private saveFlatAnswerHistoryRecord(
+    talkId: string,
+    talk: any,
+    completedAnswers: Array<{ questionId: string; answerId: string; answerText?: string; mode?: string }>,
+    outcome: 'match' | 'mismatch',
+    senders: string[],
+  ): void {
+    const questions = Array.isArray(talk?.questions) ? talk.questions : [];
+    const items: FlatAnswerHistoryItem[] = completedAnswers.map((entry, index) => {
+      const question = questions.find((item: any) => String(item?.id || '') === entry.questionId) || {};
+      const answer = Array.isArray(question?.answers)
+        ? question.answers.find((item: any) => String(item?.id || '') === entry.answerId)
+        : null;
+      const isTag = String(talk?.type || '').toLowerCase() === 'tag';
+      const prompt = String(question?.text || talk?.title || `Question ${index + 1}`).trim();
+      const rawChoice = String(entry.answerText || '').trim();
+      const choice = isTag
+        ? answer?.isMatch
+          ? 'Checked'
+          : 'Unchecked'
+        : rawChoice && rawChoice.toLowerCase() !== 'ignore'
+          ? rawChoice
+          : String(answer?.text || '').trim() || 'Ignored';
+      const contextPath = Array.isArray(question?.contextPath)
+        ? question.contextPath.map((step: any, stepIndex: number) => {
+            const questionId = String(step?.questionId || '').trim() || `Q${stepIndex + 1}`;
+            const answerId = String(step?.answerId || '').trim() || '?';
+            return `${questionId} -> ${answerId}`;
+          })
+        : [];
+      return {
+        questionId: entry.questionId,
+        answerId: entry.answerId,
+        prompt,
+        choice,
+        kind: isTag ? 'tag' : 'question',
+        contextPath,
+        ...(entry.mode ? { mode: entry.mode } : {}),
+        ...(String(question?.contextHashId || '').trim() ? { contextHash: String(question.contextHashId).trim() } : {}),
+      };
+    });
+    upsertFlatAnswerHistory({
+      id: `${UIManager.getTalkContentKey(talk)}:${talkId}`,
+      talkId,
+      title: String(talk?.title || 'Answered Talk'),
+      type: String(talk?.type || 'flow'),
+      outcome,
+      answeredAt: new Date().toISOString(),
+      senderIds: [...new Set(senders.filter(Boolean))],
+      ...(talk?.locationRadiusMiles != null ? { locationRadiusMiles: talk.locationRadiusMiles } : {}),
+      items,
+    });
   }
 
   /**

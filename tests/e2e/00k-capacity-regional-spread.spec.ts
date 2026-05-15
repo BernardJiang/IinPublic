@@ -1,6 +1,6 @@
 /**
  * Capacity spread: with capacity=3, 25 users cascade from global into continents,
- * USA, and blurred regional rooms.
+ * USA, and the smallest matching state/region room.
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from './helpers/fixtures';
@@ -21,7 +21,7 @@ const TARGETS = [
   ...Array.from({ length: 3 }, () => ({ room: 'oceania', location: { latitude: -33.8688, longitude: 151.2093 } })),
   ...Array.from({ length: 4 }, () => ({ room: 'usa', location: SF })),
 ];
-const REGIONAL_SF_ROOM = 'region_37.77_-122.42_room_0';
+const REGIONAL_SF_ROOM = 'california';
 
 test.describe('Capacity regional spread', () => {
   const contexts: BrowserContext[] = [];

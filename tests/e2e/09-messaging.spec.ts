@@ -72,10 +72,10 @@ test.describe('Direct messaging between matched users', () => {
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 640, 1000);
     await afterLoad();
-    await page.click('.nav-btn[data-view="me"]');
+    await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    await page.waitForSelector('#edit-stagename-btn');
-    await page.click('#edit-stagename-btn');
+    await page.waitForSelector('#settings-edit-stagename-btn');
+    await page.click('#settings-edit-stagename-btn');
     await afterAction();
     await page.fill('#new-stage-name', stageName);
     await page.click('#edit-stagename-form button[type="submit"]');
@@ -86,50 +86,22 @@ test.describe('Direct messaging between matched users', () => {
     return { context, page };
   }
 
-  /** Open the conversation overlay for a given contact name from the Me tab. */
+  /** Open the conversation overlay for a given contact name from local conversation state. */
   async function openConversation(page: Page, otherUserName: string, otherUserId?: string): Promise<void> {
-    const convItem = page.locator('.conversation-list-item').filter({ hasText: otherUserName }).first();
-    let visible = false;
-    try {
-      await expect
-        .poll(
-          async () => {
-            await page.click('.nav-btn[data-view="me"]');
-            await afterNav();
-            const itemVisible = await convItem.isVisible().catch(() => false);
-            if (itemVisible) return true;
-            await page.click('.nav-btn[data-view="chatrooms"]');
-            await afterNav();
-            await page.click('.nav-btn[data-view="me"]');
-            await afterNav();
-            return convItem.isVisible().catch(() => false);
-          },
-          { timeout: 30_000 },
-        )
-        .toBe(true);
-      visible = true;
-    } catch {
-      visible = false;
+    if (otherUserId) {
+      await waitForConversationEntryByOtherUserId(page, otherUserId);
     }
-
-    if (visible) {
-      await convItem.click();
-    } else {
-      if (otherUserId) {
-        await waitForConversationEntryByOtherUserId(page, otherUserId);
-      }
-      await page.evaluate(({ name, otherId }: { name: string; otherId?: string }) => {
-        const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
-        const raw = localStorage.getItem('myConversations');
-        const conversations = raw ? JSON.parse(raw) : {};
-        const entry = Object.entries(conversations).find(([, v]: any) => {
-          return v?.otherUserName === name || (!!otherId && v?.otherUserId === otherId);
-        });
-        if (!entry) throw new Error('conversation entry missing');
-        const [conversationId] = entry;
-        app?.uiManager?.showConversationDetail?.(conversationId);
-      }, { name: otherUserName, otherId: otherUserId });
-    }
+    await page.evaluate(({ name, otherId }: { name: string; otherId?: string }) => {
+      const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+      const raw = localStorage.getItem('myConversations');
+      const conversations = raw ? JSON.parse(raw) : {};
+      const entry = Object.entries(conversations).find(([, v]: any) => {
+        return v?.otherUserName === name || (!!otherId && v?.otherUserId === otherId);
+      });
+      if (!entry) throw new Error('conversation entry missing');
+      const [conversationId] = entry;
+      app?.uiManager?.showConversationDetail?.(conversationId);
+    }, { name: otherUserName, otherId: otherUserId });
     await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 20_000 });
   }
 
@@ -137,17 +109,11 @@ test.describe('Direct messaging between matched users', () => {
     await expect
       .poll(
         async () => {
-          await page.click('.nav-btn[data-view="me"]');
-          await afterNav();
-          const exists = await page.evaluate((id: string) => {
+          return page.evaluate((id: string) => {
             const raw = localStorage.getItem('myConversations');
             const conversations = raw ? JSON.parse(raw) : {};
             return Object.values(conversations).some((v: any) => v?.otherUserId === id);
           }, otherUserId);
-          if (exists) return true;
-          await page.click('.nav-btn[data-view="chatrooms"]');
-          await afterNav();
-          return false;
         },
         { timeout: 120_000, message: `Conversation entry for ${otherUserId} should appear` },
       )
@@ -192,8 +158,6 @@ test.describe('Direct messaging between matched users', () => {
     await afterNav();
     await waitForBroadcastableTalkIds(pageTom, 120_000);
     await waitForDistinctGunPeersExcludingSelf(pageTom, 1, 240_000);
-    await clickBroadcastUntilBulkAck(pageTom);
-    await afterSync();
     await clickBroadcastUntilBulkAck(pageTom);
     await afterSync();
 

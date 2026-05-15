@@ -1,5 +1,5 @@
 /**
- * Multi-question talk: Jerry answers No (mismatch), reopens, changes to Yes → match.
+ * Multi-question talk: answered incoming talks leave IN and land in Me history.
  */
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
@@ -16,7 +16,7 @@ import {
   finalCleanupPages,
 } from '../helpers/talks-matching-flow';
 
-test.describe('Talks matching — ignore then change to match', () => {
+test.describe('Talks matching — answered incoming leaves IN', () => {
   let browsers: ThreeBrowsers;
   let browserTom: Browser;
   let browserJerry: Browser;
@@ -54,7 +54,7 @@ test.describe('Talks matching — ignore then change to match', () => {
     await clearGunDatabases();
   });
 
-  test('Jerry answers No then reopens and picks Yes → match', async () => {
+  test('Jerry answers No and the answered incoming talk is removed from IN', async () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
@@ -115,15 +115,15 @@ test.describe('Talks matching — ignore then change to match', () => {
     await pageJerry.locator('input.choice-radio[data-answer-text="No"][data-mode="manual"]').first().click();
     await pageJerry.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
 
-    await afterSync();
-    await openIncomingTalkModal(pageJerry, 'E2E Ignore Then Match Tennis');
-    await pageJerry.locator('input.choice-radio[data-answer-text="Yes"][data-mode="auto"]').first().click();
-    await afterAction();
-    await pageJerry.locator('input.choice-radio[data-answer-text="amateur"][data-mode="auto"]').first().click();
-    await afterAction();
-    await pageJerry.locator('input.choice-radio[data-answer-text="Yes"][data-mode="manual"]').first().click();
     await waitForResponseModalClosed(pageJerry);
     await waitForTabActive(pageJerry, 'talks');
+    await pageJerry.click('#talks-nav-in');
+    await afterSync();
+    await expect(pageJerry.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: 'E2E Ignore Then Match Tennis' })).toHaveCount(0);
+    await pageJerry.click('.nav-btn[data-view="me"]');
+    await afterSync();
+    await expect(pageJerry.locator('#answers-content').getByText('E2E Ignore Then Match Tennis').first()).toBeVisible({ timeout: 15000 });
+    await expect(pageJerry.locator('#answers-content').getByText(/Mismatch/i).first()).toBeVisible({ timeout: 10000 });
     await waitForTabActive(pageTom, 'chatrooms');
   });
 });

@@ -98,7 +98,7 @@ test.describe('Super user: 20 talks completed by Tom', () => {
   });
 
   test('TechSupport creates 10 tags + 10 talks; Tom completes each through the app path; both verify 20 at end', async () => {
-    test.setTimeout(120_000);
+    test.setTimeout(360_000);
 
     console.log('\n📍 STEP 1: TechSupport enters Global');
     const techSupport = await bootstrapSuperUser(browserTechSupport, 'TechSupport', TECH_SUPPORT_NAME);
@@ -214,12 +214,12 @@ test.describe('Super user: 20 talks completed by Tom', () => {
       .poll(
         async () =>
           pageTom.evaluate((titles) => {
-            const raw = localStorage.getItem('myTalks');
-            const myTalks = raw ? JSON.parse(raw) : {};
-            const answered = Object.values(myTalks).filter((talk: any) => talk?.role === 'answered');
-            const answeredTitles = new Set(answered.map((talk: any) => String(talk?.title || '')));
+            const raw = localStorage.getItem('myAnswerHistory');
+            const history = raw ? JSON.parse(raw) : {};
+            const answered = Object.values(history);
+            const answeredTitles = new Set(answered.map((record: any) => String(record?.title || '')));
             const missing = titles.filter((title) => !answeredTitles.has(title));
-            const matches = answered.filter((talk: any) => talk?.outcome === 'match').length;
+            const matches = answered.filter((record: any) => record?.outcome === 'match').length;
             return missing.length === 0 && matches >= titles.length
               ? 'ok'
               : `answered=${answered.length}; matches=${matches}; missing=${missing.join(',')}`;

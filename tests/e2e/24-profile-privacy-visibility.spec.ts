@@ -56,10 +56,10 @@ test.describe('Profile privacy visibility', () => {
     await ensureWindowFitsViewport(nextPage, 960, 1200);
     await afterSync();
 
-    await nextPage.click('.nav-btn[data-view="me"]');
+    await nextPage.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    await nextPage.waitForSelector('#edit-stagename-btn');
-    await nextPage.click('#edit-stagename-btn');
+    await nextPage.waitForSelector('#settings-edit-stagename-btn');
+    await nextPage.click('#settings-edit-stagename-btn');
     await afterAction();
     await nextPage.fill('#new-stage-name', stageName);
     await nextPage.click('#edit-stagename-form button[type="submit"]');
@@ -102,7 +102,7 @@ test.describe('Profile privacy visibility', () => {
     pageTom = tom.page;
     pageTom.on('console', (m) => console.log('[Tom]:', m.text()));
 
-    await pageTom.click('#edit-profile-btn');
+    await pageTom.click('#settings-edit-profile-btn');
     await afterAction();
 
     const qaList = pageTom.locator('#profile-qa-list');
@@ -189,4 +189,3 @@ test.describe('Profile privacy visibility', () => {
     await expect(statsContact).not.toContainText(PRIVATE_A);
   });
 });
-

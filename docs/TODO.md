@@ -11,60 +11,8 @@ Authoritative product scope lives in
 
 ## Current Focus
 
-Do the requested UI/product correction pass first: Settings owns user-controlled feature toggles,
-Chatrooms defaults to a regional capacity tree with reliable room counts and broadcast behavior,
-Contacts/Talks consolidates incoming talks and simplifies tag answering, and Me becomes a flattened
-question/answer history.
-
-After this UI pass, continue the P2P roadmap:
+Continue the P2P roadmap:
 [P2P Node Network Roadmap](roadmap/p2p-node-network.md).
-
-## P0 — UI Product Corrections (Do First)
-
-### Settings Owns User Controls
-
-- [ ] Move user-controlled feature/function settings into Settings: language selection, multiple-language filter, auto-save received talks/copy-talk checkbox, enable chatbot checkbox, distance settings, home location settings, grammar filter, dirty-words filter, and reputation/credit visibility.
-- [ ] Move profile controls, auto-save checkbox, enable-chatbot checkbox, talk filters, and credit/reputation section out of Me and into Settings.
-
-### Chatrooms Regional Tree and Capacity
-
-- [ ] Make the default chatroom browser a three-layer regional tree: Global -> Continental -> Country -> State/region.
-- [ ] Set room max capacity to `3` for test scenarios and ensure overflow creates newer smaller regional rooms automatically.
-- [ ] Fix chatroom headcount fetch/remember behavior so displayed counts match entered-room counts, including the North America room showing the correct occupancy before entry.
-- [ ] Define Home as the smallest regional chatroom matching the user's location.
-- [ ] Enable Return Home only when the user is outside Home; after returning, place the user in Home and gray out Return Home.
-- [ ] Fix New Room creation so entering a name such as "Mesa College" visibly creates and selects/displays the new chatroom.
-
-### Chatrooms Broadcast and Direct Send
-
-- [ ] Change Broadcast so it sends all default talks without opening a popup.
-- [ ] Record broadcast conversation time, location, and recipients so the same broadcast is not repeated unless talks have new/updated content to send incrementally.
-- [ ] Let the user select one person from the room list and send all talks to that single user.
-- [ ] Preserve manual one-to-one message typing and sending from the selected-user path.
-- [ ] Let the user broadcast all talks to the current room directly, or after reviewing the visible user list.
-- [ ] Add an E2E/scripted capacity test with `MAX_CAPACITY_OF_ROOM=3` that fills 1 Global room, 6 continental rooms, and 1 USA room with 25 people, proving overflow regional rooms are created automatically.
-
-### Contacts > Talks
-
-- [ ] Remove the duplicate "Create New Talk" button from Contacts > Talks because the top-right `+` already creates talks.
-- [ ] Differentiate tag, flow, survey, and route talks with distinct color and layout treatments.
-- [ ] Simplify tag talks to checkbox-only answering with no submit step.
-- [ ] Once an incoming talk is answered, remove it from Incoming talks and add the flattened result to Me as the current user's own answer-history record.
-- [ ] If Settings auto-copy is enabled, also copy answered incoming talks into Outgoing talks so the user can send them later.
-- [ ] Consolidate identical incoming talks received from multiple senders into one Incoming item with a sender count.
-- [ ] Sort talks by time/date, location, or another feasible measurement that is visible and useful.
-- [ ] In Outgoing talks, automatically disable unchecked tags.
-- [ ] Open the talk editor popup when clicking an Outgoing talk, using the same editor flow as creating a talk.
-
-### Me Tab
-
-- [ ] Redefine Me as flattened question/answer history only: store simple question + my answer pairs and their associated metadata, not full complicated talks.
-- [ ] When one question has multiple answers, use context to differentiate the answers.
-- [ ] Show action-bar filters for Auto, Manual, and Conditional answer modes; color Auto green, Manual red, and Conditional yellow.
-- [ ] When clicking Auto, Manual, or Conditional, filter the list to only that answer mode.
-- [ ] Show a list of all questions the user has answered.
-- [ ] Reuse the four talk-type visual treatments in Me so tag, flow, survey, and route answers are easy to distinguish.
-- [ ] Remove My Talks, My Answers, and Conversations sections from Me.
 
 ## P1 — Preserve the Current Star Structure
 

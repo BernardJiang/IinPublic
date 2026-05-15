@@ -50,11 +50,11 @@ test.describe('Chatrooms — return home single-room presence', () => {
     await afterSync();
     await expect(page.locator('.chatroom-item.current-room:has-text("North America")')).toBeVisible();
 
-    // Return home → smallest regional room for the default test location (USA).
+    // Return home → smallest regional room for the default test location (California).
     await page.click('#return-home-btn');
     await afterSync();
     // Best-practice: assert on the authoritative, stable status bar text (not list highlight timing).
-    await expect(page.locator('#status-bar-text')).toContainText('United States', { timeout: 45000 });
+    await expect(page.locator('#status-bar-text')).toContainText('California', { timeout: 45000 });
 
     await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());
     await page.close();

@@ -50,10 +50,10 @@ test.describe('Profile foundation', () => {
     await nextPage.waitForLoadState('load');
     await ensureWindowFitsViewport(nextPage, 960, 1200);
     await afterLoad();
-    await nextPage.click('.nav-btn[data-view="me"]');
+    await nextPage.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    await nextPage.waitForSelector('#edit-stagename-btn');
-    await nextPage.click('#edit-stagename-btn');
+    await nextPage.waitForSelector('#settings-edit-stagename-btn');
+    await nextPage.click('#settings-edit-stagename-btn');
     await afterAction();
     await nextPage.fill('#new-stage-name', stageName);
     await nextPage.click('#edit-stagename-form button[type="submit"]');
@@ -76,9 +76,9 @@ test.describe('Profile foundation', () => {
     await afterNav();
     await expect(page.locator('.header-user-info')).toContainText('Tom');
 
-    await page.click('.nav-btn[data-view="me"]');
+    await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    await page.click('#edit-profile-btn');
+    await page.click('#settings-edit-profile-btn');
     await afterAction();
     await page.click('label:has(input[value="😎"])');
     await page.fill('#profile-languages-input', 'en, zh');
@@ -90,11 +90,9 @@ test.describe('Profile foundation', () => {
     await page.click('#save-profile-btn');
     await afterNav();
 
-    await expect(page.locator('#user-info-me')).toContainText('Languages: en, zh');
-    await expect(page.locator('#user-info-me')).toContainText('Favorite drink');
-    await expect(page.locator('#user-info-me')).toContainText('Coffee');
-    await expect(page.locator('#user-info-me')).toContainText('Usual city');
-    await expect(page.locator('#user-info-me .user-avatar').first()).toContainText('😎');
+    await page.click('.nav-btn[data-view="settings"]');
+    await afterNav();
+    await expect(page.locator('#settings-profile-languages')).toHaveValue('en, zh');
     const tomUserId = await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
     await expect
       .poll(

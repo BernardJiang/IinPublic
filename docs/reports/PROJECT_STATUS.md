@@ -1,6 +1,6 @@
 # IinPublic Project Status
 
-Last updated: 2026-05-12
+Last updated: 2026-05-14
 
 ## Summary
 
@@ -27,6 +27,7 @@ Supporting infrastructure exists for CI, deploy scripts, Dockerfile, Jest, Playw
 - Local validation and CI run the same `npm run health` command
 - Profile editor + viewer-filtered public profile rendering (including per-row Q&A visibility) are live and end-to-end tested
 - Age gating, blocking/unblock, reputation flows, custom/business chatrooms, travel mode, cancellation handling, and exact chatbot Q/A memory are live with focused unit/integration/E2E coverage
+- The P0 UI correction pass is live: Settings owns user-controlled profile/talk/chatbot/location/filter/credit controls, Chatrooms uses a regional tree with editable home-room behavior and visible custom-room creation, Broadcast suppresses unchanged repeats, Contacts > Talks has checkbox-only tags and consolidated incoming behavior, and Me is a flattened answer-history view
 - Statistics baseline is live: typed shared stats schemas, generic per-talk stats (`summary`, `by-day`, `by-region`, `by-answer`, `time-series`, `cross-question`, `chatrooms`, `peers`, `dashboard`), Talks-row response/match/ignore counts, dedicated Statistics tab, survey analytics dashboard, low-count masking, CSV exports, follow-up survey creation, broadcast tag popularity/trends, and peer relationship stats
 
 ## What Is Still In Progress

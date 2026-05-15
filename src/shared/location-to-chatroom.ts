@@ -9,8 +9,8 @@ import { LocationPrivacy } from './location';
 
 /**
  * Get the hierarchical chatroom path for a location
- * Returns array from global → continental → country
- * Example: [' global', 'north-america', 'usa']
+ * Returns array from global → continental → country → state/region when known.
+ * Example: ['global', 'north-america', 'usa', 'california']
  */
 export function getLocationChatroomPath(location: GPSCoordinate): string[] {
   const { latitude, longitude } = location;
@@ -20,6 +20,7 @@ export function getLocationChatroomPath(location: GPSCoordinate): string[] {
 
   // Determine country based on coordinates
   const country = getCountryFromCoordinates(latitude, longitude);
+  const region = getRegionFromCoordinates(latitude, longitude, country);
 
   // Always start with global
   const path = ['global'];
@@ -32,7 +33,61 @@ export function getLocationChatroomPath(location: GPSCoordinate): string[] {
     path.push(country);
   }
 
+  if (region) {
+    path.push(region);
+  }
+
   return path;
+}
+
+function getRegionFromCoordinates(lat: number, lon: number, country: string | null): string | null {
+  if (country === 'usa') {
+    if (lat >= 32 && lat <= 42.5 && lon >= -124.5 && lon <= -114) return 'california';
+    if (lat >= 40 && lat <= 45.2 && lon >= -80 && lon <= -71.5) return 'new-york-state';
+    if (lat >= 25 && lat <= 36.8 && lon >= -106.7 && lon <= -93.5) return 'texas';
+  }
+  if (country === 'canada') {
+    if (lat >= 41.5 && lat <= 57.5 && lon >= -95.5 && lon <= -74) return 'ontario';
+    if (lat >= 48 && lat <= 60.2 && lon >= -139.5 && lon <= -114) return 'british-columbia';
+  }
+  if (country === 'brazil') {
+    if (lat >= -25.5 && lat <= -19.5 && lon >= -54 && lon <= -44) return 'sao-paulo-state';
+    if (lat >= -24 && lat <= -20 && lon >= -45.5 && lon <= -40) return 'rio-de-janeiro-state';
+  }
+  if (country === 'argentina') {
+    if (lat >= -41 && lat <= -32 && lon >= -64.5 && lon <= -56) return 'buenos-aires-province';
+  }
+  if (country === 'uk') {
+    if (lat >= 50 && lat <= 55.9 && lon >= -6.5 && lon <= 2) return 'england';
+    if (lat >= 55 && lat <= 59.5 && lon >= -8 && lon <= -1) return 'scotland';
+  }
+  if (country === 'germany') {
+    if (lat >= 47 && lat <= 50.7 && lon >= 8.5 && lon <= 13.9) return 'bavaria';
+    if (lat >= 52 && lat <= 52.8 && lon >= 13 && lon <= 13.9) return 'berlin-state';
+  }
+  if (country === 'china') {
+    if (lat >= 20 && lat <= 25.6 && lon >= 109 && lon <= 117.5) return 'guangdong';
+    if (lat >= 39.4 && lat <= 41.1 && lon >= 115.4 && lon <= 117.6) return 'beijing-municipality';
+  }
+  if (country === 'japan') {
+    if (lat >= 35.2 && lat <= 36.1 && lon >= 139.2 && lon <= 140.1) return 'tokyo-metropolis';
+    if (lat >= 33.5 && lat <= 35.8 && lon >= 134.5 && lon <= 136.9) return 'kansai';
+  }
+  if (country === 'nigeria') {
+    if (lat >= 6 && lat <= 7.2 && lon >= 2.5 && lon <= 4.5) return 'lagos-state';
+  }
+  if (country === 'south-africa') {
+    if (lat >= -35 && lat <= -31 && lon >= 18 && lon <= 25) return 'western-cape';
+    if (lat >= -27 && lat <= -25 && lon >= 27 && lon <= 29.5) return 'gauteng';
+  }
+  if (country === 'australia') {
+    if (lat >= -37.7 && lat <= -28 && lon >= 141 && lon <= 154) return 'new-south-wales';
+    if (lat >= -39.5 && lat <= -34 && lon >= 140.5 && lon <= 150.2) return 'victoria-au';
+  }
+  if (country === 'new-zealand') {
+    if (lat >= -37.5 && lat <= -36 && lon >= 174 && lon <= 176) return 'auckland-region';
+  }
+  return null;
 }
 
 /**
