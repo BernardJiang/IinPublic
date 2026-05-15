@@ -57,6 +57,18 @@ test.describe('Messaging edge cases', () => {
     await clearGunDatabases();
   });
 
+  test.afterEach(async () => {
+    await pageTom?.close().catch(() => {});
+    await pageJerry?.close().catch(() => {});
+    await contextTom?.close().catch(() => {});
+    await contextJerry?.close().catch(() => {});
+    pageTom = undefined as unknown as Page;
+    pageJerry = undefined as unknown as Page;
+    contextTom = undefined as unknown as BrowserContext;
+    contextJerry = undefined as unknown as BrowserContext;
+    await clearGunDatabases();
+  });
+
   async function bootstrapUser(browser: Browser, label: string, stageName: string): Promise<void> {
     const context = await browser.newContext({ viewport: { width: 640, height: 1000 }, deviceScaleFactor: 1 });
     const page = await context.newPage();
