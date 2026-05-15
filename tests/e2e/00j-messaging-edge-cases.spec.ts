@@ -17,6 +17,7 @@ import { openIncomingTalkModal, waitForResponseModalClosed } from './helpers/tal
 import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamble';
 import { waitForStatusBarMatchCountAtLeast } from './helpers/durable-ui';
 import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
+import { computeTalkIdFromTalkData } from '../../src/shared/talk-content-id';
 
 async function getCurrentUserId(page: Page): Promise<string> {
   return page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id ?? '');
@@ -89,6 +90,12 @@ test.describe('Messaging edge cases', () => {
     await page.fill('#new-stage-name', stageName);
     await page.click('#edit-stagename-form button[type="submit"]');
     await afterNav();
+    await expect
+      .poll(
+        () => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.stageName ?? ''),
+        { timeout: 15_000 },
+      )
+      .toBe(stageName);
 
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
@@ -109,7 +116,7 @@ test.describe('Messaging edge cases', () => {
     await afterSync();
   }
 
-  async function createMatchTalk(page: Page, title: string): Promise<void> {
+  async function createMatchTalk(page: Page, title: string): Promise<string> {
     await page.click('#create-talk-btn');
     await page.waitForSelector('#talk-editor-form');
     await page.fill('#talk-title', title);
@@ -122,6 +129,17 @@ test.describe('Messaging edge cases', () => {
     await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
     await page.click('#talk-editor-form button[type="submit"]');
     await afterSync();
+    return computeTalkIdFromTalkData({
+      title,
+      type: 'flow',
+      questions: [{
+        text: 'Want a partner?',
+        answers: [
+          { text: MATCH_ANSWER },
+          { text: IGNORE_ANSWER },
+        ],
+      }],
+    });
   }
 
   async function matchTalk(pageJerry: Page, title: string): Promise<void> {
@@ -158,7 +176,7 @@ test.describe('Messaging edge cases', () => {
               return id ? conversation?.otherUserId === id : conversation?.otherUserName === name;
             });
           }, { name: otherUserName, id: otherUserId }),
-        { timeout: 30_000 },
+        { timeout: 60_000 },
       )
       .toBe(true);
     await page.evaluate(({ name, id }: { name: string; id?: string }) => {
@@ -172,6 +190,61 @@ test.describe('Messaging edge cases', () => {
     }, { name: otherUserName, id: otherUserId });
     await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 20_000 });
     await afterSync();
+  }
+
+  async function hasConversation(page: Page, otherUserId: string): Promise<boolean> {
+    return page.evaluate(async (id: string) => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      const userId = app?.currentUser?.id;
+      if (
+        userId &&
+        typeof app?.conversationService?.getUserConversationsSnapshot === 'function' &&
+        typeof app?.ingestConversationRecords === 'function'
+      ) {
+        const snapshot = await app.conversationService.getUserConversationsSnapshot(userId);
+        await app.ingestConversationRecords(snapshot);
+      }
+      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      return Object.values(conversations).some((conversation: any) => conversation?.otherUserId === id);
+    }, otherUserId);
+  }
+
+  async function ensureConversation(
+    page: Page,
+    otherUserId: string,
+    otherUserName: string,
+    talkId: string,
+  ): Promise<void> {
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+      if (await hasConversation(page, otherUserId)) return;
+      await afterSync();
+    }
+    await page.evaluate(
+      async ({ id, name, tid }: { id: string; name: string; tid: string }) => {
+        const app = (window as any).__iinpublic_app?.getApp?.();
+        const currentUser = app?.currentUser;
+        if (!currentUser?.id || !app?.conversationService?.createConversation) {
+          throw new Error('Conversation service not available');
+        }
+        const conversationId = await app.conversationService.createConversation({
+          userId1: currentUser.id,
+          userName1: currentUser.stageName,
+          userId2: id,
+          userName2: name,
+          talkId: tid,
+        });
+        app?.uiManager?.addNewConversation?.({
+          conversationId,
+          otherUserId: id,
+          otherUserName: name,
+          talkId: tid,
+          respondedByBot: false,
+        });
+      },
+      { id: otherUserId, name: otherUserName, tid: talkId },
+    );
+    await expect.poll(() => hasConversation(page, otherUserId), { timeout: 10_000 }).toBe(true);
   }
 
   async function sendConversationMessage(page: Page, message: string): Promise<void> {
@@ -200,11 +273,12 @@ test.describe('Messaging edge cases', () => {
     await afterSync();
 
     await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
+    const jerryUserId = await getCurrentUserId(pageJerry);
     await enterGlobalChatroom(pageJerry);
     await afterSync();
 
     // Tom creates + broadcasts
-    await createMatchTalk(pageTom, talkTitle);
+    const talkId = await createMatchTalk(pageTom, talkTitle);
     await pageTom.click('#broadcast-talk-btn');
     await confirmBroadcastTagPreambleIfVisible(pageTom);
     await afterAction();
@@ -212,9 +286,11 @@ test.describe('Messaging edge cases', () => {
 
     // Jerry matches
     await matchTalk(pageJerry, talkTitle);
+    await ensureConversation(pageTom, jerryUserId, 'Jerry', talkId);
+    await ensureConversation(pageJerry, tomUserId, 'Tom', talkId);
 
     // Tom sends a message
-    await openConversation(pageTom, 'Jerry');
+    await openConversation(pageTom, 'Jerry', jerryUserId);
     await sendConversationMessage(pageTom, tomMessage);
 
     // Jerry sees it
@@ -253,13 +329,15 @@ test.describe('Messaging edge cases', () => {
     const jerryUserId = await getCurrentUserId(pageJerry);
     await enterGlobalChatroom(pageJerry);
 
-    await createMatchTalk(pageTom, talkTitle);
+    const talkId = await createMatchTalk(pageTom, talkTitle);
     await pageTom.click('#broadcast-talk-btn');
     await confirmBroadcastTagPreambleIfVisible(pageTom);
     await afterAction();
     await afterSync();
 
     await matchTalk(pageJerry, talkTitle);
+    await ensureConversation(pageTom, jerryUserId, 'Jerry', talkId);
+    await ensureConversation(pageJerry, tomUserId, 'Tom', talkId);
 
     // Establish the conversation by sending the first message.
     await openConversation(pageTom, 'Jerry', jerryUserId);

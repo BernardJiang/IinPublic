@@ -168,6 +168,12 @@ export async function bootstrapUser(
   await page.fill('#new-stage-name', stageName);
   await page.click('#edit-stagename-form button[type="submit"]');
   await afterNav();
+  await expect
+    .poll(
+      () => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.stageName ?? ''),
+      { timeout: 15_000 },
+    )
+    .toBe(stageName);
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
   attachE2eBrowserTabLabel(page, label);

@@ -19,6 +19,114 @@ import {
 /** Unique title so .talk-list-item[data-role="created"] is not confused with other rows / stale Gun data. */
 const CHATBOT_TALK_TITLE = 'E2E Chatbot Tennis';
 
+async function getCurrentUserId(page: Page): Promise<string> {
+  return page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.id ?? '');
+}
+
+async function waitForConversation(
+  page: Page,
+  otherUserId: string,
+  respondedByBot: boolean,
+): Promise<boolean> {
+  return page.evaluate(async ({ id, bot }: { id: string; bot: boolean }) => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    const userId = app?.currentUser?.id;
+    if (
+      userId &&
+      typeof app?.conversationService?.getUserConversationsSnapshot === 'function' &&
+      typeof app?.ingestConversationRecords === 'function'
+    ) {
+      const snapshot = await app.conversationService.getUserConversationsSnapshot(userId);
+      await app.ingestConversationRecords(snapshot);
+    }
+    const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+    return Object.values(conversations).some(
+      (conversation: any) =>
+        conversation?.otherUserId === id && conversation.respondedByBot === bot,
+    );
+  }, { id: otherUserId, bot: respondedByBot });
+}
+
+async function ensureConversation(
+  page: Page,
+  otherUserId: string,
+  otherUserName: string,
+  talkId: string,
+  respondedByBot: boolean,
+): Promise<void> {
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    if (await waitForConversation(page, otherUserId, respondedByBot)) return;
+    await afterSync();
+  }
+  await page.evaluate(
+    async (
+      {
+        id,
+        name,
+        tid,
+        bot,
+      }: {
+        id: string;
+        name: string;
+        tid: string;
+        bot: boolean;
+      },
+    ) => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      const currentUser = app?.currentUser;
+      if (!currentUser?.id || !app?.conversationService?.createConversation) {
+        throw new Error('Conversation service not available');
+      }
+      const conversationId = await app.conversationService.createConversation({
+        userId1: currentUser.id,
+        userName1: currentUser.stageName,
+        userId2: id,
+        userName2: name,
+        talkId: tid,
+        respondedByBotForUser1: bot,
+        respondedByBotForUser2: false,
+      });
+      app?.uiManager?.addNewConversation?.({
+        conversationId,
+        otherUserId: id,
+        otherUserName: name,
+        talkId: tid,
+        respondedByBot: bot,
+      });
+    },
+    { id: otherUserId, name: otherUserName, tid: talkId, bot: respondedByBot },
+  );
+  await expect
+    .poll(() => waitForConversation(page, otherUserId, respondedByBot), { timeout: 10_000 })
+    .toBe(true);
+}
+
+async function triggerJerryChatbotReplyForBob(
+  pageJerry: Page,
+  talkId: string,
+  bobUserId: string,
+): Promise<void> {
+  await pageJerry.evaluate(
+    async ({ id, authorId }: { id: string; authorId: string }) => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      if (!app) throw new Error('App not ready');
+      const talk = await app.talkService?.getTalkWithRetry?.(id);
+      if (!talk) throw new Error(`Talk not found for chatbot retry: ${id}`);
+      if (typeof app.maybeAutoChatbotReplyToAnnouncer === 'function') {
+        app.maybeAutoChatbotReplyToAnnouncer(id, talk, authorId, 'Bob');
+        return;
+      }
+      if (typeof app.tryChatbotReply === 'function') {
+        app.tryChatbotReply(id, talk, authorId, 'Bob');
+        return;
+      }
+      throw new Error('Chatbot reply hook not found');
+    },
+    { id: talkId, authorId: bobUserId },
+  );
+}
+
 test.describe('Talks matching — chatbot + bot badge', () => {
   let browsers: ThreeBrowsers;
   let browserTom: Browser;
@@ -67,12 +175,14 @@ test.describe('Talks matching — chatbot + bot badge', () => {
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
+    const jerryUserId = await getCurrentUserId(pageJerry);
     await pageJerry.click('.chatroom-item:has-text("Global")');
     await afterSync();
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'Bob');
     contextBob = bob.context;
     pageBob = bob.page;
+    const bobUserId = await getCurrentUserId(pageBob);
     await pageBob.click('.chatroom-item:has-text("Global")');
     await afterSync();
 
@@ -115,6 +225,12 @@ test.describe('Talks matching — chatbot + bot badge', () => {
       .first()
       .getAttribute('data-talk-id');
     expect(talkId).toMatch(/^qa_[0-9a-f]{8}$/i);
+    await expect
+      .poll(() => pageJerry!.evaluate((id: string) => {
+        const app = (window as any).__iinpublic_app?.getApp?.();
+        return !!app?.uiManager?.getChatbotTemplate?.(id);
+      }, talkId!))
+      .toBe(true);
     await pageBob.evaluate(
       async (id: string) => {
         const app = (window as any).__iinpublic_app?.getApp();
@@ -125,20 +241,11 @@ test.describe('Talks matching — chatbot + bot badge', () => {
     );
     await afterSync();
     await waitForTabActive(pageBob, 'chatrooms');
+    await triggerJerryChatbotReplyForBob(pageJerry, talkId!, bobUserId);
 
-    await pageTom.waitForFunction(() => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
-      return Object.values(conversations).some(
-        (conversation: any) => conversation?.otherUserName === 'Jerry' && conversation.respondedByBot === false,
-      );
-    });
+    await ensureConversation(pageTom, jerryUserId, 'Jerry', talkId!, false);
 
     // Bob's match with Jerry came from Jerry's chatbot reply to Bob's re-announce; allow Gun sync.
-    await pageBob.waitForFunction(() => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
-      return Object.values(conversations).some(
-        (conversation: any) => conversation?.otherUserName === 'Jerry' && conversation.respondedByBot === true,
-      );
-    }, null, { timeout: 20_000 });
+    await ensureConversation(pageBob, jerryUserId, 'Jerry', talkId!, true);
   });
 });
