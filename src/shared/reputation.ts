@@ -170,7 +170,7 @@ export class ContentFilter {
   
   private static assessGrammar(content: string): number {
     // Simplified grammar assessment
-    const sentences = content.split(/[.!?]+/).filter(s => s.trim());
+    const sentences = content.match(/[^.!?]+[.!?]?/g)?.filter(s => s.trim()) ?? [];
     if (sentences.length === 0) return 0;
     
     let score = 1.0;
@@ -179,11 +179,11 @@ export class ContentFilter {
       const words = sentence.trim().split(/\s+/);
       
       // Penalty for very short or very long sentences
-      if (words.length < 2) score -= 0.2;
+      if (words.length < 2 && sentences.length > 1) score -= 0.1;
       if (words.length > 30) score -= 0.1;
       
       // Check for basic punctuation
-      if (!/[.!?]$/.test(sentence.trim())) score -= 0.1;
+      if (words.length > 5 && !/[.!?]$/.test(sentence.trim())) score -= 0.1;
       
       // Check for repeated words
       const wordSet = new Set(words.map(w => w.toLowerCase()));

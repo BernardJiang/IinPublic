@@ -46,6 +46,38 @@ describe('talk intake filters', () => {
     expect(talkPassesIntakeFilters(chineseClean, baseFilters, undefined)).toBe(true);
   });
 
+  it('does not reject short survey answer labels as grammar failures', () => {
+    const survey = {
+      title: 'Restaurant survey',
+      type: 'survey',
+      language: 'en',
+      questions: [
+        {
+          text: 'Which restaurant has the best burger?',
+          answers: [{ text: 'KFC' }, { text: 'others' }, { text: 'Ignore.' }],
+        },
+      ],
+    };
+
+    expect(talkPassesIntakeFilters(survey, { ...baseFilters, requireGoodGrammar: true }, undefined)).toBe(true);
+  });
+
+  it('still checks answers for dirty words', () => {
+    const survey = {
+      title: 'Restaurant survey',
+      type: 'survey',
+      language: 'en',
+      questions: [
+        {
+          text: 'Which restaurant has the best burger?',
+          answers: [{ text: 'KFC' }, { text: 'fake' }],
+        },
+      ],
+    };
+
+    expect(talkPassesIntakeFilters(survey, { ...baseFilters, blockDirtyWords: true }, undefined)).toBe(false);
+  });
+
   it('filters by min and max distance when author location is available', () => {
     const cluster = {
       title: 'Nearby',
@@ -65,5 +97,12 @@ describe('talk intake filters', () => {
     expect(
       talkPassesIntakeFilters(cluster, { ...baseFilters, minDistanceMiles: 10 }, me),
     ).toBe(false);
+    expect(
+      talkPassesIntakeFilters(
+        { ...cluster, authorLocation: { latitude: me.latitude, longitude: me.longitude } },
+        { ...baseFilters, minDistanceMiles: 10 },
+        me,
+      ),
+    ).toBe(true);
   });
 });

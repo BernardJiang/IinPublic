@@ -89,11 +89,9 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await afterLoad();
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    await page.waitForSelector('#settings-edit-stagename-btn');
-    await page.click('#settings-edit-stagename-btn');
-    await afterAction();
-    await page.fill('#new-stage-name', stageName);
-    await page.click('#edit-stagename-form button[type="submit"]');
+    await page.waitForSelector('#settings-stage-name-input');
+    await page.fill('#settings-stage-name-input', stageName);
+    await page.locator('#settings-stage-name-input').blur();
     await afterNav();
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();

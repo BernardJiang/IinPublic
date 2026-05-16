@@ -85,11 +85,9 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
 
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    await page.waitForSelector('#settings-edit-stagename-btn');
-    await page.click('#settings-edit-stagename-btn');
-    await afterAction();
-    await page.fill('#new-stage-name', stageName);
-    await page.click('#edit-stagename-form button[type="submit"]');
+    await page.waitForSelector('#settings-stage-name-input');
+    await page.fill('#settings-stage-name-input', stageName);
+    await page.locator('#settings-stage-name-input').blur();
     await afterNav();
 
     const headerStageName = page.locator('[data-testid="user-stage-name"]');

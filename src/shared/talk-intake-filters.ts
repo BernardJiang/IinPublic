@@ -79,6 +79,28 @@ function buildSubjectText(subject: IncomingTalkFilterSubject): string {
   return [subject.title || '', ...parseQuestionsText(subject)].filter(Boolean).join('. ');
 }
 
+function parseQuestionPromptText(subject: IncomingTalkFilterSubject): string[] {
+  if (Array.isArray(subject.questions) && subject.questions.length > 0) {
+    return subject.questions
+      .map((question) => String(question?.text || '').trim())
+      .filter(Boolean);
+  }
+
+  if (!subject.questionsJson) return [];
+  try {
+    const parsed = JSON.parse(subject.questionsJson) as Array<{ text?: string }>;
+    return parsed
+      .map((question) => String(question?.text || '').trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function buildGrammarSubjectText(subject: IncomingTalkFilterSubject): string {
+  return [subject.title || '', ...parseQuestionPromptText(subject)].filter(Boolean).join('. ');
+}
+
 /** Case-insensitive substring match against talk title + question/answer text. */
 export function subjectTextMatchesBlockedTerms(
   subject: IncomingTalkFilterSubject,
@@ -129,7 +151,7 @@ export function intakeFilterRejectReasons(
     (typeof filters.minDistanceMiles === 'number' || typeof filters.maxDistanceMiles === 'number')
   ) {
     const distance = haversineMilesBetween(currentLocation, subject.authorLocation);
-    if (typeof filters.minDistanceMiles === 'number' && distance < filters.minDistanceMiles) {
+    if (typeof filters.minDistanceMiles === 'number' && distance > 0 && distance < filters.minDistanceMiles) {
       return ['intake_min_distance'];
     }
     if (typeof filters.maxDistanceMiles === 'number' && distance > filters.maxDistanceMiles) {
@@ -138,6 +160,7 @@ export function intakeFilterRejectReasons(
   }
 
   const subjectText = buildSubjectText(subject);
+  const grammarSubjectText = buildGrammarSubjectText(subject);
   if (filters.allowedLanguages.length > 0) {
     const knownLanguage = String(subject.language || '').trim().toLowerCase();
     const normalizedAllowedLanguages = filters.allowedLanguages.map((lang) => lang.toLowerCase());
@@ -162,7 +185,7 @@ export function intakeFilterRejectReasons(
 
   if (filters.requireGoodGrammar) {
     const result = ContentFilter.applyFilters(
-      subjectText,
+      grammarSubjectText,
       {
         language: false,
         grammar: true,

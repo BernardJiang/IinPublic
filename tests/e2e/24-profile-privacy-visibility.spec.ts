@@ -58,11 +58,9 @@ test.describe('Profile privacy visibility', () => {
 
     await nextPage.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    await nextPage.waitForSelector('#settings-edit-stagename-btn');
-    await nextPage.click('#settings-edit-stagename-btn');
-    await afterAction();
-    await nextPage.fill('#new-stage-name', stageName);
-    await nextPage.click('#edit-stagename-form button[type="submit"]');
+    await nextPage.waitForSelector('#settings-stage-name-input');
+    await nextPage.fill('#settings-stage-name-input', stageName);
+    await nextPage.locator('#settings-stage-name-input').blur();
     await afterNav();
 
     attachE2eBrowserTabLabel(nextPage, stageName);

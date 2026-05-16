@@ -1025,7 +1025,7 @@ export class UIManager extends EventEmitter {
             <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
               <label style="display:flex; flex-direction:column; gap:4px; font-size:0.9em;">
                 <span>Min distance (miles)</span>
-                <input type="number" id="talk-filter-min-distance" min="0" step="1" value="${talkFilters.minDistanceMiles ?? ''}" style="padding:8px;border:1px solid #d1d5db;border-radius:8px;">
+                <input type="number" id="talk-filter-min-distance" min="1" step="1" value="${talkFilters.minDistanceMiles ?? ''}" style="padding:8px;border:1px solid #d1d5db;border-radius:8px;">
               </label>
               <label style="display:flex; flex-direction:column; gap:4px; font-size:0.9em;">
                 <span>Max distance (miles)</span>
@@ -2022,7 +2022,7 @@ export class UIManager extends EventEmitter {
           <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
             <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
               <span>Min distance (miles)</span>
-              <input type="number" class="form-input" id="settings-min-distance" min="0" step="1" value="${talkFilters.minDistanceMiles ?? ''}">
+              <input type="number" class="form-input" id="settings-min-distance" min="1" step="1" value="${talkFilters.minDistanceMiles ?? ''}">
             </label>
             <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
               <span>Max distance (miles)</span>
