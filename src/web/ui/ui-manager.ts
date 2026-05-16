@@ -1694,13 +1694,14 @@ export class UIManager extends EventEmitter {
               .map(
                 ([talkId, talk]) => {
                   const stats = this.talkStatsMap[talkId];
-                  const statsLine = stats
-                    ? `Responses: ${stats.responses} · Matches: ${stats.matches} · Ignores: ${stats.ignores}`
-                    : '—';
                   const conversations = this.getMyConversations();
                   const matchedNames = Object.values(conversations)
                     .filter((c: any) => c.talkId === talkId)
                     .map((c: any) => c.respondedByBot ? `${c.otherUserName} 🤖` : c.otherUserName);
+                  const derivedMatchCount = matchedNames.length;
+                  const statsLine = stats || derivedMatchCount > 0
+                    ? `Responses: ${Math.max(stats?.responses ?? 0, derivedMatchCount)} · Matches: ${Math.max(stats?.matches ?? 0, derivedMatchCount)} · Ignores: ${stats?.ignores ?? 0}`
+                    : '—';
                   const matchedLine =
                     matchedNames.length > 0
                       ? `<div class="talk-item-matched" style="font-size: 0.85em; color: #2e7d32; margin-top: 4px;">Matched with: ${matchedNames.join(', ')}</div>`

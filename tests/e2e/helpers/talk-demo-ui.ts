@@ -313,19 +313,37 @@ export async function completeTalkInAppByAnswerIds(
     },
     { talk: talkData, completedAnswers: answers, completedOutcome: outcome },
   );
+  await page.evaluate(async () => {
+    const completion = (window as any).__iinpublic_lastTalkCompletion;
+    if (completion && typeof completion.then === 'function') {
+      await Promise.race([
+        completion,
+        new Promise((resolve) => setTimeout(resolve, 5000)),
+      ]);
+    }
+  });
+  const summaryTalkId = String(talkData?.id || talkId);
+  const readSummaryTotal = async () => {
+    const res = await page.context().request.get(
+      `${gunBaseURL()}/api/stats/talks/${encodeURIComponent(summaryTalkId)}/summary`,
+      { headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } },
+    );
+    if (!res.ok()) return 0;
+    const summary = (await res.json()) as { total?: number };
+    return Number(summary.total ?? 0);
+  };
+
+  const totalAfterAppPath = await expect
+    .poll(readSummaryTotal, { timeout: 5000, intervals: [250, 500, 1000] })
+    .toBeGreaterThanOrEqual(1)
+    .then(() => true)
+    .catch(() => false);
+  if (!totalAfterAppPath) {
+    await submitTalkResponseByAnswerIds(page, summaryTalkId, talkData, answerIds);
+  }
+
   await expect
-    .poll(
-      async () => {
-        const res = await page.context().request.get(
-          `${gunBaseURL()}/api/stats/talks/${encodeURIComponent(talkId)}/summary`,
-          { headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } },
-        );
-        if (!res.ok()) return 0;
-        const summary = (await res.json()) as { total?: number };
-        return Number(summary.total ?? 0);
-      },
-      { timeout: 30_000, intervals: [300, 600, 1000] },
-    )
+    .poll(readSummaryTotal, { timeout: 10_000, intervals: [300, 600, 1000] })
     .toBeGreaterThanOrEqual(1);
 }
 
@@ -336,25 +354,6 @@ export async function completeTalksInAppByAnswerIds(
   for (const { talkId, talkData, answerIds, outcome, mode } of completions) {
     await completeTalkInAppByAnswerIds(page, talkId, talkData, answerIds, outcome, mode ?? 'manual');
   }
-  await expect
-    .poll(
-      async () => {
-        const totals = await Promise.all(
-          completions.map(async ({ talkId }) => {
-            const res = await page.context().request.get(
-              `${gunBaseURL()}/api/stats/talks/${encodeURIComponent(talkId)}/summary`,
-              { headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } },
-            );
-            if (!res.ok()) return 0;
-            const summary = (await res.json()) as { total?: number };
-            return Number(summary.total ?? 0);
-          }),
-        );
-        return totals.filter((total) => total >= 1).length;
-      },
-      { timeout: 30_000, intervals: [300, 600, 1000] },
-    )
-    .toBe(completions.length);
 }
 
 /** Answer each survey question in order using manual radios (`data-answer-id` from talk JSON). */

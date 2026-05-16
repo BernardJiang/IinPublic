@@ -153,35 +153,10 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
       addedAt: new Date().toISOString(),
     };
     await this.gunService.putPath(['users', userId, 'knownPeople', targetId], entry);
-    try {
-      const u = await this.getUser(userId);
-      const list: KnownPerson[] = [
-        ...(u.knownPeople || []).filter((k) => k.userId !== targetId),
-        {
-          userId: targetId,
-          label,
-          ...(nickname ? { nickname } : {}),
-          ...(extras?.customLabel ? { customLabel: extras.customLabel } : {}),
-          ...(typeof extras?.rating === 'number' ? { rating: extras.rating } : {}),
-          ...(extras?.notes ? { notes: extras.notes } : {}),
-          addedAt: new Date(entry.addedAt),
-        },
-      ];
-      await this.gunService.put(`users/${userId}`, { ...u, knownPeople: list });
-    } catch {
-      /* graph may lag */
-    }
   }
 
   async removeKnownPerson(userId: string, targetId: string): Promise<void> {
     await this.gunService.putPath(['users', userId, 'knownPeople', targetId], null);
-    try {
-      const u = await this.getUser(userId);
-      const list = (u.knownPeople || []).filter((k) => k.userId !== targetId);
-      await this.gunService.put(`users/${userId}`, { ...u, knownPeople: list });
-    } catch {
-      /* ignore */
-    }
   }
 
   async listKnownPeople(userId: string): Promise<KnownPerson[]> {
@@ -212,7 +187,7 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
    */
   async getUser(userId: string, view?: { viewerId: string | null }): Promise<User> {
     const user = await this.gunService.get(`users/${userId}`) as User;
-    const publicProfile = await this.gunService.get(`user-public-profile/${userId}`).catch(() => null) as
+    const publicProfile = await this.gunService.getOptional(`user-public-profile/${userId}`, 500) as
       | {
           headshot?: string;
           languagesJson?: string;
@@ -220,10 +195,9 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
           interestsJson?: string;
         }
       | null;
-    if (!publicProfile) {
-      return user;
-    }
-    let profile = this.parseJsonArray(publicProfile.profileJson, user.profile || []);
+    let profile = publicProfile
+      ? this.parseJsonArray(publicProfile.profileJson, user.profile || [])
+      : user.profile || [];
     if (view !== undefined) {
       const raw = view.viewerId;
       const v = typeof raw === 'string' ? raw.trim() : '';
@@ -231,6 +205,13 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
         const viewerIsContact = v.length > 0 ? await this.isKnownPerson(userId, v) : false;
         profile = filterProfileAttributesForViewer(profile, { viewerIsContact });
       }
+    }
+
+    if (!publicProfile) {
+      return {
+        ...user,
+        profile,
+      };
     }
 
     // Server reputation updates are written to `users/<id>/reputation`.

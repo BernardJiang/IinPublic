@@ -72,8 +72,15 @@ test.describe('Profile privacy visibility', () => {
   async function openPeerDetail(page: Page, peerStageName: string): Promise<void> {
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
-    await page.click('.chatroom-item:has-text("Global")');
-    await afterNav();
+
+    const detail = page.locator('#chatroom-detail-container');
+    if (!(await detail.isVisible().catch(() => false))) {
+      const globalRoom = page.locator('.chatroom-item[data-chatroom-id="global"]').first();
+      await expect(globalRoom).toBeVisible({ timeout: 45000 });
+      await globalRoom.click();
+      await afterNav();
+      await expect(detail).toBeVisible({ timeout: 10000 });
+    }
 
     const member = page.locator('.chatroom-member-item').filter({ hasText: peerStageName }).first();
     await expect(member).toBeVisible({ timeout: 45000 });

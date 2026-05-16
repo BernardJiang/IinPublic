@@ -143,6 +143,32 @@ export class GunService {
     ]);
   }
 
+  public async getOptional(key: string, waitMs = 500): Promise<any | null> {
+    return new Promise<any | null>((resolve) => {
+      let settled = false;
+      const timeoutId = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve(null);
+        }
+      }, waitMs + 100);
+
+      this.gun.get(key).once(
+        (data: any) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          if (data === undefined || data === null) {
+            resolve(null);
+          } else {
+            resolve(this.deserializeDates(data));
+          }
+        },
+        { wait: waitMs },
+      );
+    });
+  }
+
   /**
    * Get data at a nested path (e.g. ['talks', talkId] or ['users', userId, 'conversations', convId])
    * so server can read the same graph shape the client uses.

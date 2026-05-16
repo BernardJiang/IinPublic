@@ -1787,10 +1787,17 @@ export class IinPublicApp {
         return;
       }
       const statsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
+      let localTalks: Record<string, any> = {};
+      try {
+        localTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      } catch {
+        localTalks = {};
+      }
       await Promise.all(
         data.talkIds.map(async (talkId) => {
           try {
-            const summary = await this.talkService.queryStats(talkId, 'summary');
+            const statsTalkId = String(localTalks?.[talkId]?.fullTalk?.id || talkId);
+            const summary = await this.talkService.queryStats(statsTalkId, 'summary');
             if (summary && typeof summary.total === 'number') {
               statsMap[talkId] = {
                 responses: summary.total,
@@ -1814,8 +1821,12 @@ export class IinPublicApp {
     this.uiManager.on(
       'talkCompleted',
       async (data: { talkId: string; answers: any[]; talkData?: any; isChatbotResponse?: boolean }) => {
-        try {
+        const completion = (async () => {
           await this.handleTalkCompleted(data);
+        })();
+        (globalThis as any).__iinpublic_lastTalkCompletion = completion;
+        try {
+          await completion;
         } catch (error) {
           console.error('Failed to handle talk completion:', error);
         }
