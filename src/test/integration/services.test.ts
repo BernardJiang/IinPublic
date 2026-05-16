@@ -121,9 +121,8 @@ describe('Service Integration Tests', () => {
         lastActive: new Date(),
       };
 
-      const mockGet = jest.spyOn(gunService, 'get')
-        .mockResolvedValueOnce(mockUser)
-        .mockResolvedValueOnce({
+      const mockGet = jest.spyOn(gunService, 'get').mockResolvedValueOnce(mockUser);
+      const mockGetOptional = jest.spyOn(gunService, 'getOptional').mockResolvedValueOnce({
           headshot: '😎',
           languagesJson: JSON.stringify(['en', 'zh']),
           profileJson: JSON.stringify([
@@ -159,7 +158,7 @@ describe('Service Integration Tests', () => {
         interests: [],
       });
       expect(mockGet).toHaveBeenCalledWith('users/user123');
-      expect(mockGet).toHaveBeenCalledWith('user-public-profile/user123');
+      expect(mockGetOptional).toHaveBeenCalledWith('user-public-profile/user123', 500);
       expect(mockGetPath).toHaveBeenCalledWith(['users/user123', 'reputation']);
     });
 
@@ -217,14 +216,12 @@ describe('Service Integration Tests', () => {
       ]);
       const getSpy = jest.spyOn(gunService, 'get').mockImplementation(async (key: string) => {
         if (key === 'users/user123') return mockUser;
-        if (key === 'user-public-profile/user123') {
-          return {
-            languagesJson: JSON.stringify(['en']),
-            profileJson,
-            interestsJson: JSON.stringify([]),
-          };
-        }
         return null;
+      });
+      const getOptionalSpy = jest.spyOn(gunService, 'getOptional').mockResolvedValue({
+        languagesJson: JSON.stringify(['en']),
+        profileJson,
+        interestsJson: JSON.stringify([]),
       });
       let knownEntry: { userId: string; label: string; addedAt: string } | null = null;
       const pathSpy = jest.spyOn(gunService, 'getPath').mockImplementation(async (path: string[]) => {
@@ -246,6 +243,7 @@ describe('Service Integration Tests', () => {
       expect(self.profile.map((p) => p.id).sort()).toEqual(['p1', 'p2', 'p3']);
 
       getSpy.mockRestore();
+      getOptionalSpy.mockRestore();
       pathSpy.mockRestore();
     });
 
