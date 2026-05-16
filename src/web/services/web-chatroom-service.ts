@@ -338,12 +338,10 @@ export class WebChatroomService {
   }
 
   /**
-   * Snapshot active user ids for a room. Uses a short `map().on` observation window so we do not
-   * resolve on the first partial replica (e.g. only the sender) before peers replicate — the old
-   * `.once` + "resolve as soon as length > 0" path often dropped other members and yielded 0
-   * broadcast receivers while the UI already listed them.
+   * Snapshot active user ids for a room. Uses a short `map().on` observation window so cold pages
+   * do not depend on a parent `.once()` snapshot, which is unreliable for Gun child user nodes.
    */
-  async getActiveMembers(chatroomId: string): Promise<string[]> {
+  private async observeActiveMemberIds(chatroomId: string, observeMs = 1400): Promise<string[]> {
     try {
       const gun = this.gunService.getGun();
       const activeYes = new Set<string>();
@@ -375,13 +373,22 @@ export class WebChatroomService {
             }
           });
 
-        const OBSERVE_MS = 1400;
-        setTimeout(() => finish([...activeYes]), OBSERVE_MS);
+        setTimeout(() => finish([...activeYes]), observeMs);
       });
     } catch (error) {
       console.error('Error getting active members:', error);
       return [];
     }
+  }
+
+  /**
+   * Snapshot active user ids for a room. Uses a short `map().on` observation window so we do not
+   * resolve on the first partial replica (e.g. only the sender) before peers replicate — the old
+   * `.once` + "resolve as soon as length > 0" path often dropped other members and yielded 0
+   * broadcast receivers while the UI already listed them.
+   */
+  async getActiveMembers(chatroomId: string): Promise<string[]> {
+    return this.observeActiveMemberIds(chatroomId);
   }
 
   subscribeToMembers(
@@ -456,38 +463,8 @@ export class WebChatroomService {
    * This is useful for displaying member counts in chatroom lists
    */
   async getMemberCount(chatroomId: string): Promise<number> {
-    const gun = this.gunService.getGun();
-
-    return new Promise((resolve) => {
-      const activeMembers = new Set<string>();
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        try {
-          off.off();
-        } catch {
-          /* Gun peer */
-        }
-        resolve(activeMembers.size);
-      };
-
-      const off = gun
-        .get('chatrooms')
-        .get(chatroomId)
-        .get('users')
-        .map()
-        .on((memberData: any, userId: string) => {
-          if (userId.startsWith('_')) return;
-          if (memberData && memberData.isActive === true) {
-            activeMembers.add(userId);
-          } else {
-            activeMembers.delete(userId);
-          }
-        });
-
-      setTimeout(finish, 1000);
-    });
+    const activeMemberIds = await this.observeActiveMemberIds(chatroomId, 1400);
+    return activeMemberIds.length;
   }
 
   /**
@@ -507,7 +484,9 @@ export class WebChatroomService {
     // Track active members for this chatroom
     const activeMembers = new Map<string, any>();
     let updateTimeout: NodeJS.Timeout | null = null;
-    let snapshotCancelled = false;
+    let subscriptionCancelled = false;
+    let seedHydrated = false;
+    let pendingLiveEmit = false;
 
     const emitCount = () => {
       let count = 0;
@@ -521,20 +500,23 @@ export class WebChatroomService {
       callback(count);
     };
 
-    // Seed the count from a full snapshot so newly-opened pages do not depend on
-    // Gun replaying every existing member through the incremental map subscription.
-    gun
-      .get('chatrooms')
-      .get(chatroomId)
-      .get('users')
-      .once((usersData: any) => {
-        if (snapshotCancelled || !usersData) return;
-        for (const userId in usersData) {
-          if (userId.startsWith('_')) continue;
-          activeMembers.set(userId, usersData[userId]);
+    // Seed the count through the same child-node observation path used by detail/broadcast logic.
+    // This prevents the first Chatrooms screen from rendering every room as 0 until a detail view
+    // happens to force that room's member list to load.
+    void this.observeActiveMemberIds(chatroomId, 1400).then((memberIds) => {
+      if (subscriptionCancelled) return;
+      for (const userId of memberIds) {
+        if (!activeMembers.has(userId)) {
+          activeMembers.set(userId, { isActive: true });
         }
+      }
+      seedHydrated = true;
+      emitCount();
+      if (pendingLiveEmit) {
+        pendingLiveEmit = false;
         emitCount();
-      });
+      }
+    });
 
     // Subscribe to each individual user's data using map().on()
     const off = gun
@@ -556,13 +538,17 @@ export class WebChatroomService {
         // Debounce the count update to avoid excessive recalculations
         if (updateTimeout) clearTimeout(updateTimeout);
         updateTimeout = setTimeout(() => {
+          if (!seedHydrated) {
+            pendingLiveEmit = true;
+            return;
+          }
           emitCount();
         }, 100); // 100ms debounce
       });
 
     // Store unsubscribe function
     this.memberCountSubscriptions.set(chatroomId, () => {
-      snapshotCancelled = true;
+      subscriptionCancelled = true;
       if (updateTimeout) {
         clearTimeout(updateTimeout);
         updateTimeout = null;

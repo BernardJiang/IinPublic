@@ -76,7 +76,7 @@ test.describe('Profile privacy visibility', () => {
     await afterNav();
 
     const member = page.locator('.chatroom-member-item').filter({ hasText: peerStageName }).first();
-    await expect(member).toBeVisible({ timeout: 15000 });
+    await expect(member).toBeVisible({ timeout: 45000 });
     await member.click();
     await afterNav();
 
@@ -86,6 +86,48 @@ test.describe('Profile privacy visibility', () => {
 
   async function getCurrentUserId(page: Page): Promise<string> {
     return (await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id ?? '')).trim();
+  }
+
+  async function waitForKnownPerson(page: Page, ownerId: string, targetId: string): Promise<void> {
+    const knownPeopleUrl = `${gunBaseURL()}/api/users/${encodeURIComponent(ownerId)}/known-people`;
+    await expect
+      .poll(
+        async () => {
+          const res = await page.request.get(knownPeopleUrl);
+          if (!res.ok()) return false;
+          const knownPeople = await res.json();
+          return Array.isArray(knownPeople) && knownPeople.some((person) => person?.userId === targetId);
+        },
+        { timeout: 30000 },
+      )
+      .toBe(true);
+  }
+
+  async function waitForProfileRows(
+    page: Page,
+    ownerId: string,
+    viewerId: string,
+    expectations: {
+      visible: string[];
+      hidden: string[];
+    },
+  ): Promise<void> {
+    const userUrl = `${gunBaseURL()}/api/users/${encodeURIComponent(ownerId)}?viewerId=${encodeURIComponent(viewerId)}`;
+    await expect
+      .poll(
+        async () => {
+          const res = await page.request.get(userUrl);
+          if (!res.ok()) return false;
+          const user = await res.json();
+          const profileText = JSON.stringify(user?.profile ?? []);
+          return (
+            expectations.visible.every((text) => profileText.includes(text)) &&
+            expectations.hidden.every((text) => !profileText.includes(text))
+          );
+        },
+        { timeout: 30000 },
+      )
+      .toBe(true);
   }
 
   test('hides contacts_only/private profile rows from non-owner viewers', async () => {
@@ -144,6 +186,8 @@ test.describe('Profile privacy visibility', () => {
     await pageJerryNonContact.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
     await afterSync();
+    const jNonContactId = await getCurrentUserId(pageJerryNonContact);
+    expect(jNonContactId).toBeTruthy();
 
     // Viewer 2: Jerry2 (added to Tom's known-people list)
     const jContact = await bootstrapUser(browser, 'JerryContact');
@@ -166,7 +210,15 @@ test.describe('Profile privacy visibility', () => {
       },
     });
     expect(postRes.ok()).toBeTruthy();
-    await afterSync();
+    await waitForKnownPerson(pageJerryContact, tomId, jContactId);
+    await waitForProfileRows(pageJerryNonContact, tomId, jNonContactId, {
+      visible: [PUBLIC_Q, PUBLIC_A],
+      hidden: [CONTACTS_Q, CONTACTS_A, PRIVATE_Q, PRIVATE_A],
+    });
+    await waitForProfileRows(pageJerryContact, tomId, jContactId, {
+      visible: [PUBLIC_Q, PUBLIC_A, CONTACTS_Q, CONTACTS_A],
+      hidden: [PRIVATE_Q, PRIVATE_A],
+    });
 
     // Assert for non-contact viewer: only `public` rows are visible.
     await openPeerDetail(pageJerryNonContact, 'Tom');

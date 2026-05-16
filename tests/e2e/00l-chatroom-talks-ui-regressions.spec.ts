@@ -107,6 +107,29 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     await expect(pageTom.locator('#current-chatroom-status')).toContainText(/1 member total/, { timeout: 45_000 });
   });
 
+  test('first Chatrooms screen hydrates existing room headcounts before entering detail', async () => {
+    const tom = await bootstrapUser(browserTom, 'Tom', 'Tom First Screen');
+    contextTom = tom.context;
+    pageTom = tom.page;
+    const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry First Screen');
+    contextJerry = jerry.context;
+    pageJerry = jerry.page;
+    const bob = await bootstrapUser(browserBob, 'Bob', 'Bob First Screen');
+    contextBob = bob.context;
+    pageBob = bob.page;
+
+    await expect(pageBob.locator('#chatroom-list-container')).toBeVisible();
+    await expect(pageBob.locator('#chatroom-detail-container')).toBeHidden();
+    await expect(pageBob.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('3', {
+      timeout: 45_000,
+    });
+
+    await pageBob.click('.chatroom-item:has-text("Global")');
+    await expect(pageBob.locator('#current-chatroom-status')).toContainText(/3 members total/, {
+      timeout: 45_000,
+    });
+  });
+
   test('Talks rows expose new/answered and broadcasting states without redundant edit controls', async () => {
     const copiedTitle = 'UI Regression Copied Talk';
 
@@ -140,14 +163,20 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     const copiedOut = pageJerry.locator('.talk-list-item[data-role="copied"]').filter({ hasText: copiedTitle }).first();
     await expect(copiedOut).toBeVisible({ timeout: 30_000 });
     await expect(copiedOut).toHaveClass(/talk-broadcast-enabled/);
-    await expect(copiedOut.locator('.talk-badge-broadcast-enabled')).toContainText('Broadcasting');
-    await expect(copiedOut.locator('.talk-disable-broadcast-checkbox')).toBeChecked();
+    await expect(copiedOut.locator('.talk-badge-broadcast-enabled, .talk-badge-broadcast-disabled')).toHaveCount(0);
+    await expect(copiedOut.locator('.talk-broadcast-toggle-btn')).toContainText('Broadcast On');
+    await expect(copiedOut.locator('.talk-broadcast-toggle-btn')).toHaveAttribute('data-broadcast-enabled', 'true');
     await expect(copiedOut.locator('.edit-talk-btn')).toHaveCount(0);
 
-    await copiedOut.locator('.talk-disable-broadcast-label').click();
-    await expect(copiedOut.locator('.talk-disable-broadcast-checkbox')).not.toBeChecked({ timeout: 10_000 });
+    await copiedOut.locator('.talk-broadcast-toggle-btn').click();
     await expect(copiedOut).toHaveClass(/talk-broadcast-disabled/);
-    await expect(copiedOut.locator('.talk-badge-broadcast-disabled')).toContainText('Broadcast off');
+    await expect(copiedOut.locator('.talk-broadcast-toggle-btn')).toContainText('Broadcast Off');
+    await expect(copiedOut.locator('.talk-broadcast-toggle-btn')).toHaveAttribute('data-broadcast-enabled', 'false');
+
+    await copiedOut.locator('.talk-broadcast-toggle-btn').click();
+    await expect(copiedOut).toHaveClass(/talk-broadcast-enabled/);
+    await expect(copiedOut.locator('.talk-broadcast-toggle-btn')).toContainText('Broadcast On');
+    await expect(copiedOut.locator('.talk-broadcast-toggle-btn')).toHaveAttribute('data-broadcast-enabled', 'true');
 
     await copiedOut.click();
     await expect(pageJerry.locator('#talk-editor-modal')).toBeVisible({ timeout: 15_000 });

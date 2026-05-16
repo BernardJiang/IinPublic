@@ -956,6 +956,18 @@ body {
   color: #6b7280;
 }
 
+.talk-broadcast-toggle-btn.talk-broadcast-toggle-on {
+  background: #16a34a;
+  color: #fff;
+  border: 1px solid #15803d;
+}
+
+.talk-broadcast-toggle-btn.talk-broadcast-toggle-off {
+  background: #e5e7eb;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
 .talk-item-meta {
   display: flex;
   justify-content: space-between;

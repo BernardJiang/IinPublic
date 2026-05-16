@@ -1616,16 +1616,13 @@ export class UIManager extends EventEmitter {
             }
             return;
           }
-          const label = target.closest('.talk-disable-broadcast-label');
-          const checkbox = target.closest('.talk-disable-broadcast-checkbox') as HTMLInputElement | null;
-          const control = checkbox ?? (label ? label.querySelector('.talk-disable-broadcast-checkbox') : null) as HTMLInputElement | null;
-          if (control && control.dataset) {
+          const broadcastToggle = target.closest('.talk-broadcast-toggle-btn') as HTMLButtonElement | null;
+          if (broadcastToggle && broadcastToggle.dataset) {
             e.preventDefault();
             e.stopPropagation();
-            const talkId = control.dataset.talkId;
+            const talkId = broadcastToggle.dataset.talkId;
             if (talkId) {
-              control.checked = !control.checked;
-              const disabled = !control.checked;
+              const disabled = broadcastToggle.dataset.broadcastEnabled === 'true';
               setTimeout(() => {
                 this.setTalkDisabled(talkId, disabled);
                 this.showNotification(disabled ? 'Broadcasting disabled' : 'Broadcasting enabled', 'success');
@@ -1731,7 +1728,6 @@ export class UIManager extends EventEmitter {
             <div class="talk-item-badges">
               ${roleBadge}
               <span class="talk-badge talk-badge-type">${talk.type}</span>
-              <span class="talk-badge ${disabled ? 'talk-badge-broadcast-disabled' : 'talk-badge-broadcast-enabled'}">${disabled ? 'Broadcast off' : 'Broadcasting'}</span>
             </div>
           </div>
           <div class="talk-item-meta">
@@ -1746,10 +1742,9 @@ export class UIManager extends EventEmitter {
           ${matchedLine}
           <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
             ${surveyStatsBtn}
-            <label class="talk-disable-broadcast-label" style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.9em;">
-              <input type="checkbox" class="talk-disable-broadcast-checkbox" data-talk-id="${talkId}" ${disabled ? '' : 'checked'}>
-              <span>Broadcasting</span>
-            </label>
+            <button type="button" class="btn talk-broadcast-toggle-btn ${disabled ? 'talk-broadcast-toggle-off' : 'talk-broadcast-toggle-on'}" data-talk-id="${talkId}" data-broadcast-enabled="${disabled ? 'false' : 'true'}" style="padding: 6px 12px; font-size: 0.9em;">
+              ${disabled ? 'Broadcast Off' : 'Broadcast On'}
+            </button>
             <button type="button" class="btn remove-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em; background: #dc3545; color: white;">🗑️ Remove</button>
           </div>
         </div>
@@ -3674,18 +3669,12 @@ export class UIManager extends EventEmitter {
         const item = row as HTMLElement;
         item.classList.toggle('talk-broadcast-disabled', !!disabled);
         item.classList.toggle('talk-broadcast-enabled', !disabled);
-        const cb = row.querySelector('.talk-disable-broadcast-checkbox') as HTMLInputElement | null;
-        if (cb) cb.checked = !disabled;
-        const badges = row.querySelector('.talk-item-badges');
-        const existingBadge = row.querySelector('.talk-badge-broadcast-disabled, .talk-badge-broadcast-enabled');
-        if (!!disabled && !existingBadge && badges) {
-          const badge = document.createElement('span');
-          badge.className = 'talk-badge talk-badge-broadcast-disabled';
-          badge.textContent = 'Broadcast off';
-          badges.appendChild(badge);
-        } else if (existingBadge) {
-          existingBadge.className = `talk-badge ${disabled ? 'talk-badge-broadcast-disabled' : 'talk-badge-broadcast-enabled'}`;
-          existingBadge.textContent = disabled ? 'Broadcast off' : 'Broadcasting';
+        const btn = row.querySelector('.talk-broadcast-toggle-btn') as HTMLButtonElement | null;
+        if (btn) {
+          btn.dataset.broadcastEnabled = disabled ? 'false' : 'true';
+          btn.classList.toggle('talk-broadcast-toggle-off', !!disabled);
+          btn.classList.toggle('talk-broadcast-toggle-on', !disabled);
+          btn.textContent = disabled ? 'Broadcast Off' : 'Broadcast On';
         }
       });
     } else {

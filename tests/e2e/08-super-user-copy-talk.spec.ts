@@ -136,8 +136,10 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
       .filter({ hasText: copyTalkTitle })
       .first();
     await expect(copyTalkRow).toBeVisible({ timeout: 15000 });
-    await copyTalkRow.locator('.talk-disable-broadcast-label').click();
-    await expect(copyTalkRow.locator('.talk-disable-broadcast-checkbox')).not.toBeChecked({ timeout: 10000 });
+    await copyTalkRow.locator('.talk-broadcast-toggle-btn').click();
+    await expect(copyTalkRow.locator('.talk-broadcast-toggle-btn')).toHaveAttribute('data-broadcast-enabled', 'false', {
+      timeout: 10000,
+    });
 
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
     await afterAction();
@@ -159,7 +161,10 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
       .locator('.talk-list-item[data-role="copied"]')
       .filter({ hasText: copyTalkTitle })
       .first();
-    await copyRowAgain.locator('.talk-disable-broadcast-label').click();
+    await copyRowAgain.locator('.talk-broadcast-toggle-btn').click();
+    await expect(copyRowAgain.locator('.talk-broadcast-toggle-btn')).toHaveAttribute('data-broadcast-enabled', 'true', {
+      timeout: 10000,
+    });
     await afterNav();
 
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
