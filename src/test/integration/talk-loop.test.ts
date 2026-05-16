@@ -38,7 +38,7 @@ const RESPONDER_NAME = 'Bob';
 
 const TALK_DATA = {
   id: 'talk_abc123',
-  title: 'Favourite colour?',
+  title: 'What is your favorite color?',
   authorId: SENDER_ID,
   type: 'flow' as TalkType,
   isAdult: false,
@@ -47,7 +47,7 @@ const TALK_DATA = {
   questions: [
     {
       id: 'q1',
-      text: 'Favourite colour?',
+      text: 'What is your favorite color?',
       answers: [
         { id: 'a_blue', text: 'Blue', isMatch: true, isTerminal: true },
         { id: 'a_red', text: 'Red', isIgnore: true, isTerminal: true },
@@ -68,6 +68,13 @@ const ADULT_TALK_DATA = {
 
 const MATCHING_ANSWERS = [{ questionId: 'q1', answerId: 'a_blue', answerText: 'Blue' }];
 const NON_MATCHING_ANSWERS = [{ questionId: 'q1', answerId: 'a_red', answerText: 'Red' }];
+
+function getRouteTestTalkIntakeFilters() {
+  return {
+    ...getDefaultTalkIntakeFilters(['en']),
+    requireGoodGrammar: false,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Test server factory
@@ -176,7 +183,7 @@ function buildTestServer(opts?: {
 
   async function getUserDeliveryContext(userId: string) {
     const defaults = {
-      talkFilters: getDefaultTalkIntakeFilters(['en']),
+      talkFilters: getRouteTestTalkIntakeFilters(),
       ageVerified: false,
       interestTokens: [] as string[],
     };
@@ -400,7 +407,7 @@ describe('Talk loop — incoming registration → answer submission → match �
     it('auto-responds from exact chatbot memory when a compatible permanent answer exists', async () => {
       const exactMemoryByUser = new Map<string, ExactChatbotMemoryState>();
       const state = createEmptyExactChatbotMemoryState();
-      savePermanentAnswer(state, RESPONDER_ID, 'Favourite colour?', 'Blue', 1000);
+      savePermanentAnswer(state, RESPONDER_ID, 'What is your favorite color?', 'Blue', 1000);
       exactMemoryByUser.set(RESPONDER_ID, state);
       const { app } = buildTestServer({ exactMemoryByUser });
 
@@ -423,8 +430,8 @@ describe('Talk loop — incoming registration → answer submission → match �
     it('registers but skips auto-response when a permanent answer is absent from current options', async () => {
       const exactMemoryByUser = new Map<string, ExactChatbotMemoryState>();
       const state = createEmptyExactChatbotMemoryState();
-      saveTemporaryAnswer(state, RESPONDER_ID, 'Favourite colour?', 'Blue', 1000);
-      savePermanentAnswer(state, RESPONDER_ID, 'Favourite colour?', 'Green', 2000);
+      saveTemporaryAnswer(state, RESPONDER_ID, 'What is your favorite color?', 'Blue', 1000);
+      savePermanentAnswer(state, RESPONDER_ID, 'What is your favorite color?', 'Green', 2000);
       exactMemoryByUser.set(RESPONDER_ID, state);
       const { app } = buildTestServer({ exactMemoryByUser });
 
@@ -443,8 +450,8 @@ describe('Talk loop — incoming registration → answer submission → match �
     it('registers but skips auto-response for suppressed exact questions', async () => {
       const exactMemoryByUser = new Map<string, ExactChatbotMemoryState>();
       const state = createEmptyExactChatbotMemoryState();
-      saveTemporaryAnswer(state, RESPONDER_ID, 'Favourite colour?', 'Blue', 1000);
-      saveSuppressedQuestion(state, RESPONDER_ID, 'Favourite colour?', 2000);
+      saveTemporaryAnswer(state, RESPONDER_ID, 'What is your favorite color?', 'Blue', 1000);
+      saveSuppressedQuestion(state, RESPONDER_ID, 'What is your favorite color?', 2000);
       exactMemoryByUser.set(RESPONDER_ID, state);
       const { app } = buildTestServer({ exactMemoryByUser });
 
@@ -480,7 +487,7 @@ describe('Talk loop — incoming registration → answer submission → match �
       const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
       userDeliveryContext.set(RESPONDER_ID, {
         talkFilters: {
-          ...getDefaultTalkIntakeFilters(['en']),
+          ...getRouteTestTalkIntakeFilters(),
           allowedTalkTypes: ['tag'],
         },
         ageVerified: false,
@@ -535,7 +542,7 @@ describe('Talk loop — incoming registration → answer submission → match �
       const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
       userDeliveryContext.set(RESPONDER_ID, {
         talkFilters: {
-          ...getDefaultTalkIntakeFilters(['en']),
+          ...getRouteTestTalkIntakeFilters(),
           maxDistanceMiles: 50,
         },
         ageVerified: false,
@@ -566,8 +573,9 @@ describe('Talk loop — incoming registration → answer submission → match �
       const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
       userDeliveryContext.set(RESPONDER_ID, {
         talkFilters: {
-          ...getDefaultTalkIntakeFilters(['en']),
+          ...getRouteTestTalkIntakeFilters(),
           blockDirtyWords: true,
+          requireGoodGrammar: false,
         },
         ageVerified: false,
       });
@@ -594,8 +602,9 @@ describe('Talk loop — incoming registration → answer submission → match �
       const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
       userDeliveryContext.set(RESPONDER_ID, {
         talkFilters: {
-          ...getDefaultTalkIntakeFilters(['en']),
+          ...getRouteTestTalkIntakeFilters(),
           customBlockedTerms: ['forbiddenword'],
+          requireGoodGrammar: false,
         },
         ageVerified: false,
       });
@@ -849,13 +858,13 @@ describe('Talk loop — incoming registration → answer submission → match �
       const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
       userDeliveryContext.set(RESPONDER_ID, {
         talkFilters: {
-          ...getDefaultTalkIntakeFilters(['en']),
+          ...getRouteTestTalkIntakeFilters(),
           allowedTalkTypes: ['tag'],
         },
         ageVerified: false,
       });
       userDeliveryContext.set('user_carol', {
-        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        talkFilters: getRouteTestTalkIntakeFilters(),
         ageVerified: false,
       });
 
@@ -898,12 +907,12 @@ describe('Talk loop — incoming registration → answer submission → match �
     it('skips receivers without overlapping interests when broadcastTargetTags is set', async () => {
       const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
       userDeliveryContext.set(RESPONDER_ID, {
-        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        talkFilters: getRouteTestTalkIntakeFilters(),
         ageVerified: false,
         interestTokens: ['tennis'],
       });
       userDeliveryContext.set('user_carol', {
-        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        talkFilters: getRouteTestTalkIntakeFilters(),
         ageVerified: false,
         interestTokens: ['cooking'],
       });
@@ -950,11 +959,11 @@ describe('Talk loop — incoming registration → answer submission → match �
       const adultReceiverId = 'user_jerry';
       const defaultReceiverId = 'user_bob';
       userDeliveryContext.set(adultReceiverId, {
-        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        talkFilters: getRouteTestTalkIntakeFilters(),
         ageVerified: true,
       });
       userDeliveryContext.set(defaultReceiverId, {
-        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        talkFilters: getRouteTestTalkIntakeFilters(),
         ageVerified: false,
       });
 
@@ -1113,7 +1122,7 @@ describe('Talk loop — incoming registration → answer submission → match �
     it('skips receivers outside broadcastMaxDistanceMiles from sender pivot', async () => {
       const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
       userDeliveryContext.set(SENDER_ID, {
-        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        talkFilters: getRouteTestTalkIntakeFilters(),
         ageVerified: false,
         location: {
           latitude: 37.7749,
@@ -1123,7 +1132,7 @@ describe('Talk loop — incoming registration → answer submission → match �
         },
       });
       userDeliveryContext.set(RESPONDER_ID, {
-        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        talkFilters: getRouteTestTalkIntakeFilters(),
         ageVerified: false,
         location: {
           latitude: 40.7128,
@@ -1165,7 +1174,7 @@ describe('Talk loop — incoming registration → answer submission → match �
     it('returns eligible preview counts with broadcastMaxDistanceMiles', async () => {
       const { app, userDeliveryContext } = buildTestServer();
       userDeliveryContext.set(SENDER_ID, {
-        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        talkFilters: getRouteTestTalkIntakeFilters(),
         ageVerified: false,
         location: {
           latitude: 37.7749,
@@ -1175,7 +1184,7 @@ describe('Talk loop — incoming registration → answer submission → match �
         },
       });
       userDeliveryContext.set(RESPONDER_ID, {
-        talkFilters: getDefaultTalkIntakeFilters(['en']),
+        talkFilters: getRouteTestTalkIntakeFilters(),
         ageVerified: false,
         location: {
           latitude: 40.7128,

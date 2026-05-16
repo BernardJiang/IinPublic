@@ -36,7 +36,7 @@ describe('intakeFilterRejectReasons', () => {
           language: 'en',
           questions: [{ text: 'spam', answers: [{ text: 'ok' }] }],
         },
-        { ...baseFilters, blockDirtyWords: true },
+        { ...baseFilters, requireGoodGrammar: false, blockDirtyWords: true },
       ),
     ).toEqual(['intake_dirty_words']);
   });

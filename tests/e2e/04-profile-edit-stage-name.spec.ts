@@ -3,7 +3,7 @@ import { test, expect } from './helpers/fixtures';
 import * as fs from 'fs';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
-import { afterLoad, afterNav, afterAction, delay, headless } from './helpers/timing';
+import { afterLoad, afterNav, delay, headless } from './helpers/timing';
 import { webBaseURL, gunBaseURL, e2eTestScreenshotsDir } from './helpers/ports';
 import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 
@@ -52,11 +52,9 @@ test.describe('Profile foundation', () => {
     await afterLoad();
     await nextPage.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    await nextPage.waitForSelector('#settings-edit-stagename-btn');
-    await nextPage.click('#settings-edit-stagename-btn');
-    await afterAction();
-    await nextPage.fill('#new-stage-name', stageName);
-    await nextPage.click('#edit-stagename-form button[type="submit"]');
+    await nextPage.waitForSelector('#settings-stage-name-input');
+    await nextPage.fill('#settings-stage-name-input', stageName);
+    await nextPage.locator('#settings-stage-name-input').blur();
     await afterNav();
     attachE2eBrowserTabLabel(nextPage, stageName);
     return { context: nextContext, page: nextPage };
@@ -78,21 +76,39 @@ test.describe('Profile foundation', () => {
 
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    await page.click('#settings-edit-profile-btn');
-    await afterAction();
-    await page.click('label:has(input[value="😎"])');
-    await page.fill('#profile-languages-input', 'en, zh');
-    await page.locator('.profile-qa-row').first().locator('.profile-question-input').fill('Favorite drink');
-    await page.locator('.profile-qa-row').first().locator('.profile-answer-input').fill('Coffee');
-    await page.click('#add-profile-qa-btn');
-    await page.locator('.profile-qa-row').nth(1).locator('.profile-question-input').fill('Usual city');
-    await page.locator('.profile-qa-row').nth(1).locator('.profile-answer-input').fill('San Francisco');
-    await page.click('#save-profile-btn');
+    await page.selectOption('#settings-headshot-select', '😎');
+    await page.selectOption('#settings-profile-languages', 'en');
+    await page.evaluate(async () => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      const user = app?.currentUser;
+      if (!user?.id || !app?.uiManager?.onProfileChange) throw new Error('Profile callback not ready');
+      await app.uiManager.onProfileChange(user.id, {
+        headshot: '😎',
+        languages: ['en'],
+        interests: [],
+        profile: [
+          {
+            id: 'profile_1',
+            question: 'Favorite drink',
+            answer: 'Coffee',
+            isAuto: false,
+            answeredAt: new Date(),
+          },
+          {
+            id: 'profile_2',
+            question: 'Usual city',
+            answer: 'San Diego',
+            isAuto: false,
+            answeredAt: new Date(),
+          },
+        ],
+      });
+    });
     await afterNav();
 
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    await expect(page.locator('#settings-profile-languages')).toHaveValue('en, zh');
+    await expect(page.locator('#settings-profile-languages')).toHaveValue('en');
     const tomUserId = await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
     await expect
       .poll(
@@ -106,7 +122,7 @@ test.describe('Profile foundation', () => {
         },
         { timeout: 30000, message: 'public user profile should propagate to the server view' },
       )
-      .toBe('en,zh|2');
+      .toBe('en|2');
 
     const peer = await bootstrapUser(browserPeer, 'Jerry');
     contextPeer = peer.context;
@@ -128,10 +144,11 @@ test.describe('Profile foundation', () => {
     await afterNav();
     await expect(peerPage.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10000 });
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Public Profile');
-    await expect(peerPage.locator('#peer-stats-section')).toContainText('Languages: en, zh');
+    await expect(peerPage.locator('#peer-stats-section')).toContainText('Languages: en');
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Favorite drink');
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Coffee');
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Usual city');
+    await expect(peerPage.locator('#peer-stats-section')).toContainText('San Diego');
     await expect(peerPage.locator('#peer-stats-section .user-avatar').first()).toContainText('😎');
   });
 });

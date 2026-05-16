@@ -2,7 +2,7 @@ import { expect, type APIRequestContext, Browser, BrowserContext, Page } from '@
 import { clearGunDatabases, injectIdbClear } from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
 import { attachE2eBrowserTabLabel } from './e2e-tab-title';
-import { afterLoad, afterNav, afterAction, afterSync } from './timing';
+import { afterLoad, afterNav, afterSync } from './timing';
 import { gunBaseURL, webAppURLStableChatroom } from './ports';
 
 /** Count distinct talk ids across incoming clusters (one merged cluster may hold many `qa_*` keys). */
@@ -162,11 +162,9 @@ export async function bootstrapUser(
   await afterLoad();
   await page.click('.nav-btn[data-view="settings"]');
   await afterNav();
-  await page.waitForSelector('#settings-edit-stagename-btn');
-  await page.click('#settings-edit-stagename-btn');
-  await afterAction();
-  await page.fill('#new-stage-name', stageName);
-  await page.click('#edit-stagename-form button[type="submit"]');
+  await page.waitForSelector('#settings-stage-name-input');
+  await page.fill('#settings-stage-name-input', stageName);
+  await page.locator('#settings-stage-name-input').blur();
   await afterNav();
   await expect
     .poll(

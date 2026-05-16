@@ -15,7 +15,8 @@ export function setCopyTalkAutoSave(enabled: boolean): void {
 }
 
 export function getChatbotEnabled(): boolean {
-  return localStorage.getItem('chatbotEnabled') === 'true';
+  const value = localStorage.getItem('chatbotEnabled');
+  return value === null || value === 'true';
 }
 
 export function setChatbotEnabled(enabled: boolean): void {

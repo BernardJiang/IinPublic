@@ -151,7 +151,15 @@ export class UIManager extends EventEmitter {
   }
   private currentConversationId: string | undefined = undefined;
   private chatroomMemberCounts: Map<string, number> = new Map(); // Track member count per chatroom
-  private expandedChatrooms: Set<string> = new Set(['global']); // Track which chatrooms are expanded (default: global expanded)
+  private expandedChatrooms: Set<string> = new Set([
+    'global',
+    'north-america',
+    'usa',
+    'california',
+    'europe',
+    'uk',
+    'england',
+  ]); // Track which chatrooms are expanded by default so first-run home/travel paths are visible.
   private matchedUserIds: Set<string> = new Set(); // Users who matched with me (for green indicator)
   // private newMatchesCount: number = 0; // TODO: implement match count tracking
   private talkStatsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
@@ -1942,34 +1950,60 @@ export class UIManager extends EventEmitter {
         label: `${room.type === 'business' ? '🏪' : '💬'} ${room.name}`,
       })),
     ];
+    const languageOptions = [
+      { code: 'en', label: 'English' },
+      { code: 'zh', label: 'Chinese' },
+      { code: 'es', label: 'Spanish' },
+      { code: 'fr', label: 'French' },
+      { code: 'de', label: 'German' },
+      { code: 'ja', label: 'Japanese' },
+      { code: 'ko', label: 'Korean' },
+    ];
+    const headshotChoices = ['🙂', '😎', '🤠', '🎾', '☕', '🌟', '🐱', '🦊'];
     container.innerHTML = `
       <div style="display:grid;gap:14px;">
         <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <div style="display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:center;">
             <div style="display:flex;align-items:center;gap:12px;min-width:0;">
               <div class="user-avatar" style="width:48px;height:48px;font-size:1.25em;flex:0 0 auto;">
                 ${escapeHtml(headshot || user.stageName.charAt(0).toUpperCase())}
               </div>
               <div style="min-width:0;">
-                <div style="font-weight:700;color:#111827;">${escapeHtml(user.stageName)}</div>
+                <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
+                  <span>Stage name</span>
+                  <input type="text" class="form-input" id="settings-stage-name-input" data-testid="settings-stage-name-input" value="${escapeHtml(user.stageName)}" minlength="3">
+                </label>
                 <div style="font-size:0.86em;color:#64748b;">Interests: ${interestNames.length > 0 ? escapeHtml(interestNames.join(', ')) : 'None listed'}</div>
               </div>
             </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button class="btn" id="settings-edit-stagename-btn" data-testid="edit-stage-name-button" type="button">Edit Stage Name</button>
-              <button class="btn" id="settings-edit-profile-btn" data-testid="edit-profile-button" type="button">Edit Profile</button>
-            </div>
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
+              <span>Headshot</span>
+              <select class="form-input" id="settings-headshot-select" data-testid="settings-headshot-select">
+                <option value="">Initial</option>
+                ${headshotChoices
+                  .map((choice) => `<option value="${choice}" ${choice === headshot ? 'selected' : ''}>${choice}</option>`)
+                  .join('')}
+              </select>
+            </label>
           </div>
         </section>
         <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
           <div style="font-weight:700;color:#111827;margin-bottom:10px;">Languages</div>
           <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
-            <span>Profile languages</span>
-            <input type="text" class="form-input" id="settings-profile-languages" value="${escapeHtml(profileLanguages.join(', '))}" placeholder="en, zh">
+            <span>Profile language</span>
+            <select class="form-input" id="settings-profile-languages" data-testid="settings-profile-language-select">
+              ${languageOptions
+                .map((lang) => `<option value="${lang.code}" ${profileLanguages[0] === lang.code ? 'selected' : ''}>${lang.label}</option>`)
+                .join('')}
+            </select>
           </label>
           <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
             <span>Incoming talk language filter</span>
-            <input type="text" class="form-input" id="settings-filter-languages" value="${escapeHtml(talkFilters.allowedLanguages.join(', '))}" placeholder="en, zh">
+            <select class="form-input" id="settings-filter-languages" data-testid="settings-incoming-language-select" multiple size="4">
+              ${languageOptions
+                .map((lang) => `<option value="${lang.code}" ${talkFilters.allowedLanguages.includes(lang.code) ? 'selected' : ''}>${lang.label}</option>`)
+                .join('')}
+            </select>
           </label>
         </section>
         <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
@@ -2038,22 +2072,27 @@ export class UIManager extends EventEmitter {
   }
 
   private bindSettingsControls(): void {
-    document.getElementById('settings-edit-stagename-btn')?.addEventListener('click', () => {
-      if (this.currentUser) this.showEditStageNameDialog(this.currentUser);
-    });
-    document.getElementById('settings-edit-profile-btn')?.addEventListener('click', () => {
-      if (this.currentUser) this.showEditProfileDialog(this.currentUser);
-    });
+    const selectedValues = (id: string): string[] => {
+      const el = document.getElementById(id) as HTMLSelectElement | HTMLInputElement | null;
+      if (!el) return [];
+      if (el instanceof HTMLSelectElement && el.multiple) {
+        return Array.from(el.selectedOptions).map((option) => option.value.trim().toLowerCase()).filter(Boolean);
+      }
+      return String(el.value || '')
+        .split(',')
+        .map((part) => part.trim().toLowerCase())
+        .filter(Boolean);
+    };
 
     const sync = () => {
-      const filterLanguages = (document.getElementById('settings-filter-languages') as HTMLInputElement | null)?.value || 'en';
-      const profileLanguages = (document.getElementById('settings-profile-languages') as HTMLInputElement | null)?.value || filterLanguages;
+      const filterLanguages = selectedValues('settings-filter-languages');
+      const profileLanguages = selectedValues('settings-profile-languages');
       const minDistanceEl = document.getElementById('settings-min-distance') as HTMLInputElement | null;
       const maxDistanceEl = document.getElementById('settings-max-distance') as HTMLInputElement | null;
       const customBlockedEl = document.getElementById('settings-custom-blocked') as HTMLTextAreaElement | null;
       const typeEls = Array.from(document.querySelectorAll('.settings-talk-filter-type')) as HTMLInputElement[];
       const nextFilters: TalkIntakeFilters = {
-        allowedLanguages: filterLanguages.split(',').map((part) => part.trim().toLowerCase()).filter(Boolean),
+        allowedLanguages: filterLanguages,
         requireGoodGrammar: !!(document.getElementById('settings-grammar-filter') as HTMLInputElement | null)?.checked,
         blockDirtyWords: !!(document.getElementById('settings-dirty-words-filter') as HTMLInputElement | null)?.checked,
         allowedTalkTypes: typeEls.filter((el) => el.checked).map((el) => el.value as any),
@@ -2065,8 +2104,18 @@ export class UIManager extends EventEmitter {
       if (maxDistanceEl?.value) nextFilters.maxDistanceMiles = Number(maxDistanceEl.value);
       setTalkIntakeFilters(nextFilters);
       if (this.currentUser) {
-        this.currentUser.languages = profileLanguages.split(',').map((part) => part.trim().toLowerCase()).filter(Boolean);
+        const nextProfileLanguages = profileLanguages.length > 0 ? profileLanguages : ['en'];
+        const profileLanguageChanged = nextProfileLanguages.join(',') !== (this.currentUser.languages || []).join(',');
+        this.currentUser.languages = nextProfileLanguages;
         this.currentUser.talkFilters = nextFilters;
+        if (profileLanguageChanged) {
+          void this.onProfileChange?.(this.currentUser.id, {
+            ...(this.currentUser.headshot ? { headshot: this.currentUser.headshot } : {}),
+            languages: nextProfileLanguages,
+            profile: this.currentUser.profile || [],
+            interests: this.currentUser.interests || [],
+          });
+        }
       }
       this.emit('updateTalkFilters', nextFilters);
       if (document.getElementById('talks-view')?.classList.contains('active')) this.displayTalksList();
@@ -2088,6 +2137,26 @@ export class UIManager extends EventEmitter {
     });
     document.getElementById('settings-chatbot-enabled')?.addEventListener('change', (event) => {
       setChatbotEnabled((event.currentTarget as HTMLInputElement).checked);
+    });
+    document.getElementById('settings-stage-name-input')?.addEventListener('change', async (event) => {
+      const next = (event.currentTarget as HTMLInputElement).value.trim();
+      if (!this.currentUser || next === this.currentUser.stageName) return;
+      if (next.length < 3) {
+        this.showNotification('Stage name must be at least 3 characters.', 'error');
+        (event.currentTarget as HTMLInputElement).value = this.currentUser.stageName;
+        return;
+      }
+      await this.onStageNameChange?.(this.currentUser.id, next);
+    });
+    document.getElementById('settings-headshot-select')?.addEventListener('change', async (event) => {
+      if (!this.currentUser) return;
+      const headshot = (event.currentTarget as HTMLSelectElement).value.trim();
+      await this.onProfileChange?.(this.currentUser.id, {
+        ...(headshot ? { headshot } : {}),
+        languages: this.currentUser.languages || ['en'],
+        profile: this.currentUser.profile || [],
+        interests: this.currentUser.interests || [],
+      });
     });
     document.getElementById('settings-credit-visible')?.addEventListener('change', (event) => {
       const visible = (event.currentTarget as HTMLInputElement).checked;

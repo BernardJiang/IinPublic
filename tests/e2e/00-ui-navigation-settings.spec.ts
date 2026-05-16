@@ -120,8 +120,10 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('.settings-action-bar')).toBeVisible();
     await expect(p.locator('#settings-view')).toBeVisible();
     await expect(p.locator('#settings-content')).toContainText('Languages');
-    await expect(p.locator('#settings-edit-stagename-btn')).toBeVisible();
-    await expect(p.locator('#settings-edit-profile-btn')).toBeVisible();
+    await expect(p.locator('#settings-stage-name-input')).toBeVisible();
+    await expect(p.locator('#settings-headshot-select')).toBeVisible();
+    await expect(p.locator('#settings-edit-stagename-btn')).toHaveCount(0);
+    await expect(p.locator('#settings-edit-profile-btn')).toHaveCount(0);
     await expect(p.locator('#settings-copy-talk-autosave')).toBeVisible();
     await expect(p.locator('#settings-chatbot-enabled')).toBeVisible();
     await expect(p.locator('#settings-home-room')).toBeVisible();
@@ -268,8 +270,17 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
     await expect(p.locator('body')).not.toContainText('Oops! Something went wrong');
-    await expect(p.locator('#settings-profile-languages')).toHaveValue('en, zh');
-    await expect(p.locator('#settings-filter-languages')).toHaveValue('en, zh');
+    await expect(p.locator('#settings-profile-languages')).toHaveValue('en');
+    await expect
+      .poll(() =>
+        p.locator('#settings-filter-languages').evaluate((select) =>
+          Array.from((select as HTMLSelectElement).selectedOptions)
+            .map((option) => option.value)
+            .sort()
+            .join(','),
+        ),
+      )
+      .toBe('en,zh');
     await expect(p.locator('#settings-custom-blocked')).toHaveValue('spam, scam');
   });
 

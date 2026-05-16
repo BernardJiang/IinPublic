@@ -27,6 +27,12 @@ class WebApp {
   async initialize(): Promise<void> {
     try {
       console.log('🚀 Initializing IinPublic Web App');
+      const stageSeed = typeof process !== 'undefined' && process.env
+        ? process.env.IINPUBLIC_STAGE_SEED || ''
+        : '';
+      if (stageSeed === 'stage-zero' || stageSeed === 'empty') {
+        await this.clearBrowserStageState();
+      }
 
       // FOR TESTING: Use a fixed location so all users end up in same chatroom
       // Tests can override by setting window.__test_location before app loads
@@ -45,10 +51,11 @@ class WebApp {
           };
           console.log('🧪 Using custom TEST location:', location.latitude, location.longitude);
         } else {
-          // Default test location
+          // Default test location: San Diego, so first-run home chatroom resolves to
+          // Global → North America → United States → California → San Diego.
           location = {
-            latitude: 37.7749, // San Francisco coordinates
-            longitude: -122.4194,
+            latitude: 32.7157,
+            longitude: -117.1611,
             accuracy: 100,
             timestamp: new Date(),
           };
@@ -66,9 +73,6 @@ class WebApp {
       // Initialize the main app
       await this.app.initialize(location);
 
-      const stageSeed = typeof process !== 'undefined' && process.env
-        ? process.env.IINPUBLIC_STAGE_SEED || ''
-        : '';
       if (stageSeed) {
         console.log(`🧪 Applying dev stage seed: ${stageSeed}`);
         await applyDevStageSeed(this.app as any, stageSeed);
@@ -78,6 +82,29 @@ class WebApp {
     } catch (error) {
       console.error('❌ Failed to initialize app:', error);
       this.showError('Failed to initialize the app. Please refresh and try again.');
+    }
+  }
+
+  private async clearBrowserStageState(): Promise<void> {
+    localStorage.clear();
+    try {
+      const dbs = await indexedDB.databases?.();
+      if (dbs) {
+        await Promise.all(
+          dbs
+            .map((db) => db.name || '')
+            .filter((name) => name.startsWith('gun') || name === 'gun-idb')
+            .map((name) => new Promise<void>((resolve) => {
+              const req = indexedDB.deleteDatabase(name);
+              req.onsuccess = () => resolve();
+              req.onerror = () => resolve();
+              req.onblocked = () => resolve();
+            })),
+        );
+      }
+      indexedDB.deleteDatabase('gun-idb');
+    } catch {
+      /* A stale browser cache should never block stage-zero startup. */
     }
   }
 

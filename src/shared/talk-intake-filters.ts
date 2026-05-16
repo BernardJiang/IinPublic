@@ -38,8 +38,10 @@ export function normalizeCustomBlockedTerms(raw: unknown): string[] {
 export function getDefaultTalkIntakeFilters(seedLanguages?: string[]): TalkIntakeFilters {
   return {
     allowedLanguages: Array.isArray(seedLanguages) && seedLanguages.length > 0 ? seedLanguages : ['en'],
-    requireGoodGrammar: false,
-    blockDirtyWords: false,
+    minDistanceMiles: 1,
+    maxDistanceMiles: 50,
+    requireGoodGrammar: true,
+    blockDirtyWords: true,
     allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
     customBlockedTerms: [],
   };

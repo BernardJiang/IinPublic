@@ -9,8 +9,8 @@ import { LocationPrivacy } from './location';
 
 /**
  * Get the hierarchical chatroom path for a location
- * Returns array from global → continental → country → state/region when known.
- * Example: ['global', 'north-america', 'usa', 'california']
+ * Returns array from global → continental → country → state/region → city when known.
+ * Example: ['global', 'north-america', 'usa', 'california', 'san-diego']
  */
 export function getLocationChatroomPath(location: GPSCoordinate): string[] {
   const { latitude, longitude } = location;
@@ -21,6 +21,7 @@ export function getLocationChatroomPath(location: GPSCoordinate): string[] {
   // Determine country based on coordinates
   const country = getCountryFromCoordinates(latitude, longitude);
   const region = getRegionFromCoordinates(latitude, longitude, country);
+  const city = getCityFromCoordinates(latitude, longitude, region);
 
   // Always start with global
   const path = ['global'];
@@ -37,7 +38,27 @@ export function getLocationChatroomPath(location: GPSCoordinate): string[] {
     path.push(region);
   }
 
+  if (city) {
+    path.push(city);
+  }
+
   return path;
+}
+
+function getCityFromCoordinates(lat: number, lon: number, region: string | null): string | null {
+  if (region === 'california') {
+    if (lat >= 32.5 && lat <= 33.2 && lon >= -117.4 && lon <= -116.8) return 'san-diego';
+    if (lat >= 33.6 && lat <= 34.4 && lon >= -118.7 && lon <= -117.8) return 'los-angeles';
+  }
+  if (region === 'ontario') {
+    if (lat >= 43.4 && lat <= 44 && lon >= -79.8 && lon <= -79) return 'toronto';
+    if (lat >= 45.2 && lat <= 45.6 && lon >= -76 && lon <= -75.4) return 'ottawa';
+  }
+  if (region === 'england') {
+    if (lat >= 51.2 && lat <= 51.8 && lon >= -0.6 && lon <= 0.4) return 'london';
+    if (lat >= 53.2 && lat <= 53.7 && lon >= -2.5 && lon <= -1.9) return 'manchester';
+  }
+  return null;
 }
 
 function getRegionFromCoordinates(lat: number, lon: number, country: string | null): string | null {

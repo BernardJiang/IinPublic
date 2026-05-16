@@ -21,7 +21,6 @@ export class IinPublicApp {
   private currentUser?: User;
   private currentLocation?: GPSCoordinate;
   private currentChatroomId?: string;
-  private incomingClustersMap: Record<string, any> = {};
   /** Gun .map().on may replay the same response node; avoid duplicate match UI/conversations. */
   private processedTalkResponseKeys = new Set<string>();
   /** One auto chatbot reply per announcer for the same content-hash talk id (same qa_* = same talk; keys are not author-based talk identity). */
@@ -29,6 +28,7 @@ export class IinPublicApp {
   /** Bounded retries for template races (announcement can arrive before manual answer persistence finishes). */
   private chatbotAutoReplyRetryCountByPair = new Map<string, number>();
   private subscribedMemberCountRoomIds = new Set<string>();
+  private incomingApiRefreshTimer: ReturnType<typeof setTimeout> | undefined = undefined;
   private travelModeActive: boolean = false;
   private travelHomeChatroomId: string | undefined = undefined;
   private travelChatroomId: string | undefined = undefined;
@@ -1134,11 +1134,11 @@ export class IinPublicApp {
       .get(this.currentUser.id)
       .map()
       .on((cluster: any, id: string) => {
-        if (!cluster) return;
-        this.incomingClustersMap[id] = cluster;
-        const clusters = Object.values(this.incomingClustersMap).filter((c: any) => c && c.identityKey);
-        this.uiManager.setIncomingTalkClusters(clusters);
-        this.uiManager.displayTalksList();
+        if (!cluster || !id || id.startsWith('_')) return;
+        if (this.incomingApiRefreshTimer) clearTimeout(this.incomingApiRefreshTimer);
+        this.incomingApiRefreshTimer = setTimeout(() => {
+          void this.refreshIncomingTalkClustersFromApi();
+        }, 120);
       });
   }
 
@@ -1182,7 +1182,6 @@ export class IinPublicApp {
         next[c.identityKey] = c;
       }
     }
-    this.incomingClustersMap = next;
     const list = Object.values(next).filter((c: any) => c && c.identityKey);
     this.uiManager.setIncomingTalkClusters(list);
     this.uiManager.displayTalksList();
@@ -1440,9 +1439,13 @@ export class IinPublicApp {
       },
     ) => {
       try {
+        const previousTalkFilters = this.currentUser?.talkFilters;
         const updatedUser = await this.userService.updateProfileFoundation(userId, updates);
         if (this.currentUser && this.currentUser.id === userId) {
-          this.currentUser = updatedUser;
+          this.currentUser = {
+            ...updatedUser,
+            ...(previousTalkFilters ? { talkFilters: previousTalkFilters } : {}),
+          };
           this.uiManager.showMainInterface(this.currentUser);
           this.refreshStatusBar();
         }
@@ -2438,6 +2441,10 @@ export class IinPublicApp {
   public async manualCleanup(): Promise<void> {
     // Manually trigger cleanup (for E2E tests where beforeunload may not fire)
     console.log('🧹 Manual cleanup called');
+    if (this.incomingApiRefreshTimer) {
+      clearTimeout(this.incomingApiRefreshTimer);
+      this.incomingApiRefreshTimer = undefined;
+    }
     if (this.currentUser && this.currentChatroomId) {
       console.log(`🧹 Cleanup: user=${this.currentUser.id}, chatroom=${this.currentChatroomId}`);
       this.chatroomService.unsubscribeAllMemberCounts();

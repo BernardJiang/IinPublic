@@ -249,8 +249,10 @@ export class WebUserService {
       interests: userData.interests || [],
       talkFilters: userData.talkFilters || {
         allowedLanguages: userData.languages || ['en'],
-        requireGoodGrammar: false,
-        blockDirtyWords: false,
+        minDistanceMiles: 1,
+        maxDistanceMiles: 50,
+        requireGoodGrammar: true,
+        blockDirtyWords: true,
         allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
       },
       createdAt: now,
@@ -266,8 +268,10 @@ export class WebUserService {
     await this.putPublicProfileFoundation(user);
     await this.putPublicTalkFilters(userId, user.talkFilters || {
       allowedLanguages: user.languages || ['en'],
-      requireGoodGrammar: false,
-      blockDirtyWords: false,
+      minDistanceMiles: 1,
+      maxDistanceMiles: 50,
+      requireGoodGrammar: true,
+      blockDirtyWords: true,
       allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
     });
     await this.putPrivateUserData(user);

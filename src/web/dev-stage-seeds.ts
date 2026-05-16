@@ -29,7 +29,7 @@ type StageAnswer = {
   answerText: string;
 };
 
-type StageSeedName = 'empty' | 'user1' | 'user2-match' | 'user3-network';
+type StageSeedName = 'stage-zero' | 'empty' | 'user1' | 'user2-match' | 'user3-network';
 
 function buildApiBase(): string {
   const { hostname, protocol, port } = window.location;
@@ -375,14 +375,17 @@ export async function applyDevStageSeed(app: any, stageName: string): Promise<vo
   const stage = (stageName || '').trim() as StageSeedName;
   if (!stage) return;
 
-  const supported = new Set<StageSeedName>(['empty', 'user1', 'user2-match', 'user3-network']);
+  const supported = new Set<StageSeedName>(['stage-zero', 'empty', 'user1', 'user2-match', 'user3-network']);
   if (!supported.has(stage)) return;
 
   clearStageLocalState();
   const base = buildApiBase();
 
-  if (stage === 'empty') {
-    setCurrentUserDecorations(app, { stageName: 'StageEmpty', knownPeople: [] });
+  if (stage === 'stage-zero' || stage === 'empty') {
+    setCurrentUserDecorations(app, { stageName: 'Adam', knownPeople: [] });
+    if (app.currentUser?.id && app.userService?.updateStageName) {
+      await app.userService.updateStageName(app.currentUser.id, 'Adam');
+    }
     seedChatroomMembers(app, []);
     refreshUi(app);
     return;

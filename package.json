@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:web\" \"npm run dev:server\"",
-    "dev:stage-empty": "IINPUBLIC_STAGE_SEED=empty npm run dev",
+    "dev:stage-empty": "npm run dev:stage-zero",
+    "dev:stage-zero": "node scripts/reset-dev-data.js && IINPUBLIC_STAGE_SEED=stage-zero npm run dev",
     "dev:stage-user1": "IINPUBLIC_STAGE_SEED=user1 npm run dev",
     "dev:stage-user2-match": "IINPUBLIC_STAGE_SEED=user2-match npm run dev",
     "dev:stage-user3-network": "IINPUBLIC_STAGE_SEED=user3-network npm run dev",
