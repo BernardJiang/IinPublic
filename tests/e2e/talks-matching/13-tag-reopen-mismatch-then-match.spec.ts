@@ -85,7 +85,7 @@ test.describe('Talks matching — tag answer removed from IN', () => {
     // Tom opens the tag and leaves the checkbox unchecked → mismatch
     await afterSync();
     await openIncomingTalkModal(pageTom, TAG_TITLE);
-    await pageTom.locator('#tag-ignore-checkbox').click({ noWaitAfter: true });
+    await pageTom.locator('#tag-submit-response').click({ noWaitAfter: true });
     await waitForResponseModalClosed(pageTom);
     await afterSync();
 

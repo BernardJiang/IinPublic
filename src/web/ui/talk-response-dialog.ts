@@ -78,16 +78,15 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
             <input type="checkbox" id="tag-match-checkbox" class="tag-match-checkbox" ${isSavedMatch ? 'checked' : ''}>
             <span>Match (I'm interested)</span>
           </label>
-          <label class="tag-checkbox-label" style="display: flex; align-items: center; gap: 12px; cursor: pointer; font-size: 1.1em; margin-top: 14px;">
-            <input type="checkbox" id="tag-ignore-checkbox" class="tag-ignore-checkbox" ${isSavedMatch ? '' : 'checked'}>
-            <span>Ignore</span>
-          </label>
+          <div class="modal-actions">
+            <button type="button" class="btn primary-btn" id="tag-submit-response">Submit</button>
+          </div>
         </div>
       </div>
     `;
     document.body.appendChild(modal);
     const checkbox = document.getElementById('tag-match-checkbox') as HTMLInputElement | null;
-    const ignoreCheckbox = document.getElementById('tag-ignore-checkbox') as HTMLInputElement | null;
+    const submitButton = document.getElementById('tag-submit-response') as HTMLButtonElement | null;
     const answers: { questionId: string; answerId: string; answerText: string }[] = [];
     const completeFromCheckbox = (checked: boolean) => {
       const answer = checked && matchAnswer ? matchAnswer : ignoreAnswer;
@@ -118,8 +117,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       }
       closeModal();
     };
-    checkbox?.addEventListener('change', () => completeFromCheckbox(true));
-    ignoreCheckbox?.addEventListener('change', () => completeFromCheckbox(false));
+    submitButton?.addEventListener('click', () => completeFromCheckbox(!!checkbox?.checked));
     return;
   }
 

@@ -162,21 +162,21 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
       )
       .toBeGreaterThanOrEqual(1);
 
-    // 4) Tom opens Coffee tag and checks Match; checkbox change completes the answer.
+    // 4) Tom opens Coffee tag, checks Match, and submits.
     console.log('\n📍 STEP 4: Tom opens Coffee and checks Match → match');
     await openIncomingTalkModal(pageTom, TAG_COFFEE);
     await expect(pageTom.locator('.tag-match-checkbox')).toBeVisible();
     await pageTom.locator('#tag-match-checkbox').click({ noWaitAfter: true });
-    await expect(pageTom.locator('#tag-submit-btn')).toHaveCount(0);
+    await pageTom.locator('#tag-submit-response').click({ noWaitAfter: true });
     await waitForResponseModalClosed(pageTom);
 
     // 5) Alice sees the match on the status bar (durable)
     await waitForStatusBarMatchCountAtLeast(pageAlice, 1);
 
-    // 6) Tom opens Cat tag and chooses Ignore; checkbox change completes the answer.
+    // 6) Tom opens Cat tag, leaves the single checkbox unchecked, and submits as ignored.
     console.log('\n📍 STEP 6: Tom opens Cat, leaves checkbox unchecked → ignore');
     await openIncomingTalkModal(pageTom, TAG_CAT);
-    await pageTom.locator('#tag-ignore-checkbox').click({ noWaitAfter: true });
+    await pageTom.locator('#tag-submit-response').click({ noWaitAfter: true });
     await waitForResponseModalClosed(pageTom);
 
     // 7) Alice confirms one match: Talks tab shows "Matched with: Tom" for Coffee; status shows 1 match

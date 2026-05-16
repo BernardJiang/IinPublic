@@ -70,7 +70,7 @@ export function showMyTalksDialog(options: MyTalksDialogOptions): void {
                           <span style="display: inline-block; padding: 4px 12px; background: #f3f4f6; color: #6b7280; border-radius: 12px; font-size: 0.8em; font-weight: 600;">
                             ${talk.type || ''}
                           </span>
-                          ${talk.disabled ? '<span style="display: inline-block; padding: 4px 12px; background: #fef3c7; color: #92400e; border-radius: 12px; font-size: 0.8em; font-weight: 600;">🚫 Disabled</span>' : ''}
+                          <span style="display: inline-block; padding: 4px 12px; background: ${talk.disabled ? '#f3f4f6' : '#dcfce7'}; color: ${talk.disabled ? '#6b7280' : '#166534'}; border-radius: 12px; font-size: 0.8em; font-weight: 600;">${talk.disabled ? 'Broadcast off' : 'Broadcasting'}</span>
                         </div>
                       </div>
                     </div>
@@ -84,9 +84,9 @@ export function showMyTalksDialog(options: MyTalksDialogOptions): void {
                       <button
                         class="toggle-broadcast-my-talks-btn"
                         data-talk-id="${talkId}"
-                        style="background: ${talk.disabled ? '#22c55e' : '#f59e0b'}; color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.85em; font-weight: 600;"
+                        style="background: ${talk.disabled ? '#16a34a' : '#6b7280'}; color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.85em; font-weight: 600;"
                       >
-                        ${talk.disabled ? '✅ Enable for broadcast' : '🚫 Disable for broadcast'}
+                        ${talk.disabled ? 'Enable broadcasting' : 'Disable broadcasting'}
                       </button>
                       <button
                         class="delete-talk-btn"

@@ -304,7 +304,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       item.dataset.talkId = id;
       item.dataset.sourceTalkId = record.talkId;
       item.dataset.searchText = searchText;
-      item.style.cssText = `display:flex; flex-direction:column; gap:12px; padding:14px 16px; border-radius:12px; background:${outcome === 'match' ? '#e8f5e9' : '#fff7ed'}; border:1px solid ${outcome === 'match' ? '#c8e6c9' : '#fed7aa'};`;
+      item.style.cssText = `display:flex; flex-direction:column; gap:12px; padding:14px 16px; border-radius:12px; cursor:pointer; background:${outcome === 'match' ? '#e8f5e9' : '#fff7ed'}; border:1px solid ${outcome === 'match' ? '#c8e6c9' : '#fed7aa'};`;
       item.innerHTML = `
         <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
           <div style="flex: 1; min-width: 0;">
@@ -314,7 +314,6 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
             <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${deps.escapeHtml(record.talkId)}" style="padding: 6px 12px; font-size: 0.9em;">Copy</button>
-            <button type="button" class="btn answer-edit-talk-btn" data-talk-id="${deps.escapeHtml(record.talkId)}" style="padding: 6px 12px; font-size: 0.9em;">Edit</button>
           </div>
         </div>
         <div class="answer-question-list" style="display: grid; gap: 8px;">
@@ -363,7 +362,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       item.className = 'answer-talk-item';
       item.dataset.talkId = talkId;
       item.dataset.searchText = searchText;
-      item.style.cssText = `display:flex; flex-direction:column; gap:12px; padding:14px 16px; border-radius:12px; background:${outcome === 'match' ? '#e8f5e9' : '#fff7ed'}; border:1px solid ${outcome === 'match' ? '#c8e6c9' : '#fed7aa'};`;
+      item.style.cssText = `display:flex; flex-direction:column; gap:12px; padding:14px 16px; border-radius:12px; cursor:pointer; background:${outcome === 'match' ? '#e8f5e9' : '#fff7ed'}; border:1px solid ${outcome === 'match' ? '#c8e6c9' : '#fed7aa'};`;
       item.innerHTML = `
         <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
           <div style="flex: 1; min-width: 0;">
@@ -373,7 +372,6 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
             <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">Copy</button>
-            <button type="button" class="btn answer-edit-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">Edit</button>
           </div>
         </div>
         <div class="answer-question-list" style="display: grid; gap: 8px;">
@@ -401,10 +399,10 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
     });
   });
 
-  listEl?.querySelectorAll('.answer-edit-talk-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const talkId = (e.currentTarget as HTMLElement).dataset.talkId;
+  listEl?.querySelectorAll<HTMLElement>('.answer-talk-item').forEach((item) => {
+    item.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('.answer-copy-talk-btn')) return;
+      const talkId = item.dataset.sourceTalkId || item.dataset.talkId;
       if (talkId) deps.showTalkDetail(talkId);
     });
   });

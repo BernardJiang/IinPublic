@@ -137,7 +137,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
       .first();
     await expect(copyTalkRow).toBeVisible({ timeout: 15000 });
     await copyTalkRow.locator('.talk-disable-broadcast-label').click();
-    await expect(copyTalkRow.locator('.talk-disable-broadcast-checkbox')).toBeChecked({ timeout: 10000 });
+    await expect(copyTalkRow.locator('.talk-disable-broadcast-checkbox')).not.toBeChecked({ timeout: 10000 });
 
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
     await afterAction();

@@ -44,7 +44,13 @@ export async function incomingClustersIncludeTitleSubstring(
   return false;
 }
 
-export async function createSimpleFlowTalk(page: Page, title: string, matchAnswer = 'Yes', ignoreAnswer = 'No'): Promise<void> {
+export async function createSimpleFlowTalk(
+  page: Page,
+  title: string,
+  matchAnswer = 'Yes',
+  ignoreAnswer = 'No',
+  options?: { sendToChatroom?: boolean },
+): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await afterSync();
   await page.click('#create-talk-btn');
@@ -58,6 +64,10 @@ export async function createSimpleFlowTalk(page: Page, title: string, matchAnswe
   await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
   await q.locator('.answer-item').nth(1).locator('.answer-text').fill(ignoreAnswer);
   await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
+
+  if (options?.sendToChatroom === false) {
+    await page.locator('#talk-send-to-chatroom').setChecked(false);
+  }
 
   await page.click('#talk-editor-form button[type="submit"]');
   await afterSync();

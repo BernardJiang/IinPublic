@@ -888,6 +888,24 @@ body {
   transform: translateX(4px) scale(0.98);
 }
 
+.talk-list-item.talk-incoming-new {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  box-shadow: inset 0 0 0 1px #bfdbfe;
+}
+
+.talk-list-item.talk-incoming-answered,
+.talk-list-item.talk-broadcast-disabled {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+  color: #6b7280;
+}
+
+.talk-list-item.talk-broadcast-enabled {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+
 .talk-item-header {
   margin-bottom: 12px;
 }
@@ -924,6 +942,16 @@ body {
 }
 
 .talk-badge-type {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.talk-badge-broadcast-enabled {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.talk-badge-broadcast-disabled {
   background: #f3f4f6;
   color: #6b7280;
 }

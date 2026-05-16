@@ -72,9 +72,8 @@ test.describe('Talks: create and edit', () => {
     const talkItem = page.locator('.talk-list-item').filter({ hasText: TALK_TITLE }).first();
     await talkItem.waitFor({ state: 'visible', timeout: 15000 });
     await expect(talkItem.locator('.talk-badge-created')).toBeVisible();
-    await expect(talkItem.locator('.edit-talk-btn')).toBeVisible();
 
-    await talkItem.locator('.edit-talk-btn').click();
+    await talkItem.click();
     await page.waitForSelector('#talk-editor-modal');
     await expect(page.locator('#talk-title')).toHaveValue(TALK_TITLE);
     await expect(page.locator('#talk-type')).toHaveValue('flow');

@@ -79,15 +79,6 @@ export class WebChatroomService {
     stageName?: string,
     onMoved?: (newChatroomId: string) => void,
   ): Promise<void> {
-    // Unsubscribe from previous room if switching
-    if (this.currentChatroomId && this.currentChatroomId !== chatroomId) {
-      const unsubscribe = this.memberCountSubscriptions.get(this.currentChatroomId);
-      if (unsubscribe) {
-        unsubscribe();
-        this.memberCountSubscriptions.delete(this.currentChatroomId);
-      }
-    }
-
     this.currentChatroomId = chatroomId;
 
     // Get user's location from the local map
@@ -311,13 +302,6 @@ export class WebChatroomService {
   async leaveChatroom(chatroomId: string, userId: string): Promise<void> {
     console.log(`🚪 Leaving chatroom: ${chatroomId} as user: ${userId}`);
 
-    // Unsubscribe from member count for this room
-    const unsubscribe = this.memberCountSubscriptions.get(chatroomId);
-    if (unsubscribe) {
-      unsubscribe();
-      this.memberCountSubscriptions.delete(chatroomId);
-    }
-
     const gun = this.gunService.getGun();
     await new Promise<void>((resolve) => {
       let settled = false;
@@ -351,7 +335,6 @@ export class WebChatroomService {
       await this.leaveChatroom(this.currentChatroomId, userId);
     }
     await this.joinChatroom(newChatroomId, userId, stageName);
-    this.subscribeToMemberCount(newChatroomId, () => {});
   }
 
   /**
@@ -476,31 +459,34 @@ export class WebChatroomService {
     const gun = this.gunService.getGun();
 
     return new Promise((resolve) => {
-      const timeoutId = setTimeout(() => resolve(0), 1000);
+      const activeMembers = new Set<string>();
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        try {
+          off.off();
+        } catch {
+          /* Gun peer */
+        }
+        resolve(activeMembers.size);
+      };
 
-      gun
+      const off = gun
         .get('chatrooms')
         .get(chatroomId)
         .get('users')
-        .once((usersData: any) => {
-          clearTimeout(timeoutId);
-
-          if (!usersData) {
-            resolve(0);
-            return;
+        .map()
+        .on((memberData: any, userId: string) => {
+          if (userId.startsWith('_')) return;
+          if (memberData && memberData.isActive === true) {
+            activeMembers.add(userId);
+          } else {
+            activeMembers.delete(userId);
           }
-
-          let count = 0;
-          for (const userId in usersData) {
-            if (userId.startsWith('_')) continue; // Skip Gun.js metadata
-            const memberData = usersData[userId];
-            if (memberData && memberData.isActive === true) {
-              count++;
-            }
-          }
-
-          resolve(count);
         });
+
+      setTimeout(finish, 1000);
     });
   }
 

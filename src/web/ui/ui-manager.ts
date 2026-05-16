@@ -1550,6 +1550,21 @@ export class UIManager extends EventEmitter {
     if (!chatroomId) return;
     this.currentChatroom = chatroomId;
     this.renderChatroomList();
+    const detailContainer = document.getElementById('chatroom-detail-container');
+    if (detailContainer && detailContainer.style.display !== 'none') {
+      const roomName = this.resolveChatroomTitle(chatroomId);
+      const headerTitle = document.getElementById('header-title');
+      const chatroomTitle = document.getElementById('current-chatroom-title');
+      const chatroomStatus = document.getElementById('current-chatroom-status');
+      if (headerTitle) headerTitle.textContent = roomName;
+      if (chatroomTitle) chatroomTitle.textContent = roomName;
+      if (chatroomStatus) chatroomStatus.textContent = 'Loading members...';
+      const membersList = document.getElementById('chatroom-members-list');
+      if (membersList) {
+        membersList.innerHTML =
+          '<div style="padding: 20px; text-align: center; color: #999;">Loading online users...</div>';
+      }
+    }
     this.syncReturnHomeButton();
   }
 
@@ -1576,17 +1591,6 @@ export class UIManager extends EventEmitter {
             const talkId = (removeBtn as HTMLElement).dataset.talkId;
             if (talkId) {
               setTimeout(() => this.deleteMyTalk(talkId), 0);
-            }
-            return;
-          }
-          const editBtn = target.closest('.edit-talk-btn');
-          if (editBtn) {
-            e.preventDefault();
-            e.stopPropagation();
-            const talkId = (editBtn as HTMLElement).dataset.talkId;
-            if (talkId) {
-              // Always open the talk editor when Edit is clicked (never open response flow here)
-              setTimeout(() => this.emit('loadTalkForEdit', { talkId }), 0);
             }
             return;
           }
@@ -1621,10 +1625,10 @@ export class UIManager extends EventEmitter {
             const talkId = control.dataset.talkId;
             if (talkId) {
               control.checked = !control.checked;
-              const disabled = control.checked;
+              const disabled = !control.checked;
               setTimeout(() => {
                 this.setTalkDisabled(talkId, disabled);
-                this.showNotification(disabled ? 'Talk disabled for broadcast' : 'Talk enabled for broadcast', 'success');
+                this.showNotification(disabled ? 'Broadcasting disabled' : 'Broadcasting enabled', 'success');
               }, 0);
             }
             return;
@@ -1721,13 +1725,13 @@ export class UIManager extends EventEmitter {
                     : talkTypeLower === 'route' ? '#d97706'
                     : '#2563eb';
                   return `
-        <div class="talk-list-item talk-type-${escapeHtml(talkTypeLower || 'flow')}" data-talk-id="${talkId}" data-role="${talk.role || 'created'}" data-talk-type="${escapeHtml(talkTypeLower || 'flow')}" style="border-left:5px solid ${typeAccent};">
+        <div class="talk-list-item talk-type-${escapeHtml(talkTypeLower || 'flow')} ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-role="${talk.role || 'created'}" data-talk-type="${escapeHtml(talkTypeLower || 'flow')}" style="border-left:5px solid ${typeAccent};">
           <div class="talk-item-header">
             <div class="talk-item-title">${escapeHtml(talk.title)}</div>
             <div class="talk-item-badges">
               ${roleBadge}
               <span class="talk-badge talk-badge-type">${talk.type}</span>
-              ${disabled ? '<span class="talk-badge talk-badge-disabled" style="background:#fef3c7;color:#92400e;">🚫 Disabled</span>' : ''}
+              <span class="talk-badge ${disabled ? 'talk-badge-broadcast-disabled' : 'talk-badge-broadcast-enabled'}">${disabled ? 'Broadcast off' : 'Broadcasting'}</span>
             </div>
           </div>
           <div class="talk-item-meta">
@@ -1742,10 +1746,9 @@ export class UIManager extends EventEmitter {
           ${matchedLine}
           <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
             ${surveyStatsBtn}
-            <button type="button" class="btn edit-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">✏️ Edit</button>
             <label class="talk-disable-broadcast-label" style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.9em;">
-              <input type="checkbox" class="talk-disable-broadcast-checkbox" data-talk-id="${talkId}" ${disabled ? 'checked' : ''}>
-              <span>Disable for broadcast</span>
+              <input type="checkbox" class="talk-disable-broadcast-checkbox" data-talk-id="${talkId}" ${disabled ? '' : 'checked'}>
+              <span>Broadcasting</span>
             </label>
             <button type="button" class="btn remove-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em; background: #dc3545; color: white;">🗑️ Remove</button>
           </div>
@@ -1785,7 +1788,7 @@ export class UIManager extends EventEmitter {
                   : incomingType === 'route' ? '#d97706'
                   : '#2563eb';
                 return `
-        <div class="talk-list-item talk-type-${escapeHtml(incomingType)}" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}" style="border-left:5px solid ${typeAccent}; ${isAnswered ? 'background:#fafafa;' : ''}">
+        <div class="talk-list-item talk-type-${escapeHtml(incomingType)} ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}" style="border-left:5px solid ${typeAccent};">
           <div class="talk-item-header">
             <div class="talk-item-title" style="${titleStyle}">${escapeHtml(cluster?.title || 'Incoming Talk')}</div>
             <div class="talk-item-badges">
@@ -2244,7 +2247,7 @@ export class UIManager extends EventEmitter {
       type: talk.type,
       timestamp: talk.lastInteraction || new Date().toISOString(),
       role: 'copied',
-      fullTalk: talk.fullTalk,
+      fullTalk: this.toOwnedOutgoingTalk(talk.fullTalk),
       completedAnswers: talk.completedAnswers,
       outcome: talk.outcome,
       senders: talk.senders,
@@ -3120,6 +3123,15 @@ export class UIManager extends EventEmitter {
     return JSON.stringify({ q, loc, title, type: talk.type });
   }
 
+  private toOwnedOutgoingTalk(talk: any): any {
+    if (!talk || typeof talk !== 'object' || !this.currentUserId) return talk;
+    return {
+      ...talk,
+      authorId: this.currentUserId,
+      ...(this.currentUser?.stageName ? { authorName: this.currentUser.stageName } : {}),
+    };
+  }
+
   private completeTalk(talk: any, answers: any[], outcome?: 'match' | 'mismatch'): void {
     console.log('✅ Talk completed:', talk.id, answers, outcome);
 
@@ -3150,9 +3162,14 @@ export class UIManager extends EventEmitter {
     }
 
     const existingEntry = myTalks[talkIdToUse];
+    const wasIgnored = answers.some((answer) => {
+      const answerId = String(answer?.answerId || '').toLowerCase();
+      const answerText = String(answer?.answerText || '').toLowerCase();
+      return answerId === 'ignore' || answerId.includes('ignore') || answerText === 'ignore';
+    });
     const role = existingEntry?.role === 'copied' ? 'copied'
                : existingEntry?.role === 'created' ? 'created'
-               : getCopyTalkAutoSave() ? 'copied'
+               : getCopyTalkAutoSave() && !wasIgnored ? 'copied'
                : 'answered';
     const completedAnswers = answers.map((answer) => ({
       questionId: answer.questionId,
@@ -3167,7 +3184,9 @@ export class UIManager extends EventEmitter {
       type: talk.type,
       timestamp: talk.createdAt || new Date().toISOString(),
       role,
-      fullTalk: existingTalkId && myTalks[existingTalkId]?.fullTalk ? myTalks[existingTalkId].fullTalk : talk,
+      fullTalk: role === 'copied'
+        ? this.toOwnedOutgoingTalk(existingTalkId && myTalks[existingTalkId]?.fullTalk ? myTalks[existingTalkId].fullTalk : talk)
+        : existingTalkId && myTalks[existingTalkId]?.fullTalk ? myTalks[existingTalkId].fullTalk : talk,
       completedAnswers,
       outcome: outcome ?? existingEntry?.outcome ?? 'mismatch',
       senders,
@@ -3565,7 +3584,7 @@ export class UIManager extends EventEmitter {
   getBroadcastTalkPayload(talkId: string): any | null {
     const myTalks = getMyTalks();
     const row = myTalks[talkId];
-    const full = row?.fullTalk;
+    const full = row?.role === 'copied' ? this.toOwnedOutgoingTalk(row?.fullTalk) : row?.fullTalk;
     if (!full) return null;
     // Tag talks have no questions; non-tag talks require at least one question
     if (full.type !== 'tag' && (!Array.isArray(full.questions) || full.questions.length === 0)) return null;
@@ -3652,18 +3671,21 @@ export class UIManager extends EventEmitter {
     const rows = talksList?.querySelectorAll(`.talk-list-item[data-talk-id="${talkId}"]`);
     if (rows && rows.length > 0) {
       rows.forEach((row) => {
+        const item = row as HTMLElement;
+        item.classList.toggle('talk-broadcast-disabled', !!disabled);
+        item.classList.toggle('talk-broadcast-enabled', !disabled);
         const cb = row.querySelector('.talk-disable-broadcast-checkbox') as HTMLInputElement | null;
-        if (cb) cb.checked = !!disabled;
+        if (cb) cb.checked = !disabled;
         const badges = row.querySelector('.talk-item-badges');
-        const existingBadge = row.querySelector('.talk-badge-disabled');
+        const existingBadge = row.querySelector('.talk-badge-broadcast-disabled, .talk-badge-broadcast-enabled');
         if (!!disabled && !existingBadge && badges) {
           const badge = document.createElement('span');
-          badge.className = 'talk-badge talk-badge-disabled';
-          badge.setAttribute('style', 'background:#fef3c7;color:#92400e;');
-          badge.textContent = '🚫 Disabled';
+          badge.className = 'talk-badge talk-badge-broadcast-disabled';
+          badge.textContent = 'Broadcast off';
           badges.appendChild(badge);
-        } else if (!disabled && existingBadge) {
-          existingBadge.remove();
+        } else if (existingBadge) {
+          existingBadge.className = `talk-badge ${disabled ? 'talk-badge-broadcast-disabled' : 'talk-badge-broadcast-enabled'}`;
+          existingBadge.textContent = disabled ? 'Broadcast off' : 'Broadcasting';
         }
       });
     } else {
