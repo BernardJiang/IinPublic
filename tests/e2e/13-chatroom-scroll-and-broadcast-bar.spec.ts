@@ -33,10 +33,36 @@ async function bootstrapCompactUser(
   return { context, page };
 }
 
+/** Wait until Gun lists exactly `peerCount` other active members in `chatroomId` (excludes self). */
+async function waitForGunPeerCountInRoom(page: Page, chatroomId: string, peerCount: number): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const count = await page.evaluate(async ({ room }) => {
+          const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+          const me = String(app?.currentUser?.id || '').trim();
+          const ids: string[] = (await app?.chatroomService?.getActiveMembers(room)) || [];
+          return ids.filter((id: string) => id && id !== me).length;
+        }, { room: chatroomId });
+        return count === peerCount ? 'ok' : String(count);
+      },
+      { timeout: 90_000, intervals: [500, 1000, 2000] },
+    )
+    .toBe('ok');
+}
+
+function peerMemberItems(page: Page) {
+  return page.locator('.chatroom-member-item[data-stage-name^="Peer"]');
+}
+
 test.describe('Chatroom UX: member list scroll and unified broadcast bar', () => {
   let browser: Browser;
   const contexts: BrowserContext[] = [];
   const pages: Page[] = [];
+
+  test.beforeEach(async () => {
+    await clearGunDatabases();
+  });
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunDatabases();
@@ -64,12 +90,30 @@ test.describe('Chatroom UX: member list scroll and unified broadcast bar', () =>
       pages.push(user.page);
     }
 
-    await expect(owner.page.locator('.chatroom-member-item')).toHaveCount(7, { timeout: 30000 });
+    await afterSync();
+    await waitForGunPeerCountInRoom(owner.page, 'global', 7);
+
+    const peers = peerMemberItems(owner.page);
+    await expect(peers).toHaveCount(7, { timeout: 30_000 });
+    for (let i = 1; i <= 7; i += 1) {
+      await expect(peers.filter({ hasText: `Peer${i}` })).toHaveCount(1);
+    }
+
     await expect(owner.page.locator('#broadcast-talk-btn')).toHaveCount(1);
     await expect(owner.page.locator('#chatroom-action-bar')).toContainText('Broadcast');
     await expect(owner.page.getByText('Broadcast talk to everyone here')).toHaveCount(0);
 
-    const scrollState = await owner.page.locator('#chatroom-members-list').evaluate((el) => {
+    const membersList = owner.page.locator('#chatroom-members-list');
+    await expect
+      .poll(async () => {
+        return membersList.evaluate((el) => {
+          const node = el as HTMLElement;
+          return node.scrollHeight > node.clientHeight + 1;
+        });
+      }, { timeout: 30_000 })
+      .toBe(true);
+
+    const scrollState = await membersList.evaluate((el) => {
       const node = el as HTMLElement;
       const before = node.scrollTop;
       node.scrollTop = node.scrollHeight;

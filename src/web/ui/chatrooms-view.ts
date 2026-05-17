@@ -143,7 +143,8 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
   const detailContainer = document.getElementById('chatroom-detail-container');
 
   if (listContainer) listContainer.style.display = 'none';
-  if (detailContainer) detailContainer.style.display = 'block';
+  // Keep flex column layout from CSS (#chatroom-detail-container) so #chatroom-members-list can scroll.
+  if (detailContainer) detailContainer.style.display = 'flex';
   const backBtn = document.getElementById('back-to-chatrooms') as HTMLElement | null;
   if (backBtn) backBtn.style.display = 'inline-flex';
 
