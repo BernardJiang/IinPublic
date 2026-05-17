@@ -1,17 +1,85 @@
 import type express from 'express';
 import { logger } from '../logger';
 
+export type E2eServerSnapshot = {
+  version: 1;
+  gunGraph: Record<string, unknown>;
+  incomingTalks: Record<string, Record<string, unknown>>;
+  conversations: Record<string, Record<string, unknown>>;
+  talkResponses: Record<string, unknown[]>;
+  statsIdx: {
+    byDay: Record<string, string[]>;
+    byRegion: Record<string, string[]>;
+    byTalkAnswer: Record<string, string[]>;
+  };
+};
+
+function mapOfMapsToObject(m: Map<string, Map<string, any>>): Record<string, Record<string, unknown>> {
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [k, inner] of m) {
+    out[k] = Object.fromEntries(inner);
+  }
+  return out;
+}
+
+function statsIdxToObject(statsIdx: {
+  byDay: Map<string, Set<string>>;
+  byRegion: Map<string, Set<string>>;
+  byTalkAnswer: Map<string, Set<string>>;
+}): E2eServerSnapshot['statsIdx'] {
+  const sets = (s: Map<string, Set<string>>) =>
+    Object.fromEntries([...s.entries()].map(([k, v]) => [k, [...v]]));
+  return {
+    byDay: sets(statsIdx.byDay),
+    byRegion: sets(statsIdx.byRegion),
+    byTalkAnswer: sets(statsIdx.byTalkAnswer),
+  };
+}
+
+function statsIdxFromObject(raw: E2eServerSnapshot['statsIdx']): {
+  byDay: Map<string, Set<string>>;
+  byRegion: Map<string, Set<string>>;
+  byTalkAnswer: Map<string, Set<string>>;
+} {
+  const from = (o: Record<string, string[]>) => {
+    const m = new Map<string, Set<string>>();
+    for (const [k, arr] of Object.entries(o || {})) {
+      m.set(k, new Set(arr));
+    }
+    return m;
+  };
+  return {
+    byDay: from(raw?.byDay || {}),
+    byRegion: from(raw?.byRegion || {}),
+    byTalkAnswer: from(raw?.byTalkAnswer || {}),
+  };
+}
+
 type RegisterSystemRoutesDeps = {
   gun: any;
   incomingTalksMap: Map<string, Map<string, any>>;
   conversationsMap: Map<string, Map<string, any>>;
+  talkResponsesMap: Map<string, unknown[]>;
+  statsIdx: {
+    byDay: Map<string, Set<string>>;
+    byRegion: Map<string, Set<string>>;
+    byTalkAnswer: Map<string, Set<string>>;
+  };
   clearTalkResponseStats: () => void;
   nodeEnv: string | undefined;
 };
 
 export function registerSystemRoutes(
   app: express.Application,
-  { gun, incomingTalksMap, conversationsMap, clearTalkResponseStats, nodeEnv }: RegisterSystemRoutesDeps,
+  {
+    gun,
+    incomingTalksMap,
+    conversationsMap,
+    talkResponsesMap,
+    statsIdx,
+    clearTalkResponseStats,
+    nodeEnv,
+  }: RegisterSystemRoutesDeps,
 ): void {
   // Health check
   app.get('/health', (_req, res) => {
@@ -54,6 +122,66 @@ export function registerSystemRoutes(
         }
       } catch (error) {
         logger.error({ err: error }, 'Error clearing Gun.js database');
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    app.get('/api/test/export-snapshot', (_req, res) => {
+      try {
+        if (!gun?._?.graph) {
+          res.status(500).json({ error: 'Gun.js graph not accessible' });
+          return;
+        }
+        const snapshot: E2eServerSnapshot = {
+          version: 1,
+          gunGraph: { ...gun._.graph },
+          incomingTalks: mapOfMapsToObject(incomingTalksMap),
+          conversations: mapOfMapsToObject(conversationsMap),
+          talkResponses: Object.fromEntries(talkResponsesMap),
+          statsIdx: statsIdxToObject(statsIdx),
+        };
+        res.json(snapshot);
+      } catch (error) {
+        logger.error({ err: error }, 'Error exporting E2E snapshot');
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    app.post('/api/test/import-snapshot', (req, res) => {
+      try {
+        const body = req.body as E2eServerSnapshot;
+        if (!body || body.version !== 1 || !body.gunGraph) {
+          res.status(400).json({ error: 'Invalid snapshot payload (expected version 1)' });
+          return;
+        }
+        if (!gun?._?.graph) {
+          res.status(500).json({ error: 'Gun.js graph not accessible' });
+          return;
+        }
+        gun._.graph = { ...body.gunGraph };
+        incomingTalksMap.clear();
+        conversationsMap.clear();
+        for (const [uid, inner] of Object.entries(body.incomingTalks || {})) {
+          incomingTalksMap.set(uid, new Map(Object.entries(inner || {})));
+        }
+        for (const [uid, inner] of Object.entries(body.conversations || {})) {
+          conversationsMap.set(uid, new Map(Object.entries(inner || {})));
+        }
+        talkResponsesMap.clear();
+        for (const [talkId, rows] of Object.entries(body.talkResponses || {})) {
+          talkResponsesMap.set(talkId, Array.isArray(rows) ? rows : []);
+        }
+        const restored = statsIdxFromObject(body.statsIdx);
+        statsIdx.byDay.clear();
+        statsIdx.byRegion.clear();
+        statsIdx.byTalkAnswer.clear();
+        for (const [k, v] of restored.byDay) statsIdx.byDay.set(k, v);
+        for (const [k, v] of restored.byRegion) statsIdx.byRegion.set(k, v);
+        for (const [k, v] of restored.byTalkAnswer) statsIdx.byTalkAnswer.set(k, v);
+        logger.info('✅ E2E snapshot imported');
+        res.json({ success: true });
+      } catch (error) {
+        logger.error({ err: error }, 'Error importing E2E snapshot');
         res.status(500).json({ error: (error as Error).message });
       }
     });

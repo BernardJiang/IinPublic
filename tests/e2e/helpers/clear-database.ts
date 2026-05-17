@@ -50,6 +50,14 @@ export async function waitForGunApiReady(maxWaitMs = HEALTH_POLL_MAX_WAIT_MS): P
  * exponential backoff on network or 5xx errors, then waits a short settle window so Gun
  * sync teardown mid-clear is less likely to race the next test (`docs/TODO.md` P2).
  */
+/** Skip Gun clear when `E2E_STAGE_PIPELINE=1` (sequential stage accumulation). */
+export async function maybeClearGunDatabases(): Promise<void> {
+  if (process.env.E2E_STAGE_PIPELINE === '1' || process.env.E2E_STAGE_PIPELINE === 'true') {
+    return;
+  }
+  await clearGunDatabases();
+}
+
 export async function clearGunDatabases(): Promise<void> {
   await waitForGunApiReady();
 

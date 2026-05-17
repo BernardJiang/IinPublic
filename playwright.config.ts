@@ -25,7 +25,12 @@ const launchOptions =
  */
 /** Accept `PW_WORKER` as a typo-alias for `PW_WORKERS`. */
 const parsedWorkers = Number(process.env.PW_WORKERS ?? process.env.PW_WORKER);
-const NUM_WORKERS = Number.isFinite(parsedWorkers) && parsedWorkers >= 1 ? Math.floor(parsedWorkers) : 1;
+const STAGE_PIPELINE = process.env.E2E_STAGE_PIPELINE === '1' || process.env.E2E_STAGE_PIPELINE === 'true';
+const NUM_WORKERS = STAGE_PIPELINE
+  ? 1
+  : Number.isFinite(parsedWorkers) && parsedWorkers >= 1
+    ? Math.floor(parsedWorkers)
+    : 1;
 // Let helpers (e.g. clear-database) know whether multiple workers share disk paths.
 process.env.PW_WORKERS = String(NUM_WORKERS);
 
@@ -82,12 +87,26 @@ export default defineConfig({
     ...(launchOptions ? { launchOptions } : {}),
   },
 
-  projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-  ],
+  projects: STAGE_PIPELINE
+    ? [
+        { name: 'stage0', testMatch: /staged\/stage0-bootstrap\// },
+        { name: 'stage1', testMatch: /staged\/stage1-single-user\//, dependencies: ['stage0'] },
+        { name: 'stage2', testMatch: /staged\/stage2-two-user\//, dependencies: ['stage1'] },
+        { name: 'stage3', testMatch: /staged\/stage3-three-user\//, dependencies: ['stage2'] },
+        { name: 'stage4', testMatch: /staged\/stage4-four-user\//, dependencies: ['stage3'] },
+        { name: 'stage5', testMatch: /staged\/stage5-multi-user\//, dependencies: ['stage4'] },
+      ]
+    : [
+        {
+          name: 'chromium',
+          use: { ...devices['Desktop Chrome'] },
+          testIgnore: [
+            /staged\/stage0-bootstrap\//,
+            /staged\/_setup\//,
+            /staged\/[^/]+\/(aaa-|zzz-)/,
+          ],
+        },
+      ],
 
   webServer: webServers,
 });

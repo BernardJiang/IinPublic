@@ -19,7 +19,7 @@ Guide QA, developers, and release owners on:
 ### 1.2 Scope (automated today)
 | Layer | Location | Count |
 |-------|----------|------:|
-| **E2E (Playwright)** | `tests/e2e/**` | **70 tests** / 54 files |
+| **E2E (Playwright)** | `tests/e2e/staged/**` | **70 tests** / 54 files (+ stage bootstrap specs in pipeline mode) |
 | Unit + integration | `src/test/**` | Jest (`npm test`, `npm run health`) |
 | Companion narratives | `tests/e2e/**/*.md` | 53 files (add alongside new specs) |
 
@@ -117,7 +117,48 @@ npx playwright test tests/e2e/00h-chatroom-hierarchy-broadcast.spec.ts
 
 **Report:** `npx playwright show-report`
 
-**Extension template:** When adding a test, create `tests/e2e/<spec>.md` (see existing companions), add a row to §4.2 after a timed run, and fill **Notes** / FR links in §4.3.
+**Extension template:** When adding a test, create `tests/e2e/staged/<stage-folder>/<spec>.md`, add a row to §4.2 after a timed run, and fill **Notes** / FR links in §4.3.
+
+### 4.4 Staged network pipeline (by user count)
+
+Specs live under `tests/e2e/staged/`, sorted by **maximum concurrent users**. The first account on an empty database is always **TechSupport** (not Tom/Adam). Sequential pipeline mode accumulates Gun state across stages; parallel mode (`npm run test:e2e`) still clears Gun per file via `maybeClearGunDatabases()`.
+
+| Stage | Folder | Users | Load snapshot | Save snapshot | Canonical users |
+|------:|--------|------:|---------------|---------------|-----------------|
+| 0 | `stage0-bootstrap/` | 1 | _(empty DB)_ | `stage0` | TechSupport bootstrapped |
+| 1 | `stage1-single-user/` | 1 | `stage0` | `stage1` | TechSupport runs singles |
+| 2 | `stage2-two-user/` | 2 | `stage1` | `stage2` | + **Adam** (talk exchange seed in `aaa-stage2-adam-joins`) |
+| 3 | `stage3-three-user/` | 3 | `stage2` | `stage3` | + **Eve** (`aaa-stage3-eve-joins`) |
+| 4 | `stage4-four-user/` | 4 | `stage3` | `stage4` | capacity / eviction |
+| 5 | `stage5-multi-user/` | 5+ | `stage4` | `stage5` | 25-context spread, 8-context scroll, super-user 20 |
+
+```bash
+# Parallel regression (70 tests, isolated Gun per file)
+npm run test:e2e
+
+# Sequential stage pipeline (builds stage0→stage5 snapshots on worker 0)
+npm run test:e2e:staged
+```
+
+**Snapshots:** `tests/e2e/staged/snapshots/worker-{N}/stage{N}.json` (Gun graph + server maps via `GET/POST /api/test/export-snapshot` / `import-snapshot`).
+
+**Per-action status checks (hard assertions):**
+
+| Check | Selector / API | When |
+|-------|----------------|------|
+| Room context | `#status-bar-text` contains room name | After travel / join |
+| Match count | `#status-bar-text` · N matches | After talk exchange |
+| Nav tab | `.nav-btn[data-view="…"].active` | After navigation |
+| Stage name | `[data-testid="user-stage-name"]` | After login / rename |
+| Headcount | `.chatroom-item[data-chatroom-id]` text | List + detail |
+| Conversations | `localStorage.myConversations` keys | After match |
+| Incoming talk | `GET /api/users/:id/incoming-talks` | Delivery paths |
+
+Use `helpers/e2e-status-checks.ts` → `assertStatusChecks(page, checks[])`.
+
+**Toasts (soft, non-blocking):** `helpers/soft-toast.ts` → `expectToastSoft(page, /match/i)` logs a warning if the `.notification` node is missing or already dismissed (parallel timing). Do **not** use toast visibility as the only pass/fail signal; pair with `#status-bar-text` or conversation list.
+
+**Stage-only specs** (`aaa-*`, `zzz-save-*`, `stage0-bootstrap`) run only when `E2E_STAGE_PIPELINE=1`; parallel `npm run test:e2e` ignores them via `playwright.config.ts` `testIgnore`.
 
 ### 4.2 Optimal parallel run order (slowest first)
 

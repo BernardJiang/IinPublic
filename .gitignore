@@ -12,6 +12,7 @@ test-results/
 test-screenshots/
 test-storage/
 .test-storage/
+tests/e2e/staged/snapshots/
 
 # Runtime and local app state
 radata/

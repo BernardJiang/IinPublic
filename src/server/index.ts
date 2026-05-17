@@ -800,6 +800,8 @@ class IinPublicServer {
       gun: this.gun,
       incomingTalksMap: this.incomingTalksMap,
       conversationsMap: this.conversationsMap,
+      talkResponsesMap: this.talkResponsesMap,
+      statsIdx: this.statsIdx,
       clearTalkResponseStats: this.clearTalkResponseStats.bind(this),
       nodeEnv: process.env.NODE_ENV,
     });

@@ -1,5 +1,5 @@
 import { expect, type APIRequestContext, Browser, BrowserContext, Page } from '@playwright/test';
-import { clearGunDatabases, injectIdbClear } from './clear-database';
+import { clearGunDatabases, injectIdbClear, maybeClearGunDatabases } from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
 import { attachE2eBrowserTabLabel } from './e2e-tab-title';
 import { afterLoad, afterNav, afterSync } from './timing';
@@ -375,7 +375,7 @@ export async function resetTalksMatchingSession(
   await contexts.tom?.close().catch(() => {});
   await contexts.jerry?.close().catch(() => {});
   await contexts.bob?.close().catch(() => {});
-  await clearGunDatabases();
+  await maybeClearGunDatabases();
 }
 
 export async function finalCleanupPages(
