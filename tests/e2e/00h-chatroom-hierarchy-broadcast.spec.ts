@@ -40,6 +40,24 @@ async function openHierarchyNodeRoom(page: Page, roomId: string): Promise<void> 
   await afterSync();
 }
 
+/** Wait until Gun lists exactly `peerCount` other active members in `chatroomId` (excludes self). */
+async function waitForGunPeerCountInRoom(page: Page, chatroomId: string, peerCount: number): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const count = await page.evaluate(async ({ room }) => {
+          const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+          const me = String(app?.currentUser?.id || '').trim();
+          const ids: string[] = (await app?.chatroomService?.getActiveMembers(room)) || [];
+          return ids.filter((id: string) => id && id !== me).length;
+        }, { room: chatroomId });
+        return count === peerCount ? 'ok' : String(count);
+      },
+      { timeout: 90_000, intervals: [500, 1000, 2000] },
+    )
+    .toBe('ok');
+}
+
 async function createSimpleFlowTalk(page: Page, title: string): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
@@ -144,6 +162,9 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
       await expect(pageJerry.locator('#current-chatroom-title')).toContainText('United States', {
         timeout: 20_000,
       });
+
+      await waitForGunPeerCountInRoom(pageTom, 'north-america', 0);
+      await waitForGunPeerCountInRoom(pageJerry, 'usa', 0);
 
       await createSimpleFlowTalk(pageTom, 'Parent-room-only isolation');
 

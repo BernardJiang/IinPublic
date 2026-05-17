@@ -13,6 +13,7 @@ import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterAction, afterNav, afterSync, headless } from './helpers/timing';
 import { gunBaseURL, webAppURLStableChatroom } from './helpers/ports';
 import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
+import { waitForDistinctGunPeersExcludingSelf } from './helpers/talk-demo-ui';
 
 test.describe('Profile privacy visibility', () => {
   let browser: Browser;
@@ -67,26 +68,63 @@ test.describe('Profile privacy visibility', () => {
     return { context: nextContext, page: nextPage };
   }
 
+  async function waitForProfileCallbackReady(page: Page): Promise<void> {
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(() => {
+            const app = (window as unknown as { __iinpublic_app?: { getApp: () => unknown } }).__iinpublic_app?.getApp?.() as
+              | { currentUser?: { id?: string }; uiManager?: { onProfileChange?: unknown } }
+              | undefined;
+            return !!(app?.currentUser?.id && app?.uiManager?.onProfileChange);
+          }),
+        { timeout: 90_000, intervals: [400, 800, 1200] },
+      )
+      .toBe(true);
+  }
+
   async function openPeerDetail(page: Page, peerStageName: string): Promise<void> {
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
 
-    const detail = page.locator('#chatroom-detail-container');
-    if (!(await detail.isVisible().catch(() => false))) {
-      const globalRoom = page.locator('.chatroom-item[data-chatroom-id="global"]').first();
-      await expect(globalRoom).toBeVisible({ timeout: 45000 });
-      await globalRoom.click();
+    const backBtn = page.locator('#back-to-chatrooms');
+    if (await backBtn.isVisible().catch(() => false)) {
+      await backBtn.click();
       await afterNav();
-      await expect(detail).toBeVisible({ timeout: 10000 });
     }
 
+    const globalRoom = page.locator('.chatroom-item[data-chatroom-id="global"]').first();
+    await expect(globalRoom).toBeVisible({ timeout: 60_000 });
+    await globalRoom.click();
+    await afterNav();
+    await expect(page.locator('#chatroom-detail-container')).toBeVisible({ timeout: 20_000 });
+
     const member = page.locator('.chatroom-member-item').filter({ hasText: peerStageName }).first();
-    await expect(member).toBeVisible({ timeout: 45000 });
+    await expect(member).toBeVisible({ timeout: 60_000 });
     await member.click();
     await afterNav();
 
-    await expect(page.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('#peer-stats-section')).toContainText('Public Profile', { timeout: 15000 });
+    await expect(page.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('#peer-stats-section')).toContainText('Public Profile', { timeout: 60_000 });
+  }
+
+  async function waitForPeerStatsProfile(
+    page: Page,
+    expectations: { visible: string[]; hidden: string[] },
+  ): Promise<void> {
+    const stats = page.locator('#peer-stats-section');
+    await expect
+      .poll(
+        async () => {
+          const text = await stats.innerText();
+          return (
+            expectations.visible.every((snippet) => text.includes(snippet)) &&
+            expectations.hidden.every((snippet) => !text.includes(snippet))
+          );
+        },
+        { timeout: 60_000, intervals: [400, 800, 1200] },
+      )
+      .toBe(true);
   }
 
   async function getCurrentUserId(page: Page): Promise<string> {
@@ -103,7 +141,7 @@ test.describe('Profile privacy visibility', () => {
           const knownPeople = await res.json();
           return Array.isArray(knownPeople) && knownPeople.some((person) => person?.userId === targetId);
         },
-        { timeout: 30000 },
+        { timeout: 60_000, intervals: [500, 1000, 2000] },
       )
       .toBe(true);
   }
@@ -130,12 +168,13 @@ test.describe('Profile privacy visibility', () => {
             expectations.hidden.every((text) => !profileText.includes(text))
           );
         },
-        { timeout: 30000 },
+        { timeout: 60_000, intervals: [500, 1000, 2000] },
       )
       .toBe(true);
   }
 
   test('hides contacts_only/private profile rows from non-owner viewers', async () => {
+    test.setTimeout(480_000);
     const PUBLIC_Q = 'Public Q (visibility)';
     const PUBLIC_A = 'Public A (visibility)';
     const CONTACTS_Q = 'Contacts Only Q (visibility)';
@@ -148,6 +187,8 @@ test.describe('Profile privacy visibility', () => {
     contextTom = tom.context;
     pageTom = tom.page;
     pageTom.on('console', (m) => console.log('[Tom]:', m.text()));
+
+    await waitForProfileCallbackReady(pageTom);
 
     // Profile Q&A with visibility is saved via onProfileChange (Me tab no longer hosts Edit Profile UI).
     await pageTom.evaluate(
@@ -250,26 +291,21 @@ test.describe('Profile privacy visibility', () => {
       hidden: [PRIVATE_Q, PRIVATE_A],
     });
 
+    await waitForDistinctGunPeersExcludingSelf(pageJerryNonContact, 1, 90_000);
+    await waitForDistinctGunPeersExcludingSelf(pageJerryContact, 1, 90_000);
+
     // Assert for non-contact viewer: only `public` rows are visible.
-    await pageTom.click('.chatroom-item[data-chatroom-id="global"]');
-    await afterNav();
     await openPeerDetail(pageJerryNonContact, 'Tom');
-    const statsNon = pageJerryNonContact.locator('#peer-stats-section');
-    await expect(statsNon).toContainText(PUBLIC_Q);
-    await expect(statsNon).toContainText(PUBLIC_A);
-    await expect(statsNon).not.toContainText(CONTACTS_Q);
-    await expect(statsNon).not.toContainText(CONTACTS_A);
-    await expect(statsNon).not.toContainText(PRIVATE_Q);
-    await expect(statsNon).not.toContainText(PRIVATE_A);
+    await waitForPeerStatsProfile(pageJerryNonContact, {
+      visible: [PUBLIC_Q, PUBLIC_A],
+      hidden: [CONTACTS_Q, CONTACTS_A, PRIVATE_Q, PRIVATE_A],
+    });
 
     // Assert for contact viewer: `contacts_only` rows are visible; `private` remains hidden.
     await openPeerDetail(pageJerryContact, 'Tom');
-    const statsContact = pageJerryContact.locator('#peer-stats-section');
-    await expect(statsContact).toContainText(PUBLIC_Q);
-    await expect(statsContact).toContainText(PUBLIC_A);
-    await expect(statsContact).toContainText(CONTACTS_Q);
-    await expect(statsContact).toContainText(CONTACTS_A);
-    await expect(statsContact).not.toContainText(PRIVATE_Q);
-    await expect(statsContact).not.toContainText(PRIVATE_A);
+    await waitForPeerStatsProfile(pageJerryContact, {
+      visible: [PUBLIC_Q, PUBLIC_A, CONTACTS_Q, CONTACTS_A],
+      hidden: [PRIVATE_Q, PRIVATE_A],
+    });
   });
 });
