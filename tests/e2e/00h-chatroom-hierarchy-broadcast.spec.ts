@@ -7,6 +7,16 @@ import { confirmBroadcastTagPreambleIfVisible } from './helpers/broadcast-preamb
 import { waitForBroadcastBulkAck } from './helpers/broadcast-ack';
 import { gunBaseURL } from './helpers/ports';
 
+/** Expand parent only when collapsed (▶). Default UI already expands NA/Europe — blind toggle hides children. */
+async function ensureHierarchyParentExpanded(page: Page, parentId: string): Promise<void> {
+  const icon = page.locator(`.chatroom-item[data-chatroom-id="${parentId}"] .chatroom-expand-icon`);
+  const label = ((await icon.textContent()) ?? '').trim();
+  if (label.includes('▶')) {
+    await icon.click();
+    await afterSync();
+  }
+}
+
 /**
  * Chatroom list → expand parent row → open a hierarchy leaf (e.g. United States under North America).
  */
@@ -14,9 +24,10 @@ async function openHierarchyLeafRoom(page: Page, parentId: string, roomId: strin
   await page.click('.nav-btn[data-view="chatrooms"]');
   await waitForTabActive(page, 'chatrooms');
   await afterSync();
-  await page.locator(`.chatroom-item[data-chatroom-id="${parentId}"] .chatroom-expand-icon`).click();
-  await afterSync();
-  await page.locator(`.chatroom-item[data-chatroom-id="${roomId}"]`).click();
+  await ensureHierarchyParentExpanded(page, parentId);
+  const leaf = page.locator(`.chatroom-item[data-chatroom-id="${roomId}"]`);
+  await expect(leaf).toBeVisible({ timeout: 20_000 });
+  await leaf.click();
   await afterSync();
 }
 
@@ -63,6 +74,10 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
       slowMo: headless ? 0 : delay(50, 120),
       args: ['--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
+  });
+
+  test.beforeEach(async () => {
+    await clearGunDatabases();
   });
 
   test.afterAll(async () => {

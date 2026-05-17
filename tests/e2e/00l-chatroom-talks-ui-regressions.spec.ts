@@ -100,7 +100,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     await afterSync();
     await pageTom.click('#return-home-btn');
     await afterSync();
-    await expect(pageTom.locator('#current-chatroom-title')).toContainText('California', { timeout: 45_000 });
+    await expect(pageTom.locator('#current-chatroom-title')).toContainText('San Diego', { timeout: 45_000 });
     await expect(pageTom.locator('#current-chatroom-status')).toContainText(/1 member total/, { timeout: 45_000 });
 
     await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.());

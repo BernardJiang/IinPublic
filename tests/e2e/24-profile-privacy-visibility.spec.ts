@@ -11,7 +11,7 @@ import { test, expect } from './helpers/fixtures';
 import { clearGunDatabases, injectIdbClear } from './helpers/clear-database';
 import { ensureWindowFitsViewport } from './helpers/browser-window';
 import { afterAction, afterNav, afterSync, headless } from './helpers/timing';
-import { gunBaseURL, webBaseURL } from './helpers/ports';
+import { gunBaseURL, webAppURLStableChatroom } from './helpers/ports';
 import { attachE2eBrowserTabLabel } from './helpers/e2e-tab-title';
 
 test.describe('Profile privacy visibility', () => {
@@ -51,7 +51,7 @@ test.describe('Profile privacy visibility', () => {
     const nextContext = await targetBrowser.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     const nextPage = await nextContext.newPage();
     await injectIdbClear(nextPage);
-    await nextPage.goto(webBaseURL());
+    await nextPage.goto(webAppURLStableChatroom());
     await nextPage.waitForLoadState('load');
     await ensureWindowFitsViewport(nextPage, 960, 1200);
     await afterSync();
@@ -149,39 +149,64 @@ test.describe('Profile privacy visibility', () => {
     pageTom = tom.page;
     pageTom.on('console', (m) => console.log('[Tom]:', m.text()));
 
-    await pageTom.click('#settings-edit-profile-btn');
-    await afterAction();
-
-    const qaList = pageTom.locator('#profile-qa-list');
-    await expect(qaList.locator('.profile-qa-row')).toHaveCount(1);
-
-    // Add two more rows (we keep the initial row as row[0]).
-    await pageTom.click('#add-profile-qa-btn');
-    await afterAction();
-    await pageTom.click('#add-profile-qa-btn');
-    await afterAction();
-    await expect(qaList.locator('.profile-qa-row')).toHaveCount(3);
-
-    const rows = qaList.locator('.profile-qa-row');
-
-    await rows.nth(0).locator('.profile-question-input').fill(PUBLIC_Q);
-    await rows.nth(0).locator('.profile-answer-input').fill(PUBLIC_A);
-    await rows.nth(0).locator('select.profile-visibility-select').selectOption('public');
-
-    await rows.nth(1).locator('.profile-question-input').fill(CONTACTS_Q);
-    await rows.nth(1).locator('.profile-answer-input').fill(CONTACTS_A);
-    await rows.nth(1).locator('select.profile-visibility-select').selectOption('contacts_only');
-
-    await rows.nth(2).locator('.profile-question-input').fill(PRIVATE_Q);
-    await rows.nth(2).locator('.profile-answer-input').fill(PRIVATE_A);
-    await rows.nth(2).locator('select.profile-visibility-select').selectOption('private');
-
-    await pageTom.click('#save-profile-btn');
+    // Profile Q&A with visibility is saved via onProfileChange (Me tab no longer hosts Edit Profile UI).
+    await pageTom.evaluate(
+      async (rows) => {
+        const app = (window as unknown as {
+          __iinpublic_app?: {
+            getApp: () => {
+              currentUser?: { id: string };
+              uiManager?: {
+                onProfileChange?: (
+                  userId: string,
+                  updates: {
+                    languages: string[];
+                    profile: Array<Record<string, unknown>>;
+                    interests: unknown[];
+                  },
+                ) => Promise<void>;
+              };
+            };
+          };
+        }).__iinpublic_app?.getApp?.();
+        const user = app?.currentUser;
+        if (!user?.id || !app?.uiManager?.onProfileChange) {
+          throw new Error('Profile callback not ready');
+        }
+        const now = new Date();
+        await app.uiManager.onProfileChange(user.id, {
+          languages: ['en'],
+          interests: [],
+          profile: rows.map((row, index) => ({
+            id: `profile_vis_${index}`,
+            question: row.q,
+            answer: row.a,
+            isAuto: false,
+            answeredAt: now,
+            visibility: row.vis,
+          })),
+        });
+      },
+      [
+        { q: PUBLIC_Q, a: PUBLIC_A, vis: 'public' },
+        { q: CONTACTS_Q, a: CONTACTS_A, vis: 'contacts_only' },
+        { q: PRIVATE_Q, a: PRIVATE_A, vis: 'private' },
+      ],
+    );
     await afterNav();
     await afterSync();
 
     const tomId = await getCurrentUserId(pageTom);
     expect(tomId).toBeTruthy();
+
+    await waitForProfileRows(pageTom, tomId, tomId, {
+      visible: [PUBLIC_Q, PUBLIC_A, CONTACTS_Q, CONTACTS_A, PRIVATE_Q, PRIVATE_A],
+      hidden: [],
+    });
+
+    await pageTom.click('.nav-btn[data-view="chatrooms"]');
+    await afterNav();
+    await afterSync();
 
     // Viewer 1: Jerry (not in Tom's known-people list)
     const jNon = await bootstrapUser(browser, 'JerryNonContact');
@@ -226,6 +251,8 @@ test.describe('Profile privacy visibility', () => {
     });
 
     // Assert for non-contact viewer: only `public` rows are visible.
+    await pageTom.click('.chatroom-item[data-chatroom-id="global"]');
+    await afterNav();
     await openPeerDetail(pageJerryNonContact, 'Tom');
     const statsNon = pageJerryNonContact.locator('#peer-stats-section');
     await expect(statsNon).toContainText(PUBLIC_Q);
