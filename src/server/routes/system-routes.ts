@@ -1,5 +1,29 @@
+import fs from 'fs';
+import path from 'path';
 import type express from 'express';
 import { logger } from '../logger';
+
+/** Gun radisk default directory (see node_modules/gun/lib/radisk.js). */
+function clearRadiskOnDisk(): string[] {
+  const root = process.cwd();
+  const removed: string[] = [];
+  let names: string[];
+  try {
+    names = fs.readdirSync(root);
+  } catch {
+    return removed;
+  }
+  for (const name of names) {
+    const isRadiskDir = name === 'radata' || /^radata_w\d+$/.test(name);
+    const isGunJson = name === 'data.json' || name === 'data.json.tmp';
+    if (!isRadiskDir && !isGunJson) continue;
+    const target = path.join(root, name);
+    fs.rmSync(target, { recursive: true, force: true });
+    if (isRadiskDir) fs.mkdirSync(target, { recursive: true });
+    removed.push(name);
+  }
+  return removed;
+}
 
 export type E2eServerSnapshot = {
   version: 1;
@@ -115,8 +139,13 @@ export function registerSystemRoutes(
           incomingTalksMap.clear();
           conversationsMap.clear();
           clearTalkResponseStats();
-          logger.info('✅ Gun.js in-memory database cleared');
-          res.json({ success: true, message: 'Gun.js in-memory database cleared' });
+          const radiskDirs = clearRadiskOnDisk();
+          logger.info({ radiskDirs }, '✅ Gun.js in-memory database cleared');
+          res.json({
+            success: true,
+            message: 'Gun.js in-memory database cleared',
+            radiskDirs,
+          });
         } else {
           res.status(500).json({ error: 'Gun.js graph not accessible' });
         }

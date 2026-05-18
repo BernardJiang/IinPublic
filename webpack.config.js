@@ -40,6 +40,9 @@ module.exports = {
     new HtmlWebpackPlugin({
       template: './src/web/index.html',
       title: 'IinPublic',
+      templateParameters: {
+        stageSeed: process.env.IINPUBLIC_STAGE_SEED || '',
+      },
     }),
     // E2E web (`DISABLE_HMR=true`): fixed relaxed capacity/FIFO so Gun map quirks don't FIFO-evict one browser
     // to another region while the peer stays in Global — broadcast then targets the wrong chatroom's talks path.

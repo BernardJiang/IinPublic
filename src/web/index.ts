@@ -1,8 +1,11 @@
 import './styles/main.css';
 import { IinPublicApp } from './app/app';
 import { applyDevStageSeed } from './dev-stage-seeds';
+import { isDevStageZeroResolved, resolveDevStageSeed } from './dev-stage-env';
 import { LocationPrivacy } from '../shared/location';
 import { GPSCoordinate } from '../shared/types';
+
+const STAGE_ZERO_BOOT_KEY = 'iinpublic_stage_zero_boot';
 
 class WebApp {
   private app: IinPublicApp;
@@ -27,11 +30,25 @@ class WebApp {
   async initialize(): Promise<void> {
     try {
       console.log('🚀 Initializing IinPublic Web App');
-      const stageSeed = typeof process !== 'undefined' && process.env
-        ? process.env.IINPUBLIC_STAGE_SEED || ''
-        : '';
-      if (stageSeed === 'stage-zero' || stageSeed === 'empty') {
-        await this.clearBrowserStageState();
+      const stageSeed = resolveDevStageSeed();
+      if (stageSeed) {
+        console.log(`🧪 Dev stage seed: ${stageSeed}`);
+      }
+      if (isDevStageZeroResolved()) {
+        if (!sessionStorage.getItem(STAGE_ZERO_BOOT_KEY)) {
+          await this.clearBrowserStageState();
+          sessionStorage.setItem(STAGE_ZERO_BOOT_KEY, '1');
+          console.log('🧪 stage-zero: cleared browser storage — reloading once for a clean Gun/IDB boot');
+          window.location.reload();
+          return;
+        }
+        sessionStorage.removeItem(STAGE_ZERO_BOOT_KEY);
+        // Server was just restarted by dev:stage-zero (empty graph). Skip clear-database here —
+        // wiping gun._.graph immediately before the browser connects causes Gun puts to hang
+        // without ack ("Gun.js put operation timed out").
+        console.warn(
+          '🧪 stage-zero: close other localhost:3001 tabs or they will re-sync old Gun data into this server',
+        );
       }
 
       // FOR TESTING: Use a fixed location so all users end up in same chatroom
@@ -81,11 +98,16 @@ class WebApp {
       console.log('✅ IinPublic Web App initialized successfully');
     } catch (error) {
       console.error('❌ Failed to initialize app:', error);
-      this.showError('Failed to initialize the app. Please refresh and try again.');
+      const detail = error instanceof Error ? error.message : String(error);
+      this.showError(
+        `Failed to initialize the app. Please refresh and try again.${detail ? ` (${detail})` : ''}`,
+      );
     }
   }
 
   private async clearBrowserStageState(): Promise<void> {
+    // Gun.js browser graph (chatrooms/global/users, etc.) — survives reboot unless removed.
+    localStorage.removeItem('gun/');
     localStorage.clear();
     try {
       const dbs = await indexedDB.databases?.();

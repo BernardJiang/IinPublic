@@ -10,6 +10,8 @@ import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { buildTalkIdentityKey, computeTalkIdFromTalkData } from '../../shared/talk-content-id';
+import { isDevStageZero } from '../dev-stage-env';
+import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
 
 export class IinPublicApp {
   private gunService: WebGunService;
@@ -28,6 +30,10 @@ export class IinPublicApp {
   /** Bounded retries for template races (announcement can arrive before manual answer persistence finishes). */
   private chatbotAutoReplyRetryCountByPair = new Map<string, number>();
   private subscribedMemberCountRoomIds = new Set<string>();
+  private stageZeroLastMemberCounts = new Map<string, number>();
+  private stageZeroRepairInFlight = false;
+  private stageZeroWatchdogTimer: ReturnType<typeof setInterval> | undefined;
+  private stageZeroBootedAt = 0;
   private incomingApiRefreshTimer: ReturnType<typeof setTimeout> | undefined = undefined;
   private travelModeActive: boolean = false;
   private travelHomeChatroomId: string | undefined = undefined;
@@ -49,7 +55,8 @@ export class IinPublicApp {
   async initialize(location: GPSCoordinate): Promise<void> {
     this.currentLocation = location;
 
-    // Initialize services
+    // Initialize services (stage-zero server wipe happens in index.ts before init; do not purge
+    // here — clearing the graph before SEA auth breaks gun.user().auth()).
     await this.gunService.initialize();
     await this.gunService.ensureKeypairAndAuth();
 
@@ -75,6 +82,10 @@ export class IinPublicApp {
       // Custom rooms may introduce additional IDs not present at startup.
       this.subscribeToAllChatroomMemberCounts();
     });
+    if (isDevStageZero()) {
+      this.stageZeroBootedAt = Date.now();
+      this.startStageZeroHeadcountWatchdog();
+    }
   }
 
   /**
@@ -129,7 +140,7 @@ export class IinPublicApp {
       this.subscribedMemberCountRoomIds.add(chatroomId);
       this.chatroomService.subscribeToMemberCount(chatroomId, (count) => {
         console.log(`  - ${chatroomId}: ${count} members`);
-        this.uiManager.setChatroomMemberCount(chatroomId, count);
+        this.applyChatroomMemberCount(chatroomId, count);
       });
     });
 
@@ -137,6 +148,11 @@ export class IinPublicApp {
   }
 
   private async initializeUser(): Promise<void> {
+    if (isDevStageZero()) {
+      localStorage.removeItem('iinpublic_user_id');
+      localStorage.removeItem('iinpublic_keypair');
+      localStorage.removeItem('gun/');
+    }
     // Check for existing user in local storage
     const existingUserId = localStorage.getItem('iinpublic_user_id');
     let isNewUser = false;
@@ -256,7 +272,7 @@ export class IinPublicApp {
       // Also subscribe to the new chatroom's member count for the UI list
       this.chatroomService.subscribeToMemberCount(toChatroomId, (count) => {
         console.log(`  - ${toChatroomId}: ${count} members`);
-        this.uiManager.setChatroomMemberCount(toChatroomId, count);
+        this.applyChatroomMemberCount(toChatroomId, count);
       });
 
       // Update UI
@@ -2436,6 +2452,93 @@ export class IinPublicApp {
       return;
     }
     this.uiManager.showTalkResponseDialog(talk, { skipAutoAnswer: false });
+  }
+
+  private applyChatroomMemberCount(chatroomId: string, count: number): void {
+    if (isDevStageZero()) {
+      const prev = this.stageZeroLastMemberCounts.get(chatroomId) ?? 0;
+      this.stageZeroLastMemberCounts.set(chatroomId, count);
+      const pastBootGrace = Date.now() - this.stageZeroBootedAt > 30_000;
+      if (
+        pastBootGrace
+        && !this.stageZeroRepairInFlight
+        && prev <= 1
+        && count > 3
+        && (chatroomId === 'global' || count > 8)
+      ) {
+        void this.repairStageZeroGunGraph(`headcount:${chatroomId}:${prev}->${count}`);
+        return;
+      }
+    }
+    this.uiManager.setChatroomMemberCount(chatroomId, count);
+  }
+
+  private async repairStageZeroGunGraph(reason: string): Promise<void> {
+    if (this.stageZeroRepairInFlight) return;
+    this.stageZeroRepairInFlight = true;
+    console.warn(`[stage-zero] repairing Gun graph (${reason}) — close other localhost tabs`);
+    try {
+      const gun = this.gunService.getGun();
+      const bootGraceMs = 30_000;
+      const clearServer = Date.now() - this.stageZeroBootedAt > bootGraceMs;
+      await purgeDevStageZeroGraph(this.getBackendApiBase(), gun, { clearServer });
+      if (clearServer) {
+        await this.gunService.ensureKeypairAndAuth();
+      }
+      await this.reloadChatroomMemberCountsAfterStageClear();
+      this.stageZeroLastMemberCounts.clear();
+    } catch (err) {
+      console.warn('[stage-zero] repair failed (non-fatal):', err);
+    } finally {
+      this.stageZeroRepairInFlight = false;
+    }
+  }
+
+  private startStageZeroHeadcountWatchdog(): void {
+    if (this.stageZeroWatchdogTimer) clearInterval(this.stageZeroWatchdogTimer);
+    let ticks = 0;
+    this.stageZeroWatchdogTimer = setInterval(() => {
+      ticks += 1;
+      const globalN = this.uiManager.getChatroomMemberCount('global');
+      if (globalN > 3) {
+        void this.repairStageZeroGunGraph(`watchdog:global=${globalN}`);
+      }
+      if (ticks >= 12) {
+        clearInterval(this.stageZeroWatchdogTimer);
+        this.stageZeroWatchdogTimer = undefined;
+      }
+    }, 5000);
+  }
+
+  /**
+   * After stage-zero wipes Gun, re-join the current room and refresh list headcounts
+   * so Global and other rooms do not show stale members from a previous session.
+   */
+  public async reloadChatroomMemberCountsAfterStageClear(): Promise<void> {
+    this.chatroomService.unsubscribeAllMemberCounts();
+    this.subscribedMemberCountRoomIds.clear();
+
+    const gun = this.gunService.getGun();
+    gun.get('chatrooms').put({});
+
+    for (const chatroomId of getAllChatroomIds()) {
+      this.uiManager.setChatroomMemberCount(chatroomId, 0);
+    }
+    for (const chatroomId of this.uiManager.getCustomChatroomIds()) {
+      if (chatroomId) {
+        this.uiManager.setChatroomMemberCount(chatroomId, 0);
+      }
+    }
+
+    if (this.currentUser && this.currentChatroomId) {
+      await this.chatroomService.joinChatroom(
+        this.currentChatroomId,
+        this.currentUser.id,
+        this.currentUser.stageName,
+      );
+    }
+
+    this.subscribeToAllChatroomMemberCounts();
   }
 
   public async manualCleanup(): Promise<void> {

@@ -2,6 +2,7 @@ import Gun from 'gun';
 import { EventEmitter } from 'events';
 import { GunBridge, GunPair } from './gun-bridge';
 import { getSEA } from '../sea-gun';
+import { isDevStageZero } from '../dev-stage-env';
 import type { User } from '../../shared/types';
 
 const KEYPAIR_STORAGE = 'iinpublic_keypair';
@@ -74,12 +75,16 @@ export class WebGunService extends EventEmitter {
       // Do not gate on `typeof process` / `process.env`: webpack 5 browser bundles often have no
       // `process`, so the guard made e2eDisableAxe always false and AXE never disabled.
       const e2eDisableAxe = process.env.DISABLE_HMR === 'true';
+      const devStageZero = isDevStageZero();
+      const disableAxe = e2eDisableAxe || devStageZero;
       this.gun = Gun({
         peers: this.peers,
         localStorage: true,
         radisk: false,
-        ...(e2eDisableAxe ? { axe: false } : {}),
+        ...(disableAxe ? { axe: false, multicast: false } : {}),
       });
+
+      await this.waitForHubPeer(devStageZero ? 10_000 : 5000);
 
       this.gun.on('hi', (peer: any) => {
         console.log('🤝 Gun peer connected:', peer.id || 'unknown');
@@ -177,22 +182,51 @@ export class WebGunService extends EventEmitter {
 
   /* ── Core graph operations (direct Gun — backward compat) ──────── */
 
+  /** Wait until the relay hub accepts connections (avoids puts racing server boot / graph wipe). */
+  private waitForHubPeer(maxMs: number): Promise<void> {
+    const gun = this.gun;
+    if (!gun) return Promise.resolve();
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      gun.on('hi', finish);
+      setTimeout(finish, maxMs);
+    });
+  }
+
   async put(key: string, data: any): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
         const serializedData = this.serializeDates(data);
+        const relaxAck = isDevStageZero();
+        let settled = false;
+        const done = (err?: Error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          if (err) reject(err);
+          else resolve();
+        };
 
         const timeout = setTimeout(() => {
-          reject(new Error('Gun.js put operation timed out'));
-        }, 5000);
+          if (relaxAck) {
+            console.warn(`Gun put ack timed out (stage-zero), continuing optimistically: ${key}`);
+            done();
+          } else {
+            done(new Error('Gun.js put operation timed out'));
+          }
+        }, relaxAck ? 10_000 : 5000);
 
         this.gun.get(key).put(serializedData, (ack: any) => {
-          clearTimeout(timeout);
-          if (ack.err) {
-            reject(new Error(ack.err));
+          if (ack?.err) {
+            done(new Error(String(ack.err)));
           } else {
             console.log('✅ Gun put success:', key);
-            resolve();
+            done();
           }
         });
       } catch (error) {

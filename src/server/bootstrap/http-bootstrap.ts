@@ -58,12 +58,70 @@ export function configureHttpMiddleware(app: express.Application): void {
 export function attachGun(server: HttpServer): any {
   const e2eMemoryOnly =
     process.env.E2E_GUN_MEMORY_ONLY === '1' || process.env.E2E_GUN_MEMORY_ONLY === 'true';
+  const devGunFresh = process.env.DEV_GUN_FRESH === '1';
+  const isolatedGun = e2eMemoryOnly || devGunFresh;
   const gun = Gun({
     web: server,
     localStorage: false,
-    radisk: !e2eMemoryOnly,
-    ...(e2eMemoryOnly ? { peers: [], axe: false, multicast: false } : {}),
+    radisk: !isolatedGun,
+    ...(isolatedGun ? { peers: [], axe: false, multicast: false } : {}),
   });
-  logger.info({ radisk: !e2eMemoryOnly }, '🔫 Gun.js attached to HTTP server');
+  logger.info({ radisk: !isolatedGun, devGunFresh }, '🔫 Gun.js attached to HTTP server');
+  if (devGunFresh) {
+    configureDevFreshGunIsolation(gun);
+  }
   return gun;
+}
+
+function countActiveUsersInChatroom(gun: any, chatroomId: string, observeMs = 700): Promise<number> {
+  return new Promise((resolve) => {
+    const active = new Set<string>();
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      try {
+        off.off();
+      } catch {
+        /* Gun peer */
+      }
+      resolve(active.size);
+    };
+    const off = gun
+      .get('chatrooms')
+      .get(chatroomId)
+      .get('users')
+      .map()
+      .on((memberData: any, userId: string) => {
+        if (!userId || userId.startsWith('_')) return;
+        if (memberData && memberData.isActive === true) active.add(userId);
+        else active.delete(userId);
+      });
+    setTimeout(finish, observeMs);
+  });
+}
+
+/**
+ * dev:stage-zero: another localhost tab or Gun peer can push a stale graph seconds after boot.
+ * Scrub the server graph when Global headcount looks polluted.
+ */
+function configureDevFreshGunIsolation(gun: any): void {
+  const bootedAt = Date.now();
+  let scrubTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleScrub = (reason: string) => {
+    if (Date.now() - bootedAt < 15_000) return;
+    if (scrubTimer) clearTimeout(scrubTimer);
+    scrubTimer = setTimeout(() => {
+      void countActiveUsersInChatroom(gun, 'global').then((globalN) => {
+        if (globalN <= 15) return;
+        logger.warn(
+          { globalN, reason },
+          'DEV_GUN_FRESH: scrubbing stale Gun graph — close other localhost:3001 tabs',
+        );
+        if (gun?._?.graph) gun._.graph = {};
+      });
+    }, 900);
+  };
+
+  gun.on('hi', () => scheduleScrub('peer-hi'));
 }

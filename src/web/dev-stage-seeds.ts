@@ -40,6 +40,54 @@ function buildApiBase(): string {
   return `${protocol}//${hostname}:8080`;
 }
 
+async function clearServerGunGraph(base: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${base}/api/test/clear-database`, { method: 'POST' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Poll until the dev Gun server is up, then wipe its in-memory graph (stage-zero / empty). */
+export async function waitForDevServerGunClear(maxWaitMs = 20000): Promise<void> {
+  const base = buildApiBase();
+  const started = Date.now();
+  while (Date.now() - started < maxWaitMs) {
+    try {
+      const health = await fetch(`${base}/health`);
+      if (health.ok) {
+        const cleared = await clearServerGunGraph(base);
+        if (cleared) {
+          console.log('🧹 Cleared dev server Gun graph for stage-zero');
+        }
+        return;
+      }
+    } catch {
+      /* server still starting */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  console.warn('⚠️ Dev Gun server not reachable; restart dev:stage-zero if headcounts look stale');
+}
+
+export function clearClientGunChatrooms(gun: any): void {
+  if (!gun) return;
+  gun.get('chatrooms').put({});
+}
+
+/** Wipe server graph + client chatrooms branch (use after boot when stale sync is detected). */
+export async function purgeDevStageZeroGraph(
+  base: string,
+  gun: any,
+  opts?: { clearServer?: boolean },
+): Promise<void> {
+  if (opts?.clearServer !== false) {
+    await clearServerGunGraph(base);
+  }
+  clearClientGunChatrooms(gun);
+}
+
 function iso(minutesAgo: number): string {
   return new Date(Date.now() - minutesAgo * 60_000).toISOString();
 }
@@ -382,11 +430,21 @@ export async function applyDevStageSeed(app: any, stageName: string): Promise<vo
   const base = buildApiBase();
 
   if (stage === 'stage-zero' || stage === 'empty') {
+    clearClientGunChatrooms(app.gunService?.getGun?.());
     setCurrentUserDecorations(app, { stageName: 'Adam', knownPeople: [] });
     if (app.currentUser?.id && app.userService?.updateStageName) {
       await app.userService.updateStageName(app.currentUser.id, 'Adam');
     }
-    seedChatroomMembers(app, []);
+    try {
+      if (typeof app.reloadChatroomMemberCountsAfterStageClear === 'function') {
+        await app.reloadChatroomMemberCountsAfterStageClear();
+      } else {
+        seedChatroomMembers(app, []);
+      }
+    } catch (err) {
+      console.warn('[stage-zero] reload headcounts failed, using seed fallback:', err);
+      seedChatroomMembers(app, []);
+    }
     refreshUi(app);
     return;
   }
