@@ -1,6 +1,7 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import { injectIdbClear } from '../../helpers/clear-database';
+import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, delay, headless } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
@@ -12,7 +13,7 @@ test.describe('Chatrooms — hierarchy travel and return home', () => {
   let page: Page;
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
     browser = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 150),
@@ -22,7 +23,7 @@ test.describe('Chatrooms — hierarchy travel and return home', () => {
 
   test.afterAll(async () => {
     if (browser) await browser.close();
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
   });
 
   test('user can travel Global to San Diego, London back to Global, then return home to San Diego', async () => {

@@ -1,6 +1,7 @@
 import { type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import { injectIdbClear } from '../../helpers/clear-database';
+import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterLoad, afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { createTalksFromCompanyPage } from '../../helpers/talk-demo-ui';
@@ -147,11 +148,11 @@ async function configureFirstUser(page: Page, name: string, homeRoom: string): P
 
 test.describe('Stage zero N2N smoke', () => {
   test.beforeEach(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
   });
 
   test.afterEach(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
   });
 
   test('stage zero Adam configures profile, creates four talks, travels home to San Diego, and persists room on login', async ({ browser }) => {

@@ -3,7 +3,7 @@
  */
 import { chromium, Browser } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterNav, afterSync, headless } from '../../helpers/timing';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
 import { bootstrapUser, openIncomingTalkModal, waitForIncomingTalkClusterOnServer, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
@@ -18,7 +18,7 @@ test.describe('Broadcast — chatroom boundary matching', () => {
   let browserJerry: Browser;
 
   test.beforeAll(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
     browserTom = await chromium.launch({
       headless,
       args: ['--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
@@ -32,7 +32,7 @@ test.describe('Broadcast — chatroom boundary matching', () => {
   test.afterAll(async () => {
     await browserTom?.close().catch(() => {});
     await browserJerry?.close().catch(() => {});
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
   });
 
   test('talk matching still works across chatroom boundaries (answer after switching rooms)', async () => {

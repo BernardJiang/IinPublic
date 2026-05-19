@@ -9,7 +9,7 @@
  */
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { disposeE2eSessionList, launchBrowserGrid, shutdownBrowserGrid } from '../../helpers/many-browsers';
 import {
@@ -48,14 +48,14 @@ test.describe('Talks matching — generic stats across four talk types (STAT-01)
   const sessions: Session[] = [];
 
   test.beforeAll(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
     browsers = await launchBrowserGrid(1);
   });
 
   test.afterAll(async () => {
     await disposeE2eSessionList(sessions);
     await shutdownBrowserGrid(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
   });
 
   test('4 talks × 2 responders → /api/stats summary/by-day/by-region/by-answer all report 2', async () => {

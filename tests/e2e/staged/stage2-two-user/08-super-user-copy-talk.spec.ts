@@ -1,6 +1,6 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction, afterNav, afterLoad, delay, headless } from '../../helpers/timing';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
 import {
@@ -21,7 +21,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
   let pageTom: Page;
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
     browserTechSupport = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 120),
@@ -64,14 +64,14 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await browserTechSupport?.close().catch(() => {});
     await browserTom?.close().catch(() => {});
     await new Promise((r) => setTimeout(r, 2000));
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
   });
 
   test('Copy talk: receive saves automatically; disable filters broadcast; enable includes again; delete removes', async () => {
     test.setTimeout(120000);
 
     console.log('\n📍 Copy-talk test: TechSupport creates one talk, Tom receives (saved), disables, broadcast 0, enables, broadcast 1, deletes');
-    // maybeClearGunDatabases() is already called in beforeAll; no need to repeat here.
+    // clearGunForStage2Spec() is already called in beforeAll; no need to repeat here.
     const techSupport = await bootstrapSuperUser(browserTechSupport, 'TechSupport', TECH_SUPPORT_NAME);
     contextTechSupport = techSupport.context;
     pageTechSupport = techSupport.page;

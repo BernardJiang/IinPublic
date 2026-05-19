@@ -7,7 +7,9 @@
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
+import { injectIdbClear } from '../../helpers/clear-database';
+import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
 import { gunBaseURL, webAppURLStableChatroom } from '../../helpers/ports';
@@ -34,7 +36,7 @@ test.describe('Unread badge on Me tab after match and new message', () => {
   test.setTimeout(420_000);
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
     browserTom = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 120),
@@ -62,7 +64,7 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await contextJerry?.close();
     await browserTom?.close();
     await browserJerry?.close();
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
   });
 
   async function bootstrapUser(
@@ -158,7 +160,7 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await pageTom.click('#create-talk-btn');
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', talkTitle);
-    await pageTom.selectOption('#talk-type', 'flow');
+    await selectTalkEditorType(pageTom, 'flow');
     const q = pageTom.locator('.question-item').first();
     await q.locator('.question-text').fill('Want a tennis partner?');
     await q.locator('.answer-item').nth(0).locator('.answer-text').fill(MATCH_ANSWER);

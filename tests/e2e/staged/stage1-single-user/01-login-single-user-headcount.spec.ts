@@ -2,7 +2,8 @@ import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import * as fs from 'fs';
 import * as path from 'path';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import { injectIdbClear } from '../../helpers/clear-database';
+import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, delay, headless } from '../../helpers/timing';
 import { webBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
@@ -14,7 +15,7 @@ test.describe('Login — single user headcount', () => {
   let page: Page;
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
     browser = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 150),
@@ -24,7 +25,7 @@ test.describe('Login — single user headcount', () => {
 
   test.afterAll(async () => {
     if (browser) await browser.close();
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
   });
 
   test('Single user: login, headcount 1, exit, re-login persists', async () => {

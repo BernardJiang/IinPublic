@@ -1,5 +1,5 @@
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { gunBaseURL } from '../../helpers/ports';
 
 function roomId(prefix: string): string {
@@ -8,15 +8,15 @@ function roomId(prefix: string): string {
 
 test.describe('Chatroom custom/business API scripts', () => {
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
   });
 
   test.beforeEach(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
   });
 
   test.afterAll(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
   });
 
   test('custom chatroom create validates required fields and returns metadata', async ({ request }) => {

@@ -231,12 +231,65 @@ function answersForIds(
   });
 }
 
+/** Gun graph nodes may only expose `questionsJson`; tests need a `questions` array. */
+export function normalizeTalkQuestions(talkData: unknown): any {
+  if (!talkData || typeof talkData !== 'object') return talkData;
+  const t = talkData as { questions?: unknown; questionsJson?: string };
+  if (Array.isArray(t.questions) && t.questions.length > 0) return talkData;
+  if (typeof t.questionsJson === 'string' && t.questionsJson.trim()) {
+    try {
+      const questions = JSON.parse(t.questionsJson);
+      if (Array.isArray(questions) && questions.length > 0) {
+        return { ...t, questions };
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return talkData;
+}
+
 export async function fetchTalkData(page: Page, talkId: string): Promise<any> {
-  const res = await page.context().request.get(`${gunBaseURL()}/api/talks/${encodeURIComponent(talkId)}`, {
-    headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
-  });
-  if (!res.ok()) throw new Error(`GET /api/talks/${talkId} failed: ${res.status()}`);
-  return res.json();
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const res = await page.context().request.get(`${gunBaseURL()}/api/talks/${encodeURIComponent(talkId)}`, {
+      headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+    });
+    if (res.status() === 202) {
+      await new Promise((r) => setTimeout(r, 300));
+      continue;
+    }
+    if (!res.ok()) throw new Error(`GET /api/talks/${talkId} failed: ${res.status()}`);
+    return normalizeTalkQuestions(await res.json());
+  }
+  throw new Error(`GET /api/talks/${talkId} timed out (still pending)`);
+}
+
+export async function findIncomingTalkIdByTitle(page: Page, titleSubstring: string): Promise<string> {
+  const responder = await currentUserIdentity(page);
+  if (!responder.id) throw new Error('findIncomingTalkIdByTitle: not logged in');
+  const res = await page.context().request.get(
+    `${gunBaseURL()}/api/users/${encodeURIComponent(responder.id)}/incoming-talks`,
+    { headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } },
+  );
+  if (!res.ok()) throw new Error(`incoming-talks failed: ${res.status()}`);
+  const clusters = (await res.json()) as unknown[];
+  const needle = titleSubstring.toLowerCase();
+  for (const c of clusters) {
+    const cluster = c as { title?: string; talkIds?: Record<string, unknown>; latestTalkId?: string };
+    if (String(cluster.title || '').toLowerCase().includes(needle)) {
+      const latest = String(cluster.latestTalkId || '').trim();
+      if (latest) return latest.split('__')[0] || latest;
+    }
+    const talkIds = cluster.talkIds;
+    if (talkIds && typeof talkIds === 'object') {
+      for (const id of Object.keys(talkIds).filter((k) => !k.startsWith('_'))) {
+        const talkData = await fetchTalkData(page, id);
+        if (String(talkData?.title || '').toLowerCase().includes(needle)) return id;
+      }
+    }
+  }
+  throw new Error(`findIncomingTalkIdByTitle: no talk matching "${titleSubstring}"`);
 }
 
 /**

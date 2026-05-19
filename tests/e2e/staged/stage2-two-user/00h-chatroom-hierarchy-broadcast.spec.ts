@@ -1,6 +1,7 @@
 import { chromium, Browser, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
+import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, delay, headless } from '../../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
@@ -65,7 +66,7 @@ async function createSimpleFlowTalk(page: Page, title: string): Promise<void> {
   await page.click('#create-talk-btn');
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
-  await page.selectOption('#talk-type', 'flow');
+  await selectTalkEditorType(page, 'flow');
   const q = page.locator('.question-item').first();
   await q.locator('.question-text').fill('Hierarchy broadcast smoke?');
   await q.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes');
@@ -81,7 +82,7 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
   let browserJerry: Browser;
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
     browserTom = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 120),
@@ -95,13 +96,13 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
   });
 
   test.beforeEach(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
   });
 
   test.afterAll(async () => {
     await browserTom?.close().catch(() => {});
     await browserJerry?.close().catch(() => {});
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
   });
 
   test('Global → North America → United States; broadcast in country room reaches peer', async () => {

@@ -3,7 +3,7 @@
  */
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { disposeE2eSessionList, launchBrowserGrid, shutdownBrowserGrid } from '../../helpers/many-browsers';
 import {
@@ -26,20 +26,20 @@ test.describe('Talks matching — restaurant survey (multi-browser)', () => {
   const sessions: Session[] = [];
 
   test.beforeAll(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
     browsers = await launchBrowserGrid(1);
   });
 
   test.afterAll(async () => {
     await disposeE2eSessionList(sessions);
     await shutdownBrowserGrid(browsers);
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
   });
 
   test('company creates restaurant survey; 10 recorded responses; stats show 10 responses', async () => {
     expect(browsers.length).toBe(1);
     await disposeE2eSessionList(sessions);
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
 
     const runId = Date.now();
     const title = `E2E Restaurants ${runId}`;

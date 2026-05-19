@@ -3,7 +3,8 @@
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import { injectIdbClear } from '../../helpers/clear-database';
+import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { gunBaseURL, webBaseURL } from '../../helpers/ports';
 import { afterNav, afterSync } from '../../helpers/timing';
 
@@ -12,7 +13,7 @@ test.describe('Statistics dashboard', () => {
   let page: Page | undefined;
 
   test.beforeEach(async ({ browser }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
     context = await browser.newContext();
     page = await context.newPage();
     await injectIdbClear(page);
@@ -21,7 +22,7 @@ test.describe('Statistics dashboard', () => {
   test.afterEach(async () => {
     await page?.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(() => {});
     await context?.close().catch(() => {});
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
   });
 
   test('shows aggregate talk, chatroom, peer, and source-of-truth stats', async ({ request }) => {

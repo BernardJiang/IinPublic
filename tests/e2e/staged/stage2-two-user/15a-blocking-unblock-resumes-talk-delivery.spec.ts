@@ -1,6 +1,6 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterSync, headless } from '../../helpers/timing';
 import { gunBaseURL } from '../../helpers/ports';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
@@ -23,7 +23,7 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
   let pageJerry: Page | undefined;
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
     browserTom = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
     browserJerry = await chromium.launch({ headless, args: ['--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
   });
@@ -46,7 +46,7 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     await contextJerry?.close().catch(() => {});
     await browserTom?.close().catch(() => {});
     await browserJerry?.close().catch(() => {});
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
   });
 
   test('unblock resumes talk delivery', async () => {

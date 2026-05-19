@@ -25,17 +25,18 @@ export async function bootstrapCanonicalUser(
   options?: BootstrapOptions,
 ): Promise<{ context: BrowserContext; page: Page }> {
   const viewport = options?.viewport ?? { width: 640, height: 1000 };
+  const hasStorageState = !!options?.storageStatePath && fs.existsSync(options.storageStatePath);
   const context = await browser.newContext({
     viewport,
     deviceScaleFactor: 1,
-    ...(options?.storageStatePath && fs.existsSync(options.storageStatePath)
+    ...(hasStorageState
       ? { storageState: options.storageStatePath }
       : {}),
   });
   const page = await context.newPage();
   page.on('console', (m) => console.log(`[${label}]:`, m.text()));
 
-  if (!options?.storageStatePath && !options?.skipIdbClear) {
+  if (!hasStorageState && !options?.skipIdbClear) {
     await injectIdbClear(page);
   }
 
@@ -44,7 +45,7 @@ export async function bootstrapCanonicalUser(
   await ensureWindowFitsViewport(page, viewport.width, viewport.height);
   await afterLoad();
 
-  if (!options?.storageStatePath) {
+  if (!hasStorageState) {
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
     await page.waitForSelector('#settings-stage-name-input');
@@ -59,13 +60,14 @@ export async function bootstrapCanonicalUser(
       .toBe(stageName);
   }
 
+  await page.click('.nav-btn[data-view="chatrooms"]');
+  await afterNav();
+
   await assertStatusChecks(page, [
     { kind: 'headerStageName', name: stageName },
     { kind: 'navActive', view: 'chatrooms' },
   ]);
 
-  await page.click('.nav-btn[data-view="chatrooms"]');
-  await afterNav();
   attachE2eBrowserTabLabel(page, label);
   return { context, page };
 }

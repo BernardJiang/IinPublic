@@ -3,7 +3,8 @@
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import { injectIdbClear } from '../../helpers/clear-database';
+import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 
@@ -12,7 +13,7 @@ test.describe('Location-based chatroom assignment', () => {
   let page: Page | undefined;
 
   test.beforeEach(async ({ browser }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
     context = await browser.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     page = await context.newPage();
     await injectIdbClear(page);
@@ -48,7 +49,7 @@ test.describe('Location-based chatroom assignment', () => {
   test.afterEach(async () => {
     await page?.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(() => {});
     await context?.close().catch(() => {});
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
   });
 
   test('explicit location refresh moves the user to the blurred regional chatroom', async () => {

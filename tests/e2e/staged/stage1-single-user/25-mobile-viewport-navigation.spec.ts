@@ -3,7 +3,8 @@
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import { injectIdbClear } from '../../helpers/clear-database';
+import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 
@@ -12,7 +13,7 @@ test.describe('Mobile viewport navigation', () => {
   let page: Page | undefined;
 
   test.beforeEach(async ({ browser }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
     context = await browser.newContext({
       viewport: { width: 390, height: 844 },
       deviceScaleFactor: 2,
@@ -29,7 +30,7 @@ test.describe('Mobile viewport navigation', () => {
   test.afterEach(async () => {
     await page?.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(() => {});
     await context?.close().catch(() => {});
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
   });
 
   test('bottom navigation and primary panels fit a phone viewport', async () => {

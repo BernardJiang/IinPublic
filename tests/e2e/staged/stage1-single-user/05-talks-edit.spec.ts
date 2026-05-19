@@ -1,6 +1,7 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import { injectIdbClear } from '../../helpers/clear-database';
+import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
@@ -14,7 +15,7 @@ test.describe('Talks: create and edit', () => {
   const TALK_TITLE_EDITED = 'Coffee Meetup (Edited)';
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
     browser = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 150),
@@ -26,7 +27,7 @@ test.describe('Talks: create and edit', () => {
     if (page) await page.close();
     if (context) await context.close();
     if (browser) await browser.close();
-    await maybeClearGunDatabases();
+    await clearGunForStage1Spec();
   });
 
   async function bootstrapUser(stageName: string): Promise<void> {

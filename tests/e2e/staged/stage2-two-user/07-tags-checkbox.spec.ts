@@ -1,7 +1,8 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import * as fs from 'fs';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import { injectIdbClear } from '../../helpers/clear-database';
+import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
 import { gunBaseURL, webBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
@@ -23,7 +24,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
   const screenshotDir = e2eTestScreenshotsDir('07-tags');
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
 
     if (!fs.existsSync(screenshotDir)) {
       fs.mkdirSync(screenshotDir, { recursive: true });
@@ -62,7 +63,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     await contextTom?.close();
     await browserAlice?.close();
     await browserTom?.close();
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
     console.log('✅ Cleanup complete');
   });
 

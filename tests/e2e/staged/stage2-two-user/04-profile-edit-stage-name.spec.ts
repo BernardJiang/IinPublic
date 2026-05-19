@@ -1,7 +1,8 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import * as fs from 'fs';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import { injectIdbClear } from '../../helpers/clear-database';
+import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterNav, delay, headless } from '../../helpers/timing';
 import { webBaseURL, gunBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
@@ -16,7 +17,7 @@ test.describe('Profile foundation', () => {
   let peerPage: Page;
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
     browser = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 150),
@@ -32,7 +33,7 @@ test.describe('Profile foundation', () => {
   test.afterAll(async () => {
     if (browser) await browser.close();
     if (browserPeer) await browserPeer.close();
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
   });
 
   test.afterEach(async () => {

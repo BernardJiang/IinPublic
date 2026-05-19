@@ -8,7 +8,9 @@
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
+import { injectIdbClear } from '../../helpers/clear-database';
+import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, headless } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
@@ -30,7 +32,7 @@ test.describe('Chatroom peer detail views', () => {
   test.setTimeout(180_000);
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
     browserTom = await chromium.launch({
       headless,
       args: ['--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
@@ -42,13 +44,13 @@ test.describe('Chatroom peer detail views', () => {
   });
 
   test.beforeEach(async () => {
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
   });
 
   test.afterAll(async () => {
     await browserTom?.close().catch(() => {});
     await browserJerry?.close().catch(() => {});
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
   });
 
   async function setup(
@@ -183,7 +185,7 @@ test.describe('Chatroom peer detail views', () => {
       await confirmBroadcastTagPreambleIfVisible(pageTom);
       await pageTom.waitForSelector('#talk-editor-form', { timeout: 15_000 });
       await pageTom.fill('#talk-title', 'Tennis Peer Test');
-      await pageTom.selectOption('#talk-type', 'flow');
+      await selectTalkEditorType(pageTom, 'flow');
       const q = pageTom.locator('.question-item').first();
       await q.locator('.question-text').fill('Peer detail test: want to play tennis?');
       await q.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes, lets play.');
@@ -249,7 +251,7 @@ test.describe('Chatroom peer detail views', () => {
       await pageTom.click('#create-talk-btn');
       await pageTom.waitForSelector('#talk-editor-form', { timeout: 15_000 });
       await pageTom.fill('#talk-title', 'Send Test Talk');
-      await pageTom.selectOption('#talk-type', 'flow');
+      await selectTalkEditorType(pageTom, 'flow');
       const q = pageTom.locator('.question-item').first();
       await q.locator('.question-text').fill('Peer detail auto-send test: any sport?');
       await q.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes');
@@ -307,7 +309,7 @@ test.describe('Chatroom peer detail views', () => {
       await pageTom.click('#create-talk-btn');
       await pageTom.waitForSelector('#talk-editor-form', { timeout: 15_000 });
       await pageTom.fill('#talk-title', 'Manual Mode Talk');
-      await pageTom.selectOption('#talk-type', 'flow');
+      await selectTalkEditorType(pageTom, 'flow');
       const q = pageTom.locator('.question-item').first();
       await q.locator('.question-text').fill('Peer detail manual-send test: ready?');
       await q.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes');

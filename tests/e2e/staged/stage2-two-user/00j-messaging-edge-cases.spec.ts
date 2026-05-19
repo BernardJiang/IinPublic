@@ -9,7 +9,9 @@
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
+import { injectIdbClear } from '../../helpers/clear-database';
+import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, headless } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
@@ -37,7 +39,7 @@ test.describe('Messaging edge cases', () => {
   test.setTimeout(180_000);
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
     browserTom = await chromium.launch({
       headless,
       args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
@@ -55,7 +57,7 @@ test.describe('Messaging edge cases', () => {
     await contextJerry?.close().catch(() => {});
     await browserTom?.close().catch(() => {});
     await browserJerry?.close().catch(() => {});
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
   });
 
   test.afterEach(async () => {
@@ -67,7 +69,7 @@ test.describe('Messaging edge cases', () => {
     pageJerry = undefined as unknown as Page;
     contextTom = undefined as unknown as BrowserContext;
     contextJerry = undefined as unknown as BrowserContext;
-    await maybeClearGunDatabases();
+    await clearGunForStage2Spec();
   });
 
   async function bootstrapUser(browser: Browser, label: string, stageName: string): Promise<void> {
@@ -118,7 +120,7 @@ test.describe('Messaging edge cases', () => {
     await page.click('#create-talk-btn');
     await page.waitForSelector('#talk-editor-form');
     await page.fill('#talk-title', title);
-    await page.selectOption('#talk-type', 'flow');
+    await selectTalkEditorType(page, 'flow');
     const q = page.locator('.question-item').first();
     await q.locator('.question-text').fill('Want a partner?');
     await q.locator('.answer-item').nth(0).locator('.answer-text').fill(MATCH_ANSWER);
