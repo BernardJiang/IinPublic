@@ -4,8 +4,17 @@ import { GunBridge, GunPair } from './gun-bridge';
 import { getSEA } from '../sea-gun';
 import { isDevStageZero } from '../dev-stage-env';
 import type { User } from '../../shared/types';
+import {
+  KEY_RECOVERY_WARNINGS,
+  toPublicSeaIdentity,
+  type KeyCustodyRecord,
+  type SeaPrivateIdentityMaterial,
+} from '../../shared/p2p-runtime';
 
 const KEYPAIR_STORAGE = 'iinpublic_keypair';
+export const KEY_CUSTODY_STORAGE = 'iinpublic_key_custody_v1';
+export const KEY_CUSTODY_DEVICE_SECRET_STORAGE = 'iinpublic_key_custody_device_secret_v1';
+const KEY_CUSTODY_ITERATIONS = 150_000;
 
 /**
  * WebGunService — dual-mode Gun service.
@@ -178,6 +187,143 @@ export class WebGunService extends EventEmitter {
       return deserialized;
     }
     return obj;
+  }
+
+  private bytesToBase64(bytes: Uint8Array): string {
+    let binary = '';
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte);
+    });
+    return btoa(binary);
+  }
+
+  private base64ToBytes(value: string): Uint8Array {
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  }
+
+  private bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  }
+
+  private getBrowserCrypto(): Crypto | null {
+    return typeof globalThis !== 'undefined' && globalThis.crypto?.subtle ? globalThis.crypto : null;
+  }
+
+  private getOrCreateDeviceSecret(): string {
+    if (typeof localStorage === 'undefined') {
+      throw new Error('Browser localStorage is required for device-key custody');
+    }
+    const existing = localStorage.getItem(KEY_CUSTODY_DEVICE_SECRET_STORAGE);
+    if (existing) return existing;
+    const crypto = this.getBrowserCrypto();
+    const bytes = new Uint8Array(32);
+    if (crypto?.getRandomValues) crypto.getRandomValues(bytes);
+    else {
+      for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+    }
+    const secret = this.bytesToBase64(bytes);
+    localStorage.setItem(KEY_CUSTODY_DEVICE_SECRET_STORAGE, secret);
+    return secret;
+  }
+
+  private async deriveCustodyKey(secret: string, salt: Uint8Array, iterations: number): Promise<CryptoKey> {
+    const crypto = this.getBrowserCrypto();
+    if (!crypto) {
+      throw new Error('WebCrypto is required for encrypted SEA key custody');
+    }
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(secret),
+      'PBKDF2',
+      false,
+      ['deriveKey'],
+    );
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: this.bytesToArrayBuffer(salt), iterations, hash: 'SHA-256' },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt'],
+    );
+  }
+
+  private async wrapKeypairForStorage(pair: GunPair, existing?: KeyCustodyRecord | null): Promise<KeyCustodyRecord> {
+    const crypto = this.getBrowserCrypto();
+    if (!crypto) {
+      throw new Error('WebCrypto is required for encrypted SEA key custody');
+    }
+    const now = new Date().toISOString();
+    const salt = new Uint8Array(16);
+    const iv = new Uint8Array(12);
+    crypto.getRandomValues(salt);
+    crypto.getRandomValues(iv);
+    const secret = this.getOrCreateDeviceSecret();
+    const key = await this.deriveCustodyKey(secret, salt, KEY_CUSTODY_ITERATIONS);
+    const plaintext = new TextEncoder().encode(JSON.stringify(pair));
+    const encrypted = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: this.bytesToArrayBuffer(iv) },
+      key,
+      this.bytesToArrayBuffer(plaintext),
+    );
+    return {
+      version: 1,
+      format: 'webcrypto-device-key-v1',
+      publicIdentity: toPublicSeaIdentity(pair as SeaPrivateIdentityMaterial),
+      wrapping: {
+        kdf: 'PBKDF2-SHA256',
+        iterations: KEY_CUSTODY_ITERATIONS,
+        salt: this.bytesToBase64(salt),
+        iv: this.bytesToBase64(iv),
+      },
+      ciphertext: this.bytesToBase64(new Uint8Array(encrypted)),
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+  }
+
+  private async unwrapKeypairFromStorage(record: KeyCustodyRecord): Promise<GunPair | null> {
+    try {
+      if (record.version !== 1 || record.format !== 'webcrypto-device-key-v1') return null;
+      const crypto = this.getBrowserCrypto();
+      if (!crypto) return null;
+      const secret = this.getOrCreateDeviceSecret();
+      const salt = this.base64ToBytes(record.wrapping.salt);
+      const iv = this.base64ToBytes(record.wrapping.iv);
+      const key = await this.deriveCustodyKey(secret, salt, record.wrapping.iterations);
+      const decrypted = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: this.bytesToArrayBuffer(iv) },
+        key,
+        this.bytesToArrayBuffer(this.base64ToBytes(record.ciphertext)),
+      );
+      const pair = JSON.parse(new TextDecoder().decode(decrypted)) as GunPair;
+      if (!pair?.pub || !pair?.epub || !pair?.priv || !pair?.epriv) return null;
+      return pair;
+    } catch {
+      return null;
+    }
+  }
+
+  private readCustodyRecord(): KeyCustodyRecord | null {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(KEY_CUSTODY_STORAGE);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as KeyCustodyRecord;
+    } catch {
+      return null;
+    }
+  }
+
+  private async persistCustodyRecord(pair: GunPair, existing?: KeyCustodyRecord | null): Promise<void> {
+    if (typeof localStorage === 'undefined') return;
+    const record = await this.wrapKeypairForStorage(pair, existing);
+    localStorage.setItem(KEY_CUSTODY_STORAGE, JSON.stringify(record));
+    localStorage.removeItem(KEYPAIR_STORAGE);
   }
 
   /* ── Core graph operations (direct Gun — backward compat) ──────── */
@@ -359,7 +505,7 @@ export class WebGunService extends EventEmitter {
   }
 
   /**
-   * Load or create a SEA keypair, persist under `iinpublic_keypair`, and `gun.user().auth(pair)`.
+   * Load or create a SEA keypair, persist as an encrypted custody record, and `gun.user().auth(pair)`.
    * Call after `initialize()`.
    */
   async ensureKeypairAndAuth(): Promise<GunPair> {
@@ -370,16 +516,24 @@ export class WebGunService extends EventEmitter {
     if (!this.gun) {
       throw new Error('Gun not initialized');
     }
-    let raw: string | null = null;
+    let legacyRaw: string | null = null;
+    let existingCustody: KeyCustodyRecord | null = null;
     try {
-      raw = typeof localStorage !== 'undefined' ? localStorage.getItem(KEYPAIR_STORAGE) : null;
+      if (typeof localStorage !== 'undefined') {
+        legacyRaw = localStorage.getItem(KEYPAIR_STORAGE);
+        existingCustody = this.readCustodyRecord();
+      }
     } catch {
-      raw = null;
+      legacyRaw = null;
+      existingCustody = null;
     }
     let pair: GunPair;
-    if (raw) {
+    const custodyPair = existingCustody ? await this.unwrapKeypairFromStorage(existingCustody) : null;
+    if (custodyPair) {
+      pair = custodyPair;
+    } else if (legacyRaw) {
       try {
-        pair = JSON.parse(raw) as GunPair;
+        pair = JSON.parse(legacyRaw) as GunPair;
         if (!pair?.pub || !pair?.priv) {
           pair = await SEA.pair();
         }
@@ -390,10 +544,14 @@ export class WebGunService extends EventEmitter {
       pair = await SEA.pair();
     }
     try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(KEYPAIR_STORAGE, JSON.stringify(pair));
+      await this.persistCustodyRecord(pair, existingCustody);
+    } catch (error) {
+      console.warn('⚠️ Encrypted SEA key custody unavailable — keeping pair in memory only:', error);
+      try {
+        if (typeof localStorage !== 'undefined') localStorage.removeItem(KEYPAIR_STORAGE);
+      } catch {
+        /* ignore */
       }
-    } catch {
       /* ignore quota / private mode */
     }
 
@@ -421,5 +579,38 @@ export class WebGunService extends EventEmitter {
   /** Active session pair after `ensureKeypairAndAuth()`. */
   getStoredPair(): GunPair | null {
     return this.seaPair;
+  }
+
+  getKeyCustodyStatus(): { active: boolean; publicIdentity?: { pub: string; epub: string }; format?: string } {
+    const record = this.readCustodyRecord();
+    if (!record) return { active: false };
+    return { active: true, publicIdentity: record.publicIdentity, format: record.format };
+  }
+
+  exportKeyRecoveryPackage(): string {
+    const record = this.readCustodyRecord();
+    if (!record) {
+      throw new Error('No encrypted key custody record is available to export');
+    }
+    return JSON.stringify({
+      version: 1,
+      kind: 'iinpublic-sea-key-recovery',
+      warnings: KEY_RECOVERY_WARNINGS,
+      custody: record,
+    });
+  }
+
+  async importKeyRecoveryPackage(raw: string): Promise<{ pub: string; epub: string }> {
+    const parsed = JSON.parse(raw) as { custody?: KeyCustodyRecord };
+    if (!parsed?.custody) {
+      throw new Error('Invalid key recovery package');
+    }
+    const pair = await this.unwrapKeypairFromStorage(parsed.custody);
+    if (!pair) {
+      throw new Error('Unable to decrypt imported key recovery package on this device');
+    }
+    await this.persistCustodyRecord(pair, parsed.custody);
+    this.seaPair = pair;
+    return toPublicSeaIdentity(pair as SeaPrivateIdentityMaterial);
   }
 }

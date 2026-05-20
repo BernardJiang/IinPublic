@@ -2225,6 +2225,7 @@ export class UIManager extends EventEmitter {
           ${this.renderStoragePill('Direct chat', flags.p2pDirectChatEnabled ? 'enabled' : 'disabled')}
         </div>
         ${this.renderLocalNodeInspector(serverStorage?.localNode)}
+        ${this.renderSeaIdentityInspector(serverStorage?.seaIdentityPolicy, serverStorage?.seaStorageScan)}
         <div>
           <div style="font-weight:600;color:#334155;margin-bottom:6px;">Browser local storage</div>
           <div id="storage-inspector-local" style="display:flex;flex-wrap:wrap;gap:6px;">
@@ -2282,6 +2283,29 @@ export class UIManager extends EventEmitter {
         </div>
         <div id="storage-inspector-local-node-controls" style="display:flex;flex-wrap:wrap;gap:6px;">
           ${controls.map((item: any) => this.renderStoragePill(item.dataClass, item.enabled ? 'local' : 'off')).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderSeaIdentityInspector(policy: any, scan: any): string {
+    if (!policy) return '';
+    const custodyFormats = Array.isArray(policy.keyCustodyFormats) ? policy.keyCustodyFormats : [];
+    const publicKeys = Array.isArray(policy.publicKeys) ? policy.publicKeys : [];
+    const forbidden = Array.isArray(policy.forbiddenPrivateKeys) ? policy.forbiddenPrivateKeys : [];
+    return `
+      <div id="storage-inspector-sea-identity" style="display:grid;gap:8px;padding:10px;border:1px solid #ccfbf1;border-radius:8px;background:#f0fdfa;">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <div style="font-weight:700;color:#134e4a;">SEA Identity Custody</div>
+          ${this.renderStoragePill('Relay scan', scan?.ok ? 'clean' : 'needs review')}
+          ${this.renderStoragePill('Public keys', publicKeys.join(', ') || 'unknown')}
+          ${this.renderStoragePill('Forbidden', forbidden.join(', ') || 'unknown')}
+        </div>
+        <div id="storage-inspector-sea-custody" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${custodyFormats.map((format: string) => this.renderStoragePill(format, 'supported')).join('')}
+        </div>
+        <div id="storage-inspector-sea-rules" style="color:#475569;">
+          ${escapeHtml(policy.relayEnvelopeRule || '')}
         </div>
       </div>
     `;

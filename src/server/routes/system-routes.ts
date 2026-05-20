@@ -6,6 +6,8 @@ import {
   applyLocalNodeAction,
   createLocalNodeSupervisorSnapshot,
   resolveP2PRuntimeFlags,
+  scanRelayStorageForSeaLeaks,
+  SEA_IDENTITY_POLICY,
   STAR_GUN_PATH_CLASSIFICATIONS,
   type LocalNodeAction,
   type LocalNodeSupervisorSnapshot,
@@ -145,6 +147,7 @@ export function registerSystemRoutes(
           if (!top || top === '_') continue;
           topLevelCounts[top] = (topLevelCounts[top] || 0) + 1;
         }
+        const seaStorageScan = scanRelayStorageForSeaLeaks(graph);
         res.json({
           mode: 'star',
           topology: {
@@ -154,6 +157,8 @@ export function registerSystemRoutes(
           },
           flags: resolveP2PRuntimeFlags(process.env),
           localNode: localNodeSupervisor,
+          seaIdentityPolicy: SEA_IDENTITY_POLICY,
+          seaStorageScan,
           serverPersistence: {
             radisk: !!gun?._?.opt?.radisk,
             policy: resolveP2PRuntimeFlags(process.env).starServerPersistence,

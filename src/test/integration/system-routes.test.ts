@@ -69,6 +69,20 @@ describe('system routes', () => {
         ]),
       }),
     );
+    expect(res.body.seaIdentityPolicy).toEqual(
+      expect.objectContaining({
+        publicKeys: ['pub', 'epub'],
+        forbiddenPrivateKeys: ['priv', 'epriv'],
+        relayEnvelopeRule: expect.stringContaining('ciphertext only'),
+      }),
+    );
+    expect(res.body.seaStorageScan).toEqual(
+      expect.objectContaining({
+        ok: true,
+        privateKeyPaths: [],
+        plaintextMessagePaths: [],
+      }),
+    );
     expect(res.body.serverPersistence).toEqual(
       expect.objectContaining({
         radisk: true,
@@ -88,6 +102,20 @@ describe('system routes', () => {
         expect.objectContaining({ path: 'conversations/{conversationId}', category: 'removable-legacy' }),
       ]),
     );
+  });
+
+  it('reports SEA private-key and plaintext relay leaks in debug storage', async () => {
+    const { app, gun } = buildApp();
+    const graph = gun._.graph as Record<string, unknown>;
+    graph['users/leaky'] = { pub: 'pub_leaky', epub: 'epub_leaky', priv: 'priv_leaky' };
+    graph['conversations/1/messages/m1'] = { text: 'hello in plaintext' };
+
+    const res = await request(app).get('/api/debug/storage');
+
+    expect(res.status).toBe(200);
+    expect(res.body.seaStorageScan.ok).toBe(false);
+    expect(res.body.seaStorageScan.privateKeyPaths).toContain('$.users/leaky.priv');
+    expect(res.body.seaStorageScan.plaintextMessagePaths).toContain('$.conversations/1/messages/m1.text');
   });
 
   it('does not expose debug storage in production', async () => {

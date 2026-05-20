@@ -1,8 +1,14 @@
 import {
   applyLocalNodeAction,
+  assertNoPrivateSeaMaterial,
   createLocalNodeSupervisorSnapshot,
+  createLinkedDeviceManifest,
+  createRelayEnvelope,
+  scanRelayStorageForSeaLeaks,
   resolveP2PRuntimeFlags,
+  SEA_IDENTITY_POLICY,
   STAR_GUN_PATH_CLASSIFICATIONS,
+  toPublicSeaIdentity,
 } from '../../shared/p2p-runtime';
 
 describe('p2p runtime flags', () => {
@@ -74,5 +80,79 @@ describe('p2p runtime flags', () => {
     const wiped = applyLocalNodeAction(bound, 'wipe', new Date('2026-05-20T00:00:02.000Z'));
     expect(wiped.status).toBe('wiped');
     expect(wiped.identityBinding).toBeNull();
+  });
+
+  it('publishes only SEA public identity keys and rejects private key material', () => {
+    const pair = { pub: 'pub_a', epub: 'epub_a', priv: 'priv_a', epriv: 'epriv_a' };
+
+    expect(toPublicSeaIdentity(pair)).toEqual({ pub: 'pub_a', epub: 'epub_a' });
+    expect(() => assertNoPrivateSeaMaterial({ users: { alice: pair } })).toThrow(
+      /Private SEA key material is not publishable/,
+    );
+    expect(SEA_IDENTITY_POLICY.forbiddenPrivateKeys).toEqual(['priv', 'epriv']);
+  });
+
+  it('keeps relay envelopes ciphertext-only and signed', () => {
+    const envelope = createRelayEnvelope({
+      kind: 'p2p-message',
+      senderPub: 'pub_sender',
+      recipientPub: 'pub_recipient',
+      bodyCiphertext: 'SEA{"ct":"cipher"}',
+      signature: 'sig_sender',
+      nonce: 'nonce_1',
+      expiresAt: '2026-05-20T01:00:00.000Z',
+    });
+
+    expect(envelope).toEqual(
+      expect.objectContaining({
+        version: 1,
+        senderPub: 'pub_sender',
+        bodyCiphertext: 'SEA{"ct":"cipher"}',
+        signature: 'sig_sender',
+      }),
+    );
+    expect(() =>
+      createRelayEnvelope({
+        kind: 'p2p-message',
+        senderPub: 'pub_sender',
+        bodyPlaintext: 'hello relay',
+        signature: 'sig_sender',
+        nonce: 'nonce_2',
+        expiresAt: '2026-05-20T01:00:00.000Z',
+      }),
+    ).toThrow(/plaintext/);
+  });
+
+  it('stores linked-device manifests as random encrypted records', () => {
+    expect(
+      createLinkedDeviceManifest({
+        randomManifestId: 'manifest_J7Vj66zM8v1',
+        encryptedManifest: 'SEA{"ct":"encrypted-manifest"}',
+        selectedDataClasses: ['contacts', 'message-history', 'chatbot-memory'],
+        groupKeyVersion: 2,
+        revokedDevicePubs: ['old_device_pub'],
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        randomManifestId: 'manifest_J7Vj66zM8v1',
+        selectedDataClasses: ['contacts', 'message-history', 'chatbot-memory'],
+      }),
+    );
+  });
+
+  it('scans relay storage for private SEA keys and plaintext message bodies', () => {
+    const clean = scanRelayStorageForSeaLeaks({
+      'users/alice': { pub: 'pub_a', epub: 'epub_a' },
+      'conversations/1/messages/m1': { text: 'SEA{"ct":"cipher"}' },
+    });
+    expect(clean.ok).toBe(true);
+
+    const leaking = scanRelayStorageForSeaLeaks({
+      'users/alice': { pub: 'pub_a', epub: 'epub_a', priv: 'priv_a' },
+      'conversations/1/messages/m1': { text: 'plain hello' },
+    });
+    expect(leaking.ok).toBe(false);
+    expect(leaking.privateKeyPaths).toContain('$.users/alice.priv');
+    expect(leaking.plaintextMessagePaths).toContain('$.conversations/1/messages/m1.text');
   });
 });

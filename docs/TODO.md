@@ -14,23 +14,6 @@ Authoritative product scope lives in
 Continue the P2P roadmap:
 [P2P Node Network Roadmap](roadmap/p2p-node-network.md).
 
-## P3 — SEA Identity, Key Custody, and Encryption
-
-- [ ] Define the canonical SEA identity model: each user publishes public keys (`pub`, `epub`) and never publishes private keys (`priv`, `epriv`).
-- [ ] Replace raw private-key localStorage with encrypted-at-rest key custody: WebCrypto passphrase/device-key wrapping in browsers and OS keychain/keystore on desktop/mobile.
-- [ ] Add user-controlled key export/import and recovery flows with clear warnings that losing the private key means losing encrypted local/private data.
-- [ ] Add multi-device linking with unlinkable public identities: each device keeps its own SEA identity, while linked devices privately share encrypted sync keys and data manifests.
-- [ ] Add QR/code-based device pairing where an existing trusted device grants a new device access to selected encrypted data without publishing a shared account ID.
-- [ ] Store linked-device manifests as encrypted, random-id records so relays can sync ciphertext blobs without learning which public device identities belong to the same person.
-- [ ] Let users choose which data classes sync across linked devices: profile/private answers, contacts, blocked peers, neighbor cache, message history, talks, and chatbot memory.
-- [ ] Add unlink/revoke flows that remove a device from future sync, rotate group keys, and preserve audit visibility for the owner without notifying the public network.
-- [ ] Require every node/session to prove ownership of its public key with SEA signatures before accepting discovery, signaling, or P2P messages.
-- [ ] Define public relay envelopes that expose only routing metadata needed for discovery/signaling; message bodies and private profile data must never be plaintext on relay paths.
-- [ ] Add per-conversation/session encryption for direct P2P using SEA-derived shared secrets or an audited double-ratchet/session-key layer; do not rely on transport encryption alone.
-- [ ] Sign encrypted P2P message envelopes so recipients can verify sender identity and reject spoofed/replayed messages.
-- [ ] Add tests that verify server/relay storage contains public keys and relay metadata only, while private keys and plaintext P2P messages never appear in Gun/server storage.
-- [ ] Add tests that prove two linked devices can sync selected encrypted data while an outside relay observer cannot infer that both device public keys belong to the same user.
-
 ## P4 — Real P2P Transport After Match
 
 - [ ] Add a transport abstraction so conversations can use `star-gun`, `server-relay`, or `direct-p2p` without changing UI code.

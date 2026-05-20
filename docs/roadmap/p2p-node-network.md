@@ -68,7 +68,7 @@ Current Gun path classes:
 | `exactChatbotMemoryByUser/{userId}` | Encrypted user-owned | Exact chatbot memory index for deterministic answer reuse. |
 | `stats/*` | Durable public | Aggregated talk response statistics with privacy thresholds and no precise location. |
 
-The non-production storage inspector is exposed at `GET /api/debug/storage` and in Settings. It reports the runtime flags, server persistence policy, Gun graph summary, path classifications, browser `localStorage` keys, and IndexedDB database names.
+The non-production storage inspector is exposed at `GET /api/debug/storage` and in Settings. It reports the runtime flags, server persistence policy, Gun graph summary, path classifications, SEA identity policy, relay leak scan, browser `localStorage` keys, and IndexedDB database names.
 
 ## First Implementation Slice
 
@@ -76,6 +76,7 @@ The non-production storage inspector is exposed at `GET /api/debug/storage` and 
 - Done: current Gun paths are classified by storage policy.
 - Done: dev-only storage visibility endpoint and Settings panel.
 - Done: permissioned local node supervisor model with start, stop, restart, health-check, wipe, signed session pairing, separate node identity binding, and local-only persistence controls.
+- Done: canonical SEA public identity policy, encrypted browser key custody, recovery package plumbing, encrypted linked-device manifest primitives, signed ciphertext-only relay envelopes, and relay/browser leak checks.
 - Introduce a `ConversationTransport` interface with the current Gun path as the first implementation.
 - Add a no-op/local mock P2P transport behind a disabled flag so UI code starts depending on the abstraction.
 

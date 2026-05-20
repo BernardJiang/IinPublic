@@ -6,6 +6,104 @@ export type P2PRuntimeFlags = {
   p2pDirectChatEnabled: boolean;
 };
 
+export type SeaPublicIdentity = {
+  pub: string;
+  epub: string;
+};
+
+export type SeaPrivateIdentityMaterial = SeaPublicIdentity & {
+  priv: string;
+  epriv: string;
+};
+
+export type KeyCustodyFormat = 'webcrypto-device-key-v1' | 'os-keychain-v1' | 'imported-recovery-package-v1';
+
+export type KeyCustodyRecord = {
+  version: 1;
+  format: KeyCustodyFormat;
+  publicIdentity: SeaPublicIdentity;
+  wrapping: {
+    kdf: 'PBKDF2-SHA256';
+    iterations: number;
+    salt: string;
+    iv: string;
+  };
+  ciphertext: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type KeyRecoveryWarning = {
+  severity: 'critical';
+  message: string;
+};
+
+export type DeviceLinkDataClass =
+  | 'profile-private-answers'
+  | 'contacts'
+  | 'blocked-peers'
+  | 'neighbor-cache'
+  | 'message-history'
+  | 'talks'
+  | 'chatbot-memory';
+
+export type DevicePairingGrant = {
+  pairingId: string;
+  trustedDevicePub: string;
+  newDevicePub: string;
+  selectedDataClasses: DeviceLinkDataClass[];
+  expiresAt: string;
+  grantSignature: string;
+};
+
+export type LinkedDeviceManifest = {
+  randomManifestId: string;
+  encryptedManifest: string;
+  selectedDataClasses: DeviceLinkDataClass[];
+  groupKeyVersion: number;
+  revokedDevicePubs: string[];
+};
+
+export type RelayEnvelope = {
+  version: 1;
+  kind: 'discovery' | 'signaling' | 'p2p-message';
+  senderPub: string;
+  recipientPub?: string;
+  routeHint?: string;
+  bodyCiphertext?: string;
+  bodyPlaintext?: never;
+  signature: string;
+  nonce: string;
+  expiresAt: string;
+};
+
+export type SeaIdentityPolicy = {
+  publicKeys: Array<keyof SeaPublicIdentity>;
+  forbiddenPrivateKeys: Array<keyof SeaPrivateIdentityMaterial>;
+  keyCustodyFormats: KeyCustodyFormat[];
+  relayEnvelopeRule: string;
+  directMessageRule: string;
+  linkedDeviceRule: string;
+};
+
+const PRIVATE_SEA_KEYS = ['priv', 'epriv'] as const;
+
+export const SEA_IDENTITY_POLICY: SeaIdentityPolicy = {
+  publicKeys: ['pub', 'epub'],
+  forbiddenPrivateKeys: ['priv', 'epriv'],
+  keyCustodyFormats: ['webcrypto-device-key-v1', 'os-keychain-v1', 'imported-recovery-package-v1'],
+  relayEnvelopeRule: 'Relays may store routing metadata, public keys, nonces, signatures, and ciphertext only.',
+  directMessageRule: 'Direct P2P message bodies are encrypted per conversation/session and signed by sender pub.',
+  linkedDeviceRule: 'Linked devices use random encrypted manifests; relay records must not expose account linkage.',
+};
+
+export const KEY_RECOVERY_WARNINGS: KeyRecoveryWarning[] = [
+  {
+    severity: 'critical',
+    message: 'Losing the private key means losing encrypted local/private data that has no other backup.',
+  },
+] as const;
+
 function readEnv(key: string): string | undefined {
   if (typeof process !== 'undefined' && process.env) return process.env[key];
   return undefined;
@@ -26,6 +124,100 @@ export function resolveP2PRuntimeFlags(env: Record<string, string | undefined> =
     starServerPersistence: parsePersistencePolicy(get('STAR_SERVER_PERSISTENCE')),
     p2pNodeEnabled: parseBooleanFlag(get('P2P_NODE_ENABLED'), false),
     p2pDirectChatEnabled: parseBooleanFlag(get('P2P_DIRECT_CHAT_ENABLED'), false),
+  };
+}
+
+export function toPublicSeaIdentity(pair: SeaPrivateIdentityMaterial | SeaPublicIdentity): SeaPublicIdentity {
+  if (!pair?.pub || !pair?.epub) {
+    throw new Error('SEA public identity requires pub and epub');
+  }
+  return { pub: pair.pub, epub: pair.epub };
+}
+
+export function findPrivateSeaMaterial(value: unknown, path = '$'): string[] {
+  if (!value || typeof value !== 'object') return [];
+  const found: string[] = [];
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      found.push(...findPrivateSeaMaterial(item, `${path}[${index}]`));
+    });
+    return found;
+  }
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    const childPath = `${path}.${key}`;
+    if ((PRIVATE_SEA_KEYS as readonly string[]).includes(key) && typeof child === 'string' && child.length > 0) {
+      found.push(childPath);
+    }
+    found.push(...findPrivateSeaMaterial(child, childPath));
+  }
+  return found;
+}
+
+export function assertNoPrivateSeaMaterial(value: unknown): void {
+  const privatePaths = findPrivateSeaMaterial(value);
+  if (privatePaths.length > 0) {
+    throw new Error(`Private SEA key material is not publishable: ${privatePaths.join(', ')}`);
+  }
+}
+
+export function createRelayEnvelope(params: Omit<RelayEnvelope, 'version' | 'bodyPlaintext'> & { bodyPlaintext?: string }): RelayEnvelope {
+  if (params.bodyPlaintext) {
+    throw new Error('Relay envelopes cannot contain plaintext message bodies');
+  }
+  assertNoPrivateSeaMaterial(params);
+  return {
+    version: 1,
+    kind: params.kind,
+    senderPub: params.senderPub,
+    ...(params.recipientPub ? { recipientPub: params.recipientPub } : {}),
+    ...(params.routeHint ? { routeHint: params.routeHint } : {}),
+    ...(params.bodyCiphertext ? { bodyCiphertext: params.bodyCiphertext } : {}),
+    signature: params.signature,
+    nonce: params.nonce,
+    expiresAt: params.expiresAt,
+  };
+}
+
+export function createLinkedDeviceManifest(params: LinkedDeviceManifest): LinkedDeviceManifest {
+  if (!params.randomManifestId || params.randomManifestId.includes(params.revokedDevicePubs[0] || ' ')) {
+    throw new Error('Linked-device manifests require unlinkable random ids');
+  }
+  if (!params.encryptedManifest) {
+    throw new Error('Linked-device manifests must store encrypted manifests only');
+  }
+  assertNoPrivateSeaMaterial(params);
+  return { ...params };
+}
+
+export function scanRelayStorageForSeaLeaks(graph: Record<string, unknown>): {
+  ok: boolean;
+  privateKeyPaths: string[];
+  plaintextMessagePaths: string[];
+} {
+  const privateKeyPaths = findPrivateSeaMaterial(graph);
+  const plaintextMessagePaths: string[] = [];
+  const walk = (value: unknown, path: string): void => {
+    if (!value || typeof value !== 'object') return;
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      const childPath = `${path}.${key}`;
+      if (
+        key === 'text' &&
+        typeof child === 'string' &&
+        child.trim() !== '' &&
+        !child.startsWith('SEA{') &&
+        !child.startsWith('enc:') &&
+        path.includes('messages')
+      ) {
+        plaintextMessagePaths.push(childPath);
+      }
+      walk(child, childPath);
+    }
+  };
+  walk(graph, '$');
+  return {
+    ok: privateKeyPaths.length === 0 && plaintextMessagePaths.length === 0,
+    privateKeyPaths,
+    plaintextMessagePaths,
   };
 }
 

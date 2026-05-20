@@ -1,5 +1,5 @@
 import { User, GPSCoordinate, Talk, type Tag } from '../../shared/types';
-import { WebGunService } from '../services/web-gun-service';
+import { KEY_CUSTODY_DEVICE_SECRET_STORAGE, KEY_CUSTODY_STORAGE, WebGunService } from '../services/web-gun-service';
 import { WebUserService } from '../services/web-user-service';
 import { WebChatroomService } from '../services/web-chatroom-service';
 import { WebTalkService } from '../services/web-talk-service';
@@ -151,6 +151,8 @@ export class IinPublicApp {
     if (isDevStageZero()) {
       localStorage.removeItem('iinpublic_user_id');
       localStorage.removeItem('iinpublic_keypair');
+      localStorage.removeItem(KEY_CUSTODY_STORAGE);
+      localStorage.removeItem(KEY_CUSTODY_DEVICE_SECRET_STORAGE);
       localStorage.removeItem('gun/');
     }
     // Check for existing user in local storage
