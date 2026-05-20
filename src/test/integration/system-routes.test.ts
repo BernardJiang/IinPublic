@@ -59,6 +59,16 @@ describe('system routes', () => {
       p2pNodeEnabled: false,
       p2pDirectChatEnabled: false,
     });
+    expect(res.body.localNode).toEqual(
+      expect.objectContaining({
+        status: 'stopped',
+        sessionPairing: expect.objectContaining({ trustModel: 'signed-session-pairing' }),
+        permissionDisclosures: expect.arrayContaining([
+          expect.objectContaining({ key: 'storage' }),
+          expect.objectContaining({ key: 'local-port' }),
+        ]),
+      }),
+    );
     expect(res.body.serverPersistence).toEqual(
       expect.objectContaining({
         radisk: true,
@@ -85,5 +95,33 @@ describe('system routes', () => {
     const res = await request(app).get('/api/debug/storage');
 
     expect(res.status).toBe(404);
+  });
+
+  it('supervises local node start, health-check, identity binding, and wipe in non-production', async () => {
+    const { app } = buildApp();
+
+    const started = await request(app).post('/api/p2p/local-node/start').send({});
+    expect(started.status).toBe(200);
+    expect(started.body.status).toBe('running');
+    expect(started.body.health.ok).toBe(true);
+
+    const bound = await request(app).post('/api/p2p/local-node/bind-identity').send({
+      webIdentityId: 'web_pub',
+      nodeIdentityId: 'node_pub',
+      proof: 'signed-proof',
+    });
+    expect(bound.status).toBe(200);
+    expect(bound.body.identityBinding).toEqual(
+      expect.objectContaining({ webIdentityId: 'web_pub', nodeIdentityId: 'node_pub' }),
+    );
+
+    const health = await request(app).post('/api/p2p/local-node/health-check').send({});
+    expect(health.status).toBe(200);
+    expect(health.body.health.reason).toBe('Local node health check passed.');
+
+    const wiped = await request(app).post('/api/p2p/local-node/wipe').send({});
+    expect(wiped.status).toBe(200);
+    expect(wiped.body.status).toBe('wiped');
+    expect(wiped.body.identityBinding).toBeNull();
   });
 });

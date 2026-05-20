@@ -2,7 +2,14 @@ import fs from 'fs';
 import path from 'path';
 import type express from 'express';
 import { logger } from '../logger';
-import { resolveP2PRuntimeFlags, STAR_GUN_PATH_CLASSIFICATIONS } from '../../shared/p2p-runtime';
+import {
+  applyLocalNodeAction,
+  createLocalNodeSupervisorSnapshot,
+  resolveP2PRuntimeFlags,
+  STAR_GUN_PATH_CLASSIFICATIONS,
+  type LocalNodeAction,
+  type LocalNodeSupervisorSnapshot,
+} from '../../shared/p2p-runtime';
 
 /** Gun radisk default directory (see node_modules/gun/lib/radisk.js). */
 function clearRadiskOnDisk(): string[] {
@@ -106,6 +113,8 @@ export function registerSystemRoutes(
     nodeEnv,
   }: RegisterSystemRoutesDeps,
 ): void {
+  let localNodeSupervisor: LocalNodeSupervisorSnapshot = createLocalNodeSupervisorSnapshot();
+
   // Health check
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -144,6 +153,7 @@ export function registerSystemRoutes(
             routes: 'HTTP/Socket API',
           },
           flags: resolveP2PRuntimeFlags(process.env),
+          localNode: localNodeSupervisor,
           serverPersistence: {
             radisk: !!gun?._?.opt?.radisk,
             policy: resolveP2PRuntimeFlags(process.env).starServerPersistence,
@@ -155,6 +165,20 @@ export function registerSystemRoutes(
       } catch (error) {
         logger.error({ err: error }, 'Error reading storage debug data');
         res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    app.get('/api/p2p/local-node', (_req, res) => {
+      res.json(localNodeSupervisor);
+    });
+
+    app.post('/api/p2p/local-node/:action', (req, res) => {
+      const action = req.params.action as LocalNodeAction;
+      try {
+        localNodeSupervisor = applyLocalNodeAction(localNodeSupervisor, action, new Date(), req.body);
+        res.json(localNodeSupervisor);
+      } catch (error) {
+        res.status(400).json({ error: (error as Error).message });
       }
     });
 

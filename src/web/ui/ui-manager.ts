@@ -2224,6 +2224,7 @@ export class UIManager extends EventEmitter {
           ${this.renderStoragePill('Local node', flags.p2pNodeEnabled ? 'enabled' : 'disabled')}
           ${this.renderStoragePill('Direct chat', flags.p2pDirectChatEnabled ? 'enabled' : 'disabled')}
         </div>
+        ${this.renderLocalNodeInspector(serverStorage?.localNode)}
         <div>
           <div style="font-weight:600;color:#334155;margin-bottom:6px;">Browser local storage</div>
           <div id="storage-inspector-local" style="display:flex;flex-wrap:wrap;gap:6px;">
@@ -2262,6 +2263,28 @@ export class UIManager extends EventEmitter {
 
   private renderStoragePill(label: string, value: string): string {
     return `<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;color:#334155;"><span style="font-weight:600;">${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></span>`;
+  }
+
+  private renderLocalNodeInspector(localNode: any): string {
+    if (!localNode) return '';
+    const disclosures = Array.isArray(localNode.permissionDisclosures) ? localNode.permissionDisclosures : [];
+    const controls = Array.isArray(localNode.persistenceControls) ? localNode.persistenceControls : [];
+    return `
+      <div id="storage-inspector-local-node" style="display:grid;gap:8px;padding:10px;border:1px solid #dbeafe;border-radius:8px;background:#eff6ff;">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <div style="font-weight:700;color:#1e3a8a;">Local Node Supervisor</div>
+          ${this.renderStoragePill('Status', localNode.status || 'unknown')}
+          ${this.renderStoragePill('Pairing', localNode.sessionPairing?.trustModel || 'unknown')}
+          ${this.renderStoragePill('Bridge', localNode.sessionPairing?.bridgeUrl || 'unconfigured')}
+        </div>
+        <div id="storage-inspector-local-node-disclosures" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${disclosures.map((item: any) => this.renderStoragePill(item.label || item.key, item.required ? 'required' : 'optional')).join('')}
+        </div>
+        <div id="storage-inspector-local-node-controls" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${controls.map((item: any) => this.renderStoragePill(item.dataClass, item.enabled ? 'local' : 'off')).join('')}
+        </div>
+      </div>
+    `;
   }
 
   private async displayContextualStatistics(elementId: string): Promise<void> {

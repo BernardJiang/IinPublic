@@ -14,15 +14,6 @@ Authoritative product scope lives in
 Continue the P2P roadmap:
 [P2P Node Network Roadmap](roadmap/p2p-node-network.md).
 
-## P2 — User-Permission Local Node
-
-- [ ] Define the permission UX for running a local node: explain storage, bandwidth, battery, background behavior, local port use, and how to stop/delete it.
-- [ ] Create a local node supervisor interface that can start, stop, restart, health-check, and wipe a user-owned node.
-- [ ] Prototype desktop local node packaging with Node.js: one process for the UI shell, one process for the local Gun/libp2p service.
-- [ ] Add browser-to-local-node connection discovery: localhost/WebSocket bridge with signed session pairing instead of trusting any page on localhost.
-- [ ] Store the local node identity separately from the web identity, then bind them with a signed proof.
-- [ ] Add local-only persistence controls for user data, neighbor cache, private profile data, message history, and encrypted backup export/import.
-
 ## P3 — SEA Identity, Key Custody, and Encryption
 
 - [ ] Define the canonical SEA identity model: each user publishes public keys (`pub`, `epub`) and never publishes private keys (`priv`, `epriv`).

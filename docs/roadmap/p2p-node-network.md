@@ -75,8 +75,19 @@ The non-production storage inspector is exposed at `GET /api/debug/storage` and 
 - Done: feature flags for star mode versus local node/P2P behavior.
 - Done: current Gun paths are classified by storage policy.
 - Done: dev-only storage visibility endpoint and Settings panel.
+- Done: permissioned local node supervisor model with start, stop, restart, health-check, wipe, signed session pairing, separate node identity binding, and local-only persistence controls.
 - Introduce a `ConversationTransport` interface with the current Gun path as the first implementation.
 - Add a no-op/local mock P2P transport behind a disabled flag so UI code starts depending on the abstraction.
+
+## Permissioned Local Node
+
+The local node is modeled as owner-controlled device state before it is allowed to move private data or direct messages:
+
+- The permission disclosure names storage, bandwidth, battery, background behavior, local port use, and stop/delete controls before startup.
+- The browser may discover a local node only through a localhost WebSocket bridge that requires short-lived signed session pairing.
+- Desktop packaging is represented as two processes: a UI shell and a `gun-libp2p-local-service` process supervised by the app.
+- Local node identity is distinct from web identity. Binding requires a signed proof from the owner.
+- User data, neighbor cache, private profile data, message history, and encrypted backup state are local-only controls, with backup export disabled by default until the user enables it.
 
 ## SEA Identity and Security Requirements
 
