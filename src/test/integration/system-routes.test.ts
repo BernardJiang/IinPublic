@@ -76,6 +76,20 @@ describe('system routes', () => {
         messageBodyStorage: 'gun-legacy',
       }),
     );
+    expect(res.body.p2pNetworkProtocol).toEqual(
+      expect.objectContaining({
+        version: 1,
+        substrate: 'gun-mesh-websocket-webrtc',
+        platforms: expect.arrayContaining([
+          expect.objectContaining({ platform: 'web' }),
+          expect.objectContaining({ platform: 'windows' }),
+          expect.objectContaining({ platform: 'ubuntu' }),
+          expect.objectContaining({ platform: 'android' }),
+          expect.objectContaining({ platform: 'ios' }),
+        ]),
+        capabilities: expect.arrayContaining(['signed-discovery', 'encrypted-signaling', 'webrtc-datachannel']),
+      }),
+    );
     expect(res.body.seaIdentityPolicy).toEqual(
       expect.objectContaining({
         publicKeys: ['pub', 'epub'],
@@ -196,5 +210,67 @@ describe('system routes', () => {
       nonce: 'nonce_a',
     });
     expect(plaintext.status).toBe(400);
+  });
+
+  it('stores signed cross-platform discovery messages and rejects unsigned/plaintext discovery', async () => {
+    const { app } = buildApp();
+
+    const posted = await request(app).post('/api/p2p/discovery').send({
+      platform: 'ubuntu',
+      senderPub: 'pub_ubuntu',
+      capabilities: ['signed-discovery', 'local-node-supervisor', 'relay-fallback'],
+      endpointHints: ['wss://relay.local/discovery/ubuntu'],
+      signature: 'sig_ubuntu',
+      nonce: 'nonce_ubuntu',
+      expiresAt: '2026-05-21T00:01:00.000Z',
+    });
+
+    expect(posted.status).toBe(200);
+    expect(posted.body.message).toEqual(
+      expect.objectContaining({
+        kind: 'discovery',
+        protocolVersion: 1,
+        platform: 'ubuntu',
+        senderPub: 'pub_ubuntu',
+      }),
+    );
+
+    const listed = await request(app).get('/api/p2p/discovery');
+    expect(listed.status).toBe(200);
+    expect(listed.body.protocol.platforms.map((item: { platform: string }) => item.platform)).toEqual([
+      'web',
+      'windows',
+      'ubuntu',
+      'android',
+      'ios',
+    ]);
+    expect(listed.body.messages).toEqual([
+      expect.objectContaining({ platform: 'ubuntu', senderPub: 'pub_ubuntu' }),
+    ]);
+
+    const unsigned = await request(app).post('/api/p2p/discovery').send({
+      platform: 'web',
+      senderPub: 'pub_web',
+      capabilities: ['relay-fallback'],
+      endpointHints: ['webrtc:room'],
+      signature: 'sig_web',
+      nonce: 'nonce_web',
+      expiresAt: '2026-05-21T00:01:00.000Z',
+    });
+    expect(unsigned.status).toBe(400);
+    expect(unsigned.body.error).toMatch(/signed-discovery/);
+
+    const plaintext = await request(app).post('/api/p2p/discovery').send({
+      platform: 'web',
+      senderPub: 'pub_web',
+      capabilities: ['signed-discovery'],
+      endpointHints: ['webrtc:room'],
+      signature: 'sig_web',
+      nonce: 'nonce_web',
+      expiresAt: '2026-05-21T00:01:00.000Z',
+      bodyPlaintext: 'plain discovery',
+    });
+    expect(plaintext.status).toBe(400);
+    expect(plaintext.body.error).toMatch(/plaintext/);
   });
 });

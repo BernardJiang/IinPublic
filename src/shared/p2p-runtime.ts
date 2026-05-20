@@ -38,7 +38,71 @@ export type DirectP2PMessageEnvelope = RelayEnvelope & {
   messageId: string;
 };
 
+export type P2PPlatformId = 'web' | 'windows' | 'ubuntu' | 'android' | 'ios';
+
+export type P2PNetworkingSubstrate = 'gun-mesh-websocket-webrtc';
+
+export type P2PPlatformDescriptor = {
+  platform: P2PPlatformId;
+  packageTarget: string;
+  nodeAvailability: 'browser-client' | 'bundled-local-node' | 'foreground-service' | 'foreground-or-notification-assisted';
+  backgroundBehavior: string;
+  permissionBoundaries: string[];
+};
+
+export type P2PNodeCapability =
+  | 'signed-discovery'
+  | 'encrypted-signaling'
+  | 'webrtc-datachannel'
+  | 'relay-fallback'
+  | 'local-node-supervisor'
+  | 'neighbor-cache'
+  | 'foreground-service'
+  | 'notification-assisted-wakeup';
+
+export type P2PNodeProtocolSpec = {
+  version: 1;
+  substrate: P2PNetworkingSubstrate;
+  identity: {
+    publicKeys: Array<keyof SeaPublicIdentity>;
+    signature: 'SEA-signature';
+    privateKeyRule: string;
+  };
+  peerDiscovery: {
+    messageKind: 'discovery';
+    ttlSeconds: number;
+    requiredFields: string[];
+  };
+  handshake: {
+    steps: string[];
+    replayProtection: string[];
+  };
+  capabilities: P2PNodeCapability[];
+  neighborScore: {
+    factors: string[];
+    blockedPeerRule: string;
+  };
+  messageEnvelope: {
+    kinds: RelayEnvelope['kind'][];
+    encryptionRule: string;
+  };
+  syncPolicy: {
+    localFirstDataClasses: DeviceLinkDataClass[];
+    relayOnlyDataClasses: string[];
+  };
+  platforms: P2PPlatformDescriptor[];
+};
+
+export type P2PDiscoveryMessage = RelayEnvelope & {
+  kind: 'discovery';
+  protocolVersion: 1;
+  platform: P2PPlatformId;
+  capabilities: P2PNodeCapability[];
+  endpointHints: string[];
+};
+
 export const SIGNALING_TTL_SECONDS = 120;
+export const DISCOVERY_TTL_SECONDS = 60;
 
 export type SeaPublicIdentity = {
   pub: string;
@@ -224,6 +288,122 @@ export function createDirectP2PMessageEnvelope(params: Omit<DirectP2PMessageEnve
     transport: 'webrtc-datachannel',
     conversationId: params.conversationId,
     messageId: params.messageId,
+  };
+}
+
+export const P2P_PLATFORM_DESCRIPTORS: P2PPlatformDescriptor[] = [
+  {
+    platform: 'web',
+    packageTarget: 'browser app',
+    nodeAvailability: 'browser-client',
+    backgroundBehavior: 'Foreground tab participates through WebRTC and pairs with a localhost node when installed.',
+    permissionBoundaries: ['browser storage', 'WebRTC permission prompts', 'explicit local-node pairing'],
+  },
+  {
+    platform: 'windows',
+    packageTarget: 'desktop shell plus local service',
+    nodeAvailability: 'bundled-local-node',
+    backgroundBehavior: 'Supervisor starts a signed local service during desktop sessions; autoupdate must update UI and node together.',
+    permissionBoundaries: ['OS keychain', 'firewall/network access', 'owner-controlled stop and wipe'],
+  },
+  {
+    platform: 'ubuntu',
+    packageTarget: 'desktop package plus user systemd service',
+    nodeAvailability: 'bundled-local-node',
+    backgroundBehavior: 'User-scoped service can run with the desktop session and stops/wipes through the supervisor.',
+    permissionBoundaries: ['secret service/keyring', 'user service controls', 'owner-controlled stop and wipe'],
+  },
+  {
+    platform: 'android',
+    packageTarget: 'native app foreground service',
+    nodeAvailability: 'foreground-service',
+    backgroundBehavior: 'Long-running P2P requires foreground-service notification, battery limits, and explicit GPS boundaries.',
+    permissionBoundaries: ['foreground-service notification', 'battery optimization', 'GPS permission boundary', 'Android keystore'],
+  },
+  {
+    platform: 'ios',
+    packageTarget: 'native app foreground peer',
+    nodeAvailability: 'foreground-or-notification-assisted',
+    backgroundBehavior: 'No always-on node is assumed; use foreground-only peers or notification-assisted wakeup.',
+    permissionBoundaries: ['Keychain', 'notification permission', 'foreground execution limits'],
+  },
+] as const;
+
+export function createP2PNodeProtocolSpec(): P2PNodeProtocolSpec {
+  return {
+    version: 1,
+    substrate: 'gun-mesh-websocket-webrtc',
+    identity: {
+      publicKeys: ['pub', 'epub'],
+      signature: 'SEA-signature',
+      privateKeyRule: SEA_IDENTITY_POLICY.relayEnvelopeRule,
+    },
+    peerDiscovery: {
+      messageKind: 'discovery',
+      ttlSeconds: DISCOVERY_TTL_SECONDS,
+      requiredFields: ['protocolVersion', 'platform', 'senderPub', 'capabilities', 'endpointHints', 'signature', 'nonce', 'expiresAt'],
+    },
+    handshake: {
+      steps: [
+        'publish signed discovery envelope',
+        'exchange encrypted signaling offer/answer/candidates',
+        'verify sender pub and nonce before accepting transport',
+        'open encrypted WebRTC DataChannel with relay fallback available',
+      ],
+      replayProtection: ['nonce', 'signature', 'expiresAt'],
+    },
+    capabilities: [
+      'signed-discovery',
+      'encrypted-signaling',
+      'webrtc-datachannel',
+      'relay-fallback',
+      'local-node-supervisor',
+      'neighbor-cache',
+      'foreground-service',
+      'notification-assisted-wakeup',
+    ],
+    neighborScore: {
+      factors: ['recent successful session', 'nearby chatroom overlap', 'known contact', 'low observed latency', 'relay fallback success'],
+      blockedPeerRule: 'Blocked peers are never eligible as remembered neighbors or bootstrap candidates.',
+    },
+    messageEnvelope: {
+      kinds: ['discovery', 'signaling', 'p2p-message'],
+      encryptionRule: 'Discovery is signed metadata only; signaling and direct messages must carry ciphertext-only bodies.',
+    },
+    syncPolicy: {
+      localFirstDataClasses: ['profile-private-answers', 'contacts', 'blocked-peers', 'neighbor-cache', 'message-history', 'talks', 'chatbot-memory'],
+      relayOnlyDataClasses: ['discovery', 'signaling', 'presence', 'room-membership'],
+    },
+    platforms: [...P2P_PLATFORM_DESCRIPTORS],
+  };
+}
+
+export function createP2PDiscoveryMessage(params: Omit<P2PDiscoveryMessage, 'version' | 'kind' | 'protocolVersion' | 'bodyPlaintext'> & {
+  bodyPlaintext?: string;
+}): P2PDiscoveryMessage {
+  if (!params.capabilities?.includes('signed-discovery')) {
+    throw new Error('P2P discovery requires signed-discovery capability');
+  }
+  if (!params.endpointHints || params.endpointHints.length === 0) {
+    throw new Error('P2P discovery requires at least one endpoint hint');
+  }
+  const relayEnvelope = createRelayEnvelope({
+    kind: 'discovery',
+    senderPub: params.senderPub,
+    ...(params.recipientPub ? { recipientPub: params.recipientPub } : {}),
+    ...(params.routeHint ? { routeHint: params.routeHint } : {}),
+    signature: params.signature,
+    nonce: params.nonce,
+    expiresAt: params.expiresAt,
+    ...(params.bodyPlaintext ? { bodyPlaintext: params.bodyPlaintext } : {}),
+  });
+  return {
+    ...relayEnvelope,
+    kind: 'discovery',
+    protocolVersion: 1,
+    platform: params.platform,
+    capabilities: params.capabilities,
+    endpointHints: params.endpointHints,
   };
 }
 

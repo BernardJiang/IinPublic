@@ -14,16 +14,6 @@ Authoritative product scope lives in
 Continue the P2P roadmap:
 [P2P Node Network Roadmap](roadmap/p2p-node-network.md).
 
-## P5 — Shared P2P Network Across Platforms
-
-- [ ] Define a platform-neutral node protocol: identity, peer discovery, handshake, capabilities, neighbor score, message envelope, and sync policy.
-- [ ] Choose the networking substrate for non-browser nodes: Gun mesh, libp2p, Hyperswarm, or a thin custom WebSocket/WebRTC layer.
-- [ ] Build a Windows desktop package with the local node supervisor and autoupdate plan.
-- [ ] Build an Ubuntu desktop package with the same node supervisor and system service/desktop-session behavior.
-- [ ] Build Android node support with foreground-service controls for long-running P2P, battery limits, notifications, and GPS permission boundaries.
-- [ ] Decide the iOS strategy: foreground-only peer, PushKit/notification-assisted wakeup, or no always-on node because iOS background execution is constrained.
-- [ ] Add cross-platform compatibility tests where Web, Windows, Ubuntu, Android, and iOS clients join the same network and exchange signed discovery messages.
-
 ## P6 — Active Neighbor Memory
 
 - [ ] Define the neighbor cache schema: peer id, endpoint hints, last seen, successful sessions, latency, transport type, capabilities, trust/block status, and expiry.

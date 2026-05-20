@@ -2227,6 +2227,7 @@ export class UIManager extends EventEmitter {
         ${this.renderLocalNodeInspector(serverStorage?.localNode)}
         ${this.renderSeaIdentityInspector(serverStorage?.seaIdentityPolicy, serverStorage?.seaStorageScan)}
         ${this.renderConversationTransportInspector(serverStorage?.conversationTransport)}
+        ${this.renderP2PNetworkProtocolInspector(serverStorage?.p2pNetworkProtocol)}
         <div>
           <div style="font-weight:600;color:#334155;margin-bottom:6px;">Browser local storage</div>
           <div id="storage-inspector-local" style="display:flex;flex-wrap:wrap;gap:6px;">
@@ -2326,6 +2327,29 @@ export class UIManager extends EventEmitter {
         </div>
         <div id="storage-inspector-conversation-transport-modes" style="display:flex;flex-wrap:wrap;gap:6px;">
           ${modes.map((mode: string) => this.renderStoragePill(mode, mode === transport.activeMode ? 'active' : 'available')).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderP2PNetworkProtocolInspector(protocol: any): string {
+    if (!protocol) return '';
+    const platforms = Array.isArray(protocol.platforms) ? protocol.platforms : [];
+    const capabilities = Array.isArray(protocol.capabilities) ? protocol.capabilities : [];
+    return `
+      <div id="storage-inspector-p2p-protocol" style="display:grid;gap:8px;padding:10px;border:1px solid #e9d5ff;border-radius:8px;background:#faf5ff;">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <div style="font-weight:700;color:#581c87;">P2P Network Protocol</div>
+          ${this.renderStoragePill('Version', String(protocol.version || 'unknown'))}
+          ${this.renderStoragePill('Substrate', protocol.substrate || 'unknown')}
+          ${this.renderStoragePill('Discovery TTL', `${protocol.peerDiscovery?.ttlSeconds ?? 'unknown'}s`)}
+          ${this.renderStoragePill('Signature', protocol.identity?.signature || 'unknown')}
+        </div>
+        <div id="storage-inspector-p2p-platforms" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${platforms.map((item: any) => this.renderStoragePill(item.platform || 'platform', item.nodeAvailability || 'unknown')).join('')}
+        </div>
+        <div id="storage-inspector-p2p-capabilities" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${capabilities.map((capability: string) => this.renderStoragePill(capability, 'capability')).join('')}
         </div>
       </div>
     `;

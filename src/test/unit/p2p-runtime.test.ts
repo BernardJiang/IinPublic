@@ -5,6 +5,8 @@ import {
   createDirectP2PMessageEnvelope,
   createLocalNodeSupervisorSnapshot,
   createLinkedDeviceManifest,
+  createP2PDiscoveryMessage,
+  createP2PNodeProtocolSpec,
   createP2PSignalingEnvelope,
   createRelayEnvelope,
   scanRelayStorageForSeaLeaks,
@@ -242,5 +244,74 @@ describe('p2p runtime flags', () => {
         messageId: 'msg_1',
       }),
     );
+  });
+
+  it('defines a platform-neutral P2P node protocol across web, desktop, and mobile', () => {
+    const protocol = createP2PNodeProtocolSpec();
+
+    expect(protocol).toEqual(
+      expect.objectContaining({
+        version: 1,
+        substrate: 'gun-mesh-websocket-webrtc',
+        identity: expect.objectContaining({ publicKeys: ['pub', 'epub'] }),
+      }),
+    );
+    expect(protocol.platforms.map((item) => item.platform)).toEqual(['web', 'windows', 'ubuntu', 'android', 'ios']);
+    expect(protocol.platforms).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ platform: 'windows', nodeAvailability: 'bundled-local-node' }),
+        expect.objectContaining({ platform: 'ubuntu', nodeAvailability: 'bundled-local-node' }),
+        expect.objectContaining({ platform: 'android', nodeAvailability: 'foreground-service' }),
+        expect.objectContaining({ platform: 'ios', nodeAvailability: 'foreground-or-notification-assisted' }),
+      ]),
+    );
+    expect(protocol.capabilities).toEqual(
+      expect.arrayContaining(['signed-discovery', 'encrypted-signaling', 'webrtc-datachannel', 'neighbor-cache']),
+    );
+    expect(protocol.neighborScore.blockedPeerRule).toContain('Blocked peers');
+  });
+
+  it('creates signed discovery messages without plaintext or private keys', () => {
+    const message = createP2PDiscoveryMessage({
+      platform: 'android',
+      senderPub: 'pub_android',
+      capabilities: ['signed-discovery', 'foreground-service', 'relay-fallback'],
+      endpointHints: ['wss://relay.example/discovery/android'],
+      signature: 'sig_android',
+      nonce: 'nonce_android',
+      expiresAt: '2026-05-21T00:01:00.000Z',
+    });
+
+    expect(message).toEqual(
+      expect.objectContaining({
+        kind: 'discovery',
+        protocolVersion: 1,
+        platform: 'android',
+        senderPub: 'pub_android',
+      }),
+    );
+    expect(() =>
+      createP2PDiscoveryMessage({
+        platform: 'web',
+        senderPub: 'pub_web',
+        capabilities: ['relay-fallback'],
+        endpointHints: ['webrtc:room'],
+        signature: 'sig_web',
+        nonce: 'nonce_web',
+        expiresAt: '2026-05-21T00:01:00.000Z',
+      }),
+    ).toThrow(/signed-discovery/);
+    expect(() =>
+      createP2PDiscoveryMessage({
+        platform: 'web',
+        senderPub: 'pub_web',
+        capabilities: ['signed-discovery'],
+        endpointHints: ['webrtc:room'],
+        signature: 'sig_web',
+        nonce: 'nonce_web',
+        expiresAt: '2026-05-21T00:01:00.000Z',
+        bodyPlaintext: 'plain discovery body',
+      }),
+    ).toThrow(/plaintext/);
   });
 });

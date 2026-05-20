@@ -5,6 +5,8 @@ import { logger } from '../logger';
 import {
   applyLocalNodeAction,
   createConversationTransportDiagnostics,
+  createP2PDiscoveryMessage,
+  createP2PNodeProtocolSpec,
   createP2PSignalingEnvelope,
   createLocalNodeSupervisorSnapshot,
   resolveP2PRuntimeFlags,
@@ -13,6 +15,9 @@ import {
   STAR_GUN_PATH_CLASSIFICATIONS,
   type P2PSignalingEnvelope,
   type P2PSignalingKind,
+  type P2PDiscoveryMessage,
+  type P2PNodeCapability,
+  type P2PPlatformId,
   type LocalNodeAction,
   type LocalNodeSupervisorSnapshot,
 } from '../../shared/p2p-runtime';
@@ -121,12 +126,21 @@ export function registerSystemRoutes(
 ): void {
   let localNodeSupervisor: LocalNodeSupervisorSnapshot = createLocalNodeSupervisorSnapshot();
   const signalingByConversation = new Map<string, P2PSignalingEnvelope[]>();
+  const discoveryMessages = new Map<string, P2PDiscoveryMessage>();
 
   const pruneSignaling = (now = new Date()): void => {
     for (const [conversationId, envelopes] of signalingByConversation) {
       const fresh = envelopes.filter((envelope) => new Date(envelope.expiresAt).getTime() > now.getTime());
       if (fresh.length === 0) signalingByConversation.delete(conversationId);
       else signalingByConversation.set(conversationId, fresh);
+    }
+  };
+
+  const pruneDiscovery = (now = new Date()): void => {
+    for (const [senderPub, message] of discoveryMessages) {
+      if (new Date(message.expiresAt).getTime() <= now.getTime()) {
+        discoveryMessages.delete(senderPub);
+      }
     }
   };
 
@@ -171,6 +185,7 @@ export function registerSystemRoutes(
           flags: resolveP2PRuntimeFlags(process.env),
           localNode: localNodeSupervisor,
           conversationTransport: createConversationTransportDiagnostics(resolveP2PRuntimeFlags(process.env)),
+          p2pNetworkProtocol: createP2PNodeProtocolSpec(),
           seaIdentityPolicy: SEA_IDENTITY_POLICY,
           seaStorageScan,
           serverPersistence: {
@@ -184,6 +199,36 @@ export function registerSystemRoutes(
       } catch (error) {
         logger.error({ err: error }, 'Error reading storage debug data');
         res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    app.get('/api/p2p/discovery', (_req, res) => {
+      pruneDiscovery();
+      res.json({
+        protocol: createP2PNodeProtocolSpec(),
+        messages: Array.from(discoveryMessages.values()),
+      });
+    });
+
+    app.post('/api/p2p/discovery', (req, res) => {
+      try {
+        pruneDiscovery();
+        const body = req.body || {};
+        const message = createP2PDiscoveryMessage({
+          platform: String(body.platform || '') as P2PPlatformId,
+          senderPub: String(body.senderPub || ''),
+          capabilities: Array.isArray(body.capabilities) ? (body.capabilities as P2PNodeCapability[]) : [],
+          endpointHints: Array.isArray(body.endpointHints) ? body.endpointHints.map(String) : [],
+          signature: String(body.signature || ''),
+          nonce: String(body.nonce || ''),
+          expiresAt: String(body.expiresAt || ''),
+          ...(body.routeHint ? { routeHint: String(body.routeHint) } : {}),
+          ...(body.bodyPlaintext ? { bodyPlaintext: String(body.bodyPlaintext) } : {}),
+        });
+        discoveryMessages.set(message.senderPub, message);
+        res.json({ stored: true, message });
+      } catch (error) {
+        res.status(400).json({ error: (error as Error).message });
       }
     });
 

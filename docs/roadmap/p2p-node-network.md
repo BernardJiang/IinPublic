@@ -78,6 +78,7 @@ The non-production storage inspector is exposed at `GET /api/debug/storage` and 
 - Done: permissioned local node supervisor model with start, stop, restart, health-check, wipe, signed session pairing, separate node identity binding, and local-only persistence controls.
 - Done: canonical SEA public identity policy, encrypted browser key custody, recovery package plumbing, encrypted linked-device manifest primitives, signed ciphertext-only relay envelopes, and relay/browser leak checks.
 - Done: `ConversationTransport` boundary with `star-gun` as the default implementation, advertised `server-relay`/`direct-p2p` modes, short-lived encrypted signaling envelopes, and Settings/debug transport diagnostics.
+- Done: platform-neutral P2P node protocol with the chosen `gun-mesh-websocket-webrtc` substrate, shared identity/discovery/handshake/capability/neighbor-score/envelope/sync policy model, platform descriptors for Web/Windows/Ubuntu/Android/iOS, and signed discovery compatibility tests.
 - Add browser WebRTC DataChannel activation behind the disabled direct-P2P flag after compatibility testing proves the transport boundary is stable.
 
 ## Permissioned Local Node
@@ -113,3 +114,19 @@ The local node is modeled as owner-controlled device state before it is allowed 
 - Windows/Ubuntu: best fit for a bundled Node.js local node plus desktop shell.
 - Android: possible with a foreground service or embedded runtime, but battery and background restrictions must shape the UX.
 - iOS: cannot assume an always-running Node.js process. Plan for foreground-only or notification-assisted behavior unless a native networking layer replaces Node.js.
+
+## Cross-Platform Protocol
+
+The repo now exposes `P2PNodeProtocolSpec` in shared runtime code and through the non-production storage inspector. The selected substrate is `gun-mesh-websocket-webrtc`: Gun/WebSocket-compatible relay discovery and signaling remain available while matched peers use WebRTC DataChannel when direct transport is enabled.
+
+Platform descriptors:
+
+| Platform | Package target | Node behavior |
+| --- | --- | --- |
+| Web | Browser app | Foreground browser client; may pair with a localhost node. |
+| Windows | Desktop shell plus local service | Bundled local node supervised with UI/node autoupdate as one unit. |
+| Ubuntu | Desktop package plus user systemd service | User-scoped service tied to desktop-session controls. |
+| Android | Native app foreground service | Long-running P2P requires foreground notification, battery limits, Android keystore, and GPS boundaries. |
+| iOS | Native foreground peer | No always-on node assumption; use foreground-only or notification-assisted wakeup. |
+
+Signed discovery messages are versioned, include the sender public key, platform, capabilities, endpoint hints, nonce, expiry, and signature, and reject plaintext bodies or private key material.
