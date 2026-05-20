@@ -69,6 +69,13 @@ describe('system routes', () => {
         ]),
       }),
     );
+    expect(res.body.conversationTransport).toEqual(
+      expect.objectContaining({
+        activeMode: 'star-gun',
+        availableModes: ['star-gun', 'server-relay', 'direct-p2p'],
+        messageBodyStorage: 'gun-legacy',
+      }),
+    );
     expect(res.body.seaIdentityPolicy).toEqual(
       expect.objectContaining({
         publicKeys: ['pub', 'epub'],
@@ -151,5 +158,43 @@ describe('system routes', () => {
     expect(wiped.status).toBe(200);
     expect(wiped.body.status).toBe('wiped');
     expect(wiped.body.identityBinding).toBeNull();
+  });
+
+  it('stores only encrypted short-lived P2P signaling envelopes in non-production', async () => {
+    const { app } = buildApp();
+
+    const posted = await request(app).post('/api/p2p/signaling/conv_1').send({
+      kind: 'offer',
+      senderPub: 'pub_a',
+      recipientPub: 'pub_b',
+      signalCiphertext: 'SEA{"ct":"offer"}',
+      signature: 'sig_a',
+      nonce: 'nonce_a',
+    });
+    expect(posted.status).toBe(200);
+    expect(posted.body.envelope).toEqual(
+      expect.objectContaining({
+        version: 1,
+        conversationId: 'conv_1',
+        kind: 'offer',
+        signalCiphertext: 'SEA{"ct":"offer"}',
+      }),
+    );
+    expect(posted.body.envelope.expiresAt).toBeTruthy();
+
+    const listed = await request(app).get('/api/p2p/signaling/conv_1');
+    expect(listed.status).toBe(200);
+    expect(listed.body.envelopes).toHaveLength(1);
+    expect(JSON.stringify(listed.body)).not.toContain('"sdp"');
+
+    const plaintext = await request(app).post('/api/p2p/signaling/conv_1').send({
+      kind: 'offer',
+      senderPub: 'pub_a',
+      recipientPub: 'pub_b',
+      signalCiphertext: '{"sdp":"plain"}',
+      signature: 'sig_a',
+      nonce: 'nonce_a',
+    });
+    expect(plaintext.status).toBe(400);
   });
 });

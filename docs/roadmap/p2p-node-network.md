@@ -77,8 +77,8 @@ The non-production storage inspector is exposed at `GET /api/debug/storage` and 
 - Done: dev-only storage visibility endpoint and Settings panel.
 - Done: permissioned local node supervisor model with start, stop, restart, health-check, wipe, signed session pairing, separate node identity binding, and local-only persistence controls.
 - Done: canonical SEA public identity policy, encrypted browser key custody, recovery package plumbing, encrypted linked-device manifest primitives, signed ciphertext-only relay envelopes, and relay/browser leak checks.
-- Introduce a `ConversationTransport` interface with the current Gun path as the first implementation.
-- Add a no-op/local mock P2P transport behind a disabled flag so UI code starts depending on the abstraction.
+- Done: `ConversationTransport` boundary with `star-gun` as the default implementation, advertised `server-relay`/`direct-p2p` modes, short-lived encrypted signaling envelopes, and Settings/debug transport diagnostics.
+- Add browser WebRTC DataChannel activation behind the disabled direct-P2P flag after compatibility testing proves the transport boundary is stable.
 
 ## Permissioned Local Node
 

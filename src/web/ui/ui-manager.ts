@@ -2226,6 +2226,7 @@ export class UIManager extends EventEmitter {
         </div>
         ${this.renderLocalNodeInspector(serverStorage?.localNode)}
         ${this.renderSeaIdentityInspector(serverStorage?.seaIdentityPolicy, serverStorage?.seaStorageScan)}
+        ${this.renderConversationTransportInspector(serverStorage?.conversationTransport)}
         <div>
           <div style="font-weight:600;color:#334155;margin-bottom:6px;">Browser local storage</div>
           <div id="storage-inspector-local" style="display:flex;flex-wrap:wrap;gap:6px;">
@@ -2306,6 +2307,25 @@ export class UIManager extends EventEmitter {
         </div>
         <div id="storage-inspector-sea-rules" style="color:#475569;">
           ${escapeHtml(policy.relayEnvelopeRule || '')}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderConversationTransportInspector(transport: any): string {
+    if (!transport) return '';
+    const modes = Array.isArray(transport.availableModes) ? transport.availableModes : [];
+    return `
+      <div id="storage-inspector-conversation-transport" style="display:grid;gap:8px;padding:10px;border:1px solid #fde68a;border-radius:8px;background:#fffbeb;">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <div style="font-weight:700;color:#78350f;">Conversation Transport</div>
+          ${this.renderStoragePill('Active', transport.activeMode || 'unknown')}
+          ${this.renderStoragePill('Messages', transport.messageBodyStorage || 'unknown')}
+          ${this.renderStoragePill('Receipts', transport.receiptsStorage || 'unknown')}
+          ${transport.fallback ? this.renderStoragePill('Fallback', transport.fallback) : ''}
+        </div>
+        <div id="storage-inspector-conversation-transport-modes" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${modes.map((mode: string) => this.renderStoragePill(mode, mode === transport.activeMode ? 'active' : 'available')).join('')}
         </div>
       </div>
     `;

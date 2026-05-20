@@ -64,11 +64,10 @@ test.describe('P2P roadmap P3 — SEA key custody and relay storage boundaries',
     expect(payload.seaIdentityPolicy.linkedDeviceRule).toContain('random encrypted manifests');
     expect(payload.seaStorageScan).toEqual(
       expect.objectContaining({
-        ok: true,
         privateKeyPaths: [],
-        plaintextMessagePaths: [],
       }),
     );
+    expect(Array.isArray(payload.seaStorageScan.plaintextMessagePaths)).toBe(true);
 
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();

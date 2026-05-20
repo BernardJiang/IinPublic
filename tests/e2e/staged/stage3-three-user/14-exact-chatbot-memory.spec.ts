@@ -114,6 +114,23 @@ async function waitForRecordedResponse(page: Page, talkId: string): Promise<void
     .toBeGreaterThanOrEqual(1);
 }
 
+async function waitForExactMemoryAnswer(page: Page, userId: string, answerText: string): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const res = await page.context().request.get(`${gunBaseURL()}/api/test/export-snapshot`, {
+          headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+        });
+        if (!res.ok()) return false;
+        const snapshot = await res.json();
+        const raw = JSON.stringify(snapshot.gunGraph || {});
+        return raw.includes('exactChatbotMemoryByUser') && raw.includes(userId) && raw.includes(answerText);
+      },
+      { timeout: 30_000, intervals: [300, 600, 1000] },
+    )
+    .toBe(true);
+}
+
 test.describe('Talks matching — exact chatbot Q/A memory', () => {
   let browsers: ThreeBrowsers;
   let browserTom: Browser;
@@ -189,6 +206,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
     await openIncomingTalkModal(pageTom, TITLE_APPLE);
     await chooseAutoAnswer(pageTom, 'a_apple');
     await waitForRecordedResponse(pageTom, appleTalkId);
+    await waitForExactMemoryAnswer(pageTom, tomIdentity.id, 'Apple');
 
     // Context B: same exact question, but Apple is absent. Auto mode must not answer;
     // the modal is dispatched to Tom so he can choose Banana.
@@ -205,6 +223,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
     await expect(modal.locator('input.choice-radio[data-answer-id="a_banana"][data-mode="auto"]')).toBeVisible();
     await chooseAutoAnswer(pageTom, 'a_banana');
     await waitForRecordedResponse(pageTom, bananaTalkId);
+    await waitForExactMemoryAnswer(pageTom, tomIdentity.id, 'Banana');
 
     // Bob sends another context with Apple available and Banana absent.
     // The chatbot should skip newest Banana history, reuse older Apple, and create a bot-marked match for Bob.

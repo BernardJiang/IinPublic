@@ -4,11 +4,15 @@ import type express from 'express';
 import { logger } from '../logger';
 import {
   applyLocalNodeAction,
+  createConversationTransportDiagnostics,
+  createP2PSignalingEnvelope,
   createLocalNodeSupervisorSnapshot,
   resolveP2PRuntimeFlags,
   scanRelayStorageForSeaLeaks,
   SEA_IDENTITY_POLICY,
   STAR_GUN_PATH_CLASSIFICATIONS,
+  type P2PSignalingEnvelope,
+  type P2PSignalingKind,
   type LocalNodeAction,
   type LocalNodeSupervisorSnapshot,
 } from '../../shared/p2p-runtime';
@@ -116,6 +120,15 @@ export function registerSystemRoutes(
   }: RegisterSystemRoutesDeps,
 ): void {
   let localNodeSupervisor: LocalNodeSupervisorSnapshot = createLocalNodeSupervisorSnapshot();
+  const signalingByConversation = new Map<string, P2PSignalingEnvelope[]>();
+
+  const pruneSignaling = (now = new Date()): void => {
+    for (const [conversationId, envelopes] of signalingByConversation) {
+      const fresh = envelopes.filter((envelope) => new Date(envelope.expiresAt).getTime() > now.getTime());
+      if (fresh.length === 0) signalingByConversation.delete(conversationId);
+      else signalingByConversation.set(conversationId, fresh);
+    }
+  };
 
   // Health check
   app.get('/health', (_req, res) => {
@@ -157,6 +170,7 @@ export function registerSystemRoutes(
           },
           flags: resolveP2PRuntimeFlags(process.env),
           localNode: localNodeSupervisor,
+          conversationTransport: createConversationTransportDiagnostics(resolveP2PRuntimeFlags(process.env)),
           seaIdentityPolicy: SEA_IDENTITY_POLICY,
           seaStorageScan,
           serverPersistence: {
@@ -182,6 +196,37 @@ export function registerSystemRoutes(
       try {
         localNodeSupervisor = applyLocalNodeAction(localNodeSupervisor, action, new Date(), req.body);
         res.json(localNodeSupervisor);
+      } catch (error) {
+        res.status(400).json({ error: (error as Error).message });
+      }
+    });
+
+    app.get('/api/p2p/signaling/:conversationId', (req, res) => {
+      pruneSignaling();
+      const conversationId = String(req.params.conversationId || '');
+      res.json({
+        conversationId,
+        envelopes: signalingByConversation.get(conversationId) || [],
+      });
+    });
+
+    app.post('/api/p2p/signaling/:conversationId', (req, res) => {
+      try {
+        pruneSignaling();
+        const conversationId = String(req.params.conversationId || '');
+        const body = req.body || {};
+        const envelope = createP2PSignalingEnvelope({
+          conversationId,
+          kind: body.kind as P2PSignalingKind,
+          senderPub: String(body.senderPub || ''),
+          recipientPub: String(body.recipientPub || ''),
+          signalCiphertext: String(body.signalCiphertext || ''),
+          signature: String(body.signature || ''),
+          nonce: String(body.nonce || ''),
+        });
+        const current = signalingByConversation.get(conversationId) || [];
+        signalingByConversation.set(conversationId, [...current, envelope]);
+        res.json({ stored: true, envelope });
       } catch (error) {
         res.status(400).json({ error: (error as Error).message });
       }

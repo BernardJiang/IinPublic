@@ -2,6 +2,7 @@ import { WebGunService } from './web-gun-service';
 import { Message } from '../../shared/types';
 import { getSEA } from '../sea-gun';
 import type { GunPair } from './gun-bridge';
+import type { ConversationTransportMode } from '../../shared/p2p-runtime';
 
 export type SendMessageOptions = {
   channel?: Message['channel'];
@@ -9,64 +10,16 @@ export type SendMessageOptions = {
   otherUserId?: string;
 };
 
-export class WebConversationService {
+export type ConversationTransport = {
+  mode: ConversationTransportMode;
+  sendMessage(conversationId: string, senderId: string, text: string, opts?: SendMessageOptions): Promise<void>;
+  subscribeToMessages(conversationId: string, callback: (messages: Message[]) => void): () => void;
+};
+
+class StarGunConversationTransport implements ConversationTransport {
+  mode: ConversationTransportMode = 'star-gun';
+
   constructor(private gunService: WebGunService) {}
-
-  /**
-   * Create a new conversation between two users after a match
-   */
-  createConversation(params: {
-    userId1: string;
-    userName1: string;
-    userId2: string;
-    userName2: string;
-    talkId: string;
-    respondedByBotForUser1?: boolean;
-    respondedByBotForUser2?: boolean;
-  }): Promise<string> {
-    const gun = this.gunService.getGun();
-
-    const sortedIds = [params.userId1, params.userId2].sort();
-    const conversationId = `conv_${sortedIds[0]}_${sortedIds[1]}_${params.talkId}`;
-
-    console.log(`💬 Creating conversation: ${conversationId}`);
-
-    // Gun.put is idempotent — no need to .once()-check first.
-    // Skipping the existence check eliminates a Gun round-trip that can stall
-    // the match notification path for several seconds on a busy graph.
-    const conversationData = {
-      id: conversationId,
-      participants: [params.userId1, params.userId2],
-      talkId: params.talkId,
-      createdAt: new Date().toISOString(),
-      status: 'active',
-    };
-
-    gun.get(`conversations/${conversationId}`).put({
-      data: JSON.stringify(conversationData),
-    });
-
-    gun.get(`users/${params.userId1}`).get('conversations').get(conversationId).put({
-      conversationId,
-      otherUserId: params.userId2,
-      otherUserName: params.userName2,
-      talkId: params.talkId,
-      createdAt: new Date().toISOString(),
-      respondedByBot: !!params.respondedByBotForUser1,
-    });
-
-    gun.get(`users/${params.userId2}`).get('conversations').get(conversationId).put({
-      conversationId,
-      otherUserId: params.userId1,
-      otherUserName: params.userName1,
-      talkId: params.talkId,
-      createdAt: new Date().toISOString(),
-      respondedByBot: !!params.respondedByBotForUser2,
-    });
-
-    console.log(`✅ Conversation created: ${conversationId}`);
-    return Promise.resolve(conversationId);
-  }
 
   private async getOtherParticipantId(conversationId: string, myId: string): Promise<string | undefined> {
     const gun = this.gunService.getGun();
@@ -92,9 +45,6 @@ export class WebConversationService {
     return user.epub;
   }
 
-  /**
-   * Send a message in a conversation. Non-public channels encrypt with ECDH `SEA.secret(theirEpub, myPair)`.
-   */
   async sendMessage(
     conversationId: string,
     senderId: string,
@@ -112,6 +62,7 @@ export class WebConversationService {
       text: payloadText,
       timestamp: new Date().toISOString(),
       channel,
+      transport: this.mode,
     };
 
     if (channel !== 'public') {
@@ -136,17 +87,14 @@ export class WebConversationService {
         text: payloadText,
         timestamp: new Date().toISOString(),
         channel,
+        transport: this.mode,
       };
     }
 
     gun.get(`conversations/${conversationId}`).get('messages').get(messageId).put(messageData);
-
-    console.log(`📤 Message sent in conversation ${conversationId} (${channel})`);
+    console.log(`📤 Message sent in conversation ${conversationId} (${channel}, ${this.mode})`);
   }
 
-  /**
-   * Subscribe to messages in a conversation
-   */
   subscribeToMessages(conversationId: string, callback: (messages: Message[]) => void): () => void {
     const gun = this.gunService.getGun();
     const processedMessages = new Set<string>();
@@ -160,15 +108,13 @@ export class WebConversationService {
         if (processedMessages.has(messageId)) return;
 
         processedMessages.add(messageId);
-
-        // Collect all messages after a short delay
         setTimeout(() => {
           void this.collectAndDecryptMessages(conversationId, processedMessages, callback);
         }, 300);
       });
 
     return () => {
-      console.log(`👋 Unsubscribed from conversation ${conversationId}`);
+      console.log(`👋 Unsubscribed from user ${conversationId} messages (${this.mode})`);
     };
   }
 
@@ -226,6 +172,93 @@ export class WebConversationService {
 
     messagesArray.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     callback(messagesArray);
+  }
+}
+
+export class WebConversationService {
+  private transport: ConversationTransport;
+
+  constructor(private gunService: WebGunService, transport?: ConversationTransport) {
+    this.transport = transport ?? new StarGunConversationTransport(gunService);
+  }
+
+  getTransportMode(): ConversationTransportMode {
+    return this.transport.mode;
+  }
+
+  /**
+   * Create a new conversation between two users after a match
+   */
+  createConversation(params: {
+    userId1: string;
+    userName1: string;
+    userId2: string;
+    userName2: string;
+    talkId: string;
+    respondedByBotForUser1?: boolean;
+    respondedByBotForUser2?: boolean;
+  }): Promise<string> {
+    const gun = this.gunService.getGun();
+
+    const sortedIds = [params.userId1, params.userId2].sort();
+    const conversationId = `conv_${sortedIds[0]}_${sortedIds[1]}_${params.talkId}`;
+
+    console.log(`💬 Creating conversation: ${conversationId}`);
+
+    // Gun.put is idempotent — no need to .once()-check first.
+    // Skipping the existence check eliminates a Gun round-trip that can stall
+    // the match notification path for several seconds on a busy graph.
+    const conversationData = {
+      id: conversationId,
+      participants: [params.userId1, params.userId2],
+      talkId: params.talkId,
+      createdAt: new Date().toISOString(),
+      status: 'active',
+    };
+
+    gun.get(`conversations/${conversationId}`).put({
+      data: JSON.stringify(conversationData),
+    });
+
+    gun.get(`users/${params.userId1}`).get('conversations').get(conversationId).put({
+      conversationId,
+      otherUserId: params.userId2,
+      otherUserName: params.userName2,
+      talkId: params.talkId,
+      createdAt: new Date().toISOString(),
+      respondedByBot: !!params.respondedByBotForUser1,
+    });
+
+    gun.get(`users/${params.userId2}`).get('conversations').get(conversationId).put({
+      conversationId,
+      otherUserId: params.userId1,
+      otherUserName: params.userName1,
+      talkId: params.talkId,
+      createdAt: new Date().toISOString(),
+      respondedByBot: !!params.respondedByBotForUser2,
+    });
+
+    console.log(`✅ Conversation created: ${conversationId}`);
+    return Promise.resolve(conversationId);
+  }
+
+  /**
+   * Send a message in a conversation. Non-public channels encrypt with ECDH `SEA.secret(theirEpub, myPair)`.
+   */
+  async sendMessage(
+    conversationId: string,
+    senderId: string,
+    text: string,
+    opts?: SendMessageOptions,
+  ): Promise<void> {
+    return this.transport.sendMessage(conversationId, senderId, text, opts);
+  }
+
+  /**
+   * Subscribe to messages in a conversation
+   */
+  subscribeToMessages(conversationId: string, callback: (messages: Message[]) => void): () => void {
+    return this.transport.subscribeToMessages(conversationId, callback);
   }
 
   /**

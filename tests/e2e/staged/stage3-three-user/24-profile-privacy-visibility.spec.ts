@@ -141,21 +141,6 @@ test.describe('Profile privacy visibility', () => {
     return (await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id ?? '')).trim();
   }
 
-  async function waitForKnownPerson(page: Page, ownerId: string, targetId: string): Promise<void> {
-    const knownPeopleUrl = `${gunBaseURL()}/api/users/${encodeURIComponent(ownerId)}/known-people`;
-    await expect
-      .poll(
-        async () => {
-          const res = await page.request.get(knownPeopleUrl);
-          if (!res.ok()) return false;
-          const knownPeople = await res.json();
-          return Array.isArray(knownPeople) && knownPeople.some((person) => person?.userId === targetId);
-        },
-        { timeout: 90_000, intervals: [500, 1000, 2000] },
-      )
-      .toBe(true);
-  }
-
   async function waitForProfileRows(
     page: Page,
     ownerId: string,
@@ -172,6 +157,43 @@ test.describe('Profile privacy visibility', () => {
           const res = await page.request.get(userUrl);
           if (!res.ok()) return false;
           const user = await res.json();
+          const profileText = JSON.stringify(user?.profile ?? []);
+          return (
+            expectations.visible.every((text) => profileText.includes(text)) &&
+            expectations.hidden.every((text) => !profileText.includes(text))
+          );
+        },
+        { timeout: 120_000, intervals: [500, 1000, 2000, 4000] },
+      )
+      .toBe(true);
+  }
+
+  async function postKnownPersonUntilProfileVisible(
+    page: Page,
+    ownerId: string,
+    targetId: string,
+    expectations: {
+      visible: string[];
+      hidden: string[];
+    },
+  ): Promise<void> {
+    const postUrl = `${gunBaseURL()}/api/users/${encodeURIComponent(ownerId)}/known-people`;
+    const userUrl = `${gunBaseURL()}/api/users/${encodeURIComponent(ownerId)}?viewerId=${encodeURIComponent(targetId)}`;
+
+    await expect
+      .poll(
+        async () => {
+          const postRes = await page.request.post(postUrl, {
+            data: {
+              targetId,
+              label: 'friend',
+            },
+          });
+          if (!postRes.ok()) return false;
+
+          const userRes = await page.request.get(userUrl);
+          if (!userRes.ok()) return false;
+          const user = await userRes.json();
           const profileText = JSON.stringify(user?.profile ?? []);
           return (
             expectations.visible.every((text) => profileText.includes(text)) &&
@@ -277,20 +299,11 @@ test.describe('Profile privacy visibility', () => {
     expect(jContactId).toBeTruthy();
 
     // Add JerryContact as a known person under Tom. This makes `contacts_only` rows visible.
-    const postUrl = `${gunBaseURL()}/api/users/${encodeURIComponent(tomId)}/known-people`;
-    const postRes = await pageTom.request.post(postUrl, {
-      data: {
-        targetId: jContactId,
-        label: 'friend',
-      },
-    });
-    expect(postRes.ok()).toBeTruthy();
-    await waitForKnownPerson(pageTom, tomId, jContactId);
     await waitForProfileRows(pageJerryNonContact, tomId, jNonContactId, {
       visible: [PUBLIC_Q, PUBLIC_A],
       hidden: [CONTACTS_Q, CONTACTS_A, PRIVATE_Q, PRIVATE_A],
     });
-    await waitForProfileRows(pageJerryContact, tomId, jContactId, {
+    await postKnownPersonUntilProfileVisible(pageTom, tomId, jContactId, {
       visible: [PUBLIC_Q, PUBLIC_A, CONTACTS_Q, CONTACTS_A],
       hidden: [PRIVATE_Q, PRIVATE_A],
     });

@@ -1,8 +1,11 @@
 import {
   applyLocalNodeAction,
   assertNoPrivateSeaMaterial,
+  createConversationTransportDiagnostics,
+  createDirectP2PMessageEnvelope,
   createLocalNodeSupervisorSnapshot,
   createLinkedDeviceManifest,
+  createP2PSignalingEnvelope,
   createRelayEnvelope,
   scanRelayStorageForSeaLeaks,
   resolveP2PRuntimeFlags,
@@ -154,5 +157,90 @@ describe('p2p runtime flags', () => {
     expect(leaking.ok).toBe(false);
     expect(leaking.privateKeyPaths).toContain('$.users/alice.priv');
     expect(leaking.plaintextMessagePaths).toContain('$.conversations/1/messages/m1.text');
+  });
+
+  it('describes star and direct conversation transport storage boundaries', () => {
+    expect(
+      createConversationTransportDiagnostics({
+        starServerPersistence: 'durable',
+        p2pNodeEnabled: false,
+        p2pDirectChatEnabled: false,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        activeMode: 'star-gun',
+        messageBodyStorage: 'gun-legacy',
+        fallback: null,
+      }),
+    );
+    expect(
+      createConversationTransportDiagnostics({
+        starServerPersistence: 'durable',
+        p2pNodeEnabled: true,
+        p2pDirectChatEnabled: true,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        activeMode: 'direct-p2p',
+        messageBodyStorage: 'local-only',
+        fallback: 'server-relay',
+      }),
+    );
+  });
+
+  it('creates short-lived encrypted signaling envelopes for WebRTC setup', () => {
+    const envelope = createP2PSignalingEnvelope({
+      conversationId: 'conv_1',
+      kind: 'offer',
+      senderPub: 'pub_a',
+      recipientPub: 'pub_b',
+      signalCiphertext: 'SEA{"ct":"offer"}',
+      signature: 'sig_a',
+      nonce: 'nonce_a',
+      now: new Date('2026-05-20T00:00:00.000Z'),
+      ttlSeconds: 30,
+    });
+
+    expect(envelope).toEqual(
+      expect.objectContaining({
+        version: 1,
+        conversationId: 'conv_1',
+        kind: 'offer',
+        expiresAt: '2026-05-20T00:00:30.000Z',
+      }),
+    );
+    expect(() =>
+      createP2PSignalingEnvelope({
+        conversationId: 'conv_1',
+        kind: 'offer',
+        senderPub: 'pub_a',
+        recipientPub: 'pub_b',
+        signalCiphertext: '{"sdp":"plain"}',
+        signature: 'sig_a',
+        nonce: 'nonce_a',
+      }),
+    ).toThrow(/encrypted ciphertext/);
+  });
+
+  it('requires direct P2P messages to be signed ciphertext envelopes', () => {
+    expect(
+      createDirectP2PMessageEnvelope({
+        conversationId: 'conv_1',
+        messageId: 'msg_1',
+        senderPub: 'pub_a',
+        recipientPub: 'pub_b',
+        bodyCiphertext: 'SEA{"ct":"hello"}',
+        signature: 'sig_a',
+        nonce: 'nonce_a',
+        expiresAt: '2026-05-20T00:02:00.000Z',
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        kind: 'p2p-message',
+        transport: 'webrtc-datachannel',
+        conversationId: 'conv_1',
+        messageId: 'msg_1',
+      }),
+    );
   });
 });

@@ -6,6 +6,40 @@ export type P2PRuntimeFlags = {
   p2pDirectChatEnabled: boolean;
 };
 
+export type ConversationTransportMode = 'star-gun' | 'server-relay' | 'direct-p2p';
+
+export type ConversationTransportDiagnostics = {
+  activeMode: ConversationTransportMode;
+  availableModes: ConversationTransportMode[];
+  messageBodyStorage: 'gun-legacy' | 'relay-ciphertext-only' | 'local-only';
+  receiptsStorage: 'gun-legacy' | 'local-only';
+  fallback: ConversationTransportMode | null;
+};
+
+export type P2PSignalingKind = 'offer' | 'answer' | 'ice-candidate' | 'connection-state';
+
+export type P2PSignalingEnvelope = {
+  version: 1;
+  conversationId: string;
+  kind: P2PSignalingKind;
+  senderPub: string;
+  recipientPub: string;
+  signalCiphertext: string;
+  signature: string;
+  nonce: string;
+  createdAt: string;
+  expiresAt: string;
+};
+
+export type DirectP2PMessageEnvelope = RelayEnvelope & {
+  kind: 'p2p-message';
+  transport: 'webrtc-datachannel';
+  conversationId: string;
+  messageId: string;
+};
+
+export const SIGNALING_TTL_SECONDS = 120;
+
 export type SeaPublicIdentity = {
   pub: string;
   epub: string;
@@ -124,6 +158,72 @@ export function resolveP2PRuntimeFlags(env: Record<string, string | undefined> =
     starServerPersistence: parsePersistencePolicy(get('STAR_SERVER_PERSISTENCE')),
     p2pNodeEnabled: parseBooleanFlag(get('P2P_NODE_ENABLED'), false),
     p2pDirectChatEnabled: parseBooleanFlag(get('P2P_DIRECT_CHAT_ENABLED'), false),
+  };
+}
+
+export function createConversationTransportDiagnostics(flags: P2PRuntimeFlags): ConversationTransportDiagnostics {
+  if (flags.p2pDirectChatEnabled) {
+    return {
+      activeMode: 'direct-p2p',
+      availableModes: ['star-gun', 'server-relay', 'direct-p2p'],
+      messageBodyStorage: 'local-only',
+      receiptsStorage: 'local-only',
+      fallback: 'server-relay',
+    };
+  }
+  return {
+    activeMode: 'star-gun',
+    availableModes: ['star-gun', 'server-relay', 'direct-p2p'],
+    messageBodyStorage: 'gun-legacy',
+    receiptsStorage: 'gun-legacy',
+    fallback: null,
+  };
+}
+
+export function createP2PSignalingEnvelope(params: Omit<P2PSignalingEnvelope, 'version' | 'createdAt' | 'expiresAt'> & {
+  now?: Date;
+  ttlSeconds?: number;
+}): P2PSignalingEnvelope {
+  if (!params.signalCiphertext || !params.signalCiphertext.startsWith('SEA{')) {
+    throw new Error('P2P signaling payloads must be encrypted ciphertext');
+  }
+  assertNoPrivateSeaMaterial(params);
+  const now = params.now ?? new Date();
+  const ttlSeconds = params.ttlSeconds ?? SIGNALING_TTL_SECONDS;
+  return {
+    version: 1,
+    conversationId: params.conversationId,
+    kind: params.kind,
+    senderPub: params.senderPub,
+    recipientPub: params.recipientPub,
+    signalCiphertext: params.signalCiphertext,
+    signature: params.signature,
+    nonce: params.nonce,
+    createdAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + ttlSeconds * 1000).toISOString(),
+  };
+}
+
+export function createDirectP2PMessageEnvelope(params: Omit<DirectP2PMessageEnvelope, 'version' | 'kind' | 'transport' | 'bodyPlaintext'> & {
+  bodyPlaintext?: string;
+}): DirectP2PMessageEnvelope {
+  const relayEnvelope = createRelayEnvelope({
+    kind: 'p2p-message',
+    senderPub: params.senderPub,
+    ...(params.recipientPub ? { recipientPub: params.recipientPub } : {}),
+    ...(params.routeHint ? { routeHint: params.routeHint } : {}),
+    ...(params.bodyCiphertext ? { bodyCiphertext: params.bodyCiphertext } : {}),
+    signature: params.signature,
+    nonce: params.nonce,
+    expiresAt: params.expiresAt,
+    ...(params.bodyPlaintext ? { bodyPlaintext: params.bodyPlaintext } : {}),
+  });
+  return {
+    ...relayEnvelope,
+    kind: 'p2p-message',
+    transport: 'webrtc-datachannel',
+    conversationId: params.conversationId,
+    messageId: params.messageId,
   };
 }
 
