@@ -2066,9 +2066,17 @@ export class UIManager extends EventEmitter {
             <textarea class="form-input" id="settings-custom-blocked" rows="3">${escapeHtml((talkFilters.customBlockedTerms || []).join(', '))}</textarea>
           </label>
         </section>
+        <section id="settings-storage-inspector" style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
+            <div style="font-weight:700;color:#111827;">Storage Inspector</div>
+            <button type="button" class="btn" id="settings-refresh-storage-btn">Refresh</button>
+          </div>
+          <div id="settings-storage-inspector-body" style="font-size:0.9em;color:#64748b;">Loading storage state...</div>
+        </section>
       </div>
     `;
     this.bindSettingsControls();
+    void this.refreshStorageInspector();
   }
 
   private bindSettingsControls(): void {
@@ -2163,6 +2171,97 @@ export class UIManager extends EventEmitter {
       if (this.currentUser?.reputation) this.currentUser.reputation.isHidden = !visible;
       this.emit('setCreditVisibility', { visible });
     });
+    document.getElementById('settings-refresh-storage-btn')?.addEventListener('click', () => {
+      void this.refreshStorageInspector();
+    });
+  }
+
+  private async getBrowserStorageSnapshot(): Promise<{
+    localStorageKeys: Array<{ key: string; bytes: number }>;
+    indexedDBNames: string[];
+  }> {
+    const localStorageKeys = Object.keys(localStorage)
+      .sort()
+      .map((key) => ({
+        key,
+        bytes: new Blob([localStorage.getItem(key) || '']).size,
+      }));
+    let indexedDBNames: string[] = [];
+    try {
+      const dbs = typeof indexedDB !== 'undefined' && 'databases' in indexedDB
+        ? await (indexedDB as any).databases()
+        : [];
+      indexedDBNames = dbs.map((db: { name?: string }) => db.name || '(unnamed)').filter(Boolean).sort();
+    } catch {
+      indexedDBNames = ['unavailable'];
+    }
+    return { localStorageKeys, indexedDBNames };
+  }
+
+  private async refreshStorageInspector(): Promise<void> {
+    const body = document.getElementById('settings-storage-inspector-body');
+    if (!body) return;
+    const browserStorage = await this.getBrowserStorageSnapshot();
+    let serverStorage: any = null;
+    let serverError = '';
+    if (this.apiBase) {
+      try {
+        const res = await fetch(`${this.apiBase}/api/debug/storage`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        serverStorage = await res.json();
+      } catch (error) {
+        serverError = (error as Error).message;
+      }
+    }
+
+    const flags = serverStorage?.flags || {};
+    const serverRows = serverStorage?.pathClassifications || [];
+    body.innerHTML = `
+      <div style="display:grid;gap:12px;">
+        <div id="storage-inspector-flags" style="display:flex;flex-wrap:wrap;gap:8px;">
+          ${this.renderStoragePill('Mode', serverStorage?.mode || 'star')}
+          ${this.renderStoragePill('Persistence', flags.starServerPersistence || 'unknown')}
+          ${this.renderStoragePill('Local node', flags.p2pNodeEnabled ? 'enabled' : 'disabled')}
+          ${this.renderStoragePill('Direct chat', flags.p2pDirectChatEnabled ? 'enabled' : 'disabled')}
+        </div>
+        <div>
+          <div style="font-weight:600;color:#334155;margin-bottom:6px;">Browser local storage</div>
+          <div id="storage-inspector-local" style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${
+              browserStorage.localStorageKeys.length === 0
+                ? '<span style="color:#94a3b8;">No localStorage keys</span>'
+                : browserStorage.localStorageKeys
+                    .map((item) => this.renderStoragePill(item.key, `${item.bytes} B`))
+                    .join('')
+            }
+          </div>
+          <div id="storage-inspector-indexeddb" style="margin-top:6px;color:#475569;">
+            IndexedDB: ${browserStorage.indexedDBNames.length > 0 ? browserStorage.indexedDBNames.map(escapeHtml).join(', ') : 'none'}
+          </div>
+        </div>
+        <div>
+          <div style="font-weight:600;color:#334155;margin-bottom:6px;">Server persisted paths</div>
+          ${
+            serverError
+              ? `<div id="storage-inspector-server-error" style="color:#b45309;">${escapeHtml(serverError)}</div>`
+              : `<div id="storage-inspector-server" style="display:grid;gap:6px;">
+                  ${serverRows
+                    .map((row: any) => `
+                      <div style="padding:8px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;">
+                        <div style="font-weight:600;color:#0f172a;">${escapeHtml(row.path)} <span style="font-weight:500;color:#64748b;">${escapeHtml(row.category)}</span></div>
+                        <div style="color:#64748b;">${escapeHtml(row.purpose)}</div>
+                      </div>
+                    `)
+                    .join('')}
+                </div>`
+          }
+        </div>
+      </div>
+    `;
+  }
+
+  private renderStoragePill(label: string, value: string): string {
+    return `<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;color:#334155;"><span style="font-weight:600;">${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></span>`;
   }
 
   private async displayContextualStatistics(elementId: string): Promise<void> {

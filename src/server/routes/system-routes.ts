@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type express from 'express';
 import { logger } from '../logger';
+import { resolveP2PRuntimeFlags, STAR_GUN_PATH_CLASSIFICATIONS } from '../../shared/p2p-runtime';
 
 /** Gun radisk default directory (see node_modules/gun/lib/radisk.js). */
 function clearRadiskOnDisk(): string[] {
@@ -122,6 +123,41 @@ export function registerSystemRoutes(
 
   // Test-only endpoints (non-production only)
   if (nodeEnv !== 'production') {
+    app.get('/api/debug/storage', (_req, res) => {
+      try {
+        if (!gun?._?.graph) {
+          res.status(500).json({ error: 'Gun.js graph not accessible' });
+          return;
+        }
+        const graph = gun._.graph as Record<string, unknown>;
+        const topLevelCounts: Record<string, number> = {};
+        for (const soul of Object.keys(graph)) {
+          const top = soul.split('/')[0] || soul.split('#')[0] || soul;
+          if (!top || top === '_') continue;
+          topLevelCounts[top] = (topLevelCounts[top] || 0) + 1;
+        }
+        res.json({
+          mode: 'star',
+          topology: {
+            browser: 'Gun client',
+            hub: 'Node Gun hub',
+            routes: 'HTTP/Socket API',
+          },
+          flags: resolveP2PRuntimeFlags(process.env),
+          serverPersistence: {
+            radisk: !!gun?._?.opt?.radisk,
+            policy: resolveP2PRuntimeFlags(process.env).starServerPersistence,
+            graphSouls: Object.keys(graph).length,
+            topLevelCounts,
+          },
+          pathClassifications: STAR_GUN_PATH_CLASSIFICATIONS,
+        });
+      } catch (error) {
+        logger.error({ err: error }, 'Error reading storage debug data');
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
     app.get('/api/test/user-conversations/:userId', (req, res) => {
       const { userId } = req.params;
       const userMap = conversationsMap.get(userId);

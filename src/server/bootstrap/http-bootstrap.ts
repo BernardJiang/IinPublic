@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import Gun from 'gun';
 import { logger } from '../logger';
 import { requestLogger } from '../middleware/request-logger';
+import { resolveP2PRuntimeFlags } from '../../shared/p2p-runtime';
 
 function buildAllowedOrigin(): string[] | RegExp {
   return process.env.NODE_ENV === 'production'
@@ -59,14 +60,25 @@ export function attachGun(server: HttpServer): any {
   const e2eMemoryOnly =
     process.env.E2E_GUN_MEMORY_ONLY === '1' || process.env.E2E_GUN_MEMORY_ONLY === 'true';
   const devGunFresh = process.env.DEV_GUN_FRESH === '1';
-  const isolatedGun = e2eMemoryOnly || devGunFresh;
+  const p2pFlags = resolveP2PRuntimeFlags(process.env);
+  const ephemeralStarServer = p2pFlags.starServerPersistence === 'ephemeral';
+  const isolatedGun = e2eMemoryOnly || devGunFresh || ephemeralStarServer;
   const gun = Gun({
     web: server,
     localStorage: false,
     radisk: !isolatedGun,
     ...(isolatedGun ? { peers: [], axe: false, multicast: false } : {}),
   });
-  logger.info({ radisk: !isolatedGun, devGunFresh }, '🔫 Gun.js attached to HTTP server');
+  logger.info(
+    {
+      radisk: !isolatedGun,
+      devGunFresh,
+      starServerPersistence: p2pFlags.starServerPersistence,
+      p2pNodeEnabled: p2pFlags.p2pNodeEnabled,
+      p2pDirectChatEnabled: p2pFlags.p2pDirectChatEnabled,
+    },
+    '🔫 Gun.js attached to HTTP server',
+  );
   if (devGunFresh) {
     configureDevFreshGunIsolation(gun);
   }

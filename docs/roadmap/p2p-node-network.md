@@ -1,6 +1,6 @@
 # P2P Node Network Roadmap
 
-Last updated: 2026-05-13
+Last updated: 2026-05-20
 
 ## Goal
 
@@ -35,11 +35,46 @@ Keep the current star-shaped IinPublic system working first, then evolve toward 
 - Relay-only: presence, signaling offers/answers/candidates, temporary room membership, direct-transport rendezvous state.
 - Derived/cache: active neighbor cache, local search indexes, delivery receipts, UI snapshots.
 
+## Star Compatibility Baseline
+
+The current compatible topology is:
+
+```text
+Browser Gun client + local IndexedDB/localStorage
+  -> Node Gun hub mounted on the HTTP server
+  -> Express HTTP routes and Socket.IO events for server-authoritative flows
+```
+
+Star mode remains the default when:
+
+- `STAR_SERVER_PERSISTENCE=durable` or unset.
+- `P2P_NODE_ENABLED=false` or unset.
+- `P2P_DIRECT_CHAT_ENABLED=false` or unset.
+
+`STAR_SERVER_PERSISTENCE=ephemeral` keeps the same star topology but disables server radisk persistence for development, tests, and migration drills.
+
+Current Gun path classes:
+
+| Path | Class | Purpose |
+| --- | --- | --- |
+| `users/{userId}/profile` | Encrypted user-owned | Profile foundation fields and private Q/A mirrors controlled by the user. |
+| `users/{userId}/publicProfile` | Durable public | Stage name, avatar, languages, interests, and visibility-filtered profile fields. |
+| `users/{userId}/reputation` | Durable public | Public reputation counters used for credit, blocking, age vouching, and send limits. |
+| `chatrooms/{chatroomId}` | Durable public | Automatic and custom chatroom metadata plus current membership map. |
+| `talks/{talkId}` | Durable public | Author-owned talk definitions needed for broadcast and response replay. |
+| `incomingTalksByUser/{userId}` | Relay-only | Current star-mode delivery inbox and dedup clusters for incoming talks. |
+| `conversations/{conversationId}` | Removable legacy | Star-mode matched chat records retained for compatibility until direct transport replaces them. |
+| `talkAnswerTemplateByUser/{userId}` | Encrypted user-owned | Chatbot answer templates and exact memory records owned by the responder. |
+| `exactChatbotMemoryByUser/{userId}` | Encrypted user-owned | Exact chatbot memory index for deterministic answer reuse. |
+| `stats/*` | Durable public | Aggregated talk response statistics with privacy thresholds and no precise location. |
+
+The non-production storage inspector is exposed at `GET /api/debug/storage` and in Settings. It reports the runtime flags, server persistence policy, Gun graph summary, path classifications, browser `localStorage` keys, and IndexedDB database names.
+
 ## First Implementation Slice
 
-- Add feature flags for star mode versus local node/P2P behavior.
-- Document current Gun paths and classify each storage path.
-- Add a dev-only storage visibility panel.
+- Done: feature flags for star mode versus local node/P2P behavior.
+- Done: current Gun paths are classified by storage policy.
+- Done: dev-only storage visibility endpoint and Settings panel.
 - Introduce a `ConversationTransport` interface with the current Gun path as the first implementation.
 - Add a no-op/local mock P2P transport behind a disabled flag so UI code starts depending on the abstraction.
 

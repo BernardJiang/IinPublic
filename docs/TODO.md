@@ -14,14 +14,6 @@ Authoritative product scope lives in
 Continue the P2P roadmap:
 [P2P Node Network Roadmap](roadmap/p2p-node-network.md).
 
-## P1 — Preserve the Current Star Structure
-
-- [ ] Document the current star topology as the compatibility baseline: browser Gun client -> Node Gun hub -> HTTP/Socket routes.
-- [ ] Classify existing Gun paths as durable public data, encrypted user-owned data, relay-only data, or removable legacy data.
-- [ ] Add runtime flags for persistence policy: `STAR_SERVER_PERSISTENCE=durable|ephemeral`, `P2P_NODE_ENABLED=false`, and `P2P_DIRECT_CHAT_ENABLED=false`.
-- [ ] Add a storage inspector/debug endpoint or dev panel that shows what this browser stores locally and what paths the server persists.
-- [ ] Add tests proving the existing star-mode chatrooms, talks, matching, contacts, and stats behavior still pass when P2P flags are disabled.
-
 ## P2 — User-Permission Local Node
 
 - [ ] Define the permission UX for running a local node: explain storage, bandwidth, battery, background behavior, local port use, and how to stop/delete it.
