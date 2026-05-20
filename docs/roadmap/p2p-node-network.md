@@ -80,6 +80,7 @@ The non-production storage inspector is exposed at `GET /api/debug/storage` and 
 - Done: `ConversationTransport` boundary with `star-gun` as the default implementation, advertised `server-relay`/`direct-p2p` modes, short-lived encrypted signaling envelopes, and Settings/debug transport diagnostics.
 - Done: platform-neutral P2P node protocol with the chosen `gun-mesh-websocket-webrtc` substrate, shared identity/discovery/handshake/capability/neighbor-score/envelope/sync policy model, platform descriptors for Web/Windows/Ubuntu/Android/iOS, and signed discovery compatibility tests.
 - Done: local-only active neighbor memory with schema, scoring, expiry pruning, block exclusion, encrypted export, disable/clear controls, and bootstrap candidates before public star fallback.
+- Done: data ownership and migration boundary with device-local delete, server-held data request/delete records, eligible private-data migration planning, relay-only TTLs, and telemetry-free transport diagnostics.
 - Add browser WebRTC DataChannel activation behind the disabled direct-P2P flag after compatibility testing proves the transport boundary is stable.
 
 ## Permissioned Local Node
@@ -137,3 +138,13 @@ Signed discovery messages are versioned, include the sender public key, platform
 The repo now models remembered peers as owner-controlled local state through `P2PNeighborCacheState` and the non-production Settings/debug surface. Neighbor records include peer id, endpoint hints, last seen time, successful sessions, latency, transport type, capabilities, trust/block status, endpoint health, nearby chatrooms, contact status, and expiry.
 
 Bootstrap selection is local-first: enabled caches prune expired peers, exclude blocked or failed endpoints, score recent successful peers above stale options, and return active candidates before the app falls back to the public star server. Export is represented as SEA-encrypted neighbor state only; the private neighbor graph is never published by default.
+
+## Data Ownership and Migration
+
+The repo now exposes `DataOwnershipPolicy`, `DataMigrationPlan`, `RelayOnlyTtlPolicy`, and `TransportDiagnosticEvent` through shared runtime code and the non-production Settings/debug surface.
+
+- Device-local deletion clears local-first classes such as private profile answers, contacts, blocks, neighbor cache, message history, talks, and chatbot memory while leaving public/relay records to their own request path.
+- Server-held data export/delete requests are metadata-only records addressed by owner public key.
+- Migration planning marks `encrypted-user-owned` and `removable-legacy` paths for local encrypted owner storage, while durable public and relay-only paths stay on their existing boundaries.
+- Relay-only TTLs are explicit: discovery 60s, signaling 120s, presence 45s, and room membership 180s.
+- Transport diagnostics are user-visible and telemetry-free, showing direct P2P, relay fallback, or star-server mode without uploading analytics.

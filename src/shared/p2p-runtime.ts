@@ -104,6 +104,8 @@ export type P2PDiscoveryMessage = RelayEnvelope & {
 export const SIGNALING_TTL_SECONDS = 120;
 export const DISCOVERY_TTL_SECONDS = 60;
 export const NEIGHBOR_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60;
+export const PRESENCE_TTL_SECONDS = 45;
+export const ROOM_MEMBERSHIP_TTL_SECONDS = 180;
 
 export type SeaPublicIdentity = {
   pub: string;
@@ -223,6 +225,68 @@ export type P2PNeighborCacheState = {
 };
 
 export type P2PNeighborCacheAction = 'clear' | 'disable' | 'enable' | 'block-peer' | 'export-encrypted';
+
+export type DataOwnershipRequestType = 'export-server-held-data' | 'delete-server-held-data';
+
+export type DataOwnershipRequest = {
+  requestId: string;
+  requestType: DataOwnershipRequestType;
+  userPub: string;
+  status: 'queued';
+  createdAt: string;
+  relayVisibility: 'metadata-only';
+};
+
+export type DeviceLocalDataDeletion = {
+  deletedAt: string | null;
+  clearedDataClasses: DeviceLinkDataClass[];
+  retainedServerHeldRequestUrl: '/api/p2p/data-ownership/request-server-data';
+};
+
+export type DataOwnershipPolicy = {
+  version: 1;
+  deviceLocalDelete: {
+    label: "Delete this device's local data";
+    clears: DeviceLinkDataClass[];
+    doesNotDelete: string[];
+  };
+  serverHeldDataRequest: {
+    label: 'Request/delete server-held data';
+    supportedRequests: DataOwnershipRequestType[];
+    relayVisibility: 'metadata-only';
+  };
+  migration: {
+    eligibleCategories: Array<(typeof STAR_GUN_PATH_CLASSIFICATIONS)[number]['category']>;
+    target: 'local-encrypted-user-owned-storage';
+  };
+};
+
+export type DataMigrationItem = {
+  path: string;
+  category: string;
+  action: 'move-to-local-encrypted' | 'leave-on-relay';
+  reason: string;
+};
+
+export type DataMigrationPlan = {
+  version: 1;
+  items: DataMigrationItem[];
+  movedCount: number;
+};
+
+export type RelayOnlyPathKind = 'discovery' | 'signaling' | 'presence' | 'room-membership';
+
+export type RelayOnlyTtlPolicy = Record<RelayOnlyPathKind, { ttlSeconds: number; storage: 'relay-only'; bodyRule: string }>;
+
+export type TransportDiagnosticEvent = {
+  version: 1;
+  mode: ConversationTransportMode;
+  usedFallback: boolean;
+  fallbackReason: string | null;
+  storedTelemetry: false;
+  visibleToUser: true;
+  createdAt: string;
+};
 
 const PRIVATE_SEA_KEYS = ['priv', 'epriv'] as const;
 
@@ -571,6 +635,98 @@ export function applyP2PNeighborCacheAction(
     return { ...state, encryptedExport };
   }
   return state;
+}
+
+export function createDataOwnershipPolicy(): DataOwnershipPolicy {
+  return {
+    version: 1,
+    deviceLocalDelete: {
+      label: "Delete this device's local data",
+      clears: ['profile-private-answers', 'contacts', 'blocked-peers', 'neighbor-cache', 'message-history', 'talks', 'chatbot-memory'],
+      doesNotDelete: ['public profile records', 'public reputation counters', 'active relay TTL records'],
+    },
+    serverHeldDataRequest: {
+      label: 'Request/delete server-held data',
+      supportedRequests: ['export-server-held-data', 'delete-server-held-data'],
+      relayVisibility: 'metadata-only',
+    },
+    migration: {
+      eligibleCategories: ['encrypted-user-owned', 'removable-legacy'],
+      target: 'local-encrypted-user-owned-storage',
+    },
+  };
+}
+
+export function createDeviceLocalDataDeletion(now = new Date()): DeviceLocalDataDeletion {
+  return {
+    deletedAt: now.toISOString(),
+    clearedDataClasses: [...createDataOwnershipPolicy().deviceLocalDelete.clears],
+    retainedServerHeldRequestUrl: '/api/p2p/data-ownership/request-server-data',
+  };
+}
+
+export function createDataOwnershipRequest(
+  requestType: DataOwnershipRequestType,
+  userPub: string,
+  now = new Date(),
+): DataOwnershipRequest {
+  if (!userPub) throw new Error('userPub is required for server-held data requests');
+  if (!createDataOwnershipPolicy().serverHeldDataRequest.supportedRequests.includes(requestType)) {
+    throw new Error('Unsupported server-held data request type');
+  }
+  return {
+    requestId: `data_req_${now.getTime()}_${requestType}`,
+    requestType,
+    userPub,
+    status: 'queued',
+    createdAt: now.toISOString(),
+    relayVisibility: 'metadata-only',
+  };
+}
+
+export function createDataMigrationPlan(
+  paths: Array<{ path: string; category: string; purpose?: string }> = [...STAR_GUN_PATH_CLASSIFICATIONS],
+): DataMigrationPlan {
+  const eligible = new Set<string>(createDataOwnershipPolicy().migration.eligibleCategories);
+  const items = paths.map((item) => {
+    const canMove = eligible.has(item.category);
+    return {
+      path: item.path,
+      category: item.category,
+      action: canMove ? 'move-to-local-encrypted' : 'leave-on-relay',
+      reason: canMove ? 'Eligible private or legacy server-held data migrates to encrypted owner storage.' : 'Relay/public data remains on its existing boundary.',
+    } satisfies DataMigrationItem;
+  });
+  return {
+    version: 1,
+    items,
+    movedCount: items.filter((item) => item.action === 'move-to-local-encrypted').length,
+  };
+}
+
+export function createRelayOnlyTtlPolicy(): RelayOnlyTtlPolicy {
+  return {
+    discovery: { ttlSeconds: DISCOVERY_TTL_SECONDS, storage: 'relay-only', bodyRule: 'signed metadata, no plaintext body' },
+    signaling: { ttlSeconds: SIGNALING_TTL_SECONDS, storage: 'relay-only', bodyRule: 'encrypted signaling ciphertext only' },
+    presence: { ttlSeconds: PRESENCE_TTL_SECONDS, storage: 'relay-only', bodyRule: 'presence metadata expires quickly' },
+    'room-membership': { ttlSeconds: ROOM_MEMBERSHIP_TTL_SECONDS, storage: 'relay-only', bodyRule: 'membership is current-state routing metadata' },
+  };
+}
+
+export function createTransportDiagnosticEvent(
+  mode: ConversationTransportMode,
+  fallbackReason: string | null = null,
+  now = new Date(),
+): TransportDiagnosticEvent {
+  return {
+    version: 1,
+    mode,
+    usedFallback: mode !== 'direct-p2p' || !!fallbackReason,
+    fallbackReason,
+    storedTelemetry: false,
+    visibleToUser: true,
+    createdAt: now.toISOString(),
+  };
 }
 
 function sortP2PNeighbors(neighbors: P2PNeighborRecord[], now = new Date()): P2PNeighborRecord[] {

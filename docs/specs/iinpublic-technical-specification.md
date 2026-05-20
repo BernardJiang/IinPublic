@@ -405,6 +405,7 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 - **WebSockets**: Primary transport for Gun.js peer-to-peer message relay.
 - **HTTPS**: Initial loading of static assets; fallback and tech support REST endpoint.
 - All message content travels P2P through Gun; no application-level message content passes through `server.js`.
+- Relay-only P2P support paths must expire quickly: discovery after 60 seconds, encrypted signaling after 120 seconds, presence after 45 seconds, and room membership after 180 seconds.
 
 ---
 
@@ -428,6 +429,9 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 
 - **NFR-S-1**: True GPS location must not be exposed directly — only blurred regions or derived chatroom memberships.
 - **NFR-S-2**: Reputation data MUST be read-only for the owning user.
+- **NFR-S-6**: Users MUST be able to delete this device's local private data and request export/deletion of server-held data through metadata-only ownership requests.
+- **NFR-S-7**: Eligible server-held private or legacy data MUST migrate toward encrypted owner-controlled local storage before direct P2P transport is considered durable.
+- **NFR-S-8**: Transport diagnostics MUST be visible to the user without storing telemetry, indicating direct P2P, relay fallback, or star-server mode locally.
 - **NFR-S-3**: Financial and card data MUST be blocked from all write paths (§7.4).
 - **NFR-S-4**: Private/manual answers MUST be SEA-encrypted before writing to Gun and MUST never appear in shared public graph paths.
 - **NFR-S-5**: All user data MUST be encrypted by SEA under the user's own key pair.
@@ -2051,6 +2055,8 @@ The following items are known open questions or planned post-MVP work:
 - **Hybrid chatroom hierarchy**: Gun.js spatial queries + custom geographical nodes for multi-scale location coverage.
 - **Stranger-first trust**: All users start as strangers; encryption and known-person labelling are opt-in per relationship.
 - **Three-tier message channels**: public / known (one-way encrypted) / mutual (ECDH) with distinct UI badges.
+- **Data ownership boundary**: Local-first private data can be wiped per device; server-held export/delete requests are metadata-only; encrypted-user-owned and removable-legacy records migrate to local encrypted owner storage; relay-only support paths have short TTLs.
+- **Telemetry-free transport diagnostics**: Users can see whether a message path used direct P2P, relay fallback, or star-server mode without analytics upload.
 - **Public/private answer visibility**: Per-answer `auto` vs `manual` flag; chatbot only repeats `auto` answers.
 - **Exact chatbot memory**: Chatbot answer reuse is deterministic over normalized question/answer IDs with `TEMPORARY`, `PERMANENT`, and `SUPPRESSED` modes. Permanent answers override temporary history; suppressed questions skip forever; append-only use events are the source of truth for auto-use metrics.
 - **Immutable SEA-signed answer history**: History is append-only with signatures; current answer is mutable.

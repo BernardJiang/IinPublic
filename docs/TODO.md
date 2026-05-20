@@ -14,13 +14,8 @@ Authoritative product scope lives in
 Continue the P2P roadmap:
 [P2P Node Network Roadmap](roadmap/p2p-node-network.md).
 
-## P7 — Data Ownership and Migration
-
-- [ ] Add "Delete this device's local data" and "Request/delete server-held data" flows.
-- [ ] Add migration logic that moves eligible server-persisted private data to local/encrypted user-owned storage.
-- [ ] Add relay-only TTLs for discovery, signaling, presence, and room membership paths.
-- [ ] Add telemetry-free diagnostics that let users see whether a message used direct P2P, relay fallback, or star-server mode.
-- [ ] Update the technical specification once the transport and storage boundaries are implemented.
+No active P2P roadmap phase remains in this TODO. Add new forward work here only after it is
+scoped against the technical specification or the P2P roadmap.
 
 ## Working Rule
 

@@ -3,6 +3,10 @@ import {
   applyLocalNodeAction,
   assertNoPrivateSeaMaterial,
   createConversationTransportDiagnostics,
+  createDataMigrationPlan,
+  createDataOwnershipPolicy,
+  createDataOwnershipRequest,
+  createDeviceLocalDataDeletion,
   createDirectP2PMessageEnvelope,
   createLocalNodeSupervisorSnapshot,
   createLinkedDeviceManifest,
@@ -10,6 +14,8 @@ import {
   createP2PNeighborCacheState,
   createP2PNodeProtocolSpec,
   createP2PSignalingEnvelope,
+  createRelayOnlyTtlPolicy,
+  createTransportDiagnosticEvent,
   getP2PBootstrapCandidates,
   createRelayEnvelope,
   scanRelayStorageForSeaLeaks,
@@ -394,6 +400,65 @@ describe('p2p runtime flags', () => {
     expect(cache.encryptedExport).toBe('SEA{"ct":"encrypted-neighbor-state"}');
     expect(() => applyP2PNeighborCacheAction(cache, 'export-encrypted', { encryptedExport: 'plain export' })).toThrow(
       /encrypted/,
+    );
+  });
+
+  it('models data ownership deletion, migration, relay TTLs, and telemetry-free diagnostics', () => {
+    const policy = createDataOwnershipPolicy();
+    expect(policy.deviceLocalDelete.clears).toEqual(
+      expect.arrayContaining(['neighbor-cache', 'message-history', 'chatbot-memory']),
+    );
+    expect(policy.serverHeldDataRequest.supportedRequests).toEqual([
+      'export-server-held-data',
+      'delete-server-held-data',
+    ]);
+
+    expect(createDeviceLocalDataDeletion(new Date('2026-05-20T00:00:00.000Z'))).toEqual(
+      expect.objectContaining({
+        deletedAt: '2026-05-20T00:00:00.000Z',
+        clearedDataClasses: expect.arrayContaining(['contacts', 'talks']),
+      }),
+    );
+    expect(
+      createDataOwnershipRequest('delete-server-held-data', 'pub_owner', new Date('2026-05-20T00:00:01.000Z')),
+    ).toEqual(
+      expect.objectContaining({
+        requestType: 'delete-server-held-data',
+        userPub: 'pub_owner',
+        relayVisibility: 'metadata-only',
+      }),
+    );
+    expect(() => createDataOwnershipRequest('delete-server-held-data', '')).toThrow(/userPub/);
+
+    const migration = createDataMigrationPlan([
+      { path: 'users/{userId}/profile', category: 'encrypted-user-owned' },
+      { path: 'chatrooms/{chatroomId}', category: 'durable-public' },
+      { path: 'conversations/{conversationId}', category: 'removable-legacy' },
+    ]);
+    expect(migration.movedCount).toBe(2);
+    expect(migration.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'users/{userId}/profile', action: 'move-to-local-encrypted' }),
+        expect.objectContaining({ path: 'chatrooms/{chatroomId}', action: 'leave-on-relay' }),
+      ]),
+    );
+
+    expect(createRelayOnlyTtlPolicy()).toEqual(
+      expect.objectContaining({
+        discovery: expect.objectContaining({ ttlSeconds: 60, storage: 'relay-only' }),
+        signaling: expect.objectContaining({ ttlSeconds: 120, storage: 'relay-only' }),
+        presence: expect.objectContaining({ ttlSeconds: 45, storage: 'relay-only' }),
+        'room-membership': expect.objectContaining({ ttlSeconds: 180, storage: 'relay-only' }),
+      }),
+    );
+    expect(createTransportDiagnosticEvent('server-relay', 'direct peer unavailable')).toEqual(
+      expect.objectContaining({
+        mode: 'server-relay',
+        usedFallback: true,
+        fallbackReason: 'direct peer unavailable',
+        storedTelemetry: false,
+        visibleToUser: true,
+      }),
     );
   });
 });

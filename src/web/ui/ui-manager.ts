@@ -2229,6 +2229,7 @@ export class UIManager extends EventEmitter {
         ${this.renderConversationTransportInspector(serverStorage?.conversationTransport)}
         ${this.renderP2PNetworkProtocolInspector(serverStorage?.p2pNetworkProtocol)}
         ${this.renderP2PNeighborMemoryInspector(serverStorage?.neighborMemory)}
+        ${this.renderDataOwnershipInspector(serverStorage?.dataOwnership, serverStorage?.relayTtlPolicy, serverStorage?.transportDiagnostics)}
         <div>
           <div style="font-weight:600;color:#334155;margin-bottom:6px;">Browser local storage</div>
           <div id="storage-inspector-local" style="display:flex;flex-wrap:wrap;gap:6px;">
@@ -2385,6 +2386,51 @@ export class UIManager extends EventEmitter {
         </div>
         <div id="storage-inspector-p2p-neighbor-records" style="display:flex;flex-wrap:wrap;gap:6px;">
           ${neighbors.map((item: any) => this.renderStoragePill(item.peerId || 'peer', item.endpointStatus || 'unknown')).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderDataOwnershipInspector(dataOwnership: any, ttlPolicy: any, diagnostics: any): string {
+    if (!dataOwnership) return '';
+    const policy = dataOwnership.policy || {};
+    const clears = Array.isArray(policy.deviceLocalDelete?.clears) ? policy.deviceLocalDelete.clears : [];
+    const requests = Array.isArray(dataOwnership.serverHeldRequests) ? dataOwnership.serverHeldRequests : [];
+    const migrationItems = Array.isArray(dataOwnership.migrationPlan?.items) ? dataOwnership.migrationPlan.items : [];
+    const ttlEntries = ttlPolicy && typeof ttlPolicy === 'object' ? Object.entries(ttlPolicy) : [];
+    const events = Array.isArray(diagnostics) ? diagnostics : [];
+    return `
+      <div id="storage-inspector-data-ownership" style="display:grid;gap:8px;padding:10px;border:1px solid #fed7aa;border-radius:8px;background:#fff7ed;">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <div style="font-weight:700;color:#7c2d12;">Data Ownership</div>
+          ${this.renderStoragePill('Device local delete', policy.deviceLocalDelete?.label || 'available')}
+          ${this.renderStoragePill('Server-held data', policy.serverHeldDataRequest?.label || 'available')}
+          ${this.renderStoragePill('Migration target', policy.migration?.target || 'unknown')}
+        </div>
+        <div id="storage-inspector-data-ownership-local" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${clears.map((item: string) => this.renderStoragePill(item, 'clears')).join('')}
+          ${this.renderStoragePill('Last local delete', dataOwnership.localDeletion?.deletedAt || 'not run')}
+        </div>
+        <div id="storage-inspector-data-ownership-server" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${
+            requests.length === 0
+              ? this.renderStoragePill('Server requests', 'none')
+              : requests.map((item: any) => this.renderStoragePill(item.requestType || 'request', item.status || 'queued')).join('')
+          }
+        </div>
+        <div id="storage-inspector-data-ownership-migration" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${this.renderStoragePill('Move eligible', `${dataOwnership.migrationPlan?.movedCount ?? 0}`)}
+          ${migrationItems.slice(0, 4).map((item: any) => this.renderStoragePill(item.path || 'path', item.action || 'review')).join('')}
+        </div>
+        <div id="storage-inspector-relay-ttl-policy" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${ttlEntries.map(([kind, item]: [string, any]) => this.renderStoragePill(kind, `${item.ttlSeconds ?? 'unknown'}s`)).join('')}
+        </div>
+        <div id="storage-inspector-transport-diagnostics" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${
+            events.length === 0
+              ? this.renderStoragePill('Transport diagnostics', 'telemetry-free')
+              : events.map((item: any) => this.renderStoragePill(item.mode || 'mode', item.storedTelemetry === false ? 'local-visible' : 'review')).join('')
+          }
         </div>
       </div>
     `;

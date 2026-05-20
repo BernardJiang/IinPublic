@@ -6,10 +6,16 @@ import {
   applyP2PNeighborCacheAction,
   applyLocalNodeAction,
   createConversationTransportDiagnostics,
+  createDataMigrationPlan,
+  createDataOwnershipPolicy,
+  createDataOwnershipRequest,
+  createDeviceLocalDataDeletion,
   createP2PDiscoveryMessage,
   createP2PNeighborCacheState,
   createP2PNodeProtocolSpec,
   createP2PSignalingEnvelope,
+  createRelayOnlyTtlPolicy,
+  createTransportDiagnosticEvent,
   createLocalNodeSupervisorSnapshot,
   getP2PBootstrapCandidates,
   upsertP2PNeighbor,
@@ -27,6 +33,10 @@ import {
   type P2PNeighborTrustStatus,
   type P2PNodeCapability,
   type P2PPlatformId,
+  type DataOwnershipRequest,
+  type DataOwnershipRequestType,
+  type DeviceLocalDataDeletion,
+  type TransportDiagnosticEvent,
   type LocalNodeAction,
   type LocalNodeSupervisorSnapshot,
 } from '../../shared/p2p-runtime';
@@ -135,6 +145,13 @@ export function registerSystemRoutes(
 ): void {
   let localNodeSupervisor: LocalNodeSupervisorSnapshot = createLocalNodeSupervisorSnapshot();
   let neighborCache: P2PNeighborCacheState = createP2PNeighborCacheState();
+  let deviceLocalDataDeletion: DeviceLocalDataDeletion = {
+    deletedAt: null,
+    clearedDataClasses: [],
+    retainedServerHeldRequestUrl: '/api/p2p/data-ownership/request-server-data',
+  };
+  const dataOwnershipRequests: DataOwnershipRequest[] = [];
+  const transportDiagnostics: TransportDiagnosticEvent[] = [];
   const signalingByConversation = new Map<string, P2PSignalingEnvelope[]>();
   const discoveryMessages = new Map<string, P2PDiscoveryMessage>();
 
@@ -198,6 +215,14 @@ export function registerSystemRoutes(
             ...neighborCache,
             bootstrapCandidates: getP2PBootstrapCandidates(neighborCache),
           },
+          dataOwnership: {
+            policy: createDataOwnershipPolicy(),
+            localDeletion: deviceLocalDataDeletion,
+            serverHeldRequests: dataOwnershipRequests,
+            migrationPlan: createDataMigrationPlan(),
+          },
+          relayTtlPolicy: createRelayOnlyTtlPolicy(),
+          transportDiagnostics,
           conversationTransport: createConversationTransportDiagnostics(resolveP2PRuntimeFlags(process.env)),
           p2pNetworkProtocol: createP2PNodeProtocolSpec(),
           seaIdentityPolicy: SEA_IDENTITY_POLICY,
@@ -306,6 +331,57 @@ export function registerSystemRoutes(
       } catch (error) {
         res.status(400).json({ error: (error as Error).message });
       }
+    });
+
+    app.get('/api/p2p/data-ownership', (_req, res) => {
+      res.json({
+        policy: createDataOwnershipPolicy(),
+        localDeletion: deviceLocalDataDeletion,
+        serverHeldRequests: dataOwnershipRequests,
+        migrationPlan: createDataMigrationPlan(),
+        relayTtlPolicy: createRelayOnlyTtlPolicy(),
+        transportDiagnostics,
+      });
+    });
+
+    app.post('/api/p2p/data-ownership/delete-device-local', (_req, res) => {
+      deviceLocalDataDeletion = createDeviceLocalDataDeletion();
+      neighborCache = applyP2PNeighborCacheAction(neighborCache, 'clear');
+      res.json({ localDeletion: deviceLocalDataDeletion, neighborMemory: neighborCache });
+    });
+
+    app.post('/api/p2p/data-ownership/request-server-data', (req, res) => {
+      try {
+        const body = req.body || {};
+        const request = createDataOwnershipRequest(
+          String(body.requestType || '') as DataOwnershipRequestType,
+          String(body.userPub || ''),
+        );
+        dataOwnershipRequests.push(request);
+        res.json({ request, requests: dataOwnershipRequests });
+      } catch (error) {
+        res.status(400).json({ error: (error as Error).message });
+      }
+    });
+
+    app.post('/api/p2p/data-ownership/migrate', (req, res) => {
+      const body = req.body || {};
+      const paths = Array.isArray(body.paths) ? body.paths : undefined;
+      res.json({ migrationPlan: createDataMigrationPlan(paths) });
+    });
+
+    app.get('/api/p2p/relay-ttl-policy', (_req, res) => {
+      res.json(createRelayOnlyTtlPolicy());
+    });
+
+    app.post('/api/p2p/transport-diagnostics', (req, res) => {
+      const body = req.body || {};
+      const event = createTransportDiagnosticEvent(
+        String(body.mode || 'star-gun') as TransportDiagnosticEvent['mode'],
+        body.fallbackReason ? String(body.fallbackReason) : null,
+      );
+      transportDiagnostics.push(event);
+      res.json({ event, events: transportDiagnostics });
     });
 
     app.get('/api/p2p/signaling/:conversationId', (req, res) => {

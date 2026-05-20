@@ -81,6 +81,23 @@ describe('system routes', () => {
         bootstrapCandidates: [],
       }),
     );
+    expect(res.body.dataOwnership).toEqual(
+      expect.objectContaining({
+        policy: expect.objectContaining({
+          deviceLocalDelete: expect.objectContaining({ label: "Delete this device's local data" }),
+          serverHeldDataRequest: expect.objectContaining({ label: 'Request/delete server-held data' }),
+        }),
+        migrationPlan: expect.objectContaining({ movedCount: expect.any(Number) }),
+      }),
+    );
+    expect(res.body.relayTtlPolicy).toEqual(
+      expect.objectContaining({
+        discovery: expect.objectContaining({ ttlSeconds: 60, storage: 'relay-only' }),
+        signaling: expect.objectContaining({ ttlSeconds: 120, storage: 'relay-only' }),
+        presence: expect.objectContaining({ ttlSeconds: 45, storage: 'relay-only' }),
+        'room-membership': expect.objectContaining({ ttlSeconds: 180, storage: 'relay-only' }),
+      }),
+    );
     expect(res.body.conversationTransport).toEqual(
       expect.objectContaining({
         activeMode: 'star-gun',
@@ -360,5 +377,59 @@ describe('system routes', () => {
     expect(disabled.status).toBe(200);
     expect(disabled.body.controls.enabled).toBe(false);
     expect(disabled.body.neighbors).toEqual([]);
+  });
+
+  it('exposes data ownership flows, migration planning, relay TTLs, and telemetry-free diagnostics', async () => {
+    const { app } = buildApp();
+
+    const ownership = await request(app).get('/api/p2p/data-ownership');
+    expect(ownership.status).toBe(200);
+    expect(ownership.body.policy.deviceLocalDelete.clears).toEqual(expect.arrayContaining(['neighbor-cache']));
+    expect(ownership.body.relayTtlPolicy.presence.ttlSeconds).toBe(45);
+
+    const deletion = await request(app).post('/api/p2p/data-ownership/delete-device-local').send({});
+    expect(deletion.status).toBe(200);
+    expect(deletion.body.localDeletion.clearedDataClasses).toEqual(expect.arrayContaining(['contacts', 'talks']));
+
+    const requestExport = await request(app).post('/api/p2p/data-ownership/request-server-data').send({
+      requestType: 'export-server-held-data',
+      userPub: 'pub_owner',
+    });
+    expect(requestExport.status).toBe(200);
+    expect(requestExport.body.request).toEqual(
+      expect.objectContaining({
+        requestType: 'export-server-held-data',
+        userPub: 'pub_owner',
+        relayVisibility: 'metadata-only',
+      }),
+    );
+
+    const migration = await request(app).post('/api/p2p/data-ownership/migrate').send({
+      paths: [
+        { path: 'users/{userId}/profile', category: 'encrypted-user-owned' },
+        { path: 'incomingTalksByUser/{userId}', category: 'relay-only' },
+      ],
+    });
+    expect(migration.status).toBe(200);
+    expect(migration.body.migrationPlan.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'users/{userId}/profile', action: 'move-to-local-encrypted' }),
+        expect.objectContaining({ path: 'incomingTalksByUser/{userId}', action: 'leave-on-relay' }),
+      ]),
+    );
+
+    const diagnostic = await request(app).post('/api/p2p/transport-diagnostics').send({
+      mode: 'server-relay',
+      fallbackReason: 'direct peer unavailable',
+    });
+    expect(diagnostic.status).toBe(200);
+    expect(diagnostic.body.event).toEqual(
+      expect.objectContaining({
+        mode: 'server-relay',
+        usedFallback: true,
+        storedTelemetry: false,
+        visibleToUser: true,
+      }),
+    );
   });
 });
