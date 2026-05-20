@@ -14,15 +14,6 @@ Authoritative product scope lives in
 Continue the P2P roadmap:
 [P2P Node Network Roadmap](roadmap/p2p-node-network.md).
 
-## P6 — Active Neighbor Memory
-
-- [ ] Define the neighbor cache schema: peer id, endpoint hints, last seen, successful sessions, latency, transport type, capabilities, trust/block status, and expiry.
-- [ ] Keep the most recent active neighbors locally first; never publish a user's private neighbor graph by default.
-- [ ] Add neighbor scoring that prefers recent successful direct peers, nearby chatroom peers, contacts, and low-latency relays.
-- [ ] Add cache pruning and user controls: clear neighbors, disable neighbor memory, export encrypted neighbor state, and block a remembered peer.
-- [ ] Use remembered neighbors as bootstrap candidates before falling back to the public star server.
-- [ ] Add tests for neighbor expiry, blocked-peer exclusion, stale endpoint failure, and successful reconnect through remembered peers.
-
 ## P7 — Data Ownership and Migration
 
 - [ ] Add "Delete this device's local data" and "Request/delete server-held data" flows.

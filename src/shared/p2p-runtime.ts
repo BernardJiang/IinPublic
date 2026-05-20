@@ -103,6 +103,7 @@ export type P2PDiscoveryMessage = RelayEnvelope & {
 
 export const SIGNALING_TTL_SECONDS = 120;
 export const DISCOVERY_TTL_SECONDS = 60;
+export const NEIGHBOR_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 export type SeaPublicIdentity = {
   pub: string;
@@ -183,6 +184,45 @@ export type SeaIdentityPolicy = {
   directMessageRule: string;
   linkedDeviceRule: string;
 };
+
+export type P2PNeighborTransportType = 'webrtc-datachannel' | 'gun-relay' | 'websocket-relay';
+
+export type P2PNeighborTrustStatus = 'trusted' | 'unknown' | 'blocked';
+
+export type P2PNeighborEndpointStatus = 'active' | 'stale' | 'failed';
+
+export type P2PNeighborRecord = {
+  peerId: string;
+  endpointHints: string[];
+  lastSeenAt: string;
+  successfulSessions: number;
+  latencyMs: number;
+  transportType: P2PNeighborTransportType;
+  capabilities: P2PNodeCapability[];
+  trustStatus: P2PNeighborTrustStatus;
+  endpointStatus: P2PNeighborEndpointStatus;
+  expiresAt: string;
+  nearbyChatrooms: string[];
+  isContact: boolean;
+};
+
+export type P2PNeighborCacheControls = {
+  enabled: boolean;
+  localOnly: true;
+  privateGraphPublishedByDefault: false;
+  exportFormat: 'SEA-encrypted-neighbor-state-v1';
+};
+
+export type P2PNeighborCacheState = {
+  version: 1;
+  controls: P2PNeighborCacheControls;
+  publicStarFallback: 'gun-star-server';
+  neighbors: P2PNeighborRecord[];
+  blockedPeerIds: string[];
+  encryptedExport: string | null;
+};
+
+export type P2PNeighborCacheAction = 'clear' | 'disable' | 'enable' | 'block-peer' | 'export-encrypted';
 
 const PRIVATE_SEA_KEYS = ['priv', 'epriv'] as const;
 
@@ -405,6 +445,140 @@ export function createP2PDiscoveryMessage(params: Omit<P2PDiscoveryMessage, 'ver
     capabilities: params.capabilities,
     endpointHints: params.endpointHints,
   };
+}
+
+export function createP2PNeighborCacheState(
+  overrides: Partial<P2PNeighborCacheState> = {},
+): P2PNeighborCacheState {
+  const controls = overrides.controls ?? {
+    enabled: true,
+    localOnly: true,
+    privateGraphPublishedByDefault: false,
+    exportFormat: 'SEA-encrypted-neighbor-state-v1',
+  };
+  const blockedPeerIds = [...new Set(overrides.blockedPeerIds ?? [])];
+  const neighbors = pruneExpiredP2PNeighbors(
+    {
+      version: 1,
+      controls,
+      publicStarFallback: overrides.publicStarFallback ?? 'gun-star-server',
+      neighbors: overrides.neighbors ?? [],
+      blockedPeerIds,
+      encryptedExport: overrides.encryptedExport ?? null,
+    },
+    new Date(),
+  ).neighbors;
+  return {
+    version: 1,
+    controls,
+    publicStarFallback: overrides.publicStarFallback ?? 'gun-star-server',
+    neighbors,
+    blockedPeerIds,
+    encryptedExport: overrides.encryptedExport ?? null,
+  };
+}
+
+export function scoreP2PNeighbor(record: P2PNeighborRecord, now = new Date()): number {
+  if (record.trustStatus === 'blocked' || record.endpointStatus !== 'active') return -1;
+  const ageMs = Math.max(0, now.getTime() - new Date(record.lastSeenAt).getTime());
+  const recency = Math.max(0, 30 - Math.floor(ageMs / (60 * 60 * 1000)));
+  const sessionScore = Math.min(30, Math.max(0, record.successfulSessions) * 6);
+  const chatroomScore = Math.min(15, record.nearbyChatrooms.length * 5);
+  const contactScore = record.isContact ? 15 : 0;
+  const latencyScore = Math.max(0, 20 - Math.floor(Math.max(0, record.latencyMs) / 25));
+  const relayScore = record.transportType === 'gun-relay' || record.transportType === 'websocket-relay' ? 4 : 0;
+  return recency + sessionScore + chatroomScore + contactScore + latencyScore + relayScore;
+}
+
+export function pruneExpiredP2PNeighbors(state: P2PNeighborCacheState, now = new Date()): P2PNeighborCacheState {
+  const blocked = new Set(state.blockedPeerIds);
+  const fresh = state.neighbors.filter((neighbor) => {
+    const expiresAt = new Date(neighbor.expiresAt).getTime();
+    return expiresAt > now.getTime() && neighbor.trustStatus !== 'blocked' && !blocked.has(neighbor.peerId);
+  });
+  return { ...state, neighbors: sortP2PNeighbors(fresh, now) };
+}
+
+export function upsertP2PNeighbor(
+  state: P2PNeighborCacheState,
+  record: Omit<P2PNeighborRecord, 'expiresAt'> & { expiresAt?: string },
+  now = new Date(),
+): P2PNeighborCacheState {
+  if (!state.controls.enabled) return state;
+  if (!record.peerId) throw new Error('Neighbor cache requires peerId');
+  if (!record.endpointHints || record.endpointHints.length === 0) {
+    throw new Error('Neighbor cache requires endpoint hints');
+  }
+  assertNoPrivateSeaMaterial(record);
+  const blocked = new Set(state.blockedPeerIds);
+  if (record.trustStatus === 'blocked') blocked.add(record.peerId);
+  if (blocked.has(record.peerId)) {
+    return {
+      ...state,
+      blockedPeerIds: [...blocked],
+      neighbors: state.neighbors.filter((neighbor) => neighbor.peerId !== record.peerId),
+    };
+  }
+  const normalized: P2PNeighborRecord = {
+    ...record,
+    endpointHints: [...new Set(record.endpointHints)],
+    capabilities: [...new Set(record.capabilities)],
+    nearbyChatrooms: [...new Set(record.nearbyChatrooms)],
+    successfulSessions: Math.max(0, record.successfulSessions),
+    latencyMs: Math.max(0, record.latencyMs),
+    expiresAt: record.expiresAt ?? new Date(now.getTime() + NEIGHBOR_CACHE_TTL_SECONDS * 1000).toISOString(),
+  };
+  const next = state.neighbors.filter((neighbor) => neighbor.peerId !== normalized.peerId);
+  next.push(normalized);
+  return pruneExpiredP2PNeighbors({ ...state, blockedPeerIds: [...blocked], neighbors: next }, now);
+}
+
+export function getP2PBootstrapCandidates(state: P2PNeighborCacheState, now = new Date()): P2PNeighborRecord[] {
+  if (!state.controls.enabled) return [];
+  return pruneExpiredP2PNeighbors(state, now).neighbors.filter((neighbor) => {
+    return neighbor.endpointStatus === 'active' && neighbor.endpointHints.length > 0 && scoreP2PNeighbor(neighbor, now) >= 0;
+  });
+}
+
+export function applyP2PNeighborCacheAction(
+  state: P2PNeighborCacheState,
+  action: P2PNeighborCacheAction,
+  params: { peerId?: string; encryptedExport?: string } = {},
+): P2PNeighborCacheState {
+  if (action === 'clear') {
+    return { ...state, neighbors: [], encryptedExport: null };
+  }
+  if (action === 'disable') {
+    return { ...state, controls: { ...state.controls, enabled: false }, neighbors: [], encryptedExport: null };
+  }
+  if (action === 'enable') {
+    return { ...state, controls: { ...state.controls, enabled: true } };
+  }
+  if (action === 'block-peer') {
+    if (!params.peerId) throw new Error('peerId is required to block a remembered peer');
+    const blockedPeerIds = [...new Set([...state.blockedPeerIds, params.peerId])];
+    return {
+      ...state,
+      blockedPeerIds,
+      neighbors: state.neighbors.filter((neighbor) => neighbor.peerId !== params.peerId),
+    };
+  }
+  if (action === 'export-encrypted') {
+    const encryptedExport = params.encryptedExport || 'SEA{"ct":"encrypted-neighbor-state"}';
+    if (!encryptedExport.startsWith('SEA{')) {
+      throw new Error('Neighbor cache export must be encrypted');
+    }
+    return { ...state, encryptedExport };
+  }
+  return state;
+}
+
+function sortP2PNeighbors(neighbors: P2PNeighborRecord[], now = new Date()): P2PNeighborRecord[] {
+  return [...neighbors].sort((a, b) => {
+    const scoreDelta = scoreP2PNeighbor(b, now) - scoreP2PNeighbor(a, now);
+    if (scoreDelta !== 0) return scoreDelta;
+    return new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime();
+  });
 }
 
 export function toPublicSeaIdentity(pair: SeaPrivateIdentityMaterial | SeaPublicIdentity): SeaPublicIdentity {

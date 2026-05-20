@@ -69,6 +69,18 @@ describe('system routes', () => {
         ]),
       }),
     );
+    expect(res.body.neighborMemory).toEqual(
+      expect.objectContaining({
+        version: 1,
+        controls: expect.objectContaining({
+          enabled: true,
+          localOnly: true,
+          privateGraphPublishedByDefault: false,
+        }),
+        publicStarFallback: 'gun-star-server',
+        bootstrapCandidates: [],
+      }),
+    );
     expect(res.body.conversationTransport).toEqual(
       expect.objectContaining({
         activeMode: 'star-gun',
@@ -272,5 +284,81 @@ describe('system routes', () => {
     });
     expect(plaintext.status).toBe(400);
     expect(plaintext.body.error).toMatch(/plaintext/);
+  });
+
+  it('keeps active neighbor memory local-first and excludes expired, failed, or blocked peers', async () => {
+    const { app } = buildApp();
+
+    const fast = await request(app).post('/api/p2p/neighbors').send({
+      peerId: 'pub_fast_contact',
+      endpointHints: ['webrtc:fast'],
+      lastSeenAt: '2026-05-20T00:00:00.000Z',
+      successfulSessions: 4,
+      latencyMs: 30,
+      transportType: 'webrtc-datachannel',
+      capabilities: ['signed-discovery', 'webrtc-datachannel'],
+      trustStatus: 'trusted',
+      endpointStatus: 'active',
+      nearbyChatrooms: ['global', 'sf'],
+      isContact: true,
+      expiresAt: '2026-05-21T00:00:00.000Z',
+    });
+    expect(fast.status).toBe(200);
+    expect(fast.body.bootstrapCandidates).toEqual([
+      expect.objectContaining({ peerId: 'pub_fast_contact', endpointHints: ['webrtc:fast'] }),
+    ]);
+
+    const failed = await request(app).post('/api/p2p/neighbors').send({
+      peerId: 'pub_failed',
+      endpointHints: ['webrtc:failed'],
+      lastSeenAt: '2026-05-20T00:01:00.000Z',
+      successfulSessions: 9,
+      latencyMs: 5,
+      transportType: 'webrtc-datachannel',
+      capabilities: ['signed-discovery'],
+      trustStatus: 'unknown',
+      endpointStatus: 'failed',
+      nearbyChatrooms: ['global'],
+      isContact: false,
+      expiresAt: '2026-05-21T00:00:00.000Z',
+    });
+    expect(failed.status).toBe(200);
+    expect(failed.body.neighbors.map((neighbor: { peerId: string }) => neighbor.peerId)).toContain('pub_failed');
+    expect(failed.body.bootstrapCandidates.map((neighbor: { peerId: string }) => neighbor.peerId)).not.toContain(
+      'pub_failed',
+    );
+
+    const expired = await request(app).post('/api/p2p/neighbors').send({
+      peerId: 'pub_expired',
+      endpointHints: ['webrtc:expired'],
+      lastSeenAt: '2026-05-10T00:00:00.000Z',
+      successfulSessions: 10,
+      latencyMs: 1,
+      transportType: 'webrtc-datachannel',
+      capabilities: ['signed-discovery'],
+      trustStatus: 'unknown',
+      endpointStatus: 'active',
+      nearbyChatrooms: ['global'],
+      isContact: false,
+      expiresAt: '2026-05-19T00:00:00.000Z',
+    });
+    expect(expired.status).toBe(200);
+    expect(expired.body.neighbors.map((neighbor: { peerId: string }) => neighbor.peerId)).not.toContain('pub_expired');
+
+    const blocked = await request(app).post('/api/p2p/neighbors/block-peer').send({ peerId: 'pub_fast_contact' });
+    expect(blocked.status).toBe(200);
+    expect(blocked.body.blockedPeerIds).toContain('pub_fast_contact');
+    expect(blocked.body.bootstrapCandidates).toEqual([]);
+
+    const exported = await request(app).post('/api/p2p/neighbors/export-encrypted').send({
+      encryptedExport: 'SEA{"ct":"neighbor-cache"}',
+    });
+    expect(exported.status).toBe(200);
+    expect(exported.body.encryptedExport).toBe('SEA{"ct":"neighbor-cache"}');
+
+    const disabled = await request(app).post('/api/p2p/neighbors/disable').send({});
+    expect(disabled.status).toBe(200);
+    expect(disabled.body.controls.enabled).toBe(false);
+    expect(disabled.body.neighbors).toEqual([]);
   });
 });

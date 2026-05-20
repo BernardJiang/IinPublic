@@ -2228,6 +2228,7 @@ export class UIManager extends EventEmitter {
         ${this.renderSeaIdentityInspector(serverStorage?.seaIdentityPolicy, serverStorage?.seaStorageScan)}
         ${this.renderConversationTransportInspector(serverStorage?.conversationTransport)}
         ${this.renderP2PNetworkProtocolInspector(serverStorage?.p2pNetworkProtocol)}
+        ${this.renderP2PNeighborMemoryInspector(serverStorage?.neighborMemory)}
         <div>
           <div style="font-weight:600;color:#334155;margin-bottom:6px;">Browser local storage</div>
           <div id="storage-inspector-local" style="display:flex;flex-wrap:wrap;gap:6px;">
@@ -2350,6 +2351,40 @@ export class UIManager extends EventEmitter {
         </div>
         <div id="storage-inspector-p2p-capabilities" style="display:flex;flex-wrap:wrap;gap:6px;">
           ${capabilities.map((capability: string) => this.renderStoragePill(capability, 'capability')).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderP2PNeighborMemoryInspector(memory: any): string {
+    if (!memory) return '';
+    const neighbors = Array.isArray(memory.neighbors) ? memory.neighbors : [];
+    const candidates = Array.isArray(memory.bootstrapCandidates) ? memory.bootstrapCandidates : [];
+    const blocked = Array.isArray(memory.blockedPeerIds) ? memory.blockedPeerIds : [];
+    return `
+      <div id="storage-inspector-p2p-neighbor-memory" style="display:grid;gap:8px;padding:10px;border:1px solid #bbf7d0;border-radius:8px;background:#f0fdf4;">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <div style="font-weight:700;color:#14532d;">P2P Neighbor Memory</div>
+          ${this.renderStoragePill('Status', memory.controls?.enabled ? 'enabled' : 'disabled')}
+          ${this.renderStoragePill('Scope', memory.controls?.localOnly ? 'local-only' : 'shared')}
+          ${this.renderStoragePill('Graph', memory.controls?.privateGraphPublishedByDefault === false ? 'private' : 'published')}
+          ${this.renderStoragePill('Fallback', memory.publicStarFallback || 'unknown')}
+        </div>
+        <div id="storage-inspector-p2p-neighbor-controls" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${this.renderStoragePill('Clear neighbors', 'available')}
+          ${this.renderStoragePill('Disable memory', memory.controls?.enabled ? 'available' : 'active')}
+          ${this.renderStoragePill('Export encrypted', memory.controls?.exportFormat || 'unknown')}
+          ${this.renderStoragePill('Block peer', blocked.length > 0 ? `${blocked.length} blocked` : 'available')}
+        </div>
+        <div id="storage-inspector-p2p-neighbor-candidates" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${
+            candidates.length === 0
+              ? this.renderStoragePill('Bootstrap', 'star fallback')
+              : candidates.map((item: any) => this.renderStoragePill(item.peerId || 'peer', item.transportType || 'candidate')).join('')
+          }
+        </div>
+        <div id="storage-inspector-p2p-neighbor-records" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${neighbors.map((item: any) => this.renderStoragePill(item.peerId || 'peer', item.endpointStatus || 'unknown')).join('')}
         </div>
       </div>
     `;

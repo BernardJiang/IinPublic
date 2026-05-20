@@ -3,12 +3,16 @@ import path from 'path';
 import type express from 'express';
 import { logger } from '../logger';
 import {
+  applyP2PNeighborCacheAction,
   applyLocalNodeAction,
   createConversationTransportDiagnostics,
   createP2PDiscoveryMessage,
+  createP2PNeighborCacheState,
   createP2PNodeProtocolSpec,
   createP2PSignalingEnvelope,
   createLocalNodeSupervisorSnapshot,
+  getP2PBootstrapCandidates,
+  upsertP2PNeighbor,
   resolveP2PRuntimeFlags,
   scanRelayStorageForSeaLeaks,
   SEA_IDENTITY_POLICY,
@@ -16,6 +20,11 @@ import {
   type P2PSignalingEnvelope,
   type P2PSignalingKind,
   type P2PDiscoveryMessage,
+  type P2PNeighborCacheAction,
+  type P2PNeighborCacheState,
+  type P2PNeighborEndpointStatus,
+  type P2PNeighborTransportType,
+  type P2PNeighborTrustStatus,
   type P2PNodeCapability,
   type P2PPlatformId,
   type LocalNodeAction,
@@ -125,6 +134,7 @@ export function registerSystemRoutes(
   }: RegisterSystemRoutesDeps,
 ): void {
   let localNodeSupervisor: LocalNodeSupervisorSnapshot = createLocalNodeSupervisorSnapshot();
+  let neighborCache: P2PNeighborCacheState = createP2PNeighborCacheState();
   const signalingByConversation = new Map<string, P2PSignalingEnvelope[]>();
   const discoveryMessages = new Map<string, P2PDiscoveryMessage>();
 
@@ -184,6 +194,10 @@ export function registerSystemRoutes(
           },
           flags: resolveP2PRuntimeFlags(process.env),
           localNode: localNodeSupervisor,
+          neighborMemory: {
+            ...neighborCache,
+            bootstrapCandidates: getP2PBootstrapCandidates(neighborCache),
+          },
           conversationTransport: createConversationTransportDiagnostics(resolveP2PRuntimeFlags(process.env)),
           p2pNetworkProtocol: createP2PNodeProtocolSpec(),
           seaIdentityPolicy: SEA_IDENTITY_POLICY,
@@ -241,6 +255,54 @@ export function registerSystemRoutes(
       try {
         localNodeSupervisor = applyLocalNodeAction(localNodeSupervisor, action, new Date(), req.body);
         res.json(localNodeSupervisor);
+      } catch (error) {
+        res.status(400).json({ error: (error as Error).message });
+      }
+    });
+
+    app.get('/api/p2p/neighbors', (_req, res) => {
+      neighborCache = createP2PNeighborCacheState(neighborCache);
+      res.json({
+        ...neighborCache,
+        bootstrapCandidates: getP2PBootstrapCandidates(neighborCache),
+      });
+    });
+
+    app.post('/api/p2p/neighbors', (req, res) => {
+      try {
+        const body = req.body || {};
+        neighborCache = upsertP2PNeighbor(neighborCache, {
+          peerId: String(body.peerId || ''),
+          endpointHints: Array.isArray(body.endpointHints) ? body.endpointHints.map(String) : [],
+          lastSeenAt: String(body.lastSeenAt || new Date().toISOString()),
+          successfulSessions: Number(body.successfulSessions || 0),
+          latencyMs: Number(body.latencyMs || 0),
+          transportType: (body.transportType || 'webrtc-datachannel') as P2PNeighborTransportType,
+          capabilities: Array.isArray(body.capabilities) ? (body.capabilities as P2PNodeCapability[]) : [],
+          trustStatus: (body.trustStatus || 'unknown') as P2PNeighborTrustStatus,
+          endpointStatus: (body.endpointStatus || 'active') as P2PNeighborEndpointStatus,
+          nearbyChatrooms: Array.isArray(body.nearbyChatrooms) ? body.nearbyChatrooms.map(String) : [],
+          isContact: Boolean(body.isContact),
+          ...(body.expiresAt ? { expiresAt: String(body.expiresAt) } : {}),
+        });
+        res.json({
+          stored: true,
+          ...neighborCache,
+          bootstrapCandidates: getP2PBootstrapCandidates(neighborCache),
+        });
+      } catch (error) {
+        res.status(400).json({ error: (error as Error).message });
+      }
+    });
+
+    app.post('/api/p2p/neighbors/:action', (req, res) => {
+      try {
+        const action = req.params.action as P2PNeighborCacheAction;
+        neighborCache = applyP2PNeighborCacheAction(neighborCache, action, req.body || {});
+        res.json({
+          ...neighborCache,
+          bootstrapCandidates: getP2PBootstrapCandidates(neighborCache),
+        });
       } catch (error) {
         res.status(400).json({ error: (error as Error).message });
       }

@@ -79,6 +79,7 @@ The non-production storage inspector is exposed at `GET /api/debug/storage` and 
 - Done: canonical SEA public identity policy, encrypted browser key custody, recovery package plumbing, encrypted linked-device manifest primitives, signed ciphertext-only relay envelopes, and relay/browser leak checks.
 - Done: `ConversationTransport` boundary with `star-gun` as the default implementation, advertised `server-relay`/`direct-p2p` modes, short-lived encrypted signaling envelopes, and Settings/debug transport diagnostics.
 - Done: platform-neutral P2P node protocol with the chosen `gun-mesh-websocket-webrtc` substrate, shared identity/discovery/handshake/capability/neighbor-score/envelope/sync policy model, platform descriptors for Web/Windows/Ubuntu/Android/iOS, and signed discovery compatibility tests.
+- Done: local-only active neighbor memory with schema, scoring, expiry pruning, block exclusion, encrypted export, disable/clear controls, and bootstrap candidates before public star fallback.
 - Add browser WebRTC DataChannel activation behind the disabled direct-P2P flag after compatibility testing proves the transport boundary is stable.
 
 ## Permissioned Local Node
@@ -130,3 +131,9 @@ Platform descriptors:
 | iOS | Native foreground peer | No always-on node assumption; use foreground-only or notification-assisted wakeup. |
 
 Signed discovery messages are versioned, include the sender public key, platform, capabilities, endpoint hints, nonce, expiry, and signature, and reject plaintext bodies or private key material.
+
+## Active Neighbor Memory
+
+The repo now models remembered peers as owner-controlled local state through `P2PNeighborCacheState` and the non-production Settings/debug surface. Neighbor records include peer id, endpoint hints, last seen time, successful sessions, latency, transport type, capabilities, trust/block status, endpoint health, nearby chatrooms, contact status, and expiry.
+
+Bootstrap selection is local-first: enabled caches prune expired peers, exclude blocked or failed endpoints, score recent successful peers above stale options, and return active candidates before the app falls back to the public star server. Export is represented as SEA-encrypted neighbor state only; the private neighbor graph is never published by default.

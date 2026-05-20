@@ -1,4 +1,5 @@
 import {
+  applyP2PNeighborCacheAction,
   applyLocalNodeAction,
   assertNoPrivateSeaMaterial,
   createConversationTransportDiagnostics,
@@ -6,10 +7,14 @@ import {
   createLocalNodeSupervisorSnapshot,
   createLinkedDeviceManifest,
   createP2PDiscoveryMessage,
+  createP2PNeighborCacheState,
   createP2PNodeProtocolSpec,
   createP2PSignalingEnvelope,
+  getP2PBootstrapCandidates,
   createRelayEnvelope,
   scanRelayStorageForSeaLeaks,
+  scoreP2PNeighbor,
+  upsertP2PNeighbor,
   resolveP2PRuntimeFlags,
   SEA_IDENTITY_POLICY,
   STAR_GUN_PATH_CLASSIFICATIONS,
@@ -313,5 +318,82 @@ describe('p2p runtime flags', () => {
         bodyPlaintext: 'plain discovery body',
       }),
     ).toThrow(/plaintext/);
+  });
+
+  it('keeps active neighbor memory local, scored, pruned, and block-aware', () => {
+    const now = new Date('2026-05-20T00:00:00.000Z');
+    let cache = createP2PNeighborCacheState();
+
+    cache = upsertP2PNeighbor(
+      cache,
+      {
+        peerId: 'pub_fast_contact',
+        endpointHints: ['webrtc:fast'],
+        lastSeenAt: '2026-05-19T23:55:00.000Z',
+        successfulSessions: 5,
+        latencyMs: 40,
+        transportType: 'webrtc-datachannel',
+        capabilities: ['signed-discovery', 'webrtc-datachannel'],
+        trustStatus: 'trusted',
+        endpointStatus: 'active',
+        nearbyChatrooms: ['global', 'sf'],
+        isContact: true,
+      },
+      now,
+    );
+    cache = upsertP2PNeighbor(
+      cache,
+      {
+        peerId: 'pub_stale',
+        endpointHints: ['webrtc:stale'],
+        lastSeenAt: '2026-05-10T00:00:00.000Z',
+        successfulSessions: 10,
+        latencyMs: 10,
+        transportType: 'webrtc-datachannel',
+        capabilities: ['signed-discovery'],
+        trustStatus: 'unknown',
+        endpointStatus: 'active',
+        expiresAt: '2026-05-19T00:00:00.000Z',
+        nearbyChatrooms: ['global'],
+        isContact: false,
+      },
+      now,
+    );
+    cache = upsertP2PNeighbor(
+      cache,
+      {
+        peerId: 'pub_failed_endpoint',
+        endpointHints: ['webrtc:failed'],
+        lastSeenAt: '2026-05-19T23:59:00.000Z',
+        successfulSessions: 7,
+        latencyMs: 25,
+        transportType: 'webrtc-datachannel',
+        capabilities: ['signed-discovery'],
+        trustStatus: 'unknown',
+        endpointStatus: 'failed',
+        nearbyChatrooms: ['global'],
+        isContact: false,
+      },
+      now,
+    );
+
+    expect(cache.controls).toEqual(
+      expect.objectContaining({ enabled: true, localOnly: true, privateGraphPublishedByDefault: false }),
+    );
+    expect(cache.neighbors.map((neighbor) => neighbor.peerId)).toEqual(['pub_fast_contact', 'pub_failed_endpoint']);
+    expect(scoreP2PNeighbor(cache.neighbors[0], now)).toBeGreaterThan(scoreP2PNeighbor(cache.neighbors[1], now));
+    expect(getP2PBootstrapCandidates(cache, now).map((neighbor) => neighbor.peerId)).toEqual(['pub_fast_contact']);
+
+    cache = applyP2PNeighborCacheAction(cache, 'block-peer', { peerId: 'pub_fast_contact' });
+    expect(cache.blockedPeerIds).toContain('pub_fast_contact');
+    expect(getP2PBootstrapCandidates(cache, now)).toEqual([]);
+
+    cache = applyP2PNeighborCacheAction(cache, 'export-encrypted', {
+      encryptedExport: 'SEA{"ct":"encrypted-neighbor-state"}',
+    });
+    expect(cache.encryptedExport).toBe('SEA{"ct":"encrypted-neighbor-state"}');
+    expect(() => applyP2PNeighborCacheAction(cache, 'export-encrypted', { encryptedExport: 'plain export' })).toThrow(
+      /encrypted/,
+    );
   });
 });
