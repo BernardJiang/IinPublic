@@ -9,6 +9,7 @@ import { attachE2eBrowserTabLabel } from './e2e-tab-title';
 import { isStagePipeline, stageStoragePath, type E2eStageName } from './e2e-stage-pipeline';
 import { TECHSUPPORT, ADAM, EVE } from './canonical-users';
 import { assertStatusChecks } from './e2e-status-checks';
+import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../../src/shared/techsupport';
 
 export type BootstrapOptions = {
   /** Skip IndexedDB clear (restoring storage state). */
@@ -17,6 +18,30 @@ export type BootstrapOptions = {
   storageStatePath?: string;
   viewport?: { width: number; height: number };
 };
+
+export async function expectTechSupportGreetingReceived(page: Page, stageName?: string): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          ({ techSupportId, name }) => {
+            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            return Object.values(conversations).some((conversation: any) => {
+              const message = String(conversation?.lastMessage || '');
+              return (
+                conversation?.supportChannel === true &&
+                conversation?.otherUserId === techSupportId &&
+                message.includes('Welcome to IinPublic') &&
+                (!name || message.includes(name))
+              );
+            });
+          },
+          { techSupportId: TECHSUPPORT_ROOT_USER_ID, name: stageName || '' },
+        ),
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+}
 
 export async function bootstrapCanonicalUser(
   browser: Browser,
@@ -67,6 +92,10 @@ export async function bootstrapCanonicalUser(
     { kind: 'headerStageName', name: stageName },
     { kind: 'navActive', view: 'chatrooms' },
   ]);
+
+  if (stageName !== TECHSUPPORT_STAGE_NAME) {
+    await expectTechSupportGreetingReceived(page);
+  }
 
   attachE2eBrowserTabLabel(page, label);
   return { context, page };

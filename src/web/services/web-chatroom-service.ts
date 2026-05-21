@@ -3,12 +3,14 @@ import { LocationPrivacy } from '../../shared/location';
 import { WebGunService } from './web-gun-service';
 import { CONFIG } from '../../shared/config';
 import { findAppropriateChildChatroom } from '../../shared/location-to-chatroom';
+import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 
 export class WebChatroomService {
   private currentChatroomId?: string;
   private activeMembersUnsubscribe?: () => void;
   private evictionWatcherUnsubscribe?: () => void; // Unsubscribe from eviction watcher
   private memberCountSubscriptions: Map<string, () => void> = new Map(); // Track subscriptions for cleanup
+  private visitCountSubscriptions: Map<string, () => void> = new Map();
   private userLocations: Map<string, GPSCoordinate> = new Map(); // Track user locations for FIFO eviction
   /** Live map for the active subscribeToMembers listener — reused when reopening the same room so we never flash empty. */
   private activeMembersForList = new Map<string, { userId: string; stageName: string }>();
@@ -147,6 +149,7 @@ export class WebChatroomService {
     };
 
     await writeUserWithRetry();
+    await this.recordRoomVisit(chatroomId, userId);
 
     // Store location in a dedicated path for reliable retrieval
     // This is non-blocking - if it fails, we still allow the user to join
@@ -233,6 +236,42 @@ export class WebChatroomService {
     this.watchForEviction(userId, chatroomId, onMoved);
 
     console.log(`✅ Successfully joined chatroom: ${chatroomId}`);
+  }
+
+  private async recordRoomVisit(chatroomId: string, userId: string): Promise<void> {
+    const gun = this.gunService.getGun();
+    const visitEventId = `visit_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const now = new Date().toISOString();
+    await new Promise<void>((resolve) => {
+      gun.get('chatrooms').get(chatroomId).get('visits').get(visitEventId).put({
+        id: visitEventId,
+        userId,
+        visitedAt: now,
+      }, () => resolve());
+    });
+    const currentVisitCount = await this.readNumericRoomMetric(chatroomId, 'visitCount');
+    gun.get('chatrooms').get(chatroomId).get('visitCount').put(currentVisitCount + 1);
+    const uniquePath = gun.get('chatrooms').get(chatroomId).get('uniqueVisitors').get(userId);
+    const wasSeen = await new Promise<boolean>((resolve) => {
+      uniquePath.once((data: any) => resolve(!!data));
+    });
+    uniquePath.put({ userId, firstVisitedAt: now, lastVisitedAt: now });
+    if (!wasSeen) {
+      const uniqueCount = await this.readNumericRoomMetric(chatroomId, 'uniqueVisitorCount');
+      gun.get('chatrooms').get(chatroomId).get('uniqueVisitorCount').put(uniqueCount + 1);
+    }
+  }
+
+  private async readNumericRoomMetric(chatroomId: string, key: 'visitCount' | 'uniqueVisitorCount'): Promise<number> {
+    const gun = this.gunService.getGun();
+    return new Promise<number>((resolve) => {
+      const timeoutId = setTimeout(() => resolve(0), 700);
+      gun.get('chatrooms').get(chatroomId).get(key).once((value: any) => {
+        clearTimeout(timeoutId);
+        const n = Number(value);
+        resolve(Number.isFinite(n) && n >= 0 ? n : 0);
+      });
+    });
   }
 
   /**
@@ -365,7 +404,7 @@ export class WebChatroomService {
           .get('users')
           .map()
           .on((memberData: any, userId: string) => {
-            if (userId.startsWith('_')) return;
+            if (userId.startsWith('_') || userId === TECHSUPPORT_ROOT_USER_ID) return;
             if (memberData && memberData.isActive === true) {
               activeYes.add(userId);
             } else {
@@ -491,7 +530,7 @@ export class WebChatroomService {
     const emitCount = () => {
       let count = 0;
       for (const [, data] of activeMembers) {
-        if (data && data.isActive === true) {
+        if (data && data.isActive === true && data.userId !== TECHSUPPORT_ROOT_USER_ID) {
           count++;
         }
       }
@@ -506,7 +545,7 @@ export class WebChatroomService {
     void this.observeActiveMemberIds(chatroomId, 1400).then((memberIds) => {
       if (subscriptionCancelled) return;
       for (const userId of memberIds) {
-        if (!activeMembers.has(userId)) {
+        if (userId !== TECHSUPPORT_ROOT_USER_ID && !activeMembers.has(userId)) {
           activeMembers.set(userId, { isActive: true });
         }
       }
@@ -526,7 +565,7 @@ export class WebChatroomService {
       .map()
       .on((memberData: any, userId: string) => {
         // Skip Gun.js metadata
-        if (userId.startsWith('_')) return;
+        if (userId.startsWith('_') || userId === TECHSUPPORT_ROOT_USER_ID) return;
 
         // Update our tracking map
         if (memberData == null || memberData.isActive === false) {
@@ -557,12 +596,40 @@ export class WebChatroomService {
     });
   }
 
+  subscribeToVisitCounts(
+    chatroomId: string,
+    callback: (counts: { visitCount: number; uniqueVisitorCount: number }) => void,
+  ): void {
+    const existingUnsubscribe = this.visitCountSubscriptions.get(chatroomId);
+    if (existingUnsubscribe) existingUnsubscribe();
+    const gun = this.gunService.getGun();
+    let visitCount = 0;
+    let uniqueVisitorCount = 0;
+    const emit = () => callback({ visitCount, uniqueVisitorCount });
+    const offVisit = gun.get('chatrooms').get(chatroomId).get('visitCount').on((value: any) => {
+      const n = Number(value);
+      visitCount = Number.isFinite(n) && n >= 0 ? n : 0;
+      emit();
+    });
+    const offUnique = gun.get('chatrooms').get(chatroomId).get('uniqueVisitorCount').on((value: any) => {
+      const n = Number(value);
+      uniqueVisitorCount = Number.isFinite(n) && n >= 0 ? n : 0;
+      emit();
+    });
+    this.visitCountSubscriptions.set(chatroomId, () => {
+      offVisit.off();
+      offUnique.off();
+    });
+  }
+
   /**
    * Unsubscribe from all member count subscriptions
    */
   unsubscribeAllMemberCounts(): void {
     this.memberCountSubscriptions.forEach((unsubscribe) => unsubscribe());
     this.memberCountSubscriptions.clear();
+    this.visitCountSubscriptions.forEach((unsubscribe) => unsubscribe());
+    this.visitCountSubscriptions.clear();
   }
 
   /**
@@ -592,7 +659,11 @@ export class WebChatroomService {
           .get('users')
           .map()
           .once((memberData: any, userId: string) => {
-            if (memberData && memberData.isActive === true) {
+            if (
+              memberData &&
+              memberData.isActive === true &&
+              userId !== TECHSUPPORT_ROOT_USER_ID
+            ) {
               activeUsers.push({
                 userId: userId,
                 joinedAt: memberData.joinedAt,

@@ -164,7 +164,9 @@ test.describe('Talks matching — one match one mismatch from two responders', (
         async () =>
           pageTom.evaluate(() => {
             const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
-            const names = Object.values(conversations).map((conversation: any) => conversation?.otherUserName);
+            const names = Object.values(conversations)
+              .filter((conversation: any) => conversation?.supportChannel !== true)
+              .map((conversation: any) => conversation?.otherUserName);
             return { count: names.length, hasJerry: names.includes('Jerry'), hasBob: names.includes('Bob') };
           }),
         { timeout: 5_000 },

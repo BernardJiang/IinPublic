@@ -40,6 +40,8 @@ export interface User {
   knownPeople?: KnownPerson[];
   blockedUserIds?: string[];
   talkFilters?: TalkIntakeFilters;
+  networkRole?: 'root-techsupport';
+  supportMuted?: boolean;
 }
 
 /** Who may see this profile Q&A on peer/contact surfaces (API applies this for non-owners). */

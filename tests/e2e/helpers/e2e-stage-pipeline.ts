@@ -61,10 +61,14 @@ export async function loadStageSnapshot(stage: E2eStageName): Promise<void> {
 export { maybeClearGunDatabases, clearGunDatabases };
 
 /**
- * Stage-1 specs each spin up a fresh browser user and expect Global headcount 1.
- * Always clear Gun (do not use maybeClearGunDatabases — it is a no-op in stage pipeline).
+ * Stage-1 specs each spin up a fresh browser user.
+ * In the staged pipeline, preserve the TechSupport root baseline from stage0.
  */
 export async function clearGunForStage1Spec(): Promise<void> {
+  if (isStagePipeline()) {
+    await loadStageSnapshot('stage0');
+    return;
+  }
   await clearGunDatabases();
 }
 
@@ -76,9 +80,13 @@ export async function saveStage1SnapshotFromStage0Baseline(): Promise<void> {
 
 /**
  * Stage-2 specs each spin up fresh browser users and expect predictable headcounts.
- * Always clear Gun (maybeClearGunDatabases is a no-op in stage pipeline).
+ * In the staged pipeline, start from the stage1 baseline, which is derived from stage0.
  */
 export async function clearGunForStage2Spec(): Promise<void> {
+  if (isStagePipeline()) {
+    await loadStageSnapshot('stage1');
+    return;
+  }
   await clearGunDatabases();
 }
 
@@ -110,5 +118,5 @@ export async function saveStage2SnapshotFromAdamJoinBaseline(): Promise<void> {
 
 export async function resetToStage0Empty(): Promise<void> {
   fs.rmSync(stageSnapshotsDir(), { recursive: true, force: true });
-  await clearGunDatabases();
+  await clearGunDatabases({ seedTechSupportRoot: false });
 }

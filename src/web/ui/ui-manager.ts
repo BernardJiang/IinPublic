@@ -100,6 +100,15 @@ import {
 import { normalizeCustomBlockedTerms } from '../../shared/talk-intake-filters';
 
 const TALK_TYPE_VALUES: TalkIntakeFilters['allowedTalkTypes'] = ['flow', 'survey', 'tag', 'route'];
+const LANGUAGE_OPTIONS = [
+  { code: 'en', label: 'English' },
+  { code: 'zh', label: 'Chinese' },
+  { code: 'es', label: 'Spanish' },
+  { code: 'fr', label: 'French' },
+  { code: 'de', label: 'German' },
+  { code: 'ja', label: 'Japanese' },
+  { code: 'ko', label: 'Korean' },
+];
 
 function normalizeStringList(value: unknown, fallback: string[] = []): string[] {
   const raw = Array.isArray(value)
@@ -151,6 +160,7 @@ export class UIManager extends EventEmitter {
   }
   private currentConversationId: string | undefined = undefined;
   private chatroomMemberCounts: Map<string, number> = new Map(); // Track member count per chatroom
+  private chatroomVisitCounts: Map<string, { visitCount: number; uniqueVisitorCount: number }> = new Map();
   private expandedChatrooms: Set<string> = new Set([
     'global',
     'north-america',
@@ -1318,6 +1328,7 @@ export class UIManager extends EventEmitter {
     return {
       currentChatroom: this.currentChatroom,
       chatroomMemberCounts: this.chatroomMemberCounts,
+      chatroomVisitCounts: this.chatroomVisitCounts,
       expandedChatrooms: this.expandedChatrooms,
       matchedUserIds: this.matchedUserIds,
       customChatrooms: this.customChatrooms,
@@ -1721,6 +1732,7 @@ export class UIManager extends EventEmitter {
                     ? '<span class="talk-badge talk-badge-copied" style="background:#e0e7ff;color:#3730a3;">📋 Copied</span>'
                     : '<span class="talk-badge talk-badge-created" style="background:#dbeafe;color:#1e40af;">📝 Created</span>';
                   const talkTypeLower = String(talk.type || talk.fullTalk?.type || '').toLowerCase();
+                  const talkLanguage = String(talk.language || talk.fullTalk?.language || 'en').toLowerCase();
                   const surveyStatsBtn =
                     talkTypeLower === 'survey'
                       ? `<button type="button" class="btn survey-stats-btn" data-talk-id="${escapeHtml(talkId)}" data-testid="survey-stats-button" style="padding: 6px 12px; font-size: 0.9em; background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;">📊 Results</button>`
@@ -1737,6 +1749,7 @@ export class UIManager extends EventEmitter {
             <div class="talk-item-badges">
               ${roleBadge}
               <span class="talk-badge talk-badge-type">${talk.type}</span>
+              <span class="talk-badge talk-badge-language">${escapeHtml(talkLanguage)}</span>
             </div>
           </div>
           <div class="talk-item-meta">
@@ -1786,6 +1799,7 @@ export class UIManager extends EventEmitter {
                   ? '<span class="talk-badge" style="background:#f3f4f6;color:#6b7280;">✅ Answered</span>'
                   : '<span class="talk-badge" style="background:#dbeafe;color:#1d4ed8;font-weight:700;">🆕 New</span>';
                 const incomingType = String(cluster?.type || 'flow').toLowerCase();
+                const incomingLanguage = String(cluster?.language || cluster?.latestTalk?.language || 'en').toLowerCase();
                 const typeAccent =
                   incomingType === 'tag' ? '#7c3aed'
                   : incomingType === 'survey' ? '#059669'
@@ -1798,6 +1812,7 @@ export class UIManager extends EventEmitter {
             <div class="talk-item-badges">
               ${statusBadge}
               <span class="talk-badge talk-badge-type">${escapeHtml(cluster?.type || 'flow')}</span>
+              <span class="talk-badge talk-badge-language">${escapeHtml(incomingLanguage)}</span>
               <span class="talk-badge" style="background:#eef2ff;color:#3730a3;">👥 ${senderNames.length} sender${senderNames.length !== 1 ? 's' : ''}</span>
             </div>
           </div>
@@ -1950,15 +1965,7 @@ export class UIManager extends EventEmitter {
         label: `${room.type === 'business' ? '🏪' : '💬'} ${room.name}`,
       })),
     ];
-    const languageOptions = [
-      { code: 'en', label: 'English' },
-      { code: 'zh', label: 'Chinese' },
-      { code: 'es', label: 'Spanish' },
-      { code: 'fr', label: 'French' },
-      { code: 'de', label: 'German' },
-      { code: 'ja', label: 'Japanese' },
-      { code: 'ko', label: 'Korean' },
-    ];
+    const languageOptions = LANGUAGE_OPTIONS;
     const headshotChoices = ['🙂', '😎', '🤠', '🎾', '☕', '🌟', '🐱', '🦊'];
     container.innerHTML = `
       <div style="display:grid;gap:14px;">
@@ -1997,14 +2004,20 @@ export class UIManager extends EventEmitter {
                 .join('')}
             </select>
           </label>
-          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
+          <div style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
             <span>Incoming talk language filter</span>
-            <select class="form-input" id="settings-filter-languages" data-testid="settings-incoming-language-select" multiple size="4">
+            <div id="settings-filter-languages" data-testid="settings-incoming-language-select" style="display:flex;flex-wrap:wrap;gap:8px;">
               ${languageOptions
-                .map((lang) => `<option value="${lang.code}" ${talkFilters.allowedLanguages.includes(lang.code) ? 'selected' : ''}>${lang.label}</option>`)
+                .map((lang) => `
+                  <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid #d1d5db;border-radius:999px;background:white;">
+                    <input type="checkbox" class="settings-filter-language-option" value="${lang.code}" ${talkFilters.allowedLanguages.includes(lang.code) ? 'checked' : ''}>
+                    <span>${lang.label}</span>
+                  </label>
+                `)
                 .join('')}
-            </select>
-          </label>
+            </div>
+            <div id="settings-filter-languages-count" style="font-size:0.82em;color:#64748b;">${talkFilters.allowedLanguages.length} active</div>
+          </div>
         </section>
         <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
           <div style="font-weight:700;color:#111827;margin-bottom:10px;">Talk Behavior</div>
@@ -2093,7 +2106,10 @@ export class UIManager extends EventEmitter {
     };
 
     const sync = () => {
-      const filterLanguages = selectedValues('settings-filter-languages');
+      const filterLanguages = Array.from(document.querySelectorAll<HTMLInputElement>('.settings-filter-language-option'))
+        .filter((el) => el.checked)
+        .map((el) => el.value.trim().toLowerCase())
+        .filter(Boolean);
       const profileLanguages = selectedValues('settings-profile-languages');
       const minDistanceEl = document.getElementById('settings-min-distance') as HTMLInputElement | null;
       const maxDistanceEl = document.getElementById('settings-max-distance') as HTMLInputElement | null;
@@ -2111,6 +2127,8 @@ export class UIManager extends EventEmitter {
       if (minDistanceEl?.value) nextFilters.minDistanceMiles = Number(minDistanceEl.value);
       if (maxDistanceEl?.value) nextFilters.maxDistanceMiles = Number(maxDistanceEl.value);
       setTalkIntakeFilters(nextFilters);
+      const langCount = document.getElementById('settings-filter-languages-count');
+      if (langCount) langCount.textContent = `${nextFilters.allowedLanguages.length} active`;
       if (this.currentUser) {
         const nextProfileLanguages = profileLanguages.length > 0 ? profileLanguages : ['en'];
         const profileLanguageChanged = nextProfileLanguages.join(',') !== (this.currentUser.languages || []).join(',');
@@ -2128,8 +2146,11 @@ export class UIManager extends EventEmitter {
       this.emit('updateTalkFilters', nextFilters);
       if (document.getElementById('talks-view')?.classList.contains('active')) this.displayTalksList();
     };
-    ['settings-profile-languages', 'settings-filter-languages', 'settings-min-distance', 'settings-max-distance', 'settings-grammar-filter', 'settings-dirty-words-filter'].forEach((id) => {
+    ['settings-profile-languages', 'settings-min-distance', 'settings-max-distance', 'settings-grammar-filter', 'settings-dirty-words-filter'].forEach((id) => {
       document.getElementById(id)?.addEventListener('change', sync);
+    });
+    document.querySelectorAll('.settings-filter-language-option').forEach((el) => {
+      el.addEventListener('change', sync);
     });
     document.querySelectorAll('.settings-talk-filter-type').forEach((el) => {
       el.addEventListener('change', sync);
@@ -3404,7 +3425,12 @@ export class UIManager extends EventEmitter {
   getTotalMatches(): number {
     const statsMatches = Object.values(this.talkStatsMap).reduce((sum, s) => sum + s.matches, 0);
     const conversationMatches = Object.values(this.getMyConversations()).filter((conversation: any) => {
-      return !!conversation && typeof conversation === 'object' && !!conversation.talkId;
+      return (
+        !!conversation &&
+        typeof conversation === 'object' &&
+        conversation.supportChannel !== true &&
+        !!conversation.talkId
+      );
     }).length;
     // Use the higher of the two: per-talk stats update immediately on responses, while
     // Gun-backed conversations can lag (bulk matches would otherwise show "1 match" forever).
@@ -3931,7 +3957,7 @@ export class UIManager extends EventEmitter {
    * Called by app after a talk is created: saves to myTalks and user's answer list (answerPreferences).
    */
   saveCreatedTalk(
-    talk: { id: string; title: string; type: string; questions: any[]; expiresAt?: number | null; locationRadiusMiles?: number | null },
+    talk: { id: string; title: string; type: string; questions: any[]; language?: string; expiresAt?: number | null; locationRadiusMiles?: number | null },
     options: { selfAnswers: { questionId: string; answerId: string }[] },
   ): void {
     const myTalks = getMyTalks();
@@ -3941,6 +3967,7 @@ export class UIManager extends EventEmitter {
       talkId: talk.id,
       title: talk.title,
       type: talk.type,
+      language: talk.language || 'en',
       timestamp: new Date().toISOString(),
       role: 'created',
       fullTalk: talk,
@@ -4150,8 +4177,11 @@ export class UIManager extends EventEmitter {
   }
 
   showTalkEditorDialog(existingTalk?: any): void {
+    const defaultLanguage = String(existingTalk?.language || this.currentUser?.languages?.[0] || 'en').toLowerCase();
     openTalkEditorDialog({
       existingTalk,
+      defaultLanguage,
+      languageOptions: LANGUAGE_OPTIONS,
       escapeHtml: escapeHtml,
       getAnswerPreferences,
       addQuestionToForm: (index, container) =>
@@ -4190,6 +4220,11 @@ export class UIManager extends EventEmitter {
       | 'survey'
       | 'tag'
       | 'route';
+    const language = String(
+      (document.getElementById('talk-language') as HTMLSelectElement | null)?.value ||
+      this.currentUser?.languages?.[0] ||
+      'en',
+    ).toLowerCase();
 
     const expiresSelect = document.getElementById('talk-expires') as HTMLSelectElement;
     const locationSelect = document.getElementById('talk-location-radius') as HTMLSelectElement;
@@ -4307,7 +4342,7 @@ export class UIManager extends EventEmitter {
       authorId: '',
       type,
       isAdult,
-      language: 'en',
+      language,
       tags: [],
       questions,
       createdAt: new Date(),
@@ -4344,7 +4379,7 @@ export class UIManager extends EventEmitter {
         type,
         isAdult,
         questions,
-        language: 'en',
+        language,
         tags: [],
         expiresAt,
         locationRadiusMiles,
@@ -4355,7 +4390,7 @@ export class UIManager extends EventEmitter {
         type,
         isAdult,
         questions,
-        language: 'en',
+        language,
         tags: [],
         sendToChatroom,
         expiresAt,
@@ -4687,6 +4722,17 @@ export class UIManager extends EventEmitter {
     }
   }
 
+  setChatroomVisitCounts(chatroomId: string, counts: { visitCount: number; uniqueVisitorCount: number }): void {
+    this.chatroomVisitCounts.set(chatroomId, counts);
+    const chatroomList = document.getElementById('chatroom-list');
+    if (chatroomList) this.renderChatroomList();
+    const status = document.getElementById('current-chatroom-status');
+    if (status && this.currentChatroom === chatroomId) {
+      const members = this.chatroomMemberCounts.get(chatroomId) || 0;
+      status.textContent = `👥 ${members} member${members !== 1 ? 's' : ''} total · 🚪 ${counts.visitCount} visits · ◎ ${counts.uniqueVisitorCount} unique`;
+    }
+  }
+
   updateChatroomMembers(
     members: Array<{ userId: string; stageName: string }>,
     currentUserId: string,
@@ -4857,7 +4903,9 @@ export class UIManager extends EventEmitter {
   updateMatchBadge(): void {
     // Count unread conversations
     const conversations = this.getMyConversations();
-    const unreadCount = Object.values(conversations).filter((conv: any) => conv.unread).length;
+    const unreadCount = Object.values(conversations).filter((conv: any) => {
+      return conv?.unread && conv.supportChannel !== true;
+    }).length;
 
     // Update badge on Me tab
     const meTab = document.querySelector('.nav-btn[data-view="me"] .nav-icon');
@@ -4915,6 +4963,7 @@ export class UIManager extends EventEmitter {
     otherUserName: string;
     talkId?: string;
     respondedByBot?: boolean;
+    supportChannel?: boolean;
   }): void {
     const conversations = this.getMyConversations();
     const existing = conversations[conversationData.conversationId];
@@ -4935,15 +4984,18 @@ export class UIManager extends EventEmitter {
       preferredOtherUserName,
     );
 
+    const isSupportChannel = !!existing?.supportChannel || conversationData.supportChannel === true;
+
     conversations[conversationData.conversationId] = {
       otherUserId: conversationData.otherUserId,
       otherUserName: resolvedOtherUserName,
-      talkId: conversationData.talkId,
+      ...(isSupportChannel ? {} : { talkId: conversationData.talkId }),
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       lastMessage: existing?.lastMessage ?? null,
       lastMessageTime: existing?.lastMessageTime ?? null,
-      unread: isNew ? true : (existing?.unread ?? false),
+      unread: isSupportChannel ? false : (isNew ? true : (existing?.unread ?? false)),
       respondedByBot,
+      supportChannel: isSupportChannel,
     };
 
     localStorage.setItem('myConversations', JSON.stringify(conversations));
@@ -4960,7 +5012,11 @@ export class UIManager extends EventEmitter {
     // Only show toast for genuinely new matches (not when re-syncing or opening edit)
     if (isNew) {
       const name = conversationData.otherUserName?.trim() || 'Someone';
-      this.showNotification(`Match! You and ${name} can now chat.`, 'success');
+      if (conversationData.supportChannel) {
+        this.showNotification(`${name} support channel is ready.`, 'info');
+      } else {
+        this.showNotification(`Match! You and ${name} can now chat.`, 'success');
+      }
     }
 
     const contactsTab = document.querySelector('.nav-btn[data-view="contacts"]');
@@ -4982,7 +5038,7 @@ export class UIManager extends EventEmitter {
       conversations[conversationId].lastMessageTime = timestamp;
 
       // If the current conversation is not open, mark as unread
-      if (this.currentConversationId !== conversationId) {
+      if (this.currentConversationId !== conversationId && conversations[conversationId].supportChannel !== true) {
         conversations[conversationId].unread = true;
       }
 

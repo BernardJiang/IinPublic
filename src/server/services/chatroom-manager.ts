@@ -43,9 +43,13 @@ export class ChatroomManager {
   async getChatroom(chatroomId: string): Promise<any | null> {
     const meta = await this.getPathWithRetry(['chatroomMeta', chatroomId], 6, 150);
     if (!meta || typeof meta !== 'object') return null;
+    const visitCount = Number(await this.gunService.getPath(['chatrooms', chatroomId, 'visitCount']).catch(() => 0)) || 0;
+    const uniqueVisitorCount = Number(await this.gunService.getPath(['chatrooms', chatroomId, 'uniqueVisitorCount']).catch(() => 0)) || 0;
     return {
       id: chatroomId,
       ...meta,
+      visitCount,
+      uniqueVisitorCount,
     };
   }
 
@@ -137,6 +141,23 @@ export class ChatroomManager {
     const current = await this.gunService.getPath(['chatrooms', chatroomId, 'headcount']);
     const headcount = Number(current) || 0;
     await this.gunService.putPath(['chatrooms', chatroomId, 'headcount'], headcount + 1);
+    await this.recordVisit(chatroomId, userId);
+  }
+
+  private async recordVisit(chatroomId: string, userId: string): Promise<void> {
+    const now = new Date().toISOString();
+    const visitCount = Number(await this.gunService.getPath(['chatrooms', chatroomId, 'visitCount']).catch(() => 0)) || 0;
+    await this.gunService.putPath(['chatrooms', chatroomId, 'visitCount'], visitCount + 1);
+    const existingVisitor = await this.gunService.getPath(['chatrooms', chatroomId, 'uniqueVisitors', userId]).catch(() => null);
+    await this.gunService.putPath(['chatrooms', chatroomId, 'uniqueVisitors', userId], {
+      userId,
+      firstVisitedAt: existingVisitor?.firstVisitedAt || now,
+      lastVisitedAt: now,
+    });
+    if (!existingVisitor) {
+      const uniqueCount = Number(await this.gunService.getPath(['chatrooms', chatroomId, 'uniqueVisitorCount']).catch(() => 0)) || 0;
+      await this.gunService.putPath(['chatrooms', chatroomId, 'uniqueVisitorCount'], uniqueCount + 1);
+    }
   }
 
   async leaveChatroom(chatroomId: string, userId: string): Promise<void> {

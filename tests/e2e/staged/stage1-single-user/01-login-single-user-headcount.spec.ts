@@ -3,7 +3,7 @@ import { test, expect } from '../../helpers/fixtures';
 import * as fs from 'fs';
 import * as path from 'path';
 import { injectIdbClear } from '../../helpers/clear-database';
-import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
+import { clearGunForStage1Spec, isStagePipeline } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, delay, headless } from '../../helpers/timing';
 import { webBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
@@ -28,7 +28,7 @@ test.describe('Login — single user headcount', () => {
     await clearGunForStage1Spec();
   });
 
-  test('Single user: login, headcount 1, exit, re-login persists', async () => {
+  test('Single user: login, headcount persists with TechSupport baseline', async () => {
     const screenshotDir = e2eTestScreenshotsDir('01-login');
     if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
 
@@ -43,9 +43,10 @@ test.describe('Login — single user headcount', () => {
     await afterLoad();
     attachE2eBrowserTabLabel(page, 'User1');
 
-    const headcount = page.locator('.chatroom-item:has-text("Global") .chatroom-headcount');
-    await headcount.waitFor({ state: 'visible', timeout: 5000 });
-    await expect(headcount).toContainText('1');
+    const expectedHeadcount = isStagePipeline() ? '2' : '1';
+    const headcount = page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount');
+    await headcount.waitFor({ state: 'visible', timeout: 15000 });
+    await expect(headcount).toContainText(expectedHeadcount, { timeout: 20000 });
     await page.screenshot({ path: path.join(screenshotDir, '01-first-login.png'), fullPage: true });
 
     await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());
@@ -59,7 +60,10 @@ test.describe('Login — single user headcount', () => {
     await afterNav();
     await afterLoad();
     attachE2eBrowserTabLabel(page, 'User1 re-login');
-    await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('1');
+    await expect(page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount')).toContainText(
+      expectedHeadcount,
+      { timeout: 20000 },
+    );
     await page.screenshot({ path: path.join(screenshotDir, '02-re-login.png'), fullPage: true });
 
     await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());

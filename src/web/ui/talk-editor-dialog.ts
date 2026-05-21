@@ -9,6 +9,8 @@ type TalkEditorDialogOptions = {
   refreshFlowAnswerConstraints: (type: string) => void;
   ensureRouteEditorRendered: (existingTalk?: any) => void;
   setupTalkFormHandlers: (modal: HTMLElement) => void;
+  defaultLanguage?: string;
+  languageOptions?: Array<{ code: string; label: string }>;
 };
 
 export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
@@ -22,6 +24,16 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
 
   const renderForm = (): void => {
     const isEdit = !!(existingTalk && existingTalk.id);
+    const languageOptions = options.languageOptions || [
+      { code: 'en', label: 'English' },
+      { code: 'zh', label: 'Chinese' },
+      { code: 'es', label: 'Spanish' },
+      { code: 'fr', label: 'French' },
+      { code: 'de', label: 'German' },
+      { code: 'ja', label: 'Japanese' },
+      { code: 'ko', label: 'Korean' },
+    ];
+    const selectedLanguage = String(existingTalk?.language || options.defaultLanguage || 'en').toLowerCase();
     modal.innerHTML = `
       <div class="modal-content" style="max-width: 1000px; max-height: 90vh; overflow-y: auto;">
         <div class="modal-header">
@@ -32,6 +44,15 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
           <div class="form-group">
             <label class="form-label">Talk Title</label>
             <input type="text" class="form-input" id="talk-title" placeholder="e.g., Coffee Meetup, Quick Survey" required value="${existingTalk ? options.escapeHtml(existingTalk.title) : ''}">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Language</label>
+            <select class="form-input" id="talk-language" aria-label="Talk language">
+              ${languageOptions
+                .map((lang) => `<option value="${lang.code}" ${lang.code === selectedLanguage ? 'selected' : ''}>${lang.label}</option>`)
+                .join('')}
+            </select>
           </div>
 
           <div class="form-group" id="tag-like-group" style="display: none;">

@@ -4,6 +4,7 @@ export type MyTalkEntry = {
   talkId: string;
   title: string;
   type: string;
+  language?: string;
   timestamp: string;
   role: MyTalkRole;
   fullTalk?: any;

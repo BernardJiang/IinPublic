@@ -1,4 +1,5 @@
 import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
+import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import type { PeerRelationshipStats } from '../../server/routes/peer-routes';
 
 type ChatroomMember = { userId: string; stageName: string };
@@ -14,6 +15,7 @@ export type CustomChatroomRow = {
 type ChatroomsViewDeps = {
   currentChatroom: string;
   chatroomMemberCounts: Map<string, number>;
+  chatroomVisitCounts: Map<string, { visitCount: number; uniqueVisitorCount: number }>;
   expandedChatrooms: Set<string>;
   matchedUserIds: Set<string>;
   customChatrooms: ReadonlyArray<CustomChatroomRow>;
@@ -84,6 +86,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   chatroomList.innerHTML = rows
     .map((room) => {
       const memberCount = deps.chatroomMemberCounts.get(room.id) || 0;
+      const visitCounts = deps.chatroomVisitCounts.get(room.id) || { visitCount: 0, uniqueVisitorCount: 0 };
       const isCurrentRoom = deps.currentChatroom === room.id;
       const isExpanded = deps.expandedChatrooms.has(room.id);
       const expandIcon = room.hasChildren ? (isExpanded ? '▼' : '▶') : '';
@@ -101,6 +104,8 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
               ${room.name}
               ${isCurrentRoom ? '<span class="current-room-badge">Current</span>' : ''}
               <span class="chatroom-headcount">${memberCount > 0 ? `👥 ${memberCount}` : '👥 0'}</span>
+              <span class="chatroom-visitcount">🚪 ${visitCounts.visitCount}</span>
+              <span class="chatroom-unique-visitors">◎ ${visitCounts.uniqueVisitorCount}</span>
             </div>
           </div>
           <div class="chatroom-arrow">›</div>
@@ -207,14 +212,16 @@ export function updateChatroomMembers(
   const chatroomMembersList = document.getElementById('chatroom-members-list');
   const chatroomStatus = document.getElementById('current-chatroom-status');
   const otherMembers = members.filter((member) => member.userId !== currentUserId);
+  const ordinaryMemberCount = members.filter((member) => member.userId !== TECHSUPPORT_ROOT_USER_ID).length;
 
-  deps.chatroomMemberCounts.set(deps.currentChatroom, members.length);
+  deps.chatroomMemberCounts.set(deps.currentChatroom, ordinaryMemberCount);
   deps.renderChatroomList();
   deps.setCurrentChatroomMembers(otherMembers);
 
   if (chatroomMembersList) {
     if (chatroomStatus) {
-      chatroomStatus.textContent = `👥 ${members.length} member${members.length !== 1 ? 's' : ''} total`;
+      const visits = deps.chatroomVisitCounts.get(deps.currentChatroom) || { visitCount: 0, uniqueVisitorCount: 0 };
+      chatroomStatus.textContent = `👥 ${ordinaryMemberCount} member${ordinaryMemberCount !== 1 ? 's' : ''} total · 🚪 ${visits.visitCount} visits · ◎ ${visits.uniqueVisitorCount} unique`;
     }
 
     if (otherMembers.length === 0) {

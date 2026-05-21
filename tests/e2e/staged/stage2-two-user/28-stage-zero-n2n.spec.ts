@@ -128,7 +128,8 @@ async function configureFirstUser(page: Page, name: string, homeRoom: string): P
   await page.selectOption('#settings-headshot-select', '🎾');
   await page.selectOption('#settings-profile-languages', 'en');
   await afterSync();
-  await page.locator('#settings-filter-languages').selectOption([{ value: 'en' }, { value: 'zh' }]);
+  await page.locator('.settings-filter-language-option[value="en"]').setChecked(true);
+  await page.locator('.settings-filter-language-option[value="zh"]').setChecked(true);
   await page.fill('#settings-min-distance', '1');
   await page.fill('#settings-max-distance', '50');
   await page.locator('#settings-grammar-filter').check();
@@ -136,13 +137,7 @@ async function configureFirstUser(page: Page, name: string, homeRoom: string): P
   await page.locator('#settings-copy-talk-autosave').check();
   await page.locator('#settings-chatbot-enabled').check();
   await page.selectOption('#settings-home-room', homeRoom);
-  await page.locator('#settings-filter-languages').evaluate((select) => {
-    const el = select as HTMLSelectElement;
-    for (const option of Array.from(el.options)) {
-      option.selected = option.value === 'en' || option.value === 'zh';
-    }
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-  });
+  await page.locator('.settings-filter-language-option[value="zh"]').dispatchEvent('change');
   await afterSync();
 }
 
@@ -167,8 +162,8 @@ test.describe('Stage zero N2N smoke', () => {
     await expect
       .poll(
         () =>
-          page.locator('#settings-filter-languages').evaluate((select) =>
-            Array.from((select as HTMLSelectElement).selectedOptions)
+          page.locator('#settings-filter-languages').evaluate((container) =>
+            Array.from(container.querySelectorAll<HTMLInputElement>('.settings-filter-language-option:checked'))
               .map((option) => option.value)
               .sort()
               .join(','),
@@ -209,7 +204,12 @@ test.describe('Stage zero N2N smoke', () => {
     await expect(page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount')).toContainText('1');
     for (const roomId of ['north-america', 'usa', 'california', 'san-diego']) {
       await page.click(`.chatroom-item[data-chatroom-id="${roomId}"]`);
-      await afterSync();
+      await expect
+        .poll(
+          () => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || ''),
+          { timeout: 15_000 },
+        )
+        .toBe(roomId);
       await page.click('#back-to-chatrooms');
       await afterSync();
     }

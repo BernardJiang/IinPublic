@@ -4,6 +4,12 @@ import { ensureWindowFitsViewport } from './browser-window';
 import { attachE2eBrowserTabLabel } from './e2e-tab-title';
 import { afterLoad, afterNav, afterSync } from './timing';
 import { gunBaseURL, webAppURLStableChatroom } from './ports';
+import {
+  TECHSUPPORT_HEADSHOT,
+  TECHSUPPORT_NETWORK_ROLE,
+  TECHSUPPORT_ROOT_USER_ID,
+  TECHSUPPORT_STAGE_NAME,
+} from '../../../src/shared/techsupport';
 
 /** Count distinct talk ids across incoming clusters (one merged cluster may hold many `qa_*` keys). */
 export function countIncomingTalkSlots(clusters: unknown): number {
@@ -35,6 +41,70 @@ export type IncomingTalkServerWaitOptions = {
 };
 
 const noCacheHeaders = { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } as const;
+
+export async function ensureTechSupportStage0Baseline(): Promise<void> {
+  const base = gunBaseURL();
+  const res = await fetch(`${base}/api/users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: TECHSUPPORT_ROOT_USER_ID,
+      stageName: TECHSUPPORT_STAGE_NAME,
+      headshot: TECHSUPPORT_HEADSHOT,
+      profile: [],
+      languages: ['en'],
+      interests: [],
+      networkRole: TECHSUPPORT_NETWORK_ROLE,
+      talkFilters: {
+        allowedLanguages: ['en'],
+        minDistanceMiles: 1,
+        maxDistanceMiles: 50,
+        requireGoodGrammar: true,
+        blockDirtyWords: true,
+        allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
+      },
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    if (!/already|reserved|exists/i.test(text)) {
+      throw new Error(`TechSupport seed failed: ${res.status} ${text}`);
+    }
+  }
+  const join = await fetch(`${base}/api/chatrooms/global/members`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      userId: TECHSUPPORT_ROOT_USER_ID,
+      stageName: TECHSUPPORT_STAGE_NAME,
+    }),
+  });
+  if (!join.ok) throw new Error(`TechSupport global join failed: ${join.status} ${await join.text()}`);
+}
+
+export async function expectTechSupportGreetingReceived(page: Page, stageName?: string): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          ({ techSupportId, name }) => {
+            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            return Object.values(conversations).some((conversation: any) => {
+              const message = String(conversation?.lastMessage || '');
+              return (
+                conversation?.supportChannel === true &&
+                conversation?.otherUserId === techSupportId &&
+                message.includes('Welcome to IinPublic') &&
+                (!name || message.includes(name))
+              );
+            });
+          },
+          { techSupportId: TECHSUPPORT_ROOT_USER_ID, name: stageName || '' },
+        ),
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+}
 
 async function fetchIncomingClustersForUser(
   request: APIRequestContext,
@@ -174,6 +244,7 @@ export async function bootstrapUser(
     .toBe(stageName);
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
+  await expectTechSupportGreetingReceived(page);
   attachE2eBrowserTabLabel(page, label);
   return { context, page };
 }

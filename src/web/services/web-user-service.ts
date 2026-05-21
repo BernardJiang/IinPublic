@@ -15,6 +15,13 @@ import { generateRandomStageName, normalizeQuestionKey } from '../../shared/user
 import { getSEA } from '../sea-gun';
 import type { GunPair } from './gun-bridge';
 import { ReputationManager } from '../../shared/reputation';
+import {
+  assertStageNameAllowed,
+  TECHSUPPORT_HEADSHOT,
+  TECHSUPPORT_NETWORK_ROLE,
+  TECHSUPPORT_ROOT_USER_ID,
+  TECHSUPPORT_STAGE_NAME,
+} from '../../shared/techsupport';
 
 type PrivateUserData = Pick<User, 'profile' | 'languages' | 'interests' | 'knownPeople' | 'blockedUserIds' | 'talkFilters'> & {
   headshot?: string;
@@ -25,6 +32,7 @@ const PUBLIC_PROFILE_FOUNDATION_KEY = 'user-public-profile';
 const PUBLIC_TALK_FILTERS_KEY = 'user-talk-filters';
 const USER_BLOCKS_KEY = 'user-blocks';
 const USER_BLOCKED_BY_KEY = 'user-blocked-by';
+const TECHSUPPORT_ROOT_META_KEY = 'network-root-techsupport';
 
 export class WebUserService {
   constructor(private gunService: WebGunService) {}
@@ -101,6 +109,16 @@ export class WebUserService {
     };
   }
 
+  private getApiBase(): string {
+    if (typeof window === 'undefined' || !window.location) return '';
+    const { protocol, hostname, port } = window.location;
+    const webPort = Number(port);
+    if ((hostname === 'localhost' || hostname === '127.0.0.1') && Number.isFinite(webPort) && webPort >= 3001) {
+      return `${protocol}//${hostname}:${webPort - 3001 + 8080}`;
+    }
+    return `${protocol}//${hostname}${port ? `:${port}` : ''}`;
+  }
+
   private async putNested(path: string[], data: any): Promise<void> {
     const gun = this.gunService.getGun();
     await new Promise<void>((resolve, reject) => {
@@ -134,6 +152,8 @@ export class WebUserService {
     if (user.pub) publicUser.pub = user.pub;
     if (user.epub) publicUser.epub = user.epub;
     if (user.headshot) publicUser.headshot = user.headshot;
+    if (user.networkRole) publicUser.networkRole = user.networkRole;
+    if (user.supportMuted) publicUser.supportMuted = user.supportMuted;
 
     return publicUser;
   }
@@ -221,13 +241,65 @@ export class WebUserService {
     });
   }
 
+  async hasAnyUser(): Promise<boolean> {
+    const apiBase = this.getApiBase();
+    if (apiBase) {
+      try {
+        const root = await fetch(`${apiBase}/api/users/${encodeURIComponent(TECHSUPPORT_ROOT_USER_ID)}`, {
+          cache: 'no-store',
+        });
+        if (root.ok) return true;
+      } catch {
+        // Fall back to the local Gun graph below when the HTTP API is unavailable.
+      }
+    }
+
+    const gun = this.gunService.getGun();
+    return new Promise<boolean>((resolve) => {
+      let found = false;
+      const timeoutId = setTimeout(() => resolve(found), 750);
+      gun.get('users').map().once((data: any, key: string) => {
+        if (found) return;
+        if (!key || key.startsWith('_') || !data || typeof data !== 'object') return;
+        found = true;
+        clearTimeout(timeoutId);
+        resolve(true);
+      });
+    });
+  }
+
+  async createTechSupportRoot(userData: Partial<User> = {}): Promise<User> {
+    return this.createUser({
+      ...userData,
+      id: TECHSUPPORT_ROOT_USER_ID,
+      stageName: TECHSUPPORT_STAGE_NAME,
+      headshot: userData.headshot || TECHSUPPORT_HEADSHOT,
+      languages: userData.languages || ['en'],
+      profile: Array.isArray(userData.profile) && userData.profile.length > 0 ? userData.profile : [
+        {
+          id: 'techsupport_profile_role',
+          question: 'Role',
+          answer: 'IinPublic network support',
+          isAuto: false,
+          answeredAt: new Date(),
+        },
+      ],
+      interests: userData.interests || [],
+      networkRole: TECHSUPPORT_NETWORK_ROLE,
+    });
+  }
+
   async createUser(userData: Partial<User>): Promise<User> {
-    const userId = uuidv4();
+    const userId = userData.id || uuidv4();
     const now = new Date();
+    const stageName = userData.stageName || generateRandomStageName();
+    assertStageNameAllowed(stageName, {
+      allowTechSupportRoot: userId === TECHSUPPORT_ROOT_USER_ID,
+    });
 
     const userBase = {
       id: userId,
-      stageName: userData.stageName || generateRandomStageName(),
+      stageName,
       profile: userData.profile || [],
       reputation: {
         questionsAnswered: 0,
@@ -258,6 +330,8 @@ export class WebUserService {
       createdAt: now,
       lastActive: now,
       knownPeople: userData.knownPeople ?? [],
+      ...(userData.networkRole ? { networkRole: userData.networkRole } : {}),
+      ...(userData.supportMuted ? { supportMuted: userData.supportMuted } : {}),
     };
 
     const user: User = userData.headshot ? { ...userBase, headshot: userData.headshot } : userBase;
@@ -275,6 +349,14 @@ export class WebUserService {
       allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
     });
     await this.putPrivateUserData(user);
+    if (user.id === TECHSUPPORT_ROOT_USER_ID) {
+      await this.gunService.put(TECHSUPPORT_ROOT_META_KEY, {
+        userId: user.id,
+        stageName: user.stageName,
+        networkRole: TECHSUPPORT_NETWORK_ROLE,
+        createdAt: now.toISOString(),
+      });
+    }
     return user;
   }
 
@@ -297,6 +379,9 @@ export class WebUserService {
   }
 
   async updateStageName(userId: string, newStageName: string): Promise<void> {
+    assertStageNameAllowed(newStageName, {
+      allowTechSupportRoot: userId === TECHSUPPORT_ROOT_USER_ID,
+    });
     await this.gunService.put(`users/${userId}`, { stageName: newStageName });
   }
 

@@ -2,7 +2,7 @@ import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import * as fs from 'fs';
 import { injectIdbClear } from '../../helpers/clear-database';
-import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
+import { clearGunForStage2Spec, isStagePipeline } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { wait, afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
 import { webBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
@@ -36,9 +36,14 @@ test.describe('Login — two users headcount', () => {
     await clearGunForStage2Spec();
   });
 
-  test('Two users: headcount 1→2→1→2 and one room navigation', async () => {
+  test('Two users: headcount accounts for TechSupport baseline and one room navigation', async () => {
     const screenshotDir = e2eTestScreenshotsDir('01-login');
     if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
+    const supportOffset = isStagePipeline() ? 1 : 0;
+    const globalHeadcount = (targetPage: Page) =>
+      targetPage.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount');
+    const northAmericaHeadcount = (targetPage: Page) =>
+      targetPage.locator('.chatroom-item[data-chatroom-id="north-america"] .chatroom-headcount');
 
     context = await browser.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     page = await context.newPage();
@@ -49,7 +54,7 @@ test.describe('Login — two users headcount', () => {
     await ensureWindowFitsViewport(page, 960, 1200);
     await afterLoad();
     attachE2eBrowserTabLabel(page, 'User1');
-    await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('1');
+    await expect(globalHeadcount(page)).toContainText(String(1 + supportOffset), { timeout: 20000 });
 
     context2 = await browser2.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     page2 = await context2.newPage();
@@ -60,15 +65,15 @@ test.describe('Login — two users headcount', () => {
     await ensureWindowFitsViewport(page2, 960, 1200);
     await afterLoad();
     attachE2eBrowserTabLabel(page2, 'User2');
-    await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('2', { timeout: 15000 });
-    await expect(page2.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('2', { timeout: 15000 });
+    await expect(globalHeadcount(page)).toContainText(String(2 + supportOffset), { timeout: 20000 });
+    await expect(globalHeadcount(page2)).toContainText(String(2 + supportOffset), { timeout: 20000 });
 
     await page2.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());
     await wait(1000, 3000);
     await page2.close();
     await afterSync();
 
-    await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('1', { timeout: 20000 });
+    await expect(globalHeadcount(page)).toContainText(String(1 + supportOffset), { timeout: 20000 });
 
     page2 = await context2.newPage();
     page2.on('console', (m) => console.log('[User2]:', m.text()));
@@ -77,13 +82,13 @@ test.describe('Login — two users headcount', () => {
     await afterNav();
     await afterLoad();
     attachE2eBrowserTabLabel(page2, 'User2 re-login');
-    await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('2', { timeout: 15000 });
-    await expect(page2.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('2', { timeout: 15000 });
+    await expect(globalHeadcount(page)).toContainText(String(2 + supportOffset), { timeout: 20000 });
+    await expect(globalHeadcount(page2)).toContainText(String(2 + supportOffset), { timeout: 20000 });
 
-    await page2.click('.chatroom-item:has-text("North America")');
+    await page2.click('.chatroom-item[data-chatroom-id="north-america"]');
     await afterSync();
-    await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('1', { timeout: 15000 });
-    await expect(page.locator('.chatroom-item:has-text("North America") .chatroom-headcount')).toContainText('1', { timeout: 15000 });
+    await expect(globalHeadcount(page)).toContainText(String(1 + supportOffset), { timeout: 20000 });
+    await expect(northAmericaHeadcount(page)).toContainText('1', { timeout: 20000 });
     await page2.locator('#back-to-chatrooms').waitFor({ state: 'visible', timeout: 15000 });
     await page2.click('#back-to-chatrooms');
     await afterAction();

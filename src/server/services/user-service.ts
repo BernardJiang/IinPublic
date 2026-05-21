@@ -4,6 +4,8 @@ import { generateRandomStageName } from '../../shared/user-utils';
 import { getDefaultTalkIntakeFilters, normalizeCustomBlockedTerms } from '../../shared/talk-intake-filters';
 import { CONFIG } from '../../shared/config';
 import { filterProfileAttributesForViewer } from '../../shared/profile-privacy';
+import { v4 as uuidv4 } from 'uuid';
+import { assertStageNameAllowed, TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 
 const PUBLIC_TALK_FILTERS_KEY = 'user-talk-filters';
 const USER_BLOCKS_KEY = 'user-blocks';
@@ -91,9 +93,14 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
 
   async createUser(userData: Partial<User>): Promise<User> {
     // Server-side user creation logic
+    const id = userData.id || uuidv4();
+    const stageName = userData.stageName || generateRandomStageName();
+    assertStageNameAllowed(stageName, {
+      allowTechSupportRoot: id === TECHSUPPORT_ROOT_USER_ID,
+    });
     const user: User = {
-      id: userData.id || '',
-      stageName: userData.stageName || generateRandomStageName(),
+      id,
+      stageName,
       ...(userData.headshot && { headshot: userData.headshot }),
       profile: userData.profile || [],
       reputation: userData.reputation || {
@@ -119,6 +126,8 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
       knownPeople: userData.knownPeople ?? [],
       ...(userData.pub ? { pub: userData.pub } : {}),
       ...(userData.epub ? { epub: userData.epub } : {}),
+      ...(userData.networkRole ? { networkRole: userData.networkRole } : {}),
+      ...(userData.supportMuted ? { supportMuted: userData.supportMuted } : {}),
     };
 
     await this.gunService.put(`users/${user.id}`, user);

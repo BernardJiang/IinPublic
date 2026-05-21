@@ -1,5 +1,11 @@
 import type { Page } from '@playwright/test';
 import { gunBaseURL } from './ports';
+import {
+  TECHSUPPORT_HEADSHOT,
+  TECHSUPPORT_NETWORK_ROLE,
+  TECHSUPPORT_ROOT_USER_ID,
+  TECHSUPPORT_STAGE_NAME,
+} from '../../../src/shared/techsupport';
 
 /** Let in-memory graph swaps and any in-flight relay frames drain (parallel E2E). */
 const SETTLE_AFTER_CLEAR_MS = 250;
@@ -51,14 +57,14 @@ export async function waitForGunApiReady(maxWaitMs = HEALTH_POLL_MAX_WAIT_MS): P
  * sync teardown mid-clear is less likely to race the next test (`docs/TODO.md` P2).
  */
 /** Skip Gun clear when `E2E_STAGE_PIPELINE=1` (sequential stage accumulation). */
-export async function maybeClearGunDatabases(): Promise<void> {
+export async function maybeClearGunDatabases(options: { seedTechSupportRoot?: boolean } = {}): Promise<void> {
   if (process.env.E2E_STAGE_PIPELINE === '1' || process.env.E2E_STAGE_PIPELINE === 'true') {
     return;
   }
-  await clearGunDatabases();
+  await clearGunDatabases(options);
 }
 
-export async function clearGunDatabases(): Promise<void> {
+export async function clearGunDatabases(options: { seedTechSupportRoot?: boolean } = {}): Promise<void> {
   await waitForGunApiReady();
 
   const clearUrl = `${gunBaseURL()}/api/test/clear-database`;
@@ -77,6 +83,9 @@ export async function clearGunDatabases(): Promise<void> {
 
       if (response.ok && body.success !== false) {
         await sleep(SETTLE_AFTER_CLEAR_MS);
+        if (options.seedTechSupportRoot !== false) {
+          await seedTechSupportRootBaseline();
+        }
         return;
       }
 
@@ -92,6 +101,157 @@ export async function clearGunDatabases(): Promise<void> {
   throw new Error(
     `clearGunDatabases: POST ${clearUrl} failed after ${CLEAR_POST_MAX_ATTEMPTS} attempts (${lastErr})`,
   );
+}
+
+export async function seedTechSupportRootBaseline(): Promise<void> {
+  await waitForGunApiReady();
+
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const state = now.getTime();
+  const filters = {
+    allowedLanguages: ['en'],
+    minDistanceMiles: 1,
+    maxDistanceMiles: 50,
+    requireGoodGrammar: true,
+    blockDirtyWords: true,
+    allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
+  };
+  const reputation = {
+    questionsAnswered: 0,
+    talksSent: 0,
+    matchesFound: 0,
+    friendsCount: 0,
+    mutualFriendsCount: 0,
+    likedCount: 0,
+    dislikedCount: 0,
+    starRating: 3.0,
+    reviewCount: 0,
+    ageVerified: false,
+    ageVerificationVotes: 0,
+    blockCount: 0,
+    isHidden: false,
+  };
+  const node = (soul: string, fields: Record<string, unknown>) => ({
+    _: {
+      '#': soul,
+      '>': Object.fromEntries(Object.keys(fields).map((key) => [key, state])),
+    },
+    ...fields,
+  });
+  const graph = {
+    [TECHSUPPORT_ROOT_USER_ID]: undefined,
+    users: node('users', {
+      [TECHSUPPORT_ROOT_USER_ID]: { '#': `users/${TECHSUPPORT_ROOT_USER_ID}` },
+    }),
+    [`users/${TECHSUPPORT_ROOT_USER_ID}`]: node(`users/${TECHSUPPORT_ROOT_USER_ID}`, {
+      id: TECHSUPPORT_ROOT_USER_ID,
+      stageName: TECHSUPPORT_STAGE_NAME,
+      headshot: TECHSUPPORT_HEADSHOT,
+      profile: { '#': `users/${TECHSUPPORT_ROOT_USER_ID}/profile` },
+      reputation: { '#': `users/${TECHSUPPORT_ROOT_USER_ID}/reputation` },
+      location: { '#': `users/${TECHSUPPORT_ROOT_USER_ID}/location` },
+      languages: { '#': `users/${TECHSUPPORT_ROOT_USER_ID}/languages` },
+      interests: { '#': `users/${TECHSUPPORT_ROOT_USER_ID}/interests` },
+      knownPeople: { '#': `users/${TECHSUPPORT_ROOT_USER_ID}/knownPeople` },
+      networkRole: TECHSUPPORT_NETWORK_ROLE,
+      createdAt: nowIso,
+      lastActive: nowIso,
+    }),
+    [`users/${TECHSUPPORT_ROOT_USER_ID}/profile`]: node(`users/${TECHSUPPORT_ROOT_USER_ID}/profile`, {}),
+    [`users/${TECHSUPPORT_ROOT_USER_ID}/reputation`]: node(
+      `users/${TECHSUPPORT_ROOT_USER_ID}/reputation`,
+      reputation,
+    ),
+    [`users/${TECHSUPPORT_ROOT_USER_ID}/location`]: node(`users/${TECHSUPPORT_ROOT_USER_ID}/location`, {
+      region: '',
+      chatrooms: { '#': `users/${TECHSUPPORT_ROOT_USER_ID}/location/chatrooms` },
+    }),
+    [`users/${TECHSUPPORT_ROOT_USER_ID}/location/chatrooms`]: node(
+      `users/${TECHSUPPORT_ROOT_USER_ID}/location/chatrooms`,
+      {},
+    ),
+    [`users/${TECHSUPPORT_ROOT_USER_ID}/languages`]: node(`users/${TECHSUPPORT_ROOT_USER_ID}/languages`, {
+      '0': 'en',
+    }),
+    [`users/${TECHSUPPORT_ROOT_USER_ID}/interests`]: node(`users/${TECHSUPPORT_ROOT_USER_ID}/interests`, {}),
+    [`users/${TECHSUPPORT_ROOT_USER_ID}/knownPeople`]: node(
+      `users/${TECHSUPPORT_ROOT_USER_ID}/knownPeople`,
+      {},
+    ),
+    [`user-public-profile/${TECHSUPPORT_ROOT_USER_ID}`]: node(`user-public-profile/${TECHSUPPORT_ROOT_USER_ID}`, {
+      headshot: TECHSUPPORT_HEADSHOT,
+      languagesJson: JSON.stringify(['en']),
+      profileJson: JSON.stringify([]),
+      interestsJson: JSON.stringify([]),
+    }),
+    [`user-talk-filters/${TECHSUPPORT_ROOT_USER_ID}`]: node(`user-talk-filters/${TECHSUPPORT_ROOT_USER_ID}`, {
+      filtersJson: JSON.stringify(filters),
+    }),
+    'network-root-techsupport': node('network-root-techsupport', {
+      userId: TECHSUPPORT_ROOT_USER_ID,
+      stageName: TECHSUPPORT_STAGE_NAME,
+      networkRole: TECHSUPPORT_NETWORK_ROLE,
+      createdAt: nowIso,
+    }),
+    chatrooms: node('chatrooms', {
+      global: { '#': 'chatrooms/global' },
+    }),
+    'chatrooms/global': node('chatrooms/global', {
+      users: { '#': 'chatrooms/global/users' },
+      locations: { '#': 'chatrooms/global/locations' },
+      visits: { '#': 'chatrooms/global/visits' },
+      uniqueVisitors: { '#': 'chatrooms/global/uniqueVisitors' },
+      visitCount: 1,
+      uniqueVisitorCount: 1,
+    }),
+    'chatrooms/global/users': node('chatrooms/global/users', {
+      [TECHSUPPORT_ROOT_USER_ID]: { '#': `chatrooms/global/users/${TECHSUPPORT_ROOT_USER_ID}` },
+    }),
+    [`chatrooms/global/users/${TECHSUPPORT_ROOT_USER_ID}`]: node(
+      `chatrooms/global/users/${TECHSUPPORT_ROOT_USER_ID}`,
+      {
+        userId: TECHSUPPORT_ROOT_USER_ID,
+        stageName: TECHSUPPORT_STAGE_NAME,
+        joinedAt: nowIso,
+        lastSeen: nowIso,
+        isActive: true,
+      },
+    ),
+    'chatrooms/global/locations': node('chatrooms/global/locations', {}),
+    'chatrooms/global/visits': node('chatrooms/global/visits', {
+      [TECHSUPPORT_ROOT_USER_ID]: { '#': `chatrooms/global/visits/${TECHSUPPORT_ROOT_USER_ID}` },
+    }),
+    [`chatrooms/global/visits/${TECHSUPPORT_ROOT_USER_ID}`]: node(
+      `chatrooms/global/visits/${TECHSUPPORT_ROOT_USER_ID}`,
+      {
+        userId: TECHSUPPORT_ROOT_USER_ID,
+        stageName: TECHSUPPORT_STAGE_NAME,
+        enteredAt: nowIso,
+      },
+    ),
+    'chatrooms/global/uniqueVisitors': node('chatrooms/global/uniqueVisitors', {
+      [TECHSUPPORT_ROOT_USER_ID]: true,
+    }),
+  };
+
+  const base = gunBaseURL();
+  const res = await fetch(`${base}/api/test/import-snapshot`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      version: 1,
+      gunGraph: graph,
+      incomingTalks: {},
+      conversations: {},
+      talkResponses: {},
+      statsIdx: { byDay: {}, byRegion: {}, byTalkAnswer: {} },
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`TechSupport snapshot seed failed: ${res.status} ${await res.text()}`);
+  }
+  await sleep(SETTLE_AFTER_CLEAR_MS);
 }
 
 /**

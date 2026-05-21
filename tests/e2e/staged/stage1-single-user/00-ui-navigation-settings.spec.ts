@@ -274,8 +274,8 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#settings-profile-languages')).toHaveValue('en');
     await expect
       .poll(() =>
-        p.locator('#settings-filter-languages').evaluate((select) =>
-          Array.from((select as HTMLSelectElement).selectedOptions)
+        p.locator('#settings-filter-languages').evaluate((container) =>
+          Array.from(container.querySelectorAll<HTMLInputElement>('.settings-filter-language-option:checked'))
             .map((option) => option.value)
             .sort()
             .join(','),

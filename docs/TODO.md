@@ -191,11 +191,10 @@ verified.
   menu/UI localization; the second controls incoming talk filtering. Current Settings uses "Profile
   language" and "Incoming talk language filter" close together, but the product model should make
   the difference explicit.
-- **Future work: replace ambiguous native multi-select UX for incoming talk languages.** Users must
-  be able to choose multiple languages they understand without needing hidden browser gestures such
-  as Cmd/Ctrl-click. Use checkboxes or selected-language chips, persist multiple values, and add E2E
-  coverage. Current code uses a `<select multiple>` and stores an array, but the UI can appear to
-  allow only one choice.
+- **Implemented in current working tree: clearer incoming talk language filter control.** Settings
+  now uses checkbox/chip-style language choices, persists multiple understood languages, shows an
+  active count, and has E2E coverage for legacy multi-language values. Future work remains for full
+  UI localization and filtered-count diagnostics.
 - **Future work: localize language names by the active UI language.** For example, after choosing
   Chinese as the UI language, show language choices and explanatory text in Chinese while preserving
   stable language codes internally.
@@ -205,17 +204,13 @@ verified.
 
 ### Chatrooms Tab
 
-- **Future work: room visitor counter.** Each room must track the absolute number of entry events:
-  how many times users have entered the room over its lifetime. This is different from the current
-  active member/headcount display, which changes as users join or leave. Store a monotonic
-  `visitCount` per room, display it on room rows and room detail, and make increments idempotent per
-  deliberate room-enter action so refresh/reconnect does not inflate counts accidentally.
-- **Future work: unique visitor count.** Alongside absolute visits, track how many distinct user or
-  device identities have ever entered each room. This helps distinguish one user entering 100 times
-  from 100 users entering once.
-- **Future work: TechSupport global anchor.** The Chatrooms tab still has an empty-state path that
-  says "No other users here yet" when the current user is alone. After the TechSupport role ships,
-  global room detail should show TechSupport instead of an empty network.
+- **Implemented in current working tree: room visitor counters.** Chatroom joins now increment a
+  lifetime `visitCount`, track `uniqueVisitorCount`, sync those counters in the web UI, and display
+  both values on room rows and room detail. Future work remains for broader audit tests around
+  reconnect/idempotency and deleted-room history.
+- **Implemented in current working tree: TechSupport global anchor.** First-run bootstrap creates
+  the canonical `TechSupport` root before ordinary users, seeds Global, and prevents fresh ordinary
+  users from seeing a truly empty network when the server graph is reachable.
 - **Future work: room metadata completeness.** Custom/business rooms collect type, headline,
   description, capacity, and owner, but the room list/detail view does not yet show all of that
   metadata. Add capacity, description, business headline, owner, created date, active members,
@@ -230,9 +225,10 @@ verified.
 
 ### Contacts Tab
 
-- **Future work: built-in TechSupport contact.** Contacts are currently loaded from exchanged talk
-  peer relationships. Once TechSupport support channels exist, show TechSupport as a pinned built-in
-  support contact even before ordinary talk matches exist.
+- **Partially implemented in current working tree: built-in TechSupport support contact.** New
+  ordinary users receive a durable support conversation with `TechSupport`; Me/conversation surfaces
+  show the channel immediately. Future work remains to pin TechSupport as a first-class Contacts tab
+  row with support-specific mute/delete behavior.
 - **Future work: manual/pinned contacts.** Add a way to keep a contact without requiring a prior
   matched talk, with clear privacy boundaries and local-only storage unless explicitly synced.
 - **Future work: contact language and translation affordances.** Show each contact's public
@@ -250,17 +246,15 @@ verified.
 
 ### Talks Tab
 
-- **Future work: default talk language from user settings.** Each newly created talk should have a
-  default language attribute that matches the user's primary profile/UI language, with an explicit
-  language dropdown in the Talk editor. Current talk creation and validation hard-code
-  `language: "en"` in the UI layer.
-- **Future work: display language on every talk row.** OUT and IN rows should show the talk's
-  primary language as a badge, using localized language names where possible.
-- **Future work: enforce incoming language filtering end to end.** Incoming talks in a language not
-  included in the user's understood-languages filter should be hidden or ignored before the user is
-  prompted. The shared intake filter supports this, but the UI needs clear filtered-count detail,
-  tests for multiple selected languages, and tests proving talk editor language values flow through
-  create, broadcast, server registration, incoming clusters, and list rendering.
+- **Implemented in current working tree: default talk language from user settings.** The Talk editor
+  now defaults new talks to the user's first profile language and provides an explicit language
+  dropdown.
+- **Implemented in current working tree: talk language display.** OUT and IN talk rows now show the
+  talk language as a badge. Future work remains for localized language names.
+- **Partially implemented in current working tree: incoming language filtering path.** New talk
+  creation now carries a language attribute, incoming language selection supports multiple
+  understood languages, and existing intake filtering can use those values. Future work remains for
+  full filtered-count UI and broader E2E coverage across create, broadcast, receive, and render.
 - **Future work: allow editing a talk's language.** When an existing talk is edited, preserve and
   update its language rather than falling back to English.
 - **Future work: language-aware chatbot memory.** Exact-answer memory should include language context
@@ -308,13 +302,13 @@ verified.
 
 - **Future work: full localization settings.** Choosing a non-English profile/UI language should
   immediately re-render Settings and all other tabs in that language, and persist across reloads.
-- **Future work: clearer multi-language incoming filter control.** Replace the native multi-select
-  with checkboxes/chips so users can plainly choose multiple understood languages, and show how many
-  are active.
+- **Implemented in current working tree: clearer multi-language incoming filter control.** The
+  native multi-select has been replaced with checkbox/chip controls and an active-language count.
 - **Future work: default talk language setting.** Add a visible default-language setting for new
   talks. It should default to the primary UI/profile language but allow override.
-- **Future work: reserved root names.** Ordinary users must not be able to rename themselves to
-  `TechSupport` or reserved variants such as `admin`, `system`, or `root`.
+- **Implemented in current working tree: reserved root names.** Shared validation now rejects
+  ordinary use of `TechSupport`, `admin`, `system`, and `root`, while allowing the canonical root id
+  to retain `TechSupport`.
 - **Future work: filter validation and preview.** Settings should preview how many current incoming
   talks would be hidden by language, type, distance, grammar, dirty words, custom blocked terms, and
   age/credit rules before the user leaves the tab.
@@ -356,29 +350,25 @@ in Global, and every later test stage should load that snapshot before adding or
   single-user tests bootstrap with `bootstrapTechSupport()` and saved `stage0-techsupport` storage
   state, preserving the exact `TechSupport` stage name, canonical user id, Global room membership,
   SEA identity, Settings state, Talks state, Me state, and local storage.
-- **Future work: run a dedicated TechSupport Stage 0 script.** Add or update the stage-0 script so it
-  clears the graph, creates/logs in TechSupport, traverses all single-user tabs and basic controls,
-  verifies Global headcount/presence, verifies no ordinary user exists yet, then saves
-  `stage0.json` plus `stage0-techsupport.storage.json`.
-- **Future work: save Stage 0 after TechSupport verification, not before it.** The saved baseline
-  should represent a verified TechSupport network root, not merely a login. It should include any
-  expected support bootstrap data, default talk/filter settings, storage inspector state, and Global
-  room membership needed by later stages.
+- **Implemented in current working tree: dedicated TechSupport Stage 0 script.** Stage 0 now clears
+  the graph, logs in TechSupport, traverses the single-user tabs/basic controls, and saves
+  `stage0.json` after verification along with `stage0-techsupport.storage.json`.
+- **Implemented in current working tree: save Stage 0 after TechSupport verification.** Stage 0 now
+  saves the snapshot from a final `zzz-save-stage0` spec after the TechSupport traversal completes.
 - **Future work: remove Stage 1 as a separate single-user state if it becomes redundant.** After
   single-user coverage moves to Stage 0, either delete/rename `stage1-single-user` or make `stage1`
   a thin alias that only loads `stage0`. Update `E2eStageName`, project dependencies, snapshot
   helpers, and staged docs accordingly.
-- **Future work: make every later stage load the TechSupport baseline directly.** Stage 2 and beyond
-  should import `stage0.json` or a derived snapshot that still contains TechSupport in Global before
-  adding Adam/Tom/Jerry/Bob/etc. Tests should not start from an empty graph unless they are the Stage
-  0 bootstrap test.
-- **Future work: ordinary-user bootstrap should verify TechSupport greeting.** Update
-  `bootstrapUser()` or a stage-specific wrapper so every new ordinary user entering Global verifies
-  TechSupport is visible in the room, receives the TechSupport welcome message exactly once, and has
-  a support channel record before the normal test scenario continues.
-- **Future work: normal tests must tolerate TechSupport in Global.** Update headcount assertions,
-  member-list expectations, broadcast receiver counts, contact lists, and "empty room" assertions so
-  TechSupport is always counted or explicitly excluded as the built-in support/root actor.
+- **Partially implemented in current working tree: later stages load the TechSupport baseline.**
+  Stage helpers now reload the TechSupport-containing baseline instead of clearing to an empty graph
+  in pipeline mode. Future work remains to finish broader audit coverage across every staged spec.
+- **Implemented in current working tree: ordinary-user bootstrap verifies TechSupport greeting.**
+  Shared ordinary-user bootstrap now waits for a durable support-channel conversation and welcome
+  message from TechSupport before continuing normal test scenarios.
+- **Partially implemented in current working tree: normal tests tolerate TechSupport in Global.**
+  Representative stage1/stage2 headcount specs now account for the built-in support actor. Future
+  work remains to audit broadcast receiver counts, contacts, and empty-room assertions across the
+  full suite.
 - **Future work: prevent TechSupport from polluting ordinary test logic.** Broadcast, contact,
   matching, block, reputation, and survey tests should declare whether TechSupport participates,
   is ignored, or is excluded. Support greetings/channels must not create false matches, unexpected

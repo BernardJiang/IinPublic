@@ -62,6 +62,19 @@ test.describe('Capacity and eviction', () => {
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 640, 600);
     await afterLoad();
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const app = (window as any).__iinpublic_app?.getApp?.();
+            return {
+              userId: app?.currentUser?.id || '',
+              chatroomId: app?.currentChatroomId || '',
+            };
+          }),
+        { timeout: 30_000 },
+      )
+      .toEqual(expect.objectContaining({ chatroomId: 'global' }));
     attachE2eBrowserTabLabel(page, label);
     return page;
   }

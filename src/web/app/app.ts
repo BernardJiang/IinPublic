@@ -12,6 +12,11 @@ import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-
 import { buildTalkIdentityKey, computeTalkIdFromTalkData } from '../../shared/talk-content-id';
 import { isDevStageZero } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
+import {
+  isTechSupportUser,
+  TECHSUPPORT_ROOT_USER_ID,
+  TECHSUPPORT_STAGE_NAME,
+} from '../../shared/techsupport';
 
 export class IinPublicApp {
   private gunService: WebGunService;
@@ -38,9 +43,14 @@ export class IinPublicApp {
   private travelModeActive: boolean = false;
   private travelHomeChatroomId: string | undefined = undefined;
   private travelChatroomId: string | undefined = undefined;
+  private supportBootstrapChecked = false;
 
   private buildChatroomTalkAnnouncementKey(logicalTalkId: string, authorId: string): string {
     return `${logicalTalkId}__${authorId}`;
+  }
+
+  private countOrdinaryRoomMembers(members: Array<{ userId: string }>): number {
+    return members.filter((member) => member.userId !== TECHSUPPORT_ROOT_USER_ID).length;
   }
 
   constructor() {
@@ -142,6 +152,9 @@ export class IinPublicApp {
         console.log(`  - ${chatroomId}: ${count} members`);
         this.applyChatroomMemberCount(chatroomId, count);
       });
+      this.chatroomService.subscribeToVisitCounts(chatroomId, (counts) => {
+        this.uiManager.setChatroomVisitCounts(chatroomId, counts);
+      });
     });
 
     console.log('✅ Subscribed to all chatroom member counts');
@@ -175,7 +188,8 @@ export class IinPublicApp {
         isNewUser = true;
       }
     } else {
-      this.currentUser = await this.createNewUser();
+      const firstNetworkUser = !(await this.userService.hasAnyUser());
+      this.currentUser = await this.createNewUser({ rootTechSupport: firstNetworkUser });
       isNewUser = true;
     }
 
@@ -188,12 +202,28 @@ export class IinPublicApp {
     }
   }
 
-  private async createNewUser(): Promise<User> {
+  private async createNewUser(options: { rootTechSupport?: boolean } = {}): Promise<User> {
     // Show user creation UI
     const userData = await this.uiManager.showUserCreationDialog();
 
     const blurredLocation = LocationPrivacy.blurLocation(this.currentLocation!);
     const pair = this.gunService.getStoredPair();
+
+    if (options.rootTechSupport) {
+      const rootUser: Partial<User> = {
+        headshot: userData.headshot,
+        location: blurredLocation,
+        languages: userData.languages || ['en'],
+        interests: userData.interests || [],
+        profile: userData.profile || [],
+        ...(pair?.pub ? { pub: pair.pub } : {}),
+        ...(pair?.epub ? { epub: pair.epub } : {}),
+      };
+      const user = await this.userService.createTechSupportRoot(rootUser);
+      localStorage.setItem('iinpublic_user_id', user.id);
+      console.log('✨ TechSupport root user created:', user.stageName);
+      return user;
+    }
 
     const newUser: Partial<User> = {
       // stageName will be auto-generated in userService.createUser()
@@ -251,7 +281,7 @@ export class IinPublicApp {
         this.uiManager.updateStatusBar(
           this.currentUser!.stageName,
           chatroomName,
-          members.length,
+          this.countOrdinaryRoomMembers(members),
           this.uiManager.getTotalMatches(),
         );
       });
@@ -313,7 +343,7 @@ export class IinPublicApp {
       this.uiManager.updateStatusBar(
         this.currentUser!.stageName,
         chatroomName,
-        members.length,
+        this.countOrdinaryRoomMembers(members),
         this.uiManager.getTotalMatches(),
       );
     });
@@ -353,7 +383,7 @@ export class IinPublicApp {
         this.uiManager.updateStatusBar(
           this.currentUser!.stageName,
           chatroomName,
-          members.length,
+          this.countOrdinaryRoomMembers(members),
           this.uiManager.getTotalMatches(),
         );
       });
@@ -363,6 +393,76 @@ export class IinPublicApp {
         ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
       });
     }
+
+    await this.ensureSupportBootstrapForCurrentUser();
+  }
+
+  private async ensureSupportBootstrapForCurrentUser(): Promise<void> {
+    if (!this.currentUser || this.supportBootstrapChecked || isTechSupportUser(this.currentUser)) return;
+    this.supportBootstrapChecked = true;
+
+    const userId = this.currentUser.id;
+    const supportStateKey = 'iinpublic_support_channels';
+    const supportState = (() => {
+      try {
+        return JSON.parse(localStorage.getItem(supportStateKey) || '{}') as Record<string, {
+          greetedAt?: string;
+          conversationId?: string;
+          transportMode?: string;
+        }>;
+      } catch {
+        return {};
+      }
+    })();
+    if (supportState[userId]?.conversationId && supportState[userId]?.greetedAt) return;
+
+    const conversationId = `conv_support_${TECHSUPPORT_ROOT_USER_ID}_${userId}`;
+    const now = new Date().toISOString();
+    const welcome =
+      `Welcome to IinPublic, ${this.currentUser.stageName}. ${TECHSUPPORT_STAGE_NAME} is here if you need help.`;
+    const gun = this.gunService.getGun();
+
+    gun.get(`conversations/${conversationId}`).put({
+      data: JSON.stringify({
+        id: conversationId,
+        participants: [TECHSUPPORT_ROOT_USER_ID, userId],
+        createdAt: now,
+        status: 'active',
+        supportChannel: true,
+      }),
+    });
+    gun.get(`conversations/${conversationId}`).get('messages').get(`support_welcome_${userId}`).put({
+      id: `support_welcome_${userId}`,
+      senderId: TECHSUPPORT_ROOT_USER_ID,
+      text: welcome,
+      timestamp: now,
+      channel: 'public',
+      transport: this.conversationService.getTransportMode(),
+      supportMessage: true,
+    });
+    gun.get(`users/${userId}`).get('conversations').get(conversationId).put({
+      conversationId,
+      otherUserId: TECHSUPPORT_ROOT_USER_ID,
+      otherUserName: TECHSUPPORT_STAGE_NAME,
+      createdAt: now,
+      supportChannel: true,
+      transportMode: this.conversationService.getTransportMode(),
+    });
+
+    supportState[userId] = {
+      greetedAt: now,
+      conversationId,
+      transportMode: this.conversationService.getTransportMode(),
+    };
+    localStorage.setItem(supportStateKey, JSON.stringify(supportState));
+    this.uiManager.addNewConversation({
+      conversationId,
+      otherUserId: TECHSUPPORT_ROOT_USER_ID,
+      otherUserName: TECHSUPPORT_STAGE_NAME,
+      supportChannel: true,
+    });
+    this.uiManager.updateConversationMessage(conversationId, welcome, now);
+    this.uiManager.showNotification(welcome, 'info');
   }
 
   private loadTravelModeStateFromStorage(): void {
@@ -777,7 +877,9 @@ export class IinPublicApp {
   ): Promise<boolean> {
     const me = this.currentUser;
     if (!me?.id || members.length === 0) return true;
-    const receiverIds = members.map((m) => m.userId).filter((id) => id !== me.id);
+    const receiverIds = members
+      .map((m) => m.userId)
+      .filter((id) => id !== me.id && id !== TECHSUPPORT_ROOT_USER_ID);
     if (receiverIds.length === 0) return true;
     const base = this.getBackendApiBase();
     console.log(`📡 POSTing register-receivers: talkId=${talkId} receivers=${receiverIds.length}`);
@@ -842,7 +944,7 @@ export class IinPublicApp {
 
     const uiNameById = new Map<string, string>();
     for (const m of uiMembers || []) {
-      if (!m.userId || m.userId === me) continue;
+      if (!m.userId || m.userId === me || m.userId === TECHSUPPORT_ROOT_USER_ID) continue;
       const name = String(m.stageName || m.userId).trim() || m.userId;
       uiNameById.set(m.userId, name);
     }
@@ -850,7 +952,7 @@ export class IinPublicApp {
     let gunMemberIds: string[] = [];
     const mergeGunOnce = async () => {
       const ids = await this.chatroomService.getActiveMembers(chatroomId);
-      gunMemberIds = [...new Set(ids.filter((id) => !!id && id !== me))];
+      gunMemberIds = [...new Set(ids.filter((id) => !!id && id !== me && id !== TECHSUPPORT_ROOT_USER_ID))];
     };
 
     await mergeGunOnce();
@@ -912,6 +1014,7 @@ export class IinPublicApp {
     talkData: any,
   ): void {
     if (!this.currentUser || !senderId || senderId === this.currentUser.id) return;
+    if (isTechSupportUser(this.currentUser) || senderId === TECHSUPPORT_ROOT_USER_ID) return;
     const base = this.getBackendApiBase();
     void fetch(`${base}/api/talks/${encodeURIComponent(talkId)}/received`, {
       method: 'POST',
@@ -2051,7 +2154,7 @@ export class IinPublicApp {
           this.uiManager.updateStatusBar(
             this.currentUser!.stageName,
             chatroomName,
-            members.length,
+            this.countOrdinaryRoomMembers(members),
             this.uiManager.getTotalMatches(),
           );
         });
@@ -2082,7 +2185,7 @@ export class IinPublicApp {
           this.uiManager.updateStatusBar(
             this.currentUser!.stageName,
             chatroomName,
-            members.length,
+            this.countOrdinaryRoomMembers(members),
             this.uiManager.getTotalMatches(),
           );
         });
@@ -2303,7 +2406,7 @@ export class IinPublicApp {
         this.uiManager.updateStatusBar(
           this.currentUser!.stageName,
           chatroomName,
-          members.length,
+          this.countOrdinaryRoomMembers(members),
           this.uiManager.getTotalMatches(),
         );
       });
