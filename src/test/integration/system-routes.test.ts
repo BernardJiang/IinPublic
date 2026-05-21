@@ -243,6 +243,7 @@ describe('system routes', () => {
 
   it('stores signed cross-platform discovery messages and rejects unsigned/plaintext discovery', async () => {
     const { app } = buildApp();
+    const futureExpiresAt = new Date(Date.now() + 60_000).toISOString();
 
     const posted = await request(app).post('/api/p2p/discovery').send({
       platform: 'ubuntu',
@@ -251,7 +252,7 @@ describe('system routes', () => {
       endpointHints: ['wss://relay.local/discovery/ubuntu'],
       signature: 'sig_ubuntu',
       nonce: 'nonce_ubuntu',
-      expiresAt: '2026-05-21T00:01:00.000Z',
+      expiresAt: futureExpiresAt,
     });
 
     expect(posted.status).toBe(200);
@@ -284,7 +285,7 @@ describe('system routes', () => {
       endpointHints: ['webrtc:room'],
       signature: 'sig_web',
       nonce: 'nonce_web',
-      expiresAt: '2026-05-21T00:01:00.000Z',
+      expiresAt: futureExpiresAt,
     });
     expect(unsigned.status).toBe(400);
     expect(unsigned.body.error).toMatch(/signed-discovery/);
@@ -296,7 +297,7 @@ describe('system routes', () => {
       endpointHints: ['webrtc:room'],
       signature: 'sig_web',
       nonce: 'nonce_web',
-      expiresAt: '2026-05-21T00:01:00.000Z',
+      expiresAt: futureExpiresAt,
       bodyPlaintext: 'plain discovery',
     });
     expect(plaintext.status).toBe(400);
@@ -305,6 +306,8 @@ describe('system routes', () => {
 
   it('keeps active neighbor memory local-first and excludes expired, failed, or blocked peers', async () => {
     const { app } = buildApp();
+    const futureExpiresAt = new Date(Date.now() + 60_000).toISOString();
+    const expiredAt = new Date(Date.now() - 60_000).toISOString();
 
     const fast = await request(app).post('/api/p2p/neighbors').send({
       peerId: 'pub_fast_contact',
@@ -318,7 +321,7 @@ describe('system routes', () => {
       endpointStatus: 'active',
       nearbyChatrooms: ['global', 'sf'],
       isContact: true,
-      expiresAt: '2026-05-21T00:00:00.000Z',
+      expiresAt: futureExpiresAt,
     });
     expect(fast.status).toBe(200);
     expect(fast.body.bootstrapCandidates).toEqual([
@@ -337,7 +340,7 @@ describe('system routes', () => {
       endpointStatus: 'failed',
       nearbyChatrooms: ['global'],
       isContact: false,
-      expiresAt: '2026-05-21T00:00:00.000Z',
+      expiresAt: futureExpiresAt,
     });
     expect(failed.status).toBe(200);
     expect(failed.body.neighbors.map((neighbor: { peerId: string }) => neighbor.peerId)).toContain('pub_failed');
@@ -357,7 +360,7 @@ describe('system routes', () => {
       endpointStatus: 'active',
       nearbyChatrooms: ['global'],
       isContact: false,
-      expiresAt: '2026-05-19T00:00:00.000Z',
+      expiresAt: expiredAt,
     });
     expect(expired.status).toBe(200);
     expect(expired.body.neighbors.map((neighbor: { peerId: string }) => neighbor.peerId)).not.toContain('pub_expired');

@@ -26,6 +26,7 @@ test.describe('P2P roadmap P6 — active neighbor memory', () => {
   });
 
   test('remembers active neighbors locally and uses them before star fallback', async ({ request }) => {
+    const futureExpiresAt = new Date(Date.now() + 60_000).toISOString();
     const storage = await request.get(`${gunBaseURL()}/api/debug/storage`);
     expect(storage.ok()).toBeTruthy();
     const debug = await storage.json();
@@ -50,7 +51,7 @@ test.describe('P2P roadmap P6 — active neighbor memory', () => {
         endpointStatus: 'active',
         nearbyChatrooms: ['global', 'sf'],
         isContact: true,
-        expiresAt: '2026-05-21T00:00:00.000Z',
+        expiresAt: futureExpiresAt,
       },
     });
     expect(remembered.ok()).toBeTruthy();
@@ -72,7 +73,7 @@ test.describe('P2P roadmap P6 — active neighbor memory', () => {
         endpointStatus: 'failed',
         nearbyChatrooms: ['global'],
         isContact: false,
-        expiresAt: '2026-05-21T00:00:00.000Z',
+        expiresAt: futureExpiresAt,
       },
     });
     expect(failed.ok()).toBeTruthy();

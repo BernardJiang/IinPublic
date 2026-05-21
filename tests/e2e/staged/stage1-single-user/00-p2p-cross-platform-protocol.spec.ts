@@ -26,6 +26,7 @@ test.describe('P2P roadmap P5 — cross-platform node protocol', () => {
   });
 
   test('debug storage and discovery endpoint define signed platform compatibility', async ({ request }) => {
+    const futureExpiresAt = new Date(Date.now() + 60_000).toISOString();
     const storage = await request.get(`${gunBaseURL()}/api/debug/storage`);
     expect(storage.ok()).toBeTruthy();
     const payload = await storage.json();
@@ -57,7 +58,7 @@ test.describe('P2P roadmap P5 — cross-platform node protocol', () => {
           endpointHints: [`wss://relay.local/discovery/${peer.platform}`],
           signature: `sig_${peer.platform}`,
           nonce: `nonce_${peer.platform}`,
-          expiresAt: '2026-05-21T00:01:00.000Z',
+          expiresAt: futureExpiresAt,
         },
       });
       expect(posted.ok()).toBeTruthy();
@@ -82,7 +83,7 @@ test.describe('P2P roadmap P5 — cross-platform node protocol', () => {
         endpointHints: ['webrtc:room'],
         signature: 'sig_web',
         nonce: 'nonce_web',
-        expiresAt: '2026-05-21T00:01:00.000Z',
+        expiresAt: futureExpiresAt,
       },
     });
     expect(unsigned.status()).toBe(400);
@@ -95,7 +96,7 @@ test.describe('P2P roadmap P5 — cross-platform node protocol', () => {
         endpointHints: ['webrtc:room'],
         signature: 'sig_web',
         nonce: 'nonce_web',
-        expiresAt: '2026-05-21T00:01:00.000Z',
+        expiresAt: futureExpiresAt,
         bodyPlaintext: 'plain discovery',
       },
     });
