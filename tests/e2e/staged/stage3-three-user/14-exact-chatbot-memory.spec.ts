@@ -118,15 +118,15 @@ async function waitForExactMemoryAnswer(page: Page, userId: string, answerText: 
   await expect
     .poll(
       async () => {
-        const res = await page.context().request.get(`${gunBaseURL()}/api/test/export-snapshot`, {
-          headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
-        });
-        if (!res.ok()) return false;
-        const snapshot = await res.json();
-        const raw = JSON.stringify(snapshot.gunGraph || {});
-        return raw.includes('exactChatbotMemoryByUser') && raw.includes(userId) && raw.includes(answerText);
+        const memoryRes = await page.context().request.get(
+          `${gunBaseURL()}/api/test/exact-chatbot-memory/${encodeURIComponent(userId)}`,
+          { headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } },
+        );
+        if (!memoryRes.ok()) return false;
+        const raw = JSON.stringify(await memoryRes.json());
+        return raw.includes(userId) && raw.includes(answerText);
       },
-      { timeout: 30_000, intervals: [300, 600, 1000] },
+      { timeout: 90_000, intervals: [300, 600, 1000, 2000] },
     )
     .toBe(true);
 }

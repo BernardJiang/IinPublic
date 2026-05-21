@@ -252,6 +252,21 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
     return Math.min(Math.floor(raw), 12_451);
   }
 
+  app.get('/api/test/exact-chatbot-memory/:userId', async (req, res) => {
+    try {
+      const userId = String(req.params.userId || '');
+      if (!userId) {
+        res.status(400).json({ error: 'userId required' });
+        return;
+      }
+      const memory = await readExactChatbotMemoryForUser(gunService, userId);
+      res.json({ userId, memory: memory || null });
+    } catch (error) {
+      logger.error({ err: error }, 'Error reading exact chatbot memory');
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
   async function computeBulkRejectionsForReceiver(
     receiverId: string,
     senderId: string,
