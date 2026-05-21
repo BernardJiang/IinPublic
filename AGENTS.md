@@ -215,79 +215,80 @@ This is a starting point. Add your own conventions, style, and rules as you figu
 <claude-mem-context>
 # Memory Context
 
-# [IinPublic] recent context, 2026-05-10 6:27pm PDT
+# [IinPublic] recent context, 2026-05-20 7:42pm PDT
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (20,977t read) | 447,553t work | 95% savings
+Stats: 50 obs (19,024t read) | 453,959t work | 96% savings
 
-### Apr 25, 2026
-S4 Refactor subscribeToMemberCount in web-chatroom-service.ts to simplify Gun.js member count seeding (Apr 25 at 12:46 PM)
-S5 Monitor Re-Armed to Watch Playwright PID 26650 for Completion (Apr 25 at 1:01 PM)
-S6 Monitor e2e test suite completion for IinPublic project (Apr 25 at 1:12 PM)
-S7 Replace fragile "Match!" toast assertions in spec 13 lines 115-116 with durable UI checks, and audit all test scripts for similar issues (Apr 25 at 1:12 PM)
 ### May 1, 2026
-S8 Spec 12 — Added waitForTabActive(pageTom, 'chatrooms') After Jerry's Match to Ensure Conversation Persisted Before Bob's Response (May 1 at 7:11 PM)
-S9 Replace fragile "Match!" toast assertions in spec 13 lines 115-116 with durable checks, and audit all test scripts for similar issues (May 1 at 7:19 PM)
 S10 E2E Tests 12 & 13: Replaced Ephemeral Toast Assertions with Durable UI State Checks (May 1 at 7:19 PM)
 S11 Git commit flaky E2E test fixes for tests 12 and 13 after all 35 tests passed (May 1 at 7:27 PM)
 S12 E2E Test Reliability Issue: Toast Notification Assertions Are Transient (May 1 at 7:27 PM)
 ### May 3, 2026
-S13 Fix transient toast assertions in E2E tests + Age-gating UI feature (isAdult talk flag, age-verify vouch, Credit badge) (May 3 at 1:40 PM)
-### May 5, 2026
-263 8:12p 🔵 GunService.get() Uses 1s Wait With No Timeout Fallback — Different Behavior Than getPath()
-264 8:13p 🔵 resetTalksMatchingSession() Calls clearGunDatabases() Before Each Test — Guarantees Cold Gun State
-265 8:16p 🔵 Age-gating system architecture discovery
-266 " 🔵 isAdult flag captured from UI checkbox on form submission
-267 8:17p 🔴 Fix two Gun path bugs in blocking and age-verification (commit 5844752)
-268 " ✅ Refactored age verification to server-owned Gun path with vote-based logic
-269 8:20p 🔵 Block count modifications use shared reputation sub-node, age verification uses isolated server path
-270 8:22p 🔵 Gun linked sub-nodes require chained reads; fire-and-forget writes for immediate consistency
-271 8:26p 🔵 Age-gating system: complete end-to-end architecture
-272 8:27p ✅ Add hard timeout to gun-service.ts get() method
-273 " ✅ Add Gun wait option to age verification vote read in vouchAgeVerified
-274 " ✅ Remove debug logging from openRelationshipDialog in contacts-view.ts
-275 " ✅ Remove final debug log from openRelationshipDialog
-277 8:34p 🔵 Test 15 failure: Relationship modal not appearing on button click
-278 8:43p 🔵 Contact edit relationship button created in showContactDetail function
-279 8:44p 🔵 openRelationshipDialog creates and appends modal asynchronously via fetch
-### May 10, 2026
-280 6:04p ✅ Chatbot QA Memory Logic Requirements Merged into Technical Specification
-281 " 🔵 Project File Layout Clarified: Spec and TODO Paths Differ from User's Request
-282 6:05p 🔵 Chatbot QA Memory Logic Document: Full Content Mapped Before Merge
-283 " ✅ Technical Spec Extended with Chatbot Exact Memory Logic Requirements (FR-QA-7 through FR-QA-13)
-284 " ✅ Technical Spec §7.5 and §7.7 Updated with Chatbot Memory Mode Table and GUN Paths
-285 " ✅ Technical Spec §12 Expanded: ChatbotQuestionMemorySchema, Index Schemas, and New §12.3 Exact Chatbot Memory API
-286 6:06p ✅ Technical Spec Cross-References Fixed and Chatbot Memory Test Cases Added to Implementation Roadmap
-287 " ✅ Acceptance Test TC-QA-01 Added to Spec for Exact Chatbot Memory Reuse
-288 " 🔴 Cross-Reference Matrix Missing Chatbot Memory Entries (FR-QA-7..13 and §12.3)
-289 6:07p ✅ Spec §15.6, §17, and §18 Updated to Register Chatbot Memory Feature Completely
-290 " ✅ docs/TODO.md Updated with Four P0 Action Items for Exact Chatbot Memory Implementation
-291 " 🔵 Git Diff Confirms Complete Chatbot Memory Merge: All Changes Verified Across Both Files
-292 " ✅ TC-QA-01 Corrected: SUPPRESSED Step Uses Separate "Favorite color?" Question
-293 " ✅ Session Memory File Created: memory/2026-05-11.md
-294 6:15p ✅ Chatbot QA Memory Logic Merged into Technical Specification and TODO Updated
-295 6:16p ✅ Chatbot Memory Spec Committed to dev Branch (93421b6)
-296 " 🔵 IinPublic Project Structure: GunDB + React + TypeScript with Full Server/Web/Test Layout
-297 " 🔵 Existing Chatbot Auto-Reply Architecture: Template + FlatKey + Per-Pair Dedup
-298 " 🔵 Talk Response Dialog: Auto vs Manual Mode, Per-Question Answer Persistence, and Context-Path Navigation
-299 " 🔵 Talk Completion Flow: 4-Step Server-Authoritative Pipeline with Gun Fallback
-300 6:17p 🔵 Talk Subscription: firstUi vs Replay Distinction and Chatbot Trigger Timing
-301 " 🔵 WebGunService Dual-Mode: Direct Gun Instance + GunBridge Worker for SEA/IndexedDB
-302 6:18p 🟣 New Chatbot Memory Module: src/shared/exact-chatbot-memory.ts
-303 " ✅ Wired ExactChatbotMemory into Storage Layer and UIManager Imports
-304 " 🟣 ExactChatbotMemory Integrated into UIManager Answer Resolution and Save Paths
-305 6:19p 🟣 Talk Response Dialog Gains Permanent Mode Column and Suppress-on-Ignore Behavior
-306 " 🔴 CSS Answer Grid Fixed for 3-Column Layout (Auto | Manual | Permanent)
-307 " 🟣 Unit Tests Added for exact-chatbot-memory Module
-308 6:20p 🔵 TypeScript Errors Found: exactOptionalPropertyTypes Mismatch and answers Array Missing 'permanent' Mode
-309 " 🔴 TypeScript Errors Fixed in exact-chatbot-memory.ts and talk-response-dialog.ts; All Tests Pass
-310 " ✅ Web Build Passes (Exit 0) with Exact Chatbot Memory Integration; 7 Files Unstaged
-311 " 🔵 Server-Side Chatbot Auto-Reply Architecture: talkAnswerTemplateByUser Gun Path and Text-Normalized Answer Mapping
-312 6:21p 🟣 Server-Side Exact Chatbot Memory Persistence Added to Gun at exactChatbotMemoryByUser/{responderId}
-313 6:22p 🟣 Server Route Gains mapExactMemoryToTalk: Exact Memory-Driven Talk Traversal for Auto-Reply
+S13 Fix transient toast assertions in E2E tests + Age-gating UI feature (isAdult talk flag, age-verify vouch, Credit badge) (May 3 at 1:39 PM)
+S14 New P0 Section Inserted at Top of docs/TODO.md with 3 Remaining Incomplete Items (May 3 at 1:40 PM)
+### May 14, 2026
+S15 Cross-reference current codebase status against deleted P0 section of docs/TODO.md from git history, then insert a new plan at the beginning of TODO.md for any incomplete items (May 14 at 11:45 PM)
+S16 Full E2E suite now 65/65 passing — previous failure confirmed intermittent flake (May 14 at 11:45 PM)
+### May 15, 2026
+S17 Double-check current status against deleted P0 section of TODO.md from git history; create new plan and insert at beginning of TODO.md if differences found (May 15 at 12:10 AM)
+S18 Pre-commit State: Major UI Refactor Pending in /IinPublic (May 15 at 12:10 AM)
+S19 Git commit pending UI refactor changes in /IinPublic project (May 15 at 12:16 AM)
+### May 19, 2026
+381 11:55p 🟣 P2P Local Node Supervisor Implemented (P1 Phase)
+383 " 🔵 IinPublic TODO Remaining Phases P3–P7 Mapped
+384 11:56p 🔵 SEA Keypair Stored as Plaintext in localStorage — P3 Target
+385 " 🔵 P2P Local Node Supervisor HTTP API Shape Confirmed
+386 " 🔵 User Identity Data Architecture: Dual-Path Public/Private with SEA Encryption
+387 11:57p 🟣 P3 SEA Identity Types and Relay Privacy Enforcement Added to p2p-runtime.ts
+388 " 🟣 WebCrypto Encrypted SEA Keypair Storage Replaces Plaintext localStorage
+389 11:58p ✅ Dev Stage Zero Reset Now Clears Encrypted Key Custody Storage
+390 " 🟣 SEA Identity Custody Inspector Added to Settings Storage Panel
+392 " 🟣 P3 Unit Tests Added: SEA Identity Policy, Relay Envelope Enforcement, and Storage Leak Scanning
+393 11:59p 🔴 Corrected Path Notation in SEA Leak Scanner Test — Slash Keys Use Dot Not Bracket
+394 " 🟣 Integration Tests Extended for SEA Identity Policy and Relay Leak Detection via HTTP
+395 " 🟣 P3 E2E Test Added: Encrypted Key Custody and Relay Privacy Boundary in Browser
+396 " 🔵 P2P Roadmap Documents P1/P2 Done Status and Remaining Architecture Requirements
+### May 20, 2026
+397 12:00a ✅ P3 Marked Complete: All SEA Identity Items Removed from TODO.md, Roadmap Updated
+398 " 🔴 Two TypeScript Errors Found During P3 Test Run: Uint8Array Type and Mock Graph Indexing
+399 " 🔴 Fixed WebCrypto Uint8Array → ArrayBuffer Type Mismatch and Test Mock Graph Indexing
+400 " 🔵 P3 Type Errors Resolved: TypeScript Check Clean, All Integration Tests Pass
+401 12:01a ✅ P3 Full E2E Test Run Started with 20 Workers
+402 " 🔵 E2E Suite Expanded to 74 Tests — P3 Key Custody Spec Picked Up by Playwright
+403 12:05a 🔵 IinPublic E2E Test Suite — Running 74 Tests Across 5 Stages with 20 Workers
+404 12:06a 🔵 E2E Test Run: 72/74 Pass — Exact Chatbot Memory Auto-Reuse Failing
+405 12:07a 🔵 Exact Chatbot Memory Test: Isolated Investigation Reveals Answer Storage Format
+406 12:08a 🔵 Exact Chatbot Memory Test Passes in Isolation — Flaky Due to Parallel Test Interference
+407 12:14a ✅ Multi-Phase Implementation Task Initiated from docs/TODO.md
+408 " 🔵 E2E Test Infrastructure: 20 Parallel webpack-dev-server Instances on Ports 3001–3020
+409 " 🟣 P2P Runtime Module and SEA Key Custody Implemented (Phase ~P1/P3)
+410 " 🔵 TODO.md Remaining Phases Are P4–P7 (P1–P3 Previously Completed)
+411 12:15a ✅ Git Commit: "Implement P2P SEA key custody" at 134ddf5
+412 " 🔵 Conversation Messaging Architecture: Dual-Path Message System with SEA Channel Field
+413 " 🟣 P4: Transport Abstraction Types and Signaling Envelope Added to p2p-runtime.ts
+414 " 🟣 P4: Server-Side WebRTC Signaling Endpoints Added with In-Memory TTL Store
+415 12:16a 🔄 P4: WebConversationService Refactored to Strategy Pattern with ConversationTransport Interface
+416 " 🔵 WebConversationService Has Duplicate Dead Methods After Transport Extraction
+417 " 🔄 Dead Code Removed from WebConversationService After Transport Extraction
+418 12:17a 🟣 P4: Conversation Transport Inspector Added to Storage Debug UI
+419 " 🟣 P4: Unit Tests Added for Transport Diagnostics, Signaling Envelopes, and Direct P2P Messages
+420 " 🟣 P4: Integration Tests Added for Signaling API and Transport Diagnostics Endpoint
+421 " 🟣 P4: E2E Test Created for Conversation Transport and Signaling API
+422 12:18a ✅ P4 Completed: All P4 Items Removed from docs/TODO.md
+423 " ✅ P2P Roadmap Doc Updated: P4 Marked Done, Next Step Defined
+424 " 🔵 TypeScript Build Fails After P4 Refactor: Three Error Types Found
+425 " 🔴 Fixed: getOtherParticipantId and getUserEpub Moved to Correct Class in web-conversation-service.ts
+426 " 🔴 Fixed: exactOptionalPropertyTypes Error in createDirectP2PMessageEnvelope
+427 12:19a 🔵 All Unit and Integration Tests Pass After P4 Bug Fixes; tsc Exits Clean
+428 12:24a 🔵 E2E Test Suite Running 75 Tests with 20 Workers Across Multi-Stage Scenarios
+429 " 🔵 Failing E2E Test: Exact Chatbot Memory Auto-Reuse Logic Not Triggering
+430 12:25a 🔵 Exact Chatbot Memory Architecture: GunDB-Backed State with stateJson Serialization
+431 " 🔴 Race Condition Fix: E2E Test Must Await GunDB Memory Sync Before Third Talk Delivery
+432 12:27a 🔵 waitForExactMemoryAnswer Helper Fails: GunDB Snapshot Doesn't Expose exactChatbotMemoryByUser Data
 
-Access 448k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 454k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>
