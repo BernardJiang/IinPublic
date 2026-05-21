@@ -122,6 +122,10 @@ module.exports = {
   ...(process.env.DISABLE_HMR === 'true' && {
     watch: false,
   }),
+  performance: {
+    maxAssetSize: 600 * 1024,
+    maxEntrypointSize: 600 * 1024,
+  },
   // watchOptions: always set for dev mode to ignore runtime-written directories
   // (radata/ — Gun.js server storage, logs/ — server logging, dist/ — build output,
   //  test-storage/ and user_data/ — test/browser profile data).

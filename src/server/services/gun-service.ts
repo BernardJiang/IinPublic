@@ -124,23 +124,29 @@ export class GunService {
    * Retrieve data by key
    */
   public async get(key: string): Promise<any> {
-    return Promise.race([
-      new Promise<any>((resolve, reject) => {
-        this.gun.get(key).once(
-          (data: any) => {
-            if (data === undefined) {
-              reject(new Error(`No data found for key: ${key}`));
-            } else {
-              resolve(this.deserializeDates(data));
-            }
-          },
-          { wait: 2000 },
-        );
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Timeout reading key: ${key}`)), 8000),
-      ),
-    ]);
+    return new Promise<any>((resolve, reject) => {
+      let settled = false;
+      const timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(`Timeout reading key: ${key}`));
+      }, 8000);
+      timeoutId.unref?.();
+
+      this.gun.get(key).once(
+        (data: any) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          if (data === undefined) {
+            reject(new Error(`No data found for key: ${key}`));
+          } else {
+            resolve(this.deserializeDates(data));
+          }
+        },
+        { wait: 2000 },
+      );
+    });
   }
 
   public async getOptional(key: string, waitMs = 500): Promise<any | null> {
@@ -152,6 +158,7 @@ export class GunService {
           resolve(null);
         }
       }, waitMs + 100);
+      timeoutId.unref?.();
 
       this.gun.get(key).once(
         (data: any) => {
@@ -175,21 +182,29 @@ export class GunService {
    */
   public async getPath(path: string[]): Promise<any> {
     if (path.length === 0) return undefined;
-    return Promise.race([
-      new Promise<any>((resolve) => {
-        let ref: any = this.gun;
-        for (const seg of path) {
-          ref = ref.get(seg);
-        }
-        ref.once(
-          (data: any) => {
-            resolve(this.deserializeDates(data));
-          },
-          { wait: 2000 },
-        );
-      }),
-      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3000)),
-    ]);
+    return new Promise<any>((resolve) => {
+      let settled = false;
+      const timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        resolve(undefined);
+      }, 3000);
+      timeoutId.unref?.();
+
+      let ref: any = this.gun;
+      for (const seg of path) {
+        ref = ref.get(seg);
+      }
+      ref.once(
+        (data: any) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          resolve(this.deserializeDates(data));
+        },
+        { wait: 2000 },
+      );
+    });
   }
 
   /**
