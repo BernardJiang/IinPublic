@@ -1,7 +1,7 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { injectIdbClear } from '../../helpers/clear-database';
-import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
+import { clearGunForStage1Spec, isStagePipeline } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, delay, headless } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
@@ -37,7 +37,9 @@ test.describe('Chatrooms — hierarchy travel and return home', () => {
     attachE2eBrowserTabLabel(page, 'travel');
 
     // Start in Global with the default San Diego hierarchy visible.
-    await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('1');
+    await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText(
+      isStagePipeline() ? '2' : '1',
+    );
     await expect(page.locator('.chatroom-item[data-chatroom-id="north-america"]')).toBeVisible();
     await expect(page.locator('.chatroom-item[data-chatroom-id="usa"]')).toBeVisible();
     await expect(page.locator('.chatroom-item[data-chatroom-id="california"]')).toBeVisible();

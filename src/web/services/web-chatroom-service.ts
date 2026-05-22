@@ -380,7 +380,11 @@ export class WebChatroomService {
    * Snapshot active user ids for a room. Uses a short `map().on` observation window so cold pages
    * do not depend on a parent `.once()` snapshot, which is unreliable for Gun child user nodes.
    */
-  private async observeActiveMemberIds(chatroomId: string, observeMs = 1400): Promise<string[]> {
+  private async observeActiveMemberIds(
+    chatroomId: string,
+    observeMs = 1400,
+    options: { includeTechSupport?: boolean } = {},
+  ): Promise<string[]> {
     try {
       const gun = this.gunService.getGun();
       const activeYes = new Set<string>();
@@ -404,7 +408,7 @@ export class WebChatroomService {
           .get('users')
           .map()
           .on((memberData: any, userId: string) => {
-            if (userId.startsWith('_') || userId === TECHSUPPORT_ROOT_USER_ID) return;
+            if (userId.startsWith('_') || (!options.includeTechSupport && userId === TECHSUPPORT_ROOT_USER_ID)) return;
             if (memberData && memberData.isActive === true) {
               activeYes.add(userId);
             } else {
@@ -502,7 +506,7 @@ export class WebChatroomService {
    * This is useful for displaying member counts in chatroom lists
    */
   async getMemberCount(chatroomId: string): Promise<number> {
-    const activeMemberIds = await this.observeActiveMemberIds(chatroomId, 1400);
+    const activeMemberIds = await this.observeActiveMemberIds(chatroomId, 1400, { includeTechSupport: true });
     return activeMemberIds.length;
   }
 
@@ -530,7 +534,7 @@ export class WebChatroomService {
     const emitCount = () => {
       let count = 0;
       for (const [, data] of activeMembers) {
-        if (data && data.isActive === true && data.userId !== TECHSUPPORT_ROOT_USER_ID) {
+        if (data && data.isActive === true) {
           count++;
         }
       }
@@ -542,10 +546,10 @@ export class WebChatroomService {
     // Seed the count through the same child-node observation path used by detail/broadcast logic.
     // This prevents the first Chatrooms screen from rendering every room as 0 until a detail view
     // happens to force that room's member list to load.
-    void this.observeActiveMemberIds(chatroomId, 1400).then((memberIds) => {
+    void this.observeActiveMemberIds(chatroomId, 1400, { includeTechSupport: true }).then((memberIds) => {
       if (subscriptionCancelled) return;
       for (const userId of memberIds) {
-        if (userId !== TECHSUPPORT_ROOT_USER_ID && !activeMembers.has(userId)) {
+        if (!activeMembers.has(userId)) {
           activeMembers.set(userId, { isActive: true });
         }
       }
@@ -565,7 +569,7 @@ export class WebChatroomService {
       .map()
       .on((memberData: any, userId: string) => {
         // Skip Gun.js metadata
-        if (userId.startsWith('_') || userId === TECHSUPPORT_ROOT_USER_ID) return;
+        if (userId.startsWith('_')) return;
 
         // Update our tracking map
         if (memberData == null || memberData.isActive === false) {

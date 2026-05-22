@@ -1,5 +1,4 @@
 import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
-import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import type { PeerRelationshipStats } from '../../server/routes/peer-routes';
 
 type ChatroomMember = { userId: string; stageName: string };
@@ -212,16 +211,16 @@ export function updateChatroomMembers(
   const chatroomMembersList = document.getElementById('chatroom-members-list');
   const chatroomStatus = document.getElementById('current-chatroom-status');
   const otherMembers = members.filter((member) => member.userId !== currentUserId);
-  const ordinaryMemberCount = members.filter((member) => member.userId !== TECHSUPPORT_ROOT_USER_ID).length;
+  const memberCount = members.length;
 
-  deps.chatroomMemberCounts.set(deps.currentChatroom, ordinaryMemberCount);
+  deps.chatroomMemberCounts.set(deps.currentChatroom, memberCount);
   deps.renderChatroomList();
   deps.setCurrentChatroomMembers(otherMembers);
 
   if (chatroomMembersList) {
     if (chatroomStatus) {
       const visits = deps.chatroomVisitCounts.get(deps.currentChatroom) || { visitCount: 0, uniqueVisitorCount: 0 };
-      chatroomStatus.textContent = `👥 ${ordinaryMemberCount} member${ordinaryMemberCount !== 1 ? 's' : ''} total · 🚪 ${visits.visitCount} visits · ◎ ${visits.uniqueVisitorCount} unique`;
+      chatroomStatus.textContent = `👥 ${memberCount} member${memberCount !== 1 ? 's' : ''} total · 🚪 ${visits.visitCount} visits · ◎ ${visits.uniqueVisitorCount} unique`;
     }
 
     if (otherMembers.length === 0) {
