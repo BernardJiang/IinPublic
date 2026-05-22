@@ -70,6 +70,7 @@ Current working docs:
 - [Project Status](./docs/reports/PROJECT_STATUS.md)
 - [Contributing](./docs/dev/contributing.md)
 - [TODO](./docs/TODO.md)
+- [Completed Work](./docs/completed.md)
 - [Spec Gap Matrix](./docs/roadmap/spec-gap-matrix.md)
 - [Statistics Expansion Roadmap](./docs/roadmap/statistics-expansion.md)
 - [Current Docs Map](./docs/current/README.md)

@@ -215,13 +215,13 @@ This is a starting point. Add your own conventions, style, and rules as you figu
 <claude-mem-context>
 # Memory Context
 
-# [IinPublic] recent context, 2026-05-20 7:42pm PDT
+# [IinPublic] recent context, 2026-05-21 8:00pm PDT
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (19,024t read) | 453,959t work | 96% savings
+Stats: 50 obs (20,146t read) | 834,261t work | 98% savings
 
 ### May 1, 2026
 S10 E2E Tests 12 & 13: Replaced Ephemeral Toast Assertions with Durable UI State Checks (May 1 at 7:19 PM)
@@ -237,26 +237,7 @@ S16 Full E2E suite now 65/65 passing — previous failure confirmed intermittent
 S17 Double-check current status against deleted P0 section of TODO.md from git history; create new plan and insert at beginning of TODO.md if differences found (May 15 at 12:10 AM)
 S18 Pre-commit State: Major UI Refactor Pending in /IinPublic (May 15 at 12:10 AM)
 S19 Git commit pending UI refactor changes in /IinPublic project (May 15 at 12:16 AM)
-### May 19, 2026
-381 11:55p 🟣 P2P Local Node Supervisor Implemented (P1 Phase)
-383 " 🔵 IinPublic TODO Remaining Phases P3–P7 Mapped
-384 11:56p 🔵 SEA Keypair Stored as Plaintext in localStorage — P3 Target
-385 " 🔵 P2P Local Node Supervisor HTTP API Shape Confirmed
-386 " 🔵 User Identity Data Architecture: Dual-Path Public/Private with SEA Encryption
-387 11:57p 🟣 P3 SEA Identity Types and Relay Privacy Enforcement Added to p2p-runtime.ts
-388 " 🟣 WebCrypto Encrypted SEA Keypair Storage Replaces Plaintext localStorage
-389 11:58p ✅ Dev Stage Zero Reset Now Clears Encrypted Key Custody Storage
-390 " 🟣 SEA Identity Custody Inspector Added to Settings Storage Panel
-392 " 🟣 P3 Unit Tests Added: SEA Identity Policy, Relay Envelope Enforcement, and Storage Leak Scanning
-393 11:59p 🔴 Corrected Path Notation in SEA Leak Scanner Test — Slash Keys Use Dot Not Bracket
-394 " 🟣 Integration Tests Extended for SEA Identity Policy and Relay Leak Detection via HTTP
-395 " 🟣 P3 E2E Test Added: Encrypted Key Custody and Relay Privacy Boundary in Browser
-396 " 🔵 P2P Roadmap Documents P1/P2 Done Status and Remaining Architecture Requirements
 ### May 20, 2026
-397 12:00a ✅ P3 Marked Complete: All SEA Identity Items Removed from TODO.md, Roadmap Updated
-398 " 🔴 Two TypeScript Errors Found During P3 Test Run: Uint8Array Type and Mock Graph Indexing
-399 " 🔴 Fixed WebCrypto Uint8Array → ArrayBuffer Type Mismatch and Test Mock Graph Indexing
-400 " 🔵 P3 Type Errors Resolved: TypeScript Check Clean, All Integration Tests Pass
 401 12:01a ✅ P3 Full E2E Test Run Started with 20 Workers
 402 " 🔵 E2E Suite Expanded to 74 Tests — P3 Key Custody Spec Picked Up by Playwright
 403 12:05a 🔵 IinPublic E2E Test Suite — Running 74 Tests Across 5 Stages with 20 Workers
@@ -289,6 +270,24 @@ S19 Git commit pending UI refactor changes in /IinPublic project (May 15 at 12:1
 430 12:25a 🔵 Exact Chatbot Memory Architecture: GunDB-Backed State with stateJson Serialization
 431 " 🔴 Race Condition Fix: E2E Test Must Await GunDB Memory Sync Before Third Talk Delivery
 432 12:27a 🔵 waitForExactMemoryAnswer Helper Fails: GunDB Snapshot Doesn't Expose exactChatbotMemoryByUser Data
+433 10:36p 🟣 TechSupport Root User Role Enhancement for P2P Network
+434 " 🔵 IinPublic Project Context: P2P Roadmap State and E2E Test Blocker
+435 " 🔵 IinPublic UI Tab Structure: 5 Bottom-Nav Tabs with Sub-Views
+436 10:37p 🔵 TechSupport Already Exists as Stage-0 Bootstrap User in E2E Test Suite
+437 " ✅ TechSupport Root Network Role Full Specification Added to docs/TODO.md
+438 " ✅ Daily Memory File Created and Broader Uncommitted Doc Changes Confirmed
+439 11:11p 🟣 Comprehensive TODO List Update for Multi-Language and Tab Feature Gaps
+440 " 🔵 IinPublic Project TODO Structure and TechSupport Root Network Role
+441 11:12p 🔵 Settings Language Controls: Profile Language Is Single-Select, Incoming Filter Is Multi-Select
+442 " 🔵 Chatroom Visitor Counter Is Live Presence Count Only — No Cumulative Visit Counter
+443 " 🔵 Talk Language Attribute and Incoming Filter Exist in Code But Spec Gaps Remain
+444 " 🔵 Additional Unimplemented Details Found Across Tabs During Code Audit
+445 11:13p 🔵 Server-Side ChatroomManager Has Net Headcount Counter, Not Cumulative Visit Counter
+446 " 🔵 Talk Editor Dialog Has No Language Selector — All Talks Created as 'en'
+447 " 🔵 Me Tab Features (Answers, Preferences) Are Fully Implemented
+448 " 🔵 Survey Analytics Dashboard Is Fully Implemented With CSV Export and Follow-Up Creation
+449 " 🟣 Added Feature Completion Backlog by Tab to docs/TODO.md
+450 11:20p 🔵 TechSupport E2E Test Bootstrap Already Implemented — Stage 0 Pipeline Confirmed
 
-Access 454k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 834k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

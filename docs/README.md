@@ -1,11 +1,12 @@
 # IinPublic Docs
 
-Last updated: 2026-05-12
+Last updated: 2026-05-21
 
 This folder is organized around the authoritative product and technical spec:
 
 - [Technical Specification](specs/iinpublic-technical-specification.md) — requirements, architecture, data model, UI contracts, testing strategy, and future enhancements.
 - [TODO](TODO.md) — current execution backlog. Completed feature ledgers do not belong here.
+- [Completed Work](completed.md) — durable ledger for finished features moved out of TODO.
 - [Spec Gap Matrix](roadmap/spec-gap-matrix.md) — implementation evidence by spec area.
 - [Statistics Expansion Roadmap](roadmap/statistics-expansion.md) — next analytics/statistics design work.
 - [Project Status](reports/PROJECT_STATUS.md) — short operational status for the current repo.
@@ -17,7 +18,8 @@ This folder is organized around the authoritative product and technical spec:
 |---|---|---|
 | Product requirements, architecture, data, APIs, UI, testing | [Technical Specification](specs/iinpublic-technical-specification.md) | Single source of truth. Update this when the product contract changes. |
 | Implementation evidence by requirement area | [Spec Gap Matrix](roadmap/spec-gap-matrix.md) | Use file/test evidence, not intent. |
-| Current work queue | [TODO](TODO.md), [Statistics Expansion Roadmap](roadmap/statistics-expansion.md) | Forward-looking only. Move completed work into status or the gap matrix. |
+| Current work queue | [TODO](TODO.md), [Statistics Expansion Roadmap](roadmap/statistics-expansion.md) | Forward-looking only. Move completed work into [Completed Work](completed.md). |
+| Completed feature ledger | [Completed Work](completed.md), [Spec Gap Matrix](roadmap/spec-gap-matrix.md) | Use completed.md for shipped feature history; use the gap matrix for requirement evidence. |
 | Build, test, and operation | [How To Run](guides/HOW_TO_RUN.md), [Debug Guide](guides/DEBUG_GUIDE.md), [Testing Benchmarks](testing-benchmarks.md) | Keep commands aligned with `package.json`. |
 | Testing plans | [Test Plan](testing/testplan.md), [Manual Verification Guide](guides/manual-verification-guide.md) | Broad verification references; current automated status lives in status/gap docs. |
 | Historical/imported source docs | [Archive](archive/README.md) | Not authoritative unless explicitly linked from a current doc. |
@@ -37,5 +39,6 @@ The spec areas below are merged into the current implementation and should not b
 
 - Keep `docs/specs/iinpublic-technical-specification.md` authoritative.
 - Keep `docs/TODO.md` short and future-facing.
+- Move completed TODO items into `docs/completed.md` with concrete evidence.
 - Archive stale phase reports, imported design notes, and old coverage snapshots instead of leaving them in active paths.
 - When a feature ships, update the spec gap matrix and project status with concrete file/test evidence.
