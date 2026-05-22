@@ -3980,13 +3980,26 @@ export class UIManager extends EventEmitter {
 
     // Save self-answers to answer preferences (user's answer list) for chatbot/auto-reply
     const acc: Array<{ questionId: string; answerText?: string }> = [];
+    const completedAnswers: Array<{ questionId: string; answerId: string; answerText?: string; mode?: string }> = [];
+    let hasMatchAnswer = false;
     for (const { questionId, answerId } of options.selfAnswers) {
       const q = talk.questions?.find((qu: any) => qu.id === questionId);
       if (!q) continue;
       const a = q.answers?.find((an: any) => an.id === answerId);
       if (!a) continue;
       acc.push({ questionId, answerText: a.text });
+      completedAnswers.push({
+        questionId,
+        answerId,
+        answerText: a.text || '',
+        mode: 'manual',
+      });
+      if (a.isMatch === true) hasMatchAnswer = true;
       this.saveAnswerPreference(talk, talk.id, q, a.id, a.text || '', acc, 'auto');
+    }
+    if (completedAnswers.length > 0) {
+      this.saveQuestionAnswersFromCompletion(talk, completedAnswers);
+      this.saveFlatAnswerHistoryRecord(talk.id, talk, completedAnswers, hasMatchAnswer ? 'match' : 'mismatch', []);
     }
 
     const talksView = document.getElementById('talks-view');
