@@ -92,9 +92,21 @@ export default defineConfig({
         { name: 'stage0', testMatch: /staged\/stage0-bootstrap\// },
         { name: 'stage1', testMatch: /staged\/stage1-single-user\//, dependencies: ['stage0'] },
         { name: 'stage2', testMatch: /staged\/stage2-two-user\//, dependencies: ['stage1'] },
-        { name: 'stage3', testMatch: /staged\/stage3-three-user\//, dependencies: ['stage2'] },
-        { name: 'stage4', testMatch: /staged\/stage4-four-user\//, dependencies: ['stage3'] },
-        { name: 'stage5', testMatch: /staged\/stage5-multi-user\//, dependencies: ['stage4'] },
+        {
+          name: 'stage3',
+          testMatch: [/staged\/_setup\/load-stage2\.setup\.ts/, /staged\/stage3-three-user\//],
+          dependencies: ['stage2'],
+        },
+        {
+          name: 'stage4',
+          testMatch: [/staged\/_setup\/load-stage3\.setup\.ts/, /staged\/stage4-four-user\//],
+          dependencies: ['stage3'],
+        },
+        {
+          name: 'stage5',
+          testMatch: [/staged\/_setup\/load-stage4\.setup\.ts/, /staged\/stage5-multi-user\//],
+          dependencies: ['stage4'],
+        },
       ]
     : [
         {

@@ -2,6 +2,7 @@ import { expect, type APIRequestContext, Browser, BrowserContext, Page } from '@
 import { clearGunDatabases, injectIdbClear, maybeClearGunDatabases } from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
 import { attachE2eBrowserTabLabel } from './e2e-tab-title';
+import { attachFilteredConsoleLog } from './e2e-console';
 import { afterLoad, afterNav, afterSync } from './timing';
 import { gunBaseURL, webAppURLStableChatroom } from './ports';
 import {
@@ -223,7 +224,7 @@ export async function bootstrapUser(
     deviceScaleFactor: 1,
   });
   const page = await context.newPage();
-  page.on('console', (m) => console.log(`[${label}]:`, m.text()));
+  attachFilteredConsoleLog(page, label);
   // Clear the Web Worker's IndexedDB so each user starts with a fresh local Gun graph.
   await injectIdbClear(page);
   await page.goto(webAppURLStableChatroom());

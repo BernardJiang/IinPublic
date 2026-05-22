@@ -7,6 +7,7 @@ import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
 import { webBaseURL, e2eTestStorageDir } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
+import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 
 /**
  * Navigate to the app with e2e_capacity=3 and e2e_fifo=true URL params so the
@@ -55,7 +56,7 @@ test.describe('Capacity and eviction', () => {
   /** Launch a new page that navigates with capacity/FIFO URL params. */
   async function newCapacityPage(context: BrowserContext, label: string): Promise<Page> {
     const page = await context.newPage();
-    page.on('console', (m) => console.log(`[${label}]:`, m.text()));
+    attachFilteredConsoleLog(page, label);
     // IDB clear must run before any script; addInitScript fires before page scripts.
     await injectIdbClear(page);
     await page.goto(webBaseURL() + E2E_URL);
@@ -120,8 +121,8 @@ test.describe('Capacity and eviction', () => {
     page3 = await newCapacityPage(context3, 'U3');
 
     await afterSync();
-    await expectHeadcount(page1, 3, 'U1');
-    console.log('✅ Global at capacity (3/3)');
+    await expectHeadcount(page1, 4, 'U1');
+    console.log('✅ Global at capacity (TechSupport + 3 regular users)');
 
     context4 = await newContext(browser4);
     page4 = await newCapacityPage(context4, 'U4');
@@ -149,6 +150,10 @@ test.describe('Capacity and eviction', () => {
     await page2.close();
     await page3.close();
     await page4.close();
+    await context1.close();
+    await context2.close();
+    await context3.close();
+    await context4.close();
     await afterSync();
 
     // --- Phase 2: All four re-enter; U1 should still be in North America ---
@@ -162,7 +167,7 @@ test.describe('Capacity and eviction', () => {
 
     context1 = await reenterContext(browser1, 'cap-user1.json');
     page1 = await context1.newPage();
-    page1.on('console', (m) => console.log('[U1]:', m.text()));
+    attachFilteredConsoleLog(page1, 'U1');
     await page1.goto(webBaseURL() + E2E_URL);
     await page1.waitForLoadState('load');
     await afterLoad();

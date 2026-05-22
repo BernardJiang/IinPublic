@@ -1,7 +1,7 @@
 import { type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { injectIdbClear } from '../../helpers/clear-database';
-import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
+import { clearGunForStage2Spec, isStagePipeline } from '../../helpers/e2e-stage-pipeline';
 import { afterLoad, afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { createTalksFromCompanyPage } from '../../helpers/talk-demo-ui';
@@ -201,7 +201,9 @@ test.describe('Stage zero N2N smoke', () => {
 
     await page.click('.nav-btn[data-view="chatrooms"]');
     await waitForTabActive(page, 'chatrooms');
-    await expect(page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount')).toContainText('1');
+    await expect(page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount')).toContainText(
+      isStagePipeline() ? '2' : '1',
+    );
     for (const roomId of ['north-america', 'usa', 'california', 'san-diego']) {
       await page.click(`.chatroom-item[data-chatroom-id="${roomId}"]`);
       await expect

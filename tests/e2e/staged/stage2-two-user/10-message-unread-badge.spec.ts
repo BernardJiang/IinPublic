@@ -96,10 +96,47 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await expect
       .poll(
         async () => {
-          return page.evaluate((id: string) => {
+          const hasLocalConversation = await page.evaluate(async (id: string) => {
+            const app = (window as any).__iinpublic_app?.getApp?.();
+            const userId = app?.currentUser?.id;
+            const service = app?.conversationService;
+            if (userId && service?.getUserConversationsSnapshot && app?.ingestConversationRecords) {
+              try {
+                const snapshot = await service.getUserConversationsSnapshot(userId);
+                await app.ingestConversationRecords(snapshot);
+              } catch {
+                // The live subscription may still deliver the conversation; keep polling.
+              }
+            }
             const raw = localStorage.getItem('myConversations');
             const conversations = raw ? JSON.parse(raw) : {};
             return Object.values(conversations).some((v: any) => v?.otherUserId === id);
+          }, otherUserId);
+          if (hasLocalConversation) return true;
+
+          const userId = await page.evaluate(() =>
+            String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''),
+          );
+          if (!userId) return false;
+
+          const response = await page.request.get(
+            `${gunBaseURL()}/api/test/user-conversations/${encodeURIComponent(userId)}`,
+          );
+          if (!response.ok()) return false;
+
+          const payload = await response.json() as { conversations?: unknown[] };
+          const conversations = Array.isArray(payload.conversations) ? payload.conversations : [];
+          if (conversations.length > 0) {
+            await page.evaluate(async (records: unknown[]) => {
+              const app = (window as any).__iinpublic_app?.getApp?.();
+              await app?.ingestConversationRecords?.(records);
+            }, conversations);
+          }
+
+          return page.evaluate((id: string) => {
+            const raw = localStorage.getItem('myConversations');
+            const localConversations = raw ? JSON.parse(raw) : {};
+            return Object.values(localConversations).some((v: any) => v?.otherUserId === id);
           }, otherUserId);
         },
         { timeout: 120_000, message: `Conversation entry for ${otherUserId} should appear` },

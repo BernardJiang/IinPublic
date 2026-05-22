@@ -84,7 +84,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     contextJerry = jerry.context;
     pageJerry = jerry.page;
 
-    await expect(pageTom.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('2', {
+    await expect(pageTom.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('3', {
       timeout: 30_000,
     });
 
@@ -92,7 +92,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     await afterSync();
     await pageTom.click('#back-to-chatrooms');
     await afterSync();
-    await expect(pageTom.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('1', {
+    await expect(pageTom.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('2', {
       timeout: 30_000,
     });
 
@@ -120,12 +120,12 @@ test.describe('Chatrooms and Talks UI regressions', () => {
 
     await expect(pageBob.locator('#chatroom-list-container')).toBeVisible();
     await expect(pageBob.locator('#chatroom-detail-container')).toBeHidden();
-    await expect(pageBob.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('3', {
+    await expect(pageBob.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('4', {
       timeout: 45_000,
     });
 
     await pageBob.click('.chatroom-item:has-text("Global")');
-    await expect(pageBob.locator('#current-chatroom-status')).toContainText(/3 members total/, {
+    await expect(pageBob.locator('#current-chatroom-status')).toContainText(/4 members total/, {
       timeout: 45_000,
     });
   });

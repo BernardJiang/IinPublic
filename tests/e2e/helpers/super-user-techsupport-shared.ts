@@ -8,6 +8,7 @@ import { wait } from './timing';
 import { syncIncomingFromServer, waitForIncomingTalkClusterOnServer } from './talks-matching-flow';
 import { attachE2eBrowserTabLabel } from './e2e-tab-title';
 import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../../src/shared/techsupport';
+import { attachFilteredConsoleLog } from './e2e-console';
 
 export const TECH_SUPPORT_NAME = 'TechSupport';
 export const TOM_NAME = 'Tom';
@@ -51,7 +52,7 @@ export async function bootstrapSuperUser(
     deviceScaleFactor: 1,
   });
   const page = await context.newPage();
-  page.on('console', (msg) => console.log(`[${label}]:`, msg.text()));
+  attachFilteredConsoleLog(page, label);
   await injectIdbClear(page);
   if (stageName === TECHSUPPORT_STAGE_NAME) {
     await page.addInitScript((rootUserId) => {

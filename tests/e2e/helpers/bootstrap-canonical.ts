@@ -10,6 +10,7 @@ import { isStagePipeline, stageStoragePath, type E2eStageName } from './e2e-stag
 import { TECHSUPPORT, ADAM, EVE } from './canonical-users';
 import { assertStatusChecks } from './e2e-status-checks';
 import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../../src/shared/techsupport';
+import { attachFilteredConsoleLog } from './e2e-console';
 
 export type BootstrapOptions = {
   /** Skip IndexedDB clear (restoring storage state). */
@@ -59,7 +60,7 @@ export async function bootstrapCanonicalUser(
       : {}),
   });
   const page = await context.newPage();
-  page.on('console', (m) => console.log(`[${label}]:`, m.text()));
+  attachFilteredConsoleLog(page, label);
 
   if (!hasStorageState && !options?.skipIdbClear) {
     await injectIdbClear(page);

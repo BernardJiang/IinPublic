@@ -13,6 +13,7 @@ import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterAction, afterNav, afterSync, headless } from '../../helpers/timing';
 import { gunBaseURL, webAppURLStableChatroom } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
+import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 
 test.describe('Profile privacy visibility', () => {
   let browser: Browser;
@@ -218,7 +219,7 @@ test.describe('Profile privacy visibility', () => {
     const tom = await bootstrapUser(browser, 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    pageTom.on('console', (m) => console.log('[Tom]:', m.text()));
+    attachFilteredConsoleLog(pageTom, 'Tom');
 
     await waitForProfileCallbackReady(pageTom);
 
@@ -283,7 +284,7 @@ test.describe('Profile privacy visibility', () => {
     const jNon = await bootstrapUser(browser, 'JerryNonContact');
     contextJerryNonContact = jNon.context;
     pageJerryNonContact = jNon.page;
-    pageJerryNonContact.on('console', (m) => console.log('[JerryNonContact]:', m.text()));
+    attachFilteredConsoleLog(pageJerryNonContact, 'JerryNonContact');
     await ensureGlobalRoomDetail(pageJerryNonContact);
     const jNonContactId = await getCurrentUserId(pageJerryNonContact);
     expect(jNonContactId).toBeTruthy();
@@ -292,7 +293,7 @@ test.describe('Profile privacy visibility', () => {
     const jContact = await bootstrapUser(browser, 'JerryContact');
     contextJerryContact = jContact.context;
     pageJerryContact = jContact.page;
-    pageJerryContact.on('console', (m) => console.log('[JerryContact]:', m.text()));
+    attachFilteredConsoleLog(pageJerryContact, 'JerryContact');
     await ensureGlobalRoomDetail(pageJerryContact);
 
     const jContactId = await getCurrentUserId(pageJerryContact);

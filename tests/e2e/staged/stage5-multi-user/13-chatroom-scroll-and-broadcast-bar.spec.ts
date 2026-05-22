@@ -5,6 +5,7 @@ import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterNav, afterAction, afterSync, headless } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
+import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 
 async function bootstrapCompactUser(
   browser: Browser,
@@ -13,7 +14,7 @@ async function bootstrapCompactUser(
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({ viewport: { width: 640, height: 540 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
-  page.on('console', (m) => console.log(`[${label}]:`, m.text()));
+  attachFilteredConsoleLog(page, label);
   await injectIdbClear(page);
   await page.goto(webAppURLStableChatroom());
   await page.waitForLoadState('load');

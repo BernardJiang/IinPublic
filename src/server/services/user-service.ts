@@ -406,25 +406,9 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
 
   async vouchAgeVerified(targetUserId: string): Promise<void> {
     // Read current votes from the server-owned path (browser never writes here).
-    const gun = this.gunService.getGun();
-    const current = await new Promise<any>((resolve) => {
-      let settled = false;
-      const settle = (v: any) => { if (!settled) { settled = true; resolve(v); } };
-      gun.get(AGE_VERIF_KEY).get(targetUserId).once((data: any) => settle(data), { wait: 50 });
-      setTimeout(() => settle(null), 500);
-    });
+    const current = await this.gunService.getPath([AGE_VERIF_KEY, targetUserId]).catch(() => null);
     const votes = Number(current?.votes || 0) + 1;
     const verified = votes >= CONFIG.AGE_VERIFICATION_THRESHOLD;
-    await new Promise<void>((resolve) => {
-      let settled = false;
-      const settle = () => {
-        if (!settled) {
-          settled = true;
-          resolve();
-        }
-      };
-      gun.get(AGE_VERIF_KEY).get(targetUserId).put({ votes, verified }, () => settle());
-      setTimeout(settle, 500);
-    });
+    await this.gunService.putPath([AGE_VERIF_KEY, targetUserId], { votes, verified });
   }
 }

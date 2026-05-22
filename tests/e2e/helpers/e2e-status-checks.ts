@@ -43,8 +43,9 @@ export async function assertStatusChecks(page: Page, checks: StatusCheck[]): Pro
         break;
       case 'chatroomHeadcount': {
         const item = page.locator(`.chatroom-item[data-chatroom-id="${check.roomId}"]`);
-        await expect(item).toBeVisible({ timeout: 30_000 });
-        await expect(item).toContainText(String(check.count), { timeout: 30_000 });
+        await expect
+          .poll(async () => (await item.first().textContent()) || '', { timeout: 30_000 })
+          .toContain(String(check.count));
         break;
       }
       case 'conversationCountAtLeast': {

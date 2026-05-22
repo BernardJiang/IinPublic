@@ -10,6 +10,7 @@ import {
 } from '../../helpers/talk-demo-ui';
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
+import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 
 test.describe('Contacts tab: list of users with matches, click to see matching talks', () => {
   let browserTom: Browser;
@@ -81,7 +82,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
   ): Promise<{ context: BrowserContext; page: Page }> {
     const context = await browser.newContext({ viewport: { width: 640, height: 1000 }, deviceScaleFactor: 1 });
     const page = await context.newPage();
-    page.on('console', (m) => console.log(`[${label}]:`, m.text()));
+    attachFilteredConsoleLog(page, label);
     await injectIdbClear(page);
     await page.goto(webAppURLStableChatroom());
     await page.waitForLoadState('load');
