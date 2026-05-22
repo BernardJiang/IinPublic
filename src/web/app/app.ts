@@ -184,7 +184,9 @@ export class IinPublicApp {
         console.log('👤 Existing user loaded:', this.currentUser.stageName);
       } catch (error) {
         console.log('🆕 Existing user not found, creating new user');
-        this.currentUser = await this.createNewUser();
+        this.currentUser = await this.createNewUser({
+          rootTechSupport: existingUserId === TECHSUPPORT_ROOT_USER_ID,
+        });
         isNewUser = true;
       }
     } else {
