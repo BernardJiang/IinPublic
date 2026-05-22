@@ -1014,7 +1014,7 @@ export class IinPublicApp {
     talkData: any,
   ): void {
     if (!this.currentUser || !senderId || senderId === this.currentUser.id) return;
-    if (isTechSupportUser(this.currentUser) || senderId === TECHSUPPORT_ROOT_USER_ID) return;
+    if (isTechSupportUser(this.currentUser)) return;
     const base = this.getBackendApiBase();
     void fetch(`${base}/api/talks/${encodeURIComponent(talkId)}/received`, {
       method: 'POST',

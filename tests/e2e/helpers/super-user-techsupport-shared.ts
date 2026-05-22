@@ -7,6 +7,7 @@ import { webAppURLStableChatroom } from './ports';
 import { wait } from './timing';
 import { syncIncomingFromServer, waitForIncomingTalkClusterOnServer } from './talks-matching-flow';
 import { attachE2eBrowserTabLabel } from './e2e-tab-title';
+import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../../src/shared/techsupport';
 
 export const TECH_SUPPORT_NAME = 'TechSupport';
 export const TOM_NAME = 'Tom';
@@ -52,6 +53,11 @@ export async function bootstrapSuperUser(
   const page = await context.newPage();
   page.on('console', (msg) => console.log(`[${label}]:`, msg.text()));
   await injectIdbClear(page);
+  if (stageName === TECHSUPPORT_STAGE_NAME) {
+    await page.addInitScript((rootUserId) => {
+      window.localStorage.setItem('iinpublic_user_id', rootUserId);
+    }, TECHSUPPORT_ROOT_USER_ID);
+  }
   try {
     await page.goto(webAppURLStableChatroom(), { waitUntil: 'load', timeout: 60_000 });
   } catch {
@@ -62,12 +68,14 @@ export async function bootstrapSuperUser(
   await ensureWindowFitsViewport(page, 640, 1000);
   await afterLoad();
 
-  await page.click('.nav-btn[data-view="settings"]');
-  await afterNav();
-  await page.waitForSelector('#settings-stage-name-input');
-  await page.fill('#settings-stage-name-input', stageName);
-  await page.locator('#settings-stage-name-input').blur();
-  await afterNav();
+  if (stageName !== TECHSUPPORT_STAGE_NAME) {
+    await page.click('.nav-btn[data-view="settings"]');
+    await afterNav();
+    await page.waitForSelector('#settings-stage-name-input');
+    await page.fill('#settings-stage-name-input', stageName);
+    await page.locator('#settings-stage-name-input').blur();
+    await afterNav();
+  }
 
   const headerStageName = page.locator('[data-testid="user-stage-name"]');
   await expect(headerStageName).toContainText(stageName);

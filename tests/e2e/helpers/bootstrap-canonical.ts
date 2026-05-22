@@ -64,13 +64,18 @@ export async function bootstrapCanonicalUser(
   if (!hasStorageState && !options?.skipIdbClear) {
     await injectIdbClear(page);
   }
+  if (!hasStorageState && stageName === TECHSUPPORT_STAGE_NAME) {
+    await page.addInitScript((rootUserId) => {
+      window.localStorage.setItem('iinpublic_user_id', rootUserId);
+    }, TECHSUPPORT_ROOT_USER_ID);
+  }
 
   await page.goto(webAppURLStableChatroom());
   await page.waitForLoadState('load');
   await ensureWindowFitsViewport(page, viewport.width, viewport.height);
   await afterLoad();
 
-  if (!hasStorageState) {
+  if (!hasStorageState && stageName !== TECHSUPPORT_STAGE_NAME) {
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
     await page.waitForSelector('#settings-stage-name-input');
