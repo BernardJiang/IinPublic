@@ -162,6 +162,38 @@ describe('Service Integration Tests', () => {
       expect(mockGetPath).toHaveBeenCalledWith(['users/user123', 'reputation']);
     });
 
+    it('uses a cleared public headshot instead of a stale base-user photo', async () => {
+      const reputation = {
+        questionsAnswered: 0, talksSent: 0, matchesFound: 0, friendsCount: 0, mutualFriendsCount: 0,
+        likedCount: 0, dislikedCount: 0, starRating: 3, reviewCount: 0, ageVerified: false,
+        ageVerificationVotes: 0, blockCount: 0, isHidden: false,
+      };
+      const mockUser = {
+        id: 'user123',
+        stageName: 'TestUser',
+        headshot: 'data:image/png;base64,stale',
+        profile: [],
+        reputation,
+        location: { region: 'test-region', chatrooms: [] },
+        languages: ['en'],
+        interests: [],
+        createdAt: new Date(),
+        lastActive: new Date(),
+      };
+      jest.spyOn(gunService, 'get').mockResolvedValueOnce(mockUser as any);
+      jest.spyOn(gunService, 'getOptional').mockResolvedValueOnce({
+        headshot: '',
+        languagesJson: JSON.stringify(['en']),
+        profileJson: JSON.stringify([]),
+        interestsJson: JSON.stringify([]),
+      } as any);
+      jest.spyOn(gunService, 'getPath').mockResolvedValueOnce(reputation as any);
+
+      const retrievedUser = await userService.getUser('user123');
+
+      expect(retrievedUser.headshot).toBeUndefined();
+    });
+
     it('filters profile Q&A for GET user by visibility and known-people', async () => {
       const mockUser = {
         id: 'user123',

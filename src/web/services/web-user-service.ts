@@ -135,8 +135,8 @@ export class WebUserService {
     });
   }
 
-  private buildPublicUserRecord(user: User): User {
-    const publicUser: User = {
+  private buildPublicUserRecord(user: User): Omit<User, 'headshot'> & { headshot: string } {
+    const publicUser: Omit<User, 'headshot'> & { headshot: string } = {
       id: user.id,
       stageName: user.stageName,
       profile: user.profile || [],
@@ -147,11 +147,11 @@ export class WebUserService {
       createdAt: user.createdAt,
       lastActive: user.lastActive,
       knownPeople: [],
+      headshot: user.headshot || '',
     };
 
     if (user.pub) publicUser.pub = user.pub;
     if (user.epub) publicUser.epub = user.epub;
-    if (user.headshot) publicUser.headshot = user.headshot;
     if (user.networkRole) publicUser.networkRole = user.networkRole;
     if (user.supportMuted) publicUser.supportMuted = user.supportMuted;
 
@@ -166,18 +166,18 @@ export class WebUserService {
       knownPeople: user.knownPeople ?? [],
       blockedUserIds: user.blockedUserIds ?? [],
       ...(user.talkFilters ? { talkFilters: user.talkFilters } : {}),
-      ...(user.headshot ? { headshot: user.headshot } : {}),
+      headshot: user.headshot || '',
     };
   }
 
   private buildPublicProfileFoundation(user: User): {
-    headshot?: string;
+    headshot: string;
     languagesJson: string;
     profileJson: string;
     interestsJson: string;
   } {
     return {
-      ...(user.headshot ? { headshot: user.headshot } : {}),
+      headshot: user.headshot || '',
       languagesJson: JSON.stringify(user.languages || ['en']),
       profileJson: JSON.stringify(user.profile || []),
       interestsJson: JSON.stringify(user.interests || []),

@@ -198,7 +198,7 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     const user = await this.gunService.get(`users/${userId}`) as User;
     const publicProfile = await this.gunService.getOptional(`user-public-profile/${userId}`, 500) as
       | {
-          headshot?: string;
+          headshot?: string | null;
           languagesJson?: string;
           profileJson?: string;
           interestsJson?: string;
@@ -226,8 +226,9 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     // Server reputation updates are written to `users/<id>/reputation`.
     // Ensure we always resolve that sub-node into the returned object.
     const reputation = await this.readReputation(userId);
+    const { headshot: _storedHeadshot, ...userWithoutStaleHeadshot } = user;
     return {
-      ...user,
+      ...userWithoutStaleHeadshot,
       reputation,
       ...(publicProfile.headshot ? { headshot: publicProfile.headshot } : {}),
       languages: this.parseJsonArray(publicProfile.languagesJson, user.languages || ['en']),

@@ -263,6 +263,47 @@ describe('WebUserService', () => {
     );
   });
 
+  it('writes clear markers when a public headshot is removed', async () => {
+    const currentUser: User = {
+      id: 'user-1',
+      stageName: 'Alice',
+      headshot: 'data:image/png;base64,old',
+      profile: [],
+      reputation: {
+        questionsAnswered: 0, talksSent: 0, matchesFound: 0, friendsCount: 0, mutualFriendsCount: 0,
+        likedCount: 0, dislikedCount: 0, starRating: 3, reviewCount: 0, ageVerified: false,
+        ageVerificationVotes: 0, blockCount: 0, isHidden: false,
+      },
+      location: { region: 'region-1', chatrooms: [] },
+      languages: ['en'],
+      interests: [],
+      createdAt: new Date('2026-04-21T10:00:00.000Z'),
+      lastActive: new Date('2026-04-21T10:00:00.000Z'),
+      knownPeople: [],
+      pub: pair.pub,
+      epub: pair.epub,
+    };
+    const gunService = {
+      get: jest.fn().mockResolvedValue(currentUser),
+      getPrivate: jest.fn().mockResolvedValue(null),
+      put: jest.fn().mockResolvedValue(undefined),
+      putPrivate: jest.fn().mockResolvedValue(undefined),
+      getStoredPair: jest.fn(() => pair),
+    };
+
+    const service = new WebUserService(gunService as any);
+    const updated = await service.updateProfileFoundation('user-1', {
+      languages: ['en'],
+      profile: [],
+      interests: [],
+    });
+
+    expect(updated.headshot).toBeUndefined();
+    expect(gunService.put).toHaveBeenCalledWith('users/user-1', expect.objectContaining({ headshot: '' }));
+    expect(gunService.put).toHaveBeenCalledWith('user-public-profile/user-1', expect.objectContaining({ headshot: '' }));
+    expect(gunService.putPrivate).toHaveBeenCalledWith('profile', expect.objectContaining({ headshot: '' }));
+  });
+
   it('updates talk filters in both public mirror and private storage', async () => {
     const currentUser: User = {
       id: 'user-1',

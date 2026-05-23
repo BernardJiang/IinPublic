@@ -125,6 +125,12 @@ test.describe('Profile foundation', () => {
       ),
     });
     await expect(page.locator('#settings-content .profile-avatar-image')).toBeVisible({ timeout: 10000 });
+    await page.setInputFiles('#settings-photo-input', {
+      name: 'not-a-photo.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('not image content'),
+    });
+    await expect(page.locator('#settings-content .profile-avatar-image')).toBeVisible({ timeout: 10000 });
     const tomUserId = await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
     await expect
       .poll(
@@ -167,5 +173,35 @@ test.describe('Profile foundation', () => {
     await expect(peerPage.locator('#peer-stats-section')).toContainText('San Diego');
     await expect(peerPage.locator('#peer-stats-section')).not.toContainText('Interests: Not listed');
     await expect(peerPage.locator('#peer-stats-section .profile-avatar-image').first()).toBeVisible();
+
+    await page.click('.nav-btn[data-view="settings"]');
+    await afterNav();
+    await page.click('#settings-remove-photo-btn');
+    await expect(page.locator('#settings-content .profile-avatar-image')).toHaveCount(0, { timeout: 10000 });
+    const publicHeadshot = async () => {
+      const res = await page.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(tomUserId)}`);
+      if (!res.ok()) return 'request-failed';
+      const user = await res.json() as any;
+      return String(user?.headshot || '');
+    };
+    await expect.poll(publicHeadshot, { timeout: 30000 }).toBe('');
+    await page.setInputFiles('#settings-camera-input', {
+      name: 'camera-avatar.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+      ),
+    });
+    await expect(page.locator('#settings-content .profile-avatar-image')).toBeVisible({ timeout: 10000 });
+    await expect.poll(publicHeadshot, { timeout: 30000 }).toContain('data:image/png;base64,');
+    await page.click('#settings-remove-photo-btn');
+    await expect(page.locator('#settings-content .profile-avatar-image')).toHaveCount(0, { timeout: 10000 });
+    await expect
+      .poll(
+        publicHeadshot,
+        { timeout: 30000, message: 'removed public photo should no longer be returned' },
+      )
+      .toBe('');
   });
 });
