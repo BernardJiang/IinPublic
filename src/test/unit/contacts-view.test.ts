@@ -4,6 +4,7 @@
 
 import { displayContactsList } from '../../web/ui/contacts-view';
 import type { KnownPerson } from '../../shared/types';
+import { uiText } from '../../web/ui/ui-translations';
 
 describe('Contacts ranking and relationship filters', () => {
   const originalFetch = global.fetch;
@@ -67,6 +68,7 @@ describe('Contacts ranking and relationship filters', () => {
       submitPeerReview: jest.fn().mockResolvedValue(undefined),
       vouchAgeVerified: jest.fn().mockResolvedValue(undefined),
       setBlocked: jest.fn().mockResolvedValue(undefined),
+      text: (key: Parameters<typeof uiText>[1]) => uiText('en', key),
     };
   }
 

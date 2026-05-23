@@ -1,6 +1,7 @@
 import type { KnownPerson } from '../../shared/types';
 import type { PeerSummary } from '../../server/routes/peer-routes';
 import { avatarInnerHtml } from './profile-avatar';
+import type { UiTranslationKey } from './ui-translations';
 
 type ContactsViewDeps = {
   apiBase: string;
@@ -19,6 +20,7 @@ type ContactsViewDeps = {
   submitPeerReview: (userId: string, rating: number) => Promise<void>;
   vouchAgeVerified: (userId: string) => Promise<void>;
   setBlocked: (userId: string, blocked: boolean) => Promise<void>;
+  text: (key: UiTranslationKey) => string;
 };
 
 function formatRelationshipLabel(label?: string): string {
@@ -34,13 +36,13 @@ function buildDisplayName(stageName: string, known?: KnownPerson): string {
   return `${nickname} (${baseStageName})`;
 }
 
-function buildMetaLine(summary: PeerSummary, known?: KnownPerson): string {
+function buildMetaLine(summary: PeerSummary, known: KnownPerson | undefined, deps: ContactsViewDeps): string {
   const matchedTalks = summary.stats.sent.matches + summary.stats.received.matches;
   const parts = [
     `${summary.stats.totalTalks} talk${summary.stats.totalTalks !== 1 ? 's' : ''}`,
     `${matchedTalks} match${matchedTalks !== 1 ? 'es' : ''}`,
     `${summary.stats.mutualTagCount} common tag${summary.stats.mutualTagCount !== 1 ? 's' : ''}`,
-    known?.label ? formatRelationshipLabel(known.label) : 'Stranger',
+    known?.label ? formatRelationshipLabel(known.label) : deps.text('stranger'),
   ];
   return parts.join(' · ');
 }
@@ -84,9 +86,9 @@ function renderPublicProfileSummary(deps: ContactsViewDeps, publicUser: any): st
     <div style="display:flex; gap:12px; align-items:flex-start; margin-top:10px; padding:12px; border-radius:12px; background:#f8fafc; border:1px solid #e2e8f0;">
       <div class="user-avatar" style="width:52px; height:52px; font-size:1.4em; flex-shrink:0;">${avatarInnerHtml(headshot, '?', deps.escapeHtml)}</div>
       <div style="min-width:0; flex:1;">
-        <div style="font-size:0.82em; color:#64748b;">Public Profile</div>
-        <div style="font-size:0.88em; color:#334155; margin-top:4px;">Languages: ${deps.escapeHtml(languages.length > 0 ? languages.join(', ') : 'Not listed')}</div>
-        ${interests.length > 0 ? `<div style="font-size:0.88em; color:#334155; margin-top:4px;">Interests: ${deps.escapeHtml(interests.join(', '))}</div>` : ''}
+        <div style="font-size:0.82em; color:#64748b;">${deps.text('publicProfile')}</div>
+        <div style="font-size:0.88em; color:#334155; margin-top:4px;">${deps.text('languagesLabel')}: ${deps.escapeHtml(languages.length > 0 ? languages.join(', ') : deps.text('notListed'))}</div>
+        ${interests.length > 0 ? `<div style="font-size:0.88em; color:#334155; margin-top:4px;">${deps.text('interestsLabel')}: ${deps.escapeHtml(interests.join(', '))}</div>` : ''}
         <div style="display:grid; gap:6px; margin-top:8px;">
           ${
             profile.length > 0
@@ -101,7 +103,7 @@ function renderPublicProfileSummary(deps: ContactsViewDeps, publicUser: any): st
                     `,
                   )
                   .join('')
-              : '<div style="font-size:0.82em; color:#94a3b8;">No public profile attributes listed.</div>'
+              : `<div style="font-size:0.82em; color:#94a3b8;">${deps.text('noPublicProfile')}</div>`
           }
         </div>
       </div>
@@ -312,11 +314,11 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
   if (!listEl) return;
 
   if (!deps.apiBase || !deps.currentUserId) {
-    listEl.innerHTML = '<p style="text-align: center; padding: 40px 20px; color: #999;">Contacts are not ready yet.</p>';
+    listEl.innerHTML = `<p style="text-align: center; padding: 40px 20px; color: #999;">${deps.text('contactsUnavailable')}</p>`;
     return;
   }
 
-  listEl.innerHTML = '<p style="text-align: center; padding: 40px 20px; color: #999;">Loading contacts…</p>';
+  listEl.innerHTML = `<p style="text-align: center; padding: 40px 20px; color: #999;">${deps.text('contactsLoading')}</p>`;
 
   try {
     const response = await fetch(
@@ -402,13 +404,13 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
 
     if (peers.length === 0) {
       listEl.innerHTML = `
-        <p style="text-align: center; padding: 40px 20px; color: #999;">No contacts yet. Exchange talks with others to see them here.</p>
+        <p style="text-align: center; padding: 40px 20px; color: #999;">${deps.text('contactsEmpty')}</p>
       `;
       return;
     }
     if (visiblePeers.length === 0) {
       listEl.innerHTML = `
-        <p style="text-align: center; padding: 40px 20px; color: #999;">No contacts match these filters.</p>
+        <p style="text-align: center; padding: 40px 20px; color: #999;">${deps.text('contactsNoMatch')}</p>
       `;
       return;
     }
@@ -430,9 +432,9 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
           <div class="contact-item" data-contact-user-id="${deps.escapeHtml(peer.peerId)}" data-contact-name="${deps.escapeHtml(resolvedStageName)}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 8px; background: white; border-radius: 12px; border: 1px solid #e0e0e0; cursor: pointer;">
             <div style="min-width: 0;">
               <div class="contact-item-name" style="font-weight: 700;">${deps.escapeHtml(displayName)}${blockedBadge}</div>
-              <div class="contact-item-meta" style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(buildMetaLine(peer, known))}</div>
-              <div class="contact-item-meta" style="font-size: 0.8em; color: #94a3b8; margin-top: 4px;">Sent ${peer.stats.sent.talks} · Received ${peer.stats.received.talks} · Relationship: ${deps.escapeHtml(relationship)}</div>
-              ${sortOrder === 'weighted' ? `<div class="contact-item-rank" title="${deps.escapeHtml(metrics.explanation)}" style="font-size:0.8em;color:#475569;margin-top:4px;">Relevance score: ${metrics.relevance} · ${deps.escapeHtml(metrics.explanation)}</div>` : ''}
+              <div class="contact-item-meta" style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(buildMetaLine(peer, known, deps))}</div>
+              <div class="contact-item-meta" style="font-size: 0.8em; color: #94a3b8; margin-top: 4px;">${deps.text('sent')} ${peer.stats.sent.talks} · ${deps.text('received')} ${peer.stats.received.talks} · ${deps.text('relationship')}: ${deps.escapeHtml(relationship)}</div>
+              ${sortOrder === 'weighted' ? `<div class="contact-item-rank" title="${deps.escapeHtml(metrics.explanation)}" style="font-size:0.8em;color:#475569;margin-top:4px;">${deps.text('relevanceScore')}: ${metrics.relevance} · ${deps.escapeHtml(metrics.explanation)}</div>` : ''}
             </div>
             <span style="color: #999; flex-shrink: 0;">›</span>
           </div>
@@ -454,7 +456,7 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
     }, 0);
     listEl.addEventListener('scroll', persistControls, { passive: true });
   } catch {
-    listEl.innerHTML = '<p style="text-align: center; padding: 40px 20px; color: #c00;">Could not load contacts.</p>';
+    listEl.innerHTML = `<p style="text-align: center; padding: 40px 20px; color: #c00;">${deps.text('contactsUnavailable')}</p>`;
   }
 }
 

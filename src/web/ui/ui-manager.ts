@@ -281,6 +281,9 @@ export class UIManager extends EventEmitter {
       ['#creator-replies-panel strong', 'repliesTitle'],
       ['#reply-clear-filters', 'clear'],
       ['#settings-refresh-location-btn', 'refreshLocation'],
+      ['#back-to-contacts-list', 'back'],
+      ['#talks-nav-back', 'back'],
+      ['#talks-nav-all', 'talksAll'],
     ];
     for (const [selector, key] of textBySelector) {
       const element = document.querySelector<HTMLElement>(selector);
@@ -288,6 +291,64 @@ export class UIManager extends EventEmitter {
     }
     const contactsFilter = document.getElementById('contacts-filter-name') as HTMLInputElement | null;
     if (contactsFilter) contactsFilter.placeholder = this.t('filterByName');
+    const replyFilter = document.getElementById('reply-filter-query') as HTMLInputElement | null;
+    if (replyFilter) replyFilter.placeholder = this.t('repliesSearchPlaceholder');
+    const optionTextBySelector: Array<[string, UiTranslationKey]> = [
+      ['#contacts-filter-relation option[value="all"]', 'allRelations'],
+      ['#contacts-filter-relation option[value="friend"]', 'friends'],
+      ['#contacts-filter-relation option[value="relative"]', 'relatives'],
+      ['#contacts-filter-relation option[value="coworker"]', 'coworkers'],
+      ['#contacts-filter-relation option[value="acquaintance"]', 'acquaintances'],
+      ['#contacts-filter-relation option[value="partner"]', 'partners'],
+      ['#contacts-filter-relation option[value="custom"]', 'custom'],
+      ['#contacts-sort-order option[value="recent"]', 'recent'],
+      ['#contacts-sort-order option[value="talks"]', 'talkCount'],
+      ['#contacts-sort-order option[value="matches"]', 'matchedTalks'],
+      ['#contacts-sort-order option[value="match-rate"]', 'matchRate'],
+      ['#contacts-sort-order option[value="weighted"]', 'relevanceScore'],
+      ['#contacts-sort-order option[value="name"]', 'name'],
+      ['#talks-out-sort-order option[value="recent"]', 'talksLatestActivity'],
+      ['#talks-out-sort-order option[value="oldest"]', 'talksOldestCreation'],
+      ['#talks-out-sort-order option[value="latest-reply"]', 'talksLatestReply'],
+      ['#talks-out-sort-order option[value="matches"]', 'talksMostMatches'],
+      ['#talks-out-sort-order option[value="responses"]', 'talksMostReplies'],
+      ['#talks-out-sort-order option[value="match-rate"]', 'talksBestMatchRate'],
+      ['#talks-out-sort-order option[value="weighted"]', 'talksWeightedPerformance'],
+      ['#talks-out-sort-order option[value="title"]', 'talksTitle'],
+      ['#reply-filter-outcome option[value="all"]', 'repliesAllOutcomes'],
+      ['#reply-filter-outcome option[value="match"]', 'repliesMatches'],
+      ['#reply-filter-outcome option[value="mismatch"]', 'repliesMismatches'],
+      ['#reply-filter-outcome option[value="ignore"]', 'repliesIgnored'],
+      ['#reply-filter-outcome option[value="auto"]', 'repliesAutomatic'],
+      ['#reply-filter-relationship option[value="all"]', 'allRelations'],
+      ['#reply-filter-relationship option[value="stranger"]', 'repliesStrangers'],
+      ['#reply-filter-relationship option[value="friend"]', 'friends'],
+      ['#reply-filter-relationship option[value="relative"]', 'relatives'],
+      ['#reply-filter-relationship option[value="coworker"]', 'coworkers'],
+      ['#reply-filter-relationship option[value="acquaintance"]', 'acquaintances'],
+      ['#reply-filter-relationship option[value="partner"]', 'partners'],
+      ['#reply-filter-relationship option[value="custom"]', 'custom'],
+      ['#reply-filter-type option[value="all"]', 'repliesAllTypes'],
+      ['#reply-filter-language option[value="all"]', 'repliesAllLanguages'],
+      ['#reply-sort-order option[value="recent"]', 'repliesNewestFirst'],
+      ['#reply-sort-order option[value="oldest"]', 'repliesOldestFirst'],
+      ['#reply-sort-order option[value="user"]', 'repliesStageName'],
+      ['#reply-sort-order option[value="talk"]', 'repliesTalkTitle'],
+      ['#reply-sort-order option[value="relationship"]', 'repliesRelationship'],
+      ['#reply-sort-order option[value="matches"]', 'repliesMatches'],
+      ['#reply-sort-order option[value="talk-matches"]', 'repliesMatchesPerTalk'],
+      ['#reply-sort-order option[value="talk-replies"]', 'repliesPerTalk'],
+      ['#reply-sort-order option[value="weighted"]', 'relevanceScore'],
+      ['#reply-group-order option[value="none"]', 'repliesNoGrouping'],
+      ['#reply-group-order option[value="responder"]', 'repliesGroupUser'],
+      ['#reply-group-order option[value="talk"]', 'repliesGroupTalk'],
+      ['#reply-group-order option[value="relationship"]', 'repliesGroupRelation'],
+      ['#reply-group-order option[value="day"]', 'repliesGroupDay'],
+    ];
+    for (const [selector, key] of optionTextBySelector) {
+      const option = document.querySelector<HTMLOptionElement>(selector);
+      if (option) option.textContent = this.t(key);
+    }
   }
 
   // Callback for stage name changes
@@ -1198,38 +1259,38 @@ export class UIManager extends EventEmitter {
         </div>
         <div style="text-align: center; margin-top: 10px;">
           <div style="font-size: 1.2em; font-weight: 600;">${user.stageName}</div>
-          <div style="font-size: 0.9em; color: #999; margin-top: 5px;">Online</div>
+          <div style="font-size: 0.9em; color: #999; margin-top: 5px;">${this.t('online')}</div>
           <div style="display:flex; justify-content:center; gap:10px; flex-wrap:wrap; margin-top:10px;">
-            <button class="btn" id="edit-stagename-btn" data-testid="edit-stage-name-button">Edit Stage Name</button>
-            <button class="btn" id="edit-profile-btn" data-testid="edit-profile-button">Edit Profile</button>
+            <button class="btn" id="edit-stagename-btn" data-testid="edit-stage-name-button">${this.t('editStageName')}</button>
+            <button class="btn" id="edit-profile-btn" data-testid="edit-profile-button">${this.t('editProfile')}</button>
           </div>
         </div>
         <div style="margin-top: 20px; padding: 16px; background: #ffffff; border-radius: 12px; text-align: left; border:1px solid #e5e7eb;">
           <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px;">
-            <div style="font-weight:700; color:#111827;">Profile</div>
+            <div style="font-weight:700; color:#111827;">${this.t('profile')}</div>
             <div style="font-size:0.82em; color:#6b7280;">Visibility per Q&amp;A (see Edit Profile)</div>
           </div>
           <div style="font-size:0.88em; color:#374151; margin-bottom:10px;">
-            Languages: ${escapeHtml((Array.isArray(user.languages) && user.languages.length > 0 ? user.languages.join(', ') : 'en'))}
+            ${this.t('languagesLabel')}: ${escapeHtml((Array.isArray(user.languages) && user.languages.length > 0 ? user.languages.join(', ') : 'en'))}
           </div>
-          ${interestNames.length > 0 ? `<div style="font-size:0.88em; color:#374151; margin-bottom:10px;">Interests: ${escapeHtml(interestNames.join(', '))}</div>` : ''}
+          ${interestNames.length > 0 ? `<div style="font-size:0.88em; color:#374151; margin-bottom:10px;">${this.t('interestsLabel')}: ${escapeHtml(interestNames.join(', '))}</div>` : ''}
           <div style="display:grid; gap:8px;">
             ${profilePreview}
           </div>
         </div>
         <div style="margin-top: 20px; padding: 16px; background: #f0fdf4; border-radius: 12px; text-align: left; border:1px solid #bbf7d0;">
-          <div style="font-weight: 700; color: #111827; margin-bottom: 8px;">Broadcast tag trends</div>
+          <div style="font-weight: 700; color: #111827; margin-bottom: 8px;">${this.t('broadcastTagTrends')}</div>
           <div id="me-broadcast-tag-trends" data-testid="me-broadcast-tag-trends"></div>
         </div>
         <div style="margin-top: 20px; padding: 16px; background: #fff7ed; border-radius: 12px; text-align: left;">
           <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
             <div>
-              <div style="font-weight: 700; color: #111827;">Credit</div>
+              <div style="font-weight: 700; color: #111827;">${this.t('credit')}</div>
               <div style="font-size: 0.82em; color: #6b7280;">Read-only reputation summary from other users' interactions.</div>
             </div>
             <label style="display:flex; align-items:center; gap:8px; font-size:0.85em;">
               <input type="checkbox" id="credit-visibility-checkbox" ${isCreditVisible ? 'checked' : ''}>
-              <span>Show to others</span>
+              <span>${this.t('showToOthers')}</span>
             </label>
           </div>
           <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
@@ -1345,6 +1406,7 @@ export class UIManager extends EventEmitter {
       submitPeerReview: this.submitPeerReview.bind(this),
       vouchAgeVerified: this.vouchAgeVerified.bind(this),
       setBlocked: this.setBlocked.bind(this),
+      text: this.t.bind(this),
     });
   }
 
@@ -1363,6 +1425,7 @@ export class UIManager extends EventEmitter {
       submitPeerReview: this.submitPeerReview.bind(this),
       vouchAgeVerified: this.vouchAgeVerified.bind(this),
       setBlocked: this.setBlocked.bind(this),
+      text: this.t.bind(this),
     });
   }
 
@@ -1382,6 +1445,7 @@ export class UIManager extends EventEmitter {
         submitPeerReview: this.submitPeerReview.bind(this),
         vouchAgeVerified: this.vouchAgeVerified.bind(this),
         setBlocked: this.setBlocked.bind(this),
+        text: this.t.bind(this),
       },
       otherUserId,
       otherUserName,
@@ -2101,7 +2165,7 @@ export class UIManager extends EventEmitter {
       this.renderCreatorReplies();
       if (document.getElementById('talks-view')?.classList.contains('active')) this.displayTalksList();
     } catch {
-      if (summary) summary.textContent = 'Replies unavailable';
+      if (summary) summary.textContent = this.t('repliesUnavailable');
     }
   }
 
@@ -2161,32 +2225,38 @@ export class UIManager extends EventEmitter {
         return new Date(b.date).getTime() - new Date(a.date).getTime() || a.responseId.localeCompare(b.responseId);
       });
     const shown = Math.min(this.creatorReplyVisibleCount, filtered.length);
-    summary.textContent = `Showing ${shown} of ${filtered.length} filtered replies (${this.creatorReplyRows.length} total)`;
+    summary.textContent = this.getUiLanguage() === 'zh'
+      ? `显示 ${shown}/${filtered.length} 条筛选回复（共 ${this.creatorReplyRows.length} 条）`
+      : `Showing ${shown} of ${filtered.length} filtered replies (${this.creatorReplyRows.length} total)`;
     const activeFilters = document.getElementById('creator-replies-active-filters');
     if (activeFilters) {
       const chips = [
-        state.query ? `Search: ${state.query}` : '',
-        state.outcome !== 'all' ? `Outcome: ${state.outcome}` : '',
-        state.relationship !== 'all' ? `Relation: ${state.relationship}` : '',
-        state.type !== 'all' ? `Type: ${state.type}` : '',
-        state.language !== 'all' ? `Language: ${state.language}` : '',
-        state.from ? `From: ${state.from}` : '',
-        state.to ? `To: ${state.to}` : '',
+        state.query ? `${this.getUiLanguage() === 'zh' ? '搜索' : 'Search'}: ${state.query}` : '',
+        state.outcome !== 'all' ? `${this.getUiLanguage() === 'zh' ? '结果' : 'Outcome'}: ${state.outcome}` : '',
+        state.relationship !== 'all' ? `${this.getUiLanguage() === 'zh' ? '关系' : 'Relation'}: ${state.relationship}` : '',
+        state.type !== 'all' ? `${this.getUiLanguage() === 'zh' ? '类型' : 'Type'}: ${state.type}` : '',
+        state.language !== 'all' ? `${this.getUiLanguage() === 'zh' ? this.t('languagesLabel') : 'Language'}: ${state.language}` : '',
+        state.from ? `${this.getUiLanguage() === 'zh' ? '起始日期' : 'From'}: ${state.from}` : '',
+        state.to ? `${this.getUiLanguage() === 'zh' ? '结束日期' : 'To'}: ${state.to}` : '',
       ].filter(Boolean);
       activeFilters.innerHTML = chips.map((chip) =>
         `<span class="reply-filter-chip" style="font-size:0.8em;background:#e2e8f0;border-radius:999px;padding:3px 8px;">${escapeHtml(chip)}</span>`,
       ).join('');
     }
     if (filtered.length === 0) {
-      list.innerHTML = '<div style="color:#94a3b8;padding:8px;">No replies match these filters.</div>';
+      list.innerHTML = `<div style="color:#94a3b8;padding:8px;">${this.t('repliesNoMatch')}</div>`;
       return;
     }
     let previousGroup = '';
     list.innerHTML = filtered.slice(0, this.creatorReplyVisibleCount).map((row) => {
       const known = this.getKnownPerson(row.responderId);
-      const label = known?.label || 'Stranger';
+      const label = known?.label || this.t('stranger');
       const metrics = metricsByResponder.get(row.responderId)!;
-      const score = state.sort === 'weighted' ? ` · Score ${metrics.relevance} (${metrics.matches} matches x100 + ${metrics.replies} replies)` : '';
+      const score = state.sort === 'weighted'
+        ? this.getUiLanguage() === 'zh'
+          ? ` · 得分 ${metrics.relevance}（${metrics.matches} 匹配 x100 + ${metrics.replies} 回复）`
+          : ` · Score ${metrics.relevance} (${metrics.matches} matches x100 + ${metrics.replies} replies)`
+        : '';
       const answerPreview = row.answers
         .map((answer) => String(answer.answerText || '').trim())
         .filter(Boolean)
@@ -2208,15 +2278,16 @@ export class UIManager extends EventEmitter {
         <div class="creator-reply-row" data-response-id="${escapeHtml(row.responseId)}" data-responder-id="${escapeHtml(row.responderId)}" data-talk-id="${escapeHtml(row.talkId)}" style="padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;">
           <div style="display:flex;justify-content:space-between;gap:10px;">
             <strong>${escapeHtml(row.responderName)}</strong>
-            <span style="color:${row.outcome === 'match' ? '#166534' : '#64748b'};">${escapeHtml(row.outcome)}</span>
+            <span style="color:${row.outcome === 'match' ? '#166534' : '#64748b'};">${escapeHtml(row.outcome === 'match' ? this.t('match') : row.outcome === 'mismatch' ? this.t('mismatch') : row.outcome)}</span>
           </div>
           <div style="font-size:0.86em;color:#475569;">${escapeHtml(row.title)} · ${escapeHtml(row.type)} · ${escapeHtml(row.language || 'en')} · ${escapeHtml(row.answerMode || 'manual')} · ${escapeHtml(String(label))} · ${escapeHtml(new Date(row.date).toLocaleString())}${escapeHtml(score)}</div>
-          ${answerPreview ? `<div class="creator-reply-answers" style="font-size:0.84em;color:#334155;margin-top:4px;">Answers: ${escapeHtml(answerPreview)}</div>` : ''}
+          ${answerPreview ? `<div class="creator-reply-answers" style="font-size:0.84em;color:#334155;margin-top:4px;">${this.t('repliesAnswers')}: ${escapeHtml(answerPreview)}</div>` : ''}
         </div>
       `;
     }).join('');
     if (filtered.length > this.creatorReplyVisibleCount) {
-      list.innerHTML += `<button class="btn" id="reply-load-more" type="button" style="margin-top:6px;">Show ${Math.min(CREATOR_REPLY_PAGE_SIZE, filtered.length - this.creatorReplyVisibleCount)} more replies</button>`;
+      const moreCount = Math.min(CREATOR_REPLY_PAGE_SIZE, filtered.length - this.creatorReplyVisibleCount);
+      list.innerHTML += `<button class="btn" id="reply-load-more" type="button" style="margin-top:6px;">${this.getUiLanguage() === 'zh' ? `再显示 ${moreCount} 条回复` : `Show ${moreCount} more replies`}</button>`;
       document.getElementById('reply-load-more')?.addEventListener('click', () => {
         this.creatorReplyVisibleCount += CREATOR_REPLY_PAGE_SIZE;
         this.renderCreatorReplies();
@@ -2234,6 +2305,7 @@ export class UIManager extends EventEmitter {
       showTalkDetail: this.showTalkDetail.bind(this),
       showPreferencesDialog: this.showPreferencesDialog.bind(this),
       getTalkContentKey: UIManager.getTalkContentKey,
+      text: this.t.bind(this),
     });
     const activeFilter = (document.querySelector('.me-answer-filter.active') as HTMLElement | null)?.dataset.meAnswerFilter || 'all';
     this.applyMeAnswerFilter(activeFilter);

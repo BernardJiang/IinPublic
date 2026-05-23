@@ -6,6 +6,7 @@ import {
   type ExactChatbotMemoryState,
 } from '../../shared/exact-chatbot-memory';
 import type { FlatAnswerHistoryRecord } from './answer-history-storage';
+import type { UiTranslationKey } from './ui-translations';
 
 type AnswersViewDeps = {
   getMyTalks: () => Record<string, any>;
@@ -16,6 +17,7 @@ type AnswersViewDeps = {
   showTalkDetail: (talkId: string) => void;
   showPreferencesDialog: () => void;
   getTalkContentKey: (talk: any) => string;
+  text: (key: UiTranslationKey) => string;
 };
 
 type AnswerEntry = { questionId: string; answerId: string; answerText?: string; mode?: string };
@@ -245,8 +247,8 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
   if (deduped.length === 0 && dedupedFlat.length === 0) {
     container.innerHTML = `
       <div style="padding: 20px; text-align: center; color: #999;">
-        <p>Talks you've received and answered will appear here.</p>
-        <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">Preferences</button>
+        <p>${deps.text('meNoAnswers')}</p>
+        <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">${deps.text('preferences')}</button>
       </div>
     `;
     document.getElementById('view-preferences-btn')?.addEventListener('click', () => deps.showPreferencesDialog());
@@ -255,10 +257,10 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
 
   container.innerHTML = `
     <div class="answers-view-inner" style="padding: 16px; max-width: min(980px, 96%); margin: 0 auto;">
-      <p style="margin-bottom: 12px; color: #666;">Talks you've received and answered, grouped by the same question set:</p>
-      <input id="answers-search-input" class="form-input" type="search" placeholder="Search answers" style="width:100%; margin-bottom:12px;">
+      <p style="margin-bottom: 12px; color: #666;">${deps.text('meAnswersIntro')}</p>
+      <input id="answers-search-input" class="form-input" type="search" placeholder="${deps.text('meSearchAnswers')}" style="width:100%; margin-bottom:12px;">
       <div id="answers-list" class="answers-list" style="display: flex; flex-direction: column; gap: 12px;"></div>
-      <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">Preferences</button>
+      <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">${deps.text('preferences')}</button>
     </div>
   `;
 
@@ -310,10 +312,10 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
           <div style="flex: 1; min-width: 0;">
             <div style="font-weight: 700;">${deps.escapeHtml(record.title)}</div>
             <div style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(metadata)}</div>
-            <div style="font-size: 0.82em; color: #64748b; margin-top: 4px;">${outcome === 'match' ? '✓ Match' : '✗ Mismatch'} · ${deps.escapeHtml(record.type)}</div>
+            <div style="font-size: 0.82em; color: #64748b; margin-top: 4px;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · ${deps.escapeHtml(record.type)}</div>
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${deps.escapeHtml(record.talkId)}" style="padding: 6px 12px; font-size: 0.9em;">Copy</button>
+            <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${deps.escapeHtml(record.talkId)}" style="padding: 6px 12px; font-size: 0.9em;">${deps.text('copy')}</button>
           </div>
         </div>
         <div class="answer-question-list" style="display: grid; gap: 8px;">
@@ -368,10 +370,10 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
           <div style="flex: 1; min-width: 0;">
             <div style="font-weight: 700;">${deps.escapeHtml(talk.title)}</div>
             <div style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(metadata)}</div>
-            <div style="font-size: 0.82em; color: #64748b; margin-top: 4px;">${outcome === 'match' ? '✓ Match' : '✗ Mismatch'}</div>
+            <div style="font-size: 0.82em; color: #64748b; margin-top: 4px;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`}</div>
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">Copy</button>
+            <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">${deps.text('copy')}</button>
           </div>
         </div>
         <div class="answer-question-list" style="display: grid; gap: 8px;">
