@@ -321,7 +321,7 @@ export class WebUserService {
       interests: userData.interests || [],
       talkFilters: userData.talkFilters || {
         allowedLanguages: userData.languages || ['en'],
-        minDistanceMiles: 1,
+        minDistanceMiles: 0,
         maxDistanceMiles: 50,
         requireGoodGrammar: true,
         blockDirtyWords: true,
@@ -342,7 +342,7 @@ export class WebUserService {
     await this.putPublicProfileFoundation(user);
     await this.putPublicTalkFilters(userId, user.talkFilters || {
       allowedLanguages: user.languages || ['en'],
-      minDistanceMiles: 1,
+      minDistanceMiles: 0,
       maxDistanceMiles: 50,
       requireGoodGrammar: true,
       blockDirtyWords: true,

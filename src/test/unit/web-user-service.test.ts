@@ -67,7 +67,7 @@ describe('WebUserService', () => {
       expect.objectContaining({
         filtersJson: JSON.stringify({
           allowedLanguages: ['en', 'fr'],
-          minDistanceMiles: 1,
+          minDistanceMiles: 0,
           maxDistanceMiles: 50,
           requireGoodGrammar: true,
           blockDirtyWords: true,

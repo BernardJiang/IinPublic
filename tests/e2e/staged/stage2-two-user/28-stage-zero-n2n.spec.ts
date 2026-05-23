@@ -130,7 +130,7 @@ async function configureFirstUser(page: Page, name: string, homeRoom: string): P
   await afterSync();
   await page.locator('.settings-filter-language-option[value="en"]').setChecked(true);
   await page.locator('.settings-filter-language-option[value="zh"]').setChecked(true);
-  await page.fill('#settings-min-distance', '1');
+  await page.fill('#settings-min-distance', '0');
   await page.fill('#settings-max-distance', '50');
   await page.locator('#settings-grammar-filter').check();
   await page.locator('#settings-dirty-words-filter').check();
@@ -171,7 +171,7 @@ test.describe('Stage zero N2N smoke', () => {
         { timeout: 45_000 },
       )
       .toBe('en,zh');
-    await expect(page.locator('#settings-min-distance')).toHaveValue('1');
+    await expect(page.locator('#settings-min-distance')).toHaveValue('0');
     await expect(page.locator('#settings-max-distance')).toHaveValue('50');
     await expect(page.locator('#settings-grammar-filter')).toBeChecked();
     await expect(page.locator('#settings-dirty-words-filter')).toBeChecked();

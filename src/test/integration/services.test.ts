@@ -267,7 +267,7 @@ describe('Service Integration Tests', () => {
 
       expect(filters).toEqual({
         allowedLanguages: ['zh'],
-        minDistanceMiles: 1,
+        minDistanceMiles: 0,
         maxDistanceMiles: 50,
         requireGoodGrammar: true,
         blockDirtyWords: true,

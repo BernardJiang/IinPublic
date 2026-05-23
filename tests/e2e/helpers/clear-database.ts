@@ -112,7 +112,7 @@ export async function seedTechSupportRootBaseline(): Promise<void> {
   const state = now.getTime();
   const filters = {
     allowedLanguages: ['en'],
-    minDistanceMiles: 1,
+    minDistanceMiles: 0,
     maxDistanceMiles: 50,
     requireGoodGrammar: true,
     blockDirtyWords: true,
