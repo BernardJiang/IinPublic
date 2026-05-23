@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-05-21
+Last updated: 2026-05-23
 
 This is the forward backlog for the current repository. Completed feature ledgers belong in
 [Completed Work](completed.md), not in TODO.
@@ -10,11 +10,312 @@ Authoritative product scope lives in
 
 ## Current Focus
 
-Continue the P2P roadmap:
+Complete the app-detail phases below while continuing the P2P roadmap:
 [P2P Node Network Roadmap](roadmap/p2p-node-network.md).
 
 No active P2P roadmap phase remains in this TODO. Add new forward work here only after it is
 scoped against the technical specification or the P2P roadmap.
+
+## Phased Application Detail Completion Plan
+
+Goal: finish the user-visible details of the five main tabs and prove the entire talk lifecycle
+with durable tests. This plan is ordered for implementation; the tab-specific and TechSupport
+checklists later in this document remain the detailed feature inventory and are not superseded.
+
+Current implementation baseline discovered during the audit:
+
+- Reserved-name validation already rejects ordinary claims to `TechSupport`, `admin`,
+  `administrator`, `api`, `root`, `system`, `support`, and `www`, including normalized spelling
+  variations; it still needs complete UI/API/E2E acceptance coverage.
+- Incoming-talk intake code already has language, min/max distance, grammar, dirty-word, custom
+  blocked-term, talk-type, sent-after, and adult gating paths. Unit/integration tests cover selected
+  cases, but the user-level multi-user proof scenarios below are not complete.
+- Settings still renders `Interests: None listed` for a profile with no interests and offers only
+  preset text/emoji headshots. Contacts and peer detail also render empty "Interests: Not listed"
+  placeholders.
+- Profile language and incoming-language controls persist values, but the menu, tabs, dialogs, and
+  messages remain hard-coded in English.
+- Matching E2E specs cover several successful, mismatched, ignored, auto-answer, Contacts, and Me
+  scenarios independently; they do not yet provide one exhaustive branch matrix from talk creation
+  through every sender/responder result.
+- Contacts already exposes basic name/relationship filters and sort choices for recent, name, talk
+  count, and matches. It does not yet solve high-volume response triage across many talks and
+  responders, or provide weighted ranking and grouped answer review.
+
+### Phase D1 - Settings Identity and Profile Polish
+
+Purpose: make Settings a complete, safe identity editor before its settings drive other behavior.
+
+- **Reserved stage names and impersonation guardrails.** Keep the implemented shared validator and
+  add validation messaging in Settings that clearly explains why a name is unavailable. Reject
+  ordinary creation and rename attempts for every protected name and normalized variant, including
+  casing, surrounding spaces, punctuation separators, and lookalike forms covered by product policy.
+  Keep the canonical root identity as the only allowed owner of `TechSupport`.
+- **Reserved-name proof script.** Add unit/API/E2E coverage that attempts `TechSupport`,
+  `tech_support`, `Tech Support`, `ROOT`, `admin`, `administrator`, `system`, `support`, `api`, and
+  `www`; asserts each ordinary user is rejected; asserts the previous stage name remains visible
+  after failure; and asserts the canonical TechSupport bootstrap still succeeds.
+- **Remove empty-interest noise.** When a user has no interests, remove the Settings text
+  `Interests: None listed` rather than displaying a placeholder. Apply the same rule consistently
+  to the Me profile card, Contacts public-profile summary, and peer-detail summary where empty
+  `Interests: Not listed` copy currently appears. Show an edit affordance only where the owner can
+  actually add interests.
+- **Camera/photo headshot function.** Replace or complement the preset-headshot picker with
+  `Take Photo` and `Choose Photo` actions, a preview/crop or center-fit step, replace/remove
+  controls, permission-denied and unsupported-device fallback, file-type/size limits, and an
+  accessible initials/preset fallback. Define whether the stored image is local/private or public
+  profile data before syncing it.
+- **Headshot proof script.** Use a deterministic fixture image or mocked camera stream to verify
+  choose/capture, preview, save, reload, display in Me/Contacts/peer detail, replace, remove,
+  permission denial, invalid-file rejection, and that private raw camera data is not persisted.
+- **One owner for duplicated preferences.** Talk behavior and intake controls are currently
+  rendered in both Me and Settings. Decide whether Me is a read-only summary/shortcut or remove the
+  duplicate controls; keep one persisted source of truth and verify either surface never overwrites
+  newer settings from the other.
+
+Exit criteria: an ordinary user can create/edit a safe identity and photo without placeholders,
+reserved-name impersonation, divergent settings copies, or an untested persistence path.
+
+### Phase D2 - Full UI Localization
+
+Purpose: make profile/UI language change the actual application language, not just saved metadata.
+
+- **Separate language meanings.** Introduce an explicit primary UI language setting and keep
+  "incoming talk languages I understand" as a separate multi-select intake setting. Default a new
+  user's new-talk language to the primary UI language while allowing a per-talk override.
+- **Translation catalog and renderer.** Move hard-coded user-facing strings into localized
+  resources keyed by stable ids. Include the five bottom-nav labels, header/status messages, all
+  tab content, Settings controls, empty states, buttons, validation errors, notifications, talk
+  editor/response dialogs, Contacts/relationship labels, Me/Preferences, storage diagnostics
+  labels intended for users, and TechSupport welcome/support copy.
+- **Chinese first, extensible for every offered language.** Ship complete Chinese resources first
+  and provide a defined fallback for any offered but untranslated language. Do not advertise a
+  fully selectable profile/UI language until its visible catalog is complete.
+- **Immediate and persistent switch.** Selecting Chinese or another complete UI language must
+  re-render the entire current view and navigation immediately, persist after reload and across
+  navigation, and retain stable internal codes such as `zh` for filtering and stored talks.
+- **Localization proof script.** Set the primary UI language to Chinese and traverse Chatrooms,
+  Contacts, Talks, Me, Settings, talk create/respond, contact detail, and notifications; assert
+  translated visible strings, localized language names, no unexpected English fallbacks, stable
+  storage codes, reload persistence, and switching back to English.
+
+Exit criteria: UI language is independent from intake language and every reachable main workflow
+has an automated Chinese traversal.
+
+### Phase D3 - Incoming Talk Filters and Talk Behavior
+
+Purpose: make every Settings control visibly change delivery or behavior and prove it with real
+senders and receivers. Existing filter plumbing is a foundation, not completion of these scenarios.
+
+- **Three-language intake proof.** Set a receiving user to allow English and Chinese only. From
+  sender users create and send equivalent English (`en`), Chinese (`zh`), and a third-language
+  talk such as Spanish (`es`). Verify English and Chinese are registered and shown in IN, Spanish
+  is absent from IN/response dialogs and reported as rejected for `intake_language`, and toggling
+  Spanish on permits a newly sent Spanish talk.
+- **Talk Behavior checkbox proof.** Add separate E2E paths for every checkbox in the Talk Behavior
+  section: with `Auto-save received talks (copy talk)` on, an answered incoming talk is copied into
+  OUT/My Talks; with it off, answer history remains in Me but no copied OUT item is created. With
+  `Enable chatbot` on, a repeat eligible talk auto-answers using saved permitted memory with the bot
+  marker; with it off, the same repeat requires manual response and does not send an auto reply.
+- **Min/max distance acceptance.** Preserve the existing distance intake implementation, then add a
+  multi-user E2E script with deterministic locations: send a talk from below the receiver's minimum,
+  inside the accepted band, and above the maximum. Verify only the in-band talk reaches IN, the two
+  rejected cases expose `intake_min_distance`/`intake_max_distance`, boundary values are defined and
+  tested, Settings persists valid values, and invalid ranges such as min greater than max are rejected.
+- **Grammar filter completion.** Replace the present simplified heuristic with a documented,
+  language-aware behavior or explicitly bounded MVP rule set. Show the rule to users so a valid short
+  phrase is not mysteriously hidden. E2E-send a clean talk and a deliberately failing talk with the
+  checkbox on and off; prove only the appropriate talk is filtered with `intake_grammar`.
+- **Dirty-word filter completion.** Replace the tiny placeholder list with maintained,
+  language-aware moderation dictionaries or a defined moderation provider, normalized matching
+  against title/questions/answers, safe handling for benign substrings, and user-visible rejection
+  explanation without repeating offensive text. Add on/off E2E proof and cases for punctuation,
+  casing, multiple languages, and answer text, asserting `intake_dirty_words`.
+- **Every remaining intake control.** Add user-facing proof for allowed talk types, custom blocked
+  phrases, sent-after, adult/age gating, blocked users, expiration, and reputation/credit visibility
+  where it affects delivery or display. Settings should preview hidden counts by reason before and
+  after each selection rather than only showing a total filtered count.
+
+Exit criteria: each Settings behavior/filter control has at least one allow path, one reject/disabled
+path, persisted state verification, and an intelligible reason visible to the user where applicable.
+
+### Phase D4 - Exhaustive Talk Lifecycle and Matching Matrix
+
+Purpose: exercise each possible route from a created talk through receiving, answering, matching,
+contacts, and Me answer ownership instead of relying on isolated happy paths.
+
+- **Creator state at creation.** For every talk type (`tag`, `flow`, `survey`, `route`), create from
+  the editor and verify title, language, type, expiry/location settings, and creator self-selected
+  question/answer pairs appear in the creator's OUT list and Me answer/history surface as designed.
+  Verify editing preserves language, branches, self answers, and targeting settings.
+- **Pre-answer relationship state.** Send a talk to eligible peers and verify the recipient sees it
+  in IN, while any newly discoverable user/contact surface labels the unestablished peer
+  `Stranger` before a successful match or saved relationship. Keep TechSupport separate from this
+  ordinary stranger classification.
+- **All response branches.** Build fixture talks whose branches are named and deterministic, then
+  traverse every terminal outcome: match/noticed, ignore, mismatch/no-match, intermediate branch
+  continuation, terminal non-match, copy, manual answer, conditional/context answer, saved
+  auto-answer, and chatbot-suppressed/manual response. For `route`, traverse every leaf and prove
+  identical question text under different paths stores separate context-aware answers.
+- **Multiple responder reactions.** Send the same creator talk to multiple responders: one matches,
+  one ignores, one mismatches, and one is intake-filtered. Verify the creator receives exactly the
+  correct reaction/status for each responder, only matched peers can start the normal conversation
+  path, and replies do not merge or overwrite each other's identities or answer records.
+- **Contacts state transition.** Assert a stranger is not prematurely treated as a relationship;
+  after a match, the responder is listed in Contacts with ordinary initial relationship state
+  (`Stranger`/no saved label until explicitly classified), correct shared-talk history, nickname/
+  relationship update behavior, credit visibility rules, blocking behavior, and sorting/search.
+- **Me answer ownership.** For sender and each responder, assert the correct question/answer pair,
+  outcome (`Match` or `Mismatch`), manual/auto/conditional mode, copy action, repeated-answer count,
+  language, and context path appears only in that user's Me history. Ignored, filtered, support, and
+  unreceived talks must not incorrectly pollute answer memory.
+- **Delivery and lifecycle edges.** Extend the matrix for send-to-room off/on, broadcast preview,
+  direct send, duplicate broadcasts/content consolidation, expired/deleted talks, disconnect and
+  reconnect, sender/receiver blocks, adult gate, language/distance/content rejection, and
+  TechSupport exclusion or intentional participation.
+
+Recommended test organization:
+
+1. Add reusable fixture builders for one branching talk of each type and response-outcome helpers.
+2. Add one sender/one receiver specs for each branch outcome and durable UI/server-state assertions.
+3. Add a multi-responder scenario proving creator reactions, Contacts transitions, and answer isolation.
+4. Add intake-gated scenarios from Phase D3 that prove a rejected branch never becomes an IN row or
+   relationship.
+5. Keep the tests in the TechSupport-seeded stage pipeline and explicitly exclude support greetings
+   from ordinary talk assertions unless that is what the test exercises.
+
+Exit criteria: every defined talk branch and major delivery rejection has a named automated
+scenario proving the corresponding OUT, IN, Contacts, conversation, and Me state.
+
+### Phase D5 - High-Volume Reply Triage and Ranking
+
+Purpose: keep the app usable when a creator receives many replies instead of one or two. A
+realistic proof scenario is one creator sending 10 talks to 10 ordinary users and reviewing the
+resulting 100 reply records without losing identity, talk, relationship, or outcome context.
+
+- **Creator reply inbox/workbench.** Add a dedicated creator-facing answer/reply review surface, or
+  extend Talks/Me with an explicit received-replies mode. Show each reply with responder stage name,
+  source talk, response time/date, terminal outcome, matching questions/answers, manual/auto state,
+  relationship state, credit/reputation visibility, and whether a conversation exists.
+- **Filtering and search.** Support combined filters for date/time range, latest/unread status,
+  responder stage name search, selected talk or talk type, response outcome (match/mismatch/ignore/
+  filtered/auto), relationship label (`Stranger`, friend, relative, coworker, acquaintance,
+  partner, custom), language, and location/distance range where permitted. Filters must compose
+  predictably and expose the active filter chips plus a clear-all action.
+- **Sorting and grouping.** Support ascending/descending time and date, responder stage name,
+  talk title, relationship, number of matched talks with that user, number of matches per talk,
+  total replies per talk, match rate, and weighted relevance score. Allow grouping by responder,
+  talk, relationship, or day so a creator can answer questions such as "which users matched most of
+  my talks?" and "which talks performed best?"
+- **Weighted statistics model.** Define a transparent ranking formula rather than hiding an
+  arbitrary score. Include selectable or documented factors such as matched-talk count, match
+  percentage, recency, existing relationship, mutual/shared interests, visible public credit, and
+  penalties for ignored, blocked, filtered, or stale interactions. Show factor breakdown/tooltips,
+  provide an unweighted sort option, and never use private answers or hidden credit as ranking input.
+- **User ranking behavior.** A responder who matches more of the creator's talks should be able to
+  rise to the top of the contact/reply list when sorting by matched-talk count or weighted relevance.
+  The creator must still be able to switch back to chronological or alphabetical order, and
+  TechSupport/support traffic must be excluded from ordinary ranking unless intentionally included.
+- **Talk ranking behavior.** On the Talks tab, allow OUT talks to be sorted by most matches, most
+  responses, match rate, latest response, newest/oldest creation time, title, and weighted
+  performance. Each OUT row should show response, match, mismatch/ignore, and filtered counts so the
+  reason for ordering is visible rather than surprising.
+- **Performance and pagination.** Do not render an unbounded response list as volume grows. Add
+  pagination or virtualized/infinite scrolling, stable cursor/order semantics, loading and empty
+  states, retained filter/sort state after opening detail and returning, and acceptable query/render
+  performance for at least 100 replies and a larger stress fixture.
+- **Privacy and moderation boundaries.** Ranking and filtering must respect blocked users, profile
+  visibility, hidden reputation, support-channel isolation, local-only answer ownership, and
+  language/content-filter privacy. Aggregates should not reveal a filtered user's private answer
+  body merely because their rejected delivery is counted.
+- **High-volume E2E proof script.** Create 10 distinct talks for one creator, deliver them to 10
+  users, and generate a controlled 100-reply matrix containing match, mismatch, ignore, different
+  relationships, different timestamps, and at least one ranking tie. Verify:
+  - Exactly 100 ordinary reply records are available to the creator without duplicates or overwritten
+    responder identities.
+  - Filter by one stage name returns that user's 10 replies; filter by one talk returns its 10
+    replies; relationship and date filters return the fixture-defined subsets.
+  - Sorting users by matched-talk count puts the deliberately strongest match user first and uses a
+    defined stable tie-breaker.
+  - Sorting talks by number of matches puts the fixture-defined strongest talk first, with visible
+    counts agreeing with underlying reply records.
+  - Weighted sorting displays the contributing factors and changes order only according to its
+    documented formula.
+  - Clearing filters restores all 100 replies, navigation preserves chosen sort/filter state, and
+    TechSupport greetings/support channels do not appear in the ordinary result set.
+
+Exit criteria: a user can turn 100 reply records into actionable user and talk rankings through
+documented, test-proven filters/sorts without missing, duplicating, or exposing disallowed data.
+
+### Phase D6 - Tab-by-Tab Completion Sweep
+
+Purpose: close UI details revealed while traversing the app. The longer feature backlog below
+remains binding; this is the implementation sequence for its visible outcomes.
+
+#### Chatrooms
+
+- Finish custom/business room detail metadata: description, capacity, headline, owner, created date,
+  active members, lifetime visits, and unique visitors; verify counts and reconnect idempotency.
+- Make broadcast recipient preview explain language, distance, type, content, age, block,
+  expiration, reputation/quota, and TechSupport/support-only exclusions before sending.
+- Verify Global/region/home/travel/return-home paths, member ordering, `Stranger` status before
+  ordinary matching, and permanent TechSupport anchor behavior.
+
+#### Contacts
+
+- Show TechSupport as a pinned built-in support contact with mute rather than ordinary block/delete.
+- Make an ordinary answerer/match appear initially as `Stranger` or no assigned relationship until
+  the user chooses friend/relative/coworker/acquaintance/partner/custom; ensure all labels filter,
+  search, sort, save, and reload correctly.
+- Add high-volume responder ranking from Phase D5: matched-talk count, match rate, relationship,
+  recency, and transparent weighted relevance, with stable tie-breaking and TechSupport exclusion.
+- Complete profile presentation: real headshot, shared/localized languages, shared interests only
+  when present, talk history, public credit/privacy, block status, channel/transport health, and
+  translated mismatch affordances.
+
+#### Talks
+
+- Complete the exhaustive creation/branch/response matrix in Phase D4 for tag, flow, survey, and
+  route, including language edit preservation and creator/recipient state transitions.
+- Add recipient and filtered-count diagnostics by rejection reason, targeting preview before send,
+  support-talk isolation, expired/deleted/rebroadcast treatment, and clear status for IN versus OUT
+  versus copied/answered items.
+- Add creator reply triage and OUT-talk ranking from Phase D5, including sorting by most matches,
+  most replies, match rate, latest reply, and weighted performance with visible aggregate counts.
+- Keep survey aggregate/report/export flows distinct from matching conversations and verify route
+  context hashes do not incorrectly reuse answers across branches or languages.
+
+#### Me
+
+- Align profile editing with Settings for headshot, supported languages, interests, and privacy;
+  remove empty-interest filler and keep the owner edit path clear.
+- Finish Preferences modes for temporary, permanent, suppressed, manual, auto, and conditional
+  answer behavior; expose human-readable branch/context explanations, language, export/delete/sync
+  ownership controls, and support-message exclusion.
+- Add a scalable answer/reply review mode from Phase D5 with filters for responder, talk, date,
+  outcome, and relationship; grouping and sorting should remain usable after opening answer detail.
+- Decide whether duplicated Talk Behavior/Talk Filters controls live here or in Settings and add a
+  summary/link if only one tab owns editing.
+
+#### Settings
+
+- Deliver the identity/photo, localization, and filter behavior in Phases D1-D3, including clear
+  validation, persistence, reset, and hidden-count preview.
+- Expand storage/transport diagnostics for TechSupport root/support state, room visit counts,
+  localization and filter state, default talk language, SEA custody, relay leakage checks, local
+  browser storage, and P2P feature flags without exposing secrets.
+
+#### Conversation, Peer Detail, and Hidden Surfaces
+
+- Add support-channel/normal-channel transport status, fallback reason, privacy verification,
+  translation consent behavior, search/history controls, and TechSupport-specific mute behavior to
+  conversation and peer-detail overlays.
+- Decide whether the existing statistics renderer becomes a navigable authorized surface or leaves
+  active product scope; test the selected outcome and retain the completed survey analytics behavior.
+
+Exit criteria: a final manual-plus-E2E traversal of every visible control in all five tabs and their
+dialogs/overlays has no unexplained placeholder, untested toggle, unreachable feature, or
+cross-tab state inconsistency.
 
 ## TechSupport Root Network Role
 
@@ -243,6 +544,10 @@ verified.
 - **Future work: contact detail parity.** Contact detail should show transport/channel health,
   latest support or P2P status, shared talks, shared tags, relationship notes, public credit, and
   whether delivery is blocked by either side.
+- **Future work: high-volume responder ranking.** When a creator receives replies across many
+  talks, Contacts must support ranking/filtering by matched-talk count, match rate, recent reply,
+  relationship, and a transparent weighted relevance score, while keeping alphabetical and
+  chronological options and excluding TechSupport traffic from ordinary rankings by default.
 
 ### Talks Tab
 
@@ -265,6 +570,9 @@ verified.
   blocked terms, block status, disabled broadcast, or expired talk.
 - **Future work: creator diagnostics for filtered incoming talks.** If all incoming talks are
   filtered out, users should be able to see counts by reason, not just a single hidden total.
+- **Future work: response-volume analytics and ranking.** For each OUT talk, show reply count,
+  match count, mismatch/ignore count, match rate, and latest reply; allow sorting by those metrics
+  and weighted performance so talks with the most useful matches can rise to the top.
 - **Future work: support-talk isolation.** TechSupport verification/support talks must not pollute
   ordinary user answer memory or broadcast to unrelated users unless intentionally delivered and
   answered.
@@ -297,6 +605,10 @@ verified.
   answered them.
 - **Future work: profile/answer ownership controls.** Add per-answer delete/export/sync controls
   that clearly distinguish local-only answer memory from public profile rows.
+- **Future work: high-volume reply triage.** Provide a creator-side view for large response sets
+  with combined date, stage-name, talk, outcome, relationship, and language filters; sorting/grouping
+  by time, user, talk, matched-talk count, match rate, and documented weighted relevance; pagination
+  or virtualization; and E2E coverage for a 100-reply fixture.
 
 ### Settings Tab
 
