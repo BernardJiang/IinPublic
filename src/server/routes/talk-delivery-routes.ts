@@ -87,6 +87,7 @@ type TalkDeliveryRouteDeps = {
     region: string;
     answers: Array<{ questionId: string; answerId: string; answerText: string }>;
     outcome?: 'match' | 'ignore' | 'other';
+    isAuto?: boolean;
   }) => Promise<void>;
   /** When set, incremented once per valid register-receivers call that includes targeting tags */
   recordBroadcastTargetTagUses?: (tagStrings: string[]) => void;
@@ -852,6 +853,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
             answerText: String(a.answerText ?? ''),
           })),
           outcome: isMatch ? 'match' : isIgnore ? 'ignore' : 'other',
+          isAuto: effectiveIsAuto,
         });
       } catch (err) {
         logger.warn({ err }, 'stats: failed to record response');

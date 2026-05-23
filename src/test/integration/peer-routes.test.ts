@@ -54,12 +54,14 @@ function addIncoming(
   senderId: string,
   talkId: string,
   type = 'flow',
+  language = 'en',
 ) {
   if (!map.has(receiverId)) map.set(receiverId, new Map());
   const existing = map.get(receiverId)!.get(identityKey) ?? {
     identityKey,
     title: 'Test Talk',
     type,
+    language,
     senders: {},
     talkIds: {},
     latestTalkId: talkId,
@@ -68,6 +70,7 @@ function addIncoming(
   existing.senders[senderId] = { senderId, senderName: 'Someone', lastTalkId: talkId };
   existing.talkIds[talkId] = new Date().toISOString();
   existing.latestTalkId = talkId;
+  existing.language = language;
   map.get(receiverId)!.set(identityKey, existing);
 }
 
@@ -77,6 +80,7 @@ function addResponse(
   responderId: string,
   outcome: 'match' | 'ignore' | 'other',
   talkType: TalkType = 'flow',
+  answerMode: 'manual' | 'auto' = 'manual',
 ) {
   const list = map.get(talkId) ?? [];
   list.push({
@@ -88,6 +92,7 @@ function addResponse(
     answers: [],
     createdAt: Date.now(),
     outcome,
+    answerMode,
   });
   map.set(talkId, list);
 }
@@ -236,6 +241,20 @@ describe('GET /api/users/:userId/replies', () => {
     expect(res.body.filter((reply: { talkId: string }) => reply.talkId === 'talk_0')).toHaveLength(10);
     expect(res.body.some((reply: { outcome: string }) => reply.outcome === 'match')).toBe(true);
     expect(res.body.some((reply: { outcome: string }) => reply.outcome === 'mismatch')).toBe(true);
+  });
+
+  it('returns language and manual/auto metadata for creator reply triage', async () => {
+    const { app, incomingTalksMap, talkResponsesMap } = buildTestServer();
+    addIncoming(incomingTalksMap, BOB, 'ik_zh', ALICE, FLOW_TALK_ID, 'flow', 'zh');
+    addResponse(talkResponsesMap, FLOW_TALK_ID, BOB, 'match', 'flow', 'auto');
+
+    const res = await request(app).get(`/api/users/${ALICE}/replies`);
+    expect(res.status).toBe(200);
+    expect(res.body[0]).toMatchObject({
+      language: 'zh',
+      answerMode: 'auto',
+      type: 'flow',
+    });
   });
 
   it('omits replies from a responder blocked in either direction', async () => {

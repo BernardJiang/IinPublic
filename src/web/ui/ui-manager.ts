@@ -117,12 +117,29 @@ type CreatorReplyRow = {
   talkId: string;
   title: string;
   type: string;
+  language: string;
   responderId: string;
   responderName: string;
   outcome: 'match' | 'ignore' | 'mismatch';
+  answerMode: 'manual' | 'auto';
   date: string;
   answers: Array<{ questionId: string; answerId: string; answerText: string }>;
 };
+
+type CreatorReplyFilterState = {
+  query: string;
+  outcome: string;
+  relationship: string;
+  type: string;
+  language: string;
+  from: string;
+  to: string;
+  sort: string;
+  group: string;
+};
+
+const CREATOR_REPLY_FILTERS_KEY = 'creatorReplyFilterState';
+const CREATOR_REPLY_PAGE_SIZE = 25;
 
 export type BroadcastAudiencePreview = {
   talkId: string;
@@ -172,7 +189,7 @@ export class UIManager extends EventEmitter {
   private currentChatroom: string = 'global';
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
   private talksViewMode: 'all' | 'in' | 'out' = 'all';
-  private talksOutSortMode: 'recent' | 'matches' | 'responses' | 'match-rate' | 'title' = 'recent';
+  private talksOutSortMode: 'recent' | 'oldest' | 'latest-reply' | 'matches' | 'responses' | 'match-rate' | 'weighted' | 'title' = 'recent';
   private apiBase: string = '';
   private currentUserId: string = '';
   private currentUserStageName: string = '';
@@ -198,6 +215,7 @@ export class UIManager extends EventEmitter {
   // private newMatchesCount: number = 0; // TODO: implement match count tracking
   private talkStatsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
   private creatorReplyRows: CreatorReplyRow[] = [];
+  private creatorReplyVisibleCount = CREATOR_REPLY_PAGE_SIZE;
   private talksListDelegationBound = false;
   private chatroomActionDelegationBound = false;
   private incomingTalkClusters: any[] = [];
@@ -600,9 +618,12 @@ export class UIManager extends EventEmitter {
                 </div>
                 <select class="form-input" id="talks-out-sort-order" aria-label="Sort outgoing talks" style="flex:0 0 180px;">
                   <option value="recent">Latest activity</option>
+                  <option value="oldest">Oldest creation</option>
+                  <option value="latest-reply">Latest reply</option>
                   <option value="matches">Most matches</option>
                   <option value="responses">Most replies</option>
                   <option value="match-rate">Best match rate</option>
+                  <option value="weighted">Weighted performance</option>
                   <option value="title">Title</option>
                 </select>
               </div>
@@ -619,6 +640,7 @@ export class UIManager extends EventEmitter {
                     <option value="match">Matches</option>
                     <option value="mismatch">Mismatches</option>
                     <option value="ignore">Ignored</option>
+                    <option value="auto">Automatic</option>
                   </select>
                   <select class="form-input" id="reply-filter-relationship" style="flex:0 0 145px;">
                     <option value="all">All relations</option>
@@ -630,6 +652,17 @@ export class UIManager extends EventEmitter {
                     <option value="partner">Partners</option>
                     <option value="custom">Custom</option>
                   </select>
+                  <select class="form-input" id="reply-filter-type" aria-label="Filter replies by talk type" style="flex:0 0 125px;">
+                    <option value="all">All types</option>
+                    <option value="flow">Flow</option>
+                    <option value="tag">Tag</option>
+                    <option value="survey">Survey</option>
+                    <option value="route">Route</option>
+                  </select>
+                  <select class="form-input" id="reply-filter-language" aria-label="Filter replies by language" style="flex:0 0 145px;">
+                    <option value="all">All languages</option>
+                    ${LANGUAGE_OPTIONS.map((lang) => `<option value="${lang.code}">${lang.label}</option>`).join('')}
+                  </select>
                   <input class="form-input" id="reply-filter-from" type="date" aria-label="Replies from date" style="flex:0 0 145px;">
                   <input class="form-input" id="reply-filter-to" type="date" aria-label="Replies to date" style="flex:0 0 145px;">
                   <select class="form-input" id="reply-sort-order" style="flex:0 0 165px;">
@@ -637,11 +670,22 @@ export class UIManager extends EventEmitter {
                     <option value="oldest">Oldest first</option>
                     <option value="user">Stage name</option>
                     <option value="talk">Talk title</option>
+                    <option value="relationship">Relationship</option>
                     <option value="matches">Most matches</option>
+                    <option value="talk-matches">Matches per talk</option>
+                    <option value="talk-replies">Replies per talk</option>
                     <option value="weighted">Relevance score</option>
+                  </select>
+                  <select class="form-input" id="reply-group-order" aria-label="Group replies" style="flex:0 0 150px;">
+                    <option value="none">No grouping</option>
+                    <option value="responder">Group by user</option>
+                    <option value="talk">Group by talk</option>
+                    <option value="relationship">Group by relation</option>
+                    <option value="day">Group by day</option>
                   </select>
                   <button class="btn" id="reply-clear-filters" type="button">Clear</button>
                 </div>
+                <div id="creator-replies-active-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>
                 <div id="creator-replies-list" style="display:grid;gap:6px;max-height:280px;overflow:auto;"></div>
               </section>
               <div class="talks-list" id="talks-list">
@@ -891,18 +935,25 @@ export class UIManager extends EventEmitter {
       this.talksOutSortMode = (event.currentTarget as HTMLSelectElement).value as typeof this.talksOutSortMode;
       this.displayTalksList();
     });
-    ['reply-filter-query', 'reply-filter-outcome', 'reply-filter-relationship', 'reply-filter-from', 'reply-filter-to', 'reply-sort-order'].forEach((id) => {
-      document.getElementById(id)?.addEventListener(id === 'reply-filter-query' ? 'input' : 'change', () => this.renderCreatorReplies());
+    this.restoreCreatorReplyFilterState();
+    ['reply-filter-query', 'reply-filter-outcome', 'reply-filter-relationship', 'reply-filter-type', 'reply-filter-language', 'reply-filter-from', 'reply-filter-to', 'reply-sort-order', 'reply-group-order'].forEach((id) => {
+      document.getElementById(id)?.addEventListener(id === 'reply-filter-query' ? 'input' : 'change', () => {
+        this.creatorReplyVisibleCount = CREATOR_REPLY_PAGE_SIZE;
+        this.persistCreatorReplyFilterState();
+        this.renderCreatorReplies();
+      });
     });
     document.getElementById('reply-clear-filters')?.addEventListener('click', () => {
       ['reply-filter-query', 'reply-filter-from', 'reply-filter-to'].forEach((id) => {
         const input = document.getElementById(id) as HTMLInputElement | null;
         if (input) input.value = '';
       });
-      ['reply-filter-outcome', 'reply-filter-relationship', 'reply-sort-order'].forEach((id) => {
+      ['reply-filter-outcome', 'reply-filter-relationship', 'reply-filter-type', 'reply-filter-language', 'reply-sort-order', 'reply-group-order'].forEach((id) => {
         const select = document.getElementById(id) as HTMLSelectElement | null;
-        if (select) select.value = id === 'reply-sort-order' ? 'recent' : 'all';
+        if (select) select.value = id === 'reply-sort-order' ? 'recent' : id === 'reply-group-order' ? 'none' : 'all';
       });
+      this.creatorReplyVisibleCount = CREATOR_REPLY_PAGE_SIZE;
+      this.persistCreatorReplyFilterState();
       this.renderCreatorReplies();
     });
 
@@ -1674,13 +1725,27 @@ export class UIManager extends EventEmitter {
       );
     // OUT: talks this user created or copied (can broadcast)
     const conversations = this.getMyConversations();
-    const outMetrics = (talkId: string): { responses: number; matches: number; ignores: number; matchRate: number } => {
+    const outMetrics = (talkId: string): {
+      responses: number;
+      matches: number;
+      ignores: number;
+      mismatches: number;
+      matchRate: number;
+      latestResponseAt: number;
+      weighted: number;
+    } => {
       const stats = this.talkStatsMap[talkId];
+      const replies = this.creatorReplyRows.filter((reply) => reply.talkId === talkId);
       const derivedMatches = Object.values(conversations).filter((c: any) => c.talkId === talkId).length;
-      const matches = Math.max(stats?.matches ?? 0, derivedMatches);
-      const responses = Math.max(stats?.responses ?? 0, derivedMatches);
-      const ignores = stats?.ignores ?? Math.max(0, responses - matches);
-      return { responses, matches, ignores, matchRate: responses > 0 ? matches / responses : 0 };
+      const matches = Math.max(stats?.matches ?? 0, derivedMatches, replies.filter((reply) => reply.outcome === 'match').length);
+      const responses = Math.max(stats?.responses ?? 0, derivedMatches, replies.length);
+      const ignores = Math.max(stats?.ignores ?? 0, replies.filter((reply) => reply.outcome === 'ignore').length);
+      const mismatches = Math.max(0, replies.filter((reply) => reply.outcome === 'mismatch').length || responses - matches - ignores);
+      const matchRate = responses > 0 ? matches / responses : 0;
+      const latestResponseAt = replies.reduce((latest, reply) => Math.max(latest, new Date(reply.date).getTime()), 0);
+      // Visible factors only: matches dominate, then match rate and reply volume; ignores/mismatches lower rank.
+      const weighted = matches * 100 + Math.round(matchRate * 25) + Math.min(responses, 20) - ignores * 4 - mismatches * 2;
+      return { responses, matches, ignores, mismatches, matchRate, latestResponseAt, weighted };
     };
     // OUT: talks this user created or copied (can broadcast), with creator-selectable ranking.
     const outEntries = allEntries
@@ -1688,9 +1753,12 @@ export class UIManager extends EventEmitter {
       .sort(([idA, a]: [string, any], [idB, b]: [string, any]) => {
         const aa = outMetrics(idA);
         const bb = outMetrics(idB);
+        if (this.talksOutSortMode === 'oldest') return new Date(a.lastInteraction || 0).getTime() - new Date(b.lastInteraction || 0).getTime();
+        if (this.talksOutSortMode === 'latest-reply' && bb.latestResponseAt !== aa.latestResponseAt) return bb.latestResponseAt - aa.latestResponseAt;
         if (this.talksOutSortMode === 'matches' && bb.matches !== aa.matches) return bb.matches - aa.matches;
         if (this.talksOutSortMode === 'responses' && bb.responses !== aa.responses) return bb.responses - aa.responses;
         if (this.talksOutSortMode === 'match-rate' && bb.matchRate !== aa.matchRate) return bb.matchRate - aa.matchRate;
+        if (this.talksOutSortMode === 'weighted' && bb.weighted !== aa.weighted) return bb.weighted - aa.weighted;
         if (this.talksOutSortMode === 'title') return String(a.title || '').localeCompare(String(b.title || ''));
         return new Date(b.lastInteraction || 0).getTime() - new Date(a.lastInteraction || 0).getTime();
       });
@@ -1723,9 +1791,12 @@ export class UIManager extends EventEmitter {
     if (talksStatus) {
       const sortLabel = {
         recent: 'latest activity',
+        oldest: 'oldest creation',
+        'latest-reply': 'latest reply',
         matches: 'most matches',
         responses: 'most replies',
         'match-rate': 'best match rate',
+        weighted: 'weighted performance',
         title: 'title',
       }[this.talksOutSortMode];
       talksStatus.textContent = `${inEntries.length} incoming · ${outEntries.length} outgoing · OUT sorted by ${sortLabel}`;
@@ -1759,9 +1830,14 @@ export class UIManager extends EventEmitter {
                     .filter((c: any) => c.talkId === talkId)
                     .map((c: any) => c.respondedByBot ? `${c.otherUserName} 🤖` : c.otherUserName);
                   const metrics = outMetrics(talkId);
-                  const statsLine = stats || metrics.matches > 0
-                    ? `Responses: ${metrics.responses} · Matches: ${metrics.matches} · Ignores: ${metrics.ignores} · Match rate: ${Math.round(metrics.matchRate * 100)}%`
+                  const statsLine = stats || metrics.responses > 0
+                    ? `Responses: ${metrics.responses} · Matches: ${metrics.matches} · Mismatches: ${metrics.mismatches} · Ignores: ${metrics.ignores} · Match rate: ${Math.round(metrics.matchRate * 100)}%`
                     : '—';
+                  const rankLine = this.talksOutSortMode === 'weighted'
+                    ? `<div class="talk-weighted-score" style="font-size:0.82em;color:#64748b;margin-top:4px;">Score ${metrics.weighted} = matches x100 + match rate x25 + replies (max 20) - ignores x4 - mismatches x2</div>`
+                    : this.talksOutSortMode === 'latest-reply' && metrics.latestResponseAt > 0
+                      ? `<div class="talk-weighted-score" style="font-size:0.82em;color:#64748b;margin-top:4px;">Latest reply: ${escapeHtml(new Date(metrics.latestResponseAt).toLocaleString())}</div>`
+                      : '';
                   const matchedLine =
                     matchedNames.length > 0
                       ? `<div class="talk-item-matched" style="font-size: 0.85em; color: #2e7d32; margin-top: 4px;">Matched with: ${matchedNames.join(', ')}</div>`
@@ -1802,6 +1878,7 @@ export class UIManager extends EventEmitter {
           <div class="talk-item-stats" style="font-size: 0.85em; color: #666; margin-top: 6px;">
             ${statsLine}
           </div>
+          ${rankLine}
           ${matchedLine}
           <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
             ${surveyStatsBtn}
@@ -1931,7 +2008,7 @@ export class UIManager extends EventEmitter {
   }
 
   setTalkStats(statsMap: Record<string, { responses: number; matches: number; ignores: number }>): void {
-    const orderDependsOnStats = this.talksOutSortMode !== 'recent' && this.talksOutSortMode !== 'title';
+    const orderDependsOnStats = !['recent', 'oldest', 'title'].includes(this.talksOutSortMode);
     const changed = JSON.stringify(statsMap) !== JSON.stringify(this.talkStatsMap);
     this.talkStatsMap = { ...statsMap };
     const talksList = document.getElementById('talks-list');
@@ -1942,7 +2019,8 @@ export class UIManager extends EventEmitter {
         const statsEl = row?.querySelector('.talk-item-stats') as HTMLElement | null;
         if (statsEl) {
           const matchRate = stats.responses > 0 ? Math.round((stats.matches / stats.responses) * 100) : 0;
-          statsEl.textContent = `Responses: ${stats.responses} · Matches: ${stats.matches} · Ignores: ${stats.ignores} · Match rate: ${matchRate}%`;
+          const mismatches = Math.max(0, stats.responses - stats.matches - stats.ignores);
+          statsEl.textContent = `Responses: ${stats.responses} · Matches: ${stats.matches} · Mismatches: ${mismatches} · Ignores: ${stats.ignores} · Match rate: ${matchRate}%`;
         }
       });
     }
@@ -1962,6 +2040,54 @@ export class UIManager extends EventEmitter {
     }
   }
 
+  private readCreatorReplyFilterState(): CreatorReplyFilterState {
+    return {
+      query: ((document.getElementById('reply-filter-query') as HTMLInputElement | null)?.value || '').trim(),
+      outcome: (document.getElementById('reply-filter-outcome') as HTMLSelectElement | null)?.value || 'all',
+      relationship: (document.getElementById('reply-filter-relationship') as HTMLSelectElement | null)?.value || 'all',
+      type: (document.getElementById('reply-filter-type') as HTMLSelectElement | null)?.value || 'all',
+      language: (document.getElementById('reply-filter-language') as HTMLSelectElement | null)?.value || 'all',
+      from: (document.getElementById('reply-filter-from') as HTMLInputElement | null)?.value || '',
+      to: (document.getElementById('reply-filter-to') as HTMLInputElement | null)?.value || '',
+      sort: (document.getElementById('reply-sort-order') as HTMLSelectElement | null)?.value || 'recent',
+      group: (document.getElementById('reply-group-order') as HTMLSelectElement | null)?.value || 'none',
+    };
+  }
+
+  private persistCreatorReplyFilterState(): void {
+    try {
+      localStorage.setItem(CREATOR_REPLY_FILTERS_KEY, JSON.stringify(this.readCreatorReplyFilterState()));
+    } catch {
+      /* local-only preference persistence is optional */
+    }
+  }
+
+  private restoreCreatorReplyFilterState(): void {
+    let state: Partial<CreatorReplyFilterState> = {};
+    try {
+      const raw = localStorage.getItem(CREATOR_REPLY_FILTERS_KEY);
+      state = raw ? JSON.parse(raw) as Partial<CreatorReplyFilterState> : {};
+    } catch {
+      state = {};
+    }
+    const values: Array<[string, string | undefined]> = [
+      ['reply-filter-query', state.query],
+      ['reply-filter-outcome', state.outcome],
+      ['reply-filter-relationship', state.relationship],
+      ['reply-filter-type', state.type],
+      ['reply-filter-language', state.language],
+      ['reply-filter-from', state.from],
+      ['reply-filter-to', state.to],
+      ['reply-sort-order', state.sort],
+      ['reply-group-order', state.group],
+    ];
+    for (const [id, value] of values) {
+      if (!value) continue;
+      const element = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
+      if (element) element.value = value;
+    }
+  }
+
   private async refreshCreatorReplies(): Promise<void> {
     if (!this.apiBase || !this.currentUserId) return;
     const summary = document.getElementById('creator-replies-summary');
@@ -1972,6 +2098,7 @@ export class UIManager extends EventEmitter {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       this.creatorReplyRows = (await response.json()) as CreatorReplyRow[];
       this.renderCreatorReplies();
+      if (document.getElementById('talks-view')?.classList.contains('active')) this.displayTalksList();
     } catch {
       if (summary) summary.textContent = 'Replies unavailable';
     }
@@ -1981,30 +2108,34 @@ export class UIManager extends EventEmitter {
     const list = document.getElementById('creator-replies-list');
     const summary = document.getElementById('creator-replies-summary');
     if (!list || !summary) return;
-    const query = ((document.getElementById('reply-filter-query') as HTMLInputElement | null)?.value || '').trim().toLowerCase();
-    const outcome = (document.getElementById('reply-filter-outcome') as HTMLSelectElement | null)?.value || 'all';
-    const relation = (document.getElementById('reply-filter-relationship') as HTMLSelectElement | null)?.value || 'all';
-    const from = (document.getElementById('reply-filter-from') as HTMLInputElement | null)?.value || '';
-    const to = (document.getElementById('reply-filter-to') as HTMLInputElement | null)?.value || '';
-    const sort = (document.getElementById('reply-sort-order') as HTMLSelectElement | null)?.value || 'recent';
-    const fromTime = from ? new Date(`${from}T00:00:00`).getTime() : undefined;
-    const toTime = to ? new Date(`${to}T23:59:59.999`).getTime() : undefined;
+    const state = this.readCreatorReplyFilterState();
+    const query = state.query.toLowerCase();
+    const fromTime = state.from ? new Date(`${state.from}T00:00:00`).getTime() : undefined;
+    const toTime = state.to ? new Date(`${state.to}T23:59:59.999`).getTime() : undefined;
     const metricsByResponder = new Map<string, { replies: number; matches: number; relevance: number }>();
+    const metricsByTalk = new Map<string, { replies: number; matches: number; matchRate: number }>();
     for (const row of this.creatorReplyRows) {
       const metrics = metricsByResponder.get(row.responderId) || { replies: 0, matches: 0, relevance: 0 };
       metrics.replies += 1;
       if (row.outcome === 'match') metrics.matches += 1;
       metrics.relevance = metrics.matches * 100 + metrics.replies;
       metricsByResponder.set(row.responderId, metrics);
+      const talkMetrics = metricsByTalk.get(row.talkId) || { replies: 0, matches: 0, matchRate: 0 };
+      talkMetrics.replies += 1;
+      if (row.outcome === 'match') talkMetrics.matches += 1;
+      talkMetrics.matchRate = talkMetrics.matches / talkMetrics.replies;
+      metricsByTalk.set(row.talkId, talkMetrics);
     }
     const filtered = this.creatorReplyRows
       .filter((row) => {
         const known = this.getKnownPerson(row.responderId);
-        const label = known?.label || 'stranger';
+        const label = String(known?.label || 'stranger').toLowerCase();
         const time = new Date(row.date).getTime();
         if (query && !`${row.responderName} ${row.title}`.toLowerCase().includes(query)) return false;
-        if (outcome !== 'all' && row.outcome !== outcome) return false;
-        if (relation !== 'all' && label !== relation) return false;
+        if (state.outcome !== 'all' && row.outcome !== state.outcome && row.answerMode !== state.outcome) return false;
+        if (state.relationship !== 'all' && label !== state.relationship) return false;
+        if (state.type !== 'all' && String(row.type || 'flow').toLowerCase() !== state.type) return false;
+        if (state.language !== 'all' && String(row.language || 'en').toLowerCase() !== state.language) return false;
         if (fromTime != null && time < fromTime) return false;
         if (toTime != null && time > toTime) return false;
         return true;
@@ -2012,40 +2143,83 @@ export class UIManager extends EventEmitter {
       .sort((a, b) => {
         const aMetrics = metricsByResponder.get(a.responderId)!;
         const bMetrics = metricsByResponder.get(b.responderId)!;
-        if (sort === 'oldest') return new Date(a.date).getTime() - new Date(b.date).getTime();
-        if (sort === 'user') return a.responderName.localeCompare(b.responderName) || a.title.localeCompare(b.title);
-        if (sort === 'talk') return a.title.localeCompare(b.title) || a.responderName.localeCompare(b.responderName);
-        if (sort === 'matches' && bMetrics.matches !== aMetrics.matches) return bMetrics.matches - aMetrics.matches;
-        if (sort === 'weighted' && bMetrics.relevance !== aMetrics.relevance) return bMetrics.relevance - aMetrics.relevance;
+        const aTalk = metricsByTalk.get(a.talkId)!;
+        const bTalk = metricsByTalk.get(b.talkId)!;
+        if (state.sort === 'oldest') return new Date(a.date).getTime() - new Date(b.date).getTime();
+        if (state.sort === 'user') return a.responderName.localeCompare(b.responderName) || a.title.localeCompare(b.title);
+        if (state.sort === 'talk') return a.title.localeCompare(b.title) || a.responderName.localeCompare(b.responderName);
+        if (state.sort === 'relationship') {
+          const byRelationship = String(this.getKnownPerson(a.responderId)?.label || 'Stranger')
+            .localeCompare(String(this.getKnownPerson(b.responderId)?.label || 'Stranger'));
+          if (byRelationship !== 0) return byRelationship;
+        }
+        if (state.sort === 'matches' && bMetrics.matches !== aMetrics.matches) return bMetrics.matches - aMetrics.matches;
+        if (state.sort === 'talk-matches' && bTalk.matches !== aTalk.matches) return bTalk.matches - aTalk.matches;
+        if (state.sort === 'talk-replies' && bTalk.replies !== aTalk.replies) return bTalk.replies - aTalk.replies;
+        if (state.sort === 'weighted' && bMetrics.relevance !== aMetrics.relevance) return bMetrics.relevance - aMetrics.relevance;
         return new Date(b.date).getTime() - new Date(a.date).getTime() || a.responseId.localeCompare(b.responseId);
       });
-    summary.textContent = `${filtered.length} of ${this.creatorReplyRows.length} replies`;
+    const shown = Math.min(this.creatorReplyVisibleCount, filtered.length);
+    summary.textContent = `Showing ${shown} of ${filtered.length} filtered replies (${this.creatorReplyRows.length} total)`;
+    const activeFilters = document.getElementById('creator-replies-active-filters');
+    if (activeFilters) {
+      const chips = [
+        state.query ? `Search: ${state.query}` : '',
+        state.outcome !== 'all' ? `Outcome: ${state.outcome}` : '',
+        state.relationship !== 'all' ? `Relation: ${state.relationship}` : '',
+        state.type !== 'all' ? `Type: ${state.type}` : '',
+        state.language !== 'all' ? `Language: ${state.language}` : '',
+        state.from ? `From: ${state.from}` : '',
+        state.to ? `To: ${state.to}` : '',
+      ].filter(Boolean);
+      activeFilters.innerHTML = chips.map((chip) =>
+        `<span class="reply-filter-chip" style="font-size:0.8em;background:#e2e8f0;border-radius:999px;padding:3px 8px;">${escapeHtml(chip)}</span>`,
+      ).join('');
+    }
     if (filtered.length === 0) {
       list.innerHTML = '<div style="color:#94a3b8;padding:8px;">No replies match these filters.</div>';
       return;
     }
-    list.innerHTML = filtered.slice(0, 100).map((row) => {
+    let previousGroup = '';
+    list.innerHTML = filtered.slice(0, this.creatorReplyVisibleCount).map((row) => {
       const known = this.getKnownPerson(row.responderId);
       const label = known?.label || 'Stranger';
       const metrics = metricsByResponder.get(row.responderId)!;
-      const score = sort === 'weighted' ? ` · Score ${metrics.relevance} (${metrics.matches} matches x100 + ${metrics.replies} replies)` : '';
+      const score = state.sort === 'weighted' ? ` · Score ${metrics.relevance} (${metrics.matches} matches x100 + ${metrics.replies} replies)` : '';
       const answerPreview = row.answers
         .map((answer) => String(answer.answerText || '').trim())
         .filter(Boolean)
         .join(', ');
-      return `
+      const group = state.group === 'responder'
+        ? row.responderName
+        : state.group === 'talk'
+          ? row.title
+          : state.group === 'relationship'
+            ? String(label)
+            : state.group === 'day'
+              ? new Date(row.date).toLocaleDateString()
+              : '';
+      const groupHeader = group && group !== previousGroup
+        ? `<div class="creator-reply-group" style="font-weight:700;color:#475569;margin-top:5px;">${escapeHtml(group)}</div>`
+        : '';
+      previousGroup = group;
+      return `${groupHeader}
         <div class="creator-reply-row" data-response-id="${escapeHtml(row.responseId)}" data-responder-id="${escapeHtml(row.responderId)}" data-talk-id="${escapeHtml(row.talkId)}" style="padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;">
           <div style="display:flex;justify-content:space-between;gap:10px;">
             <strong>${escapeHtml(row.responderName)}</strong>
             <span style="color:${row.outcome === 'match' ? '#166534' : '#64748b'};">${escapeHtml(row.outcome)}</span>
           </div>
-          <div style="font-size:0.86em;color:#475569;">${escapeHtml(row.title)} · ${escapeHtml(label)} · ${escapeHtml(new Date(row.date).toLocaleString())}${escapeHtml(score)}</div>
+          <div style="font-size:0.86em;color:#475569;">${escapeHtml(row.title)} · ${escapeHtml(row.type)} · ${escapeHtml(row.language || 'en')} · ${escapeHtml(row.answerMode || 'manual')} · ${escapeHtml(String(label))} · ${escapeHtml(new Date(row.date).toLocaleString())}${escapeHtml(score)}</div>
           ${answerPreview ? `<div class="creator-reply-answers" style="font-size:0.84em;color:#334155;margin-top:4px;">Answers: ${escapeHtml(answerPreview)}</div>` : ''}
         </div>
       `;
     }).join('');
-    if (filtered.length > 100) {
-      list.innerHTML += `<div style="padding:8px;color:#64748b;">Showing first 100 of ${filtered.length} filtered replies.</div>`;
+    if (filtered.length > this.creatorReplyVisibleCount) {
+      list.innerHTML += `<button class="btn" id="reply-load-more" type="button" style="margin-top:6px;">Show ${Math.min(CREATOR_REPLY_PAGE_SIZE, filtered.length - this.creatorReplyVisibleCount)} more replies</button>`;
+      document.getElementById('reply-load-more')?.addEventListener('click', () => {
+        this.creatorReplyVisibleCount += CREATOR_REPLY_PAGE_SIZE;
+        this.renderCreatorReplies();
+      });
     }
   }
 

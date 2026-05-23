@@ -335,8 +335,9 @@ class IinPublicServer {
     region: string;
     answers: Array<{ questionId: string; answerId: string; answerText: string }>;
     outcome?: 'match' | 'ignore' | 'other';
+    isAuto?: boolean;
   }): Promise<void> {
-    const { talkId, talkType, responderId, region, answers, outcome } = params;
+    const { talkId, talkType, responderId, region, answers, outcome, isAuto } = params;
     const responseId = `sr_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
     const createdAt = Date.now();
     const record: TalkResponse = {
@@ -352,6 +353,7 @@ class IinPublicServer {
       })),
       createdAt,
       outcome: outcome ?? 'other',
+      answerMode: isAuto ? 'auto' : 'manual',
       chatroomId: region,
       isTraveller: false,
     };
@@ -428,6 +430,7 @@ class IinPublicServer {
       })),
       createdAt: Number(node.createdAt || 0),
       outcome: node.outcome === 'match' || node.outcome === 'ignore' || node.outcome === 'other' ? node.outcome : 'other',
+      answerMode: node.answerMode === 'auto' ? 'auto' : 'manual',
       chatroomId: typeof node.chatroomId === 'string' ? node.chatroomId : String(node.region || 'unknown'),
       isTraveller: node.isTraveller === true,
     };

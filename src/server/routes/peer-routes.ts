@@ -31,9 +31,11 @@ export type CreatorReplyItem = {
   talkId: string;
   title: string;
   type: string;
+  language: string;
   responderId: string;
   responderName: string;
   outcome: 'match' | 'ignore' | 'mismatch';
+  answerMode: 'manual' | 'auto';
   date: string;
   answers: TalkResponse['answers'];
 };
@@ -278,9 +280,11 @@ export function registerPeerRoutes(app: express.Application, deps: PeerRouteDeps
               talkId,
               title: String(cluster.title || 'Untitled Talk'),
               type: String(cluster.type || response.talkType || 'flow'),
+              language: String(cluster.language || 'en').toLowerCase(),
               responderId: receiverId,
               responderName,
               outcome: response.outcome === 'match' ? 'match' : response.outcome === 'ignore' ? 'ignore' : 'mismatch',
+              answerMode: response.answerMode === 'auto' ? 'auto' : 'manual',
               date: new Date(response.createdAt).toISOString(),
               answers: response.answers,
             });

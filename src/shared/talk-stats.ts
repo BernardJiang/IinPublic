@@ -32,6 +32,7 @@ export interface TalkResponse {
   answers: TalkResponseAnswer[];
   createdAt: number;
   outcome?: 'match' | 'ignore' | 'other';
+  answerMode?: 'manual' | 'auto';
   chatroomId?: string;
   isTraveller?: boolean;
 }

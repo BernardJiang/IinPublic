@@ -27,6 +27,7 @@ type StatsRouteDeps = {
     region: string;
     answers: Array<{ questionId: string; answerId: string; answerText: string }>;
     outcome?: 'match' | 'ignore' | 'other';
+    isAuto?: boolean;
   }) => Promise<void>;
   getTalkResponses: (talkId: string, opts?: { from?: number; to?: number }) => TalkResponse[] | Promise<TalkResponse[]>;
   getAllTalkResponses?: () => Map<string, TalkResponse[]> | Promise<Map<string, TalkResponse[]>>;
@@ -70,6 +71,7 @@ export function registerStatsRoutes(app: express.Application, deps: StatsRouteDe
         talkType?: TalkType;
         answers?: Array<{ questionId: string; answerId: string; answerText?: string }>;
         outcome?: 'match' | 'ignore' | 'other';
+        isAuto?: boolean;
       };
       const outcome =
         req.body?.outcome === 'match' || req.body?.outcome === 'ignore' || req.body?.outcome === 'other'
@@ -91,6 +93,7 @@ export function registerStatsRoutes(app: express.Application, deps: StatsRouteDe
           answerText: String(a.answerText ?? ''),
         })),
         outcome,
+        isAuto: req.body?.isAuto === true,
       });
       res.json({ ok: true });
     } catch (error) {

@@ -89,6 +89,22 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#contacts-view .status-bar')).toHaveCount(0);
     await expect(p.locator('.contacts-action-bar')).toBeVisible();
 
+    const replyFixture = Array.from({ length: 30 }, (_, index) => ({
+      responseId: `reply-${index}`,
+      talkId: `talk-${index % 3}`,
+      title: `Source Talk ${index % 3}`,
+      type: index % 2 === 0 ? 'flow' : 'survey',
+      language: index % 2 === 0 ? 'en' : 'zh',
+      responderId: `responder-${index % 5}`,
+      responderName: `Responder ${index % 5}`,
+      outcome: index % 3 === 0 ? 'match' : 'mismatch',
+      answerMode: index % 4 === 0 ? 'auto' : 'manual',
+      date: new Date(Date.UTC(2026, 4, 1, 0, index)).toISOString(),
+      answers: [{ questionId: 'q1', answerId: 'a1', answerText: `Answer ${index}` }],
+    }));
+    await p.route('**/api/users/*/replies', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(replyFixture) });
+    });
     await p.locator('.nav-btn[data-view="talks"]').click();
     await afterNav();
     await expect(p.locator('#header-title')).toBeEmpty();
@@ -98,6 +114,22 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('.talks-action-bar')).toBeVisible();
     await expect(p.locator('#create-talk-btn-talks')).toHaveCount(0);
     await expect(p.locator('#talks-view')).not.toContainText('Create New Talk');
+    await expect(p.locator('#talks-out-sort-order option[value="latest-reply"]')).toHaveText('Latest reply');
+    await expect(p.locator('#talks-out-sort-order option[value="weighted"]')).toHaveText('Weighted performance');
+    await expect(p.locator('#reply-filter-type')).toBeVisible();
+    await expect(p.locator('#reply-filter-language')).toBeVisible();
+    await expect(p.locator('#reply-group-order')).toBeVisible();
+    await expect(p.locator('#creator-replies-summary')).toContainText('Showing 25 of 30');
+    await expect(p.locator('.creator-reply-row')).toHaveCount(25);
+    await p.locator('#reply-load-more').click();
+    await expect(p.locator('.creator-reply-row')).toHaveCount(30);
+    await p.locator('#reply-filter-language').selectOption('zh');
+    await p.locator('#reply-group-order').selectOption('talk');
+    await expect(p.locator('.creator-reply-row')).toHaveCount(15);
+    await expect(p.locator('#creator-replies-active-filters')).toContainText('Language: zh');
+    await expect
+      .poll(async () => p.evaluate(() => localStorage.getItem('creatorReplyFilterState')))
+      .toContain('"language":"zh"');
 
     await p.locator('.nav-btn[data-view="me"]').click();
     await afterNav();
@@ -114,6 +146,13 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#copy-talk-autosave-checkbox')).toHaveCount(0);
     await expect(p.locator('#chatbot-enabled-checkbox')).toHaveCount(0);
     await expect(p.locator('#talk-filter-min-distance')).toHaveCount(0);
+
+    await p.locator('.nav-btn[data-view="talks"]').click();
+    await afterNav();
+    await expect(p.locator('#reply-filter-language')).toHaveValue('zh');
+    await expect(p.locator('#reply-group-order')).toHaveValue('talk');
+    await p.locator('#reply-clear-filters').click();
+    await expect(p.locator('#creator-replies-summary')).toContainText('Showing 25 of 30');
 
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
