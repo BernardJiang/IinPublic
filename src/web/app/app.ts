@@ -4,7 +4,7 @@ import { WebUserService } from '../services/web-user-service';
 import { WebChatroomService } from '../services/web-chatroom-service';
 import { WebTalkService } from '../services/web-talk-service';
 import { WebConversationService } from '../services/web-conversation-service';
-import { UIManager } from '../ui/ui-manager';
+import { UIManager, type BroadcastAudiencePreview } from '../ui/ui-manager';
 import { LocationPrivacy } from '../../shared/location';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { getAllChatroomIds } from '../../shared/chatroom-hierarchy';
@@ -930,6 +930,60 @@ export class IinPublicApp {
     }
   }
 
+  private async previewReceiversOnServerForTalk(
+    talkId: string,
+    talk: Talk,
+    members: Array<{ userId: string; stageName: string }>,
+    broadcastTargetTags?: string[],
+    broadcastMaxDistanceMiles?: number,
+  ): Promise<BroadcastAudiencePreview> {
+    const me = this.currentUser;
+    const receiverIds = members
+      .map((member) => member.userId)
+      .filter((id) => !!id && id !== me?.id && id !== TECHSUPPORT_ROOT_USER_ID);
+    const fallback = {
+      talkId,
+      title: String(talk.title || 'Untitled Talk'),
+      totalCandidates: receiverIds.length,
+      eligibleReceivers: receiverIds.length,
+      rejectedByCounts: {},
+      previewUnavailable: receiverIds.length > 0,
+    };
+    if (!me?.id || receiverIds.length === 0) return fallback;
+    try {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 3_000);
+      const response = await fetch(`${this.getBackendApiBase()}/api/talks/broadcast-receiver-preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          senderId: me.id,
+          receiverIds,
+          talkData: talk,
+          ...(broadcastTargetTags && broadcastTargetTags.length > 0 ? { broadcastTargetTags } : {}),
+          ...(typeof broadcastMaxDistanceMiles === 'number' && Number.isFinite(broadcastMaxDistanceMiles) && broadcastMaxDistanceMiles > 0
+            ? { broadcastMaxDistanceMiles }
+            : {}),
+        }),
+        signal: controller.signal,
+      }).finally(() => window.clearTimeout(timeoutId));
+      if (!response.ok) return fallback;
+      const preview = await response.json() as Partial<BroadcastAudiencePreview>;
+      return {
+        talkId,
+        title: String(talk.title || 'Untitled Talk'),
+        totalCandidates: Number(preview.totalCandidates ?? receiverIds.length),
+        eligibleReceivers: Number(preview.eligibleReceivers ?? receiverIds.length),
+        rejectedByCounts: preview.rejectedByCounts && typeof preview.rejectedByCounts === 'object'
+          ? preview.rejectedByCounts
+          : {},
+        previewUnavailable: false,
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
   /**
    * Other users who should receive server-side IN registration for a broadcast.
    * **Gun `chatrooms/<id>/users` is authoritative** for who is in the room. We only use the UI
@@ -1760,6 +1814,21 @@ export class IinPublicApp {
             const tid = String(talk.id || talkId);
             talk = { ...talk, id: tid, authorId: talk.authorId || this.currentUser!.id };
             talkPayloads.push({ tid, talk: talk as Talk });
+          }
+          const previews = await Promise.all(
+            talkPayloads.map(({ tid, talk }) =>
+              this.previewReceiversOnServerForTalk(
+                tid,
+                talk,
+                receivers,
+                broadcastTargetTags,
+                broadcastMaxDistanceMiles,
+              ),
+            ),
+          );
+          if (previews.length > 0 && !(await this.uiManager.confirmBroadcastAudience(previews))) {
+            this.uiManager.showNotification('Broadcast cancelled.', 'info');
+            return;
           }
           // Phase 1: POST register-receivers in small parallel batches (HTTP only — no Gun on this path).
           // Fully sequential was very slow (20 round-trips); full parallel can spike the server.

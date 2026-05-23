@@ -124,6 +124,15 @@ type CreatorReplyRow = {
   answers: Array<{ questionId: string; answerId: string; answerText: string }>;
 };
 
+export type BroadcastAudiencePreview = {
+  talkId: string;
+  title: string;
+  totalCandidates: number;
+  eligibleReceivers: number;
+  rejectedByCounts: Record<string, number>;
+  previewUnavailable?: boolean;
+};
+
 function normalizeStringList(value: unknown, fallback: string[] = []): string[] {
   const raw = Array.isArray(value)
     ? value
@@ -203,6 +212,37 @@ export class UIManager extends EventEmitter {
 
   private t(key: UiTranslationKey): string {
     return uiText(this.getUiLanguage(), key);
+  }
+
+  private deliveryReasonLabel(reason: string): string {
+    const translationKey = ({
+      intake_language: 'reasonIntakeLanguage',
+      intake_talk_type: 'reasonIntakeTalkType',
+      intake_min_distance: 'reasonIntakeMinDistance',
+      intake_max_distance: 'reasonIntakeMaxDistance',
+      intake_grammar: 'reasonIntakeGrammar',
+      intake_dirty_words: 'reasonIntakeDirtyWords',
+      intake_custom_blocked_terms: 'reasonIntakeCustomTerms',
+      age_gate: 'reasonAgeGate',
+      blocked_user: 'reasonBlockedUser',
+      broadcast_max_distance: 'reasonBroadcastMaxDistance',
+      tag_targeting: 'reasonTagTargeting',
+      sender_capacity: 'reasonCapacity',
+      symmetric_rate_limit: 'reasonRateLimit',
+      daily_talk_send_rate_limit: 'reasonRateLimit',
+      daily_talk_receive_rate_limit: 'reasonRateLimit',
+      weekly_talk_send_rate_limit: 'reasonRateLimit',
+      weekly_talk_receive_rate_limit: 'reasonRateLimit',
+    } as Record<string, UiTranslationKey>)[reason];
+    return translationKey ? this.t(translationKey) : reason.replace(/_/g, ' ');
+  }
+
+  private formatReasonCounts(counts: Record<string, number>): string {
+    return Object.entries(counts)
+      .filter(([, count]) => count > 0)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([reason, count]) => `${this.deliveryReasonLabel(reason)}: ${count}`)
+      .join(' · ');
   }
 
   private applyShellTranslations(): void {
@@ -1661,6 +1701,7 @@ export class UIManager extends EventEmitter {
       this.currentUser?.talkFilters || getTalkIntakeFilters(),
       this.currentLocation,
     );
+    const hiddenReasonsText = this.formatReasonCounts(incomingFilterResult.hiddenByReason);
     const answeredByContent = getAnsweredTalkByContent();
     const backendInEntries = incomingFilterResult.visible.filter((cluster: any) => {
       if (cluster?.isAnswered) return false;
@@ -1848,6 +1889,7 @@ export class UIManager extends EventEmitter {
         talksList.innerHTML = sectionIn || `
           <div class="empty-state" style="padding: 40px 20px; text-align: center; color: #999;">
             ${incomingFilterResult.hiddenCount > 0 ? `All incoming talks are currently filtered out (${incomingFilterResult.hiddenCount}).` : 'No incoming talks yet.'}
+            ${hiddenReasonsText ? `<div class="talk-filter-reasons" style="font-size:0.88em;margin-top:6px;">${escapeHtml(hiddenReasonsText)}</div>` : ''}
           </div>
         `;
       } else if (activeMode === 'out') {
@@ -2046,6 +2088,12 @@ export class UIManager extends EventEmitter {
     const locationText = this.currentLocation
       ? `${this.currentLocation.latitude.toFixed(3)}, ${this.currentLocation.longitude.toFixed(3)}`
       : this.t('settingsUnknown');
+    const filteredIncoming = filterIncomingTalkClusters(
+      (this.incomingTalkClusters || []).filter((cluster: any) => cluster && cluster.identityKey),
+      talkFilters,
+      this.currentLocation,
+    );
+    const hiddenIncomingText = this.formatReasonCounts(filteredIncoming.hiddenByReason);
     const homeOptions = [
       ...getFlatChatroomList().map((room) => ({
         id: room.id,
@@ -2181,6 +2229,10 @@ export class UIManager extends EventEmitter {
             <span>${this.t('settingsBlockedPhrases')}</span>
             <textarea class="form-input" id="settings-custom-blocked" rows="3">${escapeHtml((talkFilters.customBlockedTerms || []).join(', '))}</textarea>
           </label>
+          <div id="settings-filtered-incoming-summary" style="font-size:0.84em;color:#64748b;margin-top:10px;">
+            ${this.t('settingsHiddenIncoming')}: ${filteredIncoming.hiddenCount}
+            ${hiddenIncomingText ? `<div>${escapeHtml(hiddenIncomingText)}</div>` : ''}
+          </div>
         </section>
         <section id="settings-storage-inspector" style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
@@ -2244,6 +2296,16 @@ export class UIManager extends EventEmitter {
       setTalkIntakeFilters(nextFilters);
       const langCount = document.getElementById('settings-filter-languages-count');
       if (langCount) langCount.textContent = `${nextFilters.allowedLanguages.length} ${this.t('settingsActive')}`;
+      const filteredIncomingSummary = document.getElementById('settings-filtered-incoming-summary');
+      if (filteredIncomingSummary) {
+        const filteredIncoming = filterIncomingTalkClusters(
+          (this.incomingTalkClusters || []).filter((cluster: any) => cluster && cluster.identityKey),
+          nextFilters,
+          this.currentLocation,
+        );
+        const reasonText = this.formatReasonCounts(filteredIncoming.hiddenByReason);
+        filteredIncomingSummary.innerHTML = `${this.t('settingsHiddenIncoming')}: ${filteredIncoming.hiddenCount}${reasonText ? `<div>${escapeHtml(reasonText)}</div>` : ''}`;
+      }
       if (this.currentUser) {
         const nextProfileLanguages = profileLanguages.length > 0 ? profileLanguages : ['en'];
         const profileLanguageChanged = nextProfileLanguages.join(',') !== (this.currentUser.languages || []).join(',');
@@ -3551,6 +3613,63 @@ export class UIManager extends EventEmitter {
     el.dataset.broadcastReceivers = String(receiversResolved);
     const prev = Number(el.dataset.broadcastBulkGen ?? '0');
     el.dataset.broadcastBulkGen = String(Number.isFinite(prev) ? prev + 1 : 1);
+  }
+
+  confirmBroadcastAudience(previews: BroadcastAudiencePreview[]): Promise<boolean> {
+    document.getElementById('broadcast-preamble-modal')?.remove();
+    const modal = document.createElement('div');
+    modal.id = 'broadcast-preamble-modal';
+    modal.dataset.testid = 'broadcast-preamble-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:5000;background:rgba(15,23,42,0.48);display:flex;align-items:center;justify-content:center;padding:20px;';
+    const knownPreviews = previews.filter((preview) => !preview.previewUnavailable);
+    const deliveryCount = knownPreviews.reduce((count, preview) => count + preview.eligibleReceivers, 0);
+    const candidateCount = knownPreviews.reduce((count, preview) => count + preview.totalCandidates, 0);
+    const excludedCount = Math.max(0, candidateCount - deliveryCount);
+    const hasUnavailable = knownPreviews.length !== previews.length;
+    const rows = previews.map((preview) => {
+      if (preview.previewUnavailable) {
+        return `
+          <div class="broadcast-preview-row" data-talk-id="${escapeHtml(preview.talkId)}" style="padding:10px;border:1px solid #e5e7eb;border-radius:10px;">
+            <div style="font-weight:600;">${escapeHtml(preview.title)}</div>
+            <div class="broadcast-preview-reasons" style="font-size:0.82em;color:#64748b;margin-top:4px;">${this.t('broadcastPreviewUnavailable')}</div>
+          </div>
+        `;
+      }
+      const reasonText = this.formatReasonCounts(preview.rejectedByCounts);
+      return `
+        <div class="broadcast-preview-row" data-talk-id="${escapeHtml(preview.talkId)}" style="padding:10px;border:1px solid #e5e7eb;border-radius:10px;">
+          <div style="font-weight:600;">${escapeHtml(preview.title)}</div>
+          <div style="font-size:0.88em;color:#475569;margin-top:4px;">${preview.eligibleReceivers} ${this.t('broadcastPreviewEligible')} · ${Math.max(0, preview.totalCandidates - preview.eligibleReceivers)} ${this.t('broadcastPreviewExcluded')}</div>
+          ${reasonText ? `<div class="broadcast-preview-reasons" style="font-size:0.82em;color:#64748b;margin-top:4px;">${escapeHtml(reasonText)}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+    modal.innerHTML = `
+      <div style="width:min(620px,96vw);max-height:90vh;overflow:auto;background:#fff;border-radius:16px;box-shadow:0 18px 55px rgba(15,23,42,0.2);">
+        <div style="padding:18px;border-bottom:1px solid #e5e7eb;">
+          <div style="font-size:1.05em;font-weight:700;">${this.t('broadcastPreviewTitle')}</div>
+          <div style="font-size:0.88em;color:#64748b;margin-top:5px;">${this.t('broadcastPreviewHelp')}</div>
+          <span class="broadcast-chip" style="display:inline-flex;margin-top:10px;padding:4px 9px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:0.82em;">${previews.length} talk${previews.length === 1 ? '' : 's'} · ${deliveryCount} ${this.t('broadcastPreviewEligible')} · ${excludedCount} ${this.t('broadcastPreviewExcluded')}${hasUnavailable ? ` · ${this.t('broadcastPreviewFinalCheck')}` : ''}</span>
+        </div>
+        <div style="display:grid;gap:8px;padding:14px;">${rows}</div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 18px;border-top:1px solid #e5e7eb;">
+          <button class="btn" type="button" data-testid="broadcast-preamble-cancel">${this.t('broadcastPreviewCancel')}</button>
+          <button class="btn primary-btn" type="button" data-testid="broadcast-preamble-send">${this.t('broadcastPreviewSend')}</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    return new Promise<boolean>((resolve) => {
+      const finish = (confirmed: boolean) => {
+        modal.remove();
+        resolve(confirmed);
+      };
+      modal.querySelector('[data-testid="broadcast-preamble-send"]')?.addEventListener('click', () => finish(true));
+      modal.querySelector('[data-testid="broadcast-preamble-cancel"]')?.addEventListener('click', () => finish(false));
+      modal.addEventListener('click', (event) => {
+        if (event.target === modal) finish(false);
+      });
+    });
   }
 
   updateStatusBar(

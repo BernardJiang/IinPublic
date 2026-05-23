@@ -140,6 +140,20 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('.nav-btn[data-view="talks"] .nav-label')).toHaveText('话题');
     await expect(p.locator('#settings-content')).toContainText('界面语言');
     await expect(p.locator('#settings-content')).toContainText('内容过滤');
+    await p.evaluate(() => {
+      const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
+      void ui.confirmBroadcastAudience([{
+        talkId: 'preview-zh',
+        title: 'Preview Talk',
+        totalCandidates: 2,
+        eligibleReceivers: 0,
+        rejectedByCounts: { intake_language: 1, blocked_user: 1 },
+      }]);
+    });
+    await expect(p.locator('[data-testid="broadcast-preamble-modal"]')).toContainText('检查广播接收对象');
+    await expect(p.locator('[data-testid="broadcast-preamble-modal"]')).toContainText('不接受该语言');
+    await expect(p.locator('[data-testid="broadcast-preamble-modal"]')).toContainText('已被用户屏蔽');
+    await p.locator('[data-testid="broadcast-preamble-cancel"]').click();
     await p.locator('#settings-profile-languages').selectOption('en');
     await expect(p.locator('.nav-btn[data-view="settings"] .nav-label')).toHaveText('Settings');
     await p.locator('#settings-min-distance').fill('51');

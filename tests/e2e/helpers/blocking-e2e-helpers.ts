@@ -24,4 +24,12 @@ export async function createMatchTalk(page: Page, title: string): Promise<void> 
   await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
   await page.click('#talk-editor-form button[type="submit"]');
   await afterSync();
+  await page.waitForFunction(
+    (talkTitle) => {
+      const stored = JSON.parse(localStorage.getItem('myTalks') || '{}') as Record<string, { title?: string }>;
+      return Object.values(stored).some((talk) => talk.title === talkTitle);
+    },
+    title,
+    { timeout: 20_000 },
+  );
 }

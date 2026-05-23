@@ -233,10 +233,22 @@ export function filterIncomingTalkClusters(
   subjects: IncomingTalkFilterSubject[],
   filters: TalkIntakeFilters,
   currentLocation?: GPSCoordinate,
-): { visible: IncomingTalkFilterSubject[]; hiddenCount: number } {
-  const visible = subjects.filter((subject) => talkPassesIntakeFilters(subject, filters, currentLocation));
+): { visible: IncomingTalkFilterSubject[]; hiddenCount: number; hiddenByReason: Record<string, number> } {
+  const visible: IncomingTalkFilterSubject[] = [];
+  const hiddenByReason: Record<string, number> = {};
+  for (const subject of subjects) {
+    const reasons = intakeFilterRejectReasons(subject, filters, currentLocation);
+    if (reasons.length === 0) {
+      visible.push(subject);
+      continue;
+    }
+    for (const reason of reasons) {
+      hiddenByReason[reason] = (hiddenByReason[reason] || 0) + 1;
+    }
+  }
   return {
     visible,
     hiddenCount: Math.max(0, subjects.length - visible.length),
+    hiddenByReason,
   };
 }

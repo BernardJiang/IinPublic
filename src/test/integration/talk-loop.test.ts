@@ -1252,7 +1252,7 @@ describe('Talk loop — incoming registration → answer submission → match �
         },
       });
       userDeliveryContext.set(RESPONDER_ID, {
-        talkFilters: getRouteTestTalkIntakeFilters(),
+        talkFilters: { ...getRouteTestTalkIntakeFilters(), maxDistanceMiles: 10_000 },
         ageVerified: false,
         location: {
           latitude: 40.7128,
@@ -1273,6 +1273,7 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(far.status).toBe(200);
       expect(far.body.totalCandidates).toBe(1);
       expect(far.body.eligibleReceivers).toBe(0);
+      expect(far.body.rejectedByCounts).toEqual({ broadcast_max_distance: 1 });
 
       const unfilt = await request(app)
         .post('/api/talks/broadcast-receiver-preview')
@@ -1283,6 +1284,40 @@ describe('Talk loop — incoming registration → answer submission → match �
         });
       expect(unfilt.status).toBe(200);
       expect(unfilt.body.eligibleReceivers).toBe(1);
+      expect(unfilt.body.rejectedByCounts).toEqual({});
+    });
+
+    it('reports language, age, and block exclusion reasons before a broadcast sends', async () => {
+      const { app, userDeliveryContext, blockedByUser } = buildTestServer();
+      userDeliveryContext.set(RESPONDER_ID, {
+        talkFilters: { ...getRouteTestTalkIntakeFilters(), allowedLanguages: ['zh'] },
+        ageVerified: false,
+      });
+      userDeliveryContext.set('user_carol', {
+        talkFilters: getRouteTestTalkIntakeFilters(),
+        ageVerified: false,
+      });
+      userDeliveryContext.set('user_dave', {
+        talkFilters: getRouteTestTalkIntakeFilters(),
+        ageVerified: true,
+      });
+      blockedByUser.set('user_dave', new Set([SENDER_ID]));
+
+      const preview = await request(app)
+        .post('/api/talks/broadcast-receiver-preview')
+        .send({
+          senderId: SENDER_ID,
+          receiverIds: [RESPONDER_ID, 'user_carol', 'user_dave'],
+          talkData: ADULT_TALK_DATA,
+        });
+
+      expect(preview.status).toBe(200);
+      expect(preview.body.eligibleReceivers).toBe(0);
+      expect(preview.body.rejectedByCounts).toMatchObject({
+        intake_language: 1,
+        age_gate: 2,
+        blocked_user: 1,
+      });
     });
   });
 

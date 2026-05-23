@@ -24,7 +24,26 @@ describe('talk intake filters', () => {
 
     expect(result.visible).toHaveLength(1);
     expect(result.hiddenCount).toBe(1);
+    expect(result.hiddenByReason).toEqual({ intake_talk_type: 1 });
     expect(result.visible[0].title).toBe('Fresh flow');
+  });
+
+  it('summarizes each hidden reason so Settings can explain filtered incoming talks', () => {
+    const result = filterIncomingTalkClusters(
+      [
+        { title: 'Español', type: 'flow', language: 'es' },
+        { title: 'Blocked topic', type: 'flow', language: 'en', questions: [{ text: 'Avoid spoilers' }] },
+        { title: 'Visible', type: 'flow', language: 'en' },
+      ],
+      { ...baseFilters, allowedLanguages: ['en'], customBlockedTerms: ['spoilers'] },
+    );
+
+    expect(result.visible.map((talk) => talk.title)).toEqual(['Visible']);
+    expect(result.hiddenCount).toBe(2);
+    expect(result.hiddenByReason).toEqual({
+      intake_language: 1,
+      intake_custom_blocked_terms: 1,
+    });
   });
 
   it('filters by language and dirty words', () => {

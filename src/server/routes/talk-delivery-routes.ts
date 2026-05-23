@@ -252,6 +252,12 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
     return Math.min(Math.floor(raw), 12_451);
   }
 
+  function addRejectionCounts(target: Record<string, number>, reasons: readonly string[]): void {
+    for (const reason of reasons) {
+      target[reason] = (target[reason] || 0) + 1;
+    }
+  }
+
   app.get('/api/test/exact-chatbot-memory/:userId', async (req, res) => {
     try {
       const userId = String(req.params.userId || '');
@@ -361,6 +367,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
           eligibleReceivers: 0,
           senderCapacity,
           capacityDropped: uniqueReceiverIds.length,
+          rejectedByCounts: uniqueReceiverIds.length > 0 ? { sender_capacity: uniqueReceiverIds.length } : {},
         });
         return;
       }
@@ -373,6 +380,8 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         symmetricTalkEdgeLimiter.cooldownMs <= 0 ||
         symmetricTalkEdgeLimiter.isCold(senderId, nowPrev);
       let eligibleReceivers = 0;
+      const rejectedByCounts: Record<string, number> = {};
+      if (capacityDropped > 0) rejectedByCounts.sender_capacity = capacityDropped;
       for (const receiverId of receiverIdsCapped) {
         const rejectedBy = await computeBulkRejectionsForReceiver(
           receiverId,
@@ -382,18 +391,28 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
           broadcastMaxDistanceMiles,
           senderPivot,
         );
-        if (rejectedBy.length > 0) continue;
-        if (!senderColdForPreview) continue;
+        if (rejectedBy.length > 0) {
+          addRejectionCounts(rejectedByCounts, rejectedBy);
+          continue;
+        }
+        if (!senderColdForPreview) {
+          addRejectionCounts(rejectedByCounts, ['symmetric_rate_limit']);
+          continue;
+        }
         if (
           symmetricTalkEdgeLimiter &&
           symmetricTalkEdgeLimiter.cooldownMs > 0 &&
           !symmetricTalkEdgeLimiter.isCold(receiverId, nowPrev)
         ) {
+          addRejectionCounts(rejectedByCounts, ['symmetric_rate_limit']);
           continue;
         }
         if (dailyWeeklyTalkEdgeQuotaRateLimiter) {
           const quota = dailyWeeklyTalkEdgeQuotaRateLimiter.checkEdgeQuotas(senderId, receiverId, nowPrev);
-          if (!quota.ok) continue;
+          if (!quota.ok) {
+            addRejectionCounts(rejectedByCounts, quota.rejectedBy);
+            continue;
+          }
         }
         eligibleReceivers += 1;
       }
@@ -403,6 +422,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         eligibleReceivers,
         senderCapacity,
         capacityDropped,
+        rejectedByCounts,
       });
     } catch (error) {
       logger.error({ err: error }, 'broadcast-receiver-preview error');

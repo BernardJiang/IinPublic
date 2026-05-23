@@ -1,19 +1,22 @@
 import type { Page } from '@playwright/test';
 
 /**
- * Backward-compatible helper for older broadcast flows. Current Broadcast sends
- * directly with no preamble; if an older build still shows the modal, confirm it.
+ * Confirm the audience-preview modal shown before manual Broadcast delivery. It
+ * remains tolerant of editor/no-modal branches when there is nothing sendable.
  */
 export async function confirmBroadcastTagPreambleIfVisible(page: Page): Promise<void> {
   const preamble = page.locator('[data-testid="broadcast-preamble-modal"]');
   const editor = page.locator('#talk-editor-modal');
 
-  const winner = await Promise.race([
-    preamble.waitFor({ state: 'visible', timeout: 750 }).then(() => 'preamble' as const).catch(() => null),
-    editor.waitFor({ state: 'visible', timeout: 750 }).then(() => 'editor' as const).catch(() => null),
-  ]);
-
-  if (winner !== 'preamble') return;
+  // A just-submitted editor can overlap the async audience lookup briefly. If
+  // Broadcast opened a new editor because there are no sendable talks, it
+  // remains visible and there is intentionally nothing to confirm.
+  if (await editor.isVisible().catch(() => false)) {
+    await editor.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+    if (await editor.isVisible().catch(() => false)) return;
+  }
+  const ready = await preamble.waitFor({ state: 'visible', timeout: 60_000 }).then(() => true).catch(() => false);
+  if (!ready) return;
 
   await preamble.locator('.broadcast-chip').first().click();
   await page.locator('[data-testid="broadcast-preamble-send"]').click();
