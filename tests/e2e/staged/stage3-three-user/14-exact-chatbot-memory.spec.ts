@@ -7,7 +7,7 @@
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { maybeClearGunDatabases } from '../../helpers/clear-database';
-import { afterSync } from '../../helpers/timing';
+import { afterNav, afterSync } from '../../helpers/timing';
 import {
   launchThreeBrowsers,
   shutdownThreeBrowsers,
@@ -28,6 +28,7 @@ import { gunBaseURL } from '../../helpers/ports';
 const QUESTION = 'Favorite fruit?';
 const TITLE_APPLE = 'E2E Exact Memory Context A';
 const TITLE_BANANA = 'E2E Exact Memory Context B';
+const TITLE_DISABLED_APPLE = 'E2E Exact Memory Disabled Apple';
 const TITLE_REUSE_APPLE = 'E2E Exact Memory Reuse Apple';
 
 function fruitTalk(title: string, matchAnswerId: string, matchAnswerText: string, otherAnswerId: string, otherAnswerText: string) {
@@ -80,6 +81,7 @@ async function deliverTalkToReceiver(
   receiver: { id: string; name: string },
   talkId: string,
   talkData: any,
+  chatbotEnabled?: boolean,
 ): Promise<any> {
   const res = await senderPage.context().request.post(
     `${gunBaseURL()}/api/talks/${encodeURIComponent(talkId)}/received`,
@@ -90,6 +92,7 @@ async function deliverTalkToReceiver(
         senderName: sender.name,
         receiverId: receiver.id,
         receiverName: receiver.name,
+        ...(chatbotEnabled !== undefined ? { chatbotEnabled } : {}),
       },
     },
   );
@@ -225,12 +228,33 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
     await waitForRecordedResponse(pageTom, bananaTalkId);
     await waitForExactMemoryAnswer(pageTom, tomIdentity.id, 'Banana');
 
+    // With the receiver's Talk Behavior toggle off, a compatible saved answer must remain manual.
+    await pageTom.click('.nav-btn[data-view="settings"]');
+    await afterNav();
+    await pageTom.locator('#settings-chatbot-enabled').uncheck();
+    await expect
+      .poll(() => pageTom!.evaluate(() => localStorage.getItem('chatbotEnabled')))
+      .toBe('false');
+    const disabledPayload = fruitTalk(TITLE_DISABLED_APPLE, 'a_apple', 'Apple', 'a_orange_ignore', 'Orange');
+    const disabledTalkId = await createTalkFromCompanyPage(pageBob, disabledPayload);
+    const disabledTalkData = { ...disabledPayload, id: disabledTalkId, authorId: bobIdentity.id };
+    expect(await deliverTalkToReceiver(pageBob, bobIdentity, tomIdentity, disabledTalkId, disabledTalkData, false)).toMatchObject({
+      registered: true,
+      autoResponded: false,
+      reason: 'chatbot_disabled',
+    });
+
+    await pageTom.locator('#settings-chatbot-enabled').check();
+    await expect
+      .poll(() => pageTom!.evaluate(() => localStorage.getItem('chatbotEnabled')))
+      .toBe('true');
+
     // Bob sends another context with Apple available and Banana absent.
     // The chatbot should skip newest Banana history, reuse older Apple, and create a bot-marked match for Bob.
     const reusePayload = fruitTalk(TITLE_REUSE_APPLE, 'a_apple', 'Apple', 'a_orange_ignore', 'Orange');
     const reuseTalkId = await createTalkFromCompanyPage(pageBob, reusePayload);
     const reuseTalkData = { ...reusePayload, id: reuseTalkId, authorId: bobIdentity.id };
-    const autoJson = await deliverTalkToReceiver(pageBob, bobIdentity, tomIdentity, reuseTalkId, reuseTalkData);
+    const autoJson = await deliverTalkToReceiver(pageBob, bobIdentity, tomIdentity, reuseTalkId, reuseTalkData, true);
     expect(autoJson).toMatchObject({
       registered: true,
       autoResponded: true,

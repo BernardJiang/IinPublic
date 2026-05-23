@@ -1081,6 +1081,7 @@ export class IinPublicApp {
         senderId,
         senderName,
         talkData,
+        chatbotEnabled: this.uiManager.getChatbotEnabled(),
       }),
     })
       .then(async (res) => {

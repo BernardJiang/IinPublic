@@ -433,12 +433,13 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
   app.post('/api/talks/:id/received', async (req, res) => {
     try {
       const talkId = req.params.id;
-      const { receiverId, receiverName, senderId, senderName, talkData: bodyTalkData } = req.body as {
+      const { receiverId, receiverName, senderId, senderName, talkData: bodyTalkData, chatbotEnabled } = req.body as {
         receiverId: string;
         receiverName?: string;
         senderId: string;
         senderName?: string;
         talkData?: unknown;
+        chatbotEnabled?: boolean;
       };
       if (!receiverId || !senderId) {
         res.status(400).json({ error: 'receiverId and senderId required' });
@@ -494,6 +495,11 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
 
       if (symmetricTalkEdgeLimiter && symmetricTalkEdgeLimiter.cooldownMs > 0) {
         symmetricTalkEdgeLimiter.touchPair(senderId, receiverId, Date.now());
+      }
+
+      if (chatbotEnabled === false) {
+        res.json({ registered: true, identityKey, autoResponded: false, reason: 'chatbot_disabled' });
+        return;
       }
 
       const exactMemory = await readExactChatbotMemoryForUser(gunService, receiverId);

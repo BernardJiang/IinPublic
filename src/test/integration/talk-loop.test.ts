@@ -427,6 +427,33 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(event.autoUseCount).toBe(1);
     });
 
+    it('registers but does not auto-respond from saved memory when chatbot is disabled', async () => {
+      const exactMemoryByUser = new Map<string, ExactChatbotMemoryState>();
+      const state = createEmptyExactChatbotMemoryState();
+      savePermanentAnswer(state, RESPONDER_ID, 'What is your favorite color?', 'Blue', 1000);
+      exactMemoryByUser.set(RESPONDER_ID, state);
+      const { app } = buildTestServer({ exactMemoryByUser });
+
+      const res = await request(app)
+        .post(`/api/talks/${talkId}/received`)
+        .send({
+          receiverId: RESPONDER_ID,
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          talkData: TALK_DATA,
+          chatbotEnabled: false,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        registered: true,
+        autoResponded: false,
+        reason: 'chatbot_disabled',
+      });
+      const event = Object.values(Object.values(exactMemoryByUser.get(RESPONDER_ID)!.users[RESPONDER_ID])[0].history)[0];
+      expect(event.autoUseCount).toBe(0);
+    });
+
     it('registers but skips auto-response when a permanent answer is absent from current options', async () => {
       const exactMemoryByUser = new Map<string, ExactChatbotMemoryState>();
       const state = createEmptyExactChatbotMemoryState();
