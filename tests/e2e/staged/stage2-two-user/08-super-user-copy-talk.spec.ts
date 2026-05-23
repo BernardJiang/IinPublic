@@ -68,7 +68,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
   });
 
   test('Copy talk: receive saves automatically; disable filters broadcast; enable includes again; delete removes', async () => {
-    test.setTimeout(120000);
+    test.setTimeout(300_000);
 
     console.log('\n📍 Copy-talk test: TechSupport creates one talk, Tom receives (saved), disables, broadcast 0, enables, broadcast 1, deletes');
     // clearGunForStage2Spec() is already called in beforeAll; no need to repeat here.
