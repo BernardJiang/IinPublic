@@ -92,6 +92,8 @@ import {
 } from './talk-editor-form-helpers';
 import { showTalkEditorDialog as openTalkEditorDialog } from './talk-editor-dialog';
 import { openPeerDetailView } from './user-detail-view';
+import { avatarInnerHtml } from './profile-avatar';
+import { languageOptionLabel, uiLanguageFromProfile, uiText, type UiTranslationKey } from './ui-translations';
 import {
   filterIncomingTalkClusters,
   getTalkIntakeFilters,
@@ -109,6 +111,18 @@ const LANGUAGE_OPTIONS = [
   { code: 'ja', label: 'Japanese' },
   { code: 'ko', label: 'Korean' },
 ];
+
+type CreatorReplyRow = {
+  responseId: string;
+  talkId: string;
+  title: string;
+  type: string;
+  responderId: string;
+  responderName: string;
+  outcome: 'match' | 'ignore' | 'mismatch';
+  date: string;
+  answers: Array<{ questionId: string; answerId: string; answerText: string }>;
+};
 
 function normalizeStringList(value: unknown, fallback: string[] = []): string[] {
   const raw = Array.isArray(value)
@@ -149,6 +163,7 @@ export class UIManager extends EventEmitter {
   private currentChatroom: string = 'global';
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
   private talksViewMode: 'all' | 'in' | 'out' = 'all';
+  private talksOutSortMode: 'recent' | 'matches' | 'responses' | 'match-rate' | 'title' = 'recent';
   private apiBase: string = '';
   private currentUserId: string = '';
   private currentUserStageName: string = '';
@@ -173,6 +188,7 @@ export class UIManager extends EventEmitter {
   private matchedUserIds: Set<string> = new Set(); // Users who matched with me (for green indicator)
   // private newMatchesCount: number = 0; // TODO: implement match count tracking
   private talkStatsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
+  private creatorReplyRows: CreatorReplyRow[] = [];
   private talksListDelegationBound = false;
   private chatroomActionDelegationBound = false;
   private incomingTalkClusters: any[] = [];
@@ -180,6 +196,40 @@ export class UIManager extends EventEmitter {
   private travelModeActive: boolean = false;
   private travelHomeChatroomId: string | undefined = undefined;
   private static readonly SURVEY_ANONYMITY_MIN_COUNT = 3;
+
+  private getUiLanguage() {
+    return uiLanguageFromProfile(this.currentUser?.languages);
+  }
+
+  private t(key: UiTranslationKey): string {
+    return uiText(this.getUiLanguage(), key);
+  }
+
+  private applyShellTranslations(): void {
+    const textBySelector: Array<[string, UiTranslationKey]> = [
+      ['.nav-btn[data-view="chatrooms"] .nav-label', 'navChatrooms'],
+      ['.nav-btn[data-view="contacts"] .nav-label', 'navContacts'],
+      ['.nav-btn[data-view="talks"] .nav-label', 'navTalks'],
+      ['.nav-btn[data-view="me"] .nav-label', 'navMe'],
+      ['.nav-btn[data-view="settings"] .nav-label', 'navSettings'],
+      ['#contacts-status-text', 'statusContacts'],
+      ['#talks-status-text', 'statusTalks'],
+      ['#me-status-text', 'statusMe'],
+      ['#settings-status-text', 'statusSettings'],
+      ['#create-custom-chatroom-btn', 'newRoom'],
+      ['#return-home-btn', 'returnHome'],
+      ['#broadcast-talk-btn', 'broadcast'],
+      ['#creator-replies-panel strong', 'repliesTitle'],
+      ['#reply-clear-filters', 'clear'],
+      ['#settings-refresh-location-btn', 'refreshLocation'],
+    ];
+    for (const [selector, key] of textBySelector) {
+      const element = document.querySelector<HTMLElement>(selector);
+      if (element) element.textContent = this.t(key);
+    }
+    const contactsFilter = document.getElementById('contacts-filter-name') as HTMLInputElement | null;
+    if (contactsFilter) contactsFilter.placeholder = this.t('filterByName');
+  }
 
   // Callback for stage name changes
   public onStageNameChange?: (userId: string, newStageName: string) => Promise<void>;
@@ -457,12 +507,15 @@ export class UIManager extends EventEmitter {
                   <option value="relative">Relatives</option>
                   <option value="coworker">Coworkers</option>
                   <option value="acquaintance">Acquaintances</option>
+                  <option value="partner">Partners</option>
                   <option value="custom">Custom</option>
                 </select>
                 <select class="form-input" id="contacts-sort-order" style="flex:0 0 150px;">
                   <option value="recent">Recent</option>
                   <option value="talks">Talk count</option>
-                  <option value="matches">Matches</option>
+                  <option value="matches">Matched talks</option>
+                  <option value="match-rate">Match rate</option>
+                  <option value="weighted">Relevance score</option>
                   <option value="name">Name</option>
                 </select>
               </div>
@@ -505,8 +558,52 @@ export class UIManager extends EventEmitter {
                     OUT
                   </button>
                 </div>
+                <select class="form-input" id="talks-out-sort-order" aria-label="Sort outgoing talks" style="flex:0 0 180px;">
+                  <option value="recent">Latest activity</option>
+                  <option value="matches">Most matches</option>
+                  <option value="responses">Most replies</option>
+                  <option value="match-rate">Best match rate</option>
+                  <option value="title">Title</option>
+                </select>
               </div>
               <div class="embedded-stats-strip" id="talks-stats-strip" style="padding:8px 12px;color:#64748b;font-size:0.88em;"></div>
+              <section id="creator-replies-panel" style="padding:12px;border-bottom:1px solid #e5e7eb;background:#fff;">
+                <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px;">
+                  <strong>Replies To My Talks</strong>
+                  <span id="creator-replies-summary" style="font-size:0.85em;color:#64748b;">Loading...</span>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                  <input class="form-input" id="reply-filter-query" type="search" placeholder="Stage name or talk" style="flex:1 1 170px;">
+                  <select class="form-input" id="reply-filter-outcome" style="flex:0 0 125px;">
+                    <option value="all">All outcomes</option>
+                    <option value="match">Matches</option>
+                    <option value="mismatch">Mismatches</option>
+                    <option value="ignore">Ignored</option>
+                  </select>
+                  <select class="form-input" id="reply-filter-relationship" style="flex:0 0 145px;">
+                    <option value="all">All relations</option>
+                    <option value="stranger">Strangers</option>
+                    <option value="friend">Friends</option>
+                    <option value="relative">Relatives</option>
+                    <option value="coworker">Coworkers</option>
+                    <option value="acquaintance">Acquaintances</option>
+                    <option value="partner">Partners</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                  <input class="form-input" id="reply-filter-from" type="date" aria-label="Replies from date" style="flex:0 0 145px;">
+                  <input class="form-input" id="reply-filter-to" type="date" aria-label="Replies to date" style="flex:0 0 145px;">
+                  <select class="form-input" id="reply-sort-order" style="flex:0 0 165px;">
+                    <option value="recent">Newest first</option>
+                    <option value="oldest">Oldest first</option>
+                    <option value="user">Stage name</option>
+                    <option value="talk">Talk title</option>
+                    <option value="matches">Most matches</option>
+                    <option value="weighted">Relevance score</option>
+                  </select>
+                  <button class="btn" id="reply-clear-filters" type="button">Clear</button>
+                </div>
+                <div id="creator-replies-list" style="display:grid;gap:6px;max-height:280px;overflow:auto;"></div>
+              </section>
               <div class="talks-list" id="talks-list">
                 <p style="text-align: center; padding: 40px 20px; color: #999;">No talks yet. Create your first talk!</p>
               </div>
@@ -750,6 +847,24 @@ export class UIManager extends EventEmitter {
         this.displayTalksList();
       });
     });
+    document.getElementById('talks-out-sort-order')?.addEventListener('change', (event) => {
+      this.talksOutSortMode = (event.currentTarget as HTMLSelectElement).value as typeof this.talksOutSortMode;
+      this.displayTalksList();
+    });
+    ['reply-filter-query', 'reply-filter-outcome', 'reply-filter-relationship', 'reply-filter-from', 'reply-filter-to', 'reply-sort-order'].forEach((id) => {
+      document.getElementById(id)?.addEventListener(id === 'reply-filter-query' ? 'input' : 'change', () => this.renderCreatorReplies());
+    });
+    document.getElementById('reply-clear-filters')?.addEventListener('click', () => {
+      ['reply-filter-query', 'reply-filter-from', 'reply-filter-to'].forEach((id) => {
+        const input = document.getElementById(id) as HTMLInputElement | null;
+        if (input) input.value = '';
+      });
+      ['reply-filter-outcome', 'reply-filter-relationship', 'reply-sort-order'].forEach((id) => {
+        const select = document.getElementById(id) as HTMLSelectElement | null;
+        if (select) select.value = id === 'reply-sort-order' ? 'recent' : 'all';
+      });
+      this.renderCreatorReplies();
+    });
 
     const talksNavBack = document.getElementById('talks-nav-back');
     if (talksNavBack) {
@@ -896,6 +1011,7 @@ export class UIManager extends EventEmitter {
         if (targetView === 'talks') {
           this.emit('needIncomingTalkClusters');
           this.displayTalksList();
+          void this.refreshCreatorReplies();
           void this.displayContextualStatistics('talks-stats-strip');
         }
 
@@ -929,6 +1045,7 @@ export class UIManager extends EventEmitter {
     this.currentUser = user;
     this.currentUserId = user.id;
     this.currentUserStageName = user.stageName;
+    this.applyShellTranslations();
   }
 
   showMainInterface(user: User): void {
@@ -937,13 +1054,14 @@ export class UIManager extends EventEmitter {
     this.currentUser = user;
     this.currentUserId = user.id;
     this.currentUserStageName = user.stageName;
+    this.applyShellTranslations();
     // Update the persistent header identity without duplicating the generated stage name.
     const headerStatus = document.getElementById('header-status');
     const headerUserInfo = document.getElementById('header-user-info');
     if (headerUserInfo) {
       headerUserInfo.innerHTML = `
         <div class="user-avatar">
-          ${user.stageName.charAt(0).toUpperCase()}
+          ${avatarInnerHtml(user.headshot, user.stageName.charAt(0).toUpperCase(), escapeHtml)}
         </div>
         <span class="visually-hidden" data-testid="user-stage-name">${user.stageName}</span>
       `;
@@ -955,10 +1073,6 @@ export class UIManager extends EventEmitter {
     // Update user info in Me view
     const userInfoMe = document.getElementById('user-info-me');
     if (userInfoMe) {
-      const copyTalkChecked = getCopyTalkAutoSave();
-      const talkFilters = normalizeTalkFilterShape(user.talkFilters, user.languages);
-      user.talkFilters = talkFilters;
-      setTalkIntakeFilters(talkFilters);
       const headshot = String(user.headshot || '').trim();
       const profileAnswers = Array.isArray(user.profile) ? user.profile : [];
       const interestNames = Array.isArray(user.interests)
@@ -988,7 +1102,7 @@ export class UIManager extends EventEmitter {
       const isCreditVisible = reputation.isHidden !== true;
       userInfoMe.innerHTML = `
         <div class="user-avatar" style="width: 80px; height: 80px; font-size: 2em; margin: 20px auto;">
-          ${escapeHtml(headshot || user.stageName.charAt(0).toUpperCase())}
+          ${avatarInnerHtml(headshot, user.stageName.charAt(0).toUpperCase(), escapeHtml)}
         </div>
         <div style="text-align: center; margin-top: 10px;">
           <div style="font-size: 1.2em; font-weight: 600;">${user.stageName}</div>
@@ -1006,81 +1120,10 @@ export class UIManager extends EventEmitter {
           <div style="font-size:0.88em; color:#374151; margin-bottom:10px;">
             Languages: ${escapeHtml((Array.isArray(user.languages) && user.languages.length > 0 ? user.languages.join(', ') : 'en'))}
           </div>
-          <div style="font-size:0.88em; color:#374151; margin-bottom:10px;">
-            Interests: ${
-              interestNames.length > 0
-                ? escapeHtml(interestNames.join(', '))
-                : '<span style="color:#94a3b8;">Add in Edit Profile</span>'
-            }
-          </div>
+          ${interestNames.length > 0 ? `<div style="font-size:0.88em; color:#374151; margin-bottom:10px;">Interests: ${escapeHtml(interestNames.join(', '))}</div>` : ''}
           <div style="display:grid; gap:8px;">
             ${profilePreview}
           </div>
-        </div>
-        <div style="margin-top: 20px; padding: 16px; background: #f9fafb; border-radius: 12px; text-align: left;">
-          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.95em;">
-            <input type="checkbox" id="copy-talk-autosave-checkbox" ${copyTalkChecked ? 'checked' : ''}>
-            <span>Auto-save received talks (copy talk)</span>
-          </label>
-          <p style="margin: 8px 0 0 28px; font-size: 0.85em; color: #6b7280;">When off, received talks are not saved to My Talks.</p>
-          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.95em; margin-top: 14px;">
-            <input type="checkbox" id="chatbot-enabled-checkbox" ${getChatbotEnabled() ? 'checked' : ''}>
-            <span>Enable chatbot (auto-reply with previous match answers)</span>
-          </label>
-          <p style="margin: 8px 0 0 28px; font-size: 0.85em; color: #6b7280;">When the same talk is sent to you again, reply automatically with your last match answer. Replies show a bot icon.</p>
-        </div>
-        <div style="margin-top: 20px; padding: 16px; background: #f8fafc; border-radius: 12px; text-align: left;">
-          <div style="font-weight: 700; color: #111827; margin-bottom: 12px;">Talk Filters</div>
-          <div style="display:grid; gap: 12px;">
-            <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
-              <label style="display:flex; flex-direction:column; gap:4px; font-size:0.9em;">
-                <span>Min distance (miles)</span>
-                <input type="number" id="talk-filter-min-distance" min="1" step="1" value="${talkFilters.minDistanceMiles ?? ''}" style="padding:8px;border:1px solid #d1d5db;border-radius:8px;">
-              </label>
-              <label style="display:flex; flex-direction:column; gap:4px; font-size:0.9em;">
-                <span>Max distance (miles)</span>
-                <input type="number" id="talk-filter-max-distance" min="0" step="1" value="${talkFilters.maxDistanceMiles ?? ''}" style="padding:8px;border:1px solid #d1d5db;border-radius:8px;">
-              </label>
-            </div>
-            <label style="display:flex; flex-direction:column; gap:4px; font-size:0.9em;">
-              <span>Ignore talks sent before</span>
-              <input type="datetime-local" id="talk-filter-sent-after" value="${talkFilters.sentAfter ? new Date(talkFilters.sentAfter).toISOString().slice(0, 16) : ''}" style="padding:8px;border:1px solid #d1d5db;border-radius:8px;">
-            </label>
-            <label style="display:flex; flex-direction:column; gap:4px; font-size:0.9em;">
-              <span>Allowed languages (comma separated)</span>
-              <input type="text" id="talk-filter-languages" value="${escapeHtml(talkFilters.allowedLanguages.join(', '))}" placeholder="en, zh" style="padding:8px;border:1px solid #d1d5db;border-radius:8px;">
-            </label>
-            <div style="display:flex; flex-wrap:wrap; gap:10px;">
-              <label style="display:flex; align-items:center; gap:8px; font-size:0.9em;">
-                <input type="checkbox" id="talk-filter-grammar" ${talkFilters.requireGoodGrammar ? 'checked' : ''}>
-                <span>Ignore grammar errors</span>
-              </label>
-              <label style="display:flex; align-items:center; gap:8px; font-size:0.9em;">
-                <input type="checkbox" id="talk-filter-dirty-words" ${talkFilters.blockDirtyWords ? 'checked' : ''}>
-                <span>Ignore dirty words</span>
-              </label>
-            </div>
-            <div>
-              <div style="font-size:0.9em; margin-bottom:6px;">Allowed talk types</div>
-              <div style="display:flex; flex-wrap:wrap; gap:8px;">
-                ${(['tag', 'flow', 'route', 'survey'] as const)
-                  .map(
-                    (type) => `
-                      <label style="display:flex; align-items:center; gap:6px; font-size:0.9em; padding:6px 10px; border:1px solid #d1d5db; border-radius:999px; background:white;">
-                        <input type="checkbox" class="talk-filter-type" value="${type}" ${talkFilters.allowedTalkTypes.includes(type) ? 'checked' : ''}>
-                        <span>${type}</span>
-                      </label>
-                    `,
-                  )
-                  .join('')}
-              </div>
-            </div>
-            <label style="display:flex; flex-direction:column; gap:4px; font-size:0.9em;">
-              <span>Custom blocked phrases (optional)</span>
-              <textarea id="talk-filter-custom-blocked" rows="3" placeholder="Comma or lines, e.g. wire transfer, prize winner" style="padding:8px;border:1px solid #d1d5db;border-radius:8px;font-family:inherit;resize:vertical;">${escapeHtml((talkFilters.customBlockedTerms ?? []).join(', '))}</textarea>
-            </label>
-          </div>
-          <p style="margin: 10px 0 0 0; font-size: 0.82em; color: #6b7280;">These filters hide incoming talks that do not match your current intake rules.</p>
         </div>
         <div style="margin-top: 20px; padding: 16px; background: #f0fdf4; border-radius: 12px; text-align: left; border:1px solid #bbf7d0;">
           <div style="font-weight: 700; color: #111827; margin-bottom: 8px;">Broadcast tag trends</div>
@@ -1120,77 +1163,6 @@ export class UIManager extends EventEmitter {
       if (editProfileBtn) {
         editProfileBtn.addEventListener('click', () => this.showEditProfileDialog(user));
       }
-      const copyTalkCheckbox = document.getElementById('copy-talk-autosave-checkbox') as HTMLInputElement;
-      if (copyTalkCheckbox) {
-        copyTalkCheckbox.addEventListener('change', () => {
-          setCopyTalkAutoSave(copyTalkCheckbox.checked);
-        });
-      }
-      const chatbotCheckbox = document.getElementById('chatbot-enabled-checkbox') as HTMLInputElement;
-      if (chatbotCheckbox) {
-        chatbotCheckbox.addEventListener('change', () => {
-          setChatbotEnabled(chatbotCheckbox.checked);
-        });
-      }
-      const syncTalkFilters = () => {
-        const minDistanceEl = document.getElementById('talk-filter-min-distance') as HTMLInputElement | null;
-        const maxDistanceEl = document.getElementById('talk-filter-max-distance') as HTMLInputElement | null;
-        const sentAfterEl = document.getElementById('talk-filter-sent-after') as HTMLInputElement | null;
-        const languagesEl = document.getElementById('talk-filter-languages') as HTMLInputElement | null;
-        const grammarEl = document.getElementById('talk-filter-grammar') as HTMLInputElement | null;
-        const dirtyEl = document.getElementById('talk-filter-dirty-words') as HTMLInputElement | null;
-        const typeEls = Array.from(document.querySelectorAll('.talk-filter-type')) as HTMLInputElement[];
-        const customBlockedEl = document.getElementById('talk-filter-custom-blocked') as HTMLTextAreaElement | null;
-        const customParts = (customBlockedEl?.value ?? '')
-          .split(/[\n,]+/)
-          .map((s) => s.trim())
-          .filter(Boolean);
-        const nextFilters: TalkIntakeFilters = {
-          allowedLanguages: (languagesEl?.value || 'en')
-            .split(',')
-            .map((part) => part.trim().toLowerCase())
-            .filter(Boolean),
-          requireGoodGrammar: !!grammarEl?.checked,
-          blockDirtyWords: !!dirtyEl?.checked,
-          allowedTalkTypes: typeEls.filter((el) => el.checked).map((el) => el.value as any),
-          customBlockedTerms: normalizeCustomBlockedTerms(customParts),
-        };
-        if (minDistanceEl && minDistanceEl.value !== '') {
-          nextFilters.minDistanceMiles = Number(minDistanceEl.value);
-        }
-        if (maxDistanceEl && maxDistanceEl.value !== '') {
-          nextFilters.maxDistanceMiles = Number(maxDistanceEl.value);
-        }
-        if (sentAfterEl?.value) {
-          nextFilters.sentAfter = new Date(sentAfterEl.value).toISOString();
-        }
-        if (nextFilters.allowedTalkTypes.length === 0) {
-          nextFilters.allowedTalkTypes = ['flow', 'survey', 'tag', 'route'];
-        }
-        if (nextFilters.allowedLanguages.length === 0) {
-          nextFilters.allowedLanguages = ['en'];
-        }
-        setTalkIntakeFilters(nextFilters);
-        if (this.currentUser) this.currentUser.talkFilters = nextFilters;
-        this.emit('updateTalkFilters', nextFilters);
-        const talksView = document.getElementById('talks-view');
-        if (talksView?.classList.contains('active')) this.displayTalksList();
-      };
-      [
-        'talk-filter-min-distance',
-        'talk-filter-max-distance',
-        'talk-filter-sent-after',
-        'talk-filter-languages',
-        'talk-filter-grammar',
-        'talk-filter-dirty-words',
-      ].forEach((id) => {
-        const el = document.getElementById(id) as HTMLInputElement | null;
-        el?.addEventListener('change', syncTalkFilters);
-      });
-      document.getElementById('talk-filter-custom-blocked')?.addEventListener('input', syncTalkFilters);
-      document.querySelectorAll('.talk-filter-type').forEach((el) => {
-        el.addEventListener('change', syncTalkFilters);
-      });
       const creditVisibilityCheckbox = document.getElementById('credit-visibility-checkbox') as HTMLInputElement | null;
       if (creditVisibilityCheckbox) {
         creditVisibilityCheckbox.addEventListener('change', () => {
@@ -1661,7 +1633,27 @@ export class UIManager extends EventEmitter {
           new Date(b.lastInteraction || 0).getTime() - new Date(a.lastInteraction || 0).getTime(),
       );
     // OUT: talks this user created or copied (can broadcast)
-    const outEntries = allEntries.filter(([, t]: [string, any]) => t.role === 'created' || t.role === 'copied');
+    const conversations = this.getMyConversations();
+    const outMetrics = (talkId: string): { responses: number; matches: number; ignores: number; matchRate: number } => {
+      const stats = this.talkStatsMap[talkId];
+      const derivedMatches = Object.values(conversations).filter((c: any) => c.talkId === talkId).length;
+      const matches = Math.max(stats?.matches ?? 0, derivedMatches);
+      const responses = Math.max(stats?.responses ?? 0, derivedMatches);
+      const ignores = stats?.ignores ?? Math.max(0, responses - matches);
+      return { responses, matches, ignores, matchRate: responses > 0 ? matches / responses : 0 };
+    };
+    // OUT: talks this user created or copied (can broadcast), with creator-selectable ranking.
+    const outEntries = allEntries
+      .filter(([, t]: [string, any]) => t.role === 'created' || t.role === 'copied')
+      .sort(([idA, a]: [string, any], [idB, b]: [string, any]) => {
+        const aa = outMetrics(idA);
+        const bb = outMetrics(idB);
+        if (this.talksOutSortMode === 'matches' && bb.matches !== aa.matches) return bb.matches - aa.matches;
+        if (this.talksOutSortMode === 'responses' && bb.responses !== aa.responses) return bb.responses - aa.responses;
+        if (this.talksOutSortMode === 'match-rate' && bb.matchRate !== aa.matchRate) return bb.matchRate - aa.matchRate;
+        if (this.talksOutSortMode === 'title') return String(a.title || '').localeCompare(String(b.title || ''));
+        return new Date(b.lastInteraction || 0).getTime() - new Date(a.lastInteraction || 0).getTime();
+      });
     // IN: backend-consolidated incoming talks (content-hash merged)
     const rawIncomingEntries = (this.incomingTalkClusters || []).filter((c: any) => c && c.identityKey);
     const incomingFilterResult = filterIncomingTalkClusters(
@@ -1688,8 +1680,17 @@ export class UIManager extends EventEmitter {
     const activeMode = this.talksViewMode;
     const talksStatus = document.getElementById('talks-status-text');
     if (talksStatus) {
-      talksStatus.textContent = `${inEntries.length} incoming · ${outEntries.length} outgoing · sorted by latest activity`;
+      const sortLabel = {
+        recent: 'latest activity',
+        matches: 'most matches',
+        responses: 'most replies',
+        'match-rate': 'best match rate',
+        title: 'title',
+      }[this.talksOutSortMode];
+      talksStatus.textContent = `${inEntries.length} incoming · ${outEntries.length} outgoing · OUT sorted by ${sortLabel}`;
     }
+    const talksSort = document.getElementById('talks-out-sort-order') as HTMLSelectElement | null;
+    if (talksSort) talksSort.value = this.talksOutSortMode;
 
     document.querySelectorAll('.talks-nav-btn').forEach((button) => {
       button.classList.toggle('active', (button as HTMLElement).dataset.talksMode === activeMode);
@@ -1713,13 +1714,12 @@ export class UIManager extends EventEmitter {
               .map(
                 ([talkId, talk]) => {
                   const stats = this.talkStatsMap[talkId];
-                  const conversations = this.getMyConversations();
                   const matchedNames = Object.values(conversations)
                     .filter((c: any) => c.talkId === talkId)
                     .map((c: any) => c.respondedByBot ? `${c.otherUserName} 🤖` : c.otherUserName);
-                  const derivedMatchCount = matchedNames.length;
-                  const statsLine = stats || derivedMatchCount > 0
-                    ? `Responses: ${Math.max(stats?.responses ?? 0, derivedMatchCount)} · Matches: ${Math.max(stats?.matches ?? 0, derivedMatchCount)} · Ignores: ${stats?.ignores ?? 0}`
+                  const metrics = outMetrics(talkId);
+                  const statsLine = stats || metrics.matches > 0
+                    ? `Responses: ${metrics.responses} · Matches: ${metrics.matches} · Ignores: ${metrics.ignores} · Match rate: ${Math.round(metrics.matchRate * 100)}%`
                     : '—';
                   const matchedLine =
                     matchedNames.length > 0
@@ -1889,6 +1889,8 @@ export class UIManager extends EventEmitter {
   }
 
   setTalkStats(statsMap: Record<string, { responses: number; matches: number; ignores: number }>): void {
+    const orderDependsOnStats = this.talksOutSortMode !== 'recent' && this.talksOutSortMode !== 'title';
+    const changed = JSON.stringify(statsMap) !== JSON.stringify(this.talkStatsMap);
     this.talkStatsMap = { ...statsMap };
     const talksList = document.getElementById('talks-list');
     if (talksList) {
@@ -1897,10 +1899,12 @@ export class UIManager extends EventEmitter {
           .talk-list-item[data-talk-id="${talkId}"][data-role="copied"]`) as HTMLElement | null;
         const statsEl = row?.querySelector('.talk-item-stats') as HTMLElement | null;
         if (statsEl) {
-          statsEl.textContent = `Responses: ${stats.responses} · Matches: ${stats.matches} · Ignores: ${stats.ignores}`;
+          const matchRate = stats.responses > 0 ? Math.round((stats.matches / stats.responses) * 100) : 0;
+          statsEl.textContent = `Responses: ${stats.responses} · Matches: ${stats.matches} · Ignores: ${stats.ignores} · Match rate: ${matchRate}%`;
         }
       });
     }
+    if (changed && orderDependsOnStats) this.displayTalksList();
     this.syncStatusBarMatchCount();
   }
 
@@ -1913,6 +1917,93 @@ export class UIManager extends EventEmitter {
         const senderName = String(sender?.senderName || '').trim();
         if (senderId && senderName) this.rememberPeerName(senderId, senderName);
       }
+    }
+  }
+
+  private async refreshCreatorReplies(): Promise<void> {
+    if (!this.apiBase || !this.currentUserId) return;
+    const summary = document.getElementById('creator-replies-summary');
+    try {
+      const response = await fetch(`${this.apiBase}/api/users/${encodeURIComponent(this.currentUserId)}/replies`, {
+        cache: 'no-store',
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      this.creatorReplyRows = (await response.json()) as CreatorReplyRow[];
+      this.renderCreatorReplies();
+    } catch {
+      if (summary) summary.textContent = 'Replies unavailable';
+    }
+  }
+
+  private renderCreatorReplies(): void {
+    const list = document.getElementById('creator-replies-list');
+    const summary = document.getElementById('creator-replies-summary');
+    if (!list || !summary) return;
+    const query = ((document.getElementById('reply-filter-query') as HTMLInputElement | null)?.value || '').trim().toLowerCase();
+    const outcome = (document.getElementById('reply-filter-outcome') as HTMLSelectElement | null)?.value || 'all';
+    const relation = (document.getElementById('reply-filter-relationship') as HTMLSelectElement | null)?.value || 'all';
+    const from = (document.getElementById('reply-filter-from') as HTMLInputElement | null)?.value || '';
+    const to = (document.getElementById('reply-filter-to') as HTMLInputElement | null)?.value || '';
+    const sort = (document.getElementById('reply-sort-order') as HTMLSelectElement | null)?.value || 'recent';
+    const fromTime = from ? new Date(`${from}T00:00:00`).getTime() : undefined;
+    const toTime = to ? new Date(`${to}T23:59:59.999`).getTime() : undefined;
+    const metricsByResponder = new Map<string, { replies: number; matches: number; relevance: number }>();
+    for (const row of this.creatorReplyRows) {
+      const metrics = metricsByResponder.get(row.responderId) || { replies: 0, matches: 0, relevance: 0 };
+      metrics.replies += 1;
+      if (row.outcome === 'match') metrics.matches += 1;
+      metrics.relevance = metrics.matches * 100 + metrics.replies;
+      metricsByResponder.set(row.responderId, metrics);
+    }
+    const filtered = this.creatorReplyRows
+      .filter((row) => {
+        const known = this.getKnownPerson(row.responderId);
+        const label = known?.label || 'stranger';
+        const time = new Date(row.date).getTime();
+        if (query && !`${row.responderName} ${row.title}`.toLowerCase().includes(query)) return false;
+        if (outcome !== 'all' && row.outcome !== outcome) return false;
+        if (relation !== 'all' && label !== relation) return false;
+        if (fromTime != null && time < fromTime) return false;
+        if (toTime != null && time > toTime) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const aMetrics = metricsByResponder.get(a.responderId)!;
+        const bMetrics = metricsByResponder.get(b.responderId)!;
+        if (sort === 'oldest') return new Date(a.date).getTime() - new Date(b.date).getTime();
+        if (sort === 'user') return a.responderName.localeCompare(b.responderName) || a.title.localeCompare(b.title);
+        if (sort === 'talk') return a.title.localeCompare(b.title) || a.responderName.localeCompare(b.responderName);
+        if (sort === 'matches' && bMetrics.matches !== aMetrics.matches) return bMetrics.matches - aMetrics.matches;
+        if (sort === 'weighted' && bMetrics.relevance !== aMetrics.relevance) return bMetrics.relevance - aMetrics.relevance;
+        return new Date(b.date).getTime() - new Date(a.date).getTime() || a.responseId.localeCompare(b.responseId);
+      });
+    summary.textContent = `${filtered.length} of ${this.creatorReplyRows.length} replies`;
+    if (filtered.length === 0) {
+      list.innerHTML = '<div style="color:#94a3b8;padding:8px;">No replies match these filters.</div>';
+      return;
+    }
+    list.innerHTML = filtered.slice(0, 100).map((row) => {
+      const known = this.getKnownPerson(row.responderId);
+      const label = known?.label || 'Stranger';
+      const metrics = metricsByResponder.get(row.responderId)!;
+      const score = sort === 'weighted' ? ` · Score ${metrics.relevance} (${metrics.matches} matches x100 + ${metrics.replies} replies)` : '';
+      const answerPreview = row.answers
+        .map((answer) => String(answer.answerText || '').trim())
+        .filter(Boolean)
+        .join(', ');
+      return `
+        <div class="creator-reply-row" data-response-id="${escapeHtml(row.responseId)}" data-responder-id="${escapeHtml(row.responderId)}" data-talk-id="${escapeHtml(row.talkId)}" style="padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;">
+          <div style="display:flex;justify-content:space-between;gap:10px;">
+            <strong>${escapeHtml(row.responderName)}</strong>
+            <span style="color:${row.outcome === 'match' ? '#166534' : '#64748b'};">${escapeHtml(row.outcome)}</span>
+          </div>
+          <div style="font-size:0.86em;color:#475569;">${escapeHtml(row.title)} · ${escapeHtml(label)} · ${escapeHtml(new Date(row.date).toLocaleString())}${escapeHtml(score)}</div>
+          ${answerPreview ? `<div class="creator-reply-answers" style="font-size:0.84em;color:#334155;margin-top:4px;">Answers: ${escapeHtml(answerPreview)}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+    if (filtered.length > 100) {
+      list.innerHTML += `<div style="padding:8px;color:#64748b;">Showing first 100 of ${filtered.length} filtered replies.</div>`;
     }
   }
 
@@ -1954,7 +2045,7 @@ export class UIManager extends EventEmitter {
       : [];
     const locationText = this.currentLocation
       ? `${this.currentLocation.latitude.toFixed(3)}, ${this.currentLocation.longitude.toFixed(3)}`
-      : 'Unknown';
+      : this.t('settingsUnknown');
     const homeOptions = [
       ...getFlatChatroomList().map((room) => ({
         id: room.id,
@@ -1965,7 +2056,11 @@ export class UIManager extends EventEmitter {
         label: `${room.type === 'business' ? '🏪' : '💬'} ${room.name}`,
       })),
     ];
-    const languageOptions = LANGUAGE_OPTIONS;
+    const uiLanguage = this.getUiLanguage();
+    const languageOptions = LANGUAGE_OPTIONS.map((language) => ({
+      ...language,
+      label: languageOptionLabel(uiLanguage, language.code, language.label),
+    }));
     const headshotChoices = ['🙂', '😎', '🤠', '🎾', '☕', '🌟', '🐱', '🦊'];
     container.innerHTML = `
       <div style="display:grid;gap:14px;">
@@ -1973,31 +2068,39 @@ export class UIManager extends EventEmitter {
           <div style="display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:center;">
             <div style="display:flex;align-items:center;gap:12px;min-width:0;">
               <div class="user-avatar" style="width:48px;height:48px;font-size:1.25em;flex:0 0 auto;">
-                ${escapeHtml(headshot || user.stageName.charAt(0).toUpperCase())}
+                ${avatarInnerHtml(headshot, user.stageName.charAt(0).toUpperCase(), escapeHtml)}
               </div>
               <div style="min-width:0;">
                 <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
-                  <span>Stage name</span>
+                  <span>${this.t('settingsStageName')}</span>
                   <input type="text" class="form-input" id="settings-stage-name-input" data-testid="settings-stage-name-input" value="${escapeHtml(user.stageName)}" minlength="3">
                 </label>
-                <div style="font-size:0.86em;color:#64748b;">Interests: ${interestNames.length > 0 ? escapeHtml(interestNames.join(', ')) : 'None listed'}</div>
+                ${interestNames.length > 0 ? `<div style="font-size:0.86em;color:#64748b;">Interests: ${escapeHtml(interestNames.join(', '))}</div>` : ''}
               </div>
             </div>
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
-              <span>Headshot</span>
+            <div style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
+              <span>${this.t('settingsHeadshot')}</span>
               <select class="form-input" id="settings-headshot-select" data-testid="settings-headshot-select">
-                <option value="">Initial</option>
+                <option value="">${this.t('settingsInitial')}</option>
                 ${headshotChoices
                   .map((choice) => `<option value="${choice}" ${choice === headshot ? 'selected' : ''}>${choice}</option>`)
                   .join('')}
               </select>
-            </label>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <button class="btn" type="button" id="settings-choose-photo-btn">${this.t('settingsChoosePhoto')}</button>
+                <button class="btn" type="button" id="settings-take-photo-btn">${this.t('settingsTakePhoto')}</button>
+                <button class="btn" type="button" id="settings-remove-photo-btn">${this.t('settingsRemove')}</button>
+              </div>
+              <input class="visually-hidden" type="file" id="settings-photo-input" accept="image/png,image/jpeg,image/webp,image/gif">
+              <input class="visually-hidden" type="file" id="settings-camera-input" accept="image/*" capture="user">
+              <div style="font-size:0.78em;color:#64748b;">${this.t('settingsPhotoHelp')}</div>
+            </div>
           </div>
         </section>
         <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
-          <div style="font-weight:700;color:#111827;margin-bottom:10px;">Languages</div>
+          <div style="font-weight:700;color:#111827;margin-bottom:10px;">${this.t('settingsLanguages')}</div>
           <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
-            <span>Profile language</span>
+            <span>${this.t('settingsProfileLanguage')}</span>
             <select class="form-input" id="settings-profile-languages" data-testid="settings-profile-language-select">
               ${languageOptions
                 .map((lang) => `<option value="${lang.code}" ${profileLanguages[0] === lang.code ? 'selected' : ''}>${lang.label}</option>`)
@@ -2005,7 +2108,7 @@ export class UIManager extends EventEmitter {
             </select>
           </label>
           <div style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
-            <span>Incoming talk language filter</span>
+            <span>${this.t('settingsIncomingLanguage')}</span>
             <div id="settings-filter-languages" data-testid="settings-incoming-language-select" style="display:flex;flex-wrap:wrap;gap:8px;">
               ${languageOptions
                 .map((lang) => `
@@ -2016,34 +2119,34 @@ export class UIManager extends EventEmitter {
                 `)
                 .join('')}
             </div>
-            <div id="settings-filter-languages-count" style="font-size:0.82em;color:#64748b;">${talkFilters.allowedLanguages.length} active</div>
+            <div id="settings-filter-languages-count" style="font-size:0.82em;color:#64748b;">${talkFilters.allowedLanguages.length} ${this.t('settingsActive')}</div>
           </div>
         </section>
         <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
-          <div style="font-weight:700;color:#111827;margin-bottom:10px;">Talk Behavior</div>
+          <div style="font-weight:700;color:#111827;margin-bottom:10px;">${this.t('settingsTalkBehavior')}</div>
           <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;">
             <input type="checkbox" id="settings-copy-talk-autosave" ${getCopyTalkAutoSave() ? 'checked' : ''}>
-            <span>Auto-save received talks (copy talk)</span>
+            <span>${this.t('settingsCopyTalk')}</span>
           </label>
           <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;margin-top:12px;">
             <input type="checkbox" id="settings-chatbot-enabled" ${getChatbotEnabled() ? 'checked' : ''}>
-            <span>Enable chatbot</span>
+            <span>${this.t('settingsChatbot')}</span>
           </label>
         </section>
         <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
-          <div style="font-weight:700;color:#111827;margin-bottom:10px;">Distance and Home</div>
+          <div style="font-weight:700;color:#111827;margin-bottom:10px;">${this.t('settingsDistanceHome')}</div>
           <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
             <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
-              <span>Min distance (miles)</span>
-              <input type="number" class="form-input" id="settings-min-distance" min="1" step="1" value="${talkFilters.minDistanceMiles ?? ''}">
+              <span>${this.t('settingsMinDistance')}</span>
+              <input type="number" class="form-input" id="settings-min-distance" min="0" step="1" value="${talkFilters.minDistanceMiles ?? ''}">
             </label>
             <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
-              <span>Max distance (miles)</span>
+              <span>${this.t('settingsMaxDistance')}</span>
               <input type="number" class="form-input" id="settings-max-distance" min="0" step="1" value="${talkFilters.maxDistanceMiles ?? ''}">
             </label>
           </div>
           <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
-            <span>Home room</span>
+            <span>${this.t('settingsHomeRoom')}</span>
             <select class="form-input" id="settings-home-room">
               ${homeOptions
                 .map((room) => `
@@ -2052,17 +2155,17 @@ export class UIManager extends EventEmitter {
                 .join('')}
             </select>
           </label>
-          <div style="margin-top:4px;font-size:0.82em;color:#64748b;">Location: ${escapeHtml(locationText)}</div>
+          <div style="margin-top:4px;font-size:0.82em;color:#64748b;">${this.t('settingsLocation')}: ${escapeHtml(locationText)}</div>
         </section>
         <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
-          <div style="font-weight:700;color:#111827;margin-bottom:10px;">Content Filters</div>
+          <div style="font-weight:700;color:#111827;margin-bottom:10px;">${this.t('settingsContentFilters')}</div>
           <div style="display:flex;flex-wrap:wrap;gap:10px;">
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-grammar-filter" ${talkFilters.requireGoodGrammar ? 'checked' : ''}> Grammar filter</label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-dirty-words-filter" ${talkFilters.blockDirtyWords ? 'checked' : ''}> Dirty words filter</label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-credit-visible" ${reputation.isHidden === true ? '' : 'checked'}> Show reputation/credit</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-grammar-filter" ${talkFilters.requireGoodGrammar ? 'checked' : ''}> ${this.t('settingsGrammar')}</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-dirty-words-filter" ${talkFilters.blockDirtyWords ? 'checked' : ''}> ${this.t('settingsDirtyWords')}</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-credit-visible" ${reputation.isHidden === true ? '' : 'checked'}> ${this.t('settingsCreditVisible')}</label>
           </div>
           <div style="margin-top:12px;">
-            <div style="font-size:0.9em;margin-bottom:6px;">Allowed talk types</div>
+            <div style="font-size:0.9em;margin-bottom:6px;">${this.t('settingsAllowedTypes')}</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px;">
               ${(['tag', 'flow', 'route', 'survey'] as const)
                 .map((type) => `
@@ -2075,16 +2178,16 @@ export class UIManager extends EventEmitter {
             </div>
           </div>
           <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
-            <span>Custom blocked phrases</span>
+            <span>${this.t('settingsBlockedPhrases')}</span>
             <textarea class="form-input" id="settings-custom-blocked" rows="3">${escapeHtml((talkFilters.customBlockedTerms || []).join(', '))}</textarea>
           </label>
         </section>
         <section id="settings-storage-inspector" style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
-            <div style="font-weight:700;color:#111827;">Storage Inspector</div>
-            <button type="button" class="btn" id="settings-refresh-storage-btn">Refresh</button>
+            <div style="font-weight:700;color:#111827;">${this.t('settingsStorage')}</div>
+            <button type="button" class="btn" id="settings-refresh-storage-btn">${this.t('settingsRefresh')}</button>
           </div>
-          <div id="settings-storage-inspector-body" style="font-size:0.9em;color:#64748b;">Loading storage state...</div>
+          <div id="settings-storage-inspector-body" style="font-size:0.9em;color:#64748b;">${this.t('settingsStorageLoading')}</div>
         </section>
       </div>
     `;
@@ -2126,15 +2229,29 @@ export class UIManager extends EventEmitter {
       if (nextFilters.allowedTalkTypes.length === 0) nextFilters.allowedTalkTypes = ['flow', 'survey', 'tag', 'route'];
       if (minDistanceEl?.value) nextFilters.minDistanceMiles = Number(minDistanceEl.value);
       if (maxDistanceEl?.value) nextFilters.maxDistanceMiles = Number(maxDistanceEl.value);
+      if (
+        typeof nextFilters.minDistanceMiles === 'number' &&
+        typeof nextFilters.maxDistanceMiles === 'number' &&
+        nextFilters.minDistanceMiles > nextFilters.maxDistanceMiles
+      ) {
+        this.showNotification('Minimum distance cannot be greater than maximum distance.', 'error');
+        if (this.currentUser?.talkFilters) {
+          if (minDistanceEl) minDistanceEl.value = String(this.currentUser.talkFilters.minDistanceMiles ?? '');
+          if (maxDistanceEl) maxDistanceEl.value = String(this.currentUser.talkFilters.maxDistanceMiles ?? '');
+        }
+        return;
+      }
       setTalkIntakeFilters(nextFilters);
       const langCount = document.getElementById('settings-filter-languages-count');
-      if (langCount) langCount.textContent = `${nextFilters.allowedLanguages.length} active`;
+      if (langCount) langCount.textContent = `${nextFilters.allowedLanguages.length} ${this.t('settingsActive')}`;
       if (this.currentUser) {
         const nextProfileLanguages = profileLanguages.length > 0 ? profileLanguages : ['en'];
         const profileLanguageChanged = nextProfileLanguages.join(',') !== (this.currentUser.languages || []).join(',');
         this.currentUser.languages = nextProfileLanguages;
         this.currentUser.talkFilters = nextFilters;
         if (profileLanguageChanged) {
+          this.applyShellTranslations();
+          this.renderSettingsView(this.currentUser);
           void this.onProfileChange?.(this.currentUser.id, {
             ...(this.currentUser.headshot ? { headshot: this.currentUser.headshot } : {}),
             languages: nextProfileLanguages,
@@ -2168,14 +2285,23 @@ export class UIManager extends EventEmitter {
       setChatbotEnabled((event.currentTarget as HTMLInputElement).checked);
     });
     document.getElementById('settings-stage-name-input')?.addEventListener('change', async (event) => {
-      const next = (event.currentTarget as HTMLInputElement).value.trim();
+      const input = event.currentTarget as HTMLInputElement;
+      const next = input.value.trim();
       if (!this.currentUser || next === this.currentUser.stageName) return;
       if (next.length < 3) {
         this.showNotification('Stage name must be at least 3 characters.', 'error');
-        (event.currentTarget as HTMLInputElement).value = this.currentUser.stageName;
+        input.value = this.currentUser.stageName;
         return;
       }
-      await this.onStageNameChange?.(this.currentUser.id, next);
+      try {
+        await this.onStageNameChange?.(this.currentUser.id, next);
+      } catch (error) {
+        input.value = this.currentUser.stageName;
+        const message = error instanceof Error && /reserved/i.test(error.message)
+          ? 'That stage name is reserved. Please choose another name.'
+          : 'Stage name could not be updated.';
+        this.showNotification(message, 'error');
+      }
     });
     document.getElementById('settings-headshot-select')?.addEventListener('change', async (event) => {
       if (!this.currentUser) return;
@@ -2187,6 +2313,40 @@ export class UIManager extends EventEmitter {
         interests: this.currentUser.interests || [],
       });
     });
+    const saveHeadshot = async (headshot?: string): Promise<void> => {
+      if (!this.currentUser) return;
+      await this.onProfileChange?.(this.currentUser.id, {
+        ...(headshot ? { headshot } : {}),
+        languages: this.currentUser.languages || ['en'],
+        profile: this.currentUser.profile || [],
+        interests: this.currentUser.interests || [],
+      });
+    };
+    const readPhoto = async (file?: File): Promise<void> => {
+      if (!file) return;
+      if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
+        this.showNotification('Choose a PNG, JPEG, WebP, or GIF image.', 'error');
+        return;
+      }
+      if (file.size > 2 * 1024 * 1024) {
+        this.showNotification('Photo must be 2 MB or smaller.', 'error');
+        return;
+      }
+      const reader = new FileReader();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        reader.addEventListener('load', () => resolve(String(reader.result || '')));
+        reader.addEventListener('error', () => reject(reader.error || new Error('Photo could not be read.')));
+        reader.readAsDataURL(file);
+      });
+      await saveHeadshot(dataUrl);
+    };
+    const photoInput = document.getElementById('settings-photo-input') as HTMLInputElement | null;
+    const cameraInput = document.getElementById('settings-camera-input') as HTMLInputElement | null;
+    document.getElementById('settings-choose-photo-btn')?.addEventListener('click', () => photoInput?.click());
+    document.getElementById('settings-take-photo-btn')?.addEventListener('click', () => cameraInput?.click());
+    photoInput?.addEventListener('change', () => void readPhoto(photoInput.files?.[0]));
+    cameraInput?.addEventListener('change', () => void readPhoto(cameraInput.files?.[0]));
+    document.getElementById('settings-remove-photo-btn')?.addEventListener('click', () => void saveHeadshot());
     document.getElementById('settings-credit-visible')?.addEventListener('change', (event) => {
       const visible = (event.currentTarget as HTMLInputElement).checked;
       if (this.currentUser?.reputation) this.currentUser.reputation.isHidden = !visible;

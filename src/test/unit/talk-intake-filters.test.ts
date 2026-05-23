@@ -62,7 +62,7 @@ describe('talk intake filters', () => {
     expect(talkPassesIntakeFilters(survey, { ...baseFilters, requireGoodGrammar: true }, undefined)).toBe(true);
   });
 
-  it('still checks answers for dirty words', () => {
+  it('still checks punctuated answers for dirty words', () => {
     const survey = {
       title: 'Restaurant survey',
       type: 'survey',
@@ -70,7 +70,7 @@ describe('talk intake filters', () => {
       questions: [
         {
           text: 'Which restaurant has the best burger?',
-          answers: [{ text: 'KFC' }, { text: 'fake' }],
+          answers: [{ text: 'KFC' }, { text: 'FAKE!' }],
         },
       ],
     };
@@ -103,6 +103,6 @@ describe('talk intake filters', () => {
         { ...baseFilters, minDistanceMiles: 10 },
         me,
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 });

@@ -151,7 +151,7 @@ export function intakeFilterRejectReasons(
     (typeof filters.minDistanceMiles === 'number' || typeof filters.maxDistanceMiles === 'number')
   ) {
     const distance = haversineMilesBetween(currentLocation, subject.authorLocation);
-    if (typeof filters.minDistanceMiles === 'number' && distance > 0 && distance < filters.minDistanceMiles) {
+    if (typeof filters.minDistanceMiles === 'number' && distance < filters.minDistanceMiles) {
       return ['intake_min_distance'];
     }
     if (typeof filters.maxDistanceMiles === 'number' && distance > filters.maxDistanceMiles) {

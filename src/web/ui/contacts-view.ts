@@ -1,5 +1,6 @@
 import type { KnownPerson } from '../../shared/types';
 import type { PeerSummary } from '../../server/routes/peer-routes';
+import { avatarInnerHtml } from './profile-avatar';
 
 type ContactsViewDeps = {
   apiBase: string;
@@ -34,12 +35,35 @@ function buildDisplayName(stageName: string, known?: KnownPerson): string {
 }
 
 function buildMetaLine(summary: PeerSummary, known?: KnownPerson): string {
+  const matchedTalks = summary.stats.sent.matches + summary.stats.received.matches;
   const parts = [
     `${summary.stats.totalTalks} talk${summary.stats.totalTalks !== 1 ? 's' : ''}`,
+    `${matchedTalks} match${matchedTalks !== 1 ? 'es' : ''}`,
     `${summary.stats.mutualTagCount} common tag${summary.stats.mutualTagCount !== 1 ? 's' : ''}`,
-    formatRelationshipLabel(known?.label),
+    known?.label ? formatRelationshipLabel(known.label) : 'Stranger',
   ];
   return parts.join(' · ');
+}
+
+function rankingMetrics(peer: PeerSummary, known?: KnownPerson): {
+  matchedTalks: number;
+  matchRate: number;
+  relevance: number;
+  explanation: string;
+} {
+  const matchedTalks = peer.stats.sent.matches + peer.stats.received.matches;
+  const matchRate = peer.stats.totalTalks > 0 ? matchedTalks / peer.stats.totalTalks : 0;
+  const relationshipBoost = known?.label ? 10 : 0;
+  const lastAt = new Date(peer.lastInteractionAt || 0).getTime();
+  const daysOld = lastAt > 0 ? Math.max(0, Math.floor((Date.now() - lastAt) / (24 * 60 * 60 * 1000))) : 30;
+  const recencyBoost = Math.max(0, 30 - Math.min(30, daysOld));
+  const relevance = matchedTalks * 100 + Math.round(matchRate * 25) + relationshipBoost + recencyBoost;
+  return {
+    matchedTalks,
+    matchRate,
+    relevance,
+    explanation: `${matchedTalks} matches x100 + ${Math.round(matchRate * 25)} rate + ${relationshipBoost} relationship + ${recencyBoost} recency`,
+  };
 }
 
 function closeRelationshipModal(): void {
@@ -58,11 +82,11 @@ function renderPublicProfileSummary(deps: ContactsViewDeps, publicUser: any): st
   const profile = Array.isArray(publicUser?.profile) ? publicUser.profile.filter((qa: any) => qa?.question && qa?.answer) : [];
   return `
     <div style="display:flex; gap:12px; align-items:flex-start; margin-top:10px; padding:12px; border-radius:12px; background:#f8fafc; border:1px solid #e2e8f0;">
-      <div class="user-avatar" style="width:52px; height:52px; font-size:1.4em; flex-shrink:0;">${deps.escapeHtml(headshot || '?')}</div>
+      <div class="user-avatar" style="width:52px; height:52px; font-size:1.4em; flex-shrink:0;">${avatarInnerHtml(headshot, '?', deps.escapeHtml)}</div>
       <div style="min-width:0; flex:1;">
         <div style="font-size:0.82em; color:#64748b;">Public Profile</div>
         <div style="font-size:0.88em; color:#334155; margin-top:4px;">Languages: ${deps.escapeHtml(languages.length > 0 ? languages.join(', ') : 'Not listed')}</div>
-        <div style="font-size:0.88em; color:#334155; margin-top:4px;">Interests: ${deps.escapeHtml(interests.length > 0 ? interests.join(', ') : 'Not listed')}</div>
+        ${interests.length > 0 ? `<div style="font-size:0.88em; color:#334155; margin-top:4px;">Interests: ${deps.escapeHtml(interests.join(', '))}</div>` : ''}
         <div style="display:grid; gap:6px; margin-top:8px;">
           ${
             profile.length > 0
@@ -349,6 +373,8 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
     const nameFilter = (controls.name?.value || '').trim().toLowerCase();
     const relationFilter = controls.relation?.value || 'all';
     const sortOrder = controls.sort?.value || 'recent';
+    const tieBreak = (a: PeerSummary, b: PeerSummary): number =>
+      deps.getPeerName(a.peerId, a.stageName).localeCompare(deps.getPeerName(b.peerId, b.stageName));
     const visiblePeers = peers
       .filter((peer) => {
         const known = knownMap.get(peer.peerId);
@@ -359,12 +385,19 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
         return true;
       })
       .sort((a, b) => {
+        const aKnown = knownMap.get(a.peerId);
+        const bKnown = knownMap.get(b.peerId);
+        const aMetrics = rankingMetrics(a, aKnown);
+        const bMetrics = rankingMetrics(b, bKnown);
         if (sortOrder === 'name') {
-          return deps.getPeerName(a.peerId, a.stageName).localeCompare(deps.getPeerName(b.peerId, b.stageName));
+          return tieBreak(a, b);
         }
-        if (sortOrder === 'matches') return b.stats.mutualMatchedTalks - a.stats.mutualMatchedTalks;
-        if (sortOrder === 'talks') return b.stats.totalTalks - a.stats.totalTalks;
-        return new Date(b.lastInteractionAt || 0).getTime() - new Date(a.lastInteractionAt || 0).getTime();
+        if (sortOrder === 'matches' && bMetrics.matchedTalks !== aMetrics.matchedTalks) return bMetrics.matchedTalks - aMetrics.matchedTalks;
+        if (sortOrder === 'match-rate' && bMetrics.matchRate !== aMetrics.matchRate) return bMetrics.matchRate - aMetrics.matchRate;
+        if (sortOrder === 'weighted' && bMetrics.relevance !== aMetrics.relevance) return bMetrics.relevance - aMetrics.relevance;
+        if (sortOrder === 'talks' && b.stats.totalTalks !== a.stats.totalTalks) return b.stats.totalTalks - a.stats.totalTalks;
+        const timeDiff = new Date(b.lastInteractionAt || 0).getTime() - new Date(a.lastInteractionAt || 0).getTime();
+        return timeDiff !== 0 ? timeDiff : tieBreak(a, b);
       });
 
     if (peers.length === 0) {
@@ -389,6 +422,7 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
         const resolvedStageName = deps.getPeerName(peer.peerId, peer.stageName);
         const displayName = buildDisplayName(resolvedStageName, known);
         const relationship = formatRelationshipLabel(known?.label);
+        const metrics = rankingMetrics(peer, known);
         const blockedBadge = deps.isBlockedByMe(peer.peerId)
           ? '<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#fff7ed;color:#c2410c;font-size:0.72em;font-weight:700;margin-left:8px;">Blocked</span>'
           : '';
@@ -398,6 +432,7 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
               <div class="contact-item-name" style="font-weight: 700;">${deps.escapeHtml(displayName)}${blockedBadge}</div>
               <div class="contact-item-meta" style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(buildMetaLine(peer, known))}</div>
               <div class="contact-item-meta" style="font-size: 0.8em; color: #94a3b8; margin-top: 4px;">Sent ${peer.stats.sent.talks} · Received ${peer.stats.received.talks} · Relationship: ${deps.escapeHtml(relationship)}</div>
+              ${sortOrder === 'weighted' ? `<div class="contact-item-rank" title="${deps.escapeHtml(metrics.explanation)}" style="font-size:0.8em;color:#475569;margin-top:4px;">Relevance score: ${metrics.relevance} · ${deps.escapeHtml(metrics.explanation)}</div>` : ''}
             </div>
             <span style="color: #999; flex-shrink: 0;">›</span>
           </div>

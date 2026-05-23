@@ -194,7 +194,7 @@ export class ContentFilter {
   }
   
   private static containsDirtyWords(content: string): boolean {
-    const words = content.toLowerCase().split(/\s+/);
+    const words = content.toLowerCase().match(/[\p{L}\p{N}']+/gu) || [];
     return words.some(word => this.dirtyWords.has(word));
   }
 }

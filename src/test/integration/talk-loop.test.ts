@@ -504,6 +504,39 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
     });
 
+    it('accepts English and Chinese talks while rejecting a third language', async () => {
+      const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
+      userDeliveryContext.set(RESPONDER_ID, {
+        talkFilters: {
+          ...getRouteTestTalkIntakeFilters(),
+          allowedLanguages: ['en', 'zh'],
+        },
+        ageVerified: false,
+      });
+
+      const deliver = (language: string) => request(app)
+        .post(`/api/talks/talk_${language}/received`)
+        .send({
+          receiverId: RESPONDER_ID,
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          talkData: { ...TALK_DATA, id: `talk_${language}`, title: `Language ${language}`, language },
+        });
+
+      const english = await deliver('en');
+      const chinese = await deliver('zh');
+      const spanish = await deliver('es');
+
+      expect(english.body.registered).toBe(true);
+      expect(chinese.body.registered).toBe(true);
+      expect(spanish.body).toMatchObject({ registered: false, filteredOut: true });
+      expect(spanish.body.rejectedBy).toContain('intake_language');
+      const acceptedTalkIds = Array.from(incomingTalksMap.get(RESPONDER_ID)?.values() || [])
+        .flatMap((cluster: any) => Object.keys(cluster.talkIds || {}));
+      expect(acceptedTalkIds).toEqual(expect.arrayContaining(['talk_en', 'talk_zh']));
+      expect(acceptedTalkIds).not.toContain('talk_es');
+    });
+
     it('does not register a talk when either user blocked the other', async () => {
       const { app, incomingTalksMap, blockedByUser } = buildTestServer();
       blockedByUser.set(RESPONDER_ID, new Set([SENDER_ID]));
@@ -567,6 +600,41 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(res.body.filteredOut).toBe(true);
       expect(res.body.rejectedBy).toContain('intake_max_distance');
       expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
+    });
+
+    it('accepts only talks inside a configured minimum and maximum distance band', async () => {
+      const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
+      userDeliveryContext.set(RESPONDER_ID, {
+        talkFilters: {
+          ...getRouteTestTalkIntakeFilters(),
+          minDistanceMiles: 0.1,
+          maxDistanceMiles: 1,
+        },
+        ageVerified: false,
+        location: {
+          latitude: 37.7749,
+          longitude: -122.4194,
+          accuracy: 10,
+          timestamp: new Date(),
+        },
+      });
+      const deliver = (id: string, authorLocation: { latitude: number; longitude: number }) => request(app)
+        .post(`/api/talks/${id}/received`)
+        .send({
+          receiverId: RESPONDER_ID,
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          talkData: { ...TALK_DATA, id, title: id, authorLocation },
+        });
+
+      const tooNear = await deliver('too_near', { latitude: 37.7749, longitude: -122.4194 });
+      const inBand = await deliver('in_band', { latitude: 37.781, longitude: -122.4194 });
+      const tooFar = await deliver('too_far', { latitude: 37.81, longitude: -122.4194 });
+
+      expect(tooNear.body.rejectedBy).toContain('intake_min_distance');
+      expect(inBand.body.registered).toBe(true);
+      expect(tooFar.body.rejectedBy).toContain('intake_max_distance');
+      expect(incomingTalksMap.get(RESPONDER_ID)?.size).toBe(1);
     });
 
     it('does not register when dirty-word intake applies to questionsJson-only payload', async () => {

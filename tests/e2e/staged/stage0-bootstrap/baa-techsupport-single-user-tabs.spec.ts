@@ -28,6 +28,8 @@ test.describe('Stage 0 — TechSupport single-user traversal', () => {
     await expect(page.locator('#contacts-list')).toBeVisible();
     await expect(page.locator('#contacts-filter-name')).toBeVisible();
     await expect(page.locator('#contacts-filter-relation')).toBeVisible();
+    await expect(page.locator('#contacts-filter-relation option[value="partner"]')).toHaveText('Partners');
+    await expect(page.locator('#contacts-sort-order option[value="weighted"]')).toHaveText('Relevance score');
 
     await page.click('.nav-btn[data-view="talks"]');
     await afterNav();
@@ -35,6 +37,10 @@ test.describe('Stage 0 — TechSupport single-user traversal', () => {
     await expect(page.locator('#talks-nav-all')).toBeVisible();
     await expect(page.locator('#talks-nav-in')).toBeVisible();
     await expect(page.locator('#talks-nav-out')).toBeVisible();
+    await expect(page.locator('#talks-out-sort-order option[value="matches"]')).toHaveText('Most matches');
+    await expect(page.locator('#creator-replies-panel')).toBeVisible();
+    await expect(page.locator('#reply-filter-query')).toBeVisible();
+    await expect(page.locator('#reply-sort-order option[value="weighted"]')).toHaveText('Relevance score');
 
     await page.click('.nav-btn[data-view="me"]');
     await afterNav();
@@ -55,4 +61,3 @@ test.describe('Stage 0 — TechSupport single-user traversal', () => {
     await browser.close();
   });
 });
-

@@ -1,6 +1,7 @@
 import { escapeHtml, formatTimeAgo } from './ui-formatters';
 import type { PeerRelationshipStats, TalkHistoryItem } from '../../server/routes/peer-routes';
 import type { KnownPerson } from '../../shared/types';
+import { avatarInnerHtml } from './profile-avatar';
 
 export type UserDetailViewDeps = {
   currentUserId: string;
@@ -226,11 +227,11 @@ function renderProfileHtml(publicUser: any): string {
   return `
     <div class="peer-stat-card" style="margin-bottom:12px;">
       <div style="display:flex; gap:12px; align-items:flex-start;">
-        <div class="user-avatar" style="width:56px; height:56px; font-size:1.5em; flex-shrink:0;">${escapeHtml(headshot || '?')}</div>
+        <div class="user-avatar" style="width:56px; height:56px; font-size:1.5em; flex-shrink:0;">${avatarInnerHtml(headshot, '?', escapeHtml)}</div>
         <div style="min-width:0; flex:1;">
           <div style="font-weight:700; color:#111827;">Public Profile</div>
           <div style="font-size:0.85em; color:#475569; margin-top:4px;">Languages: ${escapeHtml(languages.length > 0 ? languages.join(', ') : 'Not listed')}</div>
-          <div style="font-size:0.85em; color:#475569; margin-top:4px;">Interests: ${escapeHtml(interests.length > 0 ? interests.join(', ') : 'Not listed')}</div>
+          ${interests.length > 0 ? `<div style="font-size:0.85em; color:#475569; margin-top:4px;">Interests: ${escapeHtml(interests.join(', '))}</div>` : ''}
           <div style="display:grid; gap:8px; margin-top:10px;">
             ${
               profile.length > 0

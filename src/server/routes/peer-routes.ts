@@ -26,6 +26,18 @@ export type TalkHistoryItem = {
   date: string;
 };
 
+export type CreatorReplyItem = {
+  responseId: string;
+  talkId: string;
+  title: string;
+  type: string;
+  responderId: string;
+  responderName: string;
+  outcome: 'match' | 'ignore' | 'mismatch';
+  date: string;
+  answers: TalkResponse['answers'];
+};
+
 type PeerRouteDeps = {
   incomingTalksMap: Map<string, Map<string, any>>;
   talkResponsesMap: Map<string, TalkResponse[]>;
@@ -235,6 +247,50 @@ export function registerPeerRoutes(app: express.Application, deps: PeerRouteDeps
     });
 
     res.json(summaries);
+  });
+
+  /**
+   * GET /api/users/:userId/replies
+   * Returns normalized responses to talks sent by the creator, suitable for large-list triage.
+   */
+  app.get('/api/users/:userId/replies', async (req, res) => {
+    const { userId } = req.params;
+    if (!userId) {
+      res.status(400).json({ error: 'userId required' });
+      return;
+    }
+
+    const replies: CreatorReplyItem[] = [];
+    const seenResponseIds = new Set<string>();
+    for (const [receiverId, userMap] of incomingTalksMap.entries()) {
+      if (!receiverId || receiverId === userId) continue;
+      const blockStatus = await getBlockStatus(userId, receiverId);
+      if (blockStatus.eitherBlocked) continue;
+      const responderName = await getUserStageName(receiverId, 'Unknown');
+      for (const cluster of uniqueClusters(userMap)) {
+        if (!hasSender(cluster, userId)) continue;
+        for (const talkId of talkIdsFromCluster(cluster)) {
+          for (const response of talkResponsesMap.get(talkId) ?? []) {
+            if (response.responderId !== receiverId || seenResponseIds.has(response.responseId)) continue;
+            seenResponseIds.add(response.responseId);
+            replies.push({
+              responseId: response.responseId,
+              talkId,
+              title: String(cluster.title || 'Untitled Talk'),
+              type: String(cluster.type || response.talkType || 'flow'),
+              responderId: receiverId,
+              responderName,
+              outcome: response.outcome === 'match' ? 'match' : response.outcome === 'ignore' ? 'ignore' : 'mismatch',
+              date: new Date(response.createdAt).toISOString(),
+              answers: response.answers,
+            });
+          }
+        }
+      }
+    }
+
+    replies.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime() || a.responseId.localeCompare(b.responseId));
+    res.json(replies);
   });
 
   /**

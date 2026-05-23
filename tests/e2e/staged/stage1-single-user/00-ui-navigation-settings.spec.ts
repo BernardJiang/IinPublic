@@ -111,6 +111,9 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#me-view')).not.toContainText('My Talks');
     await expect(p.locator('#me-view')).not.toContainText('My Answers');
     await expect(p.locator('#me-view')).not.toContainText('Conversations');
+    await expect(p.locator('#copy-talk-autosave-checkbox')).toHaveCount(0);
+    await expect(p.locator('#chatbot-enabled-checkbox')).toHaveCount(0);
+    await expect(p.locator('#talk-filter-min-distance')).toHaveCount(0);
 
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
@@ -132,6 +135,17 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#settings-dirty-words-filter')).toBeVisible();
     await expect(p.locator('#settings-credit-visible')).toBeVisible();
     await expect(p.locator('.settings-talk-filter-type')).toHaveCount(4);
+    await p.locator('#settings-profile-languages').selectOption('zh');
+    await expect(p.locator('.nav-btn[data-view="settings"] .nav-label')).toHaveText('设置');
+    await expect(p.locator('.nav-btn[data-view="talks"] .nav-label')).toHaveText('话题');
+    await expect(p.locator('#settings-content')).toContainText('界面语言');
+    await expect(p.locator('#settings-content')).toContainText('内容过滤');
+    await p.locator('#settings-profile-languages').selectOption('en');
+    await expect(p.locator('.nav-btn[data-view="settings"] .nav-label')).toHaveText('Settings');
+    await p.locator('#settings-min-distance').fill('51');
+    await p.locator('#settings-max-distance').fill('50');
+    await p.locator('#settings-max-distance').blur();
+    await expect(p.locator('#settings-min-distance')).not.toHaveValue('51');
 
     await p.locator('#settings-home-room').selectOption('california');
     await expect

@@ -77,6 +77,12 @@ test.describe('Profile foundation', () => {
 
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
+    await expect(page.locator('#settings-content')).not.toContainText('Interests: None listed');
+    for (const reservedName of ['TechSupport', 'tech_support', 'Tech Support', 'ROOT', 'admin', 'system']) {
+      await page.fill('#settings-stage-name-input', reservedName);
+      await page.locator('#settings-stage-name-input').blur();
+      await expect(page.locator('#settings-stage-name-input')).toHaveValue('Tom', { timeout: 10000 });
+    }
     await page.selectOption('#settings-headshot-select', '😎');
     await page.selectOption('#settings-profile-languages', 'en');
     await page.evaluate(async () => {
@@ -110,6 +116,15 @@ test.describe('Profile foundation', () => {
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
     await expect(page.locator('#settings-profile-languages')).toHaveValue('en');
+    await page.setInputFiles('#settings-photo-input', {
+      name: 'profile-avatar.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+      ),
+    });
+    await expect(page.locator('#settings-content .profile-avatar-image')).toBeVisible({ timeout: 10000 });
     const tomUserId = await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
     await expect
       .poll(
@@ -150,6 +165,7 @@ test.describe('Profile foundation', () => {
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Coffee');
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Usual city');
     await expect(peerPage.locator('#peer-stats-section')).toContainText('San Diego');
-    await expect(peerPage.locator('#peer-stats-section .user-avatar').first()).toContainText('😎');
+    await expect(peerPage.locator('#peer-stats-section')).not.toContainText('Interests: Not listed');
+    await expect(peerPage.locator('#peer-stats-section .profile-avatar-image').first()).toBeVisible();
   });
 });

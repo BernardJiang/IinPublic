@@ -211,6 +211,45 @@ describe('GET /api/users/:userId/peers/:peerId/relationship', () => {
   });
 });
 
+describe('GET /api/users/:userId/replies', () => {
+  it('returns one hundred distinct creator replies for ten talks sent to ten users', async () => {
+    const { app, incomingTalksMap, talkResponsesMap } = buildTestServer();
+    for (let userIndex = 0; userIndex < 10; userIndex++) {
+      const receiverId = `receiver_${userIndex}`;
+      for (let talkIndex = 0; talkIndex < 10; talkIndex++) {
+        const talkId = `talk_${talkIndex}`;
+        addIncoming(incomingTalksMap, receiverId, `identity_${talkIndex}`, ALICE, talkId);
+        addResponse(
+          talkResponsesMap,
+          talkId,
+          receiverId,
+          userIndex + talkIndex < 10 ? 'match' : 'other',
+        );
+      }
+    }
+
+    const res = await request(app).get(`/api/users/${ALICE}/replies`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(100);
+    expect(new Set(res.body.map((reply: { responseId: string }) => reply.responseId)).size).toBe(100);
+    expect(res.body.filter((reply: { responderId: string }) => reply.responderId === 'receiver_0')).toHaveLength(10);
+    expect(res.body.filter((reply: { talkId: string }) => reply.talkId === 'talk_0')).toHaveLength(10);
+    expect(res.body.some((reply: { outcome: string }) => reply.outcome === 'match')).toBe(true);
+    expect(res.body.some((reply: { outcome: string }) => reply.outcome === 'mismatch')).toBe(true);
+  });
+
+  it('omits replies from a responder blocked in either direction', async () => {
+    const { app, incomingTalksMap, talkResponsesMap, blockedByUser } = buildTestServer();
+    addIncoming(incomingTalksMap, BOB, 'ik_bob', ALICE, FLOW_TALK_ID);
+    addResponse(talkResponsesMap, FLOW_TALK_ID, BOB, 'match');
+    blockedByUser.set(BOB, new Set([ALICE]));
+
+    const res = await request(app).get(`/api/users/${ALICE}/replies`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Tests: talk-history endpoint
 // ---------------------------------------------------------------------------
