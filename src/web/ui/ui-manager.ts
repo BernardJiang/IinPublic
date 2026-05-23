@@ -238,6 +238,7 @@ export class UIManager extends EventEmitter {
       intake_talk_type: 'reasonIntakeTalkType',
       intake_min_distance: 'reasonIntakeMinDistance',
       intake_max_distance: 'reasonIntakeMaxDistance',
+      intake_sent_after: 'reasonIntakeSentAfter',
       intake_grammar: 'reasonIntakeGrammar',
       intake_dirty_words: 'reasonIntakeDirtyWords',
       intake_custom_blocked_terms: 'reasonIntakeCustomTerms',
@@ -2378,6 +2379,10 @@ export class UIManager extends EventEmitter {
             </select>
           </label>
           <div style="margin-top:4px;font-size:0.82em;color:#64748b;">${this.t('settingsLocation')}: ${escapeHtml(locationText)}</div>
+          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
+            <span>${this.t('settingsSentAfter')}</span>
+            <input type="datetime-local" class="form-input" id="settings-sent-after" value="${escapeHtml(talkFilters.sentAfter ? String(talkFilters.sentAfter).slice(0, 16) : '')}">
+          </label>
         </section>
         <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
           <div style="font-weight:700;color:#111827;margin-bottom:10px;">${this.t('settingsContentFilters')}</div>
@@ -2386,6 +2391,8 @@ export class UIManager extends EventEmitter {
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-dirty-words-filter" ${talkFilters.blockDirtyWords ? 'checked' : ''}> ${this.t('settingsDirtyWords')}</label>
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-credit-visible" ${reputation.isHidden === true ? '' : 'checked'}> ${this.t('settingsCreditVisible')}</label>
           </div>
+          <div style="font-size:0.8em;color:#64748b;margin-top:8px;">${this.t('settingsGrammarHelp')}</div>
+          <div style="font-size:0.8em;color:#64748b;margin-top:4px;">${this.t('settingsDirtyWordsHelp')}</div>
           <div style="margin-top:12px;">
             <div style="font-size:0.9em;margin-bottom:6px;">${this.t('settingsAllowedTypes')}</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px;">
@@ -2442,6 +2449,7 @@ export class UIManager extends EventEmitter {
       const profileLanguages = selectedValues('settings-profile-languages');
       const minDistanceEl = document.getElementById('settings-min-distance') as HTMLInputElement | null;
       const maxDistanceEl = document.getElementById('settings-max-distance') as HTMLInputElement | null;
+      const sentAfterEl = document.getElementById('settings-sent-after') as HTMLInputElement | null;
       const customBlockedEl = document.getElementById('settings-custom-blocked') as HTMLTextAreaElement | null;
       const typeEls = Array.from(document.querySelectorAll('.settings-talk-filter-type')) as HTMLInputElement[];
       const nextFilters: TalkIntakeFilters = {
@@ -2455,6 +2463,7 @@ export class UIManager extends EventEmitter {
       if (nextFilters.allowedTalkTypes.length === 0) nextFilters.allowedTalkTypes = ['flow', 'survey', 'tag', 'route'];
       if (minDistanceEl?.value) nextFilters.minDistanceMiles = Number(minDistanceEl.value);
       if (maxDistanceEl?.value) nextFilters.maxDistanceMiles = Number(maxDistanceEl.value);
+      if (sentAfterEl?.value) nextFilters.sentAfter = new Date(sentAfterEl.value).toISOString();
       if (
         typeof nextFilters.minDistanceMiles === 'number' &&
         typeof nextFilters.maxDistanceMiles === 'number' &&
@@ -2499,7 +2508,7 @@ export class UIManager extends EventEmitter {
       this.emit('updateTalkFilters', nextFilters);
       if (document.getElementById('talks-view')?.classList.contains('active')) this.displayTalksList();
     };
-    ['settings-profile-languages', 'settings-min-distance', 'settings-max-distance', 'settings-grammar-filter', 'settings-dirty-words-filter'].forEach((id) => {
+    ['settings-profile-languages', 'settings-min-distance', 'settings-max-distance', 'settings-sent-after', 'settings-grammar-filter', 'settings-dirty-words-filter'].forEach((id) => {
       document.getElementById(id)?.addEventListener('change', sync);
     });
     document.querySelectorAll('.settings-filter-language-option').forEach((el) => {

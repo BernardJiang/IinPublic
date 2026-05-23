@@ -41,6 +41,19 @@ describe('intakeFilterRejectReasons', () => {
     ).toEqual(['intake_dirty_words']);
   });
 
+  it('normalizes punctuation/case and recognizes bounded Chinese moderation terms', () => {
+    const filters = { ...baseFilters, allowedLanguages: ['en', 'zh'], requireGoodGrammar: false, blockDirtyWords: true };
+    expect(
+      intakeFilterRejectReasons({ type: 'flow', title: 'This is SCAM!!!', language: 'en' }, filters),
+    ).toEqual(['intake_dirty_words']);
+    expect(
+      intakeFilterRejectReasons({ type: 'flow', title: '这是诈骗信息', language: 'zh' }, filters),
+    ).toEqual(['intake_dirty_words']);
+    expect(
+      intakeFilterRejectReasons({ type: 'flow', title: 'Robotics club meeting', language: 'en' }, filters),
+    ).toEqual([]);
+  });
+
   it('returns empty array when subject passes', () => {
     expect(intakeFilterRejectReasons({ type: 'flow', title: 'Hi', language: 'en' }, baseFilters)).toEqual([]);
   });

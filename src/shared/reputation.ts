@@ -108,10 +108,10 @@ export type ReputationAction =
   | 'blocked';
 
 export class ContentFilter {
-  private static dirtyWords = new Set([
-    // Basic offensive words - would be loaded from a comprehensive list
-    'spam', 'scam', 'fake', 'bot'
+  private static latinBlockedWords = new Set([
+    'spam', 'scam', 'fake', 'bot', 'phishing', 'fraud', 'fuck', 'shit', 'bitch',
   ]);
+  private static cjkBlockedTerms = ['垃圾广告', '诈骗', '钓鱼链接'];
   
   /**
    * Apply content filters to a message
@@ -194,8 +194,10 @@ export class ContentFilter {
   }
   
   private static containsDirtyWords(content: string): boolean {
-    const words = content.toLowerCase().match(/[\p{L}\p{N}']+/gu) || [];
-    return words.some(word => this.dirtyWords.has(word));
+    const normalized = content.normalize('NFKC').toLowerCase();
+    const words = normalized.match(/[\p{L}\p{N}']+/gu) || [];
+    return words.some(word => this.latinBlockedWords.has(word)) ||
+      this.cjkBlockedTerms.some(term => normalized.includes(term));
   }
 }
 

@@ -172,6 +172,9 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#settings-home-room')).toBeVisible();
     await expect(p.locator('#settings-grammar-filter')).toBeVisible();
     await expect(p.locator('#settings-dirty-words-filter')).toBeVisible();
+    await expect(p.locator('#settings-sent-after')).toBeVisible();
+    await expect(p.locator('#settings-content')).toContainText('readable sentence length');
+    await expect(p.locator('#settings-content')).toContainText('English and Chinese moderation list');
     await expect(p.locator('#settings-credit-visible')).toBeVisible();
     await expect(p.locator('.settings-talk-filter-type')).toHaveCount(4);
     await p.locator('#settings-profile-languages').selectOption('zh');
@@ -195,6 +198,10 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('[data-testid="broadcast-preamble-cancel"]').click();
     await p.locator('#settings-profile-languages').selectOption('en');
     await expect(p.locator('.nav-btn[data-view="settings"] .nav-label')).toHaveText('Settings');
+    await p.locator('#settings-sent-after').fill('2026-05-01T09:30');
+    await expect
+      .poll(async () => p.evaluate(() => JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}').sentAfter))
+      .toContain('2026-05-01T');
     await p.locator('#settings-min-distance').fill('51');
     await p.locator('#settings-max-distance').fill('50');
     await p.locator('#settings-max-distance').blur();
@@ -294,6 +301,36 @@ test.describe('UI navigation and settings shell', () => {
     await afterNav();
     await expect(p.locator('#answers-content')).toContainText('Preferred campus food?');
     await expect(p.locator('#answers-content')).toContainText('Tacos');
+
+    await p.locator('.nav-btn[data-view="settings"]').click();
+    await afterNav();
+    await p.locator('#settings-copy-talk-autosave').uncheck();
+    const disabledCopyResult = await p.evaluate(() => {
+      const ui = (window as any).__iinpublic_app.getApp().uiManager as any;
+      const talk = {
+        id: 'incoming_no_copy_2',
+        title: 'History Only Incoming Talk',
+        type: 'flow',
+        authorId: 'sender-history-only',
+        questions: [{
+          id: 'q2',
+          text: 'Keep in history only?',
+          answers: [{ id: 'a2', text: 'Yes', isMatch: true }],
+        }],
+      };
+      ui.completeTalk(talk, [{ questionId: 'q2', answerId: 'a2', answerText: 'Yes', mode: 'manual' }], 'match');
+      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const history = JSON.parse(localStorage.getItem('myAnswerHistory') || '{}');
+      return {
+        copiedRole: myTalks.incoming_no_copy_2?.role,
+        historyTitles: Object.values(history).map((record: any) => record.title),
+      };
+    });
+    expect(disabledCopyResult.copiedRole).toBe('answered');
+    expect(disabledCopyResult.historyTitles).toContain('History Only Incoming Talk');
+    await p.locator('.nav-btn[data-view="talks"]').click();
+    await afterNav();
+    await expect(p.locator('.talk-list-item[data-role="copied"]').filter({ hasText: 'History Only Incoming Talk' })).toHaveCount(0);
   });
 
   test('settings tolerates legacy string-valued profile and filter fields', async () => {
