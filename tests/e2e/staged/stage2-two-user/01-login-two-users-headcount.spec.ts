@@ -2,7 +2,7 @@ import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import * as fs from 'fs';
 import { injectIdbClear } from '../../helpers/clear-database';
-import { clearGunForStage2Spec, isStagePipeline } from '../../helpers/e2e-stage-pipeline';
+import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { wait, afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
 import { webBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
@@ -39,7 +39,7 @@ test.describe('Login — two users headcount', () => {
   test('Two users: headcount accounts for TechSupport baseline and one room navigation', async () => {
     const screenshotDir = e2eTestScreenshotsDir('01-login');
     if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
-    const supportOffset = isStagePipeline() ? 1 : 0;
+    const supportOffset = 1;
     const globalHeadcount = (targetPage: Page) =>
       targetPage.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount');
     const northAmericaHeadcount = (targetPage: Page) =>

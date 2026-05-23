@@ -3,7 +3,7 @@ import { test, expect } from '../../helpers/fixtures';
 import * as fs from 'fs';
 import * as path from 'path';
 import { injectIdbClear } from '../../helpers/clear-database';
-import { clearGunForStage1Spec, isStagePipeline } from '../../helpers/e2e-stage-pipeline';
+import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, delay, headless } from '../../helpers/timing';
 import { webBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
@@ -43,7 +43,7 @@ test.describe('Login — single user headcount', () => {
     await afterLoad();
     attachE2eBrowserTabLabel(page, 'User1');
 
-    const expectedHeadcount = isStagePipeline() ? '2' : '1';
+    const expectedHeadcount = '2';
     const headcount = page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount');
     await headcount.waitFor({ state: 'visible', timeout: 15000 });
     await expect(headcount).toContainText(expectedHeadcount, { timeout: 20000 });

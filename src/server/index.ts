@@ -798,6 +798,7 @@ class IinPublicServer {
   private setupRoutes(): void {
     registerSystemRoutes(this.app, {
       gun: this.gun,
+      gunService: this.gunService,
       incomingTalksMap: this.incomingTalksMap,
       conversationsMap: this.conversationsMap,
       talkResponsesMap: this.talkResponsesMap,

@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import type express from 'express';
 import { logger } from '../logger';
+import { clearExactChatbotMemoryCacheForTesting } from '../exact-chatbot-memory-store';
+import type { GunService } from '../services/gun-service';
 import {
   applyP2PNeighborCacheAction,
   applyLocalNodeAction,
@@ -119,6 +121,7 @@ function statsIdxFromObject(raw: E2eServerSnapshot['statsIdx']): {
 
 type RegisterSystemRoutesDeps = {
   gun: any;
+  gunService?: GunService;
   incomingTalksMap: Map<string, Map<string, any>>;
   conversationsMap: Map<string, Map<string, any>>;
   talkResponsesMap: Map<string, unknown[]>;
@@ -135,6 +138,7 @@ export function registerSystemRoutes(
   app: express.Application,
   {
     gun,
+    gunService,
     incomingTalksMap,
     conversationsMap,
     talkResponsesMap,
@@ -429,6 +433,7 @@ export function registerSystemRoutes(
         if (gun && gun._ && gun._.graph) {
           logger.info('🧹 Clearing Gun.js in-memory database...');
           gun._.graph = {};
+          if (gunService) clearExactChatbotMemoryCacheForTesting(gunService);
           incomingTalksMap.clear();
           conversationsMap.clear();
           clearTalkResponseStats();
@@ -481,6 +486,7 @@ export function registerSystemRoutes(
           return;
         }
         gun._.graph = { ...body.gunGraph };
+        if (gunService) clearExactChatbotMemoryCacheForTesting(gunService);
         incomingTalksMap.clear();
         conversationsMap.clear();
         for (const [uid, inner] of Object.entries(body.incomingTalks || {})) {
