@@ -1,3 +1,5 @@
+import type { UiTranslationKey } from './ui-translations';
+
 type TalkEditorDialogOptions = {
   existingTalk?: any;
   escapeHtml: (text: string) => string;
@@ -11,10 +13,12 @@ type TalkEditorDialogOptions = {
   setupTalkFormHandlers: (modal: HTMLElement) => void;
   defaultLanguage?: string;
   languageOptions?: Array<{ code: string; label: string }>;
+  text?: (key: UiTranslationKey) => string;
 };
 
 export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
   const { existingTalk } = options;
+  const text = (key: UiTranslationKey, fallback: string): string => options.text?.(key) || fallback;
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.id = 'talk-editor-modal';
@@ -37,17 +41,17 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
     modal.innerHTML = `
       <div class="modal-content" style="max-width: 1000px; max-height: 90vh; overflow-y: auto;">
         <div class="modal-header">
-          <h2 class="modal-title">${isEdit ? 'Edit Talk' : 'Create a Talk'}</h2>
-          <p class="talk-editor-description">Build a branching conversation flow - each answer can lead to a different question</p>
+          <h2 class="modal-title">${isEdit ? text('editorEditTitle', 'Edit Talk') : text('editorCreateTitle', 'Create a Talk')}</h2>
+          <p class="talk-editor-description">${text('editorDescription', 'Build a branching conversation flow - each answer can lead to a different question')}</p>
         </div>
         <form id="talk-editor-form" style="padding: 20px;" data-editing-talk-id="${existingTalk?.id || ''}">
           <div class="form-group">
-            <label class="form-label">Talk Title</label>
+            <label class="form-label">${text('editorTalkTitle', 'Talk Title')}</label>
             <input type="text" class="form-input" id="talk-title" placeholder="e.g., Coffee Meetup, Quick Survey" required value="${existingTalk ? options.escapeHtml(existingTalk.title) : ''}">
           </div>
 
           <div class="form-group">
-            <label class="form-label">Language</label>
+            <label class="form-label">${text('editorLanguage', 'Language')}</label>
             <select class="form-input" id="talk-language" aria-label="Talk language">
               ${languageOptions
                 .map((lang) => `<option value="${lang.code}" ${lang.code === selectedLanguage ? 'selected' : ''}>${lang.label}</option>`)
@@ -63,7 +67,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
           </div>
 
           <div class="form-group">
-            <label class="form-label">Type</label>
+            <label class="form-label">${text('editorType', 'Type')}</label>
             <div style="display: flex; flex-direction: column; gap: 10px;">
               <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
                 <input type="radio" name="talk-type-radio" value="tag" ${existingTalk?.type === 'tag' || !existingTalk ? 'checked' : ''}>
@@ -91,10 +95,10 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
           </div>
 
           <div class="form-group" id="questions-form-group">
-            <label class="form-label" id="questions-form-label">Questions &amp; Branching</label>
+            <label class="form-label" id="questions-form-label">${text('editorQuestions', 'Questions & Branching')}</label>
             <p class="talk-editor-type-hint" id="talk-editor-type-hint" style="margin: 0 0 10px 0; font-size: 0.9em; color: #666;"></p>
             <div id="questions-container"></div>
-            <button type="button" id="add-question-btn" class="btn" style="margin-top: 10px; background: #667eea; color: white;">+ Add Question</button>
+            <button type="button" id="add-question-btn" class="btn" style="margin-top: 10px; background: #667eea; color: white;">${text('editorAddQuestion', '+ Add Question')}</button>
           </div>
 
           <div class="form-group" id="route-form-group" style="display: none;">
@@ -114,7 +118,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
           </div>
 
           <div class="form-group" id="talk-options-group">
-            <label class="form-label">Expiration</label>
+            <label class="form-label">${text('editorExpiration', 'Expiration')}</label>
             <select class="form-input" id="talk-expires" aria-label="Talk expiration">
               <option value="">Forever</option>
               <option value="1y">One year</option>
@@ -124,7 +128,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
             </select>
           </div>
           <div class="form-group" id="talk-location-group">
-            <label class="form-label">Location</label>
+            <label class="form-label">${text('editorLocation', 'Location')}</label>
             <select class="form-input" id="talk-location-radius" aria-label="Location radius">
               <option value="">Anywhere</option>
               <option value="10">10 miles</option>
@@ -135,18 +139,18 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
           <div class="form-group" id="talk-send-chatroom-group" style="display: ${isEdit ? 'none' : 'block'};">
             <label class="talk-send-chatroom-label" style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
               <input type="checkbox" id="talk-send-to-chatroom" checked aria-label="Send to Chatroom">
-              <span>Send to Chatroom</span>
+              <span>${text('editorSendChatroom', 'Send to Chatroom')}</span>
             </label>
           </div>
           <div class="form-group" id="talk-adult-group">
             <label class="talk-send-chatroom-label" style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
               <input type="checkbox" id="talk-is-adult" aria-label="Adult content (18+)" ${existingTalk?.isAdult ? 'checked' : ''}>
-              <span>🔞 Adult content (18+) — only delivered to age-verified users</span>
+              <span>🔞 ${text('editorAdult', 'Adult content (18+) - only delivered to age-verified users')}</span>
             </label>
           </div>
           <div class="modal-actions">
-            <button type="button" class="btn" id="cancel-talk-btn" style="background: #ccc; color: #333;">Cancel</button>
-            <button type="submit" class="btn" id="talk-submit-btn">${isEdit ? 'Save changes' : 'Create'}</button>
+            <button type="button" class="btn" id="cancel-talk-btn" style="background: #ccc; color: #333;">${text('editorCancel', 'Cancel')}</button>
+            <button type="submit" class="btn" id="talk-submit-btn">${isEdit ? text('editorSave', 'Save changes') : text('editorCreate', 'Create')}</button>
           </div>
         </form>
       </div>
@@ -268,7 +272,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
           titleInput.placeholder = 'e.g., Coffee, Tennis, Jobs';
           titleInput.setAttribute('aria-label', 'Tag keyword');
         }
-        if (desc) (desc as HTMLElement).textContent = 'Tag: one keyword. Others answer with a checkbox — checked = match, unchecked = ignore.';
+        if (desc) (desc as HTMLElement).textContent = text('editorTagDescription', 'Tag: one keyword. Others answer with a checkbox - checked = match, unchecked = ignore.');
         return;
       }
 

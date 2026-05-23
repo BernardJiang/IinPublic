@@ -207,6 +207,25 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#reply-filter-query')).toHaveAttribute('placeholder', '昵称或话题');
     await expect(p.locator('#talks-out-sort-order option[value="weighted"]')).toHaveText('加权表现');
     await expect(p.locator('#creator-replies-summary')).toContainText('筛选回复');
+    await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showTalkEditorDialog());
+    await expect(p.locator('#talk-editor-modal')).toContainText('创建话题');
+    await expect(p.locator('#talk-editor-modal')).toContainText('话题标题');
+    await expect(p.locator('#talk-language option[value="en"]')).toHaveText('英语');
+    await p.locator('#cancel-talk-btn').click();
+    await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showTalkResponseDialog({
+      id: 'localization-response',
+      title: 'Localized Prompt',
+      type: 'flow',
+      questions: [{
+        id: 'q1',
+        text: 'Choose one',
+        answers: [{ id: 'a1', text: 'One', isMatch: true, isTerminal: true }],
+      }],
+    }, { skipAutoAnswer: true }));
+    await expect(p.locator('#talk-response-modal')).toContainText('问题 1 共 1');
+    await expect(p.locator('#talk-response-modal')).toContainText('自动');
+    await expect(p.locator('#talk-response-modal')).toContainText('手动');
+    await p.evaluate(() => document.getElementById('talk-response-modal')?.remove());
     await p.locator('.nav-btn[data-view="me"]').click();
     await afterNav();
     await expect(p.locator('#answers-content')).toContainText('你收到并回答的话题会显示在这里');

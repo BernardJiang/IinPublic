@@ -4006,6 +4006,7 @@ export class UIManager extends EventEmitter {
       completeTalk: this.completeTalk.bind(this),
       resolveAnswerPreferenceForTalkQuestion: this.resolveAnswerPreferenceForTalkQuestion.bind(this),
       saveAnswerPreference: this.saveAnswerPreference.bind(this),
+      text: this.t.bind(this),
     });
   }
 
@@ -4728,7 +4729,11 @@ export class UIManager extends EventEmitter {
     openTalkEditorDialog({
       existingTalk,
       defaultLanguage,
-      languageOptions: LANGUAGE_OPTIONS,
+      languageOptions: LANGUAGE_OPTIONS.map((language) => ({
+        ...language,
+        label: languageOptionLabel(this.getUiLanguage(), language.code, language.label),
+      })),
+      text: this.t.bind(this),
       escapeHtml: escapeHtml,
       getAnswerPreferences,
       addQuestionToForm: (index, container) =>

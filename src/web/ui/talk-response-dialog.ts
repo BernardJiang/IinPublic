@@ -1,4 +1,5 @@
 import { sessionAnswersToQAPairs } from '../../shared/flattened-answer-keys';
+import type { UiTranslationKey } from './ui-translations';
 
 type AnswerSelectionMode = 'auto' | 'manual' | 'permanent';
 
@@ -34,10 +35,12 @@ type TalkResponseDialogOptions = {
     fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerText?: string }>,
     mode?: 'auto' | 'manual' | 'permanent' | 'suppressed',
   ) => void;
+  text?: (key: UiTranslationKey) => string;
 };
 
 export function showTalkResponseDialog(options: TalkResponseDialogOptions): void {
   const { talk } = options;
+  const text = (key: UiTranslationKey, fallback: string): string => options.text?.(key) || fallback;
   const skipAutoAnswer = options.skipAutoAnswer ?? false;
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
@@ -68,7 +71,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       <div class="modal-content" style="max-width: 600px;">
         <div class="modal-header">
           <h2 class="modal-title">${options.escapeHtml(talk.title)}</h2>
-          <p>Tag — check to match, leave unchecked to ignore</p>
+          <p>${text('responseTagHelp', 'Tag - check to match, leave unchecked to ignore')}</p>
         </div>
         <div style="padding: 20px;">
           <div style="font-size: 1.1em; font-weight: 600; margin-bottom: 20px;">
@@ -76,10 +79,10 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           </div>
           <label class="tag-checkbox-label" style="display: flex; align-items: center; gap: 12px; cursor: pointer; font-size: 1.1em;">
             <input type="checkbox" id="tag-match-checkbox" class="tag-match-checkbox" ${isSavedMatch ? 'checked' : ''}>
-            <span>Match (I'm interested)</span>
+            <span>${text('responseInterested', "Match (I'm interested)")}</span>
           </label>
           <div class="modal-actions">
-            <button type="button" class="btn primary-btn" id="tag-submit-response">Submit</button>
+            <button type="button" class="btn primary-btn" id="tag-submit-response">${text('responseSubmit', 'Submit')}</button>
           </div>
         </div>
       </div>
@@ -229,9 +232,9 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         <div class="modal-header" style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
           <div>
             <h2 class="modal-title">${options.escapeHtml(talk.title)}</h2>
-            <p>Question ${currentQuestionIndex + 1} of ${talk.questions.length}</p>
+            <p>${text('responseQuestion', 'Question')} ${currentQuestionIndex + 1} ${text('responseOf', 'of')} ${talk.questions.length}</p>
           </div>
-          ${showBackButton ? `<button type="button" class="btn btn-back-question" data-testid="back-question-btn">← Previous question</button>` : ''}
+          ${showBackButton ? `<button type="button" class="btn btn-back-question" data-testid="back-question-btn">← ${text('responsePrevious', 'Previous question')}</button>` : ''}
         </div>
         <div style="padding: 20px;">
           <div style="font-size: 1.1em; font-weight: 600; margin-bottom: 16px;">
@@ -239,7 +242,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           </div>
           <div class="answer-radio-grid" role="radiogroup" aria-label="Choose answer and mode">
             <div class="answer-grid-header">
-              <span>Auto</span><span>Manual</span><span>Permanent</span><span></span>
+              <span>${text('responseAuto', 'Auto')}</span><span>${text('responseManual', 'Manual')}</span><span>${text('responsePermanent', 'Permanent')}</span><span></span>
             </div>
             ${currentQuestion.answers
               .map((answer: any) => {
@@ -289,7 +292,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
                 ${previousChoice?.answerId === 'ignore' ? 'checked' : ''}></label>
               <span class="answer-grid-cell"></span>
               <span class="answer-grid-cell"></span>
-              <span class="answer-grid-label">Ignore</span>
+              <span class="answer-grid-label">${text('responseIgnore', 'Ignore')}</span>
             </div>
           </div>
         </div>
