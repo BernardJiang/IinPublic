@@ -1772,7 +1772,7 @@ export class IinPublicApp {
         try {
           const chatroomId = data.chatroomId || this.chatroomService.getCurrentChatroomId();
           if (!chatroomId || !this.currentUser) {
-            this.uiManager.showNotification('No chatroom selected.', 'error');
+            this.uiManager.showNotification(this.uiManager.formatBroadcastNoChatroom(), 'error');
             return;
           }
           const broadcastableIds = Array.isArray(data.talkIds) && data.talkIds.length > 0
@@ -1828,7 +1828,7 @@ export class IinPublicApp {
             ),
           );
           if (previews.length > 0 && !(await this.uiManager.confirmBroadcastAudience(previews))) {
-            this.uiManager.showNotification('Broadcast cancelled.', 'info');
+            this.uiManager.showNotification(this.uiManager.formatBroadcastCancelled(), 'info');
             return;
           }
           // Phase 1: POST register-receivers in small parallel batches (HTTP only — no Gun on this path).
@@ -1882,16 +1882,10 @@ export class IinPublicApp {
             talkPayloads.filter(({ tid }) => broadcastableNowForGun.has(tid)).map(({ tid }) => tid),
             receivers,
           );
-          this.uiManager.showNotification(
-            `Sent ${sent} talk${sent !== 1 ? 's' : ''} to ${targetCount} user${targetCount !== 1 ? 's' : ''} in this chatroom.`,
-            'success',
-          );
+          this.uiManager.showNotification(this.uiManager.formatBroadcastSent(sent, targetCount), 'success');
         } catch (error) {
           console.error('Broadcast talks failed:', error);
-          this.uiManager.showNotification(
-            'Failed to broadcast talks: ' + (error as Error).message,
-            'error',
-          );
+          this.uiManager.showNotification(this.uiManager.formatBroadcastFailed((error as Error).message), 'error');
         }
       },
     );
@@ -2206,7 +2200,7 @@ export class IinPublicApp {
           ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
         });
         this.persistTravelModeStateToStorage();
-        this.uiManager.showNotification('Travel mode enabled. Select any room to travel there.', 'info');
+        this.uiManager.showNotification(this.uiManager.formatTravelEnabled(), 'info');
       } else {
         // Exit travel mode: return to home room if known.
         const home = this.travelHomeChatroomId;
@@ -2231,7 +2225,7 @@ export class IinPublicApp {
           );
         });
         }
-        this.uiManager.showNotification('Returned to home room.', 'success');
+        this.uiManager.showNotification(this.uiManager.formatTravelReturnedHomeRoom(), 'success');
       }
     });
 
@@ -2262,7 +2256,7 @@ export class IinPublicApp {
           );
         });
       }
-      this.uiManager.showNotification('Returned home.', 'success');
+      this.uiManager.showNotification(this.uiManager.formatTravelReturnedHome(), 'success');
     });
 
     this.uiManager.on('setHomeChatroom', async (data: { chatroomId: string }) => {
@@ -2277,7 +2271,7 @@ export class IinPublicApp {
         active: this.travelModeActive,
         homeChatroomId: this.travelHomeChatroomId,
       });
-      this.uiManager.showNotification(`Home room set to ${this.getChatroomDisplayName(chatroomId)}.`, 'success');
+      this.uiManager.showNotification(this.uiManager.formatTravelHomeSet(this.getChatroomDisplayName(chatroomId)), 'success');
     });
 
     this.uiManager.on(
@@ -2320,7 +2314,7 @@ export class IinPublicApp {
             }
           }
           if (!res.ok) {
-            this.uiManager.showNotification(text || 'Could not create room.', 'error');
+            this.uiManager.showNotification(text || this.uiManager.formatChatroomCreateFailed(), 'error');
             return;
           }
           const createdId = String(created?.id || '').trim();
@@ -2337,9 +2331,9 @@ export class IinPublicApp {
           void this.refreshCustomChatroomsFromServer().then(() => {
             this.subscribeToAllChatroomMemberCounts();
           });
-          this.uiManager.showNotification(`${created?.name || payload.name} created.`, 'success');
+          this.uiManager.showNotification(this.uiManager.formatChatroomCreated(created?.name || payload.name), 'success');
         } catch (e) {
-          this.uiManager.showNotification('Could not create room: ' + (e as Error).message, 'error');
+          this.uiManager.showNotification(this.uiManager.formatChatroomCreateFailed((e as Error).message), 'error');
         }
       },
     );
@@ -2358,7 +2352,7 @@ export class IinPublicApp {
         });
         const text = await res.text();
         if (!res.ok) {
-          this.uiManager.showNotification(text || 'Rename failed.', 'error');
+          this.uiManager.showNotification(text || this.uiManager.formatChatroomRenameFailed(), 'error');
           return;
         }
         await this.refreshCustomChatroomsFromServer();
@@ -2376,15 +2370,15 @@ export class IinPublicApp {
         if (headerEl && document.getElementById('chatroom-detail-container')?.style.display !== 'none') {
           headerEl.textContent = chatroomName;
         }
-        this.uiManager.showNotification('Room renamed.', 'success');
+        this.uiManager.showNotification(this.uiManager.formatChatroomRenamed(), 'success');
       } catch (e) {
-        this.uiManager.showNotification('Rename failed: ' + (e as Error).message, 'error');
+        this.uiManager.showNotification(this.uiManager.formatChatroomRenameFailed((e as Error).message), 'error');
       }
     });
 
     this.uiManager.on('deleteCustomChatroom', async (data: { chatroomId: string }) => {
       if (!this.currentUser) return;
-      if (!confirm('Delete this room? It will disappear from the list for everyone.')) return;
+      if (!confirm(this.uiManager.formatChatroomDeleteConfirm())) return;
       const base = this.getBackendApiBase();
       try {
         const res = await fetch(
@@ -2393,7 +2387,7 @@ export class IinPublicApp {
         );
         const text = await res.text();
         if (!res.ok) {
-          this.uiManager.showNotification(text || 'Delete failed.', 'error');
+          this.uiManager.showNotification(text || this.uiManager.formatChatroomDeleteFailed(), 'error');
           return;
         }
         await this.refreshCustomChatroomsFromServer();
@@ -2401,9 +2395,9 @@ export class IinPublicApp {
           this.uiManager.showChatroomList();
         }
         this.subscribeToAllChatroomMemberCounts();
-        this.uiManager.showNotification('Room deleted.', 'success');
+        this.uiManager.showNotification(this.uiManager.formatChatroomDeleted(), 'success');
       } catch (e) {
-        this.uiManager.showNotification('Delete failed: ' + (e as Error).message, 'error');
+        this.uiManager.showNotification(this.uiManager.formatChatroomDeleteFailed((e as Error).message), 'error');
       }
     });
 
@@ -2558,7 +2552,7 @@ export class IinPublicApp {
         await this.userService.updateUserLocation(this.currentUser.id, newLocation);
 
         if (this.travelModeActive) {
-          this.uiManager.showNotification('Travel mode is on — location updated without switching rooms.', 'info');
+          this.uiManager.showNotification(this.uiManager.formatTravelLocationHeld(), 'info');
           return;
         }
 
@@ -2569,14 +2563,11 @@ export class IinPublicApp {
           await this.chatroomService.switchChatroom(this.currentUser.id, newChatroomId);
           this.currentChatroomId = newChatroomId;
           this.uiManager.setCurrentChatroomId(newChatroomId);
-          this.uiManager.showNotification('Moved to new chatroom based on location', 'info');
+          this.uiManager.showNotification(this.uiManager.formatTravelMovedLocation(), 'info');
         }
       }
     } catch (error) {
-      this.uiManager.showNotification(
-        'Failed to update location: ' + (error as Error).message,
-        'error',
-      );
+      this.uiManager.showNotification(this.uiManager.formatLocationUpdateFailed((error as Error).message), 'error');
       throw error;
     }
   }

@@ -213,6 +213,25 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#back-to-chatrooms')).toHaveText('返回');
     await p.locator('#back-to-chatrooms').click();
     await afterNav();
+    await p.locator('#create-custom-chatroom-btn').click();
+    const createRoomModal = p.locator('#create-custom-chatroom-form').locator('xpath=..');
+    await expect(createRoomModal).toContainText('新建聊天室');
+    await expect(createRoomModal).toContainText('创建社区或商业房间');
+    await expect(p.locator('#custom-room-type option[value="custom"]')).toHaveText('社区 / 自定义');
+    await expect(p.locator('#custom-room-type option[value="business"]')).toHaveText('商业');
+    await expect(p.locator('#custom-room-capacity')).toHaveAttribute('placeholder', '默认 50');
+    await expect(p.locator('[data-testid="custom-room-submit-btn"]')).toHaveText('创建');
+    await p.locator('#cancel-custom-room-btn').click();
+    await p.evaluate(() => {
+      const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
+      void ui.showRenameCustomChatroomDialog('演示房间');
+    });
+    const renameRoomModal = p.locator('#rename-custom-chatroom-form').locator('xpath=..');
+    await expect(renameRoomModal).toContainText('重命名房间');
+    await expect(renameRoomModal).toContainText('当前：演示房间');
+    await expect(p.locator('#rename-custom-room-name')).toHaveValue('演示房间');
+    await expect(p.locator('#cancel-rename-room-btn')).toHaveText('取消');
+    await p.locator('#cancel-rename-room-btn').click();
     await p.evaluate(() => {
       const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
       void ui.confirmBroadcastAudience([{

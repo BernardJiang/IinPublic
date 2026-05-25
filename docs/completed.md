@@ -39,6 +39,18 @@ Evidence:
 - Unit: `src/test/unit/contacts-view.test.ts`
 - E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
 
+## 2026-05-25 - D2 Chatroom Actions And Travel Localization Slice
+
+Localized custom-room create and rename dialogs, room-management results and delete confirmation,
+broadcast controls/results, and travel/location state notices. The Chinese traversal now opens
+the custom-room dialogs while retaining stable room payload values and avoiding server mutations.
+
+Evidence:
+
+- UI/catalog: `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`, `src/web/app/app.ts`
+- Unit: `src/test/unit/ui-translations.test.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - D2 Talks List And Linear Dialog Localization Slice
 
 Localized the Talks main list and its incoming/outgoing row metadata, including counts, action

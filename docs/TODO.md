@@ -38,8 +38,9 @@ Current implementation baseline discovered during the audit:
   across reload, and defaults new talks to that language. Reachable strings still need audit coverage.
 - Chinese catalog coverage now includes Chatrooms live/member states, Contacts list,
   detail, relationship, block, and public-credit surfaces, plus peer-detail profile,
-  history, conversation, and send controls; room/action error notifications and
-  support-specific controls still require the D2 traversal and audit.
+  history, conversation, and send controls. Chatroom create/rename management,
+  broadcast, travel, and location notices are localized; other action/error notices
+  and support-specific controls still require the D2 traversal and audit.
 - Chinese catalog coverage now includes the Talks main list, outgoing/incoming row metadata,
   language badges, flow/tag/route editor controls, route branch-tree internals, and flow/tag
   response outcomes; notification and support paths remain active D2 work.

@@ -17,6 +17,10 @@ describe('UI translations', () => {
     expect(uiText('zh', 'stageDialogNewName')).toBe('新昵称');
     expect(uiText('zh', 'profileDialogAttributes')).toBe('资料项目');
     expect(uiText('zh', 'interestCategoryCommunity')).toBe('社区');
+    expect(uiText('zh', 'chatroomCreateTitle')).toBe('新建聊天室');
+    expect(uiText('zh', 'chatroomRenameTitle')).toBe('重命名房间');
+    expect(uiText('zh', 'broadcastCancelled')).toBe('已取消广播。');
+    expect(uiText('zh', 'travelEnabled')).toContain('旅行模式');
     expect(languageOptionLabel('zh', 'en', 'English')).toBe('英语');
   });
 

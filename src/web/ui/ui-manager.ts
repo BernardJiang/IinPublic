@@ -1128,7 +1128,7 @@ export class UIManager extends EventEmitter {
 
   private async runBroadcastFromCurrentRoom(): Promise<void> {
     if (!this.currentChatroom) {
-      this.showNotification('Open a chatroom from the list (tap a room), or wait until you are placed in one.', 'info');
+      this.showNotification(this.t('chatroomOpenFirst'), 'info');
       return;
     }
 
@@ -1149,7 +1149,7 @@ export class UIManager extends EventEmitter {
     if (broadcastableCount === 0) {
       this.showTalkEditorDialog();
       setTimeout(() => {
-        this.showNotification('You have no talks to broadcast. Create one first or enable copied talks.', 'info');
+        this.showNotification(this.t('chatroomNoTalksToBroadcast'), 'info');
       }, 0);
       return;
     }
@@ -1174,7 +1174,7 @@ export class UIManager extends EventEmitter {
     const receiverIds = members.map((m) => m.userId).filter((id) => id && id !== this.currentUserId);
     const talkIds = this.getUnsentBroadcastTalkIds(this.currentChatroom, receiverIds);
     if (talkIds.length === 0) {
-      this.showNotification('Everything current has already been broadcast to this room.', 'info');
+      this.showNotification(this.t('chatroomAlreadyBroadcast'), 'info');
       return;
     }
 
@@ -1594,7 +1594,7 @@ export class UIManager extends EventEmitter {
         });
         const text = await res.text();
         if (!res.ok) {
-          this.showNotification(text || 'Could not create room.', 'error');
+          this.showNotification(text || this.t('chatroomCreateFailed'), 'error');
           return;
         }
         const created = text
@@ -1617,9 +1617,9 @@ export class UIManager extends EventEmitter {
           });
           this.showChatroomDetail(createdId);
         }
-        this.showNotification(`${created?.name || payload.name} created.`, 'success');
+        this.showNotification(this.tf('chatroomCreated', { name: created?.name || payload.name }), 'success');
       } catch (e) {
-        this.showNotification('Could not create room: ' + (e as Error).message, 'error');
+        this.showNotification(this.tf('chatroomCreateFailedWithReason', { reason: (e as Error).message }), 'error');
       }
     }
   }
@@ -1637,36 +1637,36 @@ export class UIManager extends EventEmitter {
       modal.innerHTML = `
         <div class="modal-content" style="max-width:420px;">
           <div class="modal-header">
-            <h2 class="modal-title">New chatroom</h2>
-            <p style="color:#666;font-size:0.9em;">Create a community or business room. Anyone can join from the list.</p>
+            <h2 class="modal-title">${escapeHtml(this.t('chatroomCreateTitle'))}</h2>
+            <p style="color:#666;font-size:0.9em;">${escapeHtml(this.t('chatroomCreateHelp'))}</p>
           </div>
           <form id="create-custom-chatroom-form">
             <div class="form-group">
-              <label class="form-label">Type</label>
+              <label class="form-label">${escapeHtml(this.t('chatroomType'))}</label>
               <select class="form-input" id="custom-room-type" name="type">
-                <option value="custom">Community / custom</option>
-                <option value="business">Business</option>
+                <option value="custom">${escapeHtml(this.t('chatroomTypeCommunity'))}</option>
+                <option value="business">${escapeHtml(this.t('chatroomTypeBusiness'))}</option>
               </select>
             </div>
             <div class="form-group" id="custom-room-business-headline-group" style="display:none;">
-              <label class="form-label">Business headline (optional)</label>
-              <input type="text" class="form-input" id="custom-room-business-headline" maxlength="120" placeholder="Short tagline" />
+              <label class="form-label">${escapeHtml(this.t('chatroomBusinessHeadline'))}</label>
+              <input type="text" class="form-input" id="custom-room-business-headline" maxlength="120" placeholder="${escapeHtml(this.t('chatroomBusinessPlaceholder'))}" />
             </div>
             <div class="form-group">
-              <label class="form-label">Name</label>
+              <label class="form-label">${escapeHtml(this.t('chatroomName'))}</label>
               <input type="text" class="form-input" id="custom-room-name" name="name" required minlength="2" maxlength="80" data-testid="custom-room-name-input" />
             </div>
             <div class="form-group">
-              <label class="form-label">Description (optional)</label>
+              <label class="form-label">${escapeHtml(this.t('chatroomDescriptionOptional'))}</label>
               <textarea class="form-input" id="custom-room-description" rows="2" maxlength="500"></textarea>
             </div>
             <div class="form-group">
-              <label class="form-label">Capacity (optional)</label>
-              <input type="number" class="form-input" id="custom-room-capacity" min="1" max="50000" placeholder="Default 50" />
+              <label class="form-label">${escapeHtml(this.t('chatroomCapacityOptional'))}</label>
+              <input type="number" class="form-input" id="custom-room-capacity" min="1" max="50000" placeholder="${escapeHtml(this.t('chatroomCapacityPlaceholder'))}" />
             </div>
             <div class="modal-actions">
-              <button type="button" class="btn" id="cancel-custom-room-btn" style="background:#6c757d;">Cancel</button>
-              <button type="submit" class="btn primary-btn" data-testid="custom-room-submit-btn">Create</button>
+              <button type="button" class="btn" id="cancel-custom-room-btn" style="background:#6c757d;">${escapeHtml(this.t('chatroomCancel'))}</button>
+              <button type="submit" class="btn primary-btn" data-testid="custom-room-submit-btn">${escapeHtml(this.t('chatroomCreate'))}</button>
             </div>
           </form>
         </div>`;
@@ -1706,7 +1706,7 @@ export class UIManager extends EventEmitter {
         const capacity = capRaw ? Math.floor(Number(capRaw)) : undefined;
         const headline = (modal.querySelector('#custom-room-business-headline') as HTMLInputElement).value.trim();
         if (name.length < 2) {
-          this.showNotification('Name must be at least 2 characters.', 'warning');
+          this.showNotification(this.t('chatroomNameTooShort'), 'warning');
           return;
         }
         const out: {
@@ -1732,23 +1732,23 @@ export class UIManager extends EventEmitter {
       modal.innerHTML = `
         <div class="modal-content" style="max-width:400px;">
           <div class="modal-header">
-            <h2 class="modal-title">Rename room</h2>
+            <h2 class="modal-title">${escapeHtml(this.t('chatroomRenameTitle'))}</h2>
             <p class="rename-custom-room-current" style="color:#666;font-size:0.9em;"></p>
           </div>
           <form id="rename-custom-chatroom-form">
             <div class="form-group">
-              <label class="form-label">New name</label>
+              <label class="form-label">${escapeHtml(this.t('chatroomNewName'))}</label>
               <input type="text" class="form-input" id="rename-custom-room-name" required minlength="2" maxlength="80" data-testid="rename-custom-room-input" />
             </div>
             <div class="modal-actions">
-              <button type="button" class="btn" id="cancel-rename-room-btn" style="background:#6c757d;">Cancel</button>
-              <button type="submit" class="btn primary-btn">Save</button>
+              <button type="button" class="btn" id="cancel-rename-room-btn" style="background:#6c757d;">${escapeHtml(this.t('chatroomCancel'))}</button>
+              <button type="submit" class="btn primary-btn">${escapeHtml(this.t('chatroomSave'))}</button>
             </div>
           </form>
         </div>`;
       document.body.appendChild(modal);
       const curEl = modal.querySelector('.rename-custom-room-current');
-      if (curEl) curEl.textContent = `Current: ${currentName}`;
+      if (curEl) curEl.textContent = this.tf('chatroomCurrentName', { name: currentName });
       (modal.querySelector('#rename-custom-room-name') as HTMLInputElement).value = currentName;
 
       const cleanup = () => {
@@ -1770,7 +1770,7 @@ export class UIManager extends EventEmitter {
         ev.preventDefault();
         const next = (modal.querySelector('#rename-custom-room-name') as HTMLInputElement).value.trim();
         if (next.length < 2) {
-          this.showNotification('Name must be at least 2 characters.', 'warning');
+          this.showNotification(this.t('chatroomNameTooShort'), 'warning');
           return;
         }
         cleanup();
@@ -1806,11 +1806,11 @@ export class UIManager extends EventEmitter {
       const chatroomStatus = document.getElementById('current-chatroom-status');
       if (headerTitle) headerTitle.textContent = roomName;
       if (chatroomTitle) chatroomTitle.textContent = roomName;
-      if (chatroomStatus) chatroomStatus.textContent = 'Loading members...';
+      if (chatroomStatus) chatroomStatus.textContent = this.t('chatroomLoadingMembers');
       const membersList = document.getElementById('chatroom-members-list');
       if (membersList) {
         membersList.innerHTML =
-          '<div style="padding: 20px; text-align: center; color: #999;">Loading online users...</div>';
+          `<div style="padding: 20px; text-align: center; color: #999;">${escapeHtml(this.t('chatroomLoadingOnlineUsers'))}</div>`;
       }
     }
     this.syncReturnHomeButton();
@@ -1873,7 +1873,7 @@ export class UIManager extends EventEmitter {
               const disabled = broadcastToggle.dataset.broadcastEnabled === 'true';
               setTimeout(() => {
                 this.setTalkDisabled(talkId, disabled);
-                this.showNotification(disabled ? 'Broadcasting disabled' : 'Broadcasting enabled', 'success');
+                this.showNotification(this.t(disabled ? 'talksBroadcastDisabled' : 'talksBroadcastEnabled'), 'success');
               }, 0);
             }
             return;
@@ -3506,6 +3506,81 @@ export class UIManager extends EventEmitter {
     return this.t('profileUpdated');
   }
 
+  public formatBroadcastNoChatroom(): string {
+    return this.t('broadcastNoChatroom');
+  }
+
+  public formatBroadcastCancelled(): string {
+    return this.t('broadcastCancelled');
+  }
+
+  public formatBroadcastSent(talkCount: number, userCount: number): string {
+    const key = talkCount === 1
+      ? (userCount === 1 ? 'broadcastSentOneOne' : 'broadcastSentOneMany')
+      : (userCount === 1 ? 'broadcastSentManyOne' : 'broadcastSentManyMany');
+    return this.tf(key, { talks: talkCount, users: userCount });
+  }
+
+  public formatBroadcastFailed(reason: string): string {
+    return this.tf('broadcastFailed', { reason });
+  }
+
+  public formatTravelEnabled(): string {
+    return this.t('travelEnabled');
+  }
+
+  public formatTravelReturnedHomeRoom(): string {
+    return this.t('travelReturnedHomeRoom');
+  }
+
+  public formatTravelReturnedHome(): string {
+    return this.t('travelReturnedHome');
+  }
+
+  public formatTravelHomeSet(name: string): string {
+    return this.tf('travelHomeSet', { name });
+  }
+
+  public formatTravelLocationHeld(): string {
+    return this.t('travelLocationHeld');
+  }
+
+  public formatTravelMovedLocation(): string {
+    return this.t('travelMovedLocation');
+  }
+
+  public formatLocationUpdateFailed(reason: string): string {
+    return this.tf('locationUpdateFailed', { reason });
+  }
+
+  public formatChatroomCreateFailed(reason?: string): string {
+    return reason ? this.tf('chatroomCreateFailedWithReason', { reason }) : this.t('chatroomCreateFailed');
+  }
+
+  public formatChatroomCreated(name: string): string {
+    return this.tf('chatroomCreated', { name });
+  }
+
+  public formatChatroomRenameFailed(reason?: string): string {
+    return reason ? this.tf('chatroomRenameFailedWithReason', { reason }) : this.t('chatroomRenameFailed');
+  }
+
+  public formatChatroomRenamed(): string {
+    return this.t('chatroomRenamed');
+  }
+
+  public formatChatroomDeleteConfirm(): string {
+    return this.t('chatroomDeleteConfirm');
+  }
+
+  public formatChatroomDeleteFailed(reason?: string): string {
+    return reason ? this.tf('chatroomDeleteFailedWithReason', { reason }) : this.t('chatroomDeleteFailed');
+  }
+
+  public formatChatroomDeleted(): string {
+    return this.t('chatroomDeleted');
+  }
+
   private formatConversationMessage(message: string, supportChannel: boolean): string {
     if (!supportChannel) return message;
     const match = /^Welcome to IinPublic, (.+)\. TechSupport is here if you need help\.$/.exec(message);
@@ -5026,7 +5101,7 @@ export class UIManager extends EventEmitter {
     document.body.appendChild(notification);
 
     if (!isMatchNotification) {
-      const hideAfter = message.includes('You have no talks to broadcast') ? 10000 : 3000;
+      const hideAfter = message === this.t('chatroomNoTalksToBroadcast') ? 10000 : 3000;
       setTimeout(() => {
         if (document.body.contains(notification)) {
           document.body.removeChild(notification);
