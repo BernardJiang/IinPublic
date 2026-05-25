@@ -249,6 +249,7 @@ test.describe('UI navigation and settings shell', () => {
     const localizedRow = p.locator('.talk-list-item[data-talk-id="localized_created"]');
     await expect(localizedRow).toContainText('已创建');
     await expect(localizedRow.locator('.talk-badge-language')).toHaveText('英语');
+    await expect(localizedRow.locator('.talk-badge-type')).toHaveText('流程');
     await expect(localizedRow).toContainText('有效期：永久');
     await expect(localizedRow).toContainText('位置：不限位置');
     await expect(localizedRow).toContainText('广播开启');
@@ -282,8 +283,77 @@ test.describe('UI navigation and settings shell', () => {
     await p.evaluate(() => localStorage.removeItem('myTalks'));
     await p.locator('.nav-btn[data-view="me"]').click();
     await afterNav();
+    await expect(p.locator('.me-answer-filter[data-me-answer-filter="all"]')).toHaveText('全部');
+    await expect(p.locator('.me-answer-filter[data-me-answer-filter="conditional"]')).toHaveText('条件');
+    await expect(p.locator('#me-view-preferences-btn')).toHaveText('偏好设置');
     await expect(p.locator('#answers-content')).toContainText('你收到并回答的话题会显示在这里');
     await expect(p.locator('#answers-content')).toContainText('偏好设置');
+    await p.evaluate(() => {
+      localStorage.setItem('myAnswerHistory', JSON.stringify({
+        localized_answer: {
+          id: 'localized_answer',
+          talkId: 'localized_answer_talk',
+          title: 'Localized Answer',
+          type: 'tag',
+          outcome: 'match',
+          answeredAt: new Date().toISOString(),
+          senderIds: ['sender-1'],
+          locationRadiusMiles: 5,
+          items: [{
+            questionId: 'q1',
+            answerId: 'a1',
+            prompt: 'Coffee',
+            choice: 'Checked',
+            kind: 'tag',
+            contextPath: [],
+            mode: 'manual',
+          }],
+        },
+      }));
+      localStorage.setItem('answerPreferences', JSON.stringify({
+        localized_preference: {
+          answerId: 'a1',
+          answerText: 'Yes',
+          mode: 'manual',
+          questionText: 'Coffee?',
+          timestamp: new Date().toISOString(),
+        },
+      }));
+      localStorage.setItem('myTalks', JSON.stringify({
+        localized_history: {
+          talkId: 'localized_history',
+          title: 'History Row',
+          type: 'flow',
+          role: 'created',
+          disabled: false,
+          lastInteraction: new Date().toISOString(),
+        },
+      }));
+      const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
+      ui?.displayAnswersList();
+    });
+    await expect(p.locator('#answers-content')).toContainText('来自 1 位发送者');
+    await expect(p.locator('#answers-content')).toContainText('5 英里以内');
+    await expect(p.locator('#answers-content')).toContainText('已勾选');
+    await expect(p.locator('#answers-content')).toContainText('手动');
+    await expect(p.locator('#answers-content')).toContainText('标签');
+    await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showPreferencesDialog());
+    await expect(p.locator('#preferences-modal')).toContainText('我的回答');
+    await expect(p.locator('#preferences-modal')).toContainText('最近回答：');
+    await expect(p.locator('#preferences-modal')).toContainText('手动');
+    await p.locator('#close-preferences-modal').click();
+    await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showMyTalksDialog());
+    await expect(p.locator('#my-talks-modal')).toContainText('我的话题');
+    await expect(p.locator('#my-talks-modal')).toContainText('由我创建');
+    await expect(p.locator('#my-talks-modal')).toContainText('流程');
+    await expect(p.locator('#my-talks-modal')).toContainText('最近互动：');
+    await expect(p.locator('#my-talks-modal')).toContainText('广播开启');
+    await p.locator('#close-my-talks-modal').click();
+    await p.evaluate(() => {
+      localStorage.removeItem('myAnswerHistory');
+      localStorage.removeItem('answerPreferences');
+      localStorage.removeItem('myTalks');
+    });
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
     await p.locator('#settings-ui-language').selectOption('en');

@@ -1,4 +1,5 @@
 import type { AnswerPreferenceMap } from './answer-preferences-storage';
+import type { UiTranslationKey } from './ui-translations';
 
 type PreferencesDialogOptions = {
   getPreferences: () => AnswerPreferenceMap;
@@ -8,9 +9,18 @@ type PreferencesDialogOptions = {
   deletePreference: (key: string) => void;
   clearAll: () => void;
   notify: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+  text?: (key: UiTranslationKey) => string;
+  formatDate?: (date: Date) => string;
 };
 
 export function showPreferencesDialog(options: PreferencesDialogOptions): void {
+  const text = (key: UiTranslationKey, fallback: string): string => options.text?.(key) || fallback;
+  const format = (key: UiTranslationKey, fallback: string, values: Record<string, string | number>): string =>
+    Object.entries(values).reduce(
+      (result, [name, value]) => result.replaceAll(`{${name}}`, String(value)),
+      text(key, fallback),
+    );
+  const formatDate = (date: Date): string => options.formatDate?.(date) || date.toLocaleString();
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.id = 'preferences-modal';
@@ -28,15 +38,15 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
     modal.innerHTML = `
       <div class="modal-content" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
         <div class="modal-header">
-          <h2 class="modal-title">My Answers</h2>
+          <h2 class="modal-title">${text('preferencesAnswersTitle', 'My Answers')}</h2>
           <button class="close-button" id="close-preferences-modal" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">&times;</button>
         </div>
         <div style="padding: 20px;">
           ${
             preferenceEntries.length === 0
-              ? '<p style="text-align: center; color: #666;">No answered questions yet. When you answer a question, it will appear here and you can manage your preferences.</p>'
+              ? `<p style="text-align: center; color: #666;">${text('preferencesNoAnswers', 'No answered questions yet. When you answer a question, it will appear here and you can manage your preferences.')}</p>`
               : `
-            <p style="margin-bottom: 20px; color: #666;">You have answered ${preferenceEntries.length} question(s). You can change your answers or toggle between Auto/Manual mode for future use.</p>
+            <p style="margin-bottom: 20px; color: #666;">${format('preferencesSummary', 'You have answered {count} question(s). You can change your answers or toggle between Auto/Manual mode for future use.', { count: preferenceEntries.length })}</p>
             <div style="max-height: 500px; overflow-y: auto;">
               ${preferenceEntries
                 .map(
@@ -44,15 +54,15 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
                   <div class="preference-item" style="background: #f9f9f9; border: 2px solid #e0e0e0; border-radius: 12px; padding: 20px; margin-bottom: 20px;">
                     <div style="margin-bottom: 15px;">
                       <div style="font-weight: 600; font-size: 1.1em; color: #333; margin-bottom: 8px;">
-                        ${options.escapeHtml(pref.questionText || 'Question')}
+                        ${options.escapeHtml(pref.questionText || text('preferencesQuestionFallback', 'Question'))}
                       </div>
                       <div style="font-size: 0.8em; color: #999; margin-bottom: 12px;">
-                        Last answered: ${pref.timestamp ? new Date(pref.timestamp).toLocaleString() : 'N/A'}
+                        ${format('preferencesLastAnswered', 'Last answered: {date}', { date: pref.timestamp ? formatDate(new Date(pref.timestamp)) : text('preferencesUnavailable', 'N/A') })}
                       </div>
                     </div>
                     <div style="margin-bottom: 15px;">
                       <label style="display: block; font-size: 0.9em; font-weight: 600; color: #666; margin-bottom: 8px;">
-                        Your Answer:
+                        ${text('preferencesYourAnswer', 'Your Answer:')}
                       </label>
                       ${
                         pref.allAnswers && pref.allAnswers.length > 0
@@ -74,7 +84,7 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
                           : `<div style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1em; background: #f5f5f5; color: #666;">
                         ${options.escapeHtml(pref.answerText)}
                         <div style="font-size: 0.75em; margin-top: 4px; color: #999;">
-                          (Other options not available - answer this question again to enable editing)
+                          ${text('preferencesOptionsUnavailable', '(Other options not available - answer this question again to enable editing)')}
                         </div>
                       </div>`
                       }
@@ -82,10 +92,10 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
                       <div>
                         <label style="font-size: 0.9em; font-weight: 600; color: #666;">
-                          Mode:
+                          ${text('preferencesMode', 'Mode:')}
                         </label>
                         <div style="font-size: 0.85em; color: #999; margin-top: 4px;">
-                          Auto mode will use this answer automatically next time
+                          ${text('preferencesAutoHelp', 'Auto mode will use this answer automatically next time')}
                         </div>
                       </div>
                       <label class="toggle-switch" style="position: relative; display: inline-block; width: 60px; height: 34px;">
@@ -128,14 +138,14 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
                           ? 'background: #d1fae5; color: #065f46;'
                           : 'background: #fee2e2; color: #991b1b;'
                       }">
-                        ${pref.mode === 'auto' ? '🟢 AUTO' : '🔴 MANUAL'}
+                        ${pref.mode === 'auto' ? `🟢 ${text('preferencesAutoBadge', 'AUTO')}` : `🔴 ${text('preferencesManualBadge', 'MANUAL')}`}
                       </div>
                       <button
                         class="delete-pref-btn"
                         data-pref-key="${key}"
                         style="background: #e53e3e; color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.85em; font-weight: 600;"
                       >
-                        🗑️ Delete
+                        🗑️ ${text('preferencesDelete', 'Delete')}
                       </button>
                     </div>
                   </div>
@@ -148,7 +158,7 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
                 id="clear-all-prefs-btn"
                 style="background: #e53e3e; color: white; border: none; border-radius: 8px; padding: 12px 24px; cursor: pointer; font-weight: 600; font-size: 1em;"
               >
-                🗑️ Clear All Answers
+                🗑️ ${text('preferencesClearAll', 'Clear All Answers')}
               </button>
             </div>
           `
@@ -189,7 +199,9 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
 
         const modeBadge = modal.querySelector(`.mode-badge-${key}`) as HTMLElement | null;
         if (modeBadge) {
-          modeBadge.textContent = target.checked ? '🟢 AUTO' : '🔴 MANUAL';
+          modeBadge.textContent = target.checked
+            ? `🟢 ${text('preferencesAutoBadge', 'AUTO')}`
+            : `🔴 ${text('preferencesManualBadge', 'MANUAL')}`;
           modeBadge.style.background = target.checked ? '#d1fae5' : '#fee2e2';
           modeBadge.style.color = target.checked ? '#065f46' : '#991b1b';
         }
@@ -207,7 +219,7 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
 
     const clearAllBtn = modal.querySelector('#clear-all-prefs-btn');
     clearAllBtn?.addEventListener('click', () => {
-      if (!confirm('Are you sure you want to clear all saved answers?')) return;
+      if (!confirm(text('preferencesClearConfirm', 'Are you sure you want to clear all saved answers?'))) return;
       options.clearAll();
       render();
     });

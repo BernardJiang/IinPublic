@@ -18,6 +18,8 @@ type AnswersViewDeps = {
   showPreferencesDialog: () => void;
   getTalkContentKey: (talk: any) => string;
   text: (key: UiTranslationKey) => string;
+  formatDate: (date: Date) => string;
+  formatType: (type: string) => string;
 };
 
 type AnswerEntry = { questionId: string; answerId: string; answerText?: string; mode?: string };
@@ -147,12 +149,21 @@ export function buildAnswerItemModels(
 
 function renderAnswerItemsHtml(
   items: AnswerItemModel[],
-  escapeHtml: (text: string) => string,
+  deps: Pick<AnswersViewDeps, 'escapeHtml' | 'text' | 'formatDate'>,
 ): string {
+  const format = (key: UiTranslationKey, values: Record<string, string | number>): string =>
+    Object.entries(values).reduce(
+      (result, [name, value]) => result.replaceAll(`{${name}}`, String(value)),
+      deps.text(key),
+    );
   return items
     .map((item, index) => {
       const isConditional = !!item.contextHash || item.contextPath.length > 0 || item.kind !== 'tag';
       const modeGroup = item.chatbotGenerated ? 'auto' : isConditional ? 'conditional' : 'manual';
+      const answeredLabel = format(item.answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: item.answeredCount });
+      const choice = item.kind === 'tag'
+        ? deps.text(item.choice === 'Checked' ? 'meChecked' : 'meUnchecked')
+        : item.choice === 'Ignored' ? deps.text('responseIgnore') : item.choice;
       const tone =
         modeGroup === 'auto'
           ? 'background:#ecfdf5;border-color:#bbf7d0;'
@@ -162,23 +173,23 @@ function renderAnswerItemsHtml(
       return `
       <div class="answer-outcome-item answer-mode-${modeGroup}" data-answer-mode="${modeGroup}" style="padding: 12px; border-radius: 10px; ${tone} border-width: 1px; border-style: solid;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
-          <div style="font-size:0.8em; color:#64748b;">${item.kind === 'tag' ? 'Tag' : `Question ${index + 1}`}</div>
+          <div style="font-size:0.8em; color:#64748b;">${item.kind === 'tag' ? deps.text('meTag') : format('meQuestion', { count: index + 1 })}</div>
           <div style="font-size:0.78em; color:#64748b;">
-            Answered ${item.answeredCount} time${item.answeredCount === 1 ? '' : 's'}${typeof item.answerCounter === 'number' ? ` · choice count ${item.answerCounter}` : ''}
+            ${answeredLabel}${typeof item.answerCounter === 'number' ? ` · ${format('meChoiceCount', { count: item.answerCounter })}` : ''}
           </div>
         </div>
-        <div style="font-weight: 600; color: #1f2937; margin-top: 4px;">${escapeHtml(item.prompt)}</div>
-        <div style="margin-top: 6px; color: ${item.kind === 'tag' ? '#7c3aed' : '#0f766e'}; font-weight: 600;">${escapeHtml(item.choice)}</div>
+        <div style="font-weight: 600; color: #1f2937; margin-top: 4px;">${deps.escapeHtml(item.prompt)}</div>
+        <div style="margin-top: 6px; color: ${item.kind === 'tag' ? '#7c3aed' : '#0f766e'}; font-weight: 600;">${deps.escapeHtml(choice)}</div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; font-size:0.78em; color:#475569;">
-          ${item.mode ? `<span style="padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3730a3;">${escapeHtml(item.mode === 'auto' ? 'Chatbot-generated' : item.mode === 'permanent' ? 'Permanent' : 'Manual')}</span>` : ''}
-          ${item.autoUseCount > 0 ? `<span style="padding:2px 8px; border-radius:999px; background:#ecfdf5; color:#047857;">Auto-used ${item.autoUseCount} time${item.autoUseCount === 1 ? '' : 's'}</span>` : ''}
-          ${item.latestAutoUseAt ? `<span>Latest auto-use ${escapeHtml(new Date(item.latestAutoUseAt).toLocaleString())}</span>` : ''}
+          ${item.mode ? `<span style="padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3730a3;">${deps.escapeHtml(deps.text(item.mode === 'auto' ? 'meChatbotGenerated' : item.mode === 'permanent' ? 'mePermanent' : 'meManual'))}</span>` : ''}
+          ${item.autoUseCount > 0 ? `<span style="padding:2px 8px; border-radius:999px; background:#ecfdf5; color:#047857;">${format(item.autoUseCount === 1 ? 'meAutoUsedCount' : 'meAutoUsedCounts', { count: item.autoUseCount })}</span>` : ''}
+          ${item.latestAutoUseAt ? `<span>${format('meLatestAutoUse', { date: deps.escapeHtml(deps.formatDate(new Date(item.latestAutoUseAt))) })}</span>` : ''}
         </div>
         ${
           item.contextHash || item.contextPath.length > 0
             ? `<div style="margin-top:8px; font-size:0.82em; color:#475569;">
-                 ${item.contextHash ? `<div>Context hash: <code>${escapeHtml(item.contextHash)}</code></div>` : ''}
-                 ${item.contextPath.length > 0 ? `<div>Context path: ${item.contextPath.map((part) => `<span>${escapeHtml(part)}</span>`).join(' · ')}</div>` : ''}
+                 ${item.contextHash ? `<div>${deps.text('meContextHash')} <code>${deps.escapeHtml(item.contextHash)}</code></div>` : ''}
+                 ${item.contextPath.length > 0 ? `<div>${deps.text('meContextPath')} ${item.contextPath.map((part) => `<span>${deps.escapeHtml(part)}</span>`).join(' · ')}</div>` : ''}
                </div>`
             : ''
         }
@@ -201,6 +212,11 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
   const myTalks = deps.getMyTalks();
   const flatHistory = deps.getFlatAnswerHistory?.() || {};
   const exactMemory = deps.getExactChatbotMemory?.();
+  const format = (key: UiTranslationKey, values: Record<string, string | number>): string =>
+    Object.entries(values).reduce(
+      (result, [name, value]) => result.replaceAll(`{${name}}`, String(value)),
+      deps.text(key),
+    );
   const answeredEntriesFromFlatHistory = Object.entries(flatHistory)
     .sort(([, a], [, b]) => new Date(b.answeredAt || 0).getTime() - new Date(a.answeredAt || 0).getTime());
   const answeredEntries = answeredEntriesFromFlatHistory.length > 0 ? [] : Object.entries(myTalks)
@@ -271,20 +287,20 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       const outcome = record.outcome === 'match' ? 'match' : 'mismatch';
       const answeredAt = new Date(record.answeredAt || Date.now());
       const locationText = record.locationRadiusMiles != null
-        ? `Within ${record.locationRadiusMiles} mile${record.locationRadiusMiles === 1 ? '' : 's'}`
-        : 'Anywhere';
+        ? format(record.locationRadiusMiles === 1 ? 'meWithinMile' : 'meWithinMiles', { count: record.locationRadiusMiles })
+        : deps.text('meAnywhere');
       const senders = record.senderIds.length === 1
-        ? 'From 1 sender'
+        ? format('meFromSender', { count: 1 })
         : record.senderIds.length > 1
-          ? `From ${record.senderIds.length} senders`
+          ? format('meFromSenders', { count: record.senderIds.length })
           : '';
       const answerItems = buildAnswerItemModelsFromFlatRecord(record, answeredCount, exactMemory);
       const metadata = [
         senders,
-        `${answerItems.length} item${answerItems.length === 1 ? '' : 's'}`,
-        answeredAt.toLocaleString(),
+        format(answerItems.length === 1 ? 'meItem' : 'meItems', { count: answerItems.length }),
+        deps.formatDate(answeredAt),
         locationText,
-        `answered ${answeredCount} time${answeredCount === 1 ? '' : 's'}`,
+        format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount }),
       ].filter(Boolean).join(' · ');
       const searchText = [
         record.title,
@@ -312,14 +328,14 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
           <div style="flex: 1; min-width: 0;">
             <div style="font-weight: 700;">${deps.escapeHtml(record.title)}</div>
             <div style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(metadata)}</div>
-            <div style="font-size: 0.82em; color: #64748b; margin-top: 4px;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · ${deps.escapeHtml(record.type)}</div>
+            <div style="font-size: 0.82em; color: #64748b; margin-top: 4px;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · ${deps.escapeHtml(deps.formatType(record.type))}</div>
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
             <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${deps.escapeHtml(record.talkId)}" style="padding: 6px 12px; font-size: 0.9em;">${deps.text('copy')}</button>
           </div>
         </div>
         <div class="answer-question-list" style="display: grid; gap: 8px;">
-          ${renderAnswerItemsHtml(answerItems, deps.escapeHtml)}
+          ${renderAnswerItemsHtml(answerItems, deps)}
         </div>
       `;
       listEl.appendChild(item);
@@ -329,21 +345,21 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       const outcome = talk.outcome === 'match' ? 'match' : 'mismatch';
       const senders = talk.senders && talk.senders.length > 0
         ? talk.senders.length === 1
-          ? 'From 1 sender'
-          : `From ${talk.senders.length} senders`
+          ? format('meFromSender', { count: 1 })
+          : format('meFromSenders', { count: talk.senders.length })
         : '';
       const completedAnswers = Array.isArray(talk.completedAnswers) ? talk.completedAnswers : [];
       const questionCount = completedAnswers.length || (Array.isArray(talk.fullTalk?.questions) ? talk.fullTalk.questions.length : 0);
       const answeredAt = new Date(talk.lastInteraction || talk.timestamp || Date.now());
       const locationText = talk.locationRadiusMiles != null
-        ? `Within ${talk.locationRadiusMiles} mile${talk.locationRadiusMiles === 1 ? '' : 's'}`
-        : 'Anywhere';
+        ? format(talk.locationRadiusMiles === 1 ? 'meWithinMile' : 'meWithinMiles', { count: talk.locationRadiusMiles })
+        : deps.text('meAnywhere');
       const metadata = [
         senders,
-        `${questionCount} item${questionCount === 1 ? '' : 's'}`,
-        answeredAt.toLocaleString(),
+        format(questionCount === 1 ? 'meItem' : 'meItems', { count: questionCount }),
+        deps.formatDate(answeredAt),
         locationText,
-        `answered ${answeredCount} time${answeredCount === 1 ? '' : 's'}`,
+        format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount }),
       ].filter(Boolean).join(' · ');
       const answerItems = buildAnswerItemModels(talk.fullTalk, completedAnswers, answeredCount, exactMemory);
       const searchText = [
@@ -377,7 +393,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
           </div>
         </div>
         <div class="answer-question-list" style="display: grid; gap: 8px;">
-          ${renderAnswerItemsHtml(answerItems, deps.escapeHtml)}
+          ${renderAnswerItemsHtml(answerItems, deps)}
         </div>
       `;
       listEl.appendChild(item);

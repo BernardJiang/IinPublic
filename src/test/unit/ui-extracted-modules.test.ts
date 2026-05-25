@@ -4,6 +4,7 @@
 
 import { showMyTalksDialog } from '../../web/ui/my-talks-dialog';
 import { showPreferencesDialog } from '../../web/ui/preferences-dialog';
+import { uiText } from '../../web/ui/ui-translations';
 import {
   addQuestionToForm,
   setupTalkFormHandlers,
@@ -86,6 +87,59 @@ describe('extracted UI helpers', () => {
 
     const badge = document.querySelector('.mode-badge-pref1') as HTMLElement;
     expect(badge.textContent).toContain('AUTO');
+  });
+
+  it('renders Me dialogs through the Chinese catalog', () => {
+    const text = (key: Parameters<typeof uiText>[1]) => uiText('zh', key);
+
+    showMyTalksDialog({
+      getMyTalks: () => ({
+        talk1: {
+          title: 'Coffee',
+          role: 'created',
+          type: 'tag',
+          disabled: false,
+          lastInteraction: '2026-04-21T10:00:00.000Z',
+        },
+      }),
+      escapeHtml: (value) => value,
+      onDeleteTalk: jest.fn(),
+      onToggleBroadcast: jest.fn(),
+      onOpenTalk: jest.fn(),
+      onClearAll: jest.fn(),
+      text,
+      formatDate: () => '本地日期',
+      formatType: () => '标签',
+    });
+    expect(document.getElementById('my-talks-modal')?.textContent).toContain('我的话题');
+    expect(document.getElementById('my-talks-modal')?.textContent).toContain('由我创建');
+    expect(document.getElementById('my-talks-modal')?.textContent).toContain('最近互动：本地日期');
+    expect(document.getElementById('my-talks-modal')?.textContent).toContain('标签');
+    document.getElementById('my-talks-modal')?.remove();
+
+    showPreferencesDialog({
+      getPreferences: () => ({
+        pref1: {
+          answerId: 'a1',
+          answerText: 'Yes',
+          mode: 'manual',
+          questionText: 'Coffee?',
+          timestamp: '2026-04-21T10:00:00.000Z',
+        },
+      }),
+      escapeHtml: (value) => value,
+      updateAnswer: jest.fn(),
+      updateMode: jest.fn(),
+      deletePreference: jest.fn(),
+      clearAll: jest.fn(),
+      notify: jest.fn(),
+      text,
+      formatDate: () => '本地日期',
+    });
+    const modalText = document.getElementById('preferences-modal')?.textContent || '';
+    expect(modalText).toContain('我的回答');
+    expect(modalText).toContain('最近回答：本地日期');
+    expect(modalText).toContain('手动');
   });
 
   function makeEditorDOM() {

@@ -275,9 +275,23 @@ export class UIManager extends EventEmitter {
     return radiusMiles == null ? this.t('talksAnywhere') : this.tf('talksMiles', { count: radiusMiles });
   }
 
+  private formatUiDate(date: Date): string {
+    return date.toLocaleString(this.getUiLanguage() === 'zh' ? 'zh-CN' : 'en-US');
+  }
+
   private formatTalkLanguage(code: string): string {
     const language = LANGUAGE_OPTIONS.find((candidate) => candidate.code === code);
     return languageOptionLabel(this.getUiLanguage(), code, language?.label || code);
+  }
+
+  private formatTalkType(type: string): string {
+    const key = ({
+      tag: 'talkTypeTag',
+      flow: 'talkTypeFlow',
+      survey: 'talkTypeSurvey',
+      route: 'talkTypeRoute',
+    } as const)[type.toLowerCase() as 'tag' | 'flow' | 'survey' | 'route'];
+    return key ? this.t(key) : type;
   }
 
   private deliveryReasonLabel(reason: string): string {
@@ -333,6 +347,11 @@ export class UIManager extends EventEmitter {
       ['#back-to-contacts-list', 'back'],
       ['#talks-nav-back', 'back'],
       ['#talks-nav-all', 'talksAll'],
+      ['.me-answer-filter[data-me-answer-filter="all"]', 'meAll'],
+      ['.me-answer-filter[data-me-answer-filter="auto"]', 'meAuto'],
+      ['.me-answer-filter[data-me-answer-filter="manual"]', 'meManualFilter'],
+      ['.me-answer-filter[data-me-answer-filter="conditional"]', 'meConditional'],
+      ['#me-view-preferences-btn', 'preferences'],
     ];
     for (const [selector, key] of textBySelector) {
       const element = document.querySelector<HTMLElement>(selector);
@@ -1992,7 +2011,7 @@ export class UIManager extends EventEmitter {
             <div class="talk-item-title">${escapeHtml(talk.title)}</div>
             <div class="talk-item-badges">
               ${roleBadge}
-              <span class="talk-badge talk-badge-type">${talk.type}</span>
+              <span class="talk-badge talk-badge-type">${escapeHtml(this.formatTalkType(String(talk.type || 'flow')))}</span>
               <span class="talk-badge talk-badge-language" data-language="${escapeHtml(talkLanguage)}">${escapeHtml(this.formatTalkLanguage(talkLanguage))}</span>
             </div>
           </div>
@@ -2056,7 +2075,7 @@ export class UIManager extends EventEmitter {
             <div class="talk-item-title" style="${titleStyle}">${escapeHtml(cluster?.title || this.t('talksIncomingFallback'))}</div>
             <div class="talk-item-badges">
               ${statusBadge}
-              <span class="talk-badge talk-badge-type">${escapeHtml(cluster?.type || 'flow')}</span>
+              <span class="talk-badge talk-badge-type">${escapeHtml(this.formatTalkType(String(cluster?.type || 'flow')))}</span>
               <span class="talk-badge talk-badge-language" data-language="${escapeHtml(incomingLanguage)}">${escapeHtml(this.formatTalkLanguage(incomingLanguage))}</span>
               <span class="talk-badge" style="background:#eef2ff;color:#3730a3;">👥 ${this.tf(senderNames.length === 1 ? 'talksSenderOne' : 'talksSenders', { count: senderNames.length })}</span>
             </div>
@@ -2374,6 +2393,8 @@ export class UIManager extends EventEmitter {
       showPreferencesDialog: this.showPreferencesDialog.bind(this),
       getTalkContentKey: UIManager.getTalkContentKey,
       text: this.t.bind(this),
+      formatDate: this.formatUiDate.bind(this),
+      formatType: this.formatTalkType.bind(this),
     });
     const activeFilter = (document.querySelector('.me-answer-filter.active') as HTMLElement | null)?.dataset.meAnswerFilter || 'all';
     this.applyMeAnswerFilter(activeFilter);
@@ -4603,7 +4624,7 @@ export class UIManager extends EventEmitter {
           prefs[key].timestamp = new Date().toISOString();
           setAnswerPreferences(prefs);
         }
-        this.showNotification('Answer updated', 'success');
+        this.showNotification(this.t('preferencesAnswerUpdated'), 'success');
       },
       updateMode: (key, isAuto) => {
         const prefs: AnswerPreferenceMap = key.startsWith('flat_')
@@ -4617,17 +4638,19 @@ export class UIManager extends EventEmitter {
         } else {
           setAnswerPreferences(prefs);
         }
-        this.showNotification(`Mode changed to ${isAuto ? 'AUTO' : 'MANUAL'}`, 'success');
+        this.showNotification(this.t(isAuto ? 'preferencesModeChangedAuto' : 'preferencesModeChangedManual'), 'success');
       },
       deletePreference: (key) => {
         this.deleteAnswerPreference(key);
-        this.showNotification('Answer deleted', 'success');
+        this.showNotification(this.t('preferencesAnswerDeleted'), 'success');
       },
       clearAll: () => {
         clearAnswerPreferences();
-        this.showNotification('All answers cleared', 'success');
+        this.showNotification(this.t('preferencesAnswersCleared'), 'success');
       },
       notify: this.showNotification.bind(this),
+      text: this.t.bind(this),
+      formatDate: this.formatUiDate.bind(this),
     });
   }
 
@@ -4810,9 +4833,12 @@ export class UIManager extends EventEmitter {
     openMyTalksDialog({
       getMyTalks,
       escapeHtml: escapeHtml,
+      text: this.t.bind(this),
+      formatDate: this.formatUiDate.bind(this),
+      formatType: this.formatTalkType.bind(this),
       onDeleteTalk: (talkId) => {
         this.deleteMyTalk(talkId);
-        this.showNotification('Talk removed from history', 'success');
+        this.showNotification(this.t('myTalksRemoved'), 'success');
       },
       onToggleBroadcast: (talkId, disabled) => {
         this.setTalkDisabled(talkId, disabled);
@@ -4822,7 +4848,7 @@ export class UIManager extends EventEmitter {
       },
       onClearAll: () => {
         clearMyTalks();
-        this.showNotification('All talk history cleared', 'success');
+        this.showNotification(this.t('myTalksCleared'), 'success');
       },
     });
   }
