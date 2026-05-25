@@ -280,6 +280,7 @@ export class UIManager extends EventEmitter {
       ['#create-custom-chatroom-btn', 'newRoom'],
       ['#return-home-btn', 'returnHome'],
       ['#broadcast-talk-btn', 'broadcast'],
+      ['#back-to-chatrooms', 'back'],
       ['#creator-replies-panel strong', 'repliesTitle'],
       ['#reply-clear-filters', 'clear'],
       ['#settings-refresh-location-btn', 'refreshLocation'],
@@ -1475,6 +1476,7 @@ export class UIManager extends EventEmitter {
       emit: (eventName, payload) => this.emit(eventName, payload),
       currentUserId: this.currentUserId,
       apiBase: this.apiBase,
+      text: this.t.bind(this),
     };
   }
 

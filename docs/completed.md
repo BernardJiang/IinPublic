@@ -25,6 +25,20 @@ Evidence:
   `src/web/ui/ui-translations.ts`
 - E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
 
+## 2026-05-25 - D2 Chatrooms And Contacts Localization Slice
+
+Moved the visible Chatrooms runtime/member states and Contacts list, detail, relationship,
+block, and public-credit surfaces into the English/Chinese catalog. Chinese navigation coverage
+now enters an active chatroom, and focused Contacts tests cover Chinese detail/modal rendering
+while retaining English singular count grammar.
+
+Evidence:
+
+- Views and catalog: `src/web/ui/chatrooms-view.ts`, `src/web/ui/contacts-view.ts`,
+  `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`
+- Unit: `src/test/unit/contacts-view.test.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - D1 Single Settings Owner For Intake Preferences
 
 Confirmed that Settings is the sole editing surface for Talk Behavior and incoming-intake

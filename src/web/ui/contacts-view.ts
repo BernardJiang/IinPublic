@@ -23,9 +23,33 @@ type ContactsViewDeps = {
   text: (key: UiTranslationKey) => string;
 };
 
-function formatRelationshipLabel(label?: string): string {
-  if (!label) return 'No relationship set';
-  return label.charAt(0).toUpperCase() + label.slice(1);
+function formatText(deps: ContactsViewDeps, key: UiTranslationKey, values: Record<string, string | number>): string {
+  return Object.entries(values).reduce(
+    (text, [name, value]) => text.replace(`{${name}}`, String(value)),
+    deps.text(key),
+  );
+}
+
+function formatCountText(
+  deps: ContactsViewDeps,
+  count: number,
+  singular: UiTranslationKey,
+  plural: UiTranslationKey,
+): string {
+  return formatText(deps, count === 1 ? singular : plural, { count });
+}
+
+function formatRelationshipLabel(label: string | undefined, deps: ContactsViewDeps): string {
+  if (!label) return deps.text('contactNoRelationship');
+  const keyByLabel: Record<string, UiTranslationKey> = {
+    friend: 'friends',
+    relative: 'relatives',
+    coworker: 'coworkers',
+    acquaintance: 'acquaintances',
+    partner: 'partners',
+    custom: 'custom',
+  };
+  return keyByLabel[label] ? deps.text(keyByLabel[label]) : label;
 }
 
 function buildDisplayName(stageName: string, known?: KnownPerson): string {
@@ -39,15 +63,15 @@ function buildDisplayName(stageName: string, known?: KnownPerson): string {
 function buildMetaLine(summary: PeerSummary, known: KnownPerson | undefined, deps: ContactsViewDeps): string {
   const matchedTalks = summary.stats.sent.matches + summary.stats.received.matches;
   const parts = [
-    `${summary.stats.totalTalks} talk${summary.stats.totalTalks !== 1 ? 's' : ''}`,
-    `${matchedTalks} match${matchedTalks !== 1 ? 'es' : ''}`,
-    `${summary.stats.mutualTagCount} common tag${summary.stats.mutualTagCount !== 1 ? 's' : ''}`,
-    known?.label ? formatRelationshipLabel(known.label) : deps.text('stranger'),
+    formatCountText(deps, summary.stats.totalTalks, 'contactsTalkCountOne', 'contactsTalkCount'),
+    formatCountText(deps, matchedTalks, 'contactsMatchCountOne', 'contactsMatchCount'),
+    formatCountText(deps, summary.stats.mutualTagCount, 'contactsCommonTagCountOne', 'contactsCommonTagCount'),
+    known?.label ? formatRelationshipLabel(known.label, deps) : deps.text('stranger'),
   ];
   return parts.join(' · ');
 }
 
-function rankingMetrics(peer: PeerSummary, known?: KnownPerson): {
+function rankingMetrics(peer: PeerSummary, known: KnownPerson | undefined, deps: ContactsViewDeps): {
   matchedTalks: number;
   matchRate: number;
   relevance: number;
@@ -64,7 +88,12 @@ function rankingMetrics(peer: PeerSummary, known?: KnownPerson): {
     matchedTalks,
     matchRate,
     relevance,
-    explanation: `${matchedTalks} matches x100 + ${Math.round(matchRate * 25)} rate + ${relationshipBoost} relationship + ${recencyBoost} recency`,
+    explanation: formatText(deps, 'contactsRankingExplanation', {
+      matches: matchedTalks,
+      rate: Math.round(matchRate * 25),
+      relationship: relationshipBoost,
+      recency: recencyBoost,
+    }),
   };
 }
 
@@ -111,29 +140,35 @@ function renderPublicProfileSummary(deps: ContactsViewDeps, publicUser: any): st
   `;
 }
 
-function relationshipModalCreditInnerHtml(publicUser: any, blockedBy: boolean): string {
+function relationshipModalCreditInnerHtml(deps: ContactsViewDeps, publicUser: any, blockedBy: boolean): string {
   if (blockedBy) {
-    return '<div style="margin-top:6px;color:#94a3b8;">Profile unavailable.</div>';
+    return `<div style="margin-top:6px;color:#94a3b8;">${deps.text('contactProfileUnavailable')}</div>`;
   }
   if (!publicUser) {
-    return '<div style="margin-top:6px;color:#94a3b8;">Could not load public credit.</div>';
+    return `<div style="margin-top:6px;color:#94a3b8;">${deps.text('contactCreditUnavailable')}</div>`;
   }
   const reputation = publicUser?.reputation || null;
   if (reputation && !reputation.isHidden) {
     return `<div style="margin-top:6px;font-weight:700;">${Number(reputation.starRating || 0).toFixed(1)} ★</div>
-            <div style="font-size:0.88em;color:#475569;margin-top:4px;">${reputation.reviewCount || 0} reviews · ${reputation.friendsCount || 0} friends · ${reputation.likedCount || 0} liked · ${reputation.dislikedCount || 0} disliked</div>`;
+            <div style="font-size:0.88em;color:#475569;margin-top:4px;">${formatText(deps, 'contactCreditSummary', {
+              reviews: reputation.reviewCount || 0,
+              friends: reputation.friendsCount || 0,
+              liked: reputation.likedCount || 0,
+              disliked: reputation.dislikedCount || 0,
+            })}</div>`;
   }
-  return '<div style="margin-top:6px;color:#94a3b8;">This user hides their credit section.</div>';
+  return `<div style="margin-top:6px;color:#94a3b8;">${deps.text('contactCreditHidden')}</div>`;
 }
 
 function applyRelationshipModalProfileFetch(
+  deps: ContactsViewDeps,
   blockedByMe: boolean,
   publicUser: any,
   blockedBy: boolean,
 ): void {
   const creditPanel = document.getElementById('contact-relationship-credit-panel');
   if (creditPanel) {
-    creditPanel.innerHTML = `<div style="font-size:0.8em;color:#64748b;">Public credit</div>${relationshipModalCreditInnerHtml(publicUser, blockedBy)}`;
+    creditPanel.innerHTML = `<div style="font-size:0.8em;color:#64748b;">${deps.text('contactPublicCredit')}</div>${relationshipModalCreditInnerHtml(deps, publicUser, blockedBy)}`;
   }
   const wrap = document.getElementById('contact-block-status-wrap');
   const statusText = document.getElementById('contact-block-status-text');
@@ -141,15 +176,15 @@ function applyRelationshipModalProfileFetch(
     if (blockedBy) {
       wrap.style.borderColor = '#fecaca';
       wrap.style.background = '#fef2f2';
-      statusText.textContent = 'This user blocked you. Their profile and delivery surfaces are hidden.';
+      statusText.textContent = deps.text('contactBlockedBy');
     } else if (blockedByMe) {
       wrap.style.borderColor = '#fde68a';
       wrap.style.background = '#fffbeb';
-      statusText.textContent = 'You blocked this user. Talks will no longer be delivered between you.';
+      statusText.textContent = deps.text('contactBlockedByMe');
     } else {
       wrap.style.borderColor = '#e5e7eb';
       wrap.style.background = '#f8fafc';
-      statusText.textContent = 'No block is active.';
+      statusText.textContent = deps.text('contactNoBlock');
     }
   }
   if (blockedBy) {
@@ -174,7 +209,7 @@ async function openRelationshipDialog(
     <div style="width:min(640px, 96vw); max-height:90vh; overflow:auto; background:white; border-radius:16px; box-shadow:0 20px 60px rgba(15,23,42,0.2);">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; border-bottom:1px solid #e5e7eb;">
         <div>
-          <div style="font-weight:700; font-size:1.05em;">Relationship & Credit</div>
+          <div style="font-weight:700; font-size:1.05em;">${deps.text('contactRelationshipCredit')}</div>
           <div style="font-size:0.88em; color:#64748b;">${deps.escapeHtml(stageName)}</div>
         </div>
         <button type="button" id="close-contact-relationship-modal" style="background:none;border:none;font-size:24px;cursor:pointer;color:#64748b;">&times;</button>
@@ -182,54 +217,54 @@ async function openRelationshipDialog(
       <div style="padding:18px; display:grid; gap:16px;">
         <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px;">
           <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
-            <span>Relationship</span>
+            <span>${deps.text('relationship')}</span>
             <select id="contact-relationship-label" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">
               ${['friend', 'relative', 'coworker', 'acquaintance', 'partner', 'custom']
-                .map((label) => `<option value="${label}" ${(known?.label || '') === label ? 'selected' : ''}>${label}</option>`)
+                .map((label) => `<option value="${label}" ${(known?.label || '') === label ? 'selected' : ''}>${formatRelationshipLabel(label, deps)}</option>`)
                 .join('')}
             </select>
           </label>
           <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
-            <span>Nickname</span>
+            <span>${deps.text('contactNickname')}</span>
             <input id="contact-relationship-nickname" type="text" value="${deps.escapeHtml(String(known?.nickname || ''))}" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">
           </label>
         </div>
         <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
-          <span>Custom label</span>
-          <input id="contact-relationship-custom-label" type="text" value="${deps.escapeHtml(String(known?.customLabel || ''))}" placeholder="Only used when relationship is custom" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">
+          <span>${deps.text('contactCustomLabel')}</span>
+          <input id="contact-relationship-custom-label" type="text" value="${deps.escapeHtml(String(known?.customLabel || ''))}" placeholder="${deps.text('contactCustomLabelHelp')}" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">
         </label>
         <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px;">
           <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
-            <span>My rating</span>
+            <span>${deps.text('contactMyRating')}</span>
             <select id="contact-relationship-rating" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">
-              <option value="">No rating</option>
+              <option value="">${deps.text('contactNoRating')}</option>
               ${[1, 2, 3, 4, 5]
-                .map((rating) => `<option value="${rating}" ${known?.rating === rating ? 'selected' : ''}>${rating} star${rating === 1 ? '' : 's'}</option>`)
+                .map((rating) => `<option value="${rating}" ${known?.rating === rating ? 'selected' : ''}>${rating} ${deps.text(rating === 1 ? 'contactStar' : 'contactStars')}</option>`)
                 .join('')}
             </select>
           </label>
           <div id="contact-relationship-credit-panel" style="padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;background:#f8fafc;">
-            <div style="font-size:0.8em;color:#64748b;">Public credit</div>
-            <div style="margin-top:6px;color:#94a3b8;">Loading…</div>
+            <div style="font-size:0.8em;color:#64748b;">${deps.text('contactPublicCredit')}</div>
+            <div style="margin-top:6px;color:#94a3b8;">${deps.text('loading')}</div>
           </div>
         </div>
         <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
-          <span>Notes</span>
+          <span>${deps.text('contactNotes')}</span>
           <textarea id="contact-relationship-notes" rows="4" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">${deps.escapeHtml(String(known?.notes || ''))}</textarea>
         </label>
         <div id="contact-block-status-wrap" style="padding:12px; border-radius:12px; border:1px solid ${blockedByMe ? '#fde68a' : '#e5e7eb'}; background:${blockedByMe ? '#fffbeb' : '#f8fafc'};">
-          <div style="font-weight:700; color:#111827;">Block status</div>
+          <div style="font-weight:700; color:#111827;">${deps.text('contactBlockStatus')}</div>
           <div id="contact-block-status-text" style="font-size:0.88em; color:#475569; margin-top:4px;">
-            ${blockedByMe ? 'You blocked this user. Talks will no longer be delivered between you.' : 'No block is active.'}
+            ${deps.text(blockedByMe ? 'contactBlockedByMe' : 'contactNoBlock')}
           </div>
         </div>
       </div>
       <div style="display:flex; justify-content:space-between; gap:10px; padding:16px 18px; border-top:1px solid #e5e7eb;">
-        <button type="button" class="btn" id="contact-age-vouch-btn" title="Vouch that this person is 18+" style="${blockedByMe ? 'display:none;' : ''}">Vouch 18+</button>
-        <button type="button" class="btn" id="contact-block-toggle-btn">${blockedByMe ? 'Unblock User' : 'Block User'}</button>
+        <button type="button" class="btn" id="contact-age-vouch-btn" title="${deps.text('contactVouchAdult')}" style="${blockedByMe ? 'display:none;' : ''}">${deps.text('contactVouchAdult')}</button>
+        <button type="button" class="btn" id="contact-block-toggle-btn">${deps.text(blockedByMe ? 'contactUnblockUser' : 'contactBlockUser')}</button>
         <div style="display:flex; gap:10px;">
-          <button type="button" class="btn" id="contact-relationship-close-btn">Close</button>
-          <button type="button" class="btn primary-btn" id="contact-relationship-save-btn">Save</button>
+          <button type="button" class="btn" id="contact-relationship-close-btn">${deps.text('contactClose')}</button>
+          <button type="button" class="btn primary-btn" id="contact-relationship-save-btn">${deps.text('contactSave')}</button>
         </div>
       </div>
     </div>
@@ -271,7 +306,7 @@ async function openRelationshipDialog(
 
   const cached = contactDetailUserProfileCache?.userId === userId ? contactDetailUserProfileCache.publicUser : undefined;
   if (cached !== undefined) {
-    applyRelationshipModalProfileFetch(blockedByMe, cached, false);
+    applyRelationshipModalProfileFetch(deps, blockedByMe, cached, false);
     return;
   }
 
@@ -296,7 +331,7 @@ async function openRelationshipDialog(
   } finally {
     window.clearTimeout(timeoutId);
   }
-  applyRelationshipModalProfileFetch(blockedByMe, publicUser, blockedBy);
+  applyRelationshipModalProfileFetch(deps, blockedByMe, publicUser, blockedBy);
 }
 
 export function showContactsList(deps: ContactsViewDeps): void {
@@ -389,8 +424,8 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
       .sort((a, b) => {
         const aKnown = knownMap.get(a.peerId);
         const bKnown = knownMap.get(b.peerId);
-        const aMetrics = rankingMetrics(a, aKnown);
-        const bMetrics = rankingMetrics(b, bKnown);
+        const aMetrics = rankingMetrics(a, aKnown, deps);
+        const bMetrics = rankingMetrics(b, bKnown, deps);
         if (sortOrder === 'name') {
           return tieBreak(a, b);
         }
@@ -416,17 +451,17 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
     }
 
     const status = document.getElementById('contacts-status-text');
-    if (status) status.textContent = `${visiblePeers.length} contact${visiblePeers.length === 1 ? '' : 's'} from exchanged talks`;
+    if (status) status.textContent = formatCountText(deps, visiblePeers.length, 'contactsCountOne', 'contactsCount');
 
     listEl.innerHTML = visiblePeers
       .map((peer) => {
         const known = knownMap.get(peer.peerId);
         const resolvedStageName = deps.getPeerName(peer.peerId, peer.stageName);
         const displayName = buildDisplayName(resolvedStageName, known);
-        const relationship = formatRelationshipLabel(known?.label);
-        const metrics = rankingMetrics(peer, known);
+        const relationship = formatRelationshipLabel(known?.label, deps);
+        const metrics = rankingMetrics(peer, known, deps);
         const blockedBadge = deps.isBlockedByMe(peer.peerId)
-          ? '<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#fff7ed;color:#c2410c;font-size:0.72em;font-weight:700;margin-left:8px;">Blocked</span>'
+          ? `<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#fff7ed;color:#c2410c;font-size:0.72em;font-weight:700;margin-left:8px;">${deps.text('contactsBlocked')}</span>`
           : '';
         return `
           <div class="contact-item" data-contact-user-id="${deps.escapeHtml(peer.peerId)}" data-contact-name="${deps.escapeHtml(resolvedStageName)}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 8px; background: white; border-radius: 12px; border: 1px solid #e0e0e0; cursor: pointer;">
@@ -478,8 +513,8 @@ export async function showContactDetail(
   const backBtn = document.getElementById('back-to-contacts-list') as HTMLElement | null;
   if (backBtn) backBtn.style.display = 'inline-flex';
   detailName.textContent = otherUserName;
-  detailMatches.textContent = 'Loading…';
-  talksList.innerHTML = '<p style="text-align: center; padding: 20px; color: #999;">Loading…</p>';
+  detailMatches.textContent = deps.text('loading');
+  talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #999;">${deps.text('loading')}</p>`;
   const detailInfo = document.getElementById('contact-detail-info');
   document.getElementById('contact-edit-relationship-btn')?.remove();
   if (detailInfo) {
@@ -488,7 +523,7 @@ export async function showContactDetail(
     button.id = 'contact-edit-relationship-btn';
     button.className = 'btn';
     button.type = 'button';
-    button.textContent = 'Relationship & Credit';
+    button.textContent = deps.text('contactRelationshipCredit');
     button.style.cssText = 'margin-top:8px;padding:6px 12px;font-size:0.85em;';
     button.addEventListener('click', () => {
       void openRelationshipDialog(deps, otherUserId, otherUserName);
@@ -503,8 +538,8 @@ export async function showContactDetail(
       fetch(`${deps.apiBase}/api/users/${encodeURIComponent(otherUserId)}?viewerId=${encodeURIComponent(deps.currentUserId)}`),
     ]);
     if (relationshipRes.status === 403 || historyRes.status === 403 || userRes.status === 403) {
-      detailMatches.textContent = 'Unavailable';
-      talksList.innerHTML = '<p style="text-align: center; padding: 20px; color: #c2410c;">This user has blocked you. Details are not available.</p>';
+      detailMatches.textContent = deps.text('unavailable');
+      talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #c2410c;">${deps.text('contactDetailsUnavailable')}</p>`;
       return;
     }
 
@@ -513,7 +548,7 @@ export async function showContactDetail(
     const publicUser = userRes.ok ? await userRes.json() : null;
     contactDetailUserProfileCache = { userId: otherUserId, publicUser };
     const totalTalks = relationship?.totalTalks ?? (Array.isArray(history) ? history.length : 0);
-    detailMatches.textContent = `${totalTalks} talk${totalTalks !== 1 ? 's' : ''}`;
+    detailMatches.textContent = formatCountText(deps, totalTalks, 'contactsTalkCountOne', 'contactsTalkCount');
     if (detailInfo) {
       const summary = document.createElement('div');
       summary.className = 'contact-public-profile-summary';
@@ -522,7 +557,7 @@ export async function showContactDetail(
     }
 
     if (!Array.isArray(history) || history.length === 0) {
-      talksList.innerHTML = '<p style="text-align: center; padding: 20px; color: #999;">No talks exchanged yet.</p>';
+      talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #999;">${deps.text('contactNoTalks')}</p>`;
       return;
     }
 
@@ -530,7 +565,7 @@ export async function showContactDetail(
     talksList.innerHTML = history
       .map((item: any) => {
         const localTalk = item?.talkId ? myTalks[item.talkId] : null;
-        const title = String(localTalk?.title || item?.title || 'Talk').trim();
+        const title = String(localTalk?.title || item?.title || deps.text('contactTalkFallback')).trim();
         return `
           <div class="contact-talk-item" data-talk-id="${deps.escapeHtml(String(item?.talkId || ''))}" style="padding: 14px 16px; margin-bottom: 8px; background: #f9f9f9; border-radius: 10px; border: 1px solid #e0e0e0;">
             <div style="font-weight: 600;">${deps.escapeHtml(title)}</div>
@@ -540,7 +575,7 @@ export async function showContactDetail(
       })
       .join('');
   } catch {
-    detailMatches.textContent = 'Could not load';
-    talksList.innerHTML = '<p style="text-align: center; padding: 20px; color: #c00;">Could not load talks.</p>';
+    detailMatches.textContent = deps.text('contactCouldNotLoad');
+    talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #c00;">${deps.text('contactCouldNotLoadTalks')}</p>`;
   }
 }

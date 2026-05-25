@@ -1,5 +1,6 @@
 import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
 import type { PeerRelationshipStats } from '../../server/routes/peer-routes';
+import type { UiTranslationKey } from './ui-translations';
 
 type ChatroomMember = { userId: string; stageName: string };
 
@@ -26,6 +27,7 @@ type ChatroomsViewDeps = {
   emit: (eventName: string, payload: unknown) => void;
   currentUserId: string;
   apiBase: string;
+  text: (key: UiTranslationKey) => string;
 };
 
 export function syncStatusBroadcastButtonVisibility(currentChatroom: string): void {
@@ -40,6 +42,20 @@ function hierarchyIds(): Set<string> {
 
 function customRoomIcon(type: string): string {
   return type === 'business' ? '🏪' : '💬';
+}
+
+function formatMetrics(
+  deps: ChatroomsViewDeps,
+  memberCount: number,
+  visits: { visitCount: number; uniqueVisitorCount: number },
+): string {
+  const formatCount = (count: number, singular: UiTranslationKey, plural: UiTranslationKey): string =>
+    deps.text(count === 1 ? singular : plural).replace('{count}', String(count));
+
+  return deps.text('chatroomMetrics')
+    .replace('{members}', formatCount(memberCount, 'chatroomMemberOne', 'chatroomMembers'))
+    .replace('{visits}', formatCount(visits.visitCount, 'chatroomVisitOne', 'chatroomVisits'))
+    .replace('{unique}', formatCount(visits.uniqueVisitorCount, 'chatroomUniqueOne', 'chatroomUniqueVisitors'));
 }
 
 export function renderChatroomList(deps: ChatroomsViewDeps): void {
@@ -101,7 +117,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
           <div class="chatroom-info">
             <div class="chatroom-name">
               ${room.name}
-              ${isCurrentRoom ? '<span class="current-room-badge">Current</span>' : ''}
+              ${isCurrentRoom ? `<span class="current-room-badge">${deps.text('chatroomCurrent')}</span>` : ''}
               <span class="chatroom-headcount">${memberCount > 0 ? `👥 ${memberCount}` : '👥 0'}</span>
               <span class="chatroom-visitcount">🚪 ${visitCounts.visitCount}</span>
               <span class="chatroom-unique-visitors">◎ ${visitCounts.uniqueVisitorCount}</span>
@@ -167,7 +183,7 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
 
   if (headerTitle) headerTitle.textContent = roomName;
   if (chatroomTitle) chatroomTitle.textContent = roomName;
-  if (chatroomStatus) chatroomStatus.textContent = 'Loading members...';
+  if (chatroomStatus) chatroomStatus.textContent = deps.text('chatroomLoadingMembers');
 
   deps.setCurrentChatroom(chatroomId);
   syncStatusBroadcastButtonVisibility(chatroomId);
@@ -178,8 +194,8 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
       ownerBar.style.display = 'block';
       ownerBar.innerHTML = `
         <div style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 0 8px;">
-          <button type="button" class="btn" id="chatroom-rename-btn" data-testid="chatroom-rename-btn">Rename</button>
-          <button type="button" class="btn" id="chatroom-delete-btn" data-testid="chatroom-delete-btn" style="background:#b33;color:#fff;">Delete room</button>
+          <button type="button" class="btn" id="chatroom-rename-btn" data-testid="chatroom-rename-btn">${deps.text('chatroomRename')}</button>
+          <button type="button" class="btn" id="chatroom-delete-btn" data-testid="chatroom-delete-btn" style="background:#b33;color:#fff;">${deps.text('chatroomDelete')}</button>
         </div>`;
       ownerBar.querySelector('#chatroom-rename-btn')?.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -198,7 +214,7 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
   const membersList = document.getElementById('chatroom-members-list');
   if (membersList) {
     membersList.innerHTML =
-      '<div style="padding: 20px; text-align: center; color: #999;">Loading online users...</div>';
+      `<div style="padding: 20px; text-align: center; color: #999;">${deps.text('chatroomLoadingOnlineUsers')}</div>`;
     deps.emit('chatroomChanged', chatroomId);
   }
 }
@@ -220,14 +236,14 @@ export function updateChatroomMembers(
   if (chatroomMembersList) {
     if (chatroomStatus) {
       const visits = deps.chatroomVisitCounts.get(deps.currentChatroom) || { visitCount: 0, uniqueVisitorCount: 0 };
-      chatroomStatus.textContent = `👥 ${memberCount} member${memberCount !== 1 ? 's' : ''} total · 🚪 ${visits.visitCount} visits · ◎ ${visits.uniqueVisitorCount} unique`;
+      chatroomStatus.textContent = formatMetrics(deps, memberCount, visits);
     }
 
     if (otherMembers.length === 0) {
       chatroomMembersList.innerHTML = `
         <div class="empty-state" style="padding: 40px 20px; text-align: center;">
-          <p style="font-size: 1.2em; margin-bottom: 8px;">No other users here yet</p>
-          <p style="font-size: 0.9em; color: #999;">You're the first one in this chatroom!</p>
+          <p style="font-size: 1.2em; margin-bottom: 8px;">${deps.text('chatroomNoOtherUsers')}</p>
+          <p style="font-size: 0.9em; color: #999;">${deps.text('chatroomFirstHere')}</p>
         </div>
       `;
     } else {
@@ -253,7 +269,7 @@ function renderMemberList(
     .map((member) => {
       const isMatched = deps.matchedUserIds.has(member.userId);
       const stats = statsMap?.get(member.userId);
-      const statusText = buildMemberStatusText(isMatched, stats);
+      const statusText = buildMemberStatusText(isMatched, stats, deps);
       const relationClass = stats
         ? (stats.sent.talks + stats.received.talks === 0 ? 'member-stranger' : 'member-known')
         : '';
@@ -298,15 +314,17 @@ function sortMembersByRelationship(
   });
 }
 
-function buildMemberStatusText(isMatched: boolean, stats?: PeerRelationshipStats): string {
-  if (!stats) return isMatched ? 'Matched' : 'Online now';
+function buildMemberStatusText(isMatched: boolean, stats: PeerRelationshipStats | undefined, deps: ChatroomsViewDeps): string {
+  if (!stats) return isMatched ? deps.text('chatroomMatched') : deps.text('chatroomOnlineNow');
   const total = stats.sent.talks + stats.received.talks;
-  if (total === 0) return 'Stranger';
+  if (total === 0) return deps.text('stranger');
   const parts: string[] = [];
-  if (stats.sent.talks > 0) parts.push(`Sent ${stats.sent.talks}/${stats.sent.matches} matched`);
-  if (stats.received.talks > 0) parts.push(`Received ${stats.received.talks}/${stats.received.matches} matched`);
-  if (stats.mutualTagCount > 0) parts.push(`${stats.mutualTagCount} mutual tag${stats.mutualTagCount !== 1 ? 's' : ''}`);
-  return parts.join(' · ') || 'Online now';
+  if (stats.sent.talks > 0) parts.push(`${deps.text('sent')} ${stats.sent.talks}/${stats.sent.matches} ${deps.text('chatroomMatchedCount')}`);
+  if (stats.received.talks > 0) parts.push(`${deps.text('received')} ${stats.received.talks}/${stats.received.matches} ${deps.text('chatroomMatchedCount')}`);
+  if (stats.mutualTagCount > 0) {
+    parts.push(`${stats.mutualTagCount} ${deps.text(stats.mutualTagCount === 1 ? 'chatroomMutualTag' : 'chatroomMutualTags')}`);
+  }
+  return parts.join(' · ') || deps.text('chatroomOnlineNow');
 }
 
 async function loadMemberStats(

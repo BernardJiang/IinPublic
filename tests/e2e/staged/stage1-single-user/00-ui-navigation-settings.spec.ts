@@ -196,6 +196,15 @@ test.describe('UI navigation and settings shell', () => {
     await afterNav();
     await expect(p.locator('#settings-ui-language')).toHaveValue('zh');
     await expect(p.locator('#settings-profile-languages')).toHaveValue('en');
+    await p.locator('.nav-btn[data-view="chatrooms"]').click();
+    await afterNav();
+    await expect(p.locator('.chatroom-item.current-room .current-room-badge')).toHaveText('当前');
+    await p.locator('.chatroom-item.current-room').click();
+    await afterNav();
+    await expect(p.locator('#current-chatroom-status')).toContainText('位成员');
+    await expect(p.locator('#back-to-chatrooms')).toHaveText('返回');
+    await p.locator('#back-to-chatrooms').click();
+    await afterNav();
     await p.evaluate(() => {
       const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
       void ui.confirmBroadcastAudience([{
