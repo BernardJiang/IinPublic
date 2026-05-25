@@ -464,7 +464,7 @@ export class IinPublicApp {
       supportChannel: true,
     });
     this.uiManager.updateConversationMessage(conversationId, welcome, now);
-    this.uiManager.showNotification(welcome, 'info');
+    this.uiManager.showNotification(this.uiManager.formatSupportWelcome(this.currentUser.stageName), 'info');
   }
 
   private loadTravelModeStateFromStorage(): void {

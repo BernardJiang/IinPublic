@@ -101,6 +101,20 @@ Evidence:
 - Unit: `src/test/unit/ui-translations.test.ts`
 - E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
 
+## 2026-05-25 - D2 Conversations And Support Welcome Localization Slice
+
+Localized conversation list and overlay copy, displayed message timestamps, incoming-talk and
+response-submission notices, and new conversation notifications. TechSupport welcome messages
+remain stored in their stable English synchronization form but are rendered and toasted through
+the selected UI language; the Chinese traversal now opens the support channel and checks its
+translated greeting and ready notice.
+
+Evidence:
+- UI/catalog: `src/web/app/app.ts`, `src/web/ui/conversations-view.ts`,
+  `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`
+- Unit: `src/test/unit/ui-extracted-modules.test.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - D1 Single Settings Owner For Intake Preferences
 
 Confirmed that Settings is the sole editing surface for Talk Behavior and incoming-intake

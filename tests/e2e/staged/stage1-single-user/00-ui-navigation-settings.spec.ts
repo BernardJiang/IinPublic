@@ -265,6 +265,37 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#peer-send-talks-btn')).toContainText('发送我的话题');
     await expect(p.locator('#peer-dm-input')).toHaveAttribute('placeholder', '输入消息...');
     await p.locator('#back-from-peer-detail').click();
+    await p.evaluate(() => {
+      const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
+      const conversationId = 'localized_support_conversation';
+      (window as any).__localizedPreviousConversations = localStorage.getItem('myConversations');
+      ui?.addNewConversation?.({
+        conversationId,
+        otherUserId: 'iinpublic-root-techsupport',
+        otherUserName: 'TechSupport',
+        supportChannel: true,
+      });
+      ui?.showConversationDetail?.(conversationId);
+      ui?.displayConversationMessages?.(conversationId, [{
+        text: 'Welcome to IinPublic, Ming. TechSupport is here if you need help.',
+        timestamp: new Date().toISOString(),
+        isOwnMessage: false,
+      }]);
+    });
+    await expect(p.locator('.notification').filter({ hasText: 'TechSupport 支持频道已就绪。' })).toBeVisible();
+    await expect(p.locator('#conversation-detail-overlay')).toBeVisible();
+    await expect(p.locator('#back-from-conversation')).toContainText('返回');
+    await expect(p.locator('#conversation-status')).toHaveText('在线');
+    await expect(p.locator('#conversation-message-input')).toHaveAttribute('placeholder', '输入消息...');
+    await expect(p.locator('#send-conversation-message')).toHaveText('发送');
+    await expect(p.locator('#conversation-messages')).toContainText('欢迎来到 IinPublic，Ming');
+    await p.locator('#back-from-conversation').click();
+    await p.evaluate(() => {
+      const previous = (window as any).__localizedPreviousConversations;
+      if (previous === null) localStorage.removeItem('myConversations');
+      else localStorage.setItem('myConversations', previous);
+      delete (window as any).__localizedPreviousConversations;
+    });
     await p.unroute('**/api/users/*/peers/localized-peer/relationship');
     await p.unroute('**/api/users/localized-peer?**');
     await p.unroute('**/api/users/*/peers/localized-peer/talk-history');

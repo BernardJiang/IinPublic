@@ -3452,14 +3452,26 @@ export class UIManager extends EventEmitter {
     renderConversationsList({
       getMyConversations: this.getMyConversations.bind(this),
       escapeHtml: escapeHtml,
-      formatTimeAgo: formatTimeAgo,
+      formatTimeAgo: this.formatTalkRelativeTime.bind(this),
       showConversationDetail: this.showConversationDetail.bind(this),
+      text: this.t.bind(this),
+      formatMessage: this.formatConversationMessage.bind(this),
     });
   }
 
   private getMyConversations(): Record<string, any> {
     const conversationsJson = localStorage.getItem('myConversations');
     return conversationsJson ? JSON.parse(conversationsJson) : {};
+  }
+
+  public formatSupportWelcome(stageName: string): string {
+    return this.tf('supportWelcome', { name: stageName });
+  }
+
+  private formatConversationMessage(message: string, supportChannel: boolean): string {
+    if (!supportChannel) return message;
+    const match = /^Welcome to IinPublic, (.+)\. TechSupport is here if you need help\.$/.exec(message);
+    return match ? this.formatSupportWelcome(match[1] || '') : message;
   }
 
   showConversationDetail(conversationId: string): void {
@@ -3478,7 +3490,13 @@ export class UIManager extends EventEmitter {
 
     // Update header with user name
     const userName = document.getElementById('conversation-user-name');
-    if (userName) userName.textContent = conversation.otherUserName || 'Unknown';
+    if (userName) userName.textContent = conversation.otherUserName || this.t('conversationUnknown');
+    const status = document.getElementById('conversation-status');
+    if (status) status.textContent = this.t('online');
+    const messagesContainer = document.getElementById('conversation-messages');
+    if (messagesContainer) {
+      messagesContainer.innerHTML = `<p style="text-align: center; padding: 20px; color: #999;">${escapeHtml(this.t('conversationStart'))}</p>`;
+    }
 
     // Mark conversation as read
     conversation.unread = false;
@@ -3491,6 +3509,7 @@ export class UIManager extends EventEmitter {
     // Setup back button
     const backBtn = document.getElementById('back-from-conversation');
     if (backBtn) {
+      backBtn.textContent = `‹ ${this.t('back')}`;
       backBtn.replaceWith(backBtn.cloneNode(true)); // Remove old listeners
       const newBackBtn = document.getElementById('back-from-conversation');
       newBackBtn?.addEventListener('click', () => {
@@ -3506,6 +3525,8 @@ export class UIManager extends EventEmitter {
     ) as HTMLTextAreaElement;
 
     if (sendBtn && messageInput) {
+      sendBtn.textContent = this.t('conversationSend');
+      messageInput.placeholder = this.t('conversationMessagePlaceholder');
       sendBtn.replaceWith(sendBtn.cloneNode(true)); // Remove old listeners
       const newSendBtn = document.getElementById('send-conversation-message');
 
@@ -4289,7 +4310,7 @@ export class UIManager extends EventEmitter {
 
     // Show a notification for received talks and flash the author's icon in member list
     if (!talk.isOwnTalk) {
-      this.showNotification(`📥 New talk from ${talk.authorName}: ${talk.title}`, 'info');
+      this.showNotification(this.tf('newTalkNotification', { name: talk.authorName, title: talk.title }), 'info');
       const authorId = talk.fullTalk?.authorId;
       if (authorId) this.flashMemberForNewTalk(authorId);
     }
@@ -4402,10 +4423,10 @@ export class UIManager extends EventEmitter {
 
     this.showNotification(
       talk.type === 'flow'
-        ? "Response submitted! We'll notify you of matches."
+        ? this.t('responseSubmittedFlow')
         : talk.type === 'tag'
-          ? "Tag response submitted!"
-          : 'Survey response submitted! Thank you.',
+          ? this.t('responseSubmittedTag')
+          : this.t('responseSubmittedSurvey'),
       'success',
     );
   }
@@ -5816,20 +5837,21 @@ export class UIManager extends EventEmitter {
     if (messages.length === 0) {
       messagesContainer.innerHTML = `
         <div style="text-align: center; padding: 40px 20px; color: #999;">
-          <p>You matched! Start your conversation...</p>
+          <p>${escapeHtml(this.t('conversationMatchedStart'))}</p>
         </div>
       `;
       return;
     }
 
+    const isSupportChannel = this.getMyConversations()[conversationId]?.supportChannel === true;
     messagesContainer.innerHTML = messages
       .map((msg) => {
         const isOwn = msg.isOwnMessage;
         return `
           <div class="message ${isOwn ? 'message-own' : 'message-other'}">
             <div class="message-content">
-              <div class="message-text">${escapeHtml(msg.text)}</div>
-              <div class="message-time">${formatTimeAgo(new Date(msg.timestamp))}</div>
+              <div class="message-text">${escapeHtml(this.formatConversationMessage(String(msg.text || ''), isSupportChannel))}</div>
+              <div class="message-time">${this.formatTalkRelativeTime(new Date(msg.timestamp))}</div>
             </div>
           </div>
         `;
@@ -5894,11 +5916,11 @@ export class UIManager extends EventEmitter {
 
     // Only show toast for genuinely new matches (not when re-syncing or opening edit)
     if (isNew) {
-      const name = conversationData.otherUserName?.trim() || 'Someone';
+      const name = conversationData.otherUserName?.trim() || this.t('conversationUnknown');
       if (conversationData.supportChannel) {
-        this.showNotification(`${name} support channel is ready.`, 'info');
+        this.showNotification(this.tf('supportChannelReady', { name }), 'info');
       } else {
-        this.showNotification(`Match! You and ${name} can now chat.`, 'success');
+        this.showNotification(this.tf('matchChatReady', { name }), 'success');
       }
     }
 

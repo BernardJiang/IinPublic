@@ -4,6 +4,7 @@
 
 import { showMyTalksDialog } from '../../web/ui/my-talks-dialog';
 import { showPreferencesDialog } from '../../web/ui/preferences-dialog';
+import { displayConversationsList } from '../../web/ui/conversations-view';
 import { openPeerDetailView } from '../../web/ui/user-detail-view';
 import { uiText } from '../../web/ui/ui-translations';
 import {
@@ -246,6 +247,43 @@ describe('extracted UI helpers', () => {
     } finally {
       (global as any).fetch = previousFetch;
     }
+  });
+
+  it('renders Chinese conversation copy and formatted support previews', () => {
+    document.body.innerHTML = '<div id="conversations-list"></div>';
+    const text = (key: Parameters<typeof uiText>[1]) => uiText('zh', key);
+    const formatMessage = (message: string, supportChannel: boolean) =>
+      supportChannel && message.startsWith('Welcome to IinPublic, ')
+        ? text('supportWelcome').replace('{name}', 'Ming')
+        : message;
+
+    displayConversationsList({
+      getMyConversations: () => ({
+        support: {
+          otherUserName: 'TechSupport',
+          supportChannel: true,
+          lastMessage: 'Welcome to IinPublic, Ming. TechSupport is here if you need help.',
+          createdAt: '2026-04-21T10:00:00.000Z',
+        },
+      }),
+      escapeHtml: (value) => value,
+      formatTimeAgo: () => '刚刚',
+      showConversationDetail: jest.fn(),
+      text,
+      formatMessage,
+    });
+    expect(document.getElementById('conversations-list')?.textContent).toContain('欢迎来到 IinPublic，Ming');
+    expect(document.getElementById('conversations-list')?.textContent).toContain('刚刚');
+
+    displayConversationsList({
+      getMyConversations: () => ({}),
+      escapeHtml: (value) => value,
+      formatTimeAgo: () => '刚刚',
+      showConversationDetail: jest.fn(),
+      text,
+      formatMessage,
+    });
+    expect(document.getElementById('conversations-list')?.textContent).toContain('还没有对话');
   });
 
   function makeEditorDOM() {

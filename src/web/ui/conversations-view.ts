@@ -1,7 +1,10 @@
+import type { UiTranslationKey } from './ui-translations';
+
 type ConversationRecord = {
   otherUserName?: string;
   unread?: boolean;
   respondedByBot?: boolean;
+  supportChannel?: boolean;
   lastMessageTime?: string;
   createdAt?: string;
   lastMessage?: string;
@@ -12,6 +15,8 @@ type ConversationsViewDeps = {
   escapeHtml: (text: string) => string;
   formatTimeAgo: (date: Date) => string;
   showConversationDetail: (conversationId: string) => void;
+  text: (key: UiTranslationKey) => string;
+  formatMessage: (message: string, supportChannel: boolean) => string;
 };
 
 export function displayConversationsList(deps: ConversationsViewDeps): void {
@@ -29,8 +34,8 @@ export function displayConversationsList(deps: ConversationsViewDeps): void {
     conversationsList.innerHTML = `
       <div class="empty-state" style="padding: 60px 20px; text-align: center;">
         <div style="font-size: 3em; margin-bottom: 16px;">💬</div>
-        <p style="font-size: 1.2em; color: #666; margin-bottom: 8px;">No conversations yet</p>
-        <p style="font-size: 0.9em; color: #999;">Match with someone through talks to start chatting!</p>
+        <p style="font-size: 1.2em; color: #666; margin-bottom: 8px;">${deps.text('conversationNoConversations')}</p>
+        <p style="font-size: 0.9em; color: #999;">${deps.text('conversationFindMatch')}</p>
       </div>
     `;
     return;
@@ -44,16 +49,19 @@ export function displayConversationsList(deps: ConversationsViewDeps): void {
             <div class="conversation-avatar">
               ${conversation.otherUserName?.charAt(0).toUpperCase() || '?'}
             </div>
-            ${conversation.respondedByBot ? '<span class="conversation-bot-badge" title="Answered by chatbot">🤖</span>' : ''}
+            ${conversation.respondedByBot ? `<span class="conversation-bot-badge" title="${deps.escapeHtml(deps.text('conversationBotAnswered'))}">🤖</span>` : ''}
           </div>
           <div class="conversation-content">
             <div class="conversation-header">
-              <div class="conversation-name">${deps.escapeHtml(conversation.otherUserName || 'Unknown')}</div>
+              <div class="conversation-name">${deps.escapeHtml(conversation.otherUserName || deps.text('conversationUnknown'))}</div>
               <div class="conversation-time">${deps.formatTimeAgo(new Date(conversation.lastMessageTime || conversation.createdAt || 0))}</div>
             </div>
             <div class="conversation-preview">
               ${conversation.unread ? '<span class="unread-badge"></span>' : ''}
-              ${deps.escapeHtml(conversation.lastMessage || 'Matched! Start a conversation...')}
+              ${deps.escapeHtml(deps.formatMessage(
+                conversation.lastMessage || deps.text('conversationMatchedPreview'),
+                conversation.supportChannel === true,
+              ))}
             </div>
           </div>
         </div>
