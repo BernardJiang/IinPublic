@@ -518,10 +518,10 @@ export class UIManager extends EventEmitter {
     const base = (this.apiBase || '').trim();
     if (!base) {
       host.innerHTML =
-        '<p style="font-size:0.85em;color:#6b7280;margin:0;">Connect to the app server to load broadcast tag trends.</p>';
+        `<p style="font-size:0.85em;color:#6b7280;margin:0;">${escapeHtml(this.t('meTrendConnect'))}</p>`;
       return;
     }
-    host.innerHTML = '<p style="font-size:0.85em;color:#6b7280;margin:0;">Loading…</p>';
+    host.innerHTML = `<p style="font-size:0.85em;color:#6b7280;margin:0;">${escapeHtml(this.t('loading'))}</p>`;
     try {
       const c = new AbortController();
       const tid = window.setTimeout(() => c.abort(), 4000);
@@ -536,12 +536,12 @@ export class UIManager extends EventEmitter {
       const tags = Array.isArray(body.tags) ? body.tags : [];
       if (tags.length === 0) {
         host.innerHTML =
-          '<p style="font-size:0.85em;color:#6b7280;margin:0;">No broadcast targeting data yet. Bulk sends with preamble tags populate this view.</p>';
+          `<p style="font-size:0.85em;color:#6b7280;margin:0;">${escapeHtml(this.t('meTrendNoData'))}</p>`;
         return;
       }
       const top = tags.slice(0, 8);
       const head =
-        '<tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid #e5e7eb;">Tag</th><th style="text-align:right;padding:4px 8px;border-bottom:1px solid #e5e7eb;">Window</th><th style="text-align:left;padding:4px 8px;border-bottom:1px solid #e5e7eb;">Daily (UTC)</th></tr>';
+        `<tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(this.t('meTrendTag'))}</th><th style="text-align:right;padding:4px 8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(this.t('meTrendWindow'))}</th><th style="text-align:left;padding:4px 8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(this.t('meTrendDaily'))}</th></tr>`;
       const rows = top
         .map((row) => {
           const id = escapeHtml(String(row.id || ''));
@@ -554,13 +554,13 @@ export class UIManager extends EventEmitter {
         })
         .join('');
       host.innerHTML = `
-        <p style="font-size:0.82em;color:#6b7280;margin:0 0 10px 0;">Rolling UTC day buckets for broadcast preamble tags (interest targeting).</p>
+        <p style="font-size:0.82em;color:#6b7280;margin:0 0 10px 0;">${escapeHtml(this.t('meTrendHelp'))}</p>
         <div style="overflow:auto;max-width:100%;">
           <table style="width:100%;border-collapse:collapse;font-size:0.88em;">${head}${rows}</table>
         </div>`;
     } catch {
       host.innerHTML =
-        '<p style="font-size:0.85em;color:#b45309;margin:0;">Could not load broadcast tag trends.</p>';
+        `<p style="font-size:0.85em;color:#b45309;margin:0;">${escapeHtml(this.t('meTrendUnavailable'))}</p>`;
     }
   }
 
@@ -1306,14 +1306,22 @@ export class UIManager extends EventEmitter {
             .slice(0, 4)
             .map((qa) => {
               const vis = normalizeProfileAttributeVisibility(qa.visibility);
+              const canonicalSupportRole =
+                qa.id === 'techsupport_profile_role' &&
+                qa.question === 'Role' &&
+                qa.answer === 'IinPublic network support';
               const visNote =
                 vis === 'public'
                   ? ''
-                  : `<div style="font-size:0.72em;color:#64748b;margin-top:2px;">${escapeHtml(PROFILE_VISIBILITY_LABELS[vis])}</div>`;
-              return `<div style="padding:8px 10px;border-radius:10px;background:white;border:1px solid #e5e7eb;"><div style="font-size:0.78em;color:#64748b;">${escapeHtml(qa.question)}</div>${visNote}<div style="font-size:0.92em;font-weight:600;color:#111827;margin-top:2px;">${escapeHtml(qa.answer)}</div></div>`;
+                  : `<div style="font-size:0.72em;color:#64748b;margin-top:2px;">${escapeHtml(
+                      vis === 'contacts_only' ? this.t('meVisibilityContacts') : this.t('meVisibilityPrivate'),
+                    )}</div>`;
+              const question = canonicalSupportRole ? this.t('meTechSupportRole') : qa.question;
+              const answer = canonicalSupportRole ? this.t('meTechSupportRoleValue') : qa.answer;
+              return `<div style="padding:8px 10px;border-radius:10px;background:white;border:1px solid #e5e7eb;"><div style="font-size:0.78em;color:#64748b;">${escapeHtml(question)}</div>${visNote}<div style="font-size:0.92em;font-weight:600;color:#111827;margin-top:2px;">${escapeHtml(answer)}</div></div>`;
             })
             .join('')
-        : '<div style="font-size:0.88em;color:#6b7280;">No public profile attributes yet.</div>';
+        : `<div style="font-size:0.88em;color:#6b7280;">${escapeHtml(this.t('meNoPublicProfile'))}</div>`;
       const reputation = user.reputation || ({} as typeof user.reputation);
       const reviewCount = reputation.reviewCount ?? 0;
       const starRating = Number(reputation.starRating ?? 0);
@@ -1338,10 +1346,10 @@ export class UIManager extends EventEmitter {
         <div style="margin-top: 20px; padding: 16px; background: #ffffff; border-radius: 12px; text-align: left; border:1px solid #e5e7eb;">
           <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px;">
             <div style="font-weight:700; color:#111827;">${this.t('profile')}</div>
-            <div style="font-size:0.82em; color:#6b7280;">Visibility per Q&amp;A (see Edit Profile)</div>
+            <div style="font-size:0.82em; color:#6b7280;">${this.t('meProfileVisibilityHelp')}</div>
           </div>
           <div style="font-size:0.88em; color:#374151; margin-bottom:10px;">
-            ${this.t('languagesLabel')}: ${escapeHtml((Array.isArray(user.languages) && user.languages.length > 0 ? user.languages.join(', ') : 'en'))}
+            ${this.t('languagesLabel')}: ${escapeHtml((Array.isArray(user.languages) && user.languages.length > 0 ? user.languages : ['en']).map((code) => this.formatTalkLanguage(code)).join(', '))}
           </div>
           ${interestNames.length > 0 ? `<div style="font-size:0.88em; color:#374151; margin-bottom:10px;">${this.t('interestsLabel')}: ${escapeHtml(interestNames.join(', '))}</div>` : ''}
           <div style="display:grid; gap:8px;">
@@ -1356,7 +1364,7 @@ export class UIManager extends EventEmitter {
           <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
             <div>
               <div style="font-weight: 700; color: #111827;">${this.t('credit')}</div>
-              <div style="font-size: 0.82em; color: #6b7280;">Read-only reputation summary from other users' interactions.</div>
+              <div style="font-size: 0.82em; color: #6b7280;">${this.t('meCreditHelp')}</div>
             </div>
             <label style="display:flex; align-items:center; gap:8px; font-size:0.85em;">
               <input type="checkbox" id="credit-visibility-checkbox" ${isCreditVisible ? 'checked' : ''}>
@@ -1364,13 +1372,13 @@ export class UIManager extends EventEmitter {
             </label>
           </div>
           <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
-            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">Reviews</div><div style="font-size:1.15em;font-weight:700;">${reviewCount}</div></div>
-            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">Star rating</div><div style="font-size:1.15em;font-weight:700;">${starRating.toFixed(1)}</div></div>
-            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">Friends</div><div style="font-size:1.15em;font-weight:700;">${friendsCount}</div></div>
-            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">Liked</div><div style="font-size:1.15em;font-weight:700;">${likedCount}</div></div>
-            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">Disliked</div><div style="font-size:1.15em;font-weight:700;">${dislikedCount}</div></div>
-            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">Matches</div><div style="font-size:1.15em;font-weight:700;">${matchesFound}</div></div>
-            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;grid-column:span 2;"><div style="font-size:0.78em;color:#9a3412;">Age verified</div><div style="font-size:1.15em;font-weight:700;">${ageVerified ? '✓ 18+' : '—'}</div></div>
+            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meReviews')}</div><div style="font-size:1.15em;font-weight:700;">${reviewCount}</div></div>
+            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meStarRating')}</div><div style="font-size:1.15em;font-weight:700;">${starRating.toFixed(1)}</div></div>
+            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meFriends')}</div><div style="font-size:1.15em;font-weight:700;">${friendsCount}</div></div>
+            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meLiked')}</div><div style="font-size:1.15em;font-weight:700;">${likedCount}</div></div>
+            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meDisliked')}</div><div style="font-size:1.15em;font-weight:700;">${dislikedCount}</div></div>
+            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meMatches')}</div><div style="font-size:1.15em;font-weight:700;">${matchesFound}</div></div>
+            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;grid-column:span 2;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meAgeVerified')}</div><div style="font-size:1.15em;font-weight:700;">${ageVerified ? '✓ 18+' : '—'}</div></div>
           </div>
         </div>
       `;

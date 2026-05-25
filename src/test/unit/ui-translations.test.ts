@@ -11,6 +11,9 @@ describe('UI translations', () => {
     expect(uiText('zh', 'storageLocalNodeSupervisor')).toBe('本地节点管理器');
     expect(uiText('zh', 'storagePurposeChatrooms')).toContain('聊天室');
     expect(uiText('zh', 'storageDisabled')).toBe('已禁用');
+    expect(uiText('zh', 'meProfileVisibilityHelp')).toContain('可见范围');
+    expect(uiText('zh', 'meCreditHelp')).toContain('信誉摘要');
+    expect(uiText('zh', 'meTrendNoData')).toContain('广播定向数据');
     expect(languageOptionLabel('zh', 'en', 'English')).toBe('英语');
   });
 

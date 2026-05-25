@@ -373,6 +373,15 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('.me-answer-filter[data-me-answer-filter="all"]')).toHaveText('全部');
     await expect(p.locator('.me-answer-filter[data-me-answer-filter="conditional"]')).toHaveText('条件');
     await expect(p.locator('#me-view-preferences-btn')).toHaveText('偏好设置');
+    await expect(p.locator('#user-info-me')).toContainText('每项问答的可见范围');
+    await expect(p.locator('#user-info-me')).toContainText('语言: 英语');
+    await expect(p.locator('#user-info-me')).toContainText('广播标签趋势');
+    await expect(p.locator('#user-info-me')).toContainText('信用');
+    await expect(p.locator('#user-info-me')).toContainText('来自其他用户互动的只读信誉摘要');
+    await expect(p.locator('#user-info-me')).toContainText('评价');
+    await expect(p.locator('#user-info-me')).toContainText('星级');
+    await expect(p.locator('#user-info-me')).toContainText('匹配数');
+    await expect(p.locator('#user-info-me')).toContainText('年龄已验证');
     await expect(p.locator('#answers-content')).toContainText('你收到并回答的话题会显示在这里');
     await expect(p.locator('#answers-content')).toContainText('偏好设置');
     await p.evaluate(() => {
