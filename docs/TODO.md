@@ -40,8 +40,8 @@ Current implementation baseline discovered during the audit:
   detail, relationship, block, and public-credit surfaces; remaining dialogs and
   notification/storage/support paths still require the D2 traversal and audit.
 - Chinese catalog coverage now includes the Talks main list, outgoing/incoming row metadata,
-  language badges, flow/tag editor controls, and flow/tag response outcomes; route-editor
-  internals, notification/storage, and support paths remain active D2 work.
+  language badges, flow/tag/route editor controls, route branch-tree internals, and flow/tag
+  response outcomes; notification/storage and support paths remain active D2 work.
 - Chinese catalog coverage now includes Me answer-history rows, toolbar filters, localized
   talk-type display badges, Preferences, and My Talks dialogs; profile/support-adjacent
   detail panels and remaining notification/storage surfaces remain active D2 work.

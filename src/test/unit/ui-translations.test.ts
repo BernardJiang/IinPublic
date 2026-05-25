@@ -6,6 +6,8 @@ describe('UI translations', () => {
     expect(uiText('zh', 'navSettings')).toBe('设置');
     expect(uiText('zh', 'repliesGroupTalk')).toBe('按话题分组');
     expect(uiText('zh', 'meNoAnswers')).toContain('回答');
+    expect(uiText('zh', 'editorRouteAddChild')).toBe('+ 子问题');
+    expect(uiText('zh', 'editorRouteKindMatch')).toBe('匹配');
     expect(languageOptionLabel('zh', 'en', 'English')).toBe('英语');
   });
 

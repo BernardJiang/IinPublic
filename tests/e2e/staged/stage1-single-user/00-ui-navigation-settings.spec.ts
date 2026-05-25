@@ -265,6 +265,17 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#talk-editor-modal')).toContainText('问题（流程）');
     await expect(p.locator('.question-text').first()).toHaveAttribute('placeholder', '输入问题（例如：你喜欢咖啡吗？）');
     await expect(p.locator('.answer-next').first().locator('option[value="noticed"]')).toHaveText('注意到（匹配）');
+    await p.locator('input[name="talk-type-radio"][value="route"]').check();
+    await expect(p.locator('#talk-editor-modal')).toContainText('路线（分支图编辑器）');
+    await expect(p.locator('.route-answer-kind').first()).toHaveText('匹配');
+    await expect(p.locator('.route-answer-kind').nth(1)).toHaveText('忽略');
+    await expect(p.locator('.route-question-text').first()).toHaveAttribute('placeholder', '问题（以 ? 结尾）');
+    await expect(p.locator('.route-answer-text').first()).toHaveAttribute('placeholder', '答案内容（例如：是。）');
+    await expect(p.locator('.route-answer-text').first()).toHaveValue('匹配。');
+    await expect(p.locator('.route-add-child-btn').first()).toHaveText('+ 子问题');
+    await p.locator('.route-add-child-btn').first().click();
+    await expect(p.locator('.route-remove-question-btn')).toHaveText('移除问题');
+    await expect(p.locator('.route-node[data-qid="q_1"] .route-answer-text').first()).toHaveValue('匹配。');
     await p.locator('#cancel-talk-btn').click();
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showTalkResponseDialog({
       id: 'localization-response',

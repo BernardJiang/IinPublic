@@ -5065,7 +5065,7 @@ export class UIManager extends EventEmitter {
     } else if (type === 'route') {
       questions = this.collectRouteEditorQuestions();
       if (questions.length === 0) {
-        this.showTalkValidationError(['Route must have at least one question']);
+        this.showTalkValidationError([this.t('editorRouteRequired')]);
         return false;
       }
     } else {
@@ -5276,8 +5276,8 @@ export class UIManager extends EventEmitter {
             text: '',
             parentAnswer: null,
             answers: [
-              { id: 'a_0_match', text: 'Match.', isMatch: true, isTerminal: true },
-              { id: 'a_0_ignore', text: 'Ignore.', isIgnore: true, isTerminal: true },
+              { id: 'a_0_match', text: this.t('editorRouteDefaultMatch'), isMatch: true, isTerminal: true },
+              { id: 'a_0_ignore', text: this.t('editorRouteDefaultIgnore'), isIgnore: true, isTerminal: true },
             ],
           },
         ];
@@ -5310,12 +5310,18 @@ export class UIManager extends EventEmitter {
       const answersHtml = q.answers
         .map((a) => {
           const childIds = childrenOf.get(`${q.id}::${a.id}`) ?? [];
-          const kind = a.isMatch ? 'match' : a.isIgnore ? 'ignore' : a.isTerminal ? 'terminal' : 'link';
+          const kind = a.isMatch
+            ? this.t('editorRouteKindMatch')
+            : a.isIgnore
+              ? this.t('editorRouteKindIgnore')
+              : a.isTerminal
+                ? this.t('editorRouteKindTerminal')
+                : this.t('editorRouteKindLink');
           return `
             <div class="route-answer" data-qid="${q.id}" data-aid="${a.id}" style="display:flex; align-items:center; gap:8px; margin:4px 0 4px 18px;">
               <span class="route-answer-kind" style="font-size:0.8em; padding:2px 6px; border-radius:10px; background:#eef; color:#334;">${kind}</span>
-              <input type="text" class="form-input route-answer-text" value="${escapeHtml(a.text)}" placeholder="Answer text (e.g., Yes.)" data-qid="${q.id}" data-aid="${a.id}" style="flex:1;">
-              <button type="button" class="btn route-add-child-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:#667eea; color:white; padding:2px 6px;">+ Child Q</button>
+              <input type="text" class="form-input route-answer-text" value="${escapeHtml(a.text)}" placeholder="${this.t('editorRouteAnswerPlaceholder')}" data-qid="${q.id}" data-aid="${a.id}" style="flex:1;">
+              <button type="button" class="btn route-add-child-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:#667eea; color:white; padding:2px 6px;">${this.t('editorRouteAddChild')}</button>
               <button type="button" class="btn route-remove-answer-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:#f44336; color:white; padding:2px 6px;">×</button>
             </div>
             ${childIds.map((c) => renderNode(c, depth + 1)).join('')}
@@ -5325,10 +5331,10 @@ export class UIManager extends EventEmitter {
       return `
         <div class="route-node" data-qid="${q.id}" style="border:1px solid #ddd; border-radius:6px; padding:8px; margin:6px 0; ${indent} background:#fafafa;">
           <div style="display:flex; align-items:center; gap:8px;">
-            <strong style="color:#667eea;">Q:</strong>
-            <input type="text" class="form-input route-question-text" value="${escapeHtml(q.text)}" placeholder="Question (end with ?)" data-qid="${q.id}" style="flex:1;">
-            <button type="button" class="btn route-add-answer-btn" data-qid="${q.id}" style="font-size:0.8em; background:#4CAF50; color:white; padding:2px 6px;">+ Answer</button>
-            ${q.parentAnswer ? `<button type="button" class="btn route-remove-question-btn" data-qid="${q.id}" style="font-size:0.8em; background:#f44336; color:white; padding:2px 6px;">Remove Q</button>` : ''}
+            <strong style="color:#667eea;">${this.t('editorRouteQuestionPrefix')}</strong>
+            <input type="text" class="form-input route-question-text" value="${escapeHtml(q.text)}" placeholder="${this.t('editorRouteQuestionPlaceholder')}" data-qid="${q.id}" style="flex:1;">
+            <button type="button" class="btn route-add-answer-btn" data-qid="${q.id}" style="font-size:0.8em; background:#4CAF50; color:white; padding:2px 6px;">${this.t('editorAddAnswer')}</button>
+            ${q.parentAnswer ? `<button type="button" class="btn route-remove-question-btn" data-qid="${q.id}" style="font-size:0.8em; background:#f44336; color:white; padding:2px 6px;">${this.t('editorRouteRemoveQuestion')}</button>` : ''}
           </div>
           ${answersHtml}
         </div>
@@ -5358,7 +5364,7 @@ export class UIManager extends EventEmitter {
         const idx = q.answers.length;
         q.answers.push({
           id: `${q.id}_a${idx}`,
-          text: 'New answer.',
+          text: this.t('editorRouteNewAnswer'),
           isIgnore: true,
           isTerminal: true,
         });
@@ -5400,8 +5406,8 @@ export class UIManager extends EventEmitter {
           text: '',
           parentAnswer: { questionId: parentQid, answerId: parentAid },
           answers: [
-            { id: `${newId}_match`, text: 'Match.', isMatch: true, isTerminal: true },
-            { id: `${newId}_ignore`, text: 'Ignore.', isIgnore: true, isTerminal: true },
+            { id: `${newId}_match`, text: this.t('editorRouteDefaultMatch'), isMatch: true, isTerminal: true },
+            { id: `${newId}_ignore`, text: this.t('editorRouteDefaultIgnore'), isIgnore: true, isTerminal: true },
           ],
         });
         this.renderRouteEditor();

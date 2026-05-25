@@ -65,6 +65,17 @@ Evidence:
 - Unit: `src/test/unit/ui-extracted-modules.test.ts`, `src/test/unit/answers-view.test.ts`
 - E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
 
+## 2026-05-25 - D2 Route Editor Tree Localization Slice
+
+Localized the rendered route branch tree, including outcome pills, prompts, child/remove actions,
+new branch default answers, and route validation messaging. The Chinese traversal now opens the
+route editor and adds a localized child branch.
+
+Evidence:
+- UI/catalog: `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`
+- Unit: `src/test/unit/ui-translations.test.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - D1 Single Settings Owner For Intake Preferences
 
 Confirmed that Settings is the sole editing surface for Talk Behavior and incoming-intake
