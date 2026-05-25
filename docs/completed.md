@@ -404,3 +404,15 @@ to `TODO.md` as greenfield work:
 - Generic per-talk stats endpoints, cross-question/time-series/chatroom/peer/dashboard stats,
   dedicated Statistics tab, survey analytics dashboard, low-count masking, CSV exports,
   follow-up survey creation, and peer relationship stats.
+## 2026-05-25 - D2 Survey Analytics Localization Slice
+
+Localized the creator-facing survey analytics dashboard, including its metric labels, privacy and
+CSV-export controls, load states, export notice, and follow-up survey launch. The dedicated
+three-user dashboard scenario now reopens populated survey results in Chinese and verifies the
+localized follow-up editor path.
+
+Evidence:
+
+- UI/catalog: `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`
+- Unit: `src/test/unit/ui-translations.test.ts`
+- E2E: `tests/e2e/staged/stage3-three-user/00i-survey-analytics-dashboard.spec.ts`

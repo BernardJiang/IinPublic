@@ -119,5 +119,34 @@ test.describe('Survey analytics dashboard', () => {
     await expect(pageTom.locator('#talk-editor-form')).toBeVisible({ timeout: 15_000 });
     await expect(pageTom.locator('#talk-title')).toHaveValue(new RegExp(`^Follow-up: ${title}`));
     await expect(pageTom.locator('#talk-type')).toHaveValue('survey');
+
+    await pageTom.click('#cancel-talk-btn');
+    await pageTom.click('.nav-btn[data-view="settings"]');
+    await waitForTabActive(pageTom, 'settings');
+    await pageTom.locator('#settings-ui-language').selectOption('zh');
+    await expect(pageTom.locator('.nav-btn[data-view="talks"] .nav-label')).toHaveText('话题');
+    await pageTom.click('.nav-btn[data-view="talks"]');
+    await waitForTabActive(pageTom, 'talks');
+    await pageTom.locator('.talk-list-item[data-role="created"]').filter({ hasText: title }).first()
+      .locator('[data-testid="survey-stats-button"]').click();
+
+    await expect(pageTom.locator('.modal-title', { hasText: '问卷分析仪表板' })).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(pageTom.locator('#survey-stats-body')).toContainText('回复数');
+    await expect(pageTom.locator('#survey-stats-body')).toContainText('按日回复');
+    await expect(pageTom.locator('#survey-stats-body')).toContainText('按地区回复');
+    await expect(pageTom.locator('#survey-stats-body')).toContainText('为保护匿名性');
+    await expect(pageTom.locator('#survey-export-summary-btn')).toHaveText('导出汇总 CSV');
+
+    const localizedDownload = pageTom.waitForEvent('download');
+    await pageTom.click('#survey-export-summary-btn');
+    await expect(await localizedDownload).toBeTruthy();
+    await expect(pageTom.locator('.notification').filter({ hasText: '已导出 survey-summary-' })).toBeVisible();
+
+    await pageTom.click('#survey-stats-followup-btn');
+    await expect(pageTom.locator('#talk-editor-form')).toBeVisible({ timeout: 15_000 });
+    await expect(pageTom.locator('#talk-title')).toHaveValue(new RegExp(`^后续问卷：${title}`));
+    await expect(pageTom.locator('#talk-type')).toHaveValue('survey');
   });
 });

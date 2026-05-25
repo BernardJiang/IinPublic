@@ -57,6 +57,8 @@ Current implementation baseline discovered during the audit:
   times, translated TechSupport welcome rendering and support-channel/match notifications while
   retaining the durable English support-greeting payload for compatibility. Conversation and room
   message success/error feedback is localized as well.
+- Chinese catalog coverage now includes the creator-facing survey analytics dashboard, privacy and
+  CSV-export controls, translated export feedback, and follow-up survey entry workflow.
 - Matching E2E specs cover several successful, mismatched, ignored, auto-answer, Contacts, and Me
   scenarios independently; they do not yet provide one exhaustive branch matrix from talk creation
   through every sender/responder result.
