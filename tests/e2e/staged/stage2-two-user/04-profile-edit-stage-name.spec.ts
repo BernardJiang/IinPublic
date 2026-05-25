@@ -78,11 +78,35 @@ test.describe('Profile foundation', () => {
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
     await expect(page.locator('#settings-content')).not.toContainText('Interests: None listed');
-    for (const reservedName of ['TechSupport', 'tech_support', 'Tech Support', 'ROOT', 'admin', 'system']) {
+    const reservedStageNames = [
+      'TechSupport',
+      'tech_support',
+      'Tech Support',
+      'ROOT',
+      'admin',
+      'administrator',
+      'system',
+      'support',
+      'api',
+      'www',
+    ];
+    for (const reservedName of reservedStageNames) {
       await page.fill('#settings-stage-name-input', reservedName);
       await page.locator('#settings-stage-name-input').blur();
+      await expect(page.locator('#settings-stage-name-error')).toContainText(
+        'That stage name is reserved. Please choose another name.',
+        { timeout: 10000 },
+      );
       await expect(page.locator('#settings-stage-name-input')).toHaveValue('Tom', { timeout: 10000 });
     }
+    for (const reservedName of reservedStageNames) {
+      const response = await page.request.post(`${gunBaseURL()}/api/users`, {
+        data: { stageName: reservedName, profile: [], languages: ['en'], interests: [] },
+      });
+      expect(response.status(), `ordinary API account should not claim ${reservedName}`).toBe(400);
+      expect(await response.json()).toMatchObject({ error: expect.stringMatching(/reserved/i) });
+    }
+    await expect(page.locator('[data-testid="user-stage-name"]')).toContainText('Tom');
     await page.selectOption('#settings-headshot-select', '😎');
     await page.selectOption('#settings-profile-languages', 'en');
     await page.evaluate(async () => {

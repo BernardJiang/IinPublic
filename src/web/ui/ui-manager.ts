@@ -2370,6 +2370,7 @@ export class UIManager extends EventEmitter {
                   <span>${this.t('settingsStageName')}</span>
                   <input type="text" class="form-input" id="settings-stage-name-input" data-testid="settings-stage-name-input" value="${escapeHtml(user.stageName)}" minlength="3">
                 </label>
+                <div id="settings-stage-name-error" role="alert" style="display:none;font-size:0.82em;color:#b91c1c;margin-top:5px;"></div>
                 ${interestNames.length > 0 ? `<div style="font-size:0.86em;color:#64748b;">Interests: ${escapeHtml(interestNames.join(', '))}</div>` : ''}
               </div>
             </div>
@@ -2603,10 +2604,20 @@ export class UIManager extends EventEmitter {
     });
     document.getElementById('settings-stage-name-input')?.addEventListener('change', async (event) => {
       const input = event.currentTarget as HTMLInputElement;
+      const errorText = document.getElementById('settings-stage-name-error') as HTMLElement | null;
+      const showStageNameError = (message: string): void => {
+        if (errorText) {
+          errorText.textContent = message;
+          errorText.style.display = message ? 'block' : 'none';
+        }
+      };
       const next = input.value.trim();
       if (!this.currentUser || next === this.currentUser.stageName) return;
+      showStageNameError('');
       if (next.length < 3) {
-        this.showNotification('Stage name must be at least 3 characters.', 'error');
+        const message = 'Stage name must be at least 3 characters.';
+        showStageNameError(message);
+        this.showNotification(message, 'error');
         input.value = this.currentUser.stageName;
         return;
       }
@@ -2617,6 +2628,7 @@ export class UIManager extends EventEmitter {
         const message = error instanceof Error && /reserved/i.test(error.message)
           ? 'That stage name is reserved. Please choose another name.'
           : 'Stage name could not be updated.';
+        showStageNameError(message);
         this.showNotification(message, 'error');
       }
     });

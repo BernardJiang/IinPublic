@@ -24,15 +24,14 @@ checklists later in this document remain the detailed feature inventory and are 
 
 Current implementation baseline discovered during the audit:
 
-- Reserved-name validation already rejects ordinary claims to `TechSupport`, `admin`,
-  `administrator`, `api`, `root`, `system`, `support`, and `www`, including normalized spelling
-  variations; it still needs complete UI/API/E2E acceptance coverage.
+- Reserved-name validation and its UI/API/E2E acceptance coverage now reject ordinary claims to
+  `TechSupport`, `admin`, `administrator`, `api`, `root`, `system`, `support`, and `www`,
+  including normalized spelling variations.
 - Incoming-talk intake code already has language, min/max distance, grammar, dirty-word, custom
   blocked-term, talk-type, sent-after, and adult gating paths. Unit/integration tests cover selected
   cases, but the user-level multi-user proof scenarios below are not complete.
-- Settings still renders `Interests: None listed` for a profile with no interests and offers only
-  preset text/emoji headshots. Contacts and peer detail also render empty "Interests: Not listed"
-  placeholders.
+- Settings now supports preset and image headshots and omits empty-interest placeholders across
+  Settings and peer detail. Photo preview/permission fallback and full cross-surface proof remain.
 - Profile language and incoming-language controls persist values, but the menu, tabs, dialogs, and
   messages remain hard-coded in English.
 - Matching E2E specs cover several successful, mismatched, ignored, auto-answer, Contacts, and Me
@@ -46,28 +45,14 @@ Current implementation baseline discovered during the audit:
 
 Purpose: make Settings a complete, safe identity editor before its settings drive other behavior.
 
-- **Reserved stage names and impersonation guardrails.** Keep the implemented shared validator and
-  add validation messaging in Settings that clearly explains why a name is unavailable. Reject
-  ordinary creation and rename attempts for every protected name and normalized variant, including
-  casing, surrounding spaces, punctuation separators, and lookalike forms covered by product policy.
-  Keep the canonical root identity as the only allowed owner of `TechSupport`.
-- **Reserved-name proof script.** Add unit/API/E2E coverage that attempts `TechSupport`,
-  `tech_support`, `Tech Support`, `ROOT`, `admin`, `administrator`, `system`, `support`, `api`, and
-  `www`; asserts each ordinary user is rejected; asserts the previous stage name remains visible
-  after failure; and asserts the canonical TechSupport bootstrap still succeeds.
-- **Remove empty-interest noise.** When a user has no interests, remove the Settings text
-  `Interests: None listed` rather than displaying a placeholder. Apply the same rule consistently
-  to the Me profile card, Contacts public-profile summary, and peer-detail summary where empty
-  `Interests: Not listed` copy currently appears. Show an edit affordance only where the owner can
-  actually add interests.
 - **Camera/photo headshot function.** Replace or complement the preset-headshot picker with
-  `Take Photo` and `Choose Photo` actions, a preview/crop or center-fit step, replace/remove
-  controls, permission-denied and unsupported-device fallback, file-type/size limits, and an
-  accessible initials/preset fallback. Define whether the stored image is local/private or public
-  profile data before syncing it.
+  a preview confirmation or crop step and explicit permission-denied/unsupported-device fallback.
+  `Take Photo`, `Choose Photo`, replace/remove, bounded centered rendering, file-type/size limits,
+  accessible initials/preset fallback, and public profile sync are already implemented.
 - **Headshot proof script.** Use a deterministic fixture image or mocked camera stream to verify
-  choose/capture, preview, save, reload, display in Me/Contacts/peer detail, replace, remove,
-  permission denial, invalid-file rejection, and that private raw camera data is not persisted.
+  preview, reload, display in Me/Contacts, permission denial, and that private raw camera data is
+  not persisted. Fixture choose/capture, save, peer-detail display, remove, and invalid-file
+  rejection are already automated.
 - **One owner for duplicated preferences.** Talk behavior and intake controls are currently
   rendered in both Me and Settings. Decide whether Me is a read-only summary/shortcut or remove the
   duplicate controls; keep one persisted source of truth and verify either surface never overwrites
@@ -618,9 +603,6 @@ verified.
   native multi-select has been replaced with checkbox/chip controls and an active-language count.
 - **Future work: default talk language setting.** Add a visible default-language setting for new
   talks. It should default to the primary UI/profile language but allow override.
-- **Implemented in current working tree: reserved root names.** Shared validation now rejects
-  ordinary use of `TechSupport`, `admin`, `system`, and `root`, while allowing the canonical root id
-  to retain `TechSupport`.
 - **Future work: filter validation and preview.** Settings should preview how many current incoming
   talks would be hidden by language, type, distance, grammar, dirty words, custom blocked terms, and
   age/credit rules before the user leaves the tab.

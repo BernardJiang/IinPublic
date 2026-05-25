@@ -1,6 +1,6 @@
 # IinPublic Completed Work
 
-Last updated: 2026-05-21
+Last updated: 2026-05-24
 
 This is the durable ledger for shipped feature work. Keep `TODO.md` focused on forward work:
 when an item is finished, move it here with a short description and concrete evidence.
@@ -11,6 +11,27 @@ when an item is finished, move it here with a short description and concrete evi
 - Include the date, feature/phase name, user-visible result, and verification evidence.
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
+
+## 2026-05-24 - D1 Identity Guardrails And Profile Presentation
+
+Implemented protected stage-name validation across ordinary creation and Settings rename flows,
+with clear user feedback and preservation of the previous identity. The protected acceptance
+matrix includes `TechSupport`, normalized TechSupport variants, `ROOT`, `admin`, `administrator`,
+`system`, `support`, `api`, and `www`; only the canonical root flow may retain `TechSupport`.
+
+Removed empty-interest filler from Settings and public peer/contact profile rendering, and added
+image headshots with bounded rendering, choose/capture file actions, replacement/removal, file
+validation, public-profile display, and initials/preset fallback.
+
+Evidence:
+
+- Shared validator and UI: `src/shared/techsupport.ts`, `src/web/ui/ui-manager.ts`
+- Avatar/profile rendering: `src/web/ui/profile-avatar.ts`, `src/web/ui/contacts-view.ts`,
+  `src/web/ui/user-detail-view.ts`
+- Unit/integration: `src/test/unit/techsupport.test.ts`, `src/test/unit/profile-avatar.test.ts`,
+  `src/test/unit/web-user-service.test.ts`, `src/test/integration/services.test.ts`
+- E2E: `tests/e2e/staged/stage2-two-user/04-profile-edit-stage-name.spec.ts`,
+  `tests/e2e/staged/stage0-bootstrap/aaa-stage0-techsupport.spec.ts`
 
 ## 2026-05-20 - P2P Node Network Roadmap P1-P7
 
