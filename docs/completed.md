@@ -65,6 +65,18 @@ Evidence:
 - Unit: `src/test/unit/ui-translations.test.ts`, `src/test/unit/ui-extracted-modules.test.ts`
 - E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
 
+## 2026-05-25 - D2 Talks Action Feedback Localization Slice
+
+Localized Talks create/send/update/load/copy/remove/completion feedback and editor validation
+banners. Also kept live chatroom visit and matched-member updates in the active language instead
+of allowing asynchronous refreshes to restore English runtime labels.
+
+Evidence:
+
+- UI/catalog: `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`, `src/web/app/app.ts`
+- Unit: `src/test/unit/ui-translations.test.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - D2 Me History And Auxiliary Dialog Localization Slice
 
 Localized Me answer-history metadata, filtering controls, stored-talk type badges, Preferences,

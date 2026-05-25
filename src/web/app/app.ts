@@ -726,7 +726,7 @@ export class IinPublicApp {
 
           if (isMatch) {
             this.uiManager.showNotification(
-              `Match! ${responseData.responderName} noticed you on "${talkData.title}"`,
+              this.uiManager.formatTalkMatched(responseData.responderName, talkData.title),
               'success',
             );
             console.log(`✅ Match detected with ${responseData.responderName}`);
@@ -1667,12 +1667,9 @@ export class IinPublicApp {
             data.targetScope,
             data.maxRecipients,
           );
-          this.uiManager.showNotification('Talk sent successfully!', 'success');
+          this.uiManager.showNotification(this.uiManager.formatTalkSendSuccess(), 'success');
         } catch (error) {
-          this.uiManager.showNotification(
-            'Failed to send talk: ' + (error as Error).message,
-            'error',
-          );
+          this.uiManager.showNotification(this.uiManager.formatTalkSendFailed((error as Error).message), 'error');
         }
       },
     );
@@ -1719,10 +1716,7 @@ export class IinPublicApp {
           );
           await this.registerReceiversOnServerForTalk(talk.id, talk, receivers);
           if (!synced) {
-            this.uiManager.showNotification(
-              'Talk saved locally. Server is slow to sync — use Broadcast in the chatroom in a few seconds.',
-              'info',
-            );
+            this.uiManager.showNotification(this.uiManager.formatTalkCreateSyncSlow(), 'info');
             return;
           }
 
@@ -1741,21 +1735,16 @@ export class IinPublicApp {
           console.log('📢 Talk broadcasted to chatroom:', chatroomId);
         }
 
-        let createdMsg = 'Talk created and sent to chatroom!';
+        let createdMode: 'sent' | 'saved-only' | 'needs-room' = 'sent';
         if (!wantSendToChatroom) {
-          createdMsg =
-            'Talk saved to your list (send-to-room was off). Use Broadcast in Chatrooms when you want others to receive it.';
+          createdMode = 'saved-only';
         } else if (!chatroomId) {
-          createdMsg =
-            'Talk created. Open Chatrooms, join a room, then use Broadcast so others receive it.';
+          createdMode = 'needs-room';
         }
-        this.uiManager.showNotification(createdMsg, 'success');
+        this.uiManager.showNotification(this.uiManager.formatTalkCreated(createdMode), 'success');
       } catch (error) {
         console.error('Failed to create talk:', error);
-        this.uiManager.showNotification(
-          'Failed to create talk: ' + (error as Error).message,
-          'error',
-        );
+        this.uiManager.showNotification(this.uiManager.formatTalkCreateFailed((error as Error).message), 'error');
       }
     });
 
@@ -1899,14 +1888,11 @@ export class IinPublicApp {
           language: data.language || 'en',
           tags: data.tags || [],
         });
-        this.uiManager.showNotification('Talk updated.', 'success');
+        this.uiManager.showNotification(this.uiManager.formatTalkUpdated(), 'success');
         this.uiManager.displayTalksList();
       } catch (error) {
         console.error('Failed to update talk:', error);
-        this.uiManager.showNotification(
-          'Failed to update talk: ' + (error as Error).message,
-          'error',
-        );
+        this.uiManager.showNotification(this.uiManager.formatTalkUpdateFailed((error as Error).message), 'error');
       }
     });
 
@@ -1955,14 +1941,11 @@ export class IinPublicApp {
         if (talk) {
           this.uiManager.showTalkEditorDialog(talk);
         } else {
-          this.uiManager.showNotification('Talk not found.', 'error');
+          this.uiManager.showNotification(this.uiManager.formatTalkNotFound(), 'error');
         }
       } catch (error) {
         console.error('Failed to load talk:', error);
-        this.uiManager.showNotification(
-          'Failed to load talk: ' + (error as Error).message,
-          'error',
-        );
+        this.uiManager.showNotification(this.uiManager.formatTalkLoadFailed((error as Error).message), 'error');
       }
     });
 
@@ -2616,7 +2599,7 @@ export class IinPublicApp {
   public async openTalkResponseDialogWithAuto(talkId: string): Promise<void> {
     const talk = await this.talkService.getTalkWithRetry(talkId);
     if (!talk) {
-      this.uiManager.showNotification('Could not load talk.', 'error');
+      this.uiManager.showNotification(this.uiManager.formatTalkCouldNotLoad(), 'error');
       return;
     }
     this.uiManager.showTalkResponseDialog(talk, { skipAutoAnswer: false });

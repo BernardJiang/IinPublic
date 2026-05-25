@@ -356,6 +356,14 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#talk-title')).toHaveAttribute('placeholder', '例如：咖啡、网球、工作');
     await expect(p.locator('#talk-language option[value="en"]')).toHaveText('英语');
     await expect(p.locator('#talk-language')).toHaveValue('zh');
+    await p.evaluate(() => {
+      document.getElementById('talk-editor-form')?.dispatchEvent(new Event('submit', {
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
+    await expect(p.locator('#talk-validation-errors')).toContainText('无法保存，请修正：');
+    await expect(p.locator('#talk-validation-errors')).toContainText('必须输入标签关键词');
     await p.locator('input[name="talk-type-radio"][value="flow"]').check();
     await expect(p.locator('#talk-editor-modal')).toContainText('问题（流程）');
     await expect(p.locator('.question-text').first()).toHaveAttribute('placeholder', '输入问题（例如：你喜欢咖啡吗？）');
@@ -372,6 +380,16 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('.route-remove-question-btn')).toHaveText('移除问题');
     await expect(p.locator('.route-node[data-qid="q_1"] .route-answer-text').first()).toHaveValue('匹配。');
     await p.locator('#cancel-talk-btn').click();
+    await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showTalkCompletion('localized', 'match'));
+    await expect(p.locator('.notification').filter({ hasText: '话题完成结果：匹配' })).toBeVisible();
+    await p.locator('.notification').filter({ hasText: '话题完成结果：匹配' }).click();
+    await p.evaluate(() => {
+      const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
+      ui?.showNotification(ui.formatTalkMatched('Ming', '测试话题'), 'success');
+    });
+    const localizedMatchToast = p.locator('.notification').filter({ hasText: '匹配！Ming 在“测试话题”中注意到了你' });
+    await expect(localizedMatchToast).toHaveAttribute('data-match-notification', 'true');
+    await localizedMatchToast.click();
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showTalkResponseDialog({
       id: 'localization-response',
       title: 'Localized Prompt',

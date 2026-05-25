@@ -21,6 +21,10 @@ describe('UI translations', () => {
     expect(uiText('zh', 'chatroomRenameTitle')).toBe('重命名房间');
     expect(uiText('zh', 'broadcastCancelled')).toBe('已取消广播。');
     expect(uiText('zh', 'travelEnabled')).toContain('旅行模式');
+    expect(uiText('zh', 'talksCreatedSent')).toContain('聊天室');
+    expect(uiText('zh', 'talksCompletedOutcome')).toContain('结果');
+    expect(uiText('zh', 'talksMatchNoticePrefix')).toBe('匹配！');
+    expect(uiText('zh', 'editorCannotSave')).toContain('无法保存');
     expect(languageOptionLabel('zh', 'en', 'English')).toBe('英语');
   });
 

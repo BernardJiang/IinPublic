@@ -3402,11 +3402,11 @@ export class UIManager extends EventEmitter {
     const myTalks = getMyTalks();
     const talk = myTalks[talkId];
     if (!talk?.fullTalk) {
-      this.showNotification('Talk data not found', 'error');
+      this.showNotification(this.t('talksDataNotFound'), 'error');
       return;
     }
     if (talk.role === 'copied') {
-      this.showNotification('Already in your Talks list', 'info');
+      this.showNotification(this.t('talksAlreadyCopied'), 'info');
       return;
     }
     this.saveMyTalk({
@@ -3420,7 +3420,7 @@ export class UIManager extends EventEmitter {
       outcome: talk.outcome,
       senders: talk.senders,
     });
-    this.showNotification('Copied to Talks tab', 'success');
+    this.showNotification(this.t('talksCopiedToList'), 'success');
     this.displayTalksList();
     this.displayAnswersList();
   }
@@ -3438,13 +3438,13 @@ export class UIManager extends EventEmitter {
         identityKey: identityKeyFallback,
         callback: (fullTalk: any) => {
           if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true });
-          else this.showNotification('Could not load talk.', 'error');
+          else this.showNotification(this.t('talksCouldNotLoad'), 'error');
         },
       });
       return;
     }
     if (!tid) {
-      this.showNotification('Could not open talk.', 'error');
+      this.showNotification(this.t('talksCouldNotOpen'), 'error');
       return;
     }
 
@@ -3459,7 +3459,7 @@ export class UIManager extends EventEmitter {
         // Open response view without auto-answering (avoid instant "Match!" toast when just viewing)
         this.showTalkResponseDialog(talk.fullTalk, { skipAutoAnswer: true });
       } else {
-        this.showNotification(`Talk: ${talk.title}`, 'info');
+        this.showNotification(this.tf('talksDetailNotice', { title: talk.title }), 'info');
       }
     } else {
       // Incoming: load by id; if Gun gave a bad id, app retries via identityKey from server API.
@@ -3470,7 +3470,7 @@ export class UIManager extends EventEmitter {
           if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true });
           else
             this.showNotification(
-              'Could not load this talk yet. Check your connection and try again.',
+              this.t('talksCouldNotLoadRetry'),
               'error',
             );
         },
@@ -3579,6 +3579,52 @@ export class UIManager extends EventEmitter {
 
   public formatChatroomDeleted(): string {
     return this.t('chatroomDeleted');
+  }
+
+  public formatTalkSendSuccess(): string {
+    return this.t('talksSendSuccess');
+  }
+
+  public formatTalkSendFailed(reason: string): string {
+    return this.tf('talksSendFailed', { reason });
+  }
+
+  public formatTalkCreateSyncSlow(): string {
+    return this.t('talksCreateSyncSlow');
+  }
+
+  public formatTalkCreated(mode: 'sent' | 'saved-only' | 'needs-room'): string {
+    if (mode === 'saved-only') return this.t('talksCreatedSavedOnly');
+    if (mode === 'needs-room') return this.t('talksCreatedNeedsRoom');
+    return this.t('talksCreatedSent');
+  }
+
+  public formatTalkCreateFailed(reason: string): string {
+    return this.tf('talksCreateFailed', { reason });
+  }
+
+  public formatTalkUpdated(): string {
+    return this.t('talksUpdated');
+  }
+
+  public formatTalkUpdateFailed(reason: string): string {
+    return this.tf('talksUpdateFailed', { reason });
+  }
+
+  public formatTalkNotFound(): string {
+    return this.t('talksNotFound');
+  }
+
+  public formatTalkCouldNotLoad(): string {
+    return this.t('talksCouldNotLoad');
+  }
+
+  public formatTalkLoadFailed(reason: string): string {
+    return this.tf('talksLoadFailed', { reason });
+  }
+
+  public formatTalkMatched(name: string, title: string): string {
+    return this.tf('talksMatchNotice', { name, title });
   }
 
   private formatConversationMessage(message: string, supportChannel: boolean): string {
@@ -5077,7 +5123,7 @@ export class UIManager extends EventEmitter {
     }
     this.displayTalksList();
     this.displayAnswersList();
-    this.showNotification('Talk removed from list', 'success');
+    this.showNotification(this.t('talksRemovedFromList'), 'success');
   }
 
   showNotification(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info'): void {
@@ -5086,7 +5132,7 @@ export class UIManager extends EventEmitter {
     notification.textContent = message;
 
     const isMatchNotification =
-      message.startsWith('Match!') ||
+      message.startsWith(this.t('talksMatchNoticePrefix')) ||
       message === this.t('responseMatch') ||
       message === this.t('responseMatchAuto');
     if (isMatchNotification) {
@@ -5117,11 +5163,16 @@ export class UIManager extends EventEmitter {
   }
 
   showTalkCompletion(_conversationId: string, outcome: string): void {
-    this.showNotification(`Talk completed with outcome: ${outcome}`, 'success');
+    const localizedOutcome = outcome === 'match'
+      ? this.t('peerMatch')
+      : outcome === 'mismatch'
+        ? this.t('peerMismatch')
+        : outcome;
+    this.showNotification(this.tf('talksCompletedOutcome', { outcome: localizedOutcome }), 'success');
   }
 
   showLinearCaptureInterface(_conversationId: string, _capture: any): void {
-    this.showNotification('Auto-talk captured! You can reuse this later.', 'info');
+    this.showNotification(this.t('talksAutoCaptured'), 'info');
   }
 
   refreshTalksList(): void {
@@ -5252,10 +5303,10 @@ export class UIManager extends EventEmitter {
     let questions: any[];
     const selfAnswers: { questionId: string; answerId: string }[] = [];
 
-    if (type === 'tag') {
+      if (type === 'tag') {
       const keyword = title || (document.getElementById('talk-title') as HTMLInputElement).value.trim();
       if (!keyword) {
-        this.showTalkValidationError(['Tag keyword is required']);
+        this.showTalkValidationError([this.t('editorTagRequired')]);
         return false;
       }
       questions = [
@@ -5701,7 +5752,7 @@ export class UIManager extends EventEmitter {
     const errBox = document.getElementById('talk-validation-errors');
     if (errBox) {
       errBox.style.display = 'block';
-      errBox.innerHTML = '<strong>Cannot save — please fix:</strong><ul style="margin:6px 0 0 16px; padding:0;">' +
+      errBox.innerHTML = `<strong>${escapeHtml(this.t('editorCannotSave'))}</strong><ul style="margin:6px 0 0 16px; padding:0;">` +
         errors.map((e) => `<li>${escapeHtml(e)}</li>`).join('') +
         '</ul>';
       errBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -5714,7 +5765,7 @@ export class UIManager extends EventEmitter {
     const banner = document.getElementById('talk-autofix-banner');
     if (banner) {
       banner.style.display = 'block';
-      banner.innerHTML = '<strong>Auto-fixed:</strong><ul style="margin:6px 0 0 16px; padding:0;">' +
+      banner.innerHTML = `<strong>${escapeHtml(this.t('editorAutoFixed'))}</strong><ul style="margin:6px 0 0 16px; padding:0;">` +
         fixes.map((f) => `<li>${escapeHtml(f)}</li>`).join('') +
         '</ul>';
     }
@@ -5742,7 +5793,11 @@ export class UIManager extends EventEmitter {
     const status = document.getElementById('current-chatroom-status');
     if (status && this.currentChatroom === chatroomId) {
       const members = this.chatroomMemberCounts.get(chatroomId) || 0;
-      status.textContent = `👥 ${members} member${members !== 1 ? 's' : ''} total · 🚪 ${counts.visitCount} visits · ◎ ${counts.uniqueVisitorCount} unique`;
+      status.textContent = this.tf('chatroomMetrics', {
+        members: this.tf(members === 1 ? 'chatroomMemberOne' : 'chatroomMembers', { count: members }),
+        visits: this.tf(counts.visitCount === 1 ? 'chatroomVisitOne' : 'chatroomVisits', { count: counts.visitCount }),
+        unique: this.tf(counts.uniqueVisitorCount === 1 ? 'chatroomUniqueOne' : 'chatroomUniqueVisitors', { count: counts.uniqueVisitorCount }),
+      });
     }
   }
 
@@ -5770,7 +5825,7 @@ export class UIManager extends EventEmitter {
       item.classList.add('member-matched');
       (item as HTMLElement).dataset.matched = 'true';
       const status = item.querySelector('.chatroom-member-status');
-      if (status) status.textContent = 'Matched';
+      if (status) status.textContent = this.t('chatroomMatched');
     }
   }
 
