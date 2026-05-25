@@ -37,6 +37,18 @@ Evidence:
 - Unit: `src/test/unit/ui-translations.test.ts`
 - E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
 
+## 2026-05-25 - D2 Contact Relationship Feedback Localization Slice
+
+Localized age-verification vouch, block/unblock, and pre-match conversation guidance notices
+issued by app relationship handlers. The Chinese traversal renders each notice through its
+catalog formatter without writing relationship state.
+
+Evidence:
+
+- UI/app/catalog: `src/web/app/app.ts`, `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`
+- Unit: `src/test/unit/ui-translations.test.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - D2 Chatrooms And Contacts Localization Slice
 
 Moved the visible Chatrooms runtime/member states and Contacts list, detail, relationship,

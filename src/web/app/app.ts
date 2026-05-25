@@ -1554,7 +1554,7 @@ export class IinPublicApp {
     this.uiManager.on('vouchAgeVerified', async (data: { userId: string }) => {
       try {
         await this.userService.vouchAgeVerified(data.userId);
-        this.uiManager.showNotification('Age verification vote submitted.', 'success');
+        this.uiManager.showNotification(this.uiManager.formatAgeVoteSubmitted(), 'success');
       } catch (error) {
         console.warn('Failed to vouch age:', error);
       }
@@ -1569,7 +1569,7 @@ export class IinPublicApp {
         this.currentUser.blockedUserIds = blockedUserIds;
         this.uiManager.adoptSessionUser(this.currentUser);
         this.uiManager.showNotification(
-          data.blocked ? 'User blocked. Talk delivery is now disabled.' : 'User unblocked.',
+          this.uiManager.formatUserBlockChanged(data.blocked),
           'success',
         );
       } catch (error) {
@@ -1651,7 +1651,7 @@ export class IinPublicApp {
       } else {
         // No conversation yet - show notification
         this.uiManager.showNotification(
-          'Match with this user through Talks to start a conversation!',
+          this.uiManager.formatMatchToStartConversation(),
           'info',
         );
       }

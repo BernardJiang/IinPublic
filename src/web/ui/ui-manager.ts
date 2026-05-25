@@ -3627,6 +3627,18 @@ export class UIManager extends EventEmitter {
     return this.tf('talksMatchNotice', { name, title });
   }
 
+  public formatAgeVoteSubmitted(): string {
+    return this.t('contactAgeVoteSubmitted');
+  }
+
+  public formatUserBlockChanged(blocked: boolean): string {
+    return this.t(blocked ? 'contactBlockedNotice' : 'contactUnblockedNotice');
+  }
+
+  public formatMatchToStartConversation(): string {
+    return this.t('contactMatchToChat');
+  }
+
   private formatConversationMessage(message: string, supportChannel: boolean): string {
     if (!supportChannel) return message;
     const match = /^Welcome to IinPublic, (.+)\. TechSupport is here if you need help\.$/.exec(message);

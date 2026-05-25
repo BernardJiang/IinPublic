@@ -28,6 +28,9 @@ describe('UI translations', () => {
     expect(uiText('zh', 'settingsDistanceInvalid')).toContain('最小距离');
     expect(uiText('zh', 'settingsStageNameReserved')).toContain('保留');
     expect(uiText('zh', 'settingsPhotoInvalidType')).toContain('PNG');
+    expect(uiText('zh', 'contactAgeVoteSubmitted')).toContain('年龄');
+    expect(uiText('zh', 'contactBlockedNotice')).toContain('话题投递');
+    expect(uiText('zh', 'contactMatchToChat')).toContain('开始对话');
     expect(languageOptionLabel('zh', 'en', 'English')).toBe('英语');
   });
 

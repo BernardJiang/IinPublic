@@ -304,6 +304,20 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('#back-from-peer-detail').click();
     await p.evaluate(() => {
       const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
+      ui?.showNotification(ui.formatAgeVoteSubmitted(), 'success');
+      ui?.showNotification(ui.formatUserBlockChanged(true), 'success');
+      ui?.showNotification(ui.formatUserBlockChanged(false), 'success');
+      ui?.showNotification(ui.formatMatchToStartConversation(), 'info');
+    });
+    await expect(p.locator('.notification').filter({ hasText: '已提交年龄验证担保。' })).toBeVisible();
+    await expect(p.locator('.notification').filter({ hasText: '已屏蔽该用户，话题投递现已停用。' })).toBeVisible();
+    await expect(p.locator('.notification').filter({ hasText: '已取消屏蔽该用户。' })).toBeVisible();
+    await expect(p.locator('.notification').filter({ hasText: '请先通过话题与该用户匹配，再开始对话！' })).toBeVisible();
+    await p.evaluate(() => {
+      document.querySelectorAll('.notification').forEach((notification) => notification.remove());
+    });
+    await p.evaluate(() => {
+      const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
       const conversationId = 'localized_support_conversation';
       (window as any).__localizedPreviousConversations = localStorage.getItem('myConversations');
       ui?.addNewConversation?.({
