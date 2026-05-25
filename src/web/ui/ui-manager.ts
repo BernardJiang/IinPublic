@@ -2671,7 +2671,7 @@ export class UIManager extends EventEmitter {
         typeof nextFilters.maxDistanceMiles === 'number' &&
         nextFilters.minDistanceMiles > nextFilters.maxDistanceMiles
       ) {
-        this.showNotification('Minimum distance cannot be greater than maximum distance.', 'error');
+        this.showNotification(this.t('settingsDistanceInvalid'), 'error');
         if (this.currentUser?.talkFilters) {
           if (minDistanceEl) minDistanceEl.value = String(this.currentUser.talkFilters.minDistanceMiles ?? '');
           if (maxDistanceEl) maxDistanceEl.value = String(this.currentUser.talkFilters.maxDistanceMiles ?? '');
@@ -2750,7 +2750,7 @@ export class UIManager extends EventEmitter {
       if (!this.currentUser || next === this.currentUser.stageName) return;
       showStageNameError('');
       if (next.length < 3) {
-        const message = 'Stage name must be at least 3 characters.';
+        const message = this.t('settingsStageNameTooShort');
         showStageNameError(message);
         this.showNotification(message, 'error');
         input.value = this.currentUser.stageName;
@@ -2761,8 +2761,8 @@ export class UIManager extends EventEmitter {
       } catch (error) {
         input.value = this.currentUser.stageName;
         const message = error instanceof Error && /reserved/i.test(error.message)
-          ? 'That stage name is reserved. Please choose another name.'
-          : 'Stage name could not be updated.';
+          ? this.t('settingsStageNameReserved')
+          : this.t('settingsStageNameUpdateFailed');
         showStageNameError(message);
         this.showNotification(message, 'error');
       }
@@ -2829,17 +2829,17 @@ export class UIManager extends EventEmitter {
     const readPhoto = async (file?: File): Promise<void> => {
       if (!file) return;
       if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
-        this.showNotification('Choose a PNG, JPEG, WebP, or GIF image.', 'error');
+        this.showNotification(this.t('settingsPhotoInvalidType'), 'error');
         return;
       }
       if (file.size > 2 * 1024 * 1024) {
-        this.showNotification('Photo must be 2 MB or smaller.', 'error');
+        this.showNotification(this.t('settingsPhotoTooLarge'), 'error');
         return;
       }
       const reader = new FileReader();
       const dataUrl = await new Promise<string>((resolve, reject) => {
         reader.addEventListener('load', () => resolve(String(reader.result || '')));
-        reader.addEventListener('error', () => reject(reader.error || new Error('Photo could not be read.')));
+        reader.addEventListener('error', () => reject(reader.error || new Error(this.t('settingsPhotoReadFailed'))));
         reader.readAsDataURL(file);
       });
       showCameraStatus('');

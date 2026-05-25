@@ -204,6 +204,24 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#settings-storage-inspector')).toContainText('浏览器本地存储');
     await expect(p.locator('#settings-storage-inspector')).toContainText('服务器持久化路径');
     await expect(p.locator('#storage-inspector-server')).toContainText('当前成员映射');
+    await p.locator('#settings-max-distance').fill('5');
+    await p.locator('#settings-max-distance').press('Tab');
+    await p.locator('#settings-min-distance').fill('10');
+    await p.locator('#settings-min-distance').press('Tab');
+    await expect(p.locator('.notification').filter({ hasText: '最小距离不能大于最大距离。' })).toBeVisible();
+    await p.locator('.notification').filter({ hasText: '最小距离不能大于最大距离。' }).click();
+    await p.locator('#settings-stage-name-input').fill('a');
+    await p.locator('#settings-stage-name-input').press('Tab');
+    await expect(p.locator('#settings-stage-name-error')).toHaveText('昵称至少需要 3 个字符。');
+    await expect(p.locator('.notification').filter({ hasText: '昵称至少需要 3 个字符。' })).toBeVisible();
+    await p.locator('.notification').filter({ hasText: '昵称至少需要 3 个字符。' }).click();
+    await p.locator('#settings-photo-input').setInputFiles({
+      name: 'not-an-image.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('not an image'),
+    });
+    await expect(p.locator('.notification').filter({ hasText: '请选择 PNG、JPEG、WebP 或 GIF 图片。' })).toBeVisible();
+    await p.locator('.notification').filter({ hasText: '请选择 PNG、JPEG、WebP 或 GIF 图片。' }).click();
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
     await expect(p.locator('.chatroom-item.current-room .current-room-badge')).toHaveText('当前');

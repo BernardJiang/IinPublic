@@ -25,6 +25,9 @@ describe('UI translations', () => {
     expect(uiText('zh', 'talksCompletedOutcome')).toContain('结果');
     expect(uiText('zh', 'talksMatchNoticePrefix')).toBe('匹配！');
     expect(uiText('zh', 'editorCannotSave')).toContain('无法保存');
+    expect(uiText('zh', 'settingsDistanceInvalid')).toContain('最小距离');
+    expect(uiText('zh', 'settingsStageNameReserved')).toContain('保留');
+    expect(uiText('zh', 'settingsPhotoInvalidType')).toContain('PNG');
     expect(languageOptionLabel('zh', 'en', 'English')).toBe('英语');
   });
 

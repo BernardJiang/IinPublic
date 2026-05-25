@@ -31,7 +31,8 @@ Current implementation baseline discovered during the audit:
   blocked-term, talk-type, sent-after, and adult gating paths. Unit/integration tests cover selected
   cases, but the user-level multi-user proof scenarios below are not complete.
 - Settings now supports confirmed photo previews, camera permission fallback, persisted
-  Me/Contacts/peer photo rendering, and omits empty-interest placeholders.
+  Me/Contacts/peer photo rendering, omits empty-interest placeholders, and localizes
+  distance, nickname, and photo-file validation feedback in Chinese.
 - Settings is the sole editor for Talk Behavior and intake controls; Me offers answer history and a
   Preferences shortcut without duplicating settings inputs.
 - The explicit App language setting is separate from profile and incoming-language values, persists

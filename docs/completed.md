@@ -25,6 +25,18 @@ Evidence:
   `src/web/ui/ui-translations.ts`
 - E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
 
+## 2026-05-25 - D2 Settings Feedback Localization Slice
+
+Localized Settings feedback for invalid distance ranges, inline nickname validation failures,
+and profile-photo file rejection while retaining the existing localized preview and camera
+permission flow. The Chinese traversal now triggers each non-mutating validation path.
+
+Evidence:
+
+- UI/catalog: `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`
+- Unit: `src/test/unit/ui-translations.test.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - D2 Chatrooms And Contacts Localization Slice
 
 Moved the visible Chatrooms runtime/member states and Contacts list, detail, relationship,
