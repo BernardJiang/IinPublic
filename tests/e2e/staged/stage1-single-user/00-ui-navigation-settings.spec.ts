@@ -230,11 +230,40 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#reply-filter-query')).toHaveAttribute('placeholder', '昵称或话题');
     await expect(p.locator('#talks-out-sort-order option[value="weighted"]')).toHaveText('加权表现');
     await expect(p.locator('#creator-replies-summary')).toContainText('筛选回复');
+    await expect(p.locator('#talks-stats-strip')).toContainText('统计：');
+    await expect(p.locator('#talks-list')).toContainText('还没有话题');
+    await p.evaluate(() => {
+      localStorage.setItem('myTalks', JSON.stringify({
+        localized_created: {
+          talkId: 'localized_created',
+          title: 'Localized Row',
+          type: 'flow',
+          language: 'en',
+          role: 'created',
+          timestamp: new Date().toISOString(),
+          lastInteraction: new Date().toISOString(),
+        },
+      }));
+      (window as any).__iinpublic_app?.getApp?.()?.uiManager?.displayTalksList();
+    });
+    const localizedRow = p.locator('.talk-list-item[data-talk-id="localized_created"]');
+    await expect(localizedRow).toContainText('已创建');
+    await expect(localizedRow.locator('.talk-badge-language')).toHaveText('英语');
+    await expect(localizedRow).toContainText('有效期：永久');
+    await expect(localizedRow).toContainText('位置：不限位置');
+    await expect(localizedRow).toContainText('广播开启');
+    await expect(p.locator('#talks-status-text')).toContainText('1 个发出');
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showTalkEditorDialog());
     await expect(p.locator('#talk-editor-modal')).toContainText('创建话题');
     await expect(p.locator('#talk-editor-modal')).toContainText('话题标题');
+    await expect(p.locator('#talk-editor-modal')).toContainText('我喜欢这个标签');
+    await expect(p.locator('#talk-title')).toHaveAttribute('placeholder', '例如：咖啡、网球、工作');
     await expect(p.locator('#talk-language option[value="en"]')).toHaveText('英语');
     await expect(p.locator('#talk-language')).toHaveValue('zh');
+    await p.locator('input[name="talk-type-radio"][value="flow"]').check();
+    await expect(p.locator('#talk-editor-modal')).toContainText('问题（流程）');
+    await expect(p.locator('.question-text').first()).toHaveAttribute('placeholder', '输入问题（例如：你喜欢咖啡吗？）');
+    await expect(p.locator('.answer-next').first().locator('option[value="noticed"]')).toHaveText('注意到（匹配）');
     await p.locator('#cancel-talk-btn').click();
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showTalkResponseDialog({
       id: 'localization-response',
@@ -250,6 +279,7 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#talk-response-modal')).toContainText('自动');
     await expect(p.locator('#talk-response-modal')).toContainText('手动');
     await p.evaluate(() => document.getElementById('talk-response-modal')?.remove());
+    await p.evaluate(() => localStorage.removeItem('myTalks'));
     await p.locator('.nav-btn[data-view="me"]').click();
     await afterNav();
     await expect(p.locator('#answers-content')).toContainText('你收到并回答的话题会显示在这里');

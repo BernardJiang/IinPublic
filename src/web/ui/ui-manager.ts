@@ -9,7 +9,7 @@ import {
   type Tag,
 } from '../../shared/types';
 import { EventEmitter } from 'events';
-import { formatTimeAgo, formatExpiration, formatLocationRadius, escapeHtml } from './ui-formatters';
+import { formatTimeAgo, formatExpiration, escapeHtml } from './ui-formatters';
 import { pickLatestTalkIdFromIncomingCluster, isValidTalkId } from '../../shared/incoming-talk-ids';
 import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
 import {
@@ -232,6 +232,52 @@ export class UIManager extends EventEmitter {
 
   private t(key: UiTranslationKey): string {
     return uiText(this.getUiLanguage(), key);
+  }
+
+  private tf(key: UiTranslationKey, values: Record<string, string | number>): string {
+    return Object.entries(values).reduce(
+      (label, [placeholder, value]) => label.replace(`{${placeholder}}`, String(value)),
+      this.t(key),
+    );
+  }
+
+  private formatTalkCount(count: number): string {
+    return this.tf(count === 1 ? 'talksCountOne' : 'talksCount', { count });
+  }
+
+  private formatTalkRelativeTime(date: Date): string {
+    if (this.getUiLanguage() !== 'zh') return formatTimeAgo(date);
+    const diffMs = Date.now() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffMins < 1) return this.t('talksJustNow');
+    if (diffMins < 60) return this.tf('talksMinutesAgo', { count: diffMins });
+    if (diffHours < 24) return this.tf('talksHoursAgo', { count: diffHours });
+    if (diffDays < 7) return this.tf('talksDaysAgo', { count: diffDays });
+    return date.toLocaleDateString('zh-CN');
+  }
+
+  private formatTalkExpiration(expiresAt: number | null | undefined): string {
+    if (this.getUiLanguage() !== 'zh') return formatExpiration(expiresAt);
+    if (expiresAt == null) return this.t('talksForever');
+    if (Date.now() > expiresAt) return this.t('talksExpired');
+    const oneDay = 24 * 60 * 60 * 1000;
+    const left = expiresAt - Date.now();
+    if (left <= oneDay) return this.tf('talksExpiresIn', { value: '&lt;1 天' });
+    if (left <= 7 * oneDay) return this.tf('talksExpiresIn', { value: `${Math.floor(left / oneDay)} 天` });
+    if (left <= 30 * oneDay) return this.tf('talksExpiresIn', { value: `${Math.floor(left / (7 * oneDay))} 周` });
+    if (left <= 365 * oneDay) return this.tf('talksExpiresIn', { value: `${Math.floor(left / (30 * oneDay))} 个月` });
+    return this.tf('talksExpiresIn', { value: `${Math.floor(left / (365 * oneDay))} 年` });
+  }
+
+  private formatTalkLocation(radiusMiles: number | null | undefined): string {
+    return radiusMiles == null ? this.t('talksAnywhere') : this.tf('talksMiles', { count: radiusMiles });
+  }
+
+  private formatTalkLanguage(code: string): string {
+    const language = LANGUAGE_OPTIONS.find((candidate) => candidate.code === code);
+    return languageOptionLabel(this.getUiLanguage(), code, language?.label || code);
   }
 
   private deliveryReasonLabel(reason: string): string {
@@ -1860,17 +1906,21 @@ export class UIManager extends EventEmitter {
     const activeMode = this.talksViewMode;
     const talksStatus = document.getElementById('talks-status-text');
     if (talksStatus) {
-      const sortLabel = {
-        recent: 'latest activity',
-        oldest: 'oldest creation',
-        'latest-reply': 'latest reply',
-        matches: 'most matches',
-        responses: 'most replies',
-        'match-rate': 'best match rate',
-        weighted: 'weighted performance',
-        title: 'title',
-      }[this.talksOutSortMode];
-      talksStatus.textContent = `${inEntries.length} incoming · ${outEntries.length} outgoing · OUT sorted by ${sortLabel}`;
+      const sortLabel = this.t(({
+        recent: 'talksLatestActivity',
+        oldest: 'talksOldestCreation',
+        'latest-reply': 'talksLatestReply',
+        matches: 'talksMostMatches',
+        responses: 'talksMostReplies',
+        'match-rate': 'talksBestMatchRate',
+        weighted: 'talksWeightedPerformance',
+        title: 'talksTitle',
+      } as const)[this.talksOutSortMode]);
+      talksStatus.textContent = this.tf('talksStatusSummary', {
+        incoming: inEntries.length,
+        outgoing: outEntries.length,
+        sort: sortLabel,
+      });
     }
     const talksSort = document.getElementById('talks-out-sort-order') as HTMLSelectElement | null;
     if (talksSort) talksSort.value = this.talksOutSortMode;
@@ -1886,8 +1936,8 @@ export class UIManager extends EventEmitter {
       talksList.innerHTML = `
         <div class="empty-state" style="padding: 60px 20px; text-align: center;">
           <div style="font-size: 3em; margin-bottom: 16px;">💬</div>
-          <p style="font-size: 1.2em; color: #666; margin-bottom: 8px;">No talks yet</p>
-          <p style="font-size: 0.9em; color: #999;">Create your first talk or wait for talks from others.</p>
+          <p style="font-size: 1.2em; color: #666; margin-bottom: 8px;">${this.t('talksNoTalks')}</p>
+          <p style="font-size: 0.9em; color: #999;">${this.t('talksNoTalksHelp')}</p>
         </div>
       `;
     } else {
@@ -1902,28 +1952,34 @@ export class UIManager extends EventEmitter {
                     .map((c: any) => c.respondedByBot ? `${c.otherUserName} 🤖` : c.otherUserName);
                   const metrics = outMetrics(talkId);
                   const statsLine = stats || metrics.responses > 0
-                    ? `Responses: ${metrics.responses} · Matches: ${metrics.matches} · Mismatches: ${metrics.mismatches} · Ignores: ${metrics.ignores} · Match rate: ${Math.round(metrics.matchRate * 100)}%`
-                    : '—';
+                    ? this.tf('talksStats', {
+                        responses: metrics.responses,
+                        matches: metrics.matches,
+                        mismatches: metrics.mismatches,
+                        ignores: metrics.ignores,
+                        rate: Math.round(metrics.matchRate * 100),
+                      })
+                    : this.t('talksNoStats');
                   const rankLine = this.talksOutSortMode === 'weighted'
-                    ? `<div class="talk-weighted-score" style="font-size:0.82em;color:#64748b;margin-top:4px;">Score ${metrics.weighted} = matches x100 + match rate x25 + replies (max 20) - ignores x4 - mismatches x2</div>`
+                    ? `<div class="talk-weighted-score" style="font-size:0.82em;color:#64748b;margin-top:4px;">${this.tf('talksWeightedScore', { score: metrics.weighted })}</div>`
                     : this.talksOutSortMode === 'latest-reply' && metrics.latestResponseAt > 0
-                      ? `<div class="talk-weighted-score" style="font-size:0.82em;color:#64748b;margin-top:4px;">Latest reply: ${escapeHtml(new Date(metrics.latestResponseAt).toLocaleString())}</div>`
+                      ? `<div class="talk-weighted-score" style="font-size:0.82em;color:#64748b;margin-top:4px;">${this.tf('talksLatestReplyLabel', { date: escapeHtml(new Date(metrics.latestResponseAt).toLocaleString()) })}</div>`
                       : '';
                   const matchedLine =
                     matchedNames.length > 0
-                      ? `<div class="talk-item-matched" style="font-size: 0.85em; color: #2e7d32; margin-top: 4px;">Matched with: ${matchedNames.join(', ')}</div>`
+                      ? `<div class="talk-item-matched" style="font-size: 0.85em; color: #2e7d32; margin-top: 4px;">${this.tf('talksMatchedWith', { names: escapeHtml(matchedNames.join(', ')) })}</div>`
                       : '';
                   const disabled = !!talk.disabled;
-                  const expText = formatExpiration(talk.expiresAt);
-                  const locText = formatLocationRadius(talk.locationRadiusMiles);
+                  const expText = this.formatTalkExpiration(talk.expiresAt);
+                  const locText = this.formatTalkLocation(talk.locationRadiusMiles);
                   const roleBadge = talk.role === 'copied'
-                    ? '<span class="talk-badge talk-badge-copied" style="background:#e0e7ff;color:#3730a3;">📋 Copied</span>'
-                    : '<span class="talk-badge talk-badge-created" style="background:#dbeafe;color:#1e40af;">📝 Created</span>';
+                    ? `<span class="talk-badge talk-badge-copied" style="background:#e0e7ff;color:#3730a3;">📋 ${this.t('talksCopied')}</span>`
+                    : `<span class="talk-badge talk-badge-created" style="background:#dbeafe;color:#1e40af;">📝 ${this.t('talksCreated')}</span>`;
                   const talkTypeLower = String(talk.type || talk.fullTalk?.type || '').toLowerCase();
                   const talkLanguage = String(talk.language || talk.fullTalk?.language || 'en').toLowerCase();
                   const surveyStatsBtn =
                     talkTypeLower === 'survey'
-                      ? `<button type="button" class="btn survey-stats-btn" data-talk-id="${escapeHtml(talkId)}" data-testid="survey-stats-button" style="padding: 6px 12px; font-size: 0.9em; background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;">📊 Results</button>`
+                      ? `<button type="button" class="btn survey-stats-btn" data-talk-id="${escapeHtml(talkId)}" data-testid="survey-stats-button" style="padding: 6px 12px; font-size: 0.9em; background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;">📊 ${this.t('talksResults')}</button>`
                       : '';
                   const typeAccent =
                     talkTypeLower === 'tag' ? '#7c3aed'
@@ -1937,14 +1993,14 @@ export class UIManager extends EventEmitter {
             <div class="talk-item-badges">
               ${roleBadge}
               <span class="talk-badge talk-badge-type">${talk.type}</span>
-              <span class="talk-badge talk-badge-language">${escapeHtml(talkLanguage)}</span>
+              <span class="talk-badge talk-badge-language" data-language="${escapeHtml(talkLanguage)}">${escapeHtml(this.formatTalkLanguage(talkLanguage))}</span>
             </div>
           </div>
           <div class="talk-item-meta">
-            <span class="talk-item-time">${formatTimeAgo(new Date(talk.lastInteraction || 0))}</span>
+            <span class="talk-item-time">${this.formatTalkRelativeTime(new Date(talk.lastInteraction || 0))}</span>
           </div>
           <div class="talk-item-meta" style="font-size: 0.85em; color: #666;">
-            Expiration: ${expText} · Location: ${locText}
+            ${this.tf('talksExpiration', { value: expText })} · ${this.tf('talksLocation', { value: locText })}
           </div>
           <div class="talk-item-stats" style="font-size: 0.85em; color: #666; margin-top: 6px;">
             ${statsLine}
@@ -1954,9 +2010,9 @@ export class UIManager extends EventEmitter {
           <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
             ${surveyStatsBtn}
             <button type="button" class="btn talk-broadcast-toggle-btn ${disabled ? 'talk-broadcast-toggle-off' : 'talk-broadcast-toggle-on'}" data-talk-id="${talkId}" data-broadcast-enabled="${disabled ? 'false' : 'true'}" style="padding: 6px 12px; font-size: 0.9em;">
-              ${disabled ? 'Broadcast Off' : 'Broadcast On'}
+              ${disabled ? this.t('talksBroadcastOff') : this.t('talksBroadcastOn')}
             </button>
-            <button type="button" class="btn remove-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em; background: #dc3545; color: white;">🗑️ Remove</button>
+            <button type="button" class="btn remove-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em; background: #dc3545; color: white;">🗑️ ${this.t('talksRemove')}</button>
           </div>
         </div>
       `;
@@ -1985,8 +2041,8 @@ export class UIManager extends EventEmitter {
                   : 'font-weight: 700; color: #1d4ed8;';
                 const metaStyle = isAnswered ? 'color: #9ca3af;' : 'color: #4b5563;';
                 const statusBadge = isAnswered
-                  ? '<span class="talk-badge" style="background:#f3f4f6;color:#6b7280;">✅ Answered</span>'
-                  : '<span class="talk-badge" style="background:#dbeafe;color:#1d4ed8;font-weight:700;">🆕 New</span>';
+                  ? `<span class="talk-badge" style="background:#f3f4f6;color:#6b7280;">✅ ${this.t('talksAnswered')}</span>`
+                  : `<span class="talk-badge" style="background:#dbeafe;color:#1d4ed8;font-weight:700;">🆕 ${this.t('talksNew')}</span>`;
                 const incomingType = String(cluster?.type || 'flow').toLowerCase();
                 const incomingLanguage = String(cluster?.language || cluster?.latestTalk?.language || 'en').toLowerCase();
                 const typeAccent =
@@ -1997,22 +2053,22 @@ export class UIManager extends EventEmitter {
                 return `
         <div class="talk-list-item talk-type-${escapeHtml(incomingType)} ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}" style="border-left:5px solid ${typeAccent};">
           <div class="talk-item-header">
-            <div class="talk-item-title" style="${titleStyle}">${escapeHtml(cluster?.title || 'Incoming Talk')}</div>
+            <div class="talk-item-title" style="${titleStyle}">${escapeHtml(cluster?.title || this.t('talksIncomingFallback'))}</div>
             <div class="talk-item-badges">
               ${statusBadge}
               <span class="talk-badge talk-badge-type">${escapeHtml(cluster?.type || 'flow')}</span>
-              <span class="talk-badge talk-badge-language">${escapeHtml(incomingLanguage)}</span>
-              <span class="talk-badge" style="background:#eef2ff;color:#3730a3;">👥 ${senderNames.length} sender${senderNames.length !== 1 ? 's' : ''}</span>
+              <span class="talk-badge talk-badge-language" data-language="${escapeHtml(incomingLanguage)}">${escapeHtml(this.formatTalkLanguage(incomingLanguage))}</span>
+              <span class="talk-badge" style="background:#eef2ff;color:#3730a3;">👥 ${this.tf(senderNames.length === 1 ? 'talksSenderOne' : 'talksSenders', { count: senderNames.length })}</span>
             </div>
           </div>
           <div class="talk-item-meta" style="${metaStyle}">
-            <span class="talk-item-time">${formatTimeAgo(new Date(cluster?.updatedAt || Date.now()))}</span>
+            <span class="talk-item-time">${this.formatTalkRelativeTime(new Date(cluster?.updatedAt || Date.now()))}</span>
           </div>
           <div class="talk-item-meta" style="font-size: 0.85em; ${metaStyle}">
-            From: ${escapeHtml(senderNames.join(', ') || 'Unknown')}
+            ${this.tf('talksFrom', { names: escapeHtml(senderNames.join(', ') || this.t('settingsUnknown')) })}
           </div>
           <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-            <button type="button" class="btn view-talk-btn" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" style="padding: 6px 12px; font-size: 0.9em;" ${talkId || identityKey ? '' : 'disabled'}>🔍 View</button>
+            <button type="button" class="btn view-talk-btn" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" style="padding: 6px 12px; font-size: 0.9em;" ${talkId || identityKey ? '' : 'disabled'}>🔍 ${this.t('talksView')}</button>
           </div>
         </div>
       `;
@@ -2023,27 +2079,27 @@ export class UIManager extends EventEmitter {
       const sectionOut =
         outEntries.length > 0
           ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: #374151; background: #f3f4f6; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
-               <span style="font-size: 1.2em;">📤</span> OUT <span style="font-size: 0.8em; font-weight: 400; color: #6b7280;">(${outEntries.length} talk${outEntries.length !== 1 ? 's' : ''} · created or copied)</span>
+               <span style="font-size: 1.2em;">📤</span> OUT <span style="font-size: 0.8em; font-weight: 400; color: #6b7280;">(${this.tf('talksOutSection', { count: this.formatTalkCount(outEntries.length) })})</span>
              </div>${outHtml}`
           : '';
       const sectionIn =
         inEntries.length > 0
           ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: #374151; background: #f3f4f6; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
-               <span style="font-size: 1.2em;">📥</span> IN <span style="font-size: 0.8em; font-weight: 400; color: #6b7280;">(${inEntries.length} talk${inEntries.length !== 1 ? 's' : ''} · consolidated by content${incomingFilterResult.hiddenCount > 0 ? ` · ${incomingFilterResult.hiddenCount} filtered` : ''})</span>
+               <span style="font-size: 1.2em;">📥</span> IN <span style="font-size: 0.8em; font-weight: 400; color: #6b7280;">(${this.tf('talksInSection', { count: this.formatTalkCount(inEntries.length), filtered: incomingFilterResult.hiddenCount > 0 ? this.tf('talksFilteredCount', { count: incomingFilterResult.hiddenCount }) : '' })})</span>
              </div>${inHtml}`
           : '';
 
       if (activeMode === 'in') {
         talksList.innerHTML = sectionIn || `
           <div class="empty-state" style="padding: 40px 20px; text-align: center; color: #999;">
-            ${incomingFilterResult.hiddenCount > 0 ? `All incoming talks are currently filtered out (${incomingFilterResult.hiddenCount}).` : 'No incoming talks yet.'}
+            ${incomingFilterResult.hiddenCount > 0 ? this.tf('talksAllIncomingFiltered', { count: incomingFilterResult.hiddenCount }) : this.t('talksNoIncoming')}
             ${hiddenReasonsText ? `<div class="talk-filter-reasons" style="font-size:0.88em;margin-top:6px;">${escapeHtml(hiddenReasonsText)}</div>` : ''}
           </div>
         `;
       } else if (activeMode === 'out') {
         talksList.innerHTML = sectionOut || `
           <div class="empty-state" style="padding: 40px 20px; text-align: center; color: #999;">
-            No outgoing talks yet.
+            ${this.t('talksNoOutgoing')}
           </div>
         `;
       } else {
@@ -2091,7 +2147,13 @@ export class UIManager extends EventEmitter {
         if (statsEl) {
           const matchRate = stats.responses > 0 ? Math.round((stats.matches / stats.responses) * 100) : 0;
           const mismatches = Math.max(0, stats.responses - stats.matches - stats.ignores);
-          statsEl.textContent = `Responses: ${stats.responses} · Matches: ${stats.matches} · Mismatches: ${mismatches} · Ignores: ${stats.ignores} · Match rate: ${matchRate}%`;
+          statsEl.textContent = this.tf('talksStats', {
+            responses: stats.responses,
+            matches: stats.matches,
+            mismatches,
+            ignores: stats.ignores,
+            rate: matchRate,
+          });
         }
       });
     }
@@ -3082,9 +3144,17 @@ export class UIManager extends EventEmitter {
       const dashboard = (await res.json()) as StatsDashboard;
       const totals = dashboard.totals || { talks: 0, responses: 0, matches: 0, ignores: 0, matchRate: 0 };
       const room = dashboard.chatrooms?.regions?.[0];
-      element.textContent = `Stats: ${totals.responses} responses · ${totals.matches} matches · ${totals.matchRate}% match rate${room ? ` · top room ${room.masked ? 'hidden' : room.region}` : ''}`;
+      const roomText = room
+        ? this.tf('contextualStatsRoom', { room: room.masked ? this.t('contextualStatsHidden') : room.region })
+        : '';
+      element.textContent = this.tf('contextualStatsSummary', {
+        responses: totals.responses,
+        matches: totals.matches,
+        rate: totals.matchRate,
+        room: roomText,
+      });
     } catch {
-      element.textContent = 'Stats: no data yet';
+      element.textContent = this.t('contextualStatsEmpty');
     }
   }
 
@@ -4728,7 +4798,7 @@ export class UIManager extends EventEmitter {
           btn.dataset.broadcastEnabled = disabled ? 'false' : 'true';
           btn.classList.toggle('talk-broadcast-toggle-off', !!disabled);
           btn.classList.toggle('talk-broadcast-toggle-on', !disabled);
-          btn.textContent = disabled ? 'Broadcast Off' : 'Broadcast On';
+          btn.textContent = disabled ? this.t('talksBroadcastOff') : this.t('talksBroadcastOn');
         }
       });
     } else {
@@ -4780,7 +4850,11 @@ export class UIManager extends EventEmitter {
     notification.className = `notification ${type}`;
     notification.textContent = message;
 
-    if (message.startsWith('Match!')) {
+    const isMatchNotification =
+      message.startsWith('Match!') ||
+      message === this.t('responseMatch') ||
+      message === this.t('responseMatchAuto');
+    if (isMatchNotification) {
       notification.dataset.matchNotification = 'true';
     }
     // All toasts: tap to dismiss (E2E and users need to clear overlays blocking the header).
@@ -4791,7 +4865,7 @@ export class UIManager extends EventEmitter {
 
     document.body.appendChild(notification);
 
-    if (!message.startsWith('Match!')) {
+    if (!isMatchNotification) {
       const hideAfter = message.includes('You have no talks to broadcast') ? 10000 : 3000;
       setTimeout(() => {
         if (document.body.contains(notification)) {
@@ -4878,13 +4952,19 @@ export class UIManager extends EventEmitter {
         addTalkEditorQuestionToForm(index, container, {
           refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
           processTalkForm: this.processTalkForm.bind(this),
+          text: this.t.bind(this),
         }),
       addAnswerToQuestion: (container, index) =>
         addTalkEditorAnswerToQuestion(container, index, {
           refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
           processTalkForm: this.processTalkForm.bind(this),
+          text: this.t.bind(this),
         }),
-      appendIgnoreRow: appendTalkEditorIgnoreRow,
+      appendIgnoreRow: (container, index) => appendTalkEditorIgnoreRow(container, index, {
+        refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
+        processTalkForm: this.processTalkForm.bind(this),
+        text: this.t.bind(this),
+      }),
       updateAllAnswerDropdowns: this.updateAllAnswerDropdowns.bind(this),
       refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
       ensureRouteEditorRendered: this.ensureRouteEditorRendered.bind(this),
@@ -4892,6 +4972,7 @@ export class UIManager extends EventEmitter {
         setupTalkEditorFormHandlers(modal, {
           refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
           processTalkForm: this.processTalkForm.bind(this),
+          text: this.t.bind(this),
         }),
     });
   }
@@ -4900,6 +4981,7 @@ export class UIManager extends EventEmitter {
     updateTalkEditorAnswerDropdowns({
       refreshFlowAnswerConstraints: this.refreshFlowAnswerConstraints.bind(this),
       processTalkForm: this.processTalkForm.bind(this),
+      text: this.t.bind(this),
     });
   }
 
@@ -5124,7 +5206,7 @@ export class UIManager extends EventEmitter {
         if (ignoreOpt) ignoreOpt.disabled = false;
         select.removeAttribute('title');
         if (type === 'flow' && aIdx > 0) {
-          select.title = 'Flow talks: only the first answer decides; others are normalized to Ignore when you save.';
+          select.title = this.t('editorFlowConstraint');
         }
       });
     });

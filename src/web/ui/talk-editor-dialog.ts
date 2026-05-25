@@ -19,6 +19,11 @@ type TalkEditorDialogOptions = {
 export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
   const { existingTalk } = options;
   const text = (key: UiTranslationKey, fallback: string): string => options.text?.(key) || fallback;
+  const format = (key: UiTranslationKey, fallback: string, values: Record<string, string | number>): string =>
+    Object.entries(values).reduce(
+      (label, [placeholder, value]) => label.replace(`{${placeholder}}`, String(value)),
+      text(key, fallback),
+    );
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.id = 'talk-editor-modal';
@@ -47,7 +52,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
         <form id="talk-editor-form" style="padding: 20px;" data-editing-talk-id="${existingTalk?.id || ''}">
           <div class="form-group">
             <label class="form-label">${text('editorTalkTitle', 'Talk Title')}</label>
-            <input type="text" class="form-input" id="talk-title" placeholder="e.g., Coffee Meetup, Quick Survey" required value="${existingTalk ? options.escapeHtml(existingTalk.title) : ''}">
+            <input type="text" class="form-input" id="talk-title" placeholder="${text('editorTitlePlaceholder', 'e.g., Coffee Meetup, Quick Survey')}" required value="${existingTalk ? options.escapeHtml(existingTalk.title) : ''}">
           </div>
 
           <div class="form-group">
@@ -61,8 +66,8 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
 
           <div class="form-group" id="tag-like-group" style="display: none;">
             <label class="talk-send-chatroom-label" style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-              <input type="checkbox" id="tag-like-checkbox" checked aria-label="I like this tag">
-              <span>I like this tag</span>
+              <input type="checkbox" id="tag-like-checkbox" checked aria-label="${text('editorTagLike', 'I like this tag')}">
+              <span>${text('editorTagLike', 'I like this tag')}</span>
             </label>
           </div>
 
@@ -71,19 +76,19 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
             <div style="display: flex; flex-direction: column; gap: 10px;">
               <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
                 <input type="radio" name="talk-type-radio" value="tag" ${existingTalk?.type === 'tag' || !existingTalk ? 'checked' : ''}>
-                <span>Tag (single keyword; answer with one checkbox — match or ignore)</span>
+                <span>${text('editorTagOption', 'Tag (single keyword; answer with one checkbox - match or ignore)')}</span>
               </label>
               <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
                 <input type="radio" name="talk-type-radio" value="flow" ${existingTalk?.type === 'flow' ? 'checked' : ''}>
-                <span>Flow – sequential questions that find compatible people</span>
+                <span>${text('editorFlowOption', 'Flow - sequential questions that find compatible people')}</span>
               </label>
               <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
                 <input type="radio" name="talk-type-radio" value="survey" ${existingTalk?.type === 'survey' ? 'checked' : ''}>
-                <span>Survey – independent questions that collect aggregate counts</span>
+                <span>${text('editorSurveyOption', 'Survey - independent questions that collect aggregate counts')}</span>
               </label>
               <label class="talk-type-option" style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0;">
                 <input type="radio" name="talk-type-radio" value="route" ${existingTalk?.type === 'route' ? 'checked' : ''}>
-                <span>Route – branching DAG of questions (tree editor)</span>
+                <span>${text('editorRouteOption', 'Route - branching DAG of questions (tree editor)')}</span>
               </label>
             </div>
             <select class="form-input" id="talk-type" aria-hidden="true" style="position: absolute; left: -9999px;" tabindex="-1">
@@ -102,12 +107,9 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
           </div>
 
           <div class="form-group" id="route-form-group" style="display: none;">
-            <label class="form-label">Route (DAG editor)</label>
+            <label class="form-label">${text('editorRouteTitle', 'Route (DAG editor)')}</label>
             <p style="margin: 0 0 10px 0; font-size: 0.9em; color: #666;">
-              Build a branching tree. Each answer can lead to a follow-up question. On any
-              path from the root to a leaf, the same question cannot appear twice — but the
-              same question may appear in two different branches (each will have its own
-              context hash ID).
+              ${text('editorRouteHelp', 'Build a branching tree. Each answer can lead to a follow-up question. On any path from root to leaf, the same question cannot appear twice; it may appear in separate branches with separate context ids.')}
             </p>
             <div id="route-editor"></div>
             <div id="talk-validation-errors" class="talk-validation-errors" style="display: none; margin-top: 10px; padding: 10px; border: 1px solid #f44336; background: #fdecea; color: #b71c1c; border-radius: 6px; font-size: 0.9em;"></div>
@@ -120,20 +122,20 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
           <div class="form-group" id="talk-options-group">
             <label class="form-label">${text('editorExpiration', 'Expiration')}</label>
             <select class="form-input" id="talk-expires" aria-label="Talk expiration">
-              <option value="">Forever</option>
-              <option value="1y">One year</option>
-              <option value="1M">One month</option>
-              <option value="1w">One week</option>
-              <option value="1d">One day</option>
+              <option value="">${text('editorForever', 'Forever')}</option>
+              <option value="1y">${text('editorOneYear', 'One year')}</option>
+              <option value="1M">${text('editorOneMonth', 'One month')}</option>
+              <option value="1w">${text('editorOneWeek', 'One week')}</option>
+              <option value="1d">${text('editorOneDay', 'One day')}</option>
             </select>
           </div>
           <div class="form-group" id="talk-location-group">
             <label class="form-label">${text('editorLocation', 'Location')}</label>
             <select class="form-input" id="talk-location-radius" aria-label="Location radius">
-              <option value="">Anywhere</option>
-              <option value="10">10 miles</option>
-              <option value="100">100 miles</option>
-              <option value="1000">1000 miles</option>
+              <option value="">${text('editorAnywhere', 'Anywhere')}</option>
+              <option value="10">${format('editorMiles', '{count} miles', { count: 10 })}</option>
+              <option value="100">${format('editorMiles', '{count} miles', { count: 100 })}</option>
+              <option value="1000">${format('editorMiles', '{count} miles', { count: 1000 })}</option>
             </select>
           </div>
           <div class="form-group" id="talk-send-chatroom-group" style="display: ${isEdit ? 'none' : 'block'};">
@@ -269,8 +271,8 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
         if (tagLikeGroup) tagLikeGroup.style.display = 'block';
         if (tagLikeCheckbox && !isEdit && tagLikeCheckbox.checked === false) tagLikeCheckbox.checked = true;
         if (titleInput) {
-          titleInput.placeholder = 'e.g., Coffee, Tennis, Jobs';
-          titleInput.setAttribute('aria-label', 'Tag keyword');
+          titleInput.placeholder = text('editorTagPlaceholder', 'e.g., Coffee, Tennis, Jobs');
+          titleInput.setAttribute('aria-label', text('editorTagKeyword', 'Tag keyword'));
         }
         if (desc) (desc as HTMLElement).textContent = text('editorTagDescription', 'Tag: one keyword. Others answer with a checkbox - checked = match, unchecked = ignore.');
         return;
@@ -280,13 +282,13 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
       if (talkLocationGroup) talkLocationGroup.style.display = 'block';
       if (talkSendChatroomGroup) talkSendChatroomGroup.style.display = isEdit ? 'none' : 'block';
       if (titleInput) {
-        titleInput.placeholder = 'e.g., Coffee Meetup, Quick Survey';
+        titleInput.placeholder = text('editorTitlePlaceholder', 'e.g., Coffee Meetup, Quick Survey');
         titleInput.removeAttribute('aria-label');
       }
 
       if (type === 'route') {
         if (routeFormGroup) routeFormGroup.style.display = 'block';
-        if (desc) (desc as HTMLElement).textContent = 'Route: a branching DAG. Each answer can lead to a follow-up question — same question can appear in different branches (different context hash ID).';
+        if (desc) (desc as HTMLElement).textContent = text('editorRouteDescription', 'Route: a branching DAG. Each answer can lead to a follow-up question; the same question can appear in different branches with different context ids.');
         options.ensureRouteEditorRendered(existingTalk);
         return;
       }
@@ -298,19 +300,17 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
         });
       }
       if (type === 'survey') {
-        if (questionsFormLabel) questionsFormLabel.textContent = 'Questions (independent)';
+        if (questionsFormLabel) questionsFormLabel.textContent = text('editorSurveyQuestions', 'Questions (independent)');
         if (questionsTypeHint) {
-          questionsTypeHint.textContent =
-            'Survey: questions are independent — no branching. Every answer has a counter used for aggregate statistics.';
+          questionsTypeHint.textContent = text('editorSurveyHint', 'Survey: questions are independent - no branching. Every answer has a counter used for aggregate statistics.');
         }
-        if (desc) (desc as HTMLElement).textContent = 'Survey: independent Q/A pairs. Counts per answer are tallied for statistics.';
+        if (desc) (desc as HTMLElement).textContent = text('editorSurveyDescription', 'Survey: independent question and answer pairs. Counts per answer are tallied for statistics.');
       } else {
-        if (questionsFormLabel) questionsFormLabel.textContent = 'Questions (flow)';
+        if (questionsFormLabel) questionsFormLabel.textContent = text('editorFlowQuestions', 'Questions (flow)');
         if (questionsTypeHint) {
-          questionsTypeHint.textContent =
-            'Flow: each question must be unique. The first answer is your "match" or "go to next" decision; any extra answers are treated as ignore.';
+          questionsTypeHint.textContent = text('editorFlowHint', 'Flow: each question must be unique. The first answer is your match or next-question decision; extra answers are treated as ignore.');
         }
-        if (desc) (desc as HTMLElement).textContent = 'Flow: a linear chain of unique questions — first answer decides, rest are ignore.';
+        if (desc) (desc as HTMLElement).textContent = text('editorFlowDescription', 'Flow: a linear chain of unique questions - the first answer decides and the rest are ignored.');
       }
       options.refreshFlowAnswerConstraints(type);
     };

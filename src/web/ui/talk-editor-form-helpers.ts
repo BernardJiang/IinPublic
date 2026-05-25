@@ -1,7 +1,26 @@
+import type { UiTranslationKey } from './ui-translations';
+
 type TalkEditorFormHelperOptions = {
   refreshFlowAnswerConstraints: (type: string) => void;
   processTalkForm: (form: HTMLFormElement) => boolean;
+  text?: (key: UiTranslationKey) => string;
 };
+
+function text(options: TalkEditorFormHelperOptions, key: UiTranslationKey, fallback: string): string {
+  return options.text?.(key) || fallback;
+}
+
+function format(
+  options: TalkEditorFormHelperOptions,
+  key: UiTranslationKey,
+  fallback: string,
+  values: Record<string, string | number>,
+): string {
+  return Object.entries(values).reduce(
+    (label, [placeholder, value]) => label.replace(`{${placeholder}}`, String(value)),
+    text(options, key, fallback),
+  );
+}
 
 function renumberSelfAnswerRadios(answersContainer: HTMLElement): void {
   const questionItem = answersContainer.closest('.question-item');
@@ -22,24 +41,24 @@ function renumberSelfAnswerRadios(answersContainer: HTMLElement): void {
   }
 }
 
-function renumberAnswers(container: HTMLElement): void {
+function renumberAnswers(container: HTMLElement, options: TalkEditorFormHelperOptions): void {
   const answers = container.querySelectorAll('.answer-item');
   answers.forEach((a, idx) => {
     a.setAttribute('data-answer-index', idx.toString());
     const input = a.querySelector('.answer-text') as HTMLInputElement | null;
     if (input && !input.value) {
-      input.placeholder = `Answer ${idx + 1}`;
+      input.placeholder = format(options, 'editorAnswerPlaceholder', 'Answer {count}', { count: idx + 1 });
     }
   });
 }
 
-function renumberQuestions(): void {
+function renumberQuestions(options: TalkEditorFormHelperOptions): void {
   const questions = document.querySelectorAll('.question-item');
   questions.forEach((q, idx) => {
     q.setAttribute('data-question-index', idx.toString());
     const header = q.querySelector('strong');
     if (header) {
-      header.textContent = `Question ${idx + 1}`;
+      header.textContent = format(options, 'editorQuestionNumber', 'Question {count}', { count: idx + 1 });
     }
     const answersContainer = q.querySelector('.answers-container') as HTMLElement | null;
     if (answersContainer) {
@@ -50,14 +69,14 @@ function renumberQuestions(): void {
   });
 }
 
-export function appendIgnoreRow(container: HTMLElement, qIndex: number): void {
+export function appendIgnoreRow(container: HTMLElement, qIndex: number, options?: TalkEditorFormHelperOptions): void {
   if (container.querySelector('.self-answer-ignore-row')) return;
   const row = document.createElement('div');
   row.className = 'self-answer-ignore-row';
   row.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 6px; margin-bottom: 8px;';
   row.innerHTML = `
-    <input type="radio" name="self-answer-q_${qIndex}" value="ignore" class="self-answer-radio" checked title="My answer">
-    <span style="font-size: 0.9em; color: #666;">Ignore</span>
+    <input type="radio" name="self-answer-q_${qIndex}" value="ignore" class="self-answer-radio" checked title="${options ? text(options, 'editorMyAnswer', 'My answer') : 'My answer'}">
+    <span style="font-size: 0.9em; color: #666;">${options ? text(options, 'editorIgnore', 'Ignore') : 'Ignore'}</span>
   `;
   container.appendChild(row);
 }
@@ -77,18 +96,18 @@ export function addAnswerToQuestion(container: HTMLElement, index: number, optio
   const radioName = `self-answer-q_${qIdx}`;
   const radioValue = `a_${qIdx}_${index}`;
   answerDiv.innerHTML = `
-    <input type="radio" name="${radioName}" value="${radioValue}" class="self-answer-radio" title="My answer">
+    <input type="radio" name="${radioName}" value="${radioValue}" class="self-answer-radio" title="${text(options, 'editorMyAnswer', 'My answer')}">
     <input
       type="text"
       class="form-input answer-text"
-      placeholder="Answer ${index + 1}"
+      placeholder="${format(options, 'editorAnswerPlaceholder', 'Answer {count}', { count: index + 1 })}"
       required
       style="flex: 1;"
     >
     <span style="font-size: 0.9em; color: #666;">→</span>
     <select class="form-input answer-next" style="flex: 0 0 180px; font-size: 0.9em;">
-      <option value="ignore">Ignore (filter out)</option>
-      <option value="noticed">Noticed (match)</option>
+      <option value="ignore">${text(options, 'editorIgnoreFilter', 'Ignore (filter out)')}</option>
+      <option value="noticed">${text(options, 'editorNoticed', 'Noticed (match)')}</option>
     </select>
     ${index > 1 ? '<button type="button" class="btn-remove-answer" style="background: #f44336; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">×</button>' : ''}
   `;
@@ -112,7 +131,7 @@ export function addAnswerToQuestion(container: HTMLElement, index: number, optio
   const removeBtn = answerDiv.querySelector('.btn-remove-answer');
   removeBtn?.addEventListener('click', () => {
     container.removeChild(answerDiv);
-    renumberAnswers(container);
+    renumberAnswers(container, options);
     updateAllAnswerDropdowns(options);
     renumberSelfAnswerRadios(container);
   });
@@ -132,18 +151,18 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
 
   questionDiv.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-      <strong style="color: #667eea;">Question ${index + 1}</strong>
-      ${index > 0 ? '<button type="button" class="btn-remove-question" style="background: #f44336; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">Remove</button>' : ''}
+      <strong style="color: #667eea;">${format(options, 'editorQuestionNumber', 'Question {count}', { count: index + 1 })}</strong>
+      ${index > 0 ? `<button type="button" class="btn-remove-question" style="background: #f44336; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">${text(options, 'editorRemove', 'Remove')}</button>` : ''}
     </div>
     <input
       type="text"
       class="form-input question-text"
-      placeholder="Enter your question here (e.g., Do you like coffee?)"
+      placeholder="${text(options, 'editorQuestionPlaceholder', 'Enter your question here (e.g., Do you like coffee?)')}"
       required
       style="margin-bottom: 10px;"
     >
     <div class="answers-container" style="margin-left: 15px;"></div>
-    <button type="button" class="btn-add-answer" style="margin-top: 8px; font-size: 0.9em; background: #4CAF50; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">+ Add Answer</button>
+    <button type="button" class="btn-add-answer" style="margin-top: 8px; font-size: 0.9em; background: #4CAF50; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">${text(options, 'editorAddAnswer', '+ Add Answer')}</button>
   `;
 
   container.appendChild(questionDiv);
@@ -151,12 +170,12 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
   const answersContainer = questionDiv.querySelector('.answers-container') as HTMLElement;
   addAnswerToQuestion(answersContainer, 0, options);
   addAnswerToQuestion(answersContainer, 1, options);
-  appendIgnoreRow(answersContainer, index);
+  appendIgnoreRow(answersContainer, index, options);
 
   const removeBtn = questionDiv.querySelector('.btn-remove-question');
   removeBtn?.addEventListener('click', () => {
     container.removeChild(questionDiv);
-    renumberQuestions();
+    renumberQuestions(options);
     updateAllAnswerDropdowns(options);
   });
 
@@ -184,12 +203,12 @@ export function updateAllAnswerDropdowns(options: TalkEditorFormHelperOptions): 
       // Last question: Ignore + Noticed only (no "go to next" — there is none).
       // Non-last questions: Ignore + go-to links only (no Noticed — only the last
       // question can produce a match; earlier questions must chain forward).
-      const dropdownOptions = ['<option value="ignore">Ignore (filter out)</option>'];
+      const dropdownOptions = [`<option value="ignore">${text(options, 'editorIgnoreFilter', 'Ignore (filter out)')}</option>`];
       if (isLastQuestion) {
-        dropdownOptions.push('<option value="noticed">Noticed (match)</option>');
+        dropdownOptions.push(`<option value="noticed">${text(options, 'editorNoticed', 'Noticed (match)')}</option>`);
       } else {
         for (let i = qIdx + 1; i < totalQuestions; i++) {
-          dropdownOptions.push(`<option value="q_${i}">Go to Question ${i + 1}</option>`);
+          dropdownOptions.push(`<option value="q_${i}">${format(options, 'editorGoToQuestion', 'Go to Question {count}', { count: i + 1 })}</option>`);
         }
       }
 

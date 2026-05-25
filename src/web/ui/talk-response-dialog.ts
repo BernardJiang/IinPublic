@@ -55,7 +55,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
   if (talk.type === 'tag') {
     const q = talk.questions?.[0];
     if (!q || !q.answers?.length) {
-      options.showNotification('Invalid tag', 'error');
+      options.showNotification(text('responseInvalidTag', 'Invalid tag'), 'error');
       return;
     }
     const matchAnswer = q.answers.find((a: any) => a.isMatch);
@@ -111,10 +111,10 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           'auto',
         );
         if (checked && matchAnswer) {
-          options.showNotification('Match! You both noticed each other.', 'success');
+          options.showNotification(text('responseMatch', 'Match! You both noticed each other.'), 'success');
           options.completeTalk(talk, answers, 'match');
         } else {
-          options.showNotification('Tag ignored - no match', 'info');
+          options.showNotification(text('responseTagIgnored', 'Tag ignored - no match'), 'info');
           options.completeTalk(talk, answers, 'mismatch');
         }
       }
@@ -125,7 +125,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
   }
 
   if (!Array.isArray(talk.questions) || talk.questions.length === 0) {
-    options.showNotification('Could not load talk (missing questions).', 'error');
+    options.showNotification(text('responseMissingQuestions', 'Could not load talk (missing questions).'), 'error');
     return;
   }
 
@@ -159,7 +159,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           answerText: 'ignore',
           mode: 'auto',
         });
-        options.showNotification('Talk ignored - no match (auto)', 'info');
+        options.showNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
         options.completeTalk(talk, answers, 'mismatch');
         closeModal();
         return;
@@ -174,14 +174,14 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         });
 
         if (answer.isIgnore) {
-          options.showNotification('Talk ignored - no match (auto)', 'info');
+          options.showNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
           options.completeTalk(talk, answers, 'mismatch');
           closeModal();
           return;
         }
         if (answer.isMatch) {
           options.completeTalk(talk, answers, 'match');
-          options.showNotification('Match! You both noticed each other. (auto)', 'success');
+          options.showNotification(text('responseMatchAuto', 'Match! You both noticed each other. (auto)'), 'success');
           closeModal();
           return;
         }
@@ -326,12 +326,12 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       );
 
       if (isIgnore) {
-        options.showNotification('Talk ignored - no match', 'info');
+        options.showNotification(text('responseTalkIgnored', 'Talk ignored - no match'), 'info');
         options.completeTalk(talk, answers, 'mismatch');
         closeModal();
       } else if (isMatch) {
         options.completeTalk(talk, answers, 'match');
-        options.showNotification('Match! You both noticed each other.', 'success');
+        options.showNotification(text('responseMatch', 'Match! You both noticed each other.'), 'success');
         closeModal();
       } else if (isTerminal) {
         if (talk.type === 'survey') {

@@ -39,6 +39,20 @@ Evidence:
 - Unit: `src/test/unit/contacts-view.test.ts`
 - E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
 
+## 2026-05-25 - D2 Talks List And Linear Dialog Localization Slice
+
+Localized the Talks main list and its incoming/outgoing row metadata, including counts, action
+labels, language badges, relative dates, expiry/location text, and response status. Extended the
+catalog into tag/flow editor controls and response outcomes while preserving localized persistent
+match notifications.
+
+Evidence:
+- UI/catalog: `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`,
+  `src/web/ui/talk-editor-dialog.ts`, `src/web/ui/talk-editor-form-helpers.ts`,
+  `src/web/ui/talk-response-dialog.ts`
+- Unit: `src/test/unit/ui-translations.test.ts`, `src/test/unit/ui-extracted-modules.test.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - D1 Single Settings Owner For Intake Preferences
 
 Confirmed that Settings is the sole editing surface for Talk Behavior and incoming-intake

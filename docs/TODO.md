@@ -39,6 +39,9 @@ Current implementation baseline discovered during the audit:
 - Chinese catalog coverage now includes Chatrooms live/member states and Contacts list,
   detail, relationship, block, and public-credit surfaces; Talks, Me, remaining dialogs, and
   notification/storage/support paths still require the D2 traversal and audit.
+- Chinese catalog coverage now includes the Talks main list, outgoing/incoming row metadata,
+  language badges, flow/tag editor controls, and flow/tag response outcomes; route-editor
+  internals, auxiliary talk dialogs, Me, notification/storage, and support paths remain active D2 work.
 - Matching E2E specs cover several successful, mismatched, ignored, auto-answer, Contacts, and Me
   scenarios independently; they do not yet provide one exhaustive branch matrix from talk creation
   through every sender/responder result.
