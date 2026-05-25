@@ -12,6 +12,23 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-24 - D1 Confirmed Photo Capture And Reload
+
+Added a confirmation preview before uploaded or captured photos become public, a centered
+in-browser camera capture flow, and durable permission-denied/unsupported-device guidance.
+Restored the visible Me profile card and reconciled reloads with the authoritative public
+profile foundation so saved and removed photos do not reappear from stale private state.
+Regression verification also aligned online block mutations with the server-owned reputation
+counter and preserves ordered block/unblock results across delayed Gun visibility.
+
+Evidence:
+
+- UI and translations: `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`
+- Public reload and online block reconciliation: `src/web/services/web-user-service.ts`, `src/server/services/user-service.ts`
+- Unit: `src/test/unit/web-user-service.test.ts`
+- Integration: `src/test/integration/services.test.ts`
+- E2E: `tests/e2e/staged/stage2-two-user/04-profile-edit-stage-name.spec.ts`, `tests/e2e/staged/stage2-two-user/21a-reputation-block-count.spec.ts`
+
 ## 2026-05-24 - D1 Identity Guardrails And Profile Presentation
 
 Implemented protected stage-name validation across ordinary creation and Settings rename flows,

@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-05-23
+Last updated: 2026-05-24
 
 This is the forward backlog for the current repository. Completed feature ledgers belong in
 [Completed Work](completed.md), not in TODO.
@@ -30,8 +30,8 @@ Current implementation baseline discovered during the audit:
 - Incoming-talk intake code already has language, min/max distance, grammar, dirty-word, custom
   blocked-term, talk-type, sent-after, and adult gating paths. Unit/integration tests cover selected
   cases, but the user-level multi-user proof scenarios below are not complete.
-- Settings now supports preset and image headshots and omits empty-interest placeholders across
-  Settings and peer detail. Photo preview/permission fallback and full cross-surface proof remain.
+- Settings now supports confirmed photo previews, camera permission fallback, persisted
+  Me/Contacts/peer photo rendering, and omits empty-interest placeholders.
 - Profile language and incoming-language controls persist values, but the menu, tabs, dialogs, and
   messages remain hard-coded in English.
 - Matching E2E specs cover several successful, mismatched, ignored, auto-answer, Contacts, and Me
@@ -45,14 +45,6 @@ Current implementation baseline discovered during the audit:
 
 Purpose: make Settings a complete, safe identity editor before its settings drive other behavior.
 
-- **Camera/photo headshot function.** Replace or complement the preset-headshot picker with
-  a preview confirmation or crop step and explicit permission-denied/unsupported-device fallback.
-  `Take Photo`, `Choose Photo`, replace/remove, bounded centered rendering, file-type/size limits,
-  accessible initials/preset fallback, and public profile sync are already implemented.
-- **Headshot proof script.** Use a deterministic fixture image or mocked camera stream to verify
-  preview, reload, display in Me/Contacts, permission denial, and that private raw camera data is
-  not persisted. Fixture choose/capture, save, peer-detail display, remove, and invalid-file
-  rejection are already automated.
 - **One owner for duplicated preferences.** Talk behavior and intake controls are currently
   rendered in both Me and Settings. Decide whether Me is a read-only summary/shortcut or remove the
   duplicate controls; keep one persisted source of truth and verify either surface never overwrites

@@ -7,6 +7,7 @@ import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterNav, delay, headless } from '../../helpers/timing';
 import { webBaseURL, gunBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
+import { establishContactsTomJerry, getCurrentUserId } from '../../helpers/reputation-e2e-helpers';
 
 test.describe('Profile foundation', () => {
   let browser: Browser;
@@ -140,6 +141,14 @@ test.describe('Profile foundation', () => {
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
     await expect(page.locator('#settings-profile-languages')).toHaveValue('en');
+    const tomUserId = await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
+    const publicHeadshot = async () => {
+      const res = await page.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(tomUserId)}`);
+      if (!res.ok()) return 'request-failed';
+      const user = await res.json() as any;
+      return String(user?.headshot || '');
+    };
+    await expect.poll(publicHeadshot, { timeout: 30000 }).toBe('😎');
     await page.setInputFiles('#settings-photo-input', {
       name: 'profile-avatar.png',
       mimeType: 'image/png',
@@ -148,6 +157,36 @@ test.describe('Profile foundation', () => {
         'base64',
       ),
     });
+    await expect(page.locator('[data-testid="settings-photo-preview-modal"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="settings-photo-preview-modal"] .profile-avatar-image')).toBeVisible();
+    await page.click('[data-testid="settings-photo-preview-cancel"]');
+    await expect(page.locator('[data-testid="settings-photo-preview-modal"]')).toHaveCount(0);
+    await expect.poll(publicHeadshot, { timeout: 30000 }).toBe('😎');
+    await page.setInputFiles('#settings-photo-input', {
+      name: 'profile-avatar.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+      ),
+    });
+    await expect(page.locator('[data-testid="settings-photo-preview-modal"]')).toBeVisible({ timeout: 10000 });
+    await page.click('[data-testid="settings-photo-preview-confirm"]');
+    await expect(page.locator('#settings-content .profile-avatar-image')).toBeVisible({ timeout: 10000 });
+    await expect.poll(publicHeadshot, { timeout: 30000 }).toContain('data:image/png;base64,');
+    await page.reload();
+    await afterLoad();
+    await expect
+      .poll(
+        () => page.evaluate(() => String((window as any).__iinpublic_app?.getApp()?.currentUser?.headshot || '')),
+        { timeout: 30000, message: 'reloaded owner session should load the public profile photo' },
+      )
+      .toContain('data:image/png;base64,');
+    await page.click('.nav-btn[data-view="me"]');
+    await afterNav();
+    await expect(page.locator('#user-info-me .profile-avatar-image').first()).toBeVisible({ timeout: 10000 });
+    await page.click('.nav-btn[data-view="settings"]');
+    await afterNav();
     await expect(page.locator('#settings-content .profile-avatar-image')).toBeVisible({ timeout: 10000 });
     await page.setInputFiles('#settings-photo-input', {
       name: 'not-a-photo.txt',
@@ -155,7 +194,6 @@ test.describe('Profile foundation', () => {
       buffer: Buffer.from('not image content'),
     });
     await expect(page.locator('#settings-content .profile-avatar-image')).toBeVisible({ timeout: 10000 });
-    const tomUserId = await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
     await expect
       .poll(
         async () => {
@@ -198,27 +236,47 @@ test.describe('Profile foundation', () => {
     await expect(peerPage.locator('#peer-stats-section')).not.toContainText('Interests: Not listed');
     await expect(peerPage.locator('#peer-stats-section .profile-avatar-image').first()).toBeVisible();
 
+    await peerPage.click('#back-from-peer-detail');
+    await establishContactsTomJerry(page, peerPage, `Profile Photo Contact ${Date.now()}`);
+    const ownerId = await getCurrentUserId(page);
+    await peerPage.click('.nav-btn[data-view="contacts"]');
+    await afterNav();
+    const ownerContact = peerPage.locator(`.contact-item[data-contact-user-id="${ownerId}"]`).first();
+    await expect(ownerContact).toBeVisible({ timeout: 15000 });
+    await ownerContact.click();
+    await expect(peerPage.locator('#contact-detail-matches')).toContainText('talk', { timeout: 45000 });
+    await expect(peerPage.locator('.contact-public-profile-summary .profile-avatar-image').first()).toBeVisible({ timeout: 45000 });
+
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
     await page.click('#settings-remove-photo-btn');
     await expect(page.locator('#settings-content .profile-avatar-image')).toHaveCount(0, { timeout: 10000 });
-    const publicHeadshot = async () => {
-      const res = await page.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(tomUserId)}`);
-      if (!res.ok()) return 'request-failed';
-      const user = await res.json() as any;
-      return String(user?.headshot || '');
-    };
     await expect.poll(publicHeadshot, { timeout: 30000 }).toBe('');
-    await page.setInputFiles('#settings-camera-input', {
-      name: 'camera-avatar.png',
-      mimeType: 'image/png',
-      buffer: Buffer.from(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-        'base64',
-      ),
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: {
+          getUserMedia: async () => new MediaStream(),
+        },
+      });
+      CanvasRenderingContext2D.prototype.drawImage = () => undefined;
+      HTMLCanvasElement.prototype.toDataURL = () => 'data:image/jpeg;base64,Y2FtZXJhLWZpeHR1cmU=';
     });
+    await page.click('#settings-take-photo-btn');
+    await expect(page.locator('#settings-camera-capture-modal')).toBeVisible({ timeout: 10000 });
+    await page.evaluate(() => {
+      const video = document.querySelector('#settings-camera-preview-video') as HTMLVideoElement | null;
+      if (!video) throw new Error('Camera preview was not rendered');
+      Object.defineProperty(video, 'videoWidth', { configurable: true, value: 640 });
+      Object.defineProperty(video, 'videoHeight', { configurable: true, value: 480 });
+      video.dispatchEvent(new Event('loadedmetadata'));
+    });
+    await expect(page.locator('[data-testid="settings-camera-capture"]')).toBeEnabled();
+    await page.click('[data-testid="settings-camera-capture"]');
+    await expect(page.locator('[data-testid="settings-photo-preview-modal"]')).toBeVisible({ timeout: 10000 });
+    await page.click('[data-testid="settings-photo-preview-confirm"]');
     await expect(page.locator('#settings-content .profile-avatar-image')).toBeVisible({ timeout: 10000 });
-    await expect.poll(publicHeadshot, { timeout: 30000 }).toContain('data:image/png;base64,');
+    await expect.poll(publicHeadshot, { timeout: 30000 }).toBe('data:image/jpeg;base64,Y2FtZXJhLWZpeHR1cmU=');
     await page.click('#settings-remove-photo-btn');
     await expect(page.locator('#settings-content .profile-avatar-image')).toHaveCount(0, { timeout: 10000 });
     await expect
@@ -227,5 +285,26 @@ test.describe('Profile foundation', () => {
         { timeout: 30000, message: 'removed public photo should no longer be returned' },
       )
       .toBe('');
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: {
+          getUserMedia: async () => {
+            throw new DOMException('Permission denied', 'NotAllowedError');
+          },
+        },
+      });
+    });
+    await page.click('#settings-take-photo-btn');
+    await expect(page.locator('#settings-camera-status')).toContainText('Camera access was denied.', { timeout: 10000 });
+    await expect(page.locator('#settings-camera-capture-modal')).toHaveCount(0);
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: undefined,
+      });
+    });
+    await page.click('#settings-take-photo-btn');
+    await expect(page.locator('#settings-camera-status')).toContainText('Camera capture is unavailable', { timeout: 10000 });
   });
 });

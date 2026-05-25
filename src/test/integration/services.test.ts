@@ -341,7 +341,6 @@ describe('Service Integration Tests', () => {
         stageName: 'Target',
       };
 
-      let isBlocked = false;
       jest.spyOn(gunService, 'get').mockImplementation(async (key: string) => {
         switch (key) {
           case 'users/viewer':
@@ -357,7 +356,8 @@ describe('Service Integration Tests', () => {
       jest.spyOn(gunService, 'getPath').mockImplementation(async (path: string[]) => {
         const key = path.join('/');
         if (key === 'user-blocks/viewer/target') {
-          return isBlocked ? { blockedAt: '2026-04-30T00:00:00.000Z' } : null;
+          // Model an eventually visible Gun write: the API must still unblock its own recent block.
+          return null;
         }
         // readReputation uses getPath(['users/target', 'reputation'])
         if (key === 'users/target/reputation') {
@@ -366,11 +366,7 @@ describe('Service Integration Tests', () => {
         return null;
       });
 
-      const putPathSpy = jest.spyOn(gunService, 'putPath').mockImplementation(async (path: string[], value: unknown) => {
-        if (path.join('/') === 'user-blocks/viewer/target') {
-          isBlocked = value != null;
-        }
-      });
+      const putPathSpy = jest.spyOn(gunService, 'putPath').mockResolvedValue(undefined);
 
       // getBlockedUserIds now uses raw Gun map().once() — spy on it directly
       const getBlockedSpy = jest.spyOn(userService, 'getBlockedUserIds')

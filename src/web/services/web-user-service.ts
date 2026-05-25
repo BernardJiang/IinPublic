@@ -26,6 +26,12 @@ import {
 type PrivateUserData = Pick<User, 'profile' | 'languages' | 'interests' | 'knownPeople' | 'blockedUserIds' | 'talkFilters'> & {
   headshot?: string;
 };
+type PublicProfileFoundation = {
+  headshot?: string | null;
+  languagesJson?: string;
+  profileJson?: string;
+  interestsJson?: string;
+};
 
 const PRIVATE_USER_DATA_KEY = 'profile';
 const PUBLIC_PROFILE_FOUNDATION_KEY = 'user-public-profile';
@@ -112,6 +118,7 @@ export class WebUserService {
   private getApiBase(): string {
     if (typeof window === 'undefined' || !window.location) return '';
     const { protocol, hostname, port } = window.location;
+    if ((protocol !== 'http:' && protocol !== 'https:') || !hostname) return '';
     const webPort = Number(port);
     if ((hostname === 'localhost' || hostname === '127.0.0.1') && Number.isFinite(webPort) && webPort >= 3001) {
       return `${protocol}//${hostname}:${webPort - 3001 + 8080}`;
@@ -232,6 +239,60 @@ export class WebUserService {
     } catch {
       return user;
     }
+  }
+
+  private parsePublicArray<T>(value: string | undefined, fallback: T[]): T[] {
+    if (!value) return fallback;
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed as T[] : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private async readPublicProfileFoundation(user: User): Promise<PublicProfileFoundation | null> {
+    const apiBase = this.getApiBase();
+    if (apiBase) {
+      try {
+        const response = await fetch(
+          `${apiBase}/api/users/${encodeURIComponent(user.id)}?viewerId=${encodeURIComponent(user.id)}`,
+          { cache: 'no-store' },
+        );
+        if (response.ok) {
+          const publicUser = await response.json() as Partial<User>;
+          return {
+            headshot: publicUser.headshot || '',
+            languagesJson: JSON.stringify(publicUser.languages || user.languages || ['en']),
+            profileJson: JSON.stringify(publicUser.profile || user.profile || []),
+            interestsJson: JSON.stringify(publicUser.interests || user.interests || []),
+          };
+        }
+      } catch {
+        // Fall back to Gun below for offline/local-only use.
+      }
+    }
+    try {
+      return await this.gunService.get(`${PUBLIC_PROFILE_FOUNDATION_KEY}/${user.id}`) as PublicProfileFoundation | null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async mergePublicProfileFoundation(user: User): Promise<{ user: User; foundation: PublicProfileFoundation | null }> {
+    const foundation = await this.readPublicProfileFoundation(user);
+    if (!foundation) return { user, foundation };
+    const { headshot: _staleHeadshot, ...withoutStaleHeadshot } = user;
+    return {
+      foundation,
+      user: {
+        ...withoutStaleHeadshot,
+        ...(foundation.headshot ? { headshot: foundation.headshot } : {}),
+        languages: this.parsePublicArray(foundation.languagesJson, user.languages || ['en']),
+        profile: this.parsePublicArray(foundation.profileJson, user.profile || []),
+        interests: this.parsePublicArray(foundation.interestsJson, user.interests || []),
+      },
+    };
   }
 
   async publishIdentityKeys(userId: string, pair: GunPair): Promise<void> {
@@ -363,7 +424,14 @@ export class WebUserService {
   async getUser(userId: string): Promise<User> {
     const user = (await this.gunService.get(`users/${userId}`)) as User;
     const reputation = await this.readReputationSubNode(userId);
-    return this.mergePrivateUserData({ ...user, reputation });
+    const publicProfile = await this.mergePublicProfileFoundation({ ...user, reputation });
+    const merged = await this.mergePrivateUserData(publicProfile.user);
+    if (!publicProfile.foundation) return merged;
+    const { headshot: _privateHeadshot, ...withoutPrivateHeadshot } = merged;
+    return {
+      ...withoutPrivateHeadshot,
+      ...(publicProfile.foundation.headshot ? { headshot: publicProfile.foundation.headshot } : {}),
+    };
   }
 
   async updateUserLocation(userId: string, location: GPSCoordinate): Promise<void> {
@@ -537,9 +605,34 @@ export class WebUserService {
     }
   }
 
+  private async updateBlockAtApi(userId: string, targetId: string, blocked: boolean): Promise<string[] | null> {
+    const apiBase = this.getApiBase();
+    if (!apiBase) return null;
+    const url = blocked
+      ? `${apiBase}/api/users/${encodeURIComponent(userId)}/blocks`
+      : `${apiBase}/api/users/${encodeURIComponent(userId)}/blocks/${encodeURIComponent(targetId)}`;
+    const response = await fetch(url, blocked
+      ? {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetId }),
+        }
+      : { method: 'DELETE' });
+    if (!response.ok) throw new Error(`Failed to ${blocked ? 'block' : 'unblock'} user: HTTP ${response.status}`);
+    const result = await response.json() as { blockedUserIds?: unknown };
+    const returnedIds = Array.isArray(result.blockedUserIds)
+      ? result.blockedUserIds.map((candidate) => String(candidate)).filter(Boolean)
+      : [];
+    return blocked
+      ? Array.from(new Set([...returnedIds, targetId]))
+      : returnedIds.filter((candidate) => candidate !== targetId);
+  }
+
   async blockUser(userId: string, targetId: string): Promise<string[]> {
     if (!userId || !targetId) throw new Error('userId and targetId required');
     if (userId === targetId) throw new Error('Cannot block yourself');
+    const apiBlockedUserIds = await this.updateBlockAtApi(userId, targetId, true);
+    if (apiBlockedUserIds) return apiBlockedUserIds;
     const user = await this.getUser(userId);
     const blockedUserIds = Array.from(new Set([...(user.blockedUserIds || []), targetId]));
     if (!user.blockedUserIds?.includes(targetId)) {
@@ -561,6 +654,8 @@ export class WebUserService {
 
   async unblockUser(userId: string, targetId: string): Promise<string[]> {
     if (!userId || !targetId) throw new Error('userId and targetId required');
+    const apiBlockedUserIds = await this.updateBlockAtApi(userId, targetId, false);
+    if (apiBlockedUserIds) return apiBlockedUserIds;
     const user = await this.getUser(userId);
     const blockedUserIds = (user.blockedUserIds || []).filter((candidate) => candidate !== targetId);
     if (user.blockedUserIds?.includes(targetId)) {

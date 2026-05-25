@@ -118,7 +118,7 @@ describe('WebUserService', () => {
       epub: pair.epub,
     };
     const gunService = {
-      get: jest.fn().mockResolvedValue(publicUser),
+      get: jest.fn(async (path: string) => path === 'user-public-profile/user-1' ? null : publicUser),
       getPrivate: jest.fn().mockResolvedValue({
         headshot: 'data:image/png;base64,private',
         profile: [
@@ -160,6 +160,62 @@ describe('WebUserService', () => {
     expect(user.knownPeople).toHaveLength(1);
     expect(user.blockedUserIds).toEqual(['blocked-1']);
     expect(user.talkFilters?.allowedLanguages).toEqual(['en', 'zh']);
+  });
+
+  it('loads the public profile headshot marker over stale graph and private values', async () => {
+    const publicUser = {
+      id: 'user-1',
+      stageName: 'Alice',
+      headshot: '🙂',
+      profile: [],
+      languages: ['en'],
+      interests: [],
+      knownPeople: [],
+      pub: pair.pub,
+      reputation: {} as User['reputation'],
+      location: { region: '', chatrooms: [] },
+      createdAt: new Date(),
+      lastActive: new Date(),
+    } as User;
+    const gunService = {
+      get: jest.fn(async (path: string) => path === 'user-public-profile/user-1'
+        ? { headshot: 'data:image/png;base64,new', languagesJson: '["en"]', profileJson: '[]', interestsJson: '[]' }
+        : publicUser),
+      getPrivate: jest.fn().mockResolvedValue({ ...publicUser, headshot: 'data:image/png;base64,stale' }),
+      getStoredPair: jest.fn(() => pair),
+    };
+
+    const user = await new WebUserService(gunService as any).getUser('user-1');
+
+    expect(user.headshot).toBe('data:image/png;base64,new');
+  });
+
+  it('keeps a cleared public profile headshot removed after reload', async () => {
+    const publicUser = {
+      id: 'user-1',
+      stageName: 'Alice',
+      headshot: 'data:image/png;base64,old',
+      profile: [],
+      languages: ['en'],
+      interests: [],
+      knownPeople: [],
+      pub: pair.pub,
+      reputation: {} as User['reputation'],
+      location: { region: '', chatrooms: [] },
+      createdAt: new Date(),
+      lastActive: new Date(),
+    } as User;
+    const gunService = {
+      get: jest.fn(async (path: string) => path === 'user-public-profile/user-1'
+        ? { headshot: '', languagesJson: '["en"]', profileJson: '[]', interestsJson: '[]' }
+        : publicUser),
+      getPrivate: jest.fn().mockResolvedValue({ ...publicUser, headshot: 'data:image/png;base64,old' }),
+      getStoredPair: jest.fn(() => pair),
+    };
+
+    const user = await new WebUserService(gunService as any).getUser('user-1');
+
+    expect(user.headshot).toBeUndefined();
   });
 
   it('publishes identity keys without rewriting private user fields', async () => {

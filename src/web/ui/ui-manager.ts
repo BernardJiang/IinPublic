@@ -834,6 +834,7 @@ export class UIManager extends EventEmitter {
                 <button class="btn primary-btn" id="me-view-preferences-btn" type="button">Preferences</button>
               </div>
               <div class="embedded-stats-strip" id="me-stats-strip" style="padding:8px 12px;color:#64748b;font-size:0.88em;"></div>
+              <div id="user-info-me" style="padding:0 12px;"></div>
               <div class="answers-section" style="margin-top: 24px;">
                 <div id="answers-content">
                   <div style="padding: 20px; text-align: center; color: #999;">
@@ -1170,6 +1171,7 @@ export class UIManager extends EventEmitter {
 
         // Special handling for me view: refresh conversations list and request a source sync.
         if (targetView === 'me') {
+          if (this.currentUser) this.showMainInterface(this.currentUser);
           this.emit('needConversationSync');
           this.displayAnswersList();
           void this.displayContextualStatistics('me-stats-strip');
@@ -2390,6 +2392,7 @@ export class UIManager extends EventEmitter {
               <input class="visually-hidden" type="file" id="settings-photo-input" accept="image/png,image/jpeg,image/webp,image/gif">
               <input class="visually-hidden" type="file" id="settings-camera-input" accept="image/*" capture="user">
               <div style="font-size:0.78em;color:#64748b;">${this.t('settingsPhotoHelp')}</div>
+              <div id="settings-camera-status" role="status" style="display:none;font-size:0.8em;color:#b91c1c;"></div>
             </div>
           </div>
         </section>
@@ -2651,6 +2654,46 @@ export class UIManager extends EventEmitter {
         interests: this.currentUser.interests || [],
       });
     };
+    const showCameraStatus = (message: string): void => {
+      const status = document.getElementById('settings-camera-status') as HTMLElement | null;
+      if (!status) return;
+      status.textContent = message;
+      status.style.display = message ? 'block' : 'none';
+    };
+    const confirmPhoto = async (dataUrl: string): Promise<boolean> => {
+      document.getElementById('settings-photo-preview-modal')?.remove();
+      const modal = document.createElement('div');
+      modal.id = 'settings-photo-preview-modal';
+      modal.dataset.testid = 'settings-photo-preview-modal';
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content" style="max-width:420px;">
+          <div class="modal-header">
+            <h2 class="modal-title">${this.t('settingsPhotoPreviewTitle')}</h2>
+            <p>${this.t('settingsPhotoPreviewHelp')}</p>
+          </div>
+          <div class="user-avatar" style="width:160px;height:160px;margin:12px auto;font-size:2em;">
+            ${avatarInnerHtml(dataUrl, this.currentUser?.stageName.charAt(0).toUpperCase() || '?', escapeHtml)}
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn" data-testid="settings-photo-preview-cancel">${this.t('settingsPhotoPreviewCancel')}</button>
+            <button type="button" class="btn primary-btn" data-testid="settings-photo-preview-confirm">${this.t('settingsPhotoPreviewSave')}</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+      return new Promise<boolean>((resolve) => {
+        const finish = (confirmed: boolean): void => {
+          modal.remove();
+          resolve(confirmed);
+        };
+        modal.querySelector('[data-testid="settings-photo-preview-confirm"]')?.addEventListener('click', () => finish(true));
+        modal.querySelector('[data-testid="settings-photo-preview-cancel"]')?.addEventListener('click', () => finish(false));
+        modal.addEventListener('click', (event) => {
+          if (event.target === modal) finish(false);
+        });
+      });
+    };
     const readPhoto = async (file?: File): Promise<void> => {
       if (!file) return;
       if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
@@ -2667,12 +2710,76 @@ export class UIManager extends EventEmitter {
         reader.addEventListener('error', () => reject(reader.error || new Error('Photo could not be read.')));
         reader.readAsDataURL(file);
       });
-      await saveHeadshot(dataUrl);
+      showCameraStatus('');
+      if (await confirmPhoto(dataUrl)) await saveHeadshot(dataUrl);
+    };
+    const takePhoto = async (): Promise<void> => {
+      if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+        const message = this.t('settingsCameraUnavailable');
+        showCameraStatus(message);
+        this.showNotification(message, 'error');
+        return;
+      }
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+      } catch {
+        const message = this.t('settingsCameraDenied');
+        showCameraStatus(message);
+        this.showNotification(message, 'error');
+        return;
+      }
+      document.getElementById('settings-camera-capture-modal')?.remove();
+      const modal = document.createElement('div');
+      modal.id = 'settings-camera-capture-modal';
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content" style="max-width:480px;">
+          <div class="modal-header">
+            <h2 class="modal-title">${this.t('settingsCameraCaptureTitle')}</h2>
+            <p>${this.t('settingsCameraCaptureHelp')}</p>
+          </div>
+          <video id="settings-camera-preview-video" autoplay muted playsinline style="display:block;width:100%;aspect-ratio:1;object-fit:cover;border-radius:14px;background:#0f172a;"></video>
+          <div class="modal-actions">
+            <button type="button" class="btn" data-testid="settings-camera-cancel">${this.t('settingsPhotoPreviewCancel')}</button>
+            <button type="button" class="btn primary-btn" data-testid="settings-camera-capture" disabled>${this.t('settingsCameraCapture')}</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+      const video = modal.querySelector('#settings-camera-preview-video') as HTMLVideoElement | null;
+      const capture = modal.querySelector('[data-testid="settings-camera-capture"]') as HTMLButtonElement | null;
+      const stopAndClose = (): void => {
+        stream.getTracks().forEach((track) => track.stop());
+        modal.remove();
+      };
+      if (video) {
+        video.srcObject = stream;
+        video.addEventListener('loadedmetadata', () => {
+          if (capture) capture.disabled = false;
+        }, { once: true });
+        void video.play().catch(() => undefined);
+      }
+      modal.querySelector('[data-testid="settings-camera-cancel"]')?.addEventListener('click', stopAndClose);
+      capture?.addEventListener('click', async () => {
+        if (!video || video.videoWidth < 1 || video.videoHeight < 1) return;
+        const size = Math.min(video.videoWidth, video.videoHeight);
+        const sx = Math.max(0, (video.videoWidth - size) / 2);
+        const sy = Math.max(0, (video.videoHeight - size) / 2);
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 512;
+        canvas.getContext('2d')?.drawImage(video, sx, sy, size, size, 0, 0, 512, 512);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        stopAndClose();
+        showCameraStatus('');
+        if (await confirmPhoto(dataUrl)) await saveHeadshot(dataUrl);
+      });
     };
     const photoInput = document.getElementById('settings-photo-input') as HTMLInputElement | null;
     const cameraInput = document.getElementById('settings-camera-input') as HTMLInputElement | null;
     document.getElementById('settings-choose-photo-btn')?.addEventListener('click', () => photoInput?.click());
-    document.getElementById('settings-take-photo-btn')?.addEventListener('click', () => cameraInput?.click());
+    document.getElementById('settings-take-photo-btn')?.addEventListener('click', () => void takePhoto());
     photoInput?.addEventListener('change', () => void readPhoto(photoInput.files?.[0]));
     cameraInput?.addEventListener('change', () => void readPhoto(cameraInput.files?.[0]));
     document.getElementById('settings-remove-photo-btn')?.addEventListener('click', () => void saveHeadshot());

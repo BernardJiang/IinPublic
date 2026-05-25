@@ -13,6 +13,9 @@ const USER_BLOCKED_BY_KEY = 'user-blocked-by';
 const AGE_VERIF_KEY = 'user-age-verification';
 
 export class UserService {
+  private readonly recentBlockMutations = new Map<string, boolean>();
+  private readonly recentReputationWrites = new Map<string, Reputation>();
+
   constructor(private gunService: GunService) {}
 
   private parseJsonArray<T>(value: unknown, fallback: T[]): T[] {
@@ -62,10 +65,12 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
   }
 
   private async applyBlockCountDelta(targetUserId: string, delta: number): Promise<void> {
-    const reputation = await this.readReputation(targetUserId);
+    const reputation = this.recentReputationWrites.get(targetUserId) || await this.readReputation(targetUserId);
     const nextValue = Math.max(0, Number(reputation.blockCount || 0) + delta);
     if (nextValue === Number(reputation.blockCount || 0)) return;
-    this.writeReputation(targetUserId, { ...reputation, blockCount: nextValue });
+    const nextReputation = { ...reputation, blockCount: nextValue };
+    this.recentReputationWrites.set(targetUserId, nextReputation);
+    this.writeReputation(targetUserId, nextReputation);
   }
 
   private parseTalkFilters(value: unknown, seedLanguages?: string[]): TalkIntakeFilters {
@@ -249,16 +254,37 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     // gun.get('user-blocks/userId') is a flat soul unrelated to gun.get('user-blocks').get(userId).
     const gun = this.gunService.getGun();
     return new Promise((resolve) => {
-      const ids: string[] = [];
+      const ids = new Set<string>();
       gun.get(USER_BLOCKS_KEY).get(userId).map().once((data: any, key: string) => {
-        if (data != null && key && !key.startsWith('_')) ids.push(key);
+        if (data != null && key && !key.startsWith('_')) ids.add(key);
       });
-      setTimeout(() => resolve(ids), 500);
+      setTimeout(() => {
+        for (const [key, blocked] of this.recentBlockMutations.entries()) {
+          const [blockerId, targetId] = key.split('\0');
+          if (blockerId !== userId || !targetId) continue;
+          if (blocked) ids.add(targetId);
+          else ids.delete(targetId);
+        }
+        resolve([...ids]);
+      }, 500);
     });
+  }
+
+  private blockMutationKey(blockerId: string, targetId: string): string {
+    return `${blockerId}\0${targetId}`;
+  }
+
+  private async readEffectiveBlockState(blockerId: string, targetId: string): Promise<boolean> {
+    const key = this.blockMutationKey(blockerId, targetId);
+    const recentMutation = this.recentBlockMutations.get(key);
+    if (recentMutation !== undefined) return recentMutation;
+    return this.isBlocked(blockerId, targetId);
   }
 
   async isBlocked(blockerId: string, targetId: string): Promise<boolean> {
     if (!blockerId || !targetId) return false;
+    const recentMutation = this.recentBlockMutations.get(this.blockMutationKey(blockerId, targetId));
+    if (recentMutation !== undefined) return recentMutation;
     const node = await this.gunService.getPath([USER_BLOCKS_KEY, blockerId, targetId]);
     return !!node;
   }
@@ -286,13 +312,15 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     if (blockerId === targetId) {
       throw new Error('Cannot block yourself');
     }
-    const alreadyBlocked = await this.isBlocked(blockerId, targetId);
+    const alreadyBlocked = await this.readEffectiveBlockState(blockerId, targetId);
     if (alreadyBlocked) {
       return { changed: false, blockedUserIds: await this.getBlockedUserIds(blockerId) };
     }
     const blockedAt = new Date().toISOString();
     await this.gunService.putPath([USER_BLOCKS_KEY, blockerId, targetId], { blockedAt });
     await this.gunService.putPath([USER_BLOCKED_BY_KEY, targetId, blockerId], { blockedAt });
+    // Gun propagation can lag the subsequent API request; reflect confirmed writes immediately.
+    this.recentBlockMutations.set(this.blockMutationKey(blockerId, targetId), true);
     await this.applyBlockCountDelta(targetId, 1);
     return { changed: true, blockedUserIds: await this.getBlockedUserIds(blockerId) };
   }
@@ -301,12 +329,13 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     if (!blockerId || !targetId) {
       throw new Error('blockerId and targetId required');
     }
-    const alreadyBlocked = await this.isBlocked(blockerId, targetId);
+    const alreadyBlocked = await this.readEffectiveBlockState(blockerId, targetId);
     if (!alreadyBlocked) {
       return { changed: false, blockedUserIds: await this.getBlockedUserIds(blockerId) };
     }
     await this.gunService.putPath([USER_BLOCKS_KEY, blockerId, targetId], null);
     await this.gunService.putPath([USER_BLOCKED_BY_KEY, targetId, blockerId], null);
+    this.recentBlockMutations.set(this.blockMutationKey(blockerId, targetId), false);
     await this.applyBlockCountDelta(targetId, -1);
     return { changed: true, blockedUserIds: await this.getBlockedUserIds(blockerId) };
   }
