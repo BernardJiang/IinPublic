@@ -858,7 +858,7 @@ export class UIManager extends EventEmitter {
                 <div id="peer-stats-section"></div>
                 <div id="peer-conversations-section"></div>
                 <div class="peer-section-header">
-                  <div class="peer-section-title" style="font-weight:700;padding:12px 16px 4px;">Talk History</div>
+                  <div class="peer-section-title" id="peer-talk-history-title" style="font-weight:700;padding:12px 16px 4px;">Talk History</div>
                   <div id="peer-history-controls" style="display:none;padding:8px 16px;gap:8px;flex-wrap:wrap;">
                     <div style="display:flex;gap:6px;">
                       <button class="btn peer-sort-btn active" data-sort="date" style="padding:4px 10px;font-size:0.85em;">Date</button>
@@ -875,12 +875,12 @@ export class UIManager extends EventEmitter {
                 <div class="peer-send-section">
                   <label class="peer-auto-mode-label" style="display:flex;align-items:center;gap:8px;padding:12px 16px 4px;font-size:0.9em;cursor:pointer;">
                     <input type="checkbox" id="peer-auto-mode-checkbox" checked>
-                    <span>Auto mode — send all new talks automatically</span>
+                    <span id="peer-auto-mode-text">Auto mode - send all new talks automatically</span>
                   </label>
                   <div style="padding:8px 16px 16px;">
                     <button class="btn primary-btn" id="peer-send-talks-btn" style="width:100%;">📤 Send My Talks</button>
                     <div style="margin-top:12px;">
-                      <div style="font-size:0.85em;color:#64748b;margin-bottom:4px;">Send a direct message</div>
+                      <div id="peer-dm-label" style="font-size:0.85em;color:#64748b;margin-bottom:4px;">Send a direct message</div>
                       <textarea id="peer-dm-input" rows="2" placeholder="Type a message…" data-testid="peer-dm-input" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.9em;resize:none;"></textarea>
                       <button class="btn primary-btn" id="peer-dm-send-btn" data-testid="peer-dm-send-btn" style="width:100%;margin-top:6px;">💬 Send Message</button>
                     </div>
@@ -5587,6 +5587,10 @@ export class UIManager extends EventEmitter {
       registerTalkForPeer: this.registerTalkForPeer.bind(this),
       isBlockedByMe: this.isBlockedByMe.bind(this),
       setBlocked: this.setBlocked.bind(this),
+      text: this.t.bind(this),
+      formatRelativeTime: this.formatTalkRelativeTime.bind(this),
+      formatType: this.formatTalkType.bind(this),
+      formatLanguage: this.formatTalkLanguage.bind(this),
       sendDirectMessage: (peerId: string, peerName: string, text: string) => {
         return new Promise<void>((resolve, reject) => {
           this.emit('sendDirectMessage', { peerId, peerName, text, resolve, reject });

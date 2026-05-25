@@ -76,6 +76,19 @@ Evidence:
 - Unit: `src/test/unit/ui-translations.test.ts`
 - E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
 
+## 2026-05-25 - D2 Peer Detail Localization Slice
+
+Localized peer-detail loading, public profile, relationship statistics, conversations, history,
+direct-message controls, and the Send My Talks picker. Language and talk-type labels now respect
+the active UI language, and the Chinese traversal opens a populated peer detail overlay.
+
+Evidence:
+- UI/catalog: `src/web/ui/user-detail-view.ts`, `src/web/ui/ui-manager.ts`,
+  `src/web/ui/ui-translations.ts`
+- Unit: `src/test/unit/ui-extracted-modules.test.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`,
+  `tests/e2e/staged/stage2-two-user/04-profile-edit-stage-name.spec.ts`
+
 ## 2026-05-25 - D1 Single Settings Owner For Intake Preferences
 
 Confirmed that Settings is the sole editing surface for Talk Behavior and incoming-intake

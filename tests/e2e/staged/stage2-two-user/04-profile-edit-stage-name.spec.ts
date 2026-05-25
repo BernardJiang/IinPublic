@@ -228,7 +228,7 @@ test.describe('Profile foundation', () => {
     await afterNav();
     await expect(peerPage.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10000 });
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Public Profile');
-    await expect(peerPage.locator('#peer-stats-section')).toContainText('Languages: en');
+    await expect(peerPage.locator('#peer-stats-section')).toContainText('Languages: English');
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Favorite drink');
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Coffee');
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Usual city');

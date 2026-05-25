@@ -224,6 +224,43 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#contacts-filter-relation option[value="all"]')).toHaveText('全部关系');
     await expect(p.locator('#contacts-sort-order option[value="weighted"]')).toHaveText('相关性得分');
     await expect(p.locator('#contacts-list')).toContainText('还没有联系人');
+    await p.route('**/api/users/*/peers/localized-peer/relationship', async (route) => route.fulfill({
+      json: {
+        totalTalks: 1,
+        sent: { talks: 1, matches: 1 },
+        received: { talks: 0, matches: 0 },
+        mutualMatchedTalks: 1,
+        mutualTagCount: 0,
+      },
+    }));
+    await p.route('**/api/users/localized-peer?**', async (route) => route.fulfill({
+      json: { languages: ['zh'], interests: [{ name: '咖啡' }], profile: [] },
+    }));
+    await p.route('**/api/users/*/peers/localized-peer/talk-history', async (route) => route.fulfill({
+      json: [{
+        talkId: 'localized-peer-talk',
+        title: 'Localized History',
+        direction: 'sent',
+        outcome: 'match',
+        type: 'flow',
+        date: new Date().toISOString(),
+      }],
+    }));
+    await p.route('**/api/users/*/block-status/localized-peer', async (route) => route.fulfill({ json: {} }));
+    await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.openPeerDetailForUser('localized-peer', 'Ming'));
+    await expect(p.locator('#peer-detail-overlay')).toBeVisible();
+    await expect(p.locator('#peer-detail-overlay')).toContainText('话题历史');
+    await expect(p.locator('#peer-detail-overlay')).toContainText('公开资料');
+    await expect(p.locator('#peer-detail-overlay')).toContainText('语言: 中文');
+    await expect(p.locator('#peer-detail-overlay')).toContainText('交换的话题');
+    await expect(p.locator('#peer-detail-overlay')).toContainText('流程');
+    await expect(p.locator('#peer-send-talks-btn')).toContainText('发送我的话题');
+    await expect(p.locator('#peer-dm-input')).toHaveAttribute('placeholder', '输入消息...');
+    await p.locator('#back-from-peer-detail').click();
+    await p.unroute('**/api/users/*/peers/localized-peer/relationship');
+    await p.unroute('**/api/users/localized-peer?**');
+    await p.unroute('**/api/users/*/peers/localized-peer/talk-history');
+    await p.unroute('**/api/users/*/block-status/localized-peer');
     await p.locator('.nav-btn[data-view="talks"]').click();
     await afterNav();
     await expect(p.locator('#creator-replies-panel')).toContainText('我的话题回复');

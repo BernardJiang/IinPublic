@@ -36,15 +36,16 @@ Current implementation baseline discovered during the audit:
   Preferences shortcut without duplicating settings inputs.
 - The explicit App language setting is separate from profile and incoming-language values, persists
   across reload, and defaults new talks to that language. Reachable strings still need audit coverage.
-- Chinese catalog coverage now includes Chatrooms live/member states and Contacts list,
-  detail, relationship, block, and public-credit surfaces; remaining dialogs and
-  notification/storage/support paths still require the D2 traversal and audit.
+- Chinese catalog coverage now includes Chatrooms live/member states, Contacts list,
+  detail, relationship, block, and public-credit surfaces, plus peer-detail profile,
+  history, conversation, and send controls; notification/storage/support-specialized
+  paths still require the D2 traversal and audit.
 - Chinese catalog coverage now includes the Talks main list, outgoing/incoming row metadata,
   language badges, flow/tag/route editor controls, route branch-tree internals, and flow/tag
   response outcomes; notification/storage and support paths remain active D2 work.
 - Chinese catalog coverage now includes Me answer-history rows, toolbar filters, localized
-  talk-type display badges, Preferences, and My Talks dialogs; profile/support-adjacent
-  detail panels and remaining notification/storage surfaces remain active D2 work.
+  talk-type display badges, Preferences, My Talks dialogs, and peer-detail interaction
+  panels; remaining notification/storage and support-specialized surfaces remain active D2 work.
 - Matching E2E specs cover several successful, mismatched, ignored, auto-answer, Contacts, and Me
   scenarios independently; they do not yet provide one exhaustive branch matrix from talk creation
   through every sender/responder result.
