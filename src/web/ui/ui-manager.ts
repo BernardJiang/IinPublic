@@ -18,7 +18,7 @@ import {
   type QAPair,
 } from '../../shared/flattened-answer-keys';
 import { normalizeQuestionKey, interestsFromCommaInput } from '../../shared/user-utils';
-import { PROFILE_VISIBILITY_LABELS, normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
+import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../shared/interest-catalog';
 import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
 import { getFlatChatroomList, CHATROOM_HIERARCHY } from '../../shared/chatroom-hierarchy';
@@ -243,6 +243,28 @@ export class UIManager extends EventEmitter {
 
   private formatTalkCount(count: number): string {
     return this.tf(count === 1 ? 'talksCountOne' : 'talksCount', { count });
+  }
+
+  private formatProfileVisibility(visibility: ProfileAttributeVisibility): string {
+    if (visibility === 'contacts_only') return this.t('meVisibilityContacts');
+    if (visibility === 'private') return this.t('meVisibilityPrivate');
+    return this.t('meVisibilityEveryone');
+  }
+
+  private formatInterestCategory(category: TagCategory): string {
+    const keys: Record<TagCategory, UiTranslationKey> = {
+      community: 'interestCategoryCommunity',
+      discussion: 'interestCategoryDiscussion',
+      personals: 'interestCategoryPersonals',
+      jobs: 'interestCategoryJobs',
+      gigs: 'interestCategoryGigs',
+      resumes: 'interestCategoryResumes',
+      'for-sale': 'interestCategoryForSale',
+      housing: 'interestCategoryHousing',
+      services: 'interestCategoryServices',
+      other: 'interestCategoryOther',
+    };
+    return this.t(keys[category]);
   }
 
   private formatTalkRelativeTime(date: Date): string {
@@ -3476,6 +3498,14 @@ export class UIManager extends EventEmitter {
     return this.tf('supportWelcome', { name: stageName });
   }
 
+  public formatStageNameUpdated(): string {
+    return this.t('stageNameUpdated');
+  }
+
+  public formatProfileUpdated(): string {
+    return this.t('profileUpdated');
+  }
+
   private formatConversationMessage(message: string, supportChannel: boolean): string {
     if (!supportChannel) return message;
     const match = /^Welcome to IinPublic, (.+)\. TechSupport is here if you need help\.$/.exec(message);
@@ -3572,22 +3602,22 @@ export class UIManager extends EventEmitter {
       modal.innerHTML = `
         <div class="modal-content">
           <div class="modal-header">
-            <h2 class="modal-title">Edit Stage Name</h2>
-            <p>Current: ${user.stageName}</p>
+            <h2 class="modal-title">${this.t('editStageName')}</h2>
+            <p>${escapeHtml(this.tf('stageDialogCurrent', { name: String(user.stageName || '') }))}</p>
           </div>
           <form id="edit-stagename-form">
             <div class="form-group">
-              <label class="form-label">New Stage Name</label>
+              <label class="form-label">${this.t('stageDialogNewName')}</label>
               <input type="text" class="form-input" id="new-stage-name" name="new-stage-name" 
                      data-testid="stage-name-input"
                      required minlength="3" maxlength="50"
-                     placeholder="Enter your new stage name"
-                     value="${user.stageName}">
-              <small style="color: #666; font-size: 0.85em;">3-50 characters</small>
+                     placeholder="${escapeHtml(this.t('stageDialogPlaceholder'))}"
+                     value="${escapeHtml(String(user.stageName || ''))}">
+              <small style="color: #666; font-size: 0.85em;">${this.t('stageDialogLength')}</small>
             </div>
             <div class="modal-actions">
-              <button type="button" class="btn" id="cancel-edit-btn" style="background: #6c757d;">Cancel</button>
-              <button type="submit" class="btn" data-testid="save-stage-name-button">Save</button>
+              <button type="button" class="btn" id="cancel-edit-btn" style="background: #6c757d;">${this.t('stageDialogCancel')}</button>
+              <button type="submit" class="btn" data-testid="save-stage-name-button">${this.t('stageDialogSave')}</button>
             </div>
           </form>
         </div>
@@ -3615,11 +3645,11 @@ export class UIManager extends EventEmitter {
             document.body.removeChild(modal);
             resolve();
           } catch (error) {
-            alert('Failed to update stage name. Please try again.');
+            alert(this.t('stageDialogUpdateFailed'));
             reject(error);
           }
         } else {
-          alert('Stage name must be at least 3 characters long.');
+          alert(this.t('stageDialogTooShort'));
         }
       });
     });
@@ -3651,13 +3681,13 @@ export class UIManager extends EventEmitter {
       (['public', 'contacts_only', 'private'] as const)
         .map(
           (v) =>
-            `<option value="${v}"${v === current ? ' selected' : ''}>${escapeHtml(PROFILE_VISIBILITY_LABELS[v])}</option>`,
+            `<option value="${v}"${v === current ? ' selected' : ''}>${escapeHtml(this.formatProfileVisibility(v))}</option>`,
         )
         .join('');
     const interestCategoryOptionsHtml = INTEREST_CATEGORY_SELECT_ORDER.map(
       (cat) =>
         `<option value="${cat}"${cat === defaultInterestCategory ? ' selected' : ''}>${escapeHtml(
-          INTEREST_CATEGORY_LABELS[cat],
+          this.formatInterestCategory(cat),
         )}</option>`,
     ).join('');
     return new Promise((resolve, reject) => {
@@ -3668,32 +3698,32 @@ export class UIManager extends EventEmitter {
             .map(
               (qa) => `
                 <div class="profile-qa-row" data-qa-id="${escapeHtml(qa.id)}" style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(154px,auto) auto; gap:8px; margin-bottom:8px; align-items:start;">
-                  <input type="text" class="form-input profile-question-input" value="${escapeHtml(qa.question)}" placeholder="Question">
-                  <input type="text" class="form-input profile-answer-input" value="${escapeHtml(qa.answer)}" placeholder="Answer">
-                  <select class="form-input profile-visibility-select" title="Who can see this row on your public profile">${visibilityOptionsHtml(normalizeProfileAttributeVisibility(qa.visibility))}</select>
-                  <button type="button" class="btn remove-profile-qa-btn" style="background:#ef4444;">Remove</button>
+                  <input type="text" class="form-input profile-question-input" value="${escapeHtml(qa.question)}" placeholder="${escapeHtml(this.t('profileDialogQuestion'))}">
+                  <input type="text" class="form-input profile-answer-input" value="${escapeHtml(qa.answer)}" placeholder="${escapeHtml(this.t('profileDialogAnswer'))}">
+                  <select class="form-input profile-visibility-select" title="${escapeHtml(this.t('profileDialogVisibilityTitle'))}">${visibilityOptionsHtml(normalizeProfileAttributeVisibility(qa.visibility))}</select>
+                  <button type="button" class="btn remove-profile-qa-btn" style="background:#ef4444;">${this.t('profileDialogRemove')}</button>
                 </div>
               `,
             )
             .join('')
         : `
           <div class="profile-qa-row" data-qa-id="" style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(154px,auto) auto; gap:8px; margin-bottom:8px; align-items:start;">
-            <input type="text" class="form-input profile-question-input" placeholder="Question">
-            <input type="text" class="form-input profile-answer-input" placeholder="Answer">
-            <select class="form-input profile-visibility-select" title="Who can see this row on your public profile">${visibilityOptionsHtml('public')}</select>
-            <button type="button" class="btn remove-profile-qa-btn" style="background:#ef4444;">Remove</button>
+            <input type="text" class="form-input profile-question-input" placeholder="${escapeHtml(this.t('profileDialogQuestion'))}">
+            <input type="text" class="form-input profile-answer-input" placeholder="${escapeHtml(this.t('profileDialogAnswer'))}">
+            <select class="form-input profile-visibility-select" title="${escapeHtml(this.t('profileDialogVisibilityTitle'))}">${visibilityOptionsHtml('public')}</select>
+            <button type="button" class="btn remove-profile-qa-btn" style="background:#ef4444;">${this.t('profileDialogRemove')}</button>
           </div>
         `;
       const headshotChoices = ['🙂', '😎', '🤠', '🎾', '☕', '🌟', '🐱', '🦊'];
       modal.innerHTML = `
         <div class="modal-content" style="max-width:760px;">
           <div class="modal-header">
-            <h2 class="modal-title">Edit Profile</h2>
-            <p>Update profile basics. Q&amp;A visibility controls what others see when they load your profile (contacts are people you add in Relationships).</p>
+            <h2 class="modal-title">${this.t('editProfile')}</h2>
+            <p>${escapeHtml(this.t('profileDialogDescription'))}</p>
           </div>
           <form id="edit-profile-form">
             <div class="form-group">
-              <label class="form-label">Headshot</label>
+              <label class="form-label">${this.t('profileDialogHeadshot')}</label>
               <div style="display:flex; flex-wrap:wrap; gap:8px;" id="headshot-choice-group">
                 ${headshotChoices
                   .map(
@@ -3708,24 +3738,24 @@ export class UIManager extends EventEmitter {
               </div>
             </div>
             <div class="form-group">
-              <label class="form-label">Languages</label>
+              <label class="form-label">${this.t('languagesLabel')}</label>
               <input type="text" class="form-input" id="profile-languages-input" value="${escapeHtml(currentLanguages.join(', '))}" placeholder="en, zh">
             </div>
             <div class="form-group">
-              <label class="form-label">Interests</label>
-              <input type="text" class="form-input" id="profile-interests-input" value="${escapeHtml(interestsFieldValue)}" placeholder="e.g. tennis, coffee, Hiking">
-              <label class="form-label" style="margin-top:10px;">Default category for typed interests</label>
+              <label class="form-label">${this.t('interestsLabel')}</label>
+              <input type="text" class="form-input" id="profile-interests-input" value="${escapeHtml(interestsFieldValue)}" placeholder="${escapeHtml(this.t('profileDialogInterestPlaceholder'))}">
+              <label class="form-label" style="margin-top:10px;">${this.t('profileDialogDefaultCategory')}</label>
               <select class="form-input" id="profile-interest-category-default">${interestCategoryOptionsHtml}</select>
-              <small style="color:#666;font-size:0.85em;">Known words (e.g. Hiking, Open to work) pick a category automatically; others use the default.</small>
+              <small style="color:#666;font-size:0.85em;">${this.t('profileDialogCategoryHelp')}</small>
             </div>
             <div class="form-group">
-              <label class="form-label">Profile Attributes</label>
+              <label class="form-label">${this.t('profileDialogAttributes')}</label>
               <div id="profile-qa-list">${profileRowsHtml}</div>
-              <button type="button" class="btn" id="add-profile-qa-btn">Add Attribute</button>
+              <button type="button" class="btn" id="add-profile-qa-btn">${this.t('profileDialogAddAttribute')}</button>
             </div>
             <div class="modal-actions">
-              <button type="button" class="btn" id="cancel-profile-btn" style="background: #6c757d;">Cancel</button>
-              <button type="submit" class="btn" id="save-profile-btn">Save Profile</button>
+              <button type="button" class="btn" id="cancel-profile-btn" style="background: #6c757d;">${this.t('stageDialogCancel')}</button>
+              <button type="submit" class="btn" id="save-profile-btn">${this.t('profileDialogSave')}</button>
             </div>
           </form>
         </div>
@@ -3756,10 +3786,10 @@ export class UIManager extends EventEmitter {
         row.style.cssText =
           'display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(154px,auto) auto; gap:8px; margin-bottom:8px; align-items:start;';
         row.innerHTML = `
-          <input type="text" class="form-input profile-question-input" placeholder="Question">
-          <input type="text" class="form-input profile-answer-input" placeholder="Answer">
-          <select class="form-input profile-visibility-select" title="Who can see this row on your public profile">${visibilityOptionsHtml('public')}</select>
-          <button type="button" class="btn remove-profile-qa-btn" style="background:#ef4444;">Remove</button>
+          <input type="text" class="form-input profile-question-input" placeholder="${escapeHtml(this.t('profileDialogQuestion'))}">
+          <input type="text" class="form-input profile-answer-input" placeholder="${escapeHtml(this.t('profileDialogAnswer'))}">
+          <select class="form-input profile-visibility-select" title="${escapeHtml(this.t('profileDialogVisibilityTitle'))}">${visibilityOptionsHtml('public')}</select>
+          <button type="button" class="btn remove-profile-qa-btn" style="background:#ef4444;">${this.t('profileDialogRemove')}</button>
         `;
         list.appendChild(row);
         bindRemoveButtons();
@@ -3808,7 +3838,7 @@ export class UIManager extends EventEmitter {
           .filter((item): item is QuestionAnswer => !!item);
 
         if (languages.length === 0) {
-          alert('Please enter at least one language.');
+          alert(this.t('profileDialogLanguageRequired'));
           return;
         }
 
@@ -3822,7 +3852,7 @@ export class UIManager extends EventEmitter {
           close();
           resolve();
         } catch (error) {
-          alert('Failed to update profile. Please try again.');
+          alert(this.t('profileDialogUpdateFailed'));
           reject(error);
         }
       });

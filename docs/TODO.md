@@ -44,8 +44,8 @@ Current implementation baseline discovered during the audit:
   language badges, flow/tag/route editor controls, route branch-tree internals, and flow/tag
   response outcomes; notification and support paths remain active D2 work.
 - Chinese catalog coverage now includes Me answer-history rows, toolbar filters, profile and
-  credit summaries, broadcast-trend states, Preferences, My Talks dialogs, and peer-detail
-  interaction panels; remaining profile-editor and action/error surfaces remain active D2 work.
+  credit summaries, broadcast-trend states, nickname/profile editors, Preferences, My Talks
+  dialogs, and peer-detail interaction panels; remaining action/error surfaces remain active D2 work.
 - Chinese catalog coverage now includes Settings Storage Inspector headings, ordinary statuses,
   local-node permissions, SEA/transport/data-ownership policy copy, and server path explanations
   while preserving stable protocol and storage identifiers for diagnosis.

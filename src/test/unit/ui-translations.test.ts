@@ -14,6 +14,9 @@ describe('UI translations', () => {
     expect(uiText('zh', 'meProfileVisibilityHelp')).toContain('可见范围');
     expect(uiText('zh', 'meCreditHelp')).toContain('信誉摘要');
     expect(uiText('zh', 'meTrendNoData')).toContain('广播定向数据');
+    expect(uiText('zh', 'stageDialogNewName')).toBe('新昵称');
+    expect(uiText('zh', 'profileDialogAttributes')).toBe('资料项目');
+    expect(uiText('zh', 'interestCategoryCommunity')).toBe('社区');
     expect(languageOptionLabel('zh', 'en', 'English')).toBe('英语');
   });
 

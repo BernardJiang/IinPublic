@@ -1600,7 +1600,7 @@ export class IinPublicApp {
           }
         }
 
-        this.uiManager.showNotification('Stage name updated successfully!', 'success');
+        this.uiManager.showNotification(this.uiManager.formatStageNameUpdated(), 'success');
       } catch (error) {
         console.error('Failed to update stage name:', error);
         throw error;
@@ -1627,7 +1627,7 @@ export class IinPublicApp {
           this.uiManager.showMainInterface(this.currentUser);
           this.refreshStatusBar();
         }
-        this.uiManager.showNotification('Profile updated successfully!', 'success');
+        this.uiManager.showNotification(this.uiManager.formatProfileUpdated(), 'success');
       } catch (error) {
         console.error('Failed to update profile foundation:', error);
         throw error;

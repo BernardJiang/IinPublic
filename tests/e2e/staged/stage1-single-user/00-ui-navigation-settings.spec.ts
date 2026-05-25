@@ -382,6 +382,23 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#user-info-me')).toContainText('星级');
     await expect(p.locator('#user-info-me')).toContainText('匹配数');
     await expect(p.locator('#user-info-me')).toContainText('年龄已验证');
+    await p.locator('#edit-stagename-btn').click();
+    await expect(p.locator('#edit-stagename-form').locator('xpath=..')).toContainText('编辑昵称');
+    await expect(p.locator('#edit-stagename-form')).toContainText('新昵称');
+    await expect(p.locator('#new-stage-name')).toHaveAttribute('placeholder', '输入新昵称');
+    await expect(p.locator('[data-testid="save-stage-name-button"]')).toHaveText('保存');
+    await p.locator('#cancel-edit-btn').click();
+    await p.locator('#edit-profile-btn').click();
+    await expect(p.locator('#edit-profile-form')).toContainText('头像');
+    await expect(p.locator('#edit-profile-form')).toContainText('输入兴趣的默认分类');
+    await expect(p.locator('#edit-profile-form')).toContainText('资料项目');
+    await expect(p.locator('#profile-interest-category-default option[value="community"]')).toHaveText('社区');
+    await expect(p.locator('.profile-visibility-select').first().locator('option[value="public"]')).toHaveText('所有人');
+    await p.locator('#add-profile-qa-btn').click();
+    await expect(p.locator('.profile-question-input').last()).toHaveAttribute('placeholder', '问题');
+    await expect(p.locator('.remove-profile-qa-btn').last()).toHaveText('移除');
+    await expect(p.locator('#save-profile-btn')).toHaveText('保存资料');
+    await p.locator('#cancel-profile-btn').click();
     await expect(p.locator('#answers-content')).toContainText('你收到并回答的话题会显示在这里');
     await expect(p.locator('#answers-content')).toContainText('偏好设置');
     await p.evaluate(() => {

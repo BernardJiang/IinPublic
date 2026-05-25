@@ -126,6 +126,18 @@ Evidence:
 - Unit: `src/test/unit/ui-translations.test.ts`
 - E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
 
+## 2026-05-25 - D2 Me Profile Editor Localization Slice
+
+Localized the Me nickname and profile editor dialogs, including privacy/category option labels,
+input guidance, validation alerts, and successful save notifications. Stored privacy and interest
+category values remain stable internal codes, and stage names are escaped when displayed in the
+legacy nickname dialog.
+
+Evidence:
+- UI/catalog: `src/web/app/app.ts`, `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`
+- Unit: `src/test/unit/ui-translations.test.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - D1 Single Settings Owner For Intake Preferences
 
 Confirmed that Settings is the sole editing surface for Talk Behavior and incoming-intake
