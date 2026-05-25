@@ -31,6 +31,9 @@ describe('UI translations', () => {
     expect(uiText('zh', 'contactAgeVoteSubmitted')).toContain('年龄');
     expect(uiText('zh', 'contactBlockedNotice')).toContain('话题投递');
     expect(uiText('zh', 'contactMatchToChat')).toContain('开始对话');
+    expect(uiText('zh', 'conversationNotInChatroom')).toContain('聊天室');
+    expect(uiText('zh', 'conversationMessageSent')).toContain('已发送');
+    expect(uiText('zh', 'conversationLoadFailed')).toContain('加载对话');
     expect(languageOptionLabel('zh', 'en', 'English')).toBe('英语');
   });
 

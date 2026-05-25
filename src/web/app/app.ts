@@ -2024,7 +2024,7 @@ export class IinPublicApp {
           }
         } catch (error) {
           this.uiManager.showNotification(
-            'Failed to process answer: ' + (error as Error).message,
+            this.uiManager.formatAnswerProcessFailed((error as Error).message),
             'error',
           );
         }
@@ -2038,7 +2038,7 @@ export class IinPublicApp {
         // For now, broadcast message to the chatroom
         const chatroomId = this.chatroomService.getCurrentChatroomId();
         if (!chatroomId) {
-          this.uiManager.showNotification('Not in a chatroom', 'error');
+          this.uiManager.showNotification(this.uiManager.formatNotInChatroom(), 'error');
           return;
         }
 
@@ -2056,11 +2056,11 @@ export class IinPublicApp {
         gun.get('chatrooms').get(chatroomId).get('messages').get(message.id).put(message);
 
         console.log('✅ Message sent:', message);
-        this.uiManager.showNotification('Message sent!', 'success');
+        this.uiManager.showNotification(this.uiManager.formatMessageSent(), 'success');
       } catch (error) {
         console.error('Failed to send message:', error);
         this.uiManager.showNotification(
-          'Failed to send message: ' + (error as Error).message,
+          this.uiManager.formatMessageSendFailed((error as Error).message),
           'error',
         );
       }
@@ -2089,7 +2089,7 @@ export class IinPublicApp {
       } catch (error) {
         console.error('Failed to load conversation:', error);
         this.uiManager.showNotification(
-          'Failed to load conversation: ' + (error as Error).message,
+          this.uiManager.formatConversationLoadFailed((error as Error).message),
           'error',
         );
       }
@@ -2112,7 +2112,7 @@ export class IinPublicApp {
         } catch (error) {
           console.error('Failed to send conversation message:', error);
           this.uiManager.showNotification(
-            'Failed to send message: ' + (error as Error).message,
+            this.uiManager.formatMessageSendFailed((error as Error).message),
             'error',
           );
         }
@@ -2152,7 +2152,7 @@ export class IinPublicApp {
           data.resolve();
         } catch (error) {
           console.error('Failed to send direct message:', error);
-          this.uiManager.showNotification('Failed to send message: ' + (error as Error).message, 'error');
+          this.uiManager.showNotification(this.uiManager.formatMessageSendFailed((error as Error).message), 'error');
           data.reject(error);
         }
       },

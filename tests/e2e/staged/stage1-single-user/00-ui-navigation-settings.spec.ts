@@ -340,6 +340,22 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#conversation-message-input')).toHaveAttribute('placeholder', '输入消息...');
     await expect(p.locator('#send-conversation-message')).toHaveText('发送');
     await expect(p.locator('#conversation-messages')).toContainText('欢迎来到 IinPublic，Ming');
+    await p.evaluate(() => {
+      const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
+      ui?.showNotification(ui.formatAnswerProcessFailed('测试失败'), 'error');
+      ui?.showNotification(ui.formatNotInChatroom(), 'error');
+      ui?.showNotification(ui.formatMessageSent(), 'success');
+      ui?.showNotification(ui.formatMessageSendFailed('网络故障'), 'error');
+      ui?.showNotification(ui.formatConversationLoadFailed('网络故障'), 'error');
+    });
+    await expect(p.locator('.notification').filter({ hasText: '无法处理回答：测试失败' })).toBeVisible();
+    await expect(p.locator('.notification').filter({ hasText: '当前不在聊天室中。' })).toBeVisible();
+    await expect(p.locator('.notification').filter({ hasText: '消息已发送！' })).toBeVisible();
+    await expect(p.locator('.notification').filter({ hasText: '无法发送消息：网络故障' })).toBeVisible();
+    await expect(p.locator('.notification').filter({ hasText: '无法加载对话：网络故障' })).toBeVisible();
+    await p.evaluate(() => {
+      document.querySelectorAll('.notification').forEach((notification) => notification.remove());
+    });
     await p.locator('#back-from-conversation').click();
     await p.evaluate(() => {
       const previous = (window as any).__localizedPreviousConversations;

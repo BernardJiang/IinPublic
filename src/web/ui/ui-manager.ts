@@ -3639,6 +3639,26 @@ export class UIManager extends EventEmitter {
     return this.t('contactMatchToChat');
   }
 
+  public formatAnswerProcessFailed(reason: string): string {
+    return this.tf('conversationAnswerFailed', { reason });
+  }
+
+  public formatNotInChatroom(): string {
+    return this.t('conversationNotInChatroom');
+  }
+
+  public formatMessageSent(): string {
+    return this.t('conversationMessageSent');
+  }
+
+  public formatMessageSendFailed(reason: string): string {
+    return this.tf('conversationSendFailed', { reason });
+  }
+
+  public formatConversationLoadFailed(reason: string): string {
+    return this.tf('conversationLoadFailed', { reason });
+  }
+
   private formatConversationMessage(message: string, supportChannel: boolean): string {
     if (!supportChannel) return message;
     const match = /^Welcome to IinPublic, (.+)\. TechSupport is here if you need help\.$/.exec(message);

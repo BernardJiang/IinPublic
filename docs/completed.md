@@ -163,6 +163,18 @@ Evidence:
 - Unit: `src/test/unit/ui-extracted-modules.test.ts`
 - E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
 
+## 2026-05-25 - D2 Messaging Feedback Localization Slice
+
+Localized app-owned room-message, conversation-load/send, direct-message error, and
+answer-processing feedback while preserving existing conversation rendering behavior. The Chinese
+traversal renders each notice without sending messages or forcing network failures.
+
+Evidence:
+
+- UI/app/catalog: `src/web/app/app.ts`, `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`
+- Unit: `src/test/unit/ui-translations.test.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - D2 Me Profile And Credit Localization Slice
 
 Localized the always-visible Me profile summary, language labels, privacy annotations,
