@@ -1,6 +1,6 @@
 # IinPublic Completed Work
 
-Last updated: 2026-05-24
+Last updated: 2026-05-25
 
 This is the durable ledger for shipped feature work. Keep `TODO.md` focused on forward work:
 when an item is finished, move it here with a short description and concrete evidence.
@@ -11,6 +11,32 @@ when an item is finished, move it here with a short description and concrete evi
 - Include the date, feature/phase name, user-visible result, and verification evidence.
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
+
+## 2026-05-25 - D2 Independent App Language And Talk Default
+
+Added an explicit persisted App language selector for completed English and Chinese catalogs,
+separate from profile language and incoming-talk intake languages. Switching App language now
+re-renders translated navigation and Settings without changing profile metadata, survives reload,
+and supplies the default language of a newly created talk while retaining its per-talk selector.
+
+Evidence:
+
+- UI preference and renderer: `src/web/ui/ui-settings-storage.ts`, `src/web/ui/ui-manager.ts`,
+  `src/web/ui/ui-translations.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
+## 2026-05-25 - D1 Single Settings Owner For Intake Preferences
+
+Confirmed that Settings is the sole editing surface for Talk Behavior and incoming-intake
+controls. Me remains an answer-history view with its Preferences shortcut and cannot overwrite
+newer Settings values. Added browser coverage that edits Settings-owned values, visits Me, and
+verifies the values remain unchanged when Settings is reopened.
+
+Evidence:
+
+- UI ownership and settings storage: `src/web/ui/ui-manager.ts`, `src/web/ui/ui-settings-storage.ts`
+- Persistence wiring: `src/web/app/app.ts`, `src/web/services/web-user-service.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
 
 ## 2026-05-24 - D1 Confirmed Photo Capture And Reload
 

@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-05-24
+Last updated: 2026-05-25
 
 This is the forward backlog for the current repository. Completed feature ledgers belong in
 [Completed Work](completed.md), not in TODO.
@@ -32,8 +32,10 @@ Current implementation baseline discovered during the audit:
   cases, but the user-level multi-user proof scenarios below are not complete.
 - Settings now supports confirmed photo previews, camera permission fallback, persisted
   Me/Contacts/peer photo rendering, and omits empty-interest placeholders.
-- Profile language and incoming-language controls persist values, but the menu, tabs, dialogs, and
-  messages remain hard-coded in English.
+- Settings is the sole editor for Talk Behavior and intake controls; Me offers answer history and a
+  Preferences shortcut without duplicating settings inputs.
+- The explicit App language setting is separate from profile and incoming-language values, persists
+  across reload, and defaults new talks to that language. Reachable strings still need audit coverage.
 - Matching E2E specs cover several successful, mismatched, ignored, auto-answer, Contacts, and Me
   scenarios independently; they do not yet provide one exhaustive branch matrix from talk creation
   through every sender/responder result.
@@ -41,25 +43,10 @@ Current implementation baseline discovered during the audit:
   count, and matches. It does not yet solve high-volume response triage across many talks and
   responders, or provide weighted ranking and grouped answer review.
 
-### Phase D1 - Settings Identity and Profile Polish
-
-Purpose: make Settings a complete, safe identity editor before its settings drive other behavior.
-
-- **One owner for duplicated preferences.** Talk behavior and intake controls are currently
-  rendered in both Me and Settings. Decide whether Me is a read-only summary/shortcut or remove the
-  duplicate controls; keep one persisted source of truth and verify either surface never overwrites
-  newer settings from the other.
-
-Exit criteria: an ordinary user can create/edit a safe identity and photo without placeholders,
-reserved-name impersonation, divergent settings copies, or an untested persistence path.
-
 ### Phase D2 - Full UI Localization
 
 Purpose: make profile/UI language change the actual application language, not just saved metadata.
 
-- **Separate language meanings.** Introduce an explicit primary UI language setting and keep
-  "incoming talk languages I understand" as a separate multi-select intake setting. Default a new
-  user's new-talk language to the primary UI language while allowing a per-talk override.
 - **Translation catalog and renderer.** Move hard-coded user-facing strings into localized
   resources keyed by stable ids. Include the five bottom-nav labels, header/status messages, all
   tab content, Settings controls, empty states, buttons, validation errors, notifications, talk
@@ -271,13 +258,11 @@ remains binding; this is the implementation sequence for its visible outcomes.
   ownership controls, and support-message exclusion.
 - Add a scalable answer/reply review mode from Phase D5 with filters for responder, talk, date,
   outcome, and relationship; grouping and sorting should remain usable after opening answer detail.
-- Decide whether duplicated Talk Behavior/Talk Filters controls live here or in Settings and add a
-  summary/link if only one tab owns editing.
 
 #### Settings
 
-- Deliver the identity/photo, localization, and filter behavior in Phases D1-D3, including clear
-  validation, persistence, reset, and hidden-count preview.
+- Deliver the localization and filter behavior in Phases D2-D3, including clear validation,
+  persistence, reset, and hidden-count preview.
 - Expand storage/transport diagnostics for TechSupport root/support state, room visit counts,
   localization and filter state, default talk language, SEA custody, relay leakage checks, local
   browser storage, and P2P feature flags without exposing secrets.

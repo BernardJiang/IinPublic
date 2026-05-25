@@ -1,4 +1,5 @@
 import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
+import type { UiLanguage } from './ui-translations';
 
 export type ChatbotTemplate = {
   answers: any[];
@@ -21,6 +22,17 @@ export function getChatbotEnabled(): boolean {
 
 export function setChatbotEnabled(enabled: boolean): void {
   localStorage.setItem('chatbotEnabled', String(enabled));
+}
+
+export function getUiLanguagePreference(defaultLanguage: UiLanguage = 'en'): UiLanguage {
+  const stored = String(localStorage.getItem('iinpublic_ui_language') || '').toLowerCase();
+  if (stored === 'en' || stored === 'zh') return stored;
+  localStorage.setItem('iinpublic_ui_language', defaultLanguage);
+  return defaultLanguage;
+}
+
+export function setUiLanguagePreference(language: UiLanguage): void {
+  localStorage.setItem('iinpublic_ui_language', language);
 }
 
 export function getChatbotTemplate(talkId: string): ChatbotTemplate | null {

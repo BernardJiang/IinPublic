@@ -177,11 +177,25 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#settings-content')).toContainText('English and Chinese moderation list');
     await expect(p.locator('#settings-credit-visible')).toBeVisible();
     await expect(p.locator('.settings-talk-filter-type')).toHaveCount(4);
-    await p.locator('#settings-profile-languages').selectOption('zh');
+    await expect(p.locator('#settings-ui-language')).toHaveValue('en');
+    await p.locator('#settings-ui-language').selectOption('zh');
     await expect(p.locator('.nav-btn[data-view="settings"] .nav-label')).toHaveText('设置');
     await expect(p.locator('.nav-btn[data-view="talks"] .nav-label')).toHaveText('话题');
     await expect(p.locator('#settings-content')).toContainText('界面语言');
+    await expect(p.locator('#settings-content')).toContainText('个人资料语言');
     await expect(p.locator('#settings-content')).toContainText('内容过滤');
+    await expect
+      .poll(async () => p.evaluate(() => localStorage.getItem('iinpublic_ui_language')))
+      .toBe('zh');
+    await expect(p.locator('#settings-profile-languages')).toHaveValue('en');
+    await p.reload();
+    await p.waitForLoadState('load');
+    await afterSync();
+    await expect(p.locator('.nav-btn[data-view="settings"] .nav-label')).toHaveText('设置');
+    await p.locator('.nav-btn[data-view="settings"]').click();
+    await afterNav();
+    await expect(p.locator('#settings-ui-language')).toHaveValue('zh');
+    await expect(p.locator('#settings-profile-languages')).toHaveValue('en');
     await p.evaluate(() => {
       const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
       void ui.confirmBroadcastAudience([{
@@ -211,6 +225,7 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#talk-editor-modal')).toContainText('创建话题');
     await expect(p.locator('#talk-editor-modal')).toContainText('话题标题');
     await expect(p.locator('#talk-language option[value="en"]')).toHaveText('英语');
+    await expect(p.locator('#talk-language')).toHaveValue('zh');
     await p.locator('#cancel-talk-btn').click();
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showTalkResponseDialog({
       id: 'localization-response',
@@ -232,8 +247,53 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#answers-content')).toContainText('偏好设置');
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
-    await p.locator('#settings-profile-languages').selectOption('en');
+    await p.locator('#settings-ui-language').selectOption('en');
     await expect(p.locator('.nav-btn[data-view="settings"] .nav-label')).toHaveText('Settings');
+    await p.locator('#settings-profile-languages').selectOption('zh');
+    await expect(p.locator('.nav-btn[data-view="settings"] .nav-label')).toHaveText('Settings');
+    await expect(p.locator('#settings-ui-language')).toHaveValue('en');
+    await p.locator('#settings-profile-languages').selectOption('en');
+    await p.locator('#settings-copy-talk-autosave').uncheck();
+    await p.locator('#settings-chatbot-enabled').uncheck();
+    await p.locator('.settings-filter-language-option[value="zh"]').check();
+    await p.locator('#settings-grammar-filter').uncheck();
+    await p.locator('#settings-dirty-words-filter').uncheck();
+    await p.locator('#settings-custom-blocked').fill('alpha, beta');
+    await expect
+      .poll(async () => p.evaluate(() => {
+        const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
+        return {
+          allowedLanguages: filters.allowedLanguages,
+          requireGoodGrammar: filters.requireGoodGrammar,
+          blockDirtyWords: filters.blockDirtyWords,
+          customBlockedTerms: filters.customBlockedTerms,
+          copyTalkAutoSave: localStorage.getItem('copyTalkAutoSave'),
+          chatbotEnabled: localStorage.getItem('chatbotEnabled'),
+        };
+      }))
+      .toEqual({
+        allowedLanguages: ['en', 'zh'],
+        requireGoodGrammar: false,
+        blockDirtyWords: false,
+        customBlockedTerms: ['alpha', 'beta'],
+        copyTalkAutoSave: 'false',
+        chatbotEnabled: 'false',
+      });
+    await p.locator('.nav-btn[data-view="me"]').click();
+    await afterNav();
+    await expect(p.locator('#settings-copy-talk-autosave')).toBeHidden();
+    await expect(p.locator('#settings-chatbot-enabled')).toBeHidden();
+    await expect(p.locator('.settings-filter-language-option').first()).toBeHidden();
+    await expect(p.locator('#settings-custom-blocked')).toBeHidden();
+    await p.locator('.nav-btn[data-view="settings"]').click();
+    await afterNav();
+    await expect(p.locator('#settings-copy-talk-autosave')).not.toBeChecked();
+    await expect(p.locator('#settings-chatbot-enabled')).not.toBeChecked();
+    await expect(p.locator('.settings-filter-language-option[value="en"]')).toBeChecked();
+    await expect(p.locator('.settings-filter-language-option[value="zh"]')).toBeChecked();
+    await expect(p.locator('#settings-grammar-filter')).not.toBeChecked();
+    await expect(p.locator('#settings-dirty-words-filter')).not.toBeChecked();
+    await expect(p.locator('#settings-custom-blocked')).toHaveValue('alpha, beta');
     await p.locator('#settings-sent-after').fill('2026-05-01T09:30');
     await expect
       .poll(async () => p.evaluate(() => JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}').sentAfter))
