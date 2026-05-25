@@ -196,6 +196,14 @@ test.describe('UI navigation and settings shell', () => {
     await afterNav();
     await expect(p.locator('#settings-ui-language')).toHaveValue('zh');
     await expect(p.locator('#settings-profile-languages')).toHaveValue('en');
+    await expect(p.locator('#storage-inspector-flags')).toContainText('模式');
+    await expect(p.locator('#storage-inspector-flags')).toContainText('本地节点');
+    await expect(p.locator('#storage-inspector-flags')).toContainText('已禁用');
+    await expect(p.locator('#storage-inspector-local-node')).toContainText('本地节点管理器');
+    await expect(p.locator('#storage-inspector-sea-identity')).toContainText('SEA 身份保管');
+    await expect(p.locator('#settings-storage-inspector')).toContainText('浏览器本地存储');
+    await expect(p.locator('#settings-storage-inspector')).toContainText('服务器持久化路径');
+    await expect(p.locator('#storage-inspector-server')).toContainText('当前成员映射');
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
     await expect(p.locator('.chatroom-item.current-room .current-room-badge')).toHaveText('当前');

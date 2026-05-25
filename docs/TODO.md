@@ -38,14 +38,17 @@ Current implementation baseline discovered during the audit:
   across reload, and defaults new talks to that language. Reachable strings still need audit coverage.
 - Chinese catalog coverage now includes Chatrooms live/member states, Contacts list,
   detail, relationship, block, and public-credit surfaces, plus peer-detail profile,
-  history, conversation, and send controls; notification/storage/support-specialized
+  history, conversation, and send controls; notification/support-specialized
   paths still require the D2 traversal and audit.
 - Chinese catalog coverage now includes the Talks main list, outgoing/incoming row metadata,
   language badges, flow/tag/route editor controls, route branch-tree internals, and flow/tag
-  response outcomes; notification/storage and support paths remain active D2 work.
+  response outcomes; notification and support paths remain active D2 work.
 - Chinese catalog coverage now includes Me answer-history rows, toolbar filters, localized
   talk-type display badges, Preferences, My Talks dialogs, and peer-detail interaction
-  panels; remaining notification/storage and support-specialized surfaces remain active D2 work.
+  panels; remaining notification and support-specialized surfaces remain active D2 work.
+- Chinese catalog coverage now includes Settings Storage Inspector headings, ordinary statuses,
+  local-node permissions, SEA/transport/data-ownership policy copy, and server path explanations
+  while preserving stable protocol and storage identifiers for diagnosis.
 - Matching E2E specs cover several successful, mismatched, ignored, auto-answer, Contacts, and Me
   scenarios independently; they do not yet provide one exhaustive branch matrix from talk creation
   through every sender/responder result.

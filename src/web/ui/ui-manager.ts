@@ -2917,6 +2917,81 @@ export class UIManager extends EventEmitter {
     return { localStorageKeys, indexedDBNames };
   }
 
+  private storageValue(value: string): string {
+    const keys: Partial<Record<string, UiTranslationKey>> = {
+      unknown: 'storageUnknown',
+      durable: 'storageDurable',
+      enabled: 'storageEnabled',
+      disabled: 'storageDisabled',
+      stopped: 'storageStopped',
+      starting: 'storageStarting',
+      running: 'storageRunning',
+      unhealthy: 'storageUnhealthy',
+      stopping: 'storageStopping',
+      wiped: 'storageWiped',
+      unconfigured: 'storageUnconfigured',
+      'local-only': 'storageLocalOnly',
+      available: 'storageAvailable',
+      active: 'storageActiveValue',
+      required: 'storageRequired',
+      optional: 'storageOptional',
+      clean: 'storageClean',
+      'needs review': 'storageNeedsReview',
+      supported: 'storageSupported',
+      local: 'storageLocal',
+      off: 'storageOff',
+      shared: 'storageShared',
+      private: 'storagePrivate',
+      published: 'storagePublished',
+      clears: 'storageClears',
+      'not run': 'storageNotRun',
+      none: 'storageNone',
+      queued: 'storageQueued',
+      review: 'storageReview',
+      'telemetry-free': 'storageTelemetryFree',
+      'local-visible': 'storageLocalVisible',
+      'star fallback': 'storageStarFallback',
+    };
+    const key = keys[value];
+    return key ? this.t(key) : value;
+  }
+
+  private storagePathPurpose(path: string, purpose: string): string {
+    const keys: Partial<Record<string, UiTranslationKey>> = {
+      'users/{userId}/profile': 'storagePurposeProfile',
+      'users/{userId}/publicProfile': 'storagePurposePublicProfile',
+      'users/{userId}/reputation': 'storagePurposeReputation',
+      'chatrooms/{chatroomId}': 'storagePurposeChatrooms',
+      'talks/{talkId}': 'storagePurposeTalks',
+      'incomingTalksByUser/{userId}': 'storagePurposeIncoming',
+      'conversations/{conversationId}': 'storagePurposeConversations',
+      'talkAnswerTemplateByUser/{userId}': 'storagePurposeTemplates',
+      'exactChatbotMemoryByUser/{userId}': 'storagePurposeExactMemory',
+      'stats/*': 'storagePurposeStats',
+    };
+    const key = keys[path];
+    return key ? this.t(key) : purpose;
+  }
+
+  private storageDisclosureLabel(value: string): string {
+    const keys: Partial<Record<string, UiTranslationKey>> = {
+      Storage: 'storageDisclosureStorage',
+      Bandwidth: 'storageDisclosureBandwidth',
+      Battery: 'storageDisclosureBattery',
+      'Background behavior': 'storageDisclosureBackground',
+      'Local port': 'storageDisclosurePort',
+      'Stop and delete': 'storageDisclosureStopDelete',
+    };
+    const key = keys[value];
+    return key ? this.t(key) : value;
+  }
+
+  private storagePolicyLabel(value: string | undefined): string {
+    if (value === "Delete this device's local data") return this.t('storageDeleteDeviceLocal');
+    if (value === 'Request/delete server-held data') return this.t('storageRequestServerData');
+    return value || this.t('storageAvailable');
+  }
+
   private async refreshStorageInspector(): Promise<void> {
     const body = document.getElementById('settings-storage-inspector-body');
     if (!body) return;
@@ -2938,10 +3013,10 @@ export class UIManager extends EventEmitter {
     body.innerHTML = `
       <div style="display:grid;gap:12px;">
         <div id="storage-inspector-flags" style="display:flex;flex-wrap:wrap;gap:8px;">
-          ${this.renderStoragePill('Mode', serverStorage?.mode || 'star')}
-          ${this.renderStoragePill('Persistence', flags.starServerPersistence || 'unknown')}
-          ${this.renderStoragePill('Local node', flags.p2pNodeEnabled ? 'enabled' : 'disabled')}
-          ${this.renderStoragePill('Direct chat', flags.p2pDirectChatEnabled ? 'enabled' : 'disabled')}
+          ${this.renderStoragePill(this.t('storageMode'), serverStorage?.mode || 'star')}
+          ${this.renderStoragePill(this.t('storagePersistence'), this.storageValue(flags.starServerPersistence || 'unknown'))}
+          ${this.renderStoragePill(this.t('storageLocalNode'), this.storageValue(flags.p2pNodeEnabled ? 'enabled' : 'disabled'))}
+          ${this.renderStoragePill(this.t('storageDirectChat'), this.storageValue(flags.p2pDirectChatEnabled ? 'enabled' : 'disabled'))}
         </div>
         ${this.renderLocalNodeInspector(serverStorage?.localNode)}
         ${this.renderSeaIdentityInspector(serverStorage?.seaIdentityPolicy, serverStorage?.seaStorageScan)}
@@ -2950,22 +3025,22 @@ export class UIManager extends EventEmitter {
         ${this.renderP2PNeighborMemoryInspector(serverStorage?.neighborMemory)}
         ${this.renderDataOwnershipInspector(serverStorage?.dataOwnership, serverStorage?.relayTtlPolicy, serverStorage?.transportDiagnostics)}
         <div>
-          <div style="font-weight:600;color:#334155;margin-bottom:6px;">Browser local storage</div>
+          <div style="font-weight:600;color:#334155;margin-bottom:6px;">${this.t('storageBrowserLocal')}</div>
           <div id="storage-inspector-local" style="display:flex;flex-wrap:wrap;gap:6px;">
             ${
               browserStorage.localStorageKeys.length === 0
-                ? '<span style="color:#94a3b8;">No localStorage keys</span>'
+                ? `<span style="color:#94a3b8;">${this.t('storageNoLocalKeys')}</span>`
                 : browserStorage.localStorageKeys
                     .map((item) => this.renderStoragePill(item.key, `${item.bytes} B`))
                     .join('')
             }
           </div>
           <div id="storage-inspector-indexeddb" style="margin-top:6px;color:#475569;">
-            IndexedDB: ${browserStorage.indexedDBNames.length > 0 ? browserStorage.indexedDBNames.map(escapeHtml).join(', ') : 'none'}
+            ${this.t('storageIndexedDb')}: ${browserStorage.indexedDBNames.length > 0 ? browserStorage.indexedDBNames.map(escapeHtml).join(', ') : this.t('storageNone')}
           </div>
         </div>
         <div>
-          <div style="font-weight:600;color:#334155;margin-bottom:6px;">Server persisted paths</div>
+          <div style="font-weight:600;color:#334155;margin-bottom:6px;">${this.t('storageServerPaths')}</div>
           ${
             serverError
               ? `<div id="storage-inspector-server-error" style="color:#b45309;">${escapeHtml(serverError)}</div>`
@@ -2974,7 +3049,7 @@ export class UIManager extends EventEmitter {
                     .map((row: any) => `
                       <div style="padding:8px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;">
                         <div style="font-weight:600;color:#0f172a;">${escapeHtml(row.path)} <span style="font-weight:500;color:#64748b;">${escapeHtml(row.category)}</span></div>
-                        <div style="color:#64748b;">${escapeHtml(row.purpose)}</div>
+                        <div style="color:#64748b;">${escapeHtml(this.storagePathPurpose(row.path, row.purpose))}</div>
                       </div>
                     `)
                     .join('')}
@@ -2996,16 +3071,16 @@ export class UIManager extends EventEmitter {
     return `
       <div id="storage-inspector-local-node" style="display:grid;gap:8px;padding:10px;border:1px solid #dbeafe;border-radius:8px;background:#eff6ff;">
         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-          <div style="font-weight:700;color:#1e3a8a;">Local Node Supervisor</div>
-          ${this.renderStoragePill('Status', localNode.status || 'unknown')}
-          ${this.renderStoragePill('Pairing', localNode.sessionPairing?.trustModel || 'unknown')}
-          ${this.renderStoragePill('Bridge', localNode.sessionPairing?.bridgeUrl || 'unconfigured')}
+          <div style="font-weight:700;color:#1e3a8a;">${this.t('storageLocalNodeSupervisor')}</div>
+          ${this.renderStoragePill(this.t('storageStatus'), this.storageValue(localNode.status || 'unknown'))}
+          ${this.renderStoragePill(this.t('storagePairing'), localNode.sessionPairing?.trustModel || this.t('storageUnknown'))}
+          ${this.renderStoragePill(this.t('storageBridge'), localNode.sessionPairing?.bridgeUrl || this.t('storageUnconfigured'))}
         </div>
         <div id="storage-inspector-local-node-disclosures" style="display:flex;flex-wrap:wrap;gap:6px;">
-          ${disclosures.map((item: any) => this.renderStoragePill(item.label || item.key, item.required ? 'required' : 'optional')).join('')}
+          ${disclosures.map((item: any) => this.renderStoragePill(this.storageDisclosureLabel(item.label || item.key), this.storageValue(item.required ? 'required' : 'optional'))).join('')}
         </div>
         <div id="storage-inspector-local-node-controls" style="display:flex;flex-wrap:wrap;gap:6px;">
-          ${controls.map((item: any) => this.renderStoragePill(item.dataClass, item.enabled ? 'local' : 'off')).join('')}
+          ${controls.map((item: any) => this.renderStoragePill(item.dataClass, this.storageValue(item.enabled ? 'local' : 'off'))).join('')}
         </div>
       </div>
     `;
@@ -3019,16 +3094,16 @@ export class UIManager extends EventEmitter {
     return `
       <div id="storage-inspector-sea-identity" style="display:grid;gap:8px;padding:10px;border:1px solid #ccfbf1;border-radius:8px;background:#f0fdfa;">
         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-          <div style="font-weight:700;color:#134e4a;">SEA Identity Custody</div>
-          ${this.renderStoragePill('Relay scan', scan?.ok ? 'clean' : 'needs review')}
-          ${this.renderStoragePill('Public keys', publicKeys.join(', ') || 'unknown')}
-          ${this.renderStoragePill('Forbidden', forbidden.join(', ') || 'unknown')}
+          <div style="font-weight:700;color:#134e4a;">${this.t('storageSeaCustody')}</div>
+          ${this.renderStoragePill(this.t('storageRelayScan'), this.storageValue(scan?.ok ? 'clean' : 'needs review'))}
+          ${this.renderStoragePill(this.t('storagePublicKeys'), publicKeys.join(', ') || this.t('storageUnknown'))}
+          ${this.renderStoragePill(this.t('storageForbidden'), forbidden.join(', ') || this.t('storageUnknown'))}
         </div>
         <div id="storage-inspector-sea-custody" style="display:flex;flex-wrap:wrap;gap:6px;">
-          ${custodyFormats.map((format: string) => this.renderStoragePill(format, 'supported')).join('')}
+          ${custodyFormats.map((format: string) => this.renderStoragePill(format, this.t('storageSupported'))).join('')}
         </div>
         <div id="storage-inspector-sea-rules" style="color:#475569;">
-          ${escapeHtml(policy.relayEnvelopeRule || '')}
+          ${this.t('storageRelayRule')}
         </div>
       </div>
     `;
@@ -3040,14 +3115,14 @@ export class UIManager extends EventEmitter {
     return `
       <div id="storage-inspector-conversation-transport" style="display:grid;gap:8px;padding:10px;border:1px solid #fde68a;border-radius:8px;background:#fffbeb;">
         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-          <div style="font-weight:700;color:#78350f;">Conversation Transport</div>
-          ${this.renderStoragePill('Active', transport.activeMode || 'unknown')}
-          ${this.renderStoragePill('Messages', transport.messageBodyStorage || 'unknown')}
-          ${this.renderStoragePill('Receipts', transport.receiptsStorage || 'unknown')}
-          ${transport.fallback ? this.renderStoragePill('Fallback', transport.fallback) : ''}
+          <div style="font-weight:700;color:#78350f;">${this.t('storageConversationTransport')}</div>
+          ${this.renderStoragePill(this.t('storageActive'), transport.activeMode || this.t('storageUnknown'))}
+          ${this.renderStoragePill(this.t('storageMessages'), transport.messageBodyStorage || this.t('storageUnknown'))}
+          ${this.renderStoragePill(this.t('storageReceipts'), transport.receiptsStorage || this.t('storageUnknown'))}
+          ${transport.fallback ? this.renderStoragePill(this.t('storageFallback'), transport.fallback) : ''}
         </div>
         <div id="storage-inspector-conversation-transport-modes" style="display:flex;flex-wrap:wrap;gap:6px;">
-          ${modes.map((mode: string) => this.renderStoragePill(mode, mode === transport.activeMode ? 'active' : 'available')).join('')}
+          ${modes.map((mode: string) => this.renderStoragePill(mode, this.storageValue(mode === transport.activeMode ? 'active' : 'available'))).join('')}
         </div>
       </div>
     `;
@@ -3060,11 +3135,11 @@ export class UIManager extends EventEmitter {
     return `
       <div id="storage-inspector-p2p-protocol" style="display:grid;gap:8px;padding:10px;border:1px solid #e9d5ff;border-radius:8px;background:#faf5ff;">
         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-          <div style="font-weight:700;color:#581c87;">P2P Network Protocol</div>
-          ${this.renderStoragePill('Version', String(protocol.version || 'unknown'))}
-          ${this.renderStoragePill('Substrate', protocol.substrate || 'unknown')}
-          ${this.renderStoragePill('Discovery TTL', `${protocol.peerDiscovery?.ttlSeconds ?? 'unknown'}s`)}
-          ${this.renderStoragePill('Signature', protocol.identity?.signature || 'unknown')}
+          <div style="font-weight:700;color:#581c87;">${this.t('storageProtocol')}</div>
+          ${this.renderStoragePill(this.t('storageVersion'), String(protocol.version || this.t('storageUnknown')))}
+          ${this.renderStoragePill(this.t('storageSubstrate'), protocol.substrate || this.t('storageUnknown'))}
+          ${this.renderStoragePill(this.t('storageDiscoveryTtl'), `${protocol.peerDiscovery?.ttlSeconds ?? this.t('storageUnknown')}s`)}
+          ${this.renderStoragePill(this.t('storageSignature'), protocol.identity?.signature || this.t('storageUnknown'))}
         </div>
         <div id="storage-inspector-p2p-platforms" style="display:flex;flex-wrap:wrap;gap:6px;">
           ${platforms.map((item: any) => this.renderStoragePill(item.platform || 'platform', item.nodeAvailability || 'unknown')).join('')}
@@ -3084,22 +3159,22 @@ export class UIManager extends EventEmitter {
     return `
       <div id="storage-inspector-p2p-neighbor-memory" style="display:grid;gap:8px;padding:10px;border:1px solid #bbf7d0;border-radius:8px;background:#f0fdf4;">
         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-          <div style="font-weight:700;color:#14532d;">P2P Neighbor Memory</div>
-          ${this.renderStoragePill('Status', memory.controls?.enabled ? 'enabled' : 'disabled')}
-          ${this.renderStoragePill('Scope', memory.controls?.localOnly ? 'local-only' : 'shared')}
-          ${this.renderStoragePill('Graph', memory.controls?.privateGraphPublishedByDefault === false ? 'private' : 'published')}
-          ${this.renderStoragePill('Fallback', memory.publicStarFallback || 'unknown')}
+          <div style="font-weight:700;color:#14532d;">${this.t('storageNeighborMemory')}</div>
+          ${this.renderStoragePill(this.t('storageStatus'), this.storageValue(memory.controls?.enabled ? 'enabled' : 'disabled'))}
+          ${this.renderStoragePill(this.t('storageScope'), this.storageValue(memory.controls?.localOnly ? 'local-only' : 'shared'))}
+          ${this.renderStoragePill(this.t('storageGraph'), this.storageValue(memory.controls?.privateGraphPublishedByDefault === false ? 'private' : 'published'))}
+          ${this.renderStoragePill(this.t('storageFallback'), memory.publicStarFallback || this.t('storageUnknown'))}
         </div>
         <div id="storage-inspector-p2p-neighbor-controls" style="display:flex;flex-wrap:wrap;gap:6px;">
-          ${this.renderStoragePill('Clear neighbors', 'available')}
-          ${this.renderStoragePill('Disable memory', memory.controls?.enabled ? 'available' : 'active')}
-          ${this.renderStoragePill('Export encrypted', memory.controls?.exportFormat || 'unknown')}
-          ${this.renderStoragePill('Block peer', blocked.length > 0 ? `${blocked.length} blocked` : 'available')}
+          ${this.renderStoragePill(this.t('storageClearNeighbors'), this.t('storageAvailable'))}
+          ${this.renderStoragePill(this.t('storageDisableMemory'), this.storageValue(memory.controls?.enabled ? 'available' : 'active'))}
+          ${this.renderStoragePill(this.t('storageExportEncrypted'), memory.controls?.exportFormat || this.t('storageUnknown'))}
+          ${this.renderStoragePill(this.t('storageBlockPeer'), blocked.length > 0 ? this.t('storageBlockedCount').replace('{count}', String(blocked.length)) : this.t('storageAvailable'))}
         </div>
         <div id="storage-inspector-p2p-neighbor-candidates" style="display:flex;flex-wrap:wrap;gap:6px;">
           ${
             candidates.length === 0
-              ? this.renderStoragePill('Bootstrap', 'star fallback')
+              ? this.renderStoragePill(this.t('storageBootstrap'), this.t('storageStarFallback'))
               : candidates.map((item: any) => this.renderStoragePill(item.peerId || 'peer', item.transportType || 'candidate')).join('')
           }
         </div>
@@ -3121,25 +3196,25 @@ export class UIManager extends EventEmitter {
     return `
       <div id="storage-inspector-data-ownership" style="display:grid;gap:8px;padding:10px;border:1px solid #fed7aa;border-radius:8px;background:#fff7ed;">
         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-          <div style="font-weight:700;color:#7c2d12;">Data Ownership</div>
-          ${this.renderStoragePill('Device local delete', policy.deviceLocalDelete?.label || 'available')}
-          ${this.renderStoragePill('Server-held data', policy.serverHeldDataRequest?.label || 'available')}
-          ${this.renderStoragePill('Migration target', policy.migration?.target || 'unknown')}
+          <div style="font-weight:700;color:#7c2d12;">${this.t('storageDataOwnership')}</div>
+          ${this.renderStoragePill(this.t('storageDeviceLocalDelete'), this.storagePolicyLabel(policy.deviceLocalDelete?.label))}
+          ${this.renderStoragePill(this.t('storageServerHeldData'), this.storagePolicyLabel(policy.serverHeldDataRequest?.label))}
+          ${this.renderStoragePill(this.t('storageMigrationTarget'), policy.migration?.target || this.t('storageUnknown'))}
         </div>
         <div id="storage-inspector-data-ownership-local" style="display:flex;flex-wrap:wrap;gap:6px;">
-          ${clears.map((item: string) => this.renderStoragePill(item, 'clears')).join('')}
-          ${this.renderStoragePill('Last local delete', dataOwnership.localDeletion?.deletedAt || 'not run')}
+          ${clears.map((item: string) => this.renderStoragePill(item, this.t('storageClears'))).join('')}
+          ${this.renderStoragePill(this.t('storageLastLocalDelete'), dataOwnership.localDeletion?.deletedAt || this.t('storageNotRun'))}
         </div>
         <div id="storage-inspector-data-ownership-server" style="display:flex;flex-wrap:wrap;gap:6px;">
           ${
             requests.length === 0
-              ? this.renderStoragePill('Server requests', 'none')
-              : requests.map((item: any) => this.renderStoragePill(item.requestType || 'request', item.status || 'queued')).join('')
+              ? this.renderStoragePill(this.t('storageServerRequests'), this.t('storageNone'))
+              : requests.map((item: any) => this.renderStoragePill(item.requestType || 'request', this.storageValue(item.status || 'queued'))).join('')
           }
         </div>
         <div id="storage-inspector-data-ownership-migration" style="display:flex;flex-wrap:wrap;gap:6px;">
-          ${this.renderStoragePill('Move eligible', `${dataOwnership.migrationPlan?.movedCount ?? 0}`)}
-          ${migrationItems.slice(0, 4).map((item: any) => this.renderStoragePill(item.path || 'path', item.action || 'review')).join('')}
+          ${this.renderStoragePill(this.t('storageMoveEligible'), `${dataOwnership.migrationPlan?.movedCount ?? 0}`)}
+          ${migrationItems.slice(0, 4).map((item: any) => this.renderStoragePill(item.path || 'path', this.storageValue(item.action || 'review'))).join('')}
         </div>
         <div id="storage-inspector-relay-ttl-policy" style="display:flex;flex-wrap:wrap;gap:6px;">
           ${ttlEntries.map(([kind, item]: [string, any]) => this.renderStoragePill(kind, `${item.ttlSeconds ?? 'unknown'}s`)).join('')}
@@ -3147,8 +3222,8 @@ export class UIManager extends EventEmitter {
         <div id="storage-inspector-transport-diagnostics" style="display:flex;flex-wrap:wrap;gap:6px;">
           ${
             events.length === 0
-              ? this.renderStoragePill('Transport diagnostics', 'telemetry-free')
-              : events.map((item: any) => this.renderStoragePill(item.mode || 'mode', item.storedTelemetry === false ? 'local-visible' : 'review')).join('')
+              ? this.renderStoragePill(this.t('storageTransportDiagnostics'), this.t('storageTelemetryFree'))
+              : events.map((item: any) => this.renderStoragePill(item.mode || 'mode', this.storageValue(item.storedTelemetry === false ? 'local-visible' : 'review'))).join('')
           }
         </div>
       </div>

@@ -8,6 +8,9 @@ describe('UI translations', () => {
     expect(uiText('zh', 'meNoAnswers')).toContain('回答');
     expect(uiText('zh', 'editorRouteAddChild')).toBe('+ 子问题');
     expect(uiText('zh', 'editorRouteKindMatch')).toBe('匹配');
+    expect(uiText('zh', 'storageLocalNodeSupervisor')).toBe('本地节点管理器');
+    expect(uiText('zh', 'storagePurposeChatrooms')).toContain('聊天室');
+    expect(uiText('zh', 'storageDisabled')).toBe('已禁用');
     expect(languageOptionLabel('zh', 'en', 'English')).toBe('英语');
   });
 

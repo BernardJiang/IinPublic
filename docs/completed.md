@@ -89,6 +89,18 @@ Evidence:
 - E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`,
   `tests/e2e/staged/stage2-two-user/04-profile-edit-stage-name.spec.ts`
 
+## 2026-05-25 - D2 Storage Inspector Localization Slice
+
+Localized Settings Storage Inspector headings, standard status values, local-node permission
+labels, policy explanations, and server persisted-path descriptions. Technical storage, transport,
+and protocol identifiers remain unchanged for debugging and stable assertions; the Chinese
+traversal now verifies the rendered diagnostics panel.
+
+Evidence:
+- UI/catalog: `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`
+- Unit: `src/test/unit/ui-translations.test.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - D1 Single Settings Owner For Intake Preferences
 
 Confirmed that Settings is the sole editing surface for Talk Behavior and incoming-intake
