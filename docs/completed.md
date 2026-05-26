@@ -12,6 +12,18 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-25 - Language-Aware Answer History Display
+
+The Me answer-history list now shows a localized language badge on each answered talk and keeps
+otherwise identical histories in different languages as separate rows, matching the isolated
+auto-use metrics introduced for chatbot memory.
+
+Evidence:
+
+- UI: `src/web/ui/answers-view.ts`, `src/web/ui/ui-manager.ts`
+- Unit and E2E: `src/test/unit/answers-view.test.ts`,
+  `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - Language-Aware Chatbot Memory Isolation
 
 Exact chatbot memory, content-template identity, and flattened answer-preference keys now include

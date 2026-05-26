@@ -2435,6 +2435,7 @@ export class UIManager extends EventEmitter {
       text: this.t.bind(this),
       formatDate: this.formatUiDate.bind(this),
       formatType: this.formatTalkType.bind(this),
+      formatLanguage: this.formatTalkLanguage.bind(this),
     });
     const activeFilter = (document.querySelector('.me-answer-filter.active') as HTMLElement | null)?.dataset.meAnswerFilter || 'all';
     this.applyMeAnswerFilter(activeFilter);

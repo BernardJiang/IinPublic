@@ -1,9 +1,14 @@
-import { answerTalkMatchesQuery, buildAnswerItemModels, getAnswerDisplayText } from '../../web/ui/answers-view';
+/**
+ * @jest-environment jsdom
+ */
+
+import { answerTalkMatchesQuery, buildAnswerItemModels, displayAnswersList, getAnswerDisplayText } from '../../web/ui/answers-view';
 import {
   appendAutoUse,
   createEmptyExactChatbotMemoryState,
   saveTemporaryAnswer,
 } from '../../shared/exact-chatbot-memory';
+import { uiText } from '../../web/ui/ui-translations';
 
 describe('answers view models', () => {
   it('renders tags as checked or unchecked choices', () => {
@@ -123,6 +128,45 @@ describe('answers view models', () => {
     );
 
     expect(items[0].autoUseCount).toBe(0);
+  });
+
+  it('keeps otherwise identical answer-history rows separate by displayed language', () => {
+    document.body.innerHTML = '<div id="answers-content"></div>';
+    const baseRecord = {
+      title: 'Tea',
+      type: 'flow',
+      outcome: 'match' as const,
+      answeredAt: '2026-05-25T00:00:00.000Z',
+      senderIds: [],
+      items: [{
+        questionId: 'q_0',
+        answerId: 'a_yes',
+        prompt: 'Tea?',
+        choice: 'Yes',
+        kind: 'question' as const,
+        contextPath: [],
+      }],
+    };
+    displayAnswersList({
+      getMyTalks: () => ({}),
+      getFlatAnswerHistory: () => ({
+        en: { ...baseRecord, id: 'en', talkId: 'talk_en', language: 'en' },
+        zh: { ...baseRecord, id: 'zh', talkId: 'talk_zh', language: 'zh' },
+      }),
+      escapeHtml: (value) => value,
+      copyAnsweredTalkToTalks: jest.fn(),
+      showTalkDetail: jest.fn(),
+      showPreferencesDialog: jest.fn(),
+      getTalkContentKey: jest.fn(),
+      text: (key) => uiText('en', key),
+      formatDate: () => 'date',
+      formatType: () => 'Flow',
+      formatLanguage: (code) => (code === 'zh' ? 'Chinese' : 'English'),
+    });
+
+    const badges = Array.from(document.querySelectorAll<HTMLElement>('.answer-language-badge'));
+    expect(badges.map((badge) => badge.dataset.language).sort()).toEqual(['en', 'zh']);
+    expect(badges.map((badge) => badge.textContent).sort()).toEqual(['Chinese', 'English']);
   });
 
   it('matches answer history search queries against normalized rendered text', () => {

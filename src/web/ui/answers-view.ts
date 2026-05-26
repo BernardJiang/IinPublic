@@ -20,6 +20,7 @@ type AnswersViewDeps = {
   text: (key: UiTranslationKey) => string;
   formatDate: (date: Date) => string;
   formatType: (type: string) => string;
+  formatLanguage: (code: string) => string;
 };
 
 type AnswerEntry = { questionId: string; answerId: string; answerText?: string; mode?: string };
@@ -237,7 +238,8 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
   const grouped = new Map<string, { talkId: string; talk: any; answeredCount: number }>();
   const groupedFlat = new Map<string, { id: string; record: FlatAnswerHistoryRecord; answeredCount: number }>();
   for (const [id, record] of answeredEntriesFromFlatHistory) {
-    const contentKey = `${record.type}:${record.title}:${record.items.map((item) => `${item.prompt}->${item.choice}`).join('|')}`;
+    const language = String(record.language || 'en').toLowerCase();
+    const contentKey = `${language}:${record.type}:${record.title}:${record.items.map((item) => `${item.prompt}->${item.choice}`).join('|')}`;
     const existing = groupedFlat.get(contentKey);
     if (existing) {
       existing.answeredCount += 1;
@@ -306,6 +308,8 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
           ? format('meFromSenders', { count: record.senderIds.length })
           : '';
       const answerItems = buildAnswerItemModelsFromFlatRecord(record, answeredCount, exactMemory);
+      const language = String(record.language || 'en').toLowerCase();
+      const languageLabel = deps.formatLanguage(language);
       const metadata = [
         senders,
         format(answerItems.length === 1 ? 'meItem' : 'meItems', { count: answerItems.length }),
@@ -316,6 +320,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       const searchText = [
         record.title,
         record.type,
+        languageLabel,
         metadata,
         outcome,
         ...answerItems.flatMap((answerItem) => [answerItem.prompt, answerItem.choice, answerItem.mode || '']),
@@ -339,7 +344,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
           <div style="flex: 1; min-width: 0;">
             <div style="font-weight: 700;">${deps.escapeHtml(record.title)}</div>
             <div style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(metadata)}</div>
-            <div style="font-size: 0.82em; color: #64748b; margin-top: 4px;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · ${deps.escapeHtml(deps.formatType(record.type))}</div>
+            <div style="font-size: 0.82em; color: #64748b; margin-top: 4px;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · ${deps.escapeHtml(deps.formatType(record.type))} · <span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(language)}">${deps.escapeHtml(languageLabel)}</span></div>
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
             <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${deps.escapeHtml(record.talkId)}" style="padding: 6px 12px; font-size: 0.9em;">${deps.text('copy')}</button>
@@ -373,8 +378,11 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount }),
       ].filter(Boolean).join(' · ');
       const answerItems = buildAnswerItemModels(talk.fullTalk, completedAnswers, answeredCount, exactMemory);
+      const language = String(talk.fullTalk?.language || 'en').toLowerCase();
+      const languageLabel = deps.formatLanguage(language);
       const searchText = [
         talk.title,
+        languageLabel,
         metadata,
         outcome,
         ...answerItems.flatMap((answerItem) => [answerItem.prompt, answerItem.choice, answerItem.mode || '']),
@@ -397,7 +405,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
           <div style="flex: 1; min-width: 0;">
             <div style="font-weight: 700;">${deps.escapeHtml(talk.title)}</div>
             <div style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(metadata)}</div>
-            <div style="font-size: 0.82em; color: #64748b; margin-top: 4px;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`}</div>
+            <div style="font-size: 0.82em; color: #64748b; margin-top: 4px;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · <span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(language)}">${deps.escapeHtml(languageLabel)}</span></div>
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
             <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">${deps.text('copy')}</button>

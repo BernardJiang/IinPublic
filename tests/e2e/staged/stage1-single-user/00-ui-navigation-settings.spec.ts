@@ -496,6 +496,7 @@ test.describe('UI navigation and settings shell', () => {
           talkId: 'localized_answer_talk',
           title: 'Localized Answer',
           type: 'tag',
+          language: 'en',
           outcome: 'match',
           answeredAt: new Date().toISOString(),
           senderIds: ['sender-1'],
@@ -538,6 +539,7 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#answers-content')).toContainText('已勾选');
     await expect(p.locator('#answers-content')).toContainText('手动');
     await expect(p.locator('#answers-content')).toContainText('标签');
+    await expect(p.locator('#answers-content .answer-language-badge')).toHaveText('英语');
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showPreferencesDialog());
     await expect(p.locator('#preferences-modal')).toContainText('我的回答');
     await expect(p.locator('#preferences-modal')).toContainText('最近回答：');

@@ -580,9 +580,11 @@ verified.
 - **Future work: complete answer-memory mode UI.** The Me tab filter shows All, Auto, Manual, and
   Conditional. Preferences still presents a simpler Auto/Manual toggle; add first-class Temporary,
   Permanent, and Suppressed controls that match the exact-chatbot-memory model.
-- **Future work: language-aware answer history display.** Answer reuse and its auto-use metrics are
-  now isolated by talk language; show the language of each answered talk/question and eventually
-  allow users to explicitly link translated equivalents.
+- **Implemented in current working tree: language-aware answer history display.** Answer history
+  separates same-text records by talk language, shows a localized language badge for each answered
+  talk, and keeps auto-use metrics scoped to that language.
+- **Future work: translated-answer linking.** Allow users to explicitly link equivalent questions
+  across languages when intentional reuse is desired.
 - **Future work: clearer conditional-answer explanations.** Conditional answers should explain the
   route/context path in human-readable form, not only ids or hashes.
 - **Future work: support-message exclusion.** TechSupport welcome and support messages should not
