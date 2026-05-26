@@ -206,6 +206,12 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#storage-inspector-flags')).toContainText('模式');
     await expect(p.locator('#storage-inspector-flags')).toContainText('本地节点');
     await expect(p.locator('#storage-inspector-flags')).toContainText('已禁用');
+    await expect(p.locator('#storage-inspector-app-state')).toContainText('TechSupport 根身份');
+    await expect(p.locator('#storage-inspector-app-state')).toContainText('支持频道');
+    await expect(p.locator('#storage-inspector-app-state')).toContainText('接收话题语言');
+    await expect(p.locator('#storage-inspector-app-state')).toContainText('新话题默认语言');
+    await expect(p.locator('#storage-inspector-app-state')).toContainText('英语');
+    await expect(p.locator('#storage-inspector-room-visits')).toContainText('房间访问 / 独立访客');
     await expect(p.locator('#storage-inspector-local-node')).toContainText('本地节点管理器');
     await expect(p.locator('#storage-inspector-sea-identity')).toContainText('SEA 身份保管');
     await expect(p.locator('#settings-storage-inspector')).toContainText('浏览器本地存储');

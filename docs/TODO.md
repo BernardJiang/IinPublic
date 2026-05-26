@@ -610,9 +610,10 @@ verified.
 - **Future work: filter validation and preview.** Settings should preview how many current incoming
   talks would be hidden by language, type, distance, grammar, dirty words, custom blocked terms, and
   age/credit rules before the user leaves the tab.
-- **Future work: storage inspector completeness.** Include TechSupport root identity state,
-  support-channel state, room visit counters, language-filter state, default talk language, transport
-  diagnostics, SEA custody status, relay leak scan, localStorage keys, and IndexedDB names.
+- **Implemented in current working tree: storage inspector completeness.** The inspector shows
+  TechSupport root/support-channel state, room visit counters, incoming/default talk language
+  preferences, transport diagnostics, SEA custody and relay scan status, localStorage keys, and
+  IndexedDB names.
 - **Implemented in current working tree: profile editor consistency.** The edit-profile dialog now
   offers the same supported-language choices as Settings, persists multi-language selections, and
   no longer accepts arbitrary typed language codes.

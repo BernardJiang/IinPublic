@@ -12,6 +12,18 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-25 - Complete Storage Inspector App State
+
+Storage Inspector now reports application state alongside the existing storage and P2P
+diagnostics: TechSupport root/support-channel status, visible room visit counters, incoming
+language filtering, and the default language for newly created talks. Existing panels continue
+to expose transport, SEA custody/relay scan, localStorage keys, and IndexedDB names.
+
+Evidence:
+
+- UI/catalog: `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - Complete Localized Language Labels
 
 Language names now stay localized across creator reply filtering and reply rows as well as the

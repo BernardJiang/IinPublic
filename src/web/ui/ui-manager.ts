@@ -3080,6 +3080,7 @@ export class UIManager extends EventEmitter {
           ${this.renderStoragePill(this.t('storageLocalNode'), this.storageValue(flags.p2pNodeEnabled ? 'enabled' : 'disabled'))}
           ${this.renderStoragePill(this.t('storageDirectChat'), this.storageValue(flags.p2pDirectChatEnabled ? 'enabled' : 'disabled'))}
         </div>
+        ${this.renderAppStateInspector()}
         ${this.renderLocalNodeInspector(serverStorage?.localNode)}
         ${this.renderSeaIdentityInspector(serverStorage?.seaIdentityPolicy, serverStorage?.seaStorageScan)}
         ${this.renderConversationTransportInspector(serverStorage?.conversationTransport)}
@@ -3124,6 +3125,39 @@ export class UIManager extends EventEmitter {
 
   private renderStoragePill(label: string, value: string): string {
     return `<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;color:#334155;"><span style="font-weight:600;">${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></span>`;
+  }
+
+  private renderAppStateInspector(): string {
+    const filters = getTalkIntakeFilters();
+    const allowedLanguages = filters.allowedLanguages.map((language) => this.formatTalkLanguage(language)).join(', ');
+    const defaultTalkLanguage = this.formatTalkLanguage(getDefaultTalkLanguagePreference(this.getUiLanguage()));
+    const supportActive = this.hasSupportContact();
+    const currentUserIsRoot = this.currentUserId === TECHSUPPORT_ROOT_USER_ID;
+    const roomCounts = Array.from(this.chatroomVisitCounts.entries())
+      .filter(([, counts]) => counts.visitCount > 0 || counts.uniqueVisitorCount > 0)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `
+      <div id="storage-inspector-app-state" style="display:grid;gap:8px;padding:10px;border:1px solid #bae6fd;border-radius:8px;background:#f0f9ff;">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <div style="font-weight:700;color:#0c4a6e;">${this.t('storageAppState')}</div>
+          ${this.renderStoragePill(this.t('storageTechSupportRoot'), currentUserIsRoot ? this.t('storageCurrentIdentity') : TECHSUPPORT_ROOT_USER_ID)}
+          ${this.renderStoragePill(this.t('storageSupportChannel'), this.storageValue(supportActive ? 'active' : 'not run'))}
+          ${this.renderStoragePill(this.t('storageIncomingLanguages'), allowedLanguages || this.t('storageUnknown'))}
+          ${this.renderStoragePill(this.t('storageDefaultTalkLanguage'), defaultTalkLanguage)}
+        </div>
+        <div id="storage-inspector-room-visits" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${
+            roomCounts.length === 0
+              ? this.renderStoragePill(this.t('storageRoomVisits'), this.t('storageNone'))
+              : roomCounts.map(([roomId, counts]) =>
+                  this.renderStoragePill(
+                    `${this.t('storageRoomVisits')} · ${roomId}`,
+                    `${counts.visitCount} / ${counts.uniqueVisitorCount}`,
+                  )).join('')
+          }
+        </div>
+      </div>
+    `;
   }
 
   private renderLocalNodeInspector(localNode: any): string {
