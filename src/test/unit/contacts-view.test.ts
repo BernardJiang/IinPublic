@@ -193,6 +193,10 @@ describe('Contacts ranking and relationship filters', () => {
             dislikedCount: 0,
           },
         }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ blocked: false, blockedBy: false, eitherBlocked: false }),
       } as Response);
     const chineseDeps = {
       ...deps(),
@@ -207,6 +211,8 @@ describe('Contacts ranking and relationship filters', () => {
     expect(document.getElementById('contact-talks-list')?.textContent).toContain('尚未交换话题');
     expect(document.querySelector('.contact-profile-languages')?.textContent).toContain('中文');
     expect(document.querySelector('.contact-language-hint')?.textContent).toContain('没有共同的个人资料语言');
+    expect(document.querySelector('.contact-context-credit')?.textContent).toContain('2 条评价');
+    expect(document.querySelector('.contact-context-block-status')?.textContent).toContain('当前没有屏蔽');
 
     (document.getElementById('contact-edit-relationship-btn') as HTMLButtonElement).click();
     await Promise.resolve();
@@ -232,7 +238,8 @@ describe('Contacts ranking and relationship filters', () => {
     global.fetch = jest.fn()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ totalTalks: 0 }) } as Response)
       .mockResolvedValueOnce({ ok: true, json: async () => [] } as Response)
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ languages: ['en'], profile: [], interests: [] }) } as Response);
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ languages: ['en'], profile: [], interests: [] }) } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ blocked: false, blockedBy: false }) } as Response);
     const setSupportNotificationsMuted = jest.fn().mockResolvedValue(undefined);
     const supportDeps = {
       ...deps(),

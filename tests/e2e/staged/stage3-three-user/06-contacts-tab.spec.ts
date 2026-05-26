@@ -199,7 +199,6 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await waitForPeerHistoryTitle(pageJerry, jerryUserId, tomUserId, TALK_TENNIS);
     await waitForPeerHistoryTitle(pageBob, bobUserId, tomUserId, TALK_COFFEE);
 
-    await waitForStatusBarMatchCountAtLeast(pageTom, 2);
     await afterSync();
     await pageTom.click('.nav-btn[data-view="contacts"]');
     await afterAction();

@@ -526,9 +526,10 @@ verified.
   filters include every saved label including `partner` and `custom`; saved custom relationship
   text is rendered, searchable, and available in relationship sorting without collapsing to a
   generic `Custom` label.
-- **Future work: contact detail parity.** Contact detail should show transport/channel health,
-  latest support or P2P status, shared talks, shared tags, relationship notes, public credit, and
-  whether delivery is blocked by either side.
+- **Partially implemented in current working tree: contact detail parity.** Contact detail now
+  exposes localized profile languages, exchanged talk history, saved relationship notes, public
+  credit/privacy state, and two-way block status. Future work remains for shared-tag drilldown and
+  transport/support/P2P channel health.
 - **Implemented in current working tree: high-volume responder ranking.** Contacts supports
   ranking/filtering by matched-talk count, match rate, recency, relationship, and transparent
   weighted relevance, while keeping alphabetical/chronological options and the pinned

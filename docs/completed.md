@@ -25,6 +25,18 @@ Evidence:
 - Tests: `src/test/unit/contacts-view.test.ts`,
   `tests/e2e/staged/stage3-three-user/14-contacts-relationship-credit.spec.ts`
 
+## 2026-05-26 - Surface Contact Credit And Block Context
+
+Ordinary Contact detail now shows saved relationship notes, public-credit privacy state, and
+whether delivery is blocked in either direction without requiring the user to open the edit modal.
+Transport and P2P channel-health display remains tracked as future work.
+
+Evidence:
+
+- Contact detail UI: `src/web/ui/contacts-view.ts`
+- Tests: `src/test/unit/contacts-view.test.ts`,
+  `tests/e2e/staged/stage3-three-user/14-contacts-relationship-credit.spec.ts`
+
 ## 2026-05-26 - Reconcile Shipped Talk And Ranking Diagnostics
 
 The active backlog now reflects existing shipped behavior for localized OUT/IN talk badges,

@@ -229,6 +229,37 @@ function relationshipModalCreditInnerHtml(deps: ContactsViewDeps, publicUser: an
   return `<div style="margin-top:6px;color:#94a3b8;">${deps.text('contactCreditHidden')}</div>`;
 }
 
+function renderContactContextSummary(
+  deps: ContactsViewDeps,
+  known: KnownPerson | undefined,
+  publicUser: any,
+  blockedByMe: boolean,
+  blockedBy: boolean,
+): string {
+  const blockStatus = blockedBy
+    ? deps.text('contactBlockedBy')
+    : blockedByMe
+      ? deps.text('contactBlockedByMe')
+      : deps.text('contactNoBlock');
+  return `
+    <div class="contact-context-summary" style="display:grid; gap:10px; margin-top:10px; padding:12px; border-radius:12px; background:#f8fafc; border:1px solid #e2e8f0;">
+      <div style="font-size:0.82em; color:#64748b;">${deps.text('contactRelationshipCredit')}</div>
+      <div class="contact-context-relationship" style="font-size:0.88em;color:#334155;">
+        ${deps.text('relationship')}: ${deps.escapeHtml(formatRelationshipLabel(known, deps))}
+      </div>
+      ${known?.notes ? `<div class="contact-context-notes" style="font-size:0.88em;color:#334155;">${deps.text('contactNotes')}: ${deps.escapeHtml(known.notes)}</div>` : ''}
+      <div class="contact-context-credit" style="padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;background:white;">
+        <div style="font-size:0.8em;color:#64748b;">${deps.text('contactPublicCredit')}</div>
+        ${relationshipModalCreditInnerHtml(deps, publicUser, blockedBy)}
+      </div>
+      <div class="contact-context-block-status" style="padding:10px 12px;border:1px solid ${blockedBy || blockedByMe ? '#fde68a' : '#e5e7eb'};border-radius:10px;background:${blockedBy || blockedByMe ? '#fffbeb' : 'white'};">
+        <div style="font-size:0.8em;color:#64748b;">${deps.text('contactBlockStatus')}</div>
+        <div style="font-size:0.88em;color:#475569;margin-top:4px;">${blockStatus}</div>
+      </div>
+    </div>
+  `;
+}
+
 function applyRelationshipModalProfileFetch(
   deps: ContactsViewDeps,
   blockedByMe: boolean,
@@ -613,6 +644,7 @@ export async function showContactDetail(
   document.getElementById('contact-edit-relationship-btn')?.remove();
   if (detailInfo) {
     detailInfo.querySelector('.contact-public-profile-summary')?.remove();
+    detailInfo.querySelector('.contact-context-summary')?.remove();
     const button = document.createElement('button');
     button.id = 'contact-edit-relationship-btn';
     button.className = 'btn';
@@ -626,11 +658,27 @@ export async function showContactDetail(
   }
 
   try {
-    const [relationshipRes, historyRes, userRes] = await Promise.all([
+    const [relationshipRes, historyRes, userRes, blockStatusRes] = await Promise.all([
       fetch(`${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(otherUserId)}/relationship`),
       fetch(`${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(otherUserId)}/talk-history`),
       fetch(`${deps.apiBase}/api/users/${encodeURIComponent(otherUserId)}?viewerId=${encodeURIComponent(deps.currentUserId)}`),
+      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/block-status/${encodeURIComponent(otherUserId)}`),
     ]);
+    const blockStatus = blockStatusRes.ok ? await blockStatusRes.json() : {};
+    const blockedByMe = deps.isBlockedByMe(otherUserId) || !!blockStatus?.blocked;
+    const blockedBy = userRes.status === 403 || relationshipRes.status === 403 || historyRes.status === 403 || !!blockStatus?.blockedBy;
+    const publicUser = userRes.ok ? await userRes.json() : null;
+    if (detailInfo && otherUserId !== TECHSUPPORT_ROOT_USER_ID) {
+      const contextSummary = document.createElement('div');
+      contextSummary.innerHTML = renderContactContextSummary(
+        deps,
+        deps.getKnownPerson(otherUserId),
+        publicUser,
+        blockedByMe,
+        blockedBy,
+      );
+      detailInfo.appendChild(contextSummary.firstElementChild as HTMLElement);
+    }
     if (relationshipRes.status === 403 || historyRes.status === 403 || userRes.status === 403) {
       detailMatches.textContent = deps.text('unavailable');
       talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #c2410c;">${deps.text('contactDetailsUnavailable')}</p>`;
@@ -639,7 +687,6 @@ export async function showContactDetail(
 
     const relationship = relationshipRes.ok ? await relationshipRes.json() : null;
     const history = historyRes.ok ? await historyRes.json() : [];
-    const publicUser = userRes.ok ? await userRes.json() : null;
     contactDetailUserProfileCache = { userId: otherUserId, publicUser };
     const totalTalks = relationship?.totalTalks ?? (Array.isArray(history) ? history.length : 0);
     detailMatches.textContent = formatCountText(deps, totalTalks, 'contactsTalkCountOne', 'contactsTalkCount');

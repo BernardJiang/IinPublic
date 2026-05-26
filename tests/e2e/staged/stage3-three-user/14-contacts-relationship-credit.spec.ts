@@ -132,6 +132,10 @@ test.describe('Contacts relationship dialog', () => {
     await afterSync();
     await expect(pageTom.locator('#contact-detail-container')).toBeVisible({ timeout: 10000 });
     await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry');
+    await expect(pageTom.locator('.contact-context-relationship')).toContainText('Coffee Circle');
+    await expect(pageTom.locator('.contact-context-notes')).toContainText('coffee buddy');
+    await expect(pageTom.locator('.contact-context-credit')).toContainText('Public credit');
+    await expect(pageTom.locator('.contact-context-block-status')).toContainText('No block is active');
     await expect(pageTom.locator('#contact-edit-relationship-btn')).toBeVisible({ timeout: 15000 });
     await pageTom.click('#contact-edit-relationship-btn');
     await expect(pageTom.locator('#contact-relationship-label')).toHaveValue('custom');
