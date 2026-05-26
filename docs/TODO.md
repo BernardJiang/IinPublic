@@ -102,16 +102,15 @@ senders and receivers. Existing filter plumbing is a foundation, not completion 
   then enables Spanish and proves a newly sent Spanish talk appears. Future work remains to make the
   real broadcast preview reliably report its `intake_language` rejection under synchronized browser
   load rather than falling back to final-send checking.
-- **Talk Behavior checkbox proof.** Add separate E2E paths for every checkbox in the Talk Behavior
-  section: with `Auto-save received talks (copy talk)` on, an answered incoming talk is copied into
-  OUT/My Talks; with it off, answer history remains in Me but no copied OUT item is created. With
-  `Enable chatbot` on, a repeat eligible talk auto-answers using saved permitted memory with the bot
-  marker; with it off, the same repeat requires manual response and does not send an auto reply.
-- **Min/max distance acceptance.** Preserve the existing distance intake implementation, then add a
-  multi-user E2E script with deterministic locations: send a talk from below the receiver's minimum,
-  inside the accepted band, and above the maximum. Verify only the in-band talk reaches IN, the two
-  rejected cases expose `intake_min_distance`/`intake_max_distance`, boundary values are defined and
-  tested, Settings persists valid values, and invalid ranges such as min greater than max are rejected.
+- **Partially implemented: Talk Behavior checkbox proof.** The Settings E2E path verifies persisted
+  auto-copy on/off behavior with copied OUT versus history-only answer state, and the exact-memory
+  multi-user path verifies chatbot off blocks a compatible auto reply while chatbot on creates one.
+  Future work remains to drive auto-copy on/off through a real sender/receiver delivery exchange.
+- **Partially implemented: min/max distance acceptance.** A deterministic multi-user browser
+  scenario persists the receiver's distance band and sends talks from below its minimum, inside the
+  band, and above its maximum, proving only the in-band talk reaches IN. Existing Settings coverage
+  rejects an invalid min-greater-than-max range. Future work remains to surface live
+  `intake_min_distance`/`intake_max_distance` rejection explanations and prove boundary equality.
 - **Grammar filter completion.** Replace the present simplified heuristic with a documented,
   language-aware behavior or explicitly bounded MVP rule set. Show the rule to users so a valid short
   phrase is not mysteriously hidden. E2E-send a clean talk and a deliberately failing talk with the

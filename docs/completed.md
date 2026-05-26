@@ -735,3 +735,15 @@ live audience preview can fall back to final-send checking under synchronized br
 Evidence:
 
 - E2E: `tests/e2e/staged/stage3-three-user/00m-language-intake-filter.spec.ts`
+
+## 2026-05-26 - Distance-Band Intake Delivery Proof
+
+Added a deterministic two-user browser scenario for distance intake filters: the receiver persists
+a one-to-three mile acceptance band, then receives only the authored talk inside that band while
+nearer and farther talks remain out of IN. Existing Settings coverage already rejects an invalid
+minimum-greater-than-maximum range; user-visible live rejection details remain tracked in TODO.
+
+Evidence:
+
+- E2E: `tests/e2e/staged/stage3-three-user/00n-distance-intake-filter.spec.ts`
+- Existing validation E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
