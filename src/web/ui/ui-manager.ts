@@ -444,6 +444,10 @@ export class UIManager extends EventEmitter {
       const option = document.querySelector<HTMLOptionElement>(selector);
       if (option) option.textContent = this.t(key);
     }
+    for (const language of LANGUAGE_OPTIONS) {
+      const option = document.querySelector<HTMLOptionElement>(`#reply-filter-language option[value="${language.code}"]`);
+      if (option) option.textContent = languageOptionLabel(this.getUiLanguage(), language.code, language.label);
+    }
   }
 
   // Callback for stage name changes
@@ -2366,7 +2370,7 @@ export class UIManager extends EventEmitter {
         state.outcome !== 'all' ? `${this.getUiLanguage() === 'zh' ? '结果' : 'Outcome'}: ${state.outcome}` : '',
         state.relationship !== 'all' ? `${this.getUiLanguage() === 'zh' ? '关系' : 'Relation'}: ${state.relationship}` : '',
         state.type !== 'all' ? `${this.getUiLanguage() === 'zh' ? '类型' : 'Type'}: ${state.type}` : '',
-        state.language !== 'all' ? `${this.getUiLanguage() === 'zh' ? this.t('languagesLabel') : 'Language'}: ${state.language}` : '',
+        state.language !== 'all' ? `${this.getUiLanguage() === 'zh' ? this.t('languagesLabel') : 'Language'}: ${this.formatTalkLanguage(state.language)}` : '',
         state.from ? `${this.getUiLanguage() === 'zh' ? '起始日期' : 'From'}: ${state.from}` : '',
         state.to ? `${this.getUiLanguage() === 'zh' ? '结束日期' : 'To'}: ${state.to}` : '',
       ].filter(Boolean);
@@ -2411,7 +2415,7 @@ export class UIManager extends EventEmitter {
             <strong>${escapeHtml(row.responderName)}</strong>
             <span style="color:${row.outcome === 'match' ? '#166534' : '#64748b'};">${escapeHtml(row.outcome === 'match' ? this.t('match') : row.outcome === 'mismatch' ? this.t('mismatch') : row.outcome)}</span>
           </div>
-          <div style="font-size:0.86em;color:#475569;">${escapeHtml(row.title)} · ${escapeHtml(row.type)} · ${escapeHtml(row.language || 'en')} · ${escapeHtml(row.answerMode || 'manual')} · ${escapeHtml(String(label))} · ${escapeHtml(new Date(row.date).toLocaleString())}${escapeHtml(score)}</div>
+          <div style="font-size:0.86em;color:#475569;">${escapeHtml(row.title)} · ${escapeHtml(row.type)} · ${escapeHtml(this.formatTalkLanguage(String(row.language || 'en').toLowerCase()))} · ${escapeHtml(row.answerMode || 'manual')} · ${escapeHtml(String(label))} · ${escapeHtml(new Date(row.date).toLocaleString())}${escapeHtml(score)}</div>
           ${answerPreview ? `<div class="creator-reply-answers" style="font-size:0.84em;color:#334155;margin-top:4px;">${this.t('repliesAnswers')}: ${escapeHtml(answerPreview)}</div>` : ''}
         </div>
       `;

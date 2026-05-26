@@ -126,7 +126,8 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('#reply-filter-language').selectOption('zh');
     await p.locator('#reply-group-order').selectOption('talk');
     await expect(p.locator('.creator-reply-row')).toHaveCount(15);
-    await expect(p.locator('#creator-replies-active-filters')).toContainText('Language: zh');
+    await expect(p.locator('#creator-replies-active-filters')).toContainText('Language: Chinese');
+    await expect(p.locator('.creator-reply-row').first()).toContainText('Chinese');
     await expect
       .poll(async () => p.evaluate(() => localStorage.getItem('creatorReplyFilterState')))
       .toContain('"language":"zh"');
@@ -381,6 +382,10 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#creator-replies-panel')).toContainText('我的话题回复');
     await expect(p.locator('#reply-filter-query')).toHaveAttribute('placeholder', '昵称或话题');
     await expect(p.locator('#talks-out-sort-order option[value="weighted"]')).toHaveText('加权表现');
+    await expect(p.locator('#reply-filter-language option[value="zh"]')).toHaveText('中文');
+    await p.locator('#reply-filter-language').selectOption('zh');
+    await expect(p.locator('#creator-replies-active-filters')).toContainText('语言: 中文');
+    await expect(p.locator('.creator-reply-row').first()).toContainText('中文');
     await expect(p.locator('#creator-replies-summary')).toContainText('筛选回复');
     await expect(p.locator('#talks-stats-strip')).toContainText('统计：');
     await expect(p.locator('#talks-list')).toContainText('还没有话题');

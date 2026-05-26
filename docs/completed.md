@@ -12,6 +12,18 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-25 - Complete Localized Language Labels
+
+Language names now stay localized across creator reply filtering and reply rows as well as the
+existing Settings, editor, talk badge, peer/profile, and answer-history surfaces. Filter state
+continues to store stable language codes while displaying human-readable English or Chinese
+labels.
+
+Evidence:
+
+- UI: `src/web/ui/ui-manager.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - Validated Profile Language Selector
 
 The Me profile editor now uses selectable supported-language options rather than a

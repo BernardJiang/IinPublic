@@ -482,9 +482,9 @@ verified.
   now uses checkbox/chip-style language choices, persists multiple understood languages, shows an
   active count, and has E2E coverage for legacy multi-language values. Future work remains for full
   UI localization and filtered-count diagnostics.
-- **Future work: localize language names by the active UI language.** For example, after choosing
-  Chinese as the UI language, show language choices and explanatory text in Chinese while preserving
-  stable language codes internally.
+- **Implemented in current working tree: localized language names.** Language selectors, talk
+  badges, profile/peer summaries, answer history, and creator reply filtering now display
+  active-UI-language labels while preserving stable language codes internally.
 - **Future work: language-specific grammar and dirty-word filtering.** Current filters are simple
   heuristics. Add language-aware content models or dictionaries, per-language test fixtures, and
   clear behavior when a talk language is unknown.
