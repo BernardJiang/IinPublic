@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-05-25
+Last updated: 2026-05-26
 
 This is the forward backlog for the current repository. Completed feature ledgers belong in
 [Completed Work](completed.md), not in TODO.
@@ -97,11 +97,11 @@ has an automated Chinese traversal.
 Purpose: make every Settings control visibly change delivery or behavior and prove it with real
 senders and receivers. Existing filter plumbing is a foundation, not completion of these scenarios.
 
-- **Three-language intake proof.** Set a receiving user to allow English and Chinese only. From
-  sender users create and send equivalent English (`en`), Chinese (`zh`), and a third-language
-  talk such as Spanish (`es`). Verify English and Chinese are registered and shown in IN, Spanish
-  is absent from IN/response dialogs and reported as rejected for `intake_language`, and toggling
-  Spanish on permits a newly sent Spanish talk.
+- **Partially implemented: three-language intake proof.** A multi-user browser scenario sets a
+  receiver to English and Chinese, proves English/Chinese appear in IN while Spanish remains absent,
+  then enables Spanish and proves a newly sent Spanish talk appears. Future work remains to make the
+  real broadcast preview reliably report its `intake_language` rejection under synchronized browser
+  load rather than falling back to final-send checking.
 - **Talk Behavior checkbox proof.** Add separate E2E paths for every checkbox in the Talk Behavior
   section: with `Auto-save received talks (copy talk)` on, an answered incoming talk is copied into
   OUT/My Talks; with it off, answer history remains in Me but no copied OUT item is created. With
@@ -468,16 +468,14 @@ verified.
 
 ### Cross-Tab Language and Localization
 
-- **Future work: full UI localization after profile language selection.** When a user chooses a
-  profile language other than English, the entire app menu and UI text should switch to that
-  user-specific language: bottom navigation labels, headers, buttons, dialogs, validation errors,
-  empty states, notification toasts, Settings labels, Talk editor text, Contact labels, and
-  TechSupport welcome/support copy. Current code stores profile languages but renders the app UI in
-  English.
-- **Future work: separate "primary UI language" from "languages I understand."** The first controls
-  menu/UI localization; the second controls incoming talk filtering. Current Settings uses "Profile
-  language" and "Incoming talk language filter" close together, but the product model should make
-  the difference explicit.
+- **Partially implemented in current working tree: full UI localization.** The independent App
+  language control immediately switches the completed English/Chinese UI catalog and persists on
+  reload; profile and intake language choices do not change it. Future work remains to complete the
+  D2 exhaustive Chinese traversal and eliminate any remaining reachable English fallback surfaces.
+- **Implemented in current working tree: primary UI language separated from understood
+  languages.** Settings exposes independent App language, profile language, default-talk language,
+  and incoming-talk filter controls; E2E coverage verifies App-language persistence while profile
+  and intake choices remain independent.
 - **Implemented in current working tree: clearer incoming talk language filter control.** Settings
   now uses checkbox/chip-style language choices, persists multiple understood languages, shows an
   active count, and has E2E coverage for legacy multi-language values. Future work remains for full
@@ -606,8 +604,9 @@ verified.
 
 ### Settings Tab
 
-- **Future work: full localization settings.** Choosing a non-English profile/UI language should
-  immediately re-render Settings and all other tabs in that language, and persist across reloads.
+- **Implemented in current working tree: localization setting.** Choosing Chinese through the
+  independent App language selector immediately re-renders Settings and navigation and persists
+  across reload; broader reachable-surface translation proof remains in Phase D2.
 - **Implemented in current working tree: clearer multi-language incoming filter control.** The
   native multi-select has been replaced with checkbox/chip controls and an active-language count.
 - **Implemented in current working tree: default talk language setting.** Settings exposes a

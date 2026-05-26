@@ -712,3 +712,26 @@ Evidence:
 - UI/catalog: `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`
 - Unit: `src/test/unit/ui-translations.test.ts`
 - E2E: `tests/e2e/staged/stage3-three-user/00i-survey-analytics-dashboard.spec.ts`
+
+## 2026-05-26 - Independent App Language Reconciliation
+
+Reconciled stale forward backlog entries with the shipped language controls. Settings already
+separates persistent App language from profile language, default-talk language, and multi-language
+incoming filters, and its E2E path proves an immediate Chinese re-render and reload persistence.
+Full reachable-workflow Chinese traversal remains active work under Phase D2.
+
+Evidence:
+
+- UI: `src/web/ui/ui-manager.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
+## 2026-05-26 - Three-Language Intake Delivery Proof
+
+Added a real multi-user browser scenario for incoming language filters: the receiver accepts
+English and Chinese while Spanish delivery stays out of IN, then opts into Spanish and receives a
+new Spanish talk. The remaining user-visible rejection-reason portion stays tracked in TODO because
+live audience preview can fall back to final-send checking under synchronized browser load.
+
+Evidence:
+
+- E2E: `tests/e2e/staged/stage3-three-user/00m-language-intake-filter.spec.ts`
