@@ -40,8 +40,8 @@ Current implementation baseline discovered during the audit:
 - Chinese catalog coverage now includes Chatrooms live/member states, Contacts list,
   detail, relationship, block, and public-credit surfaces, plus peer-detail profile,
   history, conversation, and send controls. Chatroom create/rename management,
-  broadcast, travel, location, and contact relationship action notices are localized; other action/error notices
-  and support-specific controls still require the D2 traversal and audit.
+  broadcast, travel, location, contact relationship action notices, and TechSupport
+  mute controls are localized; other action/error notices still require the D2 traversal and audit.
 - Chinese catalog coverage now includes the Talks main list, outgoing/incoming row metadata,
   language badges, flow/tag/route editor controls, route branch-tree internals, and flow/tag
   response outcomes. Create/send/update/load/copy/remove/completion feedback and editor
@@ -59,6 +59,9 @@ Current implementation baseline discovered during the audit:
   message success/error feedback is localized as well.
 - Chinese catalog coverage now includes the creator-facing survey analytics dashboard, privacy and
   CSV-export controls, translated export feedback, and follow-up survey entry workflow.
+- Ordinary users with an established support channel now see TechSupport as a pinned built-in
+  Contacts row. Contacts and the reachable peer overlay expose local mute/unmute instead of
+  ordinary block behavior, and support notifications honor that per-user device setting.
 - Matching E2E specs cover several successful, mismatched, ignored, auto-answer, Contacts, and Me
   scenarios independently; they do not yet provide one exhaustive branch matrix from talk creation
   through every sender/responder result.
@@ -250,7 +253,6 @@ remains binding; this is the implementation sequence for its visible outcomes.
 
 #### Contacts
 
-- Show TechSupport as a pinned built-in support contact with mute rather than ordinary block/delete.
 - Make an ordinary answerer/match appear initially as `Stranger` or no assigned relationship until
   the user chooses friend/relative/coworker/acquaintance/partner/custom; ensure all labels filter,
   search, sort, save, and reload correctly.
@@ -293,8 +295,7 @@ remains binding; this is the implementation sequence for its visible outcomes.
 #### Conversation, Peer Detail, and Hidden Surfaces
 
 - Add support-channel/normal-channel transport status, fallback reason, privacy verification,
-  translation consent behavior, search/history controls, and TechSupport-specific mute behavior to
-  conversation and peer-detail overlays.
+  translation consent behavior, and search/history controls to conversation and peer-detail overlays.
 - Decide whether the existing statistics renderer becomes a navigable authorized surface or leaves
   active product scope; test the selected outcome and retain the completed survey analytics behavior.
 
@@ -511,10 +512,11 @@ verified.
 
 ### Contacts Tab
 
-- **Partially implemented in current working tree: built-in TechSupport support contact.** New
-  ordinary users receive a durable support conversation with `TechSupport`; Me/conversation surfaces
-  show the channel immediately. Future work remains to pin TechSupport as a first-class Contacts tab
-  row with support-specific mute/delete behavior.
+- **Implemented in current working tree: built-in TechSupport support contact.** New ordinary
+  users receive a durable support conversation with `TechSupport`; Me/conversation surfaces show
+  the channel immediately, and Contacts pins the built-in support row above ordinary ranked peers.
+  Its support controls and the reachable peer overlay mute notifications locally instead of
+  exposing ordinary block behavior, without removing the support channel.
 - **Future work: manual/pinned contacts.** Add a way to keep a contact without requiring a prior
   matched talk, with clear privacy boundaries and local-only storage unless explicitly synced.
 - **Future work: contact language and translation affordances.** Show each contact's public
@@ -523,9 +525,6 @@ verified.
 - **Future work: relationship filtering completeness.** Relationship filters should include every
   relationship label the dialog can save, including `partner`, and custom labels should be searchable
   and sortable.
-- **Future work: support-specific block behavior.** Ordinary contacts can be blocked. TechSupport
-  should have a constrained mute/silence flow instead of a normal delete/block flow that could remove
-  the root support channel.
 - **Future work: contact detail parity.** Contact detail should show transport/channel health,
   latest support or P2P status, shared talks, shared tags, relationship notes, public credit, and
   whether delivery is blocked by either side.
@@ -571,8 +570,6 @@ verified.
   message bodies are not persisted in public Gun shared paths when direct/relay modes are active.
 - **Future work: translation in direct messages.** If two users do not share a language, surface the
   language mismatch and add an opt-in translation path that does not leak private message content.
-- **Future work: TechSupport mute flow.** Replace ordinary "Block User" behavior for TechSupport
-  with local mute/notification controls while keeping the support channel recoverable.
 - **Future work: conversation search and history controls.** Add local search, export/delete
   controls, unread filters, and clear labels for local-only versus synced message history.
 
@@ -660,9 +657,9 @@ in Global, and every later test stage should load that snapshot before adding or
   Shared ordinary-user bootstrap now waits for a durable support-channel conversation and welcome
   message from TechSupport before continuing normal test scenarios.
 - **Partially implemented in current working tree: normal tests tolerate TechSupport in Global.**
-  Representative stage1/stage2 headcount specs now account for the built-in support actor. Future
-  work remains to audit broadcast receiver counts, contacts, and empty-room assertions across the
-  full suite.
+  Representative headcount specs account for the built-in support actor, and Contacts coverage
+  asserts the support row separately from ordinary ranked/matched rows. Future work remains to
+  audit broadcast receiver counts and empty-room assertions across the full suite.
 - **Future work: prevent TechSupport from polluting ordinary test logic.** Broadcast, contact,
   matching, block, reputation, and survey tests should declare whether TechSupport participates,
   is ignored, or is excluded. Support greetings/channels must not create false matches, unexpected

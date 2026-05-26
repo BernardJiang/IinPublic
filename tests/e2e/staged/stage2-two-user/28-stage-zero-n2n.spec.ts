@@ -197,7 +197,7 @@ test.describe('Stage zero N2N smoke', () => {
 
     await page.click('.nav-btn[data-view="contacts"]');
     await afterNav();
-    await expect(page.locator('#contacts-list .contact-item')).toHaveCount(0);
+    await expect(page.locator('#contacts-list .contact-item:not([data-support-contact="true"])')).toHaveCount(0);
 
     await page.click('.nav-btn[data-view="chatrooms"]');
     await waitForTabActive(page, 'chatrooms');

@@ -1,4 +1,5 @@
 import type { KnownPerson } from '../../shared/types';
+import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../shared/techsupport';
 import type { PeerSummary } from '../../server/routes/peer-routes';
 import { avatarInnerHtml } from './profile-avatar';
 import type { UiTranslationKey } from './ui-translations';
@@ -20,6 +21,9 @@ type ContactsViewDeps = {
   submitPeerReview: (userId: string, rating: number) => Promise<void>;
   vouchAgeVerified: (userId: string) => Promise<void>;
   setBlocked: (userId: string, blocked: boolean) => Promise<void>;
+  hasSupportContact: () => boolean;
+  isSupportNotificationsMuted: () => boolean;
+  setSupportNotificationsMuted: (muted: boolean) => Promise<void>;
   text: (key: UiTranslationKey) => string;
 };
 
@@ -99,6 +103,50 @@ function rankingMetrics(peer: PeerSummary, known: KnownPerson | undefined, deps:
 
 function closeRelationshipModal(): void {
   document.getElementById('contact-relationship-modal')?.remove();
+}
+
+async function openSupportControlsDialog(deps: ContactsViewDeps): Promise<void> {
+  closeRelationshipModal();
+  const muted = deps.isSupportNotificationsMuted();
+  const modal = document.createElement('div');
+  modal.id = 'contact-relationship-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.45);display:flex;align-items:center;justify-content:center;z-index:4000;padding:20px;';
+  modal.innerHTML = `
+    <div style="width:min(520px, 96vw); background:white; border-radius:16px; box-shadow:0 20px 60px rgba(15,23,42,0.2);">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; border-bottom:1px solid #e5e7eb;">
+        <div>
+          <div style="font-weight:700; font-size:1.05em;">${deps.text('contactSupportControls')}</div>
+          <div style="font-size:0.88em; color:#64748b;">${TECHSUPPORT_STAGE_NAME}</div>
+        </div>
+        <button type="button" id="close-contact-relationship-modal" style="background:none;border:none;font-size:24px;cursor:pointer;color:#64748b;">&times;</button>
+      </div>
+      <div style="padding:18px; display:grid; gap:14px;">
+        <div style="padding:12px;border-radius:12px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;">
+          <div style="font-weight:700;">${deps.text('contactsSupportBuiltIn')}</div>
+          <div style="font-size:0.9em;margin-top:5px;">${deps.text('contactSupportDescription')}</div>
+        </div>
+        <div id="contact-support-status-wrap" style="padding:12px;border-radius:12px;background:#f8fafc;border:1px solid #e5e7eb;">
+          <div style="font-weight:700;">${deps.text('contactSupportNotificationStatus')}</div>
+          <div id="contact-support-status-text" style="font-size:0.9em;color:#475569;margin-top:5px;">${deps.text(muted ? 'contactSupportNotificationsMuted' : 'contactSupportNotificationsOn')}</div>
+        </div>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:10px; padding:16px 18px; border-top:1px solid #e5e7eb;">
+        <button type="button" class="btn" id="contact-relationship-close-btn">${deps.text('contactClose')}</button>
+        <button type="button" class="btn primary-btn" id="contact-support-mute-btn">${deps.text(muted ? 'contactUnmuteSupport' : 'contactMuteSupport')}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  const close = () => closeRelationshipModal();
+  (document.getElementById('close-contact-relationship-modal') as HTMLButtonElement | null)?.addEventListener('click', close);
+  (document.getElementById('contact-relationship-close-btn') as HTMLButtonElement | null)?.addEventListener('click', close);
+  (document.getElementById('contact-support-mute-btn') as HTMLButtonElement | null)?.addEventListener('click', async () => {
+    await deps.setSupportNotificationsMuted(!muted);
+    close();
+  });
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) close();
+  });
 }
 
 /** Set in showContactDetail after a successful profile fetch; cleared when opening another contact. Avoids a duplicate GET /api/users/:id when opening Relationship & Credit. */
@@ -198,6 +246,10 @@ async function openRelationshipDialog(
   userId: string,
   stageName: string,
 ): Promise<void> {
+  if (userId === TECHSUPPORT_ROOT_USER_ID) {
+    await openSupportControlsDialog(deps);
+    return;
+  }
   closeRelationshipModal();
   const known = deps.getKnownPerson(userId);
   const blockedByMe = deps.isBlockedByMe(userId);
@@ -410,6 +462,8 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
     const nameFilter = (controls.name?.value || '').trim().toLowerCase();
     const relationFilter = controls.relation?.value || 'all';
     const sortOrder = controls.sort?.value || 'recent';
+    const supportNameMatches = !nameFilter || TECHSUPPORT_STAGE_NAME.toLowerCase().includes(nameFilter);
+    const showSupportContact = deps.hasSupportContact() && relationFilter === 'all' && supportNameMatches;
     const tieBreak = (a: PeerSummary, b: PeerSummary): number =>
       deps.getPeerName(a.peerId, a.stageName).localeCompare(deps.getPeerName(b.peerId, b.stageName));
     const visiblePeers = peers
@@ -437,13 +491,13 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
         return timeDiff !== 0 ? timeDiff : tieBreak(a, b);
       });
 
-    if (peers.length === 0) {
+    if (peers.length === 0 && !showSupportContact) {
       listEl.innerHTML = `
         <p style="text-align: center; padding: 40px 20px; color: #999;">${deps.text('contactsEmpty')}</p>
       `;
       return;
     }
-    if (visiblePeers.length === 0) {
+    if (visiblePeers.length === 0 && !showSupportContact) {
       listEl.innerHTML = `
         <p style="text-align: center; padding: 40px 20px; color: #999;">${deps.text('contactsNoMatch')}</p>
       `;
@@ -453,7 +507,19 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
     const status = document.getElementById('contacts-status-text');
     if (status) status.textContent = formatCountText(deps, visiblePeers.length, 'contactsCountOne', 'contactsCount');
 
-    listEl.innerHTML = visiblePeers
+    const supportRow = showSupportContact
+      ? `
+          <div class="contact-item contact-support-item" data-support-contact="true" data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}" data-contact-name="${TECHSUPPORT_STAGE_NAME}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 8px; background: #eff6ff; border-radius: 12px; border: 1px solid #bfdbfe; cursor: pointer;">
+            <div style="min-width:0;">
+              <div class="contact-item-name" style="font-weight:700;">${TECHSUPPORT_STAGE_NAME}<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:0.72em;font-weight:700;margin-left:8px;">${deps.text('contactsSupportPinned')}</span></div>
+              <div class="contact-item-meta" style="font-size:0.85em;color:#1e40af;margin-top:4px;">${deps.text('contactsSupportBuiltIn')}</div>
+              <div class="contact-item-meta" style="font-size:0.8em;color:#64748b;margin-top:4px;">${deps.text(deps.isSupportNotificationsMuted() ? 'contactSupportNotificationsMuted' : 'contactSupportNotificationsOn')}</div>
+            </div>
+            <span style="color:#3b82f6; flex-shrink:0;">›</span>
+          </div>
+        `
+      : '';
+    listEl.innerHTML = supportRow + visiblePeers
       .map((peer) => {
         const known = knownMap.get(peer.peerId);
         const resolvedStageName = deps.getPeerName(peer.peerId, peer.stageName);
@@ -523,7 +589,7 @@ export async function showContactDetail(
     button.id = 'contact-edit-relationship-btn';
     button.className = 'btn';
     button.type = 'button';
-    button.textContent = deps.text('contactRelationshipCredit');
+    button.textContent = deps.text(otherUserId === TECHSUPPORT_ROOT_USER_ID ? 'contactSupportControls' : 'contactRelationshipCredit');
     button.style.cssText = 'margin-top:8px;padding:6px 12px;font-size:0.85em;';
     button.addEventListener('click', () => {
       void openRelationshipDialog(deps, otherUserId, otherUserName);

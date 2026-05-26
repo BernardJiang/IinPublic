@@ -85,7 +85,7 @@ test.describe('UI navigation and settings shell', () => {
     await afterNav();
     await expect(p.locator('#header-title')).toBeEmpty();
     await expect(p.locator('#contacts-status-text')).toBeVisible();
-    await expect(p.locator('#contacts-status-text')).toContainText('Contacts from exchanged talks');
+    await expect(p.locator('#contacts-status-text')).toHaveText('0 contacts from exchanged talks');
     await expect(p.locator('#contacts-view .status-bar')).toHaveCount(0);
     await expect(p.locator('.contacts-action-bar')).toBeVisible();
 
@@ -268,7 +268,10 @@ test.describe('UI navigation and settings shell', () => {
     await afterNav();
     await expect(p.locator('#contacts-filter-relation option[value="all"]')).toHaveText('全部关系');
     await expect(p.locator('#contacts-sort-order option[value="weighted"]')).toHaveText('相关性得分');
-    await expect(p.locator('#contacts-list')).toContainText('还没有联系人');
+    const supportContact = p.locator('#contacts-list .contact-support-item');
+    await expect(supportContact).toContainText('TechSupport');
+    await expect(supportContact).toContainText('内置支持联系人');
+    await expect(supportContact).toContainText('支持通知已开启');
     await p.route('**/api/users/*/peers/localized-peer/relationship', async (route) => route.fulfill({
       json: {
         totalTalks: 1,

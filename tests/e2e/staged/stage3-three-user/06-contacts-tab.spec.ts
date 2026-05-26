@@ -203,7 +203,8 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await afterSync();
     await pageTom.click('.nav-btn[data-view="contacts"]');
     await afterAction();
-    await expect(pageTom.locator('#contacts-list .contact-item')).toHaveCount(2, { timeout: 15000 });
+    await expect(pageTom.locator('#contacts-list .contact-support-item')).toHaveCount(1, { timeout: 15000 });
+    await expect(pageTom.locator('#contacts-list .contact-item:not([data-support-contact="true"])')).toHaveCount(2, { timeout: 15000 });
     await expect(pageTom.locator('#contacts-list').getByText('Jerry')).toBeVisible({ timeout: 5000 });
     await expect(pageTom.locator('#contacts-list').getByText('Bob')).toBeVisible({ timeout: 5000 });
     await pageTom.locator('.contact-item').filter({ hasText: 'Jerry' }).first().click();
@@ -219,14 +220,14 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
 
     await pageJerry.click('.nav-btn[data-view="contacts"]');
     await afterSync();
-    await expect(pageJerry.locator('#contacts-list .contact-item')).toHaveCount(1, { timeout: 10000 });
+    await expect(pageJerry.locator('#contacts-list .contact-item:not([data-support-contact="true"])')).toHaveCount(1, { timeout: 10000 });
     await pageJerry.locator('.contact-item').filter({ hasText: 'Tom' }).first().click();
     await afterNav();
     await expect(pageJerry.locator('.contact-talk-item').filter({ hasText: TALK_TENNIS })).toBeVisible({ timeout: 10000 });
 
     await pageBob.click('.nav-btn[data-view="contacts"]');
     await afterSync();
-    await expect(pageBob.locator('#contacts-list .contact-item')).toHaveCount(1, { timeout: 10000 });
+    await expect(pageBob.locator('#contacts-list .contact-item:not([data-support-contact="true"])')).toHaveCount(1, { timeout: 10000 });
     await pageBob.locator('.contact-item').filter({ hasText: 'Tom' }).first().click();
     await afterNav();
     await expect(pageBob.locator('.contact-talk-item').filter({ hasText: TALK_COFFEE })).toBeVisible({ timeout: 10000 });

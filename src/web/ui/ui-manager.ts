@@ -23,6 +23,7 @@ import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../
 import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
 import { getFlatChatroomList, CHATROOM_HIERARCHY } from '../../shared/chatroom-hierarchy';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
+import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import type { StatsByRegion, StatsByTime, StatsDashboard, StatsSummary } from '../../shared/talk-stats';
 import { displayAnswersList as renderAnswersList } from './answers-view';
 import {
@@ -1506,6 +1507,9 @@ export class UIManager extends EventEmitter {
       submitPeerReview: this.submitPeerReview.bind(this),
       vouchAgeVerified: this.vouchAgeVerified.bind(this),
       setBlocked: this.setBlocked.bind(this),
+      hasSupportContact: this.hasSupportContact.bind(this),
+      isSupportNotificationsMuted: this.isSupportNotificationsMuted.bind(this),
+      setSupportNotificationsMuted: this.setSupportNotificationsMuted.bind(this),
       text: this.t.bind(this),
     });
   }
@@ -1525,6 +1529,9 @@ export class UIManager extends EventEmitter {
       submitPeerReview: this.submitPeerReview.bind(this),
       vouchAgeVerified: this.vouchAgeVerified.bind(this),
       setBlocked: this.setBlocked.bind(this),
+      hasSupportContact: this.hasSupportContact.bind(this),
+      isSupportNotificationsMuted: this.isSupportNotificationsMuted.bind(this),
+      setSupportNotificationsMuted: this.setSupportNotificationsMuted.bind(this),
       text: this.t.bind(this),
     });
   }
@@ -1545,6 +1552,9 @@ export class UIManager extends EventEmitter {
         submitPeerReview: this.submitPeerReview.bind(this),
         vouchAgeVerified: this.vouchAgeVerified.bind(this),
         setBlocked: this.setBlocked.bind(this),
+        hasSupportContact: this.hasSupportContact.bind(this),
+        isSupportNotificationsMuted: this.isSupportNotificationsMuted.bind(this),
+        setSupportNotificationsMuted: this.setSupportNotificationsMuted.bind(this),
         text: this.t.bind(this),
       },
       otherUserId,
@@ -5886,6 +5896,9 @@ export class UIManager extends EventEmitter {
       registerTalkForPeer: this.registerTalkForPeer.bind(this),
       isBlockedByMe: this.isBlockedByMe.bind(this),
       setBlocked: this.setBlocked.bind(this),
+      isSupportContact: (candidateId: string) => candidateId === TECHSUPPORT_ROOT_USER_ID,
+      isSupportNotificationsMuted: this.isSupportNotificationsMuted.bind(this),
+      setSupportNotificationsMuted: this.setSupportNotificationsMuted.bind(this),
       text: this.t.bind(this),
       formatRelativeTime: this.formatTalkRelativeTime.bind(this),
       formatType: this.formatTalkType.bind(this),
@@ -5910,6 +5923,24 @@ export class UIManager extends EventEmitter {
 
   private isBlockedByMe(userId: string): boolean {
     return Array.isArray(this.currentUser?.blockedUserIds) && this.currentUser!.blockedUserIds!.includes(userId);
+  }
+
+  private hasSupportContact(): boolean {
+    return Object.values(this.getMyConversations()).some(
+      (conversation: any) => conversation?.supportChannel === true && conversation?.otherUserId === TECHSUPPORT_ROOT_USER_ID,
+    );
+  }
+
+  public isSupportNotificationsMuted(): boolean {
+    if (!this.currentUserId) return false;
+    return localStorage.getItem(`iinpublic_support_notifications_muted:${this.currentUserId}`) === '1';
+  }
+
+  private async setSupportNotificationsMuted(muted: boolean): Promise<void> {
+    if (!this.currentUserId) return;
+    localStorage.setItem(`iinpublic_support_notifications_muted:${this.currentUserId}`, muted ? '1' : '0');
+    this.showNotification(this.t(muted ? 'contactSupportMutedNotice' : 'contactSupportUnmutedNotice'), 'info');
+    this.displayContactsList();
   }
 
   private async saveKnownPerson(
@@ -6120,10 +6151,12 @@ export class UIManager extends EventEmitter {
     // Only show toast for genuinely new matches (not when re-syncing or opening edit)
     if (isNew) {
       const name = conversationData.otherUserName?.trim() || this.t('conversationUnknown');
-      if (conversationData.supportChannel) {
+      if (conversationData.supportChannel && !this.isSupportNotificationsMuted()) {
         this.showNotification(this.tf('supportChannelReady', { name }), 'info');
       } else {
-        this.showNotification(this.tf('matchChatReady', { name }), 'success');
+        if (!conversationData.supportChannel) {
+          this.showNotification(this.tf('matchChatReady', { name }), 'success');
+        }
       }
     }
 

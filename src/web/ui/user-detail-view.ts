@@ -13,6 +13,9 @@ export type UserDetailViewDeps = {
   registerTalkForPeer: (talkId: string, talkData: any, peerId: string, peerName: string) => Promise<void>;
   isBlockedByMe: (userId: string) => boolean;
   setBlocked: (userId: string, blocked: boolean) => Promise<void>;
+  isSupportContact: (userId: string) => boolean;
+  isSupportNotificationsMuted: () => boolean;
+  setSupportNotificationsMuted: (muted: boolean) => Promise<void>;
   sendDirectMessage: (peerId: string, peerName: string, text: string) => Promise<void>;
   text: (key: UiTranslationKey) => string;
   formatRelativeTime: (date: Date) => string;
@@ -141,9 +144,19 @@ export function openPeerDetailView(
   if (blockBtn) {
     const fresh = blockBtn.cloneNode(true) as HTMLElement;
     blockBtn.replaceWith(fresh);
-    fresh.textContent = deps.text(deps.isBlockedByMe(peerId) ? 'contactUnblockUser' : 'contactBlockUser');
+    const supportContact = deps.isSupportContact(peerId);
+    const supportMuted = supportContact && deps.isSupportNotificationsMuted();
+    fresh.textContent = deps.text(
+      supportContact
+        ? (supportMuted ? 'contactUnmuteSupport' : 'contactMuteSupport')
+        : (deps.isBlockedByMe(peerId) ? 'contactUnblockUser' : 'contactBlockUser'),
+    );
     fresh.addEventListener('click', async () => {
-      await deps.setBlocked(peerId, !deps.isBlockedByMe(peerId));
+      if (supportContact) {
+        await deps.setSupportNotificationsMuted(!supportMuted);
+      } else {
+        await deps.setBlocked(peerId, !deps.isBlockedByMe(peerId));
+      }
       closePeerDetailView();
     });
   }
@@ -194,6 +207,10 @@ async function applySendButtonFromBlockStatus(
 ): Promise<void> {
   const sendBtn = document.getElementById('peer-send-talks-btn') as HTMLButtonElement | null;
   if (!sendBtn) return;
+  if (deps.isSupportContact(peerId)) {
+    sendBtn.disabled = false;
+    return;
+  }
   try {
     const r = await fetch(
       `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/block-status/${encodeURIComponent(peerId)}`,

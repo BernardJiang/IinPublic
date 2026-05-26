@@ -12,6 +12,22 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-25 - TechSupport Pinned Contact And Local Mute
+
+Ordinary users with a durable TechSupport support channel now see a pinned built-in Contacts row
+that remains outside ordinary contact counts and ranking. Its support control dialog, plus the
+reachable TechSupport peer overlay, provides per-user local mute/unmute instead of normal block
+actions; support-ready and welcome notifications respect that mute state without deleting the
+support conversation.
+
+Evidence:
+
+- UI/app/catalog: `src/web/ui/contacts-view.ts`, `src/web/ui/user-detail-view.ts`,
+  `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`, `src/web/app/app.ts`
+- Unit: `src/test/unit/contacts-view.test.ts`, `src/test/unit/ui-translations.test.ts`
+- E2E: `tests/e2e/staged/stage2-two-user/00k-techsupport-contact-mute.spec.ts`,
+  `tests/e2e/staged/stage3-three-user/06-contacts-tab.spec.ts`
+
 ## 2026-05-25 - D2 Independent App Language And Talk Default
 
 Added an explicit persisted App language selector for completed English and Chinese catalogs,

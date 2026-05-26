@@ -4,6 +4,7 @@
 
 import { displayContactsList, showContactDetail } from '../../web/ui/contacts-view';
 import type { KnownPerson } from '../../shared/types';
+import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { uiText } from '../../web/ui/ui-translations';
 
 describe('Contacts ranking and relationship filters', () => {
@@ -68,6 +69,9 @@ describe('Contacts ranking and relationship filters', () => {
       submitPeerReview: jest.fn().mockResolvedValue(undefined),
       vouchAgeVerified: jest.fn().mockResolvedValue(undefined),
       setBlocked: jest.fn().mockResolvedValue(undefined),
+      hasSupportContact: () => false,
+      isSupportNotificationsMuted: () => false,
+      setSupportNotificationsMuted: jest.fn().mockResolvedValue(undefined),
       text: (key: Parameters<typeof uiText>[1]) => uiText('en', key),
     };
   }
@@ -87,6 +91,18 @@ describe('Contacts ranking and relationship filters', () => {
 
     const rows = Array.from(document.querySelectorAll('.contact-item-name')).map((row) => row.textContent);
     expect(rows).toEqual(['Strong']);
+  });
+
+  it('pins an established TechSupport channel above ranked ordinary contacts without counting it', async () => {
+    await displayContactsList({
+      ...deps(),
+      hasSupportContact: () => true,
+    });
+
+    const rows = Array.from(document.querySelectorAll('.contact-item-name')).map((row) => row.textContent);
+    expect(rows[0]).toContain('TechSupport');
+    expect(document.querySelector('.contact-support-item')?.getAttribute('data-support-contact')).toBe('true');
+    expect(document.getElementById('contacts-status-text')?.textContent).toBe('2 contacts from exchanged talks');
   });
 
   it('preserves English singular counts after moving contact summaries into translations', async () => {
@@ -161,5 +177,39 @@ describe('Contacts ranking and relationship filters', () => {
     expect(modal?.textContent).toContain('2 条评价');
     expect(modal?.textContent).toContain('屏蔽状态');
     expect(modal?.textContent).toContain('当前没有屏蔽');
+  });
+
+  it('shows local mute controls instead of ordinary relationship or block actions for TechSupport', async () => {
+    document.body.innerHTML += `
+      <div id="contacts-list-container"></div>
+      <div id="contact-detail-container">
+        <div id="contact-detail-info"></div>
+        <div id="contact-detail-name"></div>
+        <div id="contact-detail-matches"></div>
+        <div id="contact-talks-list"></div>
+      </div>
+    `;
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ totalTalks: 0 }) } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => [] } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ languages: ['en'], profile: [], interests: [] }) } as Response);
+    const setSupportNotificationsMuted = jest.fn().mockResolvedValue(undefined);
+    const supportDeps = {
+      ...deps(),
+      hasSupportContact: () => true,
+      setSupportNotificationsMuted,
+    };
+
+    await showContactDetail(supportDeps, TECHSUPPORT_ROOT_USER_ID, 'TechSupport');
+    (document.getElementById('contact-edit-relationship-btn') as HTMLButtonElement).click();
+
+    const modal = document.getElementById('contact-relationship-modal');
+    expect(modal?.textContent).toContain('Support Notifications');
+    expect(modal?.textContent).toContain('Built-in support contact');
+    expect(document.getElementById('contact-block-toggle-btn')).toBeNull();
+
+    (document.getElementById('contact-support-mute-btn') as HTMLButtonElement).click();
+    await Promise.resolve();
+    expect(setSupportNotificationsMuted).toHaveBeenCalledWith(true);
   });
 });
