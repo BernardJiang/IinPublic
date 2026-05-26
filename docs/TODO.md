@@ -296,8 +296,8 @@ remains binding; this is the implementation sequence for its visible outcomes.
 
 - Add support-channel/normal-channel transport status, fallback reason, privacy verification,
   translation consent behavior, and search/history controls to conversation and peer-detail overlays.
-- Decide whether the existing statistics renderer becomes a navigable authorized surface or leaves
-  active product scope; test the selected outcome and retain the completed survey analytics behavior.
+- Keep the selected statistics design consistent: no separate bottom-navigation Statistics tab;
+  retain contextual aggregate summaries in work views and the completed per-survey analytics dialog.
 
 Exit criteria: a final manual-plus-E2E traversal of every visible control in all five tabs and their
 dialogs/overlays has no unexplained placeholder, untested toggle, unreachable feature, or
@@ -628,10 +628,10 @@ verified.
 
 ### Disconnected or Hidden Surfaces
 
-- **Future work: expose the statistics dashboard intentionally.** `UIManager` contains a statistics
-  dashboard renderer, but the current bottom navigation exposes only Chatrooms, Contacts, Talks, Me,
-  and Settings. Decide whether Statistics is a real tab, an admin/debug surface, or archived code;
-  then add navigation, permissions, and verification or remove it from active scope.
+- **Implemented in current working tree: intentional contextual statistics surfaces.** The product
+  keeps five bottom tabs rather than exposing a separate Statistics destination; Talks/Contacts/Me
+  request compact aggregate summaries in context, while survey creators open the scoped analytics
+  dashboard from their survey row. E2E proof asserts the no-Stats-tab decision and contextual totals.
 - **Implemented in current working tree: runtime feature diagnostics.** Settings reports star
   persistence, P2P-node and direct-chat enablement, active transport fallback availability, and
   whether built-in TechSupport bootstrap has established this user's support channel using the

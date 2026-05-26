@@ -63,6 +63,18 @@ Evidence:
   `tests/e2e/staged/stage1-single-user/00-p2p-star-baseline-storage.spec.ts`,
   `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
 
+## 2026-05-26 - Reconcile Contextual Statistics Surface
+
+The product decision already present in the application is now recorded in the active backlog:
+statistics remain contextual inside work views and per-survey analytics instead of adding a sixth
+bottom-navigation tab.
+
+Evidence:
+
+- Contextual summaries and survey analytics UI: `src/web/ui/ui-manager.ts`
+- No-tab and aggregate summary proof:
+  `tests/e2e/staged/stage1-single-user/00-statistics-dashboard.spec.ts`
+
 ## 2026-05-26 - Reconcile Shipped Talk And Ranking Diagnostics
 
 The active backlog now reflects existing shipped behavior for localized OUT/IN talk badges,
