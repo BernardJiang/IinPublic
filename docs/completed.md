@@ -12,6 +12,20 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-25 - Idempotent Room Visits And Membership Audits
+
+Duplicate joins from an already-active member no longer increment lifetime visit totals or reset
+the member's FIFO entry time. Re-entering after leaving remains a new lifetime visit while leaving
+unique-visitor totals stable, and soft-deleted rooms preserve their recorded visitor history.
+
+Evidence:
+
+- Server/web join accounting: `src/server/services/chatroom-manager.ts`,
+  `src/web/services/web-chatroom-service.ts`
+- Unit/E2E: `src/test/unit/chatroom-manager.test.ts`,
+  `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`,
+  `tests/e2e/staged/stage4-four-user/03-capacity-eviction.spec.ts`
+
 ## 2026-05-25 - Complete Storage Inspector App State
 
 Storage Inspector now reports application state alongside the existing storage and P2P

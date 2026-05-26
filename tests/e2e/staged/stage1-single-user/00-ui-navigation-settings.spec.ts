@@ -52,6 +52,18 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('body')).not.toContainText('Uses talks from Talks OUT');
     await expect(p.locator('#return-home-btn')).toBeEnabled();
     await expect(p.locator('#chatrooms-stats-strip')).toHaveCount(0);
+    const duplicateVisitCheck = await p.evaluate(async () => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      const before = app.uiManager.chatroomVisitCounts.get('global')?.visitCount || 0;
+      await app.chatroomService.switchChatroom(app.currentUser.id, 'global', app.currentUser.stageName);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      return {
+        before,
+        after: app.uiManager.chatroomVisitCounts.get('global')?.visitCount || 0,
+      };
+    });
+    expect(duplicateVisitCheck.before).toBeGreaterThan(0);
+    expect(duplicateVisitCheck.after).toBe(duplicateVisitCheck.before);
     await expect
       .poll(async () => {
         return p.locator('#broadcast-talk-btn').evaluate((button) => {

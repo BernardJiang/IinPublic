@@ -127,6 +127,8 @@ export class ChatroomManager {
   }
 
   async joinChatroom(chatroomId: string, userId: string, stageName?: string): Promise<void> {
+    const existingMember = await this.gunService.getPath(['chatroomMembers', chatroomId, userId]).catch(() => null);
+    if (existingMember?.isActive === true) return;
     const memberData = {
       joinedAt: new Date(),
       isActive: true,

@@ -100,6 +100,18 @@ export class WebChatroomService {
 
     // Use Gun's graph structure properly
     const gun = this.gunService.getGun();
+    const alreadyActive = await new Promise<boolean>((resolve) => {
+      const timeoutId = setTimeout(() => resolve(false), 700);
+      gun.get('chatrooms').get(chatroomId).get('users').get(userId).once((data: any) => {
+        clearTimeout(timeoutId);
+        resolve(data?.isActive === true);
+      });
+    });
+    if (alreadyActive) {
+      this.watchForEviction(userId, chatroomId, onMoved);
+      console.log(`✅ Already active in chatroom, preserving existing visit: ${chatroomId}`);
+      return;
+    }
 
     // Write user to database and wait for completion (with retry logic)
     const writeUserWithRetry = async (maxRetries: number = 3): Promise<void> => {
@@ -370,7 +382,7 @@ export class WebChatroomService {
   }
 
   async switchChatroom(userId: string, newChatroomId: string, stageName?: string): Promise<void> {
-    if (this.currentChatroomId) {
+    if (this.currentChatroomId && this.currentChatroomId !== newChatroomId) {
       await this.leaveChatroom(this.currentChatroomId, userId);
     }
     await this.joinChatroom(newChatroomId, userId, stageName);

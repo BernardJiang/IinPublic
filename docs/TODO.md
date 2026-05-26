@@ -502,10 +502,10 @@ verified.
   description, capacity, and owner, but the room list/detail view does not yet show all of that
   metadata. Add capacity, description, business headline, owner, created date, active members,
   absolute visitor count, and unique visitors to the detail panel.
-- **Future work: visit and membership audit tests.** Add unit/integration/E2E coverage proving
-  active members decrement correctly, lifetime visit counters never decrement, duplicate reconnects
-  do not overcount, room deletion preserves historical counters, and TechSupport is not evicted by
-  FIFO/travel/return-home flows.
+- **Implemented in current working tree: visit and membership audit tests.** Active duplicate
+  joins no longer refresh FIFO membership or increment lifetime visits; unit/E2E coverage verifies
+  active-member decrement, rejoin counting, unique visitor stability, retained soft-deleted-room
+  history, and the existing capacity traversal preserves the TechSupport global anchor.
 - **Future work: broadcast transparency.** Broadcast currently sends eligible OUT talks to active
   room members, but the UI should show who will receive the broadcast, who was skipped, which
   language/type/distance filters apply, and whether any TechSupport/support-only talks are excluded.
