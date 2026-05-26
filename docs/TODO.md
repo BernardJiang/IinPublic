@@ -679,9 +679,10 @@ in Global, and every later test stage should load that snapshot before adding or
   matching, block, reputation, and survey tests should declare whether TechSupport participates,
   is ignored, or is excluded. Support greetings/channels must not create false matches, unexpected
   unread badges, extra incoming talks, or altered survey counts.
-- **Future work: add stage snapshot integrity checks.** After saving and loading each stage, assert
-  there is exactly one TechSupport root identity, TechSupport is active in Global, ordinary users are
-  present only when that stage expects them, and no duplicate support greetings/channels exist.
+- **Implemented in current working tree: stage snapshot integrity checks.** Every stage save/load
+  now rejects a missing or altered canonical TechSupport root/network marker, inactive Global
+  support membership, or duplicate per-user support greetings; stable canonical stage snapshots
+  (`stage0` through `stage3`) also assert their expected user population.
 - **Future work: update staged docs and testplan.** Document the new sequence: Stage 0 =
   TechSupport plus all single-user verification; later stages = load TechSupport baseline, add
   ordinary users, verify greeting/support channel, then run normal multi-user tests.

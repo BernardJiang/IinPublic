@@ -3,6 +3,11 @@ import path from 'path';
 import { gunBaseURL } from './ports';
 import { parallelSlot } from './ports';
 import { clearGunDatabases, maybeClearGunDatabases, waitForGunApiReady } from './clear-database';
+import {
+  TECHSUPPORT_NETWORK_ROLE,
+  TECHSUPPORT_ROOT_USER_ID,
+  TECHSUPPORT_STAGE_NAME,
+} from '../../../src/shared/techsupport';
 
 export type E2eStageName = 'stage0' | 'stage1' | 'stage2' | 'stage3' | 'stage4' | 'stage5';
 
@@ -40,12 +45,71 @@ async function postSnapshot(body: unknown): Promise<void> {
   if (!res.ok) throw new Error(`import-snapshot failed: ${res.status} ${await res.text()}`);
 }
 
+function assertStageSnapshotIntegrity(stage: E2eStageName, snapshot: unknown): void {
+  const graph = (snapshot as { gunGraph?: Record<string, any> } | undefined)?.gunGraph;
+  if (!graph) throw new Error(`[e2e-stage] ${stage} snapshot has no Gun graph`);
+
+  const rootSoul = `users/${TECHSUPPORT_ROOT_USER_ID}`;
+  const root = graph[rootSoul];
+  const networkRoot = graph['network-root-techsupport'];
+  const globalMember = graph[`chatrooms/global/users/${TECHSUPPORT_ROOT_USER_ID}`];
+  if (
+    root?.id !== TECHSUPPORT_ROOT_USER_ID ||
+    root?.stageName !== TECHSUPPORT_STAGE_NAME ||
+    root?.networkRole !== TECHSUPPORT_NETWORK_ROLE
+  ) {
+    throw new Error(`[e2e-stage] ${stage} snapshot is missing the canonical TechSupport user root`);
+  }
+  if (
+    networkRoot?.userId !== TECHSUPPORT_ROOT_USER_ID ||
+    networkRoot?.stageName !== TECHSUPPORT_STAGE_NAME ||
+    networkRoot?.networkRole !== TECHSUPPORT_NETWORK_ROLE
+  ) {
+    throw new Error(`[e2e-stage] ${stage} snapshot is missing the canonical TechSupport network marker`);
+  }
+  if (
+    globalMember?.userId !== TECHSUPPORT_ROOT_USER_ID ||
+    globalMember?.stageName !== TECHSUPPORT_STAGE_NAME ||
+    globalMember?.isActive !== true
+  ) {
+    throw new Error(`[e2e-stage] ${stage} snapshot does not keep TechSupport active in Global`);
+  }
+
+  const userRoots = Object.entries(graph)
+    .filter(([soul, record]) => /^users\/[^/]+$/.test(soul) && record?.stageName)
+    .map(([, record]) => String(record.stageName))
+    .sort();
+  const expectedStableUsers: Partial<Record<E2eStageName, string[]>> = {
+    stage0: [TECHSUPPORT_STAGE_NAME],
+    stage1: [TECHSUPPORT_STAGE_NAME],
+    stage2: ['Adam', TECHSUPPORT_STAGE_NAME],
+    stage3: ['Adam', 'Eve', TECHSUPPORT_STAGE_NAME],
+  };
+  const expected = expectedStableUsers[stage]?.slice().sort();
+  if (expected && JSON.stringify(userRoots) !== JSON.stringify(expected)) {
+    throw new Error(
+      `[e2e-stage] ${stage} snapshot user roots are ${userRoots.join(', ') || 'empty'}; expected ${expected.join(', ')}`,
+    );
+  }
+
+  const welcomeReceivers = new Set<string>();
+  for (const soul of Object.keys(graph)) {
+    const match = soul.match(/^conversations\/conv_support_[^/]+\/messages\/support_welcome_(.+)$/);
+    if (!match) continue;
+    if (welcomeReceivers.has(match[1])) {
+      throw new Error(`[e2e-stage] ${stage} snapshot has duplicate support greetings for ${match[1]}`);
+    }
+    welcomeReceivers.add(match[1]);
+  }
+}
+
 export async function saveStageSnapshot(stage: E2eStageName): Promise<void> {
   const dir = stageSnapshotsDir();
   fs.mkdirSync(dir, { recursive: true });
   const snapshot = await fetchSnapshot();
+  assertStageSnapshotIntegrity(stage, snapshot);
   fs.writeFileSync(stageSnapshotPath(stage), JSON.stringify(snapshot, null, 2));
-  console.log(`[e2e-stage] saved ${stage} → ${stageSnapshotPath(stage)}`);
+  console.log(`[e2e-stage] validated and saved ${stage} → ${stageSnapshotPath(stage)}`);
 }
 
 export async function loadStageSnapshot(stage: E2eStageName): Promise<void> {
@@ -54,8 +118,10 @@ export async function loadStageSnapshot(stage: E2eStageName): Promise<void> {
     throw new Error(`Missing stage snapshot: ${file} (run prior stage pipeline steps first)`);
   }
   const body = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assertStageSnapshotIntegrity(stage, body);
   await postSnapshot(body);
-  console.log(`[e2e-stage] loaded ${stage} ← ${file}`);
+  assertStageSnapshotIntegrity(stage, await fetchSnapshot());
+  console.log(`[e2e-stage] validated and loaded ${stage} ← ${file}`);
 }
 
 export { maybeClearGunDatabases, clearGunDatabases };

@@ -75,6 +75,18 @@ Evidence:
 - No-tab and aggregate summary proof:
   `tests/e2e/staged/stage1-single-user/00-statistics-dashboard.spec.ts`
 
+## 2026-05-26 - Guard Staged Snapshot Integrity
+
+Sequential E2E snapshot save/load boundaries now validate the canonical TechSupport root identity,
+network marker, active Global membership, duplicate support-greeting absence, and the expected
+canonical user population for stages 0 through 3.
+
+Evidence:
+
+- Pipeline assertion boundary: `tests/e2e/helpers/e2e-stage-pipeline.ts`
+- Canonical seed and staged pipeline: `tests/e2e/helpers/clear-database.ts`,
+  `tests/e2e/staged/README.md`
+
 ## 2026-05-26 - Reconcile Shipped Talk And Ranking Diagnostics
 
 The active backlog now reflects existing shipped behavior for localized OUT/IN talk badges,
