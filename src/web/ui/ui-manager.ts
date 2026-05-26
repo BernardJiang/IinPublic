@@ -870,6 +870,8 @@ export class UIManager extends EventEmitter {
                   <div class="conversation-detail-name" id="conversation-user-name">User</div>
                   <div class="conversation-detail-status" id="conversation-status">Online</div>
                   <div class="conversation-transport-status" id="conversation-transport-status"></div>
+                  <div class="conversation-fallback-status" id="conversation-fallback-status"></div>
+                  <div class="conversation-health-status" id="conversation-health-status"></div>
                 </div>
               </div>
               <div class="conversation-messages" id="conversation-messages">
@@ -3766,6 +3768,20 @@ export class UIManager extends EventEmitter {
     return this.t('transportStarGun');
   }
 
+  private formatTransportFallback(mode: string, fallbackReason: unknown): string {
+    const reason = String(fallbackReason || '').trim();
+    if (reason) return this.tf('transportFallbackReason', { reason });
+    return this.t(mode === 'star-gun' ? 'transportNoFallbackActive' : 'transportNoFallbackReported');
+  }
+
+  private formatLastHealthyContact(lastMessageTime: unknown): string {
+    const timestamp = String(lastMessageTime || '').trim();
+    if (!timestamp) return this.t('transportNoHealthyContact');
+    return this.tf('transportLastHealthyContact', {
+      time: this.formatTalkRelativeTime(new Date(timestamp)),
+    });
+  }
+
   showConversationDetail(conversationId: string): void {
     const conversations = this.getMyConversations();
     const conversation = conversations[conversationId];
@@ -3790,6 +3806,14 @@ export class UIManager extends EventEmitter {
       const mode = String(conversation.transportMode || 'star-gun');
       transportStatus.dataset.transportMode = mode;
       transportStatus.textContent = `${this.t('conversationTransport')}: ${this.formatTransportMode(mode)}`;
+      const fallbackStatus = document.getElementById('conversation-fallback-status');
+      if (fallbackStatus) {
+        fallbackStatus.textContent = this.formatTransportFallback(mode, conversation.transportFallbackReason);
+      }
+      const healthStatus = document.getElementById('conversation-health-status');
+      if (healthStatus) {
+        healthStatus.textContent = this.formatLastHealthyContact(conversation.lastMessageTime);
+      }
     }
     const messagesContainer = document.getElementById('conversation-messages');
     if (messagesContainer) {
@@ -6074,11 +6098,18 @@ export class UIManager extends EventEmitter {
       isSupportContact: (candidateId: string) => candidateId === TECHSUPPORT_ROOT_USER_ID,
       isSupportNotificationsMuted: this.isSupportNotificationsMuted.bind(this),
       setSupportNotificationsMuted: this.setSupportNotificationsMuted.bind(this),
-      getTransportMode: () => {
-        const conversation = Object.values(this.getMyConversations()).find(
-          (candidate: any) => candidate?.otherUserId === userId,
-        ) as { transportMode?: string } | undefined;
-        return String(conversation?.transportMode || 'star-gun');
+      getTransportStatus: () => {
+        const conversation = Object.values(this.getMyConversations())
+          .filter((candidate: any) => candidate?.otherUserId === userId)
+          .sort((a: any, b: any) =>
+            new Date(b.lastMessageTime || b.createdAt || 0).getTime()
+            - new Date(a.lastMessageTime || a.createdAt || 0).getTime(),
+          )[0] as { transportMode?: string; transportFallbackReason?: string | null; lastMessageTime?: string | null } | undefined;
+        return {
+          mode: String(conversation?.transportMode || 'star-gun'),
+          fallbackReason: conversation?.transportFallbackReason ?? null,
+          lastHealthyAt: conversation?.lastMessageTime ?? null,
+        };
       },
       text: this.t.bind(this),
       formatRelativeTime: this.formatTalkRelativeTime.bind(this),
@@ -6285,6 +6316,7 @@ export class UIManager extends EventEmitter {
     respondedByBot?: boolean;
     supportChannel?: boolean;
     transportMode?: string;
+    transportFallbackReason?: string | null;
   }): void {
     const conversations = this.getMyConversations();
     const existing = conversations[conversationData.conversationId];
@@ -6318,6 +6350,7 @@ export class UIManager extends EventEmitter {
       respondedByBot,
       supportChannel: isSupportChannel,
       transportMode: existing?.transportMode ?? conversationData.transportMode ?? 'star-gun',
+      transportFallbackReason: existing?.transportFallbackReason ?? conversationData.transportFallbackReason ?? null,
     };
 
     localStorage.setItem('myConversations', JSON.stringify(conversations));

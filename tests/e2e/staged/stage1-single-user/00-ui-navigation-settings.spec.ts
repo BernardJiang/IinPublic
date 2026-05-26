@@ -335,6 +335,8 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#peer-detail-overlay')).toContainText('流程');
     await expect(p.locator('.peer-transport-status')).toContainText('频道传输');
     await expect(p.locator('.peer-transport-status')).toContainText('兼容星型同步');
+    await expect(p.locator('.peer-transport-fallback')).toContainText('当前未启用传输回退');
+    await expect(p.locator('.peer-transport-health')).toContainText('尚未记录已送达的消息');
     await expect(p.locator('#peer-send-talks-btn')).toContainText('发送我的话题');
     await expect(p.locator('#peer-dm-input')).toHaveAttribute('placeholder', '输入消息...');
     await p.locator('#back-from-peer-detail').click();
@@ -363,6 +365,11 @@ test.describe('UI navigation and settings shell', () => {
         supportChannel: true,
         transportMode: 'star-gun',
       });
+      ui?.updateConversationMessage?.(
+        conversationId,
+        'Welcome to IinPublic, Ming. TechSupport is here if you need help.',
+        new Date().toISOString(),
+      );
       ui?.showConversationDetail?.(conversationId);
       ui?.displayConversationMessages?.(conversationId, [{
         text: 'Welcome to IinPublic, Ming. TechSupport is here if you need help.',
@@ -375,6 +382,8 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#back-from-conversation')).toContainText('返回');
     await expect(p.locator('#conversation-status')).toHaveText('在线');
     await expect(p.locator('#conversation-transport-status')).toContainText('传输方式: 兼容星型同步');
+    await expect(p.locator('#conversation-fallback-status')).toContainText('当前未启用传输回退');
+    await expect(p.locator('#conversation-health-status')).toContainText('最近确认通信');
     await expect(p.locator('#conversation-message-input')).toHaveAttribute('placeholder', '输入消息...');
     await expect(p.locator('#send-conversation-message')).toHaveText('发送');
     await expect(p.locator('#conversation-messages')).toContainText('欢迎来到 IinPublic，Ming');

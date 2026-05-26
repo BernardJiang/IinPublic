@@ -1485,6 +1485,9 @@ export class IinPublicApp {
         otherUserName: resolvedOtherUserName,
         talkId: conversationData.talkId,
         respondedByBot: conversationData.respondedByBot,
+        supportChannel: conversationData.supportChannel,
+        transportMode: conversationData.transportMode,
+        transportFallbackReason: conversationData.transportFallbackReason,
       });
     }
   }

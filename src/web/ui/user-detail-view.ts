@@ -17,7 +17,11 @@ export type UserDetailViewDeps = {
   isSupportNotificationsMuted: () => boolean;
   setSupportNotificationsMuted: (muted: boolean) => Promise<void>;
   sendDirectMessage: (peerId: string, peerName: string, text: string) => Promise<void>;
-  getTransportMode: () => string;
+  getTransportStatus: () => {
+    mode: string;
+    fallbackReason?: string | null;
+    lastHealthyAt?: string | null;
+  };
   text: (key: UiTranslationKey) => string;
   formatRelativeTime: (date: Date) => string;
   formatType: (type: string) => string;
@@ -318,11 +322,21 @@ function transportLabel(mode: string, deps: UserDetailViewDeps): string {
 }
 
 function renderTransportHtml(deps: UserDetailViewDeps): string {
-  const mode = deps.getTransportMode();
+  const status = deps.getTransportStatus();
+  const fallbackText = status.fallbackReason
+    ? format(deps, 'transportFallbackReason', { reason: status.fallbackReason })
+    : status.mode === 'star-gun'
+      ? deps.text('transportNoFallbackActive')
+      : deps.text('transportNoFallbackReported');
+  const lastHealthyText = status.lastHealthyAt
+    ? format(deps, 'transportLastHealthyContact', { time: deps.formatRelativeTime(new Date(status.lastHealthyAt)) })
+    : deps.text('transportNoHealthyContact');
   return `
-    <div class="peer-transport-status" data-transport-mode="${escapeHtml(mode)}" style="margin-bottom:12px;padding:10px 12px;border:1px solid #dbeafe;border-radius:10px;background:#eff6ff;color:#1e3a8a;font-size:0.86em;">
+    <div class="peer-transport-status" data-transport-mode="${escapeHtml(status.mode)}" style="margin-bottom:12px;padding:10px 12px;border:1px solid #dbeafe;border-radius:10px;background:#eff6ff;color:#1e3a8a;font-size:0.86em;">
       <span style="font-weight:700;">${deps.text('peerChannelStatus')}:</span>
-      ${transportLabel(mode, deps)}
+      ${transportLabel(status.mode, deps)}
+      <div class="peer-transport-fallback" style="margin-top:4px;color:#475569;">${escapeHtml(fallbackText)}</div>
+      <div class="peer-transport-health" style="margin-top:2px;color:#475569;">${escapeHtml(lastHealthyText)}</div>
     </div>
   `;
 }

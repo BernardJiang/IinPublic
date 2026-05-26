@@ -40,6 +40,8 @@ describe('UI translations', () => {
     expect(uiText('zh', 'peerChannelStatus')).toContain('频道传输');
     expect(uiText('zh', 'transportStarGun')).toContain('星型');
     expect(uiText('zh', 'conversationTransport')).toContain('传输');
+    expect(uiText('zh', 'transportNoFallbackActive')).toContain('未启用');
+    expect(uiText('zh', 'transportLastHealthyContact')).toContain('最近确认');
     expect(uiText('zh', 'surveyAnalyticsTitle')).toContain('问卷分析');
     expect(uiText('zh', 'surveyExportSummary')).toContain('导出');
     expect(uiText('zh', 'surveyFollowUpTitle')).toContain('后续问卷');

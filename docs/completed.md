@@ -40,8 +40,9 @@ Evidence:
 ## 2026-05-26 - Surface Active Conversation Transport
 
 Peer detail and conversation overlays now identify the active conversation transport mode with
-localized labels, including the current star-compatible default. Fallback reason and channel
-health remain tracked for a later diagnostic slice.
+localized labels, including the current star-compatible default. They also display any recorded
+fallback reason, explicitly state that no fallback is active for the current star path, and report
+the last delivered-message time as confirmed contact evidence.
 
 Evidence:
 

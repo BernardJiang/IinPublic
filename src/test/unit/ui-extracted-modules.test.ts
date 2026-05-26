@@ -249,7 +249,11 @@ describe('extracted UI helpers', () => {
         isSupportNotificationsMuted: () => false,
         setSupportNotificationsMuted: jest.fn().mockResolvedValue(undefined),
         sendDirectMessage: jest.fn().mockResolvedValue(undefined),
-        getTransportMode: () => 'star-gun',
+        getTransportStatus: () => ({
+          mode: 'server-relay',
+          fallbackReason: 'direct peer unavailable',
+          lastHealthyAt: '2026-04-21T10:00:00.000Z',
+        }),
         text,
         formatRelativeTime: () => '刚刚',
         formatType: () => '流程',
@@ -262,7 +266,9 @@ describe('extracted UI helpers', () => {
       expect(overlayText).toContain('语言: 中文');
       expect(overlayText).toContain('交换的话题');
       expect(overlayText).toContain('频道传输');
-      expect(overlayText).toContain('兼容星型同步');
+      expect(overlayText).toContain('加密中继');
+      expect(overlayText).toContain('回退原因：direct peer unavailable');
+      expect(overlayText).toContain('最近确认通信：刚刚');
       expect(overlayText).toContain('流程');
       expect(overlayText).toContain('刚刚');
       expect(overlayText).toContain('对话（1）');

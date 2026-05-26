@@ -570,7 +570,9 @@ verified.
 
 - **Partially implemented in current working tree: support-channel status.** Peer detail and
   conversation overlays show the active transport mode as star-compatible sync, encrypted relay,
-  or direct P2P. Future work remains for fallback reason and last healthy contact time.
+  or direct P2P, preserve/display an explicit fallback reason when recorded, report when no fallback
+  is active on the current star path, and display the most recent confirmed delivered-message time.
+  Future work remains for live P2P health negotiation beyond recorded conversation evidence.
 - **Future work: message privacy verification.** Add visible diagnostics and tests proving direct
   message bodies are not persisted in public Gun shared paths when direct/relay modes are active.
 - **Future work: translation in direct messages.** If two users do not share a language, surface the
