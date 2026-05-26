@@ -528,8 +528,8 @@ verified.
   generic `Custom` label.
 - **Partially implemented in current working tree: contact detail parity.** Contact detail now
   exposes localized profile languages, exchanged talk history, saved relationship notes, public
-  credit/privacy state, and two-way block status. Future work remains for shared-tag drilldown and
-  transport/support/P2P channel health.
+  credit/privacy state, two-way block status, and the active conversation transport in the reachable
+  peer overlay. Future work remains for shared-tag drilldown and transport fallback/health detail.
 - **Implemented in current working tree: high-volume responder ranking.** Contacts supports
   ranking/filtering by matched-talk count, match rate, recency, relationship, and transparent
   weighted relevance, while keeping alphabetical/chronological options and the pinned
@@ -568,9 +568,9 @@ verified.
 
 ### Conversation and Peer Detail Overlays
 
-- **Future work: support-channel status.** Peer detail and conversation overlays should show whether
-  a conversation is star-gun, encrypted relay, or direct P2P, plus fallback reason and last healthy
-  contact time.
+- **Partially implemented in current working tree: support-channel status.** Peer detail and
+  conversation overlays show the active transport mode as star-compatible sync, encrypted relay,
+  or direct P2P. Future work remains for fallback reason and last healthy contact time.
 - **Future work: message privacy verification.** Add visible diagnostics and tests proving direct
   message bodies are not persisted in public Gun shared paths when direct/relay modes are active.
 - **Future work: translation in direct messages.** If two users do not share a language, surface the

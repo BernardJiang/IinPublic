@@ -249,6 +249,7 @@ describe('extracted UI helpers', () => {
         isSupportNotificationsMuted: () => false,
         setSupportNotificationsMuted: jest.fn().mockResolvedValue(undefined),
         sendDirectMessage: jest.fn().mockResolvedValue(undefined),
+        getTransportMode: () => 'star-gun',
         text,
         formatRelativeTime: () => '刚刚',
         formatType: () => '流程',
@@ -260,6 +261,8 @@ describe('extracted UI helpers', () => {
       expect(overlayText).toContain('公开资料');
       expect(overlayText).toContain('语言: 中文');
       expect(overlayText).toContain('交换的话题');
+      expect(overlayText).toContain('频道传输');
+      expect(overlayText).toContain('兼容星型同步');
       expect(overlayText).toContain('流程');
       expect(overlayText).toContain('刚刚');
       expect(overlayText).toContain('对话（1）');

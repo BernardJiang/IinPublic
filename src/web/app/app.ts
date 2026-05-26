@@ -465,6 +465,7 @@ export class IinPublicApp {
       otherUserId: TECHSUPPORT_ROOT_USER_ID,
       otherUserName: TECHSUPPORT_STAGE_NAME,
       supportChannel: true,
+      transportMode: this.conversationService.getTransportMode(),
     });
     this.uiManager.updateConversationMessage(conversationId, welcome, now);
     if (!this.uiManager.isSupportNotificationsMuted()) {

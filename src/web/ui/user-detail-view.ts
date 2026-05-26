@@ -17,6 +17,7 @@ export type UserDetailViewDeps = {
   isSupportNotificationsMuted: () => boolean;
   setSupportNotificationsMuted: (muted: boolean) => Promise<void>;
   sendDirectMessage: (peerId: string, peerName: string, text: string) => Promise<void>;
+  getTransportMode: () => string;
   text: (key: UiTranslationKey) => string;
   formatRelativeTime: (date: Date) => string;
   formatType: (type: string) => string;
@@ -260,7 +261,7 @@ async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserD
     }
 
     if (statsEl) {
-      statsEl.innerHTML = renderProfileHtml(publicUser, deps) + renderStatsHtml(stats, deps);
+      statsEl.innerHTML = renderProfileHtml(publicUser, deps) + renderTransportHtml(deps) + renderStatsHtml(stats, deps);
     }
     await applySendButtonFromBlockStatus(peerId, deps);
 
@@ -306,6 +307,22 @@ function renderProfileHtml(publicUser: any, deps: UserDetailViewDeps): string {
           </div>
         </div>
       </div>
+    </div>
+  `;
+}
+
+function transportLabel(mode: string, deps: UserDetailViewDeps): string {
+  if (mode === 'direct-p2p') return deps.text('transportDirectP2P');
+  if (mode === 'server-relay') return deps.text('transportServerRelay');
+  return deps.text('transportStarGun');
+}
+
+function renderTransportHtml(deps: UserDetailViewDeps): string {
+  const mode = deps.getTransportMode();
+  return `
+    <div class="peer-transport-status" data-transport-mode="${escapeHtml(mode)}" style="margin-bottom:12px;padding:10px 12px;border:1px solid #dbeafe;border-radius:10px;background:#eff6ff;color:#1e3a8a;font-size:0.86em;">
+      <span style="font-weight:700;">${deps.text('peerChannelStatus')}:</span>
+      ${transportLabel(mode, deps)}
     </div>
   `;
 }

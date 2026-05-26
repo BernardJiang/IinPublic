@@ -37,6 +37,9 @@ describe('UI translations', () => {
     expect(uiText('zh', 'conversationNotInChatroom')).toContain('聊天室');
     expect(uiText('zh', 'conversationMessageSent')).toContain('已发送');
     expect(uiText('zh', 'conversationLoadFailed')).toContain('加载对话');
+    expect(uiText('zh', 'peerChannelStatus')).toContain('频道传输');
+    expect(uiText('zh', 'transportStarGun')).toContain('星型');
+    expect(uiText('zh', 'conversationTransport')).toContain('传输');
     expect(uiText('zh', 'surveyAnalyticsTitle')).toContain('问卷分析');
     expect(uiText('zh', 'surveyExportSummary')).toContain('导出');
     expect(uiText('zh', 'surveyFollowUpTitle')).toContain('后续问卷');

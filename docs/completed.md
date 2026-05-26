@@ -37,6 +37,18 @@ Evidence:
 - Tests: `src/test/unit/contacts-view.test.ts`,
   `tests/e2e/staged/stage3-three-user/14-contacts-relationship-credit.spec.ts`
 
+## 2026-05-26 - Surface Active Conversation Transport
+
+Peer detail and conversation overlays now identify the active conversation transport mode with
+localized labels, including the current star-compatible default. Fallback reason and channel
+health remain tracked for a later diagnostic slice.
+
+Evidence:
+
+- Peer and conversation UI: `src/web/ui/user-detail-view.ts`, `src/web/ui/ui-manager.ts`
+- Tests: `src/test/unit/ui-extracted-modules.test.ts`, `src/test/unit/ui-translations.test.ts`,
+  `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-26 - Reconcile Shipped Talk And Ranking Diagnostics
 
 The active backlog now reflects existing shipped behavior for localized OUT/IN talk badges,

@@ -869,6 +869,7 @@ export class UIManager extends EventEmitter {
                 <div class="conversation-detail-info" id="conversation-detail-info">
                   <div class="conversation-detail-name" id="conversation-user-name">User</div>
                   <div class="conversation-detail-status" id="conversation-status">Online</div>
+                  <div class="conversation-transport-status" id="conversation-transport-status"></div>
                 </div>
               </div>
               <div class="conversation-messages" id="conversation-messages">
@@ -3759,6 +3760,12 @@ export class UIManager extends EventEmitter {
     return match ? this.formatSupportWelcome(match[1] || '') : message;
   }
 
+  private formatTransportMode(mode: string): string {
+    if (mode === 'direct-p2p') return this.t('transportDirectP2P');
+    if (mode === 'server-relay') return this.t('transportServerRelay');
+    return this.t('transportStarGun');
+  }
+
   showConversationDetail(conversationId: string): void {
     const conversations = this.getMyConversations();
     const conversation = conversations[conversationId];
@@ -3778,6 +3785,12 @@ export class UIManager extends EventEmitter {
     if (userName) userName.textContent = conversation.otherUserName || this.t('conversationUnknown');
     const status = document.getElementById('conversation-status');
     if (status) status.textContent = this.t('online');
+    const transportStatus = document.getElementById('conversation-transport-status');
+    if (transportStatus) {
+      const mode = String(conversation.transportMode || 'star-gun');
+      transportStatus.dataset.transportMode = mode;
+      transportStatus.textContent = `${this.t('conversationTransport')}: ${this.formatTransportMode(mode)}`;
+    }
     const messagesContainer = document.getElementById('conversation-messages');
     if (messagesContainer) {
       messagesContainer.innerHTML = `<p style="text-align: center; padding: 20px; color: #999;">${escapeHtml(this.t('conversationStart'))}</p>`;
@@ -6061,6 +6074,12 @@ export class UIManager extends EventEmitter {
       isSupportContact: (candidateId: string) => candidateId === TECHSUPPORT_ROOT_USER_ID,
       isSupportNotificationsMuted: this.isSupportNotificationsMuted.bind(this),
       setSupportNotificationsMuted: this.setSupportNotificationsMuted.bind(this),
+      getTransportMode: () => {
+        const conversation = Object.values(this.getMyConversations()).find(
+          (candidate: any) => candidate?.otherUserId === userId,
+        ) as { transportMode?: string } | undefined;
+        return String(conversation?.transportMode || 'star-gun');
+      },
       text: this.t.bind(this),
       formatRelativeTime: this.formatTalkRelativeTime.bind(this),
       formatType: this.formatTalkType.bind(this),
@@ -6265,6 +6284,7 @@ export class UIManager extends EventEmitter {
     talkId?: string;
     respondedByBot?: boolean;
     supportChannel?: boolean;
+    transportMode?: string;
   }): void {
     const conversations = this.getMyConversations();
     const existing = conversations[conversationData.conversationId];
@@ -6297,6 +6317,7 @@ export class UIManager extends EventEmitter {
       unread: isSupportChannel ? false : (isNew ? true : (existing?.unread ?? false)),
       respondedByBot,
       supportChannel: isSupportChannel,
+      transportMode: existing?.transportMode ?? conversationData.transportMode ?? 'star-gun',
     };
 
     localStorage.setItem('myConversations', JSON.stringify(conversations));
