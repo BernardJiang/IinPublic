@@ -29,7 +29,8 @@ Evidence:
 
 Ordinary Contact detail now shows saved relationship notes, public-credit privacy state, and
 whether delivery is blocked in either direction without requiring the user to open the edit modal.
-Transport and P2P channel-health display remains tracked as future work.
+Recorded transport fallback/no-fallback state and confirmed-contact display are covered by the
+subsequent conversation-transport work; live P2P health negotiation remains future work.
 
 Evidence:
 
@@ -48,6 +49,18 @@ Evidence:
 
 - Peer and conversation UI: `src/web/ui/user-detail-view.ts`, `src/web/ui/ui-manager.ts`
 - Tests: `src/test/unit/ui-extracted-modules.test.ts`, `src/test/unit/ui-translations.test.ts`,
+  `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
+## 2026-05-26 - Expose Runtime Feature Diagnostics
+
+Settings Storage Inspector now explicitly displays the runtime state of star persistence, P2P-node
+and direct-chat enablement, transport fallback availability, and built-in TechSupport bootstrap.
+
+Evidence:
+
+- Settings UI and translations: `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`
+- Tests: `src/test/unit/ui-translations.test.ts`,
+  `tests/e2e/staged/stage1-single-user/00-p2p-star-baseline-storage.spec.ts`,
   `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
 
 ## 2026-05-26 - Reconcile Shipped Talk And Ranking Diagnostics

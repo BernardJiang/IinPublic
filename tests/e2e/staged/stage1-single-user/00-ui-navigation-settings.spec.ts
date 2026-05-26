@@ -218,6 +218,10 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#storage-inspector-flags')).toContainText('模式');
     await expect(p.locator('#storage-inspector-flags')).toContainText('本地节点');
     await expect(p.locator('#storage-inspector-flags')).toContainText('已禁用');
+    await expect(p.locator('#storage-inspector-runtime-features')).toContainText('传输回退');
+    await expect(p.locator('#storage-inspector-runtime-features')).toContainText('无');
+    await expect(p.locator('#storage-inspector-runtime-features')).toContainText('支持引导');
+    await expect(p.locator('#storage-inspector-runtime-features')).toContainText('活动');
     await expect(p.locator('#storage-inspector-app-state')).toContainText('TechSupport 根身份');
     await expect(p.locator('#storage-inspector-app-state')).toContainText('支持频道');
     await expect(p.locator('#storage-inspector-app-state')).toContainText('接收话题语言');

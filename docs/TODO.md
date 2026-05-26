@@ -529,7 +529,8 @@ verified.
 - **Partially implemented in current working tree: contact detail parity.** Contact detail now
   exposes localized profile languages, exchanged talk history, saved relationship notes, public
   credit/privacy state, two-way block status, and the active conversation transport in the reachable
-  peer overlay. Future work remains for shared-tag drilldown and transport fallback/health detail.
+  peer overlay, including recorded fallback/no-fallback state and last confirmed message contact.
+  Future work remains for shared-tag drilldown and live transport health negotiation.
 - **Implemented in current working tree: high-volume responder ranking.** Contacts supports
   ranking/filtering by matched-talk count, match rate, recency, relationship, and transparent
   weighted relevance, while keeping alphabetical/chronological options and the pinned
@@ -631,9 +632,10 @@ verified.
   dashboard renderer, but the current bottom navigation exposes only Chatrooms, Contacts, Talks, Me,
   and Settings. Decide whether Statistics is a real tab, an admin/debug surface, or archived code;
   then add navigation, permissions, and verification or remove it from active scope.
-- **Future work: document all feature flags in Settings.** P2P node, direct chat, star persistence,
-  transport fallback, and support bootstrap should be visible as user/developer diagnostics with
-  exact runtime values.
+- **Implemented in current working tree: runtime feature diagnostics.** Settings reports star
+  persistence, P2P-node and direct-chat enablement, active transport fallback availability, and
+  whether built-in TechSupport bootstrap has established this user's support channel using the
+  current runtime/app state values.
 
 ## E2E Stage Pipeline: TechSupport as Stage 0 Baseline
 

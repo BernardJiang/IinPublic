@@ -58,6 +58,10 @@ test.describe('P2P roadmap P1 — star baseline storage visibility', () => {
     await expect(p.locator('#storage-inspector-flags')).toContainText('Local node');
     await expect(p.locator('#storage-inspector-flags')).toContainText('disabled');
     await expect(p.locator('#storage-inspector-flags')).toContainText('Direct chat');
+    await expect(p.locator('#storage-inspector-runtime-features')).toContainText('Transport fallback');
+    await expect(p.locator('#storage-inspector-runtime-features')).toContainText('none');
+    await expect(p.locator('#storage-inspector-runtime-features')).toContainText('Support bootstrap');
+    await expect(p.locator('#storage-inspector-runtime-features')).toContainText(/active|not run/);
     await expect(p.locator('#storage-inspector-server')).toContainText('chatrooms/{chatroomId}');
     await expect(p.locator('#storage-inspector-local')).toContainText('iinpublic_user_id');
   });

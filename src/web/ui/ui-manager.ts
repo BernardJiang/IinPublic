@@ -3102,6 +3102,7 @@ export class UIManager extends EventEmitter {
     }
 
     const flags = serverStorage?.flags || {};
+    const transport = serverStorage?.conversationTransport || {};
     const serverRows = serverStorage?.pathClassifications || [];
     body.innerHTML = `
       <div style="display:grid;gap:12px;">
@@ -3110,6 +3111,10 @@ export class UIManager extends EventEmitter {
           ${this.renderStoragePill(this.t('storagePersistence'), this.storageValue(flags.starServerPersistence || 'unknown'))}
           ${this.renderStoragePill(this.t('storageLocalNode'), this.storageValue(flags.p2pNodeEnabled ? 'enabled' : 'disabled'))}
           ${this.renderStoragePill(this.t('storageDirectChat'), this.storageValue(flags.p2pDirectChatEnabled ? 'enabled' : 'disabled'))}
+        </div>
+        <div id="storage-inspector-runtime-features" style="display:flex;flex-wrap:wrap;gap:8px;">
+          ${this.renderStoragePill(this.t('storageTransportFallback'), transport.fallback || this.t('storageNone'))}
+          ${this.renderStoragePill(this.t('storageSupportBootstrap'), this.storageValue(this.hasSupportContact() ? 'active' : 'not run'))}
         </div>
         ${this.renderAppStateInspector()}
         ${this.renderLocalNodeInspector(serverStorage?.localNode)}
