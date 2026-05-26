@@ -10,6 +10,9 @@ export type CustomChatroomRow = {
   type: string;
   description?: string;
   createdBy?: string;
+  capacity?: number;
+  createdAt?: string | Date;
+  businessInfo?: { headline?: string };
 };
 
 type ChatroomsViewDeps = {
@@ -28,6 +31,7 @@ type ChatroomsViewDeps = {
   currentUserId: string;
   apiBase: string;
   text: (key: UiTranslationKey) => string;
+  formatDate: (date: Date) => string;
 };
 
 export function syncStatusBroadcastButtonVisibility(currentChatroom: string): void {
@@ -56,6 +60,43 @@ function formatMetrics(
     .replace('{members}', formatCount(memberCount, 'chatroomMemberOne', 'chatroomMembers'))
     .replace('{visits}', formatCount(visits.visitCount, 'chatroomVisitOne', 'chatroomVisits'))
     .replace('{unique}', formatCount(visits.uniqueVisitorCount, 'chatroomUniqueOne', 'chatroomUniqueVisitors'));
+}
+
+function renderCustomRoomMetadata(deps: ChatroomsViewDeps, custom: CustomChatroomRow | undefined): void {
+  const container = document.getElementById('chatroom-metadata');
+  if (!container) return;
+  if (!custom) {
+    container.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+
+  const memberCount = deps.chatroomMemberCounts.get(custom.id) || 0;
+  const visits = deps.chatroomVisitCounts.get(custom.id) || { visitCount: 0, uniqueVisitorCount: 0 };
+  const createdAt = custom.createdAt ? new Date(custom.createdAt) : null;
+  const createdLabel = createdAt && !Number.isNaN(createdAt.getTime())
+    ? deps.formatDate(createdAt)
+    : deps.text('unavailable');
+  const value = (text: string | number): string => deps.escapeHtml(String(text));
+  const row = (label: UiTranslationKey, text: string | number): string => `
+    <div class="chatroom-metadata-row">
+      <span>${value(deps.text(label))}</span>
+      <strong>${value(text)}</strong>
+    </div>`;
+
+  container.style.display = 'block';
+  container.innerHTML = `
+    <div class="chatroom-metadata-title">${value(deps.text('chatroomDetails'))}</div>
+    ${row('chatroomType', deps.text(custom.type === 'business' ? 'chatroomTypeBusiness' : 'chatroomTypeCommunity'))}
+    ${row('chatroomDescription', custom.description || deps.text('unavailable'))}
+    ${custom.type === 'business' ? row('chatroomBusinessHeadlineLabel', custom.businessInfo?.headline || deps.text('unavailable')) : ''}
+    ${row('chatroomCapacity', custom.capacity || deps.text('unavailable'))}
+    ${row('chatroomOwner', custom.createdBy || deps.text('unavailable'))}
+    ${row('chatroomCreatedDate', createdLabel)}
+    ${row('chatroomActiveMembers', memberCount)}
+    ${row('chatroomLifetimeVisits', visits.visitCount)}
+    ${row('chatroomUniqueVisitorsLabel', visits.uniqueVisitorCount)}
+  `;
 }
 
 export function renderChatroomList(deps: ChatroomsViewDeps): void {
@@ -184,6 +225,7 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
   if (headerTitle) headerTitle.textContent = roomName;
   if (chatroomTitle) chatroomTitle.textContent = roomName;
   if (chatroomStatus) chatroomStatus.textContent = deps.text('chatroomLoadingMembers');
+  renderCustomRoomMetadata(deps, custom);
 
   deps.setCurrentChatroom(chatroomId);
   syncStatusBroadcastButtonVisibility(chatroomId);
@@ -231,6 +273,7 @@ export function updateChatroomMembers(
 
   deps.chatroomMemberCounts.set(deps.currentChatroom, memberCount);
   deps.renderChatroomList();
+  renderCustomRoomMetadata(deps, deps.customChatrooms.find((custom) => custom.id === deps.currentChatroom));
   deps.setCurrentChatroomMembers(otherMembers);
 
   if (chatroomMembersList) {

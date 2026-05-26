@@ -498,10 +498,9 @@ verified.
 - **Implemented in current working tree: TechSupport global anchor.** First-run bootstrap creates
   the canonical `TechSupport` root before ordinary users, seeds Global, and prevents fresh ordinary
   users from seeing a truly empty network when the server graph is reachable.
-- **Future work: room metadata completeness.** Custom/business rooms collect type, headline,
-  description, capacity, and owner, but the room list/detail view does not yet show all of that
-  metadata. Add capacity, description, business headline, owner, created date, active members,
-  absolute visitor count, and unique visitors to the detail panel.
+- **Implemented in current working tree: room metadata completeness.** Custom/business room
+  detail now displays type, description, business headline, capacity, owner, creation date,
+  active members, lifetime visits, and unique visitors with localized labels.
 - **Implemented in current working tree: visit and membership audit tests.** Active duplicate
   joins no longer refresh FIFO membership or increment lifetime visits; unit/E2E coverage verifies
   active-member decrement, rejoin counting, unique visitor stability, retained soft-deleted-room

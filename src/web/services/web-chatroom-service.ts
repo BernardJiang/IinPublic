@@ -710,6 +710,14 @@ export class WebChatroomService {
               const dateB = new Date(b.joinedAt).getTime();
               return dateA - dateB;
             });
+            const newestUser = activeUsers[activeUsers.length - 1];
+            if (newestUser && newestUser.userId !== newUserId) {
+              console.log(
+                `⏭️  Skipping stale capacity check for ${newUserId}; newer join ${newestUser.userId} owns overflow resolution`,
+              );
+              resolve();
+              return;
+            }
 
             const oldestUser = activeUsers.find((user) => user.userId !== newUserId);
 

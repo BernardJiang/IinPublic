@@ -645,6 +645,35 @@ body {
   color: #999;
 }
 
+#chatroom-metadata {
+  margin: 8px 16px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f8f9fa;
+}
+
+.chatroom-metadata-title {
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #333;
+}
+
+.chatroom-metadata-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  font-size: 0.85em;
+  color: #666;
+}
+
+.chatroom-metadata-row strong {
+  text-align: right;
+  color: #333;
+  font-weight: 500;
+}
+
 /* Contacts View */
 #contacts-list-container {
   flex: 1;

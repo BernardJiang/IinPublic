@@ -703,14 +703,31 @@ test.describe('UI navigation and settings shell', () => {
   test('custom room creation opens the newly created room', async () => {
     const p = page!;
     const roomName = `Mesa College ${Date.now()}`;
+    const description = 'Coffee, study, and campus events';
+    const headline = 'Open late for students';
 
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
     await p.locator('#create-custom-chatroom-btn').click();
+    await p.locator('#custom-room-type').selectOption('business');
+    await p.locator('#custom-room-business-headline').fill(headline);
     await p.locator('#custom-room-name').fill(roomName);
+    await p.locator('#custom-room-description').fill(description);
+    await p.locator('#custom-room-capacity').fill('120');
     await p.locator('[data-testid="custom-room-submit-btn"]').click();
 
     await expect(p.locator('#current-chatroom-title')).toContainText(roomName, { timeout: 20_000 });
+    const metadata = p.locator('#chatroom-metadata');
+    await expect(metadata).toContainText('Room details');
+    await expect(metadata).toContainText('Business');
+    await expect(metadata).toContainText(description);
+    await expect(metadata).toContainText(headline);
+    await expect(metadata).toContainText('120');
+    await expect(metadata).toContainText('Owner');
+    await expect(metadata).toContainText('Created');
+    await expect(metadata).toContainText('Active members');
+    await expect(metadata).toContainText('Lifetime visits');
+    await expect(metadata).toContainText('Unique visitors');
 
     await p.locator('#back-to-chatrooms').click();
     await afterNav();

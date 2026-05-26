@@ -12,6 +12,31 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-25 - Stable Concurrent Capacity Overflow
+
+FIFO room overflow now lets only the newest active join resolve a capacity breach, preventing
+delayed checks from evicting multiple occupants during concurrent room entry. The regional spread
+proof now starts users in their declared parent rooms and verifies the intentional USA-to-region
+overflow without an artificial all-Global relocation race.
+
+Evidence:
+
+- Capacity enforcement: `src/web/services/web-chatroom-service.ts`
+- Browser proof: `tests/e2e/staged/stage5-multi-user/00k-capacity-regional-spread.spec.ts`
+
+## 2026-05-25 - Complete Custom Room Detail Metadata
+
+Custom and business room detail views now expose the metadata collected at creation: room type,
+description, business headline, capacity, owner, creation date, active member count, lifetime
+visits, and unique visitor count, using localized labels.
+
+Evidence:
+
+- Detail rendering and localized catalog: `src/web/ui/chatrooms-view.ts`,
+  `src/web/ui/ui-translations.ts`, `src/web/ui/ui-manager.ts`
+- Metadata propagation and UI proof: `src/web/app/app.ts`,
+  `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - Idempotent Room Visits And Membership Audits
 
 Duplicate joins from an already-active member no longer increment lifetime visit totals or reset

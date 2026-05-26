@@ -43,10 +43,11 @@ test.describe('Capacity regional spread', () => {
       contexts.push(context);
       const page = await context.newPage();
       pages.push(page);
-      await page.addInitScript((location) => {
-        (window as any).__test_location = { ...location, accuracy: 25 };
-      }, TARGETS[i].location);
       await injectIdbClear(page);
+      await page.addInitScript(({ location, room }) => {
+        (window as any).__test_location = { ...location, accuracy: 25 };
+        localStorage.setItem('iinpublic_last_chatroom', room);
+      }, TARGETS[i]);
       await page.goto(webBaseURL() + E2E_URL);
       await page.waitForLoadState('load');
       await afterLoad();
@@ -54,17 +55,6 @@ test.describe('Capacity regional spread', () => {
         const app = (window as any).__iinpublic_app?.getApp?.();
         if (app?.uiManager) app.uiManager.currentUserStageName = `Capacity User ${index + 1}`;
       }, i);
-    }
-
-    for (let i = 0; i < pages.length; i++) {
-      await pages[i].evaluate(async ({ room, index }) => {
-        const app = (window as any).__iinpublic_app?.getApp?.();
-        const user = app?.currentUser;
-        if (!app || !user) throw new Error('App user unavailable');
-        await app.chatroomService.switchChatroom(user.id, room, `Capacity User ${index + 1}`);
-        app.currentChatroomId = room;
-        app.uiManager.setCurrentChatroomId(room);
-      }, { room: TARGETS[i].room, index: i });
     }
 
     await afterSync();

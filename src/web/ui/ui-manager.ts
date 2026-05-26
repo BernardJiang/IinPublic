@@ -708,6 +708,7 @@ export class UIManager extends EventEmitter {
                 </div>
               </div>
               <div id="chatroom-owner-bar" style="display: none; padding: 0 16px;"></div>
+              <div id="chatroom-metadata" style="display: none;"></div>
               <div class="chatroom-members-list" id="chatroom-members-list">
                 <p style="text-align: center; padding: 20px; color: #999;">Loading members...</p>
               </div>
@@ -1472,6 +1473,11 @@ export class UIManager extends EventEmitter {
       ownerBar.style.display = 'none';
       ownerBar.innerHTML = '';
     }
+    const metadata = document.getElementById('chatroom-metadata');
+    if (metadata) {
+      metadata.style.display = 'none';
+      metadata.innerHTML = '';
+    }
 
     // Chatrooms is already identified in the bottom navigation; keep the header focused on status.
     const headerTitle = document.getElementById('header-title');
@@ -1590,6 +1596,7 @@ export class UIManager extends EventEmitter {
       currentUserId: this.currentUserId,
       apiBase: this.apiBase,
       text: this.t.bind(this),
+      formatDate: this.formatUiDate.bind(this),
     };
   }
 
@@ -1622,6 +1629,9 @@ export class UIManager extends EventEmitter {
               type?: string;
               description?: string;
               createdBy?: string;
+              capacity?: number;
+              createdAt?: string;
+              businessInfo?: { headline?: string };
             }
           : null;
         const createdId = String(created?.id || '').trim();
@@ -1632,6 +1642,13 @@ export class UIManager extends EventEmitter {
             type: created?.type === 'business' ? 'business' : 'custom',
             description: String(created?.description || payload.description || ''),
             createdBy: String(created?.createdBy || creatorId),
+            ...(created?.capacity != null || payload.capacity != null
+              ? { capacity: created?.capacity ?? payload.capacity! }
+              : {}),
+            ...(created?.createdAt != null ? { createdAt: created.createdAt } : {}),
+            ...(created?.businessInfo != null || payload.businessInfo != null
+              ? { businessInfo: created?.businessInfo ?? payload.businessInfo! }
+              : {}),
           });
           this.showChatroomDetail(createdId);
         }

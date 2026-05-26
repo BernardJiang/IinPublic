@@ -117,6 +117,9 @@ export class IinPublicApp {
         type: string;
         description?: string;
         createdBy?: string;
+        capacity?: number;
+        createdAt?: string;
+        businessInfo?: { headline?: string };
       }>;
       if (!Array.isArray(rows)) return;
       this.uiManager.setCustomChatroomsFromServer(rows);
@@ -2284,7 +2287,16 @@ export class IinPublicApp {
             }),
           });
           const text = await res.text();
-          let created: { id?: string; name?: string; type?: string; description?: string; createdBy?: string } | null = null;
+          let created: {
+            id?: string;
+            name?: string;
+            type?: string;
+            description?: string;
+            createdBy?: string;
+            capacity?: number;
+            createdAt?: string;
+            businessInfo?: { headline?: string };
+          } | null = null;
           if (text) {
             try {
               created = JSON.parse(text) as {
@@ -2293,6 +2305,9 @@ export class IinPublicApp {
                 type?: string;
                 description?: string;
                 createdBy?: string;
+                capacity?: number;
+                createdAt?: string;
+                businessInfo?: { headline?: string };
               };
             } catch {
               created = null;
@@ -2310,6 +2325,13 @@ export class IinPublicApp {
               type: created?.type === 'business' ? 'business' : 'custom',
               description: String(created?.description || payload.description || ''),
               createdBy: String(created?.createdBy || this.currentUser.id),
+              ...(created?.capacity != null || payload.capacity != null
+                ? { capacity: created?.capacity ?? payload.capacity! }
+                : {}),
+              ...(created?.createdAt != null ? { createdAt: created.createdAt } : {}),
+              ...(created?.businessInfo != null || payload.businessInfo != null
+                ? { businessInfo: created?.businessInfo ?? payload.businessInfo! }
+                : {}),
             });
             this.uiManager.showChatroomDetail(createdId);
           }
