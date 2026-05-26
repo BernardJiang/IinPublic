@@ -121,8 +121,9 @@ senders and receivers. Existing filter plumbing is a foundation, not completion 
 - **Partially implemented: dirty-word filter completion.** Moderation matching now normalizes
   punctuation/case and has English/Chinese and benign-substring unit coverage; a real delivery
   scenario proves blocked content is absent with the toggle on and newly sent equivalent content
-  arrives after it is disabled. Future work remains for maintained multilingual moderation policy,
-  user-visible `intake_dirty_words` reporting, and full answer-text E2E proof.
+  arrives after it is disabled, including a clean-title talk blocked solely by a moderated answer
+  choice and allowed after the toggle is off. Future work remains for maintained multilingual
+  moderation policy and user-visible `intake_dirty_words` reporting.
 - **Partially implemented: remaining intake controls.** Real browser delivery coverage proves
   allowed talk-type rejection, adult/age gating, public-credit visibility behavior, custom blocked
   phrases, a persisted sent-after cutoff that rejects newly authored content until cleared, and

@@ -807,3 +807,13 @@ inclusive through the browser path.
 Evidence:
 
 - E2E: `tests/e2e/staged/stage3-three-user/00n-distance-intake-filter.spec.ts`
+
+## 2026-05-26 - Dirty Answer Choice Delivery Proof
+
+Extended content-intake delivery with clean-title talks whose answer choice alone contains
+moderated content. The talk stays out of IN while dirty-word filtering is enabled and reaches the
+receiver after that persisted toggle is disabled.
+
+Evidence:
+
+- E2E: `tests/e2e/staged/stage3-three-user/00o-content-intake-filter.spec.ts`

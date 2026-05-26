@@ -16,7 +16,12 @@ import {
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
 
-async function createFlowTalk(page: Page, title: string, questionText: string): Promise<void> {
+async function createFlowTalk(
+  page: Page,
+  title: string,
+  questionText: string,
+  answers: [string, string] = ['Yes', 'No'],
+): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterSync();
   await page.click('#create-talk-btn');
@@ -25,9 +30,9 @@ async function createFlowTalk(page: Page, title: string, questionText: string): 
   await page.selectOption('#talk-type', 'flow');
   const question = page.locator('.question-item').first();
   await question.locator('.question-text').fill(questionText);
-  await question.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes');
+  await question.locator('.answer-item').nth(0).locator('.answer-text').fill(answers[0]);
   await question.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
-  await question.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
+  await question.locator('.answer-item').nth(1).locator('.answer-text').fill(answers[1]);
   await question.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
   await page.click('#talk-editor-form button[type="submit"]');
   await afterSync();
@@ -110,6 +115,15 @@ test.describe('Incoming talk content intake filtering', () => {
     await createFlowTalk(pageTom, dirtyBlockedTitle, 'Would you like to join this community discussion?');
     await broadcastFromCurrentRoom(pageTom);
 
+    const dirtyAnswerBlockedTitle = 'Answer Choice Moderation Blocked';
+    await createFlowTalk(
+      pageTom,
+      dirtyAnswerBlockedTitle,
+      'Would you like to join this community discussion?',
+      ['Join this SCAM!!!', 'No thank you'],
+    );
+    await broadcastFromCurrentRoom(pageTom);
+
     await pageJerry.click('.nav-btn[data-view="talks"]');
     await afterSync();
     await syncIncomingFromServer(pageJerry);
@@ -117,6 +131,7 @@ test.describe('Incoming talk content intake filtering', () => {
     await expect(pageJerry.locator('#talks-list')).toContainText(cleanTitle);
     await expect(pageJerry.locator('#talks-list')).not.toContainText(grammarBlockedTitle);
     await expect(pageJerry.locator('#talks-list')).not.toContainText(dirtyBlockedTitle);
+    await expect(pageJerry.locator('#talks-list')).not.toContainText(dirtyAnswerBlockedTitle);
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
@@ -148,11 +163,22 @@ test.describe('Incoming talk content intake filtering', () => {
     await broadcastFromCurrentRoom(pageTom);
     await waitForIncomingTalkClusterOnServer(pageJerry, dirtyAllowedTitle);
 
+    const dirtyAnswerAllowedTitle = 'Answer Choice Moderation Allowed';
+    await createFlowTalk(
+      pageTom,
+      dirtyAnswerAllowedTitle,
+      'Would you like to join this community discussion?',
+      ['Join this SCAM!!!', 'No thank you'],
+    );
+    await broadcastFromCurrentRoom(pageTom);
+    await waitForIncomingTalkClusterOnServer(pageJerry, dirtyAnswerAllowedTitle);
+
     await pageJerry.click('.nav-btn[data-view="talks"]');
     await afterSync();
     await syncIncomingFromServer(pageJerry);
     await afterSync();
     await expect(pageJerry.locator('#talks-list')).toContainText(grammarAllowedTitle);
     await expect(pageJerry.locator('#talks-list')).toContainText(dirtyAllowedTitle);
+    await expect(pageJerry.locator('#talks-list')).toContainText(dirtyAnswerAllowedTitle);
   });
 });
