@@ -787,3 +787,13 @@ Evidence:
 - E2E: `tests/e2e/staged/stage3-three-user/00q-expiration-broadcast.spec.ts`
 - Existing E2E: `tests/e2e/staged/stage2-two-user/15a-blocking-unblock-resumes-talk-delivery.spec.ts`
 - Existing E2E: `tests/e2e/staged/stage2-two-user/15b-blocking-stops-delivery-and-peer-visibility.spec.ts`
+
+## 2026-05-26 - Delivered Auto-Copy Toggle Proof
+
+Extended the real sender/receiver browser path with two delivered matching talks. With auto-copy
+disabled, the receiver retains answer history without an OUT copy; after enabling the persisted
+setting, the second delivered talk is saved as a copied OUT talk while both history records remain.
+
+Evidence:
+
+- E2E: `tests/e2e/staged/stage3-three-user/00l-chatroom-talks-ui-regressions.spec.ts`

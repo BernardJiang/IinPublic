@@ -102,10 +102,11 @@ senders and receivers. Existing filter plumbing is a foundation, not completion 
   then enables Spanish and proves a newly sent Spanish talk appears. Future work remains to make the
   real broadcast preview reliably report its `intake_language` rejection under synchronized browser
   load rather than falling back to final-send checking.
-- **Partially implemented: Talk Behavior checkbox proof.** The Settings E2E path verifies persisted
-  auto-copy on/off behavior with copied OUT versus history-only answer state, and the exact-memory
-  multi-user path verifies chatbot off blocks a compatible auto reply while chatbot on creates one.
-  Future work remains to drive auto-copy on/off through a real sender/receiver delivery exchange.
+- **Implemented: Talk Behavior checkbox proof.** The Settings E2E path verifies persisted auto-copy
+  on/off behavior, and a real sender/receiver delivery exchange now proves a matched talk remains
+  history-only while auto-copy is off and becomes a copied OUT talk after it is enabled. The
+  exact-memory multi-user path verifies chatbot off blocks a compatible auto reply while chatbot on
+  creates one.
 - **Partially implemented: min/max distance acceptance.** A deterministic multi-user browser
   scenario persists the receiver's distance band and sends talks from below its minimum, inside the
   band, and above its maximum, proving only the in-band talk reaches IN. Existing Settings coverage
