@@ -121,10 +121,12 @@ senders and receivers. Existing filter plumbing is a foundation, not completion 
   scenario proves blocked content is absent with the toggle on and newly sent equivalent content
   arrives after it is disabled. Future work remains for maintained multilingual moderation policy,
   user-visible `intake_dirty_words` reporting, and full answer-text E2E proof.
-- **Every remaining intake control.** Add user-facing proof for allowed talk types, custom blocked
-  phrases, sent-after, adult/age gating, blocked users, expiration, and reputation/credit visibility
-  where it affects delivery or display. Settings should preview hidden counts by reason before and
-  after each selection rather than only showing a total filtered count.
+- **Partially implemented: remaining intake controls.** Real browser delivery coverage proves
+  allowed talk-type rejection, adult/age gating, public-credit visibility behavior, custom blocked
+  phrases, and a persisted sent-after cutoff that rejects newly authored content until cleared.
+  Future work remains for blocked-user and expiration delivery scenarios, and Settings should
+  preview hidden counts by reason before and after each selection rather than only showing a total
+  filtered count.
 
 Exit criteria: each Settings behavior/filter control has at least one allow path, one reject/disabled
 path, persisted state verification, and an intelligible reason visible to the user where applicable.

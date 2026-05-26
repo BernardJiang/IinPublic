@@ -193,6 +193,14 @@ function normalizeTalkFilterShape(
   };
 }
 
+function datetimeLocalValue(value: string | undefined): string {
+  if (!value) return '';
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) return '';
+  const localTimestamp = new Date(timestamp.getTime() - timestamp.getTimezoneOffset() * 60_000);
+  return localTimestamp.toISOString().slice(0, 16);
+}
+
 export class UIManager extends EventEmitter {
   private appContainer?: HTMLElement;
   private currentUser?: User;
@@ -2642,7 +2650,7 @@ export class UIManager extends EventEmitter {
           <div style="margin-top:4px;font-size:0.82em;color:#64748b;">${this.t('settingsLocation')}: ${escapeHtml(locationText)}</div>
           <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
             <span>${this.t('settingsSentAfter')}</span>
-            <input type="datetime-local" class="form-input" id="settings-sent-after" value="${escapeHtml(talkFilters.sentAfter ? String(talkFilters.sentAfter).slice(0, 16) : '')}">
+            <input type="datetime-local" class="form-input" id="settings-sent-after" value="${escapeHtml(datetimeLocalValue(talkFilters.sentAfter))}">
           </label>
         </section>
         <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">

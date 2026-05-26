@@ -759,3 +759,18 @@ Evidence:
 
 - E2E: `tests/e2e/staged/stage3-three-user/00o-content-intake-filter.spec.ts`
 - Unit: `src/test/unit/intake-filter-reasons.test.ts`
+
+## 2026-05-26 - Custom Phrase and Sent-After Delivery Proof
+
+Added a real two-user browser scenario for custom blocked phrases and the sent-after cutoff:
+matching or future-cutoff content stays out of IN while each persisted control is active, and newly
+sent content reaches IN after the receiver clears that control. Fixed the `datetime-local`
+round-trip so a stored ISO cutoff redisplays in the receiver's local wall-clock time after
+navigation. Existing delivery tests already cover allowed talk types, adult gating, and
+public-credit visibility behavior.
+
+Evidence:
+
+- E2E: `tests/e2e/staged/stage3-three-user/00p-custom-cutoff-intake-filter.spec.ts`
+- Existing E2E: `tests/e2e/staged/stage3-three-user/13-me-filters-credit.spec.ts`
+- Existing E2E: `tests/e2e/staged/stage3-three-user/00g-age-gating.spec.ts`
