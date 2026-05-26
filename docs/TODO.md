@@ -529,37 +529,38 @@ verified.
 - **Future work: contact detail parity.** Contact detail should show transport/channel health,
   latest support or P2P status, shared talks, shared tags, relationship notes, public credit, and
   whether delivery is blocked by either side.
-- **Future work: high-volume responder ranking.** When a creator receives replies across many
-  talks, Contacts must support ranking/filtering by matched-talk count, match rate, recent reply,
-  relationship, and a transparent weighted relevance score, while keeping alphabetical and
-  chronological options and excluding TechSupport traffic from ordinary rankings by default.
+- **Implemented in current working tree: high-volume responder ranking.** Contacts supports
+  ranking/filtering by matched-talk count, match rate, recency, relationship, and transparent
+  weighted relevance, while keeping alphabetical/chronological options and the pinned
+  TechSupport support contact outside ordinary peer ranking.
 
 ### Talks Tab
 
 - **Implemented in current working tree: default talk language from user settings.** The Talk editor
   now defaults new talks to the user's first profile language and provides an explicit language
   dropdown.
-- **Implemented in current working tree: talk language display.** OUT and IN talk rows now show the
-  talk language as a badge. Future work remains for localized language names.
+- **Implemented in current working tree: localized talk language display.** OUT and IN talk rows
+  show localized readable language badges while preserving stable language-code attributes.
 - **Implemented in current working tree: editable talk language.** Editing an authored talk
   prefills its stored language, persists a changed selection, and refreshes the OUT language badge
   without falling back to English.
-- **Partially implemented in current working tree: incoming language filtering path.** New talk
-  creation now carries a language attribute, incoming language selection supports multiple
-  understood languages, and existing intake filtering can use those values. Future work remains for
-  full filtered-count UI and broader E2E coverage across create, broadcast, receive, and render.
+- **Implemented in current working tree: incoming language filtering and diagnostics.** New talk
+  creation carries a language attribute, incoming language selection supports multiple understood
+  languages, intake filtering uses those values, and Talks/Settings show hidden counts by reason.
 - **Implemented in current working tree: language-aware chatbot memory.** Exact-answer memory,
   content-template identity, and flattened preference keys include normalized talk language so
   otherwise identical questions do not auto-answer across languages; legacy unscoped memory remains
   compatible with English talks only.
-- **Future work: talk targeting preview.** Before sending or broadcasting, show expected recipients
-  and the reasons others will be filtered out: language, talk type, distance, adult/age gate,
-  blocked terms, block status, disabled broadcast, or expired talk.
-- **Future work: creator diagnostics for filtered incoming talks.** If all incoming talks are
-  filtered out, users should be able to see counts by reason, not just a single hidden total.
-- **Future work: response-volume analytics and ranking.** For each OUT talk, show reply count,
-  match count, mismatch/ignore count, match rate, and latest reply; allow sorting by those metrics
-  and weighted performance so talks with the most useful matches can rise to the top.
+- **Partially implemented in current working tree: talk targeting preview.** Broadcast audience
+  review shows eligible recipients and per-recipient rejection reasons for language, distance,
+  content, age, block, capacity, and rate-limit exclusions. Future work remains for direct-send,
+  disabled-talk, and expiration surfaces.
+- **Implemented in current working tree: creator diagnostics for filtered incoming talks.** Talks
+  and Settings show hidden incoming counts with rejection-reason summaries, including when no
+  incoming talk remains visible.
+- **Implemented in current working tree: response-volume analytics and ranking.** OUT talk rows
+  show reply, match, mismatch/ignore, and match-rate aggregates and support most-matches,
+  most-replies, match-rate, latest-reply, chronological, title, and weighted-performance sorts.
 - **Future work: support-talk isolation.** TechSupport verification/support talks must not pollute
   ordinary user answer memory or broadcast to unrelated users unless intentionally delivered and
   answered.
@@ -608,9 +609,9 @@ verified.
 - **Implemented in current working tree: default talk language setting.** Settings exposes a
   persisted default for newly created talks; it follows the App language until the user chooses
   an independent override.
-- **Future work: filter validation and preview.** Settings should preview how many current incoming
-  talks would be hidden by language, type, distance, grammar, dirty words, custom blocked terms, and
-  age/credit rules before the user leaves the tab.
+- **Implemented in current working tree: filter validation and preview.** Settings previews current
+  hidden incoming counts and reason summaries as filter controls change; intake/filter tests cover
+  language, type, distance, dirty-word, and custom-term paths.
 - **Implemented in current working tree: storage inspector completeness.** The inspector shows
   TechSupport root/support-channel state, room visit counters, incoming/default talk language
   preferences, transport diagnostics, SEA custody and relay scan status, localStorage keys, and

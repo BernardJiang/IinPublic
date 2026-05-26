@@ -25,6 +25,20 @@ Evidence:
 - Tests: `src/test/unit/contacts-view.test.ts`,
   `tests/e2e/staged/stage3-three-user/14-contacts-relationship-credit.spec.ts`
 
+## 2026-05-26 - Reconcile Shipped Talk And Ranking Diagnostics
+
+The active backlog now reflects existing shipped behavior for localized OUT/IN talk badges,
+incoming hidden-reason diagnostics, OUT-talk response ranking, Contacts peer ranking, and Settings
+filter preview. These capabilities were already implemented and verified but were still listed as
+future work in the tab backlog.
+
+Evidence:
+
+- UI implementation: `src/web/ui/ui-manager.ts`, `src/web/ui/contacts-view.ts`
+- Intake and broadcast reason tests: `src/test/unit/talk-intake-filters.test.ts`,
+  `src/test/integration/talk-loop.test.ts`
+- Localized UI proof: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - Complete Contact Relationship Labels
 
 Contacts now displays saved custom relationship text instead of reducing it to a generic `Custom`
