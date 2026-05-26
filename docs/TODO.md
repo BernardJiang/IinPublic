@@ -547,9 +547,10 @@ verified.
   creation now carries a language attribute, incoming language selection supports multiple
   understood languages, and existing intake filtering can use those values. Future work remains for
   full filtered-count UI and broader E2E coverage across create, broadcast, receive, and render.
-- **Future work: language-aware chatbot memory.** Exact-answer memory should include language context
-  where necessary so the chatbot does not auto-answer a translated or semantically different question
-  only because the structure looks similar.
+- **Implemented in current working tree: language-aware chatbot memory.** Exact-answer memory,
+  content-template identity, and flattened preference keys include normalized talk language so
+  otherwise identical questions do not auto-answer across languages; legacy unscoped memory remains
+  compatible with English talks only.
 - **Future work: talk targeting preview.** Before sending or broadcasting, show expected recipients
   and the reasons others will be filtered out: language, talk type, distance, adult/age gate,
   blocked terms, block status, disabled broadcast, or expired talk.
@@ -579,8 +580,9 @@ verified.
 - **Future work: complete answer-memory mode UI.** The Me tab filter shows All, Auto, Manual, and
   Conditional. Preferences still presents a simpler Auto/Manual toggle; add first-class Temporary,
   Permanent, and Suppressed controls that match the exact-chatbot-memory model.
-- **Future work: language-aware answer history.** Show the language of each answered talk/question
-  and prevent answer reuse across languages unless the user explicitly links translated equivalents.
+- **Future work: language-aware answer history display.** Answer reuse and its auto-use metrics are
+  now isolated by talk language; show the language of each answered talk/question and eventually
+  allow users to explicitly link translated equivalents.
 - **Future work: clearer conditional-answer explanations.** Conditional answers should explain the
   route/context path in human-readable form, not only ids or hashes.
 - **Future work: support-message exclusion.** TechSupport welcome and support messages should not

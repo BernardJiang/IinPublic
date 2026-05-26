@@ -63,6 +63,7 @@ type TalkDeliveryRouteDeps = {
     responderId: string;
     responderName: string;
     identityKey: string;
+    language: string;
     answers: any[];
     templateEntries: any[];
     isAuto: boolean;
@@ -136,6 +137,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
     });
 
     const answers: Array<{ questionId: string; answerId: string; answerText?: string; isChecked?: boolean; mode?: string }> = [];
+    const languageContext = { language: String(talkData?.language || 'en').toLowerCase() };
     let question = questions[0];
     const seen = new Set<string>();
 
@@ -144,7 +146,14 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       const optionTexts = (Array.isArray(question.answers) ? question.answers : []).map((answer: any) =>
         String(answer?.text || ''),
       );
-      const result = findAutoAnswer(exactMemory, receiverId, String(question.text || ''), optionTexts);
+      const result = findAutoAnswer(
+        exactMemory,
+        receiverId,
+        String(question.text || ''),
+        optionTexts,
+        undefined,
+        languageContext,
+      );
       if (result.action === 'SKIP') {
         return [];
       }
@@ -827,6 +836,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         responderId,
         responderName: resolvedResponderName,
         identityKey,
+        language: String(talkData?.language || 'en').toLowerCase(),
         answers: normalizedAnswers,
         templateEntries,
         isAuto: effectiveIsAuto,

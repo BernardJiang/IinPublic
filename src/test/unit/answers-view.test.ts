@@ -105,6 +105,26 @@ describe('answers view models', () => {
     expect(items[0].latestAutoUseAt).toBe(2000);
   });
 
+  it('does not display auto-use metrics from another language', () => {
+    const talk = {
+      type: 'flow',
+      language: 'zh',
+      questions: [{ id: 'q_0', text: 'Tea?', answers: [{ id: 'a_yes', text: 'Yes' }] }],
+    };
+    const state = createEmptyExactChatbotMemoryState();
+    const saved = saveTemporaryAnswer(state, 'local', 'Tea?', 'Yes', 1000, { language: 'en' });
+    appendAutoUse(state, 'local', saved.questionId, saved.eventId, 2000);
+
+    const items = buildAnswerItemModels(
+      talk,
+      [{ questionId: 'q_0', answerId: 'a_yes', answerText: 'Yes', mode: 'auto' }],
+      1,
+      state,
+    );
+
+    expect(items[0].autoUseCount).toBe(0);
+  });
+
   it('matches answer history search queries against normalized rendered text', () => {
     const model = {
       talkId: 'talk_1',

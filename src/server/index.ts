@@ -644,21 +644,23 @@ class IinPublicServer {
     responderId: string;
     responderName: string;
     identityKey: string;
+    language: string;
     answers: Array<{ questionId: string; answerId: string; answerText?: string; isChecked?: boolean; mode?: string }>;
     templateEntries: Array<{ questionText: string; answerText: string; mode: string; isChecked: boolean; isIgnore?: boolean }>;
     isAuto: boolean;
   }): Promise<void> {
-    const { responderId, responderName, identityKey, answers, templateEntries, isAuto } = params;
+    const { responderId, responderName, identityKey, language, answers, templateEntries, isAuto } = params;
     const exactMemory = await readOrCreateExactChatbotMemoryForUser(this.gunService, responderId);
+    const languageContext = { language: String(language || 'en').toLowerCase() };
 
     for (const entry of templateEntries) {
       if (!entry.questionText) continue;
       if (entry.isIgnore || entry.mode === 'suppressed') {
-        saveSuppressedQuestion(exactMemory, responderId, entry.questionText);
+        saveSuppressedQuestion(exactMemory, responderId, entry.questionText, undefined, languageContext);
       } else if (entry.mode === 'permanent') {
-        savePermanentAnswer(exactMemory, responderId, entry.questionText, entry.answerText);
+        savePermanentAnswer(exactMemory, responderId, entry.questionText, entry.answerText, undefined, languageContext);
       } else if (entry.mode === 'auto') {
-        saveTemporaryAnswer(exactMemory, responderId, entry.questionText, entry.answerText);
+        saveTemporaryAnswer(exactMemory, responderId, entry.questionText, entry.answerText, undefined, languageContext);
       }
     }
     await writeExactChatbotMemoryForUser(this.gunService, responderId, exactMemory);

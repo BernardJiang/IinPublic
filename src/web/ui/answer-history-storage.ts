@@ -14,6 +14,7 @@ export type FlatAnswerHistoryRecord = {
   talkId: string;
   title: string;
   type: string;
+  language?: string;
   outcome: 'match' | 'mismatch';
   answeredAt: string;
   senderIds: string[];

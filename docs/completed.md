@@ -12,6 +12,22 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-25 - Language-Aware Chatbot Memory Isolation
+
+Exact chatbot memory, content-template identity, and flattened answer-preference keys now include
+talk language, preventing identical visible text in different languages from triggering automatic
+answer reuse. Historical unscoped exact-memory records remain usable only for English talks.
+
+Evidence:
+
+- Identity and memory: `src/shared/exact-chatbot-memory.ts`, `src/shared/talk-content-id.ts`,
+  `src/shared/flattened-answer-keys.ts`
+- Server and UI wiring: `src/server/routes/talk-delivery-routes.ts`, `src/server/index.ts`,
+  `src/web/ui/ui-manager.ts`, `src/web/ui/answers-view.ts`
+- Tests: `src/test/unit/exact-chatbot-memory.test.ts`, `src/test/unit/talk-content-id.test.ts`,
+  `src/test/unit/flattened-answer-keys.test.ts`, `src/test/unit/answers-view.test.ts`,
+  `src/test/integration/talk-loop.test.ts`
+
 ## 2026-05-25 - Talks Language Editing Completion
 
 Authored talks now keep their stored language when opened for editing, persist a changed language,

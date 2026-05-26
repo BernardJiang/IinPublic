@@ -47,13 +47,25 @@ type AnswerTalkRenderModel = {
   searchText: string;
 };
 
+function getQuestionMemory(
+  exactMemory: ExactChatbotMemoryState | undefined,
+  prompt: string,
+  languageValue: unknown,
+) {
+  const userMemory = exactMemory?.users?.[LOCAL_EXACT_CHATBOT_USER_ID];
+  const language = String(languageValue || 'en').toLowerCase();
+  const scoped = userMemory?.[makeQuestionId(prompt, { language })];
+  // Records saved before language scoping are English-only for compatibility.
+  return scoped || (language === 'en' ? userMemory?.[makeQuestionId(prompt)] : undefined);
+}
+
 function buildAnswerItemModelsFromFlatRecord(
   record: FlatAnswerHistoryRecord,
   answeredCount: number,
   exactMemory?: ExactChatbotMemoryState,
 ): AnswerItemModel[] {
   return (record.items || []).map((item) => {
-    const questionMemory = exactMemory?.users?.[LOCAL_EXACT_CHATBOT_USER_ID]?.[makeQuestionId(item.prompt)];
+    const questionMemory = getQuestionMemory(exactMemory, item.prompt, record.language);
     const matchingHistory = readHistory(questionMemory || null).filter(
       (event) => event.answerId === makeAnswerId(item.choice),
     );
@@ -120,9 +132,8 @@ export function buildAnswerItemModels(
         ? 'Checked'
         : 'Unchecked'
       : getAnswerDisplayText(talk, entry);
-    const questionId = makeQuestionId(prompt);
     const answerId = makeAnswerId(choice);
-    const questionMemory = exactMemory?.users?.[LOCAL_EXACT_CHATBOT_USER_ID]?.[questionId];
+    const questionMemory = getQuestionMemory(exactMemory, prompt, talk?.language);
     const matchingHistory = readHistory(questionMemory || null).filter((event) => event.answerId === answerId);
     const autoUseCount = matchingHistory.reduce((total, event) => total + (event.autoUseCount || 0), 0);
     const latestAutoUseAt = matchingHistory.reduce<number | undefined>((latest, event) => {

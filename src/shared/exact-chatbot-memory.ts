@@ -36,13 +36,14 @@ export interface ChatbotQuestionSummary {
 
 export interface ChatbotQuestionMemory {
   questionText: string;
+  language?: string;
   summary: ChatbotQuestionSummary;
   history: Record<string, ChatbotAnswerHistoryEvent>;
 }
 
 export interface ExactChatbotMemoryState {
   users: Record<string, Record<string, ChatbotQuestionMemory>>;
-  questions: Record<string, { text: string }>;
+  questions: Record<string, { text: string; language?: string }>;
   answers: Record<string, { text: string }>;
 }
 
@@ -94,8 +95,24 @@ export function stableTextHash(text: string): string {
   return hash.toString(16).padStart(8, '0');
 }
 
-export function makeQuestionId(questionText: string, opts?: { caseInsensitive?: boolean }): string {
-  return `q_${stableTextHash(normalizeText(questionText, opts))}`;
+type QuestionIdOptions = {
+  caseInsensitive?: boolean;
+  language?: string;
+};
+
+function normalizedLanguage(language: string | undefined): string | undefined {
+  if (language == null) return undefined;
+  return normalizeText(language, { caseInsensitive: true }) || 'en';
+}
+
+export function makeQuestionId(questionText: string, opts?: QuestionIdOptions): string {
+  const normalizedQuestion = normalizeText(
+    questionText,
+    opts?.caseInsensitive == null ? undefined : { caseInsensitive: opts.caseInsensitive },
+  );
+  const language = normalizedLanguage(opts?.language);
+  const identity = language ? `${language}\n${normalizedQuestion}` : normalizedQuestion;
+  return `q_${stableTextHash(identity)}`;
 }
 
 export function makeAnswerId(answerText: string, opts?: { caseInsensitive?: boolean }): string {
@@ -116,12 +133,15 @@ function getQuestionMemory(
   userId: string,
   questionText: string,
   now: number,
+  context?: { language?: string },
 ): { questionId: string; memory: ChatbotQuestionMemory } {
   const normalizedQuestion = normalizeText(questionText);
-  const questionId = makeQuestionId(normalizedQuestion);
+  const language = normalizedLanguage(context?.language);
+  const questionId = makeQuestionId(normalizedQuestion, language ? { language } : undefined);
   const userQuestions = getUserQuestions(state, userId);
   userQuestions[questionId] ??= {
     questionText: normalizedQuestion,
+    ...(language ? { language } : {}),
     summary: {
       mode: 'TEMPORARY',
       suppressed: false,
@@ -134,7 +154,8 @@ function getQuestionMemory(
     history: {},
   };
   userQuestions[questionId].questionText = normalizedQuestion;
-  state.questions[questionId] = { text: normalizedQuestion };
+  if (language) userQuestions[questionId].language = language;
+  state.questions[questionId] = { text: normalizedQuestion, ...(language ? { language } : {}) };
   return { questionId, memory: userQuestions[questionId] };
 }
 
@@ -144,8 +165,9 @@ export function saveTemporaryAnswer(
   questionText: string,
   answerText: string,
   now = Date.now(),
+  context?: { language?: string },
 ): { questionId: string; answerId: string; eventId: string } {
-  const { questionId, memory } = getQuestionMemory(state, userId, questionText, now);
+  const { questionId, memory } = getQuestionMemory(state, userId, questionText, now, context);
   const normalizedAnswer = normalizeText(answerText);
   const answerId = makeAnswerId(normalizedAnswer);
   const eventId = makeEventId('e', now);
@@ -177,8 +199,9 @@ export function savePermanentAnswer(
   questionText: string,
   answerText: string,
   now = Date.now(),
+  context?: { language?: string },
 ): { questionId: string; answerId: string; eventId: string } {
-  const { questionId, memory } = getQuestionMemory(state, userId, questionText, now);
+  const { questionId, memory } = getQuestionMemory(state, userId, questionText, now, context);
   const normalizedAnswer = normalizeText(answerText);
   const answerId = makeAnswerId(normalizedAnswer);
   const eventId = makeEventId('e', now);
@@ -209,8 +232,9 @@ export function saveSuppressedQuestion(
   userId: string,
   questionText: string,
   now = Date.now(),
+  context?: { language?: string },
 ): { questionId: string; eventId: string } {
-  const { questionId, memory } = getQuestionMemory(state, userId, questionText, now);
+  const { questionId, memory } = getQuestionMemory(state, userId, questionText, now, context);
   const eventId = makeEventId('e', now);
 
   memory.summary = {
@@ -266,9 +290,16 @@ export function findAutoAnswer(
   questionText: string,
   currentOptions: string[],
   now = Date.now(),
+  context?: { language?: string },
 ): AutoAnswerResult {
-  const questionId = makeQuestionId(questionText);
-  const memory = state.users[userId]?.[questionId];
+  const language = normalizedLanguage(context?.language);
+  let questionId = makeQuestionId(questionText, language ? { language } : undefined);
+  let memory = state.users[userId]?.[questionId];
+  // Historical memory predates language scoping; only English talks may reuse it.
+  if (!memory && language === 'en') {
+    questionId = makeQuestionId(questionText);
+    memory = state.users[userId]?.[questionId];
+  }
   if (!memory) {
     return { action: 'ASK_USER', reason: 'NO_HISTORY' };
   }

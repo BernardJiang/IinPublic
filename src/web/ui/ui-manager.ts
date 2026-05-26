@@ -4681,6 +4681,7 @@ export class UIManager extends EventEmitter {
       talkId,
       title: String(talk?.title || 'Answered Talk'),
       type: String(talk?.type || 'flow'),
+      language: String(talk?.language || 'en').toLowerCase(),
       outcome,
       answeredAt: new Date().toISOString(),
       senderIds: [...new Set(senders.filter(Boolean))],
@@ -4709,12 +4710,15 @@ export class UIManager extends EventEmitter {
   } | null {
     const exactMemory = getExactChatbotMemory();
     const currentOptions = (currentQuestion.answers || []).map((answer: any) => String(answer?.text || ''));
+    const languageContext = { language: String(talk?.language || 'en').toLowerCase() };
     if (currentQuestion.text && currentOptions.length > 0) {
       const exact = findAutoAnswer(
         exactMemory,
         LOCAL_EXACT_CHATBOT_USER_ID,
         currentQuestion.text,
         currentOptions,
+        undefined,
+        languageContext,
       );
       setExactChatbotMemory(exactMemory);
       if (exact.action === 'SKIP') {
@@ -4771,13 +4775,14 @@ export class UIManager extends EventEmitter {
     mode: 'auto' | 'manual' | 'permanent' | 'suppressed' = 'auto',
   ): void {
     const exactMemory = getExactChatbotMemory();
+    const languageContext = { language: String(talk?.language || 'en').toLowerCase() };
     if (currentQuestion.text) {
       if (mode === 'suppressed') {
-        saveSuppressedQuestion(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text);
+        saveSuppressedQuestion(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, undefined, languageContext);
       } else if (mode === 'permanent') {
-        savePermanentAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText);
+        savePermanentAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText, undefined, languageContext);
       } else if (mode === 'auto') {
-        saveTemporaryAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText);
+        saveTemporaryAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, currentQuestion.text, answerText, undefined, languageContext);
       }
       setExactChatbotMemory(exactMemory);
     }

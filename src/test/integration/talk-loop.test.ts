@@ -427,6 +427,30 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(event.autoUseCount).toBe(1);
     });
 
+    it('does not reuse English exact memory for an identical Chinese-language talk', async () => {
+      const exactMemoryByUser = new Map<string, ExactChatbotMemoryState>();
+      const state = createEmptyExactChatbotMemoryState();
+      savePermanentAnswer(state, RESPONDER_ID, 'What is your favorite color?', 'Blue', 1000, { language: 'en' });
+      exactMemoryByUser.set(RESPONDER_ID, state);
+      const { app, userDeliveryContext } = buildTestServer({ exactMemoryByUser });
+      userDeliveryContext.set(RESPONDER_ID, {
+        talkFilters: { ...getDefaultTalkIntakeFilters(['en', 'zh']), requireGoodGrammar: false },
+        ageVerified: false,
+      });
+
+      const res = await request(app)
+        .post('/api/talks/talk_chinese_memory/received')
+        .send({
+          receiverId: RESPONDER_ID,
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          talkData: { ...TALK_DATA, id: 'talk_chinese_memory', language: 'zh' },
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ registered: true, autoResponded: false });
+    });
+
     it('registers but does not auto-respond from saved memory when chatbot is disabled', async () => {
       const exactMemoryByUser = new Map<string, ExactChatbotMemoryState>();
       const state = createEmptyExactChatbotMemoryState();

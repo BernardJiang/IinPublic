@@ -44,6 +44,14 @@ describe('flattened-answer-keys', () => {
     expect(k1).not.toBe(k2);
   });
 
+  it('does not reuse first-question preferences across languages', () => {
+    const english = { ...multiTalkA, language: 'en' };
+    const chinese = { ...multiTalkA, language: 'zh' };
+    const englishKey = buildAnswerPreferenceLookupKey(english, computeTalkIdFromTalkData(english), 0, [], 'Tennis?');
+    const chineseKey = buildAnswerPreferenceLookupKey(chinese, computeTalkIdFromTalkData(chinese), 0, [], 'Tennis?');
+    expect(englishKey).not.toBe(chineseKey);
+  });
+
   it('scopes tag / single-question by content hash', () => {
     const tag1 = {
       type: 'tag',

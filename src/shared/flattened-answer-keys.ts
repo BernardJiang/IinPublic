@@ -15,7 +15,7 @@ export type QAPair = { questionText: string; answerText: string };
  * a question diverges.
  */
 export function buildAnswerPreferenceLookupKey(
-  talk: { type?: string; questions?: unknown[] },
+  talk: { type?: string; language?: string; questions?: unknown[] },
   talkContentHash: string,
   questionIndex: number,
   previousQAPairs: QAPair[],
@@ -23,21 +23,23 @@ export function buildAnswerPreferenceLookupKey(
 ): string {
   const nq = normalizeIdentityText(questionText);
   const mt = normalizeIdentityText(talk?.type || 'flow');
+  const language = normalizeIdentityText(talk?.language || 'en');
   const qCount = Array.isArray(talk?.questions) ? talk.questions.length : 0;
   const isTagOrSingle = talk?.type === 'tag' || qCount <= 1;
 
   if (isTagOrSingle) {
-    const payload = { h: talkContentHash, t: mt, q: nq };
+    const payload = { h: talkContentHash, t: mt, l: language, q: nq };
     return `flat_${hashIdentityPayload(JSON.stringify(payload))}`;
   }
 
   if (questionIndex === 0) {
-    const payload = { t: mt, path: [] as const, q: nq };
+    const payload = { t: mt, l: language, path: [] as const, q: nq };
     return `flat_${hashIdentityPayload(JSON.stringify(payload))}`;
   }
 
   const payload = {
     t: mt,
+    l: language,
     path: previousQAPairs.map((p) => ({
       q: normalizeIdentityText(p.questionText),
       a: normalizeIdentityText(p.answerText),

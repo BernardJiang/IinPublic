@@ -52,6 +52,15 @@ describe('talk-content-id', () => {
     expect(computeTalkIdFromTalkData(t1)).not.toBe(computeTalkIdFromTalkData(t2));
   });
 
+  it('differs when the language changes for otherwise identical content', () => {
+    const base = {
+      type: 'flow',
+      questions: [{ id: 'q1', text: 'Coffee?', answers: [{ id: 'a1', text: 'Yes' }] }],
+    };
+    expect(computeTalkIdFromTalkData({ ...base, language: 'en' }))
+      .not.toBe(computeTalkIdFromTalkData({ ...base, language: 'zh' }));
+  });
+
   it('optional authorId changes id when enabled', () => {
     const base = {
       type: 'flow',

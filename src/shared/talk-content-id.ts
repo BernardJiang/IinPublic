@@ -38,6 +38,7 @@ export function hashIdentityPayload(payload: string): string {
 
 export type TalkIdentityPayload = {
   type: string;
+  language: string;
   questions: Array<{ text: string; answers: string[] }>;
   /** Included for tag-type talks (which have no questions) to differentiate by title. */
   title?: string;
@@ -47,7 +48,7 @@ export type TalkIdentityPayload = {
 };
 
 /**
- * Canonical payload from talk data: type + questions with sorted answer texts (question text order).
+ * Canonical payload from talk data: type + language + questions with sorted answer texts (question text order).
  * Optional fields only affect the hash when flags are true.
  */
 export function buildIdentityPayloadFromTalk(
@@ -56,6 +57,7 @@ export function buildIdentityPayloadFromTalk(
 ): TalkIdentityPayload {
   const o = { ...DEFAULT_TALK_CONTENT_ID_OPTIONS, ...options };
   const type = normalizeIdentityText(talkData?.type || 'flow');
+  const language = normalizeIdentityText(talkData?.language || 'en');
   const questions = (Array.isArray(talkData?.questions) ? talkData.questions : [])
     .map((q: any) => ({
       text: normalizeIdentityText(q?.text),
@@ -65,7 +67,7 @@ export function buildIdentityPayloadFromTalk(
     }))
     .sort((a: { text: string }, b: { text: string }) => String(a.text).localeCompare(String(b.text)));
 
-  const payload: TalkIdentityPayload = { type, questions };
+  const payload: TalkIdentityPayload = { type, language, questions };
 
   // Tags have no questions, so include the normalized title to differentiate them.
   if (type === 'tag' && talkData?.title) {
@@ -125,6 +127,7 @@ export function canonicalIdentityKeyFromStoredCluster(cluster: any): string {
       const parsed = JSON.parse(key);
       const payload = {
         type: normalizeIdentityText(parsed?.type ?? cluster?.type ?? 'flow'),
+        language: normalizeIdentityText(parsed?.language ?? cluster?.language ?? 'en'),
         questions: (Array.isArray(parsed?.questions)
           ? parsed.questions.map((q: any) => ({
               text: normalizeIdentityText(q?.text),

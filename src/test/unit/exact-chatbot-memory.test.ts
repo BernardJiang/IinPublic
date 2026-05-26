@@ -79,6 +79,30 @@ describe('exact-chatbot-memory', () => {
     });
   });
 
+  it('isolates identical question memory by language while retaining legacy English reads', () => {
+    const state = createEmptyExactChatbotMemoryState();
+    saveTemporaryAnswer(state, userId, 'Tea?', 'Yes', 1000, { language: 'en' });
+    saveTemporaryAnswer(state, userId, 'Tea?', 'No', 2000, { language: 'zh' });
+    savePermanentAnswer(state, userId, 'Legacy?', 'Old answer', 3000);
+
+    expect(findAutoAnswer(state, userId, 'Tea?', ['Yes'], 4000, { language: 'zh' })).toEqual({
+      action: 'ASK_USER',
+      reason: 'NO_VALID_HISTORY_ANSWER',
+    });
+    expect(findAutoAnswer(state, userId, 'Tea?', ['Yes'], 4000, { language: 'en' })).toMatchObject({
+      action: 'ANSWER',
+      answerText: 'Yes',
+    });
+    expect(findAutoAnswer(state, userId, 'Legacy?', ['Old answer'], 4000, { language: 'en' })).toMatchObject({
+      action: 'ANSWER',
+      answerText: 'Old answer',
+    });
+    expect(findAutoAnswer(state, userId, 'Legacy?', ['Old answer'], 4000, { language: 'zh' })).toEqual({
+      action: 'ASK_USER',
+      reason: 'NO_HISTORY',
+    });
+  });
+
   it('matches exact normalized text ids and rejects different case by default', () => {
     expect(makeQuestionId(' Favorite fruit? ')).toBe(makeQuestionId('Favorite fruit?'));
     expect(makeAnswerId('Apple')).not.toBe(makeAnswerId('apple'));
