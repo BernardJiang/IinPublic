@@ -15,6 +15,8 @@ export type FlatAnswerHistoryRecord = {
   title: string;
   type: string;
   language?: string;
+  supportMessage?: boolean;
+  supportChannel?: boolean;
   outcome: 'match' | 'mismatch';
   answeredAt: string;
   senderIds: string[];

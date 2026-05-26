@@ -169,6 +169,56 @@ describe('answers view models', () => {
     expect(badges.map((badge) => badge.textContent).sort()).toEqual(['Chinese', 'English']);
   });
 
+  it('hides support-channel messages while retaining answered TechSupport talks', () => {
+    document.body.innerHTML = '<div id="answers-content"></div>';
+    const record = {
+      type: 'flow',
+      language: 'en',
+      outcome: 'match' as const,
+      answeredAt: '2026-05-25T00:00:00.000Z',
+      senderIds: ['iinpublic-root-techsupport'],
+      items: [{
+        questionId: 'q_0',
+        answerId: 'a_yes',
+        prompt: 'Need assistance?',
+        choice: 'Yes',
+        kind: 'question' as const,
+        contextPath: [],
+      }],
+    };
+    displayAnswersList({
+      getMyTalks: () => ({}),
+      getFlatAnswerHistory: () => ({
+        support: {
+          ...record,
+          id: 'support',
+          talkId: 'support_message',
+          title: 'Welcome to IinPublic',
+          supportMessage: true,
+          supportChannel: true,
+        },
+        answered: {
+          ...record,
+          id: 'answered',
+          talkId: 'answered_talk',
+          title: 'TechSupport check-in',
+        },
+      }),
+      escapeHtml: (value) => value,
+      copyAnsweredTalkToTalks: jest.fn(),
+      showTalkDetail: jest.fn(),
+      showPreferencesDialog: jest.fn(),
+      getTalkContentKey: jest.fn(),
+      text: (key) => uiText('en', key),
+      formatDate: () => 'date',
+      formatType: () => 'Flow',
+      formatLanguage: () => 'English',
+    });
+
+    expect(document.getElementById('answers-content')?.textContent).not.toContain('Welcome to IinPublic');
+    expect(document.getElementById('answers-content')?.textContent).toContain('TechSupport check-in');
+  });
+
   it('matches answer history search queries against normalized rendered text', () => {
     const model = {
       talkId: 'talk_1',

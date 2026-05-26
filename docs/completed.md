@@ -12,6 +12,19 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-25 - Support Message Exclusion From Answer History
+
+The Me answer-history list now rejects marked TechSupport welcome and support-channel message rows
+from local or migrated data while continuing to render TechSupport-authored talks that the user
+intentionally answered.
+
+Evidence:
+
+- UI and history record contract: `src/web/ui/answers-view.ts`,
+  `src/web/ui/answer-history-storage.ts`
+- Unit and E2E: `src/test/unit/answers-view.test.ts`,
+  `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - Exact-Question Answer Memory Mode Controls
 
 Preferences now exposes Manual, Temporary auto-answer, Permanent auto-answer, and Skip-this-question

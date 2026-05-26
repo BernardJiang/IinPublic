@@ -491,6 +491,27 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#answers-content')).toContainText('偏好设置');
     await p.evaluate(() => {
       localStorage.setItem('myAnswerHistory', JSON.stringify({
+        support_message_leak: {
+          id: 'support_message_leak',
+          talkId: 'support_message_leak',
+          title: 'Welcome to IinPublic, Ming. TechSupport is here if you need help.',
+          type: 'flow',
+          language: 'en',
+          supportMessage: true,
+          supportChannel: true,
+          outcome: 'mismatch',
+          answeredAt: new Date().toISOString(),
+          senderIds: ['iinpublic-root-techsupport'],
+          items: [{
+            questionId: 'support',
+            answerId: 'welcome',
+            prompt: 'Welcome',
+            choice: 'Support',
+            kind: 'question',
+            contextPath: [],
+            mode: 'manual',
+          }],
+        },
         localized_answer: {
           id: 'localized_answer',
           talkId: 'localized_answer_talk',
@@ -541,6 +562,7 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#answers-content')).toContainText('手动');
     await expect(p.locator('#answers-content')).toContainText('标签');
     await expect(p.locator('#answers-content .answer-language-badge')).toHaveText('英语');
+    await expect(p.locator('#answers-content')).not.toContainText('Welcome to IinPublic');
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showPreferencesDialog());
     await expect(p.locator('#preferences-modal')).toContainText('我的回答');
     await expect(p.locator('#preferences-modal')).toContainText('最近回答：');

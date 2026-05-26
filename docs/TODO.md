@@ -587,9 +587,9 @@ verified.
   across languages when intentional reuse is desired.
 - **Future work: clearer conditional-answer explanations.** Conditional answers should explain the
   route/context path in human-readable form, not only ids or hashes.
-- **Future work: support-message exclusion.** TechSupport welcome and support messages should not
-  appear as answered-talk history unless they were delivered as talks and the user intentionally
-  answered them.
+- **Implemented in current working tree: support-message exclusion.** Marked TechSupport welcome
+  and support-channel messages are excluded from answer history, while TechSupport-authored talks
+  remain visible when the user intentionally answers them.
 - **Future work: profile/answer ownership controls.** Add per-answer delete/export/sync controls
   that clearly distinguish local-only answer memory from public profile rows.
 - **Future work: high-volume reply triage.** Provide a creator-side view for large response sets

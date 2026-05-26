@@ -230,6 +230,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       deps.text(key),
     );
   const answeredEntriesFromFlatHistory = Object.entries(flatHistory)
+    .filter(([, record]) => record.supportMessage !== true && record.supportChannel !== true)
     .sort(([, a], [, b]) => new Date(b.answeredAt || 0).getTime() - new Date(a.answeredAt || 0).getTime());
   const answeredEntries = answeredEntriesFromFlatHistory.length > 0 ? [] : Object.entries(myTalks)
     .filter(([, talk]) => talk?.role === 'answered' || talk?.role === 'copied')
