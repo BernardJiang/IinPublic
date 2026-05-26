@@ -604,8 +604,9 @@ verified.
   immediately re-render Settings and all other tabs in that language, and persist across reloads.
 - **Implemented in current working tree: clearer multi-language incoming filter control.** The
   native multi-select has been replaced with checkbox/chip controls and an active-language count.
-- **Future work: default talk language setting.** Add a visible default-language setting for new
-  talks. It should default to the primary UI/profile language but allow override.
+- **Implemented in current working tree: default talk language setting.** Settings exposes a
+  persisted default for newly created talks; it follows the App language until the user chooses
+  an independent override.
 - **Future work: filter validation and preview.** Settings should preview how many current incoming
   talks would be hidden by language, type, distance, grammar, dirty words, custom blocked terms, and
   age/credit rules before the user leaves the tab.

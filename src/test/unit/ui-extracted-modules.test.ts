@@ -8,6 +8,10 @@ import { displayConversationsList } from '../../web/ui/conversations-view';
 import { openPeerDetailView } from '../../web/ui/user-detail-view';
 import { uiText } from '../../web/ui/ui-translations';
 import {
+  getDefaultTalkLanguagePreference,
+  setDefaultTalkLanguagePreference,
+} from '../../web/ui/ui-settings-storage';
+import {
   addQuestionToForm,
   setupTalkFormHandlers,
   updateAllAnswerDropdowns,
@@ -16,7 +20,14 @@ import {
 describe('extracted UI helpers', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
+    localStorage.clear();
     jest.restoreAllMocks();
+  });
+
+  it('defaults new-talk language from app language until explicitly overridden', () => {
+    expect(getDefaultTalkLanguagePreference('zh')).toBe('zh');
+    setDefaultTalkLanguagePreference('en');
+    expect(getDefaultTalkLanguagePreference('zh')).toBe('en');
   });
 
   it('my talks dialog calls toggle and open callbacks', () => {

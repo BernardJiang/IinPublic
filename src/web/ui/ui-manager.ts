@@ -79,10 +79,12 @@ import {
   getChatbotEnabled,
   getChatbotTemplate as loadChatbotTemplate,
   getCopyTalkAutoSave,
+  getDefaultTalkLanguagePreference,
   getUiLanguagePreference,
   saveChatbotTemplate as storeChatbotTemplate,
   setChatbotEnabled,
   setCopyTalkAutoSave,
+  setDefaultTalkLanguagePreference,
   setUiLanguagePreference,
 } from './ui-settings-storage';
 import { showMyTalksDialog as openMyTalksDialog } from './my-talks-dialog';
@@ -2484,6 +2486,7 @@ export class UIManager extends EventEmitter {
       })),
     ];
     const uiLanguage = this.getUiLanguage();
+    const defaultTalkLanguage = getDefaultTalkLanguagePreference(uiLanguage);
     const languageOptions = LANGUAGE_OPTIONS.map((language) => ({
       ...language,
       label: languageOptionLabel(uiLanguage, language.code, language.label),
@@ -2542,6 +2545,14 @@ export class UIManager extends EventEmitter {
             <select class="form-input" id="settings-profile-languages" data-testid="settings-profile-language-select">
               ${languageOptions
                 .map((lang) => `<option value="${lang.code}" ${profileLanguages[0] === lang.code ? 'selected' : ''}>${lang.label}</option>`)
+                .join('')}
+            </select>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
+            <span>${this.t('settingsDefaultTalkLanguage')}</span>
+            <select class="form-input" id="settings-default-talk-language" data-testid="settings-default-talk-language-select">
+              ${languageOptions
+                .map((lang) => `<option value="${lang.code}" ${defaultTalkLanguage === lang.code ? 'selected' : ''}>${lang.label}</option>`)
                 .join('')}
             </select>
           </label>
@@ -2737,6 +2748,10 @@ export class UIManager extends EventEmitter {
       setUiLanguagePreference(value);
       this.applyShellTranslations();
       if (this.currentUser) this.renderSettingsView(this.currentUser);
+    });
+    document.getElementById('settings-default-talk-language')?.addEventListener('change', (event) => {
+      const value = (event.currentTarget as HTMLSelectElement).value === 'zh' ? 'zh' : 'en';
+      setDefaultTalkLanguagePreference(value);
     });
     document.getElementById('settings-custom-blocked')?.addEventListener('input', sync);
     document.getElementById('settings-home-room')?.addEventListener('change', (event) => {
@@ -5323,7 +5338,7 @@ export class UIManager extends EventEmitter {
   }
 
   showTalkEditorDialog(existingTalk?: any): void {
-    const defaultLanguage = String(existingTalk?.language || this.getUiLanguage()).toLowerCase();
+    const defaultLanguage = String(existingTalk?.language || getDefaultTalkLanguagePreference(this.getUiLanguage())).toLowerCase();
     openTalkEditorDialog({
       existingTalk,
       defaultLanguage,

@@ -178,6 +178,7 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#settings-credit-visible')).toBeVisible();
     await expect(p.locator('.settings-talk-filter-type')).toHaveCount(4);
     await expect(p.locator('#settings-ui-language')).toHaveValue('en');
+    await expect(p.locator('#settings-default-talk-language')).toHaveValue('en');
     await p.locator('#settings-ui-language').selectOption('zh');
     await expect(p.locator('.nav-btn[data-view="settings"] .nav-label')).toHaveText('设置');
     await expect(p.locator('.nav-btn[data-view="talks"] .nav-label')).toHaveText('话题');
@@ -196,6 +197,11 @@ test.describe('UI navigation and settings shell', () => {
     await afterNav();
     await expect(p.locator('#settings-ui-language')).toHaveValue('zh');
     await expect(p.locator('#settings-profile-languages')).toHaveValue('en');
+    await expect(p.locator('#settings-default-talk-language')).toHaveValue('zh');
+    await p.locator('#settings-default-talk-language').selectOption('en');
+    await expect
+      .poll(async () => p.evaluate(() => localStorage.getItem('iinpublic_default_talk_language')))
+      .toBe('en');
     await expect(p.locator('#storage-inspector-flags')).toContainText('模式');
     await expect(p.locator('#storage-inspector-flags')).toContainText('本地节点');
     await expect(p.locator('#storage-inspector-flags')).toContainText('已禁用');
@@ -406,7 +412,7 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#talk-editor-modal')).toContainText('我喜欢这个标签');
     await expect(p.locator('#talk-title')).toHaveAttribute('placeholder', '例如：咖啡、网球、工作');
     await expect(p.locator('#talk-language option[value="en"]')).toHaveText('英语');
-    await expect(p.locator('#talk-language')).toHaveValue('zh');
+    await expect(p.locator('#talk-language')).toHaveValue('en');
     await p.evaluate(() => {
       document.getElementById('talk-editor-form')?.dispatchEvent(new Event('submit', {
         bubbles: true,

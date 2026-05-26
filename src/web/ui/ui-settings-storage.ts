@@ -35,6 +35,15 @@ export function setUiLanguagePreference(language: UiLanguage): void {
   localStorage.setItem('iinpublic_ui_language', language);
 }
 
+export function getDefaultTalkLanguagePreference(defaultLanguage: UiLanguage = 'en'): UiLanguage {
+  const stored = String(localStorage.getItem('iinpublic_default_talk_language') || '').toLowerCase();
+  return stored === 'en' || stored === 'zh' ? stored : defaultLanguage;
+}
+
+export function setDefaultTalkLanguagePreference(language: UiLanguage): void {
+  localStorage.setItem('iinpublic_default_talk_language', language);
+}
+
 export function getChatbotTemplate(talkId: string): ChatbotTemplate | null {
   try {
     const raw = localStorage.getItem('chatbotTemplates');

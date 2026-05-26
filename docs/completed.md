@@ -12,6 +12,19 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-25 - Independent Default Talk Language Setting
+
+Settings now exposes a visible default language for newly created talks. Without an explicit
+selection it follows App language; after selection it persists independently of App language,
+profile language, and incoming-talk filter languages.
+
+Evidence:
+
+- UI and storage: `src/web/ui/ui-manager.ts`, `src/web/ui/ui-settings-storage.ts`,
+  `src/web/ui/ui-translations.ts`
+- Unit and E2E: `src/test/unit/ui-extracted-modules.test.ts`,
+  `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - Human-Readable Conditional Answer Context
 
 The Me answer-history view now explains route branches with the earlier question and selected
