@@ -747,3 +747,15 @@ Evidence:
 
 - E2E: `tests/e2e/staged/stage3-three-user/00n-distance-intake-filter.spec.ts`
 - Existing validation E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
+## 2026-05-26 - Content Intake Toggle Delivery Proof
+
+Added a real two-user browser scenario for the documented grammar heuristic and content-moderation
+toggle: clean content reaches IN, unreadable and moderated content stays out while filters are on,
+and newly sent equivalent content reaches IN after each setting is disabled and persisted.
+User-visible live rejection reasons and expanded multilingual policy remain tracked in TODO.
+
+Evidence:
+
+- E2E: `tests/e2e/staged/stage3-three-user/00o-content-intake-filter.spec.ts`
+- Unit: `src/test/unit/intake-filter-reasons.test.ts`

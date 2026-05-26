@@ -111,15 +111,16 @@ senders and receivers. Existing filter plumbing is a foundation, not completion 
   band, and above its maximum, proving only the in-band talk reaches IN. Existing Settings coverage
   rejects an invalid min-greater-than-max range. Future work remains to surface live
   `intake_min_distance`/`intake_max_distance` rejection explanations and prove boundary equality.
-- **Grammar filter completion.** Replace the present simplified heuristic with a documented,
-  language-aware behavior or explicitly bounded MVP rule set. Show the rule to users so a valid short
-  phrase is not mysteriously hidden. E2E-send a clean talk and a deliberately failing talk with the
-  checkbox on and off; prove only the appropriate talk is filtered with `intake_grammar`.
-- **Dirty-word filter completion.** Replace the tiny placeholder list with maintained,
-  language-aware moderation dictionaries or a defined moderation provider, normalized matching
-  against title/questions/answers, safe handling for benign substrings, and user-visible rejection
-  explanation without repeating offensive text. Add on/off E2E proof and cases for punctuation,
-  casing, multiple languages, and answer text, asserting `intake_dirty_words`.
+- **Partially implemented: grammar filter completion.** Settings documents the bounded readable-
+  sentence heuristic, and a real sender/receiver browser scenario proves a clean talk is delivered,
+  deliberately unreadable content is hidden while the toggle is on, and newly sent equivalent
+  content is received after the toggle is disabled. Future work remains for visible
+  `intake_grammar` rejection reporting and broader language-aware grammar policy.
+- **Partially implemented: dirty-word filter completion.** Moderation matching now normalizes
+  punctuation/case and has English/Chinese and benign-substring unit coverage; a real delivery
+  scenario proves blocked content is absent with the toggle on and newly sent equivalent content
+  arrives after it is disabled. Future work remains for maintained multilingual moderation policy,
+  user-visible `intake_dirty_words` reporting, and full answer-text E2E proof.
 - **Every remaining intake control.** Add user-facing proof for allowed talk types, custom blocked
   phrases, sent-after, adult/age gating, blocked users, expiration, and reputation/credit visibility
   where it affects delivery or display. Settings should preview hidden counts by reason before and
