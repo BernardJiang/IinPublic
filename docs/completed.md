@@ -12,6 +12,32 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-26 - Clarify Shared Languages in Contact Detail
+
+Contact public-profile detail now displays localized readable language names, marks languages
+shared with the viewer, and shows a localized translation hint when the profiles have no declared
+language in common.
+
+Evidence:
+
+- Contacts UI and translation copy: `src/web/ui/contacts-view.ts`, `src/web/ui/ui-translations.ts`,
+  `src/web/ui/ui-manager.ts`
+- Tests: `src/test/unit/contacts-view.test.ts`,
+  `tests/e2e/staged/stage3-three-user/14-contacts-relationship-credit.spec.ts`
+
+## 2026-05-25 - Complete Contact Relationship Labels
+
+Contacts now displays saved custom relationship text instead of reducing it to a generic `Custom`
+label. Custom relationship text participates in search and alphabetical relationship sorting, while
+the existing `partner` and `custom` filter categories remain available.
+
+Evidence:
+
+- Contacts list behavior and unit proof: `src/web/ui/contacts-view.ts`,
+  `src/test/unit/contacts-view.test.ts`
+- Relationship sort control and E2E persistence proof: `src/web/ui/ui-manager.ts`,
+  `tests/e2e/staged/stage3-three-user/14-contacts-relationship-credit.spec.ts`
+
 ## 2026-05-25 - Transparent Room Broadcast Audience
 
 The broadcast confirmation view now identifies eligible recipients and skipped members before any

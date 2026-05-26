@@ -25,6 +25,8 @@ type ContactsViewDeps = {
   isSupportNotificationsMuted: () => boolean;
   setSupportNotificationsMuted: (muted: boolean) => Promise<void>;
   text: (key: UiTranslationKey) => string;
+  formatLanguage: (code: string) => string;
+  getProfileLanguages: () => string[];
 };
 
 function formatText(deps: ContactsViewDeps, key: UiTranslationKey, values: Record<string, string | number>): string {
@@ -43,8 +45,16 @@ function formatCountText(
   return formatText(deps, count === 1 ? singular : plural, { count });
 }
 
-function formatRelationshipLabel(label: string | undefined, deps: ContactsViewDeps): string {
+function formatRelationshipLabel(
+  relationship: KnownPerson | string | undefined,
+  deps: ContactsViewDeps,
+): string {
+  const label = typeof relationship === 'string' ? relationship : relationship?.label;
   if (!label) return deps.text('contactNoRelationship');
+  if (label === 'custom' && relationship && typeof relationship !== 'string') {
+    const customLabel = String(relationship.customLabel || '').trim();
+    if (customLabel) return customLabel;
+  }
   const keyByLabel: Record<string, UiTranslationKey> = {
     friend: 'friends',
     relative: 'relatives',
@@ -70,7 +80,7 @@ function buildMetaLine(summary: PeerSummary, known: KnownPerson | undefined, dep
     formatCountText(deps, summary.stats.totalTalks, 'contactsTalkCountOne', 'contactsTalkCount'),
     formatCountText(deps, matchedTalks, 'contactsMatchCountOne', 'contactsMatchCount'),
     formatCountText(deps, summary.stats.mutualTagCount, 'contactsCommonTagCountOne', 'contactsCommonTagCount'),
-    known?.label ? formatRelationshipLabel(known.label, deps) : deps.text('stranger'),
+    known?.label ? formatRelationshipLabel(known, deps) : deps.text('stranger'),
   ];
   return parts.join(' · ');
 }
@@ -154,7 +164,17 @@ let contactDetailUserProfileCache: { userId: string; publicUser: any } | null = 
 
 function renderPublicProfileSummary(deps: ContactsViewDeps, publicUser: any): string {
   const headshot = String(publicUser?.headshot || '').trim();
-  const languages = Array.isArray(publicUser?.languages) ? publicUser.languages.filter(Boolean) : [];
+  const languages = Array.isArray(publicUser?.languages)
+    ? publicUser.languages.map((code: unknown) => String(code).trim().toLowerCase()).filter(Boolean)
+    : [];
+  const ownLanguages = new Set(
+    deps.getProfileLanguages().map((code) => String(code).trim().toLowerCase()).filter(Boolean),
+  );
+  const sharedLanguages = languages.filter((code: string) => ownLanguages.has(code));
+  const languageLabels = languages.map((code: string) => {
+    const language = deps.formatLanguage(code);
+    return ownLanguages.has(code) ? formatText(deps, 'contactSharedLanguage', { language }) : language;
+  });
   const interests = Array.isArray(publicUser?.interests)
     ? publicUser.interests.map((t: { name?: string }) => String(t?.name || '').trim()).filter(Boolean)
     : [];
@@ -164,7 +184,8 @@ function renderPublicProfileSummary(deps: ContactsViewDeps, publicUser: any): st
       <div class="user-avatar" style="width:52px; height:52px; font-size:1.4em; flex-shrink:0;">${avatarInnerHtml(headshot, '?', deps.escapeHtml)}</div>
       <div style="min-width:0; flex:1;">
         <div style="font-size:0.82em; color:#64748b;">${deps.text('publicProfile')}</div>
-        <div style="font-size:0.88em; color:#334155; margin-top:4px;">${deps.text('languagesLabel')}: ${deps.escapeHtml(languages.length > 0 ? languages.join(', ') : deps.text('notListed'))}</div>
+        <div class="contact-profile-languages" style="font-size:0.88em; color:#334155; margin-top:4px;">${deps.text('languagesLabel')}: ${deps.escapeHtml(languageLabels.length > 0 ? languageLabels.join(', ') : deps.text('notListed'))}</div>
+        ${languages.length > 0 && ownLanguages.size > 0 && sharedLanguages.length === 0 ? `<div class="contact-language-hint" style="font-size:0.82em; color:#b45309; margin-top:4px;">${deps.text('contactNoSharedLanguage')}</div>` : ''}
         ${interests.length > 0 ? `<div style="font-size:0.88em; color:#334155; margin-top:4px;">${deps.text('interestsLabel')}: ${deps.escapeHtml(interests.join(', '))}</div>` : ''}
         <div style="display:grid; gap:6px; margin-top:8px;">
           ${
@@ -471,7 +492,8 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
         const known = knownMap.get(peer.peerId);
         const resolvedStageName = deps.getPeerName(peer.peerId, peer.stageName);
         const displayName = buildDisplayName(resolvedStageName, known).toLowerCase();
-        if (nameFilter && !displayName.includes(nameFilter)) return false;
+        const relationshipLabel = known?.label ? formatRelationshipLabel(known, deps).toLowerCase() : '';
+        if (nameFilter && !`${displayName} ${relationshipLabel}`.includes(nameFilter)) return false;
         if (relationFilter !== 'all' && known?.label !== relationFilter) return false;
         return true;
       })
@@ -482,6 +504,12 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
         const bMetrics = rankingMetrics(b, bKnown, deps);
         if (sortOrder === 'name') {
           return tieBreak(a, b);
+        }
+        if (sortOrder === 'relationship') {
+          const aRelationship = aKnown?.label ? formatRelationshipLabel(aKnown, deps) : deps.text('stranger');
+          const bRelationship = bKnown?.label ? formatRelationshipLabel(bKnown, deps) : deps.text('stranger');
+          const relationshipDiff = aRelationship.localeCompare(bRelationship);
+          return relationshipDiff !== 0 ? relationshipDiff : tieBreak(a, b);
         }
         if (sortOrder === 'matches' && bMetrics.matchedTalks !== aMetrics.matchedTalks) return bMetrics.matchedTalks - aMetrics.matchedTalks;
         if (sortOrder === 'match-rate' && bMetrics.matchRate !== aMetrics.matchRate) return bMetrics.matchRate - aMetrics.matchRate;
@@ -524,7 +552,7 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
         const known = knownMap.get(peer.peerId);
         const resolvedStageName = deps.getPeerName(peer.peerId, peer.stageName);
         const displayName = buildDisplayName(resolvedStageName, known);
-        const relationship = formatRelationshipLabel(known?.label, deps);
+        const relationship = formatRelationshipLabel(known, deps);
         const metrics = rankingMetrics(peer, known, deps);
         const blockedBadge = deps.isBlockedByMe(peer.peerId)
           ? `<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#fff7ed;color:#c2410c;font-size:0.72em;font-weight:700;margin-left:8px;">${deps.text('contactsBlocked')}</span>`

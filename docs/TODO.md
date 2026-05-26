@@ -519,12 +519,13 @@ verified.
   exposing ordinary block behavior, without removing the support channel.
 - **Future work: manual/pinned contacts.** Add a way to keep a contact without requiring a prior
   matched talk, with clear privacy boundaries and local-only storage unless explicitly synced.
-- **Future work: contact language and translation affordances.** Show each contact's public
-  languages in readable names, mark shared languages, and offer translation/support hints when the
-  viewer and contact do not share a language.
-- **Future work: relationship filtering completeness.** Relationship filters should include every
-  relationship label the dialog can save, including `partner`, and custom labels should be searchable
-  and sortable.
+- **Implemented in current working tree: contact language and translation affordances.** Contact
+  detail renders public language codes as localized names, marks languages shared with the viewer,
+  and shows a translation hint when profiles have no common declared language.
+- **Implemented in current working tree: relationship filtering completeness.** Relationship
+  filters include every saved label including `partner` and `custom`; saved custom relationship
+  text is rendered, searchable, and available in relationship sorting without collapsing to a
+  generic `Custom` label.
 - **Future work: contact detail parity.** Contact detail should show transport/channel health,
   latest support or P2P status, shared talks, shared tags, relationship notes, public credit, and
   whether delivery is blocked by either side.

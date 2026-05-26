@@ -101,10 +101,12 @@ test.describe('Contacts relationship dialog', () => {
     await expect(jerryContact).toBeVisible({ timeout: 15000 });
     await jerryContact.click();
     await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
+    await expect(pageTom.locator('.contact-profile-languages')).toContainText('English (shared)');
 
     await pageTom.click('#contact-edit-relationship-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10000 });
-    await pageTom.selectOption('#contact-relationship-label', 'friend');
+    await pageTom.selectOption('#contact-relationship-label', 'custom');
+    await pageTom.fill('#contact-relationship-custom-label', 'Coffee Circle');
     await pageTom.fill('#contact-relationship-nickname', 'J');
     await pageTom.selectOption('#contact-relationship-rating', '4');
     await pageTom.fill('#contact-relationship-notes', 'coffee buddy');
@@ -115,11 +117,25 @@ test.describe('Contacts relationship dialog', () => {
     await afterAction();
     const updatedContact = pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'J (Jerry)' }).first();
     await expect(updatedContact).toBeVisible({ timeout: 10000 });
-    await expect(updatedContact).toContainText('Friend');
+    await expect(updatedContact).toContainText('Coffee Circle');
+    await expect(pageTom.locator('#contacts-sort-order option[value="relationship"]')).toHaveText('Relationship');
+    await pageTom.selectOption('#contacts-sort-order', 'relationship');
+    await pageTom.fill('#contacts-filter-name', 'Coffee Circle');
+    await expect(pageTom.locator('#contacts-list .contact-item:not([data-support-contact="true"])')).toHaveCount(1);
+    await pageTom.selectOption('#contacts-filter-relation', 'custom');
+    await afterSync();
 
-    await updatedContact.click();
-    await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
+    // Wait for filter-triggered list refreshes before clicking the newly bound row.
+    const finalContact = pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'J (Jerry)' }).first();
+    await expect(finalContact).toBeVisible({ timeout: 10000 });
+    await finalContact.evaluate((row) => (row as HTMLElement).click());
+    await afterSync();
+    await expect(pageTom.locator('#contact-detail-container')).toBeVisible({ timeout: 10000 });
+    await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry');
+    await expect(pageTom.locator('#contact-edit-relationship-btn')).toBeVisible({ timeout: 15000 });
     await pageTom.click('#contact-edit-relationship-btn');
+    await expect(pageTom.locator('#contact-relationship-label')).toHaveValue('custom');
+    await expect(pageTom.locator('#contact-relationship-custom-label')).toHaveValue('Coffee Circle');
     await expect(pageTom.locator('#contact-relationship-nickname')).toHaveValue('J');
     await expect(pageTom.locator('#contact-relationship-rating')).toHaveValue('4');
     await expect(pageTom.locator('#contact-relationship-notes')).toHaveValue('coffee buddy');

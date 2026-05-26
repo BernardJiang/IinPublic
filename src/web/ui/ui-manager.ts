@@ -405,6 +405,7 @@ export class UIManager extends EventEmitter {
       ['#contacts-sort-order option[value="match-rate"]', 'matchRate'],
       ['#contacts-sort-order option[value="weighted"]', 'relevanceScore'],
       ['#contacts-sort-order option[value="name"]', 'name'],
+      ['#contacts-sort-order option[value="relationship"]', 'relationship'],
       ['#talks-out-sort-order option[value="recent"]', 'talksLatestActivity'],
       ['#talks-out-sort-order option[value="oldest"]', 'talksOldestCreation'],
       ['#talks-out-sort-order option[value="latest-reply"]', 'talksLatestReply'],
@@ -740,6 +741,7 @@ export class UIManager extends EventEmitter {
                   <option value="match-rate">Match rate</option>
                   <option value="weighted">Relevance score</option>
                   <option value="name">Name</option>
+                  <option value="relationship">Relationship</option>
                 </select>
               </div>
               <div class="embedded-stats-strip" id="contacts-stats-strip" style="padding:8px 12px;color:#64748b;font-size:0.88em;"></div>
@@ -1528,6 +1530,8 @@ export class UIManager extends EventEmitter {
       isSupportNotificationsMuted: this.isSupportNotificationsMuted.bind(this),
       setSupportNotificationsMuted: this.setSupportNotificationsMuted.bind(this),
       text: this.t.bind(this),
+      formatLanguage: this.formatTalkLanguage.bind(this),
+      getProfileLanguages: () => this.currentUser?.languages || ['en'],
     });
   }
 
@@ -1550,6 +1554,8 @@ export class UIManager extends EventEmitter {
       isSupportNotificationsMuted: this.isSupportNotificationsMuted.bind(this),
       setSupportNotificationsMuted: this.setSupportNotificationsMuted.bind(this),
       text: this.t.bind(this),
+      formatLanguage: this.formatTalkLanguage.bind(this),
+      getProfileLanguages: () => this.currentUser?.languages || ['en'],
     });
   }
 
@@ -1573,6 +1579,8 @@ export class UIManager extends EventEmitter {
         isSupportNotificationsMuted: this.isSupportNotificationsMuted.bind(this),
         setSupportNotificationsMuted: this.setSupportNotificationsMuted.bind(this),
         text: this.t.bind(this),
+        formatLanguage: this.formatTalkLanguage.bind(this),
+        getProfileLanguages: () => this.currentUser?.languages || ['en'],
       },
       otherUserId,
       otherUserName,
