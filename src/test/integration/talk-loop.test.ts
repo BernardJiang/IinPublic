@@ -1325,6 +1325,9 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(far.body.totalCandidates).toBe(1);
       expect(far.body.eligibleReceivers).toBe(0);
       expect(far.body.rejectedByCounts).toEqual({ broadcast_max_distance: 1 });
+      expect(far.body.rejectedReceivers).toEqual([
+        { receiverId: RESPONDER_ID, rejectedBy: ['broadcast_max_distance'] },
+      ]);
 
       const unfilt = await request(app)
         .post('/api/talks/broadcast-receiver-preview')
@@ -1335,6 +1338,7 @@ describe('Talk loop — incoming registration → answer submission → match �
         });
       expect(unfilt.status).toBe(200);
       expect(unfilt.body.eligibleReceivers).toBe(1);
+      expect(unfilt.body.eligibleReceiverIds).toEqual([RESPONDER_ID]);
       expect(unfilt.body.rejectedByCounts).toEqual({});
     });
 
@@ -1369,6 +1373,11 @@ describe('Talk loop — incoming registration → answer submission → match �
         age_gate: 2,
         blocked_user: 1,
       });
+      expect(preview.body.rejectedReceivers).toEqual(expect.arrayContaining([
+        expect.objectContaining({ receiverId: RESPONDER_ID, rejectedBy: expect.arrayContaining(['intake_language']) }),
+        expect.objectContaining({ receiverId: 'user_carol', rejectedBy: expect.arrayContaining(['age_gate']) }),
+        expect.objectContaining({ receiverId: 'user_dave', rejectedBy: expect.arrayContaining(['blocked_user']) }),
+      ]));
     });
   });
 

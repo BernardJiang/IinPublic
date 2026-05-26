@@ -12,6 +12,20 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-25 - Transparent Room Broadcast Audience
+
+The broadcast confirmation view now identifies eligible recipients and skipped members before any
+send occurs, with per-member intake, moderation, age, block, capacity, and rate-limit reasons. It
+also states when the built-in TechSupport support channel was intentionally excluded from an
+ordinary room broadcast.
+
+Evidence:
+
+- Preview API and reason-bearing response: `src/server/routes/talk-delivery-routes.ts`,
+  `src/test/integration/talk-loop.test.ts`
+- Localized audience view and E2E proof: `src/web/app/app.ts`, `src/web/ui/ui-manager.ts`,
+  `src/web/ui/ui-translations.ts`, `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - Stable Concurrent Capacity Overflow
 
 FIFO room overflow now lets only the newest active join resolve a capacity breach, preventing

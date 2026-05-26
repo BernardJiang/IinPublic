@@ -375,9 +375,14 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
           totalCandidates: uniqueReceiverIds.length,
           cappedPoolSize: 0,
           eligibleReceivers: 0,
+          eligibleReceiverIds: [],
           senderCapacity,
           capacityDropped: uniqueReceiverIds.length,
           rejectedByCounts: uniqueReceiverIds.length > 0 ? { sender_capacity: uniqueReceiverIds.length } : {},
+          rejectedReceivers: uniqueReceiverIds.map((receiverId) => ({
+            receiverId,
+            rejectedBy: ['sender_capacity'],
+          })),
         });
         return;
       }
@@ -390,6 +395,10 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         symmetricTalkEdgeLimiter.cooldownMs <= 0 ||
         symmetricTalkEdgeLimiter.isCold(senderId, nowPrev);
       let eligibleReceivers = 0;
+      const eligibleReceiverIds: string[] = [];
+      const rejectedReceivers: Array<{ receiverId: string; rejectedBy: string[] }> = uniqueReceiverIds
+        .slice(senderCapacity)
+        .map((receiverId) => ({ receiverId, rejectedBy: ['sender_capacity'] }));
       const rejectedByCounts: Record<string, number> = {};
       if (capacityDropped > 0) rejectedByCounts.sender_capacity = capacityDropped;
       for (const receiverId of receiverIdsCapped) {
@@ -403,10 +412,12 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         );
         if (rejectedBy.length > 0) {
           addRejectionCounts(rejectedByCounts, rejectedBy);
+          rejectedReceivers.push({ receiverId, rejectedBy });
           continue;
         }
         if (!senderColdForPreview) {
           addRejectionCounts(rejectedByCounts, ['symmetric_rate_limit']);
+          rejectedReceivers.push({ receiverId, rejectedBy: ['symmetric_rate_limit'] });
           continue;
         }
         if (
@@ -415,24 +426,29 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
           !symmetricTalkEdgeLimiter.isCold(receiverId, nowPrev)
         ) {
           addRejectionCounts(rejectedByCounts, ['symmetric_rate_limit']);
+          rejectedReceivers.push({ receiverId, rejectedBy: ['symmetric_rate_limit'] });
           continue;
         }
         if (dailyWeeklyTalkEdgeQuotaRateLimiter) {
           const quota = dailyWeeklyTalkEdgeQuotaRateLimiter.checkEdgeQuotas(senderId, receiverId, nowPrev);
           if (!quota.ok) {
             addRejectionCounts(rejectedByCounts, quota.rejectedBy);
+            rejectedReceivers.push({ receiverId, rejectedBy: quota.rejectedBy });
             continue;
           }
         }
         eligibleReceivers += 1;
+        eligibleReceiverIds.push(receiverId);
       }
       res.json({
         totalCandidates: uniqueReceiverIds.length,
         cappedPoolSize: receiverIdsCapped.length,
         eligibleReceivers,
+        eligibleReceiverIds,
         senderCapacity,
         capacityDropped,
         rejectedByCounts,
+        rejectedReceivers,
       });
     } catch (error) {
       logger.error({ err: error }, 'broadcast-receiver-preview error');

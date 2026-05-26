@@ -281,13 +281,19 @@ test.describe('UI navigation and settings shell', () => {
         talkId: 'preview-zh',
         title: 'Preview Talk',
         totalCandidates: 2,
-        eligibleReceivers: 0,
+        eligibleReceivers: 1,
         rejectedByCounts: { intake_language: 1, blocked_user: 1 },
+        eligibleReceiverNames: ['Ming'],
+        rejectedReceiverDetails: [{ name: 'Lin', rejectedBy: ['intake_language', 'blocked_user'] }],
+        supportExcludedCount: 1,
       }]);
     });
     await expect(p.locator('[data-testid="broadcast-preamble-modal"]')).toContainText('检查广播接收对象');
     await expect(p.locator('[data-testid="broadcast-preamble-modal"]')).toContainText('不接受该语言');
     await expect(p.locator('[data-testid="broadcast-preamble-modal"]')).toContainText('已被用户屏蔽');
+    await expect(p.locator('[data-testid="broadcast-preamble-modal"]')).toContainText('接收对象：Ming');
+    await expect(p.locator('[data-testid="broadcast-preamble-modal"]')).toContainText('已跳过：Lin');
+    await expect(p.locator('[data-testid="broadcast-preamble-modal"]')).toContainText('TechSupport 支持频道不参与普通广播');
     await p.locator('[data-testid="broadcast-preamble-cancel"]').click();
     await p.locator('.nav-btn[data-view="contacts"]').click();
     await afterNav();

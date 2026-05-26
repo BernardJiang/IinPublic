@@ -941,8 +941,10 @@ export class IinPublicApp {
     members: Array<{ userId: string; stageName: string }>,
     broadcastTargetTags?: string[],
     broadcastMaxDistanceMiles?: number,
+    supportExcludedCount = 0,
   ): Promise<BroadcastAudiencePreview> {
     const me = this.currentUser;
+    const stageNameById = new Map(members.map((member) => [member.userId, member.stageName || member.userId]));
     const receiverIds = members
       .map((member) => member.userId)
       .filter((id) => !!id && id !== me?.id && id !== TECHSUPPORT_ROOT_USER_ID);
@@ -952,6 +954,9 @@ export class IinPublicApp {
       totalCandidates: receiverIds.length,
       eligibleReceivers: receiverIds.length,
       rejectedByCounts: {},
+      eligibleReceiverNames: receiverIds.map((receiverId) => stageNameById.get(receiverId) || receiverId),
+      rejectedReceiverDetails: [],
+      supportExcludedCount,
       previewUnavailable: receiverIds.length > 0,
     };
     if (!me?.id || receiverIds.length === 0) return fallback;
@@ -974,6 +979,12 @@ export class IinPublicApp {
       }).finally(() => window.clearTimeout(timeoutId));
       if (!response.ok) return fallback;
       const preview = await response.json() as Partial<BroadcastAudiencePreview>;
+      const eligibleReceiverIds = Array.isArray((preview as any).eligibleReceiverIds)
+        ? (preview as any).eligibleReceiverIds.map(String)
+        : receiverIds;
+      const rejectedReceivers = Array.isArray((preview as any).rejectedReceivers)
+        ? (preview as any).rejectedReceivers as Array<{ receiverId?: string; rejectedBy?: string[] }>
+        : [];
       return {
         talkId,
         title: String(talk.title || 'Untitled Talk'),
@@ -982,6 +993,12 @@ export class IinPublicApp {
         rejectedByCounts: preview.rejectedByCounts && typeof preview.rejectedByCounts === 'object'
           ? preview.rejectedByCounts
           : {},
+        eligibleReceiverNames: eligibleReceiverIds.map((receiverId: string) => stageNameById.get(receiverId) || receiverId),
+        rejectedReceiverDetails: rejectedReceivers.map((receiver) => ({
+          name: stageNameById.get(String(receiver.receiverId || '')) || String(receiver.receiverId || ''),
+          rejectedBy: Array.isArray(receiver.rejectedBy) ? receiver.rejectedBy.map(String) : [],
+        })),
+        supportExcludedCount,
         previewUnavailable: false,
       };
     } catch {
@@ -1779,6 +1796,8 @@ export class IinPublicApp {
           }
 
           const receivers = await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
+          const supportExcludedCount = (data.members ?? [])
+            .filter((member) => member.userId === TECHSUPPORT_ROOT_USER_ID).length;
 
           const broadcastTargetTags = data.broadcastTargetTags;
           const broadcastMaxDistanceMiles =
@@ -1818,6 +1837,7 @@ export class IinPublicApp {
                 receivers,
                 broadcastTargetTags,
                 broadcastMaxDistanceMiles,
+                supportExcludedCount,
               ),
             ),
           );

@@ -505,9 +505,10 @@ verified.
   joins no longer refresh FIFO membership or increment lifetime visits; unit/E2E coverage verifies
   active-member decrement, rejoin counting, unique visitor stability, retained soft-deleted-room
   history, and the existing capacity traversal preserves the TechSupport global anchor.
-- **Future work: broadcast transparency.** Broadcast currently sends eligible OUT talks to active
-  room members, but the UI should show who will receive the broadcast, who was skipped, which
-  language/type/distance filters apply, and whether any TechSupport/support-only talks are excluded.
+- **Implemented in current working tree: broadcast transparency.** Before sending, the audience
+  preview now names eligible recipients and skipped members, explains intake/distance/content/age/
+  block/capacity/rate-limit exclusions, and explicitly reports that the built-in TechSupport
+  support channel is excluded from ordinary room broadcasts.
 
 ### Contacts Tab
 

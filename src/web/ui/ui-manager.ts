@@ -154,6 +154,9 @@ export type BroadcastAudiencePreview = {
   totalCandidates: number;
   eligibleReceivers: number;
   rejectedByCounts: Record<string, number>;
+  eligibleReceiverNames?: string[];
+  rejectedReceiverDetails?: Array<{ name: string; rejectedBy: string[] }>;
+  supportExcludedCount?: number;
   previewUnavailable?: boolean;
 };
 
@@ -4493,7 +4496,8 @@ export class UIManager extends EventEmitter {
     const knownPreviews = previews.filter((preview) => !preview.previewUnavailable);
     const deliveryCount = knownPreviews.reduce((count, preview) => count + preview.eligibleReceivers, 0);
     const candidateCount = knownPreviews.reduce((count, preview) => count + preview.totalCandidates, 0);
-    const excludedCount = Math.max(0, candidateCount - deliveryCount);
+    const supportExcludedCount = knownPreviews.reduce((count, preview) => count + (preview.supportExcludedCount || 0), 0);
+    const excludedCount = Math.max(0, candidateCount - deliveryCount) + supportExcludedCount;
     const hasUnavailable = knownPreviews.length !== previews.length;
     const rows = previews.map((preview) => {
       if (preview.previewUnavailable) {
@@ -4505,11 +4509,23 @@ export class UIManager extends EventEmitter {
         `;
       }
       const reasonText = this.formatReasonCounts(preview.rejectedByCounts);
+      const recipientText = (preview.eligibleReceiverNames || []).join(', ') || this.t('broadcastPreviewNone');
+      const rejectedDetailText = (preview.rejectedReceiverDetails || [])
+        .map(({ name, rejectedBy }) => {
+          const reasonCounts = Object.fromEntries(rejectedBy.map((reason) => [reason, 1]));
+          return `${name}: ${this.formatReasonCounts(reasonCounts)}`;
+        })
+        .join('; ');
+      const perTalkExcluded = Math.max(0, preview.totalCandidates - preview.eligibleReceivers)
+        + (preview.supportExcludedCount || 0);
       return `
         <div class="broadcast-preview-row" data-talk-id="${escapeHtml(preview.talkId)}" style="padding:10px;border:1px solid #e5e7eb;border-radius:10px;">
           <div style="font-weight:600;">${escapeHtml(preview.title)}</div>
-          <div style="font-size:0.88em;color:#475569;margin-top:4px;">${preview.eligibleReceivers} ${this.t('broadcastPreviewEligible')} · ${Math.max(0, preview.totalCandidates - preview.eligibleReceivers)} ${this.t('broadcastPreviewExcluded')}</div>
+          <div style="font-size:0.88em;color:#475569;margin-top:4px;">${preview.eligibleReceivers} ${this.t('broadcastPreviewEligible')} · ${perTalkExcluded} ${this.t('broadcastPreviewExcluded')}</div>
+          <div class="broadcast-preview-recipients" style="font-size:0.82em;color:#475569;margin-top:4px;">${escapeHtml(this.tf('broadcastPreviewRecipients', { names: recipientText }))}</div>
           ${reasonText ? `<div class="broadcast-preview-reasons" style="font-size:0.82em;color:#64748b;margin-top:4px;">${escapeHtml(reasonText)}</div>` : ''}
+          ${rejectedDetailText ? `<div class="broadcast-preview-skipped" style="font-size:0.82em;color:#64748b;margin-top:4px;">${escapeHtml(this.tf('broadcastPreviewSkipped', { details: rejectedDetailText }))}</div>` : ''}
+          ${preview.supportExcludedCount ? `<div class="broadcast-preview-support" style="font-size:0.82em;color:#64748b;margin-top:4px;">${escapeHtml(this.tf('broadcastPreviewSupportExcluded', { count: preview.supportExcludedCount }))}</div>` : ''}
         </div>
       `;
     }).join('');
