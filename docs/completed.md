@@ -12,6 +12,18 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-25 - Human-Readable Conditional Answer Context
+
+The Me answer-history view now explains route branches with the earlier question and selected
+answer text rather than exposing internal question/answer ids. This is applied to both current
+flattened history records and the legacy answered-talk rendering path.
+
+Evidence:
+
+- UI and history serialization: `src/web/ui/answers-view.ts`, `src/web/ui/ui-manager.ts`
+- Unit and E2E: `src/test/unit/answers-view.test.ts`,
+  `tests/e2e/staged/stage0-bootstrap/caa-techsupport-four-talk-types.spec.ts`
+
 ## 2026-05-25 - Support Message Exclusion From Answer History
 
 The Me answer-history list now rejects marked TechSupport welcome and support-channel message rows

@@ -104,12 +104,19 @@ export function getAnswerDisplayText(
   return String(answer?.text || '').trim() || 'Ignored';
 }
 
-function formatQuestionContext(question: any): string[] {
+function formatQuestionContext(talk: any, question: any): string[] {
+  const questions = Array.isArray(talk?.questions) ? talk.questions : [];
   const contextPath = Array.isArray(question?.contextPath) ? question.contextPath : [];
   return contextPath.map((step: any, index: number) => {
-    const questionId = String(step?.questionId || '').trim() || `Q${index + 1}`;
-    const answerId = String(step?.answerId || '').trim() || '?';
-    return `${questionId} → ${answerId}`;
+    const questionId = String(step?.questionId || '').trim();
+    const parentQuestion = questions.find((item: any) => String(item?.id || '') === questionId);
+    const answerId = String(step?.answerId || '').trim();
+    const parentAnswer = Array.isArray(parentQuestion?.answers)
+      ? parentQuestion.answers.find((item: any) => String(item?.id || '') === answerId)
+      : null;
+    const questionText = String(parentQuestion?.text || questionId || `Q${index + 1}`).trim();
+    const answerText = String(parentAnswer?.text || answerId || '?').trim();
+    return `${questionText} -> ${answerText}`;
   });
 }
 
@@ -148,7 +155,7 @@ export function buildAnswerItemModels(
       ...(String(question?.contextHashId || '').trim()
         ? { contextHash: String(question?.contextHashId || '').trim() }
         : {}),
-      contextPath: formatQuestionContext(question),
+      contextPath: formatQuestionContext(talk, question),
       answeredCount,
       ...(typeof answer?.counter === 'number' ? { answerCounter: answer.counter } : {}),
       ...(entry.mode ? { mode: entry.mode } : {}),

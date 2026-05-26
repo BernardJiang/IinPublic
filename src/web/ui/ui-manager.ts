@@ -4663,9 +4663,15 @@ export class UIManager extends EventEmitter {
           : String(answer?.text || '').trim() || 'Ignored';
       const contextPath = Array.isArray(question?.contextPath)
         ? question.contextPath.map((step: any, stepIndex: number) => {
-            const questionId = String(step?.questionId || '').trim() || `Q${stepIndex + 1}`;
-            const answerId = String(step?.answerId || '').trim() || '?';
-            return `${questionId} -> ${answerId}`;
+            const questionId = String(step?.questionId || '').trim();
+            const parentQuestion = questions.find((item: any) => String(item?.id || '') === questionId);
+            const answerId = String(step?.answerId || '').trim();
+            const parentAnswer = Array.isArray(parentQuestion?.answers)
+              ? parentQuestion.answers.find((item: any) => String(item?.id || '') === answerId)
+              : null;
+            const questionText = String(parentQuestion?.text || questionId || `Q${stepIndex + 1}`).trim();
+            const answerText = String(parentAnswer?.text || answerId || '?').trim();
+            return `${questionText} -> ${answerText}`;
           })
         : [];
       return {

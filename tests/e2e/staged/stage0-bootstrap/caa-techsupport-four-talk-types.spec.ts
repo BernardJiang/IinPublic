@@ -154,6 +154,11 @@ test.describe('Stage 0 — TechSupport creates four talk types', () => {
       const row = page.locator('#answers-content .answer-outcome-item').filter({ hasText: question }).filter({ hasText: answer });
       await expect(row.first()).toBeVisible();
     }
+    const routeChildRow = page.locator('#answers-content .answer-outcome-item')
+      .filter({ hasText: 'TechSupport engineering roles?' });
+    await expect(routeChildRow).toContainText('Context path:');
+    await expect(routeChildRow).toContainText('TechSupport job searching? -> Yes.');
+    await expect(routeChildRow).not.toContainText('q_job -> a_job_yes');
 
     await expect
       .poll(

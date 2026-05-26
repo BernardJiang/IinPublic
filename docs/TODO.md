@@ -585,8 +585,9 @@ verified.
   talk, and keeps auto-use metrics scoped to that language.
 - **Future work: translated-answer linking.** Allow users to explicitly link equivalent questions
   across languages when intentional reuse is desired.
-- **Future work: clearer conditional-answer explanations.** Conditional answers should explain the
-  route/context path in human-readable form, not only ids or hashes.
+- **Implemented in current working tree: clearer conditional-answer explanations.** Route answer
+  history now displays the prior question and selected-answer text for each context step instead
+  of showing only internal question and answer ids.
 - **Implemented in current working tree: support-message exclusion.** Marked TechSupport welcome
   and support-channel messages are excluded from answer history, while TechSupport-authored talks
   remain visible when the user intentionally answers them.

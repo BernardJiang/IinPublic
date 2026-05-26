@@ -45,6 +45,11 @@ describe('answers view models', () => {
       title: 'Route talk',
       questions: [
         {
+          id: 'q_0',
+          text: 'Need coffee?',
+          answers: [{ id: 'a_0_1', text: 'Yes, please' }],
+        },
+        {
           id: 'q_1',
           text: 'Choose a cafe',
           contextHashId: 'cafefeed',
@@ -63,7 +68,7 @@ describe('answers view models', () => {
     expect(items[0].kind).toBe('question');
     expect(items[0].choice).toBe('Blue Bottle');
     expect(items[0].contextHash).toBe('cafefeed');
-    expect(items[0].contextPath[0]).toContain('q_0');
+    expect(items[0].contextPath[0]).toBe('Need coffee? -> Yes, please');
   });
 
   it('falls back to the talk answer text when a stored answer says ignore', () => {
