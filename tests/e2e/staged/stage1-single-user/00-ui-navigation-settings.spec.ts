@@ -486,13 +486,18 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#edit-profile-form')).toContainText('头像');
     await expect(p.locator('#edit-profile-form')).toContainText('输入兴趣的默认分类');
     await expect(p.locator('#edit-profile-form')).toContainText('资料项目');
+    await expect(p.locator('#profile-languages-input')).toHaveCount(0);
+    await expect(p.locator('.profile-language-option[value="en"]')).toBeChecked();
+    await expect(p.locator('.profile-language-option[value="zh"]').locator('xpath=..')).toContainText('中文');
+    await p.locator('.profile-language-option[value="zh"]').check();
     await expect(p.locator('#profile-interest-category-default option[value="community"]')).toHaveText('社区');
     await expect(p.locator('.profile-visibility-select').first().locator('option[value="public"]')).toHaveText('所有人');
     await p.locator('#add-profile-qa-btn').click();
     await expect(p.locator('.profile-question-input').last()).toHaveAttribute('placeholder', '问题');
     await expect(p.locator('.remove-profile-qa-btn').last()).toHaveText('移除');
     await expect(p.locator('#save-profile-btn')).toHaveText('保存资料');
-    await p.locator('#cancel-profile-btn').click();
+    await p.locator('#save-profile-btn').click();
+    await expect(p.locator('#user-info-me')).toContainText('语言: 英语, 中文');
     await expect(p.locator('#answers-content')).toContainText('你收到并回答的话题会显示在这里');
     await expect(p.locator('#answers-content')).toContainText('偏好设置');
     await p.evaluate(() => {

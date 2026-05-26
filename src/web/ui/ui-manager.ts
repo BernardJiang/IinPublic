@@ -3838,7 +3838,19 @@ export class UIManager extends EventEmitter {
 
   async showEditProfileDialog(user: User): Promise<void> {
     const currentProfile = Array.isArray(user.profile) ? user.profile : [];
-    const currentLanguages = Array.isArray(user.languages) && user.languages.length > 0 ? user.languages : ['en'];
+    const supportedLanguageCodes = new Set(LANGUAGE_OPTIONS.map((language) => language.code));
+    const currentLanguages = (Array.isArray(user.languages) ? user.languages : [])
+      .map((language) => String(language).toLowerCase())
+      .filter((language) => supportedLanguageCodes.has(language));
+    if (currentLanguages.length === 0) currentLanguages.push('en');
+    const languageOptionsHtml = LANGUAGE_OPTIONS.map(
+      (language) => `
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid #d1d5db;border-radius:999px;background:white;">
+          <input type="checkbox" class="profile-language-option" value="${language.code}" ${currentLanguages.includes(language.code) ? 'checked' : ''}>
+          <span>${escapeHtml(languageOptionLabel(this.getUiLanguage(), language.code, language.label))}</span>
+        </label>
+      `,
+    ).join('');
     const currentHeadshot = String(user.headshot || '').trim();
     const currentInterests = Array.isArray(user.interests) ? user.interests : [];
     const interestsFieldValue = currentInterests.map((t) => String(t.name || '').trim()).filter(Boolean).join(', ');
@@ -3920,7 +3932,9 @@ export class UIManager extends EventEmitter {
             </div>
             <div class="form-group">
               <label class="form-label">${this.t('languagesLabel')}</label>
-              <input type="text" class="form-input" id="profile-languages-input" value="${escapeHtml(currentLanguages.join(', '))}" placeholder="en, zh">
+              <div id="profile-languages-select" data-testid="profile-languages-select" style="display:flex;flex-wrap:wrap;gap:8px;">
+                ${languageOptionsHtml}
+              </div>
             </div>
             <div class="form-group">
               <label class="form-label">${this.t('interestsLabel')}</label>
@@ -3986,11 +4000,9 @@ export class UIManager extends EventEmitter {
       form?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const selectedHeadshot = (modal.querySelector('input[name="profile-headshot"]:checked') as HTMLInputElement | null)?.value?.trim() || '';
-        const languagesInput = (document.getElementById('profile-languages-input') as HTMLInputElement | null)?.value || '';
-        const languages = languagesInput
-          .split(',')
-          .map((part) => part.trim().toLowerCase())
-          .filter(Boolean);
+        const languages = Array.from(modal.querySelectorAll<HTMLInputElement>('.profile-language-option:checked'))
+          .map((option) => option.value)
+          .filter((language) => supportedLanguageCodes.has(language));
         const interestsRaw = (document.getElementById('profile-interests-input') as HTMLInputElement | null)?.value || '';
         const defaultCatRaw = (document.getElementById('profile-interest-category-default') as HTMLSelectElement | null)?.value;
         const defaultCat: TagCategory =

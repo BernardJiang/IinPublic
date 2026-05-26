@@ -613,9 +613,9 @@ verified.
 - **Future work: storage inspector completeness.** Include TechSupport root identity state,
   support-channel state, room visit counters, language-filter state, default talk language, transport
   diagnostics, SEA custody status, relay leak scan, localStorage keys, and IndexedDB names.
-- **Future work: profile editor consistency.** The edit-profile dialog still accepts comma-separated
-  language codes, while Settings uses selectable language options. Unify these controls and validate
-  against the same supported-language list.
+- **Implemented in current working tree: profile editor consistency.** The edit-profile dialog now
+  offers the same supported-language choices as Settings, persists multi-language selections, and
+  no longer accepts arbitrary typed language codes.
 - **Future work: dev reset behavior.** Dev stage reset should clear ordinary state and then reseed
   exactly one TechSupport root identity plus initial visitor-counter baselines.
 

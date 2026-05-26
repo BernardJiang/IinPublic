@@ -12,6 +12,17 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-25 - Validated Profile Language Selector
+
+The Me profile editor now uses selectable supported-language options rather than a
+comma-separated free-text field. Users can retain multiple profile languages, and saved values
+are limited to the same language catalog exposed in Settings.
+
+Evidence:
+
+- UI: `src/web/ui/ui-manager.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - Independent Default Talk Language Setting
 
 Settings now exposes a visible default language for newly created talks. Without an explicit
