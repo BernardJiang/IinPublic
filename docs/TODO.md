@@ -577,9 +577,9 @@ verified.
 
 ### Me Tab
 
-- **Future work: complete answer-memory mode UI.** The Me tab filter shows All, Auto, Manual, and
-  Conditional. Preferences still presents a simpler Auto/Manual toggle; add first-class Temporary,
-  Permanent, and Suppressed controls that match the exact-chatbot-memory model.
+- **Implemented in current working tree: complete answer-memory mode UI.** Preferences exposes
+  Manual, Temporary auto-answer, Permanent auto-answer, and Skip-this-question controls and applies
+  each selection to exact-question memory, so choosing Manual no longer leaves old auto-use active.
 - **Implemented in current working tree: language-aware answer history display.** Answer history
   separates same-text records by talk language, shows a localized language badge for each answered
   talk, and keeps auto-use metrics scoped to that language.

@@ -50,12 +50,14 @@ import {
   setExactChatbotMemory,
   setFlattenedAnswerPreferences,
   setMyQuestionAnswer,
+  type AnswerPreferenceEntry,
   type AnswerPreferenceMap,
   type MyQuestionAnswerEntry,
 } from './answer-preferences-storage';
 import {
   findAutoAnswer,
   LOCAL_EXACT_CHATBOT_USER_ID,
+  makeQuestionId,
   savePermanentAnswer,
   saveSuppressedQuestion,
   saveTemporaryAnswer,
@@ -84,7 +86,7 @@ import {
   setUiLanguagePreference,
 } from './ui-settings-storage';
 import { showMyTalksDialog as openMyTalksDialog } from './my-talks-dialog';
-import { showPreferencesDialog as openPreferencesDialog } from './preferences-dialog';
+import { showPreferencesDialog as openPreferencesDialog, type AnswerPreferenceUiMode } from './preferences-dialog';
 import { showTalkResponseDialog as openTalkResponseDialog } from './talk-response-dialog';
 import {
   addAnswerToQuestion as addTalkEditorAnswerToQuestion,
@@ -4807,7 +4809,8 @@ export class UIManager extends EventEmitter {
     const entry = {
       answerId,
       answerText,
-      mode: mode === 'permanent' ? 'auto' : mode === 'suppressed' ? 'manual' : mode,
+      mode: mode === 'auto' ? 'temporary' : mode,
+      language: languageContext.language,
       talkId: talkInstanceId,
       questionText: currentQuestion.text || '',
       allAnswers: currentQuestion.answers || [],
@@ -4922,6 +4925,7 @@ export class UIManager extends EventEmitter {
           prefs[key].answerText = answerText;
           prefs[key].timestamp = new Date().toISOString();
           setFlattenedAnswerPreferences(prefs);
+          this.applyPreferenceModeToExactMemory(prefs[key], this.normalizePreferenceMode(prefs[key].mode));
         } else {
           const prefs = getAnswerPreferences();
           if (!prefs[key]) return;
@@ -4929,22 +4933,30 @@ export class UIManager extends EventEmitter {
           prefs[key].answerText = answerText;
           prefs[key].timestamp = new Date().toISOString();
           setAnswerPreferences(prefs);
+          this.applyPreferenceModeToExactMemory(prefs[key], this.normalizePreferenceMode(prefs[key].mode));
         }
         this.showNotification(this.t('preferencesAnswerUpdated'), 'success');
       },
-      updateMode: (key, isAuto) => {
+      updateMode: (key, mode) => {
         const prefs: AnswerPreferenceMap = key.startsWith('flat_')
           ? getFlattenedAnswerPreferences()
           : getAnswerPreferences();
         if (!prefs[key]) return;
-        prefs[key].mode = isAuto ? 'auto' : 'manual';
+        prefs[key].mode = mode;
         prefs[key].timestamp = new Date().toISOString();
         if (key.startsWith('flat_')) {
           setFlattenedAnswerPreferences(prefs);
         } else {
           setAnswerPreferences(prefs);
         }
-        this.showNotification(this.t(isAuto ? 'preferencesModeChangedAuto' : 'preferencesModeChangedManual'), 'success');
+        this.applyPreferenceModeToExactMemory(prefs[key], mode);
+        const noticeKey: Record<AnswerPreferenceUiMode, UiTranslationKey> = {
+          manual: 'preferencesModeChangedManual',
+          temporary: 'preferencesModeChangedTemporary',
+          permanent: 'preferencesModeChangedPermanent',
+          suppressed: 'preferencesModeChangedSuppressed',
+        };
+        this.showNotification(this.t(noticeKey[mode]), 'success');
       },
       deletePreference: (key) => {
         this.deleteAnswerPreference(key);
@@ -4960,16 +4972,47 @@ export class UIManager extends EventEmitter {
     });
   }
 
+  private normalizePreferenceMode(mode: string): AnswerPreferenceUiMode {
+    if (mode === 'auto' || mode === 'temporary') return 'temporary';
+    if (mode === 'permanent' || mode === 'suppressed') return mode;
+    return 'manual';
+  }
+
+  private applyPreferenceModeToExactMemory(pref: AnswerPreferenceEntry, mode: AnswerPreferenceUiMode): void {
+    const questionText = String(pref.questionText || '').trim();
+    if (!questionText) return;
+    const exactMemory = getExactChatbotMemory();
+    const language = String(pref.language || 'en').toLowerCase();
+    if (mode === 'manual') {
+      const userMemory = exactMemory.users[LOCAL_EXACT_CHATBOT_USER_ID];
+      if (userMemory) {
+        delete userMemory[makeQuestionId(questionText, { language })];
+        if (language === 'en') delete userMemory[makeQuestionId(questionText)];
+      }
+    } else if (mode === 'suppressed') {
+      saveSuppressedQuestion(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, questionText, undefined, { language });
+    } else if (mode === 'permanent') {
+      savePermanentAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, questionText, pref.answerText, undefined, { language });
+    } else {
+      saveTemporaryAnswer(exactMemory, LOCAL_EXACT_CHATBOT_USER_ID, questionText, pref.answerText, undefined, { language });
+    }
+    setExactChatbotMemory(exactMemory);
+  }
+
   private deleteAnswerPreference(key: string): void {
     if (key.startsWith('flat_')) {
       const flat = getFlattenedAnswerPreferences();
+      const pref = flat[key];
       delete flat[key];
       setFlattenedAnswerPreferences(flat);
+      if (pref) this.applyPreferenceModeToExactMemory(pref, 'manual');
       return;
     }
     const preferences = getAnswerPreferences();
+    const pref = preferences[key];
     delete preferences[key];
     setAnswerPreferences(preferences);
+    if (pref) this.applyPreferenceModeToExactMemory(pref, 'manual');
   }
 
   // ============================================

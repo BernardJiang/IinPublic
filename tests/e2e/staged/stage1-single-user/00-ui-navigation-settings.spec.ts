@@ -517,6 +517,7 @@ test.describe('UI navigation and settings shell', () => {
           answerId: 'a1',
           answerText: 'Yes',
           mode: 'manual',
+          language: 'en',
           questionText: 'Coffee?',
           timestamp: new Date().toISOString(),
         },
@@ -544,6 +545,21 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#preferences-modal')).toContainText('我的回答');
     await expect(p.locator('#preferences-modal')).toContainText('最近回答：');
     await expect(p.locator('#preferences-modal')).toContainText('手动');
+    await expect(p.locator('#preferences-modal .mode-select option')).toHaveText([
+      '手动',
+      '临时自动回答',
+      '永久自动回答',
+      '跳过此问题',
+    ]);
+    await p.locator('#preferences-modal .mode-select').selectOption('suppressed');
+    await expect(p.locator('.notification').filter({ hasText: '之后将自动跳过此问题' })).toBeVisible();
+    await expect
+      .poll(() => p.evaluate(() => {
+        const state = JSON.parse(localStorage.getItem('exactChatbotMemory') || '{}');
+        const memories = Object.values(state.users?.local || {}) as Array<any>;
+        return memories[0]?.summary?.mode || '';
+      }))
+      .toBe('SUPPRESSED');
     await p.locator('#close-preferences-modal').click();
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showMyTalksDialog());
     await expect(p.locator('#my-talks-modal')).toContainText('我的话题');

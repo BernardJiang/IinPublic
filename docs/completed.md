@@ -12,6 +12,19 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-25 - Exact-Question Answer Memory Mode Controls
+
+Preferences now exposes Manual, Temporary auto-answer, Permanent auto-answer, and Skip-this-question
+choices for each saved answer. Mode changes, answer edits, and deletion update exact-question memory
+instead of leaving hidden auto-answer behavior active.
+
+Evidence:
+
+- UI and storage bridge: `src/web/ui/preferences-dialog.ts`, `src/web/ui/ui-manager.ts`,
+  `src/web/ui/answer-preferences-storage.ts`, `src/web/ui/ui-translations.ts`
+- Unit and E2E: `src/test/unit/ui-extracted-modules.test.ts`,
+  `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-25 - Language-Aware Answer History Display
 
 The Me answer-history list now shows a localized language badge on each answered talk and keeps

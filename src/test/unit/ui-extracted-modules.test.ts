@@ -51,23 +51,26 @@ describe('extracted UI helpers', () => {
     expect(document.getElementById('my-talks-modal')).toBeNull();
   });
 
-  it('preferences dialog updates answer and mode through callbacks', () => {
+  it('preferences dialog updates answers and exact-memory modes through callbacks', () => {
     const updateAnswer = jest.fn();
-    const updateMode = jest.fn();
+    const preference = {
+      answerId: 'a1',
+      answerText: 'Yes',
+      mode: 'manual',
+      questionText: 'Do you like coffee?',
+      allAnswers: [
+        { id: 'a1', text: 'Yes' },
+        { id: 'a2', text: 'No' },
+      ],
+      timestamp: '2026-04-21T10:00:00.000Z',
+    };
+    const updateMode = jest.fn((_key: string, mode: string) => {
+      preference.mode = mode;
+    });
 
     showPreferencesDialog({
       getPreferences: () => ({
-        pref1: {
-          answerId: 'a1',
-          answerText: 'Yes',
-          mode: 'manual',
-          questionText: 'Do you like coffee?',
-          allAnswers: [
-            { id: 'a1', text: 'Yes' },
-            { id: 'a2', text: 'No' },
-          ],
-          timestamp: '2026-04-21T10:00:00.000Z',
-        },
+        pref1: preference,
       }),
       escapeHtml: (text) => text,
       updateAnswer,
@@ -82,13 +85,19 @@ describe('extracted UI helpers', () => {
     select.dispatchEvent(new Event('change', { bubbles: true }));
     expect(updateAnswer).toHaveBeenCalledWith('pref1', 'a2', 'No');
 
-    const toggle = document.querySelector('.mode-toggle') as HTMLInputElement;
-    toggle.checked = true;
-    toggle.dispatchEvent(new Event('change', { bubbles: true }));
-    expect(updateMode).toHaveBeenCalledWith('pref1', true);
+    const modeSelect = document.querySelector('.mode-select') as HTMLSelectElement;
+    expect(Array.from(modeSelect.options).map((option) => option.value)).toEqual([
+      'manual',
+      'temporary',
+      'permanent',
+      'suppressed',
+    ]);
+    modeSelect.value = 'permanent';
+    modeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(updateMode).toHaveBeenCalledWith('pref1', 'permanent');
 
     const badge = document.querySelector('.mode-badge-pref1') as HTMLElement;
-    expect(badge.textContent).toContain('AUTO');
+    expect(badge.textContent).toContain('Permanent auto-answer');
   });
 
   it('renders Me dialogs through the Chinese catalog', () => {
@@ -142,6 +151,9 @@ describe('extracted UI helpers', () => {
     expect(modalText).toContain('我的回答');
     expect(modalText).toContain('最近回答：本地日期');
     expect(modalText).toContain('手动');
+    expect(modalText).toContain('临时自动回答');
+    expect(modalText).toContain('永久自动回答');
+    expect(modalText).toContain('跳过此问题');
   });
 
   it('renders peer detail and its send picker through the Chinese catalog', async () => {

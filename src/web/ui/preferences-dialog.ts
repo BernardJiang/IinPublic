@@ -1,11 +1,13 @@
 import type { AnswerPreferenceMap } from './answer-preferences-storage';
 import type { UiTranslationKey } from './ui-translations';
 
+export type AnswerPreferenceUiMode = 'manual' | 'temporary' | 'permanent' | 'suppressed';
+
 type PreferencesDialogOptions = {
   getPreferences: () => AnswerPreferenceMap;
   escapeHtml: (text: string) => string;
   updateAnswer: (key: string, answerId: string, answerText: string) => void;
-  updateMode: (key: string, isAuto: boolean) => void;
+  updateMode: (key: string, mode: AnswerPreferenceUiMode) => void;
   deletePreference: (key: string) => void;
   clearAll: () => void;
   notify: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
@@ -21,6 +23,32 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
       text(key, fallback),
     );
   const formatDate = (date: Date): string => options.formatDate?.(date) || date.toLocaleString();
+  const normalizeMode = (mode: string): AnswerPreferenceUiMode => {
+    if (mode === 'auto' || mode === 'temporary') return 'temporary';
+    if (mode === 'permanent' || mode === 'suppressed') return mode;
+    return 'manual';
+  };
+  const modeLabel = (mode: AnswerPreferenceUiMode): string => {
+    const keys: Record<AnswerPreferenceUiMode, UiTranslationKey> = {
+      manual: 'preferencesManualMode',
+      temporary: 'preferencesTemporaryMode',
+      permanent: 'preferencesPermanentMode',
+      suppressed: 'preferencesSuppressedMode',
+    };
+    const fallbacks: Record<AnswerPreferenceUiMode, string> = {
+      manual: 'Manual',
+      temporary: 'Temporary auto-answer',
+      permanent: 'Permanent auto-answer',
+      suppressed: 'Skip this question',
+    };
+    return text(keys[mode], fallbacks[mode]);
+  };
+  const modeTone = (mode: AnswerPreferenceUiMode): string => {
+    if (mode === 'permanent') return 'background: #dbeafe; color: #1d4ed8;';
+    if (mode === 'temporary') return 'background: #d1fae5; color: #065f46;';
+    if (mode === 'suppressed') return 'background: #fef3c7; color: #92400e;';
+    return 'background: #fee2e2; color: #991b1b;';
+  };
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.id = 'preferences-modal';
@@ -46,11 +74,12 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
             preferenceEntries.length === 0
               ? `<p style="text-align: center; color: #666;">${text('preferencesNoAnswers', 'No answered questions yet. When you answer a question, it will appear here and you can manage your preferences.')}</p>`
               : `
-            <p style="margin-bottom: 20px; color: #666;">${format('preferencesSummary', 'You have answered {count} question(s). You can change your answers or toggle between Auto/Manual mode for future use.', { count: preferenceEntries.length })}</p>
+            <p style="margin-bottom: 20px; color: #666;">${format('preferencesSummary', 'You have answered {count} question(s). You can change your answers and decide how each exact question is handled next time.', { count: preferenceEntries.length })}</p>
             <div style="max-height: 500px; overflow-y: auto;">
               ${preferenceEntries
-                .map(
-                  ([key, pref]) => `
+                .map(([key, pref]) => {
+                  const mode = normalizeMode(pref.mode);
+                  return `
                   <div class="preference-item" style="background: #f9f9f9; border: 2px solid #e0e0e0; border-radius: 12px; padding: 20px; margin-bottom: 20px;">
                     <div style="margin-bottom: 15px;">
                       <div style="font-weight: 600; font-size: 1.1em; color: #333; margin-bottom: 8px;">
@@ -95,50 +124,18 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
                           ${text('preferencesMode', 'Mode:')}
                         </label>
                         <div style="font-size: 0.85em; color: #999; margin-top: 4px;">
-                          ${text('preferencesAutoHelp', 'Auto mode will use this answer automatically next time')}
+                          ${text('preferencesModeHelp', 'Choose whether to ask again, auto-answer once, always auto-answer, or skip the exact question.')}
                         </div>
                       </div>
-                      <label class="toggle-switch" style="position: relative; display: inline-block; width: 60px; height: 34px;">
-                        <input
-                          type="checkbox"
-                          class="mode-toggle"
-                          data-pref-key="${key}"
-                          ${pref.mode === 'auto' ? 'checked' : ''}
-                          style="opacity: 0; width: 0; height: 0;"
-                        >
-                        <span style="
-                          position: absolute;
-                          cursor: pointer;
-                          top: 0;
-                          left: 0;
-                          right: 0;
-                          bottom: 0;
-                          background-color: ${pref.mode === 'auto' ? '#10b981' : '#dc2626'};
-                          transition: 0.4s;
-                          border-radius: 34px;
-                        ">
-                          <span style="
-                            position: absolute;
-                            content: '';
-                            height: 26px;
-                            width: 26px;
-                            left: 4px;
-                            bottom: 4px;
-                            background-color: white;
-                            transition: 0.4s;
-                            border-radius: 50%;
-                            transform: translateX(${pref.mode === 'auto' ? '26px' : '0'});
-                          "></span>
-                        </span>
-                      </label>
+                      <select class="mode-select" data-pref-key="${key}" style="max-width: 220px; padding: 9px; border: 2px solid #e0e0e0; border-radius: 8px; background: white;">
+                        ${(['manual', 'temporary', 'permanent', 'suppressed'] as AnswerPreferenceUiMode[])
+                          .map((choice) => `<option value="${choice}" ${choice === mode ? 'selected' : ''}>${modeLabel(choice)}</option>`)
+                          .join('')}
+                      </select>
                     </div>
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                      <div class="mode-badge-${key}" style="font-size: 0.85em; padding: 6px 12px; border-radius: 6px; font-weight: 600; ${
-                        pref.mode === 'auto'
-                          ? 'background: #d1fae5; color: #065f46;'
-                          : 'background: #fee2e2; color: #991b1b;'
-                      }">
-                        ${pref.mode === 'auto' ? `🟢 ${text('preferencesAutoBadge', 'AUTO')}` : `🔴 ${text('preferencesManualBadge', 'MANUAL')}`}
+                      <div class="mode-badge-${key}" data-mode="${mode}" style="font-size: 0.85em; padding: 6px 12px; border-radius: 6px; font-weight: 600; ${modeTone(mode)}">
+                        ${modeLabel(mode)}
                       </div>
                       <button
                         class="delete-pref-btn"
@@ -149,8 +146,8 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
                       </button>
                     </div>
                   </div>
-                `,
-                )
+                `;
+                })
                 .join('')}
             </div>
             <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
@@ -181,30 +178,13 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
       });
     });
 
-    modal.querySelectorAll('.mode-toggle').forEach((toggle) => {
-      toggle.addEventListener('change', (event) => {
-        const target = event.currentTarget as HTMLInputElement;
+    modal.querySelectorAll('.mode-select').forEach((select) => {
+      select.addEventListener('change', (event) => {
+        const target = event.currentTarget as HTMLSelectElement;
         const key = target.dataset.prefKey;
         if (!key) return;
-        options.updateMode(key, target.checked);
-
-        const toggleSpan = target.nextElementSibling as HTMLElement | null;
-        if (toggleSpan) {
-          toggleSpan.style.backgroundColor = target.checked ? '#10b981' : '#dc2626';
-          const innerSpan = toggleSpan.querySelector('span') as HTMLElement | null;
-          if (innerSpan) {
-            innerSpan.style.transform = target.checked ? 'translateX(26px)' : 'translateX(0)';
-          }
-        }
-
-        const modeBadge = modal.querySelector(`.mode-badge-${key}`) as HTMLElement | null;
-        if (modeBadge) {
-          modeBadge.textContent = target.checked
-            ? `🟢 ${text('preferencesAutoBadge', 'AUTO')}`
-            : `🔴 ${text('preferencesManualBadge', 'MANUAL')}`;
-          modeBadge.style.background = target.checked ? '#d1fae5' : '#fee2e2';
-          modeBadge.style.color = target.checked ? '#065f46' : '#991b1b';
-        }
+        options.updateMode(key, target.value as AnswerPreferenceUiMode);
+        render();
       });
     });
 

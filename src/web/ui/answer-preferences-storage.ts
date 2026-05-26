@@ -2,6 +2,7 @@ export type AnswerPreferenceEntry = {
   answerId: string;
   answerText: string;
   mode: string;
+  language?: string;
   talkId?: string;
   questionText?: string;
   allAnswers?: any[];
