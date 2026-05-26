@@ -155,5 +155,26 @@ test.describe('Incoming talk distance intake filtering', () => {
     await expect(pageJerry.locator('#talks-list')).toContainText(inBandTitle);
     await expect(pageJerry.locator('#talks-list')).not.toContainText(tooNearTitle);
     await expect(pageJerry.locator('#talks-list')).not.toContainText(tooFarTitle);
+
+    await pageJerry.click('.nav-btn[data-view="settings"]');
+    await afterSync();
+    await pageJerry.locator('#settings-min-distance').fill('0');
+    await pageJerry.locator('#settings-min-distance').press('Tab');
+    await pageJerry.locator('#settings-max-distance').fill('0');
+    await pageJerry.locator('#settings-max-distance').press('Tab');
+    await expect
+      .poll(() =>
+        pageJerry!.evaluate(() => {
+          const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
+          return [filters.minDistanceMiles, filters.maxDistanceMiles];
+        }),
+      )
+      .toEqual([0, 0]);
+
+    const equalBoundaryTitle = 'Distance Intake Exact Boundary';
+    await setSenderLocation(pageTom, RECEIVER_LOCATION.latitude);
+    await createFlowTalk(pageTom, equalBoundaryTitle);
+    await broadcastFromCurrentRoom(pageTom);
+    await waitForIncomingTalkClusterOnServer(pageJerry, equalBoundaryTitle);
   });
 });

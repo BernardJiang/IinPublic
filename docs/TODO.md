@@ -109,9 +109,10 @@ senders and receivers. Existing filter plumbing is a foundation, not completion 
   creates one.
 - **Partially implemented: min/max distance acceptance.** A deterministic multi-user browser
   scenario persists the receiver's distance band and sends talks from below its minimum, inside the
-  band, and above its maximum, proving only the in-band talk reaches IN. Existing Settings coverage
-  rejects an invalid min-greater-than-max range. Future work remains to surface live
-  `intake_min_distance`/`intake_max_distance` rejection explanations and prove boundary equality.
+  band, and above its maximum, proving only the in-band talk reaches IN. It also persists an equal
+  zero-mile minimum/maximum and proves a colocated sender reaches IN at both inclusive boundaries.
+  Existing Settings coverage rejects an invalid min-greater-than-max range. Future work remains to
+  surface live `intake_min_distance`/`intake_max_distance` rejection explanations.
 - **Partially implemented: grammar filter completion.** Settings documents the bounded readable-
   sentence heuristic, and a real sender/receiver browser scenario proves a clean talk is delivered,
   deliberately unreadable content is hidden while the toggle is on, and newly sent equivalent

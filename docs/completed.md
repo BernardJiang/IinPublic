@@ -797,3 +797,13 @@ setting, the second delivered talk is saved as a copied OUT talk while both hist
 Evidence:
 
 - E2E: `tests/e2e/staged/stage3-three-user/00l-chatroom-talks-ui-regressions.spec.ts`
+
+## 2026-05-26 - Distance Boundary Equality Proof
+
+Extended the real distance-band delivery scenario with a persisted equal minimum/maximum of zero
+miles. A colocated sender's newly authored talk reaches the receiver, proving endpoint equality is
+inclusive through the browser path.
+
+Evidence:
+
+- E2E: `tests/e2e/staged/stage3-three-user/00n-distance-intake-filter.spec.ts`
