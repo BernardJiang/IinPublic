@@ -56,6 +56,7 @@ test.describe('Talks: create and edit', () => {
     await page.click('#create-talk-btn');
     await page.waitForSelector('#talk-editor-form');
     await page.fill('#talk-title', TALK_TITLE);
+    await page.selectOption('#talk-language', 'zh');
     await page.selectOption('#talk-type', 'flow');
     const q = page.locator('.question-item').first();
     await q.locator('.question-text').fill('Do you drink coffee?');
@@ -71,14 +72,23 @@ test.describe('Talks: create and edit', () => {
     const talkItem = page.locator('.talk-list-item').filter({ hasText: TALK_TITLE }).first();
     await talkItem.waitFor({ state: 'visible', timeout: 15000 });
     await expect(talkItem.locator('.talk-badge-created')).toBeVisible();
+    await expect(talkItem.locator('.talk-badge-language')).toHaveAttribute('data-language', 'zh');
 
     await talkItem.click();
     await page.waitForSelector('#talk-editor-modal');
     await expect(page.locator('#talk-title')).toHaveValue(TALK_TITLE);
     await expect(page.locator('#talk-type')).toHaveValue('flow');
+    await expect(page.locator('#talk-language')).toHaveValue('zh');
     await page.fill('#talk-title', TALK_TITLE_EDITED);
+    await page.selectOption('#talk-language', 'es');
     await page.click('#talk-editor-form button[type="submit"]');
     await afterSync();
-    await expect(page.locator('.talk-list-item').filter({ hasText: TALK_TITLE_EDITED })).toBeVisible({ timeout: 15000 });
+    const editedTalkItem = page.locator('.talk-list-item').filter({ hasText: TALK_TITLE_EDITED }).first();
+    await expect(editedTalkItem).toBeVisible({ timeout: 15000 });
+    await expect(editedTalkItem.locator('.talk-badge-language')).toHaveAttribute('data-language', 'es');
+
+    await editedTalkItem.click();
+    await page.waitForSelector('#talk-editor-modal');
+    await expect(page.locator('#talk-language')).toHaveValue('es');
   });
 });

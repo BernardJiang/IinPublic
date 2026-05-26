@@ -5472,6 +5472,7 @@ export class UIManager extends EventEmitter {
       patchMyTalk(editingTalkId, {
         title,
         type,
+        language,
         expiresAt: expiresAt ?? undefined,
         locationRadiusMiles: locationRadiusMiles ?? undefined,
         lastInteraction: new Date().toISOString(),

@@ -12,6 +12,17 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-25 - Talks Language Editing Completion
+
+Authored talks now keep their stored language when opened for editing, persist a changed language,
+and refresh the visible OUT language badge immediately after save instead of leaving stale local
+metadata until reload.
+
+Evidence:
+
+- UI persistence: `src/web/ui/ui-manager.ts`
+- E2E: `tests/e2e/staged/stage1-single-user/05-talks-edit.spec.ts`
+
 ## 2026-05-25 - TechSupport Pinned Contact And Local Mute
 
 Ordinary users with a durable TechSupport support channel now see a pinned built-in Contacts row

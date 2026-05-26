@@ -31,8 +31,17 @@ describe('formatTimeAgo', () => {
 });
 
 describe('formatExpiration', () => {
+  const now = Date.UTC(2026, 4, 25, 12);
   const future = (ms: number) => Date.now() + ms;
   const oneDay = 24 * 60 * 60 * 1000;
+
+  beforeEach(() => {
+    jest.spyOn(Date, 'now').mockReturnValue(now);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
 
   it('returns Forever for null', () => {
     expect(formatExpiration(null)).toBe('Forever');

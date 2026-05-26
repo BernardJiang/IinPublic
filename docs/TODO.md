@@ -540,12 +540,13 @@ verified.
   dropdown.
 - **Implemented in current working tree: talk language display.** OUT and IN talk rows now show the
   talk language as a badge. Future work remains for localized language names.
+- **Implemented in current working tree: editable talk language.** Editing an authored talk
+  prefills its stored language, persists a changed selection, and refreshes the OUT language badge
+  without falling back to English.
 - **Partially implemented in current working tree: incoming language filtering path.** New talk
   creation now carries a language attribute, incoming language selection supports multiple
   understood languages, and existing intake filtering can use those values. Future work remains for
   full filtered-count UI and broader E2E coverage across create, broadcast, receive, and render.
-- **Future work: allow editing a talk's language.** When an existing talk is edited, preserve and
-  update its language rather than falling back to English.
 - **Future work: language-aware chatbot memory.** Exact-answer memory should include language context
   where necessary so the chatbot does not auto-answer a translated or semantically different question
   only because the structure looks similar.

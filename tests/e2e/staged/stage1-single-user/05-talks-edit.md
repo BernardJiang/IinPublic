@@ -1,7 +1,7 @@
 # Test: Talk Editor — Create Talk, View in Talks Tab, Edit with Prefilled Data
 
 **File:** 05-talks-edit.spec.ts  
-**Features tested:** Talk creation, talk listing in Talks tab, edit talk with prefilled data, title update, flow-type talks
+**Features tested:** Talk creation, talk listing in Talks tab, edit talk with prefilled data, title and language update, flow-type talks
 
 ---
 
@@ -11,6 +11,7 @@
 
 2. **User creates a talk:** Clicks "Create Talk", fills in the talk editor:
    - Title: "Coffee Meetup"
+   - Language: Chinese
    - Type: "flow"
    - Question: "Do you drink coffee?"
    - Answer 1: "Yes" → status: "noticed" (match)
@@ -19,13 +20,13 @@
 
 3. **Verification — Talks tab shows the talk:** The user clicks the Talks tab. The talk appears with its title, a "created" badge, and an "Edit" button.
 
-4. **User clicks Edit:** The talk editor modal opens with all data prefilled — the existing title, type, question, and answers are visible.
+4. **User clicks Edit:** The talk editor modal opens with all data prefilled, including the existing Chinese language selection.
 
-5. **User edits the title** to "Coffee Meetup (Edited)" and saves.
+5. **User edits the title and language** to "Coffee Meetup (Edited)" and Spanish, then saves.
 
-6. **Verification — Updated title appears in the list:** After sync, the talk in the list now shows the updated title.
+6. **Verification — Updated data appears and reopens correctly:** After sync, the talk row shows the updated title and Spanish language badge; reopening it preserves Spanish in the editor.
 
-> **Why this matters:** Verifies the complete talk CRUD cycle: creation, listing with badges, editing with prefilled data, and title updates persisting correctly.
+> **Why this matters:** Verifies the complete talk CRUD cycle: creation, listing with badges, editing with prefilled data, and language changes remaining visible and persistent.
 
 ---
 
