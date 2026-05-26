@@ -123,8 +123,10 @@ senders and receivers. Existing filter plumbing is a foundation, not completion 
   user-visible `intake_dirty_words` reporting, and full answer-text E2E proof.
 - **Partially implemented: remaining intake controls.** Real browser delivery coverage proves
   allowed talk-type rejection, adult/age gating, public-credit visibility behavior, custom blocked
-  phrases, and a persisted sent-after cutoff that rejects newly authored content until cleared.
-  Future work remains for blocked-user and expiration delivery scenarios, and Settings should
+  phrases, a persisted sent-after cutoff that rejects newly authored content until cleared, and
+  blocked-user suppression followed by resumed post-unblock delivery. A deterministic sender/receiver
+  scenario also proves a one-day talk delivers while active and is excluded from broadcast once
+  expired. Future work remains for direct-send/preview expiration surfaces, and Settings should
   preview hidden counts by reason before and after each selection rather than only showing a total
   filtered count.
 

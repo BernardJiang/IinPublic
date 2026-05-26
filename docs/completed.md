@@ -774,3 +774,16 @@ Evidence:
 - E2E: `tests/e2e/staged/stage3-three-user/00p-custom-cutoff-intake-filter.spec.ts`
 - Existing E2E: `tests/e2e/staged/stage3-three-user/13-me-filters-credit.spec.ts`
 - Existing E2E: `tests/e2e/staged/stage3-three-user/00g-age-gating.spec.ts`
+
+## 2026-05-26 - Expiration and Block Delivery Reconciliation
+
+Added a deterministic two-user expiration scenario: a one-day talk reaches the receiver while
+active, then a second one-day talk displays as expired and cannot be broadcast after advancing the
+sender clock. Reconciled existing browser evidence that blocking prevents delivery and unblocking
+allows newly sent talks again.
+
+Evidence:
+
+- E2E: `tests/e2e/staged/stage3-three-user/00q-expiration-broadcast.spec.ts`
+- Existing E2E: `tests/e2e/staged/stage2-two-user/15a-blocking-unblock-resumes-talk-delivery.spec.ts`
+- Existing E2E: `tests/e2e/staged/stage2-two-user/15b-blocking-stops-delivery-and-peer-visibility.spec.ts`
