@@ -313,6 +313,23 @@ test.describe('Chatroom peer detail views', () => {
       await expect(pageJerry.locator('#talks-list')).toContainText('Send Test Talk', { timeout: 20_000 });
       await expect(pageJerry.locator('#talks-list')).not.toContainText(expiredTitle);
 
+      // Manual picker should list the expired talk as unavailable instead of hiding it.
+      const autoCheckbox = pageTom.locator('#peer-auto-mode-checkbox');
+      await autoCheckbox.click();
+      await expect(autoCheckbox).not.toBeChecked();
+      await sendBtn.click();
+      const pickerModal = pageTom.locator('#peer-send-picker-modal');
+      await expect(pickerModal).toBeVisible({ timeout: 10_000 });
+      // Send Test Talk may already be marked as sent after the auto-send action;
+      // the key assertion is that the expired talk is shown as an unavailable/omitted option.
+      const expiredRow = pickerModal
+        .locator('.peer-send-picker-omitted')
+        .filter({ hasText: expiredTitle })
+        .first();
+      await expect(expiredRow).toBeVisible();
+      await expect(expiredRow).toContainText('Talk expired');
+      await pageTom.click('#cancel-send-picker');
+
       await pageTom.click('#back-from-peer-detail');
     } finally {
       await teardown(ctxTom, ctxJerry, pageTom, pageJerry);

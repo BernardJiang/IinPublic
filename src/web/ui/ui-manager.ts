@@ -158,6 +158,8 @@ export type BroadcastAudiencePreview = {
   rejectedReceiverDetails?: Array<{ name: string; rejectedBy: string[] }>;
   supportExcludedCount?: number;
   previewUnavailable?: boolean;
+  /** Sender-side omission: talk cannot be broadcast or peer-sent (expired/disabled). */
+  senderOmittedBy?: string[];
 };
 
 function normalizeStringList(value: unknown, fallback: string[] = []): string[] {
@@ -343,6 +345,8 @@ export class UIManager extends EventEmitter {
       intake_dirty_words: 'reasonIntakeDirtyWords',
       intake_custom_blocked_terms: 'reasonIntakeCustomTerms',
       talk_expired: 'reasonTalkExpired',
+      broadcast_disabled: 'reasonBroadcastDisabled',
+      peer_already_sent: 'peerOmitAlreadySent',
       age_gate: 'reasonAgeGate',
       blocked_user: 'reasonBlockedUser',
       broadcast_max_distance: 'reasonBroadcastMaxDistance',
@@ -4559,6 +4563,18 @@ export class UIManager extends EventEmitter {
     const excludedCount = Math.max(0, candidateCount - deliveryCount) + supportExcludedCount;
     const hasUnavailable = knownPreviews.length !== previews.length;
     const rows = previews.map((preview) => {
+      if (preview.senderOmittedBy?.length) {
+        const reasonText = preview.senderOmittedBy
+          .map((reason) => this.deliveryReasonLabel(reason))
+          .join(' · ');
+        return `
+          <div class="broadcast-preview-row broadcast-preview-row-omitted" data-talk-id="${escapeHtml(preview.talkId)}" style="padding:10px;border:1px solid #fecaca;border-radius:10px;background:#fff7f7;">
+            <div style="font-weight:600;">${escapeHtml(preview.title)}</div>
+            <div style="font-size:0.88em;color:#b91c1c;margin-top:4px;">0 ${this.t('broadcastPreviewEligible')} · ${this.t('broadcastPreviewSenderOmitted')}</div>
+            <div class="broadcast-preview-reasons" style="font-size:0.82em;color:#64748b;margin-top:4px;">${escapeHtml(reasonText)}</div>
+          </div>
+        `;
+      }
       if (preview.previewUnavailable) {
         return `
           <div class="broadcast-preview-row" data-talk-id="${escapeHtml(preview.talkId)}" style="padding:10px;border:1px solid #e5e7eb;border-radius:10px;">
@@ -5216,6 +5232,30 @@ export class UIManager extends EventEmitter {
         return true;
       })
       .map(([id]) => id);
+  }
+
+  /** OUT talks omitted from broadcast/peer send because they are disabled or expired. */
+  getSenderOmittedBroadcastPreviews(): BroadcastAudiencePreview[] {
+    const myTalks = getMyTalks();
+    const now = Date.now();
+    const previews: BroadcastAudiencePreview[] = [];
+    for (const [talkId, talk] of Object.entries(myTalks)) {
+      if (talk?.role !== 'created' && talk?.role !== 'copied') continue;
+      const omittedBy: string[] = [];
+      if (talk?.disabled) omittedBy.push('broadcast_disabled');
+      const expiresAt = talk?.expiresAt ?? talk?.fullTalk?.expiresAt;
+      if (typeof expiresAt === 'number' && now > expiresAt) omittedBy.push('talk_expired');
+      if (omittedBy.length === 0) continue;
+      previews.push({
+        talkId,
+        title: String(talk?.title || talk?.fullTalk?.title || talkId),
+        totalCandidates: 0,
+        eligibleReceivers: 0,
+        rejectedByCounts: Object.fromEntries(omittedBy.map((reason) => [reason, 1])),
+        senderOmittedBy: omittedBy,
+      });
+    }
+    return previews.sort((a, b) => a.title.localeCompare(b.title));
   }
 
   /**

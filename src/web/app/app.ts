@@ -1845,7 +1845,12 @@ export class IinPublicApp {
               ),
             ),
           );
-          if (previews.length > 0 && !(await this.uiManager.confirmBroadcastAudience(previews))) {
+          const previewTalkIds = new Set(talkPayloads.map(({ tid }) => tid));
+          const senderOmittedPreviews = this.uiManager
+            .getSenderOmittedBroadcastPreviews()
+            .filter((preview) => !previewTalkIds.has(preview.talkId));
+          const audiencePreviews = [...previews, ...senderOmittedPreviews];
+          if (audiencePreviews.length > 0 && !(await this.uiManager.confirmBroadcastAudience(audiencePreviews))) {
             this.uiManager.showNotification(this.uiManager.formatBroadcastCancelled(), 'info');
             return;
           }

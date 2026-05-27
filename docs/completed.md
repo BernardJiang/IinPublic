@@ -16,8 +16,9 @@ when an item is finished, move it here with a short description and concrete evi
 
 Expired talks can no longer enter a receiver inbox through direct peer send, direct delivery API
 calls, or bulk-registration calls. Peer `Send My Talks` omits expired outgoing entries, and the
-audience-preview endpoint returns a localized `talk_expired` reason for expired payloads. A future
-UX task remains to list omitted expired/disabled entries explicitly in selection dialogs.
+audience-preview endpoint returns a localized `talk_expired` reason for expired payloads. Omitted
+expired/disabled entries are now listed explicitly as unavailable options in the peer-send picker
+and broadcast pre-send preview.
 
 Evidence:
 

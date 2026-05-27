@@ -31,6 +31,45 @@ export type UserDetailViewDeps = {
 
 type SortMode = 'date' | 'outcome';
 type FilterMode = 'all' | 'sent' | 'received';
+type PeerSendOmitReason = 'talk_expired' | 'broadcast_disabled' | 'peer_already_sent';
+
+type ClassifiedPeerTalk = {
+  talkId: string;
+  talk: any;
+  eligible: boolean;
+  omitReasons: PeerSendOmitReason[];
+};
+
+function omitReasonLabel(deps: UserDetailViewDeps, reason: PeerSendOmitReason): string {
+  const key: UiTranslationKey = reason === 'talk_expired'
+    ? 'reasonTalkExpired'
+    : reason === 'broadcast_disabled'
+      ? 'reasonBroadcastDisabled'
+      : 'peerOmitAlreadySent';
+  return deps.text(key);
+}
+
+function classifyPeerSendTalks(
+  myTalks: Record<string, any>,
+  alreadySentIds: Set<string>,
+): { eligible: ClassifiedPeerTalk[]; omitted: ClassifiedPeerTalk[] } {
+  const eligible: ClassifiedPeerTalk[] = [];
+  const omitted: ClassifiedPeerTalk[] = [];
+  const now = Date.now();
+  for (const [talkId, talk] of Object.entries(myTalks)) {
+    if (talk?.role !== 'created') continue;
+    const contentId = talk?.fullTalk?.id || talkId;
+    const omitReasons: PeerSendOmitReason[] = [];
+    if (talk?.disabled) omitReasons.push('broadcast_disabled');
+    const expiresAt = talk?.expiresAt ?? talk?.fullTalk?.expiresAt;
+    if (typeof expiresAt === 'number' && now > expiresAt) omitReasons.push('talk_expired');
+    if (alreadySentIds.has(talkId) || alreadySentIds.has(contentId)) omitReasons.push('peer_already_sent');
+    const entry: ClassifiedPeerTalk = { talkId, talk, eligible: omitReasons.length === 0, omitReasons };
+    if (entry.eligible) eligible.push(entry);
+    else omitted.push(entry);
+  }
+  return { eligible, omitted };
+}
 
 /** Module-level state for the currently-open peer detail view. */
 let currentState: {
@@ -589,34 +628,29 @@ async function handleSendMyTalks(): Promise<void> {
       history.filter((h) => h.direction === 'sent').flatMap((h) => [h.talkId, h.identityKey]),
     );
 
-    // Get my active talks
-    const myTalks = deps.getMyTalks();
-    const candidates = Object.entries(myTalks).filter(([talkId, t]: [string, any]) => {
-      if (t?.role !== 'created') return false;
-      if (t?.disabled) return false;
-      const expiresAt = t?.expiresAt ?? t?.fullTalk?.expiresAt;
-      if (typeof expiresAt === 'number' && Date.now() > expiresAt) return false;
-      if (alreadySentIds.has(talkId)) return false;
-      const contentId = t?.fullTalk?.id || talkId;
-      if (alreadySentIds.has(contentId)) return false;
-      return true;
-    });
+    const { eligible, omitted } = classifyPeerSendTalks(deps.getMyTalks(), alreadySentIds);
+    const candidates = eligible.map((entry) => [entry.talkId, entry.talk] as [string, any]);
 
     if (candidates.length === 0) {
       if (sendBtn) {
         sendBtn.disabled = false;
-        sendBtn.textContent = `✓ ${deps.text('peerAllTalksSent')}`;
+        if (omitted.length > 0) {
+          sendBtn.textContent = `✓ ${deps.text('peerNoEligibleTalks')}`;
+          if (!isAuto) {
+            showSendTalksPicker(eligible, omitted, peerId, peerName, deps, sendBtn);
+          }
+        } else {
+          sendBtn.textContent = `✓ ${deps.text('peerAllTalksSent')}`;
+        }
       }
       return;
     }
 
     if (!isAuto) {
-      // Manual mode: show a picker
-      showSendTalksPicker(candidates, peerId, peerName, deps, sendBtn);
+      showSendTalksPicker(eligible, omitted, peerId, peerName, deps, sendBtn);
       return;
     }
 
-    // Auto mode: send all
     let sent = 0;
     for (const [talkId, talk] of candidates) {
       const talkData = talk?.fullTalk || talk;
@@ -630,9 +664,13 @@ async function handleSendMyTalks(): Promise<void> {
 
     if (sendBtn) {
       sendBtn.disabled = false;
-      sendBtn.textContent = sent > 0
-        ? `✓ ${format(deps, sent === 1 ? 'peerSentTalkOne' : 'peerSentTalks', { count: sent })}`
-        : `✓ ${deps.text('peerNothingNewToSend')}`;
+      if (sent > 0 && omitted.length > 0) {
+        sendBtn.textContent = `✓ ${format(deps, 'peerSentWithOmitted', { sent, omitted: omitted.length })}`;
+      } else {
+        sendBtn.textContent = sent > 0
+          ? `✓ ${format(deps, sent === 1 ? 'peerSentTalkOne' : 'peerSentTalks', { count: sent })}`
+          : `✓ ${deps.text('peerNothingNewToSend')}`;
+      }
     }
 
     // Refresh history
@@ -649,7 +687,8 @@ async function handleSendMyTalks(): Promise<void> {
 }
 
 function showSendTalksPicker(
-  candidates: [string, any][],
+  eligible: ClassifiedPeerTalk[],
+  omitted: ClassifiedPeerTalk[],
   peerId: string,
   peerName: string,
   deps: UserDetailViewDeps,
@@ -661,6 +700,21 @@ function showSendTalksPicker(
   const modal = document.createElement('div');
   modal.id = 'peer-send-picker-modal';
   modal.className = 'modal-overlay';
+  const eligibleRows = eligible.map((entry) => `
+    <label class="peer-send-picker-eligible" style="display:flex;align-items:center;gap:8px;padding:8px;background:#f5f5f5;border-radius:8px;margin-bottom:6px;cursor:pointer;">
+      <input type="checkbox" class="send-picker-cb" data-talk-id="${escapeHtml(entry.talkId)}" checked>
+      <span style="font-weight:600;">${escapeHtml(entry.talk?.title || entry.talk?.fullTalk?.title || entry.talkId)}</span>
+    </label>
+  `).join('');
+  const omittedRows = omitted.map((entry) => {
+    const reasonText = entry.omitReasons.map((reason) => omitReasonLabel(deps, reason)).join(' · ');
+    return `
+      <div class="peer-send-picker-omitted" data-talk-id="${escapeHtml(entry.talkId)}" style="display:flex;flex-direction:column;gap:4px;padding:8px;background:#fff7f7;border:1px solid #fecaca;border-radius:8px;margin-bottom:6px;opacity:0.92;">
+        <span style="font-weight:600;color:#7f1d1d;">${escapeHtml(entry.talk?.title || entry.talk?.fullTalk?.title || entry.talkId)}</span>
+        <span style="font-size:0.82em;color:#64748b;">${escapeHtml(reasonText)}</span>
+      </div>
+    `;
+  }).join('');
   modal.innerHTML = `
     <div class="modal-content" style="max-width:420px;">
       <div class="modal-header">
@@ -668,15 +722,13 @@ function showSendTalksPicker(
         <button class="close-button" id="close-send-picker">&times;</button>
       </div>
       <div style="padding:16px;">
-        <p style="margin:0 0 12px;font-size:0.9em;color:#666;">${deps.text('peerSelectTalks')}</p>
-        ${candidates.map(([talkId, t]) => `
-          <label style="display:flex;align-items:center;gap:8px;padding:8px;background:#f5f5f5;border-radius:8px;margin-bottom:6px;cursor:pointer;">
-            <input type="checkbox" class="send-picker-cb" data-talk-id="${escapeHtml(talkId)}" checked>
-            <span style="font-weight:600;">${escapeHtml(t?.title || t?.fullTalk?.title || talkId)}</span>
-          </label>
-        `).join('')}
+        ${eligible.length > 0 ? `<p style="margin:0 0 12px;font-size:0.9em;color:#666;">${deps.text('peerSelectTalks')}</p>${eligibleRows}` : ''}
+        ${omitted.length > 0 ? `
+          <p style="margin:${eligible.length > 0 ? '16px' : '0'} 0 12px;font-size:0.9em;color:#666;">${deps.text('peerSendUnavailableTitle')}</p>
+          ${omittedRows}
+        ` : ''}
         <div style="display:flex;gap:8px;margin-top:16px;">
-          <button class="btn primary-btn" id="confirm-send-picker" style="flex:1;">📤 ${deps.text('peerSendSelected')}</button>
+          <button class="btn primary-btn" id="confirm-send-picker" style="flex:1;" ${eligible.length === 0 ? 'disabled' : ''}>📤 ${deps.text('peerSendSelected')}</button>
           <button class="btn" id="cancel-send-picker">${deps.text('editorCancel')}</button>
         </div>
       </div>
@@ -684,19 +736,26 @@ function showSendTalksPicker(
   `;
   document.body.appendChild(modal);
 
-  const close = () => modal.remove();
+  const close = () => {
+    modal.remove();
+    if (triggerBtn) {
+      triggerBtn.disabled = false;
+      triggerBtn.textContent = `📤 ${deps.text('peerSendMyTalks')}`;
+    }
+  };
   document.getElementById('close-send-picker')?.addEventListener('click', close);
   document.getElementById('cancel-send-picker')?.addEventListener('click', close);
   document.getElementById('confirm-send-picker')?.addEventListener('click', async () => {
     const selected = Array.from(modal.querySelectorAll('.send-picker-cb:checked')) as HTMLInputElement[];
     close();
+    if (selected.length === 0) return;
     if (triggerBtn) { triggerBtn.disabled = true; triggerBtn.textContent = `⏳ ${deps.text('peerSending')}`; }
     let sent = 0;
     for (const cb of selected) {
       const talkId = cb.dataset.talkId;
-      const entry = candidates.find(([id]) => id === talkId);
+      const entry = eligible.find((candidate) => candidate.talkId === talkId);
       if (!talkId || !entry) continue;
-      const talkData = entry[1]?.fullTalk || entry[1];
+      const talkData = entry.talk?.fullTalk || entry.talk;
       try {
         await deps.registerTalkForPeer(talkId, talkData, peerId, peerName);
         sent++;
@@ -704,7 +763,12 @@ function showSendTalksPicker(
     }
     if (triggerBtn) {
       triggerBtn.disabled = false;
-      triggerBtn.textContent = `✓ ${format(deps, sent === 1 ? 'peerSentTalkOne' : 'peerSentTalks', { count: sent })}`;
+      const omittedCount = omitted.length;
+      if (sent > 0 && omittedCount > 0) {
+        triggerBtn.textContent = `✓ ${format(deps, 'peerSentWithOmitted', { sent, omitted: omittedCount })}`;
+      } else {
+        triggerBtn.textContent = `✓ ${format(deps, sent === 1 ? 'peerSentTalkOne' : 'peerSentTalks', { count: sent })}`;
+      }
       setTimeout(() => { triggerBtn.textContent = `📤 ${deps.text('peerSendMyTalks')}`; }, 3000);
     }
     if (currentState?.peerId === peerId) fetchAndRenderHistory(peerId, deps);

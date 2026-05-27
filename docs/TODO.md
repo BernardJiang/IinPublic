@@ -131,8 +131,8 @@ senders and receivers. Existing filter plumbing is a foundation, not completion 
   scenario also proves a one-day talk delivers while active and is excluded from broadcast once
   expired. Direct peer send now omits expired talks, server delivery rejects expired payloads on
   direct and bulk paths, and the audience-preview endpoint reports `talk_expired` with localized
-  reason labels. Future work remains to make omitted expired/disabled choices visible in the peer
-  chooser or broadcast modal rather than silently withholding them.
+reason labels. Omitted expired/disabled choices are now visible in the peer-send chooser and
+broadcast pre-send preview rather than silently withholding them.
 
 Exit criteria: each Settings behavior/filter control has at least one allow path, one reject/disabled
 path, persisted state verification, and an intelligible reason visible to the user where applicable.

@@ -281,7 +281,9 @@ describe('extracted UI helpers', () => {
       expect(document.getElementById('peer-send-picker-modal')?.textContent).toContain('向 Ming 发送话题');
       expect(document.getElementById('peer-send-picker-modal')?.textContent).toContain('发送选中话题');
       expect(document.getElementById('peer-send-picker-modal')?.textContent).toContain('Tea');
-      expect(document.getElementById('peer-send-picker-modal')?.textContent).not.toContain('Past Tea');
+      expect(document.getElementById('peer-send-picker-modal')?.textContent).toContain('Past Tea');
+      expect(document.getElementById('peer-send-picker-modal')?.textContent).toContain('话题已过期');
+      expect(document.querySelector('.peer-send-picker-omitted')).not.toBeNull();
     } finally {
       (global as any).fetch = previousFetch;
     }
