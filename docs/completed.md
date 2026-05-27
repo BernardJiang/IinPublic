@@ -1,6 +1,6 @@
 # IinPublic Completed Work
 
-Last updated: 2026-05-26
+Last updated: 2026-05-27
 
 This is the durable ledger for shipped feature work. Keep `TODO.md` focused on forward work:
 when an item is finished, move it here with a short description and concrete evidence.
@@ -11,6 +11,19 @@ when an item is finished, move it here with a short description and concrete evi
 - Include the date, feature/phase name, user-visible result, and verification evidence.
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
+
+## 2026-05-27 - Phase D3–D6 E2E Coverage (Intake, Lifecycle, Reply Triage, Tab Sweep)
+
+Added staged Playwright specs and helpers for talk-type intake filtering, stranger-before-match
+lifecycle, creator reply triage at scale (snapshot-seeded 6×6 UI matrix plus existing 10×10 API
+integration test), and a single-user tab sweep smoke. New script: `npm run test:e2e:phase-d`.
+
+Evidence:
+
+- Helpers: `tests/e2e/helpers/talk-lifecycle-fixtures.ts`, `tests/e2e/helpers/creator-reply-matrix.ts`
+- E2E: `00t-talk-type-intake-filter.spec.ts`, `00u-talk-lifecycle-stranger-match.spec.ts`,
+  `00v-creator-reply-triage-matrix.spec.ts`, `00x-tab-sweep-smoke.spec.ts`
+- Integration (100 replies): `src/test/integration/peer-routes.test.ts`
 
 ## 2026-05-26 - Live Broadcast Intake Rejection Preview (D3)
 

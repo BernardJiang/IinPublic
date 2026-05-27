@@ -127,6 +127,9 @@ senders and receivers. Existing filter plumbing is a foundation, not completion 
   arrives after it is disabled, including a clean-title talk blocked solely by a moderated answer
   choice and allowed after the toggle is off. Future work remains for maintained multilingual
   moderation policy and user-visible `intake_dirty_words` reporting.
+- **Partially implemented: talk-type intake filter E2E.** `00t-talk-type-intake-filter.spec.ts`
+  proves a receiver allowing only `flow` rejects a live `tag` broadcast from IN while the broadcast
+  preamble surfaces `intake_talk_type` before send.
 - **Partially implemented: remaining intake controls.** Real browser delivery coverage proves
   allowed talk-type rejection, adult/age gating, public-credit visibility behavior, custom blocked
   phrases, a persisted sent-after cutoff that rejects newly authored content until cleared, and
@@ -149,6 +152,10 @@ contacts, and Me answer ownership instead of relying on isolated happy paths.
   the editor and verify title, language, type, expiry/location settings, and creator self-selected
   question/answer pairs appear in the creator's OUT list and Me answer/history surface as designed.
   Verify editing preserves language, branches, self answers, and targeting settings.
+- **Partially implemented: pre-answer stranger + post-match contact.** Reusable flow/tag payload
+  helpers in `tests/e2e/helpers/talk-lifecycle-fixtures.ts` and
+  `00u-talk-lifecycle-stranger-match.spec.ts` prove the responder is `Stranger` in Contacts after a
+  match without a saved relationship label.
 - **Pre-answer relationship state.** Send a talk to eligible peers and verify the recipient sees it
   in IN, while any newly discoverable user/contact surface labels the unestablished peer
   `Stranger` before a successful match or saved relationship. Keep TechSupport separate from this
@@ -229,6 +236,11 @@ resulting 100 reply records without losing identity, talk, relationship, or outc
   visibility, hidden reputation, support-channel isolation, local-only answer ownership, and
   language/content-filter privacy. Aggregates should not reveal a filtered user's private answer
   body merely because their rejected delivery is counted.
+- **Partially implemented: high-volume reply triage E2E.** `GET /api/users/:id/replies` has a
+  10×10=100 reply integration proof in `peer-routes.test.ts`. Browser triage uses
+  `tests/e2e/helpers/creator-reply-matrix.ts` snapshot seeding plus
+  `00v-creator-reply-triage-matrix.spec.ts` (6×6 live UI matrix: pagination, search, match/talk/
+  weighted sorts, filter persistence). Run via `npm run test:e2e:phase-d`.
 - **High-volume E2E proof script.** Create 10 distinct talks for one creator, deliver them to 10
   users, and generate a controlled 100-reply matrix containing match, mismatch, ignore, different
   relationships, different timestamps, and at least one ranking tie. Verify:
@@ -252,6 +264,10 @@ documented, test-proven filters/sorts without missing, duplicating, or exposing 
 
 Purpose: close UI details revealed while traversing the app. The longer feature backlog below
 remains binding; this is the implementation sequence for its visible outcomes.
+
+- **Partially implemented: tab sweep smoke.** `00x-tab-sweep-smoke.spec.ts` walks Talks (creator
+  replies panel, OUT/reply sort controls), Contacts filters, Me answer filters, and Settings intake
+  diagnostics in one browser pass.
 
 #### Chatrooms
 
