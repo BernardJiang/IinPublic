@@ -244,7 +244,7 @@ test.describe('Chatroom peer detail views', () => {
   // Test 4: Send My Talks — auto mode
   // ---------------------------------------------------------------------------
 
-  test('Send My Talks auto mode sends unsent talks to peer', async () => {
+  test('Send My Talks auto mode sends active unsent talks but excludes expired talks', async () => {
     const { ctxTom, pageTom, ctxJerry, pageJerry } = await setup('TomSend', 'JerrySend');
     try {
       // Tom creates a talk (not yet sent to Jerry)
@@ -260,6 +260,26 @@ test.describe('Chatroom peer detail views', () => {
       await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
       await pageTom.click('#talk-editor-form button[type="submit"]');
       await afterSync();
+
+      // Tom creates a second talk that will expire before the peer send action.
+      const expiredTitle = 'Expired Direct Send Talk';
+      await pageTom.click('#create-talk-btn');
+      await pageTom.waitForSelector('#talk-editor-form', { timeout: 15_000 });
+      await pageTom.fill('#talk-title', expiredTitle);
+      await selectTalkEditorType(pageTom, 'flow');
+      await pageTom.selectOption('#talk-expires', '1d');
+      const expiredQuestion = pageTom.locator('.question-item').first();
+      await expiredQuestion.locator('.question-text').fill('This offer is already past its deadline.');
+      await expiredQuestion.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes');
+      await expiredQuestion.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
+      await expiredQuestion.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
+      await expiredQuestion.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
+      await pageTom.click('#talk-editor-form button[type="submit"]');
+      await afterSync();
+      await pageTom.evaluate(() => {
+        const realNow = Date.now.bind(Date);
+        Date.now = () => realNow() + 2 * 24 * 60 * 60 * 1000;
+      });
 
       // Both enter Global chatroom
       await enterGlobalChatroom(pageTom);
@@ -291,6 +311,7 @@ test.describe('Chatroom peer detail views', () => {
       await syncIncomingFromServer(pageJerry);
       await afterSync();
       await expect(pageJerry.locator('#talks-list')).toContainText('Send Test Talk', { timeout: 20_000 });
+      await expect(pageJerry.locator('#talks-list')).not.toContainText(expiredTitle);
 
       await pageTom.click('#back-from-peer-detail');
     } finally {

@@ -129,9 +129,10 @@ senders and receivers. Existing filter plumbing is a foundation, not completion 
   phrases, a persisted sent-after cutoff that rejects newly authored content until cleared, and
   blocked-user suppression followed by resumed post-unblock delivery. A deterministic sender/receiver
   scenario also proves a one-day talk delivers while active and is excluded from broadcast once
-  expired. Future work remains for direct-send/preview expiration surfaces, and Settings should
-  preview hidden counts by reason before and after each selection rather than only showing a total
-  filtered count.
+  expired. Direct peer send now omits expired talks, server delivery rejects expired payloads on
+  direct and bulk paths, and the audience-preview endpoint reports `talk_expired` with localized
+  reason labels. Future work remains to make omitted expired/disabled choices visible in the peer
+  chooser or broadcast modal rather than silently withholding them.
 
 Exit criteria: each Settings behavior/filter control has at least one allow path, one reject/disabled
 path, persisted state verification, and an intelligible reason visible to the user where applicable.
@@ -560,8 +561,9 @@ verified.
   compatible with English talks only.
 - **Partially implemented in current working tree: talk targeting preview.** Broadcast audience
   review shows eligible recipients and per-recipient rejection reasons for language, distance,
-  content, age, block, capacity, and rate-limit exclusions. Future work remains for direct-send,
-  disabled-talk, and expiration surfaces.
+  content, age, block, capacity, rate-limit, and expired-talk exclusions. Direct peer send also
+  omits expired talks and the delivery API rejects attempts to submit them. Future work remains
+  for visible disabled/expired omission explanations in the peer-send chooser and broadcast modal.
 - **Implemented in current working tree: creator diagnostics for filtered incoming talks.** Talks
   and Settings show hidden incoming counts with rejection-reason summaries, including when no
   incoming talk remains visible.

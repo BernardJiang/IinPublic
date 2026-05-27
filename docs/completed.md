@@ -12,6 +12,20 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-26 - Prevent Expired Direct Talk Delivery
+
+Expired talks can no longer enter a receiver inbox through direct peer send, direct delivery API
+calls, or bulk-registration calls. Peer `Send My Talks` omits expired outgoing entries, and the
+audience-preview endpoint returns a localized `talk_expired` reason for expired payloads. A future
+UX task remains to list omitted expired/disabled entries explicitly in selection dialogs.
+
+Evidence:
+
+- Delivery/UI: `src/server/routes/talk-delivery-routes.ts`, `src/web/ui/user-detail-view.ts`,
+  `src/web/ui/ui-manager.ts`, `src/web/ui/ui-translations.ts`
+- Tests: `src/test/integration/talk-loop.test.ts`, `src/test/unit/ui-extracted-modules.test.ts`,
+  `tests/e2e/staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts`
+
 ## 2026-05-26 - Clarify Shared Languages in Contact Detail
 
 Contact public-profile detail now displays localized readable language names, marks languages

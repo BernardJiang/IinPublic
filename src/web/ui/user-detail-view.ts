@@ -594,6 +594,8 @@ async function handleSendMyTalks(): Promise<void> {
     const candidates = Object.entries(myTalks).filter(([talkId, t]: [string, any]) => {
       if (t?.role !== 'created') return false;
       if (t?.disabled) return false;
+      const expiresAt = t?.expiresAt ?? t?.fullTalk?.expiresAt;
+      if (typeof expiresAt === 'number' && Date.now() > expiresAt) return false;
       if (alreadySentIds.has(talkId)) return false;
       const contentId = t?.fullTalk?.id || talkId;
       if (alreadySentIds.has(contentId)) return false;

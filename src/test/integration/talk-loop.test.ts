@@ -66,6 +66,13 @@ const ADULT_TALK_DATA = {
   isAdult: true,
 };
 
+const EXPIRED_TALK_DATA = {
+  ...TALK_DATA,
+  id: 'talk_expired_123',
+  title: 'Past meetup',
+  expiresAt: Date.now() - 60_000,
+};
+
 const MATCHING_ANSWERS = [{ questionId: 'q1', answerId: 'a_blue', answerText: 'Blue' }];
 const NON_MATCHING_ANSWERS = [{ questionId: 'q1', answerId: 'a_red', answerText: 'Red' }];
 
@@ -970,6 +977,26 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(res.body).toHaveLength(1);
       expect(Object.keys(res.body[0].senders)).toHaveLength(2);
     });
+
+    it('rejects an expired talk delivered directly to a receiver', async () => {
+      const { app, incomingTalksMap } = buildTestServer();
+      const res = await request(app)
+        .post(`/api/talks/${EXPIRED_TALK_DATA.id}/received`)
+        .send({
+          receiverId: RESPONDER_ID,
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          talkData: EXPIRED_TALK_DATA,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        registered: false,
+        filteredOut: true,
+        rejectedBy: ['talk_expired'],
+      });
+      expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
+    });
   });
 
   describe('POST /api/talks/:id/register-receivers-for-broadcast', () => {
@@ -1021,6 +1048,23 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(res.body.filteredOut).toBe(1);
       expect(incomingTalksMap.get(RESPONDER_ID)?.size).toBe(1);
       expect(incomingTalksMap.get('user_carol')).toBeUndefined();
+    });
+
+    it('skips expired talks during broadcast registration', async () => {
+      const { app, incomingTalksMap } = buildTestServer();
+      const res = await request(app)
+        .post(`/api/talks/${EXPIRED_TALK_DATA.id}/register-receivers-for-broadcast`)
+        .send({
+          senderId: SENDER_ID,
+          senderName: SENDER_NAME,
+          receiverIds: [RESPONDER_ID],
+          talkData: EXPIRED_TALK_DATA,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registered).toBe(0);
+      expect(res.body.filteredOut).toBe(1);
+      expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
     });
 
     it('skips receivers without overlapping interests when broadcastTargetTags is set', async () => {
@@ -1378,6 +1422,24 @@ describe('Talk loop — incoming registration → answer submission → match �
         expect.objectContaining({ receiverId: 'user_carol', rejectedBy: expect.arrayContaining(['age_gate']) }),
         expect.objectContaining({ receiverId: 'user_dave', rejectedBy: expect.arrayContaining(['blocked_user']) }),
       ]));
+    });
+
+    it('reports expired talks as ineligible in broadcast audience preview', async () => {
+      const { app } = buildTestServer();
+      const preview = await request(app)
+        .post('/api/talks/broadcast-receiver-preview')
+        .send({
+          senderId: SENDER_ID,
+          receiverIds: [RESPONDER_ID],
+          talkData: EXPIRED_TALK_DATA,
+        });
+
+      expect(preview.status).toBe(200);
+      expect(preview.body.eligibleReceivers).toBe(0);
+      expect(preview.body.rejectedByCounts).toEqual({ talk_expired: 1 });
+      expect(preview.body.rejectedReceivers).toEqual([
+        { receiverId: RESPONDER_ID, rejectedBy: ['talk_expired'] },
+      ]);
     });
   });
 

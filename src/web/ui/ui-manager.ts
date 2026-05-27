@@ -342,6 +342,7 @@ export class UIManager extends EventEmitter {
       intake_grammar: 'reasonIntakeGrammar',
       intake_dirty_words: 'reasonIntakeDirtyWords',
       intake_custom_blocked_terms: 'reasonIntakeCustomTerms',
+      talk_expired: 'reasonTalkExpired',
       age_gate: 'reasonAgeGate',
       blocked_user: 'reasonBlockedUser',
       broadcast_max_distance: 'reasonBroadcastMaxDistance',
@@ -6261,6 +6262,10 @@ export class UIManager extends EventEmitter {
       }),
     });
     if (!res.ok) throw new Error(`register talk for peer failed: HTTP ${res.status}`);
+    const result = await res.json() as { registered?: boolean };
+    if (result.registered !== true) {
+      throw new Error('register talk for peer rejected by recipient delivery policy');
+    }
   }
 
   updateMatchBadge(): void {

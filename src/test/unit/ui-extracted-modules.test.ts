@@ -240,6 +240,7 @@ describe('extracted UI helpers', () => {
         getMyTalks: () => ({
           talk1: { role: 'created', title: 'Coffee' },
           talk2: { role: 'created', title: 'Tea' },
+          expired: { role: 'created', title: 'Past Tea', expiresAt: Date.now() - 1000 },
         }),
         showConversationDetail: jest.fn(),
         registerTalkForPeer: jest.fn().mockResolvedValue(undefined),
@@ -279,6 +280,8 @@ describe('extracted UI helpers', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(document.getElementById('peer-send-picker-modal')?.textContent).toContain('向 Ming 发送话题');
       expect(document.getElementById('peer-send-picker-modal')?.textContent).toContain('发送选中话题');
+      expect(document.getElementById('peer-send-picker-modal')?.textContent).toContain('Tea');
+      expect(document.getElementById('peer-send-picker-modal')?.textContent).not.toContain('Past Tea');
     } finally {
       (global as any).fetch = previousFetch;
     }

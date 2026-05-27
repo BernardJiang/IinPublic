@@ -203,6 +203,16 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       interestTokens: string[];
     },
   ): string[] {
+    const expiresAtValue = talkData?.expiresAt;
+    const expiresAt = typeof expiresAtValue === 'number'
+      ? expiresAtValue
+      : typeof expiresAtValue === 'string'
+        ? new Date(expiresAtValue).getTime()
+        : Number.NaN;
+    if (Number.isFinite(expiresAt) && Date.now() > expiresAt) {
+      return ['talk_expired'];
+    }
+
     const reasons: string[] = [];
     const subject = {
       title: talkData?.title,
