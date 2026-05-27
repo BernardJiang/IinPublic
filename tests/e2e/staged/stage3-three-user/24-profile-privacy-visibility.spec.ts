@@ -192,6 +192,9 @@ test.describe('Profile privacy visibility', () => {
           });
           if (!postRes.ok()) return false;
 
+          // Small delay so server-side write propagates before the GET check
+          await new Promise((r) => setTimeout(r, 1000));
+
           const userRes = await page.request.get(userUrl);
           if (!userRes.ok()) return false;
           const user = await userRes.json();

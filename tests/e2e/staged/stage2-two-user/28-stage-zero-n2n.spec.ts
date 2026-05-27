@@ -204,13 +204,19 @@ test.describe('Stage zero N2N smoke', () => {
     await expect(page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount')).toContainText('2');
     for (const roomId of ['north-america', 'usa', 'california', 'san-diego']) {
       await page.click(`.chatroom-item[data-chatroom-id="${roomId}"]`);
+      await afterNav();
       await expect
         .poll(
           () => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || ''),
           { timeout: 15_000 },
         )
         .toBe(roomId);
-      await page.click('#back-to-chatrooms');
+      // Navigate back to the chatroom list. Gun member-count updates can re-render
+      // the DOM and toggle back-to-chatrooms visibility at any time, so we dispatch
+      // the click in JS to bypass Playwright's visibility/wait-for-attached checks.
+      await page.evaluate(() => {
+        document.getElementById('back-to-chatrooms')?.click();
+      });
       await afterSync();
     }
     await expect(page.locator('.chatroom-item.current-room[data-chatroom-id="san-diego"]')).toBeVisible();

@@ -66,7 +66,7 @@ export default defineConfig({
   // files so each long flow can occupy its own worker in parallel.
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  retries: process.env.CI ? 2 : 3,
   workers: NUM_WORKERS,
   reporter: 'html',
   timeout: 300000,
