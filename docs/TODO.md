@@ -97,11 +97,11 @@ has an automated Chinese traversal.
 Purpose: make every Settings control visibly change delivery or behavior and prove it with real
 senders and receivers. Existing filter plumbing is a foundation, not completion of these scenarios.
 
-- **Partially implemented: three-language intake proof.** A multi-user browser scenario sets a
-  receiver to English and Chinese, proves English/Chinese appear in IN while Spanish remains absent,
-  then enables Spanish and proves a newly sent Spanish talk appears. Future work remains to make the
-  real broadcast preview reliably report its `intake_language` rejection under synchronized browser
-  load rather than falling back to final-send checking.
+- **Implemented: three-language intake proof with live broadcast preview.** A multi-user browser
+  scenario sets a receiver to English and Chinese, proves English/Chinese appear in IN while Spanish
+  remains absent, then enables Spanish and proves a newly sent Spanish talk appears. The broadcast
+  preamble now surfaces `Language not accepted` for Spanish talks before send (with a longer preview
+  timeout and faster server filter reads).
 - **Implemented: Talk Behavior checkbox proof.** The Settings E2E path verifies persisted auto-copy
   on/off behavior, and a real sender/receiver delivery exchange now proves a matched talk remains
   history-only while auto-copy is off and becomes a copied OUT talk after it is enabled. The
@@ -111,13 +111,16 @@ senders and receivers. Existing filter plumbing is a foundation, not completion 
   scenario persists the receiver's distance band and sends talks from below its minimum, inside the
   band, and above its maximum, proving only the in-band talk reaches IN. It also persists an equal
   zero-mile minimum/maximum and proves a colocated sender reaches IN at both inclusive boundaries.
-  Existing Settings coverage rejects an invalid min-greater-than-max range. Future work remains to
-  surface live `intake_min_distance`/`intake_max_distance` rejection explanations.
+  Existing Settings coverage rejects an invalid min-greater-than-max range. Integration tests cover
+  `intake_min_distance`/`intake_max_distance` in `POST /api/talks/broadcast-receiver-preview`; live
+  browser preamble copy for distance still depends on receiver location reaching the server Gun graph
+  in time (delivery assertions remain the authoritative proof).
 - **Partially implemented: grammar filter completion.** Settings documents the bounded readable-
   sentence heuristic, and a real sender/receiver browser scenario proves a clean talk is delivered,
   deliberately unreadable content is hidden while the toggle is on, and newly sent equivalent
-  content is received after the toggle is disabled. Future work remains for visible
-  `intake_grammar` rejection reporting and broader language-aware grammar policy.
+  content is received after the toggle is disabled. The broadcast preamble now surfaces `Grammar filter`
+  and `Content moderation filter` rejections before send. Broader language-aware grammar policy
+  remains future work.
 - **Partially implemented: dirty-word filter completion.** Moderation matching now normalizes
   punctuation/case and has English/Chinese and benign-substring unit coverage; a real delivery
   scenario proves blocked content is absent with the toggle on and newly sent equivalent content

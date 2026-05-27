@@ -961,25 +961,34 @@ export class IinPublicApp {
       previewUnavailable: receiverIds.length > 0,
     };
     if (!me?.id || receiverIds.length === 0) return fallback;
-    try {
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), 3_000);
-      const response = await fetch(`${this.getBackendApiBase()}/api/talks/broadcast-receiver-preview`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          senderId: me.id,
-          receiverIds,
-          talkData: talk,
-          ...(broadcastTargetTags && broadcastTargetTags.length > 0 ? { broadcastTargetTags } : {}),
-          ...(typeof broadcastMaxDistanceMiles === 'number' && Number.isFinite(broadcastMaxDistanceMiles) && broadcastMaxDistanceMiles > 0
-            ? { broadcastMaxDistanceMiles }
-            : {}),
-        }),
-        signal: controller.signal,
-      }).finally(() => window.clearTimeout(timeoutId));
-      if (!response.ok) return fallback;
-      const preview = await response.json() as Partial<BroadcastAudiencePreview>;
+
+    const talkPayload: Talk = {
+      ...talk,
+      id: String(talk.id || talkId),
+      authorId: me.id,
+      ...(this.currentLocation &&
+      (!talk.authorLocation ||
+        typeof talk.authorLocation.latitude !== 'number' ||
+        typeof talk.authorLocation.longitude !== 'number')
+        ? {
+            authorLocation: {
+              latitude: this.currentLocation.latitude,
+              longitude: this.currentLocation.longitude,
+            },
+          }
+        : {}),
+    };
+    const previewBody = {
+      senderId: me.id,
+      receiverIds,
+      talkData: JSON.parse(JSON.stringify(talkPayload)) as Talk,
+      ...(broadcastTargetTags && broadcastTargetTags.length > 0 ? { broadcastTargetTags } : {}),
+      ...(typeof broadcastMaxDistanceMiles === 'number' && Number.isFinite(broadcastMaxDistanceMiles) && broadcastMaxDistanceMiles > 0
+        ? { broadcastMaxDistanceMiles }
+        : {}),
+    };
+
+    const parsePreviewResponse = (preview: Partial<BroadcastAudiencePreview>): BroadcastAudiencePreview => {
       const eligibleReceiverIds = Array.isArray((preview as any).eligibleReceiverIds)
         ? (preview as any).eligibleReceiverIds.map(String)
         : receiverIds;
@@ -1002,9 +1011,33 @@ export class IinPublicApp {
         supportExcludedCount,
         previewUnavailable: false,
       };
-    } catch {
-      return fallback;
+    };
+
+    const previewTimeoutMs = 30_000;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), previewTimeoutMs);
+        const response = await fetch(`${this.getBackendApiBase()}/api/talks/broadcast-receiver-preview`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(previewBody),
+          signal: controller.signal,
+        }).finally(() => window.clearTimeout(timeoutId));
+        if (!response.ok) {
+          const errText = await response.text().catch(() => '');
+          console.warn(
+            `broadcast-receiver-preview HTTP ${response.status} (attempt ${attempt + 1}/2): ${errText.slice(0, 200)}`,
+          );
+          continue;
+        }
+        return parsePreviewResponse(await response.json() as Partial<BroadcastAudiencePreview>);
+      } catch (error) {
+        console.warn(`broadcast-receiver-preview failed (attempt ${attempt + 1}/2):`, error);
+      }
+      if (attempt < 1) await new Promise((r) => setTimeout(r, 500));
     }
+    return fallback;
   }
 
   /**
@@ -1037,11 +1070,20 @@ export class IinPublicApp {
     await mergeGunOnce();
 
     if (gunMemberIds.length === 0) {
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < 12; i++) {
         await new Promise((r) => setTimeout(r, 250));
         await mergeGunOnce();
         if (gunMemberIds.length > 0) break;
       }
+    }
+
+    if (gunMemberIds.length === 0) {
+      for (const m of uiMembers || []) {
+        const id = String(m.userId || '').trim();
+        if (!id || id === me || id === TECHSUPPORT_ROOT_USER_ID) continue;
+        gunMemberIds.push(id);
+      }
+      gunMemberIds = [...new Set(gunMemberIds)];
     }
 
     return gunMemberIds.map((userId) => ({

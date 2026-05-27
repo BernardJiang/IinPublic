@@ -38,11 +38,21 @@ async function createFlowTalk(
   await afterSync();
 }
 
-async function broadcastFromCurrentRoom(page: Page): Promise<void> {
+async function broadcastFromCurrentRoom(page: Page, previewReason?: RegExp): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterSync();
   await page.click('#broadcast-talk-btn');
-  await expect(page.locator('[data-testid="broadcast-preamble-modal"]')).toBeVisible({ timeout: 60_000 });
+  const modal = page.locator('[data-testid="broadcast-preamble-modal"]');
+  await expect(modal).toBeVisible({ timeout: 60_000 });
+  if (previewReason) {
+    await expect
+      .poll(async () => {
+        const text = await modal.innerText();
+        if (/Preview unavailable/i.test(text)) return null;
+        return previewReason.test(text) ? text : null;
+      }, { timeout: 45_000 })
+      .not.toBeNull();
+  }
   await page.locator('[data-testid="broadcast-preamble-send"]').click();
   await waitForTabActive(page, 'chatrooms');
 }
@@ -109,11 +119,11 @@ test.describe('Incoming talk content intake filtering', () => {
     const unreadableText = Array.from({ length: 31 }, () => 'repeat').join(' ');
     const grammarBlockedTitle = `${unreadableText} grammar blocked`;
     await createFlowTalk(pageTom, grammarBlockedTitle, unreadableText);
-    await broadcastFromCurrentRoom(pageTom);
+    await broadcastFromCurrentRoom(pageTom, /Grammar filter/i);
 
     const dirtyBlockedTitle = 'This is SCAM!!!';
     await createFlowTalk(pageTom, dirtyBlockedTitle, 'Would you like to join this community discussion?');
-    await broadcastFromCurrentRoom(pageTom);
+    await broadcastFromCurrentRoom(pageTom, /Content moderation filter/i);
 
     const dirtyAnswerBlockedTitle = 'Answer Choice Moderation Blocked';
     await createFlowTalk(
@@ -122,7 +132,7 @@ test.describe('Incoming talk content intake filtering', () => {
       'Would you like to join this community discussion?',
       ['Join this SCAM!!!', 'No thank you'],
     );
-    await broadcastFromCurrentRoom(pageTom);
+    await broadcastFromCurrentRoom(pageTom, /Content moderation filter/i);
 
     await pageJerry.click('.nav-btn[data-view="talks"]');
     await afterSync();

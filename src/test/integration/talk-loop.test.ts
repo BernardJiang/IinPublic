@@ -1386,6 +1386,56 @@ describe('Talk loop — incoming registration → answer submission → match �
       expect(unfilt.body.rejectedByCounts).toEqual({});
     });
 
+    it('reports intake min/max distance rejections in broadcast audience preview', async () => {
+      const { app, userDeliveryContext } = buildTestServer();
+      const nearTalk = {
+        ...TALK_DATA,
+        authorLocation: { latitude: 37.7749, longitude: -122.4194 },
+      };
+      userDeliveryContext.set(RESPONDER_ID, {
+        talkFilters: { ...getRouteTestTalkIntakeFilters(), minDistanceMiles: 10, maxDistanceMiles: 100 },
+        ageVerified: false,
+        location: {
+          latitude: 37.775,
+          longitude: -122.4194,
+          accuracy: 10,
+          timestamp: new Date(),
+        },
+      });
+
+      const tooNear = await request(app)
+        .post('/api/talks/broadcast-receiver-preview')
+        .send({
+          senderId: SENDER_ID,
+          receiverIds: [RESPONDER_ID],
+          talkData: nearTalk,
+        });
+      expect(tooNear.status).toBe(200);
+      expect(tooNear.body.eligibleReceivers).toBe(0);
+      expect(tooNear.body.rejectedByCounts).toEqual({ intake_min_distance: 1 });
+      expect(tooNear.body.rejectedReceivers).toEqual([
+        { receiverId: RESPONDER_ID, rejectedBy: ['intake_min_distance'] },
+      ]);
+
+      const farTalk = {
+        ...TALK_DATA,
+        authorLocation: { latitude: 40.7128, longitude: -74.006 },
+      };
+      const tooFar = await request(app)
+        .post('/api/talks/broadcast-receiver-preview')
+        .send({
+          senderId: SENDER_ID,
+          receiverIds: [RESPONDER_ID],
+          talkData: farTalk,
+        });
+      expect(tooFar.status).toBe(200);
+      expect(tooFar.body.eligibleReceivers).toBe(0);
+      expect(tooFar.body.rejectedByCounts).toEqual({ intake_max_distance: 1 });
+      expect(tooFar.body.rejectedReceivers).toEqual([
+        { receiverId: RESPONDER_ID, rejectedBy: ['intake_max_distance'] },
+      ]);
+    });
+
     it('reports language, age, and block exclusion reasons before a broadcast sends', async () => {
       const { app, userDeliveryContext, blockedByUser } = buildTestServer();
       userDeliveryContext.set(RESPONDER_ID, {

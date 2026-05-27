@@ -341,8 +341,8 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
   }
 
   async getUserTalkFilters(userId: string): Promise<TalkIntakeFilters> {
-    const userNode = await this.gunService.get(`users/${userId}`) as Partial<User>;
-    const filtersNode = await this.gunService.get(`${PUBLIC_TALK_FILTERS_KEY}/${userId}`).catch(() => null) as
+    const userNode = (await this.gunService.getOptional(`users/${userId}`, 1000)) as Partial<User> | null;
+    const filtersNode = (await this.gunService.getOptional(`${PUBLIC_TALK_FILTERS_KEY}/${userId}`, 800)) as
       | { filtersJson?: string }
       | null;
     return this.parseTalkFilters(filtersNode?.filtersJson, userNode?.languages);
@@ -379,32 +379,21 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     /** Normalized lowercase interest names (profile) for bulk-send tag targeting overlap. */
     interestTokens: string[];
   }> {
-    const userNode = await this.gunService.get(`users/${userId}`) as Partial<User>;
-    let interestTokens: string[] = [];
-    try {
-      const u = await this.getUser(userId);
-      interestTokens =
-        Array.isArray(u.interests) && u.interests.length > 0
-          ? u.interests
-              .map((t) =>
-                typeof t?.name === 'string'
-                  ? t.name.trim().toLowerCase()
-                  : ''
-              )
-              .filter(Boolean)
-          : [];
-    } catch {
-      interestTokens = [];
-    }
-    const talkFilters = await this.getUserTalkFilters(userId);
-    let location = this.parseStoredLocationForDelivery((userNode as { location?: unknown })?.location as unknown);
+    const userNode = (await this.gunService.getOptional(`users/${userId}`, 1200)) as Partial<User> | null;
+    const filtersNode = (await this.gunService.getOptional(`${PUBLIC_TALK_FILTERS_KEY}/${userId}`, 800)) as
+      | { filtersJson?: string }
+      | null;
+    const talkFilters = this.parseTalkFilters(filtersNode?.filtersJson, userNode?.languages);
+    const interestTokens =
+      userNode && Array.isArray(userNode.interests) && userNode.interests.length > 0
+        ? userNode.interests
+            .map((t) => (typeof t?.name === 'string' ? t.name.trim().toLowerCase() : ''))
+            .filter(Boolean)
+        : [];
+    let location = this.parseStoredLocationForDelivery((userNode as { location?: unknown } | null)?.location as unknown);
     if (!location) {
-      try {
-        const locNode = await this.gunService.get(`users/${userId}/location`);
-        location = this.parseStoredLocationForDelivery(locNode);
-      } catch {
-        /* no separate location key */
-      }
+      const locNode = await this.gunService.getOptional(`users/${userId}/location`, 800);
+      location = this.parseStoredLocationForDelivery(locNode);
     }
     const ageVerified = await this.readAgeVerified(userId);
     return {

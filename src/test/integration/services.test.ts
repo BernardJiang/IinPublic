@@ -280,7 +280,7 @@ describe('Service Integration Tests', () => {
     });
 
     it('should retrieve server-enforced talk filters from the public mirror', async () => {
-      const mockGet = jest.spyOn(gunService, 'get')
+      const mockGetOptional = jest.spyOn(gunService, 'getOptional')
         .mockResolvedValueOnce({
           id: 'user123',
           languages: ['en'],
@@ -306,7 +306,7 @@ describe('Service Integration Tests', () => {
         allowedTalkTypes: ['tag'],
         customBlockedTerms: [],
       });
-      expect(mockGet).toHaveBeenCalledWith('user-talk-filters/user123');
+      expect(mockGetOptional).toHaveBeenCalledWith('user-talk-filters/user123', 800);
     });
 
     it('should persist block mirrors and update block count when blocking and unblocking', async () => {

@@ -34,11 +34,21 @@ async function createLanguageTalk(page: Page, title: string, language: string): 
   await afterSync();
 }
 
-async function sendBroadcastAndOpenPreview(page: Page): Promise<void> {
+async function sendBroadcastAndOpenPreview(page: Page, expectedReason?: RegExp): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterSync();
   await page.click('#broadcast-talk-btn');
-  await expect(page.locator('[data-testid="broadcast-preamble-modal"]')).toBeVisible({ timeout: 60_000 });
+  const modal = page.locator('[data-testid="broadcast-preamble-modal"]');
+  await expect(modal).toBeVisible({ timeout: 60_000 });
+  if (expectedReason) {
+    await expect
+      .poll(async () => {
+        const text = await modal.innerText();
+        if (/Preview unavailable/i.test(text)) return null;
+        return expectedReason.test(text) ? text : null;
+      }, { timeout: 45_000 })
+      .not.toBeNull();
+  }
 }
 
 test.describe('Incoming talk language intake filtering', () => {
@@ -100,7 +110,7 @@ test.describe('Incoming talk language intake filtering', () => {
     const spanishRejectedTitle = 'Language Intake Spanish Rejected';
     await createLanguageTalk(pageTom, spanishRejectedTitle, 'es');
 
-    await sendBroadcastAndOpenPreview(pageTom);
+    await sendBroadcastAndOpenPreview(pageTom, /Language not accepted/i);
     await pageTom.locator('[data-testid="broadcast-preamble-send"]').click();
     await waitForTabActive(pageTom, 'chatrooms');
 

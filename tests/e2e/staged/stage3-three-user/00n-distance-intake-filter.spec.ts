@@ -15,7 +15,6 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
-
 const RECEIVER_LOCATION = { latitude: 32.7157, longitude: -117.1611 };
 
 async function setSenderLocation(page: Page, latitude: number): Promise<void> {

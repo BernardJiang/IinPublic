@@ -1,6 +1,6 @@
 # IinPublic Completed Work
 
-Last updated: 2026-05-25
+Last updated: 2026-05-26
 
 This is the durable ledger for shipped feature work. Keep `TODO.md` focused on forward work:
 when an item is finished, move it here with a short description and concrete evidence.
@@ -11,6 +11,21 @@ when an item is finished, move it here with a short description and concrete evi
 - Include the date, feature/phase name, user-visible result, and verification evidence.
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
+
+## 2026-05-26 - Live Broadcast Intake Rejection Preview (D3)
+
+Broadcast pre-send preview now reliably calls `POST /api/talks/broadcast-receiver-preview` with a
+longer timeout, UI-member fallback when Gun member sync lags, and faster server filter/location
+reads via `getOptional`. Senders see localized reasons for `intake_language`, `intake_grammar`, and
+`intake_dirty_words` before confirming a broadcast. Integration coverage adds distance rejection
+counts for `intake_min_distance` / `intake_max_distance`.
+
+Evidence:
+
+- Client/server: `src/web/app/app.ts`, `src/server/services/user-service.ts`
+- Tests: `src/test/integration/talk-loop.test.ts`, `src/test/integration/services.test.ts`,
+  `tests/e2e/staged/stage3-three-user/00m-language-intake-filter.spec.ts`,
+  `tests/e2e/staged/stage3-three-user/00o-content-intake-filter.spec.ts`
 
 ## 2026-05-26 - Prevent Expired Direct Talk Delivery
 
