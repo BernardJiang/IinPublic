@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-05-26
+Last updated: 2026-05-27
 
 This is the forward backlog for the current repository. Completed feature ledgers belong in
 [Completed Work](completed.md), not in TODO.
@@ -27,9 +27,9 @@ Current implementation baseline discovered during the audit:
 - Reserved-name validation and its UI/API/E2E acceptance coverage now reject ordinary claims to
   `TechSupport`, `admin`, `administrator`, `api`, `root`, `system`, `support`, and `www`,
   including normalized spelling variations.
-- Incoming-talk intake code already has language, min/max distance, grammar, dirty-word, custom
-  blocked-term, talk-type, sent-after, and adult gating paths. Unit/integration tests cover selected
-  cases, but the user-level multi-user proof scenarios below are not complete.
+- Incoming-talk intake controls have staged multi-user E2E proofs for language, distance, content,
+  talk-type, and sent-after cutoff (see [completed.md](completed.md)). Broader grammar/dirty-word
+  policy and live distance preamble timing remain future work.
 - Settings now supports confirmed photo previews, camera permission fallback, persisted
   Me/Contacts/peer photo rendering, omits empty-interest placeholders, and localizes
   distance, nickname, and photo-file validation feedback in Chinese.
@@ -97,48 +97,16 @@ has an automated Chinese traversal.
 Purpose: make every Settings control visibly change delivery or behavior and prove it with real
 senders and receivers. Existing filter plumbing is a foundation, not completion of these scenarios.
 
-- **Implemented: three-language intake proof with live broadcast preview.** A multi-user browser
-  scenario sets a receiver to English and Chinese, proves English/Chinese appear in IN while Spanish
-  remains absent, then enables Spanish and proves a newly sent Spanish talk appears. The broadcast
-  preamble now surfaces `Language not accepted` for Spanish talks before send (with a longer preview
-  timeout and faster server filter reads).
-- **Implemented: Talk Behavior checkbox proof.** The Settings E2E path verifies persisted auto-copy
-  on/off behavior, and a real sender/receiver delivery exchange now proves a matched talk remains
-  history-only while auto-copy is off and becomes a copied OUT talk after it is enabled. The
-  exact-memory multi-user path verifies chatbot off blocks a compatible auto reply while chatbot on
-  creates one.
-- **Partially implemented: min/max distance acceptance.** A deterministic multi-user browser
-  scenario persists the receiver's distance band and sends talks from below its minimum, inside the
-  band, and above its maximum, proving only the in-band talk reaches IN. It also persists an equal
-  zero-mile minimum/maximum and proves a colocated sender reaches IN at both inclusive boundaries.
-  Existing Settings coverage rejects an invalid min-greater-than-max range. Integration tests cover
-  `intake_min_distance`/`intake_max_distance` in `POST /api/talks/broadcast-receiver-preview`; live
-  browser preamble copy for distance still depends on receiver location reaching the server Gun graph
-  in time (delivery assertions remain the authoritative proof).
-- **Partially implemented: grammar filter completion.** Settings documents the bounded readable-
-  sentence heuristic, and a real sender/receiver browser scenario proves a clean talk is delivered,
-  deliberately unreadable content is hidden while the toggle is on, and newly sent equivalent
-  content is received after the toggle is disabled. The broadcast preamble now surfaces `Grammar filter`
-  and `Content moderation filter` rejections before send. Broader language-aware grammar policy
-  remains future work.
-- **Partially implemented: dirty-word filter completion.** Moderation matching now normalizes
-  punctuation/case and has English/Chinese and benign-substring unit coverage; a real delivery
-  scenario proves blocked content is absent with the toggle on and newly sent equivalent content
-  arrives after it is disabled, including a clean-title talk blocked solely by a moderated answer
-  choice and allowed after the toggle is off. Future work remains for maintained multilingual
-  moderation policy and user-visible `intake_dirty_words` reporting.
-- **Partially implemented: talk-type intake filter E2E.** `00t-talk-type-intake-filter.spec.ts`
-  proves a receiver allowing only `flow` rejects a live `tag` broadcast from IN while the broadcast
-  preamble surfaces `intake_talk_type` before send.
-- **Partially implemented: remaining intake controls.** Real browser delivery coverage proves
-  allowed talk-type rejection, adult/age gating, public-credit visibility behavior, custom blocked
-  phrases, a persisted sent-after cutoff that rejects newly authored content until cleared, and
-  blocked-user suppression followed by resumed post-unblock delivery. A deterministic sender/receiver
-  scenario also proves a one-day talk delivers while active and is excluded from broadcast once
-  expired. Direct peer send now omits expired talks, server delivery rejects expired payloads on
-  direct and bulk paths, and the audience-preview endpoint reports `talk_expired` with localized
-reason labels. Omitted expired/disabled choices are now visible in the peer-send chooser and
-broadcast pre-send preview rather than silently withholding them.
+**Shipped (moved to [completed.md](completed.md)):** three-language intake with broadcast preview;
+Talk Behavior auto-copy/chatbot proofs; distance/grammar/dirty-word/talk-type/sent-after/adult/block
+multi-user E2E suite (`00m`–`00p`, `00t`) plus Settings coverage.
+
+**Remaining:**
+
+- Language-aware grammar and dirty-word policy beyond the current heuristic lists.
+- User-visible `intake_dirty_words` reporting in filtered-count diagnostics.
+- Reliable live broadcast preamble copy for distance when receiver location sync lags (delivery
+  assertions remain authoritative today).
 
 Exit criteria: each Settings behavior/filter control has at least one allow path, one reject/disabled
 path, persisted state verification, and an intelligible reason visible to the user where applicable.
@@ -152,10 +120,9 @@ contacts, and Me answer ownership instead of relying on isolated happy paths.
   the editor and verify title, language, type, expiry/location settings, and creator self-selected
   question/answer pairs appear in the creator's OUT list and Me answer/history surface as designed.
   Verify editing preserves language, branches, self answers, and targeting settings.
-- **Partially implemented: pre-answer stranger + post-match contact.** Reusable flow/tag payload
-  helpers in `tests/e2e/helpers/talk-lifecycle-fixtures.ts` and
-  `00u-talk-lifecycle-stranger-match.spec.ts` prove the responder is `Stranger` in Contacts after a
-  match without a saved relationship label.
+**Shipped (partial):** stranger-before-match Contacts label via `talk-lifecycle-fixtures.ts` and
+`00u-talk-lifecycle-stranger-match.spec.ts` (see [completed.md](completed.md)).
+
 - **Pre-answer relationship state.** Send a talk to eligible peers and verify the recipient sees it
   in IN, while any newly discoverable user/contact surface labels the unestablished peer
   `Stranger` before a successful match or saved relationship. Keep TechSupport separate from this
@@ -236,11 +203,9 @@ resulting 100 reply records without losing identity, talk, relationship, or outc
   visibility, hidden reputation, support-channel isolation, local-only answer ownership, and
   language/content-filter privacy. Aggregates should not reveal a filtered user's private answer
   body merely because their rejected delivery is counted.
-- **Partially implemented: high-volume reply triage E2E.** `GET /api/users/:id/replies` has a
-  10×10=100 reply integration proof in `peer-routes.test.ts`. Browser triage uses
-  `tests/e2e/helpers/creator-reply-matrix.ts` snapshot seeding plus
-  `00v-creator-reply-triage-matrix.spec.ts` (6×6 live UI matrix: pagination, search, match/talk/
-  weighted sorts, filter persistence). Run via `npm run test:e2e:phase-d`.
+**Shipped (partial):** creator reply triage UI, 10×10 API integration proof, 6×6 browser matrix E2E
+(`npm run test:e2e:phase-d`) — see [completed.md](completed.md).
+
 - **High-volume E2E proof script.** Create 10 distinct talks for one creator, deliver them to 10
   users, and generate a controlled 100-reply matrix containing match, mismatch, ignore, different
   relationships, different timestamps, and at least one ranking tie. Verify:
@@ -265,9 +230,7 @@ documented, test-proven filters/sorts without missing, duplicating, or exposing 
 Purpose: close UI details revealed while traversing the app. The longer feature backlog below
 remains binding; this is the implementation sequence for its visible outcomes.
 
-- **Partially implemented: tab sweep smoke.** `00x-tab-sweep-smoke.spec.ts` walks Talks (creator
-  replies panel, OUT/reply sort controls), Contacts filters, Me answer filters, and Settings intake
-  diagnostics in one browser pass.
+**Shipped (partial):** `00x-tab-sweep-smoke.spec.ts` — see [completed.md](completed.md).
 
 #### Chatrooms
 
@@ -488,118 +451,43 @@ TechSupport first-run traversal and verification checklist:
 
 ## Feature Completion Backlog by Tab
 
-Scope: this backlog captures feature details that are missing, placeholder-level, disconnected, or
-implemented only partially across the current main tabs: Chatrooms, Contacts, Talks, Me, and
-Settings. Items marked **Future work** are not complete yet and should stay in TODO until shipped and
-verified.
+Scope: forward-only gaps across Chatrooms, Contacts, Talks, Me, and Settings. Shipped tab features
+from the 2026-05-27 audit live in [completed.md](completed.md) (localization controls, room counters,
+TechSupport anchor, contact ranking, talk language, creator diagnostics, answer-memory UI, storage
+inspector, contextual statistics, runtime diagnostics, and related E2E).
 
 ### Cross-Tab Language and Localization
 
-- **Partially implemented in current working tree: full UI localization.** The independent App
-  language control immediately switches the completed English/Chinese UI catalog and persists on
-  reload; profile and intake language choices do not change it. Future work remains to complete the
-  D2 exhaustive Chinese traversal and eliminate any remaining reachable English fallback surfaces.
-- **Implemented in current working tree: primary UI language separated from understood
-  languages.** Settings exposes independent App language, profile language, default-talk language,
-  and incoming-talk filter controls; E2E coverage verifies App-language persistence while profile
-  and intake choices remain independent.
-- **Implemented in current working tree: clearer incoming talk language filter control.** Settings
-  now uses checkbox/chip-style language choices, persists multiple understood languages, shows an
-  active count, and has E2E coverage for legacy multi-language values. Future work remains for full
-  UI localization and filtered-count diagnostics.
-- **Implemented in current working tree: localized language names.** Language selectors, talk
-  badges, profile/peer summaries, answer history, and creator reply filtering now display
-  active-UI-language labels while preserving stable language codes internally.
+- **Partially implemented: full UI localization (Phase D2).** App language switches the English/Chinese
+  catalog and persists on reload; exhaustive Chinese traversal and zero English-fallback audit remain.
 - **Future work: language-specific grammar and dirty-word filtering.** Current filters are simple
   heuristics. Add language-aware content models or dictionaries, per-language test fixtures, and
   clear behavior when a talk language is unknown.
 
 ### Chatrooms Tab
 
-- **Implemented in current working tree: room visitor counters.** Chatroom joins now increment a
-  lifetime `visitCount`, track `uniqueVisitorCount`, sync those counters in the web UI, and display
-  both values on room rows and room detail. Future work remains for broader audit tests around
-  reconnect/idempotency and deleted-room history.
-- **Implemented in current working tree: TechSupport global anchor.** First-run bootstrap creates
-  the canonical `TechSupport` root before ordinary users, seeds Global, and prevents fresh ordinary
-  users from seeing a truly empty network when the server graph is reachable.
-- **Implemented in current working tree: room metadata completeness.** Custom/business room
-  detail now displays type, description, business headline, capacity, owner, creation date,
-  active members, lifetime visits, and unique visitors with localized labels.
-- **Implemented in current working tree: visit and membership audit tests.** Active duplicate
-  joins no longer refresh FIFO membership or increment lifetime visits; unit/E2E coverage verifies
-  active-member decrement, rejoin counting, unique visitor stability, retained soft-deleted-room
-  history, and the existing capacity traversal preserves the TechSupport global anchor.
-- **Implemented in current working tree: broadcast transparency.** Before sending, the audience
-  preview now names eligible recipients and skipped members, explains intake/distance/content/age/
-  block/capacity/rate-limit exclusions, and explicitly reports that the built-in TechSupport
-  support channel is excluded from ordinary room broadcasts.
+- **Future work: reconnect/idempotency audit** for visit counters and deleted-room history beyond
+  current unit/E2E coverage.
 
 ### Contacts Tab
 
-- **Implemented in current working tree: built-in TechSupport support contact.** New ordinary
-  users receive a durable support conversation with `TechSupport`; Me/conversation surfaces show
-  the channel immediately, and Contacts pins the built-in support row above ordinary ranked peers.
-  Its support controls and the reachable peer overlay mute notifications locally instead of
-  exposing ordinary block behavior, without removing the support channel.
 - **Future work: manual/pinned contacts.** Add a way to keep a contact without requiring a prior
   matched talk, with clear privacy boundaries and local-only storage unless explicitly synced.
-- **Implemented in current working tree: contact language and translation affordances.** Contact
-  detail renders public language codes as localized names, marks languages shared with the viewer,
-  and shows a translation hint when profiles have no common declared language.
-- **Implemented in current working tree: relationship filtering completeness.** Relationship
-  filters include every saved label including `partner` and `custom`; saved custom relationship
-  text is rendered, searchable, and available in relationship sorting without collapsing to a
-  generic `Custom` label.
-- **Partially implemented in current working tree: contact detail parity.** Contact detail now
-  exposes localized profile languages, exchanged talk history, saved relationship notes, public
-  credit/privacy state, two-way block status, and the active conversation transport in the reachable
-  peer overlay, including recorded fallback/no-fallback state and last confirmed message contact.
-  Future work remains for shared-tag drilldown and live transport health negotiation.
-- **Implemented in current working tree: high-volume responder ranking.** Contacts supports
-  ranking/filtering by matched-talk count, match rate, recency, relationship, and transparent
-  weighted relevance, while keeping alphabetical/chronological options and the pinned
-  TechSupport support contact outside ordinary peer ranking.
+- **Partially implemented: contact detail parity.** Shared-tag drilldown and live transport health
+  negotiation beyond recorded conversation evidence.
 
 ### Talks Tab
 
-- **Implemented in current working tree: default talk language from user settings.** The Talk editor
-  now defaults new talks to the user's first profile language and provides an explicit language
-  dropdown.
-- **Implemented in current working tree: localized talk language display.** OUT and IN talk rows
-  show localized readable language badges while preserving stable language-code attributes.
-- **Implemented in current working tree: editable talk language.** Editing an authored talk
-  prefills its stored language, persists a changed selection, and refreshes the OUT language badge
-  without falling back to English.
-- **Implemented in current working tree: incoming language filtering and diagnostics.** New talk
-  creation carries a language attribute, incoming language selection supports multiple understood
-  languages, intake filtering uses those values, and Talks/Settings show hidden counts by reason.
-- **Implemented in current working tree: language-aware chatbot memory.** Exact-answer memory,
-  content-template identity, and flattened preference keys include normalized talk language so
-  otherwise identical questions do not auto-answer across languages; legacy unscoped memory remains
-  compatible with English talks only.
-- **Partially implemented in current working tree: talk targeting preview.** Broadcast audience
-  review shows eligible recipients and per-recipient rejection reasons for language, distance,
-  content, age, block, capacity, rate-limit, and expired-talk exclusions. Direct peer send also
-  omits expired talks and the delivery API rejects attempts to submit them. Future work remains
-  for visible disabled/expired omission explanations in the peer-send chooser and broadcast modal.
-- **Implemented in current working tree: creator diagnostics for filtered incoming talks.** Talks
-  and Settings show hidden incoming counts with rejection-reason summaries, including when no
-  incoming talk remains visible.
-- **Implemented in current working tree: response-volume analytics and ranking.** OUT talk rows
-  show reply, match, mismatch/ignore, and match-rate aggregates and support most-matches,
-  most-replies, match-rate, latest-reply, chronological, title, and weighted-performance sorts.
+- **Partially implemented: talk targeting preview.** Visible disabled/expired omission explanations
+  in peer-send chooser and broadcast modal (delivery omits expired talks today).
 - **Future work: support-talk isolation.** TechSupport verification/support talks must not pollute
   ordinary user answer memory or broadcast to unrelated users unless intentionally delivered and
   answered.
 
 ### Conversation and Peer Detail Overlays
 
-- **Partially implemented in current working tree: support-channel status.** Peer detail and
-  conversation overlays show the active transport mode as star-compatible sync, encrypted relay,
-  or direct P2P, preserve/display an explicit fallback reason when recorded, report when no fallback
-  is active on the current star path, and display the most recent confirmed delivered-message time.
-  Future work remains for live P2P health negotiation beyond recorded conversation evidence.
+- **Partially implemented: support-channel status.** Live P2P health negotiation beyond recorded
+  conversation evidence.
 - **Future work: message privacy verification.** Add visible diagnostics and tests proving direct
   message bodies are not persisted in public Gun shared paths when direct/relay modes are active.
 - **Future work: translation in direct messages.** If two users do not share a language, surface the
@@ -609,60 +497,17 @@ verified.
 
 ### Me Tab
 
-- **Implemented in current working tree: complete answer-memory mode UI.** Preferences exposes
-  Manual, Temporary auto-answer, Permanent auto-answer, and Skip-this-question controls and applies
-  each selection to exact-question memory, so choosing Manual no longer leaves old auto-use active.
-- **Implemented in current working tree: language-aware answer history display.** Answer history
-  separates same-text records by talk language, shows a localized language badge for each answered
-  talk, and keeps auto-use metrics scoped to that language.
 - **Future work: translated-answer linking.** Allow users to explicitly link equivalent questions
   across languages when intentional reuse is desired.
-- **Implemented in current working tree: clearer conditional-answer explanations.** Route answer
-  history now displays the prior question and selected-answer text for each context step instead
-  of showing only internal question and answer ids.
-- **Implemented in current working tree: support-message exclusion.** Marked TechSupport welcome
-  and support-channel messages are excluded from answer history, while TechSupport-authored talks
-  remain visible when the user intentionally answers them.
 - **Future work: profile/answer ownership controls.** Add per-answer delete/export/sync controls
   that clearly distinguish local-only answer memory from public profile rows.
-- **Future work: high-volume reply triage.** Provide a creator-side view for large response sets
-  with combined date, stage-name, talk, outcome, relationship, and language filters; sorting/grouping
-  by time, user, talk, matched-talk count, match rate, and documented weighted relevance; pagination
-  or virtualization; and E2E coverage for a 100-reply fixture.
+- **Future work: Me-tab high-volume reply triage** (creator reply workbench lives on Talks today; see
+  Phase D5 for 100-reply live browser proof).
 
 ### Settings Tab
 
-- **Implemented in current working tree: localization setting.** Choosing Chinese through the
-  independent App language selector immediately re-renders Settings and navigation and persists
-  across reload; broader reachable-surface translation proof remains in Phase D2.
-- **Implemented in current working tree: clearer multi-language incoming filter control.** The
-  native multi-select has been replaced with checkbox/chip controls and an active-language count.
-- **Implemented in current working tree: default talk language setting.** Settings exposes a
-  persisted default for newly created talks; it follows the App language until the user chooses
-  an independent override.
-- **Implemented in current working tree: filter validation and preview.** Settings previews current
-  hidden incoming counts and reason summaries as filter controls change; intake/filter tests cover
-  language, type, distance, dirty-word, and custom-term paths.
-- **Implemented in current working tree: storage inspector completeness.** The inspector shows
-  TechSupport root/support-channel state, room visit counters, incoming/default talk language
-  preferences, transport diagnostics, SEA custody and relay scan status, localStorage keys, and
-  IndexedDB names.
-- **Implemented in current working tree: profile editor consistency.** The edit-profile dialog now
-  offers the same supported-language choices as Settings, persists multi-language selections, and
-  no longer accepts arbitrary typed language codes.
 - **Future work: dev reset behavior.** Dev stage reset should clear ordinary state and then reseed
   exactly one TechSupport root identity plus initial visitor-counter baselines.
-
-### Disconnected or Hidden Surfaces
-
-- **Implemented in current working tree: intentional contextual statistics surfaces.** The product
-  keeps five bottom tabs rather than exposing a separate Statistics destination; Talks/Contacts/Me
-  request compact aggregate summaries in context, while survey creators open the scoped analytics
-  dashboard from their survey row. E2E proof asserts the no-Stats-tab decision and contextual totals.
-- **Implemented in current working tree: runtime feature diagnostics.** Settings reports star
-  persistence, P2P-node and direct-chat enablement, active transport fallback availability, and
-  whether built-in TechSupport bootstrap has established this user's support channel using the
-  current runtime/app state values.
 
 ## E2E Stage Pipeline: TechSupport as Stage 0 Baseline
 
@@ -683,33 +528,18 @@ in Global, and every later test stage should load that snapshot before adding or
   single-user tests bootstrap with `bootstrapTechSupport()` and saved `stage0-techsupport` storage
   state, preserving the exact `TechSupport` stage name, canonical user id, Global room membership,
   SEA identity, Settings state, Talks state, Me state, and local storage.
-- **Implemented in current working tree: dedicated TechSupport Stage 0 script.** Stage 0 now clears
-  the graph, logs in TechSupport, traverses the single-user tabs/basic controls, and saves
-  `stage0.json` after verification along with `stage0-techsupport.storage.json`.
-- **Implemented in current working tree: save Stage 0 after TechSupport verification.** Stage 0 now
-  saves the snapshot from a final `zzz-save-stage0` spec after the TechSupport traversal completes.
 - **Future work: remove Stage 1 as a separate single-user state if it becomes redundant.** After
   single-user coverage moves to Stage 0, either delete/rename `stage1-single-user` or make `stage1`
   a thin alias that only loads `stage0`. Update `E2eStageName`, project dependencies, snapshot
   helpers, and staged docs accordingly.
-- **Partially implemented in current working tree: later stages load the TechSupport baseline.**
-  Stage helpers now reload the TechSupport-containing baseline instead of clearing to an empty graph
-  in pipeline mode. Future work remains to finish broader audit coverage across every staged spec.
-- **Implemented in current working tree: ordinary-user bootstrap verifies TechSupport greeting.**
-  Shared ordinary-user bootstrap now waits for a durable support-channel conversation and welcome
-  message from TechSupport before continuing normal test scenarios.
-- **Partially implemented in current working tree: normal tests tolerate TechSupport in Global.**
-  Representative headcount specs account for the built-in support actor, and Contacts coverage
-  asserts the support row separately from ordinary ranked/matched rows. Future work remains to
-  audit broadcast receiver counts and empty-room assertions across the full suite.
+- **Partially implemented: later stages load the TechSupport baseline.** Finish broader audit coverage
+  across every staged spec.
+- **Partially implemented: normal tests tolerate TechSupport in Global.** Audit broadcast receiver
+  counts and empty-room assertions across the full suite.
 - **Future work: prevent TechSupport from polluting ordinary test logic.** Broadcast, contact,
   matching, block, reputation, and survey tests should declare whether TechSupport participates,
   is ignored, or is excluded. Support greetings/channels must not create false matches, unexpected
   unread badges, extra incoming talks, or altered survey counts.
-- **Implemented in current working tree: stage snapshot integrity checks.** Every stage save/load
-  now rejects a missing or altered canonical TechSupport root/network marker, inactive Global
-  support membership, or duplicate per-user support greetings; stable canonical stage snapshots
-  (`stage0` through `stage3`) also assert their expected user population.
 - **Future work: update staged docs and testplan.** Document the new sequence: Stage 0 =
   TechSupport plus all single-user verification; later stages = load TechSupport baseline, add
   ordinary users, verify greeting/support channel, then run normal multi-user tests.

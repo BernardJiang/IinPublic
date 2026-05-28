@@ -12,6 +12,43 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-27 - Feature Backlog Audit (Tab and E2E Infrastructure)
+
+Moved shipped tab features and E2E stage infrastructure from `docs/TODO.md` into this ledger:
+localization controls, room visitor counters and metadata, TechSupport global anchor and support
+contact, contact language/ranking/relationship filters, talk language and creator diagnostics,
+answer-memory UI, storage inspector, contextual statistics, runtime diagnostics, Stage 0 TechSupport
+bootstrap/snapshot integrity, and ordinary-user greeting bootstrap.
+
+Evidence: see prior 2026-05-26 entries in this file plus `tests/e2e/staged/stage0-bootstrap/`,
+`tests/e2e/helpers/e2e-stage-pipeline.ts`, and tab-specific E2E specs under `tests/e2e/staged/`.
+
+## 2026-05-27 - Fix Flaky Staged Broadcast and Contacts E2E Specs
+
+Stabilized hierarchy parent-room broadcast expectations (USA under North America), clear-all
+mid-flight broadcast cancellation, and contacts summary assertions after mismatch flows.
+
+Evidence:
+
+- `tests/e2e/staged/stage2-two-user/00h-chatroom-hierarchy-broadcast.spec.ts`
+- `tests/e2e/staged/stage2-two-user/00-broadcast-abort-clear-all.spec.ts`
+- `tests/e2e/staged/stage3-three-user/00f-ux-contacts-talks-answers.spec.ts`
+
+## 2026-05-27 - D3 Incoming Talk Filter Multi-User E2E Suite
+
+Staged browser proofs now cover language, distance band, grammar/dirty-word moderation, custom
+sent-after cutoff, talk-type gating, and related Settings persistence paths alongside broadcast
+preview reasons.
+
+Evidence:
+
+- `tests/e2e/staged/stage3-three-user/00m-language-intake-filter.spec.ts`
+- `tests/e2e/staged/stage3-three-user/00n-distance-intake-filter.spec.ts`
+- `tests/e2e/staged/stage3-three-user/00o-content-intake-filter.spec.ts`
+- `tests/e2e/staged/stage3-three-user/00p-custom-cutoff-intake-filter.spec.ts`
+- `tests/e2e/staged/stage3-three-user/00t-talk-type-intake-filter.spec.ts`
+- Settings/intake: `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+
 ## 2026-05-27 - Phase D3–D6 E2E Coverage (Intake, Lifecycle, Reply Triage, Tab Sweep)
 
 Added staged Playwright specs and helpers for talk-type intake filtering, stranger-before-match
