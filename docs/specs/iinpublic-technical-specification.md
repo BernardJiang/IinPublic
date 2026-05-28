@@ -1,8 +1,8 @@
 # IinPublic — Technical Specification
 ## Software Requirements, Architecture, Security, Data, Network, Mobile & API Interfaces
 
-> **Version:** 3.0 — merged from SRS (projectplan.md), Design Spec v1, and Design Spec v2
-> **Date:** 2026-05-12
+> **Version:** 4.0 — extended with P2P mesh architecture, Interaction Ledger, CIDv1 content-addressing, and blockchain/DAG survey
+> **Date:** 2026-05-27
 > **Status:** Authoritative — single source of truth for all requirements and design decisions
 
 ---
@@ -32,6 +32,13 @@
 16. [Open Issues and Future Enhancements](#16-open-issues-and-future-enhancements)
 17. [Key Technical Decisions](#17-key-technical-decisions)
 18. [Appendix: Cross-Reference Matrix](#18-appendix-cross-reference-matrix)
+
+
+**Part IV — Architecture Deep Dives**
+
+19. [P2P Architecture: Data Storage and Network Design](#19-p2p-architecture-data-storage-and-network-design)
+20. [Interaction Ledger: DAG-Based History and Delta Sync](#20-interaction-ledger-dag-based-history-and-delta-sync)
+21. [Survey: Blockchain and DAG Structures in P2P Messaging Networks](#21-survey-blockchain-and-dag-structures-in-p2p-messaging-networks)
 
 ---
 
@@ -238,6 +245,20 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 - **FR-QA-10 (Permanent Answer Priority)**: A custom answer, or an option explicitly marked permanent/custom, SHALL be saved as `PERMANENT`. Permanent answers SHALL take priority over all temporary history. If the current option set contains the permanent answer, the chatbot SHALL auto-answer. If it does not, the chatbot SHALL skip the question and SHALL NOT search temporary history.
 - **FR-QA-11 (Suppressed Question Semantics)**: Ignoring or skipping a question SHALL save the exact question as `SUPPRESSED`. A suppressed question SHALL be skipped on all future appearances of that exact question until the user explicitly changes or clears the saved memory.
 - **FR-QA-12 (Auto-Use Metrics)**: Every chatbot auto-use of a saved answer SHALL record how many times that saved answer was used automatically and the latest auto-use timestamp. In distributed GUN storage, append-only use events SHALL be the source of truth; cached counters may be maintained for display.
+
+
+#### Chatbot Differential Answering (REQ-CHATBOT-*)
+
+- **REQ-CHATBOT-01 — Per-question answer cache:** The chatbot's answer cache is keyed by `questionId`, not by `talkId`. The cache path is `talkAnswerTemplateByUser/<userId>/byQuestion/<questionId>`. An answer written when the user answers any talk propagates to all future talks sharing the same `questionId`, regardless of sender or timing.
+
+- **REQ-CHATBOT-02 — Differential answering:** When a new talk arrives, the chatbot classifies each question as auto-filled (cached answer found) or needs-input (no cached answer). Only needs-input questions are presented as active inputs; auto-filled answers appear alongside in a grayed, overridable state. If all questions are auto-filled, a review screen is shown before submission — silent auto-submit is not permitted.
+
+- **REQ-CHATBOT-03 — TALK_SUPERSEDED triggers cache seed:** When a new talk T2 arrives and the sender's ledger contains `TALK_SUPERSEDED { oldTalkId: T1, newTalkId: T2 }`, the chatbot pre-seeds its cache for T2 using the user's answers to T1 before running the differential algorithm. The client prompts: *"[Sender] updated this talk. Your previous answers are pre-filled — please review and answer any new questions."*
+
+- **REQ-CHATBOT-04 — No silent re-submission after TALK_SUPERSEDED:** If the chatbot had previously auto-submitted to T1 without manual review, a review step is always forced for T2 — a change in the talk means the situation has materially changed and silent re-submission is not appropriate.
+
+- **REQ-CHATBOT-05 — Cache write-back:** On every talk submission (whether manual, semi-automatic, or chatbot-assisted), the client writes `answerCache[q.id] = answer` for every question in the submitted response, including auto-filled ones left unchanged. This keeps the most recently used answer available for future talks.
+
 - **FR-QA-13 (Deterministic IDs)**: Question and answer IDs SHALL be generated from normalized text using a stable hash such as SHA-256 with prefixes `q_` and `a_`. Normalization SHALL at minimum trim surrounding whitespace. If case-sensitive exact matching is desired, normalization SHALL NOT lowercase text; if case-insensitive exact matching is desired, normalization MAY lowercase text consistently for both questions and answers.
 
 **Inline Syntax (chat auto-capture):**
@@ -364,6 +385,39 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 - **FR-BTD-6 (Deploy Android)**: Provide steps to sign and upload APK/AAB to Play Store (or internal track), including versioning and release notes.
 - **FR-BTD-7 (CI/CD)**: Set up CI to run build, lint, and tests on every PR; set up CD to push web deploys and Android internal releases after passing all checks.
 
+
+### 3.11 Interaction Ledger
+
+> Detailed design: [§20 Interaction Ledger Deep-Dive](#20-interaction-ledger-dag-based-history-and-delta-sync)
+
+- **REQ-LEDGER-01:** Each user maintains a personal **interaction ledger** — an append-only, hash-linked sequence of signed interaction events stored in Gun at `ledger/<userId>/events/<seq>`.
+
+- **REQ-LEDGER-02:** Each event contains: a CIDv1 `id` (dag-json, sha2-256 via `multiformats`), a monotonically increasing `seq`, a `prev` pointer to the preceding event's `id`, an event `kind` (TALK_CREATED | TALK_BROADCAST | TALK_RECEIVED | TALK_ANSWERED | TALK_SUPERSEDED | TALK_WITHDRAWN | MATCH_CREATED | CONVERSATION_MSG), the author's `pubkey`, a `timestamp`, a JSON `content` payload, and a SEA `sig` over all fields. Receiving peers verify the CIDv1 `id`, the `prev` chain integrity, and the `sig`.
+
+- **REQ-LEDGER-03 — Talk versioning:** Modifying any field of a talk produces a new CIDv1 → new `talkId`. A new `TALK_CREATED` event is appended. The original talk and its ledger entry remain immutable.
+
+- **REQ-LEDGER-04 — Response versioning:** Modifying an answer produces a new `responseId = CIDv1(canonicalSerialize({ talkId, responderId, responseContentJson }))` and a new `TALK_ANSWERED` event. The new response supersedes the old one for match logic; the old remains in ledger history.
+
+- **REQ-LEDGER-05 — Deduplication:** A peer receiving a talk or response whose `talkId`/`responseId` is already in its local ledger discards the duplicate without writing a new event.
+
+- **REQ-LEDGER-06 — Delta sync:** On WebRTC connection, peers exchange a `LEDGER_STATE` message (highest `seq` per feed). Each peer sends only events with `seq` greater than what the other declared. Volume is O(Δ), not O(total history).
+
+- **REQ-LEDGER-07 — Immutability:** `ledger/<userId>/events/<seq>` is written once and never overwritten.
+
+- **REQ-LEDGER-08 — Conversation sub-DAG:** Each message in a conversation references both the sender's previous message (`seq`) and the last message seen from the other party (`prevSeen`), enabling causal ordering without a central sequencer.
+
+- **REQ-LEDGER-09 — Ledger indexes:** `ledger/<userId>/index/talkId/<id>` → seq of TALK_CREATED; `ledger/<userId>/index/responseId/<id>` → seq of TALK_ANSWERED; `ledger/<userId>/index/withdrawn/<talkId>` → seq of TALK_WITHDRAWN.
+
+- **REQ-LEDGER-10 — Migration compatibility:** During Phases E–G, new interactions write to both legacy Gun paths and ledger paths. Back-filling of pre-ledger history is not required. See [§19.5 Migration Considerations](#195-migration-considerations).
+
+- **REQ-LEDGER-11 — TALK_SUPERSEDED:** Advisory event emitted when a talk is edited and a new version broadcast. Carries `{ oldTalkId, newTalkId }`. Does not invalidate prior answers or matches. Triggers chatbot differential answering (REQ-CHATBOT-03).
+
+- **REQ-LEDGER-12 — CIDv1 for all content addresses:** All content-addressed identifiers (`talkId`, `responseId`, `messageId`, event `id`) use CIDv1 (dag-json, sha2-256) via `multiformats`. No IPFS daemon required. Text-only talks are never added to IPFS; CIDv1 is a locally-computed identifier only.
+
+- **REQ-LEDGER-13 — TALK_WITHDRAWN:** Author emits `TALK_WITHDRAWN { talkId }` to stop new delivery. Peers cease routing the talk to recipients who have not yet seen it. In-flight answers still evaluated. After the configurable grace window (default 24h, see NFR-LEDGER-01), the author's client may demote new match notifications to archival. Standard post-edit workflow: TALK_CREATED(T2) → TALK_SUPERSEDED(T1→T2) → TALK_WITHDRAWN(T1).
+
+- **REQ-LEDGER-14 — Question-level identity:** `questionId = CIDv1(canonicalSerialize({ text, type, options }))`. If text and options are unchanged between T1 and T2, the `questionId` is the same even if routing or match-flag logic changed, enabling the per-question chatbot cache to carry answers forward.
+
 ---
 
 ## 4. External Interface Requirements
@@ -447,6 +501,13 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 - **NFR-PT-1**: The web implementation SHOULD work across modern desktop and mobile browsers.
 - **NFR-PT-2**: The Android implementation SHOULD mirror web functionality as closely as possible.
 - **NFR-PT-3**: Shared business logic MUST be platform-independent (`src-shared/`) and testable in plain Node.js without any browser or Android runtime (§11.3).
+
+---
+
+
+### 5.6 Ledger
+
+- **NFR-LEDGER-01:** The TALK_WITHDRAWN grace window must be configurable per deployment (default: 24 hours). This is a product tuning parameter with no protocol enforcement; peers that have not applied the window still process in-flight answers normally.
 
 ---
 
@@ -574,6 +635,33 @@ public class GunBridge extends WebView {
     }
 }
 ```
+
+### 6.6 P2P Architecture and Migration Phases A–G
+
+> Full detail: [§19 P2P Architecture](#19-p2p-architecture-data-storage-and-network-design)
+
+The current system is a **star topology** (one server, many browser clients). The target is a **P2P relay mesh**. Migration is incremental across seven phases:
+
+| Phase | Name | Summary |
+|---|---|---|
+| A | Dual-mode server | Add WebRTC signaling; browsers connect peer-to-peer alongside server |
+| B | Shift writes to client | Talk delivery and conversation writes move to the peer mesh; server `radata/` is fallback |
+| C | Server relay-only | Remove all application routes; server holds only ephemeral location index + signaling |
+| D | DHT bootstrap | Distributed hash table for peer discovery; network survives full server downtime |
+| E | Ledger bootstrap | Introduce `InteractionEvent` and `LedgerService`; write to both legacy and ledger paths |
+| F | Delta sync | `LEDGER_STATE` handshake on peer connect; O(Δ) event transfer between ledger-capable peers |
+| G | Ledger sole truth | Remove legacy Gun path writes; CIDv1 everywhere; ledger indexes replace legacy caches |
+
+**New Gun paths (Phase E+):**
+
+| Path | Purpose |
+|---|---|
+| `ledger/<userId>/events/<seq>` | Immutable signed interaction event |
+| `ledger/<userId>/index/talkId/<id>` | seq lookup by talkId |
+| `ledger/<userId>/index/responseId/<id>` | seq lookup by responseId |
+| `ledger/<userId>/index/withdrawn/<talkId>` | seq of TALK_WITHDRAWN event |
+| `talkAnswerTemplateByUser/<userId>/byQuestion/<questionId>` | Per-question chatbot cache (Phase G+) |
+
 
 ---
 
@@ -1747,6 +1835,24 @@ describe('Talk Constraints', () => {
 
 ---
 
+### Phase 4: Interaction Ledger & P2P Migration (Phases E–G)
+
+#### Phase E — Ledger Bootstrap
+Introduce `InteractionEvent` type and `LedgerService` (client-side). Write interactions to both legacy Gun paths and `ledger/<userId>/events/<seq>`. Implement CIDv1 via `multiformats`. Add per-question chatbot cache at `talkAnswerTemplateByUser/<userId>/byQuestion/<questionId>`. No back-filling of pre-ledger history.
+
+**Exit Criteria:** All existing tests pass. New interactions appear in both legacy and ledger paths. CIDv1 identifiers verified deterministic.
+
+#### Phase F — Delta Sync
+Add `LEDGER_STATE` handshake to WebRTC peer connect. Implement O(Δ) event transfer. Implement `TALK_SUPERSEDED`, `TALK_WITHDRAWN`, and chatbot differential answering (REQ-CHATBOT-01–05). Peers without ledger support fall back to full Gun sync.
+
+**Exit Criteria:** Ledger-capable peers exchange only delta events. Chatbot pre-fills correctly on talk update.
+
+#### Phase G — Ledger as Sole Source of Truth
+Remove duplicate writes to legacy Gun paths. Deprecate `talk-content-id.ts` in favour of CIDv1 everywhere. Ledger indexes replace `incomingTalksByUser` and per-talk chatbot cache. All E2E tests pass without legacy paths.
+
+
+---
+
 ## 15. Testing Strategy & Quality Assurance
 
 ### 15.1 Continuous Testing Pipeline
@@ -2070,6 +2176,12 @@ The following items are known open questions or planned post-MVP work:
 - **Write pipeline with filters**: Financial data filter + privacy classifier + SEA sign/encrypt run on every Gun write.
 - **Batched bulk sending**: 50-user batches with 1-second delays to prevent network flooding.
 - **Mandatory talk preamble** (FR-TG-6): Every talk — auto-captured or editor-built — must have tags + location filter before bulk sending.
+- **CIDv1 content addressing (Phase G):** All `talkId`, `responseId`, `messageId`, and event `id` use CIDv1 (dag-json, sha2-256) via `multiformats`. No IPFS daemon. Unifies content-addressing so IinPublic CIDs are IPFS-compatible.
+- **Interaction ledger (Phases E–G):** Append-only, hash-linked, SEA-signed ledger at `ledger/<userId>/events/<seq>`. Provides tamper-evident timeline and O(Δ) delta sync. Replaces `incomingTalksMap` and per-talk chatbot cache.
+- **TALK_SUPERSEDED:** Advisory event emitted on talk edit. Does not invalidate prior answers/matches. Enables chatbot differential answering.
+- **TALK_WITHDRAWN:** Delivery-stop event. In-flight answers still processed; grace window (default 24h) before notifications demoted.
+- **Per-question chatbot cache:** Keyed by `questionId = CIDv1({ text, type, options })`. Propagates across talk versions and senders sharing identical questions.
+- **Chatbot differential answering:** Auto-fills questions with cached answers by `questionId`; presents only uncached questions for manual input. Always prompts for review after TALK_SUPERSEDED.
 - **DAG-only talk structure**: No loops permitted; cycle detection enforced in the editor.
 - **Auto-capture syntax** (`**` / `*` / `;`): Inline question/answer syntax turns chat into reusable linear talks.
 - **Auto/Manual conversation modes**: User controls chatbot automation level (Auto = chatbot fires on all public/auto answers; Manual = fully user-driven). Yellow/semi-auto mode removed — equivalent behaviour is achieved through talk filters.
@@ -2128,3 +2240,599 @@ The following items are known open questions or planned post-MVP work:
 | Frontend ↔ Backend REST/WS | §11.1 | `server.js` |
 | App ↔ Gun typed interface | §11.2 | `src-shared/data/DataAccess.ts` |
 | Shared ↔ Platform interface | NFR-PT-3, §11.3 | `src-shared/platform/IPlatformCapabilities.ts` |
+
+
+---
+
+# PART IV — ARCHITECTURE DEEP DIVES
+
+---
+
+## 19. P2P Architecture: Data Storage and Network Design
+
+> **Status:** Proposed · **Date:** 2026-05-25
+
+### 19.1 Current Architecture: Star Topology (Detailed)
+
+The current system uses a Gun.js star topology: one central server, many browser clients, all data flowing through and stored on the server.
+
+**Server side** has two distinct storage layers. The primary one is Gun.js's `radata/` folder — a flat-file Radix graph database on disk. Every Gun `put` eventually flushes a `.json` file there, keyed by the graph path. The active Gun paths are:
+
+- `users/<id>` — public user record
+- `user-public-profile/<id>` — headshot, languages, profile JSON
+- `user-talk-filters/<id>` — serialized `TalkIntakeFilters`
+- `user-blocks/<blockerId>/<targetId>` / `user-blocked-by/<targetId>/<blockerId>` — block graph
+- `talks/<id>` — talk definition, responses, stats
+- `incomingTalksByUser/<userId>/<identityKey>` — incoming talk clusters (Gun mirror only; server Map is authoritative)
+- `conversations/<id>` / `users/<id>/conversations/<convId>` — conversation records
+- `talkAnswerTemplateByUser/<userId>/<identityKey>` — cached answer templates
+
+The second layer is a plain in-memory JavaScript `Map` — `incomingTalksMap` on the server — intentionally kept off Gun to avoid broadcasting every talk-delivery write to all connected clients. The server also holds Socket.IO room membership, which is transient.
+
+**Browser (client) side** runs a Gun client that syncs from the server over HTTP and caches what it has seen locally in **IndexedDB** (via Gun's RAD adapter). Each browser holds a partial replica of the graph — the subset of data it has personally requested — persisted across page reloads. All writes go to the server first. Private user data (`blockedUserIds`, `knownPeople`, `talkFilters`) is SEA-encrypted with the user's keypair before being written, so the server stores ciphertext it cannot read.
+
+**Summary:** The server is the single source of truth. The graph is fully replicated on the server; browsers are caches.
+
+---
+
+### 19.2 Proposed Architecture: P2P Relay Mesh (Detailed)
+
+### Design goals
+
+- The server acts only as a **signaling and presence** service; it holds no application data.
+- All talk delivery, conversation messaging, and profile exchange happens **directly between browser peers** via WebRTC.
+- No user needs to know the complete global user list — only a local neighborhood of nearby peers.
+- The network stays alive through overlapping neighborhoods and redundant peer connections.
+
+### The server's new role
+
+The server becomes an ephemeral presence registry. It holds an in-memory (no disk persistence) location index: `userId → { encryptedLocation, lastSeen }`. It provides two things:
+
+1. A **WebRTC signaling channel** — exchanges SDP offers/answers and ICE candidates between browsers that want to connect directly.
+2. A **"who is near me?" endpoint** — returns a short list (20–50) of live user IDs within a configurable radius, refreshed on demand.
+
+The server never writes to `radata/`. It is stateless between restarts and repopulates as users reconnect. All REST routes handling talk delivery, match logic, and conversation CRUD are removed from the server.
+
+### Client-side neighborhood management
+
+When a client connects it registers its blurred location with the server and receives a list of nearby live peers. It then establishes Gun peer connections directly to those browsers via WebRTC, using `gun/lib/webrtc` and `simple-peer`. As peers come and go the client refreshes its neighborhood list periodically.
+
+Each client targets a minimum of 3–5 active peer connections at all times. If one drops it re-queries the server for a replacement. Neighborhoods naturally overlap: users in the same city peer with each other, and their overlapping neighborhoods span adjacent areas. Data propagates through this geographic gradient.
+
+### Redundancy
+
+Overlapping neighborhoods provide natural redundancy without requiring any node to maintain a global roster. If the signaling server goes down, peers that already know each other continue operating. New arrivals can bootstrap by connecting to any known stable node (desktop super-peers, published bootstrap addresses).
+
+### What moves and what stays
+
+| Concern | Current (Star) | Proposed (P2P) |
+|---|---|---|
+| Talk storage | Server `radata/` | Originating user's device + peers |
+| Conversation messages | Server `radata/` | Participants' devices + shared peers |
+| User profiles (public) | Server `radata/` | Author's device, replicated to subscribers |
+| Private user data | Server (encrypted) | Author's device only (SEA encrypted) |
+| Match logic | Server route | Runs client-side (already in `src/shared/talk-engine.ts`) |
+| Incoming talk fanout | Server in-memory Map | Sender broadcasts via Gun to peer mesh |
+| Location index | Server (full list) | Server (ephemeral, neighborhood slices only) |
+| WebRTC signaling | N/A | Server (permanent, lightweight) |
+| User auth / keypairs | Server session | SEA keypair on device; server validates signature |
+
+---
+
+### 19.3 Data Storage and Distribution in the P2P Structure
+
+In the P2P structure, Gun's graph is no longer centralized — it is a CRDT (conflict-free replicated data type) that each node holds partially and syncs lazily with its peers.
+
+### Per-user device storage
+
+Each user's browser persists its own data and the data of recent peers in IndexedDB via Gun's RAD adapter. Stored on each device:
+
+- **Authoritative writes:** everything the user has personally written — their profile, talk definitions, conversation messages, answer templates. Gun's SEA layer enforces that only the key-holder can write these nodes; a malicious peer cannot overwrite them even if holding a copy.
+- **Subscribed data:** everything the user has subscribed to — conversations they participate in, talks they have seen, profiles of people they have interacted with. Gun's deduplication by content hash means storing the same node twice is harmless.
+- **SEA keypair:** stored in `localStorage`, never leaves the device in plaintext.
+
+### Location-based sharding (emergent)
+
+Users in the same city peer with other city users. Their Gun graphs accumulate a dense, locally relevant slice of the global graph. A user in London never downloads Tokyo-only data because they never subscribe to it. This sharding is emergent, not enforced — it falls out of the neighborhood-based peering strategy.
+
+### Conversation replication
+
+When Alice and Bob are in a conversation, Alice's browser subscribes to Bob's `conversations/<id>/messages` path. Gun replicates new messages to Alice as Bob writes them, and Alice's IndexedDB gets a local copy. If Bob goes offline, Alice can still read the conversation from her own cache; when Bob reconnects his messages flow through whatever peers are currently between them.
+
+### Server storage in the new model
+
+A small in-memory store (or SQLite) for the location index only: `userId`, encrypted location blob, `lastSeen` timestamp, and signaling channel state. No `radata/`. The server is fully stateless between restarts.
+
+---
+
+### 19.4 Desktop Node.js Users as Super-Peers (Detailed)
+
+When a user downloads and runs a native Node.js app they become a **super-peer** — a node with persistent disk storage, a stable IP, no browser sandbox limitations, and the ability to serve as a relay for WebRTC peers that cannot directly connect due to symmetric NAT or strict firewalls.
+
+### How a desktop node operates
+
+The Node.js instance runs Gun with disk persistence (`radata/` on the user's machine). It connects to the signaling server, announces itself in the location index, and peers with its neighborhood exactly like a browser does — but it stays online longer and stores data more durably. Its Gun graph on disk grows over time into a rich slice of the network relevant to its location.
+
+### Super-peers as organic TURN relays
+
+If Browser A cannot reach Browser B directly (NAT failure), both can connect to a nearby super-peer that is reachable by both, and the Gun message flows through it. The desktop nodes fill the TURN relay role organically — no dedicated TURN server is required. The signaling server can track which nodes have announced stable, routable addresses and prefer them as relay candidates when direct ICE fails.
+
+### Data sharing between desktop and browser nodes
+
+Data sharing is seamless because they speak the same Gun Wire protocol. A desktop node in Tokyo and a browser in Tokyo sync the same graph paths. The desktop node's `radata/` folder becomes a durable backup of the neighborhood's data, surviving browser cache evictions (browsers aggressively evict IndexedDB under storage pressure).
+
+### Bootstrapping a new desktop node
+
+On first run the app connects to the signaling server, receives its neighborhood list, and begins syncing the relevant graph slice from nearby peers. After a short warm-up period it has a dense local replica. If the central signaling server goes down, desktop nodes that already know each other continue operating. New nodes can bootstrap via any known super-peer's address — publishable via DNS, a DHT entry, or a hardcoded bootstrap list in the app binary (similar to BitTorrent trackers).
+
+### Long-term network resilience
+
+As more desktop nodes appear in a city, the signaling server becomes less critical. Nodes can discover each other peer-to-peer via a lightweight DHT layer (`gun/lib/nts` or a custom Kademlia implementation). The server transitions from essential infrastructure to a convenient onboarding helper for new arrivals.
+
+---
+
+### 19.5 Migration Considerations (Detailed)
+
+The migration from star to P2P can be done incrementally:
+
+1. **Phase A — Dual-mode server:** Keep the current server but add WebRTC signaling endpoints. Browser clients connect to both the server (for existing data) and to peers (for new data). Validate that direct peer sync works correctly.
+2. **Phase B — Shift writes to client:** Move talk delivery fanout and conversation writes to client-side, using the peer mesh as transport. Server still holds `radata/` as a fallback read source.
+3. **Phase C — Server becomes relay-only:** Strip all application data from the server. Remove `radata/`. Server holds only the ephemeral location index and signaling state. Desktop super-peer nodes absorb the durable-storage role.
+4. **Phase D — Optional DHT bootstrap:** Replace or supplement the signaling server's user discovery with a DHT so the network can survive server downtime entirely.
+
+The match logic (`src/shared/talk-engine.ts`) and SEA encryption survive unchanged — they were already designed to run on both sides. Content-addressing transitions from `talk-content-id.ts` (local SHA-256) to CIDv1 (dag-json, sha2-256, via `multiformats`) — the `talkId` format changes but the concept is the same. `talk-content-id.ts` is replaced in Phase G.
+
+---
+
+---
+
+## 20. Interaction Ledger: DAG-Based History and Delta Sync
+
+> Background research: [§21 Survey of Relevant Systems](#21-survey-blockchain-and-dag-structures-in-p2p-messaging-networks)
+
+### 20.1 Motivation
+
+Gun.js's CRDT (HAM) resolves concurrent writes with last-write-wins and propagates state diffs efficiently — but it is fundamentally a **mutable graph**. There is no native concept of "give me everything that happened since we last spoke." When two users reconnect after a gap, Gun must diff the entire relevant graph state to find what changed, and there is no tamper-evident record of the order in which events occurred.
+
+Two requirements demand a different structure:
+
+1. **Provable timeline.** If Alice broadcasts a talk and later modifies it, the modification must be distinguishable from the original, and both versions must be attributable to Alice with timestamps she cannot retroactively alter.
+2. **Automatic delta sync.** When Alice and Bob reconnect, they exchange only the interactions that are new to each other — no re-sending of talks both already hold, no full-state comparison.
+
+The solution is an **interaction ledger**: a per-user append-only chain of signed interaction events, modeled after Secure Scuttlebutt (SSB) and using content-addressing unified with IPFS's CIDv1 scheme.
+
+### 20.2 Ledger Structure
+
+Each user maintains a personal interaction feed stored in Gun at `ledger/<userId>/<seq>`. Each entry (called an **interaction event**) has the following schema:
+
+```typescript
+interface InteractionEvent {
+  id: string;          // CIDv1 (dag-json, sha2-256) of (seq + kind + content + prev + pubkey)
+  seq: number;         // monotonically increasing, starts at 1
+  prev: string;        // id of the previous event in this feed (null for seq=1)
+  kind: InteractionKind;
+  pubkey: string;      // author's Gun SEA public key
+  timestamp: number;   // Unix ms — informational only, not used for ordering
+  content: string;     // JSON-serialized event payload (type-specific)
+  sig: string;         // SEA signature over (id + seq + prev + kind + content)
+}
+
+type InteractionKind =
+  | 'TALK_CREATED'       // user created a talk; or modified one (new CID → new event)
+  | 'TALK_BROADCAST'     // user broadcast a talk to their peer neighborhood
+  | 'TALK_RECEIVED'      // user received a talk from a peer
+  | 'TALK_ANSWERED'      // user submitted an answer; or modified one (new CID → new event)
+  | 'TALK_SUPERSEDED'    // author signals that oldTalkId is replaced by newTalkId (UI advisory)
+  | 'TALK_WITHDRAWN'     // author stops new delivery of talkId; existing answers still processed
+  | 'MATCH_CREATED'      // a match was detected between this user and another
+  | 'CONVERSATION_MSG';  // a message was sent in a conversation
+```
+
+The chain property: each event's `prev` field holds the `id` of the immediately preceding event. Verifying the chain from event `N` back to event 1 requires only hashing — no trusted third party. Any tampering with an intermediate event invalidates every `id` that follows it.
+
+### 20.3 Content Addressing and Deduplication Rules
+
+Every piece of application data is **content-addressed** before being recorded in the ledger.
+
+All content addresses use **CIDv1** (dag-json codec, sha2-256) computed locally via the `multiformats` npm package. No IPFS daemon or network connection is required to compute a CID — it is purely a local hash with a standard envelope. The same CID that serves as the Gun.js path key would also address the content in IPFS if it were ever published there. This unifies the content-addressing scheme: text talks and media blobs share one identifier format, and the `talkId` of a talk containing embedded media automatically commits to the media's CID as part of its content.
+
+**Canonical serialization requirement:** The talk or response object must be serialized with deterministic key ordering and no undefined fields before hashing, or structurally identical content can produce different CIDs. A canonical `JSON.stringify` with sorted keys and a defined field schema is sufficient.
+
+**Talk identity:** `talkId = CIDv1(canonicalSerialize(talk))`. A user who modifies any talk field produces a new `talkId`. The original is never deleted from the ledger; the new version gets its own `TALK_CREATED` event. When the sender additionally emits `TALK_SUPERSEDED { oldTalkId, newTalkId }`, receivers can visually collapse the two versions in their inbox.
+
+**Response identity:** `responseId = CIDv1(canonicalSerialize({ talkId, responderId, responseContentJson }))`. A modified answer produces a new `responseId` and a new `TALK_ANSWERED` event. The new response supersedes the old one for match-logic purposes; the old event is immutable in the ledger.
+
+**Message identity:** `messageId = CIDv1(canonicalSerialize({ conversationId, senderPubkey, content, seq }))`. Immutable once written.
+
+**Question identity (chatbot cache granularity):** Each individual question within a talk gets its own `questionId = CIDv1(canonicalSerialize({ text, type, options }))` — derived from what the question *asks*, not from which talk it belongs to. This is the key that the chatbot uses for its per-question answer cache, independently of `talkId`. If Bob changes the routing between questions but not the question text or options, the `questionId` is unchanged — the chatbot can auto-fill Alice's previous answer. The `talkId` still changes because it covers the whole talk including routing logic.
+
+```typescript
+interface TalkQuestion {
+  id: string;       // CIDv1({ text, type, options }) — semantic identity for chatbot cache
+  text: string;
+  type: 'single' | 'multiple' | 'text' | 'boolean';
+  options?: TalkAnswer[];
+  // routing/match fields (next, isMatch, isIgnore, etc.) — part of talkId but NOT questionId
+}
+```
+
+**Media blobs (photos, video, audio):** Added to IPFS via `ipfs.add(blob)`, producing a CID. That CID is stored as a field value in the talk or message content in Gun.js. The talk's own `talkId` commits to this CID because the media CID is part of the canonical serialization. Changing the media file → new IPFS CID → new talk content → new `talkId`.
+
+### 20.4 Delta Sync Protocol
+
+When two peers (Alice and Bob) establish a WebRTC connection, they perform a **ledger handshake** before exchanging any application data:
+
+```
+Alice → Bob:  { type: 'LEDGER_STATE', feeds: { [userId]: seq } }
+Bob  → Alice: { type: 'LEDGER_STATE', feeds: { [userId]: seq } }
+```
+
+Each party's `LEDGER_STATE` message declares the highest `seq` they hold for every feed they carry. The peer with higher `seq` for a given feed sends the gap:
+
+```
+Bob → Alice:  { type: 'LEDGER_EVENTS', userId, events: [event_N+1, event_N+2, ...] }
+```
+
+Alice verifies each received event:
+1. `id` matches the expected CIDv1 of `(seq + kind + content + prev + pubkey)`.
+2. `prev` matches the `id` of the event at `seq - 1` in Alice's local copy.
+3. `sig` is a valid SEA signature by `pubkey` over the event fields.
+
+Only after all three checks pass does Alice append the events to her local ledger and update her `seq` for that feed. Invalid events are discarded and logged.
+
+**Complexity:** O(Δ) — proportional only to the number of new events, not the total history. Two users who meet daily exchange only that day's interactions, regardless of how long they have known each other.
+
+### 20.5 Versioning Semantics and Concurrent Edit Scenarios
+
+#### Basic versioning rules
+
+| Scenario | Result |
+|---|---|
+| User modifies a talk | New `talkId` (new CIDv1) → new `TALK_CREATED` event → peers who lack this `talkId` receive it; old `talkId` unchanged |
+| User modifies an answer | New `responseId` (new CIDv1) → new `TALK_ANSWERED` event → peers whose `seq` is behind receive it; old answer immutable in ledger |
+| User resends an unmodified talk | Same `talkId` → receiver's ledger already contains this event → delta-sync skips it |
+| Two users who already matched | `LEDGER_STATE` handshake shows no gap → zero data exchange |
+| User receives same talk from two peers | `talkId` already in ledger → second delivery discarded, no duplicate `TALK_RECEIVED` written |
+
+#### TALK_SUPERSEDED event
+
+When a sender edits a talk and wants receivers to know the old version is no longer the primary offer, they emit a `TALK_SUPERSEDED` event into their ledger:
+
+```typescript
+// content field of a TALK_SUPERSEDED event
+{ oldTalkId: string, newTalkId: string }
+```
+
+This event is **advisory only**. It does not invalidate any answer or match that occurred against `oldTalkId`. Receivers use it solely to group the two talks in the UI (showing `newTalkId` as primary, `oldTalkId` as "earlier version"). If `TALK_SUPERSEDED` has not yet arrived, both talks appear in the inbox independently until the ledger sync catches up.
+
+#### Concurrent edit scenarios: Bob edits T1 while Alice is answering T1
+
+**Setup:** Bob broadcast talk T1. Alice received T1 and is composing her answer. Bob opens T1 to edit simultaneously. After both complete, the possible states are:
+
+| # | What Bob does | What Alice does | Alice's ledger | Match outcome | Chatbot behavior | Conflict? |
+|---|---|---|---|---|---|---|
+| 1 | Edits → T2, broadcasts | Submits R1 to T1 before T2 arrives | RECEIVED(T1), ANSWERED(T1,R1) | T1+R1 checked; T2 later arrives as new talk | T2 triggers diff; Q's shared with T1 auto-filled from cache | None |
+| 2 | Edits → T2, broadcasts | T2 arrives mid-answer; Alice finishes T1 anyway | RECEIVED(T1,T2), ANSWERED(T1,R1) | T1+R1 checked; T2 in inbox | T2 queued; diff against T1 answers when opened | None |
+| 3 | Edits → T2, broadcasts | T2 arrives mid-answer; Alice switches to answer T2 | RECEIVED(T1,T2), ANSWERED(T2,R2) | T2+R2 checked; T1 unanswered | Diff: common Q's auto-filled from partial T1 draft | None |
+| 4 | Edits → T2, broadcasts | Alice answers both T1 and T2 | RECEIVED(T1,T2), ANSWERED(T1,R1), ANSWERED(T2,R2) | Both checked independently; up to 2 matches | T2 auto-fills from T1 answers; review screen shown | None |
+| 5 | Edits → T2 (race: R1 and T2 in flight simultaneously) | Submits R1 to T1 | R1 reaches Bob; T2 reaches Alice | T1+R1 checked on Bob's side; T2 new talk for Alice | T2 triggers diff vs T1 cache | None |
+| 6 | Edits → T2 immediately after T1; **no** TALK_SUPERSEDED | Alice hasn't seen T1 yet | T1 and T2 both arrive in inbox | Whichever Alice answers first | Both shown as independent talks; no diff seeding | UI ambiguity only |
+| 6b | Same; **with** TALK_SUPERSEDED(T1→T2) | Alice sees T2 as primary | T1 shown as "earlier version" | T2+R2 checked | Diff seeded from any prior T1 answers; review prompt shown | None |
+| 7 | Edits → T2 | Alice modifies R1 → R1' after Bob moved to T2 | ANSWERED(T1,R1), ANSWERED(T1,R1') | R1' re-checked vs T1 if no prior match; existing match untouched | Cache updated with R1' answers; T2 auto-fill improved | None |
+| 8 | Edits T1→T2 changing match criteria | Alice answered T1 (no match under T1's criteria) | ANSWERED(T1,R1) | R1 not re-evaluated against T2's criteria; Alice can answer T2 fresh | T2 diff: text/options same → auto-fill; routing-only changes invisible to chatbot | None |
+| 9 | Edits → T2 after match already occurred on T1+R1 | Already in conversation | Existing conversation unaffected | T2 is new independent offer | T2 auto-fill from T1 answers; review step enforced (TALK_SUPERSEDED present) | None |
+
+**Key invariants that keep all scenarios conflict-free:**
+
+A talk is immutable once broadcast — Bob's edit always creates T2, never mutates T1. A submitted answer is immutable — Alice's modification creates R1', never mutates R1. A match record, once written, is never undone. `TALK_SUPERSEDED` is advisory and never retroactive. These four rules eliminate the "what is the authoritative state?" question entirely: there is always exactly one authoritative state for each (talk, response, match) — the one recorded in the immutable ledger.
+
+### 20.6 Conversation Sub-DAG
+
+Conversations between two users where both are writing concurrently use a **two-writer DAG** (inspired by Matrix's event DAG) rather than a linear chain. Each conversation message references the last message the **sender** has observed from the **other party**:
+
+```typescript
+interface ConversationMessage {
+  id: string;          // CIDv1(canonicalSerialize({ conversationId, senderPubkey, seq, content, prevSeen }))
+  seq: number;         // sender's local sequence number within this conversation
+  prevSeen: string;    // id of the last message the sender has seen from the other party
+  content: string;     // SEA-encrypted
+  sig: string;
+}
+```
+
+This gives a causal ordering: if Alice sends message 3 referencing Bob's message 5, it is known that Alice had seen through Bob's message 5 before composing message 3. Recipients can reconstruct a consistent timeline without a central sequencer, and the history is mergeable after either party goes offline.
+
+### 20.7 Chatbot Differential Answering and TALK_WITHDRAWN
+
+#### The question-level answer cache
+
+The chatbot's answer cache is stored by `questionId`, not by `talkId`:
+
+```
+talkAnswerTemplateByUser/<userId>/byQuestion/<questionId>  →  cached answer value
+```
+
+This cache grows across all talks over time. Any answer Alice gives to any question with a given `questionId` — whether in T1, T2, or a completely different talk from a different user — populates the same cache entry. The chatbot draws on this accumulated history whenever a new question with a matching `questionId` arrives.
+
+#### Chatbot differential algorithm
+
+When Alice's chatbot receives a new talk (T2):
+
+1. For each question `q` in T2, look up `answerCache[q.id]`.
+2. Questions with a cached answer → mark **auto-filled**.
+3. Questions without a cached answer → add to **needs-input** list.
+4. Present accordingly:
+   - **All auto-filled:** show a review screen with every answer pre-populated. Alice must explicitly confirm or override before submission. Do not auto-submit silently.
+   - **Some need input:** show only needs-input questions as active fields; show auto-filled questions grayed out with an override affordance alongside them.
+   - **None auto-filled:** standard answering flow, unchanged from today.
+5. On submit, write `answerCache[q.id] = answer` for every question in the talk — including ones that were auto-filled and left unchanged — to refresh the cache timestamp.
+
+**Special rule when TALK_SUPERSEDED(T1→T2) is present:** When Alice's client sees this event alongside a new talk T2, it seeds the chatbot's cache check from Alice's previous responses to T1 before running the algorithm above. If Alice already answered T1 and submitted R1, the chatbot proactively offers a UI prompt: *"Bob updated this talk. Your previous answers are pre-filled — please review and answer any new questions."* If Alice had not yet submitted, the prompt reads: *"Bob updated his talk. Your draft answers have been carried over where applicable."* If the chatbot auto-submitted R1 without Alice's review (fully-automated mode), a review step is always forced for T2 — a TALK_SUPERSEDED signal means something changed, and silent re-submission is inappropriate.
+
+#### TALK_WITHDRAWN event
+
+```typescript
+// content field of a TALK_WITHDRAWN event
+{ talkId: string }   // the talk being withdrawn (e.g. T1)
+```
+
+**Effect on delivery:** Peers who receive this event in Bob's ledger delta stop routing the named `talkId` to users who have not yet received it. They do not delete it from their own store (ledger is immutable), and they do not suppress answers already in transit.
+
+**Effect on match processing:** None. Answers submitted to T1 before or after TALK_WITHDRAWN arrive are still evaluated against T1's match logic. Alice answered in good faith; that is honored. After a configurable grace window (default: 24 hours after the TALK_WITHDRAWN event's timestamp), Bob's client may stop surfacing new T1 match notifications as active alerts — treating them as archival — but this is a product tuning decision and carries no protocol enforcement.
+
+**Effect on UI:** Receivers who have T1 in their inbox see it marked as withdrawn. If TALK_SUPERSEDED(T1→T2) is also present, T1 is collapsed under T2 as an earlier version.
+
+#### Bob's complete post-edit workflow
+
+After finishing the edit and deriving T2's CIDv1, Bob's client emits three consecutive ledger events:
+
+```
+seq M:   TALK_CREATED   { talkId: T2, questions: [...] }
+seq M+1: TALK_SUPERSEDED { oldTalkId: T1, newTalkId: T2 }
+seq M+2: TALK_WITHDRAWN  { talkId: T1 }
+```
+
+Then broadcasts T2 via the peer mesh. When these three events reach Alice via delta-sync:
+
+- `TALK_CREATED(T2)` → T2 stored in Alice's Gun graph and incoming talk index.
+- `TALK_SUPERSEDED` → Alice's chatbot seeds its cache from any prior answers to T1; UI collapses T1/T2.
+- `TALK_WITHDRAWN` → Alice's client marks T1 as retracted; no further users in Alice's neighborhood are routed T1.
+
+The three events are logically independent and can be emitted separately. Bob can SUPERSEDE without WITHDRAWING (keeps T1 circulating as an archived alternate), or WITHDRAW without SUPERSEDING (retracts T1 with no replacement), or issue all three together as the standard post-edit workflow.
+
+#### Relationship between the three events
+
+| Event | Primary concern | Retroactive? | Affects match? |
+|---|---|---|---|
+| TALK_CREATED(T2) | Publish new version | No | Yes — T2 now matchable |
+| TALK_SUPERSEDED(T1→T2) | UI grouping + chatbot seeding | No | No |
+| TALK_WITHDRAWN(T1) | Stop new deliveries of T1 | No | No — in-flight answers still processed |
+
+### 20.8 Storage in Gun
+
+Ledger entries are stored in Gun at deterministic paths:
+
+```
+ledger/<userId>/seq                       → current highest seq (integer)
+ledger/<userId>/events/<seq>              → InteractionEvent JSON (immutable once written)
+ledger/<userId>/index/talkId/<id>        → seq of the TALK_CREATED event for this talkId
+ledger/<userId>/index/responseId/<id>    → seq of the TALK_ANSWERED event for this responseId
+ledger/<userId>/index/withdrawn/<talkId> → seq of the TALK_WITHDRAWN event for this talkId
+
+talkAnswerTemplateByUser/<userId>/byQuestion/<questionId> → cached answer for this question
+talkAnswerTemplateByUser/<userId>/byTalk/<talkId>         → full response cache (legacy, Phase G)
+```
+
+Because each event is **immutable** after it is written (the `id` is a hash of its content), Gun's last-write-wins HAM never causes a conflict on these paths. A write to `events/<seq>` that already exists is a no-op — Gun will see identical state and suppress the update.
+
+### 20.9 Migration Phase for Ledger
+
+The ledger is additive and can be introduced in a new migration phase without breaking the existing star-topology deployment:
+
+**Phase E — Ledger bootstrap (parallel with Phase A–B):** Introduce the `InteractionEvent` type and the `LedgerService` (client-side). New interactions write both to the existing Gun paths (for backward compatibility) and to `ledger/<userId>/events/<seq>`. Existing interactions are not back-filled — the ledger starts from the day of deployment.
+
+**Phase F — Delta sync in peer connections:** During peer handshake (Phase B+), add the `LEDGER_STATE` exchange before talk delivery. Peers that have not yet adopted the ledger fall back to full Gun sync; peers that both support the ledger use delta-sync only.
+
+**Phase G — Ledger as sole source of truth:** Once all clients support the ledger, remove the duplicate writes to legacy Gun paths. The ledger's `index/talkId` and `index/responseId` sub-paths replace the current `incomingTalksByUser` and `talkAnswerTemplateByUser` patterns.
+
+---
+
+## 21. Survey: Blockchain and DAG Structures in P2P Messaging Networks
+
+> **Date:** 2026-05-25  
+> **Purpose:** Inform the design of IinPublic's interaction ledger — a tamper-evident, append-only history of all user interactions that enables automatic delta-sync between peers.
+
+### 21.1 Why Blockchain / DAG for a Messaging Network?
+
+A linear blockchain or a DAG is useful in a P2P messaging network for two orthogonal reasons that happen to reinforce each other:
+
+**Provable timeline.** An append-only structure where each entry cryptographically references the previous one creates an unforgeable history. Anyone holding the log can verify that no entry was deleted, reordered, or silently edited. If a user modifies a talk and rebroadcasts it, the modification creates a new entry (with a new content hash) — the original remains in the log unchanged.
+
+**Efficient delta sync.** Because entries are ordered and each peer can describe exactly which entries it already has (using a sequence number, a vector clock, or a Bloom filter), two peers that reconnect after a gap need only exchange entries the other is missing. They never re-transmit data they both already hold. This is structurally impossible with a mutable database like a plain Gun.js graph, where the only way to know "what changed" is to diff the entire state.
+
+Together these properties give IinPublic a way to prove when a talk was created or answered, to detect forks (a user answering a talk they already answered with different content), and to make peer reconnection fast and bandwidth-efficient.
+
+---
+
+### 21.2 Survey of Relevant Systems
+
+#### 21.2.1 Secure Scuttlebutt (SSB)
+
+**What it is:** A P2P social network protocol where every user has a personal append-only feed — a signed, hash-linked log of all their activity. The network uses a gossip protocol to replicate feeds between peers.
+
+**Structure:** Each message in a user's feed contains: the user's public key, a sequence number, the hash of the previous message (`prev`), a timestamp, the message content, and a signature over the whole record. This makes the feed a singly-linked list, verifiable from any point. Feeds are identified by the user's public key.
+
+**Delta sync:** Because feeds are append-only and entries are sequentially numbered, delta sync is trivially expressed: "give me all entries in feed `@pubkey` with sequence number greater than `N`." Two peers that meet after a period of separation exchange their highest known sequence numbers per feed, then transfer only the gap. No full-state comparison is needed.
+
+**Deduplication:** Since the previous-hash (`prev`) field creates a cryptographic chain, duplicate entries are immediately detectable — an entry with the same `prev` as an existing entry is either a fork (Byzantine fault) or a retransmit. Retransmits are discarded.
+
+**What IinPublic borrows:** The per-user append-only feed structure; hash-linked `prev` chain; sequence-number delta sync. SSB's own network protocol, gossip layer, identity system, and storage are all replaced by Gun.js — SSB is not deployed.
+
+**Reference:** [Gossiping with Append-Only Logs in Secure-Scuttlebutt](https://www.researchgate.net/publication/348239763_Gossiping_with_Append-Only_Logs_in_Secure-Scuttlebutt)
+
+---
+
+#### 21.2.2 Hypercore / Dat Protocol
+
+**What it is:** Hypercore is a cryptographically secure, distributed append-only log maintained by the Holepunch team. It underpins the Dat and Beaker browser ecosystems.
+
+**Structure:** Entries are appended sequentially. The log is verified using a Merkle tree (BLAKE2b-256 hash function) over all entries. Each entry's integrity can be checked independently using the Merkle proof for its position, without downloading the entire log. This makes sparse replication practical — a peer can download only the entries it cares about and still cryptographically verify them.
+
+**Delta sync:** Hypercore peers describe what they have using a compact **bitfield** — a bitmask of which entry indices they hold. Two peers exchange bitfields and transfer only the complement. This is more general than a simple sequence-number comparison: it supports out-of-order appends and holes in the log.
+
+**What IinPublic borrows:** The Merkle-tree proof model as a conceptual reference; the idea of bitfield-based sparse replication (not implemented now but noted for future large-log scenarios). Hypercore's own networking (Hyperswarm), storage engine, and transport are all replaced by Gun.js — Hypercore is not deployed.
+
+**Reference:** [Hypercore Protocol](https://hypercore-protocol.github.io/new-website/protocol/) · [GitHub: holepunchto/hypercore](https://github.com/holepunchto/hypercore)
+
+---
+
+#### 21.2.3 Matrix Event DAG
+
+**What it is:** Matrix is a federated messaging protocol where every room's history is represented as a Directed Acyclic Graph (DAG) of signed events. Each event references one or more previous events (`prev_events`), forming a causal DAG rather than a linear chain.
+
+**Structure:** An event contains: room ID, event type (state or timeline), sender identity, content, a list of `prev_events` (up to 2–3 recent events), and a signature. The DAG allows **multiple servers to append events concurrently** without coordination — they each pick the current "tips" of the DAG as their `prev_events`. Forks are allowed and merged deterministically using a consensus algorithm (State Resolution).
+
+**Timeline vs. state events:** Matrix distinguishes between timeline events (messages, talk answers) and state events (membership, room settings). State events have a `state_key` and the most recent state event for a given key is the current state. Timeline events are immutable — even a "redacted" event leaves a tombstone in the DAG.
+
+**Deduplication:** Events are identified by a content hash (the event ID). Any server that receives a duplicate (same event ID) discards it.
+
+**What IinPublic borrows:** The two-writer conversation DAG pattern with `prevSeen` causal references (see `ConversationMessage` in §15.6). Matrix homeservers, federation protocol, and Server-Server API are not deployed — Matrix is a design pattern source only.
+
+**Reference:** [Analysis of the Matrix Event Graph Replicated Data Type](https://arxiv.org/pdf/2011.06488) · [Matrix Specification](https://matrix.org/docs/spec/)
+
+---
+
+#### 21.2.4 IOTA Tangle
+
+**What it is:** IOTA's Tangle is a DAG-based distributed ledger designed for high-frequency, zero-fee transactions (originally targeting IoT devices). Each new transaction must validate two previous transactions before being appended, turning every participant into a validator.
+
+**Structure:** The Tangle is a DAG where nodes are transactions/messages and directed edges represent "validates" relationships. There is no concept of blocks or miners. The layered architecture separates the network layer (peer discovery, gossip), communication layer (block/message DAG construction), and application layer (smart contracts, value transfer).
+
+**What IinPublic borrows:** Nothing directly applicable. The IOTA model requires every participant to validate others' entries — unnecessary overhead for a single-author personal feed. The tiered architecture (network / communication / application) is a useful conceptual reference. IOTA is not deployed.
+
+**Reference:** [IOTA Tangle 2.0](https://arxiv.org/pdf/2209.04959) · [From IOTA Tangle 2.0 to Rebased](https://pmc.ncbi.nlm.nih.gov/articles/PMC12157984/)
+
+---
+
+#### 21.2.5 IPFS Merkle DAG and Content Addressing
+
+**What it is:** IPFS (InterPlanetary File System) represents all data as a Merkle DAG where every node is identified by the cryptographic hash of its contents — a Content Identifier (CID). Two pieces of identical content produce the same CID and are stored exactly once across the entire network.
+
+**Deduplication:** Since the CID is derived from content, deduplication is automatic and global. If Alice creates a talk with content hash `Qm...abc` and Bob has already received that talk from Carol, Bob discards the retransmit immediately on CID comparison — no content parsing required. IinPublic uses this principle for all identifiers via CIDv1.
+
+**Merkle DAG versioning:** Changes to a data structure produce a new root CID that references the unchanged sub-nodes and a new node for the changed portion. This is essentially how Git works. Applied to IinPublic: a modified talk produces a new root CID (new `talkId`), but any unchanged sub-questions share their CIDs with the original.
+
+**What IinPublic borrows:** IinPublic adopts CIDv1 (dag-json codec, sha2-256, computed locally via the `multiformats` npm package — no IPFS daemon) as the content-addressing scheme for all identifiers: `talkId`, `responseId`, `messageId`, `questionId`, and ledger event `id`. IPFS itself is deployed only for large binary blobs (photos, video, audio); all structured data remains in Gun.js.
+
+**Reference:** [Merkle DAGs — IPFS Docs](https://docs.ipfs.tech/concepts/merkle-dag/) · [Content Identifiers (CIDs)](https://docs.ipfs.tech/concepts/content-addressing/)
+
+---
+
+#### 21.2.6 Nostr (Notes and Other Stuff Transmitted by Relays)
+
+**What it is:** Nostr is a minimal signed-event protocol for decentralized social messaging. Every event has an ID (SHA-256 of the serialized content), a public key, a `created_at` timestamp, a `kind` integer, optional `tags`, freeform content, and a Schnorr signature. Relays store and forward events; clients filter by pubkey, kind, and timestamp.
+
+**Simplicity as a feature:** Nostr deliberately avoids P2P — it uses relay servers to avoid the NAT traversal and peer discovery complexity. Its event model is the simplest possible signed-event design: no chains, no DAG, just a signed blob with a timestamp.
+
+**Deduplication:** Events are deduplicated by event ID (content hash). Relays that receive the same event ID twice store it once.
+
+**What IinPublic borrows:** Nostr's event schema `{ id, pubkey, created_at, kind, content, sig }` is the lower bound — the minimum fields an interaction record needs. IinPublic's `InteractionEvent` extends this with a `prev` field for causal ordering. Nostr relay servers are not deployed; Nostr's lack of causal ordering is a mismatch for IinPublic's delta-sync requirement.
+
+**Reference:** [The Nostr Protocol](https://nostr.how/en/the-protocol) · [Nostr Events Explained](https://nostr.co.uk/learn/nostr-events-explained/)
+
+---
+
+#### 21.2.7 Gun.js HAM and Existing CRDT in IinPublic
+
+**What it is:** Gun.js uses a state-based CRDT with last-write-wins conflict resolution via its HAM (Hypothetical Amnesia Machine) algorithm. Each graph node stores a hybrid logical clock (machine timestamp). When two peers sync, Gun compares state vectors and transfers only differing nodes.
+
+**Current content addressing in IinPublic:** All entity identifiers (`talkId`, `responseId`, `messageId`, `questionId`, ledger event `id`) are **CIDv1** values (dag-json codec, sha2-256) computed locally via the `multiformats` npm package. This replaces the earlier `computeTalkIdFromTalkData` / `buildTalkIdentityKey` approach. Gun's own deduplication stops syncing a node once the remote peer's state matches the local hash.
+
+**Gap:** Gun's CRDT is designed for mutable state (the latest value of a key wins). It does not natively model an append-only ordered history. Adding entries to a Gun list is typically done with timestamps as keys, which is fragile under clock skew. Gun has no native concept of "give me entries newer than sequence N in feed X."
+
+**Role in IinPublic:** Gun remains the right transport and storage layer — its WebRTC mesh, SEA encryption, and RAD persistence are all valuable. The interaction ledger sits *above* Gun as an application-level data structure, using Gun paths to store ledger entries while adding the chain-linking and sequence-number logic that Gun alone does not provide.
+
+**Reference:** [CRDT — GUN Database](https://amark-gun-58.mintlify.app/concepts/crdt) · [Conflict Resolution with Guns](https://github.com/amark/gun/wiki/Conflict-Resolution-with-Guns)
+
+---
+
+### 21.3 Comparison Table
+
+| System | Structure | Delta sync | Dedup mechanism | Multi-writer | Role in IinPublic |
+|---|---|---|---|---|---|
+| Secure Scuttlebutt | Linear chain per user | Sequence number | `prev` hash chain | No (one writer per feed) | ✅ Pattern source: per-user ledger design |
+| Hypercore | Linear log + Merkle tree | Bitfield | Merkle proof | No | ✅ Pattern source: sparse sync concept |
+| Matrix Event DAG | Per-room DAG | Event ID set | Event ID (content hash) | Yes (multi-server) | ✅ Pattern source: conversation sub-DAG |
+| IOTA Tangle | Global DAG | N/A (gossip) | Transaction hash | Yes (all users) | ⚠️ Not applicable — global consensus overkill |
+| IPFS Merkle DAG | Content-addressed tree | CID comparison | CID (content hash) | Append-only | ✅ Runtime (media blobs) + CIDv1 scheme |
+| Nostr | Flat signed events | Timestamp filter | Event ID | Yes (relay-mediated) | ✅ Pattern source: minimal event schema |
+| Gun.js HAM | Mutable graph CRDT | State vector diff | Node hash | Yes | ✅ **Runtime infrastructure** |
+
+---
+
+### 21.4 Stack Decision: Runtime Infrastructure vs Design Pattern Sources
+
+IinPublic uses **Gun.js and IPFS as its only runtime infrastructure**. Every other system surveyed above contributes a data-structure or protocol *idea* that is implemented on top of Gun.js — none of them are deployed or depended upon as running services. This distinction matters for contributors: reading about SSB or Matrix in this document does not mean those systems need to be installed, configured, or maintained.
+
+### 19.1 Runtime infrastructure (actually deployed)
+
+**Gun.js** is the graph database, real-time sync transport, identity layer (SEA keypairs), CRDT conflict resolution (HAM), and local persistence (RAD/IndexedDB or radata/ on disk). It handles all structured, mutable, or relationship data: user profiles, talk metadata, conversation records, ledger entries, presence, and the signaling location index. There is no substitute for Gun.js in this stack.
+
+**IPFS** handles one thing Gun.js cannot: large binary blobs (photos, video, audio). A media file is added to IPFS, producing a CID (content identifier). That CID — a short base32 string — is stored as a field value inside a Gun.js node. Beyond that single field, the talk or message containing the media lives entirely in Gun.js. Desktop super-peers run IPFS nodes to pin content referenced by their neighborhood. Browser peers use an IPFS HTTP gateway for retrieval. IPFS is never used as a general data store for structured application data.
+
+### 19.2 Design pattern sources (ideas borrowed, no deployment)
+
+| System | What IinPublic borrows | What is discarded |
+|---|---|---|
+| **Secure Scuttlebutt** | Per-user append-only feed structure; hash-linked `prev` chain; sequence-number delta sync | SSB's own network protocol, gossip layer, identity system, storage — all replaced by Gun.js |
+| **Hypercore** | Merkle-tree proof model as a reference; concept of bitfield-based sparse replication (not used now but noted for future large-log scenarios) | Hypercore's own networking (Hyperswarm), storage engine, and transport — all replaced by Gun.js |
+| **Matrix event DAG** | Two-writer conversation DAG pattern with `prevSeen` causal references | Matrix homeservers, federation protocol, Server-Server API — none deployed |
+| **IOTA Tangle** | Nothing applicable | Everything — global consensus is unnecessary for a single-author personal feed |
+| **Nostr** | Minimal signed-event schema `{ id, pubkey, created_at, kind, content, sig }`, absorbed into `InteractionEvent` | Nostr relay servers — not deployed; Nostr's lack of causal ordering is a mismatch |
+
+Running any of these systems alongside Gun.js would introduce a **second P2P network, a second identity system (all use Ed25519 keypairs, overlapping with Gun SEA), and a second storage layer** — complete redundancy with no benefit.
+
+### 19.3 Overlaps and boundaries to maintain
+
+**IPFS CID computation vs local SHA-256 for talk identity.** IinPublic switches from a locally-computed SHA-256 to a **CIDv1** (dag-json codec, sha2-256) computed locally using the `multiformats` npm package — no IPFS daemon required. This unifies the content-addressing scheme: the same identifier that names a talk in Gun.js is the address that *would* retrieve it from IPFS if the content were ever published there. For text-only talks, the CID is computed locally and the content lives only in Gun.js (never added to IPFS). A canonical serialization of the talk object (deterministic key order, no undefined fields) is required before hashing to ensure identical content always produces the same CID.
+
+**Gun HAM and the ledger chain.** Gun's HAM resolves concurrent writes to the same path (last-write-wins). The ledger chain resolves ordering across different paths over time (causal sequence via `prev`). They operate at different levels and are complementary: Gun ensures each `ledger/<userId>/events/<seq>` path is consistently replicated across peers; the `prev` chain ensures the sequence of those paths is tamper-evident. If HAM produces a write collision on a given `seq` path (a Byzantine or clock-skew fault), the chain-verification step in the delta-sync protocol detects the broken `prev` link and rejects the bad event.
+
+**IPFS pinning and Gun RAD persistence.** Desktop super-peers are responsible for both: persisting their neighborhood's Gun graph (via radata/) and pinning the IPFS CIDs referenced within it. These responsibilities map onto the same node type and the same concept of "being a reliable neighbor," but they are distinct storage systems. A CID that appears in a Gun node field is not automatically pinned in IPFS — pinning must be triggered explicitly by the super-peer when it processes a Gun node containing a CID field.
+
+---
+
+### 21.5 Design Recommendation for IinPublic
+
+Based on the survey, the most appropriate architecture for IinPublic's interaction ledger is a **hybrid of Secure Scuttlebutt's per-user append-only chain and IPFS's content-addressed event IDs**, layered on top of the existing Gun.js transport.
+
+**Per-user interaction feed:** Each user maintains a personal append-only log of interaction events. Each event is identified by a **CIDv1** (dag-json codec, sha2-256, computed locally via `multiformats`) of its content, and references the CIDv1 of the previous event in their feed (`prev`). The sequence number (`seq`) is implicit from the position in the chain but stored explicitly for efficient delta-sync queries.
+
+**Event kinds:** TALK_CREATED, TALK_BROADCAST, TALK_RECEIVED, TALK_ANSWERED, TALK_SUPERSEDED, TALK_WITHDRAWN, MATCH_CREATED, CONVERSATION_MESSAGE. Each has a content-addressed CIDv1 derived from its payload. `TALK_SUPERSEDED` carries `{ oldTalkId, newTalkId }` and is advisory to the UI — it does not invalidate prior answers or matches against the old talk. `TALK_WITHDRAWN` carries `{ talkId }` and instructs peers to stop routing the named talk to users who have not yet received it; it does not affect answers or matches already in flight.
+
+**Delta sync protocol:** When two users establish a peer connection, they exchange their current `seq` numbers per feed. Each then sends the other only events with `seq > known_seq`. This is the SSB model applied to Gun paths: `ledger/<userId>/events/<seq>`.
+
+**Content-addressing for deduplication:** A talk's ID is a **CIDv1** (dag-json, sha2-256) computed locally via `multiformats`. A response's ID is `CIDv1(canonicalSerialize({ talkId, responderId, responseContentJson }))`. A modified talk or response produces a different CID and is treated as a new event; the old entry remains immutable in the ledger.
+
+**Conversation DAG:** Conversations between two users use a two-writer DAG (Matrix-style): each message references the last message the sender has seen from the other party. This gives a causal ordering that works correctly when both parties are offline and resync later.
+
+The detailed requirements that follow from this design are in [§4.8 Interaction Ledger](#48-interaction-ledger-dag-based-history-and-delta-sync) and the full implementation plan is in [§15 Interaction Ledger Design](#15-interaction-ledger-dag-based-history-and-delta-sync).
+
+---
+
+### 21.6 Sources
+
+- [Gossiping with Append-Only Logs in Secure-Scuttlebutt](https://www.researchgate.net/publication/348239763_Gossiping_with_Append-Only_Logs_in_Secure-Scuttlebutt)
+- [Secure Scuttlebutt — ssb-server](https://github.com/ssbc/ssb-server)
+- [Hypercore Protocol](https://hypercore-protocol.github.io/new-website/protocol/)
+- [holepunchto/hypercore](https://github.com/holepunchto/hypercore)
+- [Analysis of the Matrix Event Graph Replicated Data Type](https://arxiv.org/pdf/2011.06488)
+- [Matrix Specification](https://matrix.org/docs/spec/)
+- [IOTA Tangle 2.0](https://arxiv.org/pdf/2209.04959)
+- [From IOTA Tangle 2.0 to Rebased (PMC)](https://pmc.ncbi.nlm.nih.gov/articles/PMC12157984/)
+- [Merkle DAGs — IPFS Docs](https://docs.ipfs.tech/concepts/merkle-dag/)
+- [Content Identifiers (CIDs) — IPFS Docs](https://docs.ipfs.tech/concepts/content-addressing/)
+- [The Nostr Protocol](https://nostr.how/en/the-protocol)
+- [CRDT — GUN Database](https://amark-gun-58.mintlify.app/concepts/crdt)
+- [Conflict Resolution with Guns](https://github.com/amark/gun/wiki/Conflict-Resolution-with-Guns)
+- [DAG — A potential game changer in M2M communication](https://www.bearingpoint.com/files/DAG_Technology.pdf?download=0&itemId=562844)
