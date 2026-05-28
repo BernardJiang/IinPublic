@@ -4641,11 +4641,18 @@ export class UIManager extends EventEmitter {
     const statusBarText = document.getElementById('status-bar-text');
 
     if (statusBarText) {
-      let text = `${chatroomName} · ${memberCount} ${memberCount === 1 ? 'user' : 'users'}`;
+      const userText = this.tf(memberCount === 1 ? 'statusBarUser' : 'statusBarUsers', { count: memberCount });
+      const base = `${chatroomName} · ${userText}`;
+      statusBarText.dataset.statusBarBase = base;
       const localTotalMatches = this.getTotalMatches();
       const effectiveTotalMatches = localTotalMatches > 0 ? localTotalMatches : (totalMatches ?? 0);
+      let text = base;
       if (effectiveTotalMatches > 0) {
-        text += ` · ${effectiveTotalMatches} match${effectiveTotalMatches !== 1 ? 'es' : ''}`;
+        const matchText = this.tf(
+          effectiveTotalMatches === 1 ? 'statusBarMatch' : 'statusBarMatches',
+          { count: effectiveTotalMatches },
+        );
+        text += ` · ${matchText}`;
       }
       statusBarText.textContent = text;
     }
@@ -4654,11 +4661,21 @@ export class UIManager extends EventEmitter {
   private syncStatusBarMatchCount(): void {
     const statusBarText = document.getElementById('status-bar-text');
     if (!statusBarText) return;
-    const current = statusBarText.textContent || '';
-    const base = current.replace(/\s*·\s*\d+\s+match(?:es)?\s*$/i, '').trim();
+    // Use data attribute set by updateStatusBar; fall back to stripping legacy English suffix.
+    const base =
+      statusBarText.dataset.statusBarBase ||
+      statusBarText.textContent?.replace(/\s*·\s*\d+\s+match(?:es)?\s*$/i, '').trim() ||
+      '';
     const totalMatches = this.getTotalMatches();
-    statusBarText.textContent =
-      totalMatches > 0 ? `${base} · ${totalMatches} match${totalMatches !== 1 ? 'es' : ''}` : base;
+    if (totalMatches > 0) {
+      const matchText = this.tf(
+        totalMatches === 1 ? 'statusBarMatch' : 'statusBarMatches',
+        { count: totalMatches },
+      );
+      statusBarText.textContent = `${base} · ${matchText}`;
+    } else {
+      statusBarText.textContent = base;
+    }
   }
 
   getTotalMatches(): number {
