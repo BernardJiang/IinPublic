@@ -185,6 +185,14 @@ export interface Talk {
 
 export interface Question {
   id: string;
+  /**
+   * CIDv1 content hash of this question's stable content (text + answer ids/texts).
+   * Routing-only fields (next, match-flag) are excluded so that routing changes
+   * do not invalidate chatbot answer caches keyed by this id.
+   * Computed at talk creation/edit time via `computeCIDv1({ text, answers })`.
+   * Optional for backward compatibility with talks created before Phase E.
+   */
+  cidId?: string;
   text: string;
   answers: Answer[];
   nextQuestionId?: string; // for flow (linear) talks

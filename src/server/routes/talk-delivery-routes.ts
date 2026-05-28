@@ -1,6 +1,7 @@
 import type express from 'express';
 import { checkIfIgnore, checkIfMatch } from '../../shared/talk-engine';
 import { buildTalkIdentityKey, canonicalIdentityKeyFromStoredCluster } from '../../shared/talk-content-id';
+import { computeCIDv1 } from '../../shared/cid';
 import { TALK_CONTENT_HASH_ID } from '../../shared/incoming-talk-ids';
 import {
   getDefaultTalkIntakeFilters,
@@ -867,6 +868,39 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         templateEntries,
         isAuto: effectiveIsAuto,
       });
+
+      // Phase E: per-question chatbot answer cache (REQ-CHATBOT-05).
+      // Write byQuestion/<questionCidId> alongside the legacy identityKey path.
+      // Falls back to q.id when cidId is not yet present (backward compat).
+      try {
+        const questions: any[] = Array.isArray(talkData?.questions) ? talkData.questions : [];
+        const questionByCid = new Map<string, string>();
+        for (const q of questions) {
+          const cacheKey = String(q.cidId || q.id || '');
+          if (cacheKey) questionByCid.set(String(q.id), cacheKey);
+        }
+        for (const answer of normalizedAnswers) {
+          const qId = String(answer.questionId || '');
+          const cacheKey = questionByCid.get(qId) || qId;
+          if (!cacheKey) continue;
+          // Recompute cidId from stable question content if not present
+          const question = questions.find((q: any) => String(q.id) === qId);
+          const cidKey = question?.cidId || (question
+            ? await computeCIDv1({ text: question.text, answers: (question.answers || []).map((a: any) => ({ id: a.id, text: a.text })) })
+            : cacheKey);
+          await gunService.putPath(
+            ['talkAnswerTemplateByUser', responderId, 'byQuestion', cidKey],
+            {
+              answerId: String(answer.answerId || ''),
+              answerText: String(answer.answerText || ''),
+              updatedAt: new Date().toISOString(),
+              isAuto: effectiveIsAuto,
+            },
+          );
+        }
+      } catch (perQuestionErr) {
+        logger.warn({ err: perQuestionErr }, 'Per-question cache write failed (non-fatal)');
+      }
 
       const matches = await fanoutResponseToSenders({
         talkData,
