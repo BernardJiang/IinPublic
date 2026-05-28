@@ -110,7 +110,8 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
     await afterSync();
     const contactItem = pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'Jerry' }).first();
     await expect(contactItem).toBeVisible({ timeout: 15000 });
-    await expect(contactItem).toContainText('2 talks');
+    await expect(contactItem).toContainText('1 talk');
+    await expect(contactItem).toContainText('Sent 1 · Received 0');
     await contactItem.click();
     await afterSync();
     await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });

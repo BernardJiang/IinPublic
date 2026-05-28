@@ -148,7 +148,7 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
     }
   });
 
-  test('Broadcaster on North America does not register inbox for peer joined only under United States', async () => {
+  test('Broadcaster on North America also reaches peer joined under United States', async () => {
     const tom = await bootstrapUser(browserTom, 'TomNA', 'Tom');
     const jerry = await bootstrapUser(browserJerry, 'JerryUSA', 'Jerry');
     const pageTom = tom.page;
@@ -176,8 +176,8 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
       await confirmBroadcastTagPreambleIfVisible(pageTom);
       await waitForTabActive(pageTom, 'chatrooms');
 
-      // Tom is the only Gun member under `north-america`; Jerry is under `usa` only.
-      await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 0 });
+      // Parent-room broadcast includes descendant room members (USA under North America).
+      await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 1 });
 
       const jerryId = await pageJerry.evaluate(
         () =>
@@ -205,10 +205,10 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
           {
             timeout: 25_000,
             intervals: [500],
-            message: 'USA-only peer must not get IN registration from North America parent broadcast',
+            message: 'USA descendant peer should get IN registration from North America parent broadcast',
           },
         )
-        .toBe('absent');
+        .toBe('found');
     } finally {
       await pageTom.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
       await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
