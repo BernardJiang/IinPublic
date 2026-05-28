@@ -4641,18 +4641,11 @@ export class UIManager extends EventEmitter {
     const statusBarText = document.getElementById('status-bar-text');
 
     if (statusBarText) {
-      const userText = this.tf(memberCount === 1 ? 'statusBarUser' : 'statusBarUsers', { count: memberCount });
-      const base = `${chatroomName} · ${userText}`;
-      statusBarText.dataset.statusBarBase = base;
+      let text = `${chatroomName} · ${memberCount} ${memberCount === 1 ? 'user' : 'users'}`;
       const localTotalMatches = this.getTotalMatches();
       const effectiveTotalMatches = localTotalMatches > 0 ? localTotalMatches : (totalMatches ?? 0);
-      let text = base;
       if (effectiveTotalMatches > 0) {
-        const matchText = this.tf(
-          effectiveTotalMatches === 1 ? 'statusBarMatch' : 'statusBarMatches',
-          { count: effectiveTotalMatches },
-        );
-        text += ` · ${matchText}`;
+        text += ` · ${effectiveTotalMatches} match${effectiveTotalMatches !== 1 ? 'es' : ''}`;
       }
       statusBarText.textContent = text;
     }
@@ -4661,21 +4654,11 @@ export class UIManager extends EventEmitter {
   private syncStatusBarMatchCount(): void {
     const statusBarText = document.getElementById('status-bar-text');
     if (!statusBarText) return;
-    // Use data attribute set by updateStatusBar; fall back to stripping legacy English suffix.
-    const base =
-      statusBarText.dataset.statusBarBase ||
-      statusBarText.textContent?.replace(/\s*·\s*\d+\s+match(?:es)?\s*$/i, '').trim() ||
-      '';
+    const current = statusBarText.textContent || '';
+    const base = current.replace(/\s*·\s*\d+\s+match(?:es)?\s*$/i, '').trim();
     const totalMatches = this.getTotalMatches();
-    if (totalMatches > 0) {
-      const matchText = this.tf(
-        totalMatches === 1 ? 'statusBarMatch' : 'statusBarMatches',
-        { count: totalMatches },
-      );
-      statusBarText.textContent = `${base} · ${matchText}`;
-    } else {
-      statusBarText.textContent = base;
-    }
+    statusBarText.textContent =
+      totalMatches > 0 ? `${base} · ${totalMatches} match${totalMatches !== 1 ? 'es' : ''}` : base;
   }
 
   getTotalMatches(): number {
