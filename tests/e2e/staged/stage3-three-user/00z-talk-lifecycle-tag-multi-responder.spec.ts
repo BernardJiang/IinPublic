@@ -1,0 +1,137 @@
+/**
+ * Phase D4 — tag talk: match vs mismatch responders; creator sees one match only.
+ */
+import { Browser, BrowserContext, Page } from '@playwright/test';
+import { test, expect } from '../../helpers/fixtures';
+import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { afterAction, afterSync } from '../../helpers/timing';
+import {
+  clickBroadcastUntilBulkAck,
+  createTalksFromCompanyPage,
+  completeTalkInAppByAnswerIds,
+  waitForDistinctGunPeersExcludingSelf,
+} from '../../helpers/talk-demo-ui';
+import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
+import {
+  buildTagTalkPayload,
+  tagMatchAnswerIds,
+  tagIgnoreAnswerIds,
+} from '../../helpers/talk-lifecycle-fixtures';
+import {
+  bootstrapUser,
+  finalCleanupPages,
+  resetTalksMatchingSession,
+  waitForTabActive,
+} from '../../helpers/talks-matching-flow';
+import {
+  launchThreeBrowsers,
+  shutdownThreeBrowsers,
+  type ThreeBrowsers,
+} from '../../helpers/talks-matching-browsers';
+
+const TAG_TITLE = 'Lifecycle Matrix Tag';
+
+test.describe('Talk lifecycle — tag multi-responder matrix (D4)', () => {
+  let browsers: ThreeBrowsers;
+  let browserTom: Browser;
+  let browserJerry: Browser;
+  let browserBob: Browser;
+  let contextTom: BrowserContext | undefined;
+  let contextJerry: BrowserContext | undefined;
+  let contextBob: BrowserContext | undefined;
+  let pageTom: Page | undefined;
+  let pageJerry: Page | undefined;
+  let pageBob: Page | undefined;
+
+  test.beforeAll(async () => {
+    await maybeClearGunDatabases();
+    browsers = await launchThreeBrowsers();
+    browserTom = browsers.tom;
+    browserJerry = browsers.jerry;
+    browserBob = browsers.bob;
+  });
+
+  test.beforeEach(async () => {
+    await resetTalksMatchingSession(
+      { tom: pageTom, jerry: pageJerry, bob: pageBob },
+      { tom: contextTom, jerry: contextJerry, bob: contextBob },
+    );
+    pageTom = pageJerry = pageBob = undefined;
+    contextTom = contextJerry = contextBob = undefined;
+  });
+
+  test.afterAll(async () => {
+    await finalCleanupPages(
+      { tom: pageTom, jerry: pageJerry, bob: pageBob },
+      { tom: contextTom, jerry: contextJerry, bob: contextBob },
+    );
+    await shutdownThreeBrowsers(browsers);
+    await maybeClearGunDatabases();
+  });
+
+  test('tag match from one responder and mismatch from another yield a single creator match', async () => {
+    test.setTimeout(420_000);
+    const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Tag Matrix');
+    contextTom = tom.context;
+    pageTom = tom.page;
+    await pageTom.click('.chatroom-item:has-text("Global")');
+    await afterSync();
+
+    const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry Tag Matrix');
+    contextJerry = jerry.context;
+    pageJerry = jerry.page;
+    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await afterSync();
+
+    const bob = await bootstrapUser(browserBob, 'Bob', 'Bob Tag Matrix');
+    contextBob = bob.context;
+    pageBob = bob.page;
+    await pageBob.click('.chatroom-item:has-text("Global")');
+    await afterSync();
+
+    const tomId = await pageTom.evaluate(() => (window as any).__iinpublic_app.getApp().currentUser.id);
+    const [created] = await createTalksFromCompanyPage(pageTom, [buildTagTalkPayload(tomId, TAG_TITLE)]);
+    await pageTom.click('.nav-btn[data-view="chatrooms"]');
+    await afterSync();
+    await waitForDistinctGunPeersExcludingSelf(pageTom, 2, 120_000);
+    await clickBroadcastUntilBulkAck(pageTom);
+
+    await completeTalkInAppByAnswerIds(
+      pageJerry,
+      created.talkId,
+      created.talkData,
+      tagMatchAnswerIds(),
+      'match',
+    );
+    await completeTalkInAppByAnswerIds(
+      pageBob,
+      created.talkId,
+      created.talkData,
+      tagIgnoreAnswerIds(),
+      'mismatch',
+    );
+
+    await waitForStatusBarMatchCountAtLeast(pageTom, 1, 120_000);
+
+    await pageJerry.click('.nav-btn[data-view="me"]');
+    await waitForTabActive(pageJerry, 'me');
+    await afterSync();
+    await expect(pageJerry.locator('#answers-content').getByText(TAG_TITLE).first()).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(pageJerry.locator('#answers-content').getByText(/Match/i).first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await pageBob.click('.nav-btn[data-view="me"]');
+    await waitForTabActive(pageBob, 'me');
+    await afterSync();
+    await expect(pageBob.locator('#answers-content').getByText(TAG_TITLE).first()).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(pageBob.locator('#answers-content').getByText(/Mismatch/i).first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await afterAction();
+  });
+});

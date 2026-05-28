@@ -66,3 +66,10 @@ export function flowIgnoreAnswerIds(): string[] {
 export function tagMatchAnswerIds(): string[] {
   return ['tag_match'];
 }
+
+export function tagIgnoreAnswerIds(): string[] {
+  return ['tag_ignore'];
+}
+
+export const LIFECYCLE_FLOW_MATCH_TEXT = 'Yes, lets meet.';
+export const LIFECYCLE_FLOW_IGNORE_TEXT = 'No thanks.';

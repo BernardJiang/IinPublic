@@ -115,8 +115,10 @@ contacts, and Me answer ownership instead of relying on isolated happy paths.
   the editor and verify title, language, type, expiry/location settings, and creator self-selected
   question/answer pairs appear in the creator's OUT list and Me answer/history surface as designed.
   Verify editing preserves language, branches, self answers, and targeting settings.
-**Shipped (partial):** stranger-before-match Contacts label via `talk-lifecycle-fixtures.ts` and
-`00u-talk-lifecycle-stranger-match.spec.ts` (see [completed.md](completed.md)).
+**Shipped (partial):** stranger-before-match Contacts label (`00u`), flow/tag multi-responder
+match+mismatch matrix (`00w`, `00z`), shared fixtures and `talk-lifecycle-e2e.ts`; script
+`npm run test:e2e:phase-d4` (see [completed.md](completed.md)). Survey/route branches, intake-filtered
+peer in matrix, and full creator-edit coverage remain open.
 
 - **Pre-answer relationship state.** Send a talk to eligible peers and verify the recipient sees it
   in IN, while any newly discoverable user/contact surface labels the unestablished peer

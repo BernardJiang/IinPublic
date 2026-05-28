@@ -12,6 +12,19 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-27 - Phase D4 Talk Lifecycle Multi-Responder Matrix (E2E, partial)
+
+Flow and tag talks with two responders (match + mismatch) now assert isolated conversations,
+Contacts stranger labeling, Me answer ownership per responder, and creator reply triage rows per
+outcome. Builds on `talk-lifecycle-fixtures.ts` and `talk-lifecycle-e2e.ts`.
+
+Evidence:
+
+- `tests/e2e/staged/stage3-three-user/00w-talk-lifecycle-flow-multi-responder.spec.ts`
+- `tests/e2e/staged/stage3-three-user/00z-talk-lifecycle-tag-multi-responder.spec.ts`
+- `tests/e2e/staged/stage3-three-user/00u-talk-lifecycle-stranger-match.spec.ts`
+- Script: `npm run test:e2e:phase-d4`
+
 ## 2026-05-27 - Phase D2 Chinese UI Localization Proof (E2E)
 
 App UI language (`zh`/`en`) re-renders navigation and main-tab chrome immediately, persists across
