@@ -25,6 +25,30 @@ Evidence:
 - `tests/e2e/staged/stage3-three-user/00u-talk-lifecycle-stranger-match.spec.ts`
 - Script: `npm run test:e2e:phase-d4`
 
+## 2026-05-27 - Phase D5 High-Volume Reply Triage Matrix (E2E)
+
+Expanded creator reply triage browser proof to a deterministic 10×10 matrix (100 replies) with
+query filters, outcome/relationship filters, match- and talk-based sorting, weighted score ordering,
+clear-filter restoration, and sort persistence after tab navigation.
+
+Evidence:
+
+- `tests/e2e/staged/stage3-three-user/00v-creator-reply-triage-matrix.spec.ts`
+- `tests/e2e/helpers/creator-reply-matrix.ts`
+- Script: `npm run test:e2e:phase-d5`
+
+## 2026-05-27 - Phase D6 Tab Sweep Bundle Script
+
+Added a dedicated D6 script that runs the tab-sweep smoke, navigation/settings durability checks, and
+Chinese traversal proof together as one sweep entrypoint.
+
+Evidence:
+
+- `tests/e2e/staged/stage1-single-user/00x-tab-sweep-smoke.spec.ts`
+- `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+- `tests/e2e/staged/stage1-single-user/00y-chinese-ui-traversal.spec.ts`
+- Script: `npm run test:e2e:phase-d6`
+
 ## 2026-05-27 - Phase D2 Chinese UI Localization Proof (E2E)
 
 App UI language (`zh`/`en`) re-renders navigation and main-tab chrome immediately, persists across

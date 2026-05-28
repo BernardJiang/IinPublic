@@ -200,8 +200,8 @@ resulting 100 reply records without losing identity, talk, relationship, or outc
   visibility, hidden reputation, support-channel isolation, local-only answer ownership, and
   language/content-filter privacy. Aggregates should not reveal a filtered user's private answer
   body merely because their rejected delivery is counted.
-**Shipped (partial):** creator reply triage UI, 10×10 API integration proof, 6×6 browser matrix E2E
-(`npm run test:e2e:phase-d`) — see [completed.md](completed.md).
+**Shipped (partial):** creator reply triage UI, 10×10 API integration proof, and 10×10 browser
+matrix E2E (`npm run test:e2e:phase-d5`) — see [completed.md](completed.md).
 
 - **High-volume E2E proof script.** Create 10 distinct talks for one creator, deliver them to 10
   users, and generate a controlled 100-reply matrix containing match, mismatch, ignore, different
@@ -227,7 +227,8 @@ documented, test-proven filters/sorts without missing, duplicating, or exposing 
 Purpose: close UI details revealed while traversing the app. The longer feature backlog below
 remains binding; this is the implementation sequence for its visible outcomes.
 
-**Shipped (partial):** `00x-tab-sweep-smoke.spec.ts` — see [completed.md](completed.md).
+**Shipped (partial):** tab-sweep/navigation/localization smoke bundle
+(`npm run test:e2e:phase-d6`) — see [completed.md](completed.md).
 
 #### Chatrooms
 
