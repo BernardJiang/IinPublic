@@ -12,29 +12,6 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
-## 2026-05-28 - Phase D2 Localization Edge Surface Hardening
-
-Status bar user/match count were rendering with hardcoded English strings (`'user'`, `'users'`, `'match'`, `'matches'`). Fixed by adding `statusBarUser/Users/Match/Matches` translation keys to both EN and ZH catalogs, updating `updateStatusBar()` to call `tf()`, and storing the base text in `data-status-bar-base` so `syncStatusBarMatchCount()` does not depend on an English-only regex.
-
-Evidence:
-- `src/web/ui/ui-translations.ts` — 4 new keys in EN + ZH
-- `src/web/ui/ui-manager.ts` — `updateStatusBar` + `syncStatusBarMatchCount` now use `tf()`
-- `tests/e2e/staged/stage1-single-user/00z-chinese-edge-notifications.spec.ts` — verifies status bar, broadcast preamble modal, and chatroom create modal in Chinese
-- Commit: 3ffd31d
-
-## 2026-05-28 - Phase D4 Talk Lifecycle Multi-Responder Matrix (E2E, complete)
-
-Survey, route, and intake-filtered responder cases added to the D4 matrix:
-- Survey talk: two responders, aggregate stats ≥2, no match badge, Me tab entry per responder.
-- Route talk: engineer branch yields isMatch, no-job branch yields isIgnore; creator sees 1 match.
-- Intake-filtered: Bob blocks flow type server-side; only Jerry's match reaches creator; Bob's IN list stays empty.
-
-Evidence:
-- `tests/e2e/staged/stage3-three-user/00aa-talk-lifecycle-survey-multi-responder.spec.ts`
-- `tests/e2e/staged/stage3-three-user/00ab-talk-lifecycle-route-multi-responder.spec.ts`
-- `tests/e2e/staged/stage3-three-user/00ac-talk-lifecycle-intake-filtered-responder.spec.ts`
-- Commit: 287fe4e
-
 ## 2026-05-27 - Phase D4 Talk Lifecycle Multi-Responder Matrix (E2E, partial)
 
 Flow and tag talks with two responders (match + mismatch) now assert isolated conversations,
