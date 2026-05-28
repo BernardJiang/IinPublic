@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-05-27
+Last updated: 2026-05-28
 
 This file is the short, execution-oriented plan.
 - Completed work: `docs/completed.md`
@@ -14,17 +14,13 @@ No active P2P phase is pending in this TODO. Current focus is app-detail complet
 
 ## Next Action Items (Ordered)
 
-1. **D4 remaining lifecycle matrix**
-   - Add survey/route lifecycle specs (branch outcomes + context-path ownership in Me).
-   - Add intake-filtered peer case in multi-responder matrix.
-   - Add creator edit/state-preservation checks (OUT/IN/Contacts/Me consistency).
-2. **D2 localization hardening**
+1. **D2 localization hardening**
    - Audit edge notifications, modals, and support-only flows for unexpected English fallback.
-3. **D3 filter diagnostics hardening**
+2. **D3 filter diagnostics hardening**
    - Improve language-aware grammar/dirty-word policy.
    - Expose `intake_dirty_words` in filtered-count diagnostics.
    - Stabilize distance preamble copy when receiver location is not yet synced.
-4. **D5/D6 completion follow-through**
+3. **D5/D6 completion follow-through**
    - Extend ranking/triage behavior to remaining tab-specific acceptance items.
    - Close remaining cross-tab consistency checks listed in the backlog inventory.
 
@@ -39,8 +35,8 @@ No active P2P phase is pending in this TODO. Current focus is app-detail complet
 - **Remaining:** richer dirty-word/grammar policy, visible dirty-word diagnostics, distance preamble timing polish.
 
 ### Phase D4 - Exhaustive Talk Lifecycle and Matching Matrix
-- **Shipped (partial):** `00u`, `00w`, `00z`, `talk-lifecycle-e2e.ts` (`test:e2e:phase-d4`).
-- **Remaining:** survey/route branches, intake-filtered responder in matrix, full creator-edit lifecycle checks.
+- **Shipped:** `00u`, `00w`, `00z`, `00aa`, `00ab`, `00ac`, `talk-lifecycle-e2e.ts` (`test:e2e:phase-d4`).
+- **Remaining:** creator edit/state-preservation checks (OUT/IN/Contacts/Me consistency after edit+rebroadcast).
 
 ### Phase D5 - High-Volume Reply Triage and Ranking
 - **Shipped (partial):** 10x10 browser matrix + scripts (`test:e2e:phase-d5`).
