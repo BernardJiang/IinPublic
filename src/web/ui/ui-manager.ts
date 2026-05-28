@@ -4721,10 +4721,12 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  showTalkResponseDialog(talk: any, options?: { skipAutoAnswer?: boolean }): void {
+  showTalkResponseDialog(talk: any, options?: { skipAutoAnswer?: boolean; isTalkSuperseded?: boolean; senderName?: string }): void {
     openTalkResponseDialog({
       talk,
       ...(options?.skipAutoAnswer !== undefined ? { skipAutoAnswer: options.skipAutoAnswer } : {}),
+      ...(options?.isTalkSuperseded ? { isTalkSuperseded: true } : {}),
+      ...(options?.senderName ? { senderName: options.senderName } : {}),
       escapeHtml: escapeHtml,
       showNotification: this.showNotification.bind(this),
       completeTalk: this.completeTalk.bind(this),
