@@ -12,7 +12,7 @@ import {
   normalizeIdentityText,
   buildTalkIdentityKey,
   canonicalIdentityKeyFromStoredCluster,
-} from '../shared/talk-content-id';
+} from '../shared/cid';
 import {
   bucketKey,
   type TalkResponse,

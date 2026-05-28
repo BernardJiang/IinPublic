@@ -1,6 +1,6 @@
 import type express from 'express';
 import { checkIfIgnore, checkIfMatch } from '../../shared/talk-engine';
-import { buildTalkIdentityKey, canonicalIdentityKeyFromStoredCluster } from '../../shared/talk-content-id';
+import { buildTalkIdentityKey, canonicalIdentityKeyFromStoredCluster } from '../../shared/cid';
 import { computeCIDv1 } from '../../shared/cid';
 import { TALK_CONTENT_HASH_ID } from '../../shared/incoming-talk-ids';
 import {

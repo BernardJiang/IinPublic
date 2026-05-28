@@ -10,7 +10,7 @@ import { LocationPrivacy } from '../../shared/location';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
-import { buildTalkIdentityKey, computeTalkIdFromTalkData } from '../../shared/talk-content-id';
+import { buildTalkIdentityKey, computeTalkIdFromTalkData } from '../../shared/cid';
 import { isDevStageZero } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
 import {

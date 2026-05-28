@@ -11,7 +11,7 @@ import {
 import { EventEmitter } from 'events';
 import { formatTimeAgo, formatExpiration, escapeHtml } from './ui-formatters';
 import { pickLatestTalkIdFromIncomingCluster, isValidTalkId } from '../../shared/incoming-talk-ids';
-import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
+import { computeTalkIdFromTalkData } from '../../shared/cid';
 import {
   buildAnswerPreferenceLookupKey,
   sessionAnswersToQAPairs,

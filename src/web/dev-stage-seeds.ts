@@ -1,4 +1,4 @@
-import { computeTalkIdFromTalkData } from '../shared/talk-content-id';
+import { computeTalkIdFromTalkData } from '../shared/cid';
 import { setMyTalks, type MyTalkMap } from './ui/my-talks-storage';
 
 type StageUser = {

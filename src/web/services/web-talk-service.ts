@@ -2,8 +2,7 @@ import { Talk, BulkSendJob, TargetScope, type Question } from '../../shared/type
 import { FlowCapture } from '../../shared/talk-engine';
 import { WebGunService } from './web-gun-service';
 import { v4 as uuidv4 } from 'uuid';
-import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
-import { computeCIDv1 } from '../../shared/cid';
+import { computeTalkCIDv1, computeCIDv1 } from '../../shared/cid';
 
 export class WebTalkService {
   constructor(
@@ -100,7 +99,7 @@ export class WebTalkService {
     // Stamp each question with a CIDv1 content hash (excludes routing fields)
     talk.questions = await this.stampQuestionCids(talk.questions);
 
-    talk.id = talkData.id || computeTalkIdFromTalkData(talk);
+    talk.id = talkData.id || await computeTalkCIDv1(talk);
 
     console.log('🔍 About to store Talk in Gun.js:', JSON.stringify(talk, null, 2));
 
