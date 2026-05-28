@@ -73,21 +73,16 @@ Current implementation baseline discovered during the audit:
 
 Purpose: make profile/UI language change the actual application language, not just saved metadata.
 
-- **Translation catalog and renderer.** Move hard-coded user-facing strings into localized
-  resources keyed by stable ids. Include the five bottom-nav labels, header/status messages, all
-  tab content, Settings controls, empty states, buttons, validation errors, notifications, talk
-  editor/response dialogs, Contacts/relationship labels, Me/Preferences, storage diagnostics
-  labels intended for users, and TechSupport welcome/support copy.
-- **Chinese first, extensible for every offered language.** Ship complete Chinese resources first
-  and provide a defined fallback for any offered but untranslated language. Do not advertise a
-  fully selectable profile/UI language until its visible catalog is complete.
-- **Immediate and persistent switch.** Selecting Chinese or another complete UI language must
-  re-render the entire current view and navigation immediately, persist after reload and across
-  navigation, and retain stable internal codes such as `zh` for filtering and stored talks.
-- **Localization proof script.** Set the primary UI language to Chinese and traverse Chatrooms,
-  Contacts, Talks, Me, Settings, talk create/respond, contact detail, and notifications; assert
-  translated visible strings, localized language names, no unexpected English fallbacks, stable
-  storage codes, reload persistence, and switching back to English.
+**Shipped (see [completed.md](completed.md)):** English/Chinese UI catalog with immediate re-render;
+App language independent from profile/incoming languages; localized language name display;
+`00y-chinese-ui-traversal.spec.ts` plus extended checks in `00-ui-navigation-settings.spec.ts`
+(`npm run test:e2e:phase-d2`).
+
+**Remaining:**
+
+- Audit remaining reachable surfaces for unexpected English fallbacks (notifications, edge modals,
+  support-only paths) beyond the current traversal specs.
+- Language-specific grammar/dirty-word policy (shared with D3 future work).
 
 Exit criteria: UI language is independent from intake language and every reachable main workflow
 has an automated Chinese traversal.
@@ -458,8 +453,8 @@ inspector, contextual statistics, runtime diagnostics, and related E2E).
 
 ### Cross-Tab Language and Localization
 
-- **Partially implemented: full UI localization (Phase D2).** App language switches the English/Chinese
-  catalog and persists on reload; exhaustive Chinese traversal and zero English-fallback audit remain.
+- **Partially implemented: full UI localization (Phase D2).** Proof script shipped; zero English-fallback
+  audit on edge/support paths remains.
 - **Future work: language-specific grammar and dirty-word filtering.** Current filters are simple
   heuristics. Add language-aware content models or dictionaries, per-language test fixtures, and
   clear behavior when a talk language is unknown.

@@ -12,6 +12,20 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-27 - Phase D2 Chinese UI Localization Proof (E2E)
+
+App UI language (`zh`/`en`) re-renders navigation and main-tab chrome immediately, persists across
+reload via `iinpublic_ui_language`, keeps profile/incoming language codes stable, and restores
+English on switch. Dedicated traversal spec covers Chatrooms, Contacts, Talks (editor), Me, and
+Settings; `00-ui-navigation-settings.spec.ts` adds deep modal/notification/storage checks.
+
+Evidence:
+
+- `tests/e2e/staged/stage1-single-user/00y-chinese-ui-traversal.spec.ts`
+- `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts`
+- `src/web/ui/ui-translations.ts`
+- Script: `npm run test:e2e:phase-d2`
+
 ## 2026-05-27 - Feature Backlog Audit (Tab and E2E Infrastructure)
 
 Moved shipped tab features and E2E stage infrastructure from `docs/TODO.md` into this ledger:
