@@ -2069,10 +2069,30 @@ export class IinPublicApp {
         });
         this.uiManager.showNotification(this.uiManager.formatTalkUpdated(), 'success');
         this.uiManager.displayTalksList();
+        // Phase F: emit TALK_SUPERSEDED so peers know this talk was revised.
+        // Since we update in-place (same ID), oldTalkId === newTalkId; the ledger
+        // captures the edit event for chatbot differential answering (REQ-CHATBOT-03).
+        this.ledgerEmit(InteractionKind.TALK_SUPERSEDED, {
+          oldTalkId: data.id,
+          newTalkId: data.id,
+        });
       } catch (error) {
         console.error('Failed to update talk:', error);
         this.uiManager.showNotification(this.uiManager.formatTalkUpdateFailed((error as Error).message), 'error');
       }
+    });
+
+    // Phase F: TALK_WITHDRAWN — emitted when user deletes or disables a talk (REQ-LEDGER-13)
+    // Grace window default: 24h (configurable via TALK_WITHDRAWN_GRACE_MS env var if available)
+    this.uiManager.on('withdrawTalk', (data: { talkId: string }) => {
+      const gracePeriodMs =
+        (typeof process !== 'undefined' && process.env && Number(process.env['TALK_WITHDRAWN_GRACE_MS']) > 0)
+          ? Number(process.env['TALK_WITHDRAWN_GRACE_MS'])
+          : 24 * 60 * 60 * 1000; // 24 hours default
+      this.ledgerEmit(InteractionKind.TALK_WITHDRAWN, {
+        talkId: data.talkId,
+        gracePeriodMs,
+      });
     });
 
     this.uiManager.on(

@@ -5379,6 +5379,8 @@ export class UIManager extends EventEmitter {
     if (!myTalks[talkId]) return;
     myTalks[talkId].disabled = !!disabled;
     setMyTalks(myTalks);
+    // Phase F: disabling broadcast = withdrawing the talk from active delivery
+    if (disabled) this.emit('withdrawTalk', { talkId });
     // Patch visible rows so checkboxes stay in DOM and keep responding (no full list re-render)
     const talksList = document.getElementById('talks-list');
     const rows = talksList?.querySelectorAll(`.talk-list-item[data-talk-id="${talkId}"]`);
@@ -5440,6 +5442,8 @@ export class UIManager extends EventEmitter {
     this.displayTalksList();
     this.displayAnswersList();
     this.showNotification(this.t('talksRemovedFromList'), 'success');
+    // Phase F: notify ledger of withdrawal so peers stop routing this talk
+    this.emit('withdrawTalk', { talkId });
   }
 
   showNotification(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info'): void {
