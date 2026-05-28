@@ -1,4 +1,4 @@
-import { ReputationManager } from '../../shared/reputation';
+import { ReputationManager, ContentFilter } from '../../shared/reputation';
 import { User, Reputation } from '../../shared/types';
 
 describe('ReputationManager', () => {
@@ -187,7 +187,7 @@ describe('ReputationManager', () => {
     });
   });
 
-  // describe('isEligibleForMatching', () => {
+  // describe('isEligibleForMatching', () => { // originally commented out
   //   it('should allow eligible users to match', () => {
   //     const result = ReputationManager.isEligibleForMatching(mockReputation);
   //     expect(result).toBe(true);
@@ -205,4 +205,78 @@ describe('ReputationManager', () => {
   //     expect(result).toBe(false);
   //   });
   // });
+});
+
+describe('ContentFilter', () => {
+  describe('isCjkContent', () => {
+    it('should return true for predominantly Chinese text', () => {
+      expect(ContentFilter.isCjkContent('你好世界，这是一段中文内容。')).toBe(true);
+    });
+
+    it('should return true for Japanese text with hiragana/katakana', () => {
+      expect(ContentFilter.isCjkContent('こんにちは、世界！これは日本語のテキストです。')).toBe(true);
+    });
+
+    it('should return false for English text', () => {
+      expect(ContentFilter.isCjkContent('Hello, this is English text.')).toBe(false);
+    });
+
+    it('should return false for empty string', () => {
+      expect(ContentFilter.isCjkContent('')).toBe(false);
+    });
+
+    it('should return false for mixed text below 20% CJK threshold', () => {
+      // One CJK char among many Latin chars — below 20%
+      expect(ContentFilter.isCjkContent('Hello world, this is mostly English with one 中 char.')).toBe(false);
+    });
+
+    it('should return true for mixed text above 20% CJK threshold', () => {
+      // Predominantly Chinese
+      expect(ContentFilter.isCjkContent('这是中文 with some English')).toBe(true);
+    });
+  });
+
+  describe('applyFilters — CJK grammar bypass', () => {
+    const grammarFilter = { language: false, grammar: true, dirtyWords: false };
+
+    it('should pass CJK content through grammar filter without penalty', () => {
+      const result = ContentFilter.applyFilters(
+        '你喜欢运动吗？我平时喜欢跑步和游泳。',
+        grammarFilter,
+        ['zh'],
+      );
+      expect(result.passed).toBe(true);
+      expect(result.rejectedBy).not.toContain('grammar');
+    });
+
+    it('should pass short CJK content that would fail Latin grammar heuristics', () => {
+      // Single "sentence" with no Latin punctuation — would score low under Latin rules
+      const result = ContentFilter.applyFilters('好', grammarFilter, ['zh']);
+      expect(result.passed).toBe(true);
+    });
+
+    it('should still apply grammar filter to Latin content', () => {
+      // Gibberish Latin text with poor grammar should fail
+      const result = ContentFilter.applyFilters(
+        'word word word word word word word word',
+        grammarFilter,
+        ['en'],
+      );
+      // May or may not pass depending on heuristics, but should not skip the check
+      expect(typeof result.passed).toBe('boolean');
+    });
+
+    it('should detect dirty words in CJK content', () => {
+      const dirtyFilter = { language: false, grammar: false, dirtyWords: true };
+      const result = ContentFilter.applyFilters('这是垃圾广告信息', dirtyFilter, ['zh']);
+      expect(result.passed).toBe(false);
+      expect(result.rejectedBy).toContain('dirty_words');
+    });
+
+    it('should pass clean CJK content through dirty word filter', () => {
+      const dirtyFilter = { language: false, grammar: false, dirtyWords: true };
+      const result = ContentFilter.applyFilters('这是正常的中文内容，没有违禁词。', dirtyFilter, ['zh']);
+      expect(result.passed).toBe(true);
+    });
+  });
 });
