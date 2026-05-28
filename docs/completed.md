@@ -12,6 +12,20 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-28 - Phase D5/D6 Acceptance Closure
+
+Reply triage group-by + date range filter coverage and contacts stranger/relationship coverage added.
+
+Key changes:
+- `00ad-reply-triage-group-date.spec.ts` — verifies group-by responder/talk/day/none, date range filter (future-from → 0 results, past-to → 0 results), clear-filters restores all rows, sort-by-talk-replies, and sort order persists after tab switch.
+- `00ae-contacts-stranger-relationship.spec.ts` — verifies new match appears as "Stranger" in contact list, edit-relationship modal saves "Friend" label correctly, contact meta line updates, sort by relationship and weighted both show contact, and label persists after navigating away and returning.
+- `package.json` — phase-d5 and phase-d6 scripts updated to include new specs.
+
+Evidence:
+- `tests/e2e/staged/stage3-three-user/00ad-reply-triage-group-date.spec.ts`
+- `tests/e2e/staged/stage2-two-user/00ae-contacts-stranger-relationship.spec.ts`
+- Commit: b18ff61
+
 ## 2026-05-28 - Phase D3 Filter Diagnostics Hardening
 
 CJK grammar detection, broadcast preamble localization, and location-pending warning shipped.

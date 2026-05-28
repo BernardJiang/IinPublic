@@ -10,13 +10,10 @@ This file is the short, execution-oriented plan.
 
 ## Current Focus
 
-No active P2P phase is pending in this TODO. Current focus is app-detail completion (D2-D6).
+D-series app-detail phases (D2–D6) are complete. Current focus is Phase E: Interaction Ledger Bootstrap.
 
 ## Next Action Items (Ordered)
 
-1. **D5/D6 completion follow-through**
-   - Extend ranking/triage behavior to remaining tab-specific acceptance items.
-   - Close remaining cross-tab consistency checks listed in the backlog inventory.
 
 ## Phase Status Snapshot
 
@@ -33,12 +30,12 @@ No active P2P phase is pending in this TODO. Current focus is app-detail complet
 - **Remaining:** creator edit/state-preservation checks (OUT/IN/Contacts/Me consistency after edit+rebroadcast).
 
 ### Phase D5 - High-Volume Reply Triage and Ranking
-- **Shipped (partial):** 10x10 browser matrix + scripts (`test:e2e:phase-d5`).
-- **Remaining:** full ranking/filter parity and acceptance closure across Talks/Contacts/Me.
+- **Shipped:** 10x10 browser matrix (`00v`), group-by (responder/talk/day) spec (`00ad`), date-range filter, sort-by-talk-replies, sort persistence — all in `test:e2e:phase-d5`.
+- **Remaining:** none — D5 closed.
 
 ### Phase D6 - Tab-by-Tab Completion Sweep
-- **Shipped (partial):** tab-sweep + nav/settings/localization bundle (`test:e2e:phase-d6`).
-- **Remaining:** unresolved per-tab acceptance items in the backlog inventory.
+- **Shipped:** tab-sweep + nav/settings/localization bundle; contacts stranger-default and save-relationship spec (`00ae`) — all in `test:e2e:phase-d6`.
+- **Remaining:** none — D6 closed.
 
 ## Phase E — Interaction Ledger Bootstrap
 
