@@ -1,7 +1,7 @@
 /**
  * src/web/services/web-ledger-service.ts
  *
- * WebLedgerService — client-side interaction ledger (Phase E).
+ * WebLedgerService — client-side interaction ledger (Phase E + F).
  *
  * Spec: §3.11 REQ-LEDGER-01–14, §14 Phase 4, §20 Interaction Ledger deep-dive.
  *
@@ -17,6 +17,12 @@
  * REQ-LEDGER-10 (migration compat): legacy Gun paths continue to receive
  * writes in parallel during Phase E. Legacy writes are performed by the
  * existing services; this service only writes to the new ledger paths.
+ *
+ * Phase F — Delta Sync (REQ-LEDGER-06):
+ *  - broadcastState()           — write LedgerState to ledger/<userId>/state
+ *  - syncWithPeerById(peerId)   — read peer state, push events they're missing
+ *  - subscribeToInbox()         — watch ledger/<userId>/inbox, ingest incoming deltas
+ *  - startDeltaSync(getPeerIds) — orchestrate broadcast + inbox sub + proactive sync
  */
 
 import { canonicalSerialize, computeCIDv1 } from '../../shared/cid';
@@ -268,5 +274,148 @@ export class WebLedgerService {
     if (typeof c['talkId'] === 'string') return c['talkId'] as string;
     if (typeof c['oldTalkId'] === 'string') return c['oldTalkId'] as string;
     return null;
+  }
+
+  // ─── Phase F: Delta Sync (REQ-LEDGER-06) ─────────────────────────────────────
+
+  /**
+   * Broadcast our current LedgerState to a well-known Gun path so that peers
+   * can read it and compute which events to send us (O(Δ) handshake).
+   *
+   * Written as stateJson (JSON string) to avoid Gun nested-object flattening.
+   * Peers without ledger support simply ignore this path — no breakage.
+   */
+  async broadcastState(): Promise<void> {
+    await this.gunService.put(`ledger/${this.userId}/state`, {
+      stateJson: JSON.stringify(this.getState()),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  /**
+   * Read a single ledger event by feed userId + seq number from Gun.
+   * Returns null when the path is empty or data is malformed.
+   */
+  async getEventBySeq(feedUserId: string, seq: number): Promise<InteractionEvent | null> {
+    try {
+      const raw = await this.gunService.get(`ledger/${feedUserId}/events/${seq}`);
+      if (!raw || typeof raw !== 'object' || !raw.contentJson) return null;
+      return {
+        id: raw.id as string,
+        seq: raw.seq as number,
+        prev: (raw.prev as string | null) ?? null,
+        kind: raw.kind as InteractionKind,
+        pubkey: raw.pubkey as string,
+        timestamp: raw.timestamp as string,
+        content: JSON.parse(raw.contentJson as string),
+        sig: raw.sig as string,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Push the events a peer is missing into their Gun inbox path.
+   *
+   * For each feed in our peerState, compare against their declared seq:
+   * events with seq > theirSeq[feedUserId] are written to
+   * `ledger/<peerId>/inbox/<eventId>` so the peer can ingest them.
+   *
+   * This is a best-effort, fire-and-forget operation; missed events will be
+   * retried on the next peer connection or on next call to startDeltaSync.
+   */
+  async syncWithPeer(peerId: string, theirState: LedgerState): Promise<void> {
+    for (const [feedUserId, ourSeq] of Object.entries(this.peerState)) {
+      const theirSeq: number = theirState[feedUserId] ?? 0;
+      if (ourSeq <= theirSeq) continue; // peer already has everything we do for this feed
+      for (let seq = theirSeq + 1; seq <= ourSeq; seq++) {
+        const event = await this.getEventBySeq(feedUserId, seq);
+        if (!event) continue;
+        // Write to peer inbox — uses event.id as key to ensure idempotency
+        await this.gunService.put(`ledger/${peerId}/inbox/${event.id}`, {
+          eventJson: JSON.stringify(event),
+          deliveredAt: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  /**
+   * Read a peer's broadcasted LedgerState from Gun and push them the events
+   * they are missing from our local peerState.
+   *
+   * No-ops silently when the peer has no `state` path (pre-Phase-F client).
+   */
+  async syncWithPeerById(peerId: string): Promise<void> {
+    try {
+      const raw = await this.gunService.get(`ledger/${peerId}/state`);
+      if (!raw || typeof raw !== 'object' || !raw.stateJson) return;
+      const theirState: LedgerState = JSON.parse(raw.stateJson as string);
+      await this.syncWithPeer(peerId, theirState);
+    } catch {
+      // Non-fatal — peer may not support ledger sync yet
+    }
+  }
+
+  /**
+   * Subscribe to our own Gun inbox for incoming delta events from peers.
+   *
+   * Whenever a peer pushes an event to `ledger/<myUserId>/inbox/<eventId>`,
+   * this callback verifies and ingests it via `ingestRemoteEvent()`.
+   *
+   * Returns an unsubscribe function — call it to stop watching the inbox.
+   */
+  subscribeToInbox(): () => void {
+    return this.gunService.subscribe(`ledger/${this.userId}/inbox`, (data: any) => {
+      if (!data || typeof data !== 'object') return;
+      // Gun delivers the full node — iterate each inbox slot
+      for (const key of Object.keys(data)) {
+        if (key === '_') continue; // Gun metadata key
+        const entry = data[key];
+        if (!entry || typeof entry !== 'object' || !entry.eventJson) continue;
+        try {
+          const event: InteractionEvent = JSON.parse(entry.eventJson as string);
+          // Fire-and-forget: verify + ingest without blocking the Gun callback
+          void this.ingestRemoteEvent(event).catch((err) =>
+            console.warn('[LedgerService] ingestRemoteEvent failed for inbox event', err),
+          );
+        } catch {
+          // Ignore malformed inbox entries
+        }
+      }
+    });
+  }
+
+  /**
+   * Start delta sync for this session:
+   *  1. Broadcast our LedgerState so peers know what to send us.
+   *  2. Subscribe to our inbox for incoming delta events.
+   *  3. Proactively push deltas to each known peer.
+   *
+   * Returns an unsubscribe function that tears down the inbox subscription.
+   * Call it when the user logs out or the app is torn down.
+   *
+   * @param getPeerIds - lazy getter for the current list of known peer userIds.
+   *   Called each time a sync pass runs, so newly added contacts are included.
+   */
+  async startDeltaSync(getPeerIds: () => string[]): Promise<() => void> {
+    // 1. Broadcast our state so peers can compute what to push us
+    await this.broadcastState().catch((e) =>
+      console.warn('[LedgerService] broadcastState failed', e),
+    );
+
+    // 2. Subscribe to inbox for delta events pushed by peers
+    const unsubInbox = this.subscribeToInbox();
+
+    // 3. Proactively sync with known peers (best-effort, non-fatal)
+    const peerIds = getPeerIds();
+    for (const peerId of peerIds) {
+      await this.syncWithPeerById(peerId).catch((e) =>
+        console.warn('[LedgerService] syncWithPeerById failed for', peerId, e),
+      );
+    }
+
+    return unsubInbox;
   }
 }

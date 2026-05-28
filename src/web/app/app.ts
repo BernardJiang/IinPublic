@@ -56,7 +56,44 @@ export class IinPublicApp {
       const pubkey = pair?.pub || '';
       if (!userId || !pubkey) return; // not ready yet — will re-init after user is created
       this.ledgerService = new WebLedgerService(this.gunService, userId, pubkey);
-      void this.ledgerService.loadOwnFeedHead().catch(() => {/* non-fatal */});
+      void this.ledgerService.loadOwnFeedHead()
+        .then(() => this.startLedgerDeltaSync())
+        .catch(() => {/* non-fatal */});
+    } catch {/* non-fatal */}
+  }
+
+  /**
+   * Phase F: Start LEDGER_STATE handshake + O(Δ) delta sync (REQ-LEDGER-06).
+   *
+   * Broadcasts our state so peers know what to send us, subscribes to our inbox
+   * for incoming delta events, and proactively pushes deltas to known contacts.
+   * Also wires the Gun 'hi' event so we re-broadcast whenever a new peer connects.
+   *
+   * All errors are swallowed — delta sync is best-effort and must not block the app.
+   */
+  private startLedgerDeltaSync(): void {
+    if (!this.ledgerService) return;
+    const ledger = this.ledgerService;
+
+    // Lazy getter: returns known contact userIds from the current user's knownPeople list.
+    const getPeerIds = (): string[] => {
+      const known = this.currentUser?.knownPeople ?? [];
+      return known.map((k) => k.userId).filter(Boolean);
+    };
+
+    // Start the inbox subscription + initial proactive sync (fire-and-forget)
+    void ledger.startDeltaSync(getPeerIds).catch((e) =>
+      console.warn('[Ledger] startDeltaSync failed (non-fatal):', e),
+    );
+
+    // Re-broadcast our state whenever a new Gun peer connects (REQ-LEDGER-06 handshake)
+    try {
+      const gun = this.gunService.getGun();
+      if (gun) {
+        gun.on('hi', () => {
+          void ledger.broadcastState().catch(() => {/* non-fatal */});
+        });
+      }
     } catch {/* non-fatal */}
   }
 
