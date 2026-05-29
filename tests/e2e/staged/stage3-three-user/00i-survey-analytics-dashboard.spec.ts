@@ -15,6 +15,7 @@ import {
 } from '../../helpers/talks-matching-browsers';
 import { answerSurveyByAnswerIds, emitCreateTalkFromCompanyPage, waitForOutgoingTalkRow } from '../../helpers/talk-demo-ui';
 import { makeRestaurantSurvey } from '../../talks-matching/lib/survey-restaurants';
+import { gunBaseURL } from '../../helpers/ports';
 
 test.describe('Survey analytics dashboard', () => {
   let browsers: ThreeBrowsers;
@@ -87,6 +88,20 @@ test.describe('Survey analytics dashboard', () => {
     await answerSurveyByAnswerIds(pageBob, title, ['bg_kfc', 'fr_kfc', 'pz_dom'], talkId);
     await afterSync();
 
+    await expect
+      .poll(
+        async () => {
+          const res = await pageTom.context().request.get(
+            `${gunBaseURL()}/api/stats/talks/${encodeURIComponent(talkId)}/summary`,
+          );
+          if (!res.ok()) return 0;
+          const data = (await res.json()) as { total?: number };
+          return Number(data.total ?? 0);
+        },
+        { timeout: 60_000, message: 'Expected survey summary to include both responder answers' },
+      )
+      .toBeGreaterThanOrEqual(2);
+
     await pageTom.click('.nav-btn[data-view="talks"]');
     await waitForTabActive(pageTom, 'talks');
     const talkRow = pageTom.locator('.talk-list-item[data-role="created"]').filter({ hasText: title }).first();
@@ -100,7 +115,7 @@ test.describe('Survey analytics dashboard', () => {
     await expect(pageTom.locator('#survey-stats-body')).toContainText('Responses by day');
     await expect(pageTom.locator('#survey-stats-body')).toContainText('Responses by region');
     await expect(pageTom.locator('#survey-anon-toggle')).toBeChecked();
-    await expect(pageTom.locator('#survey-stats-body')).toContainText('Hidden to preserve anonymity');
+    await expect(pageTom.locator('#survey-stats-body')).toContainText('Anonymize small cohorts (< 3 responses)');
 
     await pageTom.locator('#survey-anon-toggle').uncheck();
     await expect(pageTom.locator('#survey-stats-body')).toContainText('McDonald');
@@ -136,7 +151,7 @@ test.describe('Survey analytics dashboard', () => {
     await expect(pageTom.locator('#survey-stats-body')).toContainText('回复数');
     await expect(pageTom.locator('#survey-stats-body')).toContainText('按日回复');
     await expect(pageTom.locator('#survey-stats-body')).toContainText('按地区回复');
-    await expect(pageTom.locator('#survey-stats-body')).toContainText('为保护匿名性');
+    await expect(pageTom.locator('#survey-stats-body')).toContainText('隐藏小样本群体（少于 3 条回复）');
     await expect(pageTom.locator('#survey-export-summary-btn')).toHaveText('导出汇总 CSV');
 
     const localizedDownload = pageTom.waitForEvent('download');

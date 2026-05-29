@@ -24,6 +24,7 @@ import {
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
 import { makeSurveyTalk } from '../../talks-matching/lib/four-types-talks';
+import { gunBaseURL } from '../../helpers/ports';
 
 const RUN_ID = 900401;
 const SURVEY_TITLE = `E2E FourTypes Survey ${RUN_ID}`;
@@ -123,9 +124,11 @@ test.describe('Talk lifecycle — survey multi-responder matrix (D4)', () => {
       .poll(
         async () => {
           const res = await pageTom!.context().request.get(
-            `/api/stats/talks/${encodeURIComponent(created.talkId)}/summary`,
+            `${gunBaseURL()}/api/stats/talks/${encodeURIComponent(created.talkId)}/summary`,
           );
           if (!res.ok()) return 0;
+          const contentType = (res.headers()['content-type'] || '').toLowerCase();
+          if (!contentType.includes('application/json')) return 0;
           const data = (await res.json()) as { total?: number };
           return Number(data.total ?? 0);
         },

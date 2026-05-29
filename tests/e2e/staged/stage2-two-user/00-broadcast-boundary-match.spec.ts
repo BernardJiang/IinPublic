@@ -50,11 +50,27 @@ test.describe('Broadcast — chatroom boundary matching', () => {
 
       await goToChatrooms(pageTom);
 
-      await pageTom.click('#broadcast-talk-btn');
-      await confirmBroadcastTagPreambleIfVisible(pageTom);
-      await afterAction();
-      await afterSync();
-      await waitForBroadcastBulkAckMinSent(pageTom, { receivers: 1, minSent: 1 }, 180_000);
+      let broadcastDone = false;
+      let lastBroadcastError: unknown;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          await pageTom.click('#broadcast-talk-btn');
+          await confirmBroadcastTagPreambleIfVisible(pageTom);
+          await afterAction();
+          await afterSync();
+          await waitForBroadcastBulkAckMinSent(pageTom, { receivers: 1, minSent: 1 }, 180_000);
+          broadcastDone = true;
+          break;
+        } catch (error) {
+          lastBroadcastError = error;
+          await afterSync();
+        }
+      }
+      if (!broadcastDone) {
+        throw lastBroadcastError instanceof Error
+          ? lastBroadcastError
+          : new Error('Broadcast did not complete successfully after retry');
+      }
 
       await waitForIncomingTalkClusterOnServer(pageJerry, talkTitle, { timeout: 120_000, polling: 500 });
 

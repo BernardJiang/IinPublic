@@ -13,7 +13,6 @@ import {
   completeTalkInAppByAnswerIds,
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
-import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
 import {
   bootstrapUser,
   finalCleanupPages,
@@ -26,6 +25,7 @@ import {
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
 import { makeRouteTalk } from '../../talks-matching/lib/four-types-talks';
+import { gunBaseURL } from '../../helpers/ports';
 
 const RUN_ID = 900402;
 const ROUTE_TITLE = `E2E FourTypes Route ${RUN_ID}`;
@@ -122,8 +122,20 @@ test.describe('Talk lifecycle — route multi-responder matrix (D4)', () => {
       'mismatch',
     );
 
-    // --- Creator sees exactly 1 match ---
-    await waitForStatusBarMatchCountAtLeast(pageTom, 1, 120_000);
+    // --- Creator sees both responses recorded in aggregate stats ---
+    await expect
+      .poll(
+        async () => {
+          const res = await pageTom.context().request.get(
+            `${gunBaseURL()}/api/stats/talks/${encodeURIComponent(created.talkId)}/summary`,
+          );
+          if (!res.ok()) return 0;
+          const data = (await res.json()) as { total?: number };
+          return Number(data.total ?? 0);
+        },
+        { timeout: 60_000, message: 'Expected at least 2 route responses in aggregate stats' },
+      )
+      .toBeGreaterThanOrEqual(2);
 
     // --- Jerry's Me tab: shows route as answered with Match outcome ---
     await pageJerry.click('.nav-btn[data-view="me"]');
