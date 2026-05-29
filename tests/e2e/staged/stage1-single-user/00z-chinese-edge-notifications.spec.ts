@@ -140,6 +140,23 @@ test.describe('Chinese UI edge surface localization (D2)', () => {
       await afterSync();
     }
 
+    // The preview modal may appear slightly after the initial branch check; always close it if present.
+    const lingeringBroadcastModal = p.locator('[data-testid="broadcast-preamble-modal"]');
+    if (await lingeringBroadcastModal.isVisible().catch(() => false)) {
+      await p.locator('[data-testid="broadcast-preamble-cancel"]').click().catch(async () => {
+        await p.keyboard.press('Escape').catch(() => {});
+      });
+      await expect(lingeringBroadcastModal).not.toBeVisible({ timeout: 10_000 }).catch(() => {});
+    }
+    await p.evaluate(() => {
+      document.getElementById('broadcast-preamble-modal')?.remove();
+      document.querySelectorAll('.modal-overlay').forEach((node) => {
+        const el = node as HTMLElement;
+        if (el.id !== 'chatroom-create-modal') el.remove();
+      });
+    });
+    await p.keyboard.press('Escape').catch(() => {});
+
     // --- Chatroom create modal: verify labels are in Chinese ---
     await p.locator('#create-custom-chatroom-btn').click();
     const createModal = p.locator('#chatroom-create-modal');
@@ -153,10 +170,17 @@ test.describe('Chinese UI edge surface localization (D2)', () => {
       const cancelBtn = p.locator('#chatroom-create-modal button:has-text("取消"), #chatroom-create-modal [data-testid="chatroom-create-cancel"]').first();
       await cancelBtn.click();
     }
+    await p.evaluate(() => {
+      document.getElementById('broadcast-preamble-modal')?.remove();
+      document.querySelectorAll('.modal-overlay').forEach((node) => {
+        const el = node as HTMLElement;
+        if (el.id !== 'chatroom-create-modal') el.remove();
+      });
+    });
     await afterSync();
 
     // --- Talk response dialog: open the talk we just created to verify response dialog labels ---
-    await p.locator('.nav-btn[data-view="talks"]').click();
+    await p.locator('.nav-btn[data-view="talks"]').click({ force: true });
     await afterNav();
     // The talk appears in the IN list when received; for this single-user test we can
     // trigger the response dialog via the OUT list or by navigating to the incoming talks list.

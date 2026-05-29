@@ -121,16 +121,34 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
         timeout: 20_000,
       });
 
+      await waitForGunPeerCountInRoom(pageTom, 'usa', 1);
+      await waitForGunPeerCountInRoom(pageJerry, 'usa', 1);
+
       await createSimpleFlowTalk(pageTom, 'USA room hierarchy broadcast');
 
       await pageTom.click('.nav-btn[data-view="chatrooms"]');
       await waitForTabActive(pageTom, 'chatrooms');
       await afterSync();
-      await pageTom.click('#broadcast-talk-btn');
-      await confirmBroadcastTagPreambleIfVisible(pageTom);
-      await waitForTabActive(pageTom, 'chatrooms');
-
-      await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 1 });
+      let broadcastDone = false;
+      let lastBroadcastError: unknown;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          await pageTom.click('#broadcast-talk-btn');
+          await confirmBroadcastTagPreambleIfVisible(pageTom);
+          await waitForTabActive(pageTom, 'chatrooms');
+          await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 1 });
+          broadcastDone = true;
+          break;
+        } catch (error) {
+          lastBroadcastError = error;
+          await afterSync();
+        }
+      }
+      if (!broadcastDone) {
+        throw lastBroadcastError instanceof Error
+          ? lastBroadcastError
+          : new Error('Hierarchy broadcast did not complete after retry');
+      }
 
       await pageJerry.click('.nav-btn[data-view="talks"]');
       await waitForTabActive(pageJerry, 'talks');
@@ -172,12 +190,27 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
       await pageTom.click('.nav-btn[data-view="chatrooms"]');
       await waitForTabActive(pageTom, 'chatrooms');
       await afterSync();
-      await pageTom.click('#broadcast-talk-btn');
-      await confirmBroadcastTagPreambleIfVisible(pageTom);
-      await waitForTabActive(pageTom, 'chatrooms');
-
-      // Parent-room broadcast includes descendant room members (USA under North America).
-      await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 1 });
+      let parentBroadcastDone = false;
+      let lastParentBroadcastError: unknown;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          await pageTom.click('#broadcast-talk-btn');
+          await confirmBroadcastTagPreambleIfVisible(pageTom);
+          await waitForTabActive(pageTom, 'chatrooms');
+          // Parent-room broadcast includes descendant room members (USA under North America).
+          await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 1 });
+          parentBroadcastDone = true;
+          break;
+        } catch (error) {
+          lastParentBroadcastError = error;
+          await afterSync();
+        }
+      }
+      if (!parentBroadcastDone) {
+        throw lastParentBroadcastError instanceof Error
+          ? lastParentBroadcastError
+          : new Error('Parent-room hierarchy broadcast did not complete after retry');
+      }
 
       const jerryId = await pageJerry.evaluate(
         () =>

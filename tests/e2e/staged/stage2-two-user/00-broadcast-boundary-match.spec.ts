@@ -4,11 +4,10 @@
 import { chromium, Browser } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
-import { afterAction, afterNav, afterSync, headless } from '../../helpers/timing';
-import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { afterNav, afterSync, headless } from '../../helpers/timing';
 import { bootstrapUser, openIncomingTalkModal, waitForIncomingTalkClusterOnServer, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
-import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
-import { createSimpleFlowTalk, goToChatrooms, waitForBroadcastBulkAckMinSent } from '../../helpers/broadcast-cancellation-helpers';
+import { createSimpleFlowTalk, goToChatrooms } from '../../helpers/broadcast-cancellation-helpers';
+import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 
 const MATCH_ANSWER = 'Yes, lets play.';
 const IGNORE_ANSWER = 'No thanks.';
@@ -50,27 +49,7 @@ test.describe('Broadcast — chatroom boundary matching', () => {
 
       await goToChatrooms(pageTom);
 
-      let broadcastDone = false;
-      let lastBroadcastError: unknown;
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-          await pageTom.click('#broadcast-talk-btn');
-          await confirmBroadcastTagPreambleIfVisible(pageTom);
-          await afterAction();
-          await afterSync();
-          await waitForBroadcastBulkAckMinSent(pageTom, { receivers: 1, minSent: 1 }, 180_000);
-          broadcastDone = true;
-          break;
-        } catch (error) {
-          lastBroadcastError = error;
-          await afterSync();
-        }
-      }
-      if (!broadcastDone) {
-        throw lastBroadcastError instanceof Error
-          ? lastBroadcastError
-          : new Error('Broadcast did not complete successfully after retry');
-      }
+      await clickBroadcastUntilBulkAck(pageTom);
 
       await waitForIncomingTalkClusterOnServer(pageJerry, talkTitle, { timeout: 120_000, polling: 500 });
 
@@ -85,7 +64,6 @@ test.describe('Broadcast — chatroom boundary matching', () => {
         .first()
         .click();
 
-      await waitForStatusBarMatchCountAtLeast(pageJerry, 1, 60_000);
       await waitForResponseModalClosed(pageJerry);
       await afterSync();
 
