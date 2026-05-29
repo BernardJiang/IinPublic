@@ -2,7 +2,7 @@ import {
   buildAnswerPreferenceLookupKey,
   sessionAnswersToQAPairs,
 } from '../../shared/flattened-answer-keys';
-import { computeTalkIdFromTalkData } from '../../shared/cid';
+import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
 
 describe('flattened-answer-keys', () => {
   const multiTalkA = {

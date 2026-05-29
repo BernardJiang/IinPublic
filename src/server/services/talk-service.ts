@@ -4,7 +4,7 @@ import { GunService } from './gun-service';
 import { ReputationService } from './reputation-service';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../logger';
-import { computeTalkCIDv1 } from '../../shared/cid';
+import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
 
 export class TalkService {
   constructor(
@@ -26,7 +26,7 @@ export class TalkService {
       isTemplate: talkData.isTemplate || false,
       usageCount: 0
     };
-    talk.id = talkData.id || await computeTalkCIDv1(talk);
+    talk.id = talkData.id || computeTalkIdFromTalkData(talk);
 
     // Validate talk structure
     TalkValidator.validateTalk(talk);

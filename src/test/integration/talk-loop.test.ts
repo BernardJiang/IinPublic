@@ -15,7 +15,7 @@ import { BroadcastTagPopularityStore } from '../../server/services/broadcast-tag
 import { SymmetricTalkEdgeRateLimiter } from '../../server/services/symmetric-talk-edge-rate-limit';
 import { DailyWeeklyTalkEdgeQuotaRateLimiter } from '../../server/services/daily-weekly-talk-edge-quota-rate-limit';
 import { checkIfMatch } from '../../shared/talk-engine';
-import { buildTalkIdentityKey } from '../../shared/cid';
+import { buildTalkIdentityKey } from '../../shared/talk-content-id';
 import { TALK_CONTENT_HASH_ID } from '../../shared/incoming-talk-ids';
 import { getDefaultTalkIntakeFilters } from '../../shared/talk-intake-filters';
 import { bucketKey, type TalkResponse, type TalkType } from '../../shared/talk-stats';

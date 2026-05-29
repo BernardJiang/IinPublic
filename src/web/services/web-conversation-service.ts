@@ -13,28 +13,11 @@ export type SendMessageOptions = {
 export type ConversationTransport = {
   mode: ConversationTransportMode;
   sendMessage(conversationId: string, senderId: string, text: string, opts?: SendMessageOptions): Promise<void>;
-  /**
-   * Subscribe to messages in a conversation.
-   * @param myUserId — when provided, the transport tracks the latest message from
-   *   the other participant so it can be attached as `prevSeen` on outgoing messages
-   *   (REQ-LEDGER-08 two-writer DAG).
-   */
-  subscribeToMessages(
-    conversationId: string,
-    callback: (messages: Message[]) => void,
-    myUserId?: string,
-  ): () => void;
+  subscribeToMessages(conversationId: string, callback: (messages: Message[]) => void): () => void;
 };
 
 class StarGunConversationTransport implements ConversationTransport {
   mode: ConversationTransportMode = 'star-gun';
-
-  /**
-   * Tracks the most-recent message id from the *other* participant, keyed by
-   * `${conversationId}:${myUserId}`. Updated by subscribeToMessages when
-   * myUserId is provided; read by sendMessage to populate prevSeen.
-   */
-  private lastSeenFromOther = new Map<string, string>();
 
   constructor(private gunService: WebGunService) {}
 
@@ -72,10 +55,6 @@ class StarGunConversationTransport implements ConversationTransport {
     const gun = this.gunService.getGun();
     const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    // Two-writer DAG (REQ-LEDGER-08): attach the last message id from the other
-    // participant that this sender had observed. Updated by subscribeToMessages.
-    const prevSeen = this.lastSeenFromOther.get(`${conversationId}:${senderId}`) ?? undefined;
-
     let payloadText = text;
     let messageData: Record<string, unknown> = {
       id: messageId,
@@ -84,7 +63,6 @@ class StarGunConversationTransport implements ConversationTransport {
       timestamp: new Date().toISOString(),
       channel,
       transport: this.mode,
-      ...(prevSeen !== undefined ? { prevSeen } : {}),
     };
 
     if (channel !== 'public') {
@@ -110,19 +88,14 @@ class StarGunConversationTransport implements ConversationTransport {
         timestamp: new Date().toISOString(),
         channel,
         transport: this.mode,
-        ...(prevSeen !== undefined ? { prevSeen } : {}),
       };
     }
 
     gun.get(`conversations/${conversationId}`).get('messages').get(messageId).put(messageData);
-    console.log(`📤 Message sent in conversation ${conversationId} (${channel}, ${this.mode})${prevSeen ? ` prevSeen=${prevSeen}` : ''}`);
+    console.log(`📤 Message sent in conversation ${conversationId} (${channel}, ${this.mode})`);
   }
 
-  subscribeToMessages(
-    conversationId: string,
-    callback: (messages: Message[]) => void,
-    myUserId?: string,
-  ): () => void {
+  subscribeToMessages(conversationId: string, callback: (messages: Message[]) => void): () => void {
     const gun = this.gunService.getGun();
     const processedMessages = new Set<string>();
 
@@ -136,7 +109,7 @@ class StarGunConversationTransport implements ConversationTransport {
 
         processedMessages.add(messageId);
         setTimeout(() => {
-          void this.collectAndDecryptMessages(conversationId, processedMessages, callback, myUserId);
+          void this.collectAndDecryptMessages(conversationId, processedMessages, callback);
         }, 300);
       });
 
@@ -149,7 +122,6 @@ class StarGunConversationTransport implements ConversationTransport {
     conversationId: string,
     processedMessages: Set<string>,
     callback: (messages: Message[]) => void,
-    myUserId?: string,
   ): Promise<void> {
     const gun = this.gunService.getGun();
     const pair = this.gunService.getStoredPair();
@@ -195,22 +167,10 @@ class StarGunConversationTransport implements ConversationTransport {
         timestamp: new Date(msg.timestamp),
         readBy: msg.readBy || [],
         channel: ch,
-        prevSeen: msg.prevSeen ?? undefined,
       });
     }
 
     messagesArray.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-
-    // Two-writer DAG tracking (REQ-LEDGER-08): update lastSeenFromOther so
-    // the next outgoing message from myUserId can carry the correct prevSeen link.
-    if (myUserId) {
-      for (const m of messagesArray) {
-        if (m.senderId && m.senderId !== myUserId) {
-          this.lastSeenFromOther.set(`${conversationId}:${myUserId}`, m.id);
-        }
-      }
-    }
-
     callback(messagesArray);
   }
 }
@@ -295,17 +255,10 @@ export class WebConversationService {
   }
 
   /**
-   * Subscribe to messages in a conversation.
-   * @param myUserId — when provided, the transport tracks the latest message from
-   *   the other participant so it can populate `prevSeen` on outgoing messages
-   *   (REQ-LEDGER-08 two-writer DAG).
+   * Subscribe to messages in a conversation
    */
-  subscribeToMessages(
-    conversationId: string,
-    callback: (messages: Message[]) => void,
-    myUserId?: string,
-  ): () => void {
-    return this.transport.subscribeToMessages(conversationId, callback, myUserId);
+  subscribeToMessages(conversationId: string, callback: (messages: Message[]) => void): () => void {
+    return this.transport.subscribeToMessages(conversationId, callback);
   }
 
   /**

@@ -1,6 +1,6 @@
 import { Talk, Question, Answer, ContextStep, AnswerWithContext } from './types';
 import { TalkStructureError, ValidationError } from './errors';
-import { computeTalkIdFromTalkData } from './cid';
+import { computeTalkIdFromTalkData } from './talk-content-id';
 
 /** Answer record as submitted by the user (e.g. from talk response flow) */
 export interface SubmittedAnswer {

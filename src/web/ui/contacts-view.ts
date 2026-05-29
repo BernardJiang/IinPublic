@@ -583,7 +583,7 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
         const known = knownMap.get(peer.peerId);
         const resolvedStageName = deps.getPeerName(peer.peerId, peer.stageName);
         const displayName = buildDisplayName(resolvedStageName, known);
-        const relationship = known?.label ? formatRelationshipLabel(known, deps) : deps.text('stranger');
+        const relationship = formatRelationshipLabel(known, deps);
         const metrics = rankingMetrics(peer, known, deps);
         const blockedBadge = deps.isBlockedByMe(peer.peerId)
           ? `<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#fff7ed;color:#c2410c;font-size:0.72em;font-weight:700;margin-left:8px;">${deps.text('contactsBlocked')}</span>`

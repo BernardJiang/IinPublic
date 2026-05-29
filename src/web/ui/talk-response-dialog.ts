@@ -16,14 +16,6 @@ type SavedPreference = {
 type TalkResponseDialogOptions = {
   talk: any;
   skipAutoAnswer?: boolean;
-  /**
-   * REQ-CHATBOT-03/04: Set to true when this talk was previously answered and has since
-   * been updated (TALK_SUPERSEDED event received). Forces a review screen with a contextual
-   * banner even when all questions can be auto-filled.
-   */
-  isTalkSuperseded?: boolean;
-  /** Display name of the talk sender — shown in the TALK_SUPERSEDED review banner. */
-  senderName?: string;
   escapeHtml: (text: string) => string;
   showNotification: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
   completeTalk: (talk: any, answers: any[], outcome?: 'match' | 'mismatch') => void;
@@ -46,66 +38,10 @@ type TalkResponseDialogOptions = {
   text?: (key: UiTranslationKey) => string;
 };
 
-/**
- * Pre-scan: try to collect all auto-fill answers for a linear flow/survey talk.
- *
- * Walks the talk question chain (following nextQuestionId / answer.nextQuestionId)
- * using `resolveAnswerPreferenceForTalkQuestion`. Returns the full auto-answer set
- * if every question resolves with mode === 'auto', or null if any question is unanswered
- * or if the talk type is 'tag' (handled separately) or 'route' (branching, skip pre-scan).
- */
-function tryCollectAllAutoAnswers(
-  talk: any,
-  resolveAnswerPreference: TalkResponseDialogOptions['resolveAnswerPreferenceForTalkQuestion'],
-): Array<{ questionId: string; answerId: string; answerText: string; mode: string }> | null {
-  if (!Array.isArray(talk.questions) || talk.questions.length === 0) return null;
-  // Route talks have branching paths — skip pre-scan; let the iterative renderer handle them
-  if (talk.type === 'route') return null;
-
-  const collected: Array<{ questionId: string; answerId: string; answerText: string; mode: string }> = [];
-  let currentQ = talk.questions[0];
-
-  while (currentQ) {
-    const idx = talk.questions.findIndex((q: any) => q.id === currentQ.id);
-    const previousPairs = collected.map((a, i) => ({
-      questionText: talk.questions[i]?.text || '',
-      answerText: a.answerText,
-    }));
-    const pref = resolveAnswerPreference(talk, idx, previousPairs, currentQ, talk.id);
-    if (!pref || pref.mode !== 'auto') return null; // unanswered or manual — can't pre-fill all
-    if (pref.answerId === 'ignore') return null; // ignore-auto is terminal but not a positive flow
-
-    const answer = (currentQ.answers || []).find((a: any) => a.id === pref.answerId);
-    collected.push({
-      questionId: currentQ.id,
-      answerId: pref.answerId,
-      answerText: pref.answerText,
-      mode: 'auto',
-    });
-
-    // Stop at terminal / match / ignore answers
-    if (!answer || answer.isTerminal || answer.isMatch || answer.isIgnore) break;
-
-    // Advance to next question
-    const nextId = answer.nextQuestionId || currentQ.nextQuestionId;
-    if (!nextId) {
-      // Survey: advance linearly
-      const nextIdx = talk.questions.findIndex((q: any) => q.id === currentQ.id) + 1;
-      currentQ = talk.questions[nextIdx] ?? null;
-    } else {
-      currentQ = talk.questions.find((q: any) => q.id === nextId) ?? null;
-    }
-  }
-
-  return collected.length > 0 ? collected : null;
-}
-
 export function showTalkResponseDialog(options: TalkResponseDialogOptions): void {
   const { talk } = options;
   const text = (key: UiTranslationKey, fallback: string): string => options.text?.(key) || fallback;
   const skipAutoAnswer = options.skipAutoAnswer ?? false;
-  const isTalkSuperseded = options.isTalkSuperseded ?? false;
-  const senderName = options.senderName ?? '';
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.id = 'talk-response-modal';
@@ -191,139 +127,6 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
   if (!Array.isArray(talk.questions) || talk.questions.length === 0) {
     options.showNotification(text('responseMissingQuestions', 'Could not load talk (missing questions).'), 'error');
     return;
-  }
-
-  // ── REQ-CHATBOT-02/03/04: Differential review screen ────────────────────────
-  // If all questions can be auto-answered OR the talk was superseded (updated since
-  // last answer), show a review screen instead of silently submitting.
-  // The user must explicitly confirm pre-filled answers — no silent auto-submit.
-  if (!skipAutoAnswer) {
-    const allAutoAnswers = tryCollectAllAutoAnswers(talk, options.resolveAnswerPreferenceForTalkQuestion);
-    const needsReview = isTalkSuperseded || (allAutoAnswers !== null && allAutoAnswers.length > 0);
-
-    if (needsReview) {
-      // Build the review answers — start from auto-filled set (may be partial for superseded)
-      const reviewAnswers: { questionId: string; answerId: string; answerText: string; mode: string }[] =
-        allAutoAnswers ?? [];
-
-      const supersededBanner = isTalkSuperseded
-        ? `<div class="chatbot-review-banner" style="background:#fffbe6;border:1px solid #ffe58f;border-radius:6px;padding:12px 16px;margin-bottom:16px;font-size:0.95em;">
-            ${senderName
-              ? `<strong>${options.escapeHtml(senderName)}</strong> updated this talk.`
-              : 'This talk was updated.'}
-            Your previous answers are pre-filled — please review and answer any new questions.
-           </div>`
-        : '';
-
-      // Render summary rows for pre-filled answers
-      const summaryRows = talk.questions
-        .map((q: any) => {
-          const filled = reviewAnswers.find((a) => a.questionId === q.id);
-          const answersHtml = (q.answers || [])
-            .map((a: any) => {
-              const isSelected = filled?.answerId === a.id;
-              return `<label class="review-answer-option${isSelected ? ' review-answer-selected' : ''}" style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:6px 8px;border-radius:4px;${isSelected ? 'background:#e6f4ff;font-weight:600;' : ''}">
-                <input type="radio" name="review-${q.id}" value="${a.id}"
-                  data-question-id="${q.id}"
-                  data-answer-id="${a.id}"
-                  data-answer-text="${options.escapeHtml(a.text)}"
-                  ${isSelected ? 'checked' : ''} style="accent-color:#1890ff;">
-                ${options.escapeHtml(a.text)}
-                ${isSelected && filled?.mode === 'auto' ? '<span style="font-size:0.8em;color:#888;margin-left:4px;">(pre-filled)</span>' : ''}
-              </label>`;
-            })
-            .join('');
-          return `<div class="review-question-block" style="margin-bottom:18px;">
-            <div style="font-weight:600;margin-bottom:8px;">${options.escapeHtml(q.text)}</div>
-            <div class="review-answers-list">${answersHtml}</div>
-            ${!filled ? `<p style="color:#999;font-size:0.9em;font-style:italic;">— ${text('responseNeedsInput' as UiTranslationKey, 'Please choose an answer')}</p>` : ''}
-          </div>`;
-        })
-        .join('');
-
-      modal.innerHTML = `
-        <div class="modal-content" style="max-width:620px;">
-          <div class="modal-header">
-            <h2 class="modal-title">${options.escapeHtml(talk.title)}</h2>
-            <p style="color:#666;font-size:0.9em;">${text('responseReviewPrompt' as UiTranslationKey, 'Review your answers before submitting')}</p>
-          </div>
-          <div style="padding:20px;">
-            ${supersededBanner}
-            ${summaryRows}
-            <div style="display:flex;gap:12px;margin-top:20px;justify-content:flex-end;">
-              <button type="button" class="btn btn-secondary" id="review-edit-btn">
-                ${text('responseEditAnswers' as UiTranslationKey, 'Edit answers manually')}
-              </button>
-              <button type="button" class="btn btn-primary" id="review-submit-btn">
-                ${text('responseConfirmSubmit' as UiTranslationKey, 'Confirm & Submit')}
-              </button>
-            </div>
-          </div>
-        </div>`;
-
-      document.body.appendChild(modal);
-
-      // Live update reviewAnswers when user selects a radio
-      modal.querySelectorAll<HTMLInputElement>('input[type="radio"]').forEach((radio) => {
-        radio.addEventListener('change', () => {
-          const qId = radio.dataset.questionId!;
-          const aId = radio.dataset.answerId!;
-          const aText = radio.dataset.answerText || '';
-          const idx = reviewAnswers.findIndex((a) => a.questionId === qId);
-          if (idx >= 0) {
-            reviewAnswers[idx] = { questionId: qId, answerId: aId, answerText: aText, mode: 'manual' };
-          } else {
-            reviewAnswers.push({ questionId: qId, answerId: aId, answerText: aText, mode: 'manual' });
-          }
-        });
-      });
-
-      // "Edit manually" — close review, reopen with skipAutoAnswer=true
-      modal.querySelector('#review-edit-btn')?.addEventListener('click', () => {
-        if (document.body.contains(modal)) document.body.removeChild(modal);
-        showTalkResponseDialog({ ...options, skipAutoAnswer: true, isTalkSuperseded: false });
-      });
-
-      // "Confirm & Submit" — validate, save prefs, complete
-      modal.querySelector('#review-submit-btn')?.addEventListener('click', () => {
-        // Check all questions are answered
-        const unanswered = talk.questions.find((q: any) => !reviewAnswers.find((a) => a.questionId === q.id));
-        if (unanswered) {
-          options.showNotification(
-            text('responseAnswerAllQuestions' as UiTranslationKey, 'Please answer all questions before submitting.'),
-            'warning',
-          );
-          return;
-        }
-        // Save preferences and determine outcome
-        const finalAnswers = reviewAnswers.map((a) => ({
-          questionId: a.questionId,
-          answerId: a.answerId,
-          answerText: a.answerText,
-          mode: a.mode as AnswerSelectionMode,
-        }));
-        finalAnswers.forEach((a, i) => {
-          const q = talk.questions.find((tq: any) => tq.id === a.questionId);
-          if (!q) return;
-          options.saveAnswerPreference(
-            talk,
-            talk.id,
-            q,
-            a.answerId,
-            a.answerText,
-            finalAnswers.slice(0, i + 1).map((x) => ({ questionId: x.questionId, answerText: x.answerText })),
-            a.mode as 'auto' | 'manual' | 'permanent',
-          );
-        });
-        // Determine outcome from last answer's flags
-        const lastQ = talk.questions.find((q: any) => finalAnswers.find((a) => a.questionId === q.id && q.answers?.find((ans: any) => ans.id === a.answerId && ans.isMatch)));
-        const outcome = lastQ ? 'match' : 'mismatch';
-        if (document.body.contains(modal)) document.body.removeChild(modal);
-        options.completeTalk(talk, finalAnswers, outcome);
-      });
-
-      return; // Review screen handled — do not fall through to linear flow
-    }
   }
 
   let currentQuestion = talk.questions[0];

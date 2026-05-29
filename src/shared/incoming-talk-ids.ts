@@ -1,7 +1,6 @@
 /**
- * Incoming clusters store talkIds as { [talkId]: isoTimestamp }. Keys may be UUIDs,
- * content-hash ids (`qa_` + 8 hex), or CIDv1 base32 strings (Phase G+).
- * Gun.js may nest or wrap that map.
+ * Incoming clusters store talkIds as { [talkId]: isoTimestamp }. Keys may be UUIDs or
+ * content-hash ids (`qa_` + 8 hex). Gun.js may nest or wrap that map.
  */
 export const TALK_UUID_KEY =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -9,17 +8,11 @@ export const TALK_UUID_KEY =
 /** Content-derived talk id (same as computeTalkIdFromTalkData / server identity key). */
 export const TALK_CONTENT_HASH_ID = /^qa_[0-9a-f]{8}$/i;
 
-/**
- * CIDv1 base32 (multibase 'b' prefix + base32lower alphabet a–z, 2–7).
- * Phase G uses computeTalkCIDv1 which produces ids like bafyreid... (~59 chars).
- */
-export const TALK_CIDv1_ID = /^b[a-z2-7]{50,}$/;
-
-/** UUID, content-hash, or CIDv1 talk id. */
+/** Legacy UUID or content-hash talk id. */
 export function isValidTalkId(id: string | undefined | null): boolean {
   if (typeof id !== 'string') return false;
   const t = id.trim();
-  return TALK_UUID_KEY.test(t) || TALK_CONTENT_HASH_ID.test(t) || TALK_CIDv1_ID.test(t);
+  return TALK_UUID_KEY.test(t) || TALK_CONTENT_HASH_ID.test(t);
 }
 
 /** @deprecated use isValidTalkId */
@@ -28,7 +21,7 @@ export function isTalkUuid(id: string | undefined | null): boolean {
 }
 
 function isTalkIdMapKey(k: string): boolean {
-  return TALK_UUID_KEY.test(k) || TALK_CONTENT_HASH_ID.test(k) || TALK_CIDv1_ID.test(k);
+  return TALK_UUID_KEY.test(k) || TALK_CONTENT_HASH_ID.test(k);
 }
 
 function visitTalkIdsNode(node: unknown, out: Record<string, string>): void {

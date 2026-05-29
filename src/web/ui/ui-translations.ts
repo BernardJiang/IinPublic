@@ -802,11 +802,6 @@ const CATALOG = {
     reasonTagTargeting: 'Audience tag targeting',
     reasonCapacity: 'Sender delivery capacity',
     reasonRateLimit: 'Delivery rate limit',
-    statusBarUser: '{count} user',
-    statusBarUsers: '{count} users',
-    statusBarMatch: '{count} match',
-    statusBarMatches: '{count} matches',
-    filterLocationPending: 'Location not yet synced — distance filter inactive',
   },
   zh: {
     navChatrooms: '聊天室',
@@ -1609,11 +1604,6 @@ const CATALOG = {
     reasonTagTargeting: '受众标签筛选',
     reasonCapacity: '发送容量限制',
     reasonRateLimit: '发送频率限制',
-    statusBarUser: '{count} 位用户',
-    statusBarUsers: '{count} 位用户',
-    statusBarMatch: '{count} 个匹配',
-    statusBarMatches: '{count} 个匹配',
-    filterLocationPending: '位置尚未同步——距离过滤器暂不生效',
   },
 } as const;
 

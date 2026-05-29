@@ -185,14 +185,6 @@ export interface Talk {
 
 export interface Question {
   id: string;
-  /**
-   * CIDv1 content hash of this question's stable content (text + answer ids/texts).
-   * Routing-only fields (next, match-flag) are excluded so that routing changes
-   * do not invalidate chatbot answer caches keyed by this id.
-   * Computed at talk creation/edit time via `computeCIDv1({ text, answers })`.
-   * Optional for backward compatibility with talks created before Phase E.
-   */
-  cidId?: string;
   text: string;
   answers: Answer[];
   nextQuestionId?: string; // for flow (linear) talks
@@ -284,14 +276,6 @@ export interface Message {
   readBy: string[];
   /** Default `public` — other values use SEA with recipient/sender epub */
   channel?: 'public' | 'known' | 'mutual';
-  /**
-   * Two-writer DAG link (REQ-LEDGER-08): the `id` of the last message from the
-   * *other* participant that the sender had observed before composing this
-   * message. Enables causal ordering and offline merge without a central
-   * sequencer — each writer's message tree is a linked list; together they form
-   * a DAG whose merge is deterministic.
-   */
-  prevSeen?: string;
 }
 
 export interface Match {
@@ -333,13 +317,11 @@ export interface Filter {
   language: boolean;
   grammar: boolean;
   dirtyWords: boolean;
-  /** Optional — only required when location-based intake filtering is active. */
-  location?: {
+  location: {
     enabled: boolean;
     maxDistance: number; // in km
   };
-  /** Optional — only required when age-based intake filtering is active. */
-  age?: {
+  age: {
     enabled: boolean;
     minAge: number;
     maxAge: number;
@@ -396,107 +378,3 @@ export interface ConversationEvent {
   data: any;
   timestamp: Date;
 }
-
-// ─── Interaction Ledger (Phase E) ─────────────────────────────────────────────
-
-/**
- * Kinds of interaction events recorded in the ledger.
- * Each kind maps to a distinct ledger entry with its own content schema.
- */
-export enum InteractionKind {
-  TALK_CREATED       = 'TALK_CREATED',
-  TALK_BROADCAST     = 'TALK_BROADCAST',
-  TALK_RECEIVED      = 'TALK_RECEIVED',
-  TALK_ANSWERED      = 'TALK_ANSWERED',
-  TALK_SUPERSEDED    = 'TALK_SUPERSEDED',
-  TALK_WITHDRAWN     = 'TALK_WITHDRAWN',
-  MATCH_CREATED      = 'MATCH_CREATED',
-  CONVERSATION_MSG   = 'CONVERSATION_MSG',
-}
-
-/**
- * A single event in a user's interaction ledger feed.
- *
- * - `id`        CIDv1 of the canonical JSON of all other fields (self-certifying)
- * - `seq`       Monotonically increasing sequence number within this user's feed
- * - `prev`      CIDv1 of the previous event (`null` for the first event)
- * - `kind`      One of InteractionKind
- * - `pubkey`    SEA public key of the event author (for signature verification)
- * - `timestamp` ISO-8601 UTC string at event creation time
- * - `content`   Kind-specific payload (see per-kind type guards below)
- * - `sig`       SEA signature over `canonicalSerialize({ id, seq, prev, kind, pubkey, timestamp, content })`
- */
-export interface InteractionEvent {
-  id: string;          // CIDv1
-  seq: number;
-  prev: string | null; // CIDv1 of preceding event, null for genesis
-  kind: InteractionKind;
-  pubkey: string;
-  timestamp: string;   // ISO-8601 UTC
-  content: InteractionEventContent;
-  sig: string;         // SEA signature
-}
-
-/** Union of all per-kind content shapes */
-export type InteractionEventContent =
-  | TalkCreatedContent
-  | TalkBroadcastContent
-  | TalkReceivedContent
-  | TalkAnsweredContent
-  | TalkSupersededContent
-  | TalkWithdrawnContent
-  | MatchCreatedContent
-  | ConversationMsgContent;
-
-export interface TalkCreatedContent {
-  talkId: string;        // CIDv1 of the talk definition
-  title: string;
-  type: 'flow' | 'tag' | 'survey' | 'route';
-  language: string;
-}
-
-export interface TalkBroadcastContent {
-  talkId: string;
-  recipientCount: number;
-  chatroomIds: string[];
-}
-
-export interface TalkReceivedContent {
-  talkId: string;
-  senderId: string;
-}
-
-export interface TalkAnsweredContent {
-  talkId: string;
-  responseId: string;   // CIDv1 of { talkId, responderId, responseContentJson }
-  outcome: 'match' | 'mismatch' | 'ignore';
-}
-
-export interface TalkSupersededContent {
-  oldTalkId: string;
-  newTalkId: string;
-}
-
-export interface TalkWithdrawnContent {
-  talkId: string;
-  gracePeriodMs: number;
-}
-
-export interface MatchCreatedContent {
-  talkId: string;
-  conversationId: string;
-  otherUserId: string;
-}
-
-export interface ConversationMsgContent {
-  conversationId: string;
-  messageId: string;    // CIDv1 of { conversationId, senderPubkey, content, seq }
-  seq: number;
-}
-
-/**
- * Ledger state snapshot used for delta-sync handshake (REQ-LEDGER-06).
- * Maps userId → highest seq number this peer holds for that user's feed.
- * Peers send only events with seq > the declared value.
- */
-export type LedgerState = Record<string, number>;

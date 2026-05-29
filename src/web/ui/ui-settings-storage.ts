@@ -1,4 +1,4 @@
-import { computeTalkIdFromTalkData } from '../../shared/cid';
+import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
 import type { UiLanguage } from './ui-translations';
 
 export type ChatbotTemplate = {

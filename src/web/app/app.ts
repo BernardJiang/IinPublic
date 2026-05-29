@@ -1,16 +1,15 @@
-import { User, GPSCoordinate, Talk, type Tag, InteractionKind } from '../../shared/types';
+import { User, GPSCoordinate, Talk, type Tag } from '../../shared/types';
 import { KEY_CUSTODY_DEVICE_SECRET_STORAGE, KEY_CUSTODY_STORAGE, WebGunService } from '../services/web-gun-service';
 import { WebUserService } from '../services/web-user-service';
 import { WebChatroomService } from '../services/web-chatroom-service';
 import { WebTalkService } from '../services/web-talk-service';
 import { WebConversationService } from '../services/web-conversation-service';
-import { WebLedgerService } from '../services/web-ledger-service';
 import { UIManager, type BroadcastAudiencePreview } from '../ui/ui-manager';
 import { LocationPrivacy } from '../../shared/location';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
-import { buildTalkIdentityKey, computeTalkIdFromTalkData } from '../../shared/cid';
+import { buildTalkIdentityKey, computeTalkIdFromTalkData } from '../../shared/talk-content-id';
 import { isDevStageZero } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
 import {
@@ -25,8 +24,6 @@ export class IinPublicApp {
   private chatroomService: WebChatroomService;
   private talkService: WebTalkService;
   private conversationService: WebConversationService;
-  /** Interaction ledger (Phase E). Initialized lazily after SEA keypair is ready. */
-  private ledgerService: WebLedgerService | null = null;
   private uiManager: UIManager;
   private currentUser?: User;
   private currentLocation?: GPSCoordinate;
@@ -47,66 +44,6 @@ export class IinPublicApp {
   private travelHomeChatroomId: string | undefined = undefined;
   private travelChatroomId: string | undefined = undefined;
   private supportBootstrapChecked = false;
-
-  /** Initialize the interaction ledger after the SEA keypair is available. */
-  private initLedger(): void {
-    try {
-      const pair = this.gunService.getStoredPair();
-      const userId = this.currentUser?.id || '';
-      const pubkey = pair?.pub || '';
-      if (!userId || !pubkey) return; // not ready yet — will re-init after user is created
-      this.ledgerService = new WebLedgerService(this.gunService, userId, pubkey);
-      void this.ledgerService.loadOwnFeedHead()
-        .then(() => this.startLedgerDeltaSync())
-        .catch(() => {/* non-fatal */});
-    } catch {/* non-fatal */}
-  }
-
-  /**
-   * Phase F: Start LEDGER_STATE handshake + O(Δ) delta sync (REQ-LEDGER-06).
-   *
-   * Broadcasts our state so peers know what to send us, subscribes to our inbox
-   * for incoming delta events, and proactively pushes deltas to known contacts.
-   * Also wires the Gun 'hi' event so we re-broadcast whenever a new peer connects.
-   *
-   * All errors are swallowed — delta sync is best-effort and must not block the app.
-   */
-  private startLedgerDeltaSync(): void {
-    if (!this.ledgerService) return;
-    const ledger = this.ledgerService;
-
-    // Lazy getter: returns known contact userIds from the current user's knownPeople list.
-    const getPeerIds = (): string[] => {
-      const known = this.currentUser?.knownPeople ?? [];
-      return known.map((k) => k.userId).filter(Boolean);
-    };
-
-    // Start the inbox subscription + initial proactive sync (fire-and-forget)
-    void ledger.startDeltaSync(getPeerIds).catch((e) =>
-      console.warn('[Ledger] startDeltaSync failed (non-fatal):', e),
-    );
-
-    // Re-broadcast our state whenever a new Gun peer connects (REQ-LEDGER-06 handshake)
-    try {
-      const gun = this.gunService.getGun();
-      if (gun) {
-        gun.on('hi', () => {
-          void ledger.broadcastState().catch(() => {/* non-fatal */});
-        });
-      }
-    } catch {/* non-fatal */}
-  }
-
-  /**
-   * Fire-and-forget ledger event emission.
-   * Errors are swallowed so that ledger failures never block the main flow.
-   */
-  private ledgerEmit(kind: InteractionKind, content: Record<string, unknown>): void {
-    if (!this.ledgerService) return;
-    void this.ledgerService.appendEvent(kind, content as any).catch((err) => {
-      console.warn('[Ledger] appendEvent failed (non-fatal):', kind, err);
-    });
-  }
 
   private buildChatroomTalkAnnouncementKey(logicalTalkId: string, authorId: string): string {
     return `${logicalTalkId}__${authorId}`;
@@ -132,9 +69,6 @@ export class IinPublicApp {
     // here — clearing the graph before SEA auth breaks gun.user().auth()).
     await this.gunService.initialize();
     await this.gunService.ensureKeypairAndAuth();
-
-    // Phase E: initialize ledger after SEA keypair is established
-    this.initLedger();
 
     // Initialize UI
     this.uiManager.initialize();
@@ -266,9 +200,6 @@ export class IinPublicApp {
 
     // Store whether this is a new user for welcome banner
     (this as any).isNewUser = isNewUser;
-
-    // Phase E: re-initialize ledger now that currentUser is known (userId was not available earlier)
-    this.initLedger();
 
     // Update user location
     if (this.currentLocation) {
@@ -1328,23 +1259,6 @@ export class IinPublicApp {
           }];
         }
         console.log('✅ Talk response stored via server');
-
-        // Phase E: ledger hooks — TALK_ANSWERED + MATCH_CREATED (fire-and-forget)
-        const outcome = serverResult.isMatch ? 'match' : (serverResult as any).isIgnore ? 'ignore' : 'mismatch';
-        this.ledgerEmit(InteractionKind.TALK_ANSWERED, {
-          talkId: data.talkId,
-          responseId: (serverResult as any).responseId || `resp_${Date.now()}`,
-          outcome,
-        });
-        if (serverResult.isMatch) {
-          for (const match of serverMatches) {
-            this.ledgerEmit(InteractionKind.MATCH_CREATED, {
-              talkId: data.talkId,
-              conversationId: match.conversationId,
-              otherUserId: match.senderId,
-            });
-          }
-        }
       } catch (error) {
         console.warn('Talk response server submit failed, falling back to direct Gun write:', error);
       }
@@ -1854,14 +1768,6 @@ export class IinPublicApp {
 
         console.log('✅ Talk created:', talk);
 
-        // Phase E: ledger hook — TALK_CREATED
-        this.ledgerEmit(InteractionKind.TALK_CREATED, {
-          talkId: talk.id,
-          title: talk.title,
-          type: talk.type,
-          language: talk.language,
-        });
-
         this.uiManager.saveCreatedTalk(talk, {
           selfAnswers: talkData.selfAnswers ?? [],
         });
@@ -1986,7 +1892,7 @@ export class IinPublicApp {
             .getSenderOmittedBroadcastPreviews()
             .filter((preview) => !previewTalkIds.has(preview.talkId));
           const audiencePreviews = [...previews, ...senderOmittedPreviews];
-          if (!(await this.uiManager.confirmBroadcastAudience(audiencePreviews))) {
+          if (audiencePreviews.length > 0 && !(await this.uiManager.confirmBroadcastAudience(audiencePreviews))) {
             this.uiManager.showNotification(this.uiManager.formatBroadcastCancelled(), 'info');
             return;
           }
@@ -2035,15 +1941,6 @@ export class IinPublicApp {
               questionCount: talk.questions?.length ?? 0,
             });
           }
-          // Phase E: ledger hook — TALK_BROADCAST (one event per broadcasted talk)
-          for (const { tid } of talkPayloads.filter(({ tid }) => broadcastableNowForGun.has(tid))) {
-            this.ledgerEmit(InteractionKind.TALK_BROADCAST, {
-              talkId: tid,
-              recipientCount: sent,
-              chatroomIds: [chatroomId],
-            });
-          }
-
           this.uiManager.setBroadcastBulkAck(sent, targetCount);
           this.uiManager.recordBroadcastConversation(
             chatroomId,
@@ -2069,30 +1966,10 @@ export class IinPublicApp {
         });
         this.uiManager.showNotification(this.uiManager.formatTalkUpdated(), 'success');
         this.uiManager.displayTalksList();
-        // Phase F: emit TALK_SUPERSEDED so peers know this talk was revised.
-        // Since we update in-place (same ID), oldTalkId === newTalkId; the ledger
-        // captures the edit event for chatbot differential answering (REQ-CHATBOT-03).
-        this.ledgerEmit(InteractionKind.TALK_SUPERSEDED, {
-          oldTalkId: data.id,
-          newTalkId: data.id,
-        });
       } catch (error) {
         console.error('Failed to update talk:', error);
         this.uiManager.showNotification(this.uiManager.formatTalkUpdateFailed((error as Error).message), 'error');
       }
-    });
-
-    // Phase F: TALK_WITHDRAWN — emitted when user deletes or disables a talk (REQ-LEDGER-13)
-    // Grace window default: 24h (configurable via TALK_WITHDRAWN_GRACE_MS env var if available)
-    this.uiManager.on('withdrawTalk', (data: { talkId: string }) => {
-      const gracePeriodMs =
-        (typeof process !== 'undefined' && process.env && Number(process.env['TALK_WITHDRAWN_GRACE_MS']) > 0)
-          ? Number(process.env['TALK_WITHDRAWN_GRACE_MS'])
-          : 24 * 60 * 60 * 1000; // 24 hours default
-      this.ledgerEmit(InteractionKind.TALK_WITHDRAWN, {
-        talkId: data.talkId,
-        gracePeriodMs,
-      });
     });
 
     this.uiManager.on(
@@ -2270,7 +2147,7 @@ export class IinPublicApp {
       try {
         console.log('📖 Loading conversation:', data.conversationId);
 
-        // Subscribe to messages for this conversation (pass myUserId for prevSeen DAG tracking)
+        // Subscribe to messages for this conversation
         this.conversationService.subscribeToMessages(data.conversationId, (messages) => {
           console.log('📨 Received conversation messages:', messages);
           this.uiManager.displayConversationMessages(data.conversationId, messages);
@@ -2284,7 +2161,7 @@ export class IinPublicApp {
               String(last.timestamp ?? Date.now()),
             );
           }
-        }, this.currentUser?.id);
+        });
       } catch (error) {
         console.error('Failed to load conversation:', error);
         this.uiManager.showNotification(
@@ -2308,13 +2185,6 @@ export class IinPublicApp {
           );
 
           console.log('✅ Conversation message sent');
-
-          // Phase E: ledger hook — CONVERSATION_MSG
-          this.ledgerEmit(InteractionKind.CONVERSATION_MSG, {
-            conversationId: data.conversationId,
-            messageId: `msg_${Date.now()}`,
-            seq: Date.now(),
-          });
         } catch (error) {
           console.error('Failed to send conversation message:', error);
           this.uiManager.showNotification(

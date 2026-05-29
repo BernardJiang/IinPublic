@@ -2,7 +2,7 @@ import {
   computeTalkIdFromTalkData,
   buildTalkIdentityKey,
   DEFAULT_TALK_CONTENT_ID_OPTIONS,
-} from '../../shared/cid';
+} from '../../shared/talk-content-id';
 
 describe('talk-content-id', () => {
   it('produces stable qa_ id for same Q/A content', () => {

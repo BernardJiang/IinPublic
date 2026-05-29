@@ -12,7 +12,7 @@ import {
   normalizeIdentityText,
   buildTalkIdentityKey,
   canonicalIdentityKeyFromStoredCluster,
-} from '../shared/cid';
+} from '../shared/talk-content-id';
 import {
   bucketKey,
   type TalkResponse,
@@ -649,7 +649,7 @@ class IinPublicServer {
     templateEntries: Array<{ questionText: string; answerText: string; mode: string; isChecked: boolean; isIgnore?: boolean }>;
     isAuto: boolean;
   }): Promise<void> {
-    const { responderId, identityKey, language, templateEntries, isAuto } = params;
+    const { responderId, responderName, identityKey, language, answers, templateEntries, isAuto } = params;
     const exactMemory = await readOrCreateExactChatbotMemoryForUser(this.gunService, responderId);
     const languageContext = { language: String(language || 'en').toLowerCase() };
 
@@ -665,18 +665,14 @@ class IinPublicServer {
     }
     await writeExactChatbotMemoryForUser(this.gunService, responderId, exactMemory);
 
-    // Phase G: Legacy Gun write to talkAnswerTemplateByUser/<userId>/<identityKey> removed.
-    // Replaced by per-question cache (talkAnswerTemplateByUser/<userId>/byQuestion/<cidKey>)
-    // written in talk-delivery-routes.ts after fanoutResponseToSenders.
-    // isAnswered / isAutoAnswered are now tracked directly on the in-memory incomingTalksMap cluster.
-    const userMap = this.incomingTalksMap.get(responderId);
-    if (userMap) {
-      const cluster = userMap.get(identityKey);
-      if (cluster) {
-        cluster.isAnswered = true;
-        cluster.isAutoAnswered = isAuto;
-      }
-    }
+    await this.gunService.putPath(['talkAnswerTemplateByUser', responderId, identityKey], {
+      responderId,
+      responderName,
+      answers: JSON.stringify(answers),
+      templateEntries: JSON.stringify(templateEntries),
+      isAuto,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   private async createOrGetConversation(params: {

@@ -3,7 +3,7 @@
  * prior (question, answer) pairs; tag / single-question talks scope by content hash.
  */
 
-import { hashIdentityPayload, normalizeIdentityText } from './cid';
+import { hashIdentityPayload, normalizeIdentityText } from './talk-content-id';
 
 export type QAPair = { questionText: string; answerText: string };
 
