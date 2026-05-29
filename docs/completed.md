@@ -1,6 +1,6 @@
 # IinPublic Completed Work
 
-Last updated: 2026-05-28
+Last updated: 2026-05-29
 
 This is the durable ledger for shipped feature work. Keep `TODO.md` focused on forward work:
 when an item is finished, move it here with a short description and concrete evidence.
@@ -11,6 +11,24 @@ when an item is finished, move it here with a short description and concrete evi
 - Include the date, feature/phase name, user-visible result, and verification evidence.
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
+
+## 2026-05-29 - Fix 7 Failing E2E Tests (Post-Phase-G Regressions)
+
+After Phase G shipped CIDv1 talk IDs, 7 E2E tests regressed. Root causes and fixes:
+
+**`src/shared/incoming-talk-ids.ts`** — `isValidTalkId` and `isTalkIdMapKey` only accepted UUID and `qa_` formats. Added `TALK_CIDv1_ID = /^b[a-z2-7]{50,}$/` and wired it into both functions. This fixed `pickLatestTalkIdFromIncomingCluster` silently returning `''` for CIDv1 IDs, which caused `loadFullTalkViaIncomingIdentity` to return `null` and the response modal to never open. Fixed: `00i` (survey analytics dashboard), `00aa` (survey multi-responder lifecycle), `00ab` (route multi-responder lifecycle).
+
+**`src/web/app/app.ts`** — Removed `audiencePreviews.length > 0 &&` guard from broadcast preamble check. Single-user broadcasts (0 eligible receivers) were skipping `confirmBroadcastAudience`, so the preamble modal never appeared. Fixed: `00z` (Chinese edge notifications / broadcast preamble).
+
+**`src/web/ui/contacts-view.ts`** — Changed `formatRelationshipLabel(known, deps)` (returned "No relationship set" when `known` is undefined) to `known?.label ? formatRelationshipLabel(known, deps) : deps.text('stranger')`. Fixed: `00ae` (contacts stranger relationship default label).
+
+**`src/web/ui/ui-manager.ts`** — Added group-field pre-sort at the top of the comparator in `renderCreatorReplies`. Without it, rows sorted by date interleaved responders across date buckets, producing N×M duplicate group headers (16 instead of 4 in the failing test). Fixed: `00ad` (reply triage group-by date).
+
+**`tests/e2e/staged/stage3-three-user/03-chatbot-bot-badge.spec.ts`** — Widened `talkId` assertion regex from `/^qa_[0-9a-f]{8}$/i` to `/^(qa_[0-9a-f]{8}|b[a-z2-7]{58,})$/i` to accept CIDv1 IDs. Fixed: `03` (chatbot bot badge).
+
+Evidence:
+- `npx tsc --noEmit` → no errors
+- Commit `a6c8b77f84aabd8f931c13808ff749972eb2e798`
 
 ## 2026-05-28 - Phase G: Conversation sub-DAG with prevSeen field (REQ-LEDGER-08)
 
