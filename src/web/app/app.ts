@@ -2270,7 +2270,7 @@ export class IinPublicApp {
       try {
         console.log('📖 Loading conversation:', data.conversationId);
 
-        // Subscribe to messages for this conversation
+        // Subscribe to messages for this conversation (pass myUserId for prevSeen DAG tracking)
         this.conversationService.subscribeToMessages(data.conversationId, (messages) => {
           console.log('📨 Received conversation messages:', messages);
           this.uiManager.displayConversationMessages(data.conversationId, messages);
@@ -2284,7 +2284,7 @@ export class IinPublicApp {
               String(last.timestamp ?? Date.now()),
             );
           }
-        });
+        }, this.currentUser?.id);
       } catch (error) {
         console.error('Failed to load conversation:', error);
         this.uiManager.showNotification(

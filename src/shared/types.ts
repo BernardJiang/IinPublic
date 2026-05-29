@@ -284,6 +284,14 @@ export interface Message {
   readBy: string[];
   /** Default `public` — other values use SEA with recipient/sender epub */
   channel?: 'public' | 'known' | 'mutual';
+  /**
+   * Two-writer DAG link (REQ-LEDGER-08): the `id` of the last message from the
+   * *other* participant that the sender had observed before composing this
+   * message. Enables causal ordering and offline merge without a central
+   * sequencer — each writer's message tree is a linked list; together they form
+   * a DAG whose merge is deterministic.
+   */
+  prevSeen?: string;
 }
 
 export interface Match {
