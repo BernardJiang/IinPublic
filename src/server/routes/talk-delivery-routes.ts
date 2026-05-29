@@ -785,17 +785,14 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
               : TALK_CONTENT_HASH_ID.test(rawKey)
                 ? rawKey
                 : canonicalIdentityKeyFromStoredCluster(cluster);
-          const template = await gunService.getPath([
-            'talkAnswerTemplateByUser',
-            userId,
-            logical,
-          ]);
-          const isAnswered = !!(template && template.answers);
+          // Phase G: isAnswered/isAutoAnswered are now written directly onto the
+          // in-memory cluster by saveUserAnswerTemplateByContent (no Gun read needed).
+          const isAnswered = !!(cluster?.isAnswered);
           return {
             ...cluster,
             identityKey: logical,
             isAnswered,
-            isAutoAnswered: !!template?.isAuto,
+            isAutoAnswered: !!cluster?.isAutoAnswered,
           };
         }),
       );
