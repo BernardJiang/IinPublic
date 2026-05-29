@@ -78,9 +78,6 @@ D-series app-detail phases (D2–D6) are complete. Current focus is Phase E: Int
 > Requires Phase F complete and all clients updated.
 > Spec: §3.3 Phase G, §6.6, §14 Phase 4.
 
-17. **Conversation sub-DAG** (`src/web/services/WebConversationService.ts`)
-    - Add `prevSeen` field to `ConversationMessage`: the `messageId` of the last message the sender has observed from the other party.
-    - Two-writer DAG structure enables causal ordering and offline merge without a central sequencer (REQ-LEDGER-08).
 
 ## Working Rule
 

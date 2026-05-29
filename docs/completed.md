@@ -12,6 +12,24 @@ when an item is finished, move it here with a short description and concrete evi
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
 
+## 2026-05-28 - Phase G: Conversation sub-DAG with prevSeen field (REQ-LEDGER-08)
+
+Added two-writer DAG link to the conversation message layer.
+
+Key changes:
+- `src/shared/types.ts`: `Message.prevSeen?: string` — the `id` of the last message from the *other* participant the sender had observed when composing this message. Creates a causal DAG edge per message enabling offline merge and ordering without a central sequencer.
+- `src/web/services/web-conversation-service.ts`:
+  - `StarGunConversationTransport.lastSeenFromOther` Map keyed by `${conversationId}:${myUserId}` tracks the latest incoming message id from the other party.
+  - `sendMessage()` reads `lastSeenFromOther` and includes `prevSeen` in the Gun message payload.
+  - `subscribeToMessages(conversationId, callback, myUserId?)` and `collectAndDecryptMessages(..., myUserId?)` accept optional `myUserId`; after each message batch, update `lastSeenFromOther` for every message whose `senderId !== myUserId`.
+  - `prevSeen` field carried through `collectAndDecryptMessages` and returned in the `Message` array.
+  - `ConversationTransport` interface updated to document the optional `myUserId` parameter.
+- `src/web/app/app.ts`: `subscribeToMessages(data.conversationId, callback, this.currentUser?.id)` — seeds the tracker from the first batch.
+
+Evidence:
+- `npx tsc --noEmit` → no errors
+- Commit `fd61f6d671b603272c15ce13fe4eab3b4c5492d7`
+
 ## 2026-05-28 - Phase G: Remove Legacy Gun Dual-Writes
 
 Removed the last legacy `talkAnswerTemplateByUser/<userId>/<identityKey>` Gun write that was still firing on every talk answer.
