@@ -1986,7 +1986,7 @@ export class IinPublicApp {
             .getSenderOmittedBroadcastPreviews()
             .filter((preview) => !previewTalkIds.has(preview.talkId));
           const audiencePreviews = [...previews, ...senderOmittedPreviews];
-          if (audiencePreviews.length > 0 && !(await this.uiManager.confirmBroadcastAudience(audiencePreviews))) {
+          if (!(await this.uiManager.confirmBroadcastAudience(audiencePreviews))) {
             this.uiManager.showNotification(this.uiManager.formatBroadcastCancelled(), 'info');
             return;
           }

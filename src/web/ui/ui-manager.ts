@@ -2390,6 +2390,22 @@ export class UIManager extends EventEmitter {
         const bMetrics = metricsByResponder.get(b.responderId)!;
         const aTalk = metricsByTalk.get(a.talkId)!;
         const bTalk = metricsByTalk.get(b.talkId)!;
+        // Pre-sort by group field so contiguous group blocks are formed (prevents duplicate group headers).
+        if (state.group === 'responder') {
+          const g = a.responderName.localeCompare(b.responderName);
+          if (g !== 0) return g;
+        } else if (state.group === 'talk') {
+          const g = a.title.localeCompare(b.title);
+          if (g !== 0) return g;
+        } else if (state.group === 'day') {
+          const g = new Date(a.date).toLocaleDateString().localeCompare(new Date(b.date).toLocaleDateString());
+          if (g !== 0) return g;
+        } else if (state.group === 'relationship') {
+          const aRel = String(this.getKnownPerson(a.responderId)?.label || 'stranger');
+          const bRel = String(this.getKnownPerson(b.responderId)?.label || 'stranger');
+          const g = aRel.localeCompare(bRel);
+          if (g !== 0) return g;
+        }
         if (state.sort === 'oldest') return new Date(a.date).getTime() - new Date(b.date).getTime();
         if (state.sort === 'user') return a.responderName.localeCompare(b.responderName) || a.title.localeCompare(b.title);
         if (state.sort === 'talk') return a.title.localeCompare(b.title) || a.responderName.localeCompare(b.responderName);
