@@ -333,11 +333,13 @@ export interface Filter {
   language: boolean;
   grammar: boolean;
   dirtyWords: boolean;
-  location: {
+  /** Optional — only required when location-based intake filtering is active. */
+  location?: {
     enabled: boolean;
     maxDistance: number; // in km
   };
-  age: {
+  /** Optional — only required when age-based intake filtering is active. */
+  age?: {
     enabled: boolean;
     minAge: number;
     maxAge: number;
