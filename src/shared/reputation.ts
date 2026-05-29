@@ -168,28 +168,48 @@ export class ContentFilter {
     return 'en'; // Default to English
   }
   
+  /**
+   * Return true when content is predominantly CJK (Chinese/Japanese/Korean).
+   * CJK text does not use Latin word boundaries or sentence-ending punctuation,
+   * so Latin grammar heuristics must be bypassed to avoid false rejections.
+   */
+  static isCjkContent(content: string): boolean {
+    if (!content) return false;
+    // Count CJK Unified Ideographs, CJK Extension A/B, Hiragana, Katakana, Hangul
+    const cjkMatches = content.match(/[぀-ヿ㐀-䶿一-鿿가-힯豈-﫿]/g);
+    if (!cjkMatches) return false;
+    // Treat as CJK when at least 20% of non-whitespace chars are CJK ideographs
+    const nonWhitespace = content.replace(/\s/g, '');
+    return nonWhitespace.length > 0 && cjkMatches.length / nonWhitespace.length >= 0.2;
+  }
+
   private static assessGrammar(content: string): number {
-    // Simplified grammar assessment
+    // CJK text does not use Latin sentence structure — skip Latin grammar heuristics
+    // to avoid incorrectly filtering Chinese/Japanese/Korean talks.
+    if (this.isCjkContent(content)) return 1.0;
+
+    // Latin grammar assessment: penalise very short/long sentences, missing
+    // punctuation on longer sentences, and heavy word repetition.
     const sentences = content.match(/[^.!?]+[.!?]?/g)?.filter(s => s.trim()) ?? [];
     if (sentences.length === 0) return 0;
-    
+
     let score = 1.0;
-    
+
     for (const sentence of sentences) {
       const words = sentence.trim().split(/\s+/);
-      
+
       // Penalty for very short or very long sentences
       if (words.length < 2 && sentences.length > 1) score -= 0.1;
       if (words.length > 30) score -= 0.1;
-      
+
       // Check for basic punctuation
       if (words.length > 5 && !/[.!?]$/.test(sentence.trim())) score -= 0.1;
-      
+
       // Check for repeated words
       const wordSet = new Set(words.map(w => w.toLowerCase()));
       if (wordSet.size < words.length * 0.7) score -= 0.1;
     }
-    
+
     return Math.max(0, Math.min(1, score));
   }
   

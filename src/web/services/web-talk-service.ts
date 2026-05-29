@@ -1,8 +1,8 @@
-import { Talk, BulkSendJob, TargetScope } from '../../shared/types';
+import { Talk, BulkSendJob, TargetScope, type Question } from '../../shared/types';
 import { FlowCapture } from '../../shared/talk-engine';
 import { WebGunService } from './web-gun-service';
 import { v4 as uuidv4 } from 'uuid';
-import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
+import { computeTalkCIDv1, computeCIDv1 } from '../../shared/cid';
 
 export class WebTalkService {
   constructor(
@@ -10,6 +10,27 @@ export class WebTalkService {
     /** When set, incomplete Gun reads fall back to GET this host + /api/talks/:id (server graph). */
     private apiBase?: string,
   ) {}
+
+  /**
+   * Compute a stable CIDv1 content hash for each question in the talk.
+   * Only stable content (text + answer ids/texts) is hashed; routing fields
+   * (next, isMatch, isIgnore, isTerminal, branchingLogic) are excluded so that
+   * routing-only edits don't break the per-question chatbot answer cache.
+   *
+   * Updates each question in-place and returns the array.
+   */
+  private async stampQuestionCids(questions: Question[]): Promise<Question[]> {
+    return Promise.all(
+      questions.map(async (q) => {
+        const stable = {
+          text: q.text,
+          answers: (q.answers || []).map((a) => ({ id: a.id, text: a.text })),
+        };
+        const cidId = await computeCIDv1(stable);
+        return { ...q, cidId };
+      }),
+    );
+  }
 
   /** Gun sometimes exposes arrays as wrapped objects after graph merge. */
   private normalizeAnswersArray(answers: any): any[] {
@@ -75,7 +96,10 @@ export class WebTalkService {
     if (talkData.locationRadiusMiles != null) talk.locationRadiusMiles = talkData.locationRadiusMiles;
     if (talkData.authorLocation != null) talk.authorLocation = talkData.authorLocation;
 
-    talk.id = talkData.id || computeTalkIdFromTalkData(talk);
+    // Stamp each question with a CIDv1 content hash (excludes routing fields)
+    talk.questions = await this.stampQuestionCids(talk.questions);
+
+    talk.id = talkData.id || await computeTalkCIDv1(talk);
 
     console.log('🔍 About to store Talk in Gun.js:', JSON.stringify(talk, null, 2));
 
@@ -190,6 +214,8 @@ export class WebTalkService {
     else if (existing.locationRadiusMiles != null) updated.locationRadiusMiles = existing.locationRadiusMiles;
     if (talkData.authorLocation !== undefined) updated.authorLocation = talkData.authorLocation;
     else if (existing.authorLocation != null) updated.authorLocation = existing.authorLocation;
+    // Re-stamp CIDs on edit so routing-only changes don't affect cidId
+    updated.questions = await this.stampQuestionCids(updated.questions);
     const talkJson = JSON.stringify(updated);
     await this.gunService.put(`talks/${talkId}`, {
       id: updated.id,

@@ -11,7 +11,7 @@ import {
 import { EventEmitter } from 'events';
 import { formatTimeAgo, formatExpiration, escapeHtml } from './ui-formatters';
 import { pickLatestTalkIdFromIncomingCluster, isValidTalkId } from '../../shared/incoming-talk-ids';
-import { computeTalkIdFromTalkData } from '../../shared/talk-content-id';
+import { computeTalkIdFromTalkData } from '../../shared/cid';
 import {
   buildAnswerPreferenceLookupKey,
   sessionAnswersToQAPairs,
@@ -2205,6 +2205,7 @@ export class UIManager extends EventEmitter {
           <div class="empty-state" style="padding: 40px 20px; text-align: center; color: #999;">
             ${incomingFilterResult.hiddenCount > 0 ? this.tf('talksAllIncomingFiltered', { count: incomingFilterResult.hiddenCount }) : this.t('talksNoIncoming')}
             ${hiddenReasonsText ? `<div class="talk-filter-reasons" style="font-size:0.88em;margin-top:6px;">${escapeHtml(hiddenReasonsText)}</div>` : ''}
+            ${!this.currentLocation && rawIncomingEntries.some((c: any) => c?.latestTalk?.locationRadiusMiles != null || c?.locationRadiusMiles != null) ? `<div class="talk-filter-reasons" style="font-size:0.88em;margin-top:6px;color:#b45309;font-style:italic;">${escapeHtml(this.t('filterLocationPending'))}</div>` : ''}
           </div>
         `;
       } else if (activeMode === 'out') {
@@ -2389,6 +2390,22 @@ export class UIManager extends EventEmitter {
         const bMetrics = metricsByResponder.get(b.responderId)!;
         const aTalk = metricsByTalk.get(a.talkId)!;
         const bTalk = metricsByTalk.get(b.talkId)!;
+        // Pre-sort by group field so contiguous group blocks are formed (prevents duplicate group headers).
+        if (state.group === 'responder') {
+          const g = a.responderName.localeCompare(b.responderName);
+          if (g !== 0) return g;
+        } else if (state.group === 'talk') {
+          const g = a.title.localeCompare(b.title);
+          if (g !== 0) return g;
+        } else if (state.group === 'day') {
+          const g = new Date(a.date).toLocaleDateString().localeCompare(new Date(b.date).toLocaleDateString());
+          if (g !== 0) return g;
+        } else if (state.group === 'relationship') {
+          const aRel = String(this.getKnownPerson(a.responderId)?.label || 'stranger');
+          const bRel = String(this.getKnownPerson(b.responderId)?.label || 'stranger');
+          const g = aRel.localeCompare(bRel);
+          if (g !== 0) return g;
+        }
         if (state.sort === 'oldest') return new Date(a.date).getTime() - new Date(b.date).getTime();
         if (state.sort === 'user') return a.responderName.localeCompare(b.responderName) || a.title.localeCompare(b.title);
         if (state.sort === 'talk') return a.title.localeCompare(b.title) || a.responderName.localeCompare(b.responderName);
@@ -2687,6 +2704,7 @@ export class UIManager extends EventEmitter {
           <div id="settings-filtered-incoming-summary" style="font-size:0.84em;color:#64748b;margin-top:10px;">
             ${this.t('settingsHiddenIncoming')}: ${filteredIncoming.hiddenCount}
             ${hiddenIncomingText ? `<div>${escapeHtml(hiddenIncomingText)}</div>` : ''}
+            ${!this.currentLocation && (this.incomingTalkClusters || []).some((c: any) => c?.latestTalk?.locationRadiusMiles != null || c?.locationRadiusMiles != null) ? `<div style="color:#b45309;font-style:italic;margin-top:4px;">${escapeHtml(this.t('filterLocationPending'))}</div>` : ''}
           </div>
         </section>
         <section id="settings-storage-inspector" style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
@@ -4609,7 +4627,7 @@ export class UIManager extends EventEmitter {
         <div style="padding:18px;border-bottom:1px solid #e5e7eb;">
           <div style="font-size:1.05em;font-weight:700;">${this.t('broadcastPreviewTitle')}</div>
           <div style="font-size:0.88em;color:#64748b;margin-top:5px;">${this.t('broadcastPreviewHelp')}</div>
-          <span class="broadcast-chip" style="display:inline-flex;margin-top:10px;padding:4px 9px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:0.82em;">${previews.length} talk${previews.length === 1 ? '' : 's'} · ${deliveryCount} ${this.t('broadcastPreviewEligible')} · ${excludedCount} ${this.t('broadcastPreviewExcluded')}${hasUnavailable ? ` · ${this.t('broadcastPreviewFinalCheck')}` : ''}</span>
+          <span class="broadcast-chip" style="display:inline-flex;margin-top:10px;padding:4px 9px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:0.82em;">${this.tf(previews.length === 1 ? 'talksCountOne' : 'talksCount', { count: previews.length })} · ${deliveryCount} ${this.t('broadcastPreviewEligible')} · ${excludedCount} ${this.t('broadcastPreviewExcluded')}${hasUnavailable ? ` · ${this.t('broadcastPreviewFinalCheck')}` : ''}</span>
         </div>
         <div style="display:grid;gap:8px;padding:14px;">${rows}</div>
         <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 18px;border-top:1px solid #e5e7eb;">
@@ -4641,11 +4659,18 @@ export class UIManager extends EventEmitter {
     const statusBarText = document.getElementById('status-bar-text');
 
     if (statusBarText) {
-      let text = `${chatroomName} · ${memberCount} ${memberCount === 1 ? 'user' : 'users'}`;
+      const userText = this.tf(memberCount === 1 ? 'statusBarUser' : 'statusBarUsers', { count: memberCount });
+      const base = `${chatroomName} · ${userText}`;
+      statusBarText.dataset.statusBarBase = base;
       const localTotalMatches = this.getTotalMatches();
       const effectiveTotalMatches = localTotalMatches > 0 ? localTotalMatches : (totalMatches ?? 0);
+      let text = base;
       if (effectiveTotalMatches > 0) {
-        text += ` · ${effectiveTotalMatches} match${effectiveTotalMatches !== 1 ? 'es' : ''}`;
+        const matchText = this.tf(
+          effectiveTotalMatches === 1 ? 'statusBarMatch' : 'statusBarMatches',
+          { count: effectiveTotalMatches },
+        );
+        text += ` · ${matchText}`;
       }
       statusBarText.textContent = text;
     }
@@ -4654,11 +4679,21 @@ export class UIManager extends EventEmitter {
   private syncStatusBarMatchCount(): void {
     const statusBarText = document.getElementById('status-bar-text');
     if (!statusBarText) return;
-    const current = statusBarText.textContent || '';
-    const base = current.replace(/\s*·\s*\d+\s+match(?:es)?\s*$/i, '').trim();
+    // Use data attribute set by updateStatusBar; fall back to stripping legacy English suffix.
+    const base =
+      statusBarText.dataset.statusBarBase ||
+      statusBarText.textContent?.replace(/\s*·\s*\d+\s+match(?:es)?\s*$/i, '').trim() ||
+      '';
     const totalMatches = this.getTotalMatches();
-    statusBarText.textContent =
-      totalMatches > 0 ? `${base} · ${totalMatches} match${totalMatches !== 1 ? 'es' : ''}` : base;
+    if (totalMatches > 0) {
+      const matchText = this.tf(
+        totalMatches === 1 ? 'statusBarMatch' : 'statusBarMatches',
+        { count: totalMatches },
+      );
+      statusBarText.textContent = `${base} · ${matchText}`;
+    } else {
+      statusBarText.textContent = base;
+    }
   }
 
   getTotalMatches(): number {
@@ -4702,10 +4737,12 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  showTalkResponseDialog(talk: any, options?: { skipAutoAnswer?: boolean }): void {
+  showTalkResponseDialog(talk: any, options?: { skipAutoAnswer?: boolean; isTalkSuperseded?: boolean; senderName?: string }): void {
     openTalkResponseDialog({
       talk,
       ...(options?.skipAutoAnswer !== undefined ? { skipAutoAnswer: options.skipAutoAnswer } : {}),
+      ...(options?.isTalkSuperseded ? { isTalkSuperseded: true } : {}),
+      ...(options?.senderName ? { senderName: options.senderName } : {}),
       escapeHtml: escapeHtml,
       showNotification: this.showNotification.bind(this),
       completeTalk: this.completeTalk.bind(this),
@@ -5360,6 +5397,8 @@ export class UIManager extends EventEmitter {
     if (!myTalks[talkId]) return;
     myTalks[talkId].disabled = !!disabled;
     setMyTalks(myTalks);
+    // Phase F: disabling broadcast = withdrawing the talk from active delivery
+    if (disabled) this.emit('withdrawTalk', { talkId });
     // Patch visible rows so checkboxes stay in DOM and keep responding (no full list re-render)
     const talksList = document.getElementById('talks-list');
     const rows = talksList?.querySelectorAll(`.talk-list-item[data-talk-id="${talkId}"]`);
@@ -5421,6 +5460,8 @@ export class UIManager extends EventEmitter {
     this.displayTalksList();
     this.displayAnswersList();
     this.showNotification(this.t('talksRemovedFromList'), 'success');
+    // Phase F: notify ledger of withdrawal so peers stop routing this talk
+    this.emit('withdrawTalk', { talkId });
   }
 
   showNotification(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info'): void {

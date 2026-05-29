@@ -224,7 +224,7 @@ test.describe('Talks matching — chatbot + bot badge', () => {
       .filter({ hasText: CHATBOT_TALK_TITLE })
       .first()
       .getAttribute('data-talk-id');
-    expect(talkId).toMatch(/^qa_[0-9a-f]{8}$/i);
+    expect(talkId).toMatch(/^(qa_[0-9a-f]{8}|b[a-z2-7]{58,})$/i);
     await expect
       .poll(() => pageJerry!.evaluate((id: string) => {
         const app = (window as any).__iinpublic_app?.getApp?.();
