@@ -1,6 +1,6 @@
 # IinPublic Completed Work
 
-Last updated: 2026-05-27
+Last updated: 2026-05-28
 
 This is the durable ledger for shipped feature work. Keep `TODO.md` focused on forward work:
 when an item is finished, move it here with a short description and concrete evidence.
@@ -11,6 +11,117 @@ when an item is finished, move it here with a short description and concrete evi
 - Include the date, feature/phase name, user-visible result, and verification evidence.
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
+
+## 2026-05-28 - Phase G: Remove Legacy Gun Dual-Writes
+
+Removed the last legacy `talkAnswerTemplateByUser/<userId>/<identityKey>` Gun write that was still firing on every talk answer.
+
+Key changes:
+- `src/server/index.ts` `saveUserAnswerTemplateByContent`: removed `gunService.putPath(['talkAnswerTemplateByUser', responderId, identityKey], ...)`. Instead, now sets `cluster.isAnswered = true` and `cluster.isAutoAnswered = isAuto` directly on the in-memory `incomingTalksMap` cluster for the responderId.
+- `src/server/routes/talk-delivery-routes.ts` `/api/incoming-talks`: removed Gun `getPath` read per cluster entry. `isAnswered` and `isAutoAnswered` are now read from `cluster.isAnswered` / `cluster.isAutoAnswered` (populated above), eliminating one Gun read per incoming talk in the list response.
+- `incomingTalksByUser` writes: already absent (server-side Map is sole authority; confirmed via comment at server/index.ts:599-601).
+- Per-question cache (`byQuestion/<cidKey>`) continues to be written by talk-delivery-routes.ts after `fanoutResponseToSenders` (Phase E, unchanged).
+- Exact chatbot memory path (primary auto-reply) unaffected.
+
+Evidence:
+- `npx tsc --noEmit` → no errors
+- Commit `0f8d7f6ca72d30d651c83adc5c262389906c1ac3`
+
+## 2026-05-28 - Phase G: CIDv1 for All Entity IDs — Consolidate talk-content-id.ts into cid.ts
+
+All exports from `src/shared/talk-content-id.ts` moved into `src/shared/cid.ts`. New `computeTalkCIDv1` async function added using real SHA-256 CIDv1.
+
+Key changes:
+- `src/shared/cid.ts` now exports all talk-content-id.ts functions: `TalkContentIdOptions`, `normalizeIdentityText`, `hashIdentityPayload`, `buildIdentityPayloadFromTalk`, `computeTalkIdFromTalkData`, `buildTalkIdentityKey`, `canonicalIdentityKeyFromStoredCluster`
+- `computeTalkCIDv1(talkData)` — new async function using `computeCIDv1`; produces real CIDv1 IDs for talk creation
+- `web-talk-service.ts createTalk`: switched to `await computeTalkCIDv1` 
+- `server/talk-service.ts createTalk`: switched to `await computeTalkCIDv1`
+- All other call sites (ui-manager, app.ts, talk-engine, flattened-answer-keys, server/index) updated to import from `cid.ts`
+- `talk-content-id.ts` replaced with a `@deprecated` re-export shim (filesystem mounted read-only, actual deletion deferred)
+- Tests updated to import from `cid.ts`
+
+Evidence:
+- `src/shared/cid.ts` — full consolidation + computeTalkCIDv1
+- `src/shared/talk-content-id.ts` — deprecated re-export shim
+- All import sites updated
+- Commit: 284d0b2
+
+## 2026-05-28 - Phase F: Chatbot Differential Answering Review Screen (REQ-CHATBOT-02–04)
+
+Review screen added to `talk-response-dialog.ts` to prevent silent auto-submit when all questions can be auto-answered.
+
+Key changes:
+- `tryCollectAllAutoAnswers()`: pre-scans the talk question chain using `resolveAnswerPreferenceForTalkQuestion`. Returns the full auto-answer set if every question resolves with `mode === 'auto'`, or null if any question is unanswered or the talk is a route (branching).
+- Review screen triggered when all questions are auto-fillable OR when `isTalkSuperseded` flag is set.
+- Pre-filled answers displayed grayed out with `(pre-filled)` label; user can override any choice via radio selection.
+- `Confirm & Submit` validates all questions are answered before calling `completeTalk`.
+- `Edit answers manually` closes review and reopens with `skipAutoAnswer: true` for the standard interactive flow.
+- TALK_SUPERSEDED banner: "[Sender] updated this talk. Your previous answers are pre-filled — please review and answer any new questions."
+- `isTalkSuperseded` and `senderName` added to `TalkResponseDialogOptions` and threaded through `ui-manager.showTalkResponseDialog`.
+
+Evidence:
+- `src/web/ui/talk-response-dialog.ts` — tryCollectAllAutoAnswers, review screen, TALK_SUPERSEDED banner
+- `src/web/ui/ui-manager.ts` — isTalkSuperseded + senderName opts in showTalkResponseDialog
+- Commit: c28114c
+
+## 2026-05-28 - Phase F: TALK_SUPERSEDED + TALK_WITHDRAWN Events and Grace Window
+
+TALK_SUPERSEDED and TALK_WITHDRAWN ledger events now fire from existing talk edit and delete/disable flows.
+
+Key changes:
+- `app.ts updateTalk` handler: emits `TALK_SUPERSEDED { oldTalkId, newTalkId }` after a successful edit. Since the current implementation updates in-place, both IDs are the same — the ledger captures the revision event for chatbot differential answering (REQ-CHATBOT-03).
+- `ui-manager.ts deleteMyTalk`: emits `'withdrawTalk'` event to app.ts when a talk is removed from the local list.
+- `ui-manager.ts setTalkDisabled(talkId, true)`: emits `'withdrawTalk'` — disabling broadcast is treated as withdrawal from active delivery.
+- `app.ts withdrawTalk` handler: listens for the UI event and fires `TALK_WITHDRAWN { talkId, gracePeriodMs }` into the ledger. Grace period defaults to 24h; configurable via `TALK_WITHDRAWN_GRACE_MS` env var.
+- `WebLedgerService.writeIndexes` (Phase E) already writes the `ledger/<userId>/index/withdrawn/<talkId>` path, so the withdrawal is immediately queryable via `isTalkWithdrawn()`.
+
+Evidence:
+- `src/web/app/app.ts` — TALK_SUPERSEDED hook in updateTalk; withdrawTalk handler
+- `src/web/ui/ui-manager.ts` — withdrawTalk emit in deleteMyTalk + setTalkDisabled
+- Commit: ad87ebb
+
+## 2026-05-28 - Phase F: LEDGER_STATE Handshake + O(Δ) Delta Sync (REQ-LEDGER-06)
+
+Gun-path-based delta sync layer added to `WebLedgerService` and wired into `app.ts`.
+
+Key additions to `WebLedgerService`:
+- `broadcastState()` — writes our LedgerState JSON to `ledger/<userId>/state` on Gun
+- `getEventBySeq(feedUserId, seq)` — reads a single event from Gun by position
+- `syncWithPeer(peerId, theirState)` — pushes missing events to `ledger/<peerId>/inbox/<eventId>`
+- `syncWithPeerById(peerId)` — reads peer state from Gun then calls syncWithPeer
+- `subscribeToInbox()` — watches `ledger/<userId>/inbox`, verifies + ingests each delta event
+- `startDeltaSync(getPeerIds)` — orchestrates broadcast + inbox subscription + proactive peer sync
+
+`app.ts` changes:
+- `startLedgerDeltaSync()` called after own feed head loaded (post-keypair init)
+- Gun `hi` event triggers `broadcastState()` so newly connected peers receive our state
+- `getPeerIds()` lazily returns `currentUser.knownPeople` userIds
+
+All delta sync operations are fire-and-forget; errors are non-fatal. Peers without ledger support silently fall back to Gun star sync.
+
+Evidence:
+- `src/web/services/web-ledger-service.ts` — broadcastState, syncWithPeer*, subscribeToInbox, startDeltaSync
+- `src/web/app/app.ts` — startLedgerDeltaSync + Gun hi wiring
+- Commit: ddfcaf2
+
+## 2026-05-28 - Phase E: Ledger Event Hooks Wired Into All Interaction Flows
+
+All interaction flows in `src/web/app/app.ts` now emit ledger events (fire-and-forget, non-blocking):
+
+- `TALK_CREATED` — emitted after `createTalk()` succeeds
+- `TALK_BROADCAST` — emitted after the Gun announce loop completes (per chatroom)
+- `TALK_ANSWERED` — emitted after `submitTalkResponse()` with outcome: match/ignore/mismatch
+- `MATCH_CREATED` — emitted once per match entry after a successful match
+- `CONVERSATION_MSG` — emitted after `conversationService.sendMessage()` succeeds
+
+Key design decisions:
+- `initLedger()` is called lazily after the SEA keypair is ready, not at construction time
+- `ledgerEmit()` wraps all calls in try/catch and only logs warnings — ledger failures never block the main flow
+- `(serverResult as any).isIgnore` and `responseId` fallback used since the server response type doesn't expose these fields
+
+Evidence:
+- `src/web/app/app.ts` — initLedger, ledgerEmit, TALK_CREATED/BROADCAST/ANSWERED/MATCH_CREATED/CONVERSATION_MSG hooks
+- Commit: f5efae3
 
 ## 2026-05-28 - Phase D5/D6 Acceptance Closure
 
