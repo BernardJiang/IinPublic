@@ -1128,10 +1128,9 @@ export class IinPublicApp {
 
   /**
    * Other users who should receive server-side IN registration for a broadcast.
-   * **Gun `chatrooms/<id>/users` is authoritative** for who is in the room. We only use the UI
-   * member list to fill nicer `stageName`s. A naive merge used to keep stale UI rows from a prior
-   * room (e.g. Global) after switching to a parent/child node, which incorrectly registered bulk
-   * sends for users who were no longer in that chatroom id.
+   * **Gun `chatrooms/<id>/users` is authoritative** for who is in the room (FR-BM-7: same node only,
+   * no parent→child hierarchy fan-out). The UI member list supplies `stageName`s only — never adds
+   * receiver ids when Gun reports an empty room.
    */
   private async resolveBroadcastReceivers(
     chatroomId: string,
@@ -1161,15 +1160,6 @@ export class IinPublicApp {
         await mergeGunOnce();
         if (gunMemberIds.length > 0) break;
       }
-    }
-
-    if (gunMemberIds.length === 0) {
-      for (const m of uiMembers || []) {
-        const id = String(m.userId || '').trim();
-        if (!id || id === me || id === TECHSUPPORT_ROOT_USER_ID) continue;
-        gunMemberIds.push(id);
-      }
-      gunMemberIds = [...new Set(gunMemberIds)];
     }
 
     return gunMemberIds.map((userId) => ({

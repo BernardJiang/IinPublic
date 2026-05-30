@@ -80,33 +80,20 @@ export async function waitForDistinctGunPeersExcludingSelf(
  */
 export async function clickBroadcastUntilBulkAck(page: Page): Promise<void> {
   const loc = page.locator('[data-testid="broadcast-bulk-ack"]');
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    const genBefore = Number(await loc.getAttribute('data-broadcast-bulk-gen'));
-    const start = Number.isFinite(genBefore) ? genBefore : 0;
-    await waitForGunApiReady(8_000).catch(() => {});
-    await clickChatroomBroadcastButton(page);
-    try {
-      await expect
-        .poll(
-          async () => {
-            const gen = Number(await loc.getAttribute('data-broadcast-bulk-gen'));
-            const sent = Number(await loc.getAttribute('data-broadcast-talks-sent'));
-            return Number.isFinite(gen) && gen > start && Number.isFinite(sent) && sent >= 1;
-          },
-          { timeout: 45_000, intervals: [200, 500, 1000, 2000] },
-        )
-        .toBe(true);
-      return;
-    } catch (error) {
-      lastError = error;
-      if (attempt < 2) {
-        await page.locator('[data-testid="broadcast-preamble-modal"]').waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
-        await afterSync();
-      }
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error('Broadcast bulk ack was not observed after retries');
+  const genBefore = Number(await loc.getAttribute('data-broadcast-bulk-gen'));
+  const start = Number.isFinite(genBefore) ? genBefore : 0;
+  await waitForGunApiReady(8_000).catch(() => {});
+  await clickChatroomBroadcastButton(page);
+  await expect
+    .poll(
+      async () => {
+        const gen = Number(await loc.getAttribute('data-broadcast-bulk-gen'));
+        const sent = Number(await loc.getAttribute('data-broadcast-talks-sent'));
+        return Number.isFinite(gen) && gen > start && Number.isFinite(sent) && sent >= 1;
+      },
+      { timeout: 45_000, intervals: [200, 500, 1000, 2000] },
+    )
+    .toBe(true);
 }
 
 export type EmitCreateTalkFromCompanyOpts = { minGunPeersExcludingSelf?: number };

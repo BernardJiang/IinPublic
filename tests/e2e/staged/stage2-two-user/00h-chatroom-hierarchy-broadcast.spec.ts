@@ -129,26 +129,10 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
       await pageTom.click('.nav-btn[data-view="chatrooms"]');
       await waitForTabActive(pageTom, 'chatrooms');
       await afterSync();
-      let broadcastDone = false;
-      let lastBroadcastError: unknown;
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-          await pageTom.click('#broadcast-talk-btn');
-          await confirmBroadcastTagPreambleIfVisible(pageTom);
-          await waitForTabActive(pageTom, 'chatrooms');
-          await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 1 });
-          broadcastDone = true;
-          break;
-        } catch (error) {
-          lastBroadcastError = error;
-          await afterSync();
-        }
-      }
-      if (!broadcastDone) {
-        throw lastBroadcastError instanceof Error
-          ? lastBroadcastError
-          : new Error('Hierarchy broadcast did not complete after retry');
-      }
+      await pageTom.click('#broadcast-talk-btn');
+      await confirmBroadcastTagPreambleIfVisible(pageTom);
+      await waitForTabActive(pageTom, 'chatrooms');
+      await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 1 });
 
       await pageJerry.click('.nav-btn[data-view="talks"]');
       await waitForTabActive(pageJerry, 'talks');
@@ -166,7 +150,7 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
     }
   });
 
-  test('Broadcaster on North America also reaches peer joined under United States', async () => {
+  test('Broadcaster on North America does not register inbox for peer joined only under United States', async () => {
     const tom = await bootstrapUser(browserTom, 'TomNA', 'Tom');
     const jerry = await bootstrapUser(browserJerry, 'JerryUSA', 'Jerry');
     const pageTom = tom.page;
@@ -190,27 +174,11 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
       await pageTom.click('.nav-btn[data-view="chatrooms"]');
       await waitForTabActive(pageTom, 'chatrooms');
       await afterSync();
-      let parentBroadcastDone = false;
-      let lastParentBroadcastError: unknown;
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-          await pageTom.click('#broadcast-talk-btn');
-          await confirmBroadcastTagPreambleIfVisible(pageTom);
-          await waitForTabActive(pageTom, 'chatrooms');
-          // Parent-room broadcast includes descendant room members (USA under North America).
-          await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 1 });
-          parentBroadcastDone = true;
-          break;
-        } catch (error) {
-          lastParentBroadcastError = error;
-          await afterSync();
-        }
-      }
-      if (!parentBroadcastDone) {
-        throw lastParentBroadcastError instanceof Error
-          ? lastParentBroadcastError
-          : new Error('Parent-room hierarchy broadcast did not complete after retry');
-      }
+      await pageTom.click('#broadcast-talk-btn');
+      await confirmBroadcastTagPreambleIfVisible(pageTom);
+      await waitForTabActive(pageTom, 'chatrooms');
+      // Tom is the only Gun member under `north-america`; Jerry is under `usa` only (FR-BM-7).
+      await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 0 });
 
       const jerryId = await pageJerry.evaluate(
         () =>
@@ -238,10 +206,10 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
           {
             timeout: 25_000,
             intervals: [500],
-            message: 'USA descendant peer should get IN registration from North America parent broadcast',
+            message: 'USA-only peer must not get IN registration from North America parent broadcast',
           },
         )
-        .toBe('found');
+        .toBe('absent');
     } finally {
       await pageTom.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
       await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
