@@ -8,6 +8,8 @@ export type P2PRuntimeFlags = {
   relayOnlyHub: boolean;
   /** Mirror server incoming-talk snapshots into local Gun (P2P-L). */
   p2pClientTalkMirror: boolean;
+  /** P0: deliver talks via peer Gun offers + local IN index (not server incomingTalksMap). */
+  p2pDirectTalkDelivery: boolean;
 };
 
 export type ConversationTransportMode = 'star-gun' | 'server-relay' | 'direct-p2p';
@@ -327,6 +329,7 @@ function parsePersistencePolicy(value: string | undefined): StarServerPersistenc
 export function resolveP2PRuntimeFlags(env: Record<string, string | undefined> = {}): P2PRuntimeFlags {
   const get = (key: string): string | undefined => env[key] ?? readEnv(key);
   const relayOnlyHub = parseBooleanFlag(get('RELAY_ONLY_HUB'), false);
+  const p0DirectTalkDelivery = parseBooleanFlag(get('P0_DIRECT_TALK_DELIVERY'), false);
   const starServerPersistence = relayOnlyHub
     ? 'ephemeral'
     : parsePersistencePolicy(get('STAR_SERVER_PERSISTENCE'));
@@ -336,7 +339,13 @@ export function resolveP2PRuntimeFlags(env: Record<string, string | undefined> =
     p2pDirectChatEnabled: parseBooleanFlag(get('P2P_DIRECT_CHAT_ENABLED'), false),
     relayOnlyHub,
     p2pClientTalkMirror: parseBooleanFlag(get('P2P_CLIENT_TALK_MIRROR'), true),
+    p2pDirectTalkDelivery: p0DirectTalkDelivery || relayOnlyHub,
   };
+}
+
+/** P0 Phase B: browsers exchange talks over Gun mesh; server is discovery relay only. */
+export function usesDirectTalkDelivery(flags: P2PRuntimeFlags): boolean {
+  return flags.p2pDirectTalkDelivery;
 }
 
 /** P2P-K: peer DM bodies must not durably persist on the public hub (TechSupport excepted). */
@@ -348,6 +357,9 @@ export function shouldSkipServerGunPersist(
   if (options.supportChannel) return false;
   if (flags.starServerPersistence !== 'ephemeral' && !flags.relayOnlyHub) return false;
   if (path[0] === 'conversations' && path.length >= 3 && path[2] === 'messages') return true;
+  if (path[0] === 'talks') return true;
+  if (path[0] === 'incomingTalksByUser') return true;
+  if (path[0] === 'peerTalkOffers') return true;
   return false;
 }
 

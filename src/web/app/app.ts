@@ -18,13 +18,20 @@ import {
   TECHSUPPORT_ROOT_USER_ID,
   TECHSUPPORT_STAGE_NAME,
 } from '../../shared/techsupport';
-import { resolveP2PRuntimeFlags, type P2PRuntimeFlags } from '../../shared/p2p-runtime';
+import { resolveP2PRuntimeFlags, usesDirectTalkDelivery, type P2PRuntimeFlags } from '../../shared/p2p-runtime';
 import { P2PPresenceClient } from '../services/p2p-presence-client';
 import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
 import {
   mirrorIncomingTalkClustersToLocalGun,
   mirrorTalkDefinitionToLocalGun,
 } from '../services/client-incoming-talk-mirror';
+import {
+  applyPeerTalkOfferToLocalInbox,
+  collectLocalIncomingTalkClusters,
+  publishPeerTalkOffer,
+  subscribePeerTalkOffers,
+  upsertLocalIncomingTalkCluster,
+} from '../services/client-peer-talk-delivery';
 
 export class IinPublicApp {
   private gunService: WebGunService;
@@ -56,6 +63,7 @@ export class IinPublicApp {
   private supportBootstrapChecked = false;
   private presenceClient: P2PPresenceClient | null = null;
   private localNodeBridge: P2PLocalNodeBridgeClient | null = null;
+  private peerTalkOfferUnsubscribe: (() => void) | null = null;
   private readonly p2pRuntimeFlags: P2PRuntimeFlags = resolveP2PRuntimeFlags(
     typeof process !== 'undefined'
       ? {
@@ -64,6 +72,7 @@ export class IinPublicApp {
           STAR_SERVER_PERSISTENCE: process.env.STAR_SERVER_PERSISTENCE,
           RELAY_ONLY_HUB: process.env.RELAY_ONLY_HUB,
           P2P_CLIENT_TALK_MIRROR: process.env.P2P_CLIENT_TALK_MIRROR,
+          P0_DIRECT_TALK_DELIVERY: process.env.P0_DIRECT_TALK_DELIVERY,
         }
       : {},
   );
@@ -508,6 +517,28 @@ export class IinPublicApp {
 
     await this.ensureSupportBootstrapForCurrentUser();
     await this.initP2PPresenceAndBridge();
+    this.initDirectTalkDeliverySubscriptions();
+  }
+
+  /** P0: subscribe to directed talk offers on local Gun (mesh via hub relay). */
+  private initDirectTalkDeliverySubscriptions(): void {
+    if (!usesDirectTalkDelivery(this.p2pRuntimeFlags) || !this.currentUser?.id) return;
+    this.peerTalkOfferUnsubscribe?.();
+    this.peerTalkOfferUnsubscribe = subscribePeerTalkOffers(
+      this.gunService,
+      this.currentUser.id,
+      (offer) => {
+        if (offer.senderId === this.currentUser?.id) return;
+        const cluster = applyPeerTalkOfferToLocalInbox(
+          this.gunService,
+          this.currentUser!.id,
+          offer,
+          this.p2pRuntimeFlags,
+        );
+        this.mergeIncomingClusterIntoUi([cluster]);
+      },
+    );
+    void this.refreshIncomingTalkClustersFromLocalGun();
   }
 
   /** P2P-I / P2P-O: register live presence and probe local node bridge (stack only). */
@@ -1053,6 +1084,22 @@ export class IinPublicApp {
       .map((m) => m.userId)
       .filter((id) => id !== me.id && id !== TECHSUPPORT_ROOT_USER_ID);
     if (receiverIds.length === 0) return true;
+
+    if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
+      mirrorTalkDefinitionToLocalGun(this.gunService, talkId, talk, this.p2pRuntimeFlags);
+      const talkRecord = talk as unknown as Record<string, unknown>;
+      for (const receiverId of receiverIds) {
+        publishPeerTalkOffer(this.gunService, receiverId, {
+          talkId,
+          senderId: me.id,
+          senderName: me.stageName || 'Unknown',
+          talkData: talkRecord,
+        });
+      }
+      console.log(`📡 P0 peer talk offers published: talkId=${talkId} receivers=${receiverIds.length}`);
+      return true;
+    }
+
     const base = this.getBackendApiBase();
     console.log(`📡 POSTing register-receivers: talkId=${talkId} receivers=${receiverIds.length}`);
     try {
@@ -1290,6 +1337,23 @@ export class IinPublicApp {
   ): void {
     if (!this.currentUser || !senderId || senderId === this.currentUser.id) return;
     if (isTechSupportUser(this.currentUser)) return;
+
+    if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
+      const cluster = upsertLocalIncomingTalkCluster(
+        this.gunService,
+        this.currentUser.id,
+        {
+          talkId,
+          talkData: talkData as Record<string, unknown>,
+          senderId,
+          senderName,
+        },
+        this.p2pRuntimeFlags,
+      );
+      this.mergeIncomingClusterIntoUi([cluster]);
+      return;
+    }
+
     const base = this.getBackendApiBase();
     void fetch(`${base}/api/talks/${encodeURIComponent(talkId)}/received`, {
       method: 'POST',
@@ -1552,7 +1616,11 @@ export class IinPublicApp {
         if (!cluster || !id || id.startsWith('_')) return;
         if (this.incomingApiRefreshTimer) clearTimeout(this.incomingApiRefreshTimer);
         this.incomingApiRefreshTimer = setTimeout(() => {
-          void this.refreshIncomingTalkClustersFromApi();
+          if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
+            void this.refreshIncomingTalkClustersFromLocalGun();
+          } else {
+            void this.refreshIncomingTalkClustersFromApi();
+          }
         }, 120);
       });
   }
@@ -1584,10 +1652,24 @@ export class IinPublicApp {
    * `needIncomingTalkClusters` without awaiting; Playwright needs a promise-bound sync.
    */
   public async syncIncomingClustersFromServer(): Promise<void> {
+    if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
+      await this.refreshIncomingTalkClustersFromLocalGun();
+      return;
+    }
     await this.refreshIncomingTalkClustersFromApi();
   }
 
-  private applyIncomingClustersFromApiArray(clusters: any[]): void {
+  private async refreshIncomingTalkClustersFromLocalGun(): Promise<void> {
+    if (!this.currentUser?.id) return;
+    const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id);
+    this.mergeIncomingClusterIntoUi(clusters);
+  }
+
+  private mergeIncomingClusterIntoUi(clusters: any[]): void {
+    this.applyIncomingTalkClusters(clusters);
+  }
+
+  private applyIncomingTalkClusters(clusters: any[]): void {
     // Authoritative snapshot from GET /incoming-talks — do not merge old Gun .map() soul keys on top.
     // Spreading incomingClustersMap left stale/non-identity entries and could prevent IN rows from matching
     // the server list after syncIncomingClustersFromServer (e2e: row missing despite API having the talk).
@@ -1617,6 +1699,11 @@ export class IinPublicApp {
     this.uiManager.displayTalksList();
   }
 
+  /** @deprecated name kept for call sites — applies cluster list from API or local Gun. */
+  private applyIncomingClustersFromApiArray(clusters: any[]): void {
+    this.applyIncomingTalkClusters(clusters);
+  }
+
   /**
    * After registration, poll GET incoming-talks until this talk appears (or timeout). Aligns IN list
    * with notification when server/Gun replication lags.
@@ -1624,7 +1711,6 @@ export class IinPublicApp {
   private async refreshIncomingTalkClustersFromApiUntilVisible(talkData: any, talkId: string): Promise<void> {
     if (!this.currentUser?.id || !talkData) return;
     const identityKey = buildTalkIdentityKey(talkData);
-    const base = this.getBackendApiBase();
     const maxAttempts = 30;
     const gapMs = 400;
 
@@ -1640,24 +1726,39 @@ export class IinPublicApp {
       });
 
     for (let i = 0; i < maxAttempts; i++) {
-      try {
-        const res = await fetch(
-          `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/incoming-talks`,
-          { cache: 'no-store' },
-        );
-        if (res.ok) {
-          const clusters = await res.json();
-          if (Array.isArray(clusters)) {
-            this.applyIncomingClustersFromApiArray(clusters);
-            if (clusterIncludesTalk(clusters)) return;
-          }
+      if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
+        const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, {
+          waitMs: 200,
+        });
+        if (clusterIncludesTalk(clusters)) {
+          this.mergeIncomingClusterIntoUi(clusters);
+          return;
         }
-      } catch {
-        /* retry */
+      } else {
+        try {
+          const base = this.getBackendApiBase();
+          const res = await fetch(
+            `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/incoming-talks`,
+            { cache: 'no-store' },
+          );
+          if (res.ok) {
+            const clusters = await res.json();
+            if (Array.isArray(clusters)) {
+              this.applyIncomingClustersFromApiArray(clusters);
+              if (clusterIncludesTalk(clusters)) return;
+            }
+          }
+        } catch {
+          /* retry */
+        }
       }
       await new Promise((r) => setTimeout(r, gapMs));
     }
-    await this.refreshIncomingTalkClustersFromApi();
+    if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
+      await this.refreshIncomingTalkClustersFromLocalGun();
+    } else {
+      await this.refreshIncomingTalkClustersFromApi();
+    }
   }
 
   private async ingestConversationRecords(conversations: any[]): Promise<void> {

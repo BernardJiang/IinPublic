@@ -60,6 +60,7 @@ describe('system routes', () => {
       p2pDirectChatEnabled: false,
       relayOnlyHub: false,
       p2pClientTalkMirror: true,
+      p2pDirectTalkDelivery: false,
     });
     expect(res.body.localNode).toEqual(
       expect.objectContaining({

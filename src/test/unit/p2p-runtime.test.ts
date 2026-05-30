@@ -36,6 +36,7 @@ describe('p2p runtime flags', () => {
       p2pDirectChatEnabled: false,
       relayOnlyHub: false,
       p2pClientTalkMirror: true,
+      p2pDirectTalkDelivery: false,
     });
   });
 
@@ -52,6 +53,7 @@ describe('p2p runtime flags', () => {
       p2pDirectChatEnabled: true,
       relayOnlyHub: false,
       p2pClientTalkMirror: true,
+      p2pDirectTalkDelivery: false,
     });
   });
 
@@ -62,6 +64,7 @@ describe('p2p runtime flags', () => {
       p2pDirectChatEnabled: false,
       relayOnlyHub: true,
       p2pClientTalkMirror: true,
+      p2pDirectTalkDelivery: true,
     });
   });
 

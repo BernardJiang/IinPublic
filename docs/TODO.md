@@ -20,9 +20,9 @@ This file is the short, execution-oriented plan.
 
 ## Next Action Items (Ordered) — P0 Direct Talk Exchange
 
-1. **P0-1 Local-first OUT write** — Sender always `put`s full talk to local Gun (`talks/<id>`) before any hub write; treat hub `radata/` as optional cache/fallback read only (`STAR_SERVER_PERSISTENCE=ephemeral` / `RELAY_ONLY_HUB` on talk paths).
-2. **P0-2 Mesh delivery path** — After presence + ack, push talk to neighbors over Gun mesh / WebRTC (announcement + full talk payload or pull-by-id from peer), not bulk `POST /register-receivers-for-broadcast`.
-3. **P0-3 Local-first IN index** — Receiver builds IN from `incomingTalksByUser/<userId>/<identityKey>` on **local Gun** (subscribe + P2P-L mirror as source of truth); demote `GET /api/users/:id/incoming-talks` to bootstrap/fallback only.
+1. **P0-1 Local-first OUT write** — **In progress:** `shouldSkipServerGunPersist` skips `talks/*`, `incomingTalksByUser/*`, `peerTalkOffers/*` when ephemeral/relay. Enable: `P0_DIRECT_TALK_DELIVERY=1` or `RELAY_ONLY_HUB=1`; `npm run dev:p0-talks`.
+2. **P0-2 Mesh delivery path** — **In progress:** `peerTalkOffers/<receiverId>/<sender::talkId>` Gun fanout replaces `register-receivers` when P0 flag on (`client-peer-talk-delivery.ts`).
+3. **P0-3 Local-first IN index** — **In progress:** IN tab reads local Gun first (`collectLocalIncomingTalkClusters`); HTTP inbox fallback when flag off.
 4. **P0-4 Retire server inbox authority** — Gate or remove `incomingTalksMap` writes on broadcast/delivery; keep filters/match logic on server only where unavoidable until client-side parity exists.
 5. **P0-5 Chatroom announce → peer pull** — `chatrooms/<room>/talks/<key>` triggers fetch from announcer’s mesh endpoint (or signed talk envelope), not dependency on server holding the full talk.
 6. **P0-6 E2E: relay-only two-browser talks** — New or extended staged spec: Alice + Bob, hub relay-only, talk in Bob’s local Gun + IN after hub wipe/restart (no server `radata/` talk copy required).

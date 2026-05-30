@@ -67,6 +67,15 @@ module.exports = {
             'process.env.P2P_NODE_ENABLED': JSON.stringify(
               process.env.P2P_NODE_ENABLED || '0',
             ),
+            'process.env.P0_DIRECT_TALK_DELIVERY': JSON.stringify(
+              process.env.P0_DIRECT_TALK_DELIVERY || '0',
+            ),
+            'process.env.RELAY_ONLY_HUB': JSON.stringify(
+              process.env.RELAY_ONLY_HUB || '0',
+            ),
+            'process.env.STAR_SERVER_PERSISTENCE': JSON.stringify(
+              process.env.STAR_SERVER_PERSISTENCE || 'durable',
+            ),
           }),
         ]
       : [
@@ -79,6 +88,9 @@ module.exports = {
             IINPUBLIC_STAGE_SEED: process.env.IINPUBLIC_STAGE_SEED || '',
             P2P_DIRECT_CHAT_ENABLED: process.env.P2P_DIRECT_CHAT_ENABLED || '0',
             P2P_NODE_ENABLED: process.env.P2P_NODE_ENABLED || '0',
+            P0_DIRECT_TALK_DELIVERY: process.env.P0_DIRECT_TALK_DELIVERY || '0',
+            RELAY_ONLY_HUB: process.env.RELAY_ONLY_HUB || '0',
+            STAR_SERVER_PERSISTENCE: process.env.STAR_SERVER_PERSISTENCE || 'durable',
           }),
         ]),
     // Ignore Gun.js dynamic requires that are Node.js-only and must not be
