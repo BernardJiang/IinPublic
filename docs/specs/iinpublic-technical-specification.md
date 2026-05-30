@@ -1,8 +1,8 @@
 # IinPublic — Technical Specification
 ## Software Requirements, Architecture, Security, Data, Network, Mobile & API Interfaces
 
-> **Version:** 4.1 — production P2P model (`www.iinpublic.com` relay-only), Gun-local persistence, transport/persistence split
-> **Date:** 2026-05-28
+> **Version:** 4.2 — P2P identity, trust, protocol versioning, and upgrade requirements (§19.13)
+> **Date:** 2026-05-30
 > **Status:** Authoritative — single source of truth for all requirements and design decisions
 
 ---
@@ -37,6 +37,7 @@
 **Part IV — Architecture Deep Dives**
 
 19. [P2P Architecture: Data Storage and Network Design](#19-p2p-architecture-data-storage-and-network-design)
+    - [19.13 P2P Identity, Trust, Versioning, and Upgrades](#1913-p2p-identity-trust-versioning-and-upgrades)
 20. [Interaction Ledger: DAG-Based History and Delta Sync](#20-interaction-ledger-dag-based-history-and-delta-sync)
 21. [Survey: Blockchain and DAG Structures in P2P Messaging Networks](#21-survey-blockchain-and-dag-structures-in-p2p-messaging-networks)
 
@@ -430,6 +431,21 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 - **REQ-P2P-06:** Stack phases P2P-H–O (§19.9) SHALL NOT require UI/UX changes.
 - **REQ-P2P-07:** Clients SHALL register presence and acknowledge peers before trusting P2P payloads.
 - **REQ-P2P-08:** Match logic SHALL remain in `src/shared/talk-engine.ts` (no duplication in routes).
+
+> Identity, trust, protocol negotiation, upgrades, and fake-client defense: [§19.13](#1913-p2p-identity-trust-versioning-and-upgrades).
+
+- **REQ-P2P-09:** Each installation SHALL have a stable cryptographic identity: SEA key pair with `PeerID = HASH(pub)` (or equivalent content-addressed id) stable across restarts.
+- **REQ-P2P-10:** All P2P wire messages (discovery, signaling, peer payloads) SHALL be signed; unsigned or invalid signatures SHALL be rejected.
+- **REQ-P2P-11:** Trust is local per user; no global trust authority. Default state is **Unknown**; user may promote to **Friend** or **Verified**, or **Blocked**.
+- **REQ-P2P-12:** Reputation statistics SHALL be local per peer and SHALL NOT override explicit user trust or block decisions.
+- **REQ-P2P-13:** Software version, protocol version, and schema version SHALL be independent (e.g. app `1.8.2`, `talk-v2`, answer schema `5`).
+- **REQ-P2P-14:** On P2P connect, peers SHALL exchange a signed handshake (`peerId`, `appName`, `appVersion`, `supportedProtocols`, `features`, `publicKey`, `timestamp`, `signature`) and negotiate the highest mutually supported protocol.
+- **REQ-P2P-15:** Connection SHALL fail when no common protocol exists; clients SHALL NOT crash on unsupported features (graceful degradation UI).
+- **REQ-P2P-16:** Stored objects SHALL carry `schemaVersion`; migrations SHALL be deterministic with no user data loss.
+- **REQ-P2P-17:** Official client upgrades SHALL verify release signature and hash before install.
+- **REQ-P2P-18:** `appName` alone SHALL NOT confer trust; verification SHALL use pubkey, signatures, history, reputation, behavior, and user approval.
+- **REQ-P2P-19:** P2P messages SHALL include `peerId`, `timestamp`, `nonce`, and `signature`; replays (stale timestamp or reused nonce) SHALL be rejected.
+- **REQ-P2P-20:** Malformed protocol traffic, spam, and excessive connection attempts SHALL be rate-limited and may downgrade peer priority.
 
 ---
 
@@ -2277,7 +2293,7 @@ The following items are known open questions or planned post-MVP work:
 
 > **Status:** Authoritative production target · **Date:** 2026-05-28
 >
-> This section is the single source of truth for `www.iinpublic.com` networking and persistence. Implementation tasks live in `docs/TODO.md` (phases P2P-H–O). The shipped direct WebRTC transport slice (`docs/TODO-direct-p2p.md`) is **superseded** for persistence policy — see [§19.4](#194-p2p-transport-vs-gun-persistence-authoritative-model) and [§19.11](#1911-superseded-direct-p2p-ram-transport-experiment).
+> This section is the single source of truth for `www.iinpublic.com` networking and persistence. Implementation tasks live in `docs/TODO.md` (phases P2P-H–O shipped; **P2P-P–U** in [§19.13](#1913-p2p-identity-trust-versioning-and-upgrades)). The shipped direct WebRTC transport slice (`docs/TODO-direct-p2p.md`) is **superseded** for persistence policy — see [§19.4](#194-p2p-transport-vs-gun-persistence-authoritative-model) and [§19.11](#1911-superseded-direct-p2p-ram-transport-experiment).
 
 ### 19.1 Current Architecture: Star Topology (Detailed)
 
@@ -2457,6 +2473,7 @@ Phases **P2P-H** through **P2P-O** implement §19.2–§19.7 under the existing 
 | **P2P-M** | Relay-only production deploy profile for `www.iinpublic.com` | server config, static CDN split |
 | **P2P-N** | TechSupport server-side message store | server routes + SQLite or dedicated path |
 | **P2P-O** | Local node localhost bridge (supervisor API) | `p2p-node-network.md` local node model |
+| **P2P-P–U** | Identity, trust, versioning, upgrades — see [§19.13](#1913-p2p-identity-trust-versioning-and-upgrades) | `p2p-runtime.ts`, `p2p-presence.ts`, `web-user-service.ts` |
 
 **Exit criteria for production (Phase C):** With hub in relay-only mode, peer DM bodies appear in both participants' local Gun DB, are absent from server `radata/`, and TechSupport remains server-readable.
 
@@ -2472,6 +2489,7 @@ Phases **P2P-H** through **P2P-O** implement §19.2–§19.7 under the existing 
 - **REQ-P2P-06:** Phases P2P-H–O SHALL NOT require UI/UX changes (existing screens and transport diagnostics suffice).
 - **REQ-P2P-07:** Clients SHALL register presence and acknowledge peers via server-mediated or signed direct handshake before trusting P2P payloads.
 - **REQ-P2P-08:** Match logic SHALL remain in `src/shared/talk-engine.ts` (no duplication in routes).
+- **REQ-P2P-09 – REQ-P2P-20:** See [§19.13](#1913-p2p-identity-trust-versioning-and-upgrades) and [§3.12](#312-p2p-production-model-wwwiinpubliccom).
 
 ---
 
@@ -2495,6 +2513,299 @@ Incremental migration from star to relay-only (complements ledger phases E–G, 
 4. **Phase D — Optional DHT bootstrap:** Supplement hub discovery so the network survives full hub downtime.
 
 Match logic (`src/shared/talk-engine.ts`) and SEA encryption are unchanged. CIDv1 content-addressing is shipped (Phase G).
+
+---
+
+### 19.13 P2P Identity, Trust, Versioning, and Upgrades
+
+> **Status:** Authoritative requirements · **Date:** 2026-05-30
+>
+> Defines how the IinPublic P2P network handles peer identity, trust, reputation, version compatibility, protocol negotiation, software upgrades, fake-client resistance, and future protocol evolution. Complements [§7.9 Stranger Model & Known-Person Trust](#79-stranger-model--known-person-trust) (encryption channels) and [§19.3 Session Bootstrap](#193-session-bootstrap-when-2-users-are-online) (presence/ack). Implementation tasks: `docs/TODO.md` phases **P2P-P–U**.
+
+#### 19.13.1 Design Assumptions
+
+- No central authentication server and no central application database for peer-owned data.
+- Direct peer-to-peer communication over Gun mesh and/or WebRTC, with `www.iinpublic.com` as relay-only ([§19.2](#192-production-target-wwwiinpubliccom-authoritative)).
+- Users MAY run different software versions indefinitely; the network MUST tolerate mixed versions when protocol overlap exists.
+- Malicious peers MAY attempt to join; clients MUST fail closed on bad cryptography and degrade safely on unknown features.
+
+#### 19.13.2 Identity Model
+
+**Peer identity (target model):**
+
+Each installation generates a **private key** and **public key** (today: Gun **SEA** key pair in `WebGunService`). The canonical P2P peer identifier is:
+
+```text
+PeerID = HASH(PublicKey)   // e.g. SHA-256 of SEA `pub`, hex-encoded
+```
+
+Example:
+
+```text
+PublicKey: 03AF4C8B...
+PeerID:    A8D4E6F9...
+```
+
+**Today (migration note):** Gun `userId` is a UUID assigned at first launch and is the primary key in APIs (`users/<id>`). `pub` is stored alongside it. Phase **P2P-P** aligns wire identity with `PeerID` while preserving existing `userId` paths during transition.
+
+**Identity verification (REQ-P2P-09, REQ-P2P-10):**
+
+Receivers MUST verify, for every P2P envelope:
+
+| Check | Action on failure |
+|---|---|
+| Message signature (SEA) | Reject |
+| `peerId` matches claimed `publicKey` | Reject |
+| `timestamp` within skew window | Reject (replay) |
+| `nonce` not previously seen | Reject (replay) |
+
+Unsigned messages MUST be rejected. Modified payloads MUST fail signature verification.
+
+**What identity guarantees:**
+
+| Guaranteed | Not guaranteed |
+|---|---|
+| This peer controls the private key for this `pub` / `PeerID` | This peer is a specific human |
+| Message integrity and origin for signed payloads | Government ID or platform account binding |
+
+Human identity is established separately (stage name, vouches, age verification, user labels in [§7.9](#79-stranger-model--known-person-trust)).
+
+**Code anchors:** `src/web/services/web-gun-service.ts` (SEA custody), `src/shared/p2p-presence.ts` (`PeerAckMessage`), `src/shared/p2p-runtime.ts` (`P2PDiscoveryMessage`, relay envelopes).
+
+#### 19.13.3 Trust Model
+
+Trust is **local to each user**. No global authority assigns trust.
+
+```typescript
+interface LocalPeerTrust {
+  peerId: string;       // HASH(pub) or transitional userId
+  pub: string;
+  nickname?: string;
+  trustLevel: 'unknown' | 'friend' | 'verified' | 'blocked';
+  addedAt: string;
+}
+```
+
+**Trust levels and capabilities:**
+
+| Level | Default? | Capabilities | Restrictions |
+|---|---|---|---|
+| **Unknown** | Yes | Connect, introduce, request communication | No broad broadcasts; no privileged actions |
+| **Friend** | User-approved | Exchange talks; normal encrypted/plain communication per [§7.9](#79-stranger-model--known-person-trust) | — |
+| **Verified** | Long-term user approval | Advanced features; shared reputation participation; future moderation hooks | — |
+| **Blocked** | User action | None | All communication ignored; excluded from neighbor scoring ([§19.8](#198-neighborhood-management-and-super-peers)) |
+
+**Mapping to shipped code:**
+
+- **Friend / labels:** `KnownPerson` in `src/shared/types.ts`, SEA-encrypted `knownPeople` (see [§7.9](#79-stranger-model--known-person-trust)).
+- **Blocked:** `user-blocks` / `blockedUserIds` paths.
+- **Unknown:** default for peers not in `knownPeople` and not blocked.
+- **Verified:** spec level; not yet a distinct enum — Phase **P2P-R**.
+
+**REQ-P2P-11:** Trust decisions are always local. Server relay MUST NOT elevate trust.
+
+#### 19.13.4 Reputation System
+
+Each peer maintains **local statistics** per remote peer (and global aggregates for UI). Example record:
+
+```json
+{
+  "successfulInteractions": 523,
+  "failedInteractions": 2,
+  "firstSeen": "2026-01-01",
+  "lastSeen": "2026-05-29"
+}
+```
+
+**Usage (REQ-P2P-12):** Reputation MAY influence trust recommendations, spam detection, and peer prioritization in neighbor selection. Reputation MUST NOT override explicit **Blocked** or user trust level.
+
+**Code anchors:** `src/shared/reputation.ts`, `ReputationService`, chatroom/peer stats in `peer-routes.ts`.
+
+#### 19.13.5 Protocol Versioning
+
+**Separation (REQ-P2P-13):**
+
+| Dimension | Example | Independent? |
+|---|---|---|
+| Software | IinPublic `1.8.2` (`package.json`) | Yes |
+| Wire protocol | `talk-v1`, `talk-v2`, `ledger-v1` | Yes |
+| Stored schema | Answer schema `5`, presence `version: 1` | Yes |
+
+**Compatibility goal:** Peers on different app versions communicate when they share at least one protocol id. Example: v1.5, v1.8, and v2.0 clients MAY interoperate on `talk-v2`.
+
+**Shipped today:**
+
+- Ledger delta sync: `LEDGER_STATE` handshake (`src/shared/types.ts`, `web-ledger-service.ts`).
+- Discovery/signaling: `protocolVersion: 1` on `P2PDiscoveryMessage` ([§19.3](#193-session-bootstrap-when-2-users-are-online)).
+- Content ids: CIDv1 for talks/responses (Phase G).
+
+**Gap:** Full multi-protocol negotiation on WebRTC open — Phase **P2P-Q**.
+
+#### 19.13.6 Connection Handshake
+
+On P2P connect (WebRTC DataChannel open or first Gun mesh exchange), peers SHALL send a signed **handshake** (REQ-P2P-14):
+
+```json
+{
+  "peerId": "abc123",
+  "appName": "IinPublic",
+  "appVersion": "1.8.2",
+  "supportedProtocols": ["talk-v1", "talk-v2", "ledger-v1"],
+  "features": ["text", "poll", "encrypted-talk", "ledger-delta"],
+  "publicKey": "<SEA pub>",
+  "timestamp": 1234567890,
+  "nonce": "<random>",
+  "signature": "<SEA sign>"
+}
+```
+
+**Protocol negotiation:** Both sides compute the **highest mutually supported** protocol id (lexicographic version suffix or explicit ordered list). Example: A offers `talk-v1`, `talk-v2`; B offers `talk-v1`–`talk-v3` → select **`talk-v2`**.
+
+**Connection failure (REQ-P2P-15):** If intersection of `supportedProtocols` is empty, the connection MUST fail cleanly (logged locally, no crash).
+
+**Relation to presence ack:** `POST/GET /api/presence/ack` and `PeerAckMessage` ([§19.3](#193-session-bootstrap-when-2-users-are-online), `src/shared/p2p-presence.ts`) are the **hub-mediated** trust bootstrap; the handshake above is the **direct** capability exchange after transport is up.
+
+#### 19.13.7 Feature Negotiation
+
+Peers advertise `features` in the handshake (REQ-P2P-15).
+
+| Rule | Behavior |
+|---|---|
+| Unsupported feature received | MUST NOT crash |
+| UI | Show non-blocking notice, e.g. *"Unsupported message type. Please upgrade to view."* |
+| Unknown JSON fields / flags | MUST be ignored (forward compatibility) |
+
+Examples: `image-reply`, `encrypted-talk`, `poll`, `ledger-delta`.
+
+#### 19.13.8 Schema Versioning and Migration
+
+All durable stored records SHOULD include `schemaVersion` (REQ-P2P-16):
+
+```json
+{
+  "schemaVersion": 3,
+  "type": "answer",
+  "question": "Favorite fruit?",
+  "answer": "Apple"
+}
+```
+
+**Migration requirements:**
+
+- Support explicit migration paths (`v1 → v2 → v3 → v4`).
+- Deterministic transforms (same input → same output).
+- No user data loss; backward read where feasible.
+- Run migrations on read or at app startup against local Gun export.
+
+**Today:** Partial — `version: 1` on presence/ack records; CIDv1 and ledger events versioned by type. Unified migration registry — Phase **P2P-S**.
+
+#### 19.13.9 Software Upgrade System
+
+Official releases MUST be digitally signed (REQ-P2P-17):
+
+```text
+Version:   1.8.2
+Hash:      ABC123...
+Signature: XYZ456...
+Signing key: documented release key fingerprint
+```
+
+**Client verification before install:**
+
+| Check | On failure |
+|---|---|
+| Release signature valid | Reject upgrade |
+| Hash matches artifact | Reject upgrade |
+| Signing key in trust store | Reject upgrade |
+
+Applies to PWA, desktop node, and mobile packages — not only npm dev builds. Phase **P2P-T**.
+
+#### 19.13.10 Fake Client Detection
+
+**Never trust `appName: "IinPublic"` alone (REQ-P2P-18).**
+
+Trust establishment order:
+
+1. Valid public key and signature on every message
+2. Consistent `peerId` ↔ `pub` binding
+3. Local history and reputation
+4. Observed behavior (protocol compliance)
+5. Explicit user approval (Friend / Verified)
+
+**Behavioral validation (REQ-P2P-20):**
+
+| Signal | Action |
+|---|---|
+| Malformed messages / protocol violations | Drop + local counter |
+| Replay attacks | Reject (timestamp + nonce) |
+| Spam / excessive connects | Rate limit; deprioritize in neighbor list |
+| Impossible version strings | Flag suspicious; do not negotiate |
+| Invalid signature combinations | Reject; optional block recommendation |
+
+#### 19.13.11 Message Security Summary
+
+Every security-critical P2P payload MUST include (REQ-P2P-19):
+
+```text
+peerId, timestamp, nonce, signature
+```
+
+| Threat | Control |
+|---|---|
+| Tampering | SEA signature over canonical payload |
+| Replay | TTL + nonce cache per peer session |
+| Impersonation | `peerId` derived from verified `pub` |
+
+Aligns with `P2PNodeProtocolSpec.handshake.replayProtection` in `src/shared/p2p-runtime.ts`.
+
+#### 19.13.12 Future Extensibility
+
+The protocol MUST evolve without forcing simultaneous upgrades. Reserved directions:
+
+- End-to-end encryption upgrades beyond current SEA channels
+- Web-of-trust and community reputation feeds (opt-in)
+- Delegated trust and multi-device identities
+- Moderation primitives for **Verified** peers
+
+Unknown fields and protocol ids MUST be ignored by older clients ([§19.13.7](#19137-feature-negotiation)).
+
+#### 19.13.13 Acceptance Tests
+
+| Area | Criteria |
+|---|---|
+| **Identity** | Key pair on first launch; `PeerID` stable after restart; invalid signatures rejected |
+| **Trust** | New peer = Unknown; user promotes to Friend; blocked peer ignored |
+| **Versioning** | v1 client talks to v2 when protocol overlap; rejected when no overlap |
+| **Features** | Unsupported features do not crash; upgrade notice shown |
+| **Migration** | v1 data migrates to v2 without loss |
+| **Upgrade security** | Signed release accepted; tampered release rejected |
+| **Fake client** | Invalid signatures and replays rejected; spam rate-limited |
+| **Network stability** | Mixed-version network operates; new features do not break old clients; trust/reputation survive upgrades |
+
+E2E and unit tests SHOULD live under `src/test/unit/p2p-*` and `tests/e2e/staged/` as phases land.
+
+#### 19.13.14 Stack Phases P2P-P–U (No UI Changes Unless Noted)
+
+| Phase | Deliverable | Key surfaces | Status |
+|---|---|---|---|
+| **P2P-P** | Canonical `PeerID = HASH(pub)` on wire; unified signed envelope (`peerId`, `timestamp`, `nonce`, `signature`) for discovery/signaling/DM notify | `p2p-runtime.ts`, `p2p-presence.ts`, signaling client | Not started |
+| **P2P-Q** | Connection handshake + `supportedProtocols` / `features` negotiation; fail if no overlap | `p2p-webrtc-session.ts`, `web-ledger-service.ts` (`LEDGER_STATE` extension) | Partial (`LEDGER_STATE`, discovery v1) |
+| **P2P-R** | Trust levels Unknown/Friend/Verified/Blocked with capability gating (broadcast limits for Unknown) | `types.ts`, `web-user-service.ts`, talk delivery filters | Partial (friend labels, blocks) |
+| **P2P-S** | `schemaVersion` on stored objects + deterministic migration registry | local Gun paths, startup migrator | Not started |
+| **P2P-T** | Signed release verification (hash + signature + trust store) for upgrades | packaging pipeline, PWA/desktop installers | Not started |
+| **P2P-U** | Fake-client defense: nonce replay cache, behavioral counters, rate limits, suspicious-peer flags | server relay limits, client neighbor score | Partial (signaling TTL, peer ack) |
+
+Phases P2P-P–U MUST NOT duplicate match logic ([REQ-P2P-08](#1910-p2p-requirements-summary)).
+
+#### 19.13.15 Cross-References
+
+| Topic | Spec section | Implementation |
+|---|---|---|
+| SEA identity | [§12.4 First-Run](#124-first-run-experience), [§12](#12-gunjs-data-model-specifications) | `WebGunService`, Gun `user` soul |
+| Known-person encryption | [§7.9](#79-stranger-model--known-person-trust) | `KnownPerson`, `channel` on messages |
+| Presence + ack | [§19.3](#193-session-bootstrap-when-2-users-are-online) | `/api/presence/*`, `P2PPresenceClient` |
+| Ledger delta | [§20](#20-interaction-ledger-dag-based-history-and-delta-sync) | `LEDGER_STATE`, `ledger/<userId>/events` |
+| Reputation | FR-SP*, [§7](#7-security--privacy) | `reputation.ts`, `ReputationService` |
 
 ---
 
