@@ -6,10 +6,15 @@ const slowMoMs =
   pwSlowMo != null && pwSlowMo !== ''
     ? Number(pwSlowMo)
     : undefined;
-const launchOptions =
-  typeof slowMoMs === 'number' && !Number.isNaN(slowMoMs) && slowMoMs >= 0
+const webrtcLaunchArgs = [
+  '--disable-features=WebRtcHideLocalIpsWithMdns',
+];
+const launchOptions = {
+  args: webrtcLaunchArgs,
+  ...(typeof slowMoMs === 'number' && !Number.isNaN(slowMoMs) && slowMoMs >= 0
     ? { slowMo: slowMoMs }
-    : undefined;
+    : {}),
+};
 
 /**
  * Parallel-worker configuration.
@@ -26,6 +31,8 @@ const launchOptions =
 /** Accept `PW_WORKER` as a typo-alias for `PW_WORKERS`. */
 const parsedWorkers = Number(process.env.PW_WORKERS ?? process.env.PW_WORKER);
 const STAGE_PIPELINE = process.env.E2E_STAGE_PIPELINE === '1' || process.env.E2E_STAGE_PIPELINE === 'true';
+const P2P_DIRECT_CHAT_ENABLED =
+  process.env.P2P_DIRECT_CHAT_ENABLED === '0' ? '0' : '1';
 const NUM_WORKERS = STAGE_PIPELINE
   ? 1
   : Number.isFinite(parsedWorkers) && parsedWorkers >= 1
@@ -41,14 +48,14 @@ const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
     {
       // In-memory server Gun only: disk radisk + graph clear races leave ghost chatroom members and break IN-list e2e.
       // High capacity + no FIFO: default capacity 3 evicts users when Gun map over-counts; Tom and Jerry must stay in the same room for broadcast/IN sync.
-      command: `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false E2E_GUN_MEMORY_ONLY=1 PORT=${gunPort} node dist/server/server/index.js`,
+      command: `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false E2E_GUN_MEMORY_ONLY=1 P2P_DIRECT_CHAT_ENABLED=${P2P_DIRECT_CHAT_ENABLED} P2P_NODE_ENABLED=0 PORT=${gunPort} node dist/server/server/index.js`,
       port: gunPort,
       timeout: 120 * 1000,
       // Must spawn with E2E_GUN_MEMORY_ONLY + CHATROOM_* ; reusing a manually started dev:server ignores those env vars and keeps e2e flaky.
       reuseExistingServer: false,
     },
     {
-      command: `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false PORT=${webPort} npm run dev:web:e2e -- --port ${webPort}`,
+      command: `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false P2P_DIRECT_CHAT_ENABLED=${P2P_DIRECT_CHAT_ENABLED} P2P_NODE_ENABLED=0 PORT=${webPort} npm run dev:web:e2e -- --port ${webPort}`,
       port: webPort,
       timeout: 120 * 1000,
       reuseExistingServer: false,
@@ -84,7 +91,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     headless: process.env.CI ? true : false,
-    ...(launchOptions ? { launchOptions } : {}),
+    launchOptions,
   },
 
   projects: STAGE_PIPELINE
@@ -116,6 +123,8 @@ export default defineConfig({
             /staged\/stage0-bootstrap\//,
             /staged\/_setup\//,
             /staged\/[^/]+\/(aaa-|zzz-)/,
+            // Star-only regression; run via `npm run test:e2e:star` (P2P_DIRECT_CHAT_ENABLED=0).
+            /00-p2p-star-baseline-storage\.spec\.ts/,
           ],
         },
       ],

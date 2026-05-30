@@ -2,7 +2,9 @@ import { WebGunService } from './web-gun-service';
 import { Message } from '../../shared/types';
 import { getSEA } from '../sea-gun';
 import type { GunPair } from './gun-bridge';
-import type { ConversationTransportMode } from '../../shared/p2p-runtime';
+import { resolveP2PRuntimeFlags } from '../../shared/p2p-runtime';
+import type { ConversationTransportMode, P2PRuntimeFlags } from '../../shared/p2p-runtime';
+import { DirectP2PConversationTransport } from './direct-p2p-conversation-transport';
 
 export type SendMessageOptions = {
   channel?: Message['channel'];
@@ -26,7 +28,7 @@ export type ConversationTransport = {
   ): () => void;
 };
 
-class StarGunConversationTransport implements ConversationTransport {
+export class StarGunConversationTransport implements ConversationTransport {
   mode: ConversationTransportMode = 'star-gun';
 
   /**
@@ -215,15 +217,49 @@ class StarGunConversationTransport implements ConversationTransport {
   }
 }
 
+function createDefaultConversationTransport(gunService: WebGunService): ConversationTransport {
+  const flags = resolveP2PRuntimeFlags(
+    typeof process !== 'undefined'
+      ? {
+          P2P_DIRECT_CHAT_ENABLED: process.env.P2P_DIRECT_CHAT_ENABLED,
+          P2P_NODE_ENABLED: process.env.P2P_NODE_ENABLED,
+          STAR_SERVER_PERSISTENCE: process.env.STAR_SERVER_PERSISTENCE,
+        }
+      : {},
+  );
+  if (flags.p2pDirectChatEnabled) {
+    return new DirectP2PConversationTransport(gunService);
+  }
+  return new StarGunConversationTransport(gunService);
+}
+
 export class WebConversationService {
   private transport: ConversationTransport;
 
   constructor(private gunService: WebGunService, transport?: ConversationTransport) {
-    this.transport = transport ?? new StarGunConversationTransport(gunService);
+    this.transport = transport ?? createDefaultConversationTransport(gunService);
   }
 
   getTransportMode(): ConversationTransportMode {
     return this.transport.mode;
+  }
+
+  getDirectP2PConnectionState(conversationId: string, localUserId: string): string {
+    if (this.transport instanceof DirectP2PConversationTransport) {
+      return this.transport.getConnectionState(conversationId, localUserId);
+    }
+    return 'idle';
+  }
+
+  /** Align client transport with server/runtime flags (E2E webpack env + production hub). */
+  applyRuntimeTransportFlags(flags: P2PRuntimeFlags): void {
+    const desired: ConversationTransport = flags.p2pDirectChatEnabled
+      ? new DirectP2PConversationTransport(this.gunService)
+      : new StarGunConversationTransport(this.gunService);
+    if (this.transport.mode !== desired.mode) {
+      this.transport = desired;
+      console.log(`🔀 Conversation transport set to ${desired.mode}`);
+    }
   }
 
   /**
@@ -254,6 +290,7 @@ export class WebConversationService {
       talkId: params.talkId,
       createdAt: new Date().toISOString(),
       status: 'active',
+      transportMode: this.transport.mode,
     };
 
     gun.get(`conversations/${conversationId}`).put({

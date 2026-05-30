@@ -13,6 +13,7 @@ import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { injectIdbClear } from '../../helpers/clear-database';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { afterLoad, afterSync, afterNav, afterAction, headless } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
@@ -20,6 +21,8 @@ import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-pr
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { computeTalkIdFromTalkData } from '../../../../src/shared/talk-content-id';
+import { getConversationIdBetween } from '../../helpers/conversation-e2e';
+import { waitForDirectP2PChannel } from '../../helpers/p2p-transport-e2e';
 
 async function getCurrentUserId(page: Page): Promise<string> {
   return page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id ?? '');
@@ -42,11 +45,21 @@ test.describe('Messaging edge cases', () => {
     await clearGunForStage2Spec();
     browserTom = await chromium.launch({
       headless,
-      args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
+      args: [
+        ...WEBRTC_CHROMIUM_ARGS,
+        '--window-position=0,0',
+        '--window-size=640,1200',
+        '--force-device-scale-factor=1',
+      ],
     });
     browserJerry = await chromium.launch({
       headless,
-      args: ['--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
+      args: [
+        ...WEBRTC_CHROMIUM_ARGS,
+        '--window-position=640,0',
+        '--window-size=640,1200',
+        '--force-device-scale-factor=1',
+      ],
     });
   });
 
@@ -289,12 +302,12 @@ test.describe('Messaging edge cases', () => {
     await ensureConversation(pageTom, jerryUserId, 'Jerry', talkId);
     await ensureConversation(pageJerry, tomUserId, 'Tom', talkId);
 
-    // Tom sends a message
+    const convId = await getConversationIdBetween(pageTom, tomUserId, jerryUserId);
     await openConversation(pageTom, 'Jerry', jerryUserId);
-    await sendConversationMessage(pageTom, tomMessage);
-
-    // Jerry sees it
     await openConversation(pageJerry, 'Tom', tomUserId);
+    await waitForDirectP2PChannel(pageTom, convId);
+    await waitForDirectP2PChannel(pageJerry, convId);
+    await sendConversationMessage(pageTom, tomMessage);
     await expectMessageVisible(pageJerry, tomMessage);
 
     // Close overlay and re-open a fresh page in the same BrowserContext.
@@ -339,10 +352,12 @@ test.describe('Messaging edge cases', () => {
     await ensureConversation(pageTom, jerryUserId, 'Jerry', talkId);
     await ensureConversation(pageJerry, tomUserId, 'Tom', talkId);
 
-    // Establish the conversation by sending the first message.
+    const convId = await getConversationIdBetween(pageTom, tomUserId, jerryUserId);
     await openConversation(pageTom, 'Jerry', jerryUserId);
-    await sendConversationMessage(pageTom, tomMessage1);
     await openConversation(pageJerry, 'Tom', tomUserId);
+    await waitForDirectP2PChannel(pageTom, convId);
+    await waitForDirectP2PChannel(pageJerry, convId);
+    await sendConversationMessage(pageTom, tomMessage1);
     await expectMessageVisible(pageJerry, tomMessage1);
     await pageJerry.click('#back-from-conversation');
     await afterAction();
@@ -376,11 +391,11 @@ test.describe('Messaging edge cases', () => {
     await expect(pageTom.locator('#contact-relationship-modal')).toHaveCount(0, { timeout: 10000 });
     await afterSync();
 
-    // After unblock, Tom should be able to send another message.
     await openConversation(pageTom, 'Jerry', jerryUserId);
-    await sendConversationMessage(pageTom, tomMessage2);
-
     await openConversation(pageJerry, 'Tom', tomUserId);
+    await waitForDirectP2PChannel(pageTom, convId);
+    await waitForDirectP2PChannel(pageJerry, convId);
+    await sendConversationMessage(pageTom, tomMessage2);
     await expectMessageVisible(pageJerry, tomMessage2);
   });
 });

@@ -8,6 +8,8 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 
+const P2P_DIRECT_ENABLED = process.env.P2P_DIRECT_CHAT_ENABLED !== '0';
+
 test.describe('UI navigation and settings shell', () => {
   let context: BrowserContext | undefined;
   let page: Page | undefined;
@@ -219,7 +221,9 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#storage-inspector-flags')).toContainText('本地节点');
     await expect(p.locator('#storage-inspector-flags')).toContainText('已禁用');
     await expect(p.locator('#storage-inspector-runtime-features')).toContainText('传输回退');
-    await expect(p.locator('#storage-inspector-runtime-features')).toContainText('无');
+    await expect(p.locator('#storage-inspector-runtime-features')).toContainText(
+      P2P_DIRECT_ENABLED ? 'server-relay' : '无',
+    );
     await expect(p.locator('#storage-inspector-runtime-features')).toContainText('支持引导');
     await expect(p.locator('#storage-inspector-runtime-features')).toContainText('活动');
     await expect(p.locator('#storage-inspector-app-state')).toContainText('TechSupport 根身份');

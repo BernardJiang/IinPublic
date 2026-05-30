@@ -10,11 +10,14 @@ This file is the short, execution-oriented plan.
 
 ## Current Focus
 
-All planned phases (D-series through Phase G) are complete. No outstanding action items.
+**Direct P2P conversation transport** — implement WebRTC DataChannel messaging and migrate E2E to `P2P_DIRECT_CHAT_ENABLED=1`. Full plan: [TODO-direct-p2p.md](TODO-direct-p2p.md).
+
+Talk delivery / matching remains server-mediated until a later mesh epic (spec §19).
 
 ## Next Action Items (Ordered)
 
-_None — all backlog items shipped. See `docs/completed.md` for evidence._
+1. **Direct P2P (active)** — follow [TODO-direct-p2p.md](TODO-direct-p2p.md) Phases 0–5.
+2. **D4 (optional)** — creator edit/state-preservation checks after OUT/IN rebroadcast.
 
 ## Phase Status Snapshot
 

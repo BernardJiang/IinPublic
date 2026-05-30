@@ -5,6 +5,8 @@ Last updated: 2026-05-27
 This document holds the detailed acceptance inventory that used to live in `docs/TODO.md`.
 Use `docs/TODO.md` for immediate next actions and execution ordering.
 
+**Active implementation plan:** [TODO-direct-p2p.md](TODO-direct-p2p.md) (WebRTC conversation transport + E2E migration).
+
 ## Detailed D6 Acceptance Inventory
 
 ### Chatrooms

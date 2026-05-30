@@ -61,6 +61,12 @@ module.exports = {
             'process.env.IINPUBLIC_STAGE_SEED': JSON.stringify(
               process.env.IINPUBLIC_STAGE_SEED || '',
             ),
+            'process.env.P2P_DIRECT_CHAT_ENABLED': JSON.stringify(
+              process.env.P2P_DIRECT_CHAT_ENABLED || '0',
+            ),
+            'process.env.P2P_NODE_ENABLED': JSON.stringify(
+              process.env.P2P_NODE_ENABLED || '0',
+            ),
           }),
         ]
       : [
@@ -71,6 +77,8 @@ module.exports = {
             // so the bundle does not reference bare `process` in the browser (webpack 5).
             DISABLE_HMR: process.env.DISABLE_HMR || 'false',
             IINPUBLIC_STAGE_SEED: process.env.IINPUBLIC_STAGE_SEED || '',
+            P2P_DIRECT_CHAT_ENABLED: process.env.P2P_DIRECT_CHAT_ENABLED || '0',
+            P2P_NODE_ENABLED: process.env.P2P_NODE_ENABLED || '0',
           }),
         ]),
     // Ignore Gun.js dynamic requires that are Node.js-only and must not be

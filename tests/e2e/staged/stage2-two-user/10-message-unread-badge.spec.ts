@@ -11,6 +11,7 @@ import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { injectIdbClear } from '../../helpers/clear-database';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
 import { gunBaseURL, webAppURLStableChatroom } from '../../helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
@@ -20,6 +21,11 @@ import {
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
+import { getConversationIdBetween } from '../../helpers/conversation-e2e';
+import {
+  warmDirectP2PSession,
+  waitForDirectP2PChannel,
+} from '../../helpers/p2p-transport-e2e';
 
 test.describe('Unread badge on Me tab after match and new message', () => {
   let browserTom: Browser;
@@ -40,12 +46,22 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     browserTom = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 120),
-      args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
+      args: [
+        ...WEBRTC_CHROMIUM_ARGS,
+        '--window-position=0,0',
+        '--window-size=640,1200',
+        '--force-device-scale-factor=1',
+      ],
     });
     browserJerry = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 120),
-      args: ['--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
+      args: [
+        ...WEBRTC_CHROMIUM_ARGS,
+        '--window-position=640,0',
+        '--window-size=640,1200',
+        '--force-device-scale-factor=1',
+      ],
     });
   });
 
@@ -268,7 +284,11 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await expect(meNavJerry.locator('.notification-badge')).not.toBeVisible({ timeout: 10000 });
 
     // ── Phase 3: Tom sends a message while Jerry's overlay is closed ─────────
-    // Tom opens conversation first
+    const conversationId = await getConversationIdBetween(pageTom, tomUserId, jerryUserId);
+    await warmDirectP2PSession(pageTom, conversationId);
+    await warmDirectP2PSession(pageJerry, conversationId);
+    await waitForDirectP2PChannel(pageTom, conversationId);
+    await waitForDirectP2PChannel(pageJerry, conversationId);
     await openConversationByOtherUserId(pageTom, jerryUserId);
 
     const tomInput = pageTom.locator('#conversation-message-input');

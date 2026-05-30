@@ -18,6 +18,7 @@ import {
   TECHSUPPORT_ROOT_USER_ID,
   TECHSUPPORT_STAGE_NAME,
 } from '../../shared/techsupport';
+import type { P2PRuntimeFlags } from '../../shared/p2p-runtime';
 
 export class IinPublicApp {
   private gunService: WebGunService;
@@ -132,6 +133,7 @@ export class IinPublicApp {
     // here — clearing the graph before SEA auth breaks gun.user().auth()).
     await this.gunService.initialize();
     await this.gunService.ensureKeypairAndAuth();
+    await this.syncConversationTransportFromServer();
 
     // Phase E: initialize ledger after SEA keypair is established
     this.initLedger();
@@ -825,6 +827,7 @@ export class IinPublicApp {
                   otherUserName: responseData.responderName,
                   talkId: talkId,
                   respondedByBot: !!responseData.isChatbotResponse,
+                  transportMode: this.conversationService.getTransportMode(),
                 });
                 this.uiManager.setMemberMatched(responseData.responderId);
               })
@@ -907,6 +910,7 @@ export class IinPublicApp {
             otherUserName: authorName,
             talkId,
             respondedByBot: false, // responder (Jerry) sees author (Bob), not bot
+            transportMode: this.conversationService.getTransportMode(),
           });
         })
         .catch((err) => console.error('Chatbot conversation create failed:', err));
@@ -938,6 +942,19 @@ export class IinPublicApp {
       return `${protocol}//${hostname}:8080`;
     }
     return `${protocol}//${hostname}`;
+  }
+
+  private async syncConversationTransportFromServer(): Promise<void> {
+    try {
+      const res = await fetch(`${this.getBackendApiBase()}/api/debug/storage`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const payload = (await res.json()) as { flags?: P2PRuntimeFlags };
+      if (payload.flags) {
+        this.conversationService.applyRuntimeTransportFlags(payload.flags);
+      }
+    } catch (error) {
+      console.warn('Could not sync conversation transport from server flags:', error);
+    }
   }
 
   /**
@@ -1380,6 +1397,7 @@ export class IinPublicApp {
           otherUserName: displayName,
           talkId: match.talkId || data.talkId,
           respondedByBot: isChatbot,
+          transportMode: this.conversationService.getTransportMode(),
         });
       }
     }
@@ -1794,14 +1812,14 @@ export class IinPublicApp {
 
       // Check if conversation exists with this user
       const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
-      const existingConversation = Object.values(conversations).find(
-        (conv: any) => conv.otherUserId === data.userId,
-      ) as any;
+      const existingEntry = Object.entries(conversations).find(
+        ([, conv]: [string, any]) => conv?.otherUserId === data.userId,
+      );
 
-      if (existingConversation) {
-        // Open existing conversation
-        console.log('💬 Opening existing conversation:', existingConversation.conversationId);
-        this.uiManager.showConversationDetail(existingConversation.conversationId);
+      if (existingEntry) {
+        const [conversationId] = existingEntry;
+        console.log('💬 Opening existing conversation:', conversationId);
+        this.uiManager.showConversationDetail(conversationId);
       } else {
         // No conversation yet - show notification
         this.uiManager.showNotification(

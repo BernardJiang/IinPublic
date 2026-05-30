@@ -13,6 +13,23 @@ async function fetchUserConversations(
   return body.conversations ?? [];
 }
 
+export async function getConversationIdBetween(
+  page: Page,
+  userId: string,
+  otherUserId: string,
+  timeoutMs = 30_000,
+): Promise<string> {
+  let conversationId = '';
+  await expect
+    .poll(async () => {
+      const hit = (await fetchUserConversations(page, userId)).find((c) => c?.otherUserId === otherUserId);
+      conversationId = hit?.conversationId ?? '';
+      return conversationId;
+    }, { timeout: timeoutMs, message: `conversation id between ${userId} and ${otherUserId}` })
+    .not.toBe('');
+  return conversationId;
+}
+
 /** Durable match check via server conversations map (localStorage can lag). */
 export async function waitForServerConversationBetween(
   page: Page,
@@ -39,12 +56,7 @@ export async function openConversationViaServer(
   otherUserId: string,
 ): Promise<void> {
   await waitForServerConversationBetween(page, userId, otherUserId);
-  const conversationId = await expect
-    .poll(async () => {
-      const hit = (await fetchUserConversations(page, userId)).find((c) => c?.otherUserId === otherUserId);
-      return hit?.conversationId ?? '';
-    }, { timeout: 30_000 })
-    .not.toBe('');
+  const conversationId = await getConversationIdBetween(page, userId, otherUserId);
   await page.evaluate(
     ({ cid, name, oid }) => {
       const ui = (window as unknown as { __iinpublic_app?: { getApp: () => { uiManager?: { showConversationDetail?: (id: string) => void } } } })

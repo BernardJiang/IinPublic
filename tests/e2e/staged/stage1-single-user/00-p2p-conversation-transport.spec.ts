@@ -5,6 +5,8 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { gunBaseURL, webBaseURL } from '../../helpers/ports';
 
+const P2P_DIRECT_ENABLED = process.env.P2P_DIRECT_CHAT_ENABLED !== '0';
+
 test.describe('P2P roadmap P4 — conversation transport and signaling', () => {
   let context: BrowserContext | undefined;
   let page: Page | undefined;
@@ -31,9 +33,9 @@ test.describe('P2P roadmap P4 — conversation transport and signaling', () => {
     const payload = await storage.json();
     expect(payload.conversationTransport).toEqual(
       expect.objectContaining({
-        activeMode: 'star-gun',
+        activeMode: P2P_DIRECT_ENABLED ? 'direct-p2p' : 'star-gun',
         availableModes: ['star-gun', 'server-relay', 'direct-p2p'],
-        messageBodyStorage: 'gun-legacy',
+        messageBodyStorage: P2P_DIRECT_ENABLED ? 'local-only' : 'gun-legacy',
       }),
     );
 

@@ -144,6 +144,15 @@ Four talk types share the same `Talk` struct but behave differently:
 - **survey** — no match/ignore; all answers collected for stats
 - **route** — DAG with `next` pointers between questions; ends on a terminal node
 
+### Direct P2P conversation transport
+
+When `P2P_DIRECT_CHAT_ENABLED=1` (default in Playwright `webServer` / Gun spawn), post-match DMs use `DirectP2PConversationTransport` (WebRTC DataChannel + `/api/p2p/signaling/*`). Message bodies are not written to `conversations/.../messages` on the Gun hub. The web app also syncs transport mode from `GET /api/debug/storage` flags at boot.
+
+- Default E2E: `P2P_DIRECT_CHAT_ENABLED=1` (see `playwright.config.ts`)
+- Star-gun regression: `npm run test:e2e:star` (`P2P_DIRECT_CHAT_ENABLED=0`)
+- Helpers: `tests/e2e/helpers/p2p-transport-e2e.ts` (`P2P_E2E_TIMEOUT_MS=10s`), `tests/e2e/helpers/webrtc-chromium.ts`
+- Runtime WebRTC connect timeout: `P2P_WEBRTC_CONNECT_TIMEOUT_MS` (10s) in `p2p-webrtc-session.ts`
+
 ### E2E test infrastructure
 
 Tests live in `tests/e2e/`. Each spec has a companion `.md` with a plain-English description.

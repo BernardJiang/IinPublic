@@ -4,6 +4,7 @@ import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { injectIdbClear } from '../../helpers/clear-database';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
 import { gunBaseURL, webAppURLStableChatroom } from '../../helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
@@ -13,7 +14,16 @@ import {
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
-import { openConversationViaServer, waitForServerConversationBetween } from '../../helpers/conversation-e2e';
+import {
+  getConversationIdBetween,
+  openConversationViaServer,
+  waitForServerConversationBetween,
+} from '../../helpers/conversation-e2e';
+import {
+  assertNoGunStoredMessageBodies,
+  expectActiveTransportMode,
+  waitForDirectP2PChannel,
+} from '../../helpers/p2p-transport-e2e';
 
 test.describe('Direct messaging between matched users', () => {
   let browserTom: Browser;
@@ -35,12 +45,22 @@ test.describe('Direct messaging between matched users', () => {
     browserTom = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 120),
-      args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
+      args: [
+        ...WEBRTC_CHROMIUM_ARGS,
+        '--window-position=0,0',
+        '--window-size=640,1200',
+        '--force-device-scale-factor=1',
+      ],
     });
     browserJerry = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 120),
-      args: ['--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
+      args: [
+        ...WEBRTC_CHROMIUM_ARGS,
+        '--window-position=640,0',
+        '--window-size=640,1200',
+        '--force-device-scale-factor=1',
+      ],
     });
   });
 
@@ -165,8 +185,15 @@ test.describe('Direct messaging between matched users', () => {
     await waitForServerConversationBetween(pageTom, tomUserId, jerryUserId);
     await waitForServerConversationBetween(pageJerry, jerryUserId, tomUserId);
 
-    // ── Tom opens the conversation and sends a message ───────────────────────
+    const conversationId = await getConversationIdBetween(pageTom, tomUserId, jerryUserId);
+    await expectActiveTransportMode(pageTom, 'direct-p2p');
+    await expectActiveTransportMode(pageJerry, 'direct-p2p');
+
+    // ── Both peers open the conversation and establish WebRTC before send ───
     await openConversation(pageTom, 'Jerry', jerryUserId);
+    await openConversation(pageJerry, 'Tom', tomUserId);
+    await waitForDirectP2PChannel(pageTom, conversationId);
+    await waitForDirectP2PChannel(pageJerry, conversationId);
 
     const tomInput = pageTom.locator('#conversation-message-input');
     await expect(tomInput).toBeVisible({ timeout: 10000 });
@@ -180,9 +207,6 @@ test.describe('Direct messaging between matched users', () => {
     await expect(
       pageTom.locator('#conversation-messages .message-text').filter({ hasText: TOM_MESSAGE }).first(),
     ).toBeVisible({ timeout: 10000 });
-
-    // ── Jerry opens the conversation and sees Tom's message ──────────────────
-    await openConversation(pageJerry, 'Tom', tomUserId);
 
     await expect
       .poll(
@@ -224,5 +248,7 @@ test.describe('Direct messaging between matched users', () => {
         { message: "Tom should see Jerry's reply", timeout: 30000 },
       )
       .toBe(true);
+
+    await assertNoGunStoredMessageBodies(pageTom, conversationId);
   });
 });
