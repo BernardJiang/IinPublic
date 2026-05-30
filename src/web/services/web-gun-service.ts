@@ -107,7 +107,7 @@ export class WebGunService extends EventEmitter {
       // continues using the direct Gun instance for all existing functionality.
       try {
         await this.bridge.init({ hubUrl: this.peers[0] });
-        console.log('🔗 Gun.js worker bridge ready');
+        console.log('🔗 Gun.js worker bridge ready (IndexedDB-backed via worker)');
       } catch (bridgeErr) {
         console.warn('⚠️ Gun worker bridge unavailable — SEA/IndexedDB features disabled:', bridgeErr);
       }

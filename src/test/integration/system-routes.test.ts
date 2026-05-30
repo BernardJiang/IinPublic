@@ -58,6 +58,8 @@ describe('system routes', () => {
       starServerPersistence: 'durable',
       p2pNodeEnabled: false,
       p2pDirectChatEnabled: false,
+      relayOnlyHub: false,
+      p2pClientTalkMirror: true,
     });
     expect(res.body.localNode).toEqual(
       expect.objectContaining({
@@ -490,6 +492,55 @@ describe('system routes', () => {
         storedTelemetry: false,
         visibleToUser: true,
       }),
+    );
+  });
+
+  it('registers presence and stores TechSupport messages (P2P-I / P2P-N)', async () => {
+    const { app } = buildApp('production');
+
+    const reg = await request(app)
+      .post('/api/presence/register')
+      .send({ userId: 'alice', pub: 'pub_alice', epub: 'epub_alice' });
+    expect(reg.status).toBe(200);
+    expect(reg.body.record.userId).toBe('alice');
+
+    const nearby = await request(app).get('/api/presence/nearby?excludeUserId=alice');
+    expect(nearby.status).toBe(200);
+    expect(nearby.body.count).toBe(0);
+
+    await request(app)
+      .post('/api/presence/register')
+      .send({ userId: 'bob', pub: 'pub_bob' });
+    const nearbyBob = await request(app).get('/api/presence/nearby?excludeUserId=alice');
+    expect(nearbyBob.body.peers).toEqual(
+      expect.arrayContaining([expect.objectContaining({ userId: 'bob', pub: 'pub_bob' })]),
+    );
+
+    const ack = await request(app)
+      .post('/api/presence/ack')
+      .send({
+        fromUserId: 'alice',
+        fromPub: 'pub_alice',
+        toUserId: 'bob',
+        toPub: 'pub_bob',
+      });
+    expect(ack.status).toBe(200);
+
+    const convId = 'conv_support_root_alice';
+    const postMsg = await request(app)
+      .post(`/api/support/messages/${convId}`)
+      .send({
+        id: 'support_1',
+        senderId: 'iinpublic-root-techsupport',
+        text: 'Welcome',
+        channel: 'public',
+      });
+    expect(postMsg.status).toBe(200);
+
+    const list = await request(app).get(`/api/support/messages/${convId}`);
+    expect(list.status).toBe(200);
+    expect(list.body.messages).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'support_1', text: 'Welcome' })]),
     );
   });
 });

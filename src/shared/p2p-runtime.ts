@@ -4,6 +4,10 @@ export type P2PRuntimeFlags = {
   starServerPersistence: StarServerPersistencePolicy;
   p2pNodeEnabled: boolean;
   p2pDirectChatEnabled: boolean;
+  /** Production relay-only hub (`www.iinpublic.com`) — no application radata. */
+  relayOnlyHub: boolean;
+  /** Mirror server incoming-talk snapshots into local Gun (P2P-L). */
+  p2pClientTalkMirror: boolean;
 };
 
 export type ConversationTransportMode = 'star-gun' | 'server-relay' | 'direct-p2p';
@@ -322,14 +326,34 @@ function parsePersistencePolicy(value: string | undefined): StarServerPersistenc
 
 export function resolveP2PRuntimeFlags(env: Record<string, string | undefined> = {}): P2PRuntimeFlags {
   const get = (key: string): string | undefined => env[key] ?? readEnv(key);
+  const relayOnlyHub = parseBooleanFlag(get('RELAY_ONLY_HUB'), false);
+  const starServerPersistence = relayOnlyHub
+    ? 'ephemeral'
+    : parsePersistencePolicy(get('STAR_SERVER_PERSISTENCE'));
   return {
-    starServerPersistence: parsePersistencePolicy(get('STAR_SERVER_PERSISTENCE')),
+    starServerPersistence,
     p2pNodeEnabled: parseBooleanFlag(get('P2P_NODE_ENABLED'), false),
     p2pDirectChatEnabled: parseBooleanFlag(get('P2P_DIRECT_CHAT_ENABLED'), false),
+    relayOnlyHub,
+    p2pClientTalkMirror: parseBooleanFlag(get('P2P_CLIENT_TALK_MIRROR'), true),
   };
 }
 
-export function createConversationTransportDiagnostics(flags: P2PRuntimeFlags): ConversationTransportDiagnostics {
+/** P2P-K: peer DM bodies must not durably persist on the public hub (TechSupport excepted). */
+export function shouldSkipServerGunPersist(
+  path: string[],
+  flags: P2PRuntimeFlags,
+  options: { supportChannel?: boolean } = {},
+): boolean {
+  if (options.supportChannel) return false;
+  if (flags.starServerPersistence !== 'ephemeral' && !flags.relayOnlyHub) return false;
+  if (path[0] === 'conversations' && path.length >= 3 && path[2] === 'messages') return true;
+  return false;
+}
+
+export function createConversationTransportDiagnostics(
+  flags: P2PRuntimeFlags = resolveP2PRuntimeFlags(),
+): ConversationTransportDiagnostics {
   if (flags.p2pDirectChatEnabled) {
     return {
       activeMode: 'direct-p2p',

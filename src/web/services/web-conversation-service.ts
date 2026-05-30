@@ -3,8 +3,10 @@ import { Message } from '../../shared/types';
 import { resolveP2PRuntimeFlags } from '../../shared/p2p-runtime';
 import type { ConversationTransportMode, P2PRuntimeFlags } from '../../shared/p2p-runtime';
 import type { LedgerState } from '../../shared/types';
+import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { StarGunConversationTransport } from './star-gun-conversation-transport';
 import { ResilientConversationTransport } from './resilient-conversation-transport';
+import { TechSupportConversationTransport } from './techsupport-conversation-transport';
 
 export type SendMessageOptions = {
   channel?: Message['channel'];
@@ -43,6 +45,7 @@ function resolveRuntimeFlags(): P2PRuntimeFlags {
 export class WebConversationService {
   private transport: ConversationTransport;
   private readonly starTransport: StarGunConversationTransport;
+  private readonly supportTransport: TechSupportConversationTransport;
   private onTransportFallback?: (info: {
     conversationId: string;
     mode: ConversationTransportMode;
@@ -55,6 +58,7 @@ export class WebConversationService {
 
   constructor(private gunService: WebGunService, transport?: ConversationTransport) {
     this.starTransport = new StarGunConversationTransport(gunService);
+    this.supportTransport = new TechSupportConversationTransport(gunService);
     if (transport) {
       this.transport = transport;
     } else {
@@ -98,6 +102,18 @@ export class WebConversationService {
 
   getTransportMode(): ConversationTransportMode {
     return this.transport.mode;
+  }
+
+  private isSupportConversation(conversationId: string, otherUserId?: string): boolean {
+    if (conversationId.startsWith('conv_support_')) return true;
+    return otherUserId === TECHSUPPORT_ROOT_USER_ID;
+  }
+
+  private resolveTransport(conversationId: string, otherUserId?: string): ConversationTransport {
+    if (this.isSupportConversation(conversationId, otherUserId)) {
+      return this.supportTransport;
+    }
+    return this.transport;
   }
 
   getDirectP2PConnectionState(conversationId: string, localUserId: string): string {
@@ -186,7 +202,12 @@ export class WebConversationService {
     text: string,
     opts?: SendMessageOptions,
   ): Promise<void> {
-    return this.transport.sendMessage(conversationId, senderId, text, opts);
+    return this.resolveTransport(conversationId, opts?.otherUserId).sendMessage(
+      conversationId,
+      senderId,
+      text,
+      opts,
+    );
   }
 
   /**
@@ -199,8 +220,13 @@ export class WebConversationService {
     conversationId: string,
     callback: (messages: Message[]) => void,
     myUserId?: string,
+    otherUserId?: string,
   ): () => void {
-    return this.transport.subscribeToMessages(conversationId, callback, myUserId);
+    return this.resolveTransport(conversationId, otherUserId).subscribeToMessages(
+      conversationId,
+      callback,
+      myUserId,
+    );
   }
 
   /**

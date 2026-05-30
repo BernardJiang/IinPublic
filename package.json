@@ -13,6 +13,7 @@
     "dev:web": "webpack serve --mode development --config webpack.config.js",
     "dev:web:e2e": "DISABLE_HMR=true webpack serve --mode development --config webpack.config.js --no-watch",
     "dev:server": "tsx watch src/server/index.ts",
+    "dev:relay-only": "RELAY_ONLY_HUB=1 STAR_SERVER_PERSISTENCE=ephemeral E2E_GUN_MEMORY_ONLY=1 tsx watch src/server/index.ts",
     "dev:multi": "concurrently \"npm run dev\" \"node launch-browsers.js\"",
     "build": "npm run build:web && npm run build:server && npm run build:android",
     "build:web": "webpack --mode production --config webpack.config.js",

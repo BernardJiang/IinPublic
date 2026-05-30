@@ -44,6 +44,16 @@ import {
   type LocalNodeSupervisorSnapshot,
   type DirectP2PMessageEnvelope,
 } from '../../shared/p2p-runtime';
+import {
+  createPeerAckMessage,
+  createPresenceRecord,
+  listNearbyPresence,
+  prunePresenceRecords,
+  validatePeerAckMessage,
+  type PeerAckMessage,
+  type PresenceRecord,
+} from '../../shared/p2p-presence';
+import { TechSupportMessageStore } from '../services/techsupport-message-store';
 
 /** Gun radisk default directory (see node_modules/gun/lib/radisk.js). */
 function clearRadiskOnDisk(): string[] {
@@ -161,6 +171,18 @@ export function registerSystemRoutes(
   const signalingByConversation = new Map<string, P2PSignalingEnvelope[]>();
   const relayByConversation = new Map<string, DirectP2PMessageEnvelope[]>();
   const discoveryMessages = new Map<string, P2PDiscoveryMessage>();
+  const presenceByUserId = new Map<string, PresenceRecord>();
+  const peerAckInbox = new Map<string, PeerAckMessage[]>();
+  const techSupportMessages = new TechSupportMessageStore();
+
+  const prunePresence = (now = new Date()): void => {
+    prunePresenceRecords(presenceByUserId, now);
+    for (const [toPub, inbox] of peerAckInbox) {
+      const fresh = inbox.filter((ack) => new Date(ack.expiresAt).getTime() > now.getTime());
+      if (fresh.length === 0) peerAckInbox.delete(toPub);
+      else peerAckInbox.set(toPub, fresh);
+    }
+  };
 
   const pruneSignaling = (now = new Date()): void => {
     for (const [conversationId, envelopes] of signalingByConversation) {
@@ -201,6 +223,184 @@ export function registerSystemRoutes(
     }
   });
 
+  // Relay hub APIs (production + dev) — presence, TechSupport store, P2P signaling
+  app.post('/api/presence/register', (req, res) => {
+    try {
+      prunePresence();
+      const body = req.body || {};
+      const record = createPresenceRecord({
+        userId: String(body.userId || ''),
+        pub: String(body.pub || ''),
+        ...(body.epub ? { epub: String(body.epub) } : {}),
+        ...(body.encryptedLocation ? { encryptedLocation: String(body.encryptedLocation) } : {}),
+        ...(Array.isArray(body.capabilities)
+          ? { capabilities: body.capabilities.map(String) }
+          : {}),
+      });
+      presenceByUserId.set(record.userId, record);
+      res.json({ stored: true, record });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  app.get('/api/presence/nearby', (req, res) => {
+    prunePresence();
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const nearbyOpts: { excludeUserId?: string; limit?: number } = { limit };
+    if (req.query.excludeUserId) nearbyOpts.excludeUserId = String(req.query.excludeUserId);
+    const peers = listNearbyPresence(presenceByUserId, nearbyOpts);
+    res.json({ peers, count: peers.length });
+  });
+
+  app.post('/api/presence/ack', (req, res) => {
+    try {
+      prunePresence();
+      const body = req.body || {};
+      const ack = createPeerAckMessage({
+        fromUserId: String(body.fromUserId || ''),
+        fromPub: String(body.fromPub || ''),
+        toUserId: String(body.toUserId || ''),
+        toPub: String(body.toPub || ''),
+        ...(body.nonce ? { nonce: String(body.nonce) } : {}),
+        ...(body.signature ? { signature: String(body.signature) } : {}),
+      });
+      const validation = validatePeerAckMessage(ack, ack.toPub);
+      if (!validation.ok) {
+        res.status(400).json({ error: validation.reason });
+        return;
+      }
+      const inbox = peerAckInbox.get(ack.toPub) || [];
+      peerAckInbox.set(ack.toPub, [...inbox, ack]);
+      res.json(ack);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  app.get('/api/presence/ack', (req, res) => {
+    prunePresence();
+    const toPub = String(req.query.toPub || '');
+    const inbox = (peerAckInbox.get(toPub) || []).filter(
+      (ack) => !req.query.fromPub || ack.fromPub === String(req.query.fromPub),
+    );
+    res.json({ acknowledgements: inbox });
+  });
+
+  app.get('/api/support/messages/:conversationId', (req, res) => {
+    const conversationId = String(req.params.conversationId || '');
+    res.json({
+      conversationId,
+      messages: techSupportMessages.list(conversationId),
+    });
+  });
+
+  app.post('/api/support/messages/:conversationId', (req, res) => {
+    try {
+      const conversationId = String(req.params.conversationId || '');
+      if (!conversationId.startsWith('conv_support_')) {
+        res.status(400).json({ error: 'Not a TechSupport conversation id' });
+        return;
+      }
+      const body = req.body || {};
+      const message = {
+        id: String(body.id || `support_${Date.now()}`),
+        conversationId,
+        senderId: String(body.senderId || ''),
+        text: String(body.text || ''),
+        timestamp: String(body.timestamp || new Date().toISOString()),
+        channel: String(body.channel || 'public'),
+      };
+      if (!message.senderId || !message.text) {
+        res.status(400).json({ error: 'senderId and text are required' });
+        return;
+      }
+      techSupportMessages.append(message);
+      if (gunService) {
+        void gunService.putPath(
+          ['conversations', conversationId, 'messages', message.id],
+          {
+            id: message.id,
+            senderId: message.senderId,
+            text: message.text,
+            timestamp: message.timestamp,
+            channel: message.channel,
+            transport: 'star-gun',
+            supportMessage: true,
+          },
+          { supportChannel: true },
+        );
+      }
+      res.json({ stored: true, message });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  app.get('/api/p2p/signaling/:conversationId', (req, res) => {
+    pruneSignaling();
+    const conversationId = String(req.params.conversationId || '');
+    res.json({
+      conversationId,
+      envelopes: signalingByConversation.get(conversationId) || [],
+    });
+  });
+
+  app.post('/api/p2p/signaling/:conversationId', (req, res) => {
+    try {
+      pruneSignaling();
+      const conversationId = String(req.params.conversationId || '');
+      const body = req.body || {};
+      const envelope = createP2PSignalingEnvelope({
+        conversationId,
+        kind: body.kind as P2PSignalingKind,
+        senderPub: String(body.senderPub || ''),
+        recipientPub: String(body.recipientPub || ''),
+        signalCiphertext: String(body.signalCiphertext || ''),
+        signature: String(body.signature || ''),
+        nonce: String(body.nonce || ''),
+      });
+      const current = signalingByConversation.get(conversationId) || [];
+      signalingByConversation.set(conversationId, [...current, envelope]);
+      res.json({ stored: true, envelope });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  app.get('/api/p2p/conversation-relay/:conversationId', (req, res) => {
+    pruneConversationRelay();
+    const conversationId = String(req.params.conversationId || '');
+    const recipientPub = String(req.query.recipientPub || '');
+    const envelopes = (relayByConversation.get(conversationId) || []).filter(
+      (envelope) => !recipientPub || envelope.recipientPub === recipientPub,
+    );
+    res.json({ conversationId, envelopes });
+  });
+
+  app.post('/api/p2p/conversation-relay/:conversationId', (req, res) => {
+    try {
+      pruneConversationRelay();
+      const conversationId = String(req.params.conversationId || '');
+      const body = req.body || {};
+      const envelope = createDirectP2PMessageEnvelope({
+        conversationId,
+        messageId: String(body.messageId || ''),
+        senderPub: String(body.senderPub || ''),
+        ...(body.recipientPub ? { recipientPub: String(body.recipientPub) } : {}),
+        bodyCiphertext: String(body.bodyCiphertext || ''),
+        signature: String(body.signature || ''),
+        nonce: String(body.nonce || ''),
+        expiresAt: String(body.expiresAt || new Date(Date.now() + 120_000).toISOString()),
+      });
+      const current = relayByConversation.get(conversationId) || [];
+      relayByConversation.set(conversationId, [...current, envelope]);
+      res.json({ stored: true, envelope });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
   // Test-only endpoints (non-production only)
   if (nodeEnv !== 'production') {
     app.get('/api/debug/storage', (_req, res) => {
@@ -225,6 +425,8 @@ export function registerSystemRoutes(
             routes: 'HTTP/Socket API',
           },
           flags: resolveP2PRuntimeFlags(process.env),
+          relayOnlyHub: resolveP2PRuntimeFlags(process.env).relayOnlyHub,
+          presenceLiveCount: presenceByUserId.size,
           localNode: localNodeSupervisor,
           neighborMemory: {
             ...neighborCache,
@@ -401,70 +603,6 @@ export function registerSystemRoutes(
 
     app.get('/api/p2p/transport-diagnostics', (_req, res) => {
       res.json({ events: transportDiagnostics });
-    });
-
-    app.get('/api/p2p/conversation-relay/:conversationId', (req, res) => {
-      pruneConversationRelay();
-      const conversationId = String(req.params.conversationId || '');
-      const recipientPub = String(req.query.recipientPub || '');
-      const envelopes = (relayByConversation.get(conversationId) || []).filter(
-        (envelope) => !recipientPub || envelope.recipientPub === recipientPub,
-      );
-      res.json({ conversationId, envelopes });
-    });
-
-    app.post('/api/p2p/conversation-relay/:conversationId', (req, res) => {
-      try {
-        pruneConversationRelay();
-        const conversationId = String(req.params.conversationId || '');
-        const body = req.body || {};
-        const envelope = createDirectP2PMessageEnvelope({
-          conversationId,
-          messageId: String(body.messageId || ''),
-          senderPub: String(body.senderPub || ''),
-          ...(body.recipientPub ? { recipientPub: String(body.recipientPub) } : {}),
-          bodyCiphertext: String(body.bodyCiphertext || ''),
-          signature: String(body.signature || ''),
-          nonce: String(body.nonce || ''),
-          expiresAt: String(body.expiresAt || new Date(Date.now() + 120_000).toISOString()),
-        });
-        const current = relayByConversation.get(conversationId) || [];
-        relayByConversation.set(conversationId, [...current, envelope]);
-        res.json({ stored: true, envelope });
-      } catch (error) {
-        res.status(400).json({ error: (error as Error).message });
-      }
-    });
-
-    app.get('/api/p2p/signaling/:conversationId', (req, res) => {
-      pruneSignaling();
-      const conversationId = String(req.params.conversationId || '');
-      res.json({
-        conversationId,
-        envelopes: signalingByConversation.get(conversationId) || [],
-      });
-    });
-
-    app.post('/api/p2p/signaling/:conversationId', (req, res) => {
-      try {
-        pruneSignaling();
-        const conversationId = String(req.params.conversationId || '');
-        const body = req.body || {};
-        const envelope = createP2PSignalingEnvelope({
-          conversationId,
-          kind: body.kind as P2PSignalingKind,
-          senderPub: String(body.senderPub || ''),
-          recipientPub: String(body.recipientPub || ''),
-          signalCiphertext: String(body.signalCiphertext || ''),
-          signature: String(body.signature || ''),
-          nonce: String(body.nonce || ''),
-        });
-        const current = signalingByConversation.get(conversationId) || [];
-        signalingByConversation.set(conversationId, [...current, envelope]);
-        res.json({ stored: true, envelope });
-      } catch (error) {
-        res.status(400).json({ error: (error as Error).message });
-      }
     });
 
     app.get('/api/test/user-conversations/:userId', (req, res) => {

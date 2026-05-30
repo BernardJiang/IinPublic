@@ -18,7 +18,13 @@ import {
   TECHSUPPORT_ROOT_USER_ID,
   TECHSUPPORT_STAGE_NAME,
 } from '../../shared/techsupport';
-import type { P2PRuntimeFlags } from '../../shared/p2p-runtime';
+import { resolveP2PRuntimeFlags, type P2PRuntimeFlags } from '../../shared/p2p-runtime';
+import { P2PPresenceClient } from '../services/p2p-presence-client';
+import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
+import {
+  mirrorIncomingTalkClustersToLocalGun,
+  mirrorTalkDefinitionToLocalGun,
+} from '../services/client-incoming-talk-mirror';
 
 export class IinPublicApp {
   private gunService: WebGunService;
@@ -48,6 +54,19 @@ export class IinPublicApp {
   private travelHomeChatroomId: string | undefined = undefined;
   private travelChatroomId: string | undefined = undefined;
   private supportBootstrapChecked = false;
+  private presenceClient: P2PPresenceClient | null = null;
+  private localNodeBridge: P2PLocalNodeBridgeClient | null = null;
+  private readonly p2pRuntimeFlags: P2PRuntimeFlags = resolveP2PRuntimeFlags(
+    typeof process !== 'undefined'
+      ? {
+          P2P_DIRECT_CHAT_ENABLED: process.env.P2P_DIRECT_CHAT_ENABLED,
+          P2P_NODE_ENABLED: process.env.P2P_NODE_ENABLED,
+          STAR_SERVER_PERSISTENCE: process.env.STAR_SERVER_PERSISTENCE,
+          RELAY_ONLY_HUB: process.env.RELAY_ONLY_HUB,
+          P2P_CLIENT_TALK_MIRROR: process.env.P2P_CLIENT_TALK_MIRROR,
+        }
+      : {},
+  );
 
   /** Initialize the interaction ledger after the SEA keypair is available. */
   private initLedger(): void {
@@ -488,6 +507,42 @@ export class IinPublicApp {
     }
 
     await this.ensureSupportBootstrapForCurrentUser();
+    await this.initP2PPresenceAndBridge();
+  }
+
+  /** P2P-I / P2P-O: register live presence and probe local node bridge (stack only). */
+  private async initP2PPresenceAndBridge(): Promise<void> {
+    if (!this.currentUser?.id || isTechSupportUser(this.currentUser)) return;
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.pub) return;
+    const base = this.getBackendApiBase();
+    try {
+      this.presenceClient = new P2PPresenceClient({ apiBase: base, heartbeatMs: 30_000 });
+      this.presenceClient.startHeartbeat({
+        userId: this.currentUser.id,
+        pub: String(pair.pub),
+        ...(pair.epub ? { epub: String(pair.epub) } : {}),
+      });
+      const peers = await this.presenceClient.fetchNearby(this.currentUser.id, 20);
+      for (const peer of peers) {
+        try {
+          await this.presenceClient.acknowledgePeer({
+            fromUserId: this.currentUser.id,
+            fromPub: String(pair.pub),
+            toUserId: peer.userId,
+            toPub: peer.pub,
+          });
+        } catch {
+          /* best-effort peer ack */
+        }
+      }
+    } catch (err) {
+      console.warn('P2P presence init failed (non-fatal):', err);
+    }
+    if (this.p2pRuntimeFlags.p2pNodeEnabled) {
+      this.localNodeBridge = new P2PLocalNodeBridgeClient(true);
+      void this.localNodeBridge.probe(base);
+    }
   }
 
   private async ensureSupportBootstrapForCurrentUser(): Promise<void> {
@@ -524,14 +579,8 @@ export class IinPublicApp {
         supportChannel: true,
       }),
     });
-    gun.get(`conversations/${conversationId}`).get('messages').get(`support_welcome_${userId}`).put({
-      id: `support_welcome_${userId}`,
-      senderId: TECHSUPPORT_ROOT_USER_ID,
-      text: welcome,
-      timestamp: now,
-      channel: 'public',
-      transport: this.conversationService.getTransportMode(),
-      supportMessage: true,
+    await this.conversationService.sendMessage(conversationId, TECHSUPPORT_ROOT_USER_ID, welcome, {
+      otherUserId: userId,
     });
     gun.get(`users/${userId}`).get('conversations').get(conversationId).put({
       conversationId,
@@ -699,6 +748,12 @@ export class IinPublicApp {
         if (talkAnnouncement?.talkId && authorId && authorId !== this.currentUser?.id) {
           void this.talkService.getTalkWithRetry(talkAnnouncement.talkId).then((talkData) => {
             if (!talkData) return;
+            mirrorTalkDefinitionToLocalGun(
+              this.gunService,
+              talkAnnouncement.talkId,
+              talkData,
+              this.p2pRuntimeFlags,
+            );
             this.registerSelfAsReceiverOfIncomingTalk(
               talkAnnouncement.talkId,
               authorId,
@@ -723,6 +778,12 @@ export class IinPublicApp {
             console.warn('Could not load full talk after retry:', talkAnnouncement.talkId);
             return;
           }
+          mirrorTalkDefinitionToLocalGun(
+            this.gunService,
+            talkAnnouncement.talkId,
+            talkData,
+            this.p2pRuntimeFlags,
+          );
           console.log('📋 Full talk data:', talkData);
           const talkWithAuthor = {
             ...talkData,
@@ -1537,6 +1598,21 @@ export class IinPublicApp {
       }
     }
     const list = Object.values(next).filter((c: any) => c && c.identityKey);
+    if (this.currentUser?.id) {
+      mirrorIncomingTalkClustersToLocalGun(
+        this.gunService,
+        this.currentUser.id,
+        list,
+        this.p2pRuntimeFlags,
+      );
+      for (const cluster of list) {
+        const talkId = pickLatestTalkIdFromIncomingCluster(cluster);
+        const talkBody = (cluster as { latestTalk?: unknown }).latestTalk ?? cluster;
+        if (talkId) {
+          mirrorTalkDefinitionToLocalGun(this.gunService, talkId, talkBody, this.p2pRuntimeFlags);
+        }
+      }
+    }
     this.uiManager.setIncomingTalkClusters(list);
     this.uiManager.displayTalksList();
   }

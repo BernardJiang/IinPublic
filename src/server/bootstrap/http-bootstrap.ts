@@ -62,7 +62,7 @@ export function attachGun(server: HttpServer): any {
   const devGunFresh = process.env.DEV_GUN_FRESH === '1';
   const p2pFlags = resolveP2PRuntimeFlags(process.env);
   const ephemeralStarServer = p2pFlags.starServerPersistence === 'ephemeral';
-  const isolatedGun = e2eMemoryOnly || devGunFresh || ephemeralStarServer;
+  const isolatedGun = e2eMemoryOnly || devGunFresh || ephemeralStarServer || p2pFlags.relayOnlyHub;
   const gun = Gun({
     web: server,
     localStorage: false,
@@ -74,6 +74,7 @@ export function attachGun(server: HttpServer): any {
       radisk: !isolatedGun,
       devGunFresh,
       starServerPersistence: p2pFlags.starServerPersistence,
+      relayOnlyHub: p2pFlags.relayOnlyHub,
       p2pNodeEnabled: p2pFlags.p2pNodeEnabled,
       p2pDirectChatEnabled: p2pFlags.p2pDirectChatEnabled,
     },

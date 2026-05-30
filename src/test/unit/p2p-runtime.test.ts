@@ -22,6 +22,7 @@ import {
   scoreP2PNeighbor,
   upsertP2PNeighbor,
   resolveP2PRuntimeFlags,
+  shouldSkipServerGunPersist,
   SEA_IDENTITY_POLICY,
   STAR_GUN_PATH_CLASSIFICATIONS,
   toPublicSeaIdentity,
@@ -33,6 +34,8 @@ describe('p2p runtime flags', () => {
       starServerPersistence: 'durable',
       p2pNodeEnabled: false,
       p2pDirectChatEnabled: false,
+      relayOnlyHub: false,
+      p2pClientTalkMirror: true,
     });
   });
 
@@ -47,7 +50,31 @@ describe('p2p runtime flags', () => {
       starServerPersistence: 'ephemeral',
       p2pNodeEnabled: true,
       p2pDirectChatEnabled: true,
+      relayOnlyHub: false,
+      p2pClientTalkMirror: true,
     });
+  });
+
+  it('relay-only hub forces ephemeral star persistence', () => {
+    expect(resolveP2PRuntimeFlags({ RELAY_ONLY_HUB: '1' })).toEqual({
+      starServerPersistence: 'ephemeral',
+      p2pNodeEnabled: false,
+      p2pDirectChatEnabled: false,
+      relayOnlyHub: true,
+      p2pClientTalkMirror: true,
+    });
+  });
+
+  it('skips server Gun persist for peer conversation messages when ephemeral', () => {
+    const flags = resolveP2PRuntimeFlags({ STAR_SERVER_PERSISTENCE: 'ephemeral' });
+    expect(
+      shouldSkipServerGunPersist(['conversations', 'conv_1', 'messages', 'msg_1'], flags),
+    ).toBe(true);
+    expect(
+      shouldSkipServerGunPersist(['conversations', 'conv_support_a_b', 'messages', 'm1'], flags, {
+        supportChannel: true,
+      }),
+    ).toBe(false);
   });
 
   it('classifies representative star Gun paths', () => {
@@ -174,11 +201,13 @@ describe('p2p runtime flags', () => {
 
   it('describes star and direct conversation transport storage boundaries', () => {
     expect(
-      createConversationTransportDiagnostics({
-        starServerPersistence: 'durable',
-        p2pNodeEnabled: false,
-        p2pDirectChatEnabled: false,
-      }),
+      createConversationTransportDiagnostics(
+        resolveP2PRuntimeFlags({
+          STAR_SERVER_PERSISTENCE: 'durable',
+          P2P_NODE_ENABLED: 'false',
+          P2P_DIRECT_CHAT_ENABLED: 'false',
+        }),
+      ),
     ).toEqual(
       expect.objectContaining({
         activeMode: 'star-gun',
@@ -187,11 +216,12 @@ describe('p2p runtime flags', () => {
       }),
     );
     expect(
-      createConversationTransportDiagnostics({
-        starServerPersistence: 'durable',
-        p2pNodeEnabled: true,
-        p2pDirectChatEnabled: true,
-      }),
+      createConversationTransportDiagnostics(
+        resolveP2PRuntimeFlags({
+          P2P_NODE_ENABLED: 'true',
+          P2P_DIRECT_CHAT_ENABLED: '1',
+        }),
+      ),
     ).toEqual(
       expect.objectContaining({
         activeMode: 'direct-p2p',

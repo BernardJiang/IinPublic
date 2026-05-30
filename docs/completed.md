@@ -2,6 +2,25 @@
 
 Last updated: 2026-05-28
 
+## 2026-05-28 - P2P stack phases I–O (production relay model)
+
+Implemented remaining stack phases from spec §19.9 (no UI changes).
+
+| Phase | Deliverable |
+|-------|-------------|
+| P2P-I | `POST/GET /api/presence/*`, signed peer ack, `P2PPresenceClient` heartbeat in `app.ts` |
+| P2P-J | Worker Gun bridge IndexedDB persistence (existing `public/worker.js` idb adapter) |
+| P2P-K | `shouldSkipServerGunPersist` + `GunService.putPath` skip for peer DM paths when ephemeral/`RELAY_ONLY_HUB` |
+| P2P-L | `mirrorIncomingTalkClustersToLocalGun` + `mirrorTalkDefinitionToLocalGun` |
+| P2P-M | `RELAY_ONLY_HUB` flag, `npm run dev:relay-only`, production presence/signaling routes |
+| P2P-N | `TechSupportMessageStore`, `/api/support/messages/*`, `TechSupportConversationTransport` |
+| P2P-O | `P2PLocalNodeBridgeClient` probes `/api/p2p/local-node` when `P2P_NODE_ENABLED=1` |
+
+**Evidence:**
+- `npm run test:type` clean
+- `npm run test:unit` — 280 tests pass (incl. `p2p-presence.test.ts`)
+- `npm run test:integration` — presence + TechSupport routes in production mode
+
 ## 2026-05-28 - P2P-H: Gun write-through on direct P2P transport
 
 Direct conversation transport now persists DM bodies to local Gun before/alongside WebRTC notify (spec §19.4, REQ-P2P-01).

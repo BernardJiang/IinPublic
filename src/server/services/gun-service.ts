@@ -1,6 +1,7 @@
 import Gun from 'gun';
 import SEA from 'gun/sea';
 import { logger } from '../logger';
+import { resolveP2PRuntimeFlags, shouldSkipServerGunPersist } from '../../shared/p2p-runtime';
 
 export class GunService {
   private gun: any;
@@ -210,8 +211,12 @@ export class GunService {
   /**
    * Put data at a nested path (same graph shape as client).
    */
-  public putPath(path: string[], data: any): Promise<void> {
+  public putPath(path: string[], data: any, options?: { supportChannel?: boolean }): Promise<void> {
     if (path.length === 0) return Promise.resolve();
+    const flags = resolveP2PRuntimeFlags(process.env);
+    if (shouldSkipServerGunPersist(path, flags, options)) {
+      return Promise.resolve();
+    }
     let ref: any = this.gun;
     for (const seg of path) {
       ref = ref.get(seg);
