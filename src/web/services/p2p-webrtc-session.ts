@@ -1,4 +1,5 @@
 import type { Message } from '../../shared/types';
+import type { LedgerState } from '../../shared/types';
 import { P2PSignalingClient, encodeSignalingPayload, type PostSignalingBody } from './p2p-signaling-client';
 
 export type P2PConnectionState = 'idle' | 'connecting' | 'connected' | 'failed';
@@ -21,6 +22,13 @@ type DmWirePayload = {
     isFromChatbot?: boolean;
   };
 };
+
+type LedgerStateWirePayload = {
+  type: 'ledger-state';
+  feeds: LedgerState;
+};
+
+type ChannelWirePayload = DmWirePayload | LedgerStateWirePayload;
 
 /** Local/same-machine peers should connect well under this; longer waits usually mean a bug. */
 export const P2P_WEBRTC_CONNECT_TIMEOUT_MS = 10_000;
@@ -53,6 +61,8 @@ export type P2PSessionConfig = {
   otherUserId: string;
   otherPub: string;
   isInitiator: boolean;
+  getLedgerState?: () => LedgerState;
+  onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
 };
 
 export class P2PConversationSession {
@@ -67,6 +77,9 @@ export class P2PConversationSession {
   private connectPromise: Promise<void> | null = null;
   private remoteDescriptionSet = false;
   private makingOffer = false;
+  private ledgerLocalSent = false;
+  private ledgerRemoteReceived = false;
+  private ledgerReady = false;
 
   constructor(private config: P2PSessionConfig) {
     this.signaling = new P2PSignalingClient(config.apiBase);
@@ -93,8 +106,52 @@ export class P2PConversationSession {
     }
   }
 
+  setLedgerHooks(hooks: {
+    getLedgerState?: () => LedgerState;
+    onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
+  }): void {
+    this.config = { ...this.config, ...hooks };
+  }
+
   private setState(state: P2PConnectionState): void {
     this._state = state;
+  }
+
+  private markLedgerReady(): void {
+    if (this.ledgerReady) return;
+    this.ledgerReady = true;
+  }
+
+  private sendLedgerState(): void {
+    if (!this.config.getLedgerState || !this.dc || this.dc.readyState !== 'open') {
+      this.markLedgerReady();
+      return;
+    }
+    const feeds = this.config.getLedgerState();
+    this.dc.send(JSON.stringify({ type: 'ledger-state', feeds } satisfies LedgerStateWirePayload));
+    this.ledgerLocalSent = true;
+    if (this.ledgerRemoteReceived || Object.keys(feeds).length === 0) {
+      this.markLedgerReady();
+    }
+  }
+
+  private async handleLedgerState(feeds: LedgerState): Promise<void> {
+    this.ledgerRemoteReceived = true;
+    if (this.config.onRemoteLedgerState) {
+      await this.config.onRemoteLedgerState(this.config.otherUserId, feeds);
+    }
+    if (this.ledgerLocalSent || !this.config.getLedgerState) {
+      this.markLedgerReady();
+    }
+  }
+
+  private async waitForLedgerReady(timeoutMs = 3000): Promise<void> {
+    if (this.ledgerReady || !this.config.getLedgerState) return;
+    const started = Date.now();
+    while (!this.ledgerReady && Date.now() - started < timeoutMs) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    this.markLedgerReady();
   }
 
   private async postSignal(kind: PostSignalingBody['kind'], payload: SignalPayload): Promise<void> {
@@ -207,11 +264,17 @@ export class P2PConversationSession {
   private attachDataChannel(channel: RTCDataChannel): void {
     channel.onopen = () => {
       this.setState('connected');
+      this.sendLedgerState();
     };
     channel.onmessage = (event) => {
       try {
-        const parsed = JSON.parse(String(event.data)) as DmWirePayload;
-        if (parsed?.type !== 'dm' || !parsed.message) return;
+        const parsed = JSON.parse(String(event.data)) as ChannelWirePayload;
+        if (parsed?.type === 'ledger-state') {
+          void this.handleLedgerState(parsed.feeds || {});
+          return;
+        }
+        if (parsed?.type !== 'dm' || !('message' in parsed) || !parsed.message) return;
+        if (!this.ledgerReady && this.config.getLedgerState) return;
         this.ingestWireMessage(parsed.message);
       } catch {
         // ignore malformed frames
@@ -270,6 +333,7 @@ export class P2PConversationSession {
     channel: Message['channel'] = 'public',
   ): Promise<void> {
     await this.ensureConnected();
+    await this.waitForLedgerReady();
     if (!this.dc || this.dc.readyState !== 'open') {
       throw new Error('DataChannel not open');
     }

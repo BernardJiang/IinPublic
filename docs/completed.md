@@ -1,6 +1,6 @@
 # IinPublic Completed Work
 
-Last updated: 2026-05-29
+Last updated: 2026-05-30
 
 This is the durable ledger for shipped feature work. Keep `TODO.md` focused on forward work:
 when an item is finished, move it here with a short description and concrete evidence.
@@ -11,6 +11,19 @@ when an item is finished, move it here with a short description and concrete evi
 - Include the date, feature/phase name, user-visible result, and verification evidence.
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
+
+## 2026-05-30 - Direct P2P: fallback chain, LEDGER_STATE, relay API
+
+Completed remaining `docs/TODO-direct-p2p.md` items except the full `test:e2e:parallel` gate.
+
+**Transport fallback:** `ResilientConversationTransport` wraps direct WebRTC → encrypted `ServerRelayConversationTransport` (`/api/p2p/conversation-relay/*`) → `StarGunConversationTransport`. Fallback events POST to `/api/p2p/transport-diagnostics`; UI updates via `updateConversationTransportMode`.
+
+**LEDGER_STATE (REQ-LEDGER-06):** `p2p-webrtc-session.ts` exchanges `{ type: 'ledger-state', feeds }` on DataChannel open before DMs; wired to `WebLedgerService.syncWithPeer` from `app.ts`.
+
+**Evidence:**
+- `npm run test:type` clean
+- Unit + integration tests pass (including new signaling two-peer + conversation-relay tests in `system-routes.test.ts`)
+- E2E: `00-p2p-conversation-transport`, `09-messaging`, `12-two-responders-partial-match` pass
 
 ## 2026-05-29 - Fix 7 Failing E2E Tests (Post-Phase-G Regressions)
 

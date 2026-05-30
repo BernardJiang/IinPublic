@@ -22,7 +22,7 @@ import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { computeTalkIdFromTalkData } from '../../../../src/shared/talk-content-id';
 import { getConversationIdBetween } from '../../helpers/conversation-e2e';
-import { waitForDirectP2PChannel } from '../../helpers/p2p-transport-e2e';
+import { warmDirectP2PSession, waitForDirectP2PChannel } from '../../helpers/p2p-transport-e2e';
 
 async function getCurrentUserId(page: Page): Promise<string> {
   return page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id ?? '');
@@ -305,6 +305,8 @@ test.describe('Messaging edge cases', () => {
     const convId = await getConversationIdBetween(pageTom, tomUserId, jerryUserId);
     await openConversation(pageTom, 'Jerry', jerryUserId);
     await openConversation(pageJerry, 'Tom', tomUserId);
+    await warmDirectP2PSession(pageTom, convId);
+    await warmDirectP2PSession(pageJerry, convId);
     await waitForDirectP2PChannel(pageTom, convId);
     await waitForDirectP2PChannel(pageJerry, convId);
     await sendConversationMessage(pageTom, tomMessage);
@@ -355,6 +357,8 @@ test.describe('Messaging edge cases', () => {
     const convId = await getConversationIdBetween(pageTom, tomUserId, jerryUserId);
     await openConversation(pageTom, 'Jerry', jerryUserId);
     await openConversation(pageJerry, 'Tom', tomUserId);
+    await warmDirectP2PSession(pageTom, convId);
+    await warmDirectP2PSession(pageJerry, convId);
     await waitForDirectP2PChannel(pageTom, convId);
     await waitForDirectP2PChannel(pageJerry, convId);
     await sendConversationMessage(pageTom, tomMessage1);
@@ -393,6 +397,8 @@ test.describe('Messaging edge cases', () => {
 
     await openConversation(pageTom, 'Jerry', jerryUserId);
     await openConversation(pageJerry, 'Tom', tomUserId);
+    await warmDirectP2PSession(pageTom, convId);
+    await warmDirectP2PSession(pageJerry, convId);
     await waitForDirectP2PChannel(pageTom, convId);
     await waitForDirectP2PChannel(pageJerry, convId);
     await sendConversationMessage(pageTom, tomMessage2);

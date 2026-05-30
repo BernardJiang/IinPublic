@@ -6407,6 +6407,35 @@ export class UIManager extends EventEmitter {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
 
+  updateConversationTransportMode(
+    conversationId: string,
+    transportMode: string,
+    transportFallbackReason?: string | null,
+  ): void {
+    const conversations = this.getMyConversations();
+    const conversation = conversations[conversationId];
+    if (!conversation) return;
+    conversation.transportMode = transportMode;
+    if (transportFallbackReason !== undefined) {
+      conversation.transportFallbackReason = transportFallbackReason;
+    }
+    localStorage.setItem('myConversations', JSON.stringify(conversations));
+    if (this.currentConversationId === conversationId) {
+      const transportStatus = document.getElementById('conversation-transport-status');
+      if (transportStatus) {
+        transportStatus.dataset.transportMode = transportMode;
+        transportStatus.textContent = `${this.t('conversationTransport')}: ${this.formatTransportMode(transportMode)}`;
+      }
+      const fallbackStatus = document.getElementById('conversation-fallback-status');
+      if (fallbackStatus) {
+        fallbackStatus.textContent = this.formatTransportFallback(
+          transportMode,
+          conversation.transportFallbackReason,
+        );
+      }
+    }
+  }
+
   addNewConversation(conversationData: {
     conversationId: string;
     otherUserId: string;

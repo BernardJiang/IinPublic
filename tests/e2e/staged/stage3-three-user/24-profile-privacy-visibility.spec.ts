@@ -192,8 +192,9 @@ test.describe('Profile privacy visibility', () => {
           });
           if (!postRes.ok()) return false;
 
-          // Small delay so server-side write propagates before the GET check
-          await new Promise((r) => setTimeout(r, 1000));
+          // Delay to allow server-side write + Gun replication to propagate before the GET check.
+          // Parallel workers with multiple Gun servers need longer propagation windows.
+          await new Promise((r) => setTimeout(r, 3000));
 
           const userRes = await page.request.get(userUrl);
           if (!userRes.ok()) return false;
@@ -204,7 +205,7 @@ test.describe('Profile privacy visibility', () => {
             expectations.hidden.every((text) => !profileText.includes(text))
           );
         },
-        { timeout: 120_000, intervals: [500, 1000, 2000, 4000] },
+        { timeout: 120_000, intervals: [2000, 4000, 8000] },
       )
       .toBe(true);
   }

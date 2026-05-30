@@ -58,9 +58,25 @@ export class IinPublicApp {
       if (!userId || !pubkey) return; // not ready yet — will re-init after user is created
       this.ledgerService = new WebLedgerService(this.gunService, userId, pubkey);
       void this.ledgerService.loadOwnFeedHead()
-        .then(() => this.startLedgerDeltaSync())
+        .then(() => {
+          this.startLedgerDeltaSync();
+          this.initLedgerTransportHooks();
+        })
         .catch(() => {/* non-fatal */});
     } catch {/* non-fatal */}
+  }
+
+  /** Wire P2P transport fallback UI + WebRTC LEDGER_STATE hooks (REQ-LEDGER-06). */
+  private initLedgerTransportHooks(): void {
+    this.conversationService.setTransportFallbackHandler(({ conversationId, mode, fallbackReason }) => {
+      this.uiManager.updateConversationTransportMode(conversationId, mode, fallbackReason);
+    });
+    if (!this.ledgerService) return;
+    const ledger = this.ledgerService;
+    this.conversationService.setLedgerHandshakeHooks({
+      getLedgerState: () => ledger.getState(),
+      onRemoteLedgerState: (otherUserId, state) => ledger.syncWithPeer(otherUserId, state),
+    });
   }
 
   /**
@@ -134,6 +150,7 @@ export class IinPublicApp {
     await this.gunService.initialize();
     await this.gunService.ensureKeypairAndAuth();
     await this.syncConversationTransportFromServer();
+    this.initLedgerTransportHooks();
 
     // Phase E: initialize ledger after SEA keypair is established
     this.initLedger();

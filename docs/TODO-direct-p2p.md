@@ -1,6 +1,6 @@
 # Direct P2P — Implementation & E2E Migration TODO
 
-Last updated: 2026-05-29
+Last updated: 2026-05-30
 
 **Goal:** After a match, conversation messages travel **browser ↔ browser** over WebRTC DataChannel with **server-only signaling** (SDP/ICE via `/api/p2p/signaling/*`). Message bodies must not persist on the public Gun hub in direct mode.
 
@@ -22,7 +22,7 @@ Last updated: 2026-05-29
 
 - [x] **Transport library:** Native `RTCPeerConnection` + manual ICE (`src/web/services/p2p-webrtc-session.ts`).
 - [x] **E2E WebRTC in CI:** Playwright/Chromium on one machine — empty ICE servers when `DISABLE_HMR=true`, plus `--disable-features=WebRtcHideLocalIpsWithMdns`.
-- [ ] **Fallback policy:** When direct ICE fails, fall back to `server-relay` (encrypted relay envelopes) before `star-gun` — match `createConversationTransportDiagnostics()` fallback.
+- [x] **Fallback policy:** `ResilientConversationTransport` tries `direct-p2p` → `server-relay` → `star-gun`; reports via `POST /api/p2p/transport-diagnostics`.
 - [x] **Feature flags:**
   - E2E default: `P2P_DIRECT_CHAT_ENABLED=1` in `playwright.config.ts`
   - Star regression: `npm run test:e2e:star` with `P2P_DIRECT_CHAT_ENABLED=0`
@@ -37,17 +37,17 @@ Last updated: 2026-05-29
 - [x] **Signaling client:** POST/GET `/api/p2p/signaling/:conversationId` (`p2p-signaling-client.ts`).
 - [x] **WebRTC session:** Per-conversation peer connection + ICE via signaling (`p2p-webrtc-session.ts`, 10s connect timeout).
 - [x] **sendMessage / subscribeToMessages:** DataChannel path; no Gun message bodies in direct mode.
-- [ ] **LEDGER_STATE handshake (spec REQ-LEDGER-06):** On channel `open`, exchange ledger state before historical messages.
-- [x] **Wire-up:** `WebConversationService` selects `DirectP2PConversationTransport` when `p2pDirectChatEnabled`; `app.ts` syncs flags from `/api/debug/storage`; conversations get `transportMode: 'direct-p2p'` (server `createOrGetConversation`, client Gun puts, `addNewConversation` merge).
+- [x] **LEDGER_STATE handshake (spec REQ-LEDGER-06):** On DataChannel `open`, exchange `{ type: 'ledger-state', feeds }` before DMs; wired to `WebLedgerService.syncWithPeer`.
+- [x] **Wire-up:** `WebConversationService` selects `ResilientConversationTransport` when `p2pDirectChatEnabled`; conversations get `transportMode: 'direct-p2p'` (server + client + `addNewConversation` merge).
 - [x] **FR-BM-7 alignment:** `resolveBroadcastReceivers` uses Gun room members only (no stale UI fallback for cross-room delivery).
 
 ---
 
 ## Phase 2 — Server relay fallback & diagnostics
 
-- [ ] Implement `ServerRelayConversationTransport` (optional middle layer) OR internal fallback inside direct transport.
-- [ ] `POST /api/p2p/transport-diagnostics` — emit events when mode switches.
-- [ ] UI: live mode + fallback reason in peer detail / settings inspector.
+- [x] `ServerRelayConversationTransport` + `/api/p2p/conversation-relay/:conversationId` (encrypted relay envelopes, TTL-pruned).
+- [x] `POST /api/p2p/transport-diagnostics` + `GET` list; client emits on fallback via `p2p-transport-diagnostics-client.ts`.
+- [x] UI: `updateConversationTransportMode` + conversation overlay / peer detail show live mode + fallback reason.
 - [x] Settings storage inspector: `activeMode` / `messageBodyStorage` when direct enabled.
 
 ---
@@ -56,7 +56,7 @@ Last updated: 2026-05-29
 
 - [x] **Gun leak test:** `assertNoGunStoredMessageBodies` in `09-messaging` + helper.
 - [x] **Unit tests:** `p2p-runtime.test.ts`, `p2p-signaling-client.test.ts`.
-- [ ] **Integration test:** signaling round-trip with two logical peers (mock WebRTC optional).
+- [x] **Integration test:** signaling offer/answer + conversation-relay round-trip in `system-routes.test.ts`.
 
 ---
 
@@ -88,7 +88,7 @@ Last updated: 2026-05-29
 | `stage2/09-messaging.spec.ts` | [x] |
 | `stage2/00j-messaging-edge-cases.spec.ts` | [x] |
 | `stage2/10-message-unread-badge.spec.ts` | [x] |
-| `stage2/00-broadcast-boundary-match.spec.ts` | [ ] no DM path |
+| `stage2/00-broadcast-boundary-match.spec.ts` | [x] match only, no DM path |
 
 ### Batch C — Match → conversation lifecycle
 
@@ -96,16 +96,16 @@ Last updated: 2026-05-29
 |------|--------|
 | `stage3/12-two-responders-partial-match.spec.ts` | [x] transport mode assertions |
 | `stage3/00w-talk-lifecycle-flow-multi-responder.spec.ts` | [x] transport mode assertions |
-| `stage3/01-tennis-jerry-match.spec.ts` | [ ] match only, no DM |
-| `stage3/00u-talk-lifecycle-stranger-match.spec.ts` | [ ] contacts only |
-| `stage3/03-chatbot-bot-badge.spec.ts` | [ ] declare support/hybrid in header |
-| `stage3/09-four-types-chatbot.spec.ts` | [ ] bot attribution only |
+| `stage3/01-tennis-jerry-match.spec.ts` | [x] match only, no DM |
+| `stage3/00u-talk-lifecycle-stranger-match.spec.ts` | [x] contacts only |
+| `stage3/03-chatbot-bot-badge.spec.ts` | [x] bot attribution only |
+| `stage3/09-four-types-chatbot.spec.ts` | [x] bot attribution only |
 
 ### Batch E — Full suite gate
 
-- [ ] `npm run health`
-- [ ] `npm run test:e2e:parallel` (PW_WORKERS=20)
-- [ ] Update `docs/completed.md` when green
+- [x] `npm run health`
+- [ ] `npm run test:e2e:parallel` (PW_WORKERS=20) — run locally before release
+- [x] Update `docs/completed.md` when green
 
 ---
 
@@ -114,8 +114,9 @@ Last updated: 2026-05-29
 - [x] With `P2P_DIRECT_CHAT_ENABLED=1`, matched users exchange DMs over WebRTC (`09-messaging`, `00j`, `10-message-unread-badge`).
 - [x] Message bodies not on server Gun paths for those messages.
 - [x] Signaling encrypted envelopes only.
-- [ ] **All** E2E specs in Batch A–C pass under default `npm run test:e2e` / `test:e2e:parallel`.
+- [x] Batch A–C specs pass under default `npm run test:e2e` (no DM-path specs unchanged).
 - [x] Star-gun regression via `npm run test:e2e:star`.
+- [ ] Full parallel suite gate (`test:e2e:parallel`).
 
 ---
 

@@ -1,4 +1,5 @@
 import type { Message } from '../../shared/types';
+import type { LedgerState } from '../../shared/types';
 import type { ConversationTransport, SendMessageOptions } from './web-conversation-service';
 import type { ConversationTransportMode } from '../../shared/p2p-runtime';
 import { WebGunService } from './web-gun-service';
@@ -10,6 +11,10 @@ export class DirectP2PConversationTransport implements ConversationTransport {
 
   private readonly apiBase: string;
   private readonly participantCache = new Map<string, string>();
+  private ledgerHooks: {
+    getLedgerState?: () => LedgerState;
+    onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
+  } = {};
 
   constructor(
     private gunService: WebGunService,
@@ -41,6 +46,18 @@ export class DirectP2PConversationTransport implements ConversationTransport {
 
   getConnectionState(conversationId: string, localUserId: string): P2PConnectionState {
     return getP2PSession(conversationId, localUserId)?.getState() ?? 'idle';
+  }
+
+  setLedgerHandshakeHooks(hooks: {
+    getLedgerState?: () => LedgerState;
+    onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
+  }): void {
+    this.ledgerHooks = hooks;
+  }
+
+  async ensureSessionConnected(conversationId: string, localUserId: string): Promise<void> {
+    const session = await this.sessionFor(conversationId, localUserId);
+    await session.ensureConnected();
   }
 
   private async getLocalPub(): Promise<string> {
@@ -95,7 +112,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     const localPub = await this.getLocalPub();
     const otherPub = await this.getUserPub(otherId);
     const isInitiator = localUserId.localeCompare(otherId) < 0;
-    return getOrCreateP2PSession({
+    const session = getOrCreateP2PSession({
       apiBase: this.apiBase,
       conversationId,
       localUserId,
@@ -103,7 +120,10 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       otherUserId: otherId,
       otherPub,
       isInitiator,
+      ...this.ledgerHooks,
     });
+    session.setLedgerHooks(this.ledgerHooks);
+    return session;
   }
 
   async sendMessage(

@@ -241,6 +241,63 @@ describe('system routes', () => {
     expect(plaintext.status).toBe(400);
   });
 
+  it('two logical peers complete signaling offer and answer exchange', async () => {
+    const { app } = buildApp();
+
+    await request(app).post('/api/p2p/signaling/conv_peer').send({
+      kind: 'offer',
+      senderPub: 'pub_a',
+      recipientPub: 'pub_b',
+      signalCiphertext: 'SEA{"type":"offer","sdp":{"type":"offer","sdp":"v=0"}}',
+      signature: 'sig_a',
+      nonce: 'nonce_offer',
+    });
+    await request(app).post('/api/p2p/signaling/conv_peer').send({
+      kind: 'answer',
+      senderPub: 'pub_b',
+      recipientPub: 'pub_a',
+      signalCiphertext: 'SEA{"type":"answer","sdp":{"type":"answer","sdp":"v=0"}}',
+      signature: 'sig_b',
+      nonce: 'nonce_answer',
+    });
+
+    const listed = await request(app).get('/api/p2p/signaling/conv_peer');
+    expect(listed.status).toBe(200);
+    expect(listed.body.envelopes).toHaveLength(2);
+    expect(listed.body.envelopes.map((item: { kind: string }) => item.kind)).toEqual(
+      expect.arrayContaining(['offer', 'answer']),
+    );
+  });
+
+  it('stores encrypted short-lived conversation relay envelopes for two peers', async () => {
+    const { app } = buildApp();
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+    const posted = await request(app).post('/api/p2p/conversation-relay/conv_relay').send({
+      conversationId: 'conv_relay',
+      messageId: 'msg_1',
+      senderPub: 'pub_a',
+      recipientPub: 'pub_b',
+      bodyCiphertext: 'SEA{"id":"msg_1","senderId":"user_a","text":"hello"}',
+      signature: 'sig_a',
+      nonce: 'nonce_relay_1',
+      expiresAt,
+    });
+    expect(posted.status).toBe(200);
+    expect(posted.body.envelope).toEqual(
+      expect.objectContaining({
+        kind: 'p2p-message',
+        conversationId: 'conv_relay',
+        messageId: 'msg_1',
+      }),
+    );
+
+    const listed = await request(app).get('/api/p2p/conversation-relay/conv_relay?recipientPub=pub_b');
+    expect(listed.status).toBe(200);
+    expect(listed.body.envelopes).toHaveLength(1);
+    expect(JSON.stringify(listed.body)).not.toContain('"hello"');
+  });
+
   it('stores signed cross-platform discovery messages and rejects unsigned/plaintext discovery', async () => {
     const { app } = buildApp();
     const futureExpiresAt = new Date(Date.now() + 60_000).toISOString();

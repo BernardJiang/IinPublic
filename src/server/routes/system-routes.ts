@@ -18,6 +18,7 @@ import {
   createP2PSignalingEnvelope,
   createRelayOnlyTtlPolicy,
   createTransportDiagnosticEvent,
+  createDirectP2PMessageEnvelope,
   createLocalNodeSupervisorSnapshot,
   getP2PBootstrapCandidates,
   upsertP2PNeighbor,
@@ -41,6 +42,7 @@ import {
   type TransportDiagnosticEvent,
   type LocalNodeAction,
   type LocalNodeSupervisorSnapshot,
+  type DirectP2PMessageEnvelope,
 } from '../../shared/p2p-runtime';
 
 /** Gun radisk default directory (see node_modules/gun/lib/radisk.js). */
@@ -157,6 +159,7 @@ export function registerSystemRoutes(
   const dataOwnershipRequests: DataOwnershipRequest[] = [];
   const transportDiagnostics: TransportDiagnosticEvent[] = [];
   const signalingByConversation = new Map<string, P2PSignalingEnvelope[]>();
+  const relayByConversation = new Map<string, DirectP2PMessageEnvelope[]>();
   const discoveryMessages = new Map<string, P2PDiscoveryMessage>();
 
   const pruneSignaling = (now = new Date()): void => {
@@ -164,6 +167,14 @@ export function registerSystemRoutes(
       const fresh = envelopes.filter((envelope) => new Date(envelope.expiresAt).getTime() > now.getTime());
       if (fresh.length === 0) signalingByConversation.delete(conversationId);
       else signalingByConversation.set(conversationId, fresh);
+    }
+  };
+
+  const pruneConversationRelay = (now = new Date()): void => {
+    for (const [conversationId, envelopes] of relayByConversation) {
+      const fresh = envelopes.filter((envelope) => new Date(envelope.expiresAt).getTime() > now.getTime());
+      if (fresh.length === 0) relayByConversation.delete(conversationId);
+      else relayByConversation.set(conversationId, fresh);
     }
   };
 
@@ -386,6 +397,43 @@ export function registerSystemRoutes(
       );
       transportDiagnostics.push(event);
       res.json({ event, events: transportDiagnostics });
+    });
+
+    app.get('/api/p2p/transport-diagnostics', (_req, res) => {
+      res.json({ events: transportDiagnostics });
+    });
+
+    app.get('/api/p2p/conversation-relay/:conversationId', (req, res) => {
+      pruneConversationRelay();
+      const conversationId = String(req.params.conversationId || '');
+      const recipientPub = String(req.query.recipientPub || '');
+      const envelopes = (relayByConversation.get(conversationId) || []).filter(
+        (envelope) => !recipientPub || envelope.recipientPub === recipientPub,
+      );
+      res.json({ conversationId, envelopes });
+    });
+
+    app.post('/api/p2p/conversation-relay/:conversationId', (req, res) => {
+      try {
+        pruneConversationRelay();
+        const conversationId = String(req.params.conversationId || '');
+        const body = req.body || {};
+        const envelope = createDirectP2PMessageEnvelope({
+          conversationId,
+          messageId: String(body.messageId || ''),
+          senderPub: String(body.senderPub || ''),
+          ...(body.recipientPub ? { recipientPub: String(body.recipientPub) } : {}),
+          bodyCiphertext: String(body.bodyCiphertext || ''),
+          signature: String(body.signature || ''),
+          nonce: String(body.nonce || ''),
+          expiresAt: String(body.expiresAt || new Date(Date.now() + 120_000).toISOString()),
+        });
+        const current = relayByConversation.get(conversationId) || [];
+        relayByConversation.set(conversationId, [...current, envelope]);
+        res.json({ stored: true, envelope });
+      } catch (error) {
+        res.status(400).json({ error: (error as Error).message });
+      }
     });
 
     app.get('/api/p2p/signaling/:conversationId', (req, res) => {
