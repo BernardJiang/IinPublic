@@ -14,15 +14,17 @@ import { confirmBroadcastTagPreambleIfVisible } from './broadcast-preamble';
 import { gunBaseURL } from './ports';
 
 async function clickChatroomBroadcastButton(page: Page): Promise<void> {
-  const statusBtn = page.locator('#status-broadcast-talk-btn');
-  const roomBtn = page.locator('#broadcast-talk-btn');
-  if (await statusBtn.isVisible().catch(() => false)) {
-    await statusBtn.click();
-  } else {
-    await expect(roomBtn).toBeVisible({ timeout: 20_000 });
-    await roomBtn.click();
+  const preamble = page.locator('[data-testid="broadcast-preamble-modal"]');
+  const broadcastBtn = page.locator('#broadcast-talk-btn').or(page.locator('#status-broadcast-talk-btn')).first();
+
+  if (!(await preamble.isVisible().catch(() => false))) {
+    await expect(broadcastBtn).toBeVisible({ timeout: 10_000 });
+    await broadcastBtn.click({ timeout: 8_000 }).catch(() => {
+      // Audience preview can open the preamble while the click is in flight.
+    });
+    await afterSync();
   }
-  await afterSync();
+
   await confirmBroadcastTagPreambleIfVisible(page);
 }
 
@@ -79,10 +81,10 @@ export async function waitForDistinctGunPeersExcludingSelf(
 export async function clickBroadcastUntilBulkAck(page: Page): Promise<void> {
   const loc = page.locator('[data-testid="broadcast-bulk-ack"]');
   let lastError: unknown;
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
     const genBefore = Number(await loc.getAttribute('data-broadcast-bulk-gen'));
     const start = Number.isFinite(genBefore) ? genBefore : 0;
-    await waitForGunApiReady(10_000).catch(() => {});
+    await waitForGunApiReady(8_000).catch(() => {});
     await clickChatroomBroadcastButton(page);
     try {
       await expect
@@ -92,13 +94,14 @@ export async function clickBroadcastUntilBulkAck(page: Page): Promise<void> {
             const sent = Number(await loc.getAttribute('data-broadcast-talks-sent'));
             return Number.isFinite(gen) && gen > start && Number.isFinite(sent) && sent >= 1;
           },
-          { timeout: 120_000, intervals: [200, 500, 1000, 2000] },
+          { timeout: 45_000, intervals: [200, 500, 1000, 2000] },
         )
         .toBe(true);
       return;
     } catch (error) {
       lastError = error;
-      if (attempt < 3) {
+      if (attempt < 2) {
+        await page.locator('[data-testid="broadcast-preamble-modal"]').waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
         await afterSync();
       }
     }

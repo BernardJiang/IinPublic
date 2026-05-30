@@ -65,8 +65,11 @@ export async function createSimpleFlowTalk(
   await q.locator('.answer-item').nth(1).locator('.answer-text').fill(ignoreAnswer);
   await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
 
+  const sendToChatroomCheck = page.locator('#talk-send-to-chatroom');
   if (options?.sendToChatroom === false) {
-    await page.locator('#talk-send-to-chatroom').setChecked(false);
+    await sendToChatroomCheck.setChecked(false);
+  } else if (options?.sendToChatroom === true) {
+    await sendToChatroomCheck.setChecked(true);
   }
 
   await page.click('#talk-editor-form button[type="submit"]');

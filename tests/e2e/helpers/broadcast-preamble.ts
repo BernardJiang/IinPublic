@@ -4,9 +4,10 @@ import type { Page } from '@playwright/test';
  * Confirm the audience-preview modal shown before manual Broadcast delivery. It
  * remains tolerant of editor/no-modal branches when there is nothing sendable.
  */
-export async function confirmBroadcastTagPreambleIfVisible(page: Page): Promise<void> {
+export async function confirmBroadcastTagPreambleIfVisible(page: Page, timeoutMs = 30_000): Promise<void> {
   const preamble = page.locator('[data-testid="broadcast-preamble-modal"]');
   const editor = page.locator('#talk-editor-modal');
+  const sendBtn = page.locator('[data-testid="broadcast-preamble-send"]');
 
   // A just-submitted editor can overlap the async audience lookup briefly. If
   // Broadcast opened a new editor because there are no sendable talks, it
@@ -15,9 +16,10 @@ export async function confirmBroadcastTagPreambleIfVisible(page: Page): Promise<
     await editor.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
     if (await editor.isVisible().catch(() => false)) return;
   }
-  const ready = await preamble.waitFor({ state: 'visible', timeout: 60_000 }).then(() => true).catch(() => false);
+
+  const ready = await sendBtn.waitFor({ state: 'visible', timeout: timeoutMs }).then(() => true).catch(() => false);
   if (!ready) return;
 
-  await preamble.locator('.broadcast-chip').first().click();
-  await page.locator('[data-testid="broadcast-preamble-send"]').click();
+  if (!(await preamble.isVisible().catch(() => false))) return;
+  await sendBtn.click({ timeout: 8_000 });
 }

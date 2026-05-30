@@ -7,7 +7,11 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync, headless } from '../../helpers/timing';
 import { bootstrapUser, openIncomingTalkModal, waitForIncomingTalkClusterOnServer, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
 import { createSimpleFlowTalk, goToChatrooms } from '../../helpers/broadcast-cancellation-helpers';
-import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
+import {
+  clickBroadcastUntilBulkAck,
+  waitForBroadcastableTalkIds,
+  waitForDistinctGunPeersExcludingSelf,
+} from '../../helpers/talk-demo-ui';
 
 const MATCH_ANSWER = 'Yes, lets play.';
 const IGNORE_ANSWER = 'No thanks.';
@@ -35,6 +39,7 @@ test.describe('Broadcast — chatroom boundary matching', () => {
   });
 
   test('talk matching still works across chatroom boundaries (answer after switching rooms)', async () => {
+    test.setTimeout(90_000);
     const talkTitle = `Boundary Match Talk ${Date.now()}`;
     const tomStage = 'Tom Boundary';
     const jerryStage = 'Jerry Boundary';
@@ -45,13 +50,22 @@ test.describe('Broadcast — chatroom boundary matching', () => {
     const pageJerry = jerry.page;
 
     try {
-      await createSimpleFlowTalk(pageTom, talkTitle, MATCH_ANSWER, IGNORE_ANSWER);
+      await pageTom.click('.chatroom-item:has-text("Global")');
+      await pageJerry.click('.chatroom-item:has-text("Global")');
+      await afterSync();
+
+      await createSimpleFlowTalk(pageTom, talkTitle, MATCH_ANSWER, IGNORE_ANSWER, {
+        sendToChatroom: false,
+      });
 
       await goToChatrooms(pageTom);
-
+      await pageTom.click('.chatroom-item:has-text("Global")');
+      await afterSync();
+      await waitForBroadcastableTalkIds(pageTom, 15_000);
+      await waitForDistinctGunPeersExcludingSelf(pageTom, 1, 20_000);
       await clickBroadcastUntilBulkAck(pageTom);
 
-      await waitForIncomingTalkClusterOnServer(pageJerry, talkTitle, { timeout: 120_000, polling: 500 });
+      await waitForIncomingTalkClusterOnServer(pageJerry, talkTitle, { timeout: 60_000, polling: 500 });
 
       await pageJerry.click('.nav-btn[data-view="chatrooms"]');
       await afterNav();
