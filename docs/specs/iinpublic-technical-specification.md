@@ -1,8 +1,8 @@
 # IinPublic — Technical Specification
 ## Software Requirements, Architecture, Security, Data, Network, Mobile & API Interfaces
 
-> **Version:** 4.0 — extended with P2P mesh architecture, Interaction Ledger, CIDv1 content-addressing, and blockchain/DAG survey
-> **Date:** 2026-05-27
+> **Version:** 4.1 — production P2P model (`www.iinpublic.com` relay-only), Gun-local persistence, transport/persistence split
+> **Date:** 2026-05-28
 > **Status:** Authoritative — single source of truth for all requirements and design decisions
 
 ---
@@ -408,7 +408,7 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 
 - **REQ-LEDGER-09 — Ledger indexes:** `ledger/<userId>/index/talkId/<id>` → seq of TALK_CREATED; `ledger/<userId>/index/responseId/<id>` → seq of TALK_ANSWERED; `ledger/<userId>/index/withdrawn/<talkId>` → seq of TALK_WITHDRAWN.
 
-- **REQ-LEDGER-10 — Migration compatibility:** During Phases E–G, new interactions write to both legacy Gun paths and ledger paths. Back-filling of pre-ledger history is not required. See [§19.5 Migration Considerations](#195-migration-considerations).
+- **REQ-LEDGER-10 — Migration compatibility:** During Phases E–G, new interactions write to both legacy Gun paths and ledger paths. Back-filling of pre-ledger history is not required. See [§19.12 Network Migration Phases](#1912-network-migration-phases-ad-hub-evolution).
 
 - **REQ-LEDGER-11 — TALK_SUPERSEDED:** Advisory event emitted when a talk is edited and a new version broadcast. Carries `{ oldTalkId, newTalkId }`. Does not invalidate prior answers or matches. Triggers chatbot differential answering (REQ-CHATBOT-03).
 
@@ -417,6 +417,19 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 - **REQ-LEDGER-13 — TALK_WITHDRAWN:** Author emits `TALK_WITHDRAWN { talkId }` to stop new delivery. Peers cease routing the talk to recipients who have not yet seen it. In-flight answers still evaluated. After the configurable grace window (default 24h, see NFR-LEDGER-01), the author's client may demote new match notifications to archival. Standard post-edit workflow: TALK_CREATED(T2) → TALK_SUPERSEDED(T1→T2) → TALK_WITHDRAWN(T1).
 
 - **REQ-LEDGER-14 — Question-level identity:** `questionId = CIDv1(canonicalSerialize({ text, type, options }))`. If text and options are unchanged between T1 and T2, the `questionId` is the same even if routing or match-flag logic changed, enabling the per-question chatbot cache to carry answers forward.
+
+### 3.12 P2P Production Model (`www.iinpublic.com`)
+
+> Full design: [§19 P2P Architecture](#19-p2p-architecture-data-storage-and-network-design)
+
+- **REQ-P2P-01:** Matched peer DM bodies SHALL persist in sender and receiver **local Gun** databases.
+- **REQ-P2P-02:** WebRTC DataChannel MAY accelerate delivery but SHALL NOT be the sole copy of conversation history.
+- **REQ-P2P-03:** `www.iinpublic.com` SHALL NOT durably store peer conversation message bodies outside the TechSupport exception.
+- **REQ-P2P-04:** Server SHALL maintain an ephemeral live-user index (`userId`, `pub`, `lastSeen`, optional encrypted location).
+- **REQ-P2P-05:** TechSupport channel history MAY be stored server-side; all other chats SHALL NOT.
+- **REQ-P2P-06:** Stack phases P2P-H–O (§19.9) SHALL NOT require UI/UX changes.
+- **REQ-P2P-07:** Clients SHALL register presence and acknowledge peers before trusting P2P payloads.
+- **REQ-P2P-08:** Match logic SHALL remain in `src/shared/talk-engine.ts` (no duplication in routes).
 
 ---
 
@@ -458,7 +471,8 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 
 - **WebSockets**: Primary transport for Gun.js peer-to-peer message relay.
 - **HTTPS**: Initial loading of static assets; fallback and tech support REST endpoint.
-- All message content travels P2P through Gun; no application-level message content passes through `server.js`.
+- **Peer application data** (profiles, talks, matches, DM bodies) travels over the P2P Gun mesh and/or WebRTC transport and is **persisted on each participant's local Gun database** (IndexedDB in browser, radisk on a desktop node). It MUST NOT be stored durably on `www.iinpublic.com`.
+- **Server relay paths** (presence, signaling, TechSupport) are ephemeral or narrowly scoped; see [§19.2](#192-production-target-wwwiinpubliccom-authoritative) and [§19.7](#197-techsupport-server-exception).
 - Relay-only P2P support paths must expire quickly: discovery after 60 seconds, encrypted signaling after 120 seconds, presence after 45 seconds, and room membership after 180 seconds.
 
 ---
@@ -636,21 +650,30 @@ public class GunBridge extends WebView {
 }
 ```
 
-### 6.6 P2P Architecture and Migration Phases A–G
+### 6.6 P2P Architecture and Migration Phases
 
 > Full detail: [§19 P2P Architecture](#19-p2p-architecture-data-storage-and-network-design)
 
-The current system is a **star topology** (one server, many browser clients). The target is a **P2P relay mesh**. Migration is incremental across seven phases:
+The current deployed system is a **star topology** (one server, many browser clients). The **authoritative production target** for `www.iinpublic.com` is a **relay-only hub** plus **P2P Gun mesh** where **all application data lives on user devices** except ephemeral presence/signaling and TechSupport history.
+
+**Ledger phases (shipped):**
+
+| Phase | Name | Status |
+|---|---|---|
+| E | Ledger bootstrap | Done — `InteractionEvent`, `WebLedgerService`, CIDv1 |
+| F | Delta sync | Done — `LEDGER_STATE` handshake, TALK_SUPERSEDED/WITHDRAWN |
+| G | Ledger sole truth | Done — legacy dual-writes removed; CIDv1 entity IDs |
+
+**Network / transport phases:**
 
 | Phase | Name | Summary |
 |---|---|---|
-| A | Dual-mode server | Add WebRTC signaling; browsers connect peer-to-peer alongside server |
-| B | Shift writes to client | Talk delivery and conversation writes move to the peer mesh; server `radata/` is fallback |
-| C | Server relay-only | Remove all application routes; server holds only ephemeral location index + signaling |
-| D | DHT bootstrap | Distributed hash table for peer discovery; network survives full server downtime |
-| E | Ledger bootstrap | Introduce `InteractionEvent` and `LedgerService`; write to both legacy and ledger paths |
-| F | Delta sync | `LEDGER_STATE` handshake on peer connect; O(Δ) event transfer between ledger-capable peers |
-| G | Ledger sole truth | Remove legacy Gun path writes; CIDv1 everywhere; ledger indexes replace legacy caches |
+| A | Dual-mode server | WebRTC signaling alongside star server — **partially shipped** |
+| B | Client-authoritative writes | Conversation/talk bodies persist to **local Gun**; server `radata/` fallback only during migration |
+| C | Server relay-only (`www.iinpublic.com`) | No application `radata/`; ephemeral presence + signaling + TechSupport store only |
+| D | DHT bootstrap | Optional distributed discovery; network survives hub downtime |
+
+**Stack implementation phases (§19.9 — no UI changes):** P2P-H through P2P-O make WebRTC a **sync channel** and Gun the **durable store**. See [§19.9](#199-stack-implementation-phases-no-ui-changes).
 
 **New Gun paths (Phase E+):**
 
@@ -673,10 +696,12 @@ IinPublic is a decentralized application. **No user data is collected, stored, o
 
 | Data Type | Collected Centrally? | Where Stored |
 |---|---|---|
-| Profile, answers, talks, messages | No | Gun.js peer graph only |
+| Profile, answers, talks, peer messages | No (target) | Local Gun DB on user devices; replicated P2P — [§19.6](#196-server-vs-device-data-matrix) |
 | GPS / location | No | Blurred, stored in user's own Gun node |
 | Session analytics, telemetry | No | — |
-| Tech support interactions | Yes (minimal, opt-in) | Centralised support channel only |
+| Tech support interactions | Yes (minimal) | Server-side store for TechSupport channel only — [§19.7](#197-techsupport-server-exception) |
+| Live user presence (userId, lastSeen) | Yes (ephemeral) | In-memory on `www.iinpublic.com`; no disk persistence |
+| Peer DM / talk / profile bodies | No | Local Gun DB on each client device |
 
 Tech support data is limited to the content the user voluntarily sends through the in-app support flow. It is never cross-referenced with user identity nodes in the Gun graph.
 
@@ -2250,11 +2275,13 @@ The following items are known open questions or planned post-MVP work:
 
 ## 19. P2P Architecture: Data Storage and Network Design
 
-> **Status:** Proposed · **Date:** 2026-05-25
+> **Status:** Authoritative production target · **Date:** 2026-05-28
+>
+> This section is the single source of truth for `www.iinpublic.com` networking and persistence. Implementation tasks live in `docs/TODO.md` (phases P2P-H–O). The shipped direct WebRTC transport slice (`docs/TODO-direct-p2p.md`) is **superseded** for persistence policy — see [§19.4](#194-p2p-transport-vs-gun-persistence-authoritative-model) and [§19.11](#1911-superseded-direct-p2p-ram-transport-experiment).
 
 ### 19.1 Current Architecture: Star Topology (Detailed)
 
-The current system uses a Gun.js star topology: one central server, many browser clients, all data flowing through and stored on the server.
+The current **deployed** system uses a Gun.js star topology: one central server, many browser clients, with most application data flowing through and stored on the server.
 
 **Server side** has two distinct storage layers. The primary one is Gun.js's `radata/` folder — a flat-file Radix graph database on disk. Every Gun `put` eventually flushes a `.json` file there, keyed by the graph path. The active Gun paths are:
 
@@ -2265,122 +2292,209 @@ The current system uses a Gun.js star topology: one central server, many browser
 - `talks/<id>` — talk definition, responses, stats
 - `incomingTalksByUser/<userId>/<identityKey>` — incoming talk clusters (Gun mirror only; server Map is authoritative)
 - `conversations/<id>` / `users/<id>/conversations/<convId>` — conversation records
-- `talkAnswerTemplateByUser/<userId>/<identityKey>` — cached answer templates
+- `ledger/<userId>/events/<seq>` — signed interaction events (Phase E+)
+- `talkAnswerTemplateByUser/<userId>/byQuestion/<questionId>` — per-question chatbot cache (Phase G+)
 
 The second layer is a plain in-memory JavaScript `Map` — `incomingTalksMap` on the server — intentionally kept off Gun to avoid broadcasting every talk-delivery write to all connected clients. The server also holds Socket.IO room membership, which is transient.
 
-**Browser (client) side** runs a Gun client that syncs from the server over HTTP and caches what it has seen locally in **IndexedDB** (via Gun's RAD adapter). Each browser holds a partial replica of the graph — the subset of data it has personally requested — persisted across page reloads. All writes go to the server first. Private user data (`blockedUserIds`, `knownPeople`, `talkFilters`) is SEA-encrypted with the user's keypair before being written, so the server stores ciphertext it cannot read.
+**Browser (client) side** runs a Gun client that syncs from the server over HTTP and caches what it has seen locally in **IndexedDB** (via Gun's RAD adapter). Private user data (`blockedUserIds`, `knownPeople`, `talkFilters`) is SEA-encrypted with the user's keypair before being written.
 
-**Summary:** The server is the single source of truth. The graph is fully replicated on the server; browsers are caches.
+**Partially shipped transport slice:** When `P2P_DIRECT_CHAT_ENABLED=1`, post-match DMs can travel over WebRTC DataChannel with server-only signaling (`/api/p2p/signaling/*`). That implementation currently treats the channel as a **RAM-only message store** in some modes — which **does not** match the production model in [§19.4](#194-p2p-transport-vs-gun-persistence-authoritative-model). Phase **P2P-H** refactors transport to write through to local Gun.
+
+**Summary (today):** The server is still the primary durable source for star mode. Browsers are partial replicas. Production target inverts this — see [§19.2](#192-production-target-wwwiinpubliccom-authoritative).
 
 ---
 
-### 19.2 Proposed Architecture: P2P Relay Mesh (Detailed)
+### 19.2 Production Target: www.iinpublic.com (Authoritative)
 
-### Design goals
+When two or more users access `www.iinpublic.com`, they **exchange identity and presence through the server**, **acknowledge each other's existence**, then conduct **all other conversation and application sync peer-to-peer**. Chat history and application graph data are stored in each user's **local Gun database** on their device — not on the public website server.
 
-- The server acts only as a **signaling and presence** service; it holds no application data.
-- All talk delivery, conversation messaging, and profile exchange happens **directly between browser peers** via WebRTC.
-- No user needs to know the complete global user list — only a local neighborhood of nearby peers.
-- The network stays alive through overlapping neighborhoods and redundant peer connections.
+**Design goals:**
 
-### The server's new role
+- `www.iinpublic.com` is a **relay-only hub**: static SPA bundle, ephemeral presence, WebRTC signaling, and the TechSupport exception only.
+- **P2P is the communication channel**; **Gun on the device is the database** for peer conversations, talks, profiles, and ledger data.
+- No global user roster — only neighborhood slices (20–50 live peers) returned on demand.
+- Overlapping peer neighborhoods provide redundancy without a central data store.
 
-The server becomes an ephemeral presence registry. It holds an in-memory (no disk persistence) location index: `userId → { encryptedLocation, lastSeen }`. It provides two things:
+**What the production server provides:**
 
-1. A **WebRTC signaling channel** — exchanges SDP offers/answers and ICE candidates between browsers that want to connect directly.
-2. A **"who is near me?" endpoint** — returns a short list (20–50) of live user IDs within a configurable radius, refreshed on demand.
-
-The server never writes to `radata/`. It is stateless between restarts and repopulates as users reconnect. All REST routes handling talk delivery, match logic, and conversation CRUD are removed from the server.
-
-### Client-side neighborhood management
-
-When a client connects it registers its blurred location with the server and receives a list of nearby live peers. It then establishes Gun peer connections directly to those browsers via WebRTC, using `gun/lib/webrtc` and `simple-peer`. As peers come and go the client refreshes its neighborhood list periodically.
-
-Each client targets a minimum of 3–5 active peer connections at all times. If one drops it re-queries the server for a replacement. Neighborhoods naturally overlap: users in the same city peer with each other, and their overlapping neighborhoods span adjacent areas. Data propagates through this geographic gradient.
-
-### Redundancy
-
-Overlapping neighborhoods provide natural redundancy without requiring any node to maintain a global roster. If the signaling server goes down, peers that already know each other continue operating. New arrivals can bootstrap by connecting to any known stable node (desktop super-peers, published bootstrap addresses).
-
-### What moves and what stays
-
-| Concern | Current (Star) | Proposed (P2P) |
+| Service | Persistence | Purpose |
 |---|---|---|
-| Talk storage | Server `radata/` | Originating user's device + peers |
-| Conversation messages | Server `radata/` | Participants' devices + shared peers |
-| User profiles (public) | Server `radata/` | Author's device, replicated to subscribers |
-| Private user data | Server (encrypted) | Author's device only (SEA encrypted) |
-| Match logic | Server route | Runs client-side (already in `src/shared/talk-engine.ts`) |
-| Incoming talk fanout | Server in-memory Map | Sender broadcasts via Gun to peer mesh |
-| Location index | Server (full list) | Server (ephemeral, neighborhood slices only) |
-| WebRTC signaling | N/A | Server (permanent, lightweight) |
-| User auth / keypairs | Server session | SEA keypair on device; server validates signature |
+| Static web app (HTML/JS/CSS) | CDN/cache only | Load client; does not store user data |
+| Live user index | In-memory; TTL ~45s | `userId`, `pub`, `epub`, `lastSeen`, optional encrypted location blob |
+| WebRTC signaling | In-memory; TTL ~120s | SDP offers/answers, ICE candidates (`/api/p2p/signaling/*`) |
+| TechSupport channel | Durable (server) | Only server-held chat history — [§19.7](#197-techsupport-server-exception) |
+| Optional encrypted relay | In-memory; short TTL | NAT/fallback envelopes only; clients must persist to local Gun |
+
+**What the production server must NOT store:**
+
+- Peer conversation message bodies, talk definitions, user profiles, match results, stats aggregates, private SEA keys, or long-term Gun `radata/` for application paths.
+
+**Deployment topology:**
+
+```text
+www.iinpublic.com
+├── CDN / static host     → webpack SPA (no user DB)
+└── relay service         → presence + signaling + TechSupport API
+                              (no application radata/)
+
+Each client device
+├── Gun local DB          → IndexedDB (browser) or radisk (desktop node)
+├── SEA keypair           → device-encrypted custody
+└── P2P mesh              → WebRTC + Gun wire between peers
+```
 
 ---
 
-### 19.3 Data Storage and Distribution in the P2P Structure
+### 19.3 Session Bootstrap When 2+ Users Are Online
 
-In the P2P structure, Gun's graph is no longer centralized — it is a CRDT (conflict-free replicated data type) that each node holds partially and syncs lazily with its peers.
+When a user opens the site and at least one other user is live, the stack performs:
 
-### Per-user device storage
+1. **Register presence** — `POST /api/presence/register` with `{ userId, pub, epub, encryptedLocation?, capabilities }`. Server records `lastSeen` in the ephemeral index.
+2. **Discover neighbors** — `GET /api/presence/nearby` returns 20–50 live `userId`s (and public keys) within configurable radius — not the global user list.
+3. **Acknowledge peers** — clients exchange short signed hello tokens (server-forwarded or over first signaling message) so each side confirms the other's `pub` before trusting P2P payloads.
+4. **Open P2P mesh** — Gun peer links over WebRTC (`gun/lib/webrtc` / axe mesh) and/or existing `p2p-webrtc-session.ts` DataChannels per conversation.
+5. **Ongoing sync** — all application writes `gun.put` to local DB; graph replicates to connected peers. WebRTC accelerates delivery; Gun remains authoritative.
 
-Each user's browser persists its own data and the data of recent peers in IndexedDB via Gun's RAD adapter. Stored on each device:
-
-- **Authoritative writes:** everything the user has personally written — their profile, talk definitions, conversation messages, answer templates. Gun's SEA layer enforces that only the key-holder can write these nodes; a malicious peer cannot overwrite them even if holding a copy.
-- **Subscribed data:** everything the user has subscribed to — conversations they participate in, talks they have seen, profiles of people they have interacted with. Gun's deduplication by content hash means storing the same node twice is harmless.
-- **SEA keypair:** stored in `localStorage`, never leaves the device in plaintext.
-
-### Location-based sharding (emergent)
-
-Users in the same city peer with other city users. Their Gun graphs accumulate a dense, locally relevant slice of the global graph. A user in London never downloads Tokyo-only data because they never subscribe to it. This sharding is emergent, not enforced — it falls out of the neighborhood-based peering strategy.
-
-### Conversation replication
-
-When Alice and Bob are in a conversation, Alice's browser subscribes to Bob's `conversations/<id>/messages` path. Gun replicates new messages to Alice as Bob writes them, and Alice's IndexedDB gets a local copy. If Bob goes offline, Alice can still read the conversation from her own cache; when Bob reconnects his messages flow through whatever peers are currently between them.
-
-### Server storage in the new model
-
-A small in-memory store (or SQLite) for the location index only: `userId`, encrypted location blob, `lastSeen` timestamp, and signaling channel state. No `radata/`. The server is fully stateless between restarts.
+If the relay hub restarts, presence repopulates as users reconnect; peers who already know each other continue from local Gun replicas.
 
 ---
 
-### 19.4 Desktop Node.js Users as Super-Peers (Detailed)
+### 19.4 P2P Transport vs Gun Persistence (Authoritative Model)
 
-When a user downloads and runs a native Node.js app they become a **super-peer** — a node with persistent disk storage, a stable IP, no browser sandbox limitations, and the ability to serve as a relay for WebRTC peers that cannot directly connect due to symmetric NAT or strict firewalls.
+| Layer | Role | Durability |
+|---|---|---|
+| **WebRTC DataChannel** | Realtime sync / delivery lane between matched peers | Ephemeral transport only |
+| **Gun (local)** | Source of truth for `conversations/<id>/messages`, talks, profiles, ledger | IndexedDB (browser) or radisk (desktop node) |
+| **Server relay** | Signaling, presence, optional encrypted forward | TTL-pruned; no application message archive |
+| **Star hub (migration)** | Fallback read/write during Phases A–B | Disabled in Phase C production |
 
-### How a desktop node operates
+**Required behavior (REQ-P2P-01, REQ-P2P-02):**
 
-The Node.js instance runs Gun with disk persistence (`radata/` on the user's machine). It connects to the signaling server, announces itself in the location index, and peers with its neighborhood exactly like a browser does — but it stays online longer and stores data more durably. Its Gun graph on disk grows over time into a rich slice of the network relevant to its location.
+- On **send**: client writes message to local Gun (`conversations/<id>/messages/<msgId>`), then notifies peer over WebRTC (envelope may carry Gun path hint or ciphertext).
+- On **receive**: client applies peer update to local Gun; UI reads from Gun subscription (existing `StarGunConversationTransport` paths).
+- WebRTC MUST NOT be the sole copy of conversation history.
 
-### Super-peers as organic TURN relays
-
-If Browser A cannot reach Browser B directly (NAT failure), both can connect to a nearby super-peer that is reachable by both, and the Gun message flows through it. The desktop nodes fill the TURN relay role organically — no dedicated TURN server is required. The signaling server can track which nodes have announced stable, routable addresses and prefer them as relay candidates when direct ICE fails.
-
-### Data sharing between desktop and browser nodes
-
-Data sharing is seamless because they speak the same Gun Wire protocol. A desktop node in Tokyo and a browser in Tokyo sync the same graph paths. The desktop node's `radata/` folder becomes a durable backup of the neighborhood's data, surviving browser cache evictions (browsers aggressively evict IndexedDB under storage pressure).
-
-### Bootstrapping a new desktop node
-
-On first run the app connects to the signaling server, receives its neighborhood list, and begins syncing the relevant graph slice from nearby peers. After a short warm-up period it has a dense local replica. If the central signaling server goes down, desktop nodes that already know each other continue operating. New nodes can bootstrap via any known super-peer's address — publishable via DNS, a DHT entry, or a hardcoded bootstrap list in the app binary (similar to BitTorrent trackers).
-
-### Long-term network resilience
-
-As more desktop nodes appear in a city, the signaling server becomes less critical. Nodes can discover each other peer-to-peer via a lightweight DHT layer (`gun/lib/nts` or a custom Kademlia implementation). The server transitions from essential infrastructure to a convenient onboarding helper for new arrivals.
+**Contrast with superseded experiment:** `docs/TODO-direct-p2p.md` required "message bodies must not persist on the public Gun hub in direct mode" and used in-memory DataChannel storage. That privacy slice is **deprecated** for production. Local Gun persistence on the **device** is required; the hub must not retain copies.
 
 ---
 
-### 19.5 Migration Considerations (Detailed)
+### 19.5 Client Tiers
 
-The migration from star to P2P can be done incrementally:
+Users may access IinPublic through increasing capability tiers. **No UI changes** are required to add tiers — only stack, packaging, and Gun peer configuration.
 
-1. **Phase A — Dual-mode server:** Keep the current server but add WebRTC signaling endpoints. Browser clients connect to both the server (for existing data) and to peers (for new data). Validate that direct peer sync works correctly.
-2. **Phase B — Shift writes to client:** Move talk delivery fanout and conversation writes to client-side, using the peer mesh as transport. Server still holds `radata/` as a fallback read source.
-3. **Phase C — Server becomes relay-only:** Strip all application data from the server. Remove `radata/`. Server holds only the ephemeral location index and signaling state. Desktop super-peer nodes absorb the durable-storage role.
-4. **Phase D — Optional DHT bootstrap:** Replace or supplement the signaling server's user discovery with a DHT so the network can survive server downtime entirely.
+| Tier | Delivery | Local Gun storage | Background P2P |
+|---|---|---|---|
+| **1 — Website** | Browser tab at `www.iinpublic.com` | IndexedDB via Gun RAD / worker bridge | Limited (tab foreground) |
+| **2 — Installed PWA** | Same SPA, installable | Same as tier 1; slightly better offline shell | Limited on mobile |
+| **3 — Desktop node app** | Bundled UI + Node.js Gun service | `radisk/` on user disk (super-peer) | Yes (user-controlled) |
+| **4 — Mobile node app** | Native shell + embedded runtime | OS storage + keystore | Foreground / notification-assisted (platform limits) |
 
-The match logic (`src/shared/talk-engine.ts`) and SEA encryption survive unchanged — they were already designed to run on both sides. Content-addressing transitions from `talk-content-id.ts` (local SHA-256) to CIDv1 (dag-json, sha2-256, via `multiformats`) — the `talkId` format changes but the concept is the same. `talk-content-id.ts` is replaced in Phase G.
+**Important:** A normal browser tab cannot run unrestricted Node.js. Tier 3–4 are separate packages that speak the same Gun Wire protocol and pair with the browser via localhost signed session (see `docs/roadmap/p2p-node-network.md`).
+
+The website does **not** ship a pre-filled Gun database download. Users build local history through P2P sync and optional **encrypted backup export/import** (owner-controlled file).
+
+---
+
+### 19.6 Server vs Device Data Matrix
+
+| Data class | `www.iinpublic.com` | User device (local Gun) |
+|---|---|---|
+| Live user IDs + `lastSeen` | Yes (ephemeral) | Neighbor cache (optional, local-only) |
+| WebRTC signaling envelopes | Yes (ephemeral) | No |
+| TechSupport messages | Yes (durable) | Replica on device for UX |
+| Peer DM bodies | **No** | Yes (authoritative) |
+| Talk definitions / responses | **No** (target) | Yes |
+| Public profiles / reputation | **No** (target) | Yes (replicated from authors) |
+| Private SEA profile / blocks / filters | **No** | Yes (SEA encrypted) |
+| Interaction ledger events | **No** (target) | Yes (`ledger/<userId>/...`) |
+| Incoming talk inbox (fanout) | **No** (target; today: server Map) | Yes (per-user local index) |
+
+---
+
+### 19.7 TechSupport Server Exception
+
+`TechSupport` (`iinpublic-root-techsupport`, see `src/shared/techsupport.ts`) is the **only** peer conversation whose message history may be stored durably on `www.iinpublic.com`.
+
+- **Rationale:** Support staff and cold-start users need a reliable channel before P2P mesh is warm.
+- **Implementation:** Stack branches `ConversationTransport` by peer id — TechSupport uses server-backed storage (star-gun or dedicated `/api/support/messages` + SQLite); all other peers use P2P-H write-through local Gun.
+- **Privacy:** Support messages are still SEA-encrypted in transit; server store policy must be documented in the privacy notice.
+
+---
+
+### 19.8 Neighborhood Management and Super-Peers
+
+When a client connects it registers blurred location, receives nearby live peers, and establishes **3–5** active Gun/WebRTC peer connections. Stale entries are refreshed on heartbeat failure.
+
+**Desktop / mobile super-peers** run Gun with disk `radisk` on the user's machine. They stay online longer, survive browser IndexedDB eviction, and act as organic TURN relays when direct ICE fails. Browser and desktop nodes sync the same graph paths via Gun Wire.
+
+**Redundancy:** Overlapping city-level neighborhoods propagate data geographically. If the hub is down, connected peers and super-peers continue; new users bootstrap via known super-peer addresses (DNS, app binary list, or future DHT — Phase D).
+
+| Concern | Star (today) | Production (§19.2) |
+|---|---|---|
+| Talk storage | Server `radata/` | Author device + peer mesh |
+| Conversation messages | Server `radata/` | Participants' local Gun + mesh |
+| User profiles (public) | Server `radata/` | Author device, replicated to subscribers |
+| Private user data | Server ciphertext | Author device only (SEA) |
+| Match logic | Server route + shared `talk-engine.ts` | Client-side (unchanged module) |
+| Incoming talk fanout | Server `incomingTalksMap` | Client mesh broadcast (P2P-L) |
+| Location / presence | Mixed | Server ephemeral index only |
+| WebRTC signaling | Shipped | Server lightweight permanent |
+
+---
+
+### 19.9 Stack Implementation Phases (No UI Changes)
+
+Phases **P2P-H** through **P2P-O** implement §19.2–§19.7 under the existing UI. Transport diagnostics and storage inspector are sufficient for verification.
+
+| Phase | Stack deliverable | Key files / surfaces |
+|---|---|---|
+| **P2P-H** | Gun write-through on P2P transport: send/receive → `conversations/.../messages/` | `direct-p2p-conversation-transport.ts`, `web-conversation-service.ts` |
+| **P2P-I** | Ephemeral presence API + signed peer ack | `src/server/routes/` (new presence routes), `p2p-runtime.ts` |
+| **P2P-J** | Durable browser Gun: radisk in worker bridge | `web-gun-service.ts`, `gun-bridge` worker |
+| **P2P-K** | Stop server `radata/` writes for peer conversations (flagged) | `gun-service.ts`, `STAR_SERVER_PERSISTENCE` |
+| **P2P-L** | Client talk fanout over Gun mesh; reduce `incomingTalksMap` authority | `talk-delivery-routes.ts`, `web-talk-service.ts` |
+| **P2P-M** | Relay-only production deploy profile for `www.iinpublic.com` | server config, static CDN split |
+| **P2P-N** | TechSupport server-side message store | server routes + SQLite or dedicated path |
+| **P2P-O** | Local node localhost bridge (supervisor API) | `p2p-node-network.md` local node model |
+
+**Exit criteria for production (Phase C):** With hub in relay-only mode, peer DM bodies appear in both participants' local Gun DB, are absent from server `radata/`, and TechSupport remains server-readable.
+
+---
+
+### 19.10 P2P Requirements Summary
+
+- **REQ-P2P-01:** Matched peer DM bodies SHALL persist in sender and receiver **local Gun** databases.
+- **REQ-P2P-02:** WebRTC DataChannel MAY accelerate delivery but SHALL NOT be the sole copy of conversation history.
+- **REQ-P2P-03:** `www.iinpublic.com` SHALL NOT durably store peer conversation message bodies outside the TechSupport exception.
+- **REQ-P2P-04:** Server SHALL maintain an ephemeral live-user index (`userId`, `pub`, `lastSeen`, optional encrypted location).
+- **REQ-P2P-05:** TechSupport channel history MAY be stored server-side; all other chats SHALL NOT.
+- **REQ-P2P-06:** Phases P2P-H–O SHALL NOT require UI/UX changes (existing screens and transport diagnostics suffice).
+- **REQ-P2P-07:** Clients SHALL register presence and acknowledge peers via server-mediated or signed direct handshake before trusting P2P payloads.
+- **REQ-P2P-08:** Match logic SHALL remain in `src/shared/talk-engine.ts` (no duplication in routes).
+
+---
+
+### 19.11 Superseded: Direct P2P RAM Transport Experiment
+
+`docs/TODO-direct-p2p.md` (2026-05-30) shipped WebRTC signaling, `DirectP2PConversationTransport`, resilient fallback, LEDGER_STATE on channel open, and E2E coverage. Its **persistence policy** ("message bodies must not persist on the public Gun hub in direct mode"; RAM/DataChannel as store) is **superseded** by [§19.4](#194-p2p-transport-vs-gun-persistence-authoritative-model).
+
+**Reuse:** signaling client, WebRTC session, fallback chain, ledger handshake — refactor under **P2P-H**, do not delete transport code.
+
+**Deprecate:** `assertNoGunStoredMessageBodies` as a production exit criterion; replace with "message bodies on local Gun, absent from server export snapshot."
+
+---
+
+### 19.12 Network Migration Phases A–D (Hub Evolution)
+
+Incremental migration from star to relay-only (complements ledger phases E–G, already shipped):
+
+1. **Phase A — Dual-mode server (partial):** WebRTC signaling endpoints live; browsers connect to hub and peers. Validate mesh sync.
+2. **Phase B — Client-authoritative writes:** Talk delivery and conversation writes persist to local Gun first; hub `radata/` is fallback read only.
+3. **Phase C — Relay-only hub:** Remove application `radata/` from `www.iinpublic.com`; hub holds presence + signaling + TechSupport only; super-peers hold neighborhood backups.
+4. **Phase D — Optional DHT bootstrap:** Supplement hub discovery so the network survives full hub downtime.
+
+Match logic (`src/shared/talk-engine.ts`) and SEA encryption are unchanged. CIDv1 content-addressing is shipped (Phase G).
 
 ---
 

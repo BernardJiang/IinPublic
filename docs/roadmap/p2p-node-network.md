@@ -1,6 +1,8 @@
 # P2P Node Network Roadmap
 
-Last updated: 2026-05-20
+Last updated: 2026-05-28
+
+> **Authoritative production model:** `docs/specs/iinpublic-technical-specification.md` **§19** (`www.iinpublic.com` relay-only, Gun-local persistence, P2P-H–O). This roadmap adds implementation detail for local nodes and storage classes.
 
 ## Goal
 
@@ -19,7 +21,7 @@ Keep the current star-shaped IinPublic system working first, then evolve toward 
 
 - Star mode stays available until P2P behavior is reliable and test-covered.
 - Server persistence must be explicit by path and purpose.
-- Post-match message bodies should not be stored on the public Gun hub in direct mode.
+- Post-match message bodies must persist on **user-owned local Gun** (device IndexedDB/radisk); the **public hub** (`www.iinpublic.com`) must not durably store peer DM bodies (TechSupport excepted — spec §19.7).
 - User-owned local storage is the default for private data.
 - Each user publishes only public SEA identity material (`pub`, `epub`); private SEA keys (`priv`, `epriv`) must remain encrypted at rest on user-controlled devices.
 - A user may link multiple devices, but linked devices must not be publicly collapsed into one global identity; device linking is private encrypted state.

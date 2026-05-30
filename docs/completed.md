@@ -1,6 +1,6 @@
 # IinPublic Completed Work
 
-Last updated: 2026-05-30
+Last updated: 2026-05-28
 
 This is the durable ledger for shipped feature work. Keep `TODO.md` focused on forward work:
 when an item is finished, move it here with a short description and concrete evidence.
@@ -11,6 +11,31 @@ when an item is finished, move it here with a short description and concrete evi
 - Include the date, feature/phase name, user-visible result, and verification evidence.
 - Keep detailed design and future work in the relevant spec or roadmap doc.
 - If a completed item later needs more work, add a new TODO entry instead of editing history.
+
+## 2026-05-28 - Spec §19 production P2P model + TODO realignment
+
+Documented authoritative architecture for `www.iinpublic.com` relay-only hub, Gun-local persistence, transport/persistence split, TechSupport server exception, and stack phases P2P-H–O (no UI changes).
+
+**Evidence:**
+- `docs/specs/iinpublic-technical-specification.md` v4.1 — §19 rewritten
+- `docs/TODO.md` — forward work is P2P-H–O per spec
+- `docs/TODO-direct-p2p.md` — marked superseded for persistence policy
+
+## 2026-05-30 - Direct P2P transport slice (persistence superseded by spec §19.4)
+
+Shipped WebRTC conversation transport infrastructure. **Persistence policy superseded:** production target is Gun write-through on device (P2P-H), not RAM-only DataChannel storage.
+
+**Shipped:**
+- `DirectP2PConversationTransport`, `p2p-signaling-client`, `p2p-webrtc-session`
+- `ResilientConversationTransport` fallback chain (direct → server-relay → star-gun)
+- LEDGER_STATE handshake on DataChannel open (REQ-LEDGER-06)
+- `/api/p2p/signaling/*`, `/api/p2p/conversation-relay/*`, `/api/p2p/transport-diagnostics`
+- E2E helpers and migration for messaging/match specs (`docs/TODO-direct-p2p.md` Phases 0–5)
+
+**Evidence:**
+- `npm run test:type` clean
+- E2E: `00-p2p-conversation-transport`, `09-messaging`, `12-two-responders-partial-match`
+- Full checklist: `docs/TODO-direct-p2p.md` (optional `test:e2e:parallel` gate still open)
 
 ## 2026-05-30 - Direct P2P: fallback chain, LEDGER_STATE, relay API
 

@@ -5,56 +5,49 @@ Last updated: 2026-05-28
 This file is the short, execution-oriented plan.
 - Completed work: `docs/completed.md`
 - Detailed backlog inventory: `docs/TODO-backlog-inventory.md`
-- Product scope: `docs/specs/iinpublic-technical-specification.md`
-- P2P roadmap: `docs/roadmap/p2p-node-network.md`
+- **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specification.md` (§19)
+- Supporting detail: `docs/roadmap/p2p-node-network.md`
 
 ## Current Focus
 
-**Direct P2P conversation transport** — implement WebRTC DataChannel messaging and migrate E2E to `P2P_DIRECT_CHAT_ENABLED=1`. Full plan: [TODO-direct-p2p.md](TODO-direct-p2p.md).
+**P2P production model (spec §19)** — WebRTC as **communication channel**; **Gun local DB** as durable store; relay-only `www.iinpublic.com`. **Stack-only — no UI changes.**
 
-Talk delivery / matching remains server-mediated until a later mesh epic (spec §19).
+Deprecated persistence policy: `docs/TODO-direct-p2p.md` (RAM-only DMs). Transport code is reused under **P2P-H**.
 
 ## Next Action Items (Ordered)
 
-1. **Direct P2P (active)** — follow [TODO-direct-p2p.md](TODO-direct-p2p.md) Phases 0–5.
-2. **D4 (optional)** — creator edit/state-preservation checks after OUT/IN rebroadcast.
+1. **P2P-H** — Gun write-through on direct P2P transport: `sendMessage` / receive → `gun.put` at `conversations/{id}/messages/`; WebRTC carries sync only.
+2. **P2P-I** — Ephemeral presence API (`POST /api/presence/register`, `GET /api/presence/nearby`) + signed peer-ack handshake.
+3. **P2P-J** — Durable browser Gun storage (enable radisk in worker bridge / `GunBridge`).
+4. **P2P-K** — Feature-flagged stop of server `radata/` persistence for peer conversations (`STAR_SERVER_PERSISTENCE=ephemeral` migration step).
+5. **P2P-L** — Client-side talk delivery fanout over Gun mesh; reduce server `incomingTalksMap` authority.
+6. **P2P-M** — Relay-only production deploy profile (static SPA + relay service; no application `radata/` on hub).
+7. **P2P-N** — TechSupport server-side message store (only server-durable chat exception per §19.7).
+8. **P2P-O** — Local node localhost bridge / supervisor API (stack; packaging later).
+9. **D4 (optional)** — creator edit/state-preservation checks after OUT/IN rebroadcast.
 
-## Phase Status Snapshot
+## P2P Stack Phases (spec §19.9)
 
-### Phase D2 - Full UI Localization
-- **Shipped:** Chinese traversal + navigation/settings durability (`test:e2e:phase-d2`); status-bar user/match count localized; broadcast modal and chatroom create modal edge spec (`00z`).
-- **Remaining:** none — D2 closed.
+| Phase | Status |
+|-------|--------|
+| P2P-H Gun write-through transport | Not started |
+| P2P-I Presence + peer ack | Not started |
+| P2P-J Browser durable Gun | Not started |
+| P2P-K No server convo radata | Not started |
+| P2P-L Client talk mesh fanout | Not started |
+| P2P-M Relay-only deploy profile | Not started |
+| P2P-N TechSupport server store | Not started |
+| P2P-O Local node bridge | Not started |
 
-### Phase D3 - Incoming Talk Filters and Talk Behavior
-- **Shipped:** multi-user intake filter suite, talk behavior proofs (`00m`-`00p`, `00t`), CJK grammar bypass, broadcast preamble localization, location-pending warning, dirty-word CJK detection.
-- **Remaining:** none — D3 closed.
+## Closed Phases (see `docs/completed.md`)
 
-### Phase D4 - Exhaustive Talk Lifecycle and Matching Matrix
-- **Shipped:** `00u`, `00w`, `00z`, `00aa`, `00ab`, `00ac`, `talk-lifecycle-e2e.ts` (`test:e2e:phase-d4`).
-- **Remaining:** creator edit/state-preservation checks (OUT/IN/Contacts/Me consistency after edit+rebroadcast).
-
-### Phase D5 - High-Volume Reply Triage and Ranking
-- **Shipped:** 10x10 browser matrix (`00v`), group-by (responder/talk/day) spec (`00ad`), date-range filter, sort-by-talk-replies, sort persistence — all in `test:e2e:phase-d5`.
-- **Remaining:** none — D5 closed.
-
-### Phase D6 - Tab-by-Tab Completion Sweep
-- **Shipped:** tab-sweep + nav/settings/localization bundle; contacts stranger-default and save-relationship spec (`00ae`) — all in `test:e2e:phase-d6`.
-- **Remaining:** none — D6 closed.
-
-## Phase E — Interaction Ledger Bootstrap
-- **Shipped:** CIDv1 utility (`src/shared/cid.ts`), `InteractionEvent` type + `InteractionKind` enum, `WebLedgerService` (append/verify/indexes/delta-sync), CIDv1 questionId per question, per-question chatbot cache (`byQuestion/<cidKey>`), ledger event hooks wired into all interaction flows.
-- **Remaining:** none — Phase E closed.
-
-## Phase F — Delta Sync and Talk Versioning
-- **Shipped:** LEDGER_STATE handshake + O(Δ) delta sync, TALK_SUPERSEDED + TALK_WITHDRAWN events and grace window, chatbot differential answering UI (REQ-CHATBOT-01–04).
-- **Remaining:** none — Phase F closed.
-
-## Phase G — Ledger as Sole Source of Truth
-- **Shipped:** CIDv1 for all entity IDs (talk-content-id.ts retired), legacy Gun dual-writes removed (isAnswered tracked in-memory), conversation sub-DAG with `prevSeen` field (REQ-LEDGER-08).
-- **Remaining:** none — Phase G closed.
+- **D2–D6** — UI localization, filters, lifecycle, triage, tab sweep
+- **E, F, G** — Interaction ledger, delta sync, CIDv1 sole truth
+- **Direct P2P transport slice** — signaling, WebRTC, fallback, E2E (persistence model superseded by §19.4)
 
 ## Working Rule
 
 - Move completed TODO items to `docs/completed.md`.
 - Keep this file short and action-oriented.
 - Keep long-form acceptance inventory in `docs/TODO-backlog-inventory.md`.
+- Do not add UI tasks for P2P-H–O unless spec §19.6 constraints change.
