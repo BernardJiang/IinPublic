@@ -150,7 +150,7 @@ Four talk types share the same `Talk` struct but behave differently:
 
 ### Direct P2P conversation transport
 
-When `P2P_DIRECT_CHAT_ENABLED=1` (default in Playwright `webServer` / Gun spawn), post-match DMs use `DirectP2PConversationTransport` (WebRTC DataChannel + `/api/p2p/signaling/*`). Message bodies are not written to `conversations/.../messages` on the Gun hub. The web app also syncs transport mode from `GET /api/debug/storage` flags at boot.
+When `P2P_DIRECT_CHAT_ENABLED=1` (default in Playwright `webServer` / Gun spawn), post-match DMs use `DirectP2PConversationTransport`: messages persist to local Gun (`conversations/.../messages`) and WebRTC notifies the peer (P2P-H). Hub replication remains during star migration until P2P-K. The web app syncs transport mode from `GET /api/debug/storage` flags at boot.
 
 - Default E2E: `P2P_DIRECT_CHAT_ENABLED=1` (see `playwright.config.ts`)
 - Star-gun regression: `npm run test:e2e:star` (`P2P_DIRECT_CHAT_ENABLED=0`)
