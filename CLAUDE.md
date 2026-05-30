@@ -37,6 +37,10 @@ npm run test:e2e:talks-matching  # talks-matching/ subset only
 npx playwright test tests/e2e/talks-matching/12-two-responders-partial-match.spec.ts
 # Parallel workers (faster, isolated Gun servers per worker):
 PW_WORKERS=4 npm run test:e2e
+# Full suite, 20 workers, 10 min/test timeout (see playwright.config.ts):
+npm run test:e2e:parallel
+# Star-gun DM regression (P2P off):
+npm run test:e2e:star
 # Slow-motion for human watching:
 PW_SLOW_MO=500 npm run test:e2e
 ```

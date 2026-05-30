@@ -304,6 +304,7 @@ export class WebConversationService {
       talkId: params.talkId,
       createdAt: new Date().toISOString(),
       respondedByBot: !!params.respondedByBotForUser1,
+      transportMode: this.transport.mode,
     });
 
     gun.get(`users/${params.userId2}`).get('conversations').get(conversationId).put({
@@ -313,6 +314,7 @@ export class WebConversationService {
       talkId: params.talkId,
       createdAt: new Date().toISOString(),
       respondedByBot: !!params.respondedByBotForUser2,
+      transportMode: this.transport.mode,
     });
 
     console.log(`✅ Conversation created: ${conversationId}`);
@@ -409,6 +411,7 @@ export class WebConversationService {
           talkId: normalized.talkId || '',
           createdAt: normalized.createdAt || '',
           respondedByBot: !!normalized.respondedByBot,
+          transportMode: normalized.transportMode || '',
         });
         if (seenPayloadByConversation.get(conversationId) === signature) return;
 

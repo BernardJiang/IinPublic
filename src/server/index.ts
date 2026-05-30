@@ -7,6 +7,10 @@ import { TalkService } from './services/talk-service';
 import { UserService } from './services/user-service';
 import { ReputationService } from './services/reputation-service';
 import { checkIfMatch } from '../shared/talk-engine';
+import {
+  createConversationTransportDiagnostics,
+  resolveP2PRuntimeFlags,
+} from '../shared/p2p-runtime';
 import { pickLatestTalkIdFromIncomingCluster, TALK_CONTENT_HASH_ID } from '../shared/incoming-talk-ids';
 import {
   normalizeIdentityText,
@@ -699,12 +703,17 @@ class IinPublicServer {
     } = params;
     const sortedIds = [responderId, senderId].sort();
     const conversationId = `conv_${sortedIds[0]}_${sortedIds[1]}_${talkId}`;
+    const transportMode = createConversationTransportDiagnostics(
+      resolveP2PRuntimeFlags(process.env),
+    ).activeMode;
+
     const conversationData = {
       id: conversationId,
       participants: [responderId, senderId],
       talkId,
       createdAt: new Date().toISOString(),
       status: 'active',
+      transportMode,
     };
 
     await this.gunService.putPath(['conversations', conversationId], {
@@ -717,6 +726,7 @@ class IinPublicServer {
       talkId,
       createdAt: new Date().toISOString(),
       respondedByBot: !!respondedByBotForResponder,
+      transportMode,
     };
     const senderEntry = {
       conversationId,
@@ -725,6 +735,7 @@ class IinPublicServer {
       talkId,
       createdAt: new Date().toISOString(),
       respondedByBot: !!respondedByBotForSender,
+      transportMode,
     };
 
     if (!this.conversationsMap.has(responderId)) this.conversationsMap.set(responderId, new Map());

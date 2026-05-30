@@ -11,6 +11,10 @@ import { gunBaseURL } from '../../helpers/ports';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../../helpers/talks-matching-browsers';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
 import {
+  expectActiveTransportMode,
+  expectConversationTransportModeForPeer,
+} from '../../helpers/p2p-transport-e2e';
+import {
   bootstrapUser,
   waitForTabActive,
   waitForResponseModalClosed,
@@ -158,6 +162,11 @@ test.describe('Talks matching — one match one mismatch from two responders', (
 
     // Tom: confirm conversation exists server-side then inject into browser state.
     await waitForServerConversations(pageTom, 1);
+    await waitForServerConversations(pageJerry, 1);
+    await expectActiveTransportMode(pageTom, 'direct-p2p');
+    await expectActiveTransportMode(pageJerry, 'direct-p2p');
+    await expectConversationTransportModeForPeer(pageTom, 'Jerry', 'direct-p2p');
+    await expectConversationTransportModeForPeer(pageJerry, 'Tom', 'direct-p2p');
     await expect(pageTom.locator('.nav-btn[data-view="me"] .notification-badge')).toHaveText('1', { timeout: 5_000 });
     await expect
       .poll(
@@ -175,7 +184,6 @@ test.describe('Talks matching — one match one mismatch from two responders', (
 
     // Jerry: has conversation with Tom (server returned convId in the HTTP response,
     // so localStorage is already updated before the modal closed)
-    await waitForServerConversations(pageJerry, 1);
     await expect
       .poll(
         async () =>

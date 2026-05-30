@@ -6448,7 +6448,7 @@ export class UIManager extends EventEmitter {
       unread: isSupportChannel ? false : (isNew ? true : (existing?.unread ?? false)),
       respondedByBot,
       supportChannel: isSupportChannel,
-      transportMode: existing?.transportMode ?? conversationData.transportMode ?? 'star-gun',
+      transportMode: conversationData.transportMode ?? existing?.transportMode ?? 'star-gun',
       transportFallbackReason: existing?.transportFallbackReason ?? conversationData.transportFallbackReason ?? null,
     };
 

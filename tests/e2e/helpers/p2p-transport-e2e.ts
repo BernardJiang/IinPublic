@@ -1,4 +1,9 @@
 import { expect, type Page } from '@playwright/test';
+import {
+  getConversationIdBetween,
+  openConversationViaServer,
+  waitForServerConversationBetween,
+} from './conversation-e2e';
 import { gunBaseURL } from './ports';
 
 /** Direct P2P should connect quickly on one machine; >10s usually means a setup bug. */
@@ -34,6 +39,28 @@ export async function expectActiveTransportMode(
     .toBe(mode);
 }
 
+/** Match-created row in `myConversations` should record the active transport mode. */
+export async function expectConversationTransportModeForPeer(
+  page: Page,
+  otherUserName: string,
+  mode: 'direct-p2p' | 'star-gun',
+  timeoutMs = P2P_E2E_TIMEOUT_MS,
+): Promise<void> {
+  await expect
+    .poll(
+      async () =>
+        page.evaluate((name) => {
+          const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+          const hit = Object.values(conversations).find(
+            (c: any) => c?.otherUserName === name && c?.supportChannel !== true,
+          ) as { transportMode?: string } | undefined;
+          return hit?.transportMode ?? '';
+        }, otherUserName),
+      { timeout: timeoutMs, message: `myConversations transport for ${otherUserName}` },
+    )
+    .toBe(mode);
+}
+
 /** Start transport subscription without opening the conversation overlay (keeps WebRTC alive). */
 export async function warmDirectP2PSession(page: Page, conversationId: string): Promise<void> {
   await page.evaluate((cid) => {
@@ -61,6 +88,32 @@ export async function waitForDirectP2PChannel(
       { timeout: timeoutMs, message: `WebRTC channel for ${conversationId}` },
     )
     .toBe('connected');
+}
+
+/**
+ * After a match: wait for server conversations, open overlays on both peers, connect WebRTC.
+ * Use before sending DMs in default `P2P_DIRECT_CHAT_ENABLED=1` e2e runs.
+ */
+export async function prepareDirectP2PConversation(
+  pageA: Page,
+  pageB: Page,
+  userIdA: string,
+  userIdB: string,
+  displayNameOnA: string,
+  displayNameOnB: string,
+): Promise<string> {
+  await waitForServerConversationBetween(pageA, userIdA, userIdB);
+  await waitForServerConversationBetween(pageB, userIdB, userIdA);
+  const conversationId = await getConversationIdBetween(pageA, userIdA, userIdB);
+  await expectActiveTransportMode(pageA, 'direct-p2p');
+  await expectActiveTransportMode(pageB, 'direct-p2p');
+  await openConversationViaServer(pageA, userIdA, displayNameOnB, userIdB);
+  await openConversationViaServer(pageB, userIdB, displayNameOnA, userIdA);
+  await warmDirectP2PSession(pageA, conversationId);
+  await warmDirectP2PSession(pageB, conversationId);
+  await waitForDirectP2PChannel(pageA, conversationId);
+  await waitForDirectP2PChannel(pageB, conversationId);
+  return conversationId;
 }
 
 /** After DMs in direct mode, conversation message nodes should not appear on the Gun hub. */

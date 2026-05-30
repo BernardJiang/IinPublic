@@ -41,6 +41,9 @@ const NUM_WORKERS = STAGE_PIPELINE
 // Let helpers (e.g. clear-database) know whether multiple workers share disk paths.
 process.env.PW_WORKERS = String(NUM_WORKERS);
 
+/** Single-worker: 5 min/test. Parallel (PW_WORKERS≥4, e.g. 20): 10 min/test — avoid hour-long serial reruns. */
+const E2E_TEST_TIMEOUT_MS = NUM_WORKERS >= 4 ? 600_000 : 300_000;
+
 const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
   const gunPort = 8080 + i;
   const webPort = 3001 + i;
@@ -76,8 +79,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 3,
   workers: NUM_WORKERS,
   reporter: 'html',
-  timeout: 300000,
-  // Full `npm run test:e2e` keeps webpack + Gun warm for a long time; 30s was tight for multi-browser talks.
+  timeout: E2E_TEST_TIMEOUT_MS,
   expect: {
     timeout: 45_000,
   },

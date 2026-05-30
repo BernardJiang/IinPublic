@@ -15,14 +15,8 @@ import {
 } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import {
-  getConversationIdBetween,
-  openConversationViaServer,
-  waitForServerConversationBetween,
-} from '../../helpers/conversation-e2e';
-import {
   assertNoGunStoredMessageBodies,
-  expectActiveTransportMode,
-  waitForDirectP2PChannel,
+  prepareDirectP2PConversation,
 } from '../../helpers/p2p-transport-e2e';
 
 test.describe('Direct messaging between matched users', () => {
@@ -107,15 +101,6 @@ test.describe('Direct messaging between matched users', () => {
     return { context, page };
   }
 
-  async function openConversation(page: Page, otherUserName: string, otherUserId: string): Promise<void> {
-    const userId = await page.evaluate(
-      () =>
-        (window as unknown as { __iinpublic_app?: { getApp: () => { currentUser?: { id: string } } } })
-          .__iinpublic_app?.getApp?.()?.currentUser?.id || '',
-    );
-    await openConversationViaServer(page, userId, otherUserName, otherUserId);
-  }
-
   test('Tom and Jerry match on talk, then exchange messages', async () => {
     const talkTitle = `Tennis Partner ${Date.now()}`;
     // ── Bootstrap users ─────────────────────────────────────────────────────
@@ -182,18 +167,14 @@ test.describe('Direct messaging between matched users', () => {
       .click();
     await waitForResponseModalClosed(pageJerry);
     await afterSync();
-    await waitForServerConversationBetween(pageTom, tomUserId, jerryUserId);
-    await waitForServerConversationBetween(pageJerry, jerryUserId, tomUserId);
-
-    const conversationId = await getConversationIdBetween(pageTom, tomUserId, jerryUserId);
-    await expectActiveTransportMode(pageTom, 'direct-p2p');
-    await expectActiveTransportMode(pageJerry, 'direct-p2p');
-
-    // ── Both peers open the conversation and establish WebRTC before send ───
-    await openConversation(pageTom, 'Jerry', jerryUserId);
-    await openConversation(pageJerry, 'Tom', tomUserId);
-    await waitForDirectP2PChannel(pageTom, conversationId);
-    await waitForDirectP2PChannel(pageJerry, conversationId);
+    const conversationId = await prepareDirectP2PConversation(
+      pageTom,
+      pageJerry,
+      tomUserId,
+      jerryUserId,
+      'Tom',
+      'Jerry',
+    );
 
     const tomInput = pageTom.locator('#conversation-message-input');
     await expect(tomInput).toBeVisible({ timeout: 10000 });

@@ -12,6 +12,10 @@ import {
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
+import {
+  expectActiveTransportMode,
+  expectConversationTransportModeForPeer,
+} from '../../helpers/p2p-transport-e2e';
 import { waitForServerConversations } from '../../helpers/talk-lifecycle-e2e';
 import {
   buildFlowTalkPayload,
@@ -122,6 +126,9 @@ test.describe('Talk lifecycle — flow multi-responder matrix (D4)', () => {
     await waitForStatusBarMatchCountAtLeast(pageTom, 1, 120_000);
     await waitForServerConversations(pageTom, 1);
     await waitForServerConversations(pageJerry, 1);
+    await expectActiveTransportMode(pageTom, 'direct-p2p');
+    await expectActiveTransportMode(pageJerry, 'direct-p2p');
+    await expectConversationTransportModeForPeer(pageTom, 'Jerry Matrix', 'direct-p2p');
 
     await expect
       .poll(

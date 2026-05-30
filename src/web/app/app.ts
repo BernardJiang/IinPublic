@@ -1622,7 +1622,8 @@ export class IinPublicApp {
         talkId: conversationData.talkId,
         respondedByBot: conversationData.respondedByBot,
         supportChannel: conversationData.supportChannel,
-        transportMode: conversationData.transportMode,
+        transportMode:
+          conversationData.transportMode ?? this.conversationService.getTransportMode(),
         transportFallbackReason: conversationData.transportFallbackReason,
       });
     }
