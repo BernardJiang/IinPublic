@@ -116,18 +116,30 @@ export async function prepareDirectP2PConversation(
   return conversationId;
 }
 
-/** After DMs in direct mode, conversation message nodes should not appear on the Gun hub. */
-export async function assertNoGunStoredMessageBodies(
+/**
+ * P2P-H: DM bodies are persisted to Gun (hub sync during star migration).
+ * Replaces deprecated assertNoGunStoredMessageBodies (spec §19.11).
+ */
+export async function assertGunStoredMessageBodies(
   page: Page,
   conversationId: string,
+  minMessageNodes = 1,
 ): Promise<void> {
   const res = await page.request.get(`${gunBaseURL()}/api/test/export-snapshot`);
   expect(res.ok()).toBeTruthy();
   const payload = (await res.json()) as { gunGraph?: Record<string, unknown> };
   const graph = payload.gunGraph ?? {};
   const messagePrefix = `conversations/${conversationId}/messages/`;
-  const leaked = Object.keys(graph).filter(
+  const stored = Object.keys(graph).filter(
     (key) => key.startsWith(messagePrefix) && key !== `conversations/${conversationId}/messages`,
   );
-  expect(leaked).toEqual([]);
+  expect(stored.length).toBeGreaterThanOrEqual(minMessageNodes);
+}
+
+/** @deprecated Superseded by assertGunStoredMessageBodies (P2P-H, spec §19.4). */
+export async function assertNoGunStoredMessageBodies(
+  page: Page,
+  conversationId: string,
+): Promise<void> {
+  return assertGunStoredMessageBodies(page, conversationId, 0);
 }

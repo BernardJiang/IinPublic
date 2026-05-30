@@ -2,6 +2,21 @@
 
 Last updated: 2026-05-28
 
+## 2026-05-28 - P2P-H: Gun write-through on direct P2P transport
+
+Direct conversation transport now persists DM bodies to local Gun before/alongside WebRTC notify (spec §19.4, REQ-P2P-01).
+
+**Key changes:**
+- `StarGunConversationTransport`: `buildAndPersistMessage`, `putMessageRecord`
+- `DirectP2PConversationTransport`: Gun store authoritative; subscribe via Gun; WebRTC `onRemoteDm` write-through
+- `p2p-webrtc-session`: `onRemoteDm` hook; `sendDm` accepts pre-persisted wire
+- Diagnostics: `messageBodyStorage: 'gun-local'` when `P2P_DIRECT_CHAT_ENABLED=1`
+- E2E: `assertGunStoredMessageBodies` replaces hub-leak assertion in `09-messaging`
+
+**Evidence:**
+- `npm run test:type` clean
+- `npm run test:unit` — `direct-p2p-conversation-transport.test.ts`, `p2p-runtime.test.ts`
+
 This is the durable ledger for shipped feature work. Keep `TODO.md` focused on forward work:
 when an item is finished, move it here with a short description and concrete evidence.
 

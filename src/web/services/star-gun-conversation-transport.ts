@@ -5,6 +5,18 @@ import type { ConversationTransportMode } from '../../shared/p2p-runtime';
 import type { ConversationTransport, SendMessageOptions } from './web-conversation-service';
 import { WebGunService } from './web-gun-service';
 
+/** Wire shape shared by P2P transports when persisting to Gun (REQ-P2P-01). */
+export type ConversationMessageWire = {
+  id: string;
+  senderId: string;
+  text: string;
+  timestamp: string;
+  channel: string;
+  transport?: string;
+  prevSeen?: string;
+  isFromChatbot?: boolean;
+};
+
 export class StarGunConversationTransport implements ConversationTransport {
   mode: ConversationTransportMode = 'star-gun';
 
@@ -41,26 +53,28 @@ export class StarGunConversationTransport implements ConversationTransport {
     return user.epub;
   }
 
-  async sendMessage(
+  /**
+   * Build outbound wire + Gun record, persist locally, return wire for P2P notify (P2P-H).
+   */
+  async buildAndPersistMessage(
     conversationId: string,
     senderId: string,
     text: string,
-    opts?: SendMessageOptions,
-  ): Promise<void> {
+    opts?: SendMessageOptions & { transport?: ConversationTransportMode },
+  ): Promise<ConversationMessageWire> {
     const channel = opts?.channel ?? 'public';
-    const gun = this.gunService.getGun();
+    const transport = opts?.transport ?? this.mode;
     const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
     const prevSeen = this.lastSeenFromOther.get(`${conversationId}:${senderId}`) ?? undefined;
 
     let payloadText = text;
-    let messageData: Record<string, unknown> = {
+    const base: ConversationMessageWire = {
       id: messageId,
       senderId,
       text: payloadText,
       timestamp: new Date().toISOString(),
       channel,
-      transport: this.mode,
+      transport,
       ...(prevSeen !== undefined ? { prevSeen } : {}),
     };
 
@@ -80,19 +94,39 @@ export class StarGunConversationTransport implements ConversationTransport {
       const SEA = getSEA();
       const secret = await SEA.secret(epub, pair);
       payloadText = await SEA.encrypt(text, secret);
-      messageData = {
-        id: messageId,
-        senderId,
-        text: payloadText,
-        timestamp: new Date().toISOString(),
-        channel,
-        transport: this.mode,
-        ...(prevSeen !== undefined ? { prevSeen } : {}),
-      };
+      base.text = payloadText;
     }
 
-    gun.get(`conversations/${conversationId}`).get('messages').get(messageId).put(messageData);
-    console.log(`📤 Message sent in conversation ${conversationId} (${channel}, ${this.mode})${prevSeen ? ` prevSeen=${prevSeen}` : ''}`);
+    this.putMessageRecord(conversationId, base);
+    return base;
+  }
+
+  /** Idempotent write of a message node to local Gun (and hub sync during migration). */
+  putMessageRecord(conversationId: string, wire: ConversationMessageWire): void {
+    const gun = this.gunService.getGun();
+    gun.get(`conversations/${conversationId}`).get('messages').get(wire.id).put({
+      id: wire.id,
+      senderId: wire.senderId,
+      text: wire.text,
+      timestamp: wire.timestamp,
+      channel: wire.channel,
+      transport: wire.transport ?? this.mode,
+      ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
+      ...(wire.isFromChatbot ? { isFromChatbot: true } : {}),
+    });
+  }
+
+  async sendMessage(
+    conversationId: string,
+    senderId: string,
+    text: string,
+    opts?: SendMessageOptions,
+  ): Promise<void> {
+    const channel = opts?.channel ?? 'public';
+    const wire = await this.buildAndPersistMessage(conversationId, senderId, text, opts);
+    console.log(
+      `📤 Message sent in conversation ${conversationId} (${channel}, ${this.mode})${wire.prevSeen ? ` prevSeen=${wire.prevSeen}` : ''}`,
+    );
   }
 
   subscribeToMessages(

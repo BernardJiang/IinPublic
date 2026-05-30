@@ -5,11 +5,14 @@ import type { ConversationTransportMode } from '../../shared/p2p-runtime';
 import { WebGunService } from './web-gun-service';
 import { getOrCreateP2PSession, getP2PSession } from './p2p-webrtc-session';
 import type { P2PConnectionState } from './p2p-webrtc-session';
+import { StarGunConversationTransport } from './star-gun-conversation-transport';
 
 export class DirectP2PConversationTransport implements ConversationTransport {
   mode: ConversationTransportMode = 'direct-p2p';
 
   private readonly apiBase: string;
+  /** Authoritative store — WebRTC is notify/sync only (spec §19.4, P2P-H). */
+  private readonly gunStore: StarGunConversationTransport;
   private readonly participantCache = new Map<string, string>();
   private ledgerHooks: {
     getLedgerState?: () => LedgerState;
@@ -21,6 +24,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     apiBase?: string,
   ) {
     this.apiBase = apiBase || DirectP2PConversationTransport.resolveApiBase();
+    this.gunStore = new StarGunConversationTransport(gunService);
   }
 
   /** Same port mapping as IinPublicApp.getBackendApiBase(). */
@@ -123,6 +127,19 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       ...this.ledgerHooks,
     });
     session.setLedgerHooks(this.ledgerHooks);
+    session.setOnRemoteDm((wire) => {
+      if (wire.senderId === localUserId) return;
+      this.gunStore.putMessageRecord(conversationId, {
+        id: wire.id,
+        senderId: wire.senderId,
+        text: wire.text,
+        timestamp: wire.timestamp,
+        channel: wire.channel,
+        transport: wire.transport ?? this.mode,
+        ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
+        ...(wire.isFromChatbot ? { isFromChatbot: true } : {}),
+      });
+    });
     return session;
   }
 
@@ -133,8 +150,20 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     opts?: SendMessageOptions,
   ): Promise<void> {
     const channel = opts?.channel ?? 'public';
-    const session = await this.sessionFor(conversationId, senderId, opts?.otherUserId);
-    await session.sendDm(senderId, text, channel);
+    const wire = await this.gunStore.buildAndPersistMessage(conversationId, senderId, text, {
+      ...opts,
+      transport: this.mode,
+    });
+
+    try {
+      const session = await this.sessionFor(conversationId, senderId, opts?.otherUserId);
+      await session.sendDm(senderId, text, channel, wire);
+    } catch (err) {
+      console.warn(
+        `Direct P2P WebRTC notify failed for ${conversationId}; Gun record is authoritative:`,
+        err,
+      );
+    }
     console.log(`📤 Message sent in conversation ${conversationId} (${channel}, ${this.mode})`);
   }
 
@@ -149,7 +178,6 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     }
 
     let disposed = false;
-    let unsubscribe: (() => void) | null = null;
 
     void this.sessionFor(conversationId, myUserId)
       .then((session) => {
@@ -157,16 +185,16 @@ export class DirectP2PConversationTransport implements ConversationTransport {
         void session.ensureConnected().catch((err) => {
           console.warn(`Direct P2P connect failed for ${conversationId}:`, err);
         });
-        unsubscribe = session.subscribe(callback);
       })
       .catch((err) => {
         console.warn(`Direct P2P session setup failed for ${conversationId}:`, err);
-        callback([]);
       });
+
+    const unsubscribeGun = this.gunStore.subscribeToMessages(conversationId, callback, myUserId);
 
     return () => {
       disposed = true;
-      unsubscribe?.();
+      unsubscribeGun();
       console.log(`👋 Unsubscribed from conversation ${conversationId} messages (${this.mode})`);
     };
   }

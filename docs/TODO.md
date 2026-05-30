@@ -16,8 +16,7 @@ Deprecated persistence policy: `docs/TODO-direct-p2p.md` (RAM-only DMs). Transpo
 
 ## Next Action Items (Ordered)
 
-1. **P2P-H** — Gun write-through on direct P2P transport: `sendMessage` / receive → `gun.put` at `conversations/{id}/messages/`; WebRTC carries sync only.
-2. **P2P-I** — Ephemeral presence API (`POST /api/presence/register`, `GET /api/presence/nearby`) + signed peer-ack handshake.
+1. **P2P-I** — Ephemeral presence API (`POST /api/presence/register`, `GET /api/presence/nearby`) + signed peer-ack handshake.
 3. **P2P-J** — Durable browser Gun storage (enable radisk in worker bridge / `GunBridge`).
 4. **P2P-K** — Feature-flagged stop of server `radata/` persistence for peer conversations (`STAR_SERVER_PERSISTENCE=ephemeral` migration step).
 5. **P2P-L** — Client-side talk delivery fanout over Gun mesh; reduce server `incomingTalksMap` authority.
@@ -30,7 +29,7 @@ Deprecated persistence policy: `docs/TODO-direct-p2p.md` (RAM-only DMs). Transpo
 
 | Phase | Status |
 |-------|--------|
-| P2P-H Gun write-through transport | Not started |
+| P2P-H Gun write-through transport | Shipped |
 | P2P-I Presence + peer ack | Not started |
 | P2P-J Browser durable Gun | Not started |
 | P2P-K No server convo radata | Not started |

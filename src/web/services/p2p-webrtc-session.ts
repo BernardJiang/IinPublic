@@ -63,6 +63,8 @@ export type P2PSessionConfig = {
   isInitiator: boolean;
   getLedgerState?: () => LedgerState;
   onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
+  /** REQ-P2P-01: persist inbound DMs to local Gun before UI notify. */
+  onRemoteDm?: (wire: DmWirePayload['message']) => void;
 };
 
 export class P2PConversationSession {
@@ -111,6 +113,10 @@ export class P2PConversationSession {
     onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
   }): void {
     this.config = { ...this.config, ...hooks };
+  }
+
+  setOnRemoteDm(hook: (wire: DmWirePayload['message']) => void): void {
+    this.config.onRemoteDm = hook;
   }
 
   private setState(state: P2PConnectionState): void {
@@ -282,7 +288,15 @@ export class P2PConversationSession {
     };
   }
 
-  private ingestWireMessage(wire: DmWirePayload['message']): void {
+  private ingestWireMessage(wire: DmWirePayload['message'], options?: { skipRemotePersist?: boolean }): void {
+    if (
+      !options?.skipRemotePersist &&
+      wire.senderId !== this.config.localUserId &&
+      this.config.onRemoteDm
+    ) {
+      this.config.onRemoteDm(wire);
+    }
+
     const msg: Message = {
       id: wire.id,
       senderId: wire.senderId,
@@ -331,6 +345,7 @@ export class P2PConversationSession {
     senderId: string,
     text: string,
     channel: Message['channel'] = 'public',
+    persistedWire?: Partial<DmWirePayload['message']> & Pick<DmWirePayload['message'], 'id' | 'senderId' | 'text' | 'timestamp' | 'channel'>,
   ): Promise<void> {
     await this.ensureConnected();
     await this.waitForLedgerReady();
@@ -339,20 +354,20 @@ export class P2PConversationSession {
     }
     const prevSeen =
       this.lastSeenFromOther.get(`${this.config.conversationId}:${senderId}`) ?? undefined;
-    const wire = {
-      type: 'dm' as const,
-      message: {
-        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-        senderId,
-        text,
-        timestamp: new Date().toISOString(),
-        channel,
-        transport: 'direct-p2p',
-        ...(prevSeen !== undefined ? { prevSeen } : {}),
-      },
-    };
+    const message: DmWirePayload['message'] = persistedWire
+      ? { ...persistedWire, transport: persistedWire.transport ?? 'direct-p2p' }
+      : {
+          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+          senderId,
+          text,
+          timestamp: new Date().toISOString(),
+          channel,
+          transport: 'direct-p2p',
+          ...(prevSeen !== undefined ? { prevSeen } : {}),
+        };
+    const wire = { type: 'dm' as const, message };
     this.dc.send(JSON.stringify(wire));
-    this.ingestWireMessage(wire.message);
+    this.ingestWireMessage(wire.message, { skipRemotePersist: true });
   }
 
   dispose(): void {

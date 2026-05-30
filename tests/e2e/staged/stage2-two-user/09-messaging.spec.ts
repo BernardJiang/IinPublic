@@ -15,7 +15,7 @@ import {
 } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import {
-  assertNoGunStoredMessageBodies,
+  assertGunStoredMessageBodies,
   prepareDirectP2PConversation,
 } from '../../helpers/p2p-transport-e2e';
 
@@ -230,6 +230,6 @@ test.describe('Direct messaging between matched users', () => {
       )
       .toBe(true);
 
-    await assertNoGunStoredMessageBodies(pageTom, conversationId);
+    await assertGunStoredMessageBodies(pageTom, conversationId, 1);
   });
 });

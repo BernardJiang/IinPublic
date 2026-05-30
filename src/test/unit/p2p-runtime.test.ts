@@ -195,7 +195,7 @@ describe('p2p runtime flags', () => {
     ).toEqual(
       expect.objectContaining({
         activeMode: 'direct-p2p',
-        messageBodyStorage: 'local-only',
+        messageBodyStorage: 'gun-local',
         fallback: 'server-relay',
       }),
     );

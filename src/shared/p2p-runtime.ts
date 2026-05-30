@@ -11,8 +11,8 @@ export type ConversationTransportMode = 'star-gun' | 'server-relay' | 'direct-p2
 export type ConversationTransportDiagnostics = {
   activeMode: ConversationTransportMode;
   availableModes: ConversationTransportMode[];
-  messageBodyStorage: 'gun-legacy' | 'relay-ciphertext-only' | 'local-only';
-  receiptsStorage: 'gun-legacy' | 'local-only';
+  messageBodyStorage: 'gun-legacy' | 'relay-ciphertext-only' | 'local-only' | 'gun-local';
+  receiptsStorage: 'gun-legacy' | 'local-only' | 'gun-local';
   fallback: ConversationTransportMode | null;
 };
 
@@ -334,8 +334,8 @@ export function createConversationTransportDiagnostics(flags: P2PRuntimeFlags): 
     return {
       activeMode: 'direct-p2p',
       availableModes: ['star-gun', 'server-relay', 'direct-p2p'],
-      messageBodyStorage: 'local-only',
-      receiptsStorage: 'local-only',
+      messageBodyStorage: 'gun-local',
+      receiptsStorage: 'gun-local',
       fallback: 'server-relay',
     };
   }

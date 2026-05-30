@@ -3055,6 +3055,7 @@ export class UIManager extends EventEmitter {
       wiped: 'storageWiped',
       unconfigured: 'storageUnconfigured',
       'local-only': 'storageLocalOnly',
+      'gun-local': 'storageLocalOnly',
       available: 'storageAvailable',
       active: 'storageActiveValue',
       required: 'storageRequired',

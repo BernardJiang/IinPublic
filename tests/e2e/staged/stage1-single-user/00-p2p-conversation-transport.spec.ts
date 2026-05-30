@@ -35,7 +35,7 @@ test.describe('P2P roadmap P4 — conversation transport and signaling', () => {
       expect.objectContaining({
         activeMode: P2P_DIRECT_ENABLED ? 'direct-p2p' : 'star-gun',
         availableModes: ['star-gun', 'server-relay', 'direct-p2p'],
-        messageBodyStorage: P2P_DIRECT_ENABLED ? 'local-only' : 'gun-legacy',
+        messageBodyStorage: P2P_DIRECT_ENABLED ? 'gun-local' : 'gun-legacy',
       }),
     );
 
