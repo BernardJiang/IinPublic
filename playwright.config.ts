@@ -132,6 +132,8 @@ export default defineConfig({
             /staged\/[^/]+\/(aaa-|zzz-)/,
             // Star-only regression; run via `npm run test:e2e:star` (P2P_DIRECT_CHAT_ENABLED=0).
             /00-p2p-star-baseline-storage\.spec\.ts/,
+            // P0 mesh delivery; run via `npm run test:e2e:p0-talks` (P0_DIRECT_TALK_DELIVERY=1).
+            /00i-p0-direct-talk-delivery\.spec\.ts/,
           ],
         },
       ],

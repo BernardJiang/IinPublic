@@ -5,6 +5,7 @@ import { chromium, Browser } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync, headless } from '../../helpers/timing';
+import { waitForServerConversationBetween } from '../../helpers/conversation-e2e';
 import { bootstrapUser, openIncomingTalkModal, waitForIncomingTalkClusterOnServer, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
 import { createSimpleFlowTalk, goToChatrooms } from '../../helpers/broadcast-cancellation-helpers';
 import {
@@ -39,7 +40,7 @@ test.describe('Broadcast — chatroom boundary matching', () => {
   });
 
   test('talk matching still works across chatroom boundaries (answer after switching rooms)', async () => {
-    test.setTimeout(90_000);
+    test.setTimeout(180_000);
     const talkTitle = `Boundary Match Talk ${Date.now()}`;
     const tomStage = 'Tom Boundary';
     const jerryStage = 'Jerry Boundary';
@@ -48,6 +49,14 @@ test.describe('Broadcast — chatroom boundary matching', () => {
     const jerry = await bootstrapUser(browserJerry, 'Jerry', jerryStage);
     const pageTom = tom.page;
     const pageJerry = jerry.page;
+    const tomUserId = await pageTom.evaluate(() =>
+      String(window.__iinpublic_app?.getApp?.()?.currentUser?.id || ''),
+    );
+    const jerryUserId = await pageJerry.evaluate(() =>
+      String(window.__iinpublic_app?.getApp?.()?.currentUser?.id || ''),
+    );
+    expect(tomUserId).toBeTruthy();
+    expect(jerryUserId).toBeTruthy();
 
     try {
       await pageTom.click('.chatroom-item:has-text("Global")');
@@ -81,16 +90,9 @@ test.describe('Broadcast — chatroom boundary matching', () => {
       await waitForResponseModalClosed(pageJerry);
       await afterSync();
 
-      await expect
-        .poll(
-          async () =>
-            pageJerry.evaluate((stageName: string) => {
-              const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
-              return Object.values(conversations).some((conversation: any) => conversation?.otherUserName === stageName);
-            }, tomStage),
-          { timeout: 15_000 },
-        )
-        .toBe(true);
+      // Server conversation map is durable; localStorage can lag after room switch (parallel e2e).
+      await waitForServerConversationBetween(pageJerry, jerryUserId, tomUserId, 120_000);
+      await expect(pageJerry.locator('#status-bar-text')).toContainText(/match/i, { timeout: 30_000 });
     } finally {
       await pageTom
         .evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.())
