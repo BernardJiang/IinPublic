@@ -3,11 +3,11 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterSync, headless } from '../../helpers/timing';
 import { gunBaseURL } from '../../helpers/ports';
-import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import {
   bootstrapUser,
   openIncomingTalkModal,
-  waitForIncomingTalkClusterOnServer,
+  waitForIncomingTalkCluster,
   waitForResponseModalClosed,
   waitForTabActive,
   resetTalksMatchingSession,
@@ -67,8 +67,7 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     const jerryUserId = await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
 
     await createMatchTalk(pageTom, 'Unblock Warmup Talk');
-    await pageTom.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageTom);
+    await clickBroadcastUntilBulkAck(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
     await openIncomingTalkModal(pageJerry, 'Unblock Warmup Talk');
@@ -102,8 +101,7 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     await afterAction();
     await enterGlobalChatroom(pageTom);
     await createMatchTalk(pageTom, 'Blocked Talk');
-    await pageTom.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageTom);
+    await clickBroadcastUntilBulkAck(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 
@@ -141,11 +139,10 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     await afterAction();
     await enterGlobalChatroom(pageTom);
     await createMatchTalk(pageTom, 'Post-Unblock Talk');
-    await pageTom.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageTom);
+    await clickBroadcastUntilBulkAck(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 
-    await waitForIncomingTalkClusterOnServer(pageJerry, 'Post-Unblock Talk');
+    await waitForIncomingTalkCluster(pageJerry, 'Post-Unblock Talk');
   });
 });

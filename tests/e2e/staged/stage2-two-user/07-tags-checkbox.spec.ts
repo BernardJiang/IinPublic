@@ -5,9 +5,9 @@ import { injectIdbClear } from '../../helpers/clear-database';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
-import { gunBaseURL, webBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
-import { openIncomingTalkModal, waitForResponseModalClosed, getIncomingClusterTitlesForUser } from '../../helpers/talks-matching-flow';
-import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { gunBaseURL, webAppURLStableChatroom, e2eTestScreenshotsDir } from '../../helpers/ports';
+import { openIncomingTalkModal, waitForResponseModalClosed, getIncomingClusterTitlesForUser, waitForIncomingTalkCluster } from '../../helpers/talks-matching-flow';
+import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 
@@ -79,7 +79,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     const page = await context.newPage();
     page.on('console', (msg) => console.log(`[${label}]:`, msg.text()));
     await injectIdbClear(page);
-    await page.goto(webBaseURL());
+    await page.goto(webAppURLStableChatroom());
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 640, 1000);
     await afterLoad();
@@ -140,11 +140,9 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     await pageAlice.click('#talk-editor-form button[type="submit"]');
     await afterSync();
 
-    await pageAlice.click('#broadcast-talk-btn');
-
-    await confirmBroadcastTagPreambleIfVisible(pageAlice);
+    await clickBroadcastUntilBulkAck(pageAlice);
     await afterAction();
-    // Poll server until Tom has received both tags (broadcast takes time to register)
+    await waitForIncomingTalkCluster(pageTom, TAG_COFFEE, { timeout: 90_000 });
     const tomUserId = await pageTom.evaluate(
       () => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '',
     );

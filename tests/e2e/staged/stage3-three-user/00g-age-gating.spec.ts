@@ -8,10 +8,10 @@ import { test, expect } from '../../helpers/fixtures';
 import { maybeClearGunDatabases } from '../../helpers/clear-database';
 import { afterAction, afterSync, headless } from '../../helpers/timing';
 import { gunBaseURL } from '../../helpers/ports';
-import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import {
   bootstrapUser,
-  waitForIncomingTalkClusterOnServer,
+  waitForIncomingTalkCluster,
   waitForTabActive,
   resetTalksMatchingSession,
   incomingClustersIncludeTitleForUser,
@@ -114,21 +114,38 @@ test.describe('Age-gating — adult talk blocked for unverified user', () => {
 
     // Vouch Jerry age-verified (3 sequential ack-awaited server writes hit threshold=3)
     await serverVouchAgeVerified(pageTom, jerryUserId);
+    await expect
+      .poll(
+        async () => {
+          const res = await pageTom.request.get(
+            `${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}?viewerId=${encodeURIComponent(await pageTom.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id ?? ''))}`,
+          );
+          if (!res.ok()) return false;
+          const user = await res.json();
+          return user.reputation?.ageVerified === true;
+        },
+        { timeout: 20_000 },
+      )
+      .toBe(true);
+    await pageJerry.evaluate(async () => {
+      const app = (
+        window as unknown as { __iinpublic_app?: { getApp: () => { refreshUserData?: () => Promise<void> } } }
+      ).__iinpublic_app?.getApp?.();
+      await app?.refreshUserData?.();
+    });
 
     // Tom creates and broadcasts an adult talk
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
     await waitForTabActive(pageTom, 'chatrooms');
     await createAdultTalk(pageTom, ADULT_TALK_TITLE);
-    await pageTom.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageTom);
+    await clickBroadcastUntilBulkAck(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 
     // Jerry (age-verified) should receive the adult talk
-    await waitForIncomingTalkClusterOnServer(pageJerry, ADULT_TALK_TITLE);
+    await waitForIncomingTalkCluster(pageJerry, ADULT_TALK_TITLE);
 
-    // Bob (not age-verified) should NOT receive the adult talk — the server already processed
-    // the broadcast by the time Jerry's assertion passed, so no additional wait is needed.
+    // Bob (not age-verified) should NOT receive the adult talk
     expect(
       await incomingClustersIncludeTitleForUser(pageBob, bobUserId, ADULT_TALK_TITLE),
       'Bob (not age-verified) must NOT receive the adult talk',

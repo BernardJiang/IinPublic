@@ -2,6 +2,7 @@ import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { maybeClearGunDatabases } from '../../helpers/clear-database';
 import { afterSync } from '../../helpers/timing';
+import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { gunBaseURL } from '../../helpers/ports';
 import {
   bootstrapUser,
@@ -38,9 +39,7 @@ async function createExpiringFlowTalk(page: Page, title: string): Promise<void> 
 async function broadcastFromCurrentRoom(page: Page): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterSync();
-  await page.click('#broadcast-talk-btn');
-  await expect(page.locator('[data-testid="broadcast-preamble-modal"]')).toBeVisible({ timeout: 60_000 });
-  await page.locator('[data-testid="broadcast-preamble-send"]').click();
+  await clickBroadcastUntilBulkAck(page);
   await waitForTabActive(page, 'chatrooms');
 }
 

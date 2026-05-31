@@ -17,7 +17,7 @@ import {
   getCurrentUserId,
   serverVouchAgeVerified,
 } from '../../helpers/reputation-e2e-helpers';
-import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 
 test.describe('Reputation system — vouch threshold', () => {
   let browserTom: Browser;
@@ -80,8 +80,7 @@ test.describe('Reputation system — vouch threshold', () => {
       const adultTitle = `E2E Adult Vote Step ${i} (${Date.now()})`;
       await createAdultTalk(pageTom!, adultTitle);
 
-      await pageTom!.click('#broadcast-talk-btn');
-      await confirmBroadcastTagPreambleIfVisible(pageTom!);
+      await clickBroadcastUntilBulkAck(pageTom!);
       await afterAction();
       await waitForTabActive(pageTom!, 'chatrooms');
 

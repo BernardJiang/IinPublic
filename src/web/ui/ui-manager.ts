@@ -6333,6 +6333,24 @@ export class UIManager extends EventEmitter {
   }
 
   private async registerTalkForPeer(talkId: string, talkData: any, peerId: string, peerName: string): Promise<void> {
+    const app = (
+      window as unknown as {
+        __iinpublic_app?: {
+          getApp: () => {
+            sendDirectTalkToPeer?: (
+              talkId: string,
+              talkData: unknown,
+              peerId: string,
+              peerName: string,
+            ) => Promise<void>;
+          };
+        };
+      }
+    ).__iinpublic_app?.getApp?.();
+    if (app?.sendDirectTalkToPeer) {
+      await app.sendDirectTalkToPeer(talkId, talkData, peerId, peerName);
+      return;
+    }
     if (!this.apiBase || !this.currentUserId) return;
     const res = await fetch(`${this.apiBase}/api/talks/${encodeURIComponent(talkId)}/received`, {
       method: 'POST',

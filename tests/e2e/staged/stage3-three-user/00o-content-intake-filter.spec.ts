@@ -2,6 +2,7 @@ import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { maybeClearGunDatabases } from '../../helpers/clear-database';
 import { afterAction, afterSync } from '../../helpers/timing';
+import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import {
   bootstrapUser,
   finalCleanupPages,
@@ -53,7 +54,7 @@ async function broadcastFromCurrentRoom(page: Page, previewReason?: RegExp): Pro
       }, { timeout: 45_000 })
       .not.toBeNull();
   }
-  await page.locator('[data-testid="broadcast-preamble-send"]').click();
+  await clickBroadcastUntilBulkAck(page);
   await waitForTabActive(page, 'chatrooms');
 }
 

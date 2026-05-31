@@ -14,7 +14,7 @@ import {
   waitForIncomingTalkCluster,
   incomingClustersIncludeTitleForUser,
 } from '../../helpers/talks-matching-flow';
-import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { waitForBroadcastBulkAck } from '../../helpers/broadcast-ack';
 import {
   launchThreeBrowsers,
@@ -117,9 +117,8 @@ test.describe('Me tab filters and credit visibility', () => {
     await createFlowTalk(pageTom, 'Filtered Flow Talk', 'Want to play tennis?');
     await createSurveyTalk(pageTom, 'Filtered Survey Talk', 'How was the meetup?');
 
-    await pageTom.click('#broadcast-talk-btn');
+    await clickBroadcastUntilBulkAck(pageTom);
 
-    await confirmBroadcastTagPreambleIfVisible(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 

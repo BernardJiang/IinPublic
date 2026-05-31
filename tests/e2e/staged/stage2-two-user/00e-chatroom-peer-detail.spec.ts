@@ -14,12 +14,12 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, headless } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
-import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import {
   openIncomingTalkModal,
   syncIncomingFromServer,
-  waitForIncomingTalkClusterOnServer,
+  waitForIncomingTalkCluster,
   waitForResponseModalClosed,
   waitForTabActive,
   resetTalksMatchingSession,
@@ -181,8 +181,7 @@ test.describe('Chatroom peer detail views', () => {
       await enterGlobalChatroom(pageJerry);
 
       // Tom creates and broadcasts a talk
-      await pageTom.click('#broadcast-talk-btn');
-      await confirmBroadcastTagPreambleIfVisible(pageTom);
+      await clickBroadcastUntilBulkAck(pageTom);
       await pageTom.waitForSelector('#talk-editor-form', { timeout: 15_000 });
       await pageTom.fill('#talk-title', 'Tennis Peer Test');
       await selectTalkEditorType(pageTom, 'flow');
@@ -197,8 +196,7 @@ test.describe('Chatroom peer detail views', () => {
 
       // Re-enter the chatroom detail and broadcast
       await enterGlobalChatroom(pageTom);
-      await pageTom.click('#broadcast-talk-btn');
-      await confirmBroadcastTagPreambleIfVisible(pageTom);
+      await clickBroadcastUntilBulkAck(pageTom);
       await afterSync();
       await waitForTabActive(pageTom, 'chatrooms');
 
@@ -307,7 +305,7 @@ test.describe('Chatroom peer detail views', () => {
       // Jerry should see the talk in their Talks tab
       await pageJerry.click('.nav-btn[data-view="talks"]');
       await afterNav();
-      await waitForIncomingTalkClusterOnServer(pageJerry, 'Send Test Talk');
+      await waitForIncomingTalkCluster(pageJerry, 'Send Test Talk');
       await syncIncomingFromServer(pageJerry);
       await afterSync();
       await expect(pageJerry.locator('#talks-list')).toContainText('Send Test Talk', { timeout: 20_000 });

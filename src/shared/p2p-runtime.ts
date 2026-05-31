@@ -340,8 +340,9 @@ function parsePersistencePolicy(value: string | undefined): StarServerPersistenc
 export function resolveP2PRuntimeFlags(env: Record<string, string | undefined> = {}): P2PRuntimeFlags {
   const get = (key: string): string | undefined => env[key] ?? readEnv(key);
   const relayOnlyHub = parseBooleanFlag(get('RELAY_ONLY_HUB'), false);
+  const urlP0 = readBrowserE2eFlag('e2e_p0_talks');
   const p0DirectTalkDelivery = parseBooleanFlag(
-    get('P0_DIRECT_TALK_DELIVERY') ?? readBrowserE2eFlag('e2e_p0_talks'),
+    urlP0 ?? get('P0_DIRECT_TALK_DELIVERY'),
     false,
   );
   const starServerPersistence = relayOnlyHub

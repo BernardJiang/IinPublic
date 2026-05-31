@@ -181,25 +181,23 @@ export async function waitForIncomingTalkClusterOnLocalGun(
   await expect
     .poll(
       async () =>
-        page.evaluate((needle) => {
+        page.evaluate(async (needle) => {
           const app = (
             window as unknown as {
               __iinpublic_app?: {
                 getApp: () => {
                   isDirectTalkDeliveryEnabled?: () => boolean;
+                  syncIncomingClustersFromServer?: () => Promise<void>;
                   getLocalIncomingClustersForE2e?: () => Promise<unknown[]>;
                 };
               };
             }
           ).__iinpublic_app?.getApp?.();
           if (!app?.isDirectTalkDeliveryEnabled?.()) return 'p0-disabled';
-          const clusters = app.getLocalIncomingClustersForE2e
-            ? app.getLocalIncomingClustersForE2e()
-            : Promise.resolve([]);
-          return clusters.then((list) => {
-            const hay = JSON.stringify(list);
-            return hay.includes(needle) ? 'ok' : `clusters=${list.length}`;
-          });
+          await app.syncIncomingClustersFromServer?.();
+          const list = (await app.getLocalIncomingClustersForE2e?.()) ?? [];
+          const hay = JSON.stringify(list);
+          return hay.toLowerCase().includes(String(needle).toLowerCase()) ? 'ok' : `clusters=${list.length}`;
         }, titleSubstring),
       { timeout, intervals: [polling] },
     )

@@ -118,6 +118,45 @@ export function subscribePeerTalkOffers(
   };
 }
 
+export async function reconcilePeerTalkOffersFromGun(
+  gunService: WebGunService,
+  receiverUserId: string,
+  flags: P2PRuntimeFlags,
+  shouldAccept: (offer: PeerTalkOfferWire) => boolean | Promise<boolean>,
+  opts: { waitMs?: number } = {},
+): Promise<IncomingTalkClusterWire[]> {
+  const gun = gunService.getGun();
+  const waitMs = opts.waitMs ?? 500;
+  const merged: IncomingTalkClusterWire[] = [];
+  const offers: PeerTalkOfferWire[] = [];
+  const seen = new Set<string>();
+  const ref = gun.get(PEER_TALK_OFFERS_ROOT).get(receiverUserId).map();
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      try {
+        ref.off();
+      } catch {
+        /* ignore */
+      }
+      resolve();
+    }, waitMs);
+    ref.on((raw: unknown, key: string) => {
+      if (!raw || !key || key.startsWith('_')) return;
+      const dedupe = `${key}`;
+      if (seen.has(dedupe)) return;
+      const offer = raw as PeerTalkOfferWire;
+      if (offer?.version !== 1 || !offer.talkId || !offer.senderId || !offer.talkData) return;
+      seen.add(dedupe);
+      offers.push(offer);
+    });
+  });
+  for (const offer of offers) {
+    if (!(await shouldAccept(offer))) continue;
+    merged.push(applyPeerTalkOfferToLocalInbox(gunService, receiverUserId, offer, flags));
+  }
+  return merged;
+}
+
 export async function collectLocalIncomingTalkClusters(
   gunService: WebGunService,
   receiverUserId: string,

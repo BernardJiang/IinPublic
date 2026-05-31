@@ -470,27 +470,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
   app.post('/api/talks/:id/received', async (req, res) => {
     try {
       const talkId = req.params.id;
-      if (usesDirectTalkDelivery(resolveP2PRuntimeFlags(process.env))) {
-        const { receiverId, senderId, talkData: bodyTalkData } = req.body as {
-          receiverId?: string;
-          senderId?: string;
-          talkData?: unknown;
-        };
-        if (!receiverId || !senderId) {
-          res.status(400).json({ error: 'receiverId and senderId required' });
-          return;
-        }
-        const talkData = bodyTalkData && typeof bodyTalkData === 'object' ? bodyTalkData : null;
-        const identityKey = talkData ? buildTalkIdentityKey(talkData) : talkId;
-        res.json({
-          registered: true,
-          directDelivery: true,
-          identityKey,
-          autoResponded: false,
-          reason: 'p0_direct_talk_delivery',
-        });
-        return;
-      }
+      const p0Direct = usesDirectTalkDelivery(resolveP2PRuntimeFlags(process.env));
       const { receiverId, receiverName, senderId, senderName, talkData: bodyTalkData, chatbotEnabled } = req.body as {
         receiverId: string;
         receiverName?: string;
@@ -541,22 +521,36 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       const resolvedSenderName = senderName || (await getUserStageName(senderId, 'Someone'));
       const resolvedReceiverName = receiverName || (await getUserStageName(receiverId, 'Someone'));
 
-      const { identityKey } = await upsertIncomingTalkForUser({
-        receiverId,
-        talkId,
-        talkData,
-        senderId,
-        senderName: resolvedSenderName,
-      });
+      let identityKey: string;
+      if (p0Direct) {
+        identityKey = buildTalkIdentityKey(talkData);
+      } else {
+        const upserted = await upsertIncomingTalkForUser({
+          receiverId,
+          talkId,
+          talkData,
+          senderId,
+          senderName: resolvedSenderName,
+        });
+        identityKey = upserted.identityKey;
+      }
 
-      dailyWeeklyTalkEdgeQuotaRateLimiter?.consumeEdgeQuotas(senderId, receiverId, now);
+      if (!p0Direct) {
+        dailyWeeklyTalkEdgeQuotaRateLimiter?.consumeEdgeQuotas(senderId, receiverId, now);
 
-      if (symmetricTalkEdgeLimiter && symmetricTalkEdgeLimiter.cooldownMs > 0) {
-        symmetricTalkEdgeLimiter.touchPair(senderId, receiverId, Date.now());
+        if (symmetricTalkEdgeLimiter && symmetricTalkEdgeLimiter.cooldownMs > 0) {
+          symmetricTalkEdgeLimiter.touchPair(senderId, receiverId, Date.now());
+        }
       }
 
       if (chatbotEnabled === false) {
-        res.json({ registered: true, identityKey, autoResponded: false, reason: 'chatbot_disabled' });
+        res.json({
+          registered: true,
+          identityKey,
+          autoResponded: false,
+          reason: 'chatbot_disabled',
+          ...(p0Direct ? { directDelivery: true } : {}),
+        });
         return;
       }
 

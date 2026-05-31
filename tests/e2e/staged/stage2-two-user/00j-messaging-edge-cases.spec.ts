@@ -15,9 +15,9 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { afterLoad, afterSync, afterNav, afterAction, headless } from '../../helpers/timing';
-import { webBaseURL } from '../../helpers/ports';
+import { webAppURLStableChatroom } from '../../helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
-import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { computeTalkIdFromTalkData } from '../../../../src/shared/talk-content-id';
@@ -91,7 +91,7 @@ test.describe('Messaging edge cases', () => {
     page.on('console', (m) => console.log(`[${label}]:`, m.text()));
 
     await injectIdbClear(page);
-    await page.goto(webBaseURL());
+    await page.goto(webAppURLStableChatroom());
     await page.waitForLoadState('load');
     await ensureWindowFitsViewport(page, 640, 1000);
     await afterLoad();
@@ -292,8 +292,7 @@ test.describe('Messaging edge cases', () => {
 
     // Tom creates + broadcasts
     const talkId = await createMatchTalk(pageTom, talkTitle);
-    await pageTom.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageTom);
+    await clickBroadcastUntilBulkAck(pageTom);
     await afterAction();
     await afterSync();
 
@@ -320,7 +319,7 @@ test.describe('Messaging edge cases', () => {
     const newJerryPage = await contextJerry.newPage();
     newJerryPage.on('console', (m) => console.log(`[Jerry-page2]:`, m.text()));
     pageJerry = newJerryPage;
-    await pageJerry.goto(webBaseURL());
+    await pageJerry.goto(webAppURLStableChatroom());
     await pageJerry.waitForLoadState('load');
     await ensureWindowFitsViewport(pageJerry, 640, 1000);
     await afterLoad();
@@ -345,8 +344,7 @@ test.describe('Messaging edge cases', () => {
     await enterGlobalChatroom(pageJerry);
 
     const talkId = await createMatchTalk(pageTom, talkTitle);
-    await pageTom.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageTom);
+    await clickBroadcastUntilBulkAck(pageTom);
     await afterAction();
     await afterSync();
 

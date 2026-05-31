@@ -19,6 +19,7 @@ import {
   TECHSUPPORT_STAGE_NAME,
 } from '../../shared/techsupport';
 import { resolveP2PRuntimeFlags, usesDirectTalkDelivery, type P2PRuntimeFlags } from '../../shared/p2p-runtime';
+import type { PeerTalkOfferWire } from '../../shared/peer-talk-delivery';
 import { intakeFilterRejectReasons } from '../../shared/talk-intake-filters';
 import { getTalkIntakeFilters } from '../ui/talk-intake-filters';
 import { P2PPresenceClient } from '../services/p2p-presence-client';
@@ -32,6 +33,7 @@ import {
   collectLocalIncomingTalkClusters,
   publishPeerTalkCatalog,
   publishPeerTalkOffer,
+  reconcilePeerTalkOffersFromGun,
   resolveTalkFromPeerMesh,
   subscribePeerTalkOffers,
   upsertLocalIncomingTalkCluster,
@@ -527,10 +529,56 @@ export class IinPublicApp {
   }
 
   /** P0: apply the same intake gates as POST /received (filters, age, block list). */
-  private shouldAcceptPeerTalkOffer(offer: { senderId: string; talkData: Record<string, unknown> }): boolean {
+  private async resolveBlockStatusEitherWay(peerId: string): Promise<boolean> {
+    const me = this.currentUser;
+    if (!me?.id || !peerId) return false;
+    if ((me.blockedUserIds ?? []).includes(peerId)) return true;
+    try {
+      const base = this.getBackendApiBase();
+      const res = await fetch(
+        `${base}/api/users/${encodeURIComponent(me.id)}/block-status/${encodeURIComponent(peerId)}`,
+        { cache: 'no-store' },
+      );
+      if (!res.ok) return false;
+      const status = (await res.json()) as { eitherBlocked?: boolean };
+      return !!status.eitherBlocked;
+    } catch {
+      return false;
+    }
+  }
+
+  private async resolveAgeVerifiedForIntake(): Promise<boolean> {
+    if (this.currentUser?.reputation?.ageVerified) return true;
+    if (!this.currentUser?.id) return false;
+    try {
+      const base = this.getBackendApiBase();
+      const res = await fetch(
+        `${base}/api/users/${encodeURIComponent(this.currentUser.id)}?viewerId=${encodeURIComponent(this.currentUser.id)}`,
+        { cache: 'no-store' },
+      );
+      if (!res.ok) return false;
+      const user = await res.json();
+      const verified = !!user.reputation?.ageVerified;
+      if (verified) {
+        if (!this.currentUser.reputation) {
+          this.currentUser.reputation = user.reputation;
+        } else {
+          this.currentUser.reputation.ageVerified = true;
+        }
+      }
+      return verified;
+    } catch {
+      return false;
+    }
+  }
+
+  private async shouldAcceptPeerTalkOfferAsync(offer: {
+    senderId: string;
+    talkData: Record<string, unknown>;
+  }): Promise<boolean> {
     const me = this.currentUser;
     if (!me?.id || offer.senderId === me.id) return false;
-    if ((me.blockedUserIds ?? []).includes(offer.senderId)) return false;
+    if (await this.resolveBlockStatusEitherWay(offer.senderId)) return false;
     const talkData = offer.talkData;
     const expiresAtValue = talkData?.expiresAt;
     const expiresAt =
@@ -540,7 +588,7 @@ export class IinPublicApp {
           ? new Date(expiresAtValue).getTime()
           : Number.NaN;
     if (Number.isFinite(expiresAt) && Date.now() > expiresAt) return false;
-    if (talkData?.isAdult && !me.reputation?.ageVerified) return false;
+    if (talkData?.isAdult && !(await this.resolveAgeVerifiedForIntake())) return false;
     const filters = getTalkIntakeFilters();
     const td = talkData;
     const authorLoc =
@@ -554,21 +602,21 @@ export class IinPublicApp {
       {
         title: typeof td.title === 'string' ? td.title : String(td.title ?? ''),
         type: typeof td.type === 'string' ? td.type : String(td.type ?? ''),
-        language: typeof td.language === 'string' ? td.language : String(td.language ?? ''),
+        language: typeof td.language === 'string' && td.language.trim() ? td.language : 'en',
         createdAt:
           td.createdAt instanceof Date
             ? td.createdAt.toISOString()
-            : typeof td.createdAt === 'string'
+            : typeof td.createdAt === 'string' && td.createdAt
               ? td.createdAt
-              : String(td.createdAt ?? ''),
+              : new Date().toISOString(),
         updatedAt:
           td.updatedAt instanceof Date
             ? td.updatedAt.toISOString()
-            : typeof td.updatedAt === 'string'
+            : typeof td.updatedAt === 'string' && td.updatedAt
               ? td.updatedAt
-              : typeof td.createdAt === 'string'
+              : typeof td.createdAt === 'string' && td.createdAt
                 ? td.createdAt
-                : String(td.createdAt ?? ''),
+                : new Date().toISOString(),
         ...(authorLoc ? { authorLocation: authorLoc } : {}),
         questions: Array.isArray(td.questions) ? td.questions : [],
         ...(typeof td.questionsJson === 'string' ? { questionsJson: td.questionsJson } : {}),
@@ -580,6 +628,52 @@ export class IinPublicApp {
     return reasons.length === 0;
   }
 
+  /** Directed peer send (Send My Talks) — mesh offer in P0, POST /received in star mode. */
+  public async sendDirectTalkToPeer(
+    talkId: string,
+    talkData: Talk | Record<string, unknown>,
+    peerId: string,
+    peerName: string,
+  ): Promise<void> {
+    const me = this.currentUser;
+    if (!me?.id) throw new Error('Not signed in');
+    const talk = talkData as Talk;
+    if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
+      mirrorTalkDefinitionToLocalGun(this.gunService, talkId, talk, this.p2pRuntimeFlags);
+      const talkRecord = talk as unknown as Record<string, unknown>;
+      publishPeerTalkCatalog(this.gunService, {
+        talkId,
+        authorId: me.id,
+        talkData: talkRecord,
+      });
+      publishPeerTalkOffer(this.gunService, peerId, {
+        talkId,
+        senderId: me.id,
+        senderName: me.stageName || 'Unknown',
+        talkData: talkRecord,
+      });
+      return;
+    }
+    const base = this.getBackendApiBase();
+    const res = await fetch(`${base}/api/talks/${encodeURIComponent(talkId)}/received`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        receiverId: peerId,
+        receiverName: peerName,
+        senderId: me.id,
+        senderName: me.stageName,
+        talkData: talk,
+        chatbotEnabled: this.uiManager.getChatbotEnabled(),
+      }),
+    });
+    if (!res.ok) throw new Error(`register talk for peer failed: HTTP ${res.status}`);
+    const result = (await res.json()) as { registered?: boolean };
+    if (result.registered !== true) {
+      throw new Error('register talk for peer rejected by recipient delivery policy');
+    }
+  }
+
   /** P0: subscribe to directed talk offers on local Gun (mesh via hub relay). */
   private initDirectTalkDeliverySubscriptions(): void {
     if (!usesDirectTalkDelivery(this.p2pRuntimeFlags) || !this.currentUser?.id) return;
@@ -588,17 +682,21 @@ export class IinPublicApp {
       this.gunService,
       this.currentUser.id,
       (offer) => {
-        if (!this.shouldAcceptPeerTalkOffer(offer)) return;
-        const cluster = applyPeerTalkOfferToLocalInbox(
-          this.gunService,
-          this.currentUser!.id,
-          offer,
-          this.p2pRuntimeFlags,
-        );
-        this.mergeIncomingClusterIntoUi([cluster]);
+        void this.handlePeerTalkOffer(offer);
       },
     );
     void this.refreshIncomingTalkClustersFromLocalGun();
+  }
+
+  private async handlePeerTalkOffer(offer: PeerTalkOfferWire): Promise<void> {
+    if (!(await this.shouldAcceptPeerTalkOfferAsync(offer))) return;
+    const cluster = applyPeerTalkOfferToLocalInbox(
+      this.gunService,
+      this.currentUser!.id,
+      offer,
+      this.p2pRuntimeFlags,
+    );
+    this.mergeIncomingClusterIntoUi([cluster]);
   }
 
   /** P2P-I / P2P-O: register live presence and probe local node bridge (stack only). */
@@ -1171,6 +1269,8 @@ export class IinPublicApp {
       const allowed = new Set(eligibleReceiverIds);
       receiverIds = receiverIds.filter((id) => allowed.has(id));
     }
+    const blocked = new Set(me.blockedUserIds ?? []);
+    receiverIds = receiverIds.filter((id) => !blocked.has(id));
     if (receiverIds.length === 0) return true;
 
     if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
@@ -1433,6 +1533,19 @@ export class IinPublicApp {
     if (!this.currentUser || !senderId || senderId === this.currentUser.id) return;
     if (isTechSupportUser(this.currentUser)) return;
 
+    void this.ingestIncomingTalkAnnouncement(talkId, senderId, senderName, talkData);
+  }
+
+  private async ingestIncomingTalkAnnouncement(
+    talkId: string,
+    senderId: string,
+    senderName: string,
+    talkData: any,
+  ): Promise<void> {
+    if (!this.currentUser) return;
+    const offer = { senderId, talkData: talkData as Record<string, unknown> };
+    if (!(await this.shouldAcceptPeerTalkOfferAsync(offer))) return;
+
     if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
       const cluster = upsertLocalIncomingTalkCluster(
         this.gunService,
@@ -1673,13 +1786,20 @@ export class IinPublicApp {
   private async loadFullTalkViaIncomingIdentity(identityKey: string): Promise<Talk | null> {
     if (!this.currentUser?.id) return null;
     try {
-      const base = this.getBackendApiBase();
-      const res = await fetch(
-        `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/incoming-talks`,
-        { cache: 'no-store' },
-      );
-      if (!res.ok) return null;
-      const clusters = await res.json();
+      let clusters: unknown[];
+      if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
+        clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, {
+          waitMs: 400,
+        });
+      } else {
+        const base = this.getBackendApiBase();
+        const res = await fetch(
+          `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/incoming-talks`,
+          { cache: 'no-store' },
+        );
+        if (!res.ok) return null;
+        clusters = await res.json();
+      }
       if (!Array.isArray(clusters)) return null;
       const cluster = clusters.find(
         (c: any) =>
@@ -1756,7 +1876,16 @@ export class IinPublicApp {
 
   private async refreshIncomingTalkClustersFromLocalGun(): Promise<void> {
     if (!this.currentUser?.id) return;
-    const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id);
+    await reconcilePeerTalkOffersFromGun(
+      this.gunService,
+      this.currentUser.id,
+      this.p2pRuntimeFlags,
+      (offer) => this.shouldAcceptPeerTalkOfferAsync(offer),
+      { waitMs: 1200 },
+    );
+    const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, {
+      waitMs: 300,
+    });
     this.mergeIncomingClusterIntoUi(clusters);
   }
 
@@ -2454,7 +2583,11 @@ export class IinPublicApp {
     });
 
     this.uiManager.on('needIncomingTalkClusters', () => {
-      void this.refreshIncomingTalkClustersFromApi();
+      if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
+        void this.refreshIncomingTalkClustersFromLocalGun();
+      } else {
+        void this.refreshIncomingTalkClustersFromApi();
+      }
     });
 
     this.uiManager.on('needTalkStats', async (data: { talkIds: string[] }) => {

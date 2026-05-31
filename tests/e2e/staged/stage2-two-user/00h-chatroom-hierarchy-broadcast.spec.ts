@@ -4,8 +4,7 @@ import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, delay, headless } from '../../helpers/timing';
 import { bootstrapUser, incomingClustersIncludeTitleForUser, waitForTabActive } from '../../helpers/talks-matching-flow';
-import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
-import { waitForBroadcastBulkAck } from '../../helpers/broadcast-ack';
+import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { gunBaseURL } from '../../helpers/ports';
 
 /** Expand parent only when collapsed (▶). Default UI already expands NA/Europe — blind toggle hides children. */
@@ -129,8 +128,7 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
       await pageTom.click('.nav-btn[data-view="chatrooms"]');
       await waitForTabActive(pageTom, 'chatrooms');
       await afterSync();
-      await pageTom.click('#broadcast-talk-btn');
-      await confirmBroadcastTagPreambleIfVisible(pageTom);
+      await clickBroadcastUntilBulkAck(pageTom);
       await waitForTabActive(pageTom, 'chatrooms');
       await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 1 });
 
@@ -174,8 +172,7 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
       await pageTom.click('.nav-btn[data-view="chatrooms"]');
       await waitForTabActive(pageTom, 'chatrooms');
       await afterSync();
-      await pageTom.click('#broadcast-talk-btn');
-      await confirmBroadcastTagPreambleIfVisible(pageTom);
+      await clickBroadcastUntilBulkAck(pageTom);
       await waitForTabActive(pageTom, 'chatrooms');
       // Tom is the only Gun member under `north-america`; Jerry is under `usa` only (FR-BM-7).
       await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 0 });

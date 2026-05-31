@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test';
 import { expect } from './fixtures';
 import { afterAction, afterSync } from './timing';
 import { gunBaseURL } from './ports';
-import { confirmBroadcastTagPreambleIfVisible } from './broadcast-preamble';
+import { clickBroadcastUntilBulkAck } from './talk-demo-ui';
 import { openIncomingTalkModal, waitForResponseModalClosed, waitForTabActive } from './talks-matching-flow';
 import { dismissNotificationOverlays } from './durable-ui';
 
@@ -60,8 +60,10 @@ export async function createAdultTalk(page: Page, title: string): Promise<void> 
 
 export async function serverVouchAgeVerified(page: Page, targetUserId: string): Promise<void> {
   const url = `${gunBaseURL()}/api/users/${encodeURIComponent(targetUserId)}/age-verify`;
-  const res = await page.request.post(url);
-  expect(res.ok(), `age-verify failed (${res.status()})`).toBeTruthy();
+  for (let i = 0; i < 3; i++) {
+    const res = await page.request.post(url);
+    expect(res.ok(), `age-verify failed (${res.status()})`).toBeTruthy();
+  }
 }
 
 export async function establishContactsTomJerry(pageTom: Page, pageJerry: Page, title: string): Promise<void> {
@@ -69,8 +71,7 @@ export async function establishContactsTomJerry(pageTom: Page, pageJerry: Page, 
   await enterGlobalChatroom(pageJerry);
 
   await createMatchTalk(pageTom, title);
-  await pageTom.click('#broadcast-talk-btn');
-  await confirmBroadcastTagPreambleIfVisible(pageTom);
+  await clickBroadcastUntilBulkAck(pageTom);
   await afterAction();
   await waitForTabActive(pageTom, 'chatrooms');
 
