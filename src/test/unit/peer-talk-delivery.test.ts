@@ -58,5 +58,7 @@ describe('P0 direct talk delivery flags', () => {
     expect(shouldSkipServerGunPersist(['talks', 'qa_abc'], flags)).toBe(true);
     expect(shouldSkipServerGunPersist(['peerTalkOffers', 'bob', 'alice::t1'], flags)).toBe(true);
     expect(shouldSkipServerGunPersist(['incomingTalksByUser', 'bob', 'ik1'], flags)).toBe(true);
+    expect(shouldSkipServerGunPersist(['peerTalkCatalog', 'alice', 't1'], flags)).toBe(true);
+    expect(shouldSkipServerGunPersist(['chatrooms', 'global', 'talks', 'k1'], flags)).toBe(true);
   });
 });

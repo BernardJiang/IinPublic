@@ -170,6 +170,42 @@ async function incomingClustersIncludeTitleSubstring(
  * Predicate is optimized for large IN lists (e.g. 20 broadcasts): talk-detail fetches run sequentially
  * with early exit instead of fanning out parallel requests every interval.
  */
+/** P0: wait until local Gun IN index contains a cluster matching title (no server incomingTalksMap). */
+export async function waitForIncomingTalkClusterOnLocalGun(
+  page: Page,
+  titleSubstring: string,
+  options?: IncomingTalkServerWaitOptions,
+): Promise<void> {
+  const timeout = options?.timeout ?? 90_000;
+  const polling = options?.polling ?? 500;
+  await expect
+    .poll(
+      async () =>
+        page.evaluate((needle) => {
+          const app = (
+            window as unknown as {
+              __iinpublic_app?: {
+                getApp: () => {
+                  isDirectTalkDeliveryEnabled?: () => boolean;
+                  getLocalIncomingClustersForE2e?: () => Promise<unknown[]>;
+                };
+              };
+            }
+          ).__iinpublic_app?.getApp?.();
+          if (!app?.isDirectTalkDeliveryEnabled?.()) return 'p0-disabled';
+          const clusters = app.getLocalIncomingClustersForE2e
+            ? app.getLocalIncomingClustersForE2e()
+            : Promise.resolve([]);
+          return clusters.then((list) => {
+            const hay = JSON.stringify(list);
+            return hay.includes(needle) ? 'ok' : `clusters=${list.length}`;
+          });
+        }, titleSubstring),
+      { timeout, intervals: [polling] },
+    )
+    .toBe('ok');
+}
+
 export async function waitForIncomingTalkClusterOnServer(
   page: Page,
   titleSubstring: string,

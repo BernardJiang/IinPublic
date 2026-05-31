@@ -1000,6 +1000,30 @@ describe('Talk loop — incoming registration → answer submission → match �
   });
 
   describe('POST /api/talks/:id/register-receivers-for-broadcast', () => {
+    it('skips server inbox writes when P0_DIRECT_TALK_DELIVERY is enabled', async () => {
+      const prev = process.env.P0_DIRECT_TALK_DELIVERY;
+      process.env.P0_DIRECT_TALK_DELIVERY = '1';
+      try {
+        const { app, incomingTalksMap } = buildTestServer();
+        const res = await request(app)
+          .post(`/api/talks/${talkId}/register-receivers-for-broadcast`)
+          .send({
+            senderId: SENDER_ID,
+            senderName: SENDER_NAME,
+            receiverIds: [RESPONDER_ID, 'user_carol'],
+            talkData: TALK_DATA,
+          });
+        expect(res.status).toBe(200);
+        expect(res.body.directDelivery).toBe(true);
+        expect(res.body.skipped).toBe(true);
+        expect(res.body.registered).toBe(0);
+        expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
+      } finally {
+        if (prev === undefined) delete process.env.P0_DIRECT_TALK_DELIVERY;
+        else process.env.P0_DIRECT_TALK_DELIVERY = prev;
+      }
+    });
+
     it('registers only receivers whose server-side filters allow the talk', async () => {
       const { app, incomingTalksMap, userDeliveryContext } = buildTestServer();
       userDeliveryContext.set(RESPONDER_ID, {

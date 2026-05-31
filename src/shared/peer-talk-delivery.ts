@@ -3,6 +3,17 @@ import { buildTalkIdentityKey } from './cid';
 /** Gun path root for directed talk offers (P0 mesh delivery). */
 export const PEER_TALK_OFFERS_ROOT = 'peerTalkOffers';
 
+/** Author-published full talk body for mesh pull (P0-5). */
+export const PEER_TALK_CATALOG_ROOT = 'peerTalkCatalog';
+
+export type PeerTalkCatalogWire = {
+  version: 1;
+  talkId: string;
+  authorId: string;
+  talkData: Record<string, unknown>;
+  updatedAt: string;
+};
+
 export type PeerTalkOfferWire = {
   version: 1;
   talkId: string;

@@ -33,6 +33,11 @@ const parsedWorkers = Number(process.env.PW_WORKERS ?? process.env.PW_WORKER);
 const STAGE_PIPELINE = process.env.E2E_STAGE_PIPELINE === '1' || process.env.E2E_STAGE_PIPELINE === 'true';
 const P2P_DIRECT_CHAT_ENABLED =
   process.env.P2P_DIRECT_CHAT_ENABLED === '0' ? '0' : '1';
+const P0_DIRECT_TALK_DELIVERY = process.env.P0_DIRECT_TALK_DELIVERY === '1' ? '1' : '0';
+const STAR_SERVER_PERSISTENCE =
+  P0_DIRECT_TALK_DELIVERY === '1' || process.env.STAR_SERVER_PERSISTENCE === 'ephemeral'
+    ? 'ephemeral'
+    : process.env.STAR_SERVER_PERSISTENCE || 'durable';
 const NUM_WORKERS = STAGE_PIPELINE
   ? 1
   : Number.isFinite(parsedWorkers) && parsedWorkers >= 1
@@ -51,14 +56,14 @@ const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
     {
       // In-memory server Gun only: disk radisk + graph clear races leave ghost chatroom members and break IN-list e2e.
       // High capacity + no FIFO: default capacity 3 evicts users when Gun map over-counts; Tom and Jerry must stay in the same room for broadcast/IN sync.
-      command: `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false E2E_GUN_MEMORY_ONLY=1 P2P_DIRECT_CHAT_ENABLED=${P2P_DIRECT_CHAT_ENABLED} P2P_NODE_ENABLED=0 PORT=${gunPort} node dist/server/server/index.js`,
+      command: `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false E2E_GUN_MEMORY_ONLY=1 P0_DIRECT_TALK_DELIVERY=${P0_DIRECT_TALK_DELIVERY} STAR_SERVER_PERSISTENCE=${STAR_SERVER_PERSISTENCE} P2P_DIRECT_CHAT_ENABLED=${P2P_DIRECT_CHAT_ENABLED} P2P_NODE_ENABLED=0 PORT=${gunPort} node dist/server/server/index.js`,
       port: gunPort,
       timeout: 120 * 1000,
       // Must spawn with E2E_GUN_MEMORY_ONLY + CHATROOM_* ; reusing a manually started dev:server ignores those env vars and keeps e2e flaky.
       reuseExistingServer: false,
     },
     {
-      command: `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false P2P_DIRECT_CHAT_ENABLED=${P2P_DIRECT_CHAT_ENABLED} P2P_NODE_ENABLED=0 PORT=${webPort} npm run dev:web:e2e -- --port ${webPort}`,
+      command: `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false P0_DIRECT_TALK_DELIVERY=${P0_DIRECT_TALK_DELIVERY} STAR_SERVER_PERSISTENCE=${STAR_SERVER_PERSISTENCE} P2P_DIRECT_CHAT_ENABLED=${P2P_DIRECT_CHAT_ENABLED} P2P_NODE_ENABLED=0 PORT=${webPort} npm run dev:web:e2e -- --port ${webPort}`,
       port: webPort,
       timeout: 120 * 1000,
       reuseExistingServer: false,

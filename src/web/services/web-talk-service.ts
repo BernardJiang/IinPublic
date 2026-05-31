@@ -9,6 +9,7 @@ export class WebTalkService {
     private gunService: WebGunService,
     /** When set, incomplete Gun reads fall back to GET this host + /api/talks/:id (server graph). */
     private apiBase?: string,
+    private opts?: { meshLocalFirst?: boolean },
   ) {}
 
   /**
@@ -171,18 +172,21 @@ export class WebTalkService {
     const cached = await this.getTalk(talkId);
     if (looksComplete(cached)) return cached as Talk;
 
-    // 2. Server is authoritative; try it before entering the retry loop.
-    const fromServer = await tryServer();
-    if (fromServer) return fromServer;
+    if (!this.opts?.meshLocalFirst) {
+      // 2. Server is authoritative; try it before entering the retry loop.
+      const fromServer = await tryServer();
+      if (fromServer) return fromServer;
+    }
 
-    // 3. Both sources are incomplete (server returned 202 or Gun is still replicating).
-    //    Retry, preferring Gun (lower latency) then server (completeness), until one delivers.
+    // 3. Retry Gun (P0: mesh/local only — no server fallback).
     for (let i = 0; i < attempts; i++) {
       await new Promise((r) => setTimeout(r, gapMs));
       const t = await this.getTalk(talkId);
       if (looksComplete(t)) return t as Talk;
-      const s = await tryServer();
-      if (s) return s;
+      if (!this.opts?.meshLocalFirst) {
+        const s = await tryServer();
+        if (s) return s;
+      }
     }
 
     return null;

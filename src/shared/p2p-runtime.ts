@@ -317,6 +317,17 @@ function readEnv(key: string): string | undefined {
   return undefined;
 }
 
+/** E2E/browser override via `/?e2e_p0_talks=1` (see `webAppURLStableChatroom` in tests/e2e/helpers/ports.ts). */
+function readBrowserE2eFlag(param: string): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  try {
+    const v = new URLSearchParams(window.location.search).get(param);
+    return v == null || v === '' ? undefined : v;
+  } catch {
+    return undefined;
+  }
+}
+
 function parseBooleanFlag(value: string | undefined, fallback: boolean): boolean {
   if (value == null || value.trim() === '') return fallback;
   return ['1', 'true', 'yes', 'on', 'enabled'].includes(value.trim().toLowerCase());
@@ -329,7 +340,10 @@ function parsePersistencePolicy(value: string | undefined): StarServerPersistenc
 export function resolveP2PRuntimeFlags(env: Record<string, string | undefined> = {}): P2PRuntimeFlags {
   const get = (key: string): string | undefined => env[key] ?? readEnv(key);
   const relayOnlyHub = parseBooleanFlag(get('RELAY_ONLY_HUB'), false);
-  const p0DirectTalkDelivery = parseBooleanFlag(get('P0_DIRECT_TALK_DELIVERY'), false);
+  const p0DirectTalkDelivery = parseBooleanFlag(
+    get('P0_DIRECT_TALK_DELIVERY') ?? readBrowserE2eFlag('e2e_p0_talks'),
+    false,
+  );
   const starServerPersistence = relayOnlyHub
     ? 'ephemeral'
     : parsePersistencePolicy(get('STAR_SERVER_PERSISTENCE'));
@@ -360,6 +374,8 @@ export function shouldSkipServerGunPersist(
   if (path[0] === 'talks') return true;
   if (path[0] === 'incomingTalksByUser') return true;
   if (path[0] === 'peerTalkOffers') return true;
+  if (path[0] === 'peerTalkCatalog') return true;
+  if (path[0] === 'chatrooms' && path.length >= 3 && path[2] === 'talks') return true;
   return false;
 }
 

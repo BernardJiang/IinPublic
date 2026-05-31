@@ -32,6 +32,7 @@
     "test:e2e": "npm run build:server && DISABLE_HMR=true playwright test",
     "test:e2e:parallel": "npm run build:server && PW_WORKERS=20 DISABLE_HMR=true playwright test",
     "test:e2e:p2p": "npm run build:server && P2P_DIRECT_CHAT_ENABLED=1 DISABLE_HMR=true playwright test",
+    "test:e2e:p0-talks": "npm run build:server && P0_DIRECT_TALK_DELIVERY=1 STAR_SERVER_PERSISTENCE=ephemeral E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 playwright test tests/e2e/staged/stage2-two-user/00i-p0-direct-talk-delivery.spec.ts",
     "test:e2e:star": "npm run build:server && P2P_DIRECT_CHAT_ENABLED=0 DISABLE_HMR=true playwright test tests/e2e/staged/stage1-single-user/00-p2p-star-baseline-storage.spec.ts tests/e2e/staged/stage1-single-user/00-p2p-conversation-transport.spec.ts",
     "test:e2e:staged": "npm run build:server && E2E_STAGE_PIPELINE=1 PW_WORKERS=1 DISABLE_HMR=true playwright test",
     "test:e2e:talks-matching": "npm run build:server && DISABLE_HMR=true playwright test tests/e2e/talks-matching",

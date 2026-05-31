@@ -28,7 +28,9 @@ import {
 import {
   applyPeerTalkOfferToLocalInbox,
   collectLocalIncomingTalkClusters,
+  publishPeerTalkCatalog,
   publishPeerTalkOffer,
+  resolveTalkFromPeerMesh,
   subscribePeerTalkOffers,
   upsertLocalIncomingTalkCluster,
 } from '../services/client-peer-talk-delivery';
@@ -165,7 +167,9 @@ export class IinPublicApp {
     this.gunService = new WebGunService();
     this.userService = new WebUserService(this.gunService);
     this.chatroomService = new WebChatroomService(this.gunService);
-    this.talkService = new WebTalkService(this.gunService, this.getBackendApiBase());
+    this.talkService = new WebTalkService(this.gunService, this.getBackendApiBase(), {
+      meshLocalFirst: usesDirectTalkDelivery(this.p2pRuntimeFlags),
+    });
     this.conversationService = new WebConversationService(this.gunService);
     this.uiManager = new UIManager();
   }
@@ -751,6 +755,29 @@ export class IinPublicApp {
     this.tryChatbotReply(talkId, talkData, authorId, authorName);
   }
 
+  /** Load full talk for an incoming announcement (P0: mesh/catalog only). */
+  private loadIncomingTalkData(talkId: string, authorId: string): Promise<Talk | null> {
+    if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
+      return resolveTalkFromPeerMesh(
+        this.gunService,
+        talkId,
+        authorId,
+        (id) => this.talkService.getTalk(id),
+      );
+    }
+    return this.talkService.getTalkWithRetry(talkId);
+  }
+
+  /** E2E: expose P0 flag and local IN snapshot. */
+  public isDirectTalkDeliveryEnabled(): boolean {
+    return usesDirectTalkDelivery(this.p2pRuntimeFlags);
+  }
+
+  public async getLocalIncomingClustersForE2e(): Promise<any[]> {
+    if (!this.currentUser?.id) return [];
+    return collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, { waitMs: 300 });
+  }
+
   private subscribeToTalks(chatroomId: string): void {
     console.log('🎯 Subscribing to chatroom talks:', chatroomId);
     const gun = this.gunService.getGun();
@@ -777,7 +804,7 @@ export class IinPublicApp {
        */
       if (seenTalkAuthor.has(pairKey)) {
         if (talkAnnouncement?.talkId && authorId && authorId !== this.currentUser?.id) {
-          void this.talkService.getTalkWithRetry(talkAnnouncement.talkId).then((talkData) => {
+          void this.loadIncomingTalkData(talkAnnouncement.talkId, authorId).then((talkData) => {
             if (!talkData) return;
             mirrorTalkDefinitionToLocalGun(
               this.gunService,
@@ -804,7 +831,7 @@ export class IinPublicApp {
 
       if (talkAnnouncement && talkAnnouncement.talkId) {
         // Wait for full JSON (questions/answers) — Gun .once often fires before replication completes.
-        void this.talkService.getTalkWithRetry(talkAnnouncement.talkId).then((talkData) => {
+        void this.loadIncomingTalkData(talkAnnouncement.talkId, authorId).then((talkData) => {
           if (!talkData) {
             console.warn('Could not load full talk after retry:', talkAnnouncement.talkId);
             return;
@@ -1088,6 +1115,11 @@ export class IinPublicApp {
     if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
       mirrorTalkDefinitionToLocalGun(this.gunService, talkId, talk, this.p2pRuntimeFlags);
       const talkRecord = talk as unknown as Record<string, unknown>;
+      publishPeerTalkCatalog(this.gunService, {
+        talkId,
+        authorId: me.id,
+        talkData: talkRecord,
+      });
       for (const receiverId of receiverIds) {
         publishPeerTalkOffer(this.gunService, receiverId, {
           talkId,

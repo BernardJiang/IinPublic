@@ -23,6 +23,7 @@ import {
   readExactChatbotMemoryForUser,
   writeExactChatbotMemoryForUser,
 } from '../exact-chatbot-memory-store';
+import { resolveP2PRuntimeFlags, usesDirectTalkDelivery } from '../../shared/p2p-runtime';
 
 type TalkDeliveryRouteDeps = {
   gunService: GunService;
@@ -469,6 +470,27 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
   app.post('/api/talks/:id/received', async (req, res) => {
     try {
       const talkId = req.params.id;
+      if (usesDirectTalkDelivery(resolveP2PRuntimeFlags(process.env))) {
+        const { receiverId, senderId, talkData: bodyTalkData } = req.body as {
+          receiverId?: string;
+          senderId?: string;
+          talkData?: unknown;
+        };
+        if (!receiverId || !senderId) {
+          res.status(400).json({ error: 'receiverId and senderId required' });
+          return;
+        }
+        const talkData = bodyTalkData && typeof bodyTalkData === 'object' ? bodyTalkData : null;
+        const identityKey = talkData ? buildTalkIdentityKey(talkData) : talkId;
+        res.json({
+          registered: true,
+          directDelivery: true,
+          identityKey,
+          autoResponded: false,
+          reason: 'p0_direct_talk_delivery',
+        });
+        return;
+      }
       const { receiverId, receiverName, senderId, senderName, talkData: bodyTalkData, chatbotEnabled } = req.body as {
         receiverId: string;
         receiverName?: string;
@@ -638,6 +660,19 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       }
     }, 300_000);
     try {
+      if (usesDirectTalkDelivery(resolveP2PRuntimeFlags(process.env))) {
+        clearTimeout(hardTimeout);
+        const receiverIds = (req.body as { receiverIds?: string[] })?.receiverIds;
+        const count = Array.isArray(receiverIds) ? receiverIds.length : 0;
+        res.json({
+          ok: true,
+          registered: 0,
+          directDelivery: true,
+          skipped: true,
+          receiverCount: count,
+        });
+        return;
+      }
       const talkId = req.params.id;
       const { senderId, senderName, receiverIds, talkData: bodyTalkData, broadcastTargetTags: rawBt, broadcastMaxDistanceMiles: rawMaxDm } =
         req.body as {
@@ -771,6 +806,11 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
   app.get('/api/users/:id/incoming-talks', async (req, res) => {
     try {
       const userId = req.params.id;
+      if (usesDirectTalkDelivery(resolveP2PRuntimeFlags(process.env))) {
+        res.setHeader('X-P0-Direct-Talk-Delivery', '1');
+        res.json([]);
+        return;
+      }
       const userMap = incomingTalksMap.get(userId);
       if (!userMap || userMap.size === 0) {
         res.json([]);

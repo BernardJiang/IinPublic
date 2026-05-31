@@ -57,6 +57,19 @@ describe('p2p runtime flags', () => {
     });
   });
 
+  it('enables direct talk delivery from browser e2e_p0_talks URL param', () => {
+    const g = global as typeof globalThis & { window?: { location: { search: string } } };
+    const prev = g.window;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    g.window = { location: { search: '?e2e_p0_talks=1' } } as any;
+    try {
+      expect(resolveP2PRuntimeFlags({}).p2pDirectTalkDelivery).toBe(true);
+    } finally {
+      if (prev === undefined) delete g.window;
+      else g.window = prev;
+    }
+  });
+
   it('relay-only hub forces ephemeral star persistence', () => {
     expect(resolveP2PRuntimeFlags({ RELAY_ONLY_HUB: '1' })).toEqual({
       starServerPersistence: 'ephemeral',

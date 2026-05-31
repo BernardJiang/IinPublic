@@ -1,6 +1,27 @@
 # IinPublic Completed Work
 
-Last updated: 2026-05-28
+Last updated: 2026-05-30
+
+## 2026-05-30 - P0: Direct browser talk exchange (spec §19.2 / §19.12 Phase B)
+
+Two browsers deliver talks over Gun mesh; server skips authoritative inbox and talk-body persistence when `P0_DIRECT_TALK_DELIVERY=1` or `RELAY_ONLY_HUB=1`.
+
+| Item | Deliverable |
+|------|-------------|
+| P0-1 | `shouldSkipServerGunPersist` for `talks/*`, `incomingTalksByUser/*`, `peerTalkOffers/*`, `peerTalkCatalog/*`, `chatrooms/*/talks/*` |
+| P0-2 | `peerTalkOffers/<receiverId>/<sender::talkId>` fanout; `publishPeerTalkOffer` / `subscribePeerTalkOffers` |
+| P0-3 | Local-first IN: `collectLocalIncomingTalkClusters`, `upsertLocalIncomingTalkCluster` |
+| P0-4 | Server gates: empty `GET incoming-talks`, skip `register-receivers` / `POST received` inbox writes |
+| P0-5 | `peerTalkCatalog/<authorId>/<talkId>` + `resolveTalkFromPeerMesh` for chatroom announce → pull |
+| P0-6 | E2E `00i-p0-direct-talk-delivery.spec.ts`; `npm run test:e2e:p0-talks`, `npm run dev:p0-talks` |
+
+**E2E reliability:** browser flag via `/?e2e_p0_talks=1` (`resolveP2PRuntimeFlags` + `webAppURLStableChatroom`) so P0 mode does not depend on webpack compile-time env alone.
+
+**Evidence:**
+- `npm run test:type` clean
+- `npm run test:unit` — peer-talk-delivery, p2p-runtime (incl. URL param)
+- `npm run test:integration` — register-receivers skip when P0 env set
+- `npm run test:e2e:p0-talks` — 1 passed
 
 ## 2026-05-28 - P2P stack phases I–O (production relay model)
 

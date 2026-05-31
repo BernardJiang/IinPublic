@@ -1,16 +1,39 @@
 import {
+  PEER_TALK_CATALOG_ROOT,
   PEER_TALK_OFFERS_ROOT,
   buildPeerTalkOfferKey,
   clusterFromPeerTalkOffer,
   createPeerTalkOfferWire,
   mergeIncomingTalkCluster,
   type IncomingTalkClusterWire,
+  type PeerTalkCatalogWire,
   type PeerTalkOfferWire,
 } from '../../shared/peer-talk-delivery';
+import type { Talk } from '../../shared/types';
 import type { P2PRuntimeFlags } from '../../shared/p2p-runtime';
 import { usesDirectTalkDelivery } from '../../shared/p2p-runtime';
 import type { WebGunService } from './web-gun-service';
 import { mirrorIncomingTalkClustersToLocalGun, mirrorTalkDefinitionToLocalGun } from './client-incoming-talk-mirror';
+
+export function publishPeerTalkCatalog(
+  gunService: WebGunService,
+  params: {
+    talkId: string;
+    authorId: string;
+    talkData: Record<string, unknown>;
+  },
+): void {
+  const { talkId, authorId, talkData } = params;
+  if (!talkId || !authorId) return;
+  const wire: PeerTalkCatalogWire = {
+    version: 1,
+    talkId,
+    authorId,
+    talkData,
+    updatedAt: new Date().toISOString(),
+  };
+  gunService.getGun().get(PEER_TALK_CATALOG_ROOT).get(authorId).get(talkId).put(wire);
+}
 
 export function publishPeerTalkOffer(
   gunService: WebGunService,
@@ -122,4 +145,74 @@ export async function collectLocalIncomingTalkClusters(
     if (c.identityKey) byKey.set(c.identityKey, c);
   }
   return [...byKey.values()];
+}
+
+function talkLooksComplete(talk: Talk | null): boolean {
+  if (!talk) return false;
+  if ((talk as Talk).type === 'tag') return !!(talk.title && talk.authorId);
+  if (!Array.isArray(talk.questions) || talk.questions.length === 0) return false;
+  const q0 = talk.questions[0];
+  return !!(q0 && Array.isArray(q0.answers) && q0.answers.length > 0);
+}
+
+function normalizeTalkFromCatalog(raw: PeerTalkCatalogWire): Talk | null {
+  const data = raw?.talkData;
+  if (!data || typeof data !== 'object') return null;
+  const body = data as unknown as Talk;
+  return { ...body, id: String(raw.talkId || body.id || '') };
+}
+
+export async function loadPeerTalkCatalogFromGun(
+  gunService: WebGunService,
+  authorId: string,
+  talkId: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<Talk | null> {
+  const timeoutMs = opts.timeoutMs ?? 3000;
+  const gun = gunService.getGun();
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: Talk | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    gun
+      .get(PEER_TALK_CATALOG_ROOT)
+      .get(authorId)
+      .get(talkId)
+      .once((raw: unknown) => {
+        clearTimeout(timer);
+        const wire = raw as PeerTalkCatalogWire;
+        if (wire?.version !== 1 || !wire.talkData) {
+          finish(null);
+          return;
+        }
+        const talk = normalizeTalkFromCatalog(wire);
+        finish(talkLooksComplete(talk) ? talk : null);
+      });
+  });
+}
+
+/** P0-5: resolve talk from local/mesh paths only (no server GET /api/talks). */
+export async function resolveTalkFromPeerMesh(
+  gunService: WebGunService,
+  talkId: string,
+  authorId: string,
+  getLocalTalk: (id: string) => Promise<Talk | null>,
+  opts: { attempts?: number; gapMs?: number } = {},
+): Promise<Talk | null> {
+  const attempts = opts.attempts ?? 24;
+  const gapMs = opts.gapMs ?? 250;
+  for (let i = 0; i < attempts; i++) {
+    const local = await getLocalTalk(talkId);
+    if (talkLooksComplete(local)) return local;
+    const catalog = await loadPeerTalkCatalogFromGun(gunService, authorId, talkId, { timeoutMs: 800 });
+    if (talkLooksComplete(catalog)) return catalog;
+    if (i < attempts - 1) {
+      await new Promise((r) => setTimeout(r, gapMs));
+    }
+  }
+  return null;
 }
