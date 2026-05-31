@@ -6,14 +6,14 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterNav, afterSync, headless } from '../../helpers/timing';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
-import { bootstrapUser, waitForIncomingTalkClusterOnServer } from '../../helpers/talks-matching-flow';
+import { bootstrapUser, waitForIncomingTalkClusterOnServer, incomingClustersIncludeTitleForUser } from '../../helpers/talks-matching-flow';
 import {
   createSimpleFlowTalk,
   getCurrentUserId,
   goToChatrooms,
-  incomingClustersIncludeTitleSubstring,
   waitForBroadcastBulkAckMinSent,
 } from '../../helpers/broadcast-cancellation-helpers';
+import { isDirectTalkDeliveryE2e } from '../../helpers/ports';
 
 test.describe('Broadcast cancellation — talk deletion mid-flight', () => {
   let browserTom: Browser;
@@ -64,26 +64,34 @@ test.describe('Broadcast cancellation — talk deletion mid-flight', () => {
       await goToChatrooms(pageTom);
 
       const talkIdToDelete = talkIds[5];
-      let registerCount = 0;
-      let resolveReadyToDelete: (() => void) | null = null;
-      const readyToDelete = new Promise<void>((resolve) => {
-        resolveReadyToDelete = resolve;
-      });
 
-      await pageTom.route('**/api/talks/*/register-receivers-for-broadcast', async (route) => {
-        registerCount += 1;
-        if (registerCount === 5) {
-          resolveReadyToDelete?.();
-          await new Promise((r) => setTimeout(r, 10_000));
-        }
-        await route.continue();
-      });
+      if (!isDirectTalkDeliveryE2e()) {
+        let registerCount = 0;
+        let resolveReadyToDelete: (() => void) | null = null;
+        const readyToDelete = new Promise<void>((resolve) => {
+          resolveReadyToDelete = resolve;
+        });
 
-      await pageTom.click('#broadcast-talk-btn');
-      await confirmBroadcastTagPreambleIfVisible(pageTom);
-      await afterAction();
+        await pageTom.route('**/api/talks/*/register-receivers-for-broadcast', async (route) => {
+          registerCount += 1;
+          if (registerCount === 5) {
+            resolveReadyToDelete?.();
+            await new Promise((r) => setTimeout(r, 10_000));
+          }
+          await route.continue();
+        });
 
-      await readyToDelete;
+        await pageTom.click('#broadcast-talk-btn');
+        await confirmBroadcastTagPreambleIfVisible(pageTom);
+        await afterAction();
+
+        await readyToDelete;
+      } else {
+        await pageTom.click('#broadcast-talk-btn');
+        await confirmBroadcastTagPreambleIfVisible(pageTom);
+        await afterAction();
+        await waitForBroadcastBulkAckMinSent(pageTom, { receivers: 1, minSent: 5 });
+      }
       await afterAction();
 
       await pageTom.evaluate((talkId) => {
@@ -105,12 +113,7 @@ test.describe('Broadcast cancellation — talk deletion mid-flight', () => {
       const jerryId = await getCurrentUserId(pageJerry);
       await expect
         .poll(
-          async () =>
-            incomingClustersIncludeTitleSubstring(
-              pageJerry.context().request,
-              jerryId,
-              talkTitles[5],
-            ),
+          async () => incomingClustersIncludeTitleForUser(pageJerry, jerryId, talkTitles[5]),
           { timeout: 35_000, intervals: [500], message: 'talk 6 should be cancelled mid-broadcast' },
         )
         .toBe(false);

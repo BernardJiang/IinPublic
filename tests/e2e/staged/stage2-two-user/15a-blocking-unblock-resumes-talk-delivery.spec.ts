@@ -11,6 +11,7 @@ import {
   waitForResponseModalClosed,
   waitForTabActive,
   resetTalksMatchingSession,
+  incomingClustersIncludeTitleForUser,
 } from '../../helpers/talks-matching-flow';
 import { createMatchTalk, enterGlobalChatroom } from '../../helpers/blocking-e2e-helpers';
 
@@ -108,12 +109,7 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
 
     await expect
       .poll(
-        async () => {
-          const res = await pageTom.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}/incoming-talks`);
-          if (!res.ok()) return false;
-          const clusters = await res.json() as Array<{ title?: string }>;
-          return clusters.some((c) => String(c.title || '').includes('Blocked Talk'));
-        },
+        async () => incomingClustersIncludeTitleForUser(pageJerry, jerryUserId, 'Blocked Talk'),
         { timeout: 12000 },
       )
       .toBe(false);

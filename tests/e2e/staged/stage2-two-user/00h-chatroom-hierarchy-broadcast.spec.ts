@@ -3,7 +3,7 @@ import { test, expect } from '../../helpers/fixtures';
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, delay, headless } from '../../helpers/timing';
-import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
+import { bootstrapUser, incomingClustersIncludeTitleForUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
 import { waitForBroadcastBulkAck } from '../../helpers/broadcast-ack';
 import { gunBaseURL } from '../../helpers/ports';
@@ -192,17 +192,10 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
 
       await expect
         .poll(
-          async () => {
-            const res = await pageTom.request.get(
-              `${gunBaseURL()}/api/users/${encodeURIComponent(jerryId)}/incoming-talks`,
-              { headers: { 'Cache-Control': 'no-cache' } },
-            );
-            if (!res.ok()) return 'bad-status';
-            const rows = (await res.json()) as Array<{ title?: string }>;
-            return rows.some((r) => String(r.title || '').includes('Parent-room-only isolation'))
+          async () =>
+            (await incomingClustersIncludeTitleForUser(pageJerry, jerryId, 'Parent-room-only isolation'))
               ? 'found'
-              : 'absent';
-          },
+              : 'absent',
           {
             timeout: 25_000,
             intervals: [500],

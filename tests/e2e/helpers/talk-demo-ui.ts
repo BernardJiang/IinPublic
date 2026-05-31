@@ -11,7 +11,7 @@ import {
   waitForResponseModalClosed,
 } from './talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from './broadcast-preamble';
-import { gunBaseURL } from './ports';
+import { gunBaseURL, isDirectTalkDeliveryE2e } from './ports';
 
 async function clickChatroomBroadcastButton(page: Page): Promise<void> {
   const preamble = page.locator('[data-testid="broadcast-preamble-modal"]');
@@ -83,6 +83,9 @@ export async function clickBroadcastUntilBulkAck(page: Page): Promise<void> {
   const genBefore = Number(await loc.getAttribute('data-broadcast-bulk-gen'));
   const start = Number.isFinite(genBefore) ? genBefore : 0;
   await waitForGunApiReady(8_000).catch(() => {});
+  if (isDirectTalkDeliveryE2e()) {
+    await waitForDistinctGunPeersExcludingSelf(page, 1, 120_000);
+  }
   await clickChatroomBroadcastButton(page);
   await expect
     .poll(
@@ -272,13 +275,38 @@ export async function fetchTalkData(page: Page, talkId: string): Promise<any> {
 export async function findIncomingTalkIdByTitle(page: Page, titleSubstring: string): Promise<string> {
   const responder = await currentUserIdentity(page);
   if (!responder.id) throw new Error('findIncomingTalkIdByTitle: not logged in');
+  const needle = titleSubstring.toLowerCase();
+  if (isDirectTalkDeliveryE2e()) {
+    const talkId = await page.evaluate(async (n) => {
+      const app = (
+        window as unknown as {
+          __iinpublic_app?: { getApp: () => { getLocalIncomingClustersForE2e?: () => Promise<unknown[]> } };
+        }
+      ).__iinpublic_app?.getApp?.();
+      const clusters = (await app?.getLocalIncomingClustersForE2e?.()) ?? [];
+      for (const c of clusters as Array<{ title?: string; talkIds?: Record<string, unknown>; latestTalkId?: string }>) {
+        if (String(c.title || '').toLowerCase().includes(n)) {
+          const latest = String(c.latestTalkId || '').trim();
+          if (latest) return latest.split('__')[0] || latest;
+        }
+        const talkIds = c.talkIds;
+        if (talkIds && typeof talkIds === 'object') {
+          for (const id of Object.keys(talkIds).filter((k) => !k.startsWith('_'))) {
+            return id;
+          }
+        }
+      }
+      return '';
+    }, needle);
+    if (talkId) return talkId;
+    throw new Error(`findIncomingTalkIdByTitle: no talk matching "${titleSubstring}"`);
+  }
   const res = await page.context().request.get(
     `${gunBaseURL()}/api/users/${encodeURIComponent(responder.id)}/incoming-talks`,
     { headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } },
   );
   if (!res.ok()) throw new Error(`incoming-talks failed: ${res.status()}`);
   const clusters = (await res.json()) as unknown[];
-  const needle = titleSubstring.toLowerCase();
   for (const c of clusters) {
     const cluster = c as { title?: string; talkIds?: Record<string, unknown>; latestTalkId?: string };
     if (String(cluster.title || '').toLowerCase().includes(needle)) {

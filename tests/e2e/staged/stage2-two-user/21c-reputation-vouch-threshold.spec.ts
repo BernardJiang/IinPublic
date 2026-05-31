@@ -9,6 +9,7 @@ import {
   finalCleanupPages,
   waitForIncomingTalkClusterOnServer,
   waitForTabActive,
+  incomingClustersIncludeTitleForUser,
 } from '../../helpers/talks-matching-flow';
 import {
   createAdultTalk,
@@ -84,28 +85,8 @@ test.describe('Reputation system — vouch threshold', () => {
       await afterAction();
       await waitForTabActive(pageTom!, 'chatrooms');
 
-      const delivered = async (): Promise<boolean> => {
-        const res = await pageTom!.request.get(
-          `${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}/incoming-talks`,
-          { timeout: 30_000 },
-        );
-        if (!res.ok()) return false;
-        const clusters = (await res.json()) as unknown[];
-        const base = gunBaseURL();
-        for (const c of clusters as Array<{ title?: unknown; talkIds?: unknown }>) {
-          if (String(c?.title || '').includes(adultTitle)) return true;
-          const t = c?.talkIds;
-          if (!t || typeof t !== 'object' || Array.isArray(t)) continue;
-          const ids = Object.keys(t as Record<string, unknown>).filter((k) => !k.startsWith('_'));
-          for (const id of ids) {
-            const tr = await pageTom!.request.get(`${base}/api/talks/${encodeURIComponent(id)}`);
-            if (!tr.ok()) continue;
-            const td = (await tr.json()) as { title?: unknown };
-            if (String(td?.title || '').includes(adultTitle)) return true;
-          }
-        }
-        return false;
-      };
+      const delivered = async (): Promise<boolean> =>
+        incomingClustersIncludeTitleForUser(pageJerry!, jerryUserId, adultTitle);
 
       if (i < 3) {
         await expect

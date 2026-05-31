@@ -62,9 +62,14 @@ export function webBaseURL(idx: number = parallelSlot()): string {
  * + FIFO on — out of sync with playwright.config servers (50 + FIFO off). URL params
  * override CONFIG in the browser (see `src/shared/config.ts` and `03-capacity-eviction.spec.ts`).
  */
+/** True when Playwright spawned servers with mesh talk delivery (no server inbox authority). */
+export function isDirectTalkDeliveryE2e(): boolean {
+  return process.env.P0_DIRECT_TALK_DELIVERY === '1';
+}
+
 export function webAppURLStableChatroom(idx: number = parallelSlot()): string {
   const params = new URLSearchParams({ e2e_capacity: '50', e2e_fifo: 'false' });
-  if (process.env.P0_DIRECT_TALK_DELIVERY === '1') {
+  if (isDirectTalkDeliveryE2e()) {
     params.set('e2e_p0_talks', '1');
   }
   return `${webBaseURL(idx)}/?${params.toString()}`;

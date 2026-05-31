@@ -1,4 +1,6 @@
 import type { Page } from '@playwright/test';
+import { isDirectTalkDeliveryE2e } from './ports';
+import { waitForDistinctGunPeersExcludingSelf } from './talk-demo-ui';
 
 /**
  * Confirm the audience-preview modal shown before manual Broadcast delivery. It
@@ -21,5 +23,8 @@ export async function confirmBroadcastTagPreambleIfVisible(page: Page, timeoutMs
   if (!ready) return;
 
   if (!(await preamble.isVisible().catch(() => false))) return;
+  if (isDirectTalkDeliveryE2e()) {
+    await waitForDistinctGunPeersExcludingSelf(page, 1, 120_000);
+  }
   await sendBtn.click({ timeout: 8_000 });
 }

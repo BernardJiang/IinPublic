@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect } from './fixtures';
-import { gunBaseURL } from './ports';
+import { gunBaseURL, isDirectTalkDeliveryE2e } from './ports';
+import { localIncomingClustersIncludeTitle } from './talks-matching-flow';
 import {
   parseStatusBarMatchCount,
   waitForStatusBarMatchCountAtLeast,
@@ -63,6 +64,9 @@ export async function assertStatusChecks(page: Page, checks: StatusCheck[]): Pro
       case 'incomingTalkTitle':
         await expect
           .poll(async () => {
+            if (isDirectTalkDeliveryE2e()) {
+              return localIncomingClustersIncludeTitle(page, check.titleSubstring);
+            }
             const uid = await page.evaluate(() =>
               String(
                 (

@@ -14,6 +14,7 @@ import {
   waitForIncomingTalkClusterOnServer,
   waitForTabActive,
   resetTalksMatchingSession,
+  incomingClustersIncludeTitleForUser,
 } from '../../helpers/talks-matching-flow';
 import { dismissNotificationOverlays } from '../../helpers/durable-ui';
 
@@ -128,11 +129,8 @@ test.describe('Age-gating — adult talk blocked for unverified user', () => {
 
     // Bob (not age-verified) should NOT receive the adult talk — the server already processed
     // the broadcast by the time Jerry's assertion passed, so no additional wait is needed.
-    const bobRes = await pageTom.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(bobUserId)}/incoming-talks`);
-    expect(bobRes.ok()).toBeTruthy();
-    const bobClusters = (await bobRes.json()) as Array<{ title?: string }>;
     expect(
-      bobClusters.some((c) => String(c.title ?? '').includes(ADULT_TALK_TITLE)),
+      await incomingClustersIncludeTitleForUser(pageBob, bobUserId, ADULT_TALK_TITLE),
       'Bob (not age-verified) must NOT receive the adult talk',
     ).toBe(false);
   });

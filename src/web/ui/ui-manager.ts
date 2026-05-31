@@ -153,6 +153,8 @@ export type BroadcastAudiencePreview = {
   title: string;
   totalCandidates: number;
   eligibleReceivers: number;
+  /** Server preview ids (P0 mesh uses this instead of registering on hub). */
+  eligibleReceiverIds?: string[];
   rejectedByCounts: Record<string, number>;
   eligibleReceiverNames?: string[];
   rejectedReceiverDetails?: Array<{ name: string; rejectedBy: string[] }>;

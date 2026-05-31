@@ -11,6 +11,8 @@ import {
   syncIncomingFromServer,
   waitForResponseModalClosed,
   waitForTabActive,
+  waitForIncomingTalkCluster,
+  incomingClustersIncludeTitleForUser,
 } from '../../helpers/talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
 import { waitForBroadcastBulkAck } from '../../helpers/broadcast-ack';
@@ -122,23 +124,21 @@ test.describe('Me tab filters and credit visibility', () => {
     await waitForTabActive(pageTom, 'chatrooms');
 
     await waitForBroadcastBulkAck(pageTom, { talksSent: 2, receivers: 1 });
+    await afterSync();
+    await pageJerry.click('.nav-btn[data-view="talks"]');
+    await syncIncomingFromServer(pageJerry);
+    await afterSync();
 
     const jerryUserId = await pageJerry.evaluate(
       () => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '',
     );
+    await waitForIncomingTalkCluster(pageJerry, 'Filtered Flow Talk', { timeout: 60_000 });
     await expect
       .poll(
-        async () => {
-          const res = await pageTom.request.get(
-            `${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}/incoming-talks`,
-          );
-          if (!res.ok()) return 'request-failed';
-          const rows = await res.json() as Array<{ title?: string }>;
-          return rows.map((row) => row.title || '').sort().join('|');
-        },
-        { timeout: 20000, message: 'server-side incoming talks should exclude filtered survey talks' },
+        async () => incomingClustersIncludeTitleForUser(pageJerry, jerryUserId, 'Filtered Survey Talk'),
+        { timeout: 20_000, message: 'incoming talks should exclude filtered survey talks' },
       )
-      .toBe('Filtered Flow Talk');
+      .toBe(false);
 
     await pageJerry.click('.nav-btn[data-view="talks"]');
     await afterSync();

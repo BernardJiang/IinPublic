@@ -6,7 +6,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
 import { gunBaseURL, webBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
-import { openIncomingTalkModal, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
+import { openIncomingTalkModal, waitForResponseModalClosed, getIncomingClusterTitlesForUser } from '../../helpers/talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
@@ -150,13 +150,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     );
     await expect
       .poll(
-        async () => {
-          const res = await pageAlice.request.get(
-            `${gunBaseURL()}/api/users/${encodeURIComponent(tomUserId)}/incoming-talks`,
-          );
-          if (!res.ok()) return 0;
-          return (await res.json() as any[]).length;
-        },
+        async () => (await getIncomingClusterTitlesForUser(pageTom, tomUserId)).length,
         { message: 'Tom should have incoming talks after broadcast', timeout: 60_000 },
       )
       .toBeGreaterThanOrEqual(1);

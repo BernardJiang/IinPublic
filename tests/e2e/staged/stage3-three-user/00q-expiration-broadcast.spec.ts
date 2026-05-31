@@ -9,6 +9,7 @@ import {
   resetTalksMatchingSession,
   waitForIncomingTalkClusterOnServer,
   waitForTabActive,
+  incomingClustersIncludeTitleForUser,
 } from '../../helpers/talks-matching-flow';
 import {
   launchThreeBrowsers,
@@ -43,12 +44,9 @@ async function broadcastFromCurrentRoom(page: Page): Promise<void> {
   await waitForTabActive(page, 'chatrooms');
 }
 
-async function serverHasIncomingTitle(page: Page, title: string): Promise<boolean> {
+async function receiverHasIncomingTitle(page: Page, title: string): Promise<boolean> {
   const receiverId = await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
-  const response = await page.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(receiverId)}/incoming-talks`);
-  if (!response.ok()) return false;
-  const rows = await response.json() as Array<{ title?: string }>;
-  return rows.some((row) => String(row.title || '').includes(title));
+  return incomingClustersIncludeTitleForUser(page, receiverId, title);
 }
 
 test.describe('Talk expiration broadcast behavior', () => {
@@ -123,6 +121,6 @@ test.describe('Talk expiration broadcast behavior', () => {
       timeout: 15_000,
     });
     await afterSync();
-    expect(await serverHasIncomingTitle(pageJerry, expiredTitle)).toBe(false);
+    expect(await receiverHasIncomingTitle(pageJerry, expiredTitle)).toBe(false);
   });
 });

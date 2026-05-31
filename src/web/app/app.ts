@@ -19,6 +19,8 @@ import {
   TECHSUPPORT_STAGE_NAME,
 } from '../../shared/techsupport';
 import { resolveP2PRuntimeFlags, usesDirectTalkDelivery, type P2PRuntimeFlags } from '../../shared/p2p-runtime';
+import { intakeFilterRejectReasons } from '../../shared/talk-intake-filters';
+import { getTalkIntakeFilters } from '../ui/talk-intake-filters';
 import { P2PPresenceClient } from '../services/p2p-presence-client';
 import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
 import {
@@ -524,6 +526,60 @@ export class IinPublicApp {
     this.initDirectTalkDeliverySubscriptions();
   }
 
+  /** P0: apply the same intake gates as POST /received (filters, age, block list). */
+  private shouldAcceptPeerTalkOffer(offer: { senderId: string; talkData: Record<string, unknown> }): boolean {
+    const me = this.currentUser;
+    if (!me?.id || offer.senderId === me.id) return false;
+    if ((me.blockedUserIds ?? []).includes(offer.senderId)) return false;
+    const talkData = offer.talkData;
+    const expiresAtValue = talkData?.expiresAt;
+    const expiresAt =
+      typeof expiresAtValue === 'number'
+        ? expiresAtValue
+        : typeof expiresAtValue === 'string'
+          ? new Date(expiresAtValue).getTime()
+          : Number.NaN;
+    if (Number.isFinite(expiresAt) && Date.now() > expiresAt) return false;
+    if (talkData?.isAdult && !me.reputation?.ageVerified) return false;
+    const filters = getTalkIntakeFilters();
+    const td = talkData;
+    const authorLoc =
+      td.authorLocation &&
+      typeof td.authorLocation === 'object' &&
+      typeof (td.authorLocation as { latitude?: unknown }).latitude === 'number' &&
+      typeof (td.authorLocation as { longitude?: unknown }).longitude === 'number'
+        ? (td.authorLocation as { latitude: number; longitude: number })
+        : undefined;
+    const reasons = intakeFilterRejectReasons(
+      {
+        title: typeof td.title === 'string' ? td.title : String(td.title ?? ''),
+        type: typeof td.type === 'string' ? td.type : String(td.type ?? ''),
+        language: typeof td.language === 'string' ? td.language : String(td.language ?? ''),
+        createdAt:
+          td.createdAt instanceof Date
+            ? td.createdAt.toISOString()
+            : typeof td.createdAt === 'string'
+              ? td.createdAt
+              : String(td.createdAt ?? ''),
+        updatedAt:
+          td.updatedAt instanceof Date
+            ? td.updatedAt.toISOString()
+            : typeof td.updatedAt === 'string'
+              ? td.updatedAt
+              : typeof td.createdAt === 'string'
+                ? td.createdAt
+                : String(td.createdAt ?? ''),
+        ...(authorLoc ? { authorLocation: authorLoc } : {}),
+        questions: Array.isArray(td.questions) ? td.questions : [],
+        ...(typeof td.questionsJson === 'string' ? { questionsJson: td.questionsJson } : {}),
+        isAdult: !!td.isAdult,
+      },
+      filters,
+      this.currentLocation,
+    );
+    return reasons.length === 0;
+  }
+
   /** P0: subscribe to directed talk offers on local Gun (mesh via hub relay). */
   private initDirectTalkDeliverySubscriptions(): void {
     if (!usesDirectTalkDelivery(this.p2pRuntimeFlags) || !this.currentUser?.id) return;
@@ -532,7 +588,7 @@ export class IinPublicApp {
       this.gunService,
       this.currentUser.id,
       (offer) => {
-        if (offer.senderId === this.currentUser?.id) return;
+        if (!this.shouldAcceptPeerTalkOffer(offer)) return;
         const cluster = applyPeerTalkOfferToLocalInbox(
           this.gunService,
           this.currentUser!.id,
@@ -1104,12 +1160,17 @@ export class IinPublicApp {
     members: Array<{ userId: string; stageName: string }>,
     broadcastTargetTags?: string[],
     broadcastMaxDistanceMiles?: number,
+    eligibleReceiverIds?: string[],
   ): Promise<boolean> {
     const me = this.currentUser;
     if (!me?.id || members.length === 0) return true;
-    const receiverIds = members
+    let receiverIds = members
       .map((m) => m.userId)
       .filter((id) => id !== me.id && id !== TECHSUPPORT_ROOT_USER_ID);
+    if (eligibleReceiverIds !== undefined) {
+      const allowed = new Set(eligibleReceiverIds);
+      receiverIds = receiverIds.filter((id) => allowed.has(id));
+    }
     if (receiverIds.length === 0) return true;
 
     if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
@@ -1197,6 +1258,7 @@ export class IinPublicApp {
       title: String(talk.title || 'Untitled Talk'),
       totalCandidates: receiverIds.length,
       eligibleReceivers: receiverIds.length,
+      eligibleReceiverIds: receiverIds,
       rejectedByCounts: {},
       eligibleReceiverNames: receiverIds.map((receiverId) => stageNameById.get(receiverId) || receiverId),
       rejectedReceiverDetails: [],
@@ -1243,6 +1305,7 @@ export class IinPublicApp {
         title: String(talk.title || 'Untitled Talk'),
         totalCandidates: Number(preview.totalCandidates ?? receiverIds.length),
         eligibleReceivers: Number(preview.eligibleReceivers ?? receiverIds.length),
+        eligibleReceiverIds,
         rejectedByCounts: preview.rejectedByCounts && typeof preview.rejectedByCounts === 'object'
           ? preview.rejectedByCounts
           : {},
@@ -2236,15 +2299,22 @@ export class IinPublicApp {
               this.uiManager.getBroadcastableTalkIds().filter((id) => broadcastableIds.includes(id)),
             );
             // registerReceiversOnServerForTalk returns boolean (ok vs error) — count only non-skipped calls.
+            const previewByTalkId = new Map(audiencePreviews.map((p) => [p.talkId, p]));
             const batchResults = await Promise.all(
               batch.map(({ tid, talk }) => {
                 if (!broadcastableNow.has(tid)) return Promise.resolve(false);
+                const preview = previewByTalkId.get(tid);
+                const eligibleIds =
+                  usesDirectTalkDelivery(this.p2pRuntimeFlags) && !preview?.previewUnavailable
+                    ? preview?.eligibleReceiverIds
+                    : undefined;
                 return this.registerReceiversOnServerForTalk(
                   tid,
                   talk,
                   receivers,
                   broadcastTargetTags,
                   broadcastMaxDistanceMiles,
+                  eligibleIds,
                 );
               }),
             );

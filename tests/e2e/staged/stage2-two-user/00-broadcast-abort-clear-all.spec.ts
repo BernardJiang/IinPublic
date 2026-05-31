@@ -12,6 +12,7 @@ import {
   goToChatrooms,
   waitForBroadcastBulkAckMinSent,
 } from '../../helpers/broadcast-cancellation-helpers';
+import { isDirectTalkDeliveryE2e } from '../../helpers/ports';
 
 test.describe('Broadcast cancellation — clear all mid-flight', () => {
   let browserTom: Browser;
@@ -58,27 +59,33 @@ test.describe('Broadcast cancellation — clear all mid-flight', () => {
 
       await goToChatrooms(pageTom);
 
-      let registerCount = 0;
-      let resolveReadyToClear: (() => void) | null = null;
-      const readyToClear = new Promise<void>((resolve) => {
-        resolveReadyToClear = resolve;
-      });
+      if (!isDirectTalkDeliveryE2e()) {
+        let registerCount = 0;
+        let resolveReadyToClear: (() => void) | null = null;
+        const readyToClear = new Promise<void>((resolve) => {
+          resolveReadyToClear = resolve;
+        });
 
-      await pageTom.route('**/api/talks/*/register-receivers-for-broadcast', async (route) => {
-        registerCount += 1;
-        if (registerCount === 1) {
-          resolveReadyToClear?.();
-          // Keep one in-flight registration open long enough for clear-all to interrupt subsequent batches.
-          await new Promise((r) => setTimeout(r, 3_000));
-        }
-        await route.continue();
-      });
+        await pageTom.route('**/api/talks/*/register-receivers-for-broadcast', async (route) => {
+          registerCount += 1;
+          if (registerCount === 1) {
+            resolveReadyToClear?.();
+            await new Promise((r) => setTimeout(r, 3_000));
+          }
+          await route.continue();
+        });
 
-      await pageTom.click('#broadcast-talk-btn');
-      await confirmBroadcastTagPreambleIfVisible(pageTom);
-      await afterAction();
+        await pageTom.click('#broadcast-talk-btn');
+        await confirmBroadcastTagPreambleIfVisible(pageTom);
+        await afterAction();
 
-      await readyToClear;
+        await readyToClear;
+      } else {
+        await pageTom.click('#broadcast-talk-btn');
+        await confirmBroadcastTagPreambleIfVisible(pageTom);
+        await afterAction();
+        await waitForBroadcastBulkAckMinSent(pageTom, { receivers: 1, minSent: 1 });
+      }
       await afterAction();
 
       await pageTom.evaluate(() => {

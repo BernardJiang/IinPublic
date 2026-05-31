@@ -7,7 +7,7 @@ import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
 import { gunBaseURL, webAppURLStableChatroom } from '../../helpers/ports';
-import { openIncomingTalkModal, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
+import { openIncomingTalkModal, waitForResponseModalClosed, getIncomingClusterTitlesForUser } from '../../helpers/talks-matching-flow';
 import {
   clickBroadcastUntilBulkAck,
   waitForBroadcastableTalkIds,
@@ -148,13 +148,7 @@ test.describe('Direct messaging between matched users', () => {
 
     await expect
       .poll(
-        async () => {
-          const res = await pageTom.request.get(
-            `${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}/incoming-talks`,
-          );
-          if (!res.ok()) return 0;
-          return (await res.json() as unknown[]).length;
-        },
+        async () => (await getIncomingClusterTitlesForUser(pageJerry, jerryUserId)).length,
         { message: 'Jerry should have incoming talks after broadcast', timeout: 120_000 },
       )
       .toBeGreaterThanOrEqual(1);

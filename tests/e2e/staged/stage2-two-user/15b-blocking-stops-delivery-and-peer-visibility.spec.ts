@@ -10,6 +10,7 @@ import {
   waitForResponseModalClosed,
   waitForTabActive,
   resetTalksMatchingSession,
+  incomingClustersIncludeTitleForUser,
 } from '../../helpers/talks-matching-flow';
 import { createMatchTalk, enterGlobalChatroom } from '../../helpers/blocking-e2e-helpers';
 
@@ -118,12 +119,7 @@ test.describe('Blocking system — block stops delivery', () => {
 
     await expect
       .poll(
-        async () => {
-          const res = await pageTom.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}/incoming-talks`);
-          if (!res.ok()) return false;
-          const clusters = await res.json() as Array<{ title?: string }>;
-          return clusters.some((cluster) => String(cluster.title || '').includes('Blocked Delivery Talk'));
-        },
+        async () => incomingClustersIncludeTitleForUser(pageJerry, jerryUserId, 'Blocked Delivery Talk'),
         { timeout: 12000 },
       )
       .toBe(false);

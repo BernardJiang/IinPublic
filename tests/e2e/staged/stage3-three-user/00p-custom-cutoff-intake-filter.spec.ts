@@ -10,6 +10,7 @@ import {
   resetTalksMatchingSession,
   waitForIncomingTalkClusterOnServer,
   waitForTabActive,
+  incomingClustersIncludeTitleForUser,
 } from '../../helpers/talks-matching-flow';
 import {
   launchThreeBrowsers,
@@ -74,12 +75,9 @@ async function waitForPreviewRejection(
     .toBe(1);
 }
 
-async function expectServerIncomingExcludes(page: Page, title: string): Promise<void> {
+async function expectIncomingExcludes(page: Page, title: string): Promise<void> {
   const receiverId = await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
-  const response = await page.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(receiverId)}/incoming-talks`);
-  expect(response.ok()).toBeTruthy();
-  const rows = await response.json() as Array<{ title?: string }>;
-  expect(rows.map((row) => row.title || '')).not.toContain(title);
+  expect(await incomingClustersIncludeTitleForUser(page, receiverId, title)).toBe(false);
 }
 
 test.describe('Incoming talk custom phrase and cutoff filtering', () => {
@@ -146,7 +144,7 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
     await createFlowTalk(pageTom, phraseBlockedTitle);
     await broadcastFromCurrentRoom(pageTom);
     await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 1 });
-    await expectServerIncomingExcludes(pageJerry, phraseBlockedTitle);
+    await expectIncomingExcludes(pageJerry, phraseBlockedTitle);
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
@@ -186,7 +184,7 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
     await createFlowTalk(pageTom, cutoffBlockedTitle);
     await broadcastFromCurrentRoom(pageTom);
     await waitForBroadcastBulkAck(pageTom, { talksSent: 3, receivers: 1 });
-    await expectServerIncomingExcludes(pageJerry, cutoffBlockedTitle);
+    await expectIncomingExcludes(pageJerry, cutoffBlockedTitle);
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();

@@ -4,7 +4,7 @@ import { ensureWindowFitsViewport } from './browser-window';
 import { attachE2eBrowserTabLabel } from './e2e-tab-title';
 import { attachFilteredConsoleLog } from './e2e-console';
 import { afterLoad, afterNav, afterSync } from './timing';
-import { gunBaseURL, webAppURLStableChatroom } from './ports';
+import { gunBaseURL, isDirectTalkDeliveryE2e, webAppURLStableChatroom } from './ports';
 import {
   TECHSUPPORT_HEADSHOT,
   TECHSUPPORT_NETWORK_ROLE,
@@ -206,11 +206,78 @@ export async function waitForIncomingTalkClusterOnLocalGun(
     .toBe('ok');
 }
 
+/** P0 or star: wait until incoming cluster for this user includes title substring. */
+export async function waitForIncomingTalkCluster(
+  page: Page,
+  titleSubstring: string,
+  options?: IncomingTalkServerWaitOptions,
+): Promise<void> {
+  if (isDirectTalkDeliveryE2e()) {
+    await waitForIncomingTalkClusterOnLocalGun(page, titleSubstring, options);
+    return;
+  }
+  await waitForIncomingTalkClusterOnServer(page, titleSubstring, options);
+}
+
+export async function localIncomingClustersIncludeTitle(page: Page, titleSubstring: string): Promise<boolean> {
+  const needle = titleSubstring.toLowerCase();
+  return page.evaluate(async (n) => {
+    const app = (
+      window as unknown as {
+        __iinpublic_app?: { getApp: () => { getLocalIncomingClustersForE2e?: () => Promise<unknown[]> } };
+      }
+    ).__iinpublic_app?.getApp?.();
+    const clusters = (await app?.getLocalIncomingClustersForE2e?.()) ?? [];
+    const hay = JSON.stringify(clusters).toLowerCase();
+    return hay.includes(n);
+  }, needle);
+}
+
+/** Poll incoming cluster titles for a user (local Gun in P0, server API in star mode). */
+export async function getIncomingClusterTitlesForUser(
+  page: Page,
+  userId: string,
+): Promise<string[]> {
+  if (isDirectTalkDeliveryE2e()) {
+    return page.evaluate(async () => {
+      const app = (
+        window as unknown as {
+          __iinpublic_app?: { getApp: () => { getLocalIncomingClustersForE2e?: () => Promise<{ title?: string }[]> } };
+        }
+      ).__iinpublic_app?.getApp?.();
+      const clusters = (await app?.getLocalIncomingClustersForE2e?.()) ?? [];
+      return clusters.map((c) => String(c?.title || ''));
+    });
+  }
+  const r = await page.context().request.get(
+    `${gunBaseURL()}/api/users/${encodeURIComponent(userId)}/incoming-talks`,
+    { headers: noCacheHeaders },
+  );
+  if (!r.ok()) return [];
+  const clusters = (await r.json()) as Array<{ title?: string }>;
+  return Array.isArray(clusters) ? clusters.map((c) => String(c?.title || '')) : [];
+}
+
+export async function incomingClustersIncludeTitleForUser(
+  page: Page,
+  userId: string,
+  titleSubstring: string,
+): Promise<boolean> {
+  if (isDirectTalkDeliveryE2e()) {
+    return localIncomingClustersIncludeTitle(page, titleSubstring);
+  }
+  return incomingClustersIncludeTitleSubstring(page.context().request, userId, titleSubstring);
+}
+
 export async function waitForIncomingTalkClusterOnServer(
   page: Page,
   titleSubstring: string,
   options?: IncomingTalkServerWaitOptions,
 ): Promise<void> {
+  if (isDirectTalkDeliveryE2e()) {
+    await waitForIncomingTalkClusterOnLocalGun(page, titleSubstring, options);
+    return;
+  }
   const timeout = options?.timeout ?? 90_000;
   const polling = options?.polling ?? 500;
   const uid = await page.evaluate(() =>
@@ -297,7 +364,54 @@ export async function waitForResponseModalClosed(page: Page): Promise<void> {
   await page.waitForSelector('#talk-response-modal', { state: 'detached', timeout: RESPONSE_MODAL_DETACHED_MS });
 }
 
-/** POST /received + IN list: wait until GET incoming-talks includes this talk id for the page user. */
+/** POST /received + IN list: wait until incoming index includes this talk id for the page user. */
+export async function waitForIncomingTalkId(
+  page: Page,
+  talkId: string,
+  options?: IncomingTalkServerWaitOptions,
+): Promise<void> {
+  if (isDirectTalkDeliveryE2e()) {
+    await waitForIncomingTalkIdOnLocalGun(page, talkId, options);
+    return;
+  }
+  await waitForIncomingTalkIdOnServer(page, talkId, options);
+}
+
+async function waitForIncomingTalkIdOnLocalGun(
+  page: Page,
+  talkId: string,
+  options?: IncomingTalkServerWaitOptions,
+): Promise<void> {
+  const tid = String(talkId || '').trim();
+  if (!tid) throw new Error('waitForIncomingTalkIdOnLocalGun: empty talkId');
+  const timeout = options?.timeout ?? 90_000;
+  const polling = options?.polling ?? 500;
+  const clusterHasTalk = (c: { latestTalkId?: unknown; talkIds?: unknown }): boolean => {
+    const latest = String(c?.latestTalkId || '');
+    if (latest === tid || latest.startsWith(`${tid}__`)) return true;
+    const t = c?.talkIds;
+    if (t && typeof t === 'object' && !Array.isArray(t)) {
+      const keys = Object.keys(t as Record<string, unknown>);
+      if (keys.some((k) => k === tid || k.startsWith(`${tid}__`))) return true;
+    }
+    return false;
+  };
+  await expect
+    .poll(async () => {
+      const clusters = await page.evaluate(async () => {
+        const app = (
+          window as unknown as {
+            __iinpublic_app?: { getApp: () => { getLocalIncomingClustersForE2e?: () => Promise<unknown[]> } };
+          }
+        ).__iinpublic_app?.getApp?.();
+        return (await app?.getLocalIncomingClustersForE2e?.()) ?? [];
+      });
+      return Array.isArray(clusters) && clusters.some((c) => clusterHasTalk(c as { latestTalkId?: unknown; talkIds?: unknown }));
+    }, { timeout, intervals: [polling] })
+    .toBe(true);
+}
+
+/** @deprecated Prefer {@link waitForIncomingTalkId} — star mode only. */
 export async function waitForIncomingTalkIdOnServer(
   page: Page,
   talkId: string,
@@ -351,7 +465,7 @@ export async function openIncomingTalkModalByTalkId(
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
   await afterSync();
-  await waitForIncomingTalkIdOnServer(page, tid);
+  await waitForIncomingTalkId(page, tid);
   await syncIncomingFromServer(page);
   await afterSync();
   const rowByAttrs = page.locator(
@@ -388,7 +502,7 @@ export async function openIncomingTalkModal(page: Page, titleSubstring: string):
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
   await afterSync();
-  await waitForIncomingTalkClusterOnServer(page, titleSubstring);
+  await waitForIncomingTalkCluster(page, titleSubstring);
   await syncIncomingFromServer(page);
   await afterSync();
   const row = page.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: titleSubstring });
@@ -424,7 +538,7 @@ export async function openIncomingTalkModalWithAutoAnswers(
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
   await afterSync();
-  await waitForIncomingTalkClusterOnServer(page, titleSubstring);
+  await waitForIncomingTalkCluster(page, titleSubstring);
   await syncIncomingFromServer(page);
   await afterSync();
   const row = page.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: titleSubstring });
