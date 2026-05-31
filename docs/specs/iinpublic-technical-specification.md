@@ -1,8 +1,8 @@
 # IinPublic — Technical Specification
 ## Software Requirements, Architecture, Security, Data, Network, Mobile & API Interfaces
 
-> **Version:** 4.2 — P2P identity, trust, protocol versioning, and upgrade requirements (§19.13)
-> **Date:** 2026-05-30
+> **Version:** 4.4 — SEA/zone-B guarantees (§19.14.9); zone-C dedup model (§19.14.10); REQ-P2P-29
+> **Date:** 2026-05-28
 > **Status:** Authoritative — single source of truth for all requirements and design decisions
 
 ---
@@ -38,6 +38,9 @@
 
 19. [P2P Architecture: Data Storage and Network Design](#19-p2p-architecture-data-storage-and-network-design)
     - [19.13 P2P Identity, Trust, Versioning, and Upgrades](#1913-p2p-identity-trust-versioning-and-upgrades)
+    - [19.14 Data Ownership and Visibility Zones](#1914-data-ownership-and-visibility-zones)
+      - [19.14.9 SEA and Zone B](#19149-sea-and-zone-b-confidentiality-guarantees-and-limits)
+      - [19.14.10 Zone C Redundancy](#191410-zone-c-redundancy-when-one-talk-fanouts-to-many-receivers)
 20. [Interaction Ledger: DAG-Based History and Delta Sync](#20-interaction-ledger-dag-based-history-and-delta-sync)
 21. [Survey: Blockchain and DAG Structures in P2P Messaging Networks](#21-survey-blockchain-and-dag-structures-in-p2p-messaging-networks)
 
@@ -446,6 +449,18 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 - **REQ-P2P-18:** `appName` alone SHALL NOT confer trust; verification SHALL use pubkey, signatures, history, reputation, behavior, and user approval.
 - **REQ-P2P-19:** P2P messages SHALL include `peerId`, `timestamp`, `nonce`, and `signature`; replays (stale timestamp or reused nonce) SHALL be rejected.
 - **REQ-P2P-20:** Malformed protocol traffic, spam, and excessive connection attempts SHALL be rate-limited and may downgrade peer priority.
+
+> Data ownership, chatroom vs pair isolation, and scalable fanout: [§19.14](#1914-data-ownership-and-visibility-zones).
+
+- **REQ-P2P-21:** Every application graph write SHALL declare a `visibility` attribute: `room` | `user` | `pair` (and optional `roomId`, `ownerUserId`, or `pairId`). Clients SHALL NOT subscribe to graphs outside their visibility scope.
+- **REQ-P2P-22:** **Chatrooms** SHALL store only zone-A data: membership, presence in room, and **talk announcements** (pointers: `talkId`, `authorId`, title, type, timestamps). Chatroom nodes SHALL NOT store full talk bodies, answers, IN inbox clusters, or pairwise conversations.
+- **REQ-P2P-23:** **User-private** data (profile foundation, blocks, filters, known people, IN index, outbox drafts, chatbot memory) SHALL live under the owner's SEA-encrypted soul (`~<pub>/…`) or device-local Gun only. Other users SHALL NOT replicate this subgraph.
+- **REQ-P2P-24:** **Pair-private** data (responses to a talk, match thread, DM bodies between two users) SHALL live under a deterministic `pairId = sort(pubA, pubB)` namespace, SEA-encrypted for the two participants only. Third parties (including other chatroom members) SHALL NOT Gun-subscribe or hub-persist pair paths.
+- **REQ-P2P-25:** **Outbound talks** are the only talk payloads intentionally shared beyond the author: published via directed offers to chosen receivers (and optional author catalog), not as world-readable children of a global `talks/<talkId>` tree replicated to all room members.
+- **REQ-P2P-26:** The hub (`www.iinpublic.com`) SHALL NOT durably store `incomingTalksMap`, `talkResponsesMap`, or per-pair application state. Hub cost SHALL scale with ephemeral presence, signaling, and room membership TTL — not with O(users²) pairwise history ([§19.14](#1914-data-ownership-and-visibility-zones)).
+- **REQ-P2P-27:** UI and HTTP APIs SHALL scope reads by ownership (e.g. creator "Replies" reads pair edges for talks the user sent; peers cannot list another pair's responses via global talk id).
+- **REQ-P2P-28:** Production SHALL deprecate star-mode paths that replicate answers on `talks/<talkId>/responses` for all graph subscribers; migration target is pair-scoped ciphertext (Phase E, [§19.12](#1912-network-migration-phases-ad-hub-evolution)).
+- **REQ-P2P-29:** For a content-addressed `talkId`, the author SHALL store **at most one** canonical talk body in zone B (outbox and/or author catalog). Directed offers to multiple receivers SHALL prefer `{ talkId, catalogRef, SEA ciphertext }` over duplicating full plaintext `talkData` on every `peerTalkOffers/<receiver>/…` node when the catalog is available ([§19.14.10](#191410-zone-c-redundancy-when-one-talk-fanouts-to-many-receivers)).
 
 ---
 
@@ -896,6 +911,8 @@ const value = await SEA.decrypt(enc, userPair);
 **Intentionally public:** stage name, public/auto answers, public chatroom messages.
 
 **Key storage:** Keys are in Gun's `user` space backed by browser IndexedDB or Android Keystore. Keys never leave the device unless the user explicitly exports them.
+
+**Zone B (production model):** See [§19.14.9](#19149-sea-and-zone-b-confidentiality-guarantees-and-limits) for what SEA does and does not protect when user-private data lives under `gun.user().get('private')` (shipped: `WebGunService.putPrivate` / `WebUserService.putPrivateUserData`).
 
 ### 7.9 Stranger Model & Known-Person Trust
 
@@ -2202,7 +2219,7 @@ The following items are known open questions or planned post-MVP work:
 - **Hybrid chatroom hierarchy**: Gun.js spatial queries + custom geographical nodes for multi-scale location coverage.
 - **Stranger-first trust**: All users start as strangers; encryption and known-person labelling are opt-in per relationship.
 - **Three-tier message channels**: public / known (one-way encrypted) / mutual (ECDH) with distinct UI badges.
-- **Data ownership boundary**: Local-first private data can be wiped per device; server-held export/delete requests are metadata-only; encrypted-user-owned and removable-legacy records migrate to local encrypted owner storage; relay-only support paths have short TTLs.
+- **Data ownership boundary**: Three visibility zones — **room (discovery)**, **user-private**, **pair-private** — govern Gun sync and hub persistence ([§19.14](#1914-data-ownership-and-visibility-zones)). Local-first private data can be wiped per device; server-held export/delete requests are metadata-only; relay-only paths have short TTLs. Star-mode global paths such as `talks/<id>/responses` are **not** the production model.
 - **Telemetry-free transport diagnostics**: Users can see whether a message path used direct P2P, relay fallback, or star-server mode without analytics upload.
 - **Public/private answer visibility**: Per-answer `auto` vs `manual` flag; chatbot only repeats `auto` answers.
 - **Exact chatbot memory**: Chatbot answer reuse is deterministic over normalized question/answer IDs with `TEMPORARY`, `PERMANENT`, and `SUPPRESSED` modes. Permanent answers override temporary history; suppressed questions skip forever; append-only use events are the source of truth for auto-use metrics.
@@ -2293,7 +2310,7 @@ The following items are known open questions or planned post-MVP work:
 
 > **Status:** Authoritative production target · **Date:** 2026-05-28
 >
-> This section is the single source of truth for `www.iinpublic.com` networking and persistence. Implementation tasks live in `docs/TODO.md` (phases P2P-H–O shipped; **P2P-P–U** in [§19.13](#1913-p2p-identity-trust-versioning-and-upgrades)). The shipped direct WebRTC transport slice (`docs/TODO-direct-p2p.md`) is **superseded** for persistence policy — see [§19.4](#194-p2p-transport-vs-gun-persistence-authoritative-model) and [§19.11](#1911-superseded-direct-p2p-ram-transport-experiment).
+> This section is the single source of truth for `www.iinpublic.com` networking and persistence. Implementation tasks live in `docs/TODO.md` (P0 + P2P-H–O shipped; **P1** pair-private ownership in [§19.14](#1914-data-ownership-and-visibility-zones); **P2P-P–U** in [§19.13](#1913-p2p-identity-trust-versioning-and-upgrades)). The shipped direct WebRTC transport slice (`docs/TODO-direct-p2p.md`) is **superseded** for persistence policy — see [§19.4](#194-p2p-transport-vs-gun-persistence-authoritative-model) and [§19.11](#1911-superseded-direct-p2p-ram-transport-experiment).
 
 ### 19.1 Current Architecture: Star Topology (Detailed)
 
@@ -2420,11 +2437,15 @@ The website does **not** ship a pre-filled Gun database download. Users build lo
 | WebRTC signaling envelopes | Yes (ephemeral) | No |
 | TechSupport messages | Yes (durable) | Replica on device for UX |
 | Peer DM bodies | **No** | Yes (authoritative) |
-| Talk definitions / responses | **No** (target) | Yes |
+| Talk definitions (author outbox) | **No** | Yes (author device; receivers pull via offer) |
+| Talk **responses** (pair-private) | **No** | Yes (**pair** subgraph only — [§19.14](#1914-data-ownership-and-visibility-zones)) |
 | Public profiles / reputation | **No** (target) | Yes (replicated from authors) |
-| Private SEA profile / blocks / filters | **No** | Yes (SEA encrypted) |
+| Private SEA profile / blocks / filters | **No** | Yes (SEA encrypted; no peer sync) |
 | Interaction ledger events | **No** (target) | Yes (`ledger/<userId>/...`) |
-| Incoming talk inbox (fanout) | **No** (target; today: server Map) | Yes (per-user local index) |
+| Incoming talk inbox (fanout) | **No** (target; today: server Map) | Yes (per-user private index) |
+| Chatroom announcements | Relay TTL only (target) | Subscribers in room see pointers only |
+
+**Star-mode anti-pattern (migration):** Storing answers under `talks/<talkId>/responses` replicates to every peer that syncs that talk node (e.g. all broadcast receivers). This violates REQ-P2P-24 and does not scale when N users each send M talks ([§19.14](#1914-data-ownership-and-visibility-zones)).
 
 ---
 
@@ -2490,6 +2511,7 @@ Phases **P2P-H** through **P2P-O** implement §19.2–§19.7 under the existing 
 - **REQ-P2P-07:** Clients SHALL register presence and acknowledge peers via server-mediated or signed direct handshake before trusting P2P payloads.
 - **REQ-P2P-08:** Match logic SHALL remain in `src/shared/talk-engine.ts` (no duplication in routes).
 - **REQ-P2P-09 – REQ-P2P-20:** See [§19.13](#1913-p2p-identity-trust-versioning-and-upgrades) and [§3.12](#312-p2p-production-model-wwwiinpubliccom).
+- **REQ-P2P-21 – REQ-P2P-29:** See [§19.14](#1914-data-ownership-and-visibility-zones) and [§3.12](#312-p2p-production-model-wwwiinpubliccom).
 
 ---
 
@@ -2503,7 +2525,7 @@ Phases **P2P-H** through **P2P-O** implement §19.2–§19.7 under the existing 
 
 ---
 
-### 19.12 Network Migration Phases A–D (Hub Evolution)
+### 19.12 Network Migration Phases A–E (Hub Evolution)
 
 Incremental migration from star to relay-only (complements ledger phases E–G, already shipped):
 
@@ -2511,6 +2533,7 @@ Incremental migration from star to relay-only (complements ledger phases E–G, 
 2. **Phase B — Client-authoritative writes:** Talk delivery and conversation writes persist to local Gun first; hub `radata/` is fallback read only.
 3. **Phase C — Relay-only hub:** Remove application `radata/` from `www.iinpublic.com`; hub holds presence + signaling + TechSupport only; super-peers hold neighborhood backups.
 4. **Phase D — Optional DHT bootstrap:** Supplement hub discovery so the network survives full hub downtime.
+5. **Phase E — Pair-private ownership graph:** Enforce three visibility zones ([§19.14](#1914-data-ownership-and-visibility-zones)); retire global `talks/<id>/responses` and server `talkResponsesMap` as sources of truth; chatroom = announcements only; answers and DMs = pair-scoped SEA ciphertext. Builds on P0 mesh delivery (`peerTalkOffers`, local IN). Implementation: **P1** in `docs/TODO.md`.
 
 Match logic (`src/shared/talk-engine.ts`) and SEA encryption are unchanged. CIDv1 content-addressing is shipped (Phase G).
 
@@ -2806,8 +2829,196 @@ Phases P2P-P–U MUST NOT duplicate match logic ([REQ-P2P-08](#1910-p2p-requirem
 | Presence + ack | [§19.3](#193-session-bootstrap-when-2-users-are-online) | `/api/presence/*`, `P2PPresenceClient` |
 | Ledger delta | [§20](#20-interaction-ledger-dag-based-history-and-delta-sync) | `LEDGER_STATE`, `ledger/<userId>/events` |
 | Reputation | FR-SP*, [§7](#7-security--privacy) | `reputation.ts`, `ReputationService` |
+| Data ownership zones | [§19.14](#1914-data-ownership-and-visibility-zones) (SEA §19.14.9, dedup §19.14.10) | `web-gun-service.ts`, `peer-talk-delivery.ts` (P1) |
 
 ---
+
+### 19.14 Data Ownership and Visibility Zones
+
+> **Status:** Authoritative requirements · **Date:** 2026-05-31
+>
+> Defines **who may replicate what** in the Gun graph and on the hub. Complements [§2 Overall Description](#2-overall-description) (chatrooms for discovery; conversations one-on-one), [§7.5 Answer Visibility](#75-answer-visibility-public-vs-private), and P0 client-authoritative talk delivery (Phase B). Implementation: `docs/TODO.md` phase **P1**.
+
+#### 19.14.1 Problem: Star Topology Does Not Scale Pairwise State
+
+In star mode the server may hold `incomingTalksMap` (per receiver), `talkResponsesMap` (per `talkId`), and Gun paths such as `talks/<talkId>/responses/<responseId>` that **replicate to every peer** syncing that talk. For *U* users each broadcasting *T* talks, hub and graph cost grows with fanout and with **shared talk subtrees**, not with isolated pairs. A third chatroom member who received the same talk announcement must not gain access to another member's manual answer to the author.
+
+**Production invariant:** Hub durable state scales with **ephemeral discovery + signaling**, not with O(users × talks × responses) application archives.
+
+#### 19.14.2 Three Visibility Zones
+
+| Zone | Purpose | Who may Gun-sync | Hub may persist |
+|------|---------|------------------|-----------------|
+| **A — Room (public discovery)** | Where users meet, join, subscribe | Members of that `chatroomId` | Membership + announcements (TTL) |
+| **B — User-private** | One user's data | That user's devices (SEA soul) | **No** |
+| **C — Pair-private** | Two users' shared talk thread | Only the two `pub` keys in `pairId` | **No** (signaling ciphertext only) |
+
+**Product rules:**
+
+1. **Chatroom** = zone A only (register / subscribe / announcements).
+2. **Two users talking** (answer, match, DM) = zone C only; **no** third peer subscribes.
+3. **User profile, inbox, outbox, memory** = zone B; **only outbound talks** are published outward (zone A pointer + directed offer to receivers).
+
+#### 19.14.3 Graph Path Layout (Target)
+
+```text
+# Zone A — room-scoped (small, public within room)
+chatrooms/{roomId}/members/{userId}
+chatrooms/{roomId}/announcements/{announcementKey}
+  → { talkId, authorId, authorName, type, title, questionCount, timestamp }
+
+# Zone B — user-owned (SEA-encrypted under ~{ownerPub}/…)
+~{ownerPub}/private/profile/…
+~{ownerPub}/private/inbox/{identityKey}/…      # IN clusters (not on hub radata)
+~{ownerPub}/private/outbox/{talkId}/…          # full talk body before / while sending
+~{ownerPub}/private/memory/…                   # chatbot / exact memory (extends §7.5)
+
+# Zone C — pair-owned (SEA-encrypted for participants only)
+pair/{pairId}/responses/{responseId}/…         # answer to author's talk
+pair/{pairId}/conversation/{convId}/messages/…
+pairId = canonicalSort(pubA, pubB)            # hex or base64url, deterministic
+```
+
+**P0 alignment (shipped):** Directed delivery uses `peerTalkOffers/<receiverUserId>/<sender::talkId>` and `peerTalkCatalog/<authorId>/<talkId>`. Phase E **encrypts** offer/catalog payloads and moves answers off `talks/<talkId>/responses`.
+
+**Deprecated for production:** Global `talks/<talkId>/responses/*` visible to all talk subscribers; server `talkResponsesMap` as long-term store; `incomingTalksMap` on hub as authoritative inbox.
+
+#### 19.14.4 Metadata on Every Write
+
+```typescript
+type Visibility = 'room' | 'user' | 'pair';
+
+interface GraphObjectEnvelope {
+  visibility: Visibility;
+  roomId?: string;
+  ownerPub?: string;
+  pairId?: string;
+  contentCid?: string;   // CIDv1 of SEA ciphertext or public JSON
+  schemaVersion: number;
+  updatedAt: string;     // ISO-8601
+}
+```
+
+Clients SHALL register Gun listeners only for paths allowed by active memberships and open pairs. Writes without a valid envelope SHALL be rejected by conforming clients.
+
+#### 19.14.5 Example: Bob, Alice, Tom
+
+Bob creates two talks and broadcasts in **Global**. Alice and Tom each receive **zone A** announcements (and directed **offers** with decryptable bodies if they are recipients). Alice answers Bob's talk manually:
+
+| Data | Zone | Tom can sync? (target) |
+|------|------|-------------------------|
+| Bob's announcement in Global | A | Yes (pointer) |
+| Full talk body to Alice | B→offer→Alice | Only if Bob targeted Alice |
+| Alice's manual answer to Bob | C `pair(bob,alice)` | **No** |
+| Bob↔Alice conversation | C | **No** |
+| Alice's private profile / memory | B | **No** |
+
+Tom may know Bob announced a talk; Tom must not read Alice's answer or Bob↔Alice messages without being a participant.
+
+#### 19.14.6 Sync and Hub Rules
+
+```text
+                    ┌─────────────────────────────┐
+                    │  Hub (relay-only, TTL)     │
+                    │  presence, signaling,       │
+                    │  room membership, ann TTL   │
+                    └──────────────┬──────────────┘
+                                   │
+         Zone A (chatroom)         │         Zone B/C (encrypted)
+    announcements + members        │    no hub radata / no third-party sync
+              │                    │
+    ┌─────────┴─────────┐          │
+    ▼                   ▼          ▼
+  Bob device        Alice device   Tom device
+  outbox + offers   inbox + pair   inbox + ann only
+                    with Bob
+```
+
+- **WebRTC / Gun mesh** between two participants synchronizes **zone C** after match.
+- **Match evaluation** remains in `src/shared/talk-engine.ts` (REQ-P2P-08); **storage** of inputs/outputs is pair-scoped.
+- **Creator "Replies"** UI reads Bob's **outbox + pair(bob,*)** edges, not a global response list keyed only by `talkId`.
+
+#### 19.14.7 Relation to Existing Classifications
+
+`STAR_GUN_PATH_CLASSIFICATIONS` in `src/shared/p2p-runtime.ts` maps to zones:
+
+| Category | Zone | Notes |
+|----------|------|-------|
+| `durable-public` (talk definition) | Author **outbox** + optional catalog | Not world-readable `talks/*` for all receivers |
+| `relay-only` (`incomingTalksByUser`) | B | Device-local / encrypted per user |
+| `encrypted-user-owned` | B | SEA soul |
+| `removable-legacy` (`conversations/*` on hub) | C | Migrate to `pair/{pairId}/…` |
+
+#### 19.14.8 Acceptance Criteria (Phase E / P1)
+
+1. With hub in relay-only mode, export snapshot contains **no** plaintext pair responses or DM bodies.
+2. User **Tom** in the same chatroom as **Bob** and **Alice** cannot Gun-read `pair(bob,alice)/responses/*` after Alice answers Bob.
+3. Hub restart without application `radata/` does not lose pair history for Bob and Alice (local Gun + mesh).
+4. Load test policy: hub memory bounded under fanout; no unbounded `talkResponsesMap` growth.
+5. Bob sending the **same** `talkId` to Alice and Tom stores **one** outbox/catalog body; offers do not duplicate full plaintext on every receiver path when catalog pull is available (REQ-P2P-29).
+
+#### 19.14.9 SEA and Zone B: Confidentiality Guarantees and Limits
+
+Zone B holds one user's profile foundation, blocks, filters, known people, inbox (IN) clusters, outbox drafts, and chatbot memory. **REQ-P2P-23** requires this under the owner's SEA soul or device-local Gun only.
+
+**Shipped pattern (browser):** `WebGunService.putPrivate` / `getPrivate` encrypt JSON with `SEA.encrypt(..., userPair)` and write under `gun.user().get('private')/…`. `WebUserService.putPrivateUserData` stores `blockedUserIds`, `knownPeople`, `talkFilters`, and related fields there. The **application server** does not hold the user's private key and **cannot decrypt** zone B ciphertext.
+
+| Protected by SEA (zone B on soul / local Gun) | Not protected by SEA alone |
+|-----------------------------------------------|----------------------------|
+| Plaintext of inbox, outbox, memory, filters, private profile fields | **Metadata**: path keys exist, update timing, approximate blob size on relay |
+| Other users without the owner's **private** key reading content | **Hub relay** may still **forward ciphertext** in flight; Phase C hub policy forbids **durable** `radata/` for zone B ([REQ-P2P-26](#312-p2p-production-model-wwwiinpubliccom)) |
+| Accidental disclosure if clients only subscribe to allowed paths | **Mis-placed writes** on **public** Gun paths (`users/<id>`, `talks/<id>`, `chatrooms/…/talks`, server `talkResponsesMap`) — SEA does not apply retroactively |
+| | **Raw Gun `.get()`** by a malicious peer on another user's soul branch — protection is **cryptographic** (unreadable ciphertext), not access-control enforced by Gun itself |
+
+**Client obligations (P1):** Conforming clients SHALL NOT subscribe to another user's `~{pub}/private/…` tree. Writes SHALL use the graph envelope ([§19.14.4](#19144-metadata-on-every-write)) with `visibility: 'user'` and `ownerPub`.
+
+**Migration note:** Star mode and pre-P1 paths still replicate some user/talk data on **public** nodes and server RAM maps. Production zone B is the **target** layout in [§19.14.3](#19143-graph-path-layout-target); P1 moves IN/outbox off hub-authoritative paths into SEA soul paths.
+
+**Code anchors:** `src/web/services/web-gun-service.ts` (`putPrivate`, `getPrivate`), `src/web/services/web-user-service.ts` (`putPrivateUserData`), [§7.8](#78-sea-encryption-per-user-dataset).
+
+#### 19.14.10 Zone C Redundancy When One Talk Fanouts to Many Receivers
+
+When **Bob** sends the **same** talk (one content-derived `talkId` / `identityKey`) to **Alice** and **Tom**, storage SHALL minimize redundant bytes while preserving **pair isolation** (Tom must not read Alice's answer — [§19.14.5](#19145-example-bob-alice-tom)).
+
+**Principle:** Store each fact **once** in the **smallest owning scope**, then use **pointers**, **directed offers**, or **pair-scoped** ciphertext only where data is inherently per-receiver or per-pair.
+
+```text
+                    ┌──────────────────────────────────────┐
+                    │ Zone B — Bob (SEA, one body)         │
+                    │  outbox/{talkId}  — canonical JSON   │
+                    │  optional peerTalkCatalog/bob/talkId │
+                    └──────────────┬───────────────────────┘
+                                   │
+         Zone A (per room)         │    Directed delivery (per receiver)
+    announcements — pointers only  │    peerTalkOffers/alice/bob::talkId
+                                   │    peerTalkOffers/tom/bob::talkId
+                                   │    (P1: ciphertext + catalogRef, not 2× body)
+                                   ▼
+              Alice                          Tom
+         inbox cluster (B)              inbox cluster (B)
+         pair(bob,alice)/responses/*   pair(bob,tom)/responses/*
+         (zone C, SEA)                (zone C, SEA)  — separate pairId each
+```
+
+| Artifact | Copies | Zone | Rationale |
+|----------|--------|------|-----------|
+| Full talk body (questions, flow, tags) | **1** (author outbox ± catalog) | B | Same authored object to N recipients |
+| Room announcement | **1 per room** broadcast | A | Small: `talkId`, author, title, type, counts |
+| Directed offer | **1 per receiver** | B→offer path | Delivery envelope; P1 shrinks to ref + SEA blob ([REQ-P2P-29](#312-p2p-production-model-wwwiinpubliccom)) |
+| Receiver IN cluster metadata | **1 per receiver device** | B (receiver) | "Talk waiting for me" — not other users' answers |
+| Alice's answer to Bob | **1** | C `pair(bob,alice)` | Tom not in `pairId` |
+| Tom's answer to Bob | **1** | C `pair(bob,tom)` | Alice not in `pairId` |
+| Match / DM thread | **0..1 per pair** | C | Only if `checkIfMatch` succeeds (`talk-engine.ts`) |
+
+`pairId = canonicalSort(pubA, pubB)` — Bob↔Alice and Bob↔Tom are **two namespaces**, not one global `talks/<talkId>/responses` subtree.
+
+**Anti-pattern (star mode, deprecated):** `talks/<talkId>/responses/<responseId>` replicates every answer to **all** peers syncing that talk node (everyone who received the announcement). Cost grows with fanout × subscribers; violates REQ-P2P-24 and REQ-P2P-28.
+
+**P0 today (shipped mesh):** `peerTalkCatalog/<authorId>/<talkId>` holds one catalog entry; `peerTalkOffers/<receiverUserId>/<sender::talkId>` delivers per receiver. `PeerTalkOfferWire` may still embed **full** `talkData` per offer — **higher redundancy than target** until P1 encrypts offers and prefers catalog pull ([REQ-P2P-29](#312-p2p-production-model-wwwiinpubliccom)). Answers in default dev/E2E still use `POST /api/talks/:id/response` and shared `talks/<id>/responses` until P1-4/P1-5 land.
+
+**Creator "Replies" UI:** Reads Bob's **outbox** plus **pair(bob,*)** response edges — not a global list keyed only by `talkId` (REQ-P2P-27).
+
+**Code anchors:** `src/shared/peer-talk-delivery.ts` (`PEER_TALK_CATALOG_ROOT`, `PEER_TALK_OFFERS_ROOT`, `PeerTalkOfferWire`), `src/shared/talk-engine.ts` (match only; storage is pair-scoped in P1).
 
 ---
 

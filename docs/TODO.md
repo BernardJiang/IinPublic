@@ -1,24 +1,64 @@
 # IinPublic TODO
 
-Last updated: 2026-05-30
+Last updated: 2026-05-28
 
 This file is the short, execution-oriented plan.
 - Completed work: `docs/completed.md`
 - Detailed backlog inventory: `docs/TODO-backlog-inventory.md`
-- **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specification.md` (§19.2, §19.12 Phase B–C)
+- **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specification.md` (§19.14, §19.14.9–10, §19.12 Phase E, REQ-P2P-21–29)
 - Supporting detail: `docs/roadmap/p2p-node-network.md`
 
-## Current Focus
+## Current Focus (P1)
 
-**P0 direct talk exchange — shipped** (see `docs/completed.md` 2026-05-30). Next: optional hardening (hub restart E2E, default `dev` flag), then deferred P2P-P–U.
+**Data ownership & visibility zones (spec §19.14, hub Phase E)** — Chatrooms are public discovery only; user data stays on the owner’s device (SEA zone B); pairwise answers and conversations are visible only to the two participants (zone C). Hub must not accumulate O(users²) pairwise state.
 
-**Run P0 locally / E2E:**
-- `npm run dev:p0-talks`
-- `npm run test:e2e:p0-talks`
+**Why:** Star mode stores answers on shared `talks/<talkId>/responses` and server `talkResponsesMap`, which replicates to every talk subscriber and does not scale (e.g. 100 users × 100 talks).
 
-## Deferred (after P0)
+**Design reference (captured 2026-05-28):**
 
-Identity/trust/versioning (§19.13, P2P-P–U), optional D4 creator-edit checks, and full `npm run test:e2e:parallel` release gate.
+- **SEA + zone B:** `putPrivate` under `gun.user().get('private')` gives **content confidentiality** from other users and the server (no private key). Does **not** hide metadata, stop hub **relay** of ciphertext, or fix data still on **public** paths. Clients must not subscribe to others’ soul trees (§19.14.9).
+- **Zone C dedup (Bob → Alice + Tom, same talk):** One talk body in Bob’s **outbox/catalog**; small **announcements** per room; **per-receiver offers** (P1: ref + ciphertext, not N× full JSON); **per-pair** `pair(bob,alice)` vs `pair(bob,tom)` for answers — not global `talks/<id>/responses` (§19.14.10, REQ-P2P-29).
+- **P0 gap:** `PeerTalkOfferWire` may still duplicate full `talkData` per receiver until P1 offer encryption + catalog pull.
+
+**Exit criteria (P1 done when):**
+
+- Alice’s manual answer to Bob’s talk is stored under **pair-private** paths (SEA), not global `talks/<id>/responses`.
+- Tom (same chatroom, received same announcement) cannot read Alice↔Bob response or DM data via Gun or hub APIs.
+- Chatroom Gun paths hold **announcements + membership** only (no full talk bodies or responses on room nodes).
+- Hub does not grow unbounded `talkResponsesMap` / authoritative `incomingTalksMap` for application history.
+- Same `talkId` to N receivers: **one** canonical body in author outbox/catalog; offers use catalog ref where possible (REQ-P2P-29).
+- E2E proves third-party isolation (extend or add spec beside `00i-p0-direct-talk-delivery`).
+
+## Next Action Items (Ordered) — P1 Ownership Graph
+
+1. **P1-1 Graph envelope** — Add `visibility` + `roomId` / `ownerPub` / `pairId` on writes; clients subscribe only to allowed paths (REQ-P2P-21).
+2. **P1-2 Zone A chatroom** — `chatrooms/<room>/announcements/*` only; stop putting full talk JSON on `chatrooms/.../talks` for production path (REQ-P2P-22).
+3. **P1-3 Zone B user-private (SEA)** — Move IN index + outbox to `~<pub>/private/…` via `putPrivate`; document non-goals (metadata, public-path migration); hub skip via relay-only (REQ-P2P-23, §19.14.9).
+4. **P1-4 Zone C pair-private + offer dedup** — `pair/{pairId}/responses`, `pair/.../conversation/...`; SEA encrypt offers; prefer `peerTalkCatalog` + `catalogRef` over N× full `talkData` on offers (REQ-P2P-24, REQ-P2P-28, REQ-P2P-29, §19.14.10).
+5. **P1-5 Server/API scope** — Remove long-lived `talkResponsesMap` authority; creator Replies reads outbox + `pair(bob,*)` edges (REQ-P2P-27, REQ-P2P-26).
+6. **P1-6 E2E isolation** — Bob + Alice + Tom: Alice answers Bob; Tom sees announcement only, not answer; optional assert single catalog body for shared `talkId` (REQ-P2P-24 acceptance).
+
+## Shipped (foundation)
+
+| Track | Status | Notes |
+|-------|--------|-------|
+| P0 Phase B — mesh talk delivery | Shipped | `peerTalkOffers`, `peerTalkCatalog`, local IN, `npm run dev:p0-talks` |
+| P2P-H–O — relay stack | Shipped | See `docs/completed.md` |
+| Hub Phase C — relay-only hub | Partial | Ephemeral flags; P1 completes ownership |
+
+## Hub migration track (§19.12)
+
+| Phase | Status | Relation to P1 |
+|-------|--------|----------------|
+| A Dual-mode mesh + signaling | Partial | |
+| B Client-authoritative talks | Shipped (P0) | P1 moves answers off shared talk node |
+| C Relay-only hub (no app `radata/`) | Partial | P1 removes pairwise hub RAM |
+| D DHT bootstrap | Not started | Optional |
+| **E Pair-private ownership graph** | **In progress (P1)** | §19.14, §19.14.9–10 |
+
+## Deferred (after P1)
+
+Identity/trust/versioning (§19.13, P2P-P–U), optional D4 creator-edit checks, full `npm run test:e2e:parallel` gate.
 
 | Phase | Status | Notes |
 |-------|--------|-------|
@@ -29,38 +69,21 @@ Identity/trust/versioning (§19.13, P2P-P–U), optional D4 creator-edit checks,
 | P2P-T Signed upgrades | Deferred | |
 | P2P-U Fake-client defense | Deferred | Partial today |
 
-## P2P Stack — Persistence & Relay (§19.9) — Shipped
+## Run commands
 
-| Phase | Status |
-|-------|--------|
-| P2P-H Gun write-through transport | Shipped |
-| P2P-I Presence + peer ack | Shipped |
-| P2P-J Browser durable Gun (worker IndexedDB) | Shipped |
-| P2P-K No server convo radata (ephemeral/relay flags) | Shipped |
-| P2P-L Client incoming/talk Gun mirror | Shipped |
-| P2P-M Relay-only deploy profile (`npm run dev:relay-only`) | Shipped |
-| P2P-N TechSupport server store | Shipped |
-| P2P-O Local node bridge probe | Shipped |
-| **P0 Phase B — client-authoritative talks** | **Shipped** |
-
-## Hub migration track (§19.12)
-
-| Phase | Status | Relation to P0 |
-|-------|--------|----------------|
-| A Dual-mode mesh + signaling | Partial | P0 builds on this |
-| **B Client-authoritative talks** | **Shipped (P0)** | `peerTalkOffers`, local IN, mesh catalog |
-| C Relay-only hub (no app `radata/`) | Partial | P0 E2E uses ephemeral hub; full hub-wipe spec optional |
-| D DHT bootstrap | Not started | Optional |
+```bash
+npm run dev:p0-talks          # P0 mesh delivery (shipped)
+npm run test:e2e:p0-talks     # P0 E2E only
+npm run dev:relay-only        # Ephemeral hub profile
+```
 
 ## Closed Phases (see `docs/completed.md`)
 
 - **P0-1–P0-6** — Direct browser talk exchange over Gun mesh
-- **D2–D6** — UI localization, filters, lifecycle, triage, tab sweep
-- **E, F, G** — Interaction ledger, delta sync, CIDv1 sole truth
-- **Direct P2P transport slice** — signaling, WebRTC, fallback, E2E (persistence superseded by §19.4)
+- **D2–D6**, **E, F, G**, **Direct P2P transport slice**
 
 ## Working Rule
 
 - Move completed TODO items to `docs/completed.md`.
 - Keep this file short and action-oriented.
-- Do not start P2P-P–U until explicitly prioritized.
+- Do not start P2P-P–U until P1 exit criteria pass unless a task explicitly depends on them.
