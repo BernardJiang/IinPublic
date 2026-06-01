@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import { E2E_ASSERT_TIMEOUT_MS } from './timing';
 
 /**
  * Wait until the app records a completed bulk broadcast on `#broadcast-bulk-ack`.
@@ -8,7 +9,7 @@ import { expect, type Page } from '@playwright/test';
 export async function waitForBroadcastBulkAck(
   page: Page,
   expected: { talksSent: number; receivers: number },
-  timeout = 120_000,
+  timeout = E2E_ASSERT_TIMEOUT_MS,
 ): Promise<void> {
   const loc = page.locator('[data-testid="broadcast-bulk-ack"]');
   await expect

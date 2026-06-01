@@ -42,6 +42,16 @@ export const afterLoad = () => wait(1000, 6000);
 export { E2E_INTERVAL, isLong };
 
 /**
+ * Hard cap for expect(), poll(), and locator waits in e2e helpers (Playwright config mirrors this).
+ * Fail fast — do not stretch polls to 90s+; fix sync/delivery instead.
+ * Override only in a spec when debugging locally (`PW_SLOW_MO`, `E2E_INTERVAL=long`).
+ */
+export const E2E_ASSERT_TIMEOUT_MS = 10_000;
+
+/** Target wall-clock for full suite at PW_WORKERS=20 (see playwright.config.ts). */
+export const E2E_SUITE_TARGET_MINUTES = 10;
+
+/**
  * Whether to run browsers in headless mode.
  * Always headless in CI; show the window in local dev.
  * Matches the `use.headless` value in playwright.config.ts.

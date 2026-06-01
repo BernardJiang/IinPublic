@@ -19,7 +19,7 @@ import {
   TECHSUPPORT_STAGE_NAME,
 } from '../../shared/techsupport';
 import { resolveP2PRuntimeFlags, usesDirectTalkDelivery, type P2PRuntimeFlags } from '../../shared/p2p-runtime';
-import type { PeerTalkOfferWire } from '../../shared/peer-talk-delivery';
+import { expandTalkDataFromGunWire, type PeerTalkOfferWire } from '../../shared/peer-talk-delivery';
 import { intakeFilterRejectReasons } from '../../shared/talk-intake-filters';
 import { getTalkIntakeFilters } from '../ui/talk-intake-filters';
 import { P2PPresenceClient } from '../services/p2p-presence-client';
@@ -70,6 +70,7 @@ export class IinPublicApp {
   private presenceClient: P2PPresenceClient | null = null;
   private localNodeBridge: P2PLocalNodeBridgeClient | null = null;
   private peerTalkOfferUnsubscribe: (() => void) | null = null;
+  private chatroomTalksMapOff: (() => void) | null = null;
   private readonly p2pRuntimeFlags: P2PRuntimeFlags = resolveP2PRuntimeFlags(
     typeof process !== 'undefined'
       ? {
@@ -575,11 +576,13 @@ export class IinPublicApp {
   private async shouldAcceptPeerTalkOfferAsync(offer: {
     senderId: string;
     talkData: Record<string, unknown>;
+    deliveryChatroomId?: string;
+    directPeerSend?: boolean;
   }): Promise<boolean> {
     const me = this.currentUser;
     if (!me?.id || offer.senderId === me.id) return false;
     if (await this.resolveBlockStatusEitherWay(offer.senderId)) return false;
-    const talkData = offer.talkData;
+    const talkData = expandTalkDataFromGunWire(offer.talkData);
     const expiresAtValue = talkData?.expiresAt;
     const expiresAt =
       typeof expiresAtValue === 'number'
@@ -589,6 +592,13 @@ export class IinPublicApp {
           : Number.NaN;
     if (Number.isFinite(expiresAt) && Date.now() > expiresAt) return false;
     if (talkData?.isAdult && !(await this.resolveAgeVerifiedForIntake())) return false;
+    const chatroomId = this.currentChatroomId;
+    if (!offer.directPeerSend && chatroomId) {
+      const deliveryRoom = String(offer.deliveryChatroomId || '').trim();
+      if (deliveryRoom && deliveryRoom !== chatroomId) return false;
+      const members = await this.chatroomService.getActiveMembers(chatroomId);
+      if (!members.includes(offer.senderId)) return false;
+    }
     const filters = getTalkIntakeFilters();
     const td = talkData;
     const authorLoc =
@@ -651,7 +661,26 @@ export class IinPublicApp {
         senderId: me.id,
         senderName: me.stageName || 'Unknown',
         talkData: talkRecord,
+        directPeerSend: true,
       });
+      const base = this.getBackendApiBase();
+      const res = await fetch(`${base}/api/talks/${encodeURIComponent(talkId)}/received`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          receiverId: peerId,
+          receiverName: peerName,
+          senderId: me.id,
+          senderName: me.stageName,
+          talkData: talk,
+          chatbotEnabled: this.uiManager.getChatbotEnabled(),
+        }),
+      });
+      if (!res.ok) throw new Error(`register talk for peer failed: HTTP ${res.status}`);
+      const result = (await res.json()) as { registered?: boolean };
+      if (result.registered !== true) {
+        throw new Error('register talk for peer rejected by recipient delivery policy');
+      }
       return;
     }
     const base = this.getBackendApiBase();
@@ -689,7 +718,12 @@ export class IinPublicApp {
   }
 
   private async handlePeerTalkOffer(offer: PeerTalkOfferWire): Promise<void> {
-    if (!(await this.shouldAcceptPeerTalkOfferAsync(offer))) return;
+    if (!(await this.shouldAcceptPeerTalkOfferAsync({
+      senderId: offer.senderId,
+      talkData: offer.talkData,
+      deliveryChatroomId: offer.deliveryChatroomId,
+      directPeerSend: offer.directPeerSend,
+    }))) return;
     const cluster = applyPeerTalkOfferToLocalInbox(
       this.gunService,
       this.currentUser!.id,
@@ -934,6 +968,14 @@ export class IinPublicApp {
 
   private subscribeToTalks(chatroomId: string): void {
     console.log('🎯 Subscribing to chatroom talks:', chatroomId);
+    if (this.chatroomTalksMapOff) {
+      try {
+        this.chatroomTalksMapOff();
+      } catch {
+        /* ignore */
+      }
+      this.chatroomTalksMapOff = null;
+    }
     const gun = this.gunService.getGun();
 
     const talksRef = gun.get('chatrooms').get(chatroomId).get('talks');
@@ -943,6 +985,8 @@ export class IinPublicApp {
 
     const processTalkAnnouncement = (talkAnnouncement: any, talkId: string) => {
       if (talkId.startsWith('_')) return; // Skip Gun.js metadata
+      // Ignore announcements from chatrooms we are not currently in (stale .on handlers or FR-BM-7).
+      if (this.currentChatroomId && this.currentChatroomId !== chatroomId) return;
 
       console.log('📨 Received talk announcement:', { talkId, talkAnnouncement });
 
@@ -1040,13 +1084,17 @@ export class IinPublicApp {
       }
     };
 
-    // Use .on() for real-time updates
-    talksRef.map().on(processTalkAnnouncement);
-
-    // ALSO use .once() to load existing talks immediately
-    // This ensures we don't miss talks that were added while we were offline
+    const mapRef = talksRef.map();
+    mapRef.on(processTalkAnnouncement);
     console.log('🔄 Loading existing talks with .once()...');
-    talksRef.map().once(processTalkAnnouncement);
+    mapRef.once(processTalkAnnouncement);
+    this.chatroomTalksMapOff = () => {
+      try {
+        mapRef.off();
+      } catch {
+        /* ignore */
+      }
+    };
   }
 
   private subscribeToTalkResponses(talkId: string, talkData: any): void {
@@ -1281,18 +1329,47 @@ export class IinPublicApp {
         authorId: me.id,
         talkData: talkRecord,
       });
+      const deliveryRoom = this.currentChatroomId || this.chatroomService.getCurrentChatroomId() || '';
       for (const receiverId of receiverIds) {
         publishPeerTalkOffer(this.gunService, receiverId, {
           talkId,
           senderId: me.id,
           senderName: me.stageName || 'Unknown',
           talkData: talkRecord,
+          ...(deliveryRoom ? { deliveryChatroomId: deliveryRoom } : {}),
         });
       }
       console.log(`📡 P0 peer talk offers published: talkId=${talkId} receivers=${receiverIds.length}`);
-      return true;
+      // Mirror exchange metadata on server for peer history / contacts (GET incoming-talks stays empty in P0).
+      const registered = await this.postRegisterReceiversForBroadcast(
+        talkId,
+        talk,
+        receiverIds,
+        broadcastTargetTags,
+        broadcastMaxDistanceMiles,
+      );
+      return registered;
     }
 
+    return this.postRegisterReceiversForBroadcast(
+      talkId,
+      talk,
+      receiverIds,
+      broadcastTargetTags,
+      broadcastMaxDistanceMiles,
+    );
+  }
+
+  /** Server-side IN metadata for peer APIs; P0 still returns empty GET /incoming-talks. */
+  private async postRegisterReceiversForBroadcast(
+    talkId: string,
+    talk: Talk,
+    receiverIds: string[],
+    broadcastTargetTags?: string[],
+    broadcastMaxDistanceMiles?: number,
+  ): Promise<boolean> {
+    const me = this.currentUser;
+    if (!me?.id || receiverIds.length === 0) return true;
     const base = this.getBackendApiBase();
     console.log(`📡 POSTing register-receivers: talkId=${talkId} receivers=${receiverIds.length}`);
     try {
@@ -1329,11 +1406,10 @@ export class IinPublicApp {
         const t = await res.text();
         console.warn('register-receivers-for-broadcast failed:', res.status, t);
         return false;
-      } else {
-        const r = await res.json();
-        console.log(`register-receivers-for-broadcast ok: talkId=${talkId} registered=${r?.registered}`);
-        return true;
       }
+      const r = await res.json();
+      console.log(`register-receivers-for-broadcast ok: talkId=${talkId} registered=${r?.registered}`);
+      return true;
     } catch (e) {
       console.warn('register-receivers-for-broadcast request failed:', e);
       return false;
@@ -1544,7 +1620,14 @@ export class IinPublicApp {
   ): Promise<void> {
     if (!this.currentUser) return;
     const offer = { senderId, talkData: talkData as Record<string, unknown> };
-    if (!(await this.shouldAcceptPeerTalkOfferAsync(offer))) return;
+    if (
+      !(await this.shouldAcceptPeerTalkOfferAsync({
+        senderId,
+        talkData: talkData as Record<string, unknown>,
+      }))
+    ) {
+      return;
+    }
 
     if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
       const cluster = upsertLocalIncomingTalkCluster(

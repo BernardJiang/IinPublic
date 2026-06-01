@@ -22,6 +22,10 @@ export type PeerTalkOfferWire = {
   /** Full talk JSON (same shape as POST /received body). */
   talkData: Record<string, unknown>;
   createdAt: string;
+  /** Chatroom where the sender broadcast (FR-BM-7 room isolation). */
+  deliveryChatroomId?: string;
+  /** Skip room membership gate (Send My Talks / directed peer send). */
+  directPeerSend?: boolean;
 };
 
 export type IncomingTalkClusterWire = {
@@ -52,11 +56,47 @@ export function parsePeerTalkOfferKey(key: string): { senderId: string; talkId: 
   return { senderId: key.slice(0, idx), talkId: key.slice(idx + 2) };
 }
 
+/** Gun cannot store nested arrays; serialize questions/tags before .put on mesh paths. */
+export function gunSafeTalkDataRecord(talkData: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...talkData };
+  if (Array.isArray(out.questions)) {
+    out.questionsJson = JSON.stringify(out.questions);
+    delete out.questions;
+  }
+  if (Array.isArray(out.tags)) {
+    out.tagsJson = JSON.stringify(out.tags);
+    delete out.tags;
+  }
+  return out;
+}
+
+/** Restore questions/tags after reading a Gun-safe offer or catalog node. */
+export function expandTalkDataFromGunWire(talkData: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...talkData };
+  if (!Array.isArray(out.questions) && typeof out.questionsJson === 'string') {
+    try {
+      out.questions = JSON.parse(out.questionsJson);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!Array.isArray(out.tags) && typeof out.tagsJson === 'string') {
+    try {
+      out.tags = JSON.parse(out.tagsJson);
+    } catch {
+      /* ignore */
+    }
+  }
+  return out;
+}
+
 export function createPeerTalkOfferWire(params: {
   talkId: string;
   senderId: string;
   senderName: string;
   talkData: Record<string, unknown>;
+  deliveryChatroomId?: string;
+  directPeerSend?: boolean;
   now?: Date;
 }): PeerTalkOfferWire {
   const now = params.now ?? new Date();
@@ -65,8 +105,10 @@ export function createPeerTalkOfferWire(params: {
     talkId: params.talkId,
     senderId: params.senderId,
     senderName: params.senderName,
-    talkData: params.talkData,
+    talkData: gunSafeTalkDataRecord(params.talkData),
     createdAt: now.toISOString(),
+    ...(params.deliveryChatroomId ? { deliveryChatroomId: params.deliveryChatroomId } : {}),
+    ...(params.directPeerSend ? { directPeerSend: true } : {}),
   };
 }
 
@@ -143,7 +185,7 @@ export function mergeIncomingTalkCluster(
 export function clusterFromPeerTalkOffer(offer: PeerTalkOfferWire): IncomingTalkClusterWire {
   return mergeIncomingTalkCluster(null, {
     talkId: offer.talkId,
-    talkData: offer.talkData,
+    talkData: expandTalkDataFromGunWire(offer.talkData),
     senderId: offer.senderId,
     senderName: offer.senderName,
     now: new Date(offer.createdAt),

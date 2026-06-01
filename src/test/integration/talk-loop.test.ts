@@ -1000,7 +1000,7 @@ describe('Talk loop — incoming registration → answer submission → match �
   });
 
   describe('POST /api/talks/:id/register-receivers-for-broadcast', () => {
-    it('skips server inbox writes when P0_DIRECT_TALK_DELIVERY is enabled', async () => {
+    it('records server exchange metadata in P0 while GET incoming-talks stays empty', async () => {
       const prev = process.env.P0_DIRECT_TALK_DELIVERY;
       process.env.P0_DIRECT_TALK_DELIVERY = '1';
       try {
@@ -1015,9 +1015,11 @@ describe('Talk loop — incoming registration → answer submission → match �
           });
         expect(res.status).toBe(200);
         expect(res.body.directDelivery).toBe(true);
-        expect(res.body.skipped).toBe(true);
-        expect(res.body.registered).toBe(0);
-        expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
+        expect(res.body.registered).toBeGreaterThanOrEqual(1);
+        expect(incomingTalksMap.get(RESPONDER_ID)?.size).toBeGreaterThan(0);
+        const inbox = await request(app).get(`/api/users/${RESPONDER_ID}/incoming-talks`);
+        expect(inbox.headers['x-p0-direct-talk-delivery']).toBe('1');
+        expect(inbox.body).toEqual([]);
       } finally {
         if (prev === undefined) delete process.env.P0_DIRECT_TALK_DELIVERY;
         else process.env.P0_DIRECT_TALK_DELIVERY = prev;

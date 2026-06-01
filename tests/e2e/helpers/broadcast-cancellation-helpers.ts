@@ -1,6 +1,6 @@
 import type { APIRequestContext, Page } from '@playwright/test';
 import { expect } from './fixtures';
-import { afterNav, afterSync } from './timing';
+import { afterNav, afterSync, E2E_ASSERT_TIMEOUT_MS } from './timing';
 import { gunBaseURL } from './ports';
 
 const noCacheHeaders = { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } as const;
@@ -85,7 +85,7 @@ export async function goToChatrooms(page: Page): Promise<void> {
 export async function waitForBroadcastBulkAckMinSent(
   page: Page,
   expected: { receivers: number; minSent: number },
-  timeout = 120_000,
+  timeout = E2E_ASSERT_TIMEOUT_MS,
 ): Promise<void> {
   const loc = page.locator('[data-testid="broadcast-bulk-ack"]');
   await expect

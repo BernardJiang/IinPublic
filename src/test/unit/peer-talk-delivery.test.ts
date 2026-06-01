@@ -2,6 +2,8 @@ import {
   buildPeerTalkOfferKey,
   clusterFromPeerTalkOffer,
   createPeerTalkOfferWire,
+  expandTalkDataFromGunWire,
+  gunSafeTalkDataRecord,
   mergeIncomingTalkCluster,
   parsePeerTalkOfferKey,
 } from '../../shared/peer-talk-delivery';
@@ -43,6 +45,20 @@ describe('peer-talk-delivery', () => {
     });
     const cluster = clusterFromPeerTalkOffer(offer);
     expect(cluster.senders.s1?.senderName).toBe('Sender');
+  });
+
+  it('serializes nested arrays for Gun-safe mesh offers', () => {
+    const raw = {
+      title: 'Mesh',
+      type: 'flow',
+      questions: [{ id: 'q1', text: 'Hi', answers: [] }],
+    };
+    const safe = gunSafeTalkDataRecord(raw);
+    expect(safe.questions).toBeUndefined();
+    expect(typeof safe.questionsJson).toBe('string');
+    const expanded = expandTalkDataFromGunWire(safe);
+    expect(Array.isArray(expanded.questions)).toBe(true);
+    expect((expanded.questions as { text: string }[])[0]?.text).toBe('Hi');
   });
 });
 

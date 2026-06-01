@@ -2,6 +2,7 @@ import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { maybeClearGunDatabases } from '../../helpers/clear-database';
 import { afterAction, afterSync } from '../../helpers/timing';
+import { waitForBroadcastBulkAckMinSent } from '../../helpers/broadcast-cancellation-helpers';
 import {
   bootstrapUser,
   finalCleanupPages,
@@ -49,6 +50,12 @@ async function sendBroadcastAndOpenPreview(page: Page, expectedReason?: RegExp):
       }, { timeout: 45_000 })
       .not.toBeNull();
   }
+}
+
+async function confirmBroadcastAndWait(page: Page, minSent: number): Promise<void> {
+  await page.locator('[data-testid="broadcast-preamble-send"]').click();
+  await waitForBroadcastBulkAckMinSent(page, { receivers: 1, minSent });
+  await waitForTabActive(page, 'chatrooms');
 }
 
 test.describe('Incoming talk language intake filtering', () => {
@@ -111,16 +118,14 @@ test.describe('Incoming talk language intake filtering', () => {
     await createLanguageTalk(pageTom, spanishRejectedTitle, 'es');
 
     await sendBroadcastAndOpenPreview(pageTom, /Language not accepted/i);
-    await pageTom.locator('[data-testid="broadcast-preamble-send"]').click();
-    await waitForTabActive(pageTom, 'chatrooms');
+    await confirmBroadcastAndWait(pageTom, 0);
 
     const englishTitle = 'Language Intake English';
     const chineseTitle = 'Language Intake Chinese';
     await createLanguageTalk(pageTom, englishTitle, 'en');
     await createLanguageTalk(pageTom, chineseTitle, 'zh');
     await sendBroadcastAndOpenPreview(pageTom);
-    await pageTom.locator('[data-testid="broadcast-preamble-send"]').click();
-    await waitForTabActive(pageTom, 'chatrooms');
+    await confirmBroadcastAndWait(pageTom, 1);
 
     await waitForIncomingTalkClusterOnServer(pageJerry, englishTitle);
     await waitForIncomingTalkClusterOnServer(pageJerry, chineseTitle);
@@ -141,8 +146,7 @@ test.describe('Incoming talk language intake filtering', () => {
     const spanishAllowedTitle = 'Language Intake Spanish Allowed';
     await createLanguageTalk(pageTom, spanishAllowedTitle, 'es');
     await sendBroadcastAndOpenPreview(pageTom);
-    await pageTom.locator('[data-testid="broadcast-preamble-send"]').click();
-    await waitForTabActive(pageTom, 'chatrooms');
+    await confirmBroadcastAndWait(pageTom, 1);
 
     await waitForIncomingTalkClusterOnServer(pageJerry, spanishAllowedTitle);
     await pageJerry.click('.nav-btn[data-view="talks"]');

@@ -42,10 +42,10 @@ async function createFlowTalk(
 async function broadcastFromCurrentRoom(page: Page, previewReason?: RegExp): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterSync();
-  await page.click('#broadcast-talk-btn');
-  const modal = page.locator('[data-testid="broadcast-preamble-modal"]');
-  await expect(modal).toBeVisible({ timeout: 60_000 });
   if (previewReason) {
+    await page.click('#broadcast-talk-btn');
+    const modal = page.locator('[data-testid="broadcast-preamble-modal"]');
+    await expect(modal).toBeVisible({ timeout: 60_000 });
     await expect
       .poll(async () => {
         const text = await modal.innerText();
@@ -53,6 +53,9 @@ async function broadcastFromCurrentRoom(page: Page, previewReason?: RegExp): Pro
         return previewReason.test(text) ? text : null;
       }, { timeout: 45_000 })
       .not.toBeNull();
+    await page.locator('[data-testid="broadcast-preamble-cancel"]').click();
+    await afterSync();
+    return;
   }
   await clickBroadcastUntilBulkAck(page);
   await waitForTabActive(page, 'chatrooms');

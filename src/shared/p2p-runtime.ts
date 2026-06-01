@@ -367,9 +367,9 @@ export function usesDirectTalkDelivery(flags: P2PRuntimeFlags): boolean {
 export function shouldSkipServerGunPersist(
   path: string[],
   flags: P2PRuntimeFlags,
-  options: { supportChannel?: boolean } = {},
+  options: { supportChannel?: boolean; relayP0TalkDelivery?: boolean } = {},
 ): boolean {
-  if (options.supportChannel) return false;
+  if (options.supportChannel || options.relayP0TalkDelivery) return false;
   if (flags.starServerPersistence !== 'ephemeral' && !flags.relayOnlyHub) return false;
   if (path[0] === 'conversations' && path.length >= 3 && path[2] === 'messages') return true;
   if (path[0] === 'talks') return true;

@@ -4,7 +4,7 @@
 import type { Page } from '@playwright/test';
 import { expect } from './fixtures';
 import { waitForGunApiReady } from './clear-database';
-import { afterCreateTalkBeforeBroadcast, afterSync } from './timing';
+import { afterCreateTalkBeforeBroadcast, afterSync, E2E_ASSERT_TIMEOUT_MS } from './timing';
 import {
   openIncomingTalkModal,
   openIncomingTalkModalByTalkId,
@@ -13,7 +13,7 @@ import {
 import { confirmBroadcastTagPreambleIfVisible } from './broadcast-preamble';
 import { gunBaseURL, isDirectTalkDeliveryE2e } from './ports';
 
-async function clickChatroomBroadcastButton(page: Page): Promise<void> {
+async function clickChatroomBroadcastButton(page: Page, opts?: { minGunPeers?: number }): Promise<void> {
   const preamble = page.locator('[data-testid="broadcast-preamble-modal"]');
   const broadcastBtn = page.locator('#broadcast-talk-btn').or(page.locator('#status-broadcast-talk-btn')).first();
 
@@ -25,7 +25,7 @@ async function clickChatroomBroadcastButton(page: Page): Promise<void> {
     await afterSync();
   }
 
-  await confirmBroadcastTagPreambleIfVisible(page);
+  await confirmBroadcastTagPreambleIfVisible(page, E2E_ASSERT_TIMEOUT_MS, opts);
 }
 
 /** Gun `getActiveMembers` can lag behind UI; without this, broadcast may run with 0 receivers and skip register-receivers (no HTTP). */
@@ -78,15 +78,22 @@ export async function waitForDistinctGunPeersExcludingSelf(
  * Wait until the broadcast handler finishes (it awaits register-receivers before setBroadcastBulkAck).
  * page.waitForResponse missed some fetches in multi-window runs; the ack node is updated only after POST completes.
  */
-export async function clickBroadcastUntilBulkAck(page: Page): Promise<void> {
+export async function clickBroadcastUntilBulkAck(
+  page: Page,
+  opts?: { minGunPeers?: number },
+): Promise<void> {
   const loc = page.locator('[data-testid="broadcast-bulk-ack"]');
   const genBefore = Number(await loc.getAttribute('data-broadcast-bulk-gen'));
   const start = Number.isFinite(genBefore) ? genBefore : 0;
-  await waitForGunApiReady(8_000).catch(() => {});
+  await waitForGunApiReady(E2E_ASSERT_TIMEOUT_MS).catch(() => {});
   if (isDirectTalkDeliveryE2e()) {
-    await waitForDistinctGunPeersExcludingSelf(page, 1, 120_000);
+    const minPeers = opts?.minGunPeers ?? 1;
+    if (minPeers > 0) {
+      await waitForDistinctGunPeersExcludingSelf(page, minPeers, E2E_ASSERT_TIMEOUT_MS);
+    }
   }
-  await clickChatroomBroadcastButton(page);
+  await waitForBroadcastableTalkIds(page, E2E_ASSERT_TIMEOUT_MS);
+  await clickChatroomBroadcastButton(page, opts);
   await expect
     .poll(
       async () => {
@@ -94,7 +101,7 @@ export async function clickBroadcastUntilBulkAck(page: Page): Promise<void> {
         const sent = Number(await loc.getAttribute('data-broadcast-talks-sent'));
         return Number.isFinite(gen) && gen > start && Number.isFinite(sent) && sent >= 1;
       },
-      { timeout: 45_000, intervals: [200, 500, 1000, 2000] },
+      { timeout: E2E_ASSERT_TIMEOUT_MS, intervals: [200, 500, 1000] },
     )
     .toBe(true);
 }

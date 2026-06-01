@@ -13,8 +13,6 @@ import {
   goToChatrooms,
   waitForBroadcastBulkAckMinSent,
 } from '../../helpers/broadcast-cancellation-helpers';
-import { isDirectTalkDeliveryE2e } from '../../helpers/ports';
-
 test.describe('Broadcast cancellation — talk deletion mid-flight', () => {
   let browserTom: Browser;
   let browserJerry: Browser;
@@ -65,33 +63,26 @@ test.describe('Broadcast cancellation — talk deletion mid-flight', () => {
 
       const talkIdToDelete = talkIds[5];
 
-      if (!isDirectTalkDeliveryE2e()) {
-        let registerCount = 0;
-        let resolveReadyToDelete: (() => void) | null = null;
-        const readyToDelete = new Promise<void>((resolve) => {
-          resolveReadyToDelete = resolve;
-        });
+      let registerCount = 0;
+      let resolveReadyToDelete: (() => void) | null = null;
+      const readyToDelete = new Promise<void>((resolve) => {
+        resolveReadyToDelete = resolve;
+      });
 
-        await pageTom.route('**/api/talks/*/register-receivers-for-broadcast', async (route) => {
-          registerCount += 1;
-          if (registerCount === 5) {
-            resolveReadyToDelete?.();
-            await new Promise((r) => setTimeout(r, 10_000));
-          }
-          await route.continue();
-        });
+      await pageTom.route('**/api/talks/*/register-receivers-for-broadcast', async (route) => {
+        registerCount += 1;
+        if (registerCount === 5) {
+          resolveReadyToDelete?.();
+          await new Promise((r) => setTimeout(r, 10_000));
+        }
+        await route.continue();
+      });
 
-        await pageTom.click('#broadcast-talk-btn');
-        await confirmBroadcastTagPreambleIfVisible(pageTom);
-        await afterAction();
+      await pageTom.click('#broadcast-talk-btn');
+      await confirmBroadcastTagPreambleIfVisible(pageTom);
+      await afterAction();
 
-        await readyToDelete;
-      } else {
-        await pageTom.click('#broadcast-talk-btn');
-        await confirmBroadcastTagPreambleIfVisible(pageTom);
-        await afterAction();
-        await waitForBroadcastBulkAckMinSent(pageTom, { receivers: 1, minSent: 5 });
-      }
+      await readyToDelete;
       await afterAction();
 
       await pageTom.evaluate((talkId) => {

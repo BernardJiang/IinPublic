@@ -5,7 +5,7 @@ import { injectIdbClear } from '../../helpers/clear-database';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterNav, delay, headless } from '../../helpers/timing';
-import { webBaseURL, gunBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
+import { webAppURLStableChatroom, gunBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { establishContactsTomJerry, getCurrentUserId } from '../../helpers/reputation-e2e-helpers';
 
@@ -48,7 +48,7 @@ test.describe('Profile foundation', () => {
     const nextContext = await targetBrowser.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     const nextPage = await nextContext.newPage();
     await injectIdbClear(nextPage);
-    await nextPage.goto(webBaseURL());
+    await nextPage.goto(webAppURLStableChatroom());
     await nextPage.waitForLoadState('load');
     await ensureWindowFitsViewport(nextPage, 960, 1200);
     await afterLoad();

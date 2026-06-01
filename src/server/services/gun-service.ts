@@ -211,7 +211,11 @@ export class GunService {
   /**
    * Put data at a nested path (same graph shape as client).
    */
-  public putPath(path: string[], data: any, options?: { supportChannel?: boolean }): Promise<void> {
+  public putPath(
+    path: string[],
+    data: any,
+    options?: { supportChannel?: boolean; relayP0TalkDelivery?: boolean },
+  ): Promise<void> {
     if (path.length === 0) return Promise.resolve();
     const flags = resolveP2PRuntimeFlags(process.env);
     if (shouldSkipServerGunPersist(path, flags, options)) {

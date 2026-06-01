@@ -222,15 +222,20 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     }
 
     if (!publicProfile) {
+      const reputation = await this.mergeAgeVerificationIntoReputation(
+        userId,
+        user.reputation ?? (await this.readReputation(userId)),
+      );
       return {
         ...user,
         profile,
+        reputation,
       };
     }
 
     // Server reputation updates are written to `users/<id>/reputation`.
     // Ensure we always resolve that sub-node into the returned object.
-    const reputation = await this.readReputation(userId);
+    const reputation = await this.mergeAgeVerificationIntoReputation(userId, await this.readReputation(userId));
     const { headshot: _storedHeadshot, ...userWithoutStaleHeadshot } = user;
     return {
       ...userWithoutStaleHeadshot,
@@ -421,6 +426,18 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
       .getPath([AGE_VERIF_KEY, userId])
       .then((data) => !!(data as { verified?: boolean } | undefined)?.verified)
       .catch(() => false);
+  }
+
+  /** Votes live on `user-age-verification`; merge into API reputation for GET /users/:id. */
+  private async mergeAgeVerificationIntoReputation(userId: string, reputation: Reputation): Promise<Reputation> {
+    const ageVerifNode = (await this.gunService.getPath([AGE_VERIF_KEY, userId]).catch(() => null)) as
+      | { votes?: number; verified?: boolean }
+      | null;
+    return {
+      ...reputation,
+      ageVerified: !!ageVerifNode?.verified,
+      ageVerificationVotes: Number(ageVerifNode?.votes ?? reputation.ageVerificationVotes ?? 0),
+    };
   }
 
   async vouchAgeVerified(targetUserId: string): Promise<void> {

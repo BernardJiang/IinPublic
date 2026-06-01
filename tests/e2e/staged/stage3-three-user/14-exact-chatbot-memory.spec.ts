@@ -19,6 +19,8 @@ import {
   openIncomingTalkModal,
   openIncomingTalkModalWithAutoAnswers,
   resetTalksMatchingSession,
+  syncIncomingFromServer,
+  waitForIncomingTalkClusterOnLocalGun,
   waitForResponseModalClosed,
   waitForTabActive,
 } from '../../helpers/talks-matching-flow';
@@ -206,6 +208,8 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
       registered: true,
       autoResponded: false,
     });
+    await waitForIncomingTalkClusterOnLocalGun(pageTom, TITLE_APPLE);
+    await syncIncomingFromServer(pageTom);
     await openIncomingTalkModal(pageTom, TITLE_APPLE);
     await chooseAutoAnswer(pageTom, 'a_apple');
     await waitForRecordedResponse(pageTom, appleTalkId);
@@ -220,6 +224,8 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
       registered: true,
       autoResponded: false,
     });
+    await waitForIncomingTalkClusterOnLocalGun(pageTom, TITLE_BANANA);
+    await syncIncomingFromServer(pageTom);
     await openIncomingTalkModalWithAutoAnswers(pageTom, TITLE_BANANA);
     const modal = pageTom.locator('#talk-response-modal');
     await expect(modal.locator('.modal-content')).toContainText(QUESTION, { timeout: 60_000 });

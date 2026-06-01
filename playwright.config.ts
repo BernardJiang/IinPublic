@@ -46,8 +46,12 @@ const NUM_WORKERS = STAGE_PIPELINE
 // Let helpers (e.g. clear-database) know whether multiple workers share disk paths.
 process.env.PW_WORKERS = String(NUM_WORKERS);
 
-/** Single-worker: 5 min/test. Parallel (PW_WORKERS≥4, e.g. 20): 10 min/test — avoid hour-long serial reruns. */
-const E2E_TEST_TIMEOUT_MS = NUM_WORKERS >= 4 ? 600_000 : 300_000;
+/**
+ * Per-test ceiling. Parallel runs (PW_WORKERS≥4, target ~10 min suite @ 20 workers) use 2 min/test;
+ * single-worker debug keeps 5 min. Helpers use E2E_ASSERT_TIMEOUT_MS (10s) for polls — fail fast.
+ */
+const E2E_ASSERT_TIMEOUT_MS = 10_000;
+const E2E_TEST_TIMEOUT_MS = NUM_WORKERS >= 4 ? 120_000 : 300_000;
 
 const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
   const gunPort = 8080 + i;
@@ -81,15 +85,18 @@ export default defineConfig({
   // files so each long flow can occupy its own worker in parallel.
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 3,
+  /** One retry only — long multi-retry runs hid flakes and stretched suite past 30 min. */
+  retries: 1,
   workers: NUM_WORKERS,
   reporter: 'html',
   timeout: E2E_TEST_TIMEOUT_MS,
   expect: {
-    timeout: 45_000,
+    timeout: E2E_ASSERT_TIMEOUT_MS,
   },
 
   use: {
+    actionTimeout: E2E_ASSERT_TIMEOUT_MS,
+    navigationTimeout: 30_000,
     // Fallback baseURL for any tool that reads `use.baseURL` at config load.
     // Tests override this per-worker via the `test` fixture in tests/e2e/helpers/fixtures.ts
     // (which reads TEST_PARALLEL_INDEX, only set inside worker processes).

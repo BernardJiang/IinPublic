@@ -4,6 +4,8 @@ import {
   buildPeerTalkOfferKey,
   clusterFromPeerTalkOffer,
   createPeerTalkOfferWire,
+  expandTalkDataFromGunWire,
+  gunSafeTalkDataRecord,
   mergeIncomingTalkCluster,
   type IncomingTalkClusterWire,
   type PeerTalkCatalogWire,
@@ -29,7 +31,7 @@ export function publishPeerTalkCatalog(
     version: 1,
     talkId,
     authorId,
-    talkData,
+    talkData: gunSafeTalkDataRecord(talkData),
     updatedAt: new Date().toISOString(),
   };
   gunService.getGun().get(PEER_TALK_CATALOG_ROOT).get(authorId).get(talkId).put(wire);
@@ -43,6 +45,8 @@ export function publishPeerTalkOffer(
     senderId: string;
     senderName: string;
     talkData: Record<string, unknown>;
+    deliveryChatroomId?: string;
+    directPeerSend?: boolean;
   },
 ): void {
   if (!receiverUserId || receiverUserId === params.senderId) return;

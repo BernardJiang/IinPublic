@@ -3,7 +3,7 @@ import { clearGunDatabases, injectIdbClear, maybeClearGunDatabases } from './cle
 import { ensureWindowFitsViewport } from './browser-window';
 import { attachE2eBrowserTabLabel } from './e2e-tab-title';
 import { attachFilteredConsoleLog } from './e2e-console';
-import { afterLoad, afterNav, afterSync } from './timing';
+import { afterLoad, afterNav, afterSync, E2E_ASSERT_TIMEOUT_MS } from './timing';
 import { gunBaseURL, isDirectTalkDeliveryE2e, webAppURLStableChatroom } from './ports';
 import {
   TECHSUPPORT_HEADSHOT,
@@ -29,10 +29,10 @@ export function countIncomingTalkSlots(clusters: unknown): number {
 }
 
 /** Slack for Gun + UI when the full E2E suite has been running a while (webpack/Gun load). */
-const INCOMING_ROW_POLL_MS = 20_000;
-const INCOMING_ROW_FINAL_MS = 15_000;
-const RESPONSE_MODAL_CONTENT_MS = 60_000;
-const RESPONSE_MODAL_DETACHED_MS = 25_000;
+const INCOMING_ROW_POLL_MS = E2E_ASSERT_TIMEOUT_MS;
+const INCOMING_ROW_FINAL_MS = E2E_ASSERT_TIMEOUT_MS;
+const RESPONSE_MODAL_CONTENT_MS = E2E_ASSERT_TIMEOUT_MS;
+const RESPONSE_MODAL_DETACHED_MS = E2E_ASSERT_TIMEOUT_MS;
 
 export type IncomingTalkServerWaitOptions = {
   /** Default 90s; super-user bulk flows can use less once the server already holds clusters. */
@@ -176,7 +176,7 @@ export async function waitForIncomingTalkClusterOnLocalGun(
   titleSubstring: string,
   options?: IncomingTalkServerWaitOptions,
 ): Promise<void> {
-  const timeout = options?.timeout ?? 90_000;
+  const timeout = options?.timeout ?? E2E_ASSERT_TIMEOUT_MS;
   const polling = options?.polling ?? 500;
   await expect
     .poll(
@@ -276,7 +276,7 @@ export async function waitForIncomingTalkClusterOnServer(
     await waitForIncomingTalkClusterOnLocalGun(page, titleSubstring, options);
     return;
   }
-  const timeout = options?.timeout ?? 90_000;
+  const timeout = options?.timeout ?? E2E_ASSERT_TIMEOUT_MS;
   const polling = options?.polling ?? 500;
   const uid = await page.evaluate(() =>
     String(
@@ -382,7 +382,7 @@ async function waitForIncomingTalkIdOnLocalGun(
 ): Promise<void> {
   const tid = String(talkId || '').trim();
   if (!tid) throw new Error('waitForIncomingTalkIdOnLocalGun: empty talkId');
-  const timeout = options?.timeout ?? 90_000;
+  const timeout = options?.timeout ?? E2E_ASSERT_TIMEOUT_MS;
   const polling = options?.polling ?? 500;
   const clusterHasTalk = (c: { latestTalkId?: unknown; talkIds?: unknown }): boolean => {
     const latest = String(c?.latestTalkId || '');
@@ -417,7 +417,7 @@ export async function waitForIncomingTalkIdOnServer(
 ): Promise<void> {
   const tid = String(talkId || '').trim();
   if (!tid) throw new Error('waitForIncomingTalkIdOnServer: empty talkId');
-  const timeout = options?.timeout ?? 90_000;
+  const timeout = options?.timeout ?? E2E_ASSERT_TIMEOUT_MS;
   const polling = options?.polling ?? 500;
   const uid = await page.evaluate(() =>
     String(

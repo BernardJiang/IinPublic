@@ -24,6 +24,7 @@ import {
   writeExactChatbotMemoryForUser,
 } from '../exact-chatbot-memory-store';
 import { resolveP2PRuntimeFlags, usesDirectTalkDelivery } from '../../shared/p2p-runtime';
+import { mirrorP0TalkDeliveryToGun } from '../p0-gun-mirror';
 
 type TalkDeliveryRouteDeps = {
   gunService: GunService;
@@ -36,7 +37,7 @@ type TalkDeliveryRouteDeps = {
     talkData: any;
     senderId: string;
     senderName: string;
-  }) => Promise<{ identityKey: string }>;
+  }) => Promise<{ identityKey: string; cluster: Record<string, unknown> }>;
   mapTemplateEntriesToTalk: (entries: any[], talkData: any) => any[];
   fanoutResponseToSenders: (params: {
     talkData: any;
@@ -522,17 +523,25 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       const resolvedReceiverName = receiverName || (await getUserStageName(receiverId, 'Someone'));
 
       let identityKey: string;
+      const upserted = await upsertIncomingTalkForUser({
+        receiverId,
+        talkId,
+        talkData,
+        senderId,
+        senderName: resolvedSenderName,
+      });
+      identityKey = upserted.identityKey;
+
       if (p0Direct) {
-        identityKey = buildTalkIdentityKey(talkData);
-      } else {
-        const upserted = await upsertIncomingTalkForUser({
+        await mirrorP0TalkDeliveryToGun(gunService, {
           receiverId,
           talkId,
-          talkData,
+          talkData: talkData as Record<string, unknown>,
           senderId,
           senderName: resolvedSenderName,
+          cluster: upserted.cluster as Record<string, unknown>,
+          directPeerSend: true,
         });
-        identityKey = upserted.identityKey;
       }
 
       if (!p0Direct) {
@@ -654,19 +663,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       }
     }, 300_000);
     try {
-      if (usesDirectTalkDelivery(resolveP2PRuntimeFlags(process.env))) {
-        clearTimeout(hardTimeout);
-        const receiverIds = (req.body as { receiverIds?: string[] })?.receiverIds;
-        const count = Array.isArray(receiverIds) ? receiverIds.length : 0;
-        res.json({
-          ok: true,
-          registered: 0,
-          directDelivery: true,
-          skipped: true,
-          receiverCount: count,
-        });
-        return;
-      }
+      const p0Direct = usesDirectTalkDelivery(resolveP2PRuntimeFlags(process.env));
       const talkId = req.params.id;
       const { senderId, senderName, receiverIds, talkData: bodyTalkData, broadcastTargetTags: rawBt, broadcastMaxDistanceMiles: rawMaxDm } =
         req.body as {
@@ -770,13 +767,23 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
             continue;
           }
         }
-        await upsertIncomingTalkForUser({
+        const upserted = await upsertIncomingTalkForUser({
           receiverId,
           talkId,
           talkData,
           senderId,
           senderName: resolvedSenderName,
         });
+        if (p0Direct) {
+          await mirrorP0TalkDeliveryToGun(gunService, {
+            receiverId,
+            talkId,
+            talkData: talkData as Record<string, unknown>,
+            senderId,
+            senderName: resolvedSenderName,
+            cluster: upserted.cluster as Record<string, unknown>,
+          });
+        }
 
         dailyWeeklyTalkEdgeQuotaRateLimiter?.consumeEdgeQuotas(senderId, receiverId, nowBulk);
 
@@ -789,7 +796,16 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         symmetricTalkEdgeLimiter.touch(senderId, nowBulk);
       }
       clearTimeout(hardTimeout);
-      if (!res.headersSent) res.json({ ok: true, registered, filteredOut, senderCapacity, capacityDropped });
+      if (!res.headersSent) {
+        res.json({
+          ok: true,
+          registered,
+          filteredOut,
+          senderCapacity,
+          capacityDropped,
+          ...(p0Direct ? { directDelivery: true } : {}),
+        });
+      }
     } catch (error) {
       clearTimeout(hardTimeout);
       logger.error({ err: error }, 'register-receivers-for-broadcast error');

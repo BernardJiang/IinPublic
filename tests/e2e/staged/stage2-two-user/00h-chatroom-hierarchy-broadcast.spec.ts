@@ -5,6 +5,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, delay, headless } from '../../helpers/timing';
 import { bootstrapUser, incomingClustersIncludeTitleForUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
+import { waitForBroadcastBulkAck } from '../../helpers/broadcast-ack';
 import { gunBaseURL } from '../../helpers/ports';
 
 /** Expand parent only when collapsed (▶). Default UI already expands NA/Europe — blind toggle hides children. */
@@ -164,15 +165,12 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
         timeout: 20_000,
       });
 
-      await waitForGunPeerCountInRoom(pageTom, 'north-america', 0);
-      await waitForGunPeerCountInRoom(pageJerry, 'usa', 0);
-
       await createSimpleFlowTalk(pageTom, 'Parent-room-only isolation');
 
       await pageTom.click('.nav-btn[data-view="chatrooms"]');
       await waitForTabActive(pageTom, 'chatrooms');
       await afterSync();
-      await clickBroadcastUntilBulkAck(pageTom);
+      await clickBroadcastUntilBulkAck(pageTom, { minGunPeers: 0 });
       await waitForTabActive(pageTom, 'chatrooms');
       // Tom is the only Gun member under `north-america`; Jerry is under `usa` only (FR-BM-7).
       await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 0 });

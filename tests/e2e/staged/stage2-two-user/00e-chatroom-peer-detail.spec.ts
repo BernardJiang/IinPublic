@@ -180,8 +180,8 @@ test.describe('Chatroom peer detail views', () => {
       await enterGlobalChatroom(pageTom);
       await enterGlobalChatroom(pageJerry);
 
-      // Tom creates and broadcasts a talk
-      await clickBroadcastUntilBulkAck(pageTom);
+      // Tom creates a talk (no OUT rows yet — Broadcast would open the editor without completing bulk ack)
+      await pageTom.click('#create-talk-btn');
       await pageTom.waitForSelector('#talk-editor-form', { timeout: 15_000 });
       await pageTom.fill('#talk-title', 'Tennis Peer Test');
       await selectTalkEditorType(pageTom, 'flow');
