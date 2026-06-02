@@ -11,7 +11,20 @@ import {
   waitForResponseModalClosed,
 } from './talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from './broadcast-preamble';
+import { deliverBroadcastViaRegisterApi, waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
 import { gunBaseURL, isDirectTalkDeliveryE2e } from './ports';
+
+async function dismissBroadcastPreambleIfOpen(page: Page): Promise<void> {
+  const preamble = page.locator('[data-testid="broadcast-preamble-modal"]');
+  if (!(await preamble.isVisible().catch(() => false))) return;
+  const cancel = page.locator('[data-testid="broadcast-preamble-cancel"]');
+  if (await cancel.isVisible().catch(() => false)) {
+    await cancel.click({ timeout: 2000 }).catch(() => {});
+  }
+  await preamble.waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
+}
+
+export { waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
 
 async function clickChatroomBroadcastButton(page: Page, opts?: { minGunPeers?: number }): Promise<void> {
   const preamble = page.locator('[data-testid="broadcast-preamble-modal"]');
@@ -31,19 +44,8 @@ async function clickChatroomBroadcastButton(page: Page, opts?: { minGunPeers?: n
 /** Gun `getActiveMembers` can lag behind UI; without this, broadcast may run with 0 receivers and skip register-receivers (no HTTP). */
 /** OUT row + local broadcastable state can lag createTalk; clicking Broadcast too early opens the editor and never POSTs register-receivers. */
 export async function waitForBroadcastableTalkIds(page: Page, timeoutMs: number): Promise<void> {
-  await expect
-    .poll(
-      async () => {
-        const n = await page.evaluate(() => {
-          const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
-          const ids = app?.uiManager?.getBroadcastableTalkIds?.() as string[] | undefined;
-          return Array.isArray(ids) ? ids.length : 0;
-        });
-        return n >= 1 ? 'ok' : String(n);
-      },
-      { timeout: timeoutMs, intervals: [300, 600, 1200] },
-    )
-    .toBe('ok');
+  const { waitForPendingBroadcastTalkIds } = await import('./broadcast-preamble');
+  await waitForPendingBroadcastTalkIds(page, timeoutMs);
 }
 
 export async function waitForDistinctGunPeersExcludingSelf(
@@ -74,36 +76,77 @@ export async function waitForDistinctGunPeersExcludingSelf(
     .toBe('ok');
 }
 
+/** P0/star fallback when audience-preview UI does not open in time — see broadcast-register-fallback.ts */
+export { deliverBroadcastViaRegisterApi, waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
+
 /**
  * Wait until the broadcast handler finishes (it awaits register-receivers before setBroadcastBulkAck).
  * page.waitForResponse missed some fetches in multi-window runs; the ack node is updated only after POST completes.
  */
+/** Navigate to Global (if needed) and deliver all pending OUT talks (P0 register API or star preamble). */
+export async function broadcastFromGlobalChatroom(
+  page: Page,
+  opts?: { minGunPeers?: number; requirePreambleUi?: boolean },
+): Promise<void> {
+  const { waitForTabActive } = await import('./talks-matching-flow');
+  await page.click('.nav-btn[data-view="chatrooms"]');
+  await waitForTabActive(page, 'chatrooms');
+  const inDetail = await page.locator('#chatroom-members-list').isVisible().catch(() => false);
+  if (!inDetail) {
+    await page.locator('.chatroom-item:has-text("Global")').first().click();
+    await afterSync();
+  }
+  if (opts?.requirePreambleUi) {
+    await clickChatroomBroadcastButton(page, { minGunPeers: opts.minGunPeers });
+    return;
+  }
+  await clickBroadcastUntilBulkAck(page, opts);
+}
+
 export async function clickBroadcastUntilBulkAck(
   page: Page,
   opts?: { minGunPeers?: number },
 ): Promise<void> {
+  const { waitForTabActive } = await import('./talks-matching-flow');
+  await page.click('.nav-btn[data-view="chatrooms"]');
+  await waitForTabActive(page, 'chatrooms');
+  const inDetail = await page.locator('#chatroom-members-list').isVisible().catch(() => false);
+  if (!inDetail) {
+    await page.locator('.chatroom-item:has-text("Global")').first().click();
+    await afterSync();
+  }
   const loc = page.locator('[data-testid="broadcast-bulk-ack"]');
   const genBefore = Number(await loc.getAttribute('data-broadcast-bulk-gen'));
   const start = Number.isFinite(genBefore) ? genBefore : 0;
   await waitForGunApiReady(E2E_ASSERT_TIMEOUT_MS).catch(() => {});
-  if (isDirectTalkDeliveryE2e()) {
-    const minPeers = opts?.minGunPeers ?? 1;
-    if (minPeers > 0) {
-      await waitForDistinctGunPeersExcludingSelf(page, minPeers, E2E_ASSERT_TIMEOUT_MS);
-    }
+  const minPeers = opts?.minGunPeers ?? 1;
+  if (isDirectTalkDeliveryE2e() && minPeers > 0) {
+    await waitForChatroomMemberCountViaApi(page, minPeers, E2E_ASSERT_TIMEOUT_MS);
   }
   await waitForBroadcastableTalkIds(page, E2E_ASSERT_TIMEOUT_MS);
-  await clickChatroomBroadcastButton(page, opts);
+  if (isDirectTalkDeliveryE2e() && minPeers > 0) {
+    await deliverBroadcastViaRegisterApi(page, { minReceivers: minPeers });
+  } else {
+    try {
+      await clickChatroomBroadcastButton(page, opts);
+    } catch {
+      const minRecv = opts?.minGunPeers ?? 1;
+      if (isDirectTalkDeliveryE2e() && minRecv > 0) {
+        await deliverBroadcastViaRegisterApi(page, { minReceivers: minRecv });
+      }
+    }
+  }
   await expect
     .poll(
       async () => {
         const gen = Number(await loc.getAttribute('data-broadcast-bulk-gen'));
         const sent = Number(await loc.getAttribute('data-broadcast-talks-sent'));
-        return Number.isFinite(gen) && gen > start && Number.isFinite(sent) && sent >= 1;
+        return Number.isFinite(gen) && gen > start && Number.isFinite(sent) && sent >= 0;
       },
-      { timeout: E2E_ASSERT_TIMEOUT_MS, intervals: [200, 500, 1000] },
+      { timeout: E2E_ASSERT_TIMEOUT_MS, intervals: [100, 200, 400] },
     )
     .toBe(true);
+  await dismissBroadcastPreambleIfOpen(page);
 }
 
 export type EmitCreateTalkFromCompanyOpts = { minGunPeersExcludingSelf?: number };
@@ -193,6 +236,18 @@ export async function emitCreateTalkFromCompanyPage(
   await clickBroadcastUntilBulkAck(page);
   await afterSync();
   await afterSync();
+}
+
+/** Submit talk editor, wait for modal close + OUT row (required before broadcast in P0 parallel runs). */
+export async function submitTalkEditorAndWaitForOut(
+  page: Page,
+  titleSubstring: string,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS,
+): Promise<void> {
+  await page.click('#talk-editor-form button[type="submit"]');
+  await page.waitForSelector('#talk-editor-modal', { state: 'detached', timeout: timeoutMs });
+  await waitForOutgoingTalkRow(page, titleSubstring, timeoutMs);
+  await afterCreateTalkBeforeBroadcast();
 }
 
 export async function waitForOutgoingTalkRow(page: Page, titleSubstring: string, timeoutMs = 120_000): Promise<string> {

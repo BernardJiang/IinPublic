@@ -2,7 +2,7 @@ import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import * as fs from 'fs';
 import * as path from 'path';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import {maybeClearGunDatabases, injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
 import { webBaseURL, e2eTestStorageDir } from '../../helpers/ports';
@@ -59,8 +59,7 @@ test.describe('Capacity and eviction', () => {
     attachFilteredConsoleLog(page, label);
     // IDB clear must run before any script; addInitScript fires before page scripts.
     await injectIdbClear(page);
-    await page.goto(webBaseURL() + E2E_URL);
-    await page.waitForLoadState('load');
+    await gotoWebApp(page, webBaseURL() + E2E_URL);
     await ensureWindowFitsViewport(page, 640, 600);
     await afterLoad();
     await expect

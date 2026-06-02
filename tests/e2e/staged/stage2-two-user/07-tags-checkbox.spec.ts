@@ -1,7 +1,7 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import * as fs from 'fs';
-import { injectIdbClear } from '../../helpers/clear-database';
+import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
@@ -79,8 +79,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     const page = await context.newPage();
     page.on('console', (msg) => console.log(`[${label}]:`, msg.text()));
     await injectIdbClear(page);
-    await page.goto(webAppURLStableChatroom());
-    await page.waitForLoadState('load');
+    await gotoWebApp(page, webAppURLStableChatroom());
     await ensureWindowFitsViewport(page, 640, 1000);
     await afterLoad();
 

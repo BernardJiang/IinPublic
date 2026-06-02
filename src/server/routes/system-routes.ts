@@ -143,6 +143,7 @@ type RegisterSystemRoutesDeps = {
     byTalkAnswer: Map<string, Set<string>>;
   };
   clearTalkResponseStats: () => void;
+  onClearDatabase?: () => void;
   nodeEnv: string | undefined;
 };
 
@@ -156,6 +157,7 @@ export function registerSystemRoutes(
     talkResponsesMap,
     statsIdx,
     clearTalkResponseStats,
+    onClearDatabase,
     nodeEnv,
   }: RegisterSystemRoutesDeps,
 ): void {
@@ -623,6 +625,7 @@ export function registerSystemRoutes(
           incomingTalksMap.clear();
           conversationsMap.clear();
           clearTalkResponseStats();
+          onClearDatabase?.();
           const radiskDirs = clearRadiskOnDisk();
           logger.info({ radiskDirs }, '✅ Gun.js in-memory database cleared');
           res.json({

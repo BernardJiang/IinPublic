@@ -1,6 +1,6 @@
 import { chromium, Browser, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import {maybeClearGunDatabases, injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
@@ -43,8 +43,7 @@ test.describe('Creator reply triage at scale', () => {
     page = await context.newPage();
     attachFilteredConsoleLog(page, 'Matrix');
     await injectIdbClear(page);
-    await page.goto(webAppURLStableChatroom());
-    await page.waitForLoadState('load');
+    await gotoWebApp(page, webAppURLStableChatroom());
     await ensureWindowFitsViewport(page, 640, 1000);
     await afterLoad();
     attachE2eBrowserTabLabel(page, 'Matrix');

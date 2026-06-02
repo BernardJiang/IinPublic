@@ -20,6 +20,35 @@ export class WebChatroomService {
 
   constructor(private gunService: WebGunService) {}
 
+  private resolveApiBase(): string {
+    if (typeof window === 'undefined') return 'http://127.0.0.1:8080';
+    const { hostname, protocol, port } = window.location;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      const webPort = Number(port);
+      if (Number.isFinite(webPort) && webPort >= 3001) {
+        const gunPort = webPort - 3001 + 8080;
+        return `${protocol}//${hostname}:${gunPort}`;
+      }
+      return `${protocol}//${hostname}:8080`;
+    }
+    return `${protocol}//${hostname}`;
+  }
+
+  /** Fast member snapshot from server Gun (reads chatrooms/<id>/users). */
+  async fetchMemberIdsFromServer(chatroomId: string): Promise<string[]> {
+    try {
+      const res = await fetch(
+        `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members`,
+        { cache: 'no-store' },
+      );
+      if (!res.ok) return [];
+      const rows = (await res.json()) as Array<{ userId?: string }>;
+      return Array.isArray(rows) ? rows.map((r) => String(r.userId || '').trim()).filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  }
+
   async findOptimalChatroom(location: GPSCoordinate): Promise<string> {
     // Blur location and get the region
     const blurredLocation = LocationPrivacy.blurLocation(location);
@@ -109,6 +138,7 @@ export class WebChatroomService {
     });
     if (alreadyActive) {
       this.watchForEviction(userId, chatroomId, onMoved);
+      await this.syncJoinWithServer(chatroomId, userId, userData.stageName);
       console.log(`✅ Already active in chatroom, preserving existing visit: ${chatroomId}`);
       return;
     }
@@ -161,6 +191,7 @@ export class WebChatroomService {
     };
 
     await writeUserWithRetry();
+    await this.syncJoinWithServer(chatroomId, userId, userData.stageName);
     await this.recordRoomVisit(chatroomId, userId);
 
     // Store location in a dedicated path for reliable retrieval
@@ -235,9 +266,8 @@ export class WebChatroomService {
       console.log(`⚠️  No location in Map for user ${userId}`);
     }
 
-    // Wait for Gun.js to propagate the write to all peers
-    // This is critical for FIFO eviction to see the correct user count
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Brief pause for Gun peer propagation (FIFO path needs more headroom).
+    await new Promise((resolve) => setTimeout(resolve, CONFIG.CHATROOM_ENABLE_FIFO ? 1000 : 150));
 
     // Check capacity and handle FIFO eviction AFTER adding the user
     if (CONFIG.CHATROOM_ENABLE_FIFO) {
@@ -248,6 +278,19 @@ export class WebChatroomService {
     this.watchForEviction(userId, chatroomId, onMoved);
 
     console.log(`✅ Successfully joined chatroom: ${chatroomId}`);
+  }
+
+  /** Register join on server index so GET /members is immediate (not Gun-map lag). */
+  private async syncJoinWithServer(chatroomId: string, userId: string, stageName?: string): Promise<void> {
+    try {
+      await fetch(`${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, stageName: stageName || userId }),
+      });
+    } catch (error) {
+      console.warn('syncJoinWithServer failed (non-fatal):', error);
+    }
   }
 
   private async recordRoomVisit(chatroomId: string, userId: string): Promise<void> {
@@ -394,7 +437,7 @@ export class WebChatroomService {
    */
   private async observeActiveMemberIds(
     chatroomId: string,
-    observeMs = 1400,
+    observeMs = 400,
     options: { includeTechSupport?: boolean } = {},
   ): Promise<string[]> {
     try {
@@ -443,7 +486,9 @@ export class WebChatroomService {
    * broadcast receivers while the UI already listed them.
    */
   async getActiveMembers(chatroomId: string): Promise<string[]> {
-    return this.observeActiveMemberIds(chatroomId);
+    const fromServer = await this.fetchMemberIdsFromServer(chatroomId);
+    if (fromServer.length > 0) return fromServer;
+    return this.observeActiveMemberIds(chatroomId, 800);
   }
 
   subscribeToMembers(

@@ -18,6 +18,11 @@ export class UserService {
 
   constructor(private gunService: GunService) {}
 
+  /** E2E / test-only: in-memory block overrides survive Gun graph clears. */
+  resetBlockMutationsForTesting(): void {
+    this.recentBlockMutations.clear();
+  }
+
   private parseJsonArray<T>(value: unknown, fallback: T[]): T[] {
     if (typeof value !== 'string') return fallback;
     try {

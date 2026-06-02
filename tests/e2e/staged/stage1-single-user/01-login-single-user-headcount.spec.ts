@@ -2,7 +2,7 @@ import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import * as fs from 'fs';
 import * as path from 'path';
-import { injectIdbClear } from '../../helpers/clear-database';
+import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, delay, headless } from '../../helpers/timing';
@@ -37,8 +37,7 @@ test.describe('Login — single user headcount', () => {
     page.on('console', (m) => console.log('[Browser]:', m.text()));
     await injectIdbClear(page);
 
-    await page.goto(webBaseURL());
-    await page.waitForLoadState('load');
+    await gotoWebApp(page, webBaseURL());
     await ensureWindowFitsViewport(page, 960, 1200);
     await afterLoad();
     attachE2eBrowserTabLabel(page, 'User1');
@@ -55,8 +54,7 @@ test.describe('Login — single user headcount', () => {
 
     page = await context.newPage();
     page.on('console', (m) => console.log('[Browser]:', m.text()));
-    await page.goto(webBaseURL());
-    await page.waitForLoadState('load');
+    await gotoWebApp(page, webBaseURL());
     await afterNav();
     await afterLoad();
     attachE2eBrowserTabLabel(page, 'User1 re-login');

@@ -1,7 +1,7 @@
 import { expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
-import { injectIdbClear } from './clear-database';
+import {injectIdbClear, gotoWebApp} from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
 import { afterLoad, afterNav, afterSync } from './timing';
 import { webAppURLStableChatroom } from './ports';
@@ -71,8 +71,7 @@ export async function bootstrapCanonicalUser(
     }, TECHSUPPORT_ROOT_USER_ID);
   }
 
-  await page.goto(webAppURLStableChatroom());
-  await page.waitForLoadState('load');
+  await gotoWebApp(page, webAppURLStableChatroom());
   await ensureWindowFitsViewport(page, viewport.width, viewport.height);
   await afterLoad();
 

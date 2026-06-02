@@ -7,6 +7,8 @@ import { maybeClearGunDatabases } from '../../helpers/clear-database';
 import { afterSync, afterAction } from '../../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../../helpers/talks-matching-browsers';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { broadcastFromGlobalChatroom, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
+
 import {
   bootstrapUser,
   waitForTabActive,
@@ -100,10 +102,8 @@ test.describe('Talks matching — answered incoming leaves IN', () => {
     await q2.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
     await q2.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
     await q2.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-    await pageTom.click('#talk-editor-form button[type="submit"]');
-    await afterSync();
-    await pageTom.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageTom);
+    await submitTalkEditorAndWaitForOut(pageTom, 'E2E Ignore Then Match Tennis');
+    await broadcastFromGlobalChatroom(pageTom);
     await waitForTabActive(pageTom, 'chatrooms');
 
     await afterSync();

@@ -112,7 +112,9 @@ export class ChatroomManager {
   }
 
   async getActiveMembersWithStageName(chatroomId: string): Promise<Array<{ userId: string; stageName: string }>> {
-    const users = await this.getPathWithRetry(['chatroomMembers', chatroomId]);
+    const fromRoomUsers = await this.collectActiveMembersFromUsersNode(chatroomId);
+    if (fromRoomUsers.length > 0) return fromRoomUsers;
+    const users = await this.getPathWithRetry(['chatroomMembers', chatroomId], 4, 100);
     if (!users || typeof users !== 'object') return [];
     const members: Array<{ userId: string; stageName: string }> = [];
     for (const [userId, data] of Object.entries(users as Record<string, any>)) {
@@ -124,6 +126,63 @@ export class ChatroomManager {
       });
     }
     return members;
+  }
+
+  /** Browser clients write `chatrooms/<id>/users`; API joins use `chatroomMembers`. Read both. */
+  private async collectActiveMembersFromUsersNode(
+    chatroomId: string,
+  ): Promise<Array<{ userId: string; stageName: string }>> {
+    const fromMap = await this.collectActiveMembersFromGunMap(['chatrooms', chatroomId, 'users'], 500);
+    if (fromMap.length > 0) return fromMap;
+    const users = await this.getPathWithRetry(['chatrooms', chatroomId, 'users'], 2, 80);
+    if (!users || typeof users !== 'object') return [];
+    const members: Array<{ userId: string; stageName: string }> = [];
+    for (const [userId, data] of Object.entries(users as Record<string, any>)) {
+      if (!userId || userId.startsWith('_')) continue;
+      if (!data || typeof data !== 'object' || (data as any).isActive !== true) continue;
+      members.push({
+        userId,
+        stageName: String((data as any).stageName || userId),
+      });
+    }
+    return members;
+  }
+
+  /** Gun child nodes (room members) require `.map()` — parent `.once()` often returns empty. */
+  private collectActiveMembersFromGunMap(
+    path: string[],
+    observeMs: number,
+  ): Promise<Array<{ userId: string; stageName: string }>> {
+    return new Promise((resolve) => {
+      const gun = this.gunService.getGun();
+      let ref: any = gun;
+      for (const seg of path) {
+        ref = ref.get(seg);
+      }
+      const members: Array<{ userId: string; stageName: string }> = [];
+      const seen = new Set<string>();
+      const mapRef = ref.map();
+      const finish = () => {
+        try {
+          mapRef.off();
+        } catch {
+          /* ignore */
+        }
+        resolve(members);
+      };
+      const timer = setTimeout(finish, observeMs);
+      mapRef.on((data: unknown, key: string) => {
+        if (!key || key.startsWith('_')) return;
+        if (!data || typeof data !== 'object' || (data as { isActive?: boolean }).isActive !== true) return;
+        if (seen.has(key)) return;
+        seen.add(key);
+        members.push({
+          userId: key,
+          stageName: String((data as { stageName?: string }).stageName || key),
+        });
+      });
+      timer.unref?.();
+    });
   }
 
   async joinChatroom(chatroomId: string, userId: string, stageName?: string): Promise<void> {

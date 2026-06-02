@@ -2,7 +2,7 @@ import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { maybeClearGunDatabases } from '../../helpers/clear-database';
 import { afterAction, afterSync } from '../../helpers/timing';
-import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
+import { clickBroadcastUntilBulkAck, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { gunBaseURL } from '../../helpers/ports';
 import {
@@ -32,8 +32,7 @@ async function createTagTalk(page: Page, title: string): Promise<void> {
   await page.waitForSelector('#talk-editor-form');
   await selectTalkEditorType(page, 'tag');
   await page.fill('#talk-title', title);
-  await page.click('#talk-editor-form button[type="submit"]');
-  await afterSync();
+  await submitTalkEditorAndWaitForOut(page, title);
 }
 
 test.describe('Incoming talk type intake filtering', () => {

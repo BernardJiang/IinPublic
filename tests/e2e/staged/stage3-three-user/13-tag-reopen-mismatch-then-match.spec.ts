@@ -8,6 +8,8 @@ import { maybeClearGunDatabases } from '../../helpers/clear-database';
 import { afterSync, afterAction } from '../../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../../helpers/talks-matching-browsers';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { broadcastFromGlobalChatroom, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
+
 import {
   bootstrapUser,
   waitForResponseModalClosed,
@@ -76,10 +78,8 @@ test.describe('Talks matching — tag answer removed from IN', () => {
     await pageAlice.locator('input[name="talk-type-radio"][value="tag"]').click();
     await afterAction();
     await pageAlice.fill('#talk-title', TAG_TITLE);
-    await pageAlice.click('#talk-editor-form button[type="submit"]');
-    await afterSync();
-    await pageAlice.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageAlice);
+    await submitTalkEditorAndWaitForOut(pageAlice, TAG_TITLE);
+    await broadcastFromGlobalChatroom(pageAlice);
     await afterAction();
 
     // Tom opens the tag and leaves the checkbox unchecked → mismatch

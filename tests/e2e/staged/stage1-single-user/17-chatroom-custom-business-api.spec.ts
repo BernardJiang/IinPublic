@@ -1,5 +1,6 @@
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
+import { waitForGunApiReady } from '../../helpers/clear-database';
 import { gunBaseURL } from '../../helpers/ports';
 
 function roomId(prefix: string): string {
@@ -13,6 +14,7 @@ test.describe('Chatroom custom/business API scripts', () => {
 
   test.beforeEach(async () => {
     await clearGunForStage1Spec();
+    await waitForGunApiReady(15_000);
   });
 
   test.afterAll(async () => {

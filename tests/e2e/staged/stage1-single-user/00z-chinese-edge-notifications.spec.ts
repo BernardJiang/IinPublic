@@ -10,7 +10,7 @@
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { injectIdbClear } from '../../helpers/clear-database';
+import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync, afterCreateTalkBeforeBroadcast } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
@@ -31,8 +31,7 @@ test.describe('Chinese UI edge surface localization (D2)', () => {
     context = await browser.newContext({ viewport: { width: 640, height: 1000 } });
     page = await context.newPage();
     await injectIdbClear(page);
-    await page.goto(webBaseURL());
-    await page.waitForLoadState('load');
+    await gotoWebApp(page, webBaseURL());
     await afterSync();
   });
 

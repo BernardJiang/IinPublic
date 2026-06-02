@@ -28,16 +28,16 @@ export async function wait(shortMs: number, longMs?: number): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-/** Short: 100ms, Long: 1000ms — after a single action (click, fill). */
+/** Short: 100ms — after a single action (click, fill). */
 export const afterAction = () => wait(100, 1000);
-/** Short: 200ms, Long: 2s — after login or nav. */
-export const afterNav = () => wait(200, 2000);
-/** Short: 600ms, Long: 4s — after broadcast or multi-user join; Gun needs time to propagate. */
-export const afterSync = () => wait(600, 4000);
-/** Short: 2s, Long: 6s — after createTalk (save) before clicking Broadcast; avoids flaky IN/outgoing sync. */
-export const afterCreateTalkBeforeBroadcast = () => wait(2000, 6000);
-/** Short: 1s, Long: 6s — after page load so Gun can connect and initial sync; required for headcount. */
-export const afterLoad = () => wait(1000, 6000);
+/** Short: 100ms — after login or nav. */
+export const afterNav = () => wait(100, 2000);
+/** Short: 200ms — after broadcast or multi-user join. */
+export const afterSync = () => wait(200, 4000);
+/** Short: 400ms — after createTalk before Broadcast. */
+export const afterCreateTalkBeforeBroadcast = () => wait(400, 6000);
+/** Short: 300ms — after page load for Gun connect. */
+export const afterLoad = () => wait(300, 6000);
 
 export { E2E_INTERVAL, isLong };
 
@@ -47,6 +47,46 @@ export { E2E_INTERVAL, isLong };
  * Override only in a spec when debugging locally (`PW_SLOW_MO`, `E2E_INTERVAL=long`).
  */
 export const E2E_ASSERT_TIMEOUT_MS = 10_000;
+
+/** Wait until Gun auth + user bootstrap finished (settings shell needs currentUser). */
+export async function waitForAppReady(page: import('@playwright/test').Page): Promise<void> {
+  const { expect } = await import('@playwright/test');
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const app = (window as unknown as { __iinpublic_app?: { getApp: () => { currentUser?: { id?: string } } } })
+            .__iinpublic_app?.getApp?.();
+          const hasUser = Boolean(app?.currentUser?.id);
+          const hasNav = Boolean(document.querySelector('.bottom-nav .nav-btn[data-view="chatrooms"]'));
+          return hasUser && hasNav;
+        }),
+      { timeout: E2E_ASSERT_TIMEOUT_MS, intervals: [100, 200, 400] },
+    )
+    .toBe(true);
+}
+
+/** goto + load + app bootstrap — use from specs that do not use the fixtures `page` wrapper. */
+export async function gotoAppReady(page: import('@playwright/test').Page, url: string): Promise<void> {
+  await page.goto(url);
+  await page.waitForLoadState('load');
+  await waitForAppReady(page);
+}
+
+/** Reload and wait for app bootstrap + stored UI language labels (if set). */
+export async function reloadAppReady(page: import('@playwright/test').Page): Promise<void> {
+  const lang = await page.evaluate(() => localStorage.getItem('iinpublic_ui_language'));
+  await page.reload();
+  await page.waitForLoadState('load');
+  await waitForAppReady(page);
+  if (lang === 'zh' || lang === 'en') {
+    const want = lang === 'zh' ? '设置' : 'Settings';
+    const { expect } = await import('@playwright/test');
+    await expect(page.locator('.nav-btn[data-view="settings"] .nav-label')).toHaveText(want, {
+      timeout: E2E_ASSERT_TIMEOUT_MS,
+    });
+  }
+}
 
 /** Target wall-clock for full suite at PW_WORKERS=20 (see playwright.config.ts). */
 export const E2E_SUITE_TARGET_MINUTES = 10;

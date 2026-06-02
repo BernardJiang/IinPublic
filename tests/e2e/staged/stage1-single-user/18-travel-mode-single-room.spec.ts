@@ -1,6 +1,6 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { injectIdbClear } from '../../helpers/clear-database';
+import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, delay, headless } from '../../helpers/timing';
@@ -30,8 +30,7 @@ test.describe('Chatrooms — hierarchy travel and return home', () => {
     context = await browser.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     page = await context.newPage();
     await injectIdbClear(page);
-    await page.goto(webBaseURL());
-    await page.waitForLoadState('load');
+    await gotoWebApp(page, webBaseURL());
     await ensureWindowFitsViewport(page, 960, 1200);
     await afterLoad();
     attachE2eBrowserTabLabel(page, 'travel');

@@ -10,7 +10,7 @@ import { test, expect } from '../../helpers/fixtures';
 import { maybeClearGunDatabases } from '../../helpers/clear-database';
 import { afterSync, afterAction } from '../../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../../helpers/talks-matching-browsers';
-import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { broadcastFromGlobalChatroom, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import {
   bootstrapUser,
   waitForTabActive,
@@ -67,8 +67,7 @@ async function fillThreeQuestionTalk(
   await q2.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
   await q2.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
 
-  await page.click('#talk-editor-form button[type="submit"]');
-  await afterSync();
+  await submitTalkEditorAndWaitForOut(page, title);
 }
 
 test.describe('Talks matching — partial auto-answers (flattened context)', () => {
@@ -124,8 +123,7 @@ test.describe('Talks matching — partial auto-answers (flattened context)', () 
 
     // --- Talk 1 (Sunday): Jerry answers all three with auto mode; match on last ---
     await fillThreeQuestionTalk(pageTom!, TITLE_SUN, 'Can you play on Sunday?');
-    await pageTom!.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageTom!);
+    await broadcastFromGlobalChatroom(pageTom!);
     await waitForTabActive(pageTom!, 'chatrooms');
 
     await afterSync();
@@ -144,8 +142,7 @@ test.describe('Talks matching — partial auto-answers (flattened context)', () 
 
     // --- Talk 2 (Saturday): same Q1–Q2, different Q3 → flattened prefs auto-fill until Q3 ---
     await fillThreeQuestionTalk(pageTom!, TITLE_SAT, 'Can you play on Saturday?');
-    await pageTom!.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageTom!);
+    await broadcastFromGlobalChatroom(pageTom!);
     await waitForTabActive(pageTom!, 'chatrooms');
 
     await afterSync();

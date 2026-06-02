@@ -2,6 +2,7 @@ import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { maybeClearGunDatabases } from '../../helpers/clear-database';
 import { afterAction, afterSync } from '../../helpers/timing';
+import { submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { waitForBroadcastBulkAckMinSent } from '../../helpers/broadcast-cancellation-helpers';
 import {
   bootstrapUser,
@@ -31,13 +32,27 @@ async function createLanguageTalk(page: Page, title: string, language: string): 
   await question.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
   await question.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
   await question.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-  await page.click('#talk-editor-form button[type="submit"]');
-  await afterSync();
+  await submitTalkEditorAndWaitForOut(page, title);
+}
+
+async function waitForBroadcastableCount(page: Page, min: number): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const app = (window as unknown as { __iinpublic_app?: { getApp: () => { uiManager?: { getBroadcastableTalkIds?: () => string[] } } } })
+            .__iinpublic_app?.getApp?.();
+          return app?.uiManager?.getBroadcastableTalkIds?.()?.length ?? 0;
+        }),
+      { timeout: 10_000, intervals: [100, 200, 400] },
+    )
+    .toBeGreaterThanOrEqual(min);
 }
 
 async function sendBroadcastAndOpenPreview(page: Page, expectedReason?: RegExp): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
-  await afterSync();
+  await waitForTabActive(page, 'chatrooms');
+  await waitForBroadcastableCount(page, 1);
   await page.click('#broadcast-talk-btn');
   const modal = page.locator('[data-testid="broadcast-preamble-modal"]');
   await expect(modal).toBeVisible({ timeout: 60_000 });
@@ -53,8 +68,23 @@ async function sendBroadcastAndOpenPreview(page: Page, expectedReason?: RegExp):
 }
 
 async function confirmBroadcastAndWait(page: Page, minSent: number): Promise<void> {
+  const ack = page.locator('[data-testid="broadcast-bulk-ack"]');
+  const genBefore = Number(await ack.getAttribute('data-broadcast-bulk-gen')) || 0;
   await page.locator('[data-testid="broadcast-preamble-send"]').click();
-  await waitForBroadcastBulkAckMinSent(page, { receivers: 1, minSent });
+  await expect
+    .poll(
+      async () => {
+        const gen = Number(await ack.getAttribute('data-broadcast-bulk-gen'));
+        const sent = Number(await ack.getAttribute('data-broadcast-talks-sent'));
+        const recv = Number(await ack.getAttribute('data-broadcast-receivers'));
+        const genOk = Number.isFinite(gen) && gen > genBefore;
+        const sentOk = Number.isFinite(sent) && sent >= minSent;
+        const recvOk = Number.isFinite(recv) && recv >= 1;
+        return genOk && sentOk && recvOk;
+      },
+      { timeout: 10_000, intervals: [100, 200, 400] },
+    )
+    .toBe(true);
   await waitForTabActive(page, 'chatrooms');
 }
 

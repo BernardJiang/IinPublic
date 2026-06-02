@@ -2,19 +2,35 @@ import type { Page } from '@playwright/test';
 import { expect } from './fixtures';
 import { afterAction, afterSync } from './timing';
 import { gunBaseURL } from './ports';
-import { clickBroadcastUntilBulkAck } from './talk-demo-ui';
+import { clickBroadcastUntilBulkAck, submitTalkEditorAndWaitForOut } from './talk-demo-ui';
 import { openIncomingTalkModal, waitForResponseModalClosed, waitForTabActive } from './talks-matching-flow';
 import { dismissNotificationOverlays } from './durable-ui';
+import { ensureNoBlockBetween } from './blocking-e2e-helpers';
 
 export async function getCurrentUserId(page: Page): Promise<string> {
   return page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id ?? '');
 }
 
 export async function getReputation(page: Page, userId: string, viewerId: string): Promise<any> {
-  const res = await page.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(userId)}?viewerId=${encodeURIComponent(viewerId)}`);
-  expect(res.ok()).toBeTruthy();
-  const user = await res.json();
-  return user.reputation;
+  const reputation = await page.evaluate(
+    async ({ uid, vid }) => {
+      const app = (window as unknown as { __iinpublic_app?: { getApp: () => { getBackendApiBase?: () => string } } })
+        .__iinpublic_app?.getApp?.();
+      const base = app?.getBackendApiBase?.() || '';
+      const res = await fetch(
+        `${base}/api/users/${encodeURIComponent(uid)}?viewerId=${encodeURIComponent(vid)}`,
+        { headers: { 'Cache-Control': 'no-cache' } },
+      );
+      if (!res.ok) return null;
+      const user = await res.json();
+      return user?.reputation ?? null;
+    },
+    { uid: userId, vid: viewerId },
+  );
+  if (!reputation) {
+    throw new Error(`getReputation failed for userId=${userId}`);
+  }
+  return reputation;
 }
 
 export async function enterGlobalChatroom(page: Page): Promise<void> {
@@ -32,13 +48,12 @@ export async function createMatchTalk(page: Page, title: string): Promise<void> 
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
   const q = page.locator('.question-item').first();
-  await q.locator('.question-text').fill(`Reputation test (${title}): want coffee?`);
-  await q.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes');
+  await q.locator('.question-text').fill(`Would you like to get coffee together? (${title})`);
+  await q.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes, I would.');
   await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
-  await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
+  await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No, thanks.');
   await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-  await page.click('#talk-editor-form button[type="submit"]');
-  await afterSync();
+  await submitTalkEditorAndWaitForOut(page, title);
 }
 
 export async function createAdultTalk(page: Page, title: string): Promise<void> {
@@ -54,8 +69,7 @@ export async function createAdultTalk(page: Page, title: string): Promise<void> 
   await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
   await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
   await page.check('#talk-is-adult');
-  await page.click('#talk-editor-form button[type="submit"]');
-  await afterSync();
+  await submitTalkEditorAndWaitForOut(page, title);
 }
 
 export async function serverVouchAgeVerified(page: Page, targetUserId: string): Promise<void> {
@@ -69,6 +83,9 @@ export async function serverVouchAgeVerified(page: Page, targetUserId: string): 
 export async function establishContactsTomJerry(pageTom: Page, pageJerry: Page, title: string): Promise<void> {
   await enterGlobalChatroom(pageTom);
   await enterGlobalChatroom(pageJerry);
+  const tomId = await getCurrentUserId(pageTom);
+  const jerryId = await getCurrentUserId(pageJerry);
+  await ensureNoBlockBetween(pageTom, tomId, pageJerry, jerryId);
 
   await createMatchTalk(pageTom, title);
   await clickBroadcastUntilBulkAck(pageTom);
@@ -76,7 +93,7 @@ export async function establishContactsTomJerry(pageTom: Page, pageJerry: Page, 
   await waitForTabActive(pageTom, 'chatrooms');
 
   await openIncomingTalkModal(pageJerry, title);
-  await pageJerry.locator('input.choice-radio[data-answer-text="Yes"][data-mode="manual"]').first().click();
+  await pageJerry.locator('input.choice-radio[data-answer-text="Yes, I would."][data-mode="manual"]').first().click();
   await waitForResponseModalClosed(pageJerry);
   await afterSync();
 }

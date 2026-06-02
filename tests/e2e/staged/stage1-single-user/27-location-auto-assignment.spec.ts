@@ -3,7 +3,7 @@
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { injectIdbClear } from '../../helpers/clear-database';
+import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
@@ -41,8 +41,7 @@ test.describe('Location-based chatroom assignment', () => {
         },
       });
     });
-    await page.goto(webBaseURL());
-    await page.waitForLoadState('load');
+    await gotoWebApp(page, webBaseURL());
     await afterSync();
   });
 

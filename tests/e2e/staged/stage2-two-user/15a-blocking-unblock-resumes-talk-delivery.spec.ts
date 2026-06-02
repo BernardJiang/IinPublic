@@ -13,7 +13,7 @@ import {
   resetTalksMatchingSession,
   incomingClustersIncludeTitleForUser,
 } from '../../helpers/talks-matching-flow';
-import { createMatchTalk, enterGlobalChatroom } from '../../helpers/blocking-e2e-helpers';
+import { createMatchTalk, enterGlobalChatroom, ensureNoBlockBetween } from '../../helpers/blocking-e2e-helpers';
 
 test.describe('Blocking system — unblock resumes talk delivery', () => {
   let browserTom: Browser;
@@ -67,11 +67,12 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     const jerryUserId = await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
 
     await createMatchTalk(pageTom, 'Unblock Warmup Talk');
+    await ensureNoBlockBetween(pageTom, tomUserId, pageJerry, jerryUserId);
     await clickBroadcastUntilBulkAck(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
     await openIncomingTalkModal(pageJerry, 'Unblock Warmup Talk');
-    await pageJerry.locator('input.choice-radio[data-answer-text="Yes"][data-mode="manual"]').first().click();
+    await pageJerry.locator('input.choice-radio[data-answer-text="Yes, I would."][data-mode="manual"]').first().click();
     await waitForResponseModalClosed(pageJerry);
     await afterSync();
 
@@ -138,11 +139,23 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     await pageTom.click('#back-to-contacts-list');
     await afterAction();
     await enterGlobalChatroom(pageTom);
+    await expect
+      .poll(
+        async () => {
+          const res = await pageTom.request.get(
+            `${gunBaseURL()}/api/users/${encodeURIComponent(tomUserId)}/block-status/${encodeURIComponent(jerryUserId)}`,
+          );
+          if (!res.ok()) return true;
+          return Boolean(((await res.json()) as { eitherBlocked?: boolean }).eitherBlocked);
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(false);
     await createMatchTalk(pageTom, 'Post-Unblock Talk');
+    await ensureNoBlockBetween(pageTom, tomUserId, pageJerry, jerryUserId);
     await clickBroadcastUntilBulkAck(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
-
-    await waitForIncomingTalkCluster(pageJerry, 'Post-Unblock Talk');
+    await openIncomingTalkModal(pageJerry, 'Post-Unblock Talk');
   });
 });

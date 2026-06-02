@@ -503,7 +503,8 @@ export class UIManager extends EventEmitter {
     const btn = document.getElementById('return-home-btn') as HTMLButtonElement | null;
     if (!btn) return;
     const home = this.getHomeChatroomId();
-    const away = !!this.currentChatroom && this.currentChatroom !== home;
+    const effectiveRoom = this.currentChatroom || 'global';
+    const away = effectiveRoom !== home;
     btn.disabled = !away;
     btn.title = away ? `Return to ${this.resolveChatroomTitle(home)}` : 'Already in your home room';
   }
@@ -674,6 +675,7 @@ export class UIManager extends EventEmitter {
     }
     this.appContainer = container;
     this.setupBaseUI();
+    this.applyShellTranslations();
   }
 
   private setupBaseUI(): void {
@@ -1160,7 +1162,19 @@ export class UIManager extends EventEmitter {
   }
 
   private async runBroadcastFromCurrentRoom(): Promise<void> {
-    if (!this.currentChatroom) {
+    let chatroomId = this.currentChatroom;
+    if (!chatroomId) {
+      const fromApp = (
+        window as unknown as {
+          __iinpublic_app?: { getApp: () => { chatroomService?: { getCurrentChatroomId: () => string } } };
+        }
+      ).__iinpublic_app?.getApp?.()?.chatroomService?.getCurrentChatroomId?.();
+      if (fromApp) {
+        chatroomId = fromApp;
+        this.currentChatroom = fromApp;
+      }
+    }
+    if (!chatroomId) {
       this.showNotification(this.t('chatroomOpenFirst'), 'info');
       return;
     }
@@ -1204,15 +1218,14 @@ export class UIManager extends EventEmitter {
     }
     const members = Array.from(byId.values());
 
-    const receiverIds = members.map((m) => m.userId).filter((id) => id && id !== this.currentUserId);
-    const talkIds = this.getUnsentBroadcastTalkIds(this.currentChatroom, receiverIds);
+    const talkIds = this.getPendingBroadcastTalkIds();
     if (talkIds.length === 0) {
       this.showNotification(this.t('chatroomAlreadyBroadcast'), 'info');
       return;
     }
 
     this.emit('broadcastTalk', {
-      chatroomId: this.currentChatroom,
+      chatroomId,
       members,
       talkIds,
     });
@@ -5258,6 +5271,17 @@ export class UIManager extends EventEmitter {
     if (talksView && talksView.classList.contains('active')) {
       this.displayTalksList();
     }
+  }
+
+  /** OUT talks eligible for the next broadcast in the current room (respects send history). */
+  getPendingBroadcastTalkIds(): string[] {
+    const fromDom = Array.from(
+      document.querySelectorAll('#chatroom-members-list .chatroom-member-item[data-user-id]'),
+    ).map((el) => (el as HTMLElement).dataset.userId || '');
+    const receiverIds = [...this.currentChatroomMembers.map((m) => m.userId), ...fromDom]
+      .map((id) => String(id || '').trim())
+      .filter((id) => !!id && id !== this.currentUserId);
+    return this.getUnsentBroadcastTalkIds(this.currentChatroom, [...new Set(receiverIds)]);
   }
 
   /** Talks that can be included in broadcast: created or copied, not disabled, and not expired */

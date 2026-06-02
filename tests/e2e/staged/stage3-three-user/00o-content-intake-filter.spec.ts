@@ -2,7 +2,7 @@ import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { maybeClearGunDatabases } from '../../helpers/clear-database';
 import { afterAction, afterSync } from '../../helpers/timing';
-import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
+import { clickBroadcastUntilBulkAck, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import {
   bootstrapUser,
   finalCleanupPages,
@@ -35,8 +35,7 @@ async function createFlowTalk(
   await question.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
   await question.locator('.answer-item').nth(1).locator('.answer-text').fill(answers[1]);
   await question.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-  await page.click('#talk-editor-form button[type="submit"]');
-  await afterSync();
+  await submitTalkEditorAndWaitForOut(page, title);
 }
 
 async function broadcastFromCurrentRoom(page: Page, previewReason?: RegExp): Promise<void> {

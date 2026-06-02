@@ -1,6 +1,6 @@
 import { chromium, Browser, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import {maybeClearGunDatabases, injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterNav } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
@@ -27,8 +27,7 @@ test.describe('Tab sweep smoke (D6)', () => {
     page = await context.newPage();
     attachFilteredConsoleLog(page, 'Sweep');
     await injectIdbClear(page);
-    await page.goto(webAppURLStableChatroom());
-    await page.waitForLoadState('load');
+    await gotoWebApp(page, webAppURLStableChatroom());
     await ensureWindowFitsViewport(page, 640, 1000);
     await afterLoad();
     attachE2eBrowserTabLabel(page, 'Sweep');

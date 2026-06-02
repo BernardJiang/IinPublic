@@ -857,6 +857,46 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
     }
   });
 
+  /** P0: server-side exchange metadata mirror for client IN hydration (GET incoming-talks stays []). */
+  app.get('/api/users/:id/p0-mesh-incoming', async (req, res) => {
+    try {
+      if (!usesDirectTalkDelivery(resolveP2PRuntimeFlags(process.env))) {
+        res.status(404).json({ error: 'P0 direct delivery is not enabled' });
+        return;
+      }
+      const userId = req.params.id;
+      res.setHeader('X-P0-Direct-Talk-Delivery', '1');
+      const userMap = incomingTalksMap.get(userId);
+      if (!userMap || userMap.size === 0) {
+        res.json([]);
+        return;
+      }
+      const values = await Promise.all(
+        Array.from(userMap.entries()).map(async ([rawKey, cluster]) => {
+          const logical =
+            typeof cluster?.identityKey === 'string' && cluster.identityKey
+              ? cluster.identityKey
+              : TALK_CONTENT_HASH_ID.test(rawKey)
+                ? rawKey
+                : canonicalIdentityKeyFromStoredCluster(cluster);
+          return {
+            ...cluster,
+            identityKey: logical,
+            isAnswered: !!cluster?.isAnswered,
+            isAutoAnswered: !!cluster?.isAutoAnswered,
+          };
+        }),
+      );
+      values.sort(
+        (a: any, b: any) =>
+          new Date(b?.updatedAt || 0).getTime() - new Date(a?.updatedAt || 0).getTime(),
+      );
+      res.json(values);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
   app.post('/api/talks/:id/response', async (req, res) => {
     try {
       const talkId = req.params.id;

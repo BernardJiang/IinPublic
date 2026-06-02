@@ -1,6 +1,6 @@
 import { expect, Page } from '@playwright/test';
 import type { Browser, BrowserContext } from '@playwright/test';
-import { injectIdbClear } from './clear-database';
+import { gotoWebApp, injectIdbClear } from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
 import { afterLoad, afterNav, afterAction, afterSync } from './timing';
 import { webAppURLStableChatroom } from './ports';
@@ -60,12 +60,11 @@ export async function bootstrapSuperUser(
     }, TECHSUPPORT_ROOT_USER_ID);
   }
   try {
-    await page.goto(webAppURLStableChatroom(), { waitUntil: 'load', timeout: 60_000 });
+    await gotoWebApp(page, webAppURLStableChatroom());
   } catch {
     await wait(1500, 2000);
-    await page.goto(webAppURLStableChatroom(), { waitUntil: 'load', timeout: 60_000 });
+    await gotoWebApp(page, webAppURLStableChatroom());
   }
-  await page.waitForLoadState('load');
   await ensureWindowFitsViewport(page, 640, 1000);
   await afterLoad();
 

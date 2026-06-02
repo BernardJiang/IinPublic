@@ -12,7 +12,7 @@ import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { injectIdbClear } from '../../helpers/clear-database';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
-import { afterLoad, afterSync, afterNav, afterAction, headless } from '../../helpers/timing';
+import { afterLoad, afterSync, afterNav, afterAction, gotoAppReady, headless } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
@@ -23,6 +23,7 @@ import {
   waitForResponseModalClosed,
   waitForTabActive,
   resetTalksMatchingSession,
+  pinStableE2eLocation,
 } from '../../helpers/talks-matching-flow';
 
 test.describe('Chatroom peer detail views', () => {
@@ -64,8 +65,7 @@ test.describe('Chatroom peer detail views', () => {
     const pageTom = await ctxTom.newPage();
     pageTom.on('console', (m) => console.log(`[Tom]:`, m.text()));
     await injectIdbClear(pageTom);
-    await pageTom.goto(webAppURLStableChatroom());
-    await pageTom.waitForLoadState('load');
+    await gotoAppReady(pageTom, webAppURLStableChatroom());
     await ensureWindowFitsViewport(pageTom, 640, 1000);
     await afterLoad();
     await setStageNameAndGoToChatrooms(pageTom, tomName);
@@ -74,14 +74,16 @@ test.describe('Chatroom peer detail views', () => {
     const pageJerry = await ctxJerry.newPage();
     pageJerry.on('console', (m) => console.log(`[Jerry]:`, m.text()));
     await injectIdbClear(pageJerry);
-    await pageJerry.goto(webAppURLStableChatroom());
-    await pageJerry.waitForLoadState('load');
+    await gotoAppReady(pageJerry, webAppURLStableChatroom());
     await ensureWindowFitsViewport(pageJerry, 640, 1000);
     await afterLoad();
     await setStageNameAndGoToChatrooms(pageJerry, jerryName);
 
     attachE2eBrowserTabLabel(pageTom, `Tom (${tomName})`);
     attachE2eBrowserTabLabel(pageJerry, `Jerry (${jerryName})`);
+
+    await pinStableE2eLocation(pageTom);
+    await pinStableE2eLocation(pageJerry);
 
     return { ctxTom, pageTom, ctxJerry, pageJerry };
   }

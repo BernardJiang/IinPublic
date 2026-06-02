@@ -3,9 +3,9 @@
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { injectIdbClear } from '../../helpers/clear-database';
+import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
-import { afterNav, afterSync } from '../../helpers/timing';
+import { afterNav, afterSync, reloadAppReady } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 
 const ZH_NAV = ['聊天室', '联系人', '话题', '我的', '设置'] as const;
@@ -27,8 +27,7 @@ test.describe('Chinese UI localization traversal (D2)', () => {
     context = await browser.newContext({ viewport: { width: 640, height: 1000 } });
     page = await context.newPage();
     await injectIdbClear(page);
-    await page.goto(webBaseURL());
-    await page.waitForLoadState('load');
+    await gotoWebApp(page, webBaseURL());
     await afterSync();
   });
 
@@ -41,7 +40,7 @@ test.describe('Chinese UI localization traversal (D2)', () => {
   test('switches to Chinese across tabs, persists on reload, and restores English', async () => {
     const p = page!;
     await switchUiLanguage(p, 'zh');
-    await expect(p.locator('.bottom-nav .nav-label')).toHaveText([...ZH_NAV]);
+    await expect(p.locator('.bottom-nav .nav-btn .nav-label')).toHaveText([...ZH_NAV]);
     await expect
       .poll(async () => p.evaluate(() => localStorage.getItem('iinpublic_ui_language')))
       .toBe('zh');
@@ -81,16 +80,14 @@ test.describe('Chinese UI localization traversal (D2)', () => {
     await expect(p.locator('#settings-ui-language')).toHaveValue('zh');
     await expect(p.locator('#settings-grammar-filter')).toBeVisible();
 
-    await p.reload();
-    await p.waitForLoadState('load');
-    await afterSync();
-    await expect(p.locator('.bottom-nav .nav-label')).toHaveText([...ZH_NAV]);
+    await reloadAppReady(p);
+    await expect(p.locator('.bottom-nav .nav-btn .nav-label')).toHaveText([...ZH_NAV]);
     await expect
       .poll(async () => p.evaluate(() => localStorage.getItem('iinpublic_ui_language')))
       .toBe('zh');
 
     await switchUiLanguage(p, 'en');
-    await expect(p.locator('.bottom-nav .nav-label')).toHaveText([...EN_NAV]);
+    await expect(p.locator('.bottom-nav .nav-btn .nav-label')).toHaveText([...EN_NAV]);
     await expect
       .poll(async () => p.evaluate(() => localStorage.getItem('iinpublic_ui_language')))
       .toBe('en');

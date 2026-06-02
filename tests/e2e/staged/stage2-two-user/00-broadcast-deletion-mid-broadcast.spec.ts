@@ -6,6 +6,8 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterNav, afterSync, headless } from '../../helpers/timing';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { broadcastFromGlobalChatroom } from '../../helpers/talk-demo-ui';
+
 import { bootstrapUser, waitForIncomingTalkClusterOnServer, incomingClustersIncludeTitleForUser } from '../../helpers/talks-matching-flow';
 import {
   createSimpleFlowTalk,
@@ -78,8 +80,7 @@ test.describe('Broadcast cancellation — talk deletion mid-flight', () => {
         await route.continue();
       });
 
-      await pageTom.click('#broadcast-talk-btn');
-      await confirmBroadcastTagPreambleIfVisible(pageTom);
+      await broadcastFromGlobalChatroom(pageTom, { requirePreambleUi: true });
       await afterAction();
 
       await readyToDelete;

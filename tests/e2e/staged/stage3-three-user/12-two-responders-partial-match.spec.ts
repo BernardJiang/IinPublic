@@ -10,6 +10,8 @@ import { afterSync, afterAction } from '../../helpers/timing';
 import { gunBaseURL } from '../../helpers/ports';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../../helpers/talks-matching-browsers';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { broadcastFromGlobalChatroom, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
+
 import {
   expectActiveTransportMode,
   expectConversationTransportModeForPeer,
@@ -134,10 +136,8 @@ test.describe('Talks matching — one match one mismatch from two responders', (
     await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
     await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
     await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-    await pageTom.click('#talk-editor-form button[type="submit"]');
-    await afterSync();
-    await pageTom.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageTom);
+    await submitTalkEditorAndWaitForOut(pageTom, TALK_TITLE);
+    await broadcastFromGlobalChatroom(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 

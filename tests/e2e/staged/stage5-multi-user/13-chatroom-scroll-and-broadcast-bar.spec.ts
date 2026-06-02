@@ -1,6 +1,6 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import {maybeClearGunDatabases, injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterNav, afterAction, afterSync, headless } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
@@ -16,8 +16,7 @@ async function bootstrapCompactUser(
   const page = await context.newPage();
   attachFilteredConsoleLog(page, label);
   await injectIdbClear(page);
-  await page.goto(webAppURLStableChatroom());
-  await page.waitForLoadState('load');
+  await gotoWebApp(page, webAppURLStableChatroom());
   await ensureWindowFitsViewport(page, 640, 540);
   await afterLoad();
   await page.click('.nav-btn[data-view="settings"]');

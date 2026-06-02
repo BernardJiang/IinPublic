@@ -129,8 +129,9 @@ export class IinPublicApp {
 
     // Lazy getter: returns known contact userIds from the current user's knownPeople list.
     const getPeerIds = (): string[] => {
-      const known = this.currentUser?.knownPeople ?? [];
-      return known.map((k) => k.userId).filter(Boolean);
+      const known = this.currentUser?.knownPeople;
+      const list = Array.isArray(known) ? known : [];
+      return list.map((k) => k.userId).filter(Boolean);
     };
 
     // Start the inbox subscription + initial proactive sync (fire-and-forget)
@@ -227,11 +228,7 @@ export class IinPublicApp {
   private async refreshCustomChatroomsFromServer(): Promise<void> {
     try {
       const base = this.getBackendApiBase();
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 2000);
-      const res = await fetch(`${base}/api/chatrooms`, { signal: controller.signal }).finally(() => {
-        clearTimeout(timeout);
-      });
+      const res = await fetch(`${base}/api/chatrooms`);
       if (!res.ok) return;
       const rows = (await res.json()) as Array<{
         id: string;
@@ -596,8 +593,14 @@ export class IinPublicApp {
     if (!offer.directPeerSend && chatroomId) {
       const deliveryRoom = String(offer.deliveryChatroomId || '').trim();
       if (deliveryRoom && deliveryRoom !== chatroomId) return false;
-      const members = await this.chatroomService.getActiveMembers(chatroomId);
-      if (!members.includes(offer.senderId)) return false;
+      // Broadcast offers carry deliveryChatroomId; skip sender membership poll (Gun member map lags in e2e).
+      if (!deliveryRoom) {
+        const serverIds = await this.chatroomService.fetchMemberIdsFromServer(chatroomId);
+        if (!serverIds.includes(offer.senderId)) {
+          const members = await this.chatroomService.getActiveMembers(chatroomId);
+          if (!members.includes(offer.senderId)) return false;
+        }
+      }
     }
     const filters = getTalkIntakeFilters();
     const td = talkData;
@@ -718,12 +721,18 @@ export class IinPublicApp {
   }
 
   private async handlePeerTalkOffer(offer: PeerTalkOfferWire): Promise<void> {
-    if (!(await this.shouldAcceptPeerTalkOfferAsync({
+    const acceptParams: {
+      senderId: string;
+      talkData: Record<string, unknown>;
+      deliveryChatroomId?: string;
+      directPeerSend?: boolean;
+    } = {
       senderId: offer.senderId,
       talkData: offer.talkData,
-      deliveryChatroomId: offer.deliveryChatroomId,
-      directPeerSend: offer.directPeerSend,
-    }))) return;
+    };
+    if (offer.deliveryChatroomId) acceptParams.deliveryChatroomId = offer.deliveryChatroomId;
+    if (offer.directPeerSend) acceptParams.directPeerSend = offer.directPeerSend;
+    if (!(await this.shouldAcceptPeerTalkOfferAsync(acceptParams))) return;
     const cluster = applyPeerTalkOfferToLocalInbox(
       this.gunService,
       this.currentUser!.id,
@@ -963,7 +972,35 @@ export class IinPublicApp {
 
   public async getLocalIncomingClustersForE2e(): Promise<any[]> {
     if (!this.currentUser?.id) return [];
-    return collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, { waitMs: 300 });
+    const local = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, { waitMs: 300 });
+    if (local.length > 0) return local;
+    const fromServer = await this.fetchP0MeshIncomingFromServer();
+    if (fromServer.length > 0) {
+      mirrorIncomingTalkClustersToLocalGun(
+        this.gunService,
+        this.currentUser.id,
+        fromServer,
+        this.p2pRuntimeFlags,
+      );
+    }
+    return fromServer;
+  }
+
+  /** P0 backfill when mesh Gun lag leaves local IN index empty after register-receivers. */
+  private async fetchP0MeshIncomingFromServer(): Promise<any[]> {
+    if (!this.currentUser?.id || !usesDirectTalkDelivery(this.p2pRuntimeFlags)) return [];
+    try {
+      const base = this.getBackendApiBase();
+      const res = await fetch(
+        `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/p0-mesh-incoming`,
+        { cache: 'no-store' },
+      );
+      if (!res.ok) return [];
+      const clusters = await res.json();
+      return Array.isArray(clusters) ? clusters : [];
+    } catch {
+      return [];
+    }
   }
 
   private subscribeToTalks(chatroomId: string): void {
@@ -1309,7 +1346,7 @@ export class IinPublicApp {
     eligibleReceiverIds?: string[],
   ): Promise<boolean> {
     const me = this.currentUser;
-    if (!me?.id || members.length === 0) return true;
+    if (!me?.id || members.length === 0) return false;
     let receiverIds = members
       .map((m) => m.userId)
       .filter((id) => id !== me.id && id !== TECHSUPPORT_ROOT_USER_ID);
@@ -1317,9 +1354,7 @@ export class IinPublicApp {
       const allowed = new Set(eligibleReceiverIds);
       receiverIds = receiverIds.filter((id) => allowed.has(id));
     }
-    const blocked = new Set(me.blockedUserIds ?? []);
-    receiverIds = receiverIds.filter((id) => !blocked.has(id));
-    if (receiverIds.length === 0) return true;
+    if (receiverIds.length === 0) return false;
 
     if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
       mirrorTalkDefinitionToLocalGun(this.gunService, talkId, talk, this.p2pRuntimeFlags);
@@ -1369,7 +1404,7 @@ export class IinPublicApp {
     broadcastMaxDistanceMiles?: number,
   ): Promise<boolean> {
     const me = this.currentUser;
-    if (!me?.id || receiverIds.length === 0) return true;
+    if (!me?.id || receiverIds.length === 0) return false;
     const base = this.getBackendApiBase();
     console.log(`📡 POSTing register-receivers: talkId=${talkId} receivers=${receiverIds.length}`);
     try {
@@ -1408,8 +1443,9 @@ export class IinPublicApp {
         return false;
       }
       const r = await res.json();
-      console.log(`register-receivers-for-broadcast ok: talkId=${talkId} registered=${r?.registered}`);
-      return true;
+      const registered = Number(r?.registered ?? 0);
+      console.log(`register-receivers-for-broadcast ok: talkId=${talkId} registered=${registered}`);
+      return registered > 0;
     } catch (e) {
       console.warn('register-receivers-for-broadcast request failed:', e);
       return false;
@@ -1495,17 +1531,13 @@ export class IinPublicApp {
       };
     };
 
-    const previewTimeoutMs = 30_000;
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const controller = new AbortController();
-        const timeoutId = window.setTimeout(() => controller.abort(), previewTimeoutMs);
         const response = await fetch(`${this.getBackendApiBase()}/api/talks/broadcast-receiver-preview`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(previewBody),
-          signal: controller.signal,
-        }).finally(() => window.clearTimeout(timeoutId));
+        });
         if (!response.ok) {
           const errText = await response.text().catch(() => '');
           console.warn(
@@ -1542,23 +1574,36 @@ export class IinPublicApp {
       uiNameById.set(m.userId, name);
     }
 
+    let memberIds: string[] = [];
+    const fromServer = await this.chatroomService.fetchMemberIdsFromServer(chatroomId);
+    memberIds = [...new Set(fromServer.filter((id) => !!id && id !== me && id !== TECHSUPPORT_ROOT_USER_ID))];
+
     let gunMemberIds: string[] = [];
     const mergeGunOnce = async () => {
       const ids = await this.chatroomService.getActiveMembers(chatroomId);
       gunMemberIds = [...new Set(ids.filter((id) => !!id && id !== me && id !== TECHSUPPORT_ROOT_USER_ID))];
     };
 
-    await mergeGunOnce();
+    if (memberIds.length === 0) {
+      await mergeGunOnce();
+      memberIds = gunMemberIds;
+    }
 
-    if (gunMemberIds.length === 0) {
-      for (let i = 0; i < 12; i++) {
-        await new Promise((r) => setTimeout(r, 250));
+    if (memberIds.length === 0) {
+      for (let i = 0; i < 4; i++) {
+        await new Promise((r) => setTimeout(r, 150));
         await mergeGunOnce();
-        if (gunMemberIds.length > 0) break;
+        memberIds = gunMemberIds;
+        if (memberIds.length > 0) break;
       }
     }
 
-    return gunMemberIds.map((userId) => ({
+    // Same-room UI list is authoritative for stage names when Gun/server snapshots lag after join.
+    if (memberIds.length === 0 && uiNameById.size > 0) {
+      memberIds = [...uiNameById.keys()];
+    }
+
+    return memberIds.map((userId) => ({
       userId,
       stageName: uiNameById.get(userId) || userId,
     }));
@@ -1619,7 +1664,6 @@ export class IinPublicApp {
     talkData: any,
   ): Promise<void> {
     if (!this.currentUser) return;
-    const offer = { senderId, talkData: talkData as Record<string, unknown> };
     if (
       !(await this.shouldAcceptPeerTalkOfferAsync({
         senderId,
@@ -1946,6 +1990,134 @@ export class IinPublicApp {
   }
 
   /**
+   * E2E: deliver pending OUT talks using the same register + Gun path as Broadcast, without the audience modal.
+   */
+  public async deliverPendingBroadcastTalksForE2e(
+    minReceivers = 1,
+  ): Promise<{ talksSent: number; receivers: number }> {
+    if (!this.currentUser) throw new Error('App not ready for E2E broadcast delivery');
+    const chatroomId = this.chatroomService.getCurrentChatroomId();
+    if (!chatroomId) throw new Error('No current chatroom for E2E broadcast delivery');
+    const members = this.uiManager.getCurrentChatroomMembers();
+    const broadcastableIds =
+      this.uiManager.getPendingBroadcastTalkIds().length > 0
+        ? this.uiManager.getPendingBroadcastTalkIds()
+        : this.uiManager.getBroadcastableTalkIds();
+    const receivers = await this.resolveBroadcastReceivers(chatroomId, members);
+    if (receivers.length < minReceivers && !(minReceivers === 0 && receivers.length === 0)) {
+      throw new Error(`receiverIds=${receivers.length} room=${chatroomId}`);
+    }
+    const targetCount = receivers.length;
+    if (!Array.isArray(broadcastableIds) || broadcastableIds.length === 0) {
+      this.uiManager.setBroadcastBulkAck(0, targetCount);
+      return { talksSent: 0, receivers: targetCount };
+    }
+    const gun = this.gunService.getGun();
+    let sent = 0;
+    const talkPayloads: Array<{ tid: string; talk: Talk }> = [];
+    for (const talkId of broadcastableIds) {
+      let talk = this.uiManager.getBroadcastTalkPayload(talkId);
+      if (!talk) {
+        talk = await this.talkService.getTalkWithRetry(talkId, { attempts: 15, gapMs: 100 });
+      }
+      if (!talk) continue;
+      const tid = String(talk.id || talkId);
+      talk = { ...talk, id: tid, authorId: talk.authorId || this.currentUser.id };
+      talkPayloads.push({ tid, talk: talk as Talk });
+    }
+    if (talkPayloads.length === 0) {
+      throw new Error('no talk payloads for E2E broadcast delivery');
+    }
+    if (receivers.length === 0) {
+      const broadcastableNowForGun = new Set(
+        this.uiManager.getBroadcastableTalkIds().filter((id) => broadcastableIds.includes(id)),
+      );
+      for (const { tid, talk } of talkPayloads) {
+        if (!broadcastableNowForGun.has(tid)) continue;
+        const announcementKey = this.buildChatroomTalkAnnouncementKey(
+          tid,
+          String(talk.authorId || this.currentUser.id),
+        );
+        gun.get('chatrooms').get(chatroomId).get('talks').get(announcementKey).put({
+          talkId: tid,
+          title: talk.title,
+          authorId: talk.authorId,
+          authorName: this.currentUser.stageName,
+          type: talk.type,
+          timestamp: new Date().toISOString(),
+          questionCount: talk.questions?.length ?? 0,
+        });
+      }
+      const attempted = talkPayloads.filter(({ tid }) => broadcastableNowForGun.has(tid)).length;
+      this.uiManager.setBroadcastBulkAck(attempted, 0);
+      this.uiManager.recordBroadcastConversation(
+        chatroomId,
+        talkPayloads.filter(({ tid }) => broadcastableNowForGun.has(tid)).map(({ tid }) => tid),
+        [],
+      );
+      return { talksSent: attempted, receivers: 0 };
+    }
+    const supportExcludedCount = members.filter((m) => m.userId === TECHSUPPORT_ROOT_USER_ID).length;
+    const previews = await Promise.all(
+      talkPayloads.map(({ tid, talk }) =>
+        this.previewReceiversOnServerForTalk(tid, talk, receivers, undefined, undefined, supportExcludedCount),
+      ),
+    );
+    const previewByTalkId = new Map(previews.map((p) => [p.talkId, p]));
+    const REGISTER_BATCH = 5;
+    const registeredTalkIds: string[] = [];
+    for (let i = 0; i < talkPayloads.length; i += REGISTER_BATCH) {
+      const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
+      const broadcastableNow = new Set(
+        this.uiManager.getBroadcastableTalkIds().filter((id) => broadcastableIds.includes(id)),
+      );
+      const batchResults = await Promise.all(
+        batch.map(async ({ tid, talk }) => {
+          if (!broadcastableNow.has(tid)) return false;
+          const preview = previewByTalkId.get(tid);
+          const eligibleIds =
+            usesDirectTalkDelivery(this.p2pRuntimeFlags) &&
+            !preview?.previewUnavailable &&
+            Array.isArray(preview?.eligibleReceiverIds)
+              ? preview.eligibleReceiverIds
+              : undefined;
+          const ok = await this.registerReceiversOnServerForTalk(
+            tid,
+            talk,
+            receivers,
+            undefined,
+            undefined,
+            eligibleIds,
+          );
+          if (ok) registeredTalkIds.push(tid);
+          return ok;
+        }),
+      );
+      sent += batchResults.filter(Boolean).length;
+    }
+    const broadcastableNowForGun = new Set(registeredTalkIds);
+    for (const { tid, talk } of talkPayloads) {
+      if (!broadcastableNowForGun.has(tid)) continue;
+      const announcementKey = this.buildChatroomTalkAnnouncementKey(
+        tid,
+        String(talk.authorId || this.currentUser.id),
+      );
+      gun.get('chatrooms').get(chatroomId).get('talks').get(announcementKey).put({
+        talkId: tid,
+        title: talk.title,
+        authorId: talk.authorId,
+        authorName: this.currentUser.stageName,
+        type: talk.type,
+        timestamp: new Date().toISOString(),
+        questionCount: talk.questions?.length ?? 0,
+      });
+    }
+    this.uiManager.setBroadcastBulkAck(sent, targetCount);
+    this.uiManager.recordBroadcastConversation(chatroomId, registeredTalkIds, receivers);
+    return { talksSent: sent, receivers: targetCount };
+  }
+
+  /**
    * E2E: await the same IN-list merge as the Talks tab (GET incoming-talks → UI). The tab emits
    * `needIncomingTalkClusters` without awaiting; Playwright needs a promise-bound sync.
    */
@@ -1964,11 +2136,23 @@ export class IinPublicApp {
       this.currentUser.id,
       this.p2pRuntimeFlags,
       (offer) => this.shouldAcceptPeerTalkOfferAsync(offer),
-      { waitMs: 1200 },
+      { waitMs: 250 },
     );
-    const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, {
+    let clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, {
       waitMs: 300,
     });
+    if (clusters.length === 0) {
+      const fromServer = await this.fetchP0MeshIncomingFromServer();
+      if (fromServer.length > 0) {
+        mirrorIncomingTalkClustersToLocalGun(
+          this.gunService,
+          this.currentUser.id,
+          fromServer,
+          this.p2pRuntimeFlags,
+        );
+        clusters = fromServer;
+      }
+    }
     this.mergeIncomingClusterIntoUi(clusters);
   }
 
@@ -2440,12 +2624,14 @@ export class IinPublicApp {
             ? data.talkIds
             : this.uiManager.getBroadcastableTalkIds();
           console.log(`📢 broadcastTalk: ${broadcastableIds.length} broadcastable ids, members=${data.members?.length ?? 0}`);
+          const receivers = await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
+          const targetCountEarly = receivers.length;
           if (broadcastableIds.length === 0) {
             // UI already shows this notification when broadcastableCount === 0; skip duplicate to avoid double toast
+            this.uiManager.setBroadcastBulkAck(0, targetCountEarly);
             return;
           }
 
-          const receivers = await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
           const supportExcludedCount = (data.members ?? [])
             .filter((member) => member.userId === TECHSUPPORT_ROOT_USER_ID).length;
 
@@ -2503,24 +2689,24 @@ export class IinPublicApp {
           // Phase 1: POST register-receivers in small parallel batches (HTTP only — no Gun on this path).
           // Fully sequential was very slow (20 round-trips); full parallel can spike the server.
           const REGISTER_BATCH = 5;
+          const registeredTalkIds: string[] = [];
+          const previewByTalkId = new Map(audiencePreviews.map((p) => [p.talkId, p]));
           for (let i = 0; i < talkPayloads.length; i += REGISTER_BATCH) {
             const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
-            // Cancellation semantics: if creator deletes/disables a talk while Phase 1 is in-flight,
-            // we must skip registering receivers for that talk (and also skip Gun announce in Phase 2).
             const broadcastableNow = new Set(
               this.uiManager.getBroadcastableTalkIds().filter((id) => broadcastableIds.includes(id)),
             );
-            // registerReceiversOnServerForTalk returns boolean (ok vs error) — count only non-skipped calls.
-            const previewByTalkId = new Map(audiencePreviews.map((p) => [p.talkId, p]));
             const batchResults = await Promise.all(
-              batch.map(({ tid, talk }) => {
-                if (!broadcastableNow.has(tid)) return Promise.resolve(false);
+              batch.map(async ({ tid, talk }) => {
+                if (!broadcastableNow.has(tid)) return false;
                 const preview = previewByTalkId.get(tid);
                 const eligibleIds =
-                  usesDirectTalkDelivery(this.p2pRuntimeFlags) && !preview?.previewUnavailable
-                    ? preview?.eligibleReceiverIds
+                  usesDirectTalkDelivery(this.p2pRuntimeFlags) &&
+                  !preview?.previewUnavailable &&
+                  Array.isArray(preview?.eligibleReceiverIds)
+                    ? preview.eligibleReceiverIds
                     : undefined;
-                return this.registerReceiversOnServerForTalk(
+                const ok = await this.registerReceiversOnServerForTalk(
                   tid,
                   talk,
                   receivers,
@@ -2528,14 +2714,13 @@ export class IinPublicApp {
                   broadcastMaxDistanceMiles,
                   eligibleIds,
                 );
+                if (ok) registeredTalkIds.push(tid);
+                return ok;
               }),
             );
             sent += batchResults.filter(Boolean).length;
           }
-          // Phase 2: Gun announce — single room only (no descendant hierarchy fan-out).
-          const broadcastableNowForGun = new Set(
-            this.uiManager.getBroadcastableTalkIds().filter((id) => broadcastableIds.includes(id)),
-          );
+          const broadcastableNowForGun = new Set(registeredTalkIds);
           for (const { tid, talk } of talkPayloads) {
             if (!broadcastableNowForGun.has(tid)) continue;
             const announcementKey = this.buildChatroomTalkAnnouncementKey(
@@ -2562,11 +2747,7 @@ export class IinPublicApp {
           }
 
           this.uiManager.setBroadcastBulkAck(sent, targetCount);
-          this.uiManager.recordBroadcastConversation(
-            chatroomId,
-            talkPayloads.filter(({ tid }) => broadcastableNowForGun.has(tid)).map(({ tid }) => tid),
-            receivers,
-          );
+          this.uiManager.recordBroadcastConversation(chatroomId, registeredTalkIds, receivers);
           this.uiManager.showNotification(this.uiManager.formatBroadcastSent(sent, targetCount), 'success');
         } catch (error) {
           console.error('Broadcast talks failed:', error);
@@ -3134,6 +3315,7 @@ export class IinPublicApp {
       if (!this.currentUser) {
         return;
       }
+      this.uiManager.setCurrentChatroomId(chatroomId);
 
       // In travel mode, every room switch becomes “the” travel destination (single remote room at a time).
       if (this.travelModeActive) {

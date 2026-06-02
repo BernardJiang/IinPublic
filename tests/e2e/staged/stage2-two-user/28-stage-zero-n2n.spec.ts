@@ -1,6 +1,6 @@
 import { type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { injectIdbClear } from '../../helpers/clear-database';
+import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterLoad, afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
@@ -114,8 +114,7 @@ function talkSet(owner: string, runId: number): Talk[] {
 async function openFreshPage(context: BrowserContext): Promise<Page> {
   const page = await context.newPage();
   await injectIdbClear(page);
-  await page.goto(webBaseURL());
-  await page.waitForLoadState('load');
+  await gotoWebApp(page, webBaseURL());
   await afterLoad();
   return page;
 }

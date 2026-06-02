@@ -4,7 +4,6 @@ import {
   buildPeerTalkOfferKey,
   clusterFromPeerTalkOffer,
   createPeerTalkOfferWire,
-  expandTalkDataFromGunWire,
   gunSafeTalkDataRecord,
   mergeIncomingTalkCluster,
   type IncomingTalkClusterWire,
@@ -136,7 +135,7 @@ export async function reconcilePeerTalkOffersFromGun(
   const seen = new Set<string>();
   const ref = gun.get(PEER_TALK_OFFERS_ROOT).get(receiverUserId).map();
   await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => {
+    setTimeout(() => {
       try {
         ref.off();
       } catch {

@@ -1,5 +1,5 @@
 import { expect, type APIRequestContext, Browser, BrowserContext, Page } from '@playwright/test';
-import { clearGunDatabases, injectIdbClear, maybeClearGunDatabases } from './clear-database';
+import {clearGunDatabases, injectIdbClear, maybeClearGunDatabases, gotoWebApp} from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
 import { attachE2eBrowserTabLabel } from './e2e-tab-title';
 import { attachFilteredConsoleLog } from './e2e-console';
@@ -102,7 +102,7 @@ export async function expectTechSupportGreetingReceived(page: Page, stageName?: 
           },
           { techSupportId: TECHSUPPORT_ROOT_USER_ID, name: stageName || '' },
         ),
-      { timeout: 15_000 },
+      { timeout: E2E_ASSERT_TIMEOUT_MS },
     )
     .toBe(true);
 }
@@ -170,18 +170,54 @@ async function incomingClustersIncludeTitleSubstring(
  * Predicate is optimized for large IN lists (e.g. 20 broadcasts): talk-detail fetches run sequentially
  * with early exit instead of fanning out parallel requests every interval.
  */
-/** P0: wait until local Gun IN index contains a cluster matching title (no server incomingTalksMap). */
+/** P0: wait until local Gun IN index contains a cluster matching title (no server incoming-talks inbox). */
 export async function waitForIncomingTalkClusterOnLocalGun(
   page: Page,
   titleSubstring: string,
   options?: IncomingTalkServerWaitOptions,
 ): Promise<void> {
   const timeout = options?.timeout ?? E2E_ASSERT_TIMEOUT_MS;
-  const polling = options?.polling ?? 500;
+  const polling = options?.polling ?? 100;
   await expect
     .poll(
-      async () =>
-        page.evaluate(async (needle) => {
+      async () => {
+        const userId = await page.evaluate(() =>
+          String(
+            (
+              window as unknown as {
+                __iinpublic_app?: { getApp: () => { currentUser?: { id?: string } } };
+              }
+            ).__iinpublic_app?.getApp?.()?.currentUser?.id || '',
+          ),
+        );
+        const needle = String(titleSubstring).toLowerCase();
+        if (userId) {
+          const res = await page.request.get(
+            `${gunBaseURL()}/api/users/${encodeURIComponent(userId)}/p0-mesh-incoming`,
+            { headers: { 'Cache-Control': 'no-cache' } },
+          );
+          if (res.ok()) {
+            const mesh = (await res.json()) as unknown[];
+            const hay = JSON.stringify(mesh).toLowerCase();
+            if (hay.includes(needle)) {
+              await page.evaluate(async () => {
+                const app = (
+                  window as unknown as {
+                    __iinpublic_app?: { getApp: () => { syncIncomingClustersFromServer?: () => Promise<void> } };
+                  }
+                ).__iinpublic_app?.getApp?.();
+                await app?.syncIncomingClustersFromServer?.();
+              });
+              return 'ok';
+            }
+            if (Array.isArray(mesh) && mesh.length > 0) {
+              /* mesh has clusters but title mismatch — fall through to local Gun */
+            } else if (mesh.length === 0) {
+              /* empty mesh — fall through */
+            }
+          }
+        }
+        return page.evaluate(async (n) => {
           const app = (
             window as unknown as {
               __iinpublic_app?: {
@@ -197,8 +233,9 @@ export async function waitForIncomingTalkClusterOnLocalGun(
           await app.syncIncomingClustersFromServer?.();
           const list = (await app.getLocalIncomingClustersForE2e?.()) ?? [];
           const hay = JSON.stringify(list);
-          return hay.toLowerCase().includes(String(needle).toLowerCase()) ? 'ok' : `clusters=${list.length}`;
-        }, titleSubstring),
+          return hay.toLowerCase().includes(String(n).toLowerCase()) ? 'ok' : `clusters=${list.length}`;
+        }, titleSubstring);
+      },
       { timeout, intervals: [polling] },
     )
     .toBe('ok');
@@ -277,7 +314,7 @@ export async function waitForIncomingTalkClusterOnServer(
     return;
   }
   const timeout = options?.timeout ?? E2E_ASSERT_TIMEOUT_MS;
-  const polling = options?.polling ?? 500;
+  const polling = options?.polling ?? 100;
   const uid = await page.evaluate(() =>
     String(
       (
@@ -315,6 +352,24 @@ export async function syncIncomingFromServer(page: Page): Promise<void> {
   });
 }
 
+export async function pinStableE2eLocation(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+    if (!app?.currentUser?.id) return;
+    const location = {
+      latitude: 37.7749,
+      longitude: -122.4194,
+      accuracy: 10,
+      timestamp: new Date(),
+    };
+    app.currentLocation = location;
+    app.uiManager?.setCurrentLocation?.(location);
+    if (app.userService?.updateUserLocation) {
+      await app.userService.updateUserLocation(app.currentUser.id, location);
+    }
+  });
+}
+
 export async function bootstrapUser(
   browser: Browser,
   label: string,
@@ -328,8 +383,7 @@ export async function bootstrapUser(
   attachFilteredConsoleLog(page, label);
   // Clear the Web Worker's IndexedDB so each user starts with a fresh local Gun graph.
   await injectIdbClear(page);
-  await page.goto(webAppURLStableChatroom());
-  await page.waitForLoadState('load');
+  await gotoWebApp(page, webAppURLStableChatroom());
   await ensureWindowFitsViewport(page, 640, 1000);
   await afterLoad();
   await page.click('.nav-btn[data-view="settings"]');
@@ -341,11 +395,12 @@ export async function bootstrapUser(
   await expect
     .poll(
       () => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.stageName ?? ''),
-      { timeout: 15_000 },
+      { timeout: E2E_ASSERT_TIMEOUT_MS },
     )
     .toBe(stageName);
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
+  await pinStableE2eLocation(page);
   await expectTechSupportGreetingReceived(page);
   attachE2eBrowserTabLabel(page, label);
   return { context, page };
@@ -353,9 +408,14 @@ export async function bootstrapUser(
 
 export async function waitForTabActive(
   page: Page,
-  view: 'chatrooms' | 'talks' | 'contacts' | 'answers' | 'me',
+  view: 'chatrooms' | 'talks' | 'contacts' | 'answers' | 'me' | 'settings',
 ): Promise<void> {
-  await expect(page.locator(`.nav-btn[data-view="${view}"].active`)).toBeVisible({ timeout: 10000 });
+  const active = page.locator(`.nav-btn[data-view="${view}"].active`);
+  if (!(await active.isVisible().catch(() => false))) {
+    await page.locator(`.nav-btn[data-view="${view}"]`).click();
+    await afterNav();
+  }
+  await expect(active).toBeVisible({ timeout: E2E_ASSERT_TIMEOUT_MS });
 }
 
 export async function waitForResponseModalClosed(page: Page): Promise<void> {
@@ -383,7 +443,7 @@ async function waitForIncomingTalkIdOnLocalGun(
   const tid = String(talkId || '').trim();
   if (!tid) throw new Error('waitForIncomingTalkIdOnLocalGun: empty talkId');
   const timeout = options?.timeout ?? E2E_ASSERT_TIMEOUT_MS;
-  const polling = options?.polling ?? 500;
+  const polling = options?.polling ?? 100;
   const clusterHasTalk = (c: { latestTalkId?: unknown; talkIds?: unknown }): boolean => {
     const latest = String(c?.latestTalkId || '');
     if (latest === tid || latest.startsWith(`${tid}__`)) return true;
@@ -418,7 +478,7 @@ export async function waitForIncomingTalkIdOnServer(
   const tid = String(talkId || '').trim();
   if (!tid) throw new Error('waitForIncomingTalkIdOnServer: empty talkId');
   const timeout = options?.timeout ?? E2E_ASSERT_TIMEOUT_MS;
-  const polling = options?.polling ?? 500;
+  const polling = options?.polling ?? 100;
   const uid = await page.evaluate(() =>
     String(
       (

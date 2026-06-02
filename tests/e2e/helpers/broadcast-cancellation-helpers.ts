@@ -1,7 +1,7 @@
 import type { APIRequestContext, Page } from '@playwright/test';
 import { expect } from './fixtures';
 import { afterNav, afterSync, E2E_ASSERT_TIMEOUT_MS } from './timing';
-import { gunBaseURL } from './ports';
+import { gunBaseURL, isDirectTalkDeliveryE2e } from './ports';
 
 const noCacheHeaders = { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } as const;
 
@@ -14,7 +14,10 @@ export async function incomingClustersIncludeTitleSubstring(
   uid: string,
   needleSubstring: string,
 ): Promise<boolean> {
-  const r = await request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(uid)}/incoming-talks`, {
+  const incomingPath = isDirectTalkDeliveryE2e()
+    ? `/api/users/${encodeURIComponent(uid)}/p0-mesh-incoming`
+    : `/api/users/${encodeURIComponent(uid)}/incoming-talks`;
+  const r = await request.get(`${gunBaseURL()}${incomingPath}`, {
     headers: noCacheHeaders,
   });
   if (!r.ok()) return false;

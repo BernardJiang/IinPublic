@@ -282,3 +282,6 @@ export async function injectIdbClear(page: Page): Promise<void> {
     }
   });
 }
+
+/** Navigate to the web app and wait for Gun auth + main shell (custom BrowserContexts). */
+export { gotoAppReady as gotoWebApp } from './timing';

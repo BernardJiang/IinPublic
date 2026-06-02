@@ -1,6 +1,6 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { injectIdbClear } from '../../helpers/clear-database';
+import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
@@ -35,8 +35,7 @@ test.describe('Talks: create and edit', () => {
     page = await context.newPage();
     page.on('console', (m) => console.log('[Browser]:', m.text()));
     await injectIdbClear(page);
-    await page.goto(webBaseURL());
-    await page.waitForLoadState('load');
+    await gotoWebApp(page, webBaseURL());
     await ensureWindowFitsViewport(page, 960, 1200);
     await afterLoad();
     await page.click('.nav-btn[data-view="settings"]');

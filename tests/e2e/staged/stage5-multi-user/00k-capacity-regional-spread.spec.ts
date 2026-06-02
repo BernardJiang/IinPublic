@@ -4,7 +4,7 @@
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
+import {maybeClearGunDatabases, injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { afterLoad, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 
@@ -48,8 +48,7 @@ test.describe('Capacity regional spread', () => {
         (window as any).__test_location = { ...location, accuracy: 25 };
         localStorage.setItem('iinpublic_last_chatroom', room);
       }, TARGETS[i]);
-      await page.goto(webBaseURL() + E2E_URL);
-      await page.waitForLoadState('load');
+      await gotoWebApp(page, webBaseURL() + E2E_URL);
       await afterLoad();
       await page.evaluate((index) => {
         const app = (window as any).__iinpublic_app?.getApp?.();

@@ -824,6 +824,9 @@ class IinPublicServer {
       talkResponsesMap: this.talkResponsesMap,
       statsIdx: this.statsIdx,
       clearTalkResponseStats: this.clearTalkResponseStats.bind(this),
+      onClearDatabase: () => {
+        this.userService.resetBlockMutationsForTesting();
+      },
       nodeEnv: process.env.NODE_ENV,
     });
 

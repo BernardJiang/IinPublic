@@ -4,9 +4,9 @@
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test } from '../../helpers/fixtures';
 import { maybeClearGunDatabases } from '../../helpers/clear-database';
-import { afterSync, afterAction } from '../../helpers/timing';
+import { afterSync, afterCreateTalkBeforeBroadcast, E2E_ASSERT_TIMEOUT_MS } from '../../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../../helpers/talks-matching-browsers';
-import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { clickBroadcastUntilBulkAck, waitForOutgoingTalkRow } from '../../helpers/talk-demo-ui';
 import {
   bootstrapUser,
   waitForTabActive,
@@ -78,10 +78,14 @@ test.describe('Talks matching — tennis, Jerry match', () => {
     await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No thanks.');
     await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
     await pageTom.click('#talk-editor-form button[type="submit"]');
+    await pageTom.waitForSelector('#talk-editor-modal', { state: 'detached', timeout: 10_000 });
+    await waitForOutgoingTalkRow(pageTom, 'Tennis Partner', E2E_ASSERT_TIMEOUT_MS);
+    await afterCreateTalkBeforeBroadcast();
+    await pageTom.click('.nav-btn[data-view="chatrooms"]');
+    await waitForTabActive(pageTom, 'chatrooms');
+    await pageTom.click('.chatroom-item:has-text("Global")');
     await afterSync();
-    await pageTom.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageTom);
-    await afterAction();
+    await clickBroadcastUntilBulkAck(pageTom);
     await waitForTabActive(pageTom, 'chatrooms');
 
     await afterSync();

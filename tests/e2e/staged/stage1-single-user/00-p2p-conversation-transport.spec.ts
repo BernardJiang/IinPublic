@@ -1,6 +1,6 @@
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { injectIdbClear } from '../../helpers/clear-database';
+import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { gunBaseURL, webBaseURL } from '../../helpers/ports';
@@ -16,8 +16,7 @@ test.describe('P2P roadmap P4 — conversation transport and signaling', () => {
     context = await browser.newContext();
     page = await context.newPage();
     await injectIdbClear(page);
-    await page.goto(webBaseURL());
-    await page.waitForLoadState('load');
+    await gotoWebApp(page, webBaseURL());
     await afterSync();
   });
 

@@ -3,6 +3,8 @@ import { test, expect } from '../../helpers/fixtures';
 import { maybeClearGunDatabases } from '../../helpers/clear-database';
 import { afterAction, afterNav, afterSync } from '../../helpers/timing';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { broadcastFromGlobalChatroom } from '../../helpers/talk-demo-ui';
+
 import { waitForBroadcastBulkAck } from '../../helpers/broadcast-ack';
 import {
   bootstrapUser,
@@ -31,8 +33,7 @@ async function getMyTalkIdByTitle(page: Page, title: string): Promise<string> {
 async function broadcastFromChatroom(page: Page, talksSent: number): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
-  await page.click('#broadcast-talk-btn');
-  await confirmBroadcastTagPreambleIfVisible(page);
+  await broadcastFromGlobalChatroom(page);
   await afterAction();
   await waitForTabActive(page, 'chatrooms');
   await waitForBroadcastBulkAck(page, { talksSent, receivers: 1 });

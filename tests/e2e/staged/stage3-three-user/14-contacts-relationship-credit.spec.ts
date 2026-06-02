@@ -11,6 +11,8 @@ import {
   waitForTabActive,
 } from '../../helpers/talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { broadcastFromGlobalChatroom, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
+
 import {
   launchThreeBrowsers,
   shutdownThreeBrowsers,
@@ -28,8 +30,7 @@ async function createMatchTalk(page: Page, title: string): Promise<void> {
   await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
   await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
   await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-  await page.click('#talk-editor-form button[type="submit"]');
-  await afterSync();
+  await submitTalkEditorAndWaitForOut(page, title);
 }
 
 test.describe('Contacts relationship dialog', () => {
@@ -84,8 +85,7 @@ test.describe('Contacts relationship dialog', () => {
     await afterSync();
 
     await createMatchTalk(pageTom, 'Relationship Match Talk');
-    await pageTom.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageTom);
+    await broadcastFromGlobalChatroom(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 

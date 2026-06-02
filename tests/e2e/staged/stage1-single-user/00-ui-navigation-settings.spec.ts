@@ -3,9 +3,9 @@
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { injectIdbClear } from '../../helpers/clear-database';
+import { gotoWebApp, injectIdbClear } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
-import { afterNav, afterSync } from '../../helpers/timing';
+import { afterNav, afterSync, reloadAppReady } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 
 const P2P_DIRECT_ENABLED = process.env.P2P_DIRECT_CHAT_ENABLED !== '0';
@@ -19,8 +19,7 @@ test.describe('UI navigation and settings shell', () => {
     context = await browser.newContext();
     page = await context.newPage();
     await injectIdbClear(page);
-    await page.goto(webBaseURL());
-    await page.waitForLoadState('load');
+    await gotoWebApp(page, webBaseURL());
     await afterSync();
   });
 
@@ -32,7 +31,7 @@ test.describe('UI navigation and settings shell', () => {
 
   test('bottom navigation exposes Chatrooms, Contacts, Talks, Me, Settings only', async () => {
     const p = page!;
-    await expect(p.locator('.bottom-nav .nav-label')).toHaveText([
+    await expect(p.locator('.bottom-nav .nav-btn .nav-label')).toHaveText([
       'Chatrooms',
       'Contacts',
       'Talks',
@@ -56,15 +55,17 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#chatrooms-stats-strip')).toHaveCount(0);
     const duplicateVisitCheck = await p.evaluate(async () => {
       const app = (window as any).__iinpublic_app?.getApp?.();
-      const before = app.uiManager.chatroomVisitCounts.get('global')?.visitCount || 0;
+      const read = () => app.uiManager.chatroomVisitCounts.get('global')?.visitCount || 0;
+      const before = read();
       await app.chatroomService.switchChatroom(app.currentUser.id, 'global', app.currentUser.stageName);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      return {
-        before,
-        after: app.uiManager.chatroomVisitCounts.get('global')?.visitCount || 0,
-      };
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const mid = read();
+      await app.chatroomService.switchChatroom(app.currentUser.id, 'global', app.currentUser.stageName);
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      return { before, mid, after: read() };
     });
     expect(duplicateVisitCheck.before).toBeGreaterThan(0);
+    expect(duplicateVisitCheck.mid).toBe(duplicateVisitCheck.before);
     expect(duplicateVisitCheck.after).toBe(duplicateVisitCheck.before);
     await expect
       .poll(async () => {
@@ -204,10 +205,7 @@ test.describe('UI navigation and settings shell', () => {
       .poll(async () => p.evaluate(() => localStorage.getItem('iinpublic_ui_language')))
       .toBe('zh');
     await expect(p.locator('#settings-profile-languages')).toHaveValue('en');
-    await p.reload();
-    await p.waitForLoadState('load');
-    await afterSync();
-    await expect(p.locator('.nav-btn[data-view="settings"] .nav-label')).toHaveText('设置');
+    await reloadAppReady(p);
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
     await expect(p.locator('#settings-ui-language')).toHaveValue('zh');

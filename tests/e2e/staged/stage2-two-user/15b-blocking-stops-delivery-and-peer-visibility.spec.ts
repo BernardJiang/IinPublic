@@ -4,6 +4,8 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterSync, headless } from '../../helpers/timing';
 import { gunBaseURL } from '../../helpers/ports';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { broadcastFromGlobalChatroom } from '../../helpers/talk-demo-ui';
+
 import {
   bootstrapUser,
   openIncomingTalkModal,
@@ -63,13 +65,12 @@ test.describe('Blocking system — block stops delivery', () => {
     await afterSync();
 
     await createMatchTalk(pageTom, 'Blocking Warmup Talk');
-    await pageTom.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageTom);
+    await broadcastFromGlobalChatroom(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 
     await openIncomingTalkModal(pageJerry, 'Blocking Warmup Talk');
-    await pageJerry.locator('input.choice-radio[data-answer-text="Yes"][data-mode="manual"]').first().click();
+    await pageJerry.locator('input.choice-radio[data-answer-text="Yes, I would."][data-mode="manual"]').first().click();
     await waitForResponseModalClosed(pageJerry);
     await afterSync();
 
@@ -112,8 +113,7 @@ test.describe('Blocking system — block stops delivery', () => {
     await pageTom.click('#back-from-peer-detail');
 
     await createMatchTalk(pageTom, 'Blocked Delivery Talk');
-    await pageTom.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageTom);
+    await broadcastFromGlobalChatroom(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 
@@ -125,6 +125,18 @@ test.describe('Blocking system — block stops delivery', () => {
       .toBe(false);
 
     await enterGlobalChatroom(pageJerry);
+    await expect
+      .poll(
+        async () => {
+          const res = await pageJerry.request.get(
+            `${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}/block-status/${encodeURIComponent(tomUserId)}`,
+          );
+          if (!res.ok()) return false;
+          return Boolean(((await res.json()) as { blockedBy?: boolean }).blockedBy);
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(true);
     const tomMember = pageJerry.locator('.chatroom-member-item').filter({ hasText: 'Tom' }).first();
     await expect(tomMember).toBeVisible({ timeout: 15000 });
     await tomMember.click();

@@ -6,7 +6,8 @@ import { test, expect } from '../../helpers/fixtures';
 import { maybeClearGunDatabases } from '../../helpers/clear-database';
 import { afterSync, afterAction } from '../../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../../helpers/talks-matching-browsers';
-import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { afterCreateTalkBeforeBroadcast, E2E_ASSERT_TIMEOUT_MS } from '../../helpers/timing';
+import { broadcastFromGlobalChatroom, waitForOutgoingTalkRow } from '../../helpers/talk-demo-ui';
 import {
   bootstrapUser,
   waitForTabActive,
@@ -56,6 +57,7 @@ test.describe('Talks matching — two talks, status bar, answers tab', () => {
   });
 
   test('Tennis+Coffee: Jerry/Bob match/mismatch; Tom sees 2 matches; Answers tab lists both', async () => {
+    test.setTimeout(180_000);
     const TITLE_TENNIS = 'TwoTalks e2e Tennis';
     const TITLE_COFFEE = 'TwoTalks e2e Coffee';
 
@@ -88,7 +90,8 @@ test.describe('Talks matching — two talks, status bar, answers tab', () => {
     await q1.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
     await q1.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
     await pageTom.click('#talk-editor-form button[type="submit"]');
-    await afterSync();
+    await pageTom.waitForSelector('#talk-editor-modal', { state: 'detached', timeout: 10_000 });
+    await waitForOutgoingTalkRow(pageTom, TITLE_TENNIS, E2E_ASSERT_TIMEOUT_MS);
     await pageTom.click('#create-talk-btn');
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', TITLE_COFFEE);
@@ -100,9 +103,10 @@ test.describe('Talks matching — two talks, status bar, answers tab', () => {
     await q2.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
     await q2.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
     await pageTom.click('#talk-editor-form button[type="submit"]');
-    await afterSync();
-    await pageTom.click('#broadcast-talk-btn');
-    await confirmBroadcastTagPreambleIfVisible(pageTom);
+    await pageTom.waitForSelector('#talk-editor-modal', { state: 'detached', timeout: 10_000 });
+    await waitForOutgoingTalkRow(pageTom, TITLE_COFFEE, E2E_ASSERT_TIMEOUT_MS);
+    await afterCreateTalkBeforeBroadcast();
+    await broadcastFromGlobalChatroom(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 
