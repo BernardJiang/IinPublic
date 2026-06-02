@@ -3,12 +3,12 @@ import { test, expect } from '../../helpers/fixtures';
 import {maybeClearGunDatabases, injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
-import { gunBaseURL, webAppURLStableChatroom } from '../../helpers/ports';
+import { webAppURLStableChatroom } from '../../helpers/ports';
 import {
   completeTalkInAppByAnswerIds,
   createTalksFromCompanyPage,
 } from '../../helpers/talk-demo-ui';
-import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
+import { waitForStatusBarMatchCountAtLeast, waitForPeerHistoryTitle, waitForContactDetailReady } from '../../helpers/durable-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 
@@ -103,28 +103,6 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     return page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
   }
 
-  async function waitForPeerHistoryTitle(
-    viewer: Page,
-    userId: string,
-    peerId: string,
-    title: string,
-  ): Promise<void> {
-    await expect
-      .poll(
-        async () => {
-          const res = await viewer.request.get(
-            `${gunBaseURL()}/api/users/${encodeURIComponent(userId)}/peers/${encodeURIComponent(peerId)}/talk-history`,
-            { headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } },
-          );
-          if (!res.ok()) return [];
-          const history = (await res.json()) as Array<{ title?: string }>;
-          return history.map((item) => String(item.title || ''));
-        },
-        { message: `${title} should be in peer talk history`, timeout: 15_000, intervals: [200, 500, 1000] },
-      )
-      .toContain(title);
-  }
-
   test('Contacts tab shows users with matches; click contact shows matching talks', async () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
@@ -207,12 +185,14 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await expect(pageTom.locator('#contacts-list').getByText('Bob')).toBeVisible({ timeout: 5000 });
     await pageTom.locator('.contact-item').filter({ hasText: 'Jerry' }).first().click();
     await afterNav();
+    await waitForContactDetailReady(pageTom);
     await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
     await expect(pageTom.locator('.contact-talk-item').filter({ hasText: TALK_TENNIS })).toBeVisible({ timeout: 10000 });
     await pageTom.click('#back-to-contacts-list');
     await afterAction();
     await pageTom.locator('.contact-item').filter({ hasText: 'Bob' }).first().click();
     await afterNav();
+    await waitForContactDetailReady(pageTom);
     await expect(pageTom.locator('#contact-detail-name')).toContainText('Bob', { timeout: 10000 });
     await expect(pageTom.locator('.contact-talk-item').filter({ hasText: TALK_COFFEE })).toBeVisible({ timeout: 10000 });
 
@@ -221,6 +201,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await expect(pageJerry.locator('#contacts-list .contact-item:not([data-support-contact="true"])')).toHaveCount(1, { timeout: 10000 });
     await pageJerry.locator('.contact-item').filter({ hasText: 'Tom' }).first().click();
     await afterNav();
+    await waitForContactDetailReady(pageJerry);
     await expect(pageJerry.locator('.contact-talk-item').filter({ hasText: TALK_TENNIS })).toBeVisible({ timeout: 10000 });
 
     await pageBob.click('.nav-btn[data-view="contacts"]');
@@ -228,6 +209,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await expect(pageBob.locator('#contacts-list .contact-item:not([data-support-contact="true"])')).toHaveCount(1, { timeout: 10000 });
     await pageBob.locator('.contact-item').filter({ hasText: 'Tom' }).first().click();
     await afterNav();
+    await waitForContactDetailReady(pageBob);
     await expect(pageBob.locator('.contact-talk-item').filter({ hasText: TALK_COFFEE })).toBeVisible({ timeout: 10000 });
   });
 });

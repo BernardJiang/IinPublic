@@ -12,6 +12,7 @@ import {
   getCurrentUserId,
   getReputation,
 } from '../../helpers/reputation-e2e-helpers';
+import { waitForContactDetailReady } from '../../helpers/durable-ui';
 
 test.describe('Reputation system — peer star rating', () => {
   let browserTom: Browser;
@@ -72,6 +73,7 @@ test.describe('Reputation system — peer star rating', () => {
     const jerryContact = pageTom.locator(`.contact-item[data-contact-user-id="${jerryUserId}"]`).first();
     await expect(jerryContact).toBeVisible({ timeout: 15000 });
     await jerryContact.click();
+    await waitForContactDetailReady(pageTom);
     await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
     await expect(pageTom.locator('#contact-detail-matches')).toContainText('talk', { timeout: 15000 });
     await expect(pageTom.locator('.contact-public-profile-summary')).toBeVisible({ timeout: 15000 });

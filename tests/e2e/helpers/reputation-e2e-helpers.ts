@@ -4,7 +4,7 @@ import { afterAction, afterSync } from './timing';
 import { gunBaseURL } from './ports';
 import { clickBroadcastUntilBulkAck, submitTalkEditorAndWaitForOut } from './talk-demo-ui';
 import { openIncomingTalkModal, waitForResponseModalClosed, waitForTabActive } from './talks-matching-flow';
-import { dismissNotificationOverlays } from './durable-ui';
+import { dismissNotificationOverlays, waitForPeerHistoryTitle } from './durable-ui';
 import { ensureNoBlockBetween } from './blocking-e2e-helpers';
 
 export async function getCurrentUserId(page: Page): Promise<string> {
@@ -12,21 +12,15 @@ export async function getCurrentUserId(page: Page): Promise<string> {
 }
 
 export async function getReputation(page: Page, userId: string, viewerId: string): Promise<any> {
-  const reputation = await page.evaluate(
-    async ({ uid, vid }) => {
-      const app = (window as unknown as { __iinpublic_app?: { getApp: () => { getBackendApiBase?: () => string } } })
-        .__iinpublic_app?.getApp?.();
-      const base = app?.getBackendApiBase?.() || '';
-      const res = await fetch(
-        `${base}/api/users/${encodeURIComponent(uid)}?viewerId=${encodeURIComponent(vid)}`,
-        { headers: { 'Cache-Control': 'no-cache' } },
-      );
-      if (!res.ok) return null;
-      const user = await res.json();
-      return user?.reputation ?? null;
-    },
-    { uid: userId, vid: viewerId },
+  const res = await page.context().request.get(
+    `${gunBaseURL()}/api/users/${encodeURIComponent(userId)}?viewerId=${encodeURIComponent(viewerId)}`,
+    { headers: { 'Cache-Control': 'no-cache' }, timeout: 10_000 },
   );
+  if (!res.ok()) {
+    throw new Error(`getReputation failed for userId=${userId} (${res.status()})`);
+  }
+  const user = await res.json();
+  const reputation = user?.reputation ?? null;
   if (!reputation) {
     throw new Error(`getReputation failed for userId=${userId}`);
   }
@@ -96,4 +90,6 @@ export async function establishContactsTomJerry(pageTom: Page, pageJerry: Page, 
   await pageJerry.locator('input.choice-radio[data-answer-text="Yes, I would."][data-mode="manual"]').first().click();
   await waitForResponseModalClosed(pageJerry);
   await afterSync();
+
+  await waitForPeerHistoryTitle(pageTom, tomId, jerryId, title);
 }

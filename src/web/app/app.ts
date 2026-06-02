@@ -2686,14 +2686,12 @@ export class IinPublicApp {
           const REGISTER_BATCH = 5;
           const registeredTalkIds: string[] = [];
           const previewByTalkId = new Map(audiencePreviews.map((p) => [p.talkId, p]));
+          const broadcastableSnapshot = new Set(broadcastableIds);
           for (let i = 0; i < talkPayloads.length; i += REGISTER_BATCH) {
             const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
-            const broadcastableNow = new Set(
-              this.uiManager.getBroadcastableTalkIds().filter((id) => broadcastableIds.includes(id)),
-            );
             const batchResults = await Promise.all(
               batch.map(async ({ tid, talk }) => {
-                if (!broadcastableNow.has(tid)) return false;
+                if (!broadcastableSnapshot.has(tid)) return false;
                 const preview = previewByTalkId.get(tid);
                 const eligibleIds =
                   usesDirectTalkDelivery(this.p2pRuntimeFlags) &&

@@ -2,7 +2,10 @@ import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { maybeClearGunDatabases } from '../../helpers/clear-database';
 import { afterAction, afterSync } from '../../helpers/timing';
-import { submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
+import {
+  clickBroadcastUntilBulkAck,
+  submitTalkEditorAndWaitForOut,
+} from '../../helpers/talk-demo-ui';
 import { waitForBroadcastBulkAckMinSent } from '../../helpers/broadcast-cancellation-helpers';
 import {
   bootstrapUser,
@@ -67,27 +70,6 @@ async function sendBroadcastAndOpenPreview(page: Page, expectedReason?: RegExp):
   }
 }
 
-async function confirmBroadcastAndWait(page: Page, minSent: number): Promise<void> {
-  const ack = page.locator('[data-testid="broadcast-bulk-ack"]');
-  const genBefore = Number(await ack.getAttribute('data-broadcast-bulk-gen')) || 0;
-  await page.locator('[data-testid="broadcast-preamble-send"]').click();
-  await expect
-    .poll(
-      async () => {
-        const gen = Number(await ack.getAttribute('data-broadcast-bulk-gen'));
-        const sent = Number(await ack.getAttribute('data-broadcast-talks-sent'));
-        const recv = Number(await ack.getAttribute('data-broadcast-receivers'));
-        const genOk = Number.isFinite(gen) && gen > genBefore;
-        const sentOk = Number.isFinite(sent) && sent >= minSent;
-        const recvOk = Number.isFinite(recv) && recv >= 1;
-        return genOk && sentOk && recvOk;
-      },
-      { timeout: 10_000, intervals: [100, 200, 400] },
-    )
-    .toBe(true);
-  await waitForTabActive(page, 'chatrooms');
-}
-
 test.describe('Incoming talk language intake filtering', () => {
   let browsers: ThreeBrowsers;
   let browserTom: Browser;
@@ -148,14 +130,14 @@ test.describe('Incoming talk language intake filtering', () => {
     await createLanguageTalk(pageTom, spanishRejectedTitle, 'es');
 
     await sendBroadcastAndOpenPreview(pageTom, /Language not accepted/i);
-    await confirmBroadcastAndWait(pageTom, 0);
+    await pageTom.locator('[data-testid="broadcast-preamble-send"]').click();
+    await waitForBroadcastBulkAckMinSent(pageTom, { receivers: 1, minSent: 0 });
 
     const englishTitle = 'Language Intake English';
     const chineseTitle = 'Language Intake Chinese';
     await createLanguageTalk(pageTom, englishTitle, 'en');
     await createLanguageTalk(pageTom, chineseTitle, 'zh');
-    await sendBroadcastAndOpenPreview(pageTom);
-    await confirmBroadcastAndWait(pageTom, 1);
+    await clickBroadcastUntilBulkAck(pageTom, { minSent: 1 });
 
     await waitForIncomingTalkClusterOnServer(pageJerry, englishTitle);
     await waitForIncomingTalkClusterOnServer(pageJerry, chineseTitle);
@@ -175,8 +157,7 @@ test.describe('Incoming talk language intake filtering', () => {
 
     const spanishAllowedTitle = 'Language Intake Spanish Allowed';
     await createLanguageTalk(pageTom, spanishAllowedTitle, 'es');
-    await sendBroadcastAndOpenPreview(pageTom);
-    await confirmBroadcastAndWait(pageTom, 1);
+    await clickBroadcastUntilBulkAck(pageTom, { minSent: 1 });
 
     await waitForIncomingTalkClusterOnServer(pageJerry, spanishAllowedTitle);
     await pageJerry.click('.nav-btn[data-view="talks"]');

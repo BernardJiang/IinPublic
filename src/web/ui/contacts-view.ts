@@ -679,61 +679,35 @@ export async function showContactDetail(
     detailInfo.appendChild(button);
   }
 
-  const ac = new AbortController();
-  const timeoutId = window.setTimeout(() => ac.abort(), 12_000);
-  try {
-    const [relationshipRes, historyRes, userRes, blockStatusRes] = await Promise.all([
-      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(otherUserId)}/relationship`, {
-        signal: ac.signal,
-      }),
-      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(otherUserId)}/talk-history`, {
-        signal: ac.signal,
-      }),
-      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(otherUserId)}?viewerId=${encodeURIComponent(deps.currentUserId)}`, {
-        signal: ac.signal,
-      }),
-      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/block-status/${encodeURIComponent(otherUserId)}`, {
-        signal: ac.signal,
-      }),
-    ]);
-    const blockStatus = blockStatusRes.ok ? await blockStatusRes.json() : {};
-    const blockedByMe = deps.isBlockedByMe(otherUserId) || !!blockStatus?.blocked;
-    const blockedBy = userRes.status === 403 || relationshipRes.status === 403 || historyRes.status === 403 || !!blockStatus?.blockedBy;
-    const publicUser = userRes.ok ? await userRes.json() : null;
-    if (detailInfo && otherUserId !== TECHSUPPORT_ROOT_USER_ID) {
-      const contextSummary = document.createElement('div');
-      contextSummary.innerHTML = renderContactContextSummary(
-        deps,
-        deps.getKnownPerson(otherUserId),
-        publicUser,
-        blockedByMe,
-        blockedBy,
-      );
-      detailInfo.appendChild(contextSummary.firstElementChild as HTMLElement);
+  const fetchPeerDetail = async (path: string): Promise<Response> => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const ac = new AbortController();
+      const timeoutId = window.setTimeout(() => ac.abort(), 5_000);
+      try {
+        return await fetch(`${deps.apiBase}${path}`, { signal: ac.signal, cache: 'no-store' });
+      } catch {
+        if (attempt === 1) throw new Error(`fetch failed: ${path}`);
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
     }
-    if (relationshipRes.status === 403 || historyRes.status === 403 || userRes.status === 403) {
-      detailMatches.textContent = deps.text('unavailable');
-      talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #c2410c;">${deps.text('contactDetailsUnavailable')}</p>`;
-      return;
-    }
+    throw new Error(`fetch failed: ${path}`);
+  };
 
-    const relationship = relationshipRes.ok ? await relationshipRes.json() : null;
-    const history = historyRes.ok ? await historyRes.json() : [];
-    contactDetailUserProfileCache = { userId: otherUserId, publicUser };
-    const totalTalks = relationship?.totalTalks ?? (Array.isArray(history) ? history.length : 0);
+  const renderTalkHistory = (history: unknown[], publicUser: unknown): void => {
+    const totalTalks = Array.isArray(history) ? history.length : 0;
     detailMatches.textContent = formatCountText(deps, totalTalks, 'contactsTalkCountOne', 'contactsTalkCount');
     if (detailInfo) {
+      detailInfo.querySelector('.contact-public-profile-summary')?.remove();
       const summary = document.createElement('div');
       summary.className = 'contact-public-profile-summary';
       summary.innerHTML = renderPublicProfileSummary(deps, publicUser);
       detailInfo.appendChild(summary);
     }
-
     if (!Array.isArray(history) || history.length === 0) {
       talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #999;">${deps.text('contactNoTalks')}</p>`;
       return;
     }
-
     const myTalks = deps.getMyTalks();
     talksList.innerHTML = history
       .map((item: any) => {
@@ -747,10 +721,66 @@ export async function showContactDetail(
         `;
       })
       .join('');
+  };
+
+  try {
+    const peerBase = `/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(otherUserId)}`;
+    const historyRes = await fetchPeerDetail(`${peerBase}/talk-history`);
+    if (historyRes.status === 403) {
+      detailMatches.textContent = deps.text('unavailable');
+      talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #c2410c;">${deps.text('contactDetailsUnavailable')}</p>`;
+      return;
+    }
+    const history = historyRes.ok ? await historyRes.json() : [];
+    renderTalkHistory(history, null);
+
+    const [relationshipRes, userRes, blockStatusRes] = await Promise.all([
+      fetchPeerDetail(`${peerBase}/relationship`),
+      fetchPeerDetail(
+        `/api/users/${encodeURIComponent(otherUserId)}?viewerId=${encodeURIComponent(deps.currentUserId)}`,
+      ),
+      fetchPeerDetail(
+        `/api/users/${encodeURIComponent(deps.currentUserId)}/block-status/${encodeURIComponent(otherUserId)}`,
+      ),
+    ]);
+    const blockStatus = blockStatusRes.ok ? await blockStatusRes.json() : {};
+    const blockedByMe = deps.isBlockedByMe(otherUserId) || !!blockStatus?.blocked;
+    const blockedBy =
+      userRes.status === 403 || relationshipRes.status === 403 || historyRes.status === 403 || !!blockStatus?.blockedBy;
+    const publicUser = userRes.ok ? await userRes.json() : null;
+    contactDetailUserProfileCache = { userId: otherUserId, publicUser };
+    if (detailInfo && otherUserId !== TECHSUPPORT_ROOT_USER_ID) {
+      detailInfo.querySelector('.contact-context-summary')?.remove();
+      const contextSummary = document.createElement('div');
+      contextSummary.innerHTML = renderContactContextSummary(
+        deps,
+        deps.getKnownPerson(otherUserId),
+        publicUser,
+        blockedByMe,
+        blockedBy,
+      );
+      detailInfo.appendChild(contextSummary.firstElementChild as HTMLElement);
+    }
+    if (relationshipRes.status === 403 || userRes.status === 403) {
+      detailMatches.textContent = deps.text('unavailable');
+      return;
+    }
+    const relationship = relationshipRes.ok ? await relationshipRes.json() : null;
+    const totalTalks = relationship?.totalTalks ?? (Array.isArray(history) ? history.length : 0);
+    detailMatches.textContent = formatCountText(deps, totalTalks, 'contactsTalkCountOne', 'contactsTalkCount');
+    if (detailInfo) {
+      detailInfo.querySelector('.contact-public-profile-summary')?.remove();
+      const summary = document.createElement('div');
+      summary.className = 'contact-public-profile-summary';
+      summary.innerHTML = renderPublicProfileSummary(deps, publicUser);
+      detailInfo.appendChild(summary);
+    }
   } catch {
-    detailMatches.textContent = deps.text('contactCouldNotLoad');
-    talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #c00;">${deps.text('contactCouldNotLoadTalks')}</p>`;
-  } finally {
-    window.clearTimeout(timeoutId);
+    if (detailMatches.textContent === deps.text('loading')) {
+      detailMatches.textContent = deps.text('contactCouldNotLoad');
+    }
+    if (!talksList.querySelector('.contact-talk-item') && !talksList.textContent?.trim()) {
+      talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #c00;">${deps.text('contactCouldNotLoadTalks')}</p>`;
+    }
   }
 }
