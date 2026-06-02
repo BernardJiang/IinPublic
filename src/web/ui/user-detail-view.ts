@@ -272,12 +272,17 @@ async function applySendButtonFromBlockStatus(
 
 async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserDetailViewDeps): Promise<void> {
   const statsEl = document.getElementById('peer-stats-section');
+  const ac = new AbortController();
+  const timeoutId = window.setTimeout(() => ac.abort(), 12_000);
   try {
     const [statsRes, userRes] = await Promise.all([
       fetch(
         `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(peerId)}/relationship`,
+        { signal: ac.signal },
       ),
-      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(peerId)}?viewerId=${encodeURIComponent(deps.currentUserId)}`),
+      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(peerId)}?viewerId=${encodeURIComponent(deps.currentUserId)}`, {
+        signal: ac.signal,
+      }),
     ]);
     if (statsRes.status === 403 || userRes.status === 403) {
       const subtitleEl = document.getElementById('peer-detail-subtitle');
@@ -313,6 +318,8 @@ async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserD
   } catch (err) {
     if (statsEl) statsEl.innerHTML = `<div style="padding:12px;color:#c00;">${deps.text('peerStatsUnavailable')}</div>`;
     await applySendButtonFromBlockStatus(peerId, deps);
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 }
 
@@ -532,9 +539,12 @@ function renderMatchedConversations(peerId: string, deps: UserDetailViewDeps): v
 }
 
 async function fetchAndRenderHistory(peerId: string, deps: UserDetailViewDeps): Promise<void> {
+  const ac = new AbortController();
+  const timeoutId = window.setTimeout(() => ac.abort(), 12_000);
   try {
     const res = await fetch(
       `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(peerId)}/talk-history`,
+      { signal: ac.signal },
     );
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const history: TalkHistoryItem[] = await res.json();
@@ -548,6 +558,8 @@ async function fetchAndRenderHistory(peerId: string, deps: UserDetailViewDeps): 
   } catch (err) {
     const historyEl = document.getElementById('peer-talk-history-list');
     if (historyEl) historyEl.innerHTML = `<div style="padding:12px;color:#c00;">${deps.text('peerHistoryUnavailable')}</div>`;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 }
 

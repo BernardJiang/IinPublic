@@ -4,7 +4,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterSync, headless } from '../../helpers/timing';
 import { gunBaseURL } from '../../helpers/ports';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
-import { broadcastFromGlobalChatroom } from '../../helpers/talk-demo-ui';
+import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 
 import {
   bootstrapUser,
@@ -65,7 +65,7 @@ test.describe('Blocking system — block stops delivery', () => {
     await afterSync();
 
     await createMatchTalk(pageTom, 'Blocking Warmup Talk');
-    await broadcastFromGlobalChatroom(pageTom);
+    await clickBroadcastUntilBulkAck(pageTom);
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 
@@ -113,7 +113,7 @@ test.describe('Blocking system — block stops delivery', () => {
     await pageTom.click('#back-from-peer-detail');
 
     await createMatchTalk(pageTom, 'Blocked Delivery Talk');
-    await broadcastFromGlobalChatroom(pageTom);
+    await clickBroadcastUntilBulkAck(pageTom, { minSent: 0 });
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 

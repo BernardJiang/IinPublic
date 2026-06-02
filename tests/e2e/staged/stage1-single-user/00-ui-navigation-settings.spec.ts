@@ -722,6 +722,10 @@ test.describe('UI navigation and settings shell', () => {
     await expect
       .poll(async () => p.evaluate(() => localStorage.getItem('iinpublic_travel_home')))
       .toBe('global');
+    await p.locator('.nav-btn[data-view="chatrooms"]').click();
+    await afterNav();
+    await p.locator('.chatroom-item[data-chatroom-id="asia"]').click();
+    await afterNav();
     await expect(p.locator('#return-home-btn')).toBeEnabled();
   });
 

@@ -170,7 +170,14 @@ export async function clickBroadcastUntilBulkAck(
       receivers: 0,
     }));
     if (result.talksSent < minSent && result.receivers >= minPeers && minSent > 0) {
-      await deliverViaUiBroadcastTalk(page, minSent);
+      const hasBroadcastable = await page.evaluate(() => {
+        const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+        const ids = app?.uiManager?.getBroadcastableTalkIds?.() as string[] | undefined;
+        return Array.isArray(ids) && ids.length > 0;
+      });
+      if (hasBroadcastable) {
+        await deliverViaUiBroadcastTalk(page, minSent);
+      }
     }
   } else {
     try {

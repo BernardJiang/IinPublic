@@ -163,6 +163,20 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     const postUnblock = await deliverBroadcastViaRegisterApi(pageTom, { minReceivers: 1 });
     expect(postUnblock.talksSent).toBeGreaterThanOrEqual(1);
     await afterAction();
+    await expect
+      .poll(
+        async () => {
+          const res = await pageJerry.request.get(
+            `${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}/p0-mesh-incoming`,
+            { headers: { 'Cache-Control': 'no-cache' } },
+          );
+          if (!res.ok()) return false;
+          const mesh = await res.json();
+          return JSON.stringify(mesh).toLowerCase().includes('post-unblock talk');
+        },
+        { timeout: 10_000, intervals: [200, 400, 800] },
+      )
+      .toBe(true);
     await openIncomingTalkModal(pageJerry, 'Post-Unblock Talk');
   });
 });

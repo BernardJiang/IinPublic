@@ -679,12 +679,22 @@ export async function showContactDetail(
     detailInfo.appendChild(button);
   }
 
+  const ac = new AbortController();
+  const timeoutId = window.setTimeout(() => ac.abort(), 12_000);
   try {
     const [relationshipRes, historyRes, userRes, blockStatusRes] = await Promise.all([
-      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(otherUserId)}/relationship`),
-      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(otherUserId)}/talk-history`),
-      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(otherUserId)}?viewerId=${encodeURIComponent(deps.currentUserId)}`),
-      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/block-status/${encodeURIComponent(otherUserId)}`),
+      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(otherUserId)}/relationship`, {
+        signal: ac.signal,
+      }),
+      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(otherUserId)}/talk-history`, {
+        signal: ac.signal,
+      }),
+      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(otherUserId)}?viewerId=${encodeURIComponent(deps.currentUserId)}`, {
+        signal: ac.signal,
+      }),
+      fetch(`${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/block-status/${encodeURIComponent(otherUserId)}`, {
+        signal: ac.signal,
+      }),
     ]);
     const blockStatus = blockStatusRes.ok ? await blockStatusRes.json() : {};
     const blockedByMe = deps.isBlockedByMe(otherUserId) || !!blockStatus?.blocked;
@@ -740,5 +750,7 @@ export async function showContactDetail(
   } catch {
     detailMatches.textContent = deps.text('contactCouldNotLoad');
     talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #c00;">${deps.text('contactCouldNotLoadTalks')}</p>`;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 }

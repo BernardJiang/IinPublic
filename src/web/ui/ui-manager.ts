@@ -503,7 +503,16 @@ export class UIManager extends EventEmitter {
     const btn = document.getElementById('return-home-btn') as HTMLButtonElement | null;
     if (!btn) return;
     const home = this.getHomeChatroomId();
-    const effectiveRoom = this.currentChatroom || 'global';
+    let effectiveRoom = this.currentChatroom;
+    if (!effectiveRoom) {
+      const fromApp = (
+        window as unknown as {
+          __iinpublic_app?: { getApp: () => { chatroomService?: { getCurrentChatroomId: () => string } } };
+        }
+      ).__iinpublic_app?.getApp?.()?.chatroomService?.getCurrentChatroomId?.();
+      if (fromApp) effectiveRoom = fromApp;
+    }
+    effectiveRoom = effectiveRoom || 'global';
     const away = effectiveRoom !== home;
     btn.disabled = !away;
     btn.title = away ? `Return to ${this.resolveChatroomTitle(home)}` : 'Already in your home room';

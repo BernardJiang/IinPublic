@@ -226,6 +226,9 @@ test.describe('Profile foundation', () => {
     await peerPage.locator('.chatroom-member-item').filter({ hasText: 'Tom' }).first().click();
     await afterNav();
     await expect(peerPage.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10000 });
+    await expect
+      .poll(async () => peerPage.locator('#peer-stats-section').innerText(), { timeout: 10_000, intervals: [200, 400, 800] })
+      .toContain('Public Profile');
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Public Profile');
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Languages: English');
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Favorite drink');
