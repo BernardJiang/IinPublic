@@ -73,12 +73,18 @@ export async function ensureNoBlockBetween(
   await expect
     .poll(
       async () => {
-        const res = await pageA.request.get(
-          `${base}/api/users/${encodeURIComponent(userIdA)}/block-status/${encodeURIComponent(userIdB)}`,
-        );
-        if (!res.ok()) return 'http';
-        const body = (await res.json()) as { eitherBlocked?: boolean };
-        return body.eitherBlocked ? 'blocked' : 'ok';
+        for (const [page, viewer, peer] of [
+          [pageA, userIdA, userIdB],
+          [pageB, userIdB, userIdA],
+        ] as const) {
+          const res = await page.request.get(
+            `${base}/api/users/${encodeURIComponent(viewer)}/block-status/${encodeURIComponent(peer)}`,
+          );
+          if (!res.ok()) return 'http';
+          const body = (await res.json()) as { eitherBlocked?: boolean };
+          if (body.eitherBlocked) return 'blocked';
+        }
+        return 'ok';
       },
       { timeout: 10_000, intervals: [100, 200, 400] },
     )

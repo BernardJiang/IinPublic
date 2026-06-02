@@ -1999,10 +1999,10 @@ export class IinPublicApp {
     const chatroomId = this.chatroomService.getCurrentChatroomId();
     if (!chatroomId) throw new Error('No current chatroom for E2E broadcast delivery');
     const members = this.uiManager.getCurrentChatroomMembers();
-    const broadcastableIds =
-      this.uiManager.getPendingBroadcastTalkIds().length > 0
-        ? this.uiManager.getPendingBroadcastTalkIds()
-        : this.uiManager.getBroadcastableTalkIds();
+    let broadcastableIds = this.uiManager.getBroadcastableTalkIds();
+    if (broadcastableIds.length === 0) {
+      broadcastableIds = this.uiManager.getPendingBroadcastTalkIds();
+    }
     const receivers = await this.resolveBroadcastReceivers(chatroomId, members);
     if (receivers.length < minReceivers && !(minReceivers === 0 && receivers.length === 0)) {
       throw new Error(`receiverIds=${receivers.length} room=${chatroomId}`);
@@ -2068,12 +2068,8 @@ export class IinPublicApp {
     const registeredTalkIds: string[] = [];
     for (let i = 0; i < talkPayloads.length; i += REGISTER_BATCH) {
       const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
-      const broadcastableNow = new Set(
-        this.uiManager.getBroadcastableTalkIds().filter((id) => broadcastableIds.includes(id)),
-      );
       const batchResults = await Promise.all(
         batch.map(async ({ tid, talk }) => {
-          if (!broadcastableNow.has(tid)) return false;
           const preview = previewByTalkId.get(tid);
           const eligibleIds =
             usesDirectTalkDelivery(this.p2pRuntimeFlags) &&
@@ -2131,28 +2127,27 @@ export class IinPublicApp {
 
   private async refreshIncomingTalkClustersFromLocalGun(): Promise<void> {
     if (!this.currentUser?.id) return;
+    const fromServer = await this.fetchP0MeshIncomingFromServer();
+    if (fromServer.length > 0) {
+      mirrorIncomingTalkClustersToLocalGun(
+        this.gunService,
+        this.currentUser.id,
+        fromServer,
+        this.p2pRuntimeFlags,
+      );
+      this.mergeIncomingClusterIntoUi(fromServer);
+      return;
+    }
     await reconcilePeerTalkOffersFromGun(
       this.gunService,
       this.currentUser.id,
       this.p2pRuntimeFlags,
       (offer) => this.shouldAcceptPeerTalkOfferAsync(offer),
-      { waitMs: 250 },
+      { waitMs: 500 },
     );
-    let clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, {
-      waitMs: 300,
+    const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, {
+      waitMs: 500,
     });
-    if (clusters.length === 0) {
-      const fromServer = await this.fetchP0MeshIncomingFromServer();
-      if (fromServer.length > 0) {
-        mirrorIncomingTalkClustersToLocalGun(
-          this.gunService,
-          this.currentUser.id,
-          fromServer,
-          this.p2pRuntimeFlags,
-        );
-        clusters = fromServer;
-      }
-    }
     this.mergeIncomingClusterIntoUi(clusters);
   }
 

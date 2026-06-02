@@ -79,6 +79,45 @@ export async function waitForDistinctGunPeersExcludingSelf(
 /** P0/star fallback when audience-preview UI does not open in time — see broadcast-register-fallback.ts */
 export { deliverBroadcastViaRegisterApi, waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
 
+/** Full production broadcastTalk path with audience modal auto-confirmed (P0 fallback when register-only deliver sends 0). */
+async function deliverViaUiBroadcastTalk(page: Page, minSent: number): Promise<void> {
+  await page.evaluate(
+    async ({ min }) => {
+      const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+      const ui = app?.uiManager;
+      if (!app?.chatroomService || !ui?.emit) throw new Error('broadcastTalk emit unavailable');
+      const ack = document.querySelector('[data-testid="broadcast-bulk-ack"]');
+      const genBefore = Number(ack?.getAttribute('data-broadcast-bulk-gen')) || 0;
+      const orig = ui.confirmBroadcastAudience?.bind(ui);
+      ui.confirmBroadcastAudience = async () => true;
+      try {
+        const chatroomId = app.chatroomService.getCurrentChatroomId() || ui.currentChatroom || 'global';
+        const talkIds = (ui.getBroadcastableTalkIds?.() || []) as string[];
+        if (!Array.isArray(talkIds) || talkIds.length === 0) {
+          throw new Error('no broadcastable talk ids for UI broadcast fallback');
+        }
+        ui.emit('broadcastTalk', {
+          chatroomId,
+          members: ui.getCurrentChatroomMembers?.() || ui.currentChatroomMembers || [],
+          talkIds,
+        });
+        const deadline = Date.now() + 12_000;
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 100));
+          const el = document.querySelector('[data-testid="broadcast-bulk-ack"]');
+          const gen = Number(el?.getAttribute('data-broadcast-bulk-gen'));
+          const sent = Number(el?.getAttribute('data-broadcast-talks-sent'));
+          if (Number.isFinite(gen) && gen > genBefore && Number.isFinite(sent) && sent >= min) return;
+        }
+        throw new Error(`broadcastTalk fallback ack timeout (minSent=${min})`);
+      } finally {
+        if (orig) ui.confirmBroadcastAudience = orig;
+      }
+    },
+    { min: minSent },
+  );
+}
+
 /**
  * Wait until the broadcast handler finishes (it awaits register-receivers before setBroadcastBulkAck).
  * page.waitForResponse missed some fetches in multi-window runs; the ack node is updated only after POST completes.
@@ -105,7 +144,7 @@ export async function broadcastFromGlobalChatroom(
 
 export async function clickBroadcastUntilBulkAck(
   page: Page,
-  opts?: { minGunPeers?: number },
+  opts?: { minGunPeers?: number; minSent?: number },
 ): Promise<void> {
   const { waitForTabActive } = await import('./talks-matching-flow');
   await page.click('.nav-btn[data-view="chatrooms"]');
@@ -120,12 +159,19 @@ export async function clickBroadcastUntilBulkAck(
   const start = Number.isFinite(genBefore) ? genBefore : 0;
   await waitForGunApiReady(E2E_ASSERT_TIMEOUT_MS).catch(() => {});
   const minPeers = opts?.minGunPeers ?? 1;
+  const minSent = opts?.minSent ?? (isDirectTalkDeliveryE2e() && minPeers > 0 ? 1 : 0);
   if (isDirectTalkDeliveryE2e() && minPeers > 0) {
     await waitForChatroomMemberCountViaApi(page, minPeers, E2E_ASSERT_TIMEOUT_MS);
   }
   await waitForBroadcastableTalkIds(page, E2E_ASSERT_TIMEOUT_MS);
   if (isDirectTalkDeliveryE2e() && minPeers > 0) {
-    await deliverBroadcastViaRegisterApi(page, { minReceivers: minPeers });
+    const result = await deliverBroadcastViaRegisterApi(page, { minReceivers: minPeers }).catch(() => ({
+      talksSent: 0,
+      receivers: 0,
+    }));
+    if (result.talksSent < minSent && result.receivers >= minPeers && minSent > 0) {
+      await deliverViaUiBroadcastTalk(page, minSent);
+    }
   } else {
     try {
       await clickChatroomBroadcastButton(page, opts);
@@ -141,7 +187,7 @@ export async function clickBroadcastUntilBulkAck(
       async () => {
         const gen = Number(await loc.getAttribute('data-broadcast-bulk-gen'));
         const sent = Number(await loc.getAttribute('data-broadcast-talks-sent'));
-        return Number.isFinite(gen) && gen > start && Number.isFinite(sent) && sent >= 0;
+        return Number.isFinite(gen) && gen > start && Number.isFinite(sent) && sent >= minSent;
       },
       { timeout: E2E_ASSERT_TIMEOUT_MS, intervals: [100, 200, 400] },
     )

@@ -290,6 +290,17 @@ function applyRelationshipModalProfileFetch(
   if (blockedBy) {
     document.getElementById('contact-block-toggle-btn')?.style.setProperty('display', 'none');
     document.getElementById('contact-age-vouch-btn')?.style.setProperty('display', 'none');
+    return;
+  }
+  const blockBtn = document.getElementById('contact-block-toggle-btn') as HTMLButtonElement | null;
+  if (blockBtn) {
+    blockBtn.style.removeProperty('display');
+    blockBtn.textContent = deps.text(blockedByMe ? 'contactUnblockUser' : 'contactBlockUser');
+  }
+  const vouchBtn = document.getElementById('contact-age-vouch-btn') as HTMLButtonElement | null;
+  if (vouchBtn) {
+    if (blockedByMe) vouchBtn.style.setProperty('display', 'none');
+    else vouchBtn.style.removeProperty('display');
   }
 }
 
@@ -304,7 +315,18 @@ async function openRelationshipDialog(
   }
   closeRelationshipModal();
   const known = deps.getKnownPerson(userId);
-  const blockedByMe = deps.isBlockedByMe(userId);
+  let blockedByMe = deps.isBlockedByMe(userId);
+  try {
+    const blockRes = await fetch(
+      `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/block-status/${encodeURIComponent(userId)}`,
+    );
+    if (blockRes.ok) {
+      const blockStatus = (await blockRes.json()) as { blocked?: boolean };
+      blockedByMe = blockedByMe || !!blockStatus.blocked;
+    }
+  } catch {
+    /* keep local block state */
+  }
 
   const modal = document.createElement('div');
   modal.id = 'contact-relationship-modal';
@@ -382,7 +404,7 @@ async function openRelationshipDialog(
     close();
   });
   (document.getElementById('contact-block-toggle-btn') as HTMLButtonElement | null)?.addEventListener('click', async () => {
-    await deps.setBlocked(userId, !blockedByMe);
+    await deps.setBlocked(userId, !deps.isBlockedByMe(userId));
     close();
   });
   (document.getElementById('contact-relationship-save-btn') as HTMLButtonElement | null)?.addEventListener('click', async () => {

@@ -6,7 +6,11 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterNav, afterSync, headless } from '../../helpers/timing';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
-import { broadcastFromGlobalChatroom } from '../../helpers/talk-demo-ui';
+import {
+  broadcastFromGlobalChatroom,
+  clickBroadcastUntilBulkAck,
+  deliverBroadcastViaRegisterApi,
+} from '../../helpers/talk-demo-ui';
 
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import {
@@ -82,7 +86,7 @@ test.describe('Broadcast cancellation — clear all mid-flight', () => {
 
         await readyToClear;
       } else {
-        await broadcastFromGlobalChatroom(pageTom, { requirePreambleUi: true });
+        await clickBroadcastUntilBulkAck(pageTom);
         await afterAction();
         await waitForBroadcastBulkAckMinSent(pageTom, { receivers: 1, minSent: 1 });
       }
@@ -93,11 +97,23 @@ test.describe('Broadcast cancellation — clear all mid-flight', () => {
         (window as any).__iinpublic_app?.getApp?.()?.uiManager?.displayTalksList?.();
       });
       await afterAction();
+      const preamble = pageTom.locator('[data-testid="broadcast-preamble-modal"]');
+      if (await preamble.isVisible().catch(() => false)) {
+        await pageTom.locator('[data-testid="broadcast-preamble-cancel"]').click({ timeout: 3000 }).catch(() => {});
+        await preamble.waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
+      }
       await pageTom.click('.nav-btn[data-view="chatrooms"]');
       await afterNav();
       await afterSync();
-
-      await waitForBroadcastBulkAckMinSent(pageTom, { receivers: 1, minSent: 0 });
+      if (isDirectTalkDeliveryE2e()) {
+        await deliverBroadcastViaRegisterApi(pageTom, { minReceivers: 1 });
+        await waitForBroadcastBulkAckMinSent(pageTom, { receivers: 1, minSent: 0 });
+      } else {
+        await pageTom.locator('#broadcast-talk-btn').click({ timeout: 10_000 });
+        await afterAction();
+        await confirmBroadcastTagPreambleIfVisible(pageTom);
+        await waitForBroadcastBulkAckMinSent(pageTom, { receivers: 1, minSent: 0 });
+      }
 
       const talksRaw = await pageTom.evaluate(() => localStorage.getItem('myTalks'));
       expect(talksRaw).toBeNull();

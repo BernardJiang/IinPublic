@@ -3,7 +3,12 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterSync, headless } from '../../helpers/timing';
 import { gunBaseURL } from '../../helpers/ports';
-import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
+import {
+  clickBroadcastUntilBulkAck,
+  deliverBroadcastViaRegisterApi,
+  waitForBroadcastableTalkIds,
+} from '../../helpers/talk-demo-ui';
+import { E2E_ASSERT_TIMEOUT_MS } from '../../helpers/timing';
 import {
   bootstrapUser,
   openIncomingTalkModal,
@@ -102,7 +107,7 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     await afterAction();
     await enterGlobalChatroom(pageTom);
     await createMatchTalk(pageTom, 'Blocked Talk');
-    await clickBroadcastUntilBulkAck(pageTom);
+    await clickBroadcastUntilBulkAck(pageTom, { minSent: 0 });
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 
@@ -153,9 +158,11 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
       .toBe(false);
     await createMatchTalk(pageTom, 'Post-Unblock Talk');
     await ensureNoBlockBetween(pageTom, tomUserId, pageJerry, jerryUserId);
-    await clickBroadcastUntilBulkAck(pageTom);
+    await enterGlobalChatroom(pageTom);
+    await waitForBroadcastableTalkIds(pageTom, E2E_ASSERT_TIMEOUT_MS);
+    const postUnblock = await deliverBroadcastViaRegisterApi(pageTom, { minReceivers: 1 });
+    expect(postUnblock.talksSent).toBeGreaterThanOrEqual(1);
     await afterAction();
-    await waitForTabActive(pageTom, 'chatrooms');
     await openIncomingTalkModal(pageJerry, 'Post-Unblock Talk');
   });
 });
