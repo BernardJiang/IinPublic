@@ -1,3 +1,4 @@
+import { gunSafeTalkDataRecord } from '../../shared/peer-talk-delivery';
 import type { P2PRuntimeFlags } from '../../shared/p2p-runtime';
 import type { WebGunService } from './web-gun-service';
 
@@ -13,7 +14,11 @@ export function mirrorTalkDefinitionToLocalGun(
   flags: P2PRuntimeFlags,
 ): void {
   if (!flags.p2pClientTalkMirror || !talkId) return;
-  gunService.getGun().get('talks').get(talkId).put(talkData);
+  const wire =
+    talkData && typeof talkData === 'object'
+      ? gunSafeTalkDataRecord(talkData as Record<string, unknown>)
+      : talkData;
+  gunService.getGun().get('talks').get(talkId).put(wire);
 }
 
 export function mirrorIncomingTalkClustersToLocalGun(
