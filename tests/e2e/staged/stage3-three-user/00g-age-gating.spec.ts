@@ -42,9 +42,9 @@ async function createAdultTalk(page: Page, title: string): Promise<void> {
  * AGE_VERIFICATION_THRESHOLD (3) and flip ageVerified to true. Each call is awaited
  * sequentially so the cumulative writes complete before broadcasting.
  */
-async function serverVouchAgeVerified(page: Page, userId: string): Promise<void> {
+async function serverVouchAgeVerified(page: Page, userId: string, votes = 3): Promise<void> {
   const url = `${gunBaseURL()}/api/users/${encodeURIComponent(userId)}/age-verify`;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < votes; i++) {
     const res = await page.request.post(url);
     expect(res.ok(), `age-verify vouch ${i + 1} failed with status ${res.status()}`).toBeTruthy();
   }
@@ -113,16 +113,17 @@ test.describe('Age-gating — adult talk blocked for unverified user', () => {
     const bobUserId = await pageBob.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id ?? '');
 
     // Vouch Jerry age-verified (3 sequential ack-awaited server writes hit threshold=3)
-    await serverVouchAgeVerified(pageTom, jerryUserId);
+    await serverVouchAgeVerified(pageTom, jerryUserId, 3);
     await expect
       .poll(
         async () => {
           const res = await pageTom.request.get(
-            `${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}?viewerId=${encodeURIComponent(await pageTom.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id ?? ''))}`,
+            `${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}?viewerId=${encodeURIComponent(jerryUserId)}`,
+            { headers: { 'Cache-Control': 'no-cache' } },
           );
           if (!res.ok()) return false;
           const user = await res.json();
-          return user.reputation?.ageVerified === true;
+          return user?.reputation?.ageVerified === true;
         },
         { timeout: 20_000 },
       )

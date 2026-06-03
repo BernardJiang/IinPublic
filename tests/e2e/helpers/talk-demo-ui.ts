@@ -22,6 +22,9 @@ async function dismissBroadcastPreambleIfOpen(page: Page): Promise<void> {
     await cancel.click({ timeout: 2000 }).catch(() => {});
   }
   await preamble.waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
+  await page.evaluate(() => {
+    document.querySelector('[data-testid="broadcast-preamble-modal"]')?.remove();
+  });
 }
 
 export { waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
@@ -158,8 +161,9 @@ export async function clickBroadcastUntilBulkAck(
   const genBefore = Number(await loc.getAttribute('data-broadcast-bulk-gen'));
   const start = Number.isFinite(genBefore) ? genBefore : 0;
   await waitForGunApiReady(E2E_ASSERT_TIMEOUT_MS).catch(() => {});
-  const minPeers = opts?.minGunPeers ?? 1;
-  const minSent = opts?.minSent ?? (isDirectTalkDeliveryE2e() && minPeers > 0 ? 1 : 0);
+  const requestedMinSent = opts?.minSent;
+  const minPeers = opts?.minGunPeers ?? (requestedMinSent === 0 ? 0 : 1);
+  const minSent = requestedMinSent ?? (isDirectTalkDeliveryE2e() && minPeers > 0 ? 1 : 0);
   if (isDirectTalkDeliveryE2e() && minPeers > 0) {
     await waitForChatroomMemberCountViaApi(page, minPeers, E2E_ASSERT_TIMEOUT_MS);
   }
@@ -169,6 +173,10 @@ export async function clickBroadcastUntilBulkAck(
       talksSent: 0,
       receivers: 0,
     }));
+    if (result.talksSent >= minSent) {
+      await dismissBroadcastPreambleIfOpen(page);
+      return;
+    }
     if (result.talksSent < minSent && result.receivers >= minPeers && minSent > 0) {
       const hasBroadcastable = await page.evaluate(() => {
         const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
@@ -183,9 +191,8 @@ export async function clickBroadcastUntilBulkAck(
     try {
       await clickChatroomBroadcastButton(page, opts);
     } catch {
-      const minRecv = opts?.minGunPeers ?? 1;
-      if (isDirectTalkDeliveryE2e() && minRecv > 0) {
-        await deliverBroadcastViaRegisterApi(page, { minReceivers: minRecv });
+      if (isDirectTalkDeliveryE2e() && minPeers > 0) {
+        await deliverBroadcastViaRegisterApi(page, { minReceivers: minPeers });
       }
     }
   }

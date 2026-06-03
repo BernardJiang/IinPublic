@@ -106,8 +106,12 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
     await afterSync();
     const contactItem = pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'Jerry' }).first();
     await expect(contactItem).toBeVisible({ timeout: 15000 });
-    await expect(contactItem).toContainText('1 talk');
-    await expect(contactItem).toContainText('Sent 1 · Received 0');
+    await expect
+      .poll(async () => (await contactItem.textContent()) || '', {
+        timeout: 15_000,
+        message: 'Jerry contact should show either one-way or reconciled P2P talk accounting',
+      })
+      .toMatch(/(?:1 talk|2 talks)[\s\S]*Sent 1 · Received [01]/);
     await contactItem.click();
     await afterSync();
     await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });

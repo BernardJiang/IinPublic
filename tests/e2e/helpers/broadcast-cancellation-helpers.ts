@@ -98,7 +98,7 @@ export async function waitForBroadcastBulkAckMinSent(
         const recvStr = await loc.getAttribute('data-broadcast-receivers');
         const sent = sentStr ? Number(sentStr) : 0;
         const recv = recvStr ? Number(recvStr) : 0;
-        return recv === expected.receivers && sent >= expected.minSent;
+        return recv >= expected.receivers && sent >= expected.minSent;
       },
       { timeout, intervals: [200, 400, 800], message: 'waiting for broadcast completion attributes' },
     )

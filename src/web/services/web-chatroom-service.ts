@@ -493,7 +493,7 @@ export class WebChatroomService {
 
   subscribeToMembers(
     chatroomId: string,
-    callback: (members: Array<{ userId: string; stageName: string }>) => void,
+    callback: (members: Array<{ userId: string; stageName: string; joinedAt?: string | Date }>) => void,
   ): void {
     this.membersListCallback = callback;
 
@@ -530,7 +530,11 @@ export class WebChatroomService {
         if (userId.startsWith('_')) return;
 
         if (memberData && memberData.isActive === true) {
-          this.activeMembersForList.set(userId, { userId, stageName: memberData.stageName || userId });
+          this.activeMembersForList.set(userId, {
+            userId,
+            stageName: memberData.stageName || userId,
+            ...(memberData.joinedAt ? { joinedAt: memberData.joinedAt } : {}),
+          });
         } else {
           this.activeMembersForList.delete(userId);
         }

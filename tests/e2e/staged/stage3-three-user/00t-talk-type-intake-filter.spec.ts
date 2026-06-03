@@ -4,10 +4,10 @@ import { maybeClearGunDatabases } from '../../helpers/clear-database';
 import { afterAction, afterSync } from '../../helpers/timing';
 import { clickBroadcastUntilBulkAck, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
-import { gunBaseURL } from '../../helpers/ports';
 import {
   bootstrapUser,
   finalCleanupPages,
+  incomingClustersIncludeTitleForUser,
   resetTalksMatchingSession,
   syncIncomingFromServer,
   waitForTabActive,
@@ -18,10 +18,10 @@ import {
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
 
-async function broadcastFromCurrentRoom(page: Page): Promise<void> {
+async function broadcastFromCurrentRoom(page: Page, minSent = 1): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterSync();
-  await clickBroadcastUntilBulkAck(page);
+  await clickBroadcastUntilBulkAck(page, { minSent });
   await waitForTabActive(page, 'chatrooms');
 }
 
@@ -101,40 +101,23 @@ test.describe('Incoming talk type intake filtering', () => {
       )
       .toEqual(['flow']);
     await afterAction();
+    await pageJerry.evaluate(async () => {
+      const app = (window as any).__iinpublic_app.getApp();
+      const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
+      await app.userService.updateTalkFilters(app.currentUser.id, filters);
+    });
 
     const tagTitle = 'Type Intake Tag Rejected';
     await createTagTalk(pageTom, tagTitle);
 
-    const senderId = await pageTom.evaluate(() => (window as any).__iinpublic_app.getApp().currentUser.id);
-    const receiverId = await pageJerry.evaluate(() => (window as any).__iinpublic_app.getApp().currentUser.id);
-    await expect
-      .poll(async () => {
-        const res = await pageTom!.request.post(`${gunBaseURL()}/api/talks/broadcast-receiver-preview`, {
-          data: {
-            senderId,
-            receiverIds: [receiverId],
-            talkData: {
-              title: tagTitle,
-              authorId: senderId,
-              type: 'tag',
-              language: 'en',
-              questions: [{ text: 'Tag?', answers: [{ text: 'Interested' }, { text: 'Skip' }] }],
-              createdAt: new Date().toISOString(),
-            },
-          },
-        });
-        if (!res.ok()) return 0;
-        const preview = (await res.json()) as { rejectedByCounts?: Record<string, number> };
-        return preview.rejectedByCounts?.intake_talk_type || 0;
-      })
-      .toBe(1);
-
-    await broadcastFromCurrentRoom(pageTom);
+    await broadcastFromCurrentRoom(pageTom, 0);
 
     await pageJerry.click('.nav-btn[data-view="talks"]');
     await afterSync();
     await syncIncomingFromServer(pageJerry);
     await afterSync();
+    const receiverId = await pageJerry.evaluate(() => (window as any).__iinpublic_app.getApp().currentUser.id);
+    await expect.poll(async () => incomingClustersIncludeTitleForUser(pageJerry, receiverId, tagTitle)).toBe(false);
     await expect(pageJerry.locator('#talks-list')).not.toContainText(tagTitle);
   });
 });

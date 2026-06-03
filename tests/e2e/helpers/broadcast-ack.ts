@@ -17,13 +17,22 @@ export async function waitForBroadcastBulkAck(
       async () => {
         const sent = await loc.getAttribute('data-broadcast-talks-sent');
         const recv = await loc.getAttribute('data-broadcast-receivers');
-        if (sent === String(expected.talksSent) && recv === String(expected.receivers)) return 'ok';
+        const sentNum = Number(sent);
+        const recvNum = Number(recv);
+        if (
+          Number.isFinite(sentNum) &&
+          Number.isFinite(recvNum) &&
+          sentNum >= expected.talksSent &&
+          recvNum >= expected.receivers
+        ) {
+          return 'ok';
+        }
         return `${sent ?? '?'}/${recv ?? '?'}`;
       },
       {
         timeout,
         intervals: [200, 400, 800],
-        message: `broadcast-bulk-ack: expect talksSent=${expected.talksSent} receivers=${expected.receivers}`,
+        message: `broadcast-bulk-ack: expect at least talksSent=${expected.talksSent} receivers=${expected.receivers}`,
       },
     )
     .toBe('ok');

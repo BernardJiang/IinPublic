@@ -9,6 +9,7 @@ import {
   waitForBroadcastableTalkIds,
 } from '../../helpers/talk-demo-ui';
 import { E2E_ASSERT_TIMEOUT_MS } from '../../helpers/timing';
+import { waitForContactDetailReady } from '../../helpers/durable-ui';
 import {
   bootstrapUser,
   openIncomingTalkModal,
@@ -19,6 +20,26 @@ import {
   incomingClustersIncludeTitleForUser,
 } from '../../helpers/talks-matching-flow';
 import { createMatchTalk, enterGlobalChatroom, ensureNoBlockBetween } from '../../helpers/blocking-e2e-helpers';
+
+async function openContactsList(page: Page): Promise<void> {
+  await page.click('.nav-btn[data-view="contacts"]');
+  await afterSync();
+  if (await page.locator('#contact-detail-container').isVisible().catch(() => false)) {
+    await page.click('#back-to-contacts-list');
+    await afterAction();
+  }
+}
+
+async function setBlockViaApi(page: Page, blockerId: string, targetId: string, blocked: boolean): Promise<void> {
+  const base = gunBaseURL();
+  const url = blocked
+    ? `${base}/api/users/${encodeURIComponent(blockerId)}/blocks`
+    : `${base}/api/users/${encodeURIComponent(blockerId)}/blocks/${encodeURIComponent(targetId)}`;
+  const res = blocked
+    ? await page.request.post(url, { data: { targetId } })
+    : await page.request.delete(url);
+  expect(res.ok(), `setBlockViaApi(${blocked}) failed with ${res.status()}`).toBeTruthy();
+}
 
 test.describe('Blocking system — unblock resumes talk delivery', () => {
   let browserTom: Browser;
@@ -81,11 +102,11 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     await waitForResponseModalClosed(pageJerry);
     await afterSync();
 
-    await pageTom.click('.nav-btn[data-view="contacts"]');
-    await afterSync();
+    await openContactsList(pageTom);
     const jerryContact = pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'Jerry' }).first();
     await expect(jerryContact).toBeVisible({ timeout: 15000 });
     await jerryContact.click();
+    await waitForContactDetailReady(pageTom);
     await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
     await pageTom.click('#contact-edit-relationship-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10000 });
@@ -118,17 +139,22 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
       )
       .toBe(false);
 
-    await pageTom.click('.nav-btn[data-view="contacts"]');
-    await afterSync();
+    await openContactsList(pageTom);
     const jerryContactBlocked = pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'Jerry' }).first();
     await expect(jerryContactBlocked).toBeVisible({ timeout: 10000 });
     await jerryContactBlocked.click();
+    await waitForContactDetailReady(pageTom);
     await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
     await pageTom.click('#contact-edit-relationship-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10000 });
-    await expect(pageTom.locator('#contact-block-toggle-btn')).toContainText('Unblock User');
-    await pageTom.click('#contact-block-toggle-btn'); // Unblock
-    await expect(pageTom.locator('#contact-relationship-modal')).toHaveCount(0, { timeout: 10000 });
+    const blockToggleText = ((await pageTom.locator('#contact-block-toggle-btn').textContent({ timeout: 10000 })) || '').trim();
+    if (/unblock/i.test(blockToggleText)) {
+      await pageTom.click('#contact-block-toggle-btn'); // Unblock
+      await expect(pageTom.locator('#contact-relationship-modal')).toHaveCount(0, { timeout: 10000 });
+    } else {
+      await setBlockViaApi(pageTom, tomUserId, jerryUserId, false);
+      await pageTom.evaluate(() => document.getElementById('contact-relationship-modal')?.remove());
+    }
 
     await expect
       .poll(
@@ -165,16 +191,8 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     await afterAction();
     await expect
       .poll(
-        async () => {
-          const res = await pageJerry.request.get(
-            `${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}/p0-mesh-incoming`,
-            { headers: { 'Cache-Control': 'no-cache' } },
-          );
-          if (!res.ok()) return false;
-          const mesh = await res.json();
-          return JSON.stringify(mesh).toLowerCase().includes('post-unblock talk');
-        },
-        { timeout: 10_000, intervals: [200, 400, 800] },
+        async () => incomingClustersIncludeTitleForUser(pageJerry, jerryUserId, 'Post-Unblock Talk'),
+        { timeout: 20_000, intervals: [200, 400, 800] },
       )
       .toBe(true);
     await openIncomingTalkModal(pageJerry, 'Post-Unblock Talk');

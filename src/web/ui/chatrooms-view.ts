@@ -2,7 +2,7 @@ import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
 import type { PeerRelationshipStats } from '../../server/routes/peer-routes';
 import type { UiTranslationKey } from './ui-translations';
 
-type ChatroomMember = { userId: string; stageName: string };
+type ChatroomMember = { userId: string; stageName: string; joinedAt?: string | Date };
 
 export type CustomChatroomRow = {
   id: string;
@@ -306,7 +306,9 @@ function renderMemberList(
   deps: ChatroomsViewDeps,
   statsMap?: Map<string, PeerRelationshipStats>,
 ): void {
-  const sorted = statsMap ? sortMembersByRelationship(members, statsMap) : members;
+  const sorted = statsMap
+    ? sortMembersByRelationship(members, statsMap)
+    : sortMembersByRecency(members);
 
   container.innerHTML = sorted
     .map((member) => {
@@ -344,7 +346,7 @@ function sortMembersByRelationship(
   members: ChatroomMember[],
   statsMap: Map<string, PeerRelationshipStats>,
 ): ChatroomMember[] {
-  return [...members].sort((a, b) => {
+  return sortMembersByRecency(members).sort((a, b) => {
     const sa = statsMap.get(a.userId);
     const sb = statsMap.get(b.userId);
     const totalA = sa ? sa.sent.talks + sa.received.talks : 0;
@@ -353,8 +355,23 @@ function sortMembersByRelationship(
     if (totalA === 0 && totalB > 0) return -1;
     if (totalB === 0 && totalA > 0) return 1;
     // Among non-strangers: more interaction → later (show newer acquaintances near top)
-    return totalB - totalA;
+    if (totalA !== totalB) return totalB - totalA;
+    return memberJoinedAtMs(b) - memberJoinedAtMs(a);
   });
+}
+
+function sortMembersByRecency(members: ChatroomMember[]): ChatroomMember[] {
+  return [...members].sort((a, b) => memberJoinedAtMs(b) - memberJoinedAtMs(a));
+}
+
+function memberJoinedAtMs(member: ChatroomMember): number {
+  const raw = member.joinedAt;
+  if (raw instanceof Date) return raw.getTime();
+  if (typeof raw === 'string') {
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
 }
 
 function buildMemberStatusText(isMatched: boolean, stats: PeerRelationshipStats | undefined, deps: ChatroomsViewDeps): string {

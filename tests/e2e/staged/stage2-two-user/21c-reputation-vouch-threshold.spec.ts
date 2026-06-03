@@ -2,12 +2,10 @@ import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterSync, headless } from '../../helpers/timing';
-import { gunBaseURL } from '../../helpers/ports';
 import {
   bootstrapUser,
   resetTalksMatchingSession,
   finalCleanupPages,
-  waitForIncomingTalkClusterOnServer,
   waitForTabActive,
   incomingClustersIncludeTitleForUser,
 } from '../../helpers/talks-matching-flow';
@@ -72,15 +70,17 @@ test.describe('Reputation system — vouch threshold', () => {
     await enterGlobalChatroom(pageJerry!);
 
     const jerryUserId = await getCurrentUserId(pageJerry!);
+    const adultTitles: string[] = [];
 
     for (let i = 1; i <= 3; i += 1) {
       await serverVouchAgeVerified(pageTom!, jerryUserId);
       await afterSync();
 
       const adultTitle = `E2E Adult Vote Step ${i} (${Date.now()})`;
+      adultTitles.push(adultTitle);
       await createAdultTalk(pageTom!, adultTitle);
 
-      await clickBroadcastUntilBulkAck(pageTom!);
+      await clickBroadcastUntilBulkAck(pageTom!, { minSent: i < 3 ? 0 : 1 });
       await afterAction();
       await waitForTabActive(pageTom!, 'chatrooms');
 
@@ -92,7 +92,19 @@ test.describe('Reputation system — vouch threshold', () => {
           .poll(delivered, { timeout: 10_000, intervals: [500] })
           .toBe(false);
       } else {
-        await waitForIncomingTalkClusterOnServer(pageJerry!, adultTitle);
+        await expect
+          .poll(
+            async () => {
+              for (const title of adultTitles) {
+                if (await incomingClustersIncludeTitleForUser(pageJerry!, jerryUserId, title)) {
+                  return 'ok';
+                }
+              }
+              return 'waiting';
+            },
+            { timeout: 20_000, intervals: [500, 1000] },
+          )
+          .toBe('ok');
       }
     }
   });

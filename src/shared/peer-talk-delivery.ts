@@ -58,7 +58,8 @@ export function parsePeerTalkOfferKey(key: string): { senderId: string; talkId: 
 
 /** Gun cannot store nested arrays; serialize questions/tags before .put on mesh paths. */
 export function gunSafeTalkDataRecord(talkData: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...talkData };
+  // Serialize through JSON to normalize Date instances into ISO strings.
+  const out: Record<string, unknown> = JSON.parse(JSON.stringify(talkData || {}));
   if (Array.isArray(out.questions)) {
     out.questionsJson = JSON.stringify(out.questions);
     delete out.questions;

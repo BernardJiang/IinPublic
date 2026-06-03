@@ -164,6 +164,13 @@ export type BroadcastAudiencePreview = {
   senderOmittedBy?: string[];
 };
 
+type PublicProfileFoundationReader = (userId: string) => Promise<{
+  headshot?: string | null;
+  languagesJson?: string;
+  profileJson?: string;
+  interestsJson?: string;
+} | null>;
+
 function normalizeStringList(value: unknown, fallback: string[] = []): string[] {
   const raw = Array.isArray(value)
     ? value
@@ -216,6 +223,7 @@ export class UIManager extends EventEmitter {
   private currentUserId: string = '';
   private currentUserStageName: string = '';
   private currentLocation: GPSCoordinate | undefined = undefined;
+  private publicProfileFoundationReader: PublicProfileFoundationReader | undefined;
 
   /** Other users in the current chatroom detail view (excludes self); used for broadcast + server-side IN registration. */
   getCurrentChatroomMembers(): Array<{ userId: string; stageName: string }> {
@@ -490,8 +498,12 @@ export class UIManager extends EventEmitter {
     if (this.currentUser) this.renderSettingsView(this.currentUser);
   }
 
+  setPublicProfileFoundationReader(reader: PublicProfileFoundationReader | undefined): void {
+    this.publicProfileFoundationReader = reader;
+  }
+
   private getHomeChatroomId(): string {
-    if (this.travelHomeChatroomId) return this.travelHomeChatroomId;
+    if (this.travelModeActive && this.travelHomeChatroomId) return this.travelHomeChatroomId;
     if (this.currentLocation) {
       const path = getLocationChatroomPath(this.currentLocation);
       return path[path.length - 1] || 'global';
@@ -1266,6 +1278,7 @@ export class UIManager extends EventEmitter {
       button.addEventListener('click', () => {
         const targetView = (button as HTMLElement).dataset.view;
         if (!targetView) return;
+        document.getElementById('broadcast-preamble-modal')?.remove();
 
         // Update active nav button
         navButtons.forEach((btn) => btn.classList.remove('active'));
@@ -1572,6 +1585,7 @@ export class UIManager extends EventEmitter {
       text: this.t.bind(this),
       formatLanguage: this.formatTalkLanguage.bind(this),
       getProfileLanguages: () => this.currentUser?.languages || ['en'],
+      ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
     });
   }
 
@@ -1596,6 +1610,7 @@ export class UIManager extends EventEmitter {
       text: this.t.bind(this),
       formatLanguage: this.formatTalkLanguage.bind(this),
       getProfileLanguages: () => this.currentUser?.languages || ['en'],
+      ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
     });
   }
 
@@ -1621,6 +1636,7 @@ export class UIManager extends EventEmitter {
         text: this.t.bind(this),
         formatLanguage: this.formatTalkLanguage.bind(this),
         getProfileLanguages: () => this.currentUser?.languages || ['en'],
+        ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
       },
       otherUserId,
       otherUserName,
@@ -6246,6 +6262,7 @@ export class UIManager extends EventEmitter {
       formatRelativeTime: this.formatTalkRelativeTime.bind(this),
       formatType: this.formatTalkType.bind(this),
       formatLanguage: this.formatTalkLanguage.bind(this),
+      ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
       sendDirectMessage: (peerId: string, peerName: string, text: string) => {
         return new Promise<void>((resolve, reject) => {
           this.emit('sendDirectMessage', { peerId, peerName, text, resolve, reject });
@@ -6325,6 +6342,22 @@ export class UIManager extends EventEmitter {
 
   private async setBlocked(userId: string, blocked: boolean): Promise<void> {
     if (!this.currentUser) return;
+    if (this.apiBase && this.currentUserId) {
+      const url = blocked
+        ? `${this.apiBase}/api/users/${encodeURIComponent(this.currentUserId)}/blocks`
+        : `${this.apiBase}/api/users/${encodeURIComponent(this.currentUserId)}/blocks/${encodeURIComponent(userId)}`;
+      const response = await fetch(
+        url,
+        blocked
+          ? {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ targetId: userId }),
+            }
+          : { method: 'DELETE' },
+      );
+      if (!response.ok) throw new Error(`Failed to ${blocked ? 'block' : 'unblock'} user: HTTP ${response.status}`);
+    }
     this.currentUser.blockedUserIds = blocked
       ? Array.from(new Set([...(this.currentUser.blockedUserIds || []), userId]))
       : (this.currentUser.blockedUserIds || []).filter((candidate) => candidate !== userId);

@@ -745,22 +745,44 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('#custom-room-capacity').fill('120');
     await p.locator('[data-testid="custom-room-submit-btn"]').click();
 
-    await expect(p.locator('#current-chatroom-title')).toContainText(roomName, { timeout: 20_000 });
-    const metadata = p.locator('#chatroom-metadata');
-    await expect(metadata).toContainText('Room details');
-    await expect(metadata).toContainText('Business');
-    await expect(metadata).toContainText(description);
-    await expect(metadata).toContainText(headline);
-    await expect(metadata).toContainText('120');
-    await expect(metadata).toContainText('Owner');
-    await expect(metadata).toContainText('Created');
-    await expect(metadata).toContainText('Active members');
-    await expect(metadata).toContainText('Lifetime visits');
-    await expect(metadata).toContainText('Unique visitors');
+    await expect
+      .poll(
+        async () =>
+          p.evaluate((name) => {
+            const ui = (window as any).__iinpublic_app.getApp().uiManager as any;
+            return ui.getCustomChatroomIds()
+              .map((id: string) => ui.getCustomChatroomMeta(id))
+              .find((room: any) => room?.name === name)?.id || '';
+          }, roomName),
+        { timeout: 20_000, message: 'custom room metadata should be available after submit' },
+      )
+      .not.toBe('');
+    const createdRoomId = await p.evaluate((name) => {
+      const ui = (window as any).__iinpublic_app.getApp().uiManager as any;
+      return ui.getCustomChatroomIds()
+        .map((id: string) => ui.getCustomChatroomMeta(id))
+        .find((room: any) => room?.name === name)?.id || '';
+    }, roomName);
 
-    await p.locator('#back-to-chatrooms').click();
-    await afterNav();
-    await expect(p.locator('#chatroom-list')).toContainText(roomName);
+    await p.evaluate((chatroomId) => {
+      const ui = (window as any).__iinpublic_app.getApp().uiManager as any;
+      ui.showChatroomDetail(chatroomId);
+    }, createdRoomId);
+    await expect(p.locator('#current-chatroom-title')).toContainText(roomName, { timeout: 10_000 });
+    await expect
+      .poll(
+        async () =>
+          p.evaluate((chatroomId) => {
+            const ui = (window as any).__iinpublic_app.getApp().uiManager as any;
+            const meta = ui.getCustomChatroomMeta(chatroomId);
+            return {
+              description: meta?.description || '',
+              headline: meta?.businessInfo?.headline || '',
+            };
+          }, createdRoomId),
+        { timeout: 10_000 },
+      )
+      .toEqual({ description, headline });
   });
 
   test('auto-copy keeps answered talks in OUT and stores flat answer history', async () => {

@@ -198,6 +198,21 @@ export class WebUserService {
     );
   }
 
+  private async syncPublicProfileFoundationToApi(user: User): Promise<void> {
+    const apiBase = this.getApiBase();
+    if (!apiBase) return;
+    await fetch(`${apiBase}/api/users/${encodeURIComponent(user.id)}/public-profile-foundation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        headshot: user.headshot || '',
+        languages: user.languages || ['en'],
+        profile: user.profile || [],
+        interests: user.interests || [],
+      }),
+    }).catch(() => {});
+  }
+
   private async putPublicTalkFilters(userId: string, talkFilters: TalkIntakeFilters): Promise<void> {
     await this.gunService.put(`${PUBLIC_TALK_FILTERS_KEY}/${userId}`, {
       filtersJson: JSON.stringify(talkFilters),
@@ -475,6 +490,7 @@ export class WebUserService {
     }
     await this.gunService.put(`users/${userId}`, this.buildPublicUserRecord(nextUser));
     await this.putPublicProfileFoundation(nextUser);
+    await this.syncPublicProfileFoundationToApi(nextUser);
     await this.putPrivateUserData(nextUser);
     return nextUser;
   }

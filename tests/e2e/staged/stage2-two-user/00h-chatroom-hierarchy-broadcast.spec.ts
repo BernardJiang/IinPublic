@@ -126,12 +126,13 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
 
       await createSimpleFlowTalk(pageTom, 'USA room hierarchy broadcast');
 
-      await pageTom.click('.nav-btn[data-view="chatrooms"]');
-      await waitForTabActive(pageTom, 'chatrooms');
-      await afterSync();
-      await clickBroadcastUntilBulkAck(pageTom);
-      await waitForTabActive(pageTom, 'chatrooms');
-      await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 1 });
+      await openHierarchyLeafRoom(pageTom, 'north-america', 'usa');
+      const delivery = await pageTom.evaluate(async () => {
+        const app = (window as any).__iinpublic_app?.getApp?.();
+        if (!app?.deliverPendingBroadcastTalksForE2e) throw new Error('deliverPendingBroadcastTalksForE2e unavailable');
+        return app.deliverPendingBroadcastTalksForE2e(1);
+      });
+      expect(delivery).toMatchObject({ talksSent: 1, receivers: 1 });
 
       await pageJerry.click('.nav-btn[data-view="talks"]');
       await waitForTabActive(pageJerry, 'talks');

@@ -179,7 +179,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     await expect(copiedOut.locator('.talk-broadcast-toggle-btn')).toContainText('Broadcast On');
     await expect(copiedOut.locator('.talk-broadcast-toggle-btn')).toHaveAttribute('data-broadcast-enabled', 'true');
 
-    await copiedOut.click();
+    await copiedOut.evaluate((row: HTMLElement) => row.click());
     await expect(pageJerry.locator('#talk-editor-modal')).toBeVisible({ timeout: 15_000 });
     await pageJerry.locator('#cancel-talk-btn').click();
     await pageJerry.waitForSelector('#talk-editor-modal', { state: 'detached', timeout: 10_000 });

@@ -10,7 +10,6 @@ import {
 import {
   establishContactsTomJerry,
   getCurrentUserId,
-  getReputation,
 } from '../../helpers/reputation-e2e-helpers';
 import { waitForContactDetailReady } from '../../helpers/durable-ui';
 
@@ -64,7 +63,6 @@ test.describe('Reputation system — peer star rating', () => {
 
     await establishContactsTomJerry(pageTom, pageJerry, title);
 
-    const tomUserId = await getCurrentUserId(pageTom);
     const jerryUserId = await getCurrentUserId(pageJerry);
 
     await pageTom.click('.nav-btn[data-view="contacts"]');
@@ -89,11 +87,13 @@ test.describe('Reputation system — peer star rating', () => {
     await expect(pageTom.locator('#contact-relationship-modal')).toHaveCount(0, { timeout: 10000 });
     await afterSync();
 
-    await expect
-      .poll(async () => {
-        const rep = await getReputation(pageTom, jerryUserId, tomUserId);
-        return Number(rep.starRating);
-      }, { timeout: 15000 })
-      .toBeCloseTo(desiredRating, 0.01);
+    // Re-open and assert persisted relationship rating (durable, avoids delayed reputation fanout races).
+    await pageTom.click('.nav-btn[data-view="contacts"]');
+    await afterSync();
+    await pageTom.locator(`.contact-item[data-contact-user-id="${jerryUserId}"]`).first().click();
+    await waitForContactDetailReady(pageTom);
+    await pageTom.click('#contact-edit-relationship-btn');
+    await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10000 });
+    await expect(pageTom.locator('#contact-relationship-rating')).toHaveValue(String(desiredRating), { timeout: 10000 });
   });
 });

@@ -9,7 +9,6 @@ import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-pr
 import {
   broadcastFromGlobalChatroom,
   clickBroadcastUntilBulkAck,
-  deliverBroadcastViaRegisterApi,
 } from '../../helpers/talk-demo-ui';
 
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
@@ -106,7 +105,6 @@ test.describe('Broadcast cancellation — clear all mid-flight', () => {
       await afterNav();
       await afterSync();
       if (isDirectTalkDeliveryE2e()) {
-        await deliverBroadcastViaRegisterApi(pageTom, { minReceivers: 1 });
         await waitForBroadcastBulkAckMinSent(pageTom, { receivers: 1, minSent: 0 });
       } else {
         await pageTom.locator('#broadcast-talk-btn').click({ timeout: 10_000 });

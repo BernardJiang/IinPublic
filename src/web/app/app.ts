@@ -197,6 +197,16 @@ export class IinPublicApp {
     this.uiManager.initialize();
     this.uiManager.setApiBase(this.getBackendApiBase());
     this.uiManager.setCurrentLocation(location);
+    this.uiManager.setPublicProfileFoundationReader(async (userId: string) => {
+      const data = await this.gunService.get(`user-public-profile/${userId}`);
+      if (!data || typeof data !== 'object') return null;
+      return data as {
+        headshot?: string | null;
+        languagesJson?: string;
+        profileJson?: string;
+        interestsJson?: string;
+      };
+    });
     // Get or create user
     await this.initializeUser();
 
@@ -1376,14 +1386,14 @@ export class IinPublicApp {
       }
       console.log(`📡 P0 peer talk offers published: talkId=${talkId} receivers=${receiverIds.length}`);
       // Mirror exchange metadata on server for peer history / contacts (GET incoming-talks stays empty in P0).
-      const registered = await this.postRegisterReceiversForBroadcast(
+      void this.postRegisterReceiversForBroadcast(
         talkId,
         talk,
         receiverIds,
         broadcastTargetTags,
         broadcastMaxDistanceMiles,
-      );
-      return registered;
+      ).catch(() => {});
+      return true;
     }
 
     return this.postRegisterReceiversForBroadcast(
@@ -2066,17 +2076,16 @@ export class IinPublicApp {
     const previewByTalkId = new Map(previews.map((p) => [p.talkId, p]));
     const REGISTER_BATCH = 5;
     const registeredTalkIds: string[] = [];
+    const directDelivery = usesDirectTalkDelivery(this.p2pRuntimeFlags);
     for (let i = 0; i < talkPayloads.length; i += REGISTER_BATCH) {
       const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
       const batchResults = await Promise.all(
         batch.map(async ({ tid, talk }) => {
           const preview = previewByTalkId.get(tid);
           const eligibleIds =
-            usesDirectTalkDelivery(this.p2pRuntimeFlags) &&
-            !preview?.previewUnavailable &&
-            Array.isArray(preview?.eligibleReceiverIds)
-              ? preview.eligibleReceiverIds
-              : undefined;
+            directDelivery || preview?.previewUnavailable || !Array.isArray(preview?.eligibleReceiverIds)
+              ? undefined
+              : preview.eligibleReceiverIds;
           const ok = await this.registerReceiversOnServerForTalk(
             tid,
             talk,
@@ -2136,7 +2145,6 @@ export class IinPublicApp {
         this.p2pRuntimeFlags,
       );
       this.mergeIncomingClusterIntoUi(fromServer);
-      return;
     }
     await reconcilePeerTalkOffersFromGun(
       this.gunService,
@@ -3116,7 +3124,11 @@ export class IinPublicApp {
     this.uiManager.on('returnHomeFromTravel', async () => {
       if (!this.currentUser) return;
       const locationPath = this.currentLocation ? getLocationChatroomPath(this.currentLocation) : [];
-      const home = this.travelHomeChatroomId || locationPath[locationPath.length - 1] || 'global';
+      const home =
+        (!this.travelModeActive && locationPath[locationPath.length - 1]) ||
+        this.travelHomeChatroomId ||
+        locationPath[locationPath.length - 1] ||
+        'global';
       this.travelModeActive = false;
       this.travelChatroomId = undefined;
       this.travelHomeChatroomId = home;

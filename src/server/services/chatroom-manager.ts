@@ -205,6 +205,18 @@ export class ChatroomManager {
     await this.recordVisit(chatroomId, userId);
   }
 
+  async addMemberFast(chatroomId: string, userId: string, stageName?: string): Promise<void> {
+    const memberData = {
+      joinedAt: new Date(),
+      isActive: true,
+      ...(stageName ? { stageName } : {}),
+    };
+    await Promise.all([
+      this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], memberData),
+      this.gunService.putPath(['chatroomMembers', chatroomId, userId], memberData),
+    ]);
+  }
+
   private async recordVisit(chatroomId: string, userId: string): Promise<void> {
     const now = new Date().toISOString();
     const visitCount = Number(await this.gunService.getPath(['chatrooms', chatroomId, 'visitCount']).catch(() => 0)) || 0;

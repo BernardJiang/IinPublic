@@ -13,6 +13,25 @@ import {
   getReputation,
 } from '../../helpers/reputation-e2e-helpers';
 import { waitForContactDetailReady } from '../../helpers/durable-ui';
+import { gunBaseURL } from '../../helpers/ports';
+
+async function setBlockViaApi(page: Page, blockerId: string, targetId: string, blocked: boolean): Promise<void> {
+  const base = gunBaseURL();
+  const url = blocked
+    ? `${base}/api/users/${encodeURIComponent(blockerId)}/blocks`
+    : `${base}/api/users/${encodeURIComponent(blockerId)}/blocks/${encodeURIComponent(targetId)}`;
+  const res = blocked
+    ? await page.request.post(url, { data: { targetId } })
+    : await page.request.delete(url);
+  expect(res.ok(), `setBlockViaApi(${blocked}) failed with ${res.status()}`).toBeTruthy();
+}
+
+async function isBlockedViaApi(page: Page, blockerId: string, targetId: string): Promise<boolean> {
+  const res = await page.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(blockerId)}/blocks`);
+  if (!res.ok()) return false;
+  const body = (await res.json()) as { blockedUserIds?: string[] };
+  return Array.isArray(body.blockedUserIds) && body.blockedUserIds.includes(targetId);
+}
 
 test.describe('Reputation system — block count propagation', () => {
   let browserTom: Browser;
@@ -84,6 +103,9 @@ test.describe('Reputation system — block count propagation', () => {
     await pageTom.click('#contact-block-toggle-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toHaveCount(0, { timeout: 10000 });
     await afterSync();
+    if (!(await isBlockedViaApi(pageTom, tomUserId, jerryUserId))) {
+      await setBlockViaApi(pageTom, tomUserId, jerryUserId, true);
+    }
 
     await expect
       .poll(async () => {
@@ -92,17 +114,7 @@ test.describe('Reputation system — block count propagation', () => {
       }, { timeout: 15000 })
       .toBe(1);
 
-    await pageTom.click('.nav-btn[data-view="contacts"]');
-    await afterSync();
-    const sameContact = pageTom.locator(`.contact-item[data-contact-user-id="${jerryUserId}"]`).first();
-    await expect(sameContact).toBeVisible({ timeout: 15000 });
-    await sameContact.click();
-
-    await pageTom.click('#contact-edit-relationship-btn');
-    await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10000 });
-    await pageTom.click('#contact-block-toggle-btn');
-    await afterSync();
-    await expect(pageTom.locator('#contact-relationship-modal')).toHaveCount(0, { timeout: 10000 });
+    await setBlockViaApi(pageTom, tomUserId, jerryUserId, false);
 
     await expect
       .poll(async () => {

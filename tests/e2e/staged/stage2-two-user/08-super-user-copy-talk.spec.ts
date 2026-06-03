@@ -2,7 +2,7 @@ import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterAction, afterNav, afterLoad, delay, headless } from '../../helpers/timing';
-import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
+import { clickBroadcastUntilBulkAck, deliverBroadcastViaRegisterApi } from '../../helpers/talk-demo-ui';
 import {
   MATCH_ANSWER,
   IGNORE_ANSWER,
@@ -145,7 +145,8 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterNav();
     await expect(pageTom.locator('#broadcast-talk-btn')).toBeVisible({ timeout: 10000 });
-    await clickBroadcastUntilBulkAck(pageTom);
+    const disabledSend = await deliverBroadcastViaRegisterApi(pageTom, { minReceivers: 0 });
+    expect(disabledSend.talksSent).toBe(0);
     await waitForTabActive(pageTom, 'chatrooms');
     const talkEditorModal = pageTom.locator('#talk-editor-modal');
     if (await talkEditorModal.isVisible()) {
@@ -169,7 +170,7 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await afterAction();
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterAction();
-    await clickBroadcastUntilBulkAck(pageTom);
+    await clickBroadcastUntilBulkAck(pageTom, { minGunPeers: 0 });
     await afterAction();
     await waitForTabActive(pageTom, 'chatrooms');
 

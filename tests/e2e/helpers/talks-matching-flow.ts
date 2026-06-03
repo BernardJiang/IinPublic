@@ -357,8 +357,8 @@ export async function pinStableE2eLocation(page: Page): Promise<void> {
     const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
     if (!app?.currentUser?.id) return;
     const location = {
-      latitude: 37.7749,
-      longitude: -122.4194,
+      latitude: 32.7157,
+      longitude: -117.1611,
       accuracy: 10,
       timestamp: new Date(),
     };

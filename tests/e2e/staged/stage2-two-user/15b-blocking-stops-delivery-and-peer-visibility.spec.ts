@@ -5,6 +5,7 @@ import { afterAction, afterSync, headless } from '../../helpers/timing';
 import { gunBaseURL } from '../../helpers/ports';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
+import { waitForContactDetailReady } from '../../helpers/durable-ui';
 
 import {
   bootstrapUser,
@@ -82,6 +83,7 @@ test.describe('Blocking system — block stops delivery', () => {
     const jerryContact = pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'Jerry' }).first();
     await expect(jerryContact).toBeVisible({ timeout: 15000 });
     await jerryContact.click();
+    await waitForContactDetailReady(pageTom);
     await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
     await pageTom.click('#contact-edit-relationship-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10000 });

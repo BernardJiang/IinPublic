@@ -1,5 +1,5 @@
 import type express from 'express';
-import type { RelationshipLabel } from '../../shared/types';
+import type { QuestionAnswer, RelationshipLabel, Tag } from '../../shared/types';
 import { UserService } from '../services/user-service';
 
 type RegisterUserRoutesDeps = {
@@ -36,6 +36,26 @@ export function registerUserRoutes(
       res.json(user);
     } catch (error) {
       res.status(404).json({ error: (error as Error).message });
+    }
+  });
+
+  app.post('/api/users/:id/public-profile-foundation', async (req, res) => {
+    try {
+      const body = req.body as {
+        headshot?: string;
+        languages?: string[];
+        profile?: QuestionAnswer[];
+        interests?: Tag[];
+      };
+      await userService.updatePublicProfileFoundation(req.params.id, {
+        headshot: typeof body.headshot === 'string' ? body.headshot : '',
+        languages: Array.isArray(body.languages) ? body.languages : ['en'],
+        profile: Array.isArray(body.profile) ? body.profile : [],
+        interests: Array.isArray(body.interests) ? body.interests : [],
+      });
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
     }
   });
 

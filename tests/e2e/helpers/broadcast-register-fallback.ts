@@ -37,7 +37,13 @@ export async function waitForChatroomMemberCountViaApi(
         const count = Array.isArray(rows)
           ? rows.filter((r) => r.userId && r.userId !== me && r.userId !== TECHSUPPORT_ROOT_USER_ID).length
           : 0;
-        return count >= minPeersExcludingSelf ? 'ok' : String(count);
+        if (count >= minPeersExcludingSelf) return 'ok';
+        const localCount = await page.evaluate(async ({ room, self, techSupportId }) => {
+          const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+          const ids: string[] = (await app?.chatroomService?.getActiveMembers?.(room)) || [];
+          return ids.filter((id: string) => id && id !== self && id !== techSupportId).length;
+        }, { room: roomId, self: me, techSupportId: TECHSUPPORT_ROOT_USER_ID });
+        return localCount >= minPeersExcludingSelf ? 'ok' : String(Math.max(count, localCount));
       },
       { timeout: timeoutMs, intervals: [100, 200, 400] },
     )
@@ -56,7 +62,10 @@ export async function deliverBroadcastViaRegisterApi(
       if (!app?.deliverPendingBroadcastTalksForE2e) {
         throw new Error('deliverPendingBroadcastTalksForE2e unavailable');
       }
-      return app.deliverPendingBroadcastTalksForE2e(minRecv);
+      const timeout = new Promise<{ talksSent: number; receivers: number }>((_, reject) => {
+        window.setTimeout(() => reject(new Error('deliverPendingBroadcastTalksForE2e timed out')), 20_000);
+      });
+      return Promise.race([app.deliverPendingBroadcastTalksForE2e(minRecv), timeout]);
     },
     { minRecv: minReceivers },
   );

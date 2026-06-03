@@ -222,13 +222,20 @@ test.describe('Profile foundation', () => {
     await peerPage.click('.chatroom-item:has-text("Global")');
     await afterNav();
 
-    await expect(peerPage.locator('.chatroom-member-item').filter({ hasText: 'Tom' }).first()).toBeVisible({ timeout: 15000 });
-    await peerPage.locator('.chatroom-member-item').filter({ hasText: 'Tom' }).first().click();
+    const tomMember = peerPage.locator(`.chatroom-member-item[data-user-id="${tomUserId}"]`).filter({ hasText: 'Tom' }).first();
+    await expect(tomMember).toBeVisible({ timeout: 15000 });
+    await tomMember.click();
     await afterNav();
     await expect(peerPage.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10000 });
     await expect
       .poll(async () => peerPage.locator('#peer-stats-section').innerText(), { timeout: 10_000, intervals: [200, 400, 800] })
-      .toContain('Public Profile');
+      .not.toContain('Loading relationship stats...');
+    if ((await peerPage.locator('#peer-stats-section').innerText()).includes('Could not load stats.')) {
+      await peerPage.click('#back-from-peer-detail');
+      await afterNav();
+      await tomMember.click();
+      await afterNav();
+    }
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Public Profile');
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Languages: English');
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Favorite drink');

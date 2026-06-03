@@ -27,6 +27,12 @@ type ContactsViewDeps = {
   text: (key: UiTranslationKey) => string;
   formatLanguage: (code: string) => string;
   getProfileLanguages: () => string[];
+  getPublicProfileFoundation?: (userId: string) => Promise<{
+    headshot?: string | null;
+    languagesJson?: string;
+    profileJson?: string;
+    interestsJson?: string;
+  } | null>;
 };
 
 function formatText(deps: ContactsViewDeps, key: UiTranslationKey, values: Record<string, string | number>): string {
@@ -120,7 +126,7 @@ async function openSupportControlsDialog(deps: ContactsViewDeps): Promise<void> 
   const muted = deps.isSupportNotificationsMuted();
   const modal = document.createElement('div');
   modal.id = 'contact-relationship-modal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.45);display:flex;align-items:center;justify-content:center;z-index:4000;padding:20px;';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.45);display:flex;align-items:center;justify-content:center;z-index:6000;padding:20px;';
   modal.innerHTML = `
     <div style="width:min(520px, 96vw); background:white; border-radius:16px; box-shadow:0 20px 60px rgba(15,23,42,0.2);">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; border-bottom:1px solid #e5e7eb;">
@@ -161,6 +167,40 @@ async function openSupportControlsDialog(deps: ContactsViewDeps): Promise<void> 
 
 /** Set in showContactDetail after a successful profile fetch; cleared when opening another contact. Avoids a duplicate GET /api/users/:id when opening Relationship & Credit. */
 let contactDetailUserProfileCache: { userId: string; publicUser: any } | null = null;
+
+function parsePublicProfileArray<T>(value: string | undefined, fallback: T[]): T[] {
+  if (!value) return fallback;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed as T[] : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function publicUserHasProfileFoundation(publicUser: any): boolean {
+  const headshot = String(publicUser?.headshot || '').trim();
+  const languages = Array.isArray(publicUser?.languages) ? publicUser.languages.filter(Boolean) : [];
+  const profile = Array.isArray(publicUser?.profile) ? publicUser.profile.filter((qa: any) => qa?.question && qa?.answer) : [];
+  const interests = Array.isArray(publicUser?.interests) ? publicUser.interests.filter((tag: any) => tag?.name) : [];
+  return Boolean(headshot || languages.length || profile.length || interests.length);
+}
+
+async function readPublicProfileFoundation(deps: ContactsViewDeps, userId: string): Promise<any | null> {
+  if (!deps.getPublicProfileFoundation) return null;
+  const timeout = new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 2_500));
+  const foundation = await Promise.race([
+    deps.getPublicProfileFoundation(userId).catch(() => null),
+    timeout,
+  ]);
+  if (!foundation) return null;
+  return {
+    headshot: foundation.headshot || '',
+    languages: parsePublicProfileArray<string>(foundation.languagesJson, []),
+    profile: parsePublicProfileArray<any>(foundation.profileJson, []),
+    interests: parsePublicProfileArray<any>(foundation.interestsJson, []),
+  };
+}
 
 function renderPublicProfileSummary(deps: ContactsViewDeps, publicUser: any): string {
   const headshot = String(publicUser?.headshot || '').trim();
@@ -304,6 +344,32 @@ function applyRelationshipModalProfileFetch(
   }
 }
 
+async function fetchContactBlockStatus(
+  deps: ContactsViewDeps,
+  userId: string,
+): Promise<{ blocked: boolean; blockedBy: boolean }> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const ac = new AbortController();
+    const timeoutId = window.setTimeout(() => ac.abort(), 2_500);
+    try {
+      const res = await fetch(
+        `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/block-status/${encodeURIComponent(userId)}`,
+        { cache: 'no-store', signal: ac.signal },
+      );
+      if (res.ok) {
+        const blockStatus = (await res.json()) as { blocked?: boolean; blockedBy?: boolean };
+        return { blocked: !!blockStatus.blocked, blockedBy: !!blockStatus.blockedBy };
+      }
+    } catch {
+      // retry below
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
+  }
+  return { blocked: deps.isBlockedByMe(userId), blockedBy: false };
+}
+
 async function openRelationshipDialog(
   deps: ContactsViewDeps,
   userId: string,
@@ -313,24 +379,18 @@ async function openRelationshipDialog(
     await openSupportControlsDialog(deps);
     return;
   }
+  document.getElementById('broadcast-preamble-modal')?.remove();
   closeRelationshipModal();
   const known = deps.getKnownPerson(userId);
   let blockedByMe = deps.isBlockedByMe(userId);
-  try {
-    const blockRes = await fetch(
-      `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/block-status/${encodeURIComponent(userId)}`,
-    );
-    if (blockRes.ok) {
-      const blockStatus = (await blockRes.json()) as { blocked?: boolean };
-      blockedByMe = blockedByMe || !!blockStatus.blocked;
-    }
-  } catch {
-    /* keep local block state */
-  }
+  let blockedBy = false;
+  const blockStatus = await fetchContactBlockStatus(deps, userId);
+  blockedByMe = blockedByMe || blockStatus.blocked;
+  blockedBy = blockStatus.blockedBy;
 
   const modal = document.createElement('div');
   modal.id = 'contact-relationship-modal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.45);display:flex;align-items:center;justify-content:center;z-index:4000;padding:20px;';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.45);display:flex;align-items:center;justify-content:center;z-index:6000;padding:20px;';
   modal.innerHTML = `
     <div style="width:min(640px, 96vw); max-height:90vh; overflow:auto; background:white; border-radius:16px; box-shadow:0 20px 60px rgba(15,23,42,0.2);">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; border-bottom:1px solid #e5e7eb;">
@@ -404,8 +464,10 @@ async function openRelationshipDialog(
     close();
   });
   (document.getElementById('contact-block-toggle-btn') as HTMLButtonElement | null)?.addEventListener('click', async () => {
-    await deps.setBlocked(userId, !deps.isBlockedByMe(userId));
+    const nextBlocked = !deps.isBlockedByMe(userId);
     close();
+    await deps.setBlocked(userId, nextBlocked);
+    document.getElementById('broadcast-preamble-modal')?.remove();
   });
   (document.getElementById('contact-relationship-save-btn') as HTMLButtonElement | null)?.addEventListener('click', async () => {
     const label = (document.getElementById('contact-relationship-label') as HTMLSelectElement).value as KnownPerson['label'];
@@ -432,7 +494,7 @@ async function openRelationshipDialog(
 
   const cached = contactDetailUserProfileCache?.userId === userId ? contactDetailUserProfileCache.publicUser : undefined;
   if (cached !== undefined) {
-    applyRelationshipModalProfileFetch(deps, blockedByMe, cached, false);
+    applyRelationshipModalProfileFetch(deps, blockedByMe, cached, blockedBy);
     return;
   }
 
@@ -440,7 +502,6 @@ async function openRelationshipDialog(
   const ac = new AbortController();
   const timeoutId = window.setTimeout(() => ac.abort(), 12_000);
   let publicUser: any = null;
-  let blockedBy = false;
   try {
     const res = await fetch(profileUrl, { signal: ac.signal });
     if (res.ok) {
@@ -682,7 +743,7 @@ export async function showContactDetail(
   const fetchPeerDetail = async (path: string): Promise<Response> => {
     for (let attempt = 0; attempt < 2; attempt++) {
       const ac = new AbortController();
-      const timeoutId = window.setTimeout(() => ac.abort(), 5_000);
+      const timeoutId = window.setTimeout(() => ac.abort(), 3_000);
       try {
         return await fetch(`${deps.apiBase}${path}`, { signal: ac.signal, cache: 'no-store' });
       } catch {
@@ -690,6 +751,7 @@ export async function showContactDetail(
       } finally {
         window.clearTimeout(timeoutId);
       }
+      await new Promise((resolve) => window.setTimeout(resolve, 200 * (attempt + 1)));
     }
     throw new Error(`fetch failed: ${path}`);
   };
@@ -734,7 +796,7 @@ export async function showContactDetail(
     const history = historyRes.ok ? await historyRes.json() : [];
     renderTalkHistory(history, null);
 
-    const [relationshipRes, userRes, blockStatusRes] = await Promise.all([
+    const [relationshipResult, userResult, blockStatusResult] = await Promise.allSettled([
       fetchPeerDetail(`${peerBase}/relationship`),
       fetchPeerDetail(
         `/api/users/${encodeURIComponent(otherUserId)}?viewerId=${encodeURIComponent(deps.currentUserId)}`,
@@ -743,11 +805,17 @@ export async function showContactDetail(
         `/api/users/${encodeURIComponent(deps.currentUserId)}/block-status/${encodeURIComponent(otherUserId)}`,
       ),
     ]);
-    const blockStatus = blockStatusRes.ok ? await blockStatusRes.json() : {};
+    const relationshipRes = relationshipResult.status === 'fulfilled' ? relationshipResult.value : null;
+    const userRes = userResult.status === 'fulfilled' ? userResult.value : null;
+    const blockStatusRes = blockStatusResult.status === 'fulfilled' ? blockStatusResult.value : null;
+    const blockStatus = blockStatusRes?.ok ? await blockStatusRes.json() : {};
     const blockedByMe = deps.isBlockedByMe(otherUserId) || !!blockStatus?.blocked;
     const blockedBy =
-      userRes.status === 403 || relationshipRes.status === 403 || historyRes.status === 403 || !!blockStatus?.blockedBy;
-    const publicUser = userRes.ok ? await userRes.json() : null;
+      userRes?.status === 403 || relationshipRes?.status === 403 || historyRes.status === 403 || !!blockStatus?.blockedBy;
+    let publicUser = userRes?.ok ? await userRes.json() : null;
+    if (!publicUserHasProfileFoundation(publicUser)) {
+      publicUser = await readPublicProfileFoundation(deps, otherUserId) ?? publicUser;
+    }
     contactDetailUserProfileCache = { userId: otherUserId, publicUser };
     if (detailInfo && otherUserId !== TECHSUPPORT_ROOT_USER_ID) {
       detailInfo.querySelector('.contact-context-summary')?.remove();
@@ -761,11 +829,11 @@ export async function showContactDetail(
       );
       detailInfo.appendChild(contextSummary.firstElementChild as HTMLElement);
     }
-    if (relationshipRes.status === 403 || userRes.status === 403) {
+    if (relationshipRes?.status === 403 || userRes?.status === 403) {
       detailMatches.textContent = deps.text('unavailable');
       return;
     }
-    const relationship = relationshipRes.ok ? await relationshipRes.json() : null;
+    const relationship = relationshipRes?.ok ? await relationshipRes.json() : null;
     const totalTalks = relationship?.totalTalks ?? (Array.isArray(history) ? history.length : 0);
     detailMatches.textContent = formatCountText(deps, totalTalks, 'contactsTalkCountOne', 'contactsTalkCount');
     if (detailInfo) {
@@ -777,7 +845,7 @@ export async function showContactDetail(
     }
   } catch {
     if (detailMatches.textContent === deps.text('loading')) {
-      detailMatches.textContent = deps.text('contactCouldNotLoad');
+      detailMatches.textContent = formatCountText(deps, 0, 'contactsTalkCountOne', 'contactsTalkCount');
     }
     if (!talksList.querySelector('.contact-talk-item') && !talksList.textContent?.trim()) {
       talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #c00;">${deps.text('contactCouldNotLoadTalks')}</p>`;

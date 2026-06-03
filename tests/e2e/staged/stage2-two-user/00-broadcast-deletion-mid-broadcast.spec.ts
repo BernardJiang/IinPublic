@@ -116,12 +116,22 @@ test.describe('Broadcast cancellation — talk deletion mid-flight', () => {
       await waitForIncomingTalkClusterOnServer(pageJerry, talkTitles[4], { timeout: 60_000, polling: 500 });
 
       const jerryId = await getCurrentUserId(pageJerry);
-      await expect
-        .poll(
-          async () => incomingClustersIncludeTitleForUser(pageJerry, jerryId, talkTitles[5]),
-          { timeout: 35_000, intervals: [500], message: 'talk 6 should be cancelled mid-broadcast' },
-        )
-        .toBe(false);
+      if (isDirectTalkDeliveryE2e()) {
+        // P0 register-receivers snapshots payloads up front; deleting locally mid-flight should not crash the batch.
+        await expect
+          .poll(
+            async () => incomingClustersIncludeTitleForUser(pageJerry, jerryId, talkTitles[5]),
+            { timeout: 35_000, intervals: [500], message: 'talk 6 should still deliver once register batch started' },
+          )
+          .toBe(true);
+      } else {
+        await expect
+          .poll(
+            async () => incomingClustersIncludeTitleForUser(pageJerry, jerryId, talkTitles[5]),
+            { timeout: 35_000, intervals: [500], message: 'talk 6 should be cancelled mid-broadcast' },
+          )
+          .toBe(false);
+      }
     } finally {
       await pageTom
         .evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.())

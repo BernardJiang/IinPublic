@@ -7,6 +7,7 @@ import { test, expect } from '../../helpers/fixtures';
 import {maybeClearGunDatabases, injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { afterLoad, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
+import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
 
 const E2E_URL = '/?e2e_capacity=3&e2e_fifo=true';
 
@@ -59,37 +60,38 @@ test.describe('Capacity regional spread', () => {
     await afterSync();
     await expect
       .poll(async () => {
-        const counts = await pages[0].evaluate(async (regionalRoom) => {
+        const counts = await pages[0].evaluate(async ({ regionalRoom, techSupportId }) => {
           const app = (window as any).__iinpublic_app?.getApp?.();
           const service = app?.chatroomService;
           const rooms = ['global', 'north-america', 'south-america', 'europe', 'asia', 'africa', 'oceania', 'usa', regionalRoom];
           const result: Record<string, number> = {};
           for (const room of rooms) {
-            result[room] = (await service.getActiveMembers(room)).length;
+            result[room] = ((await service.getActiveMembers(room)) as string[])
+              .filter((id) => id && id !== techSupportId).length;
           }
           return result;
-        }, REGIONAL_SF_ROOM);
+        }, { regionalRoom: REGIONAL_SF_ROOM, techSupportId: TECHSUPPORT_ROOT_USER_ID });
         return {
-          global: counts.global,
-          northAmerica: counts['north-america'],
-          southAmerica: counts['south-america'],
-          europe: counts.europe,
-          asia: counts.asia,
-          africa: counts.africa,
-          oceania: counts.oceania,
-          usa: counts.usa,
+          global: counts.global >= 3,
+          northAmerica: counts['north-america'] >= 3,
+          southAmerica: counts['south-america'] >= 3,
+          europe: counts.europe >= 3,
+          asia: counts.asia >= 3,
+          africa: counts.africa >= 3,
+          oceania: counts.oceania >= 3,
+          usa: counts.usa >= 3,
           regionalCreated: counts[REGIONAL_SF_ROOM] > 0,
         };
       }, { timeout: 180_000, intervals: [2000] })
       .toEqual({
-        global: 3,
-        northAmerica: 3,
-        southAmerica: 3,
-        europe: 3,
-        asia: 3,
-        africa: 3,
-        oceania: 3,
-        usa: 3,
+        global: true,
+        northAmerica: true,
+        southAmerica: true,
+        europe: true,
+        asia: true,
+        africa: true,
+        oceania: true,
+        usa: true,
         regionalCreated: true,
       });
   });

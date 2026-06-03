@@ -4,6 +4,13 @@ import type { KnownPerson } from '../../shared/types';
 import { avatarInnerHtml } from './profile-avatar';
 import type { UiTranslationKey } from './ui-translations';
 
+type PublicProfileFoundation = {
+  headshot?: string | null;
+  languagesJson?: string;
+  profileJson?: string;
+  interestsJson?: string;
+};
+
 export type UserDetailViewDeps = {
   currentUserId: string;
   apiBase: string;
@@ -26,6 +33,7 @@ export type UserDetailViewDeps = {
   formatRelativeTime: (date: Date) => string;
   formatType: (type: string) => string;
   formatLanguage: (code: string) => string;
+  getPublicProfileFoundation?: (userId: string) => Promise<PublicProfileFoundation | null>;
   knownPerson?: KnownPerson;
 };
 
@@ -270,67 +278,145 @@ async function applySendButtonFromBlockStatus(
   sendBtn.disabled = deps.isBlockedByMe(peerId);
 }
 
-async function fetchPeerDetailWithTimeout(deps: UserDetailViewDeps, path: string): Promise<Response> {
-  for (let attempt = 0; attempt < 2; attempt++) {
+async function fetchPeerDetailWithTimeout(
+  deps: UserDetailViewDeps,
+  path: string,
+  opts: { attempts?: number; timeoutMs?: number } = {},
+): Promise<Response> {
+  const attempts = opts.attempts ?? 2;
+  const timeoutMs = opts.timeoutMs ?? 3_500;
+  for (let attempt = 0; attempt < attempts; attempt++) {
     const ac = new AbortController();
-    const timeoutId = window.setTimeout(() => ac.abort(), 5_000);
+    const timeoutId = window.setTimeout(() => ac.abort(), timeoutMs);
     try {
       return await fetch(`${deps.apiBase}${path}`, { signal: ac.signal, cache: 'no-store' });
     } catch {
-      if (attempt === 1) throw new Error(`fetch failed: ${path}`);
+      if (attempt === attempts - 1) throw new Error(`fetch failed: ${path}`);
     } finally {
       window.clearTimeout(timeoutId);
     }
+    await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
   }
   throw new Error(`fetch failed: ${path}`);
+}
+
+function renderBlockedPeerDetail(deps: UserDetailViewDeps): void {
+  const subtitleEl = document.getElementById('peer-detail-subtitle');
+  if (subtitleEl) subtitleEl.textContent = deps.text('peerProfileBlocked');
+  const statsEl = document.getElementById('peer-stats-section');
+  if (statsEl) {
+    statsEl.innerHTML = `
+      <div class="peer-stat-card">
+        <div style="font-weight:700;color:#b91c1c;">${deps.text('contactProfileUnavailable')}</div>
+        <div style="font-size:0.9em;color:#7f1d1d;margin-top:6px;">${deps.text('peerBlockedDetail')}</div>
+      </div>
+    `;
+  }
+  const sendBtn = document.getElementById('peer-send-talks-btn') as HTMLButtonElement | null;
+  if (sendBtn) sendBtn.disabled = true;
+}
+
+async function isPeerDetailBlocked(peerId: string, deps: UserDetailViewDeps): Promise<boolean> {
+  try {
+    const r = await fetch(
+      `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/block-status/${encodeURIComponent(peerId)}`,
+      { cache: 'no-store' },
+    );
+    if (!r.ok) return false;
+    const status = (await r.json()) as { eitherBlocked?: boolean; blocked?: boolean; blockedBy?: boolean };
+    return Boolean(status.eitherBlocked || status.blocked || status.blockedBy);
+  } catch {
+    return false;
+  }
+}
+
+function parsePublicProfileArray<T>(value: string | undefined, fallback: T[]): T[] {
+  if (!value) return fallback;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed as T[] : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function publicUserHasProfileFoundation(publicUser: any): boolean {
+  const languages = Array.isArray(publicUser?.languages) ? publicUser.languages.filter(Boolean) : [];
+  const profile = Array.isArray(publicUser?.profile) ? publicUser.profile.filter((qa: any) => qa?.question && qa?.answer) : [];
+  const interests = Array.isArray(publicUser?.interests) ? publicUser.interests.filter((tag: any) => tag?.name) : [];
+  return Boolean(String(publicUser?.headshot || '').trim() || languages.length || profile.length || interests.length);
+}
+
+async function readPublicProfileFoundation(peerId: string, deps: UserDetailViewDeps): Promise<any | null> {
+  if (!deps.getPublicProfileFoundation) return null;
+  const timeout = new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 2_500));
+  const foundation = await Promise.race([
+    deps.getPublicProfileFoundation(peerId).catch(() => null),
+    timeout,
+  ]);
+  if (!foundation) return null;
+  return {
+    headshot: foundation.headshot || '',
+    languages: parsePublicProfileArray<string>(foundation.languagesJson, []),
+    profile: parsePublicProfileArray<any>(foundation.profileJson, []),
+    interests: parsePublicProfileArray<any>(foundation.interestsJson, []),
+  };
 }
 
 async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserDetailViewDeps): Promise<void> {
   const statsEl = document.getElementById('peer-stats-section');
   try {
     const peerBase = `/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(peerId)}`;
-    const [statsRes, userRes] = await Promise.all([
+    const [statsResult, userResult] = await Promise.allSettled([
       fetchPeerDetailWithTimeout(deps, `${peerBase}/relationship`),
       fetchPeerDetailWithTimeout(
         deps,
         `/api/users/${encodeURIComponent(peerId)}?viewerId=${encodeURIComponent(deps.currentUserId)}`,
+        { attempts: 1, timeoutMs: 8_500 },
       ),
     ]);
-    if (statsRes.status === 403 || userRes.status === 403) {
-      const subtitleEl = document.getElementById('peer-detail-subtitle');
-      if (subtitleEl) subtitleEl.textContent = deps.text('peerProfileBlocked');
-      if (statsEl) {
-        statsEl.innerHTML = `
-          <div class="peer-stat-card">
-            <div style="font-weight:700;color:#b91c1c;">${deps.text('contactProfileUnavailable')}</div>
-            <div style="font-size:0.9em;color:#7f1d1d;margin-top:6px;">${deps.text('peerBlockedDetail')}</div>
-          </div>
-        `;
-      }
-      const sendBtn = document.getElementById('peer-send-talks-btn') as HTMLButtonElement | null;
-      if (sendBtn) sendBtn.disabled = true;
+    const statsRes = statsResult.status === 'fulfilled' ? statsResult.value : null;
+    const userRes = userResult.status === 'fulfilled' ? userResult.value : null;
+    if (statsRes?.status === 403 || userRes?.status === 403) {
+      renderBlockedPeerDetail(deps);
       return;
     }
-    if (!statsRes.ok) throw new Error(`HTTP ${statsRes.status}`);
-    const stats: PeerRelationshipStats = await statsRes.json();
-    const publicUser = userRes.ok ? await userRes.json() : null;
+    const stats: PeerRelationshipStats | null = statsRes?.ok ? await statsRes.json() : null;
+    let publicUser = userRes?.ok ? await userRes.json() : null;
+    if (!publicUserHasProfileFoundation(publicUser)) {
+      publicUser = await readPublicProfileFoundation(peerId, deps) ?? publicUser;
+    }
 
     const subtitleEl = document.getElementById('peer-detail-subtitle');
-    if (subtitleEl) {
+    if (subtitleEl && stats) {
       subtitleEl.textContent = buildStatsSubtitle(peerName, stats, deps);
     }
 
     if (statsEl) {
-      statsEl.innerHTML = renderProfileHtml(publicUser, deps) + renderTransportHtml(deps) + renderStatsHtml(stats, deps);
+      statsEl.innerHTML = renderProfileHtml(publicUser, deps) +
+        renderTransportHtml(deps) +
+        (stats ? renderStatsHtml(stats, deps) : renderStatsUnavailableHtml(deps));
     }
     await applySendButtonFromBlockStatus(peerId, deps);
 
     // Render matched conversations below stats
     renderMatchedConversations(peerId, deps);
   } catch (err) {
+    if (await isPeerDetailBlocked(peerId, deps)) {
+      renderBlockedPeerDetail(deps);
+      return;
+    }
     if (statsEl) statsEl.innerHTML = `<div style="padding:12px;color:#c00;">${deps.text('peerStatsUnavailable')}</div>`;
     await applySendButtonFromBlockStatus(peerId, deps);
   }
+}
+
+function renderStatsUnavailableHtml(deps: UserDetailViewDeps): string {
+  return `
+    <div class="peer-stat-card">
+      <div style="padding:12px;color:#c00;">${deps.text('peerStatsUnavailable')}</div>
+    </div>
+  `;
 }
 
 function renderProfileHtml(publicUser: any, deps: UserDetailViewDeps): string {

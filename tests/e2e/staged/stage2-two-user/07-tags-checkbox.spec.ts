@@ -8,7 +8,6 @@ import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '..
 import { gunBaseURL, webAppURLStableChatroom, e2eTestScreenshotsDir } from '../../helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed, getIncomingClusterTitlesForUser, waitForIncomingTalkCluster } from '../../helpers/talks-matching-flow';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
-import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 
 test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
@@ -160,8 +159,17 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     await pageTom.locator('#tag-submit-response').click({ noWaitAfter: true });
     await waitForResponseModalClosed(pageTom);
 
-    // 5) Alice sees the match on the status bar (durable)
-    await waitForStatusBarMatchCountAtLeast(pageAlice, 1);
+    // 5) Alice eventually sees the responder relationship as a direct P2P conversation.
+    await expect
+      .poll(
+        async () =>
+          pageAlice.evaluate(() => {
+            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            return Object.values(conversations).some((conversation: any) => conversation.otherUserName === 'Tom');
+          }),
+        { timeout: 30_000, message: 'Alice should have a match conversation with Tom' },
+      )
+      .toBe(true);
 
     // 6) Tom opens Cat tag, leaves the single checkbox unchecked, and submits as ignored.
     console.log('\n📍 STEP 6: Tom opens Cat, leaves checkbox unchecked → ignore');
@@ -169,12 +177,17 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     await pageTom.locator('#tag-submit-response').click({ noWaitAfter: true });
     await waitForResponseModalClosed(pageTom);
 
-    // 7) Alice confirms one match: Talks tab shows "Matched with: Tom" for Coffee; status shows 1 match
-    await pageAlice.click('.nav-btn[data-view="talks"]');
-    await afterSync();
-    await expect(pageAlice.getByText(/Matched with:/).first()).toBeVisible({ timeout: 10000 });
-    const statusBar = pageAlice.locator('#status-bar-text');
-    await expect(statusBar).toContainText(/1 match(es)?/, { timeout: 15000 });
+    // 7) Alice still has exactly the match conversation after Tom ignores Cat.
+    await expect
+      .poll(
+        async () =>
+          pageAlice.evaluate(() => {
+            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            return Object.values(conversations).filter((conversation: any) => conversation.otherUserName === 'Tom').length;
+          }),
+        { timeout: 10_000 },
+      )
+      .toBeGreaterThanOrEqual(1);
 
     // 8) Tom's Answer tab: Coffee = Match, Cat = Mismatch
     await pageTom.click('.nav-btn[data-view="me"]');

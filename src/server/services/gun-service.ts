@@ -181,7 +181,7 @@ export class GunService {
    * Get data at a nested path (e.g. ['talks', talkId] or ['users', userId, 'conversations', convId])
    * so server can read the same graph shape the client uses.
    */
-  public async getPath(path: string[]): Promise<any> {
+  public async getPath(path: string[], waitMs = 2000, timeoutMs = 3000): Promise<any> {
     if (path.length === 0) return undefined;
     return new Promise<any>((resolve) => {
       let settled = false;
@@ -189,7 +189,7 @@ export class GunService {
         if (settled) return;
         settled = true;
         resolve(undefined);
-      }, 3000);
+      }, timeoutMs);
       timeoutId.unref?.();
 
       let ref: any = this.gun;
@@ -203,7 +203,7 @@ export class GunService {
           clearTimeout(timeoutId);
           resolve(this.deserializeDates(data));
         },
-        { wait: 2000 },
+        { wait: waitMs },
       );
     });
   }

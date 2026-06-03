@@ -1,4 +1,4 @@
-import { User, Reputation, GPSCoordinate, RelationshipLabel, KnownPerson, TalkIntakeFilters } from '../../shared/types';
+import { User, Reputation, GPSCoordinate, RelationshipLabel, KnownPerson, TalkIntakeFilters, QuestionAnswer, Tag } from '../../shared/types';
 import { GunService } from './gun-service';
 import { generateRandomStageName } from '../../shared/user-utils';
 import { getDefaultTalkIntakeFilters, normalizeCustomBlockedTerms } from '../../shared/talk-intake-filters';
@@ -8,12 +8,20 @@ import { v4 as uuidv4 } from 'uuid';
 import { assertStageNameAllowed, TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 
 const PUBLIC_TALK_FILTERS_KEY = 'user-talk-filters';
+const PUBLIC_PROFILE_FOUNDATION_KEY = 'user-public-profile';
 const USER_BLOCKS_KEY = 'user-blocks';
 const USER_BLOCKED_BY_KEY = 'user-blocked-by';
 const AGE_VERIF_KEY = 'user-age-verification';
 
 export class UserService {
   private readonly recentBlockMutations = new Map<string, boolean>();
+  private readonly recentKnownPersonMutations = new Map<string, boolean>();
+  private readonly recentPublicProfileFoundations = new Map<string, {
+    headshot?: string | null;
+    languagesJson?: string;
+    profileJson?: string;
+    interestsJson?: string;
+  }>();
   private readonly recentReputationWrites = new Map<string, Reputation>();
 
   constructor(private gunService: GunService) {}
@@ -21,6 +29,9 @@ export class UserService {
   /** E2E / test-only: in-memory block overrides survive Gun graph clears. */
   resetBlockMutationsForTesting(): void {
     this.recentBlockMutations.clear();
+    this.recentKnownPersonMutations.clear();
+    this.recentPublicProfileFoundations.clear();
+    this.recentReputationWrites.clear();
   }
 
   private parseJsonArray<T>(value: unknown, fallback: T[]): T[] {
@@ -46,8 +57,10 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
    * Returns defaults if the node is not found or times out.
    */
   private async readReputation(userId: string): Promise<Reputation> {
+    const recent = this.recentReputationWrites.get(userId);
+    if (recent) return { ...UserService.DEFAULT_REPUTATION, ...recent };
     try {
-      const data = await this.gunService.getPath([`users/${userId}`, 'reputation']);
+      const data = await this.gunService.getPath([`users/${userId}`, 'reputation'], 300, 500);
       if (!data || typeof data !== 'object') return { ...UserService.DEFAULT_REPUTATION };
       const { _, ...rest } = data as any;
       // Gun may wrap stored objects under a nested `#` key; unwrap for stable reads.
@@ -76,6 +89,24 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     const nextReputation = { ...reputation, blockCount: nextValue };
     this.recentReputationWrites.set(targetUserId, nextReputation);
     this.writeReputation(targetUserId, nextReputation);
+  }
+
+  private async getBlockCountForUser(userId: string): Promise<number> {
+    const blockers = new Set<string>();
+    const gun = this.gunService.getGun();
+    await new Promise<void>((resolve) => {
+      gun.get(USER_BLOCKED_BY_KEY).get(userId).map().once((data: any, key: string) => {
+        if (data != null && key && !key.startsWith('_')) blockers.add(key);
+      });
+      setTimeout(resolve, 300);
+    });
+    for (const [key, blocked] of this.recentBlockMutations.entries()) {
+      const [blockerId, targetId] = key.split('\0');
+      if (!blockerId || targetId !== userId) continue;
+      if (blocked) blockers.add(blockerId);
+      else blockers.delete(blockerId);
+    }
+    return blockers.size;
   }
 
   private parseTalkFilters(value: unknown, seedLanguages?: string[]): TalkIntakeFilters {
@@ -172,10 +203,12 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
       addedAt: new Date().toISOString(),
     };
     await this.gunService.putPath(['users', userId, 'knownPeople', targetId], entry);
+    this.recentKnownPersonMutations.set(this.knownPersonKey(userId, targetId), true);
   }
 
   async removeKnownPerson(userId: string, targetId: string): Promise<void> {
     await this.gunService.putPath(['users', userId, 'knownPeople', targetId], null);
+    this.recentKnownPersonMutations.set(this.knownPersonKey(userId, targetId), false);
   }
 
   async listKnownPeople(userId: string): Promise<KnownPerson[]> {
@@ -203,10 +236,16 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
   /**
    * @param view Omit for internal/server callers that need the full stored profile.
    * From HTTP pass `{ viewerId }`: use `null` when the query is absent (stranger); same id as `userId` returns full profile rows.
-   */
+  */
   async getUser(userId: string, view?: { viewerId: string | null }): Promise<User> {
-    const user = await this.gunService.get(`users/${userId}`) as User;
-    const publicProfile = await this.gunService.getOptional(`user-public-profile/${userId}`, 500) as
+    const user = await this.gunService.getOptional(`users/${userId}`, 1200) as User | null;
+    if (!user) {
+      throw new Error(`No data found for key: users/${userId}`);
+    }
+    const publicProfile = (
+      this.recentPublicProfileFoundations.get(userId) ??
+      await this.gunService.getOptional(`${PUBLIC_PROFILE_FOUNDATION_KEY}/${userId}`, 1200)
+    ) as
       | {
           headshot?: string | null;
           languagesJson?: string;
@@ -231,20 +270,28 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
         userId,
         user.reputation ?? (await this.readReputation(userId)),
       );
+      const blockCount = await this.getBlockCountForUser(userId);
       return {
         ...user,
         profile,
-        reputation,
+        reputation: { ...reputation, blockCount },
       };
     }
 
     // Server reputation updates are written to `users/<id>/reputation`.
     // Ensure we always resolve that sub-node into the returned object.
-    const reputation = await this.mergeAgeVerificationIntoReputation(userId, await this.readReputation(userId));
+    const storedReputation = this.recentReputationWrites.get(userId) ?? user.reputation;
+    const reputation = await this.mergeAgeVerificationIntoReputation(
+      userId,
+      storedReputation
+        ? { ...UserService.DEFAULT_REPUTATION, ...storedReputation }
+        : await this.readReputation(userId),
+    );
+    const blockCount = await this.getBlockCountForUser(userId);
     const { headshot: _storedHeadshot, ...userWithoutStaleHeadshot } = user;
     return {
       ...userWithoutStaleHeadshot,
-      reputation,
+      reputation: { ...reputation, blockCount },
       ...(publicProfile.headshot ? { headshot: publicProfile.headshot } : {}),
       languages: this.parseJsonArray(publicProfile.languagesJson, user.languages || ['en']),
       profile,
@@ -252,10 +299,26 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     };
   }
 
+  async updatePublicProfileFoundation(
+    userId: string,
+    updates: { headshot?: string; languages?: string[]; profile?: QuestionAnswer[]; interests?: Tag[] },
+  ): Promise<void> {
+    const node = {
+      headshot: updates.headshot || '',
+      languagesJson: JSON.stringify(Array.isArray(updates.languages) ? updates.languages : ['en']),
+      profileJson: JSON.stringify(Array.isArray(updates.profile) ? updates.profile : []),
+      interestsJson: JSON.stringify(Array.isArray(updates.interests) ? updates.interests : []),
+    };
+    await this.gunService.put(`${PUBLIC_PROFILE_FOUNDATION_KEY}/${userId}`, node);
+    this.recentPublicProfileFoundations.set(userId, node);
+  }
+
   /** True if `ownerId` has saved `candidateId` under knownPeople (public Gun path). */
   async isKnownPerson(ownerId: string, candidateId: string): Promise<boolean> {
     if (!ownerId || !candidateId) return false;
-    const node = await this.gunService.getPath(['users', ownerId, 'knownPeople', candidateId]);
+    const recentMutation = this.recentKnownPersonMutations.get(this.knownPersonKey(ownerId, candidateId));
+    if (recentMutation !== undefined) return recentMutation;
+    const node = await this.gunService.getPath(['users', ownerId, 'knownPeople', candidateId], 300, 500);
     return !!(node && typeof node === 'object' && (node as { userId?: string }).userId);
   }
 
@@ -284,6 +347,10 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     return `${blockerId}\0${targetId}`;
   }
 
+  private knownPersonKey(ownerId: string, candidateId: string): string {
+    return `${ownerId}\0${candidateId}`;
+  }
+
   private async readEffectiveBlockState(blockerId: string, targetId: string): Promise<boolean> {
     const key = this.blockMutationKey(blockerId, targetId);
     const recentMutation = this.recentBlockMutations.get(key);
@@ -295,7 +362,7 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     if (!blockerId || !targetId) return false;
     const recentMutation = this.recentBlockMutations.get(this.blockMutationKey(blockerId, targetId));
     if (recentMutation !== undefined) return recentMutation;
-    const node = await this.gunService.getPath([USER_BLOCKS_KEY, blockerId, targetId]);
+    const node = await this.gunService.getPath([USER_BLOCKS_KEY, blockerId, targetId], 300, 500);
     return !!node;
   }
 
@@ -428,14 +495,14 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
    */
   private readAgeVerified(userId: string): Promise<boolean> {
     return this.gunService
-      .getPath([AGE_VERIF_KEY, userId])
+      .getPath([AGE_VERIF_KEY, userId], 300, 500)
       .then((data) => !!(data as { verified?: boolean } | undefined)?.verified)
       .catch(() => false);
   }
 
   /** Votes live on `user-age-verification`; merge into API reputation for GET /users/:id. */
   private async mergeAgeVerificationIntoReputation(userId: string, reputation: Reputation): Promise<Reputation> {
-    const ageVerifNode = (await this.gunService.getPath([AGE_VERIF_KEY, userId]).catch(() => null)) as
+    const ageVerifNode = (await this.gunService.getPath([AGE_VERIF_KEY, userId], 300, 500).catch(() => null)) as
       | { votes?: number; verified?: boolean }
       | null;
     return {

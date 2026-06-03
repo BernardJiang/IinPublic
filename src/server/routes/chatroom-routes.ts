@@ -134,7 +134,7 @@ export function registerChatroomRoutes(
         res.status(400).json({ error: 'userId is required' });
         return;
       }
-      await chatroomManager.joinChatroom(req.params.id, userId, stageName);
+      await chatroomManager.addMemberFast(req.params.id, userId, stageName);
       res.json({ success: true });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });

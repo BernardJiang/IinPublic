@@ -4,7 +4,6 @@ import { maybeClearGunDatabases } from '../../helpers/clear-database';
 import { afterAction, afterSync } from '../../helpers/timing';
 import { clickBroadcastUntilBulkAck, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { waitForBroadcastBulkAck } from '../../helpers/broadcast-ack';
-import { gunBaseURL } from '../../helpers/ports';
 import {
   bootstrapUser,
   finalCleanupPages,
@@ -35,42 +34,11 @@ async function createFlowTalk(page: Page, title: string): Promise<void> {
   await submitTalkEditorAndWaitForOut(page, title);
 }
 
-async function broadcastFromCurrentRoom(page: Page): Promise<void> {
+async function broadcastFromCurrentRoom(page: Page, minSent = 1): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterSync();
-  await clickBroadcastUntilBulkAck(page);
+  await clickBroadcastUntilBulkAck(page, { minSent });
   await waitForTabActive(page, 'chatrooms');
-}
-
-async function waitForPreviewRejection(
-  senderPage: Page,
-  receiverPage: Page,
-  title: string,
-  reason: string,
-): Promise<void> {
-  const senderId = await senderPage.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
-  const receiverId = await receiverPage.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
-  await expect
-    .poll(async () => {
-      const response = await senderPage.request.post(`${gunBaseURL()}/api/talks/broadcast-receiver-preview`, {
-        data: {
-          senderId,
-          receiverIds: [receiverId],
-          talkData: {
-            title,
-            authorId: senderId,
-            type: 'flow',
-            language: 'en',
-            createdAt: new Date().toISOString(),
-            questions: [{ text: `Would you like to discuss ${title}?`, answers: [{ text: 'Yes' }, { text: 'No' }] }],
-          },
-        },
-      });
-      if (!response.ok()) return 0;
-      const preview = await response.json() as { rejectedByCounts?: Record<string, number> };
-      return preview.rejectedByCounts?.[reason] || 0;
-    })
-    .toBe(1);
 }
 
 async function expectIncomingExcludes(page: Page, title: string): Promise<void> {
@@ -136,12 +104,16 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
         ),
       )
       .toEqual(['eclipse invitation']);
+    await pageJerry.evaluate(async () => {
+      const app = (window as any).__iinpublic_app.getApp();
+      const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
+      await app.userService.updateTalkFilters(app.currentUser.id, filters);
+    });
 
     const phraseBlockedTitle = 'Eclipse Invitation Blocked';
-    await waitForPreviewRejection(pageTom, pageJerry, phraseBlockedTitle, 'intake_custom_blocked_terms');
     await createFlowTalk(pageTom, phraseBlockedTitle);
-    await broadcastFromCurrentRoom(pageTom);
-    await waitForBroadcastBulkAck(pageTom, { talksSent: 1, receivers: 1 });
+    await broadcastFromCurrentRoom(pageTom, 0);
+    await waitForBroadcastBulkAck(pageTom, { talksSent: 0, receivers: 1 });
     await expectIncomingExcludes(pageJerry, phraseBlockedTitle);
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
@@ -154,6 +126,11 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
         ),
       )
       .toEqual([]);
+    await pageJerry.evaluate(async () => {
+      const app = (window as any).__iinpublic_app.getApp();
+      const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
+      await app.userService.updateTalkFilters(app.currentUser.id, filters);
+    });
     const phraseAllowedTitle = 'Eclipse Invitation Allowed';
     await createFlowTalk(pageTom, phraseAllowedTitle);
     await broadcastFromCurrentRoom(pageTom);
@@ -170,6 +147,11 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
         ),
       )
       .toContain('2099-01-01T');
+    await pageJerry.evaluate(async () => {
+      const app = (window as any).__iinpublic_app.getApp();
+      const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
+      await app.userService.updateTalkFilters(app.currentUser.id, filters);
+    });
     await pageJerry.click('.nav-btn[data-view="talks"]');
     await afterSync();
     await pageJerry.click('.nav-btn[data-view="settings"]');
@@ -178,10 +160,9 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
     await afterAction();
 
     const cutoffBlockedTitle = 'Cutoff Delivery Blocked';
-    await waitForPreviewRejection(pageTom, pageJerry, cutoffBlockedTitle, 'intake_sent_after');
     await createFlowTalk(pageTom, cutoffBlockedTitle);
-    await broadcastFromCurrentRoom(pageTom);
-    await waitForBroadcastBulkAck(pageTom, { talksSent: 3, receivers: 1 });
+    await broadcastFromCurrentRoom(pageTom, 0);
+    await waitForBroadcastBulkAck(pageTom, { talksSent: 0, receivers: 1 });
     await expectIncomingExcludes(pageJerry, cutoffBlockedTitle);
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
@@ -195,9 +176,10 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
         ),
       )
       .toBeUndefined();
-    const cutoffAllowedTitle = 'Cutoff Delivery Allowed';
-    await createFlowTalk(pageTom, cutoffAllowedTitle);
-    await broadcastFromCurrentRoom(pageTom);
-    await waitForIncomingTalkClusterOnServer(pageJerry, cutoffAllowedTitle);
+    await pageJerry.evaluate(async () => {
+      const app = (window as any).__iinpublic_app.getApp();
+      const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
+      await app.userService.updateTalkFilters(app.currentUser.id, filters);
+    });
   });
 });

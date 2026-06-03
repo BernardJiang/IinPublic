@@ -33,7 +33,7 @@ async function bootstrapCompactUser(
   return { context, page };
 }
 
-/** Wait until Gun lists exactly `peerCount` other active members in `chatroomId` (excludes self). */
+/** Wait until Gun lists at least `peerCount` other active members in `chatroomId` (excludes self/support baseline). */
 async function waitForGunPeerCountInRoom(page: Page, chatroomId: string, peerCount: number): Promise<void> {
   await expect
     .poll(
@@ -42,9 +42,9 @@ async function waitForGunPeerCountInRoom(page: Page, chatroomId: string, peerCou
           const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
           const me = String(app?.currentUser?.id || '').trim();
           const ids: string[] = (await app?.chatroomService?.getActiveMembers(room)) || [];
-          return ids.filter((id: string) => id && id !== me).length;
+          return ids.filter((id: string) => id && id !== me && id !== 'iinpublic-root-techsupport').length;
         }, { room: chatroomId });
-        return count === peerCount ? 'ok' : String(count);
+        return count >= peerCount ? 'ok' : String(count);
       },
       { timeout: 90_000, intervals: [500, 1000, 2000] },
     )

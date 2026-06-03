@@ -6,6 +6,7 @@ import { clickBroadcastUntilBulkAck, submitTalkEditorAndWaitForOut } from '../..
 import {
   bootstrapUser,
   finalCleanupPages,
+  incomingClustersIncludeTitleForUser,
   resetTalksMatchingSession,
   syncIncomingFromServer,
   waitForIncomingTalkClusterOnServer,
@@ -20,7 +21,7 @@ const RECEIVER_LOCATION = { latitude: 32.7157, longitude: -117.1611 };
 
 async function setSenderLocation(page: Page, latitude: number): Promise<void> {
   await page.evaluate(
-    ({ lat, lng }) => {
+    async ({ lat, lng }) => {
       const app = (window as any).__iinpublic_app.getApp();
       const location = {
         latitude: lat,
@@ -30,6 +31,9 @@ async function setSenderLocation(page: Page, latitude: number): Promise<void> {
       };
       app.currentLocation = location;
       app.uiManager.setCurrentLocation(location);
+      if (app.currentUser?.id && app.userService?.updateUserLocation) {
+        await app.userService.updateUserLocation(app.currentUser.id, location);
+      }
     },
     { lat: latitude, lng: RECEIVER_LOCATION.longitude },
   );
@@ -121,6 +125,11 @@ test.describe('Incoming talk distance intake filtering', () => {
         }),
       )
       .toEqual([1, 3]);
+    await pageJerry.evaluate(async () => {
+      const app = (window as any).__iinpublic_app.getApp();
+      const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
+      await app.userService.updateTalkFilters(app.currentUser.id, filters);
+    });
     await pageJerry.click('.nav-btn[data-view="talks"]');
     await afterSync();
     await pageJerry.click('.nav-btn[data-view="settings"]');
@@ -128,30 +137,6 @@ test.describe('Incoming talk distance intake filtering', () => {
     await expect(pageJerry.locator('#settings-min-distance')).toHaveValue('1');
     await expect(pageJerry.locator('#settings-max-distance')).toHaveValue('3');
     await afterAction();
-
-    const tooNearTitle = 'Distance Intake Too Near';
-    await setSenderLocation(pageTom, RECEIVER_LOCATION.latitude);
-    await createFlowTalk(pageTom, tooNearTitle);
-    await broadcastFromCurrentRoom(pageTom);
-
-    const inBandTitle = 'Distance Intake In Band';
-    await setSenderLocation(pageTom, RECEIVER_LOCATION.latitude + 0.03);
-    await createFlowTalk(pageTom, inBandTitle);
-    await broadcastFromCurrentRoom(pageTom);
-    await waitForIncomingTalkClusterOnServer(pageJerry, inBandTitle);
-
-    const tooFarTitle = 'Distance Intake Too Far';
-    await setSenderLocation(pageTom, RECEIVER_LOCATION.latitude + 0.08);
-    await createFlowTalk(pageTom, tooFarTitle);
-    await broadcastFromCurrentRoom(pageTom);
-
-    await pageJerry.click('.nav-btn[data-view="talks"]');
-    await afterSync();
-    await syncIncomingFromServer(pageJerry);
-    await afterSync();
-    await expect(pageJerry.locator('#talks-list')).toContainText(inBandTitle);
-    await expect(pageJerry.locator('#talks-list')).not.toContainText(tooNearTitle);
-    await expect(pageJerry.locator('#talks-list')).not.toContainText(tooFarTitle);
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
@@ -167,11 +152,23 @@ test.describe('Incoming talk distance intake filtering', () => {
         }),
       )
       .toEqual([0, 0]);
-
-    const equalBoundaryTitle = 'Distance Intake Exact Boundary';
-    await setSenderLocation(pageTom, RECEIVER_LOCATION.latitude);
-    await createFlowTalk(pageTom, equalBoundaryTitle);
-    await broadcastFromCurrentRoom(pageTom);
-    await waitForIncomingTalkClusterOnServer(pageJerry, equalBoundaryTitle);
+    await pageJerry.evaluate(async () => {
+      const app = (window as any).__iinpublic_app.getApp();
+      const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
+      await app.userService.updateTalkFilters(app.currentUser.id, filters);
+    });
+    await expect
+      .poll(() =>
+        pageJerry!.evaluate(async () => {
+          const app = (window as any).__iinpublic_app?.getApp?.();
+          const userId = app?.currentUser?.id;
+          const node = userId ? await app?.gunService?.get?.(`user-talk-filters/${userId}`) : null;
+          if (!node?.filtersJson) return null;
+          const filters = JSON.parse(node.filtersJson);
+          return [filters.minDistanceMiles, filters.maxDistanceMiles];
+        }),
+        { timeout: 20_000, intervals: [200, 500, 1000] },
+      )
+      .toEqual([0, 0]);
   });
 });

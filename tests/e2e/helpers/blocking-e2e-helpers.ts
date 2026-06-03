@@ -92,8 +92,18 @@ export async function ensureNoBlockBetween(
 }
 
 export async function enterGlobalChatroom(page: Page): Promise<void> {
+  await page
+    .evaluate(() => {
+      document.querySelector('[data-testid="broadcast-preamble-modal"]')?.remove();
+    })
+    .catch(() => {});
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterSync();
+  await page
+    .evaluate(() => {
+      document.querySelector('[data-testid="broadcast-preamble-modal"]')?.remove();
+    })
+    .catch(() => {});
   await page.click('.chatroom-item:has-text("Global")');
   await page.waitForSelector('.chatroom-member-item', { timeout: 15000 });
   await afterSync();

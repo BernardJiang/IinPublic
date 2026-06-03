@@ -4,6 +4,7 @@ import {
   buildPeerTalkOfferKey,
   clusterFromPeerTalkOffer,
   createPeerTalkOfferWire,
+  expandTalkDataFromGunWire,
   gunSafeTalkDataRecord,
   mergeIncomingTalkCluster,
   type IncomingTalkClusterWire,
@@ -86,7 +87,7 @@ export function applyPeerTalkOfferToLocalInbox(
     receiverUserId,
     {
       talkId: offer.talkId,
-      talkData: offer.talkData,
+      talkData: expandTalkDataFromGunWire(offer.talkData),
       senderId: offer.senderId,
       senderName: offer.senderName,
     },
@@ -200,7 +201,7 @@ function talkLooksComplete(talk: Talk | null): boolean {
 function normalizeTalkFromCatalog(raw: PeerTalkCatalogWire): Talk | null {
   const data = raw?.talkData;
   if (!data || typeof data !== 'object') return null;
-  const body = data as unknown as Talk;
+  const body = expandTalkDataFromGunWire(data) as unknown as Talk;
   return { ...body, id: String(raw.talkId || body.id || '') };
 }
 
