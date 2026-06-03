@@ -1,10 +1,9 @@
 /**
  * Per-worker port derivation for parallel Playwright runs.
  *
- * Background: the full e2e suite shares one Gun graph; running multiple workers against the
- * same server produces cross-test collisions (ghost chatroom members, duplicate talks, etc.).
- * Option B makes every worker spawn its own Gun server + webpack dev server on an offset port
- * and have every client connect only to its worker's server.
+ * Background: the full e2e suite must not rely on one shared server inbox.
+ * Every worker gets its own bootstrap/signaling server and webpack dev server,
+ * then browsers exchange talks through the pair-direct mesh for that worker.
  *
  * Convention:
  *   parallel slot 0 → web 3001 / gun 8080  (legacy default; unchanged single-worker behaviour)
@@ -62,9 +61,9 @@ export function webBaseURL(idx: number = parallelSlot()): string {
  * + FIFO on — out of sync with playwright.config servers (50 + FIFO off). URL params
  * override CONFIG in the browser (see `src/shared/config.ts` and `03-capacity-eviction.spec.ts`).
  */
-/** True when Playwright spawned servers with mesh talk delivery (no server inbox authority). */
+/** True when Playwright spawned servers with pair-direct talk delivery (no server inbox authority). */
 export function isDirectTalkDeliveryE2e(): boolean {
-  return process.env.P0_DIRECT_TALK_DELIVERY === '1';
+  return process.env.P0_DIRECT_TALK_DELIVERY !== '0';
 }
 
 export function webAppURLStableChatroom(idx: number = parallelSlot()): string {

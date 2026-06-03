@@ -24,9 +24,13 @@ npm run test:e2e:staged
 Snapshots: `tests/e2e/staged/snapshots/worker-{N}/stage{N}.json`  
 User storage: `stage{N}-techsupport.storage.json`, `stage{N}-adam.storage.json`, etc.
 
+## Pair-Direct Model
+
+E2E defaults to `P0_DIRECT_TALK_DELIVERY=1`: the server is a bootstrap/signaling/room-membership connector, not the talk inbox authority. Tests should assert received talks from the receiver's local Gun IN index or UI. Legacy `/incoming-talks` assertions are only for explicit star-mode regressions.
+
 ## Status checks vs toasts
 
-- **Hard:** `#status-bar-text`, headcount, nav active, conversation list, incoming-talks API (`helpers/e2e-status-checks.ts`).
+- **Hard:** `#status-bar-text`, headcount, nav active, conversation list, local incoming talk index (`helpers/e2e-status-checks.ts`).
 - **Soft:** `.notification` toasts (`helpers/soft-toast.ts`) — log warning if missing, do not fail.
 
 See `docs/testing/testplan.md` §4.4 for the full catalog sorted by user count.

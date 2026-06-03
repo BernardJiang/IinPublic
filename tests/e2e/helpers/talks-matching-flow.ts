@@ -161,8 +161,8 @@ async function incomingClustersIncludeTitleSubstring(
 }
 
 /**
- * Wait until the Gun server's incoming-talks API lists this title (POST /received succeeded).
- * UI can lag Gun replication; this avoids racing only on `.incoming` rows.
+ * Legacy star-mode wait until the server incoming-talks API lists this title.
+ * Pair-direct E2E must use the local Gun wait path below instead.
  *
  * Polls from the Playwright process (not `page.waitForFunction`) so requests hit {@link gunBaseURL}
  * and are not blocked by the web app's Helmet CSP (`connect-src 'self'` only allows the webpack origin).
@@ -170,7 +170,7 @@ async function incomingClustersIncludeTitleSubstring(
  * Predicate is optimized for large IN lists (e.g. 20 broadcasts): talk-detail fetches run sequentially
  * with early exit instead of fanning out parallel requests every interval.
  */
-/** P0: wait until local Gun IN index contains a cluster matching title (no server incoming-talks inbox). */
+/** Pair-direct: wait until the receiver's local Gun IN index contains a cluster matching title. */
 export async function waitForIncomingTalkClusterOnLocalGun(
   page: Page,
   titleSubstring: string,
@@ -211,9 +211,9 @@ export async function waitForIncomingTalkClusterOnLocalGun(
               return 'ok';
             }
             if (Array.isArray(mesh) && mesh.length > 0) {
-              /* mesh has clusters but title mismatch — fall through to local Gun */
+              /* relay metadata has clusters but title mismatch — fall through to local Gun */
             } else if (mesh.length === 0) {
-              /* empty mesh — fall through */
+              /* empty relay metadata — fall through */
             }
           }
         }
@@ -241,7 +241,7 @@ export async function waitForIncomingTalkClusterOnLocalGun(
     .toBe('ok');
 }
 
-/** P0 or star: wait until incoming cluster for this user includes title substring. */
+/** Pair-direct by default, star only when explicitly disabled: wait for an incoming cluster by title. */
 export async function waitForIncomingTalkCluster(
   page: Page,
   titleSubstring: string,
@@ -268,7 +268,7 @@ export async function localIncomingClustersIncludeTitle(page: Page, titleSubstri
   }, needle);
 }
 
-/** Poll incoming cluster titles for a user (local Gun in P0, server API in star mode). */
+/** Poll incoming cluster titles for a user (local Gun in pair-direct, server API in star mode). */
 export async function getIncomingClusterTitlesForUser(
   page: Page,
   userId: string,

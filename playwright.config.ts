@@ -33,7 +33,7 @@ const parsedWorkers = Number(process.env.PW_WORKERS ?? process.env.PW_WORKER);
 const STAGE_PIPELINE = process.env.E2E_STAGE_PIPELINE === '1' || process.env.E2E_STAGE_PIPELINE === 'true';
 const P2P_DIRECT_CHAT_ENABLED =
   process.env.P2P_DIRECT_CHAT_ENABLED === '0' ? '0' : '1';
-const P0_DIRECT_TALK_DELIVERY = process.env.P0_DIRECT_TALK_DELIVERY === '1' ? '1' : '0';
+const P0_DIRECT_TALK_DELIVERY = process.env.P0_DIRECT_TALK_DELIVERY === '0' ? '0' : '1';
 const STAR_SERVER_PERSISTENCE =
   P0_DIRECT_TALK_DELIVERY === '1' || process.env.STAR_SERVER_PERSISTENCE === 'ephemeral'
     ? 'ephemeral'
@@ -58,6 +58,7 @@ const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
   const webPort = 3001 + i;
   return [
     {
+      // Pair-direct default: server bootstraps discovery/signaling, then browsers exchange talks via the mesh.
       // In-memory server Gun only: disk radisk + graph clear races leave ghost chatroom members and break IN-list e2e.
       // High capacity + no FIFO: default capacity 3 evicts users when Gun map over-counts; Tom and Jerry must stay in the same room for broadcast/IN sync.
       command: `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false E2E_GUN_MEMORY_ONLY=1 P0_DIRECT_TALK_DELIVERY=${P0_DIRECT_TALK_DELIVERY} STAR_SERVER_PERSISTENCE=${STAR_SERVER_PERSISTENCE} P2P_DIRECT_CHAT_ENABLED=${P2P_DIRECT_CHAT_ENABLED} P2P_NODE_ENABLED=0 PORT=${gunPort} node dist/server/server/index.js`,
@@ -139,7 +140,7 @@ export default defineConfig({
             /staged\/[^/]+\/(aaa-|zzz-)/,
             // Star-only regression; run via `npm run test:e2e:star` (P2P_DIRECT_CHAT_ENABLED=0).
             /00-p2p-star-baseline-storage\.spec\.ts/,
-            // P0 mesh delivery: excluded from default `test:e2e`; included when P0_DIRECT_TALK_DELIVERY=1.
+            // Pair-direct delivery regression belongs in the default suite; exclude only for explicit star-mode runs.
             ...(P0_DIRECT_TALK_DELIVERY === '1' ? [] : [/00i-p0-direct-talk-delivery\.spec\.ts/]),
           ],
         },

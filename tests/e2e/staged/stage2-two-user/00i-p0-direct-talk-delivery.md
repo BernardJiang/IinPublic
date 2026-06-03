@@ -1,12 +1,12 @@
-# P0 direct talk delivery (two browsers, relay-style hub)
+# Pair-direct talk delivery (two browsers, server as connector)
 
-**Features tested:** `P0_DIRECT_TALK_DELIVERY=1` mesh path — `peerTalkOffers` + `peerTalkCatalog`, local `incomingTalksByUser`, no server `register-receivers` / empty `GET incoming-talks`.
+**Features tested:** default pair-direct mesh path — server helps users discover/connect, then `peerTalkOffers` + `peerTalkCatalog` deliver talk data to local `incomingTalksByUser`. The server inbox API is empty and not authoritative.
 
-**Run:** `npm run test:e2e:p0-talks` (sets P0 + ephemeral server persistence on webpack and Gun).
+**Run:** `npm run test:e2e` or `npm run test:e2e:p0-talks` (direct delivery + ephemeral server persistence).
 
 ## Flow
 
 1. Tom and Jerry bootstrap in Global.
 2. Tom creates a flow talk and broadcasts to the room.
-3. Jerry's IN list is populated from **local Gun** (poll `getLocalIncomingClustersForE2e`), not server inbox API.
+3. Jerry's IN list is populated from **local Gun** (poll `getLocalIncomingClustersForE2e`), not the server inbox API.
 4. Server `GET incoming-talks` for Jerry returns `[]` with `X-P0-Direct-Talk-Delivery: 1`.

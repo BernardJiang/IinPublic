@@ -11,7 +11,7 @@ import { createSimpleFlowTalk, goToChatrooms } from '../../helpers/broadcast-can
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { gunBaseURL } from '../../helpers/ports';
 
-test.describe('P0 direct talk delivery over Gun mesh', () => {
+test.describe('Pair-direct talk delivery over Gun mesh', () => {
   let browserTom: Browser;
   let browserJerry: Browser;
 
@@ -30,7 +30,7 @@ test.describe('P0 direct talk delivery over Gun mesh', () => {
 
   test('delivers talk to receiver local Gun without server incoming-talks inbox', async () => {
     test.setTimeout(120_000);
-    const title = `P0 mesh talk ${Date.now()}`;
+    const title = `Pair-direct mesh talk ${Date.now()}`;
 
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom P0');
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry P0');
