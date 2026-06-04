@@ -215,13 +215,13 @@ This is a starting point. Add your own conventions, style, and rules as you figu
 <claude-mem-context>
 # Memory Context
 
-# [IinPublic] recent context, 2026-05-26 10:18pm PDT
+# [IinPublic] recent context, 2026-06-02 10:43pm PDT
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (20,146t read) | 834,261t work | 98% savings
+Stats: 50 obs (19,196t read) | 468,669t work | 96% savings
 
 ### May 1, 2026
 S10 E2E Tests 12 & 13: Replaced Ephemeral Toast Assertions with Durable UI State Checks (May 1 at 7:19 PM)
@@ -237,57 +237,57 @@ S16 Full E2E suite now 65/65 passing — previous failure confirmed intermittent
 S17 Double-check current status against deleted P0 section of TODO.md from git history; create new plan and insert at beginning of TODO.md if differences found (May 15 at 12:10 AM)
 S18 Pre-commit State: Major UI Refactor Pending in /IinPublic (May 15 at 12:10 AM)
 S19 Git commit pending UI refactor changes in /IinPublic project (May 15 at 12:16 AM)
-### May 20, 2026
-401 12:01a ✅ P3 Full E2E Test Run Started with 20 Workers
-402 " 🔵 E2E Suite Expanded to 74 Tests — P3 Key Custody Spec Picked Up by Playwright
-403 12:05a 🔵 IinPublic E2E Test Suite — Running 74 Tests Across 5 Stages with 20 Workers
-404 12:06a 🔵 E2E Test Run: 72/74 Pass — Exact Chatbot Memory Auto-Reuse Failing
-405 12:07a 🔵 Exact Chatbot Memory Test: Isolated Investigation Reveals Answer Storage Format
-406 12:08a 🔵 Exact Chatbot Memory Test Passes in Isolation — Flaky Due to Parallel Test Interference
-407 12:14a ✅ Multi-Phase Implementation Task Initiated from docs/TODO.md
-408 " 🔵 E2E Test Infrastructure: 20 Parallel webpack-dev-server Instances on Ports 3001–3020
-409 " 🟣 P2P Runtime Module and SEA Key Custody Implemented (Phase ~P1/P3)
-410 " 🔵 TODO.md Remaining Phases Are P4–P7 (P1–P3 Previously Completed)
-411 12:15a ✅ Git Commit: "Implement P2P SEA key custody" at 134ddf5
-412 " 🔵 Conversation Messaging Architecture: Dual-Path Message System with SEA Channel Field
-413 " 🟣 P4: Transport Abstraction Types and Signaling Envelope Added to p2p-runtime.ts
-414 " 🟣 P4: Server-Side WebRTC Signaling Endpoints Added with In-Memory TTL Store
-415 12:16a 🔄 P4: WebConversationService Refactored to Strategy Pattern with ConversationTransport Interface
-416 " 🔵 WebConversationService Has Duplicate Dead Methods After Transport Extraction
-417 " 🔄 Dead Code Removed from WebConversationService After Transport Extraction
-418 12:17a 🟣 P4: Conversation Transport Inspector Added to Storage Debug UI
-419 " 🟣 P4: Unit Tests Added for Transport Diagnostics, Signaling Envelopes, and Direct P2P Messages
-420 " 🟣 P4: Integration Tests Added for Signaling API and Transport Diagnostics Endpoint
-421 " 🟣 P4: E2E Test Created for Conversation Transport and Signaling API
-422 12:18a ✅ P4 Completed: All P4 Items Removed from docs/TODO.md
-423 " ✅ P2P Roadmap Doc Updated: P4 Marked Done, Next Step Defined
-424 " 🔵 TypeScript Build Fails After P4 Refactor: Three Error Types Found
-425 " 🔴 Fixed: getOtherParticipantId and getUserEpub Moved to Correct Class in web-conversation-service.ts
-426 " 🔴 Fixed: exactOptionalPropertyTypes Error in createDirectP2PMessageEnvelope
-427 12:19a 🔵 All Unit and Integration Tests Pass After P4 Bug Fixes; tsc Exits Clean
-428 12:24a 🔵 E2E Test Suite Running 75 Tests with 20 Workers Across Multi-Stage Scenarios
-429 " 🔵 Failing E2E Test: Exact Chatbot Memory Auto-Reuse Logic Not Triggering
-430 12:25a 🔵 Exact Chatbot Memory Architecture: GunDB-Backed State with stateJson Serialization
-431 " 🔴 Race Condition Fix: E2E Test Must Await GunDB Memory Sync Before Third Talk Delivery
-432 12:27a 🔵 waitForExactMemoryAnswer Helper Fails: GunDB Snapshot Doesn't Expose exactChatbotMemoryByUser Data
-433 10:36p 🟣 TechSupport Root User Role Enhancement for P2P Network
-434 " 🔵 IinPublic Project Context: P2P Roadmap State and E2E Test Blocker
-435 " 🔵 IinPublic UI Tab Structure: 5 Bottom-Nav Tabs with Sub-Views
-436 10:37p 🔵 TechSupport Already Exists as Stage-0 Bootstrap User in E2E Test Suite
-437 " ✅ TechSupport Root Network Role Full Specification Added to docs/TODO.md
-438 " ✅ Daily Memory File Created and Broader Uncommitted Doc Changes Confirmed
-439 11:11p 🟣 Comprehensive TODO List Update for Multi-Language and Tab Feature Gaps
-440 " 🔵 IinPublic Project TODO Structure and TechSupport Root Network Role
-441 11:12p 🔵 Settings Language Controls: Profile Language Is Single-Select, Incoming Filter Is Multi-Select
-442 " 🔵 Chatroom Visitor Counter Is Live Presence Count Only — No Cumulative Visit Counter
-443 " 🔵 Talk Language Attribute and Incoming Filter Exist in Code But Spec Gaps Remain
-444 " 🔵 Additional Unimplemented Details Found Across Tabs During Code Audit
-445 11:13p 🔵 Server-Side ChatroomManager Has Net Headcount Counter, Not Cumulative Visit Counter
-446 " 🔵 Talk Editor Dialog Has No Language Selector — All Talks Created as 'en'
-447 " 🔵 Me Tab Features (Answers, Preferences) Are Fully Implemented
-448 " 🔵 Survey Analytics Dashboard Is Fully Implemented With CSV Export and Follow-Up Creation
-449 " 🟣 Added Feature Completion Backlog by Tab to docs/TODO.md
-450 11:20p 🔵 TechSupport E2E Test Bootstrap Already Implemented — Stage 0 Pipeline Confirmed
+### Jun 2, 2026
+526 6:31p 🟣 Added `addMemberFast` Fast-Path for Chatroom Join
+527 " 🔵 Block/Unblock System Remains Server-Mediated After P2P Migration
+528 6:38p ⚖️ Architecture Migration: Star Topology → P2P Network
+529 " 🔵 P2P Talk Delivery Uses Hybrid Fallback Pattern in ui-manager.ts
+530 6:46p ⚖️ Architectural Switch from Star Topology to P2P Network
+531 " 🔴 Block/Unblock Now Makes API Calls in P2P Mode
+532 6:47p 🔴 E2E Test 15a Fixed with waitForContactDetailReady Guards
+533 6:54p ⚖️ Architecture Shift: Star Topology to P2P Network for Messaging
+534 6:55p 🔵 E2E Test Run: 4 Tests Still Failing After P2P Migration (Down from 26)
+535 " 🔵 Peer Stats Panel Fetches from Server API, Not P2P Gun.js
+536 6:58p 🔵 Block/Unblock Architecture: Gun Paths, In-Memory Cache, and Peer Stats 403 Flow
+537 " ⚖️ Architecture Migration: Star Topology → P2P Network
+538 6:59p 🔵 Server Retains `conversationsMap` and P2P Transport Diagnostics After Star→P2P Migration
+539 " 🔵 E2E Reputation Block-Count Test Structure for P2P Architecture
+540 " 🔵 Block/Unblock Flow Has Dual API Call Path and Gun-Based Reputation Update
+541 7:02p 🔵 Server-Side `user-service.ts` Also Writes `blockCount` to Gun — Potential Conflict with Client P2P Writes
+542 " 🔵 Server Uses Separate Gun Path for Age Verification to Avoid Race Conditions — Pattern Not Applied to `blockCount`
+543 " 🔴 Fixed `readReputation` to Use In-Memory Cache First, and `resetBlockMutationsForTesting` to Also Clear Reputation Cache
+544 7:05p 🔴 Peer Detail View Handles P2P Block Detection on Fetch Failure and Increases Retry Resilience
+545 7:06p 🔴 E2E `getReputation` Helper Retry Count and Timeout Increased for P2P Latency
+546 7:07p 🔵 TypeScript Compilation and Server Build Pass Clean After P2P Fixes
+547 7:10p 🔵 E2E Test `04-profile-edit-stage-name` Fails: Peer Stats Section Stuck on "Loading relationship stats..."
+548 7:11p 🔵 Targeted E2E Run: 3 Failed, 1 Passed — Concrete Failure Modes Identified
+549 " 🔵 Error Context Screenshots Reveal UI State at Time of Failure for 21a and 15a
+550 7:12p 🔵 Full Diff of P2P Migration Fixes: `getReputation` Refactored to Browser-Side Evaluation with Gun Fallback
+551 " 🔴 `fetchPeerDetailWithTimeout` Retry Timeout Reduced from 3×5s to 2×3.5s to Unblock Error Path
+552 7:24p ⚖️ Architecture Switch: Star Topology → P2P Network
+553 7:27p 🔵 E2E Test Suite Status After P2P Migration — 3 Remaining Failures
+554 7:28p 🔴 Graceful Handling of Failed Peer Stats API Calls in User Detail View
+555 7:29p 🔴 Null-Safe Optional Chaining Follow-up in fetchAndRenderStats
+556 7:34p ⚖️ Architecture Migration: Star Topology → Peer-to-Peer Network
+557 " 🔵 Stage Name Reservation Enforcement and P2P Test Environment Variables
+558 7:35p 🔵 P2P Transport Confirmed Active; TechSupport System Conversation Persists Across Reloads
+559 7:52p ⚖️ Architecture Migration: Star Topology → P2P Network
+560 8:04p ⚖️ P2P Network Architecture Migration for Chat Application
+561 " 🟣 Public Profile Foundation Dual-Write: GunDB + REST API Sync
+562 8:38p ⚖️ Architecture Switch: Star Topology → P2P Network
+563 8:40p 🔵 P2P Mode: Public Profile Data Not Propagating to Peers
+564 " 🔵 Reserved Stage Name Blocklist Confirmed Working
+565 " 🔵 Dual Port-Mapping Logic: WebUserService vs IinPublicApp
+566 8:41p 🔵 Profile Update Test Uses Server API to Verify Propagation
+567 8:42p 🔵 Profile Propagation: Languages Rendered from Gun Data, Not Backend API
+568 8:43p 🔴 E2E Test Fix: Added Explicit Public Profile Foundation Sync After Profile Changes
+569 " 🔵 Patch Verification Failure: Import Context Mismatch in apply_patch
+570 8:45p 🔵 Spec File Import Structure Confirms Why Patch Failed
+571 8:46p 🔵 Server Receives Profile Data But Gun Peer Propagation Fails
+572 " 🔴 user-detail-view.ts: Increased Timeout for Public Profile Fetch to 8.5s
+573 8:47p 🔵 TypeScript Types and Server Build Both Pass After user-detail-view.ts Change
+574 8:50p 🔵 Client Bundle Not Yet Rebuilt After user-detail-view.ts Change
+575 " 🔵 Test Still Fails After Timeout Fix — Bundle Not Recompiled, Root Cause Remains
 
-Access 834k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 469k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>
