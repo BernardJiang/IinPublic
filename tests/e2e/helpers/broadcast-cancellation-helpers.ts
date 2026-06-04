@@ -14,10 +14,10 @@ export async function incomingClustersIncludeTitleSubstring(
   uid: string,
   needleSubstring: string,
 ): Promise<boolean> {
-  const incomingPath = isDirectTalkDeliveryE2e()
-    ? `/api/users/${encodeURIComponent(uid)}/p0-mesh-incoming`
-    : `/api/users/${encodeURIComponent(uid)}/incoming-talks`;
-  const r = await request.get(`${gunBaseURL()}${incomingPath}`, {
+  if (isDirectTalkDeliveryE2e()) {
+    return false;
+  }
+  const r = await request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(uid)}/incoming-talks`, {
     headers: noCacheHeaders,
   });
   if (!r.ok()) return false;

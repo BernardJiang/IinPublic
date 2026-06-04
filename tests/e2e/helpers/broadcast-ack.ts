@@ -4,7 +4,7 @@ import { E2E_ASSERT_TIMEOUT_MS } from './timing';
 /**
  * Wait until the app records a completed bulk broadcast on `#broadcast-bulk-ack`.
  * Prefer this over matching success toast text: toasts auto-dismiss after ~3s while
- * `register-receivers-for-broadcast` can still be running for a long time.
+ * direct mesh delivery or legacy server registration can still be running.
  */
 export async function waitForBroadcastBulkAck(
   page: Page,

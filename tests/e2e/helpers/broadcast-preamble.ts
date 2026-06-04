@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect } from './fixtures';
 import { isDirectTalkDeliveryE2e } from './ports';
-import { deliverBroadcastViaRegisterApi, waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
+import { deliverBroadcastViaAppPath, waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
 import { E2E_ASSERT_TIMEOUT_MS } from './timing';
 
 /** OUT rows exist and at least one talk can be sent (pending or broadcastable). */
@@ -39,14 +39,14 @@ export async function confirmBroadcastTagPreambleIfVisible(
   if (isDirectTalkDeliveryE2e() && !opts?.requirePreambleUi && minPeers > 0) {
     await waitForPendingBroadcastTalkIds(page, timeoutMs);
     await waitForChatroomMemberCountViaApi(page, minPeers, timeoutMs);
-    await deliverBroadcastViaRegisterApi(page, { minReceivers: minPeers });
+    await deliverBroadcastViaAppPath(page, { minReceivers: minPeers });
     return;
   }
   try {
     await confirmBroadcastTagPreambleCore(page, timeoutMs, opts);
   } catch {
     await waitForPendingBroadcastTalkIds(page, timeoutMs);
-    await deliverBroadcastViaRegisterApi(page, { minReceivers: minPeers });
+    await deliverBroadcastViaAppPath(page, { minReceivers: minPeers });
   }
 }
 

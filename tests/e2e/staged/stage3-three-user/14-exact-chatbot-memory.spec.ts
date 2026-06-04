@@ -123,6 +123,24 @@ async function waitForExactMemoryAnswer(page: Page, userId: string, answerText: 
   await expect
     .poll(
       async () => {
+        const localMemoryHasAnswer = await page
+          .evaluate(
+            ({ expected }) => {
+              try {
+                const raw = localStorage.getItem('exactChatbotMemory');
+                if (!raw) return false;
+                const parsed = JSON.parse(raw);
+                const localUserMemory = parsed?.users?.local || {};
+                return JSON.stringify(localUserMemory).includes(expected);
+              } catch {
+                return false;
+              }
+            },
+            { expected: answerText },
+          )
+          .catch(() => false);
+        if (localMemoryHasAnswer) return true;
+
         const memoryRes = await page.context().request.get(
           `${gunBaseURL()}/api/test/exact-chatbot-memory/${encodeURIComponent(userId)}`,
           { headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } },
@@ -256,17 +274,22 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
       .toBe('true');
 
     // Bob sends another context with Apple available and Banana absent.
-    // The chatbot should skip newest Banana history, reuse older Apple, and create a bot-marked match for Bob.
+    // In direct P2P mode Tom's browser owns exact memory, so it pre-fills Apple locally
+    // and Tom confirms the reviewed auto answer.
     const reusePayload = fruitTalk(TITLE_REUSE_APPLE, 'a_apple', 'Apple', 'a_orange_ignore', 'Orange');
     const reuseTalkId = await createTalkFromCompanyPage(pageBob, reusePayload);
     const reuseTalkData = { ...reusePayload, id: reuseTalkId, authorId: bobIdentity.id };
-    const autoJson = await deliverTalkToReceiver(pageBob, bobIdentity, tomIdentity, reuseTalkId, reuseTalkData, true);
-    expect(autoJson).toMatchObject({
+    expect(await deliverTalkToReceiver(pageBob, bobIdentity, tomIdentity, reuseTalkId, reuseTalkData, true)).toMatchObject({
       registered: true,
-      autoResponded: true,
-      isMatch: true,
-      reason: 'exact_chatbot_memory',
+      autoResponded: false,
     });
-    expect(autoJson.matches?.[0]?.senderId).toBe(bobIdentity.id);
+    await waitForIncomingTalkClusterOnLocalGun(pageTom, TITLE_REUSE_APPLE);
+    await syncIncomingFromServer(pageTom);
+    await openIncomingTalkModalWithAutoAnswers(pageTom, TITLE_REUSE_APPLE);
+    const reviewModal = pageTom.locator('#talk-response-modal');
+    await expect(reviewModal.locator('input[type="radio"][data-answer-id="a_apple"]')).toBeChecked({ timeout: 30_000 });
+    await reviewModal.locator('#review-submit-btn').click();
+    await waitForResponseModalClosed(pageTom);
+    await waitForRecordedResponse(pageTom, reuseTalkId);
   });
 });

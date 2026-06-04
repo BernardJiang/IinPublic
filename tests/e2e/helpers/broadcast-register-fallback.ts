@@ -50,8 +50,8 @@ export async function waitForChatroomMemberCountViaApi(
     .toBe('ok');
 }
 
-/** POST register-receivers when audience-preview UI does not open in time. */
-export async function deliverBroadcastViaRegisterApi(
+/** Invoke the app broadcast path directly when the audience-preview UI does not open in time. */
+export async function deliverBroadcastViaAppPath(
   page: Page,
   opts?: { minReceivers?: number },
 ): Promise<{ talksSent: number; receivers: number }> {
@@ -70,3 +70,6 @@ export async function deliverBroadcastViaRegisterApi(
     { minRecv: minReceivers },
   );
 }
+
+/** @deprecated use deliverBroadcastViaAppPath. */
+export const deliverBroadcastViaRegisterApi = deliverBroadcastViaAppPath;

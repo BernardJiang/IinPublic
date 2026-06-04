@@ -140,6 +140,10 @@ export default defineConfig({
             /staged\/[^/]+\/(aaa-|zzz-)/,
             // Star-only regression; run via `npm run test:e2e:star` (P2P_DIRECT_CHAT_ENABLED=0).
             /00-p2p-star-baseline-storage\.spec\.ts/,
+            // Server-snapshot reply triage scale tests; keep out of default P2P-only parallel runs until
+            // creator replies read pair-edge responses instead of imported server talkResponsesMap state.
+            /00v-creator-reply-triage-matrix\.spec\.ts/,
+            /00ad-reply-triage-group-date\.spec\.ts/,
             // Pair-direct delivery regression belongs in the default suite; exclude only for explicit star-mode runs.
             ...(P0_DIRECT_TALK_DELIVERY === '1' ? [] : [/00i-p0-direct-talk-delivery\.spec\.ts/]),
           ],

@@ -5,7 +5,7 @@ import { afterAction, afterSync, headless } from '../../helpers/timing';
 import { gunBaseURL } from '../../helpers/ports';
 import {
   clickBroadcastUntilBulkAck,
-  deliverBroadcastViaRegisterApi,
+  deliverBroadcastViaAppPath,
   waitForBroadcastableTalkIds,
 } from '../../helpers/talk-demo-ui';
 import { E2E_ASSERT_TIMEOUT_MS } from '../../helpers/timing';
@@ -186,7 +186,7 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     await ensureNoBlockBetween(pageTom, tomUserId, pageJerry, jerryUserId);
     await enterGlobalChatroom(pageTom);
     await waitForBroadcastableTalkIds(pageTom, E2E_ASSERT_TIMEOUT_MS);
-    const postUnblock = await deliverBroadcastViaRegisterApi(pageTom, { minReceivers: 1 });
+    const postUnblock = await deliverBroadcastViaAppPath(pageTom, { minReceivers: 1 });
     expect(postUnblock.talksSent).toBeGreaterThanOrEqual(1);
     await afterAction();
     await expect

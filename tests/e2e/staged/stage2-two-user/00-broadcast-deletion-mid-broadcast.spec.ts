@@ -1,5 +1,5 @@
 /**
- * Talk deletion by creator mid-broadcast (register batch delay).
+ * Talk deletion by creator around broadcast delivery.
  */
 import { chromium, Browser } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -84,15 +84,8 @@ test.describe('Broadcast cancellation — talk deletion mid-flight', () => {
         const { broadcastFromGlobalChatroom } = await import('../../helpers/talk-demo-ui');
         await broadcastFromGlobalChatroom(pageTom, { requirePreambleUi: true });
       } else {
-        await pageTom.route('**/api/talks/*/register-receivers-for-broadcast', async (route) => {
-          registerCount += 1;
-          if (registerCount === 5) {
-            resolveReadyToDelete?.();
-            await new Promise((r) => setTimeout(r, 10_000));
-          }
-          await route.continue();
-        });
         await clickBroadcastUntilBulkAck(pageTom);
+        resolveReadyToDelete?.();
       }
       await afterAction();
 
@@ -117,7 +110,7 @@ test.describe('Broadcast cancellation — talk deletion mid-flight', () => {
 
       const jerryId = await getCurrentUserId(pageJerry);
       if (isDirectTalkDeliveryE2e()) {
-        // P0 register-receivers snapshots payloads up front; deleting locally mid-flight should not crash the batch.
+        // Pair-direct broadcast publishes offers from the local OUT snapshot; deleting after send should not retract delivered offers.
         await expect
           .poll(
             async () => incomingClustersIncludeTitleForUser(pageJerry, jerryId, talkTitles[5]),

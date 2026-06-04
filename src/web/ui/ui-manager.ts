@@ -225,7 +225,7 @@ export class UIManager extends EventEmitter {
   private currentLocation: GPSCoordinate | undefined = undefined;
   private publicProfileFoundationReader: PublicProfileFoundationReader | undefined;
 
-  /** Other users in the current chatroom detail view (excludes self); used for broadcast + server-side IN registration. */
+  /** Other users in the current chatroom detail view (excludes self); used for broadcast delivery. */
   getCurrentChatroomMembers(): Array<{ userId: string; stageName: string }> {
     return [...this.currentChatroomMembers];
   }
@@ -1574,6 +1574,7 @@ export class UIManager extends EventEmitter {
       isBlockedByMe: this.isBlockedByMe.bind(this),
       getPeerName: this.getPeerName.bind(this),
       openPeerDetail: this.openPeerDetailForUser.bind(this),
+      getMyConversations: this.getMyConversations.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
       saveKnownPerson: this.saveKnownPerson.bind(this),
       submitPeerReview: this.submitPeerReview.bind(this),
@@ -1599,6 +1600,7 @@ export class UIManager extends EventEmitter {
       isBlockedByMe: this.isBlockedByMe.bind(this),
       getPeerName: this.getPeerName.bind(this),
       openPeerDetail: this.openPeerDetailForUser.bind(this),
+      getMyConversations: this.getMyConversations.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
       saveKnownPerson: this.saveKnownPerson.bind(this),
       submitPeerReview: this.submitPeerReview.bind(this),
@@ -1625,6 +1627,7 @@ export class UIManager extends EventEmitter {
         isBlockedByMe: this.isBlockedByMe.bind(this),
         getPeerName: this.getPeerName.bind(this),
         openPeerDetail: this.openPeerDetailForUser.bind(this),
+        getMyConversations: this.getMyConversations.bind(this),
         getMyTalks: this.getMyTalks.bind(this),
         saveKnownPerson: this.saveKnownPerson.bind(this),
         submitPeerReview: this.submitPeerReview.bind(this),
@@ -4597,7 +4600,7 @@ export class UIManager extends EventEmitter {
   }
 
   /**
-   * Durable bulk-send outcome for QA/E2E. Success toasts auto-hide after ~3s while register-receivers
+   * Durable bulk-send outcome for QA/E2E. Success toasts auto-hide after ~3s while delivery
    * can run much longer, so tests should assert on these attributes instead of toast text.
    */
   setBroadcastBulkAck(talksSent: number, receiversResolved: number): void {
@@ -5348,7 +5351,7 @@ export class UIManager extends EventEmitter {
   }
 
   /**
-   * Full talk from OUT/myTalks when Gun `getTalk` is slow — bulk broadcast must still POST register-receivers.
+   * Full talk from OUT/myTalks when Gun `getTalk` is slow — bulk broadcast still needs a local payload.
    */
   getBroadcastTalkPayload(talkId: string): any | null {
     const myTalks = getMyTalks();

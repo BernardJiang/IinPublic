@@ -959,42 +959,14 @@ export class IinPublicApp {
     return this.talkService.getTalkWithRetry(talkId);
   }
 
-  /** E2E: expose P0 flag and local IN snapshot. */
+  /** E2E: expose direct-talk flag and local IN snapshot. */
   public isDirectTalkDeliveryEnabled(): boolean {
     return usesDirectTalkDelivery(this.p2pRuntimeFlags);
   }
 
   public async getLocalIncomingClustersForE2e(): Promise<any[]> {
     if (!this.currentUser?.id) return [];
-    const local = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, { waitMs: 300 });
-    if (local.length > 0) return local;
-    const fromServer = await this.fetchP0MeshIncomingFromServer();
-    if (fromServer.length > 0) {
-      mirrorIncomingTalkClustersToLocalGun(
-        this.gunService,
-        this.currentUser.id,
-        fromServer,
-        this.p2pRuntimeFlags,
-      );
-    }
-    return fromServer;
-  }
-
-  /** P0 backfill when mesh Gun lag leaves local IN index empty after register-receivers. */
-  private async fetchP0MeshIncomingFromServer(): Promise<any[]> {
-    if (!this.currentUser?.id || !usesDirectTalkDelivery(this.p2pRuntimeFlags)) return [];
-    try {
-      const base = this.getBackendApiBase();
-      const res = await fetch(
-        `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/p0-mesh-incoming`,
-        { cache: 'no-store' },
-      );
-      if (!res.ok) return [];
-      const clusters = await res.json();
-      return Array.isArray(clusters) ? clusters : [];
-    } catch {
-      return [];
-    }
+    return collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, { waitMs: 300 });
   }
 
   private subscribeToTalks(chatroomId: string): void {
@@ -1169,6 +1141,7 @@ export class IinPublicApp {
 
           // Check if this is a match
           const isMatch = this.checkIfMatch(talkData, answers);
+          this.recordLocalTalkExchange(responseData.responderId, responseData.responderName, talkId, talkData, isMatch ? 'match' : 'mismatch');
 
           if (isMatch) {
             this.uiManager.showNotification(
@@ -1211,6 +1184,34 @@ export class IinPublicApp {
       });
   }
 
+  private recordLocalTalkExchange(
+    peerId: string,
+    peerName: string,
+    talkId: string,
+    talkData: any,
+    outcome: 'match' | 'mismatch' | 'ignore',
+  ): void {
+    if (!this.currentUser?.id || !peerId || peerId === this.currentUser.id || !talkId) return;
+    try {
+      const raw = localStorage.getItem('localTalkExchanges');
+      const exchanges = raw ? JSON.parse(raw) : {};
+      const key = `${peerId}::${talkId}`;
+      exchanges[key] = {
+        ...(exchanges[key] || {}),
+        peerId,
+        peerName: String(peerName || 'Unknown'),
+        talkId,
+        title: String(talkData?.title || 'Talk'),
+        outcome,
+        direction: 'sent',
+        date: new Date().toISOString(),
+      };
+      localStorage.setItem('localTalkExchanges', JSON.stringify(exchanges));
+    } catch {
+      // Local exchange summaries only support UI fallbacks; ignore storage failures.
+    }
+  }
+
   private pairIdForUsers(userA: string, userB: string): string {
     return [String(userA || '').trim(), String(userB || '').trim()].sort().join('__');
   }
@@ -1247,6 +1248,13 @@ export class IinPublicApp {
             : JSON.parse(String(responseData.answers || '[]'));
           this.processedTalkResponseKeys.add(dedupeKey);
           const isMatch = this.checkIfMatch(talkData, answers);
+          this.recordLocalTalkExchange(
+            responseData.responderId,
+            responseData.responderName,
+            talkId,
+            talkData,
+            isMatch ? 'match' : 'mismatch',
+          );
           if (!isMatch) return;
 
           this.uiManager.showNotification(
@@ -1454,7 +1462,7 @@ export class IinPublicApp {
     );
   }
 
-  /** Server-side IN metadata for peer APIs; P0 still returns empty GET /incoming-talks. */
+  /** Legacy server-side IN metadata for star-mode peer APIs. Direct mode skips this path. */
   private async postRegisterReceiversForBroadcast(
     talkId: string,
     talk: Talk,
@@ -1614,7 +1622,7 @@ export class IinPublicApp {
   }
 
   /**
-   * Other users who should receive server-side IN registration for a broadcast.
+   * Other users who should receive direct offers or legacy server-side IN registration for a broadcast.
    * **Gun `chatrooms/<id>/users` is authoritative** for who is in the room (FR-BM-7: same node only,
    * no parent→child hierarchy fan-out). The UI member list supplies `stageName`s only — never adds
    * receiver ids when Gun reports an empty room.
@@ -2095,7 +2103,7 @@ export class IinPublicApp {
     return isMatch;
   }
 
-  /** Resolve full talk using server incoming-talks (authoritative ids), not reshaped Gun cluster keys. */
+  /** Resolve full talk using the direct local IN index or the legacy server inbox. */
   private async loadFullTalkViaIncomingIdentity(identityKey: string): Promise<Talk | null> {
     if (!this.currentUser?.id) return null;
     try {
@@ -2299,7 +2307,7 @@ export class IinPublicApp {
   }
 
   /**
-   * E2E: await the same IN-list merge as the Talks tab (GET incoming-talks → UI). The tab emits
+   * E2E: await the same IN-list merge as the Talks tab. The tab emits
    * `needIncomingTalkClusters` without awaiting; Playwright needs a promise-bound sync.
    */
   public async syncIncomingClustersFromServer(): Promise<void> {
@@ -2312,16 +2320,6 @@ export class IinPublicApp {
 
   private async refreshIncomingTalkClustersFromLocalGun(): Promise<void> {
     if (!this.currentUser?.id) return;
-    const fromServer = await this.fetchP0MeshIncomingFromServer();
-    if (fromServer.length > 0) {
-      mirrorIncomingTalkClustersToLocalGun(
-        this.gunService,
-        this.currentUser.id,
-        fromServer,
-        this.p2pRuntimeFlags,
-      );
-      this.mergeIncomingClusterIntoUi(fromServer);
-    }
     await reconcilePeerTalkOffersFromGun(
       this.gunService,
       this.currentUser.id,
@@ -2340,9 +2338,8 @@ export class IinPublicApp {
   }
 
   private applyIncomingTalkClusters(clusters: any[]): void {
-    // Authoritative snapshot from GET /incoming-talks — do not merge old Gun .map() soul keys on top.
-    // Spreading incomingClustersMap left stale/non-identity entries and could prevent IN rows from matching
-    // the server list after syncIncomingClustersFromServer (e2e: row missing despite API having the talk).
+    // Replace the UI snapshot with the current local/direct or legacy server cluster list.
+    // Spreading incomingClustersMap left stale/non-identity entries and could prevent IN rows from matching.
     const next: Record<string, any> = {};
     for (const c of clusters) {
       if (c?.identityKey) {
@@ -2375,8 +2372,8 @@ export class IinPublicApp {
   }
 
   /**
-   * After registration, poll GET incoming-talks until this talk appears (or timeout). Aligns IN list
-   * with notification when server/Gun replication lags.
+   * After delivery, poll until this talk appears (or timeout). Aligns IN list
+   * with notification when Gun replication lags.
    */
   private async refreshIncomingTalkClustersFromApiUntilVisible(talkData: any, talkId: string): Promise<void> {
     if (!this.currentUser?.id || !talkData) return;
@@ -2865,7 +2862,7 @@ export class IinPublicApp {
             this.uiManager.showNotification(this.uiManager.formatBroadcastCancelled(), 'info');
             return;
           }
-          // Phase 1: POST register-receivers in small parallel batches (HTTP only — no Gun on this path).
+          // Phase 1: deliver in small parallel batches (direct mesh in P2P mode, legacy HTTP in star mode).
           // Fully sequential was very slow (20 round-trips); full parallel can spike the server.
           const REGISTER_BATCH = 5;
           const registeredTalkIds: string[] = [];

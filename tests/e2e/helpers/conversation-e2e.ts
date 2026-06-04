@@ -1,15 +1,51 @@
 import { expect, type Page } from '@playwright/test';
 import { gunBaseURL } from './ports';
 
-async function fetchUserConversations(
+type ConversationSnapshot = {
+  conversationId?: string;
+  otherUserId?: string;
+  otherUserName?: string;
+  talkId?: string;
+  transportMode?: string;
+};
+
+async function fetchLocalUserConversations(page: Page, userId: string): Promise<ConversationSnapshot[]> {
+  return page.evaluate(async (uid) => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    const localRaw = localStorage.getItem('myConversations');
+    const localMap = localRaw ? JSON.parse(localRaw) : {};
+    const localItems = Object.entries(localMap).map(([conversationId, value]) => ({
+      ...(value as any),
+      conversationId,
+    }));
+
+    const snapshot =
+      typeof app?.conversationService?.getUserConversationsSnapshot === 'function'
+        ? await app.conversationService.getUserConversationsSnapshot(uid)
+        : [];
+
+    const merged = new Map<string, any>();
+    for (const conv of [...localItems, ...snapshot]) {
+      const cid = conv?.conversationId;
+      if (!cid || !conv?.otherUserId) continue;
+      merged.set(cid, { ...merged.get(cid), ...conv });
+    }
+    return Array.from(merged.values());
+  }, userId);
+}
+
+export async function fetchUserConversations(
   page: Page,
   userId: string,
-): Promise<Array<{ conversationId?: string; otherUserId?: string; otherUserName?: string }>> {
+): Promise<ConversationSnapshot[]> {
+  const local = await fetchLocalUserConversations(page, userId).catch(() => []);
+  if (local.length > 0) return local;
+
   const res = await page.request.get(
     `${gunBaseURL()}/api/test/user-conversations/${encodeURIComponent(userId)}`,
   );
   if (!res.ok()) return [];
-  const body = (await res.json()) as { conversations?: Array<{ conversationId?: string; otherUserId?: string }> };
+  const body = (await res.json()) as { conversations?: ConversationSnapshot[] };
   return body.conversations ?? [];
 }
 
@@ -30,7 +66,7 @@ export async function getConversationIdBetween(
   return conversationId;
 }
 
-/** Durable match check via server conversations map (localStorage can lag). */
+/** Durable match check via local/Gun conversations, with legacy REST fallback. */
 export async function waitForServerConversationBetween(
   page: Page,
   userId: string,
@@ -43,12 +79,12 @@ export async function waitForServerConversationBetween(
         const list = await fetchUserConversations(page, userId);
         return list.some((c) => c?.otherUserId === otherUserId);
       },
-      { timeout: timeoutMs, message: `Server conversation between ${userId} and ${otherUserId}` },
+      { timeout: timeoutMs, message: `conversation between ${userId} and ${otherUserId}` },
     )
     .toBe(true);
 }
 
-/** Open Me conversation overlay when Gun→localStorage sync lags behind server match. */
+/** Open Me conversation overlay once the pair-local conversation exists. */
 export async function openConversationViaServer(
   page: Page,
   userId: string,
@@ -59,8 +95,7 @@ export async function openConversationViaServer(
   const conversationId = await getConversationIdBetween(page, userId, otherUserId);
   await page.evaluate(
     ({ cid, name, oid }) => {
-      const ui = (window as unknown as { __iinpublic_app?: { getApp: () => { uiManager?: { showConversationDetail?: (id: string) => void } } } })
-        .__iinpublic_app?.getApp?.()?.uiManager;
+      const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
       const raw = localStorage.getItem('myConversations');
       const conversations = raw ? JSON.parse(raw) : {};
       conversations[cid] = {

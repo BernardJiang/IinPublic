@@ -7,10 +7,10 @@ import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { maybeClearGunDatabases } from '../../helpers/clear-database';
 import { afterSync, afterAction } from '../../helpers/timing';
-import { gunBaseURL } from '../../helpers/ports';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../../helpers/talks-matching-browsers';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
 import { broadcastFromGlobalChatroom, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
+import { waitForServerConversations } from '../../helpers/talk-lifecycle-e2e';
 
 import {
   expectActiveTransportMode,
@@ -26,45 +26,6 @@ import {
 } from '../../helpers/talks-matching-flow';
 
 const TALK_TITLE = 'E2E Partial Match Tennis';
-
-/**
- * Confirm `expectedCount` conversations exist on the server for this page's user, then inject
- * them into the browser state via addNewConversation.
- *
- * Gun's WebSocket push from server → browser is unreliable under multi-browser Playwright load,
- * so we bypass it entirely: poll GET /api/test/user-conversations/:userId (reads the server-side
- * Gun graph directly, using page.request from the test process with the correct parallelSlot port)
- * and call uiManager.addNewConversation() from inside the page once the server confirms the data
- * exists. This updates localStorage and the badge without waiting for any Gun replication.
- */
-async function waitForServerConversations(page: Page, expectedCount: number): Promise<void> {
-  const userId = await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.id ?? '');
-  if (!userId) throw new Error('waitForServerConversations: could not get userId from page');
-
-  const url = `${gunBaseURL()}/api/test/user-conversations/${encodeURIComponent(userId)}`;
-
-  let convs: any[] = [];
-  await expect
-    .poll(
-      async () => {
-        const res = await page.request.get(url);
-        if (!res.ok()) return 0;
-        const data = (await res.json()) as { conversations: any[] };
-        convs = data.conversations ?? [];
-        return convs.length;
-      },
-      { timeout: 10_000, message: `Expected ${expectedCount} conversation(s) on server for user ${userId}` },
-    )
-    .toBeGreaterThanOrEqual(expectedCount);
-
-  // Inject into browser state so localStorage and badge update immediately.
-  await page.evaluate((conversations) => {
-    const app = (window as any).__iinpublic_app?.getApp?.();
-    for (const conv of conversations) {
-      app?.uiManager?.addNewConversation?.(conv);
-    }
-  }, convs);
-}
 
 test.describe('Talks matching — one match one mismatch from two responders', () => {
   let browsers: ThreeBrowsers;

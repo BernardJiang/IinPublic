@@ -13,6 +13,7 @@ type ContactsViewDeps = {
   isBlockedByMe: (userId: string) => boolean;
   getPeerName: (userId: string, fallbackName?: string) => string;
   openPeerDetail: (userId: string, stageName: string) => void;
+  getMyConversations: () => Record<string, any>;
   getMyTalks: () => Record<string, any>;
   saveKnownPerson: (
     userId: string,
@@ -89,6 +90,129 @@ function buildMetaLine(summary: PeerSummary, known: KnownPerson | undefined, dep
     known?.label ? formatRelationshipLabel(known, deps) : deps.text('stranger'),
   ];
   return parts.join(' · ');
+}
+
+function peerSummariesFromLocalConversations(deps: ContactsViewDeps): PeerSummary[] {
+  const byPeer = new Map<string, PeerSummary>();
+  const conversations = Object.values(deps.getMyConversations() || {});
+  for (const conversation of conversations as any[]) {
+    const peerId = String(conversation?.otherUserId || '');
+    if (!peerId || peerId === deps.currentUserId || conversation?.supportChannel === true) continue;
+    const stageName = deps.getPeerName(peerId, conversation?.otherUserName || 'Unknown');
+    const existing = byPeer.get(peerId);
+    const lastInteractionAt = String(
+      conversation?.lastMessageTime || conversation?.createdAt || new Date().toISOString(),
+    );
+    if (!existing) {
+      byPeer.set(peerId, {
+        peerId,
+        stageName,
+        lastInteractionAt,
+        stats: {
+          sent: { talks: 0, matches: 1 },
+          received: { talks: 0, matches: 0 },
+          mutualMatchedTalks: 1,
+          mutualTagCount: 0,
+          totalTalks: 1,
+        },
+      });
+      continue;
+    }
+    existing.stageName = deps.getPeerName(peerId, existing.stageName || stageName);
+    existing.stats.totalTalks += 1;
+    existing.stats.sent.matches += 1;
+    existing.stats.mutualMatchedTalks += 1;
+    if (
+      new Date(lastInteractionAt || 0).getTime()
+      > new Date(existing.lastInteractionAt || 0).getTime()
+    ) {
+      existing.lastInteractionAt = lastInteractionAt;
+    }
+  }
+  return Array.from(byPeer.values());
+}
+
+function readLocalTalkExchanges(): any[] {
+  try {
+    const raw = localStorage.getItem('localTalkExchanges');
+    const parsed = raw ? JSON.parse(raw) : {};
+    return Array.isArray(parsed) ? parsed : Object.values(parsed || {});
+  } catch {
+    return [];
+  }
+}
+
+function peerSummariesFromLocalTalkExchanges(deps: ContactsViewDeps): PeerSummary[] {
+  const byPeer = new Map<string, PeerSummary>();
+  for (const exchange of readLocalTalkExchanges()) {
+    const peerId = String(exchange?.peerId || '');
+    if (!peerId || peerId === deps.currentUserId) continue;
+    const stageName = deps.getPeerName(peerId, exchange?.peerName || 'Unknown');
+    const outcome = String(exchange?.outcome || '').toLowerCase();
+    const isMatch = outcome === 'match';
+    const lastInteractionAt = String(exchange?.date || new Date().toISOString());
+    const existing = byPeer.get(peerId);
+    if (!existing) {
+      byPeer.set(peerId, {
+        peerId,
+        stageName,
+        lastInteractionAt,
+        stats: {
+          sent: { talks: 1, matches: isMatch ? 1 : 0 },
+          received: { talks: 0, matches: 0 },
+          mutualMatchedTalks: isMatch ? 1 : 0,
+          mutualTagCount: 0,
+          totalTalks: 1,
+        },
+      });
+      continue;
+    }
+    existing.stageName = deps.getPeerName(peerId, existing.stageName || stageName);
+    existing.stats.sent.talks += 1;
+    existing.stats.totalTalks += 1;
+    if (isMatch) {
+      existing.stats.sent.matches += 1;
+      existing.stats.mutualMatchedTalks += 1;
+    }
+    if (
+      new Date(lastInteractionAt || 0).getTime()
+      > new Date(existing.lastInteractionAt || 0).getTime()
+    ) {
+      existing.lastInteractionAt = lastInteractionAt;
+    }
+  }
+  return Array.from(byPeer.values());
+}
+
+function mergePeerSummaries(serverPeers: PeerSummary[], localPeers: PeerSummary[]): PeerSummary[] {
+  const byPeer = new Map<string, PeerSummary>();
+  for (const peer of serverPeers) {
+    byPeer.set(peer.peerId, peer);
+  }
+  for (const local of localPeers) {
+    const existing = byPeer.get(local.peerId);
+    if (!existing) {
+      byPeer.set(local.peerId, local);
+      continue;
+    }
+    existing.stageName =
+      existing.stageName && existing.stageName !== 'Unknown' ? existing.stageName : local.stageName;
+    existing.lastInteractionAt =
+      new Date(existing.lastInteractionAt || 0).getTime()
+      >= new Date(local.lastInteractionAt || 0).getTime()
+        ? existing.lastInteractionAt
+        : local.lastInteractionAt;
+    existing.stats.totalTalks = Math.max(existing.stats.totalTalks, local.stats.totalTalks);
+    existing.stats.sent.talks = Math.max(existing.stats.sent.talks, local.stats.sent.talks);
+    existing.stats.received.talks = Math.max(existing.stats.received.talks, local.stats.received.talks);
+    existing.stats.sent.matches = Math.max(existing.stats.sent.matches, local.stats.sent.matches);
+    existing.stats.received.matches = Math.max(existing.stats.received.matches, local.stats.received.matches);
+    existing.stats.mutualMatchedTalks = Math.max(
+      existing.stats.mutualMatchedTalks,
+      local.stats.mutualMatchedTalks,
+    );
+  }
+  return Array.from(byPeer.values());
 }
 
 function rankingMetrics(peer: PeerSummary, known: KnownPerson | undefined, deps: ContactsViewDeps): {
@@ -543,11 +667,22 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
   listEl.innerHTML = `<p style="text-align: center; padding: 40px 20px; color: #999;">${deps.text('contactsLoading')}</p>`;
 
   try {
-    const response = await fetch(
-      `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers`,
+    let serverPeers: PeerSummary[] = [];
+    try {
+      const response = await fetch(
+        `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers`,
+      );
+      if (response.ok) {
+        serverPeers = (await response.json()) as PeerSummary[];
+      }
+    } catch {
+      serverPeers = [];
+    }
+    const localPeers = mergePeerSummaries(
+      peerSummariesFromLocalConversations(deps),
+      peerSummariesFromLocalTalkExchanges(deps),
     );
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const peers = (await response.json()) as PeerSummary[];
+    const peers = mergePeerSummaries(serverPeers, localPeers);
     const knownMap = new Map(
       deps.getKnownPeople().map((entry) => [entry.userId, entry] as const),
     );
@@ -785,6 +920,36 @@ export async function showContactDetail(
       .join('');
   };
 
+  const localTalkHistoryForPeer = (): any[] => {
+    const byTalk = new Map<string, any>();
+    const myTalks = deps.getMyTalks();
+    for (const conversation of Object.values(deps.getMyConversations() || {}) as any[]) {
+      if (String(conversation?.otherUserId || '') !== otherUserId) continue;
+      const talkId = String(conversation?.talkId || '');
+      if (!talkId) continue;
+      const localTalk = myTalks[talkId];
+      byTalk.set(talkId, {
+        talkId,
+        title: String(localTalk?.title || localTalk?.fullTalk?.title || deps.text('contactTalkFallback')),
+        direction: 'sent',
+        outcome: 'match',
+      });
+    }
+    for (const exchange of readLocalTalkExchanges()) {
+      if (String(exchange?.peerId || '') !== otherUserId) continue;
+      const talkId = String(exchange?.talkId || '');
+      if (!talkId) continue;
+      byTalk.set(talkId, {
+        ...byTalk.get(talkId),
+        talkId: String(exchange?.talkId || ''),
+        title: String(exchange?.title || byTalk.get(talkId)?.title || deps.text('contactTalkFallback')),
+        direction: String(exchange?.direction || 'sent'),
+        outcome: String(exchange?.outcome || 'pending'),
+      });
+    }
+    return Array.from(byTalk.values());
+  };
+
   try {
     const peerBase = `/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(otherUserId)}`;
     const historyRes = await fetchPeerDetail(`${peerBase}/talk-history`);
@@ -793,7 +958,10 @@ export async function showContactDetail(
       talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #c2410c;">${deps.text('contactDetailsUnavailable')}</p>`;
       return;
     }
-    const history = historyRes.ok ? await historyRes.json() : [];
+    const serverHistory = historyRes.ok ? await historyRes.json() : [];
+    const history = Array.isArray(serverHistory) && serverHistory.length > 0
+      ? serverHistory
+      : localTalkHistoryForPeer();
     renderTalkHistory(history, null);
 
     const [relationshipResult, userResult, blockStatusResult] = await Promise.allSettled([

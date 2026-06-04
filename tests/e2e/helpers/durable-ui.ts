@@ -1,6 +1,7 @@
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import { gunBaseURL } from './ports';
 import { E2E_ASSERT_TIMEOUT_MS } from './timing';
+import { fetchUserConversations } from './conversation-e2e';
 
 /** Parse "· 3 matches" from `#status-bar-text`; 0 if no match segment. */
 export function parseStatusBarMatchCount(text: string): number {
@@ -57,6 +58,54 @@ export async function waitForPeerHistoryTitle(
   await expect
     .poll(
       async () => {
+        const localTitles = await page
+          .evaluate(async ({ uid, pid }) => {
+            const app = (window as any).__iinpublic_app?.getApp?.();
+            const conversations =
+              typeof app?.conversationService?.getUserConversationsSnapshot === 'function'
+                ? await app.conversationService.getUserConversationsSnapshot(uid)
+                : [];
+            const localRaw = localStorage.getItem('myConversations');
+            const localMap = localRaw ? JSON.parse(localRaw) : {};
+            const localConversations = Object.entries(localMap).map(([conversationId, value]) => ({
+              ...(value as any),
+              conversationId,
+            }));
+            const talkIds = [...localConversations, ...conversations]
+              .filter((conv: any) => conv?.otherUserId === pid && conv?.talkId)
+              .map((conv: any) => String(conv.talkId));
+            const gun = app?.gunService?.getGun?.();
+            if (!gun || talkIds.length === 0) return [];
+            const titles = await Promise.all(
+              Array.from(new Set(talkIds)).map(
+                (talkId) =>
+                  new Promise<string>((resolve) => {
+                    gun.get(`talks/${talkId}`).once((raw: any) => {
+                      let talk = raw;
+                      if (raw?.data && typeof raw.data === 'string') {
+                        try {
+                          talk = JSON.parse(raw.data);
+                        } catch {
+                          talk = raw;
+                        }
+                      }
+                      resolve(String(talk?.title || ''));
+                    });
+                    setTimeout(() => resolve(''), 500);
+                  }),
+              ),
+            );
+            return titles.filter(Boolean);
+          }, { uid: userId, pid: peerId })
+          .catch(() => []);
+        if (localTitles.length > 0) return localTitles;
+
+        const localConversations = await fetchUserConversations(page, userId).catch(() => []);
+        const matchingTalkIds = localConversations
+          .filter((conv) => conv?.otherUserId === peerId && conv?.talkId)
+          .map((conv) => String(conv.talkId));
+        if (matchingTalkIds.includes(title)) return [title];
+
         const res = await request.get(
           `${gunBaseURL()}/api/users/${encodeURIComponent(userId)}/peers/${encodeURIComponent(peerId)}/talk-history`,
           { headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } },

@@ -11,7 +11,7 @@ import {
   waitForResponseModalClosed,
 } from './talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from './broadcast-preamble';
-import { deliverBroadcastViaRegisterApi, waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
+import { deliverBroadcastViaAppPath, waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
 import { gunBaseURL, isDirectTalkDeliveryE2e } from './ports';
 
 async function dismissBroadcastPreambleIfOpen(page: Page): Promise<void> {
@@ -44,8 +44,8 @@ async function clickChatroomBroadcastButton(page: Page, opts?: { minGunPeers?: n
   await confirmBroadcastTagPreambleIfVisible(page, E2E_ASSERT_TIMEOUT_MS, opts);
 }
 
-/** Gun `getActiveMembers` can lag behind UI; without this, broadcast may run with 0 receivers and skip register-receivers (no HTTP). */
-/** OUT row + local broadcastable state can lag createTalk; clicking Broadcast too early opens the editor and never POSTs register-receivers. */
+/** Gun `getActiveMembers` can lag behind UI; without this, broadcast may run with 0 receivers. */
+/** OUT row + local broadcastable state can lag createTalk; clicking Broadcast too early opens the editor. */
 export async function waitForBroadcastableTalkIds(page: Page, timeoutMs: number): Promise<void> {
   const { waitForPendingBroadcastTalkIds } = await import('./broadcast-preamble');
   await waitForPendingBroadcastTalkIds(page, timeoutMs);
@@ -79,8 +79,8 @@ export async function waitForDistinctGunPeersExcludingSelf(
     .toBe('ok');
 }
 
-/** P0/star fallback when audience-preview UI does not open in time — see broadcast-register-fallback.ts */
-export { deliverBroadcastViaRegisterApi, waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
+/** Direct/legacy fallback when audience-preview UI does not open in time — see broadcast-register-fallback.ts */
+export { deliverBroadcastViaAppPath, deliverBroadcastViaRegisterApi, waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
 
 /** Full production broadcastTalk path with audience modal auto-confirmed (P0 fallback when register-only deliver sends 0). */
 async function deliverViaUiBroadcastTalk(page: Page, minSent: number): Promise<void> {
@@ -122,8 +122,8 @@ async function deliverViaUiBroadcastTalk(page: Page, minSent: number): Promise<v
 }
 
 /**
- * Wait until the broadcast handler finishes (it awaits register-receivers before setBroadcastBulkAck).
- * page.waitForResponse missed some fetches in multi-window runs; the ack node is updated only after POST completes.
+ * Wait until the broadcast handler finishes. The ack node is updated only after direct offers
+ * or legacy registration complete.
  */
 /** Navigate to Global (if needed) and deliver all pending OUT talks (P0 register API or star preamble). */
 export async function broadcastFromGlobalChatroom(
@@ -169,7 +169,7 @@ export async function clickBroadcastUntilBulkAck(
   }
   await waitForBroadcastableTalkIds(page, E2E_ASSERT_TIMEOUT_MS);
   if (isDirectTalkDeliveryE2e() && minPeers > 0) {
-    const result = await deliverBroadcastViaRegisterApi(page, { minReceivers: minPeers }).catch(() => ({
+    const result = await deliverBroadcastViaAppPath(page, { minReceivers: minPeers }).catch(() => ({
       talksSent: 0,
       receivers: 0,
     }));
@@ -185,6 +185,8 @@ export async function clickBroadcastUntilBulkAck(
       });
       if (hasBroadcastable) {
         await deliverViaUiBroadcastTalk(page, minSent);
+        await dismissBroadcastPreambleIfOpen(page);
+        return;
       }
     }
   } else {
@@ -192,7 +194,7 @@ export async function clickBroadcastUntilBulkAck(
       await clickChatroomBroadcastButton(page, opts);
     } catch {
       if (isDirectTalkDeliveryE2e() && minPeers > 0) {
-        await deliverBroadcastViaRegisterApi(page, { minReceivers: minPeers });
+        await deliverBroadcastViaAppPath(page, { minReceivers: minPeers });
       }
     }
   }

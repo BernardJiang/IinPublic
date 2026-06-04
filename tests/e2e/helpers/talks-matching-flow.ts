@@ -181,42 +181,6 @@ export async function waitForIncomingTalkClusterOnLocalGun(
   await expect
     .poll(
       async () => {
-        const userId = await page.evaluate(() =>
-          String(
-            (
-              window as unknown as {
-                __iinpublic_app?: { getApp: () => { currentUser?: { id?: string } } };
-              }
-            ).__iinpublic_app?.getApp?.()?.currentUser?.id || '',
-          ),
-        );
-        const needle = String(titleSubstring).toLowerCase();
-        if (userId) {
-          const res = await page.request.get(
-            `${gunBaseURL()}/api/users/${encodeURIComponent(userId)}/p0-mesh-incoming`,
-            { headers: { 'Cache-Control': 'no-cache' } },
-          );
-          if (res.ok()) {
-            const mesh = (await res.json()) as unknown[];
-            const hay = JSON.stringify(mesh).toLowerCase();
-            if (hay.includes(needle)) {
-              await page.evaluate(async () => {
-                const app = (
-                  window as unknown as {
-                    __iinpublic_app?: { getApp: () => { syncIncomingClustersFromServer?: () => Promise<void> } };
-                  }
-                ).__iinpublic_app?.getApp?.();
-                await app?.syncIncomingClustersFromServer?.();
-              });
-              return 'ok';
-            }
-            if (Array.isArray(mesh) && mesh.length > 0) {
-              /* relay metadata has clusters but title mismatch — fall through to local Gun */
-            } else if (mesh.length === 0) {
-              /* empty relay metadata — fall through */
-            }
-          }
-        }
         return page.evaluate(async (n) => {
           const app = (
             window as unknown as {
