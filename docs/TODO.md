@@ -5,46 +5,89 @@ Last updated: 2026-06-04
 This file is the short, execution-oriented plan.
 - Completed work: `docs/completed.md`
 - Detailed backlog inventory: `docs/TODO-backlog-inventory.md`
-- **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specification.md` (§19.14, §19.14.9–10, §19.12 Phase E, REQ-P2P-21–29)
+- **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specification.md` (§19.13, §19.14, REQ-P2P-09–29)
 - Supporting detail: `docs/roadmap/p2p-node-network.md`
 
-## Current Focus (P1)
+## Current Focus — SRS §19.13 P2P Identity, Trust, Versioning, and Abuse Defense
 
-**Server-as-connector, pair-direct talk exchange (spec §19.14, hub Phase E)** — The server may help users discover rooms, register presence, and connect pairs. After connection, talks, answers, match threads, and non-TechSupport conversations must exchange directly between the pair and persist only on participant-controlled graphs/devices. Chatrooms are public discovery only; user data stays on the owner’s device (SEA zone B); pairwise answers and conversations are visible only to the two participants (zone C). Hub must not accumulate O(users²) pairwise state.
+P1 pair-private ownership graph (§19.14, REQ-P2P-21–29) is shipped and moved to `docs/completed.md`. The next SRS-backed gap is §19.13 / REQ-P2P-09–20: every direct discovery/signaling/payload exchange must have canonical peer identity, real signatures, replay protection, protocol negotiation, local trust gates, deterministic schema migrations, signed upgrades, and fake-client defenses.
 
-**Why:** Star mode stores answers on shared `talks/<talkId>/responses` and server `talkResponsesMap`, which replicates to every talk subscriber and does not scale (e.g. 100 users × 100 talks).
+## SRS Audit Snapshot (2026-06-04)
 
-**Design reference (captured 2026-05-28):**
+Checked current implementation against `docs/specs/iinpublic-technical-specification.md` §19.13 and §19.14.
 
-- **SEA + zone B:** `putPrivate` under `gun.user().get('private')` gives **content confidentiality** from other users and the server (no private key). Does **not** hide metadata, stop hub **relay** of ciphertext, or fix data still on **public** paths. Clients must not subscribe to others’ soul trees (§19.14.9).
-- **Zone C dedup (Bob → Alice + Tom, same talk):** One talk body in Bob’s **outbox/catalog**; small **announcements** per room; **per-receiver offers** (P1: ref + ciphertext, not N× full JSON); **per-pair** `pair(bob,alice)` vs `pair(bob,tom)` for answers — not global `talks/<id>/responses` (§19.14.10, REQ-P2P-29).
-- **P1 closure:** the ordered P1 ownership-graph implementation list below is complete, and the full direct-mode `npm run test:e2e:parallel` gate passed on 2026-06-04.
+- **§19.14 / REQ-P2P-21–29:** Shipped. Direct-mode answers and non-TechSupport DMs are pair-scoped SEA ciphertext, chatroom delivery is announcement metadata, offers use catalog refs, server APIs are scoped away from hub pair history, and `npm run test:e2e:parallel` passed in direct mode.
+- **REQ-P2P-09:** Partial. SEA keypairs persist, but there is no canonical `PeerID = HASH(pub)` used consistently on discovery, signaling, and peer payload wires.
+- **REQ-P2P-10 / 19:** Partial. Presence ack, signaling, and relay envelopes carry `signature` and `nonce`, but current signatures are placeholder strings in client code and server validation is field/TTL oriented, not SEA verification with durable replay rejection.
+- **REQ-P2P-14 / 15:** Partial. WebRTC sessions exchange `ledger-state`, but not a signed handshake with `appVersion`, `supportedProtocols`, `features`, and fail-closed negotiation when no protocol overlaps.
+- **REQ-P2P-11 / 12 / 18:** Partial. Blocks, known-person labels, local reputation, and neighbor trust status exist, but there is no distinct `Verified` trust level or capability gating for Unknown/Friend/Verified peers.
+- **REQ-P2P-13 / 16:** Partial. Some records have `version: 1`, but stored application objects do not consistently carry `schemaVersion`, and there is no deterministic startup/read migration registry.
+- **REQ-P2P-17:** Missing. No signed release hash/signature verification or trust-store flow exists for PWA/desktop/mobile upgrades.
+- **REQ-P2P-20:** Partial. Signaling TTL and client-side seen-nonce sets exist, but there is no server/client replay cache across requests, malformed-traffic rate limit, behavioral counter, suspicious-peer flag, or peer-priority downgrade path.
 
-**Exit criteria (P1 done when):**
+## Next Action Items (Ordered)
 
-- Alice’s manual answer to Bob’s talk is stored under **pair-private** paths (SEA), not global `talks/<id>/responses`.
-- Tom (same chatroom, received same announcement) cannot read Alice↔Bob response or DM data via Gun or hub APIs.
-- Chatroom Gun paths hold **announcements + membership** only (no full talk bodies or responses on room nodes).
-- Hub does not grow unbounded `talkResponsesMap` / authoritative `incomingTalksMap` for application history.
-- Same `talkId` to N receivers: **one** canonical body in author outbox/catalog; offers use catalog ref where possible (REQ-P2P-29).
-- E2E proves third-party isolation (extend or add spec beside `00i-p0-direct-talk-delivery`).
+### P2P-P — Canonical PeerID + Signed P2P Envelope
 
-## Audit Snapshot (2026-06-04)
+Implement one shared envelope for discovery, presence ack, signaling, relay fallback, WebRTC data-channel control frames, DM notify, and directed talk offer metadata.
 
-Direct-mode E2E now exercises client pair writes instead of `POST /api/talks/:id/response`. The server response endpoint rejects direct-mode answer submission, `test:e2e:parallel` defaults to direct mode, offers are catalog-ref metadata without full `talkData`, and direct-mode local IN writes use `ownerIncomingTalkIndex` instead of public `incomingTalksByUser`.
+Acceptance:
+- Derive stable `peerId = SHA-256(pub)` from the SEA public key and preserve compatibility with existing `userId` paths during migration.
+- Add shared helpers for `{ peerId, pub, timestamp, nonce, payloadHash, signature }`.
+- Replace placeholder `sig_${pub}_...` signatures with real SEA signing and verification.
+- Reject unsigned, modified, stale, or sender/pub mismatched envelopes in server routes and client receive paths.
+- Add unit/integration coverage for valid signature, tampered payload, stale timestamp, duplicate nonce, wrong peerId, and legacy compatibility.
 
-Phase E/P1 status against `docs/specs/iinpublic-technical-specification.md` §19.14:
+### P2P-Q — Signed Handshake + Protocol/Feature Negotiation
 
-- Pair response payloads under `pairTalkResponses/<pairId>/...` are pair-scoped SEA ciphertext with routing metadata only.
-- Non-TechSupport conversation bodies write to pair-scoped encrypted paths in direct mode.
-- Direct-mode Creator Replies, relationship stats, and talk-history server APIs no longer expose hub-derived pair history; clients should use local owner/pair graph state.
-- Chatroom delivery writes metadata announcements to `chatrooms/<room>/announcements/*`; legacy `talks` read fallback remains for migration.
-- Third-party isolation E2E proves Bob/Alice/Tom response and DM ciphertext isolation plus one canonical talk body.
-- Full direct-mode verification passed: `npm run test:e2e:parallel` — 96 passed, 2 skipped.
+Extend direct connection setup beyond `LEDGER_STATE` so peers negotiate capabilities before trusting P2P payloads.
 
-## Next Action Items (Ordered) — P1 Ownership Graph
+Acceptance:
+- On WebRTC open and first Gun/direct exchange, send signed handshake `{ peerId, appName, appVersion, supportedProtocols, features, publicKey, timestamp }`.
+- Negotiate the highest common protocol and fail cleanly when there is no overlap.
+- Ignore unknown fields/features without crashing; expose local diagnostics for selected protocol and unsupported-feature fallback.
+- Add unit/E2E coverage for compatible, downgraded, unsupported, and malformed handshakes.
 
-No open P1 ownership-graph action items remain in this file. New work should be added here only after checking `docs/completed.md` and the spec audit above.
+### P2P-R — Local Trust Levels + Capability Gating
+
+Make the SRS trust model explicit in runtime behavior.
+
+Acceptance:
+- Add `trustLevel: 'unknown' | 'friend' | 'verified' | 'blocked'` to the local known-peer/trust model while preserving current labels.
+- Gate capabilities by trust level: Unknown has limited broadcast/contact privileges; Friend has normal exchange; Verified enables higher-trust affordances; Blocked receives no communication.
+- Ensure reputation can recommend or prioritize but never overrides explicit Blocked or user-set trust.
+- Add tests for Unknown defaults, promotion/demotion, Verified behavior, block precedence, and trust surviving reload/export.
+
+### P2P-S — Schema Versions + Deterministic Migration Registry
+
+Unify stored object versioning before more P2P wire changes accumulate.
+
+Acceptance:
+- Define schema versions for presence, peer offers, catalog records, pair responses, pair conversations, known people, neighbor cache, ledger events, and local IN/OUT indexes.
+- Add deterministic migration functions and a startup/read migrator with idempotency guarantees.
+- Add storage inspector diagnostics for current schema versions and pending migrations.
+- Add unit tests for v1→current migration and no-op re-run behavior.
+
+### P2P-T — Signed Upgrade Verification
+
+Add release integrity checks for official clients.
+
+Acceptance:
+- Define a release manifest format containing version, package hash, signature, signer key id, and supported protocol/schema range.
+- Add verification helpers and trust-store configuration for PWA/desktop/mobile packaging.
+- Reject unsigned or hash-mismatched releases before install/update.
+- Add tests around valid manifest, bad signature, unknown signer, downgrade, and protocol incompatibility warning.
+
+### P2P-U — Fake-Client Defense + Replay/Rate Controls
+
+Harden relay and client receive paths against malformed traffic and abuse.
+
+Acceptance:
+- Add bounded nonce replay caches on server relay routes and client peer receive paths.
+- Rate-limit malformed signaling/relay/presence traffic by peer/pub/IP where available.
+- Track suspicious-peer counters locally and downgrade neighbor priority without trusting `appName`.
+- Expose non-secret diagnostics for rejected envelopes and suspicious-peer state.
+- Add tests for duplicate nonce, malformed payload floods, stale timestamps, blocked peer attempts, and priority downgrade.
 
 ## Shipped (foundation)
 
@@ -52,7 +95,8 @@ No open P1 ownership-graph action items remain in this file. New work should be 
 |-------|--------|-------|
 | P0 Phase B — pair-direct talk delivery | Shipped foundation | Server connects users; `peerTalkOffers`, `peerTalkCatalog`, local IN, `npm run dev:p0-talks`. P1 encrypts/scopes it. |
 | P2P-H–O — relay stack | Shipped | See `docs/completed.md` |
-| Hub Phase C — relay-only hub | Partial | Ephemeral flags; P1 completes ownership |
+| P1 Phase E — pair-private ownership graph | Shipped | See `docs/completed.md` |
+| Hub Phase C — relay-only hub | Partial | Ephemeral flags and pair-private app data are in place; production `radata/` removal remains a deployment hardening task. |
 
 ## Hub migration track (§19.12)
 
@@ -63,19 +107,6 @@ No open P1 ownership-graph action items remain in this file. New work should be 
 | C Relay-only hub (no app `radata/`) | Partial | P1 removes pairwise hub RAM |
 | D DHT bootstrap | Not started | Optional |
 | **E Pair-private ownership graph** | **Shipped (P1)** | §19.14, §19.14.9–10 |
-
-## Deferred (after P1)
-
-Identity/trust/versioning (§19.13, P2P-P–U) and optional D4 creator-edit checks.
-
-| Phase | Status | Notes |
-|-------|--------|-------|
-| P2P-P PeerID + wire envelope | Deferred | REQ-P2P-09, 10, 19 |
-| P2P-Q Handshake + protocol negotiation | Deferred | Partial today |
-| P2P-R Trust levels + gating | Deferred | Partial today |
-| P2P-S Schema migrations | Deferred | |
-| P2P-T Signed upgrades | Deferred | |
-| P2P-U Fake-client defense | Deferred | Partial today |
 
 ## Run commands
 
@@ -89,9 +120,10 @@ npm run dev:relay-only        # Ephemeral hub profile
 
 - **P0-1–P0-6** — Direct browser talk exchange over Gun mesh
 - **D2–D6**, **E, F, G**, **Direct P2P transport slice**
+- **P1 / §19.14 / REQ-P2P-21–29** — Pair-private ownership graph
 
 ## Working Rule
 
 - Move completed TODO items to `docs/completed.md`.
 - Keep this file short and action-oriented.
-- Do not start P2P-P–U until P1 exit criteria pass unless a task explicitly depends on them.
+- Keep SRS audit snapshots tied to code evidence and verification commands.

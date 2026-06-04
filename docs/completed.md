@@ -2,6 +2,41 @@
 
 Last updated: 2026-06-04
 
+## 2026-06-04 - TODO cleanup: P1 moved out of active queue
+
+Moved the completed P1 ownership-graph focus, exit criteria, and audit evidence out of `docs/TODO.md`. The active TODO now starts from the next SRS gap: §19.13 / REQ-P2P-09–20 identity, trust, versioning, upgrades, and fake-client defense.
+
+**P1 completion evidence preserved here:**
+- Direct-mode E2E exercises client pair writes instead of `POST /api/talks/:id/response`.
+- Server response endpoint rejects direct-mode answer submission.
+- `test:e2e:parallel` defaults to direct mode.
+- Direct-mode peer offers are catalog-ref metadata without duplicated full `talkData`.
+- Direct-mode local IN writes use `ownerIncomingTalkIndex` instead of public `incomingTalksByUser`.
+- Pair response payloads under `pairTalkResponses/<pairId>/...` are pair-scoped SEA ciphertext with routing metadata only.
+- Non-TechSupport conversation bodies write to pair-scoped encrypted paths in direct mode.
+- Direct-mode Creator Replies, relationship stats, and talk-history server APIs no longer expose hub-derived pair history.
+- Chatroom delivery writes metadata announcements to `chatrooms/<room>/announcements/*`; legacy `talks` read fallback remains for migration.
+- Third-party isolation E2E proves Bob/Alice/Tom response and DM ciphertext isolation plus one canonical talk body.
+
+**Verification:**
+- `npm run test:e2e:parallel` — 96 passed, 2 skipped
+
+## 2026-06-04 - Pair-direct response encryption stabilization
+
+Fixed a direct-mode race where responders could receive a talk offer before `users/<authorId>` had replicated, causing pair response encryption to fail while looking up the author's public encryption key.
+
+**Changes:**
+- Peer talk offers now carry the sender SEA `epub` as metadata.
+- Chatroom announcements carry `authorEpub` when available.
+- Hydrated incoming talk records preserve `authorEpub` for direct response completion.
+- Pair response encryption first uses the delivery key hint, then falls back to bounded public-user retries for legacy records.
+
+**Evidence:**
+- `npm run test:type` clean
+- `npm run test:unit -- peer-talk-delivery` — 29 suites, 294 passed
+- Focused P2P E2E batch — 11 passed
+- `npm run test:e2e:parallel` — 96 passed, 2 skipped
+
 ## 2026-06-04 - P1-6b/P1-7: Encrypted pair-private direct graph
 
 Direct-mode talk answers and non-TechSupport conversation bodies now use pair-scoped SEA ciphertext with raw Gun nodes limited to routing metadata.
