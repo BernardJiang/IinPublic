@@ -186,6 +186,11 @@ export class IinPublicApp {
     this.getChatroomTalkAnnouncementRoot(gun, chatroomId).get(announcementKey).put(announcement);
   }
 
+  private currentUserEpub(): string | undefined {
+    const epub = this.gunService.getStoredPair()?.epub;
+    return epub ? String(epub) : undefined;
+  }
+
   private countOrdinaryRoomMembers(members: Array<{ userId: string }>): number {
     return members.filter((member) => member.userId !== TECHSUPPORT_ROOT_USER_ID).length;
   }
@@ -748,7 +753,12 @@ export class IinPublicApp {
         { attempts: 8, gapMs: 250 },
       ));
     if (!talkData) return;
-    const talkRecord = talkData as unknown as Record<string, unknown>;
+    const talkRecord = {
+      ...(talkData as unknown as Record<string, unknown>),
+      authorId: offer.senderId,
+      authorName: offer.senderName,
+      ...(offer.senderEpub ? { authorEpub: offer.senderEpub } : {}),
+    };
     const acceptParams: {
       senderId: string;
       talkData: Record<string, unknown>;
@@ -1056,15 +1066,20 @@ export class IinPublicApp {
               talkData,
               this.p2pRuntimeFlags,
             );
+            const talkWithAuthor = {
+              ...talkData,
+              authorName: talkAnnouncement.authorName || (talkData as any)?.authorName || 'Unknown',
+              ...(talkAnnouncement.authorEpub ? { authorEpub: talkAnnouncement.authorEpub } : {}),
+            };
             this.registerSelfAsReceiverOfIncomingTalk(
               talkAnnouncement.talkId,
               authorId,
               talkAnnouncement.authorName || 'Unknown',
-              talkData,
+              talkWithAuthor,
             );
             this.maybeAutoChatbotReplyToAnnouncer(
               logicalTalkId,
-              talkData,
+              talkWithAuthor,
               authorId,
               talkAnnouncement.authorName || 'Unknown',
             );
@@ -1090,6 +1105,7 @@ export class IinPublicApp {
           const talkWithAuthor = {
             ...talkData,
             authorName: talkAnnouncement.authorName || (talkData as any)?.authorName || 'Unknown',
+            ...(talkAnnouncement.authorEpub ? { authorEpub: talkAnnouncement.authorEpub } : {}),
           };
 
           const firstUi = !seenTalkAuthor.has(pairKey);
@@ -1339,20 +1355,49 @@ export class IinPublicApp {
     return [String(userA || '').trim(), String(userB || '').trim()].sort().join('__');
   }
 
-  private async getPairTalkResponseSecret(peerUserId: string): Promise<string> {
+  private pairTalkPeerEpubHint(...values: unknown[]): string | undefined {
+    for (const value of values) {
+      if (typeof value !== 'string') continue;
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+    }
+    return undefined;
+  }
+
+  private async getPairTalkResponseSecret(peerUserId: string, peerEpubHint?: string): Promise<string> {
     const pair = this.gunService.getStoredPair();
     if (!pair) {
       throw new Error('No SEA keypair is available for pair-private talk response');
     }
-    const peer = await this.gunService.getPublicUser(peerUserId);
-    if (!peer?.epub) {
-      throw new Error(`Peer ${peerUserId} has no public encryption key`);
+    if (peerEpubHint) {
+      return getSEA().secret(peerEpubHint, pair as GunPair);
     }
-    return getSEA().secret(peer.epub, pair as GunPair);
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      try {
+        const peer = await Promise.race([
+          this.gunService.getPublicUser(peerUserId),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 900)),
+        ]);
+        const epub = typeof peer?.epub === 'string' ? peer.epub.trim() : '';
+        if (epub) {
+          return getSEA().secret(epub, pair as GunPair);
+        }
+      } catch (error) {
+        lastError = error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250 + attempt * 100));
+    }
+    const suffix = lastError instanceof Error ? ` (${lastError.message})` : '';
+    throw new Error(`Peer ${peerUserId} has no public encryption key${suffix}`);
   }
 
-  private async encryptPairTalkResponsePayload(peerUserId: string, payload: Record<string, unknown>): Promise<string> {
-    const secret = await this.getPairTalkResponseSecret(peerUserId);
+  private async encryptPairTalkResponsePayload(
+    peerUserId: string,
+    payload: Record<string, unknown>,
+    peerEpubHint?: string,
+  ): Promise<string> {
+    const secret = await this.getPairTalkResponseSecret(peerUserId, peerEpubHint);
     return getSEA().encrypt(JSON.stringify(payload), secret);
   }
 
@@ -2185,13 +2230,14 @@ export class IinPublicApp {
     });
     const pairId = this.pairIdForUsers(this.currentUser.id, params.authorId);
     const responseId = `resp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const authorEpub = this.pairTalkPeerEpubHint(params.talkData?.authorEpub, params.talkData?.senderEpub);
     const payloadCiphertext = await this.encryptPairTalkResponsePayload(params.authorId, {
       responderName: this.currentUser.stageName,
       authorName: params.authorName,
       answers: params.answers,
       isChatbotResponse: params.isChatbotResponse,
       transportMode: 'pair-direct',
-    });
+    }, authorEpub);
     const responsePayload = {
       version: 2,
       responseId,
@@ -2419,6 +2465,7 @@ export class IinPublicApp {
       );
       for (const { tid, talk } of talkPayloads) {
         if (!broadcastableNowForGun.has(tid)) continue;
+        const authorEpub = this.currentUserEpub();
         const announcementKey = this.buildChatroomTalkAnnouncementKey(
           tid,
           String(talk.authorId || this.currentUser.id),
@@ -2428,6 +2475,7 @@ export class IinPublicApp {
           title: talk.title,
           authorId: talk.authorId,
           authorName: this.currentUser.stageName,
+          ...(authorEpub ? { authorEpub } : {}),
           type: talk.type,
           timestamp: new Date().toISOString(),
           questionCount: talk.questions?.length ?? 0,
@@ -2478,6 +2526,7 @@ export class IinPublicApp {
     const broadcastableNowForGun = new Set(registeredTalkIds);
     for (const { tid, talk } of talkPayloads) {
       if (!broadcastableNowForGun.has(tid)) continue;
+      const authorEpub = this.currentUserEpub();
       const announcementKey = this.buildChatroomTalkAnnouncementKey(
         tid,
         String(talk.authorId || this.currentUser.id),
@@ -2487,6 +2536,7 @@ export class IinPublicApp {
         title: talk.title,
         authorId: talk.authorId,
         authorName: this.currentUser.stageName,
+        ...(authorEpub ? { authorEpub } : {}),
         type: talk.type,
         timestamp: new Date().toISOString(),
         questionCount: talk.questions?.length ?? 0,
@@ -2945,11 +2995,13 @@ export class IinPublicApp {
 
           const gun = this.gunService.getGun();
           const announcementKey = this.buildChatroomTalkAnnouncementKey(talk.id, talk.authorId);
+          const authorEpub = this.currentUserEpub();
           this.publishChatroomTalkAnnouncement(gun, chatroomId, announcementKey, {
             talkId: talk.id,
             title: talk.title,
             authorId: talk.authorId,
             authorName: this.currentUser!.stageName,
+            ...(authorEpub ? { authorEpub } : {}),
             type: talk.type,
             timestamp: new Date().toISOString(),
             questionCount: talk.questions.length,

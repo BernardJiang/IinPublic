@@ -51,7 +51,11 @@ export function publishPeerTalkOffer(
   },
 ): void {
   if (!receiverUserId || receiverUserId === params.senderId) return;
-  const offer = createPeerTalkOfferWire(params);
+  const senderEpub = gunService.getStoredPair()?.epub;
+  const offer = createPeerTalkOfferWire({
+    ...params,
+    ...(senderEpub ? { senderEpub: String(senderEpub) } : {}),
+  });
   const key = buildPeerTalkOfferKey(params.senderId, params.talkId);
   gunService.getGun().get(PEER_TALK_OFFERS_ROOT).get(receiverUserId).get(key).put(offer);
 }

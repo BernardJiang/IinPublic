@@ -41,9 +41,11 @@ describe('peer-talk-delivery', () => {
       talkId: 't1',
       senderId: 's1',
       senderName: 'Sender',
+      senderEpub: 'epub-s1',
       talkData: { title: 'T', type: 'tag', language: 'en' },
     });
     expect(offer.talkData).toBeUndefined();
+    expect(offer.senderEpub).toBe('epub-s1');
     expect(offer.talkRef).toEqual({
       root: 'peerTalkCatalog',
       authorId: 's1',

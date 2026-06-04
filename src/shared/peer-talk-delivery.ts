@@ -28,6 +28,8 @@ export type PeerTalkOfferWire = {
   talkId: string;
   senderId: string;
   senderName: string;
+  /** Sender SEA epub lets receivers encrypt pair-private responses without waiting for users/<id>. */
+  senderEpub?: string;
   /** P1: pair offer metadata references the canonical author-owned body. */
   talkRef: PeerTalkReferenceWire;
   /** Legacy compatibility only. New direct-mode offers must not include the full body. */
@@ -106,6 +108,7 @@ export function createPeerTalkOfferWire(params: {
   talkId: string;
   senderId: string;
   senderName: string;
+  senderEpub?: string;
   talkData: Record<string, unknown>;
   deliveryChatroomId?: string;
   directPeerSend?: boolean;
@@ -118,6 +121,7 @@ export function createPeerTalkOfferWire(params: {
     talkId: params.talkId,
     senderId: params.senderId,
     senderName: params.senderName,
+    ...(params.senderEpub ? { senderEpub: params.senderEpub } : {}),
     talkRef: {
       root: PEER_TALK_CATALOG_ROOT,
       authorId: params.senderId,
