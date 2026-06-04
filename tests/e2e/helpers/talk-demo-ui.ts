@@ -498,7 +498,7 @@ export async function recordTalkStatsByAnswerIds(
 
 /**
  * Fast UI-side completion: bypass repeated modal clicks while still using UIManager.completeTalk,
- * so local "Answers" state and the app's server submission path both run.
+ * so local "Answers" state and the app's pair-direct submission path both run.
  */
 export async function completeTalkInAppByAnswerIds(
   page: Page,
@@ -545,7 +545,7 @@ export async function completeTalkInAppByAnswerIds(
     .toBeGreaterThanOrEqual(1)
     .then(() => true)
     .catch(() => false);
-  if (!totalAfterAppPath) {
+  if (!totalAfterAppPath && !isDirectTalkDeliveryE2e()) {
     await submitTalkResponseByAnswerIds(page, summaryTalkId, talkData, answerIds);
   }
 

@@ -53,6 +53,7 @@ export class IinPublicApp {
   private currentChatroomId?: string;
   /** Gun .map().on may replay the same response node; avoid duplicate match UI/conversations. */
   private processedTalkResponseKeys = new Set<string>();
+  private directPairResponseSubscriptionKeys = new Set<string>();
   /** One auto chatbot reply per announcer for the same content-hash talk id (same qa_* = same talk; keys are not author-based talk identity). */
   private chatbotAutoReplySentForPair = new Set<string>();
   /** Bounded retries for template races (announcement can arrive before manual answer persistence finishes). */
@@ -676,24 +677,7 @@ export class IinPublicApp {
         talkData: talkRecord,
         directPeerSend: true,
       });
-      const base = this.getBackendApiBase();
-      const res = await fetch(`${base}/api/talks/${encodeURIComponent(talkId)}/received`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          receiverId: peerId,
-          receiverName: peerName,
-          senderId: me.id,
-          senderName: me.stageName,
-          talkData: talk,
-          chatbotEnabled: this.uiManager.getChatbotEnabled(),
-        }),
-      });
-      if (!res.ok) throw new Error(`register talk for peer failed: HTTP ${res.status}`);
-      const result = (await res.json()) as { registered?: boolean };
-      if (result.registered !== true) {
-        throw new Error('register talk for peer rejected by recipient delivery policy');
-      }
+      this.subscribeToPairTalkResponses(talkId, talk, peerId);
       return;
     }
     const base = this.getBackendApiBase();
@@ -1227,6 +1211,78 @@ export class IinPublicApp {
       });
   }
 
+  private pairIdForUsers(userA: string, userB: string): string {
+    return [String(userA || '').trim(), String(userB || '').trim()].sort().join('__');
+  }
+
+  private subscribeToPairTalkResponses(talkId: string, talkData: any, peerId: string): void {
+    if (!this.currentUser?.id || !peerId || peerId === this.currentUser.id) return;
+    const pairId = this.pairIdForUsers(this.currentUser.id, peerId);
+    const subscriptionKey = `${pairId}::${talkId}`;
+    if (this.directPairResponseSubscriptionKeys.has(subscriptionKey)) return;
+    this.directPairResponseSubscriptionKeys.add(subscriptionKey);
+
+    const gun = this.gunService.getGun();
+    gun
+      .get('pairTalkResponses')
+      .get(pairId)
+      .get(talkId)
+      .map()
+      .on((responseData: any, responseId: string) => {
+        if (!responseData || !responseId || responseId.startsWith('_')) return;
+        const dedupeKey = `pair::${pairId}::${talkId}::${responseId}`;
+        if (this.processedTalkResponseKeys.has(dedupeKey)) return;
+        if (responseData.responderId === this.currentUser?.id) {
+          this.processedTalkResponseKeys.add(dedupeKey);
+          return;
+        }
+        if (responseData.authorId && responseData.authorId !== this.currentUser?.id) {
+          this.processedTalkResponseKeys.add(dedupeKey);
+          return;
+        }
+
+        try {
+          const answers = Array.isArray(responseData.answers)
+            ? responseData.answers
+            : JSON.parse(String(responseData.answers || '[]'));
+          this.processedTalkResponseKeys.add(dedupeKey);
+          const isMatch = this.checkIfMatch(talkData, answers);
+          if (!isMatch) return;
+
+          this.uiManager.showNotification(
+            this.uiManager.formatTalkMatched(responseData.responderName, talkData.title),
+            'success',
+          );
+          this.conversationService
+            .createConversation({
+              userId1: this.currentUser!.id,
+              userName1: this.currentUser!.stageName,
+              userId2: responseData.responderId,
+              userName2: responseData.responderName,
+              talkId,
+              respondedByBotForUser1: !!responseData.isChatbotResponse,
+              respondedByBotForUser2: false,
+            })
+            .then((conversationId) => {
+              this.uiManager.addNewConversation({
+                conversationId,
+                otherUserId: responseData.responderId,
+                otherUserName: responseData.responderName,
+                talkId,
+                respondedByBot: !!responseData.isChatbotResponse,
+                transportMode: this.conversationService.getTransportMode(),
+              });
+              this.uiManager.setMemberMatched(responseData.responderId);
+            })
+            .catch((error) => {
+              console.error('Failed to create pair-direct conversation:', error);
+            });
+        } catch (error) {
+          console.error('Error processing pair-direct talk response:', error);
+        }
+      });
+  }
+
   /**
    * Auto-reply to a talk using saved template (chatbot). Puts response to Gun and creates
    * responder's conversation so the author will receive the match and see bot icon.
@@ -1383,16 +1439,9 @@ export class IinPublicApp {
           talkData: talkRecord,
           ...(deliveryRoom ? { deliveryChatroomId: deliveryRoom } : {}),
         });
+        this.subscribeToPairTalkResponses(talkId, talk, receiverId);
       }
-      console.log(`📡 P0 peer talk offers published: talkId=${talkId} receivers=${receiverIds.length}`);
-      // Mirror exchange metadata on server for peer history / contacts (GET incoming-talks stays empty in P0).
-      void this.postRegisterReceiversForBroadcast(
-        talkId,
-        talk,
-        receiverIds,
-        broadcastTargetTags,
-        broadcastMaxDistanceMiles,
-      ).catch(() => {});
+      console.log(`📡 Pair-direct talk offers published: talkId=${talkId} receivers=${receiverIds.length}`);
       return true;
     }
 
@@ -1792,6 +1841,20 @@ export class IinPublicApp {
       data.talkData?.authorName && data.talkData.authorName !== 'Unknown'
         ? data.talkData.authorName
         : undefined;
+
+    if (usesDirectTalkDelivery(this.p2pRuntimeFlags) && data.talkData?.authorId && data.talkData.authorId !== this.currentUser?.id) {
+      await this.submitTalkResponsePairDirect({
+        talkId: data.talkId,
+        talkData: data.talkData,
+        answers: data.answers,
+        isChatbotResponse: isChatbot,
+        authorId: String(data.talkData.authorId),
+        authorName: localAuthorName || String(data.talkData.authorName || 'Unknown'),
+        isAutoResponse: !data.answers.some((a: any) => a?.mode === 'manual'),
+      });
+      return;
+    }
+
     let submittedViaServer = false;
     let serverIsMatch = false;
     let serverMatches: Array<{ senderId: string; senderName: string; conversationId: string; talkId: string }> = [];
@@ -1878,6 +1941,119 @@ export class IinPublicApp {
         });
       }
     }
+  }
+
+  private async recordDirectTalkStats(params: {
+    talkId: string;
+    talkData: any;
+    responderId: string;
+    answers: any[];
+    outcome: 'match' | 'ignore' | 'other';
+    isAuto: boolean;
+  }): Promise<void> {
+    try {
+      const res = await fetch(`${this.getBackendApiBase()}/api/stats/talks/${encodeURIComponent(params.talkId)}/record`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          responderId: params.responderId,
+          talkType: params.talkData?.type || 'flow',
+          answers: params.answers.map((a: any) => ({
+            questionId: String(a.questionId || ''),
+            answerId: String(a.answerId || ''),
+            answerText: String(a.answerText ?? ''),
+          })),
+          outcome: params.outcome,
+          isAuto: params.isAuto,
+        }),
+      });
+      if (!res.ok) {
+        console.warn(`Pair-direct stats record failed: HTTP ${res.status}`);
+      }
+    } catch (error) {
+      console.warn('Pair-direct stats record failed:', error);
+    }
+  }
+
+  private async submitTalkResponsePairDirect(params: {
+    talkId: string;
+    talkData: any;
+    answers: any[];
+    isChatbotResponse: boolean;
+    authorId: string;
+    authorName: string;
+    isAutoResponse: boolean;
+  }): Promise<void> {
+    if (!this.currentUser?.id) return;
+    const isMatch = this.checkIfMatch(params.talkData, params.answers);
+    const isIgnore = params.answers.some((answer: any) => {
+      const answerId = String(answer?.answerId || '').toLowerCase();
+      const answerText = String(answer?.answerText || '').toLowerCase();
+      return answerId === 'ignore' || answerId.includes('ignore') || answerText === 'ignore';
+    });
+    const pairId = this.pairIdForUsers(this.currentUser.id, params.authorId);
+    const responseId = `resp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const responsePayload = {
+      responseId,
+      talkId: params.talkId,
+      pairId,
+      responderId: this.currentUser.id,
+      responderName: this.currentUser.stageName,
+      authorId: params.authorId,
+      authorName: params.authorName,
+      answers: JSON.stringify(params.answers),
+      submittedAt: new Date().toISOString(),
+      isChatbotResponse: params.isChatbotResponse,
+      transportMode: 'pair-direct',
+    };
+
+    this.gunService
+      .getGun()
+      .get('pairTalkResponses')
+      .get(pairId)
+      .get(params.talkId)
+      .get(responseId)
+      .put(responsePayload);
+
+    await this.recordDirectTalkStats({
+      talkId: params.talkId,
+      talkData: params.talkData,
+      responderId: this.currentUser.id,
+      answers: params.answers,
+      outcome: isMatch ? 'match' : isIgnore ? 'ignore' : 'other',
+      isAuto: params.isAutoResponse,
+    });
+
+    this.ledgerEmit(InteractionKind.TALK_ANSWERED, {
+      talkId: params.talkId,
+      responseId,
+      outcome: isMatch ? 'match' : isIgnore ? 'ignore' : 'mismatch',
+    });
+
+    if (!isMatch) return;
+    const conversationId = await this.conversationService.createConversation({
+      userId1: this.currentUser.id,
+      userName1: this.currentUser.stageName,
+      userId2: params.authorId,
+      userName2: params.authorName,
+      talkId: params.talkId,
+      respondedByBotForUser1: false,
+      respondedByBotForUser2: params.isChatbotResponse,
+    });
+    this.uiManager.addNewConversation({
+      conversationId,
+      otherUserId: params.authorId,
+      otherUserName: params.authorName,
+      talkId: params.talkId,
+      respondedByBot: false,
+      transportMode: this.conversationService.getTransportMode(),
+    });
+    this.uiManager.setMemberMatched(params.authorId);
+    this.ledgerEmit(InteractionKind.MATCH_CREATED, {
+      talkId: params.talkId,
+      conversationId,
+      otherUserId: params.authorId,
+    });
   }
 
   private checkIfMatch(talkData: any, answers: any[]): boolean {

@@ -8,7 +8,11 @@ import {
   waitForTabActive,
 } from '../../helpers/talks-matching-flow';
 import { createSimpleFlowTalk, goToChatrooms } from '../../helpers/broadcast-cancellation-helpers';
-import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
+import {
+  clickBroadcastUntilBulkAck,
+  completeTalkInAppByAnswerIds,
+  findIncomingTalkIdByTitle,
+} from '../../helpers/talk-demo-ui';
 import { gunBaseURL } from '../../helpers/ports';
 
 test.describe('Pair-direct talk delivery over Gun mesh', () => {
@@ -77,6 +81,55 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
       await expect(pageJerry.locator('.talk-list-item[data-role="incoming"]', { hasText: title })).toBeVisible({
         timeout: 15_000,
       });
+
+      const talkId = await findIncomingTalkIdByTitle(pageJerry, title);
+      const talkData = await pageJerry.evaluate(async (id) => {
+        const app = window.__iinpublic_app?.getApp?.();
+        return app?.talkService?.getTalkWithRetry?.(id, { attempts: 30, gapMs: 250 }) ?? null;
+      }, talkId);
+      expect(talkData).toBeTruthy();
+      const matchAnswerId = String(talkData.questions?.[0]?.answers?.[0]?.id || '');
+      expect(matchAnswerId).toBeTruthy();
+
+      await completeTalkInAppByAnswerIds(pageJerry, talkId, talkData, [matchAnswerId], 'match');
+
+      const tomId = await pageTom.evaluate(() =>
+        String(window.__iinpublic_app?.getApp?.()?.currentUser?.id || ''),
+      );
+      const pairId = [tomId, jerryId].sort().join('__');
+      await expect
+        .poll(
+          () =>
+            pageTom.evaluate(
+              async ({ p, t }) => {
+                const app = window.__iinpublic_app?.getApp?.();
+                const gun = app?.gunService?.getGun?.();
+                if (!gun) return { pairResponses: 0, legacyResponses: 0 };
+                const collect = (root: any) =>
+                  new Promise<number>((resolve) => {
+                    let count = 0;
+                    const ref = root.map();
+                    ref.once((raw: unknown, key: string) => {
+                      if (raw && key && !key.startsWith('_')) count += 1;
+                    });
+                    setTimeout(() => {
+                      try {
+                        ref.off();
+                      } catch {
+                        /* ignore */
+                      }
+                      resolve(count);
+                    }, 500);
+                  });
+                const pairResponses = await collect(gun.get('pairTalkResponses').get(p).get(t));
+                const legacyResponses = await collect(gun.get(`talks/${t}`).get('responses'));
+                return { pairResponses, legacyResponses };
+              },
+              { p: pairId, t: talkId },
+            ),
+          { timeout: 20_000, intervals: [500, 1000] },
+        )
+        .toEqual({ pairResponses: 1, legacyResponses: 0 });
     } finally {
       await tom.context.close().catch(() => {});
       await jerry.context.close().catch(() => {});
