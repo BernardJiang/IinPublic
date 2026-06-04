@@ -16,6 +16,25 @@ class MemoryGunService {
     });
     target[path[path.length - 1]] = value;
   }
+
+  getGun(): any {
+    const readPath = (path: string[]) => path.reduce<any>((value, segment) => value?.[segment], this.state);
+    const makeRef = (path: string[]): any => ({
+      get: (segment: string) => makeRef([...path, segment]),
+      map: () => ({
+        on: (callback: (data: unknown, key: string) => void) => {
+          const node = readPath(path);
+          if (node && typeof node === 'object') {
+            for (const [key, value] of Object.entries(node)) {
+              callback(value, key);
+            }
+          }
+        },
+        off: jest.fn(),
+      }),
+    });
+    return makeRef([]);
+  }
 }
 
 describe('ChatroomManager visit accounting', () => {

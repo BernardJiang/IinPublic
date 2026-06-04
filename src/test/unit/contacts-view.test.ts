@@ -77,6 +77,7 @@ describe('Contacts ranking and relationship filters', () => {
       isBlockedByMe: () => false,
       getPeerName: (_userId: string, fallback?: string) => fallback || 'Unknown',
       openPeerDetail: jest.fn(),
+      getMyConversations: () => ({}),
       getMyTalks: () => ({}),
       saveKnownPerson: jest.fn().mockResolvedValue(undefined),
       submitPeerReview: jest.fn().mockResolvedValue(undefined),
@@ -89,6 +90,15 @@ describe('Contacts ranking and relationship filters', () => {
       formatLanguage: (code: string) => languageOptionLabel('en', code, englishLanguageLabel(code)),
       getProfileLanguages: () => ['en'],
     };
+  }
+
+  async function waitForElementById(id: string): Promise<HTMLElement> {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const element = document.getElementById(id);
+      if (element) return element;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    throw new Error(`Element not found: ${id}`);
   }
 
   it('puts the user with more matched talks first under weighted ranking', async () => {
@@ -214,15 +224,18 @@ describe('Contacts ranking and relationship filters', () => {
     expect(document.querySelector('.contact-context-credit')?.textContent).toContain('2 条评价');
     expect(document.querySelector('.contact-context-block-status')?.textContent).toContain('当前没有屏蔽');
 
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ blocked: false, blockedBy: false }),
+    } as Response);
     (document.getElementById('contact-edit-relationship-btn') as HTMLButtonElement).click();
-    await Promise.resolve();
 
-    const modal = document.getElementById('contact-relationship-modal');
-    expect(modal?.textContent).toContain('关系与信用');
-    expect(modal?.textContent).toContain('公开信用');
-    expect(modal?.textContent).toContain('2 条评价');
-    expect(modal?.textContent).toContain('屏蔽状态');
-    expect(modal?.textContent).toContain('当前没有屏蔽');
+    const modal = await waitForElementById('contact-relationship-modal');
+    expect(modal.textContent).toContain('关系与信用');
+    expect(modal.textContent).toContain('公开信用');
+    expect(modal.textContent).toContain('2 条评价');
+    expect(modal.textContent).toContain('屏蔽状态');
+    expect(modal.textContent).toContain('当前没有屏蔽');
   });
 
   it('shows local mute controls instead of ordinary relationship or block actions for TechSupport', async () => {

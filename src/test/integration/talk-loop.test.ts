@@ -214,7 +214,7 @@ function buildTestServer(opts?: {
     talkData: any;
     senderId: string;
     senderName?: string;
-  }): Promise<{ identityKey: string }> {
+  }): Promise<{ identityKey: string; cluster: Record<string, unknown> }> {
     const { receiverId, talkId, talkData, senderId, senderName } = params;
     const identityKey = buildTalkIdentityKey(talkData);
     const tid = typeof talkId === 'string' ? talkId.trim() : '';
@@ -240,7 +240,7 @@ function buildTestServer(opts?: {
       identityAliases: { ...prev.identityAliases, [identityKey]: true },
     };
     userMap.set(storageLeaf, cluster);
-    return { identityKey };
+    return { identityKey, cluster };
   }
 
   async function getClusterSenders(params: {

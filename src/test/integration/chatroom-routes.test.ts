@@ -8,6 +8,7 @@ function buildApp() {
   const manager = {
     getAllChatrooms: jest.fn().mockResolvedValue([]),
     joinChatroom: jest.fn().mockResolvedValue(undefined),
+    addMemberFast: jest.fn().mockResolvedValue(undefined),
     leaveChatroom: jest.fn().mockResolvedValue(undefined),
     getChatroom: jest.fn().mockResolvedValue(null),
     createChatroom: jest.fn().mockResolvedValue({ id: 'room_1', name: 'Room 1', type: 'custom' }),
@@ -65,7 +66,7 @@ describe('chatroom routes', () => {
       stageName: 'Jerry',
     });
     expect(addRes.status).toBe(200);
-    expect(manager.joinChatroom).toHaveBeenCalledWith('room_1', 'u2', 'Jerry');
+    expect(manager.addMemberFast).toHaveBeenCalledWith('room_1', 'u2', 'Jerry');
 
     const removeRes = await request(app).delete('/api/chatrooms/room_1/members/u2');
     expect(removeRes.status).toBe(200);

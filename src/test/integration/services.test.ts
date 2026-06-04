@@ -121,8 +121,9 @@ describe('Service Integration Tests', () => {
         lastActive: new Date(),
       };
 
-      const mockGet = jest.spyOn(gunService, 'get').mockResolvedValueOnce(mockUser);
-      const mockGetOptional = jest.spyOn(gunService, 'getOptional').mockResolvedValueOnce({
+      const mockGetOptional = jest.spyOn(gunService, 'getOptional')
+        .mockResolvedValueOnce(mockUser as any)
+        .mockResolvedValueOnce({
           headshot: '😎',
           languagesJson: JSON.stringify(['en', 'zh']),
           profileJson: JSON.stringify([
@@ -135,7 +136,7 @@ describe('Service Integration Tests', () => {
             },
           ]),
           interestsJson: JSON.stringify([]),
-        });
+        } as any);
       const mockGetPath = jest
         .spyOn(gunService, 'getPath')
         .mockResolvedValueOnce(mockUser.reputation as any);
@@ -156,10 +157,14 @@ describe('Service Integration Tests', () => {
           },
         ],
         interests: [],
+        reputation: {
+          ...mockUser.reputation,
+          ageVerified: false,
+        },
       });
-      expect(mockGet).toHaveBeenCalledWith('users/user123');
-      expect(mockGetOptional).toHaveBeenCalledWith('user-public-profile/user123', 500);
-      expect(mockGetPath).toHaveBeenCalledWith(['users/user123', 'reputation']);
+      expect(mockGetOptional).toHaveBeenCalledWith('users/user123', 1200);
+      expect(mockGetOptional).toHaveBeenCalledWith('user-public-profile/user123', 1200);
+      expect(mockGetPath).toHaveBeenCalledWith(['user-age-verification', 'user123'], 300, 500);
     });
 
     it('uses a cleared public headshot instead of a stale base-user photo', async () => {
@@ -180,8 +185,9 @@ describe('Service Integration Tests', () => {
         createdAt: new Date(),
         lastActive: new Date(),
       };
-      jest.spyOn(gunService, 'get').mockResolvedValueOnce(mockUser as any);
-      jest.spyOn(gunService, 'getOptional').mockResolvedValueOnce({
+      jest.spyOn(gunService, 'getOptional')
+        .mockResolvedValueOnce(mockUser as any)
+        .mockResolvedValueOnce({
         headshot: '',
         languagesJson: JSON.stringify(['en']),
         profileJson: JSON.stringify([]),
@@ -526,7 +532,7 @@ describe('Service Integration Tests', () => {
 
   describe('Error Handling Integration', () => {
     it('should handle Gun database connection errors gracefully', async () => {
-      jest.spyOn(gunService, 'get').mockRejectedValue(new Error('Connection failed'));
+      jest.spyOn(gunService, 'getOptional').mockRejectedValue(new Error('Connection failed'));
 
       await expect(userService.getUser('user123')).rejects.toThrow('Connection failed');
     });
