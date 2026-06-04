@@ -284,6 +284,107 @@ export type RelayOnlyPathKind = 'discovery' | 'signaling' | 'presence' | 'room-m
 
 export type RelayOnlyTtlPolicy = Record<RelayOnlyPathKind, { ttlSeconds: number; storage: 'relay-only'; bodyRule: string }>;
 
+export type ServerConnectorPathKind =
+  | 'relay-metadata'
+  | 'author-owned-talk-body'
+  | 'owner-private-incoming-talk-index'
+  | 'pair-private-talk-response'
+  | 'pair-private-conversation'
+  | 'legacy-public-talk-response'
+  | 'legacy-public-incoming-talk'
+  | 'legacy-public-peer-offer'
+  | 'legacy-public-peer-catalog'
+  | 'unknown';
+
+export type ServerConnectorPathClassification = {
+  kind: ServerConnectorPathKind;
+  serverCanPersistBody: boolean;
+  deprecatedPublicPath: boolean;
+  reason: string;
+};
+
+export type OwnershipVisibility = 'room' | 'user' | 'pair';
+
+export type OwnershipEnvelopeInput = {
+  path: string[] | string;
+  visibility: OwnershipVisibility;
+  roomId?: string;
+  ownerPub?: string;
+  pairId?: string;
+  encrypted?: boolean;
+};
+
+export type OwnershipEnvelope = {
+  version: 1;
+  path: string[];
+  visibility: OwnershipVisibility;
+  roomId?: string;
+  ownerPub?: string;
+  pairId?: string;
+  encrypted: boolean;
+  classification: ServerConnectorPathClassification;
+};
+
+function normalizeGraphPath(path: string[] | string): string[] {
+  return Array.isArray(path)
+    ? path.map((part) => String(part || '').trim()).filter(Boolean)
+    : path.split('/').map((part) => part.trim()).filter(Boolean);
+}
+
+/**
+ * P1 ownership boundary for new graph writes. It does not perform the write;
+ * callers must pass an envelope that proves whether the path is room metadata,
+ * user-owned state, or pair-private ciphertext.
+ */
+export function createOwnershipEnvelope(input: OwnershipEnvelopeInput): OwnershipEnvelope {
+  const path = normalizeGraphPath(input.path);
+  if (path.length === 0) throw new Error('ownership envelope requires a graph path');
+  const classification = classifyServerConnectorPath(path);
+  const encrypted = input.encrypted ?? input.visibility !== 'room';
+
+  if (classification.deprecatedPublicPath) {
+    throw new Error(`deprecated connector path is not valid for new writes: ${path.join('/')}`);
+  }
+
+  if (input.visibility === 'room') {
+    const roomId = String(input.roomId || '').trim();
+    if (!roomId) throw new Error('room ownership envelope requires roomId');
+    if (path[0] !== 'chatrooms' || path[1] !== roomId) {
+      throw new Error(`room ownership path must start with chatrooms/${roomId}`);
+    }
+    if (encrypted) {
+      throw new Error('room ownership envelope must be metadata-only, not encrypted user data');
+    }
+  } else if (input.visibility === 'user') {
+    const ownerPub = String(input.ownerPub || '').trim();
+    if (!ownerPub) throw new Error('user ownership envelope requires ownerPub');
+    const root = path[0];
+    if (root !== 'talks' && root !== 'ownerIncomingTalkIndex') {
+      throw new Error(`user ownership path must be owner-owned, got ${path.join('/')}`);
+    }
+    if (!encrypted) throw new Error('user ownership envelope requires encrypted payloads');
+  } else {
+    const pairId = String(input.pairId || '').trim();
+    if (!pairId) throw new Error('pair ownership envelope requires pairId');
+    const root = path[0];
+    if ((root !== 'pairTalkResponses' && root !== 'pairConversations') || path[1] !== pairId) {
+      throw new Error(`pair ownership path must start with pairTalkResponses/${pairId} or pairConversations/${pairId}`);
+    }
+    if (!encrypted) throw new Error('pair ownership envelope requires encrypted payloads');
+  }
+
+  return {
+    version: 1,
+    path,
+    visibility: input.visibility,
+    ...(input.roomId ? { roomId: input.roomId } : {}),
+    ...(input.ownerPub ? { ownerPub: input.ownerPub } : {}),
+    ...(input.pairId ? { pairId: input.pairId } : {}),
+    encrypted,
+    classification,
+  };
+}
+
 export type TransportDiagnosticEvent = {
   version: 1;
   mode: ConversationTransportMode;
@@ -369,15 +470,119 @@ export function shouldSkipServerGunPersist(
   flags: P2PRuntimeFlags,
   options: { supportChannel?: boolean; relayP0TalkDelivery?: boolean } = {},
 ): boolean {
-  if (options.supportChannel || options.relayP0TalkDelivery) return false;
+  if (options.supportChannel) return false;
+  if (options.relayP0TalkDelivery && parseBooleanFlag(readEnv('IINPUBLIC_ALLOW_LEGACY_SERVER_TALK_HISTORY'), false)) {
+    return false;
+  }
   if (flags.starServerPersistence !== 'ephemeral' && !flags.relayOnlyHub) return false;
   if (path[0] === 'conversations' && path.length >= 3 && path[2] === 'messages') return true;
   if (path[0] === 'talks') return true;
   if (path[0] === 'incomingTalksByUser') return true;
   if (path[0] === 'peerTalkOffers') return true;
   if (path[0] === 'peerTalkCatalog') return true;
-  if (path[0] === 'chatrooms' && path.length >= 3 && path[2] === 'talks') return true;
+  if (
+    path[0] === 'chatrooms' &&
+    path.length >= 3 &&
+    (path[2] === 'talks' || path[2] === 'announcements')
+  ) {
+    return true;
+  }
   return false;
+}
+
+/** P1: the public server may connect peers, but talk/response bodies belong to owners or pairs. */
+export function classifyServerConnectorPath(path: string[] | string): ServerConnectorPathClassification {
+  const parts = Array.isArray(path)
+    ? path
+    : path.split('/').filter((part) => part.length > 0);
+  const [root, , third] = parts;
+
+  if (root === 'chatrooms') {
+    return {
+      kind: 'relay-metadata',
+      serverCanPersistBody: false,
+      deprecatedPublicPath: false,
+      reason: 'Chatrooms carry routing announcements and membership metadata only.',
+    };
+  }
+  if (root === 'talks' && third === 'responses') {
+    return {
+      kind: 'legacy-public-talk-response',
+      serverCanPersistBody: false,
+      deprecatedPublicPath: true,
+      reason: 'Talk responses must be written to pair-private response paths in direct mode.',
+    };
+  }
+  if (root === 'talks') {
+    return {
+      kind: 'author-owned-talk-body',
+      serverCanPersistBody: false,
+      deprecatedPublicPath: false,
+      reason: 'Canonical talk bodies are author-owned; receivers should get signed references or pair offers.',
+    };
+  }
+  if (root === 'pairTalkResponses') {
+    return {
+      kind: 'pair-private-talk-response',
+      serverCanPersistBody: false,
+      deprecatedPublicPath: false,
+      reason: 'Responses are scoped to exactly one sender/responder pair.',
+    };
+  }
+  if (root === 'pairConversations') {
+    return {
+      kind: 'pair-private-conversation',
+      serverCanPersistBody: false,
+      deprecatedPublicPath: false,
+      reason: 'Conversation bodies are scoped to exactly one pair and should not be hub-authoritative.',
+    };
+  }
+  if (root === 'ownerIncomingTalkIndex') {
+    return {
+      kind: 'owner-private-incoming-talk-index',
+      serverCanPersistBody: false,
+      deprecatedPublicPath: false,
+      reason: 'Direct-mode IN rows are receiver-owned indexes hydrated from pair offers.',
+    };
+  }
+  if (root === 'conversations') {
+    return {
+      kind: 'pair-private-conversation',
+      serverCanPersistBody: false,
+      deprecatedPublicPath: true,
+      reason: 'Legacy conversation records are removable once pair-private conversations cover the flow.',
+    };
+  }
+  if (root === 'incomingTalksByUser') {
+    return {
+      kind: 'legacy-public-incoming-talk',
+      serverCanPersistBody: false,
+      deprecatedPublicPath: true,
+      reason: 'Incoming talk bodies must not be server inbox state in direct mode.',
+    };
+  }
+  if (root === 'peerTalkOffers') {
+    return {
+      kind: 'legacy-public-peer-offer',
+      serverCanPersistBody: false,
+      deprecatedPublicPath: true,
+      reason: 'Offer records must carry encrypted pair metadata or references, not plaintext talk bodies.',
+    };
+  }
+  if (root === 'peerTalkCatalog') {
+    return {
+      kind: 'legacy-public-peer-catalog',
+      serverCanPersistBody: false,
+      deprecatedPublicPath: true,
+      reason: 'Per-receiver owner indices replace the public peer talk catalog.',
+    };
+  }
+  return {
+    kind: 'unknown',
+    serverCanPersistBody: true,
+    deprecatedPublicPath: false,
+    reason: 'No P1 connector boundary rule applies to this path.',
+  };
 }
 
 export function createConversationTransportDiagnostics(
@@ -907,13 +1112,18 @@ export const STAR_GUN_PATH_CLASSIFICATIONS = [
   },
   {
     path: 'talks/{talkId}',
-    category: 'durable-public',
-    purpose: 'Author-owned talk definitions needed for broadcast and response replay.',
+    category: 'encrypted-user-owned',
+    purpose: 'Author-owned canonical talk definitions referenced by direct pair offers.',
   },
   {
     path: 'incomingTalksByUser/{userId}',
     category: 'relay-only',
-    purpose: 'Current star-mode delivery inbox and dedup clusters for incoming talks.',
+    purpose: 'Legacy star-mode delivery inbox and dedup clusters for incoming talks.',
+  },
+  {
+    path: 'ownerIncomingTalkIndex/{userId}',
+    category: 'encrypted-user-owned',
+    purpose: 'Direct-mode receiver-owned IN index hydrated from pair offers.',
   },
   {
     path: 'conversations/{conversationId}',

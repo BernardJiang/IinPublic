@@ -58,6 +58,7 @@ describe('Contacts ranking and relationship filters', () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     global.fetch = originalFetch;
     jest.restoreAllMocks();
   });
@@ -132,12 +133,59 @@ describe('Contacts ranking and relationship filters', () => {
     expect(document.getElementById('contacts-list')?.textContent).toContain('Book Circle');
     expect(document.getElementById('contacts-list')?.textContent).toContain('Zoom Group');
 
-    (document.getElementById('contacts-filter-name') as HTMLInputElement).value = 'book circle';
+    (document.getElementById('contacts-filter-name') as HTMLInputElement).value = 'Book Circle';
     (document.getElementById('contacts-filter-relation') as HTMLSelectElement).value = 'custom';
     await displayContactsList(contactDeps);
 
     rows = Array.from(document.querySelectorAll('.contact-item-name')).map((row) => row.textContent);
     expect(rows).toEqual(['Weak']);
+  });
+
+  it('keeps saved known contacts visible when direct-mode peer history is locally empty', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [],
+    } as Response);
+    const contactDeps = deps([{
+      userId: 'jerry-id',
+      label: 'custom',
+      nickname: 'J',
+      customLabel: 'Coffee Circle',
+      addedAt: new Date('2026-06-04T00:00:00.000Z'),
+    }]);
+    (document.getElementById('contacts-filter-name') as HTMLInputElement).value = 'Coffee Circle';
+    (document.getElementById('contacts-filter-relation') as HTMLSelectElement).value = 'custom';
+
+    await displayContactsList(contactDeps);
+
+    const rows = Array.from(document.querySelectorAll('.contact-item-name')).map((row) => row.textContent);
+    expect(rows).toEqual(['J']);
+    expect(document.getElementById('contacts-list')?.textContent).toContain('Coffee Circle');
+  });
+
+  it('renders saved direct-mode contacts when the server peer summary request stalls', async () => {
+    jest.useFakeTimers();
+    global.fetch = jest.fn((_url, init?: RequestInit) => new Promise((_resolve, reject) => {
+      const signal = init?.signal;
+      signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    })) as jest.Mock;
+    const contactDeps = deps([{
+      userId: 'jerry-id',
+      label: 'custom',
+      nickname: 'J',
+      customLabel: 'Coffee Circle',
+      addedAt: new Date('2026-06-04T00:00:00.000Z'),
+    }]);
+    (document.getElementById('contacts-filter-name') as HTMLInputElement).value = 'Coffee Circle';
+    (document.getElementById('contacts-filter-relation') as HTMLSelectElement).value = 'custom';
+
+    const renderPromise = displayContactsList(contactDeps);
+    await jest.advanceTimersByTimeAsync(1_500);
+    await renderPromise;
+
+    const rows = Array.from(document.querySelectorAll('.contact-item-name')).map((row) => row.textContent);
+    expect(rows).toEqual(['J']);
+    expect(document.getElementById('contacts-list')?.textContent).toContain('Coffee Circle');
   });
 
   it('pins an established TechSupport channel above ranked ordinary contacts without counting it', async () => {

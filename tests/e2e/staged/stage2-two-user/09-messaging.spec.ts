@@ -223,6 +223,6 @@ test.describe('Direct messaging between matched users', () => {
       )
       .toBe(true);
 
-    await assertGunStoredMessageBodies(pageTom, conversationId, 1);
+    await assertGunStoredMessageBodies(pageTom, conversationId, 1, [TOM_MESSAGE, JERRY_REPLY]);
   });
 });

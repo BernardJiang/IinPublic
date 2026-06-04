@@ -6,6 +6,9 @@ export const PEER_TALK_OFFERS_ROOT = 'peerTalkOffers';
 /** Author-published full talk body for mesh pull (P0-5). */
 export const PEER_TALK_CATALOG_ROOT = 'peerTalkCatalog';
 
+/** Owner-scoped direct-mode IN index; replaces public incomingTalksByUser for P1. */
+export const OWNER_INCOMING_TALK_INDEX_ROOT = 'ownerIncomingTalkIndex';
+
 export type PeerTalkCatalogWire = {
   version: 1;
   talkId: string;
@@ -14,13 +17,21 @@ export type PeerTalkCatalogWire = {
   updatedAt: string;
 };
 
+export type PeerTalkReferenceWire = {
+  root: typeof PEER_TALK_CATALOG_ROOT;
+  authorId: string;
+  talkId: string;
+};
+
 export type PeerTalkOfferWire = {
   version: 1;
   talkId: string;
   senderId: string;
   senderName: string;
-  /** Full talk JSON (same shape as POST /received body). */
-  talkData: Record<string, unknown>;
+  /** P1: pair offer metadata references the canonical author-owned body. */
+  talkRef: PeerTalkReferenceWire;
+  /** Legacy compatibility only. New direct-mode offers must not include the full body. */
+  talkData?: Record<string, unknown>;
   createdAt: string;
   /** Chatroom where the sender broadcast (FR-BM-7 room isolation). */
   deliveryChatroomId?: string;
@@ -98,6 +109,7 @@ export function createPeerTalkOfferWire(params: {
   talkData: Record<string, unknown>;
   deliveryChatroomId?: string;
   directPeerSend?: boolean;
+  includeTalkData?: boolean;
   now?: Date;
 }): PeerTalkOfferWire {
   const now = params.now ?? new Date();
@@ -106,7 +118,12 @@ export function createPeerTalkOfferWire(params: {
     talkId: params.talkId,
     senderId: params.senderId,
     senderName: params.senderName,
-    talkData: gunSafeTalkDataRecord(params.talkData),
+    talkRef: {
+      root: PEER_TALK_CATALOG_ROOT,
+      authorId: params.senderId,
+      talkId: params.talkId,
+    },
+    ...(params.includeTalkData ? { talkData: gunSafeTalkDataRecord(params.talkData) } : {}),
     createdAt: now.toISOString(),
     ...(params.deliveryChatroomId ? { deliveryChatroomId: params.deliveryChatroomId } : {}),
     ...(params.directPeerSend ? { directPeerSend: true } : {}),
@@ -184,6 +201,9 @@ export function mergeIncomingTalkCluster(
 }
 
 export function clusterFromPeerTalkOffer(offer: PeerTalkOfferWire): IncomingTalkClusterWire {
+  if (!offer.talkData) {
+    throw new Error('Peer talk offer must be hydrated before creating an incoming cluster');
+  }
   return mergeIncomingTalkCluster(null, {
     talkId: offer.talkId,
     talkData: expandTalkDataFromGunWire(offer.talkData),

@@ -117,23 +117,40 @@ export async function prepareDirectP2PConversation(
 }
 
 /**
- * P2P-H: DM bodies are persisted to Gun (hub sync during star migration).
- * Replaces deprecated assertNoGunStoredMessageBodies (spec §19.11).
+ * P1-7: direct-mode DM bodies persist under pair-private Gun paths as ciphertext.
  */
 export async function assertGunStoredMessageBodies(
   page: Page,
   conversationId: string,
   minMessageNodes = 1,
+  forbiddenPlaintext: string[] = [],
 ): Promise<void> {
   const res = await page.request.get(`${gunBaseURL()}/api/test/export-snapshot`);
   expect(res.ok()).toBeTruthy();
   const payload = (await res.json()) as { gunGraph?: Record<string, unknown> };
   const graph = payload.gunGraph ?? {};
-  const messagePrefix = `conversations/${conversationId}/messages/`;
+  const pairMessageSegment = `/${conversationId}/messages/`;
+  const legacyMessagePrefix = `conversations/${conversationId}/messages/`;
   const stored = Object.keys(graph).filter(
-    (key) => key.startsWith(messagePrefix) && key !== `conversations/${conversationId}/messages`,
+    (key) =>
+      key.startsWith('pairConversations/') &&
+      key.includes(pairMessageSegment) &&
+      !key.endsWith('/messages'),
+  );
+  const legacyStored = Object.keys(graph).filter(
+    (key) => key.startsWith(legacyMessagePrefix) && key !== `conversations/${conversationId}/messages`,
   );
   expect(stored.length).toBeGreaterThanOrEqual(minMessageNodes);
+  expect(legacyStored.length).toBe(0);
+  for (const key of stored) {
+    const raw = graph[key] as any;
+    expect(raw?.encryption).toBe('sea-ecdh-v1');
+    expect(typeof raw?.text).toBe('string');
+    const serialized = JSON.stringify(raw);
+    for (const snippet of forbiddenPlaintext) {
+      expect(serialized.includes(snippet)).toBe(false);
+    }
+  }
 }
 
 /** @deprecated Superseded by assertGunStoredMessageBodies (P2P-H, spec §19.4). */

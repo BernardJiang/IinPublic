@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-06-03
+Last updated: 2026-06-04
 
 This file is the short, execution-oriented plan.
 - Completed work: `docs/completed.md`
@@ -18,7 +18,7 @@ This file is the short, execution-oriented plan.
 
 - **SEA + zone B:** `putPrivate` under `gun.user().get('private')` gives **content confidentiality** from other users and the server (no private key). Does **not** hide metadata, stop hub **relay** of ciphertext, or fix data still on **public** paths. Clients must not subscribe to others’ soul trees (§19.14.9).
 - **Zone C dedup (Bob → Alice + Tom, same talk):** One talk body in Bob’s **outbox/catalog**; small **announcements** per room; **per-receiver offers** (P1: ref + ciphertext, not N× full JSON); **per-pair** `pair(bob,alice)` vs `pair(bob,tom)` for answers — not global `talks/<id>/responses` (§19.14.10, REQ-P2P-29).
-- **P0 gap:** `PeerTalkOfferWire` may still duplicate full `talkData` per receiver until P1 offer encryption + catalog pull.
+- **P1 closure:** the ordered P1 ownership-graph implementation list below is complete, and the full direct-mode `npm run test:e2e:parallel` gate passed on 2026-06-04.
 
 **Exit criteria (P1 done when):**
 
@@ -29,30 +29,22 @@ This file is the short, execution-oriented plan.
 - Same `talkId` to N receivers: **one** canonical body in author outbox/catalog; offers use catalog ref where possible (REQ-P2P-29).
 - E2E proves third-party isolation (extend or add spec beside `00i-p0-direct-talk-delivery`).
 
-## Audit Snapshot (2026-06-03)
+## Audit Snapshot (2026-06-04)
 
-`npm run test:e2e:parallel` passed before this audit, but the suite still contains helpers and compatibility paths from the server-authoritative model. The target model is: server connects every pair; all talk exchange after that is direct pair traffic. The current implementation is still not Phase E/P1-compliant with `docs/specs/iinpublic-technical-specification.md` §19.14:
+Direct-mode E2E now exercises client pair writes instead of `POST /api/talks/:id/response`. The server response endpoint rejects direct-mode answer submission, `test:e2e:parallel` defaults to direct mode, offers are catalog-ref metadata without full `talkData`, and direct-mode local IN writes use `ownerIncomingTalkIndex` instead of public `incomingTalksByUser`.
 
-- `src/server/index.ts` still keeps `incomingTalksMap`, `talkResponsesMap`, writes `talks/<talkId>/responses/*`, and writes server-visible `conversations/*` / `users/<id>/conversations/*`.
-- `src/web/services/web-talk-service.ts` still submits answers through `POST /api/talks/:id/response`.
-- `src/server/routes/peer-routes.ts` still builds creator Replies, relationship stats, and talk history from server `incomingTalksMap` + `talkResponsesMap`.
-- `src/shared/peer-talk-delivery.ts` / `src/web/services/client-peer-talk-delivery.ts` still put full plaintext `talkData` on each `peerTalkOffers/<receiver>/<sender::talkId>` entry.
-- `src/web/services/client-incoming-talk-mirror.ts` still mirrors incoming clusters to public `incomingTalksByUser/<userId>` and talk bodies to public `talks/<talkId>` when client mirroring is enabled.
-- SEA helpers exist (`WebGunService.putPrivate` / `getPrivate`) and are used for private user data, but IN/outbox, pair responses, and non-TechSupport conversation bodies are not yet migrated to the target zone B/C graph.
+Phase E/P1 status against `docs/specs/iinpublic-technical-specification.md` §19.14:
+
+- Pair response payloads under `pairTalkResponses/<pairId>/...` are pair-scoped SEA ciphertext with routing metadata only.
+- Non-TechSupport conversation bodies write to pair-scoped encrypted paths in direct mode.
+- Direct-mode Creator Replies, relationship stats, and talk-history server APIs no longer expose hub-derived pair history; clients should use local owner/pair graph state.
+- Chatroom delivery writes metadata announcements to `chatrooms/<room>/announcements/*`; legacy `talks` read fallback remains for migration.
+- Third-party isolation E2E proves Bob/Alice/Tom response and DM ciphertext isolation plus one canonical talk body.
+- Full direct-mode verification passed: `npm run test:e2e:parallel` — 96 passed, 2 skipped.
 
 ## Next Action Items (Ordered) — P1 Ownership Graph
 
-1. **P1-0 E2E model switch** — Treat pair-direct delivery as the default E2E model. Keep star/server-authoritative tests only behind explicit legacy commands. Update helpers/spec docs so incoming talk assertions use receiver local Gun/UI, not `/api/users/:id/incoming-talks`; answer submission flows should exercise client pair writes, not `POST /api/talks/:id/response`.
-2. **P1-1 Server connector contract** — Define the allowed server role: room membership, presence, peer lookup, signed handshake/signaling, relay TTL metadata, and TechSupport exception only. Add tests that fail if normal talks, answers, pair histories, or DM bodies are accepted as durable server authority.
-3. **P1-2 Write envelope + path audit** — Introduce a typed ownership envelope for application graph writes (`visibility: 'room' | 'user' | 'pair'`, plus `roomId` / `ownerPub` / `pairId`) and route new writes through it. Add tests that fail on unenveloped writes to public `talks/*`, `incomingTalksByUser/*`, `peerTalkOffers/*`, `peerTalkCatalog/*`, `conversations/*`, and `users/*/conversations/*` when the data is not zone A.
-4. **P1-3 Zone A announcements only** — Replace full talk-body broadcast on room/discovery paths with `chatrooms/<room>/announcements/*` pointers (`talkId`, `authorId`, title, type, timestamps, targeting metadata). Keep room membership/presence public; stop writing full talk JSON, responses, or inbox clusters to room/public discovery nodes.
-5. **P1-4 Zone B owner outbox + IN index** — Move authored talk bodies, outbox/catalog state, and received IN clusters to `~<ownerPub>/private/...` via `putPrivate` (or device-local Gun only). Keep `peerTalkCatalog` as compatibility during migration, but make the owner-private outbox/catalog the source of truth.
-6. **P1-5 Offer encryption + catalog refs** — Change `PeerTalkOfferWire` from full plaintext `talkData` per receiver to a directed envelope with `catalogRef` / `talkId`, receiver identity, nonce/timestamp, and SEA ciphertext. Preserve the current full-body offer only behind an explicit migration/test fallback until catalog pull is reliable.
-7. **P1-6 Pair-private responses** — Replace `POST /api/talks/:id/response` as the authoritative response path with client-side pair writes under deterministic `pairId = sort(pubA, pubB)` paths. Store manual/auto answer payloads as SEA ciphertext readable only by the two participants; stop writing production answers to `talks/<talkId>/responses/*`.
-8. **P1-7 Pair-private conversations** — Move non-TechSupport conversation bodies and per-user conversation lists off server/public Gun paths into pair-private encrypted graph entries. Keep server relay/diagnostics metadata only; TechSupport remains the allowed server-stored exception.
-9. **P1-8 Server/API scope reduction** — Retire `talkResponsesMap` and authoritative `incomingTalksMap` for application history. Rework creator Replies, relationship stats, talk history, and stats views to read owner outbox plus pair edges the viewer is allowed to decrypt. Hub memory must scale with presence/signaling/TTL metadata, not O(users²) talk history.
-10. **P1-9 Third-party isolation E2E** — Add Bob/Alice/Tom tests: Bob sends one `talkId` to Alice and Tom; Alice answers; Tom can see only the room announcement/directed offer intended for Tom and cannot read Alice↔Bob response, match thread, or DM content via Gun or hub APIs. Include a regression check that only one canonical talk body exists for the shared `talkId`.
-11. **P1-10 Migration gates** — Add a production/P1 runtime guard that rejects new public writes to deprecated paths (`talks/<id>/responses`, full-body `peerTalkOffers`, public `incomingTalksByUser`, non-TechSupport `conversations`) unless an explicit legacy compatibility flag is enabled.
+No open P1 ownership-graph action items remain in this file. New work should be added here only after checking `docs/completed.md` and the spec audit above.
 
 ## Shipped (foundation)
 
@@ -70,11 +62,11 @@ This file is the short, execution-oriented plan.
 | B Client-authoritative talks | Shipped (P0) | P1 moves answers off shared talk node |
 | C Relay-only hub (no app `radata/`) | Partial | P1 removes pairwise hub RAM |
 | D DHT bootstrap | Not started | Optional |
-| **E Pair-private ownership graph** | **In progress (P1)** | §19.14, §19.14.9–10 |
+| **E Pair-private ownership graph** | **Shipped (P1)** | §19.14, §19.14.9–10 |
 
 ## Deferred (after P1)
 
-Identity/trust/versioning (§19.13, P2P-P–U), optional D4 creator-edit checks, full `npm run test:e2e:parallel` gate.
+Identity/trust/versioning (§19.13, P2P-P–U) and optional D4 creator-edit checks.
 
 | Phase | Status | Notes |
 |-------|--------|-------|

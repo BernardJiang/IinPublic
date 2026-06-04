@@ -13,6 +13,7 @@ export type ConversationMessageWire = {
   timestamp: string;
   channel: string;
   transport?: string;
+  encryption?: 'sea-ecdh-v1';
   prevSeen?: string;
   isFromChatbot?: boolean;
 };
@@ -53,6 +54,37 @@ export class StarGunConversationTransport implements ConversationTransport {
     return user.epub;
   }
 
+  private pairIdForUsers(userA: string, userB: string): string {
+    return [String(userA || '').trim(), String(userB || '').trim()].sort().join('__');
+  }
+
+  private async getPairMessageRoot(conversationId: string, myId: string, otherUserId?: string): Promise<any | null> {
+    const otherId = otherUserId || (await this.getOtherParticipantId(conversationId, myId));
+    if (!otherId) return null;
+    return this.gunService
+      .getGun()
+      .get('pairConversations')
+      .get(this.pairIdForUsers(myId, otherId))
+      .get(conversationId)
+      .get('messages');
+  }
+
+  private async getPairMessageSecret(conversationId: string, myId: string, peerUserId?: string): Promise<string> {
+    const pair = this.gunService.getStoredPair();
+    if (!pair) {
+      throw new Error('No SEA keypair — call ensureKeypairAndAuth first');
+    }
+    const otherId = peerUserId || (await this.getOtherParticipantId(conversationId, myId));
+    if (!otherId) {
+      throw new Error('Could not resolve recipient for encrypted channel');
+    }
+    const epub = await this.getUserEpub(otherId);
+    if (!epub) {
+      throw new Error('Recipient has no epub published');
+    }
+    return getSEA().secret(epub, pair);
+  }
+
   /**
    * Build outbound wire + Gun record, persist locally, return wire for P2P notify (P2P-H).
    */
@@ -66,8 +98,10 @@ export class StarGunConversationTransport implements ConversationTransport {
     const transport = opts?.transport ?? this.mode;
     const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const prevSeen = this.lastSeenFromOther.get(`${conversationId}:${senderId}`) ?? undefined;
+    const otherUserId = opts?.otherUserId ?? (await this.getOtherParticipantId(conversationId, senderId));
 
     let payloadText = text;
+    const shouldEncrypt = channel !== 'public' || transport === 'direct-p2p';
     const base: ConversationMessageWire = {
       id: messageId,
       senderId,
@@ -78,42 +112,46 @@ export class StarGunConversationTransport implements ConversationTransport {
       ...(prevSeen !== undefined ? { prevSeen } : {}),
     };
 
-    if (channel !== 'public') {
-      const pair = this.gunService.getStoredPair();
-      if (!pair) {
-        throw new Error('No SEA keypair — call ensureKeypairAndAuth first');
-      }
-      const otherId = opts?.otherUserId ?? (await this.getOtherParticipantId(conversationId, senderId));
-      if (!otherId) {
-        throw new Error('Could not resolve recipient for encrypted channel');
-      }
-      const epub = await this.getUserEpub(otherId);
-      if (!epub) {
-        throw new Error('Recipient has no epub published');
-      }
-      const SEA = getSEA();
-      const secret = await SEA.secret(epub, pair);
-      payloadText = await SEA.encrypt(text, secret);
+    if (shouldEncrypt) {
+      const secret = await this.getPairMessageSecret(conversationId, senderId, otherUserId);
+      payloadText = await getSEA().encrypt(text, secret);
       base.text = payloadText;
+      base.encryption = 'sea-ecdh-v1';
     }
 
-    this.putMessageRecord(conversationId, base);
+    this.putMessageRecord(
+      conversationId,
+      base,
+      otherUserId ? { otherUserId } : {},
+    );
     return base;
   }
 
   /** Idempotent write of a message node to local Gun (and hub sync during migration). */
-  putMessageRecord(conversationId: string, wire: ConversationMessageWire): void {
+  putMessageRecord(conversationId: string, wire: ConversationMessageWire, opts: { otherUserId?: string } = {}): void {
     const gun = this.gunService.getGun();
-    gun.get(`conversations/${conversationId}`).get('messages').get(wire.id).put({
+    const record = {
       id: wire.id,
       senderId: wire.senderId,
       text: wire.text,
       timestamp: wire.timestamp,
       channel: wire.channel,
       transport: wire.transport ?? this.mode,
+      ...(wire.encryption ? { encryption: wire.encryption } : {}),
       ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
       ...(wire.isFromChatbot ? { isFromChatbot: true } : {}),
-    });
+    };
+    if (wire.transport === 'direct-p2p' && opts.otherUserId) {
+      gun
+        .get('pairConversations')
+        .get(this.pairIdForUsers(wire.senderId, opts.otherUserId))
+        .get(conversationId)
+        .get('messages')
+        .get(wire.id)
+        .put(record);
+      return;
+    }
+    gun.get(`conversations/${conversationId}`).get('messages').get(wire.id).put(record);
   }
 
   async sendMessage(
@@ -133,23 +171,40 @@ export class StarGunConversationTransport implements ConversationTransport {
     conversationId: string,
     callback: (messages: Message[]) => void,
     myUserId?: string,
+    otherUserId?: string,
   ): () => void {
     const gun = this.gunService.getGun();
     const processedMessages = new Set<string>();
 
-    gun
+    const subscribeRoot = (root: any) => root
       .get(`conversations/${conversationId}`)
       .get('messages')
       .map()
       .on((_messageData: any, messageId: string) => {
-        if (messageId.startsWith('_')) return;
+        if (!messageId || messageId.startsWith('_')) return;
         if (processedMessages.has(messageId)) return;
 
         processedMessages.add(messageId);
         setTimeout(() => {
-          void this.collectAndDecryptMessages(conversationId, processedMessages, callback, myUserId);
+          void this.collectAndDecryptMessages(conversationId, processedMessages, callback, myUserId, otherUserId);
         }, 300);
       });
+
+    subscribeRoot(gun);
+    if (myUserId) {
+      void this.getPairMessageRoot(conversationId, myUserId, otherUserId).then((root) => {
+        if (!root) return;
+        root.map().on((_messageData: any, messageId: string) => {
+          if (!messageId || messageId.startsWith('_')) return;
+          if (processedMessages.has(messageId)) return;
+
+          processedMessages.add(messageId);
+          setTimeout(() => {
+            void this.collectAndDecryptMessages(conversationId, processedMessages, callback, myUserId, otherUserId);
+          }, 300);
+        });
+      }).catch(() => undefined);
+    }
 
     return () => {
       console.log(`👋 Unsubscribed from user ${conversationId} messages (${this.mode})`);
@@ -161,14 +216,31 @@ export class StarGunConversationTransport implements ConversationTransport {
     processedMessages: Set<string>,
     callback: (messages: Message[]) => void,
     myUserId?: string,
+    otherUserId?: string,
   ): Promise<void> {
     const gun = this.gunService.getGun();
     const pair = this.gunService.getStoredPair();
     const ids = Array.from(processedMessages);
     const messagesArray: Message[] = [];
+    const otherId = myUserId ? otherUserId || await this.getOtherParticipantId(conversationId, myUserId) : undefined;
+    const pairRoot = myUserId ? await this.getPairMessageRoot(conversationId, myUserId, otherId) : null;
 
     for (const msgId of ids) {
       const msg = await new Promise<any>((resolve) => {
+        if (pairRoot) {
+          pairRoot.get(msgId).once((pairData: any) => {
+            if (pairData?.text) {
+              resolve(pairData);
+              return;
+            }
+            gun
+              .get(`conversations/${conversationId}`)
+              .get('messages')
+              .get(msgId)
+              .once((data: any) => resolve(data));
+          });
+          return;
+        }
         gun
           .get(`conversations/${conversationId}`)
           .get('messages')
@@ -180,12 +252,13 @@ export class StarGunConversationTransport implements ConversationTransport {
       let text = String(msg.text);
       const ch = (msg.channel as Message['channel']) || 'public';
 
-      if (ch !== 'public' && pair) {
+      if ((ch !== 'public' || msg.encryption === 'sea-ecdh-v1') && pair) {
         const SEA = getSEA();
-        const senderEpub = await this.getUserEpub(String(msg.senderId));
-        if (senderEpub) {
+        const peerForSecret = myUserId && String(msg.senderId) === myUserId ? otherId : String(msg.senderId);
+        const peerEpub = peerForSecret ? await this.getUserEpub(peerForSecret) : undefined;
+        if (peerEpub) {
           try {
-            const secret = await SEA.secret(senderEpub, pair as GunPair);
+            const secret = await SEA.secret(peerEpub, pair as GunPair);
             const dec = await SEA.decrypt(text, secret);
             if (dec) {
               text = typeof dec === 'string' ? dec : String(dec);

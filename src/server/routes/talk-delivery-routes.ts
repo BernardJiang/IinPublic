@@ -23,8 +23,7 @@ import {
   readExactChatbotMemoryForUser,
   writeExactChatbotMemoryForUser,
 } from '../exact-chatbot-memory-store';
-import { resolveP2PRuntimeFlags, usesDirectTalkDelivery } from '../../shared/p2p-runtime';
-import { mirrorP0TalkDeliveryToGun } from '../p0-gun-mirror';
+import { classifyServerConnectorPath, resolveP2PRuntimeFlags, usesDirectTalkDelivery } from '../../shared/p2p-runtime';
 
 type TalkDeliveryRouteDeps = {
   gunService: GunService;
@@ -522,26 +521,16 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
       const resolvedSenderName = senderName || (await getUserStageName(senderId, 'Someone'));
       const resolvedReceiverName = receiverName || (await getUserStageName(receiverId, 'Someone'));
 
-      let identityKey: string;
-      const upserted = await upsertIncomingTalkForUser({
-        receiverId,
-        talkId,
-        talkData,
-        senderId,
-        senderName: resolvedSenderName,
-      });
-      identityKey = upserted.identityKey;
-
-      if (p0Direct) {
-        await mirrorP0TalkDeliveryToGun(gunService, {
+      let identityKey = buildTalkIdentityKey(talkData);
+      if (!p0Direct) {
+        const upserted = await upsertIncomingTalkForUser({
           receiverId,
           talkId,
-          talkData: talkData as Record<string, unknown>,
+          talkData,
           senderId,
           senderName: resolvedSenderName,
-          cluster: upserted.cluster as Record<string, unknown>,
-          directPeerSend: true,
         });
+        identityKey = upserted.identityKey;
       }
 
       if (!p0Direct) {
@@ -767,21 +756,13 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
             continue;
           }
         }
-        const upserted = await upsertIncomingTalkForUser({
-          receiverId,
-          talkId,
-          talkData,
-          senderId,
-          senderName: resolvedSenderName,
-        });
-        if (p0Direct) {
-          await mirrorP0TalkDeliveryToGun(gunService, {
+        if (!p0Direct) {
+          await upsertIncomingTalkForUser({
             receiverId,
             talkId,
-            talkData: talkData as Record<string, unknown>,
+            talkData,
             senderId,
             senderName: resolvedSenderName,
-            cluster: upserted.cluster as Record<string, unknown>,
           });
         }
 
@@ -900,6 +881,17 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
   app.post('/api/talks/:id/response', async (req, res) => {
     try {
       const talkId = req.params.id;
+      if (usesDirectTalkDelivery(resolveP2PRuntimeFlags(process.env))) {
+        const boundary = classifyServerConnectorPath(['talks', talkId, 'responses']);
+        res.setHeader('X-P0-Direct-Talk-Delivery', '1');
+        res.status(409).json({
+          error: 'direct_talk_response_required',
+          directDelivery: true,
+          pathKind: boundary.kind,
+          reason: boundary.reason,
+        });
+        return;
+      }
       const { responderId, responderName, answers, talkData: bodyTalkData, isAuto, isChatbotResponse } = req.body as {
         responderId: string;
         responderName?: string;

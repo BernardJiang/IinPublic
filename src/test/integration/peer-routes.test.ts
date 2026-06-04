@@ -102,6 +102,30 @@ function addResponse(
 // ---------------------------------------------------------------------------
 
 describe('GET /api/users/:userId/peers/:peerId/relationship', () => {
+  it('does not derive relationship stats from hub maps in direct pair-graph mode', async () => {
+    const prev = process.env.P0_DIRECT_TALK_DELIVERY;
+    process.env.P0_DIRECT_TALK_DELIVERY = '1';
+    try {
+      const { app, incomingTalksMap, talkResponsesMap } = buildTestServer();
+      addIncoming(incomingTalksMap, BOB, 'ik_talk1', ALICE, FLOW_TALK_ID);
+      addResponse(talkResponsesMap, FLOW_TALK_ID, BOB, 'match');
+
+      const res = await request(app).get(`/api/users/${ALICE}/peers/${BOB}/relationship`);
+      expect(res.status).toBe(200);
+      expect(res.headers['x-p1-direct-pair-graph']).toBe('1');
+      expect(res.body).toMatchObject({
+        sent: { talks: 0, matches: 0 },
+        received: { talks: 0, matches: 0 },
+        mutualMatchedTalks: 0,
+        mutualTagCount: 0,
+        totalTalks: 0,
+      });
+    } finally {
+      if (prev === undefined) delete process.env.P0_DIRECT_TALK_DELIVERY;
+      else process.env.P0_DIRECT_TALK_DELIVERY = prev;
+    }
+  });
+
   it('returns zeros for two strangers', async () => {
     const { app } = buildTestServer();
     const res = await request(app).get(`/api/users/${ALICE}/peers/${BOB}/relationship`);
@@ -217,6 +241,24 @@ describe('GET /api/users/:userId/peers/:peerId/relationship', () => {
 });
 
 describe('GET /api/users/:userId/replies', () => {
+  it('does not expose hub replies in direct pair-graph mode', async () => {
+    const prev = process.env.P0_DIRECT_TALK_DELIVERY;
+    process.env.P0_DIRECT_TALK_DELIVERY = '1';
+    try {
+      const { app, incomingTalksMap, talkResponsesMap } = buildTestServer();
+      addIncoming(incomingTalksMap, BOB, 'ik_bob', ALICE, FLOW_TALK_ID);
+      addResponse(talkResponsesMap, FLOW_TALK_ID, BOB, 'match');
+
+      const res = await request(app).get(`/api/users/${ALICE}/replies`);
+      expect(res.status).toBe(200);
+      expect(res.headers['x-p1-direct-pair-graph']).toBe('1');
+      expect(res.body).toEqual([]);
+    } finally {
+      if (prev === undefined) delete process.env.P0_DIRECT_TALK_DELIVERY;
+      else process.env.P0_DIRECT_TALK_DELIVERY = prev;
+    }
+  });
+
   it('returns one hundred distinct creator replies for ten talks sent to ten users', async () => {
     const { app, incomingTalksMap, talkResponsesMap } = buildTestServer();
     for (let userIndex = 0; userIndex < 10; userIndex++) {
@@ -274,6 +316,24 @@ describe('GET /api/users/:userId/replies', () => {
 // ---------------------------------------------------------------------------
 
 describe('GET /api/users/:userId/peers/:peerId/talk-history', () => {
+  it('does not expose hub talk history in direct pair-graph mode', async () => {
+    const prev = process.env.P0_DIRECT_TALK_DELIVERY;
+    process.env.P0_DIRECT_TALK_DELIVERY = '1';
+    try {
+      const { app, incomingTalksMap, talkResponsesMap } = buildTestServer();
+      addIncoming(incomingTalksMap, BOB, 'ik_talk1', ALICE, FLOW_TALK_ID);
+      addResponse(talkResponsesMap, FLOW_TALK_ID, BOB, 'match');
+
+      const res = await request(app).get(`/api/users/${ALICE}/peers/${BOB}/talk-history`);
+      expect(res.status).toBe(200);
+      expect(res.headers['x-p1-direct-pair-graph']).toBe('1');
+      expect(res.body).toEqual([]);
+    } finally {
+      if (prev === undefined) delete process.env.P0_DIRECT_TALK_DELIVERY;
+      else process.env.P0_DIRECT_TALK_DELIVERY = prev;
+    }
+  });
+
   it('returns empty array for strangers', async () => {
     const { app } = buildTestServer();
     const res = await request(app).get(`/api/users/${ALICE}/peers/${BOB}/talk-history`);

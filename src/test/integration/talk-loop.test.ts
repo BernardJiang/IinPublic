@@ -1000,7 +1000,7 @@ describe('Talk loop — incoming registration → answer submission → match �
   });
 
   describe('POST /api/talks/:id/register-receivers-for-broadcast', () => {
-    it('records server exchange metadata in P0 while GET incoming-talks stays empty', async () => {
+    it('does not retain authoritative server inbox metadata in direct mode', async () => {
       const prev = process.env.P0_DIRECT_TALK_DELIVERY;
       process.env.P0_DIRECT_TALK_DELIVERY = '1';
       try {
@@ -1016,7 +1016,7 @@ describe('Talk loop — incoming registration → answer submission → match �
         expect(res.status).toBe(200);
         expect(res.body.directDelivery).toBe(true);
         expect(res.body.registered).toBeGreaterThanOrEqual(1);
-        expect(incomingTalksMap.get(RESPONDER_ID)?.size).toBeGreaterThan(0);
+        expect(incomingTalksMap.get(RESPONDER_ID)).toBeUndefined();
         const inbox = await request(app).get(`/api/users/${RESPONDER_ID}/incoming-talks`);
         expect(inbox.headers['x-p0-direct-talk-delivery']).toBe('1');
         expect(inbox.body).toEqual([]);
@@ -1520,6 +1520,31 @@ describe('Talk loop — incoming registration → answer submission → match �
   });
 
   describe('POST /api/talks/:id/response — answer submission', () => {
+    it('rejects server-authoritative response submission in direct mode', async () => {
+      const prev = process.env.P0_DIRECT_TALK_DELIVERY;
+      process.env.P0_DIRECT_TALK_DELIVERY = '1';
+      try {
+        const { app, talkResponsesMap } = buildTestServer();
+        const res = await request(app)
+          .post(`/api/talks/${talkId}/response`)
+          .send({ responderId: RESPONDER_ID, responderName: RESPONDER_NAME, answers: MATCHING_ANSWERS, talkData: TALK_DATA });
+
+        expect(res.status).toBe(409);
+        expect(res.headers['x-p0-direct-talk-delivery']).toBe('1');
+        expect(res.body).toEqual(
+          expect.objectContaining({
+            error: 'direct_talk_response_required',
+            directDelivery: true,
+            pathKind: 'legacy-public-talk-response',
+          }),
+        );
+        expect(talkResponsesMap.get(talkId)).toBeUndefined();
+      } finally {
+        if (prev === undefined) delete process.env.P0_DIRECT_TALK_DELIVERY;
+        else process.env.P0_DIRECT_TALK_DELIVERY = prev;
+      }
+    });
+
     it('returns isMatch: true and a conversationId for a matching answer', async () => {
       const { app } = buildTestServer();
       await request(app)

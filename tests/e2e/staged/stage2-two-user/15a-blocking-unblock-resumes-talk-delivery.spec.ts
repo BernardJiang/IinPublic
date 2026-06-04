@@ -22,12 +22,22 @@ import {
 import { createMatchTalk, enterGlobalChatroom, ensureNoBlockBetween } from '../../helpers/blocking-e2e-helpers';
 
 async function openContactsList(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    document.querySelector('[data-testid="broadcast-preamble-modal"]')?.remove();
+  });
   await page.click('.nav-btn[data-view="contacts"]');
   await afterSync();
   if (await page.locator('#contact-detail-container').isVisible().catch(() => false)) {
     await page.click('#back-to-contacts-list');
     await afterAction();
   }
+}
+
+async function clickContactRow(page: Page, contact: ReturnType<Page['locator']>): Promise<void> {
+  await page.evaluate(() => {
+    document.querySelector('[data-testid="broadcast-preamble-modal"]')?.remove();
+  });
+  await contact.click({ force: true });
 }
 
 async function setBlockViaApi(page: Page, blockerId: string, targetId: string, blocked: boolean): Promise<void> {
@@ -105,7 +115,7 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     await openContactsList(pageTom);
     const jerryContact = pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'Jerry' }).first();
     await expect(jerryContact).toBeVisible({ timeout: 15000 });
-    await jerryContact.click();
+    await clickContactRow(pageTom, jerryContact);
     await waitForContactDetailReady(pageTom);
     await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
     await pageTom.click('#contact-edit-relationship-btn');
@@ -142,7 +152,7 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     await openContactsList(pageTom);
     const jerryContactBlocked = pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'Jerry' }).first();
     await expect(jerryContactBlocked).toBeVisible({ timeout: 10000 });
-    await jerryContactBlocked.click();
+    await clickContactRow(pageTom, jerryContactBlocked);
     await waitForContactDetailReady(pageTom);
     await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
     await pageTom.click('#contact-edit-relationship-btn');

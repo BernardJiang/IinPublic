@@ -1,6 +1,46 @@
 # IinPublic Completed Work
 
-Last updated: 2026-05-30
+Last updated: 2026-06-04
+
+## 2026-06-04 - P1-6b/P1-7: Encrypted pair-private direct graph
+
+Direct-mode talk answers and non-TechSupport conversation bodies now use pair-scoped SEA ciphertext with raw Gun nodes limited to routing metadata.
+
+| Item | Deliverable |
+|------|-------------|
+| P1-6b | `pairTalkResponses/<pairId>/<talkId>/<responseId>` stores encrypted answer payloads; sender subscriptions decrypt before match/contact processing. |
+| P1-7 | Direct conversations write encrypted bodies to `pairConversations/<pairId>/<conversationId>/messages/*`; legacy public conversation message paths are avoided in direct mode. |
+| E2E | P0 direct delivery asserts encrypted pair responses; messaging E2E asserts pair conversation ciphertext and no legacy `conversations/<id>/messages` storage. |
+
+**Evidence:**
+- `npm run test:type` clean
+- `npm run test:e2e:p0-talks` — 1 passed
+- `P0_DIRECT_TALK_DELIVERY=1 P2P_DIRECT_CHAT_ENABLED=1 STAR_SERVER_PERSISTENCE=ephemeral E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/09-messaging.spec.ts` — 1 passed
+
+## 2026-06-04 - P1 Ownership Graph Closure
+
+Completed the remaining P1 ownership-graph action items from `docs/TODO.md`.
+
+| Item | Deliverable |
+|------|-------------|
+| P1-9 | Added Bob/Alice/Tom third-party isolation E2E. Bob broadcasts one canonical talk to Alice and Tom; Alice answers and DMs Bob; Tom cannot decrypt Alice/Bob pair payloads; raw response/DM nodes contain ciphertext only. |
+| P1-3b | Direct-mode room delivery now writes metadata to `chatrooms/<room>/announcements/*`; subscribers keep a legacy `talks` fallback for migration. |
+| P1-8 | Direct-mode Creator Replies, peer relationship, and talk-history APIs no longer expose hub-derived `talkResponsesMap` pair history; direct-mode snapshots omit/import no `talkResponses` application history. |
+| P1-2b | Added `createOwnershipEnvelope` with `visibility: 'room' | 'user' | 'pair'`, required `roomId` / `ownerPub` / `pairId`, encrypted-payload enforcement, and deprecated-path rejection. |
+
+**Evidence:**
+- `npm run test:type` clean
+- `npx jest src/test/unit/p2p-runtime.test.ts --runInBand` — 21 passed
+- `npx jest src/test/integration/peer-routes.test.ts --runInBand` — 27 passed
+- `npm run test:e2e:p0-talks` — 1 passed
+- `P0_DIRECT_TALK_DELIVERY=1 P2P_DIRECT_CHAT_ENABLED=1 STAR_SERVER_PERSISTENCE=ephemeral E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage3-three-user/00j-pair-private-isolation.spec.ts` — 1 passed
+- `npm run test:unit` — 29 suites, 294 passed
+- `npm run test:integration` — 5 suites, 110 passed, 1 skipped
+- `P0_DIRECT_TALK_DELIVERY=1 P2P_DIRECT_CHAT_ENABLED=1 STAR_SERVER_PERSISTENCE=ephemeral E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage3-three-user/14-contacts-relationship-credit.spec.ts` — 1 passed
+- `P0_DIRECT_TALK_DELIVERY=1 P2P_DIRECT_CHAT_ENABLED=1 STAR_SERVER_PERSISTENCE=ephemeral E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/15a-blocking-unblock-resumes-talk-delivery.spec.ts` — 1 passed
+- `P0_DIRECT_TALK_DELIVERY=1 P2P_DIRECT_CHAT_ENABLED=1 STAR_SERVER_PERSISTENCE=ephemeral E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/04-profile-edit-stage-name.spec.ts` — 1 passed
+- `npm run test:e2e:parallel` — 96 passed, 2 skipped
+- `npm run health` clean
 
 ## 2026-05-30 - P0: Direct browser talk exchange (spec §19.2 / §19.12 Phase B)
 
@@ -1184,6 +1224,21 @@ User-visible live rejection reasons and expanded multilingual policy remain trac
 Evidence:
 
 - E2E: `tests/e2e/staged/stage3-three-user/00o-content-intake-filter.spec.ts`
+
+## 2026-06-04 - P1 Direct Talk Connector Guardrails
+
+Moved the direct-talk test/runtime model further away from server-authoritative delivery. Direct
+mode now rejects `POST /api/talks/:id/response`, does not retain server inbox entries during
+direct broadcast registration, skips deprecated public server Gun writes unless
+`IINPUBLIC_ALLOW_LEGACY_SERVER_TALK_HISTORY=1` is set, publishes metadata-only peer offers with
+catalog refs, and mirrors direct IN clusters to `ownerIncomingTalkIndex`.
+
+Evidence:
+
+- Unit: `src/test/unit/p2p-runtime.test.ts`
+- Unit: `src/test/unit/peer-talk-delivery.test.ts`
+- Integration: `src/test/integration/talk-loop.test.ts`
+- E2E: `tests/e2e/staged/stage2-two-user/00i-p0-direct-talk-delivery.spec.ts`
 - Unit: `src/test/unit/intake-filter-reasons.test.ts`
 
 ## 2026-05-26 - Custom Phrase and Sent-After Delivery Proof

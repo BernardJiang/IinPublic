@@ -51,7 +51,7 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     buildSpy.mockRestore();
   });
 
-  it('subscribeToMessages delegates to Gun store subscription', () => {
+  it('subscribeToMessages delegates to Gun store subscription after participant resolution fallback', async () => {
     const subSpy = jest
       .spyOn(StarGunConversationTransport.prototype, 'subscribeToMessages')
       .mockReturnValue(() => undefined);
@@ -60,6 +60,9 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     const cb = jest.fn();
     transport.subscribeToMessages('conv1', cb, 'alice');
 
+    for (let i = 0; i < 5 && subSpy.mock.calls.length === 0; i++) {
+      await Promise.resolve();
+    }
     expect(subSpy).toHaveBeenCalledWith('conv1', cb, 'alice');
     subSpy.mockRestore();
   });

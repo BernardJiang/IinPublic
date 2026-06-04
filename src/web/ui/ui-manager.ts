@@ -171,6 +171,8 @@ type PublicProfileFoundationReader = (userId: string) => Promise<{
   interestsJson?: string;
 } | null>;
 
+type ContactPreRenderSync = () => Promise<void>;
+
 function normalizeStringList(value: unknown, fallback: string[] = []): string[] {
   const raw = Array.isArray(value)
     ? value
@@ -224,6 +226,7 @@ export class UIManager extends EventEmitter {
   private currentUserStageName: string = '';
   private currentLocation: GPSCoordinate | undefined = undefined;
   private publicProfileFoundationReader: PublicProfileFoundationReader | undefined;
+  private contactPreRenderSync: ContactPreRenderSync | undefined;
 
   /** Other users in the current chatroom detail view (excludes self); used for broadcast delivery. */
   getCurrentChatroomMembers(): Array<{ userId: string; stageName: string }> {
@@ -500,6 +503,10 @@ export class UIManager extends EventEmitter {
 
   setPublicProfileFoundationReader(reader: PublicProfileFoundationReader | undefined): void {
     this.publicProfileFoundationReader = reader;
+  }
+
+  setContactPreRenderSync(sync: ContactPreRenderSync | undefined): void {
+    this.contactPreRenderSync = sync;
   }
 
   private getHomeChatroomId(): string {
@@ -1586,6 +1593,7 @@ export class UIManager extends EventEmitter {
       text: this.t.bind(this),
       formatLanguage: this.formatTalkLanguage.bind(this),
       getProfileLanguages: () => this.currentUser?.languages || ['en'],
+      ...(this.contactPreRenderSync ? { beforeRender: this.contactPreRenderSync } : {}),
       ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
     });
   }
@@ -1612,6 +1620,7 @@ export class UIManager extends EventEmitter {
       text: this.t.bind(this),
       formatLanguage: this.formatTalkLanguage.bind(this),
       getProfileLanguages: () => this.currentUser?.languages || ['en'],
+      ...(this.contactPreRenderSync ? { beforeRender: this.contactPreRenderSync } : {}),
       ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
     });
   }

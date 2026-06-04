@@ -110,6 +110,10 @@ export class GunService {
    * Store data with automatic conflict resolution
    */
   public async put(key: string, data: any): Promise<void> {
+    const path = key.split('/').filter((seg) => seg.length > 0);
+    if (shouldSkipServerGunPersist(path, resolveP2PRuntimeFlags(process.env))) {
+      return;
+    }
     return new Promise((resolve, reject) => {
       this.gun.get(key).put(this.serializeDates(data), (ack: any) => {
         if (ack.err) {

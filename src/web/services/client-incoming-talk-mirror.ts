@@ -1,4 +1,4 @@
-import { gunSafeTalkDataRecord } from '../../shared/peer-talk-delivery';
+import { OWNER_INCOMING_TALK_INDEX_ROOT, gunSafeTalkDataRecord } from '../../shared/peer-talk-delivery';
 import type { P2PRuntimeFlags } from '../../shared/p2p-runtime';
 import type { WebGunService } from './web-gun-service';
 
@@ -32,6 +32,7 @@ export function mirrorIncomingTalkClustersToLocalGun(
   for (const raw of clusters) {
     const cluster = raw as { identityKey?: string };
     if (!cluster?.identityKey) continue;
-    gun.get('incomingTalksByUser').get(userId).get(cluster.identityKey).put(raw);
+    const root = flags.p2pDirectTalkDelivery ? OWNER_INCOMING_TALK_INDEX_ROOT : 'incomingTalksByUser';
+    gun.get(root).get(userId).get(cluster.identityKey).put(raw);
   }
 }

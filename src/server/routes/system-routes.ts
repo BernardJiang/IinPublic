@@ -23,6 +23,7 @@ import {
   getP2PBootstrapCandidates,
   upsertP2PNeighbor,
   resolveP2PRuntimeFlags,
+  usesDirectTalkDelivery,
   scanRelayStorageForSeaLeaks,
   SEA_IDENTITY_POLICY,
   STAR_GUN_PATH_CLASSIFICATIONS,
@@ -176,6 +177,7 @@ export function registerSystemRoutes(
   const presenceByUserId = new Map<string, PresenceRecord>();
   const peerAckInbox = new Map<string, PeerAckMessage[]>();
   const techSupportMessages = new TechSupportMessageStore();
+  const directTalkDelivery = usesDirectTalkDelivery(resolveP2PRuntimeFlags(process.env));
 
   const prunePresence = (now = new Date()): void => {
     prunePresenceRecords(presenceByUserId, now);
@@ -653,7 +655,7 @@ export function registerSystemRoutes(
           gunGraph: { ...gun._.graph },
           incomingTalks: mapOfMapsToObject(incomingTalksMap),
           conversations: mapOfMapsToObject(conversationsMap),
-          talkResponses: Object.fromEntries(talkResponsesMap),
+          talkResponses: directTalkDelivery ? {} : Object.fromEntries(talkResponsesMap),
           statsIdx: statsIdxToObject(statsIdx),
         };
         res.json(snapshot);
@@ -685,8 +687,10 @@ export function registerSystemRoutes(
           conversationsMap.set(uid, new Map(Object.entries(inner || {})));
         }
         talkResponsesMap.clear();
-        for (const [talkId, rows] of Object.entries(body.talkResponses || {})) {
-          talkResponsesMap.set(talkId, Array.isArray(rows) ? rows : []);
+        if (!directTalkDelivery) {
+          for (const [talkId, rows] of Object.entries(body.talkResponses || {})) {
+            talkResponsesMap.set(talkId, Array.isArray(rows) ? rows : []);
+          }
         }
         const restored = statsIdxFromObject(body.statsIdx);
         statsIdx.byDay.clear();

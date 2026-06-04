@@ -1,5 +1,6 @@
 import type express from 'express';
 import type { TalkResponse } from '../../shared/talk-stats';
+import { resolveP2PRuntimeFlags, usesDirectTalkDelivery } from '../../shared/p2p-runtime';
 
 export type PeerRelationshipStats = {
   sent: { talks: number; matches: number };
@@ -197,6 +198,11 @@ function computeLastInteractionAt(
 
 export function registerPeerRoutes(app: express.Application, deps: PeerRouteDeps): void {
   const { incomingTalksMap, talkResponsesMap, getUserStageName, getBlockStatus } = deps;
+  const directTalkDelivery = usesDirectTalkDelivery(resolveP2PRuntimeFlags(process.env));
+
+  function markDirectPairGraph(res: express.Response): void {
+    res.setHeader('X-P1-Direct-Pair-Graph', '1');
+  }
 
   app.get('/api/users/:userId/peers', async (req, res) => {
     const { userId } = req.params;
@@ -263,6 +269,11 @@ export function registerPeerRoutes(app: express.Application, deps: PeerRouteDeps
     }
 
     const replies: CreatorReplyItem[] = [];
+    if (directTalkDelivery) {
+      markDirectPairGraph(res);
+      res.json(replies);
+      return;
+    }
     const seenResponseIds = new Set<string>();
     for (const [receiverId, userMap] of incomingTalksMap.entries()) {
       if (!receiverId || receiverId === userId) continue;
@@ -313,6 +324,17 @@ export function registerPeerRoutes(app: express.Application, deps: PeerRouteDeps
       res.status(403).json({ error: 'Relationship details are not available', blockedBy: true });
       return;
     }
+    if (directTalkDelivery) {
+      markDirectPairGraph(res);
+      res.json({
+        sent: { talks: 0, matches: 0 },
+        received: { talks: 0, matches: 0 },
+        mutualMatchedTalks: 0,
+        mutualTagCount: 0,
+        totalTalks: 0,
+      } satisfies PeerRelationshipStats);
+      return;
+    }
 
     res.json(computeRelationshipStats(incomingTalksMap, talkResponsesMap, userId, peerId));
   });
@@ -335,6 +357,11 @@ export function registerPeerRoutes(app: express.Application, deps: PeerRouteDeps
     }
 
     const items: TalkHistoryItem[] = [];
+    if (directTalkDelivery) {
+      markDirectPairGraph(res);
+      res.json(items);
+      return;
+    }
 
     // Talks I sent to peer
     for (const cluster of getSentClusters(incomingTalksMap, userId, peerId)) {

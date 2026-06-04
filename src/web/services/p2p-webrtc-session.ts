@@ -18,6 +18,7 @@ type DmWirePayload = {
     timestamp: string;
     channel: string;
     transport: string;
+    encryption?: 'sea-ecdh-v1';
     prevSeen?: string;
     isFromChatbot?: boolean;
   };

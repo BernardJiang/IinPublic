@@ -28,6 +28,7 @@ type ContactsViewDeps = {
   text: (key: UiTranslationKey) => string;
   formatLanguage: (code: string) => string;
   getProfileLanguages: () => string[];
+  beforeRender?: () => Promise<void>;
   getPublicProfileFoundation?: (userId: string) => Promise<{
     headshot?: string | null;
     languagesJson?: string;
@@ -50,6 +51,30 @@ function formatCountText(
   plural: UiTranslationKey,
 ): string {
   return formatText(deps, count === 1 ? singular : plural, { count });
+}
+
+async function runBeforeRender(deps: ContactsViewDeps): Promise<void> {
+  if (!deps.beforeRender) return;
+  await Promise.race([
+    deps.beforeRender(),
+    new Promise<void>((resolve) => window.setTimeout(resolve, 1200)),
+  ]);
+}
+
+async function fetchPeerSummariesWithTimeout(apiBase: string, currentUserId: string): Promise<PeerSummary[]> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 1_500);
+  try {
+    const response = await fetch(
+      `${apiBase}/api/users/${encodeURIComponent(currentUserId)}/peers`,
+      { cache: 'no-store', signal: controller.signal },
+    );
+    return response.ok ? (await response.json()) as PeerSummary[] : [];
+  } catch {
+    return [];
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 function formatRelationshipLabel(
@@ -182,6 +207,23 @@ function peerSummariesFromLocalTalkExchanges(deps: ContactsViewDeps): PeerSummar
     }
   }
   return Array.from(byPeer.values());
+}
+
+function peerSummariesFromKnownPeople(deps: ContactsViewDeps): PeerSummary[] {
+  return deps.getKnownPeople()
+    .filter((person) => person.userId && person.userId !== deps.currentUserId)
+    .map((person) => ({
+      peerId: person.userId,
+      stageName: deps.getPeerName(person.userId, person.nickname || 'Unknown'),
+      lastInteractionAt: new Date(person.addedAt || Date.now()).toISOString(),
+      stats: {
+        sent: { talks: 0, matches: 0 },
+        received: { talks: 0, matches: 0 },
+        mutualMatchedTalks: 0,
+        mutualTagCount: 0,
+        totalTalks: 0,
+      },
+    }));
 }
 
 function mergePeerSummaries(serverPeers: PeerSummary[], localPeers: PeerSummary[]): PeerSummary[] {
@@ -424,6 +466,28 @@ function renderContactContextSummary(
   `;
 }
 
+function renderContactContextSummaryInto(
+  detailInfo: HTMLElement | null,
+  deps: ContactsViewDeps,
+  otherUserId: string,
+  publicUser: any,
+  blockedByMe: boolean,
+  blockedBy: boolean,
+): void {
+  if (!detailInfo || otherUserId === TECHSUPPORT_ROOT_USER_ID) return;
+  detailInfo.querySelector('.contact-context-summary')?.remove();
+  const contextSummary = document.createElement('div');
+  contextSummary.innerHTML = renderContactContextSummary(
+    deps,
+    deps.getKnownPerson(otherUserId),
+    publicUser,
+    blockedByMe,
+    blockedBy,
+  );
+  const element = contextSummary.firstElementChild as HTMLElement | null;
+  if (element) detailInfo.appendChild(element);
+}
+
 function applyRelationshipModalProfileFetch(
   deps: ContactsViewDeps,
   blockedByMe: boolean,
@@ -508,7 +572,12 @@ async function openRelationshipDialog(
   const known = deps.getKnownPerson(userId);
   let blockedByMe = deps.isBlockedByMe(userId);
   let blockedBy = false;
-  const blockStatus = await fetchContactBlockStatus(deps, userId);
+  const blockStatus = await Promise.race([
+    fetchContactBlockStatus(deps, userId),
+    new Promise<{ blocked: boolean; blockedBy: boolean }>((resolve) => {
+      window.setTimeout(() => resolve({ blocked: blockedByMe, blockedBy: false }), 1_200);
+    }),
+  ]);
   blockedByMe = blockedByMe || blockStatus.blocked;
   blockedBy = blockStatus.blockedBy;
 
@@ -667,19 +736,13 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
   listEl.innerHTML = `<p style="text-align: center; padding: 40px 20px; color: #999;">${deps.text('contactsLoading')}</p>`;
 
   try {
-    let serverPeers: PeerSummary[] = [];
-    try {
-      const response = await fetch(
-        `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers`,
-      );
-      if (response.ok) {
-        serverPeers = (await response.json()) as PeerSummary[];
-      }
-    } catch {
-      serverPeers = [];
-    }
+    await runBeforeRender(deps);
+    const serverPeers = await fetchPeerSummariesWithTimeout(deps.apiBase, deps.currentUserId);
     const localPeers = mergePeerSummaries(
-      peerSummariesFromLocalConversations(deps),
+      mergePeerSummaries(
+        peerSummariesFromKnownPeople(deps),
+        peerSummariesFromLocalConversations(deps),
+      ),
       peerSummariesFromLocalTalkExchanges(deps),
     );
     const peers = mergePeerSummaries(serverPeers, localPeers);
@@ -874,6 +937,7 @@ export async function showContactDetail(
     });
     detailInfo.appendChild(button);
   }
+  renderContactContextSummaryInto(detailInfo, deps, otherUserId, null, deps.isBlockedByMe(otherUserId), false);
 
   const fetchPeerDetail = async (path: string): Promise<Response> => {
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -950,6 +1014,21 @@ export async function showContactDetail(
     return Array.from(byTalk.values());
   };
 
+  const initialLocalHistory = localTalkHistoryForPeer();
+  const initialPublicUser = await readPublicProfileFoundation(deps, otherUserId);
+  if (initialPublicUser || initialLocalHistory.length > 0) {
+    renderTalkHistory(initialLocalHistory, initialPublicUser);
+    contactDetailUserProfileCache = { userId: otherUserId, publicUser: initialPublicUser };
+    renderContactContextSummaryInto(
+      detailInfo,
+      deps,
+      otherUserId,
+      initialPublicUser,
+      deps.isBlockedByMe(otherUserId),
+      false,
+    );
+  }
+
   try {
     const peerBase = `/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(otherUserId)}`;
     const historyRes = await fetchPeerDetail(`${peerBase}/talk-history`);
@@ -985,18 +1064,7 @@ export async function showContactDetail(
       publicUser = await readPublicProfileFoundation(deps, otherUserId) ?? publicUser;
     }
     contactDetailUserProfileCache = { userId: otherUserId, publicUser };
-    if (detailInfo && otherUserId !== TECHSUPPORT_ROOT_USER_ID) {
-      detailInfo.querySelector('.contact-context-summary')?.remove();
-      const contextSummary = document.createElement('div');
-      contextSummary.innerHTML = renderContactContextSummary(
-        deps,
-        deps.getKnownPerson(otherUserId),
-        publicUser,
-        blockedByMe,
-        blockedBy,
-      );
-      detailInfo.appendChild(contextSummary.firstElementChild as HTMLElement);
-    }
+    renderContactContextSummaryInto(detailInfo, deps, otherUserId, publicUser, blockedByMe, blockedBy);
     if (relationshipRes?.status === 403 || userRes?.status === 403) {
       detailMatches.textContent = deps.text('unavailable');
       return;

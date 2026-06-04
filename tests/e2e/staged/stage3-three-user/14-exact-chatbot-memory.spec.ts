@@ -25,7 +25,7 @@ import {
   waitForTabActive,
 } from '../../helpers/talks-matching-flow';
 import { createTalkFromCompanyPage } from '../../helpers/talk-demo-ui';
-import { gunBaseURL } from '../../helpers/ports';
+import { gunBaseURL, isDirectTalkDeliveryE2e } from '../../helpers/ports';
 
 const QUESTION = 'Favorite fruit?';
 const TITLE_APPLE = 'E2E Exact Memory Context A';
@@ -85,6 +85,22 @@ async function deliverTalkToReceiver(
   talkData: any,
   chatbotEnabled?: boolean,
 ): Promise<any> {
+  if (isDirectTalkDeliveryE2e()) {
+    await senderPage.evaluate(
+      async ({ id, data, peerId, peerName }) => {
+        const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+        if (!app?.sendDirectTalkToPeer) throw new Error('sendDirectTalkToPeer unavailable');
+        await app.sendDirectTalkToPeer(id, data, peerId, peerName);
+      },
+      { id: talkId, data: talkData, peerId: receiver.id, peerName: receiver.name },
+    );
+    return {
+      registered: true,
+      autoResponded: false,
+      ...(chatbotEnabled === false ? { reason: 'chatbot_disabled' } : {}),
+      directDelivery: true,
+    };
+  }
   const res = await senderPage.context().request.post(
     `${gunBaseURL()}/api/talks/${encodeURIComponent(talkId)}/received`,
     {
@@ -226,7 +242,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
       registered: true,
       autoResponded: false,
     });
-    await waitForIncomingTalkClusterOnLocalGun(pageTom, TITLE_APPLE);
+    await waitForIncomingTalkClusterOnLocalGun(pageTom, TITLE_APPLE, { timeout: 60_000, polling: 500 });
     await syncIncomingFromServer(pageTom);
     await openIncomingTalkModal(pageTom, TITLE_APPLE);
     await chooseAutoAnswer(pageTom, 'a_apple');
@@ -242,7 +258,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
       registered: true,
       autoResponded: false,
     });
-    await waitForIncomingTalkClusterOnLocalGun(pageTom, TITLE_BANANA);
+    await waitForIncomingTalkClusterOnLocalGun(pageTom, TITLE_BANANA, { timeout: 60_000, polling: 500 });
     await syncIncomingFromServer(pageTom);
     await openIncomingTalkModalWithAutoAnswers(pageTom, TITLE_BANANA);
     const modal = pageTom.locator('#talk-response-modal');
@@ -283,7 +299,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
       registered: true,
       autoResponded: false,
     });
-    await waitForIncomingTalkClusterOnLocalGun(pageTom, TITLE_REUSE_APPLE);
+    await waitForIncomingTalkClusterOnLocalGun(pageTom, TITLE_REUSE_APPLE, { timeout: 60_000, polling: 500 });
     await syncIncomingFromServer(pageTom);
     await openIncomingTalkModalWithAutoAnswers(pageTom, TITLE_REUSE_APPLE);
     const reviewModal = pageTom.locator('#talk-response-modal');

@@ -36,12 +36,28 @@ describe('peer-talk-delivery', () => {
     expect(cluster.questionsJson).toContain('Q1');
   });
 
-  it('creates cluster from peer offer wire', () => {
+  it('creates reference-only peer offer wires by default', () => {
     const offer = createPeerTalkOfferWire({
       talkId: 't1',
       senderId: 's1',
       senderName: 'Sender',
       talkData: { title: 'T', type: 'tag', language: 'en' },
+    });
+    expect(offer.talkData).toBeUndefined();
+    expect(offer.talkRef).toEqual({
+      root: 'peerTalkCatalog',
+      authorId: 's1',
+      talkId: 't1',
+    });
+  });
+
+  it('creates cluster from hydrated peer offer wire', () => {
+    const offer = createPeerTalkOfferWire({
+      talkId: 't1',
+      senderId: 's1',
+      senderName: 'Sender',
+      talkData: { title: 'T', type: 'tag', language: 'en' },
+      includeTalkData: true,
     });
     const cluster = clusterFromPeerTalkOffer(offer);
     expect(cluster.senders.s1?.senderName).toBe('Sender');
@@ -76,5 +92,28 @@ describe('P0 direct talk delivery flags', () => {
     expect(shouldSkipServerGunPersist(['incomingTalksByUser', 'bob', 'ik1'], flags)).toBe(true);
     expect(shouldSkipServerGunPersist(['peerTalkCatalog', 'alice', 't1'], flags)).toBe(true);
     expect(shouldSkipServerGunPersist(['chatrooms', 'global', 'talks', 'k1'], flags)).toBe(true);
+    expect(shouldSkipServerGunPersist(['chatrooms', 'global', 'announcements', 'k1'], flags)).toBe(true);
+  });
+
+  it('allows P0 relay mirror writes only behind the explicit legacy compatibility flag', () => {
+    const flags = resolveP2PRuntimeFlags({ STAR_SERVER_PERSISTENCE: 'ephemeral' });
+    const prev = process.env.IINPUBLIC_ALLOW_LEGACY_SERVER_TALK_HISTORY;
+    try {
+      delete process.env.IINPUBLIC_ALLOW_LEGACY_SERVER_TALK_HISTORY;
+      expect(
+        shouldSkipServerGunPersist(['peerTalkOffers', 'bob', 'alice::t1'], flags, {
+          relayP0TalkDelivery: true,
+        }),
+      ).toBe(true);
+      process.env.IINPUBLIC_ALLOW_LEGACY_SERVER_TALK_HISTORY = '1';
+      expect(
+        shouldSkipServerGunPersist(['peerTalkOffers', 'bob', 'alice::t1'], flags, {
+          relayP0TalkDelivery: true,
+        }),
+      ).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.IINPUBLIC_ALLOW_LEGACY_SERVER_TALK_HISTORY;
+      else process.env.IINPUBLIC_ALLOW_LEGACY_SERVER_TALK_HISTORY = prev;
+    }
   });
 });

@@ -448,34 +448,6 @@ export async function findIncomingTalkIdByTitle(page: Page, titleSubstring: stri
   throw new Error(`findIncomingTalkIdByTitle: no talk matching "${titleSubstring}"`);
 }
 
-/**
- * Fast path for stats/demo specs: wait until broadcast delivery has registered,
- * then POST the same response payload the UI submits after a modal is completed.
- */
-export async function submitTalkResponseByAnswerIds(
-  page: Page,
-  talkId: string,
-  talkData: any,
-  answerIds: string[],
-): Promise<void> {
-  const responder = await currentUserIdentity(page);
-  if (!responder.id) throw new Error('submitTalkResponseByAnswerIds: page has no current user id');
-  const res = await page.context().request.post(`${gunBaseURL()}/api/talks/${encodeURIComponent(talkId)}/response`, {
-    data: {
-      talkId,
-      responderId: responder.id,
-      responderName: responder.name,
-      answers: answersForIds(talkData, answerIds),
-      talkData,
-      isAuto: false,
-      isChatbotResponse: false,
-    },
-  });
-  if (!res.ok()) {
-    throw new Error(`POST /api/talks/${talkId}/response failed: ${res.status()} ${await res.text()}`);
-  }
-}
-
 export async function recordTalkStatsByAnswerIds(
   page: Page,
   talkId: string,
@@ -541,15 +513,6 @@ export async function completeTalkInAppByAnswerIds(
     const summary = (await res.json()) as { total?: number };
     return Number(summary.total ?? 0);
   };
-
-  const totalAfterAppPath = await expect
-    .poll(readSummaryTotal, { timeout: 5000, intervals: [250, 500, 1000] })
-    .toBeGreaterThanOrEqual(1)
-    .then(() => true)
-    .catch(() => false);
-  if (!totalAfterAppPath && !isDirectTalkDeliveryE2e()) {
-    await submitTalkResponseByAnswerIds(page, summaryTalkId, talkData, answerIds);
-  }
 
   await expect
     .poll(readSummaryTotal, { timeout: 10_000, intervals: [300, 600, 1000] })

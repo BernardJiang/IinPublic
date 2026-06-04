@@ -2,6 +2,7 @@ import {
   applyP2PNeighborCacheAction,
   applyLocalNodeAction,
   assertNoPrivateSeaMaterial,
+  classifyServerConnectorPath,
   createConversationTransportDiagnostics,
   createDataMigrationPlan,
   createDataOwnershipPolicy,
@@ -13,6 +14,7 @@ import {
   createP2PDiscoveryMessage,
   createP2PNeighborCacheState,
   createP2PNodeProtocolSpec,
+  createOwnershipEnvelope,
   createP2PSignalingEnvelope,
   createRelayOnlyTtlPolicy,
   createTransportDiagnosticEvent,
@@ -98,9 +100,136 @@ describe('p2p runtime flags', () => {
       expect.arrayContaining([
         expect.objectContaining({ path: 'chatrooms/{chatroomId}', category: 'durable-public' }),
         expect.objectContaining({ path: 'incomingTalksByUser/{userId}', category: 'relay-only' }),
+        expect.objectContaining({ path: 'ownerIncomingTalkIndex/{userId}', category: 'encrypted-user-owned' }),
         expect.objectContaining({ path: 'conversations/{conversationId}', category: 'removable-legacy' }),
+        expect.objectContaining({ path: 'talks/{talkId}', category: 'encrypted-user-owned' }),
       ]),
     );
+  });
+
+  it('classifies P1 server connector paths as metadata-only or owner/pair-owned', () => {
+    expect(classifyServerConnectorPath(['chatrooms', 'room1', 'members'])).toEqual(
+      expect.objectContaining({
+        kind: 'relay-metadata',
+        serverCanPersistBody: false,
+        deprecatedPublicPath: false,
+      }),
+    );
+    expect(classifyServerConnectorPath(['talks', 'talk1'])).toEqual(
+      expect.objectContaining({
+        kind: 'author-owned-talk-body',
+        serverCanPersistBody: false,
+        deprecatedPublicPath: false,
+      }),
+    );
+    expect(classifyServerConnectorPath(['talks', 'talk1', 'responses', 'resp1'])).toEqual(
+      expect.objectContaining({
+        kind: 'legacy-public-talk-response',
+        serverCanPersistBody: false,
+        deprecatedPublicPath: true,
+      }),
+    );
+    expect(classifyServerConnectorPath('incomingTalksByUser/bob/talk1')).toEqual(
+      expect.objectContaining({
+        kind: 'legacy-public-incoming-talk',
+        serverCanPersistBody: false,
+        deprecatedPublicPath: true,
+      }),
+    );
+    expect(classifyServerConnectorPath('ownerIncomingTalkIndex/bob/talk1')).toEqual(
+      expect.objectContaining({
+        kind: 'owner-private-incoming-talk-index',
+        serverCanPersistBody: false,
+        deprecatedPublicPath: false,
+      }),
+    );
+    expect(classifyServerConnectorPath(['pairTalkResponses', 'alice__bob', 'talk1'])).toEqual(
+      expect.objectContaining({
+        kind: 'pair-private-talk-response',
+        serverCanPersistBody: false,
+        deprecatedPublicPath: false,
+      }),
+    );
+  });
+
+  it('creates ownership envelopes for room, user, and pair graph writes', () => {
+    expect(
+      createOwnershipEnvelope({
+        visibility: 'room',
+        path: ['chatrooms', 'global', 'announcements', 'talk1__alice'],
+        roomId: 'global',
+        encrypted: false,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        version: 1,
+        visibility: 'room',
+        roomId: 'global',
+        encrypted: false,
+        classification: expect.objectContaining({ kind: 'relay-metadata' }),
+      }),
+    );
+
+    expect(
+      createOwnershipEnvelope({
+        visibility: 'user',
+        path: ['ownerIncomingTalkIndex', 'bob', 'talk1'],
+        ownerPub: 'bob',
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        visibility: 'user',
+        ownerPub: 'bob',
+        encrypted: true,
+        classification: expect.objectContaining({ kind: 'owner-private-incoming-talk-index' }),
+      }),
+    );
+
+    expect(
+      createOwnershipEnvelope({
+        visibility: 'pair',
+        path: ['pairTalkResponses', 'alice__bob', 'talk1', 'resp1'],
+        pairId: 'alice__bob',
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        visibility: 'pair',
+        pairId: 'alice__bob',
+        encrypted: true,
+        classification: expect.objectContaining({ kind: 'pair-private-talk-response' }),
+      }),
+    );
+  });
+
+  it('rejects raw/deprecated writes and missing ownership metadata', () => {
+    expect(() =>
+      createOwnershipEnvelope({
+        visibility: 'pair',
+        path: ['talks', 'talk1', 'responses', 'resp1'],
+        pairId: 'alice__bob',
+      }),
+    ).toThrow(/deprecated connector path/);
+    expect(() =>
+      createOwnershipEnvelope({
+        visibility: 'pair',
+        path: ['pairTalkResponses', 'alice__bob', 'talk1'],
+        pairId: 'alice__tom',
+      }),
+    ).toThrow(/pair ownership path/);
+    expect(() =>
+      createOwnershipEnvelope({
+        visibility: 'user',
+        path: ['ownerIncomingTalkIndex', 'bob', 'talk1'],
+      }),
+    ).toThrow(/ownerPub/);
+    expect(() =>
+      createOwnershipEnvelope({
+        visibility: 'room',
+        path: ['chatrooms', 'global', 'announcements', 'talk1__alice'],
+        roomId: 'global',
+        encrypted: true,
+      }),
+    ).toThrow(/metadata-only/);
   });
 
   it('models the permissioned local node supervisor lifecycle', () => {

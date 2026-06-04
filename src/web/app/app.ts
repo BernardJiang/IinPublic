@@ -35,9 +35,11 @@ import {
   publishPeerTalkOffer,
   reconcilePeerTalkOffersFromGun,
   resolveTalkFromPeerMesh,
+  subscribeLocalIncomingTalkClusters,
   subscribePeerTalkOffers,
   upsertLocalIncomingTalkCluster,
 } from '../services/client-peer-talk-delivery';
+import { getSEA, type GunPair } from '../sea-gun';
 
 export class IinPublicApp {
   private gunService: WebGunService;
@@ -71,6 +73,7 @@ export class IinPublicApp {
   private presenceClient: P2PPresenceClient | null = null;
   private localNodeBridge: P2PLocalNodeBridgeClient | null = null;
   private peerTalkOfferUnsubscribe: (() => void) | null = null;
+  private incomingTalkClusterUnsubscribe: (() => void) | null = null;
   private chatroomTalksMapOff: (() => void) | null = null;
   private readonly p2pRuntimeFlags: P2PRuntimeFlags = resolveP2PRuntimeFlags(
     typeof process !== 'undefined'
@@ -166,6 +169,23 @@ export class IinPublicApp {
     return `${logicalTalkId}__${authorId}`;
   }
 
+  private getChatroomTalkAnnouncementRoot(gun: any, chatroomId: string, legacy = false): any {
+    const room = gun.get('chatrooms').get(chatroomId);
+    if (usesDirectTalkDelivery(this.p2pRuntimeFlags) && !legacy) {
+      return room.get('announcements');
+    }
+    return room.get('talks');
+  }
+
+  private publishChatroomTalkAnnouncement(
+    gun: any,
+    chatroomId: string,
+    announcementKey: string,
+    announcement: Record<string, unknown>,
+  ): void {
+    this.getChatroomTalkAnnouncementRoot(gun, chatroomId).get(announcementKey).put(announcement);
+  }
+
   private countOrdinaryRoomMembers(members: Array<{ userId: string }>): number {
     return members.filter((member) => member.userId !== TECHSUPPORT_ROOT_USER_ID).length;
   }
@@ -207,6 +227,9 @@ export class IinPublicApp {
         profileJson?: string;
         interestsJson?: string;
       };
+    });
+    this.uiManager.setContactPreRenderSync(async () => {
+      await this.syncDirectPairTalkExchangesForContacts();
     });
     // Get or create user
     await this.initializeUser();
@@ -715,6 +738,17 @@ export class IinPublicApp {
   }
 
   private async handlePeerTalkOffer(offer: PeerTalkOfferWire): Promise<void> {
+    const talkData =
+      offer.talkData ??
+      (await resolveTalkFromPeerMesh(
+        this.gunService,
+        offer.talkRef?.talkId || offer.talkId,
+        offer.talkRef?.authorId || offer.senderId,
+        (id) => this.talkService.getTalk(id),
+        { attempts: 8, gapMs: 250 },
+      ));
+    if (!talkData) return;
+    const talkRecord = talkData as unknown as Record<string, unknown>;
     const acceptParams: {
       senderId: string;
       talkData: Record<string, unknown>;
@@ -722,15 +756,19 @@ export class IinPublicApp {
       directPeerSend?: boolean;
     } = {
       senderId: offer.senderId,
-      talkData: offer.talkData,
+      talkData: talkRecord,
     };
     if (offer.deliveryChatroomId) acceptParams.deliveryChatroomId = offer.deliveryChatroomId;
     if (offer.directPeerSend) acceptParams.directPeerSend = offer.directPeerSend;
     if (!(await this.shouldAcceptPeerTalkOfferAsync(acceptParams))) return;
+    const hydratedOffer: PeerTalkOfferWire & { talkData: Record<string, unknown> } = {
+      ...offer,
+      talkData: talkRecord,
+    };
     const cluster = applyPeerTalkOfferToLocalInbox(
       this.gunService,
       this.currentUser!.id,
-      offer,
+      hydratedOffer,
       this.p2pRuntimeFlags,
     );
     this.mergeIncomingClusterIntoUi([cluster]);
@@ -966,7 +1004,7 @@ export class IinPublicApp {
 
   public async getLocalIncomingClustersForE2e(): Promise<any[]> {
     if (!this.currentUser?.id) return [];
-    return collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, { waitMs: 300 });
+    return collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, { waitMs: 300 });
   }
 
   private subscribeToTalks(chatroomId: string): void {
@@ -981,7 +1019,12 @@ export class IinPublicApp {
     }
     const gun = this.gunService.getGun();
 
-    const talksRef = gun.get('chatrooms').get(chatroomId).get('talks');
+    const announcementRoots = usesDirectTalkDelivery(this.p2pRuntimeFlags)
+      ? [
+          this.getChatroomTalkAnnouncementRoot(gun, chatroomId),
+          this.getChatroomTalkAnnouncementRoot(gun, chatroomId, true),
+        ]
+      : [this.getChatroomTalkAnnouncementRoot(gun, chatroomId, true)];
 
     /** Dedupe by (talkId, authorId); same content-hash id from two senders must both register. */
     const seenTalkAuthor = new Set<string>();
@@ -1087,15 +1130,21 @@ export class IinPublicApp {
       }
     };
 
-    const mapRef = talksRef.map();
-    mapRef.on(processTalkAnnouncement);
+    const mapRefs = announcementRoots.map((root) => root.map());
+    for (const mapRef of mapRefs) {
+      mapRef.on(processTalkAnnouncement);
+    }
     console.log('🔄 Loading existing talks with .once()...');
-    mapRef.once(processTalkAnnouncement);
+    for (const mapRef of mapRefs) {
+      mapRef.once(processTalkAnnouncement);
+    }
     this.chatroomTalksMapOff = () => {
-      try {
-        mapRef.off();
-      } catch {
-        /* ignore */
+      for (const mapRef of mapRefs) {
+        try {
+          mapRef.off();
+        } catch {
+          /* ignore */
+        }
       }
     };
   }
@@ -1212,8 +1261,131 @@ export class IinPublicApp {
     }
   }
 
+  private async syncDirectPairTalkExchangesForContacts(): Promise<void> {
+    if (!usesDirectTalkDelivery(this.p2pRuntimeFlags) || !this.currentUser?.id) return;
+    let myTalks: Record<string, any> = {};
+    try {
+      myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+    } catch {
+      myTalks = {};
+    }
+    const createdTalks = Object.entries(myTalks)
+      .filter(([, entry]: [string, any]) => entry?.role === 'created')
+      .map(([talkId, entry]: [string, any]) => ({
+        talkId: String(entry?.fullTalk?.id || entry?.id || talkId),
+        talkData: entry?.fullTalk || entry,
+      }))
+      .filter((entry) => entry.talkId && entry.talkData);
+    if (createdTalks.length === 0) return;
+
+    const chatroomId = this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId || 'global';
+    let peerIds: string[] = [];
+    try {
+      peerIds = (await this.chatroomService.getActiveMembers(chatroomId))
+        .map((id: string) => String(id || ''))
+        .filter((id: string) => id && id !== this.currentUser!.id);
+    } catch {
+      peerIds = [];
+    }
+    if (peerIds.length === 0) return;
+
+    const gun = this.gunService.getGun();
+    const collectPairResponses = (pairId: string, talkId: string) =>
+      new Promise<any[]>((resolve) => {
+        const rows: any[] = [];
+        const ref = gun.get('pairTalkResponses').get(pairId).get(talkId).map();
+        ref.once((raw: unknown, key: string) => {
+          if (raw && key && !key.startsWith('_')) rows.push(raw);
+        });
+        window.setTimeout(() => {
+          try {
+            ref.off();
+          } catch {
+            /* ignore */
+          }
+          resolve(rows);
+        }, 350);
+      });
+
+    await Promise.all(
+      peerIds.map(async (peerId) => {
+        let peerName = 'Unknown';
+        try {
+          const peer = await this.userService.getUser(peerId);
+          peerName = peer?.stageName || peerName;
+        } catch {
+          /* keep fallback */
+        }
+        for (const { talkId, talkData } of createdTalks) {
+          const pairId = this.pairIdForUsers(this.currentUser!.id, peerId);
+          const rows = await collectPairResponses(pairId, talkId);
+          for (const row of rows) {
+            if (String(row?.authorId || '') !== this.currentUser!.id) continue;
+            if (String(row?.responderId || '') !== peerId) continue;
+            try {
+              const decrypted = await this.decryptPairTalkResponsePayload(row);
+              const isMatch = this.checkIfMatch(talkData, decrypted.answers);
+              this.recordLocalTalkExchange(peerId, decrypted.responderName || peerName, talkId, talkData, isMatch ? 'match' : 'mismatch');
+            } catch (error) {
+              console.warn('Failed to sync pair talk response for contacts:', error);
+            }
+          }
+        }
+      }),
+    );
+  }
+
   private pairIdForUsers(userA: string, userB: string): string {
     return [String(userA || '').trim(), String(userB || '').trim()].sort().join('__');
+  }
+
+  private async getPairTalkResponseSecret(peerUserId: string): Promise<string> {
+    const pair = this.gunService.getStoredPair();
+    if (!pair) {
+      throw new Error('No SEA keypair is available for pair-private talk response');
+    }
+    const peer = await this.gunService.getPublicUser(peerUserId);
+    if (!peer?.epub) {
+      throw new Error(`Peer ${peerUserId} has no public encryption key`);
+    }
+    return getSEA().secret(peer.epub, pair as GunPair);
+  }
+
+  private async encryptPairTalkResponsePayload(peerUserId: string, payload: Record<string, unknown>): Promise<string> {
+    const secret = await this.getPairTalkResponseSecret(peerUserId);
+    return getSEA().encrypt(JSON.stringify(payload), secret);
+  }
+
+  private async decryptPairTalkResponsePayload(responseData: any): Promise<{
+    responderName: string;
+    authorName: string;
+    answers: any[];
+    isChatbotResponse: boolean;
+  }> {
+    if (responseData?.payloadCiphertext) {
+      const peerId = String(responseData.responderId || responseData.authorId || '');
+      const secret = await this.getPairTalkResponseSecret(peerId);
+      const decrypted = await getSEA().decrypt(String(responseData.payloadCiphertext), secret);
+      if (!decrypted) {
+        throw new Error('Pair talk response payload could not be decrypted');
+      }
+      const payload = typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted;
+      return {
+        responderName: String(payload.responderName || responseData.responderId || 'Unknown'),
+        authorName: String(payload.authorName || responseData.authorId || 'Unknown'),
+        answers: Array.isArray(payload.answers) ? payload.answers : JSON.parse(String(payload.answers || '[]')),
+        isChatbotResponse: !!payload.isChatbotResponse,
+      };
+    }
+
+    return {
+      responderName: String(responseData.responderName || responseData.responderId || 'Unknown'),
+      authorName: String(responseData.authorName || responseData.authorId || 'Unknown'),
+      answers: Array.isArray(responseData.answers)
+        ? responseData.answers
+        : JSON.parse(String(responseData.answers || '[]')),
+      isChatbotResponse: !!responseData.isChatbotResponse,
+    };
   }
 
   private subscribeToPairTalkResponses(talkId: string, talkData: any, peerId: string): void {
@@ -1242,15 +1414,14 @@ export class IinPublicApp {
           return;
         }
 
-        try {
-          const answers = Array.isArray(responseData.answers)
-            ? responseData.answers
-            : JSON.parse(String(responseData.answers || '[]'));
+        void (async () => {
+          const decrypted = await this.decryptPairTalkResponsePayload(responseData);
+          const answers = decrypted.answers;
           this.processedTalkResponseKeys.add(dedupeKey);
           const isMatch = this.checkIfMatch(talkData, answers);
           this.recordLocalTalkExchange(
             responseData.responderId,
-            responseData.responderName,
+            decrypted.responderName,
             talkId,
             talkData,
             isMatch ? 'match' : 'mismatch',
@@ -1258,7 +1429,7 @@ export class IinPublicApp {
           if (!isMatch) return;
 
           this.uiManager.showNotification(
-            this.uiManager.formatTalkMatched(responseData.responderName, talkData.title),
+            this.uiManager.formatTalkMatched(decrypted.responderName, talkData.title),
             'success',
           );
           this.conversationService
@@ -1266,18 +1437,18 @@ export class IinPublicApp {
               userId1: this.currentUser!.id,
               userName1: this.currentUser!.stageName,
               userId2: responseData.responderId,
-              userName2: responseData.responderName,
+              userName2: decrypted.responderName,
               talkId,
-              respondedByBotForUser1: !!responseData.isChatbotResponse,
+              respondedByBotForUser1: !!decrypted.isChatbotResponse,
               respondedByBotForUser2: false,
             })
             .then((conversationId) => {
               this.uiManager.addNewConversation({
                 conversationId,
                 otherUserId: responseData.responderId,
-                otherUserName: responseData.responderName,
+                otherUserName: decrypted.responderName,
                 talkId,
-                respondedByBot: !!responseData.isChatbotResponse,
+                respondedByBot: !!decrypted.isChatbotResponse,
                 transportMode: this.conversationService.getTransportMode(),
               });
               this.uiManager.setMemberMatched(responseData.responderId);
@@ -1285,9 +1456,9 @@ export class IinPublicApp {
             .catch((error) => {
               console.error('Failed to create pair-direct conversation:', error);
             });
-        } catch (error) {
+        })().catch((error) => {
           console.error('Error processing pair-direct talk response:', error);
-        }
+        });
       });
   }
 
@@ -1325,6 +1496,19 @@ export class IinPublicApp {
 
     const gun = this.gunService.getGun();
     const responseId = `response-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+    if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
+      void this.submitTalkResponsePairDirect({
+        talkId,
+        talkData,
+        answers: template.answers,
+        isChatbotResponse: true,
+        authorId,
+        authorName,
+        isAutoResponse: true,
+      });
+      return;
+    }
 
     const responsePayload = {
       responderId: this.currentUser.id,
@@ -2001,17 +2185,23 @@ export class IinPublicApp {
     });
     const pairId = this.pairIdForUsers(this.currentUser.id, params.authorId);
     const responseId = `resp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const payloadCiphertext = await this.encryptPairTalkResponsePayload(params.authorId, {
+      responderName: this.currentUser.stageName,
+      authorName: params.authorName,
+      answers: params.answers,
+      isChatbotResponse: params.isChatbotResponse,
+      transportMode: 'pair-direct',
+    });
     const responsePayload = {
+      version: 2,
       responseId,
       talkId: params.talkId,
       pairId,
       responderId: this.currentUser.id,
-      responderName: this.currentUser.stageName,
       authorId: params.authorId,
-      authorName: params.authorName,
-      answers: JSON.stringify(params.answers),
       submittedAt: new Date().toISOString(),
-      isChatbotResponse: params.isChatbotResponse,
+      encryption: 'sea-ecdh-v1',
+      payloadCiphertext,
       transportMode: 'pair-direct',
     };
 
@@ -2109,7 +2299,7 @@ export class IinPublicApp {
     try {
       let clusters: unknown[];
       if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
-        clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, {
+        clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, {
           waitMs: 400,
         });
       } else {
@@ -2141,14 +2331,14 @@ export class IinPublicApp {
 
   private subscribeToIncomingTalks(): void {
     if (!this.currentUser) return;
-    const gun = this.gunService.getGun();
     console.log('👂 Subscribing to incoming talk clusters for:', this.currentUser.id);
 
-    gun
-      .get('incomingTalksByUser')
-      .get(this.currentUser.id)
-      .map()
-      .on((cluster: any, id: string) => {
+    this.incomingTalkClusterUnsubscribe?.();
+    this.incomingTalkClusterUnsubscribe = subscribeLocalIncomingTalkClusters(
+      this.gunService,
+      this.currentUser.id,
+      this.p2pRuntimeFlags,
+      (cluster: any, id: string) => {
         if (!cluster || !id || id.startsWith('_')) return;
         if (this.incomingApiRefreshTimer) clearTimeout(this.incomingApiRefreshTimer);
         this.incomingApiRefreshTimer = setTimeout(() => {
@@ -2158,7 +2348,8 @@ export class IinPublicApp {
             void this.refreshIncomingTalkClustersFromApi();
           }
         }, 120);
-      });
+      },
+    );
   }
 
   /**
@@ -2232,7 +2423,7 @@ export class IinPublicApp {
           tid,
           String(talk.authorId || this.currentUser.id),
         );
-        gun.get('chatrooms').get(chatroomId).get('talks').get(announcementKey).put({
+        this.publishChatroomTalkAnnouncement(gun, chatroomId, announcementKey, {
           talkId: tid,
           title: talk.title,
           authorId: talk.authorId,
@@ -2291,7 +2482,7 @@ export class IinPublicApp {
         tid,
         String(talk.authorId || this.currentUser.id),
       );
-      gun.get('chatrooms').get(chatroomId).get('talks').get(announcementKey).put({
+      this.publishChatroomTalkAnnouncement(gun, chatroomId, announcementKey, {
         talkId: tid,
         title: talk.title,
         authorId: talk.authorId,
@@ -2327,7 +2518,7 @@ export class IinPublicApp {
       (offer) => this.shouldAcceptPeerTalkOfferAsync(offer),
       { waitMs: 500 },
     );
-    const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, {
+    const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, {
       waitMs: 500,
     });
     this.mergeIncomingClusterIntoUi(clusters);
@@ -2394,7 +2585,7 @@ export class IinPublicApp {
 
     for (let i = 0; i < maxAttempts; i++) {
       if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
-        const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, {
+        const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, {
           waitMs: 200,
         });
         if (clusterIncludesTalk(clusters)) {
@@ -2754,7 +2945,7 @@ export class IinPublicApp {
 
           const gun = this.gunService.getGun();
           const announcementKey = this.buildChatroomTalkAnnouncementKey(talk.id, talk.authorId);
-          gun.get('chatrooms').get(chatroomId).get('talks').get(announcementKey).put({
+          this.publishChatroomTalkAnnouncement(gun, chatroomId, announcementKey, {
             talkId: talk.id,
             title: talk.title,
             authorId: talk.authorId,
@@ -2901,7 +3092,7 @@ export class IinPublicApp {
               tid,
               String(talk.authorId || this.currentUser!.id),
             );
-            gun.get('chatrooms').get(chatroomId).get('talks').get(announcementKey).put({
+            this.publishChatroomTalkAnnouncement(gun, chatroomId, announcementKey, {
               talkId: tid,
               title: talk.title,
               authorId: talk.authorId,
@@ -3679,7 +3870,7 @@ export class IinPublicApp {
         try {
           const talkData = JSON.parse(wrapper.data);
           const announcementKey = this.buildChatroomTalkAnnouncementKey(talkId, this.currentUser!.id);
-          gun.get('chatrooms').get(chatroomId).get('talks').get(announcementKey).put({
+          this.publishChatroomTalkAnnouncement(gun, chatroomId, announcementKey, {
             talkId,
             title: talkData.title,
             authorId: this.currentUser!.id,

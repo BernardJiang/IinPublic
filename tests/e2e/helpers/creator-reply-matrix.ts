@@ -38,6 +38,55 @@ async function postJson(base: string, path: string, body: unknown): Promise<Resp
   });
 }
 
+function pairIdForUsers(userA: string, userB: string): string {
+  return [String(userA || '').trim(), String(userB || '').trim()].sort().join('__');
+}
+
+function linkNode(graph: Record<string, unknown>, parentSoul: string, key: string, childSoul: string): void {
+  const existing = graph[parentSoul] && typeof graph[parentSoul] === 'object'
+    ? (graph[parentSoul] as Record<string, unknown>)
+    : gunSnapshotNode(parentSoul, {});
+  existing[key] = { '#': childSoul };
+  graph[parentSoul] = existing;
+}
+
+function upsertPairTalkResponseNode(
+  graph: Record<string, unknown>,
+  params: {
+    creatorId: string;
+    creatorName: string;
+    talk: MatrixTalk;
+    responder: MatrixResponder;
+    responseId: string;
+    answers: Array<{ questionId: string; answerId: string; answerText: string }>;
+    isMatch: boolean;
+    createdAt: number;
+  },
+): void {
+  const pairId = pairIdForUsers(params.creatorId, params.responder.id);
+  const rootSoul = 'pairTalkResponses';
+  const pairSoul = `${rootSoul}/${pairId}`;
+  const talkSoul = `${pairSoul}/${params.talk.talkId}`;
+  const responseSoul = `${talkSoul}/${params.responseId}`;
+  linkNode(graph, rootSoul, pairId, pairSoul);
+  linkNode(graph, pairSoul, params.talk.talkId, talkSoul);
+  linkNode(graph, talkSoul, params.responseId, responseSoul);
+  graph[responseSoul] = gunSnapshotNode(responseSoul, {
+    responseId: params.responseId,
+    talkId: params.talk.talkId,
+    pairId,
+    responderId: params.responder.id,
+    responderName: params.responder.stageName,
+    authorId: params.creatorId,
+    authorName: params.creatorName,
+    answers: JSON.stringify(params.answers),
+    submittedAt: new Date(params.createdAt).toISOString(),
+    isChatbotResponse: false,
+    transportMode: 'pair-direct',
+    outcome: params.isMatch ? 'match' : 'mismatch',
+  });
+}
+
 export async function seedMatrixResponders(count: number): Promise<MatrixResponder[]> {
   const base = gunBaseURL();
   const responders: MatrixResponder[] = [];
@@ -106,10 +155,9 @@ export async function submitMatrixResponse(
   const picked = match
     ? answers.find((a: any) => a?.isMatch)
     : answers.find((a: any) => a?.isIgnore);
-  const res = await postJson(base, `/api/talks/${encodeURIComponent(talk.talkId)}/response`, {
-    talkId: talk.talkId,
+  const res = await postJson(base, `/api/stats/talks/${encodeURIComponent(talk.talkId)}/record`, {
     responderId: responder.id,
-    responderName: responder.stageName,
+    talkType: talkData?.type || 'flow',
     answers: [
       {
         questionId: String(q?.id || 'q1'),
@@ -117,12 +165,10 @@ export async function submitMatrixResponse(
         answerText: String(picked?.text || (match ? 'Yes' : 'No')),
       },
     ],
-    talkData: talk.talkData,
-    isAuto: false,
-    isChatbotResponse: false,
+    outcome: match ? 'match' : 'other',
   });
   if (!res.ok) {
-    throw new Error(`matrix response failed: ${res.status} ${await res.text()}`);
+    throw new Error(`matrix stats record failed: ${res.status} ${await res.text()}`);
   }
 }
 
@@ -227,21 +273,34 @@ export async function importChampionReplyMatrixSnapshot(opts: {
       );
       // Champion matches every talk (user-matches sort). Talk 0 also gets every responder (talk-matches sort).
       const match = r === championIndex || t === 0;
+      const responseId = `matrix_resp_${t}_${r}`;
+      const responseAnswers = [
+        { questionId: 'q1', answerId: match ? 'a_match' : 'a_ignore', answerText: match ? 'Yes' : 'No' },
+      ];
+      const createdAt = nowMs + t * 1000 + r;
       const list = [...(talkResponses[talk.talkId] || [])];
       list.push({
-        responseId: `matrix_resp_${t}_${r}`,
+        responseId,
         talkId: talk.talkId,
         talkType: 'flow',
         responderId: responder.id,
         region: 'global',
-        answers: [
-          { questionId: 'q1', answerId: match ? 'a_match' : 'a_ignore', answerText: match ? 'Yes' : 'No' },
-        ],
-        createdAt: nowMs + t * 1000 + r,
+        answers: responseAnswers,
+        createdAt,
         outcome: match ? 'match' : 'other',
         answerMode: 'manual',
       });
       talkResponses[talk.talkId] = list;
+      upsertPairTalkResponseNode(gunGraph, {
+        creatorId,
+        creatorName,
+        talk,
+        responder,
+        responseId,
+        answers: responseAnswers,
+        isMatch: match,
+        createdAt,
+      });
     }
   }
 

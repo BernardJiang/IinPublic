@@ -1,4 +1,5 @@
 import {
+  OWNER_INCOMING_TALK_INDEX_ROOT,
   PEER_TALK_CATALOG_ROOT,
   PEER_TALK_OFFERS_ROOT,
   buildPeerTalkOfferKey,
@@ -79,7 +80,7 @@ export function upsertLocalIncomingTalkCluster(
 export function applyPeerTalkOfferToLocalInbox(
   gunService: WebGunService,
   receiverUserId: string,
-  offer: PeerTalkOfferWire,
+  offer: PeerTalkOfferWire & { talkData: Record<string, unknown> },
   flags: P2PRuntimeFlags,
 ): IncomingTalkClusterWire {
   return upsertLocalIncomingTalkCluster(
@@ -109,7 +110,7 @@ export function subscribePeerTalkOffers(
     const dedupe = `${key}`;
     if (seen.has(dedupe)) return;
     const offer = raw as PeerTalkOfferWire;
-    if (offer?.version !== 1 || !offer.talkId || !offer.senderId || !offer.talkData) return;
+    if (offer?.version !== 1 || !offer.talkId || !offer.senderId || !offer.talkRef) return;
     seen.add(dedupe);
     handler(offer, key);
   });
@@ -126,7 +127,7 @@ export async function reconcilePeerTalkOffersFromGun(
   gunService: WebGunService,
   receiverUserId: string,
   flags: P2PRuntimeFlags,
-  shouldAccept: (offer: PeerTalkOfferWire) => boolean | Promise<boolean>,
+  shouldAccept: (offer: PeerTalkOfferWire & { talkData: Record<string, unknown> }) => boolean | Promise<boolean>,
   opts: { waitMs?: number } = {},
 ): Promise<IncomingTalkClusterWire[]> {
   const gun = gunService.getGun();
@@ -149,14 +150,24 @@ export async function reconcilePeerTalkOffersFromGun(
       const dedupe = `${key}`;
       if (seen.has(dedupe)) return;
       const offer = raw as PeerTalkOfferWire;
-      if (offer?.version !== 1 || !offer.talkId || !offer.senderId || !offer.talkData) return;
+      if (offer?.version !== 1 || !offer.talkId || !offer.senderId || !offer.talkRef) return;
       seen.add(dedupe);
       offers.push(offer);
     });
   });
   for (const offer of offers) {
-    if (!(await shouldAccept(offer))) continue;
-    merged.push(applyPeerTalkOfferToLocalInbox(gunService, receiverUserId, offer, flags));
+    const talkData =
+      offer.talkData ??
+      (await loadPeerTalkCatalogFromGun(gunService, offer.talkRef.authorId, offer.talkRef.talkId, {
+        timeoutMs: 1200,
+      }));
+    if (!talkData) continue;
+    const hydratedOffer: PeerTalkOfferWire & { talkData: Record<string, unknown> } = {
+      ...offer,
+      talkData: talkData as unknown as Record<string, unknown>,
+    };
+    if (!(await shouldAccept(hydratedOffer))) continue;
+    merged.push(applyPeerTalkOfferToLocalInbox(gunService, receiverUserId, hydratedOffer, flags));
   }
   return merged;
 }
@@ -164,30 +175,68 @@ export async function reconcilePeerTalkOffersFromGun(
 export async function collectLocalIncomingTalkClusters(
   gunService: WebGunService,
   receiverUserId: string,
+  flags: P2PRuntimeFlags,
   opts: { waitMs?: number } = {},
 ): Promise<IncomingTalkClusterWire[]> {
   const gun = gunService.getGun();
   const waitMs = opts.waitMs ?? 400;
   const clusters: IncomingTalkClusterWire[] = [];
-  const ref = gun.get('incomingTalksByUser').get(receiverUserId).map();
+  const roots = flags.p2pDirectTalkDelivery
+    ? [OWNER_INCOMING_TALK_INDEX_ROOT, 'incomingTalksByUser']
+    : ['incomingTalksByUser'];
+  const refs = roots.map((root) => gun.get(root).get(receiverUserId).map());
   await new Promise<void>((resolve) => {
-    ref.once((raw: unknown, key: string) => {
-      if (!raw || !key || key.startsWith('_')) return;
-      const cluster = raw as IncomingTalkClusterWire;
-      if (cluster?.identityKey) clusters.push(cluster);
-    });
+    for (const ref of refs) {
+      ref.once((raw: unknown, key: string) => {
+        if (!raw || !key || key.startsWith('_')) return;
+        const cluster = raw as IncomingTalkClusterWire;
+        if (cluster?.identityKey) clusters.push(cluster);
+      });
+    }
     setTimeout(resolve, waitMs);
   });
-  try {
-    ref.off();
-  } catch {
-    /* ignore */
+  for (const ref of refs) {
+    try {
+      ref.off();
+    } catch {
+      /* ignore */
+    }
   }
   const byKey = new Map<string, IncomingTalkClusterWire>();
   for (const c of clusters) {
     if (c.identityKey) byKey.set(c.identityKey, c);
   }
   return [...byKey.values()];
+}
+
+export function subscribeLocalIncomingTalkClusters(
+  gunService: WebGunService,
+  receiverUserId: string,
+  flags: P2PRuntimeFlags,
+  handler: (cluster: IncomingTalkClusterWire, id: string) => void,
+): () => void {
+  const gun = gunService.getGun();
+  const roots = flags.p2pDirectTalkDelivery
+    ? [OWNER_INCOMING_TALK_INDEX_ROOT, 'incomingTalksByUser']
+    : ['incomingTalksByUser'];
+  const refs = roots.map((root) => {
+    const ref = gun.get(root).get(receiverUserId).map();
+    ref.on((raw: unknown, key: string) => {
+      if (!raw || !key || key.startsWith('_')) return;
+      const cluster = raw as IncomingTalkClusterWire;
+      if (cluster?.identityKey) handler(cluster, key);
+    });
+    return ref;
+  });
+  return () => {
+    for (const ref of refs) {
+      try {
+        ref.off();
+      } catch {
+        /* ignore */
+      }
+    }
+  };
 }
 
 function talkLooksComplete(talk: Talk | null): boolean {
