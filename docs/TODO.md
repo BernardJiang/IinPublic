@@ -8,75 +8,53 @@ This file is the short, execution-oriented plan.
 - **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specification.md` (§19.13, §19.14, REQ-P2P-09–29)
 - Supporting detail: `docs/roadmap/p2p-node-network.md`
 
-## Current Focus — SRS §19.13 P2P Handshake, Trust, Versioning, and Abuse Defense
+## Current Focus — Wire-up P2P-Q/R/U into runtime paths
 
-P1 pair-private ownership graph (§19.14, REQ-P2P-21–29) and P2P-P canonical signed envelopes are shipped and moved to `docs/completed.md`. The next SRS-backed gap is §19.13 / REQ-P2P-14–20: direct handshakes/protocol negotiation, local trust gates, deterministic schema migrations, signed upgrades, and fake-client defenses.
+P2P-Q, P2P-R, P2P-S, P2P-T, and P2P-U are shipped (shared domain + unit tests).  The next step is to wire the new modules into the live server relay routes and client receive paths so that runtime traffic actually benefits from the new defenses.
 
-## SRS Audit Snapshot (2026-06-04)
+## SRS Audit Snapshot (2026-06-04, post P2P-Q/R/S/T/U)
 
 Checked current implementation against `docs/specs/iinpublic-technical-specification.md` §19.13 and §19.14.
 
-- **§19.14 / REQ-P2P-21–29:** Shipped. Direct-mode answers and non-TechSupport DMs are pair-scoped SEA ciphertext, chatroom delivery is announcement metadata, offers use catalog refs, server APIs are scoped away from hub pair history, and `npm run test:e2e:parallel` passed in direct mode.
-- **REQ-P2P-09:** Shipped for direct P2P envelopes. Shared helpers derive canonical `peerId = SHA-256(pub)` and carry peer IDs on signaling, relay, discovery, presence ack, and direct talk offer metadata.
-- **REQ-P2P-10 / 19:** Shipped for current relay/direct metadata surfaces. Placeholder `sig_*` strings were replaced with SEA signing/verification on server routes and client receive paths; stale, tampered, wrong-peer, and duplicate-nonce envelopes are rejected.
-- **REQ-P2P-14 / 15:** Partial. WebRTC sessions exchange `ledger-state`, but not a signed handshake with `appVersion`, `supportedProtocols`, `features`, and fail-closed negotiation when no protocol overlaps.
-- **REQ-P2P-11 / 12 / 18:** Partial. Blocks, known-person labels, local reputation, and neighbor trust status exist, but there is no distinct `Verified` trust level or capability gating for Unknown/Friend/Verified peers.
-- **REQ-P2P-13 / 16:** Partial. Some records have `version: 1`, but stored application objects do not consistently carry `schemaVersion`, and there is no deterministic startup/read migration registry.
-- **REQ-P2P-17:** Missing. No signed release hash/signature verification or trust-store flow exists for PWA/desktop/mobile upgrades.
-- **REQ-P2P-20:** Partial. Signaling TTL and client-side seen-nonce sets exist, but there is no server/client replay cache across requests, malformed-traffic rate limit, behavioral counter, suspicious-peer flag, or peer-priority downgrade path.
+- **§19.14 / REQ-P2P-21–29:** Shipped. See `docs/completed.md`.
+- **REQ-P2P-09:** Shipped. See `docs/completed.md`.
+- **REQ-P2P-10 / 19:** Shipped. See `docs/completed.md`.
+- **REQ-P2P-14 / 15:** Shipped (domain). `p2p-handshake.ts` + WebRTC integration sends/receives signed handshake on DataChannel open and negotiates protocol. Runtime E2E coverage for the new handshake frame is not yet written.
+- **REQ-P2P-11 / 12 / 18:** Shipped (domain). `p2p-trust.ts` defines `TrustLevel`, capability gates, and export/import. Not yet wired into the live neighbor cache or delivery filter paths.
+- **REQ-P2P-13 / 16:** Shipped (domain). `p2p-schema-migrations.ts` covers all stored object kinds with deterministic v0→v1 migration and startup runner. Startup call not yet inserted in server/web boot paths.
+- **REQ-P2P-17:** Shipped (domain). `p2p-release-verification.ts` with manifest format, trust store, and verification. Not yet integrated into PWA/desktop update flow.
+- **REQ-P2P-20:** Shipped (domain). `p2p-abuse-defense.ts` — `BoundedNonceCache`, `P2PRateLimiter`, `SuspiciousPeerTracker`, `P2PAbuseDefenseContext`. Not yet instantiated on server relay routes or client receive paths.
 
 ## Next Action Items (Ordered)
 
-### P2P-Q — Signed Handshake + Protocol/Feature Negotiation
+### P2P-V — Wire P2P-U abuse defense into relay routes + client receive paths
 
-Extend direct connection setup beyond `LEDGER_STATE` so peers negotiate capabilities before trusting P2P payloads.
-
-Acceptance:
-- On WebRTC open and first Gun/direct exchange, send signed handshake `{ peerId, appName, appVersion, supportedProtocols, features, publicKey, timestamp }`.
-- Negotiate the highest common protocol and fail cleanly when there is no overlap.
-- Ignore unknown fields/features without crashing; expose local diagnostics for selected protocol and unsupported-feature fallback.
-- Add unit/E2E coverage for compatible, downgraded, unsupported, and malformed handshakes.
-
-### P2P-R — Local Trust Levels + Capability Gating
-
-Make the SRS trust model explicit in runtime behavior.
+Connect `P2PAbuseDefenseContext` to live traffic.
 
 Acceptance:
-- Add `trustLevel: 'unknown' | 'friend' | 'verified' | 'blocked'` to the local known-peer/trust model while preserving current labels.
-- Gate capabilities by trust level: Unknown has limited broadcast/contact privileges; Friend has normal exchange; Verified enables higher-trust affordances; Blocked receives no communication.
-- Ensure reputation can recommend or prioritize but never overrides explicit Blocked or user-set trust.
-- Add tests for Unknown defaults, promotion/demotion, Verified behavior, block precedence, and trust surviving reload/export.
+- Instantiate a server-side `P2PAbuseDefenseContext` in the relay-route middleware; call `checkInbound` before processing each signaling/relay/presence envelope.
+- Instantiate a per-session `BoundedNonceCache` on the client `P2PConversationSession` (replace the current unbounded `Set`).
+- Surface `getDiagnostics()` output on `GET /api/debug/p2p-abuse` (test/debug only, behind `E2E_GUN_MEMORY_ONLY` flag).
+- Add integration tests for rate-limit rejection and nonce-replay rejection on server relay routes.
 
-### P2P-S — Schema Versions + Deterministic Migration Registry
+### P2P-W — Wire P2P-R trust levels into neighbor cache + delivery filter
 
-Unify stored object versioning before more P2P wire changes accumulate.
-
-Acceptance:
-- Define schema versions for presence, peer offers, catalog records, pair responses, pair conversations, known people, neighbor cache, ledger events, and local IN/OUT indexes.
-- Add deterministic migration functions and a startup/read migrator with idempotency guarantees.
-- Add storage inspector diagnostics for current schema versions and pending migrations.
-- Add unit tests for v1→current migration and no-op re-run behavior.
-
-### P2P-T — Signed Upgrade Verification
-
-Add release integrity checks for official clients.
+Connect `p2p-trust.ts` to live peer interaction.
 
 Acceptance:
-- Define a release manifest format containing version, package hash, signature, signer key id, and supported protocol/schema range.
-- Add verification helpers and trust-store configuration for PWA/desktop/mobile packaging.
-- Reject unsigned or hash-mismatched releases before install/update.
-- Add tests around valid manifest, bad signature, unknown signer, downgrade, and protocol incompatibility warning.
+- Map `PeerTrustRecord.trustLevel` to `P2PNeighborRecord.trustStatus` via `toLegacyTrustStatus` on every upsert.
+- Enforce `isTrustCapable` before accepting incoming talks and before routing direct messages.
+- Persist `PeerTrustRecord` map under the user's SEA-encrypted Gun path.
+- Add integration/E2E test that a blocked peer's delivery attempt is rejected.
 
-### P2P-U — Fake-Client Defense + Replay/Rate Controls
+### P2P-X — Wire P2P-S schema migrator into boot paths
 
-Harden relay and client receive paths against malformed traffic and abuse.
+Run `runStartupMigrations` at server and web startup.
 
 Acceptance:
-- Add bounded nonce replay caches on server relay routes and client peer receive paths.
-- Rate-limit malformed signaling/relay/presence traffic by peer/pub/IP where available.
-- Track suspicious-peer counters locally and downgrade neighbor priority without trusting `appName`.
-- Expose non-secret diagnostics for rejected envelopes and suspicious-peer state.
-- Add tests for duplicate nonce, malformed payload floods, stale timestamps, blocked peer attempts, and priority downgrade.
+- Server: call migrator on Gun-loaded records before serving them; log pending-migration counts.
+- Web: call migrator on read from localStorage / Gun before handing records to services.
+- Add E2E smoke test that a v0 stored record is transparently upgraded on read.
 
 ## Shipped (foundation)
 
@@ -86,6 +64,11 @@ Acceptance:
 | P2P-H–O — relay stack | Shipped | See `docs/completed.md` |
 | P1 Phase E — pair-private ownership graph | Shipped | See `docs/completed.md` |
 | Hub Phase C — relay-only hub | Partial | Ephemeral flags and pair-private app data are in place; production `radata/` removal remains a deployment hardening task. |
+| P2P-Q — Signed handshake + protocol/feature negotiation | Shipped (domain + WebRTC integration) | `src/shared/p2p-handshake.ts`; DataChannel sends `handshake` frame on open, negotiates protocol. See `docs/completed.md`. |
+| P2P-R — Local trust levels + capability gating | Shipped (domain) | `src/shared/p2p-trust.ts`; `TrustLevel`, `isTrustCapable`, promotion/demotion rules, export/import. See `docs/completed.md`. |
+| P2P-S — Schema versions + deterministic migration registry | Shipped (domain) | `src/shared/p2p-schema-migrations.ts`; all stored-object kinds, v0→v1 steps, idempotent migrator. See `docs/completed.md`. |
+| P2P-T — Signed upgrade verification | Shipped (domain) | `src/shared/p2p-release-verification.ts`; release manifest, trust-store, verifier. See `docs/completed.md`. |
+| P2P-U — Fake-client defense + replay/rate controls | Shipped (domain) | `src/shared/p2p-abuse-defense.ts`; `BoundedNonceCache`, `P2PRateLimiter`, `SuspiciousPeerTracker`, `P2PAbuseDefenseContext`. See `docs/completed.md`. |
 
 ## Hub migration track (§19.12)
 

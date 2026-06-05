@@ -2,11 +2,20 @@ import type { Message } from '../../shared/types';
 import type { LedgerState } from '../../shared/types';
 import {
   createSignedP2PEnvelopeProof,
+  derivePeerIdFromPub,
   p2pDataChannelSigningPayload,
   p2pSignalingSigningPayload,
   verifySignedP2PEnvelopeProof,
   type SeaSigningPair,
 } from '../../shared/p2p-runtime';
+import {
+  buildHandshakePayload,
+  buildHandshakeDiagnostics,
+  negotiateProtocol,
+  validateHandshakePayload,
+  type HandshakeDiagnostics,
+  type P2PHandshakePayload,
+} from '../../shared/p2p-handshake';
 import { P2PSignalingClient, encodeSignalingPayload, type PostSignalingBody } from './p2p-signaling-client';
 
 export type P2PConnectionState = 'idle' | 'connecting' | 'connected' | 'failed';
@@ -15,6 +24,11 @@ type SignalPayload =
   | { type: 'offer'; sdp: RTCSessionDescriptionInit }
   | { type: 'answer'; sdp: RTCSessionDescriptionInit }
   | { type: 'ice'; candidate: RTCIceCandidateInit | null };
+
+type HandshakeWirePayload = {
+  type: 'handshake';
+  payload: P2PHandshakePayload;
+};
 
 type DmWirePayload = {
   type: 'dm';
@@ -36,7 +50,7 @@ type LedgerStateWirePayload = {
   feeds: LedgerState;
 };
 
-type ChannelFramePayload = DmWirePayload | LedgerStateWirePayload;
+type ChannelFramePayload = HandshakeWirePayload | DmWirePayload | LedgerStateWirePayload;
 
 type SignedChannelWirePayload = {
   type: 'signed-frame';
@@ -103,6 +117,10 @@ export class P2PConversationSession {
   private ledgerRemoteReceived = false;
   private ledgerReady = false;
   private readonly dataChannelNonces = new Set<string>();
+  // P2P-Q: handshake state
+  private localHandshakePayload: P2PHandshakePayload | null = null;
+  private remoteHandshakePayload: P2PHandshakePayload | null = null;
+  private handshakeDiagnostics: HandshakeDiagnostics | null = null;
 
   constructor(private config: P2PSessionConfig) {
     this.signaling = new P2PSignalingClient(config.apiBase);
@@ -110,6 +128,11 @@ export class P2PConversationSession {
 
   getState(): P2PConnectionState {
     return this._state;
+  }
+
+  /** P2P-Q: Returns a snapshot of the handshake negotiation diagnostics. */
+  getHandshakeDiagnostics(): HandshakeDiagnostics | null {
+    return this.handshakeDiagnostics;
   }
 
   getMessages(): Message[] {
@@ -304,10 +327,33 @@ export class P2PConversationSession {
     }
   }
 
+  private async sendHandshake(): Promise<void> {
+    if (!this.config.localPair) return;
+    const peerId = await derivePeerIdFromPub(this.config.localPub);
+    const payload = buildHandshakePayload({ peerId, publicKey: this.config.localPub });
+    this.localHandshakePayload = payload;
+    const frame: HandshakeWirePayload = { type: 'handshake', payload };
+    await this.sendChannelFrame(frame).catch(() => undefined);
+  }
+
+  private handleHandshake(payload: unknown): void {
+    const validation = validateHandshakePayload(payload);
+    if (!validation.ok) return; // silently drop malformed handshakes
+    this.remoteHandshakePayload = validation.payload;
+    if (this.localHandshakePayload) {
+      const result = negotiateProtocol(this.localHandshakePayload, validation.payload);
+      this.handshakeDiagnostics = buildHandshakeDiagnostics(
+        this.localHandshakePayload,
+        validation.payload,
+        result,
+      );
+    }
+  }
+
   private attachDataChannel(channel: RTCDataChannel): void {
     channel.onopen = () => {
       this.setState('connected');
-      this.sendLedgerState();
+      void this.sendHandshake().then(() => this.sendLedgerState());
     };
     channel.onmessage = (event) => {
       try {
@@ -360,6 +406,10 @@ export class P2PConversationSession {
       nonceCache: this.dataChannelNonces,
     });
     if (!verification.ok) return;
+    if (parsed.frame.type === 'handshake') {
+      this.handleHandshake(parsed.frame.payload);
+      return;
+    }
     if (parsed.frame.type === 'ledger-state') {
       await this.handleLedgerState(parsed.frame.feeds || {});
       return;

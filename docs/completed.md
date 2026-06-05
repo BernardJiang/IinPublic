@@ -2,6 +2,69 @@
 
 Last updated: 2026-06-04
 
+## 2026-06-04 - P2P-Q/R/S/T/U: Handshake, Trust, Schema Migrations, Upgrade Verification, Abuse Defense
+
+Implemented the five SRS §19.13 / REQ-P2P-14–20 items identified in the SRS audit.
+
+### P2P-Q — Signed Handshake + Protocol/Feature Negotiation (REQ-P2P-14/15)
+**New file:** `src/shared/p2p-handshake.ts`
+- `buildHandshakePayload` — constructs `{ appName, appVersion, supportedProtocols, features, peerId, publicKey, timestamp }`.
+- `negotiateProtocol` — selects the highest common protocol; fails cleanly when lists are empty or have no overlap; ignores unknown remote features without crashing.
+- `validateHandshakePayload` — validates required fields and timestamp skew; returns typed result.
+- `buildHandshakeDiagnostics` — snapshot of selected protocol, unsupported features, and handshake state.
+
+**Modified:** `src/web/services/p2p-webrtc-session.ts`
+- On DataChannel `open`, sends a signed `handshake` frame before `ledger-state`.
+- Incoming `handshake` frame triggers `negotiateProtocol`; result stored as `HandshakeDiagnostics` accessible via `getHandshakeDiagnostics()`.
+- `HandshakeWirePayload` added to `ChannelFramePayload` union.
+
+**Tests:** `src/test/unit/p2p-handshake.test.ts` — compatible, downgraded, unsupported, malformed, and diagnostics cases.
+
+### P2P-R — Local Trust Levels + Capability Gating (REQ-P2P-11/12/18)
+**New file:** `src/shared/p2p-trust.ts`
+- `TrustLevel: 'unknown' | 'friend' | 'verified' | 'blocked'` — four-level model.
+- `CAPABILITY_TRUST_REQUIREMENTS` — per-capability minimum trust level table.
+- `isTrustCapable` / `capabilitiesForTrustLevel` — gate capabilities; blocked peers are always denied.
+- `applyTrustLevelChange` — promotes/demotes with source (`'user'` | `'reputation'`); reputation cannot override user-set blocks or demote below a user-set friend/verified level.
+- `toLegacyTrustStatus` — backwards-compatible bridge to `P2PNeighborTrustStatus`.
+- Import/export helpers (`upsertPeerTrustRecord`, `exportTrustStore`, `importTrustStore`) with idempotency guarantee.
+
+**Tests:** `src/test/unit/p2p-trust.test.ts` — unknown defaults, promotion/demotion, verified behavior, block precedence, reputation constraints, round-trip export.
+
+### P2P-S — Schema Versions + Deterministic Migration Registry (REQ-P2P-13/16)
+**New file:** `src/shared/p2p-schema-migrations.ts`
+- `SCHEMA_VERSIONS` — version constants for presence, peerOffer, catalogRecord, pairResponse, pairConversation, knownPerson, neighborCache, ledgerEvent, localInIndex, localOutIndex, peerTrustRecord, handshakeRecord.
+- `MIGRATION_REGISTRY` — v0→v1 migration steps for every kind.
+- `migrateRecord` / `migrateRecords` — deterministic, idempotent per-record migration.
+- `inspectSchemaVersions` — diagnostics showing stored versions and pending migration count.
+- `runStartupMigrations` — applies all pending migrations across a full store and returns a diagnostic summary.
+
+**Tests:** `src/test/unit/p2p-schema-migrations.test.ts` — v1→current migration, no-op re-run, preserves fields, all kinds covered, startup diagnostics.
+
+### P2P-T — Signed Upgrade Verification (REQ-P2P-17)
+**New file:** `src/shared/p2p-release-verification.ts`
+- `ReleaseManifest` — `{ manifestVersion, version, packageHash, signature, signerKeyId, minSupportedProtocol, minSchemaVersion, builtAt }`.
+- `TrustStoreEntry` — signer key record with validity window.
+- `createReleaseManifest` — validated factory.
+- `manifestSigningPayload` — deterministic canonical payload (excludes `signature`).
+- `verifyReleaseManifest` — checks required fields, resolves signer from trust store, validates key validity window, verifies SEA signature, checks package hash, rejects downgrades.
+- `isDowngrade` — numeric semver comparison.
+
+**Tests:** `src/test/unit/p2p-release-verification.test.ts` — valid manifest, unknown signer, bad signature, hash mismatch, downgrade, expired key, not-yet-valid key, same-version (not downgrade).
+
+### P2P-U — Fake-Client Defense + Replay/Rate Controls (REQ-P2P-20)
+**New file:** `src/shared/p2p-abuse-defense.ts`
+- `BoundedNonceCache` — LRU-evicting cache (default 10 000 entries) implementing `P2PReplayNonceCache`; usable on server relay routes and client receive paths.
+- `P2PRateLimiter` — sliding-window rate limiter keyed by peer id, pub, or IP.
+- `SuspiciousPeerTracker` — per-peer counters for duplicate nonce, malformed payload, stale timestamp, wrong peer id, rate-limit exceeded, blocked-peer attempt; auto-demotes at configurable threshold; exposes non-secret diagnostics.
+- `classifyRejectionReason` — maps `verifySignedP2PEnvelopeProof` failure strings to `SuspiciousPeerReason`.
+- `P2PAbuseDefenseContext` — bundles nonce cache + rate limiter + tracker; `checkInbound` is the single call-site for relay routes and peer receive paths.
+
+**Tests:** `src/test/unit/p2p-abuse-defense.test.ts` — duplicate nonce, eviction, rate-limit flood, stale timestamp, blocked-peer attempts, priority downgrade, diagnostics exposure.
+
+**Evidence:**
+- `npx jest p2p-handshake p2p-trust p2p-schema-migrations p2p-release-verification p2p-abuse-defense` — 5 suites, 109 passed
+
 ## 2026-06-04 - P2P-P: Canonical PeerID + Signed P2P Envelopes
 
 Implemented canonical signed envelope proofing for current direct P2P metadata and relay surfaces.
