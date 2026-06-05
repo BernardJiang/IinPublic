@@ -1,9 +1,11 @@
 import {
   createPeerAckMessage,
   createPresenceRecord,
+  peerAckSigningPayload,
   type PeerAckMessage,
   type PresenceRecord,
 } from '../../shared/p2p-presence';
+import { createSignedP2PEnvelopeProof, type SeaSigningPair } from '../../shared/p2p-runtime';
 
 export type PresenceClientOptions = {
   apiBase: string;
@@ -54,8 +56,20 @@ export class P2PPresenceClient {
     fromPub: string;
     toUserId: string;
     toPub: string;
+    pair: SeaSigningPair;
   }): Promise<PeerAckMessage> {
-    const ack = createPeerAckMessage(input);
+    const proof = await createSignedP2PEnvelopeProof({
+      pair: input.pair,
+      payload: peerAckSigningPayload(input),
+    });
+    const ack = createPeerAckMessage({
+      ...input,
+      fromPeerId: proof.peerId,
+      timestamp: proof.timestamp,
+      payloadHash: proof.payloadHash,
+      signature: proof.signature,
+      nonce: proof.nonce,
+    });
     const res = await fetch(`${this.options.apiBase}/api/presence/ack`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

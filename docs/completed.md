@@ -2,6 +2,29 @@
 
 Last updated: 2026-06-04
 
+## 2026-06-04 - P2P-P: Canonical PeerID + Signed P2P Envelopes
+
+Implemented canonical signed envelope proofing for current direct P2P metadata and relay surfaces.
+
+**Changes:**
+- Added shared deterministic payload serialization, `peerId = SHA-256(pub)`, payload hashing, SEA signing, SEA verification, and replay nonce-cache helpers.
+- Signaling, conversation relay, discovery, and presence ack server routes now reject missing, tampered, stale, wrong-peer, invalid-signature, and duplicate-nonce envelopes.
+- Browser signaling and conversation-relay polling verifies fetched envelopes before decode/delivery.
+- WebRTC DataChannel `ledger-state` and DM notify frames are wrapped in signed frames and verified before handling.
+- WebRTC signaling POSTs and server-relay conversation messages now sign with the local SEA pair.
+- Direct peer talk offers now carry signed sender metadata (`senderPub`, `senderPeerId`, timestamp, payload hash, signature, nonce), and incoming offer subscribe/reconcile paths verify before accepting.
+- Updated E2E discovery/signaling fixtures to use real SEA signatures instead of placeholder `sig_*` strings.
+
+**Evidence:**
+- `npm run test:type` clean
+- `npm run lint` clean
+- `npm run test:unit` — 29 suites, 296 passed
+- `npm run test:integration` — 5 suites, 110 passed, 1 skipped
+- `npx jest src/test/unit/peer-talk-delivery.test.ts src/test/unit/p2p-runtime.test.ts src/test/unit/p2p-presence.test.ts src/test/unit/p2p-signaling-client.test.ts src/test/integration/system-routes.test.ts --runInBand` — 47 passed
+- `npm run build:server` clean
+- `npm run build:web` clean (existing bundle-size warnings)
+- `P0_DIRECT_TALK_DELIVERY=1 STAR_SERVER_PERSISTENCE=ephemeral E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/00i-p0-direct-talk-delivery.spec.ts tests/e2e/staged/stage1-single-user/00-p2p-conversation-transport.spec.ts tests/e2e/staged/stage1-single-user/00-p2p-cross-platform-protocol.spec.ts` — 3 passed
+
 ## 2026-06-04 - TODO cleanup: P1 moved out of active queue
 
 Moved the completed P1 ownership-graph focus, exit criteria, and audit evidence out of `docs/TODO.md`. The active TODO now starts from the next SRS gap: §19.13 / REQ-P2P-09–20 identity, trust, versioning, upgrades, and fake-client defense.

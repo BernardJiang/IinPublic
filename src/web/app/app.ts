@@ -698,7 +698,7 @@ export class IinPublicApp {
         authorId: me.id,
         talkData: talkRecord,
       });
-      publishPeerTalkOffer(this.gunService, peerId, {
+      await publishPeerTalkOffer(this.gunService, peerId, {
         talkId,
         senderId: me.id,
         senderName: me.stageName || 'Unknown',
@@ -788,7 +788,7 @@ export class IinPublicApp {
   private async initP2PPresenceAndBridge(): Promise<void> {
     if (!this.currentUser?.id || isTechSupportUser(this.currentUser)) return;
     const pair = this.gunService.getStoredPair();
-    if (!pair?.pub) return;
+    if (!pair?.pub || !pair.priv) return;
     const base = this.getBackendApiBase();
     try {
       this.presenceClient = new P2PPresenceClient({ apiBase: base, heartbeatMs: 30_000 });
@@ -805,6 +805,7 @@ export class IinPublicApp {
             fromPub: String(pair.pub),
             toUserId: peer.userId,
             toPub: peer.pub,
+            pair,
           });
         } catch {
           /* best-effort peer ack */
@@ -1669,7 +1670,7 @@ export class IinPublicApp {
       });
       const deliveryRoom = this.currentChatroomId || this.chatroomService.getCurrentChatroomId() || '';
       for (const receiverId of receiverIds) {
-        publishPeerTalkOffer(this.gunService, receiverId, {
+        await publishPeerTalkOffer(this.gunService, receiverId, {
           talkId,
           senderId: me.id,
           senderName: me.stageName || 'Unknown',

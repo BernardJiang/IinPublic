@@ -6,8 +6,16 @@ import {
   gunSafeTalkDataRecord,
   mergeIncomingTalkCluster,
   parsePeerTalkOfferKey,
+  peerTalkOfferSigningPayload,
 } from '../../shared/peer-talk-delivery';
-import { resolveP2PRuntimeFlags, shouldSkipServerGunPersist, usesDirectTalkDelivery } from '../../shared/p2p-runtime';
+import {
+  createSignedP2PEnvelopeProof,
+  resolveP2PRuntimeFlags,
+  shouldSkipServerGunPersist,
+  usesDirectTalkDelivery,
+  verifySignedP2PEnvelopeProof,
+} from '../../shared/p2p-runtime';
+import SEA from 'gun/sea';
 
 describe('peer-talk-delivery', () => {
   it('builds stable offer keys', () => {
@@ -51,6 +59,65 @@ describe('peer-talk-delivery', () => {
       authorId: 's1',
       talkId: 't1',
     });
+  });
+
+  it('signs peer offer metadata and rejects tampered offers', async () => {
+    const pair = await SEA.pair();
+    const baseOffer = createPeerTalkOfferWire({
+      talkId: 't1',
+      senderId: 's1',
+      senderName: 'Sender',
+      senderPub: pair.pub,
+      senderEpub: pair.epub,
+      talkData: { title: 'T', type: 'tag', language: 'en' },
+      now: new Date('2026-06-04T12:00:00.000Z'),
+    });
+    const proof = await createSignedP2PEnvelopeProof({
+      pair,
+      payload: peerTalkOfferSigningPayload(baseOffer),
+      timestamp: '2026-06-04T12:00:00.000Z',
+      nonce: 'nonce_offer',
+    });
+    const signedOffer = createPeerTalkOfferWire({
+      talkId: 't1',
+      senderId: 's1',
+      senderName: 'Sender',
+      senderPub: pair.pub,
+      senderEpub: pair.epub,
+      proof,
+      talkData: { title: 'T', type: 'tag', language: 'en' },
+      now: new Date('2026-06-04T12:00:00.000Z'),
+    });
+
+    await expect(
+      verifySignedP2PEnvelopeProof({
+        proof: {
+          peerId: signedOffer.senderPeerId!,
+          pub: signedOffer.senderPub!,
+          timestamp: signedOffer.timestamp!,
+          nonce: signedOffer.nonce!,
+          payloadHash: signedOffer.payloadHash!,
+          signature: signedOffer.signature!,
+        },
+        payload: peerTalkOfferSigningPayload(signedOffer),
+        now: new Date('2026-06-04T12:00:01.000Z'),
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    await expect(
+      verifySignedP2PEnvelopeProof({
+        proof: {
+          peerId: signedOffer.senderPeerId!,
+          pub: signedOffer.senderPub!,
+          timestamp: signedOffer.timestamp!,
+          nonce: signedOffer.nonce!,
+          payloadHash: signedOffer.payloadHash!,
+          signature: signedOffer.signature!,
+        },
+        payload: peerTalkOfferSigningPayload({ ...signedOffer, senderName: 'Mallory' }),
+        now: new Date('2026-06-04T12:00:01.000Z'),
+      }),
+    ).resolves.toEqual({ ok: false, reason: 'payload hash mismatch' });
   });
 
   it('creates cluster from hydrated peer offer wire', () => {

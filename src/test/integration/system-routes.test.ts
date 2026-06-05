@@ -1,6 +1,16 @@
 import express from 'express';
 import request from 'supertest';
+import SEA from 'gun/sea';
 import { registerSystemRoutes } from '../../server/routes/system-routes';
+import {
+  createSignedP2PEnvelopeProof,
+  p2pDiscoverySigningPayload,
+  p2pRelaySigningPayload,
+  p2pSignalingSigningPayload,
+  type P2PNodeCapability,
+  type SeaSigningPair,
+} from '../../shared/p2p-runtime';
+import { peerAckSigningPayload } from '../../shared/p2p-presence';
 
 function buildApp(nodeEnv = 'test') {
   const app = express();
@@ -30,6 +40,24 @@ function buildApp(nodeEnv = 'test') {
     nodeEnv,
   });
   return { app, gun };
+}
+
+async function signedProofFields(pair: SeaSigningPair, payload: unknown, nonce: string) {
+  const proof = await createSignedP2PEnvelopeProof({
+    pair,
+    payload,
+    timestamp: new Date().toISOString(),
+    nonce,
+  });
+  return {
+    peerId: proof.peerId,
+    senderPeerId: proof.peerId,
+    fromPeerId: proof.peerId,
+    timestamp: proof.timestamp,
+    payloadHash: proof.payloadHash,
+    signature: proof.signature,
+    nonce: proof.nonce,
+  };
 }
 
 describe('system routes', () => {
@@ -208,14 +236,21 @@ describe('system routes', () => {
 
   it('stores only encrypted short-lived P2P signaling envelopes in non-production', async () => {
     const { app } = buildApp();
-
-    const posted = await request(app).post('/api/p2p/signaling/conv_1').send({
-      kind: 'offer',
-      senderPub: 'pub_a',
+    const pair = await SEA.pair();
+    const signalBody = {
+      conversationId: 'conv_1',
+      kind: 'offer' as const,
+      senderPub: pair.pub,
       recipientPub: 'pub_b',
       signalCiphertext: 'SEA{"ct":"offer"}',
-      signature: 'sig_a',
-      nonce: 'nonce_a',
+    };
+
+    const posted = await request(app).post('/api/p2p/signaling/conv_1').send({
+      kind: signalBody.kind,
+      senderPub: signalBody.senderPub,
+      recipientPub: signalBody.recipientPub,
+      signalCiphertext: signalBody.signalCiphertext,
+      ...(await signedProofFields(pair, p2pSignalingSigningPayload(signalBody), 'nonce_a')),
     });
     expect(posted.status).toBe(200);
     expect(posted.body.envelope).toEqual(
@@ -235,33 +270,53 @@ describe('system routes', () => {
 
     const plaintext = await request(app).post('/api/p2p/signaling/conv_1').send({
       kind: 'offer',
-      senderPub: 'pub_a',
+      senderPub: pair.pub,
       recipientPub: 'pub_b',
       signalCiphertext: '{"sdp":"plain"}',
-      signature: 'sig_a',
-      nonce: 'nonce_a',
+      ...(await signedProofFields(
+        pair,
+        p2pSignalingSigningPayload({
+          ...signalBody,
+          signalCiphertext: '{"sdp":"plain"}',
+        }),
+        'nonce_plain',
+      )),
     });
     expect(plaintext.status).toBe(400);
   });
 
   it('two logical peers complete signaling offer and answer exchange', async () => {
     const { app } = buildApp();
+    const alice = await SEA.pair();
+    const bob = await SEA.pair();
+    const offerBody = {
+      conversationId: 'conv_peer',
+      kind: 'offer' as const,
+      senderPub: alice.pub,
+      recipientPub: bob.pub,
+      signalCiphertext: 'SEA{"type":"offer","sdp":{"type":"offer","sdp":"v=0"}}',
+    };
+    const answerBody = {
+      conversationId: 'conv_peer',
+      kind: 'answer' as const,
+      senderPub: bob.pub,
+      recipientPub: alice.pub,
+      signalCiphertext: 'SEA{"type":"answer","sdp":{"type":"answer","sdp":"v=0"}}',
+    };
 
     await request(app).post('/api/p2p/signaling/conv_peer').send({
-      kind: 'offer',
-      senderPub: 'pub_a',
-      recipientPub: 'pub_b',
-      signalCiphertext: 'SEA{"type":"offer","sdp":{"type":"offer","sdp":"v=0"}}',
-      signature: 'sig_a',
-      nonce: 'nonce_offer',
+      kind: offerBody.kind,
+      senderPub: offerBody.senderPub,
+      recipientPub: offerBody.recipientPub,
+      signalCiphertext: offerBody.signalCiphertext,
+      ...(await signedProofFields(alice, p2pSignalingSigningPayload(offerBody), 'nonce_offer')),
     });
     await request(app).post('/api/p2p/signaling/conv_peer').send({
-      kind: 'answer',
-      senderPub: 'pub_b',
-      recipientPub: 'pub_a',
-      signalCiphertext: 'SEA{"type":"answer","sdp":{"type":"answer","sdp":"v=0"}}',
-      signature: 'sig_b',
-      nonce: 'nonce_answer',
+      kind: answerBody.kind,
+      senderPub: answerBody.senderPub,
+      recipientPub: answerBody.recipientPub,
+      signalCiphertext: answerBody.signalCiphertext,
+      ...(await signedProofFields(bob, p2pSignalingSigningPayload(answerBody), 'nonce_answer')),
     });
 
     const listed = await request(app).get('/api/p2p/signaling/conv_peer');
@@ -275,15 +330,22 @@ describe('system routes', () => {
   it('stores encrypted short-lived conversation relay envelopes for two peers', async () => {
     const { app } = buildApp();
     const expiresAt = new Date(Date.now() + 60_000).toISOString();
-
-    const posted = await request(app).post('/api/p2p/conversation-relay/conv_relay').send({
+    const pair = await SEA.pair();
+    const relayBody = {
       conversationId: 'conv_relay',
       messageId: 'msg_1',
-      senderPub: 'pub_a',
+      senderPub: pair.pub,
       recipientPub: 'pub_b',
       bodyCiphertext: 'SEA{"id":"msg_1","senderId":"user_a","text":"hello"}',
-      signature: 'sig_a',
-      nonce: 'nonce_relay_1',
+    };
+
+    const posted = await request(app).post('/api/p2p/conversation-relay/conv_relay').send({
+      conversationId: relayBody.conversationId,
+      messageId: relayBody.messageId,
+      senderPub: relayBody.senderPub,
+      recipientPub: relayBody.recipientPub,
+      bodyCiphertext: relayBody.bodyCiphertext,
+      ...(await signedProofFields(pair, p2pRelaySigningPayload(relayBody), 'nonce_relay_1')),
       expiresAt,
     });
     expect(posted.status).toBe(200);
@@ -304,14 +366,20 @@ describe('system routes', () => {
   it('stores signed cross-platform discovery messages and rejects unsigned/plaintext discovery', async () => {
     const { app } = buildApp();
     const futureExpiresAt = new Date(Date.now() + 60_000).toISOString();
+    const pair = await SEA.pair();
+    const discoveryBody = {
+      platform: 'ubuntu' as const,
+      senderPub: pair.pub,
+      capabilities: ['signed-discovery', 'local-node-supervisor', 'relay-fallback'] as P2PNodeCapability[],
+      endpointHints: ['wss://relay.local/discovery/ubuntu'],
+    };
 
     const posted = await request(app).post('/api/p2p/discovery').send({
-      platform: 'ubuntu',
-      senderPub: 'pub_ubuntu',
-      capabilities: ['signed-discovery', 'local-node-supervisor', 'relay-fallback'],
-      endpointHints: ['wss://relay.local/discovery/ubuntu'],
-      signature: 'sig_ubuntu',
-      nonce: 'nonce_ubuntu',
+      platform: discoveryBody.platform,
+      senderPub: discoveryBody.senderPub,
+      capabilities: discoveryBody.capabilities,
+      endpointHints: discoveryBody.endpointHints,
+      ...(await signedProofFields(pair, p2pDiscoverySigningPayload(discoveryBody), 'nonce_ubuntu')),
       expiresAt: futureExpiresAt,
     });
 
@@ -321,7 +389,7 @@ describe('system routes', () => {
         kind: 'discovery',
         protocolVersion: 1,
         platform: 'ubuntu',
-        senderPub: 'pub_ubuntu',
+        senderPub: pair.pub,
       }),
     );
 
@@ -335,28 +403,34 @@ describe('system routes', () => {
       'ios',
     ]);
     expect(listed.body.messages).toEqual([
-      expect.objectContaining({ platform: 'ubuntu', senderPub: 'pub_ubuntu' }),
+      expect.objectContaining({ platform: 'ubuntu', senderPub: pair.pub }),
     ]);
 
     const unsigned = await request(app).post('/api/p2p/discovery').send({
       platform: 'web',
       senderPub: 'pub_web',
-      capabilities: ['relay-fallback'],
+      capabilities: ['signed-discovery'] as P2PNodeCapability[],
       endpointHints: ['webrtc:room'],
       signature: 'sig_web',
       nonce: 'nonce_web',
       expiresAt: futureExpiresAt,
     });
     expect(unsigned.status).toBe(400);
-    expect(unsigned.body.error).toMatch(/signed-discovery/);
+    expect(unsigned.body.error).toMatch(/signed envelope|peerId|signature/i);
 
-    const plaintext = await request(app).post('/api/p2p/discovery').send({
-      platform: 'web',
-      senderPub: 'pub_web',
-      capabilities: ['signed-discovery'],
+    const webPair = await SEA.pair();
+    const plaintextBody = {
+      platform: 'web' as const,
+      senderPub: webPair.pub,
+      capabilities: ['signed-discovery'] as P2PNodeCapability[],
       endpointHints: ['webrtc:room'],
-      signature: 'sig_web',
-      nonce: 'nonce_web',
+    };
+    const plaintext = await request(app).post('/api/p2p/discovery').send({
+      platform: plaintextBody.platform,
+      senderPub: plaintextBody.senderPub,
+      capabilities: plaintextBody.capabilities,
+      endpointHints: plaintextBody.endpointHints,
+      ...(await signedProofFields(webPair, p2pDiscoverySigningPayload(plaintextBody), 'nonce_plaintext_discovery')),
       expiresAt: futureExpiresAt,
       bodyPlaintext: 'plain discovery',
     });
@@ -498,10 +572,12 @@ describe('system routes', () => {
 
   it('registers presence and stores TechSupport messages (P2P-I / P2P-N)', async () => {
     const { app } = buildApp('production');
+    const alice = await SEA.pair();
+    const bob = await SEA.pair();
 
     const reg = await request(app)
       .post('/api/presence/register')
-      .send({ userId: 'alice', pub: 'pub_alice', epub: 'epub_alice' });
+      .send({ userId: 'alice', pub: alice.pub, epub: alice.epub });
     expect(reg.status).toBe(200);
     expect(reg.body.record.userId).toBe('alice');
 
@@ -511,19 +587,23 @@ describe('system routes', () => {
 
     await request(app)
       .post('/api/presence/register')
-      .send({ userId: 'bob', pub: 'pub_bob' });
+      .send({ userId: 'bob', pub: bob.pub });
     const nearbyBob = await request(app).get('/api/presence/nearby?excludeUserId=alice');
     expect(nearbyBob.body.peers).toEqual(
-      expect.arrayContaining([expect.objectContaining({ userId: 'bob', pub: 'pub_bob' })]),
+      expect.arrayContaining([expect.objectContaining({ userId: 'bob', pub: bob.pub })]),
     );
+    const ackCore = {
+      fromUserId: 'alice',
+      fromPub: alice.pub,
+      toUserId: 'bob',
+      toPub: bob.pub,
+    };
 
     const ack = await request(app)
       .post('/api/presence/ack')
       .send({
-        fromUserId: 'alice',
-        fromPub: 'pub_alice',
-        toUserId: 'bob',
-        toPub: 'pub_bob',
+        ...ackCore,
+        ...(await signedProofFields(alice, peerAckSigningPayload(ackCore), 'nonce_presence_ack')),
       });
     expect(ack.status).toBe(200);
 

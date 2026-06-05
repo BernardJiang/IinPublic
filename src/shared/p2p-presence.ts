@@ -1,4 +1,8 @@
-import { PRESENCE_TTL_SECONDS } from './p2p-runtime';
+import {
+  PRESENCE_TTL_SECONDS,
+  type SignedP2PEnvelopeProof,
+  verifySignedP2PEnvelopeProof,
+} from './p2p-runtime';
 
 export type PresenceRecord = {
   version: 1;
@@ -14,10 +18,13 @@ export type PresenceRecord = {
 export type PeerAckMessage = {
   version: 1;
   fromUserId: string;
+  fromPeerId: string;
   fromPub: string;
   toUserId: string;
   toPub: string;
   nonce: string;
+  timestamp: string;
+  payloadHash: string;
   signature: string;
   createdAt: string;
   expiresAt: string;
@@ -87,6 +94,9 @@ export function createPeerAckMessage(params: {
   fromPub: string;
   toUserId: string;
   toPub: string;
+  fromPeerId?: string;
+  timestamp?: string;
+  payloadHash?: string;
   nonce?: string;
   signature?: string;
   now?: Date;
@@ -103,15 +113,18 @@ export function createPeerAckMessage(params: {
     throw new Error('peer ack cannot target self');
   }
   const nonce = params.nonce || `ack_${fromPub}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const signature = params.signature || `sig_${fromPub}_${nonce}`;
+  const timestamp = params.timestamp || now.toISOString();
   return {
     version: 1,
     fromUserId,
+    fromPeerId: String(params.fromPeerId || '').trim(),
     fromPub,
     toUserId,
     toPub,
     nonce,
-    signature,
+    timestamp,
+    payloadHash: String(params.payloadHash || '').trim(),
+    signature: String(params.signature || '').trim(),
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + PRESENCE_TTL_SECONDS * 1000).toISOString(),
   };
@@ -135,5 +148,42 @@ export function validatePeerAckMessage(
   if (!ack.signature || !ack.nonce) {
     return { ok: false, reason: 'missing signature or nonce' };
   }
+  if (!ack.fromPeerId || !ack.timestamp || !ack.payloadHash) {
+    return { ok: false, reason: 'missing signed envelope fields' };
+  }
   return { ok: true };
+}
+
+export function peerAckSigningPayload(ack: Pick<PeerAckMessage, 'fromUserId' | 'fromPub' | 'toUserId' | 'toPub'>): unknown {
+  return {
+    type: 'presence-ack',
+    fromUserId: ack.fromUserId,
+    fromPub: ack.fromPub,
+    toUserId: ack.toUserId,
+    toPub: ack.toPub,
+  };
+}
+
+export async function verifySignedPeerAckMessage(
+  ack: PeerAckMessage,
+  expectedToPub: string,
+  now = new Date(),
+  nonceCache?: { has: (key: string) => boolean; add: (key: string) => unknown },
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const validation = validatePeerAckMessage(ack, expectedToPub, now);
+  if (!validation.ok) return validation;
+  return verifySignedP2PEnvelopeProof({
+    proof: {
+      peerId: ack.fromPeerId,
+      pub: ack.fromPub,
+      timestamp: ack.timestamp,
+      nonce: ack.nonce,
+      payloadHash: ack.payloadHash,
+      signature: ack.signature,
+    } satisfies SignedP2PEnvelopeProof,
+    payload: peerAckSigningPayload(ack),
+    now,
+    maxSkewMs: PRESENCE_TTL_SECONDS * 1000,
+    ...(nonceCache ? { nonceCache } : {}),
+  });
 }

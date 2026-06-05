@@ -4,6 +4,12 @@ import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { gunBaseURL, webBaseURL } from '../../helpers/ports';
+import SEA from 'gun/sea';
+import {
+  createSignedP2PEnvelopeProof,
+  p2pDiscoverySigningPayload,
+  type P2PNodeCapability,
+} from '../../../../src/shared/p2p-runtime';
 
 test.describe('P2P roadmap P5 — cross-platform node protocol', () => {
   let context: BrowserContext | undefined;
@@ -44,19 +50,33 @@ test.describe('P2P roadmap P5 — cross-platform node protocol', () => {
       'ios',
     ]);
 
+    const postedPeers: Array<{ platform: string; senderPub: string }> = [];
     for (const peer of [
-      { platform: 'windows', senderPub: 'pub_windows', capability: 'local-node-supervisor' },
-      { platform: 'android', senderPub: 'pub_android', capability: 'foreground-service' },
-      { platform: 'ios', senderPub: 'pub_ios', capability: 'notification-assisted-wakeup' },
+      { platform: 'windows' as const, capability: 'local-node-supervisor' as P2PNodeCapability },
+      { platform: 'android' as const, capability: 'foreground-service' as P2PNodeCapability },
+      { platform: 'ios' as const, capability: 'notification-assisted-wakeup' as P2PNodeCapability },
     ]) {
+      const pair = await SEA.pair();
+      const discoveryBody = {
+        platform: peer.platform,
+        senderPub: pair.pub,
+        capabilities: ['signed-discovery', 'relay-fallback', peer.capability] as P2PNodeCapability[],
+        endpointHints: [`wss://relay.local/discovery/${peer.platform}`],
+      };
+      const proof = await createSignedP2PEnvelopeProof({
+        pair,
+        payload: p2pDiscoverySigningPayload(discoveryBody),
+        nonce: `nonce_${peer.platform}`,
+      });
+      postedPeers.push({ platform: peer.platform, senderPub: pair.pub });
       const posted = await request.post(`${gunBaseURL()}/api/p2p/discovery`, {
         data: {
-          platform: peer.platform,
-          senderPub: peer.senderPub,
-          capabilities: ['signed-discovery', 'relay-fallback', peer.capability],
-          endpointHints: [`wss://relay.local/discovery/${peer.platform}`],
-          signature: `sig_${peer.platform}`,
-          nonce: `nonce_${peer.platform}`,
+          ...discoveryBody,
+          peerId: proof.peerId,
+          timestamp: proof.timestamp,
+          payloadHash: proof.payloadHash,
+          signature: proof.signature,
+          nonce: proof.nonce,
           expiresAt: futureExpiresAt,
         },
       });
@@ -68,9 +88,7 @@ test.describe('P2P roadmap P5 — cross-platform node protocol', () => {
     const discovery = await listed.json();
     expect(discovery.messages).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ platform: 'windows', senderPub: 'pub_windows' }),
-        expect.objectContaining({ platform: 'android', senderPub: 'pub_android' }),
-        expect.objectContaining({ platform: 'ios', senderPub: 'pub_ios' }),
+        ...postedPeers.map((peer) => expect.objectContaining(peer)),
       ]),
     );
 

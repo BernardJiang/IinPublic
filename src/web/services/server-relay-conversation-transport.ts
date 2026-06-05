@@ -1,5 +1,10 @@
 import type { Message } from '../../shared/types';
-import { createDirectP2PMessageEnvelope, SIGNALING_TTL_SECONDS } from '../../shared/p2p-runtime';
+import {
+  createDirectP2PMessageEnvelope,
+  createSignedP2PEnvelopeProof,
+  p2pRelaySigningPayload,
+  SIGNALING_TTL_SECONDS,
+} from '../../shared/p2p-runtime';
 import type { ConversationTransportMode } from '../../shared/p2p-runtime';
 import type { ConversationTransport, SendMessageOptions } from './web-conversation-service';
 import { WebGunService } from './web-gun-service';
@@ -107,7 +112,9 @@ export class ServerRelayConversationTransport implements ConversationTransport {
     opts?: SendMessageOptions,
   ): Promise<void> {
     const channel = opts?.channel ?? 'public';
-    const localPub = await this.getLocalPub();
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.pub || !pair.priv) throw new Error('No SEA signing keypair');
+    const localPub = String(pair.pub);
     const otherId = await this.resolveOtherUserId(conversationId, senderId, opts?.otherUserId);
     const otherPub = await this.getUserPub(otherId);
     const prevSeen =
@@ -121,14 +128,28 @@ export class ServerRelayConversationTransport implements ConversationTransport {
       channel,
       ...(prevSeen !== undefined ? { prevSeen } : {}),
     };
+    const bodyCiphertext = encodeSignalingPayload(wire);
+    const proof = await createSignedP2PEnvelopeProof({
+      pair,
+      payload: p2pRelaySigningPayload({
+        conversationId,
+        messageId,
+        senderPub: localPub,
+        recipientPub: otherPub,
+        bodyCiphertext,
+      }),
+    });
     const envelope = createDirectP2PMessageEnvelope({
       conversationId,
       messageId,
+      peerId: proof.peerId,
       senderPub: localPub,
       recipientPub: otherPub,
-      bodyCiphertext: encodeSignalingPayload(wire),
-      signature: `sig_${localPub}_${Date.now()}`,
-      nonce: `nonce_${localPub}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      bodyCiphertext,
+      timestamp: proof.timestamp,
+      payloadHash: proof.payloadHash,
+      signature: proof.signature,
+      nonce: proof.nonce,
       expiresAt: new Date(Date.now() + SIGNALING_TTL_SECONDS * 1000).toISOString(),
     });
     await this.relay.post(conversationId, envelope);

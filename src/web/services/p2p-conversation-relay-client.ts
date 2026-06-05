@@ -1,4 +1,8 @@
-import type { DirectP2PMessageEnvelope } from '../../shared/p2p-runtime';
+import {
+  p2pRelaySigningPayload,
+  verifySignedP2PEnvelopeProof,
+  type DirectP2PMessageEnvelope,
+} from '../../shared/p2p-runtime';
 
 export class P2PConversationRelayClient {
   private seenNonces = new Set<string>();
@@ -49,9 +53,27 @@ export class P2PConversationRelayClient {
         for (const envelope of envelopes) {
           if (envelope.recipientPub && envelope.recipientPub !== localPub) continue;
           if (envelope.senderPub === localPub) continue;
-          const nonceKey = `${envelope.senderPub}:${envelope.nonce}`;
+          const nonceKey = `${envelope.peerId}:${envelope.nonce}`;
           if (this.seenNonces.has(nonceKey)) continue;
-          this.seenNonces.add(nonceKey);
+          const verification = await verifySignedP2PEnvelopeProof({
+            proof: {
+              peerId: envelope.peerId,
+              pub: envelope.senderPub,
+              timestamp: envelope.timestamp,
+              nonce: envelope.nonce,
+              payloadHash: envelope.payloadHash,
+              signature: envelope.signature,
+            },
+            payload: p2pRelaySigningPayload({
+              conversationId: envelope.conversationId,
+              messageId: envelope.messageId,
+              senderPub: envelope.senderPub,
+              ...(envelope.recipientPub ? { recipientPub: envelope.recipientPub } : {}),
+              bodyCiphertext: envelope.bodyCiphertext || '',
+            }),
+            nonceCache: this.seenNonces,
+          });
+          if (!verification.ok) continue;
           await onEnvelope(envelope);
         }
       } catch {

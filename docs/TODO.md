@@ -8,17 +8,17 @@ This file is the short, execution-oriented plan.
 - **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specification.md` (§19.13, §19.14, REQ-P2P-09–29)
 - Supporting detail: `docs/roadmap/p2p-node-network.md`
 
-## Current Focus — SRS §19.13 P2P Identity, Trust, Versioning, and Abuse Defense
+## Current Focus — SRS §19.13 P2P Handshake, Trust, Versioning, and Abuse Defense
 
-P1 pair-private ownership graph (§19.14, REQ-P2P-21–29) is shipped and moved to `docs/completed.md`. The next SRS-backed gap is §19.13 / REQ-P2P-09–20: every direct discovery/signaling/payload exchange must have canonical peer identity, real signatures, replay protection, protocol negotiation, local trust gates, deterministic schema migrations, signed upgrades, and fake-client defenses.
+P1 pair-private ownership graph (§19.14, REQ-P2P-21–29) and P2P-P canonical signed envelopes are shipped and moved to `docs/completed.md`. The next SRS-backed gap is §19.13 / REQ-P2P-14–20: direct handshakes/protocol negotiation, local trust gates, deterministic schema migrations, signed upgrades, and fake-client defenses.
 
 ## SRS Audit Snapshot (2026-06-04)
 
 Checked current implementation against `docs/specs/iinpublic-technical-specification.md` §19.13 and §19.14.
 
 - **§19.14 / REQ-P2P-21–29:** Shipped. Direct-mode answers and non-TechSupport DMs are pair-scoped SEA ciphertext, chatroom delivery is announcement metadata, offers use catalog refs, server APIs are scoped away from hub pair history, and `npm run test:e2e:parallel` passed in direct mode.
-- **REQ-P2P-09:** Partial. SEA keypairs persist, but there is no canonical `PeerID = HASH(pub)` used consistently on discovery, signaling, and peer payload wires.
-- **REQ-P2P-10 / 19:** Partial. Presence ack, signaling, and relay envelopes carry `signature` and `nonce`, but current signatures are placeholder strings in client code and server validation is field/TTL oriented, not SEA verification with durable replay rejection.
+- **REQ-P2P-09:** Shipped for direct P2P envelopes. Shared helpers derive canonical `peerId = SHA-256(pub)` and carry peer IDs on signaling, relay, discovery, presence ack, and direct talk offer metadata.
+- **REQ-P2P-10 / 19:** Shipped for current relay/direct metadata surfaces. Placeholder `sig_*` strings were replaced with SEA signing/verification on server routes and client receive paths; stale, tampered, wrong-peer, and duplicate-nonce envelopes are rejected.
 - **REQ-P2P-14 / 15:** Partial. WebRTC sessions exchange `ledger-state`, but not a signed handshake with `appVersion`, `supportedProtocols`, `features`, and fail-closed negotiation when no protocol overlaps.
 - **REQ-P2P-11 / 12 / 18:** Partial. Blocks, known-person labels, local reputation, and neighbor trust status exist, but there is no distinct `Verified` trust level or capability gating for Unknown/Friend/Verified peers.
 - **REQ-P2P-13 / 16:** Partial. Some records have `version: 1`, but stored application objects do not consistently carry `schemaVersion`, and there is no deterministic startup/read migration registry.
@@ -26,17 +26,6 @@ Checked current implementation against `docs/specs/iinpublic-technical-specifica
 - **REQ-P2P-20:** Partial. Signaling TTL and client-side seen-nonce sets exist, but there is no server/client replay cache across requests, malformed-traffic rate limit, behavioral counter, suspicious-peer flag, or peer-priority downgrade path.
 
 ## Next Action Items (Ordered)
-
-### P2P-P — Canonical PeerID + Signed P2P Envelope
-
-Implement one shared envelope for discovery, presence ack, signaling, relay fallback, WebRTC data-channel control frames, DM notify, and directed talk offer metadata.
-
-Acceptance:
-- Derive stable `peerId = SHA-256(pub)` from the SEA public key and preserve compatibility with existing `userId` paths during migration.
-- Add shared helpers for `{ peerId, pub, timestamp, nonce, payloadHash, signature }`.
-- Replace placeholder `sig_${pub}_...` signatures with real SEA signing and verification.
-- Reject unsigned, modified, stale, or sender/pub mismatched envelopes in server routes and client receive paths.
-- Add unit/integration coverage for valid signature, tampered payload, stale timestamp, duplicate nonce, wrong peerId, and legacy compatibility.
 
 ### P2P-Q — Signed Handshake + Protocol/Feature Negotiation
 

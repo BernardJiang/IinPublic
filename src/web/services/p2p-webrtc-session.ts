@@ -1,5 +1,12 @@
 import type { Message } from '../../shared/types';
 import type { LedgerState } from '../../shared/types';
+import {
+  createSignedP2PEnvelopeProof,
+  p2pDataChannelSigningPayload,
+  p2pSignalingSigningPayload,
+  verifySignedP2PEnvelopeProof,
+  type SeaSigningPair,
+} from '../../shared/p2p-runtime';
 import { P2PSignalingClient, encodeSignalingPayload, type PostSignalingBody } from './p2p-signaling-client';
 
 export type P2PConnectionState = 'idle' | 'connecting' | 'connected' | 'failed';
@@ -29,7 +36,18 @@ type LedgerStateWirePayload = {
   feeds: LedgerState;
 };
 
-type ChannelWirePayload = DmWirePayload | LedgerStateWirePayload;
+type ChannelFramePayload = DmWirePayload | LedgerStateWirePayload;
+
+type SignedChannelWirePayload = {
+  type: 'signed-frame';
+  peerId: string;
+  pub: string;
+  timestamp: string;
+  nonce: string;
+  payloadHash: string;
+  signature: string;
+  frame: ChannelFramePayload;
+};
 
 /** Local/same-machine peers should connect well under this; longer waits usually mean a bug. */
 export const P2P_WEBRTC_CONNECT_TIMEOUT_MS = 10_000;
@@ -59,6 +77,7 @@ export type P2PSessionConfig = {
   conversationId: string;
   localUserId: string;
   localPub: string;
+  localPair?: SeaSigningPair;
   otherUserId: string;
   otherPub: string;
   isInitiator: boolean;
@@ -83,6 +102,7 @@ export class P2PConversationSession {
   private ledgerLocalSent = false;
   private ledgerRemoteReceived = false;
   private ledgerReady = false;
+  private readonly dataChannelNonces = new Set<string>();
 
   constructor(private config: P2PSessionConfig) {
     this.signaling = new P2PSignalingClient(config.apiBase);
@@ -135,7 +155,8 @@ export class P2PConversationSession {
       return;
     }
     const feeds = this.config.getLedgerState();
-    this.dc.send(JSON.stringify({ type: 'ledger-state', feeds } satisfies LedgerStateWirePayload));
+    void this.sendChannelFrame({ type: 'ledger-state', feeds } satisfies LedgerStateWirePayload)
+      .catch(() => undefined);
     this.ledgerLocalSent = true;
     if (this.ledgerRemoteReceived || Object.keys(feeds).length === 0) {
       this.markLedgerReady();
@@ -162,13 +183,28 @@ export class P2PConversationSession {
   }
 
   private async postSignal(kind: PostSignalingBody['kind'], payload: SignalPayload): Promise<void> {
+    if (!this.config.localPair) throw new Error('P2P signaling requires a SEA signing pair');
+    const signalCiphertext = encodeSignalingPayload(payload);
+    const proof = await createSignedP2PEnvelopeProof({
+      pair: this.config.localPair,
+      payload: p2pSignalingSigningPayload({
+        conversationId: this.config.conversationId,
+        kind,
+        senderPub: this.config.localPub,
+        recipientPub: this.config.otherPub,
+        signalCiphertext,
+      }),
+    });
     const body: PostSignalingBody = {
       kind,
+      senderPeerId: proof.peerId,
       senderPub: this.config.localPub,
       recipientPub: this.config.otherPub,
-      signalCiphertext: encodeSignalingPayload(payload),
-      signature: `sig_${this.config.localPub}_${Date.now()}`,
-      nonce: `nonce_${this.config.localPub}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      signalCiphertext,
+      timestamp: proof.timestamp,
+      payloadHash: proof.payloadHash,
+      signature: proof.signature,
+      nonce: proof.nonce,
     };
     await this.signaling.post(this.config.conversationId, body);
   }
@@ -275,18 +311,62 @@ export class P2PConversationSession {
     };
     channel.onmessage = (event) => {
       try {
-        const parsed = JSON.parse(String(event.data)) as ChannelWirePayload;
-        if (parsed?.type === 'ledger-state') {
-          void this.handleLedgerState(parsed.feeds || {});
-          return;
-        }
-        if (parsed?.type !== 'dm' || !('message' in parsed) || !parsed.message) return;
-        if (!this.ledgerReady && this.config.getLedgerState) return;
-        this.ingestWireMessage(parsed.message);
+        const parsed = JSON.parse(String(event.data)) as SignedChannelWirePayload;
+        void this.handleSignedChannelFrame(parsed);
       } catch {
         // ignore malformed frames
       }
     };
+  }
+
+  private async sendChannelFrame(frame: ChannelFramePayload): Promise<void> {
+    if (!this.config.localPair) throw new Error('P2P DataChannel frames require a SEA signing pair');
+    if (!this.dc || this.dc.readyState !== 'open') throw new Error('DataChannel not open');
+    const proof = await createSignedP2PEnvelopeProof({
+      pair: this.config.localPair,
+      payload: p2pDataChannelSigningPayload({
+        conversationId: this.config.conversationId,
+        frame,
+      }),
+    });
+    const signed: SignedChannelWirePayload = {
+      type: 'signed-frame',
+      peerId: proof.peerId,
+      pub: this.config.localPub,
+      timestamp: proof.timestamp,
+      nonce: proof.nonce,
+      payloadHash: proof.payloadHash,
+      signature: proof.signature,
+      frame,
+    };
+    this.dc.send(JSON.stringify(signed));
+  }
+
+  private async handleSignedChannelFrame(parsed: SignedChannelWirePayload): Promise<void> {
+    if (parsed?.type !== 'signed-frame' || !parsed.frame || parsed.pub !== this.config.otherPub) return;
+    const verification = await verifySignedP2PEnvelopeProof({
+      proof: {
+        peerId: parsed.peerId,
+        pub: parsed.pub,
+        timestamp: parsed.timestamp,
+        nonce: parsed.nonce,
+        payloadHash: parsed.payloadHash,
+        signature: parsed.signature,
+      },
+      payload: p2pDataChannelSigningPayload({
+        conversationId: this.config.conversationId,
+        frame: parsed.frame,
+      }),
+      nonceCache: this.dataChannelNonces,
+    });
+    if (!verification.ok) return;
+    if (parsed.frame.type === 'ledger-state') {
+      await this.handleLedgerState(parsed.frame.feeds || {});
+      return;
+    }
+    if (parsed.frame.type !== 'dm' || !('message' in parsed.frame) || !parsed.frame.message) return;
+    if (!this.ledgerReady && this.config.getLedgerState) return;
+    this.ingestWireMessage(parsed.frame.message);
   }
 
   private ingestWireMessage(wire: DmWirePayload['message'], options?: { skipRemotePersist?: boolean }): void {
@@ -367,7 +447,7 @@ export class P2PConversationSession {
           ...(prevSeen !== undefined ? { prevSeen } : {}),
         };
     const wire = { type: 'dm' as const, message };
-    this.dc.send(JSON.stringify(wire));
+    await this.sendChannelFrame(wire);
     this.ingestWireMessage(wire.message, { skipRemotePersist: true });
   }
 

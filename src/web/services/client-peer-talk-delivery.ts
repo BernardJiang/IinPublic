@@ -8,13 +8,14 @@ import {
   expandTalkDataFromGunWire,
   gunSafeTalkDataRecord,
   mergeIncomingTalkCluster,
+  peerTalkOfferSigningPayload,
   type IncomingTalkClusterWire,
   type PeerTalkCatalogWire,
   type PeerTalkOfferWire,
 } from '../../shared/peer-talk-delivery';
 import type { Talk } from '../../shared/types';
 import type { P2PRuntimeFlags } from '../../shared/p2p-runtime';
-import { usesDirectTalkDelivery } from '../../shared/p2p-runtime';
+import { createSignedP2PEnvelopeProof, usesDirectTalkDelivery, verifySignedP2PEnvelopeProof } from '../../shared/p2p-runtime';
 import type { WebGunService } from './web-gun-service';
 import { mirrorIncomingTalkClustersToLocalGun, mirrorTalkDefinitionToLocalGun } from './client-incoming-talk-mirror';
 
@@ -38,7 +39,7 @@ export function publishPeerTalkCatalog(
   gunService.getGun().get(PEER_TALK_CATALOG_ROOT).get(authorId).get(talkId).put(wire);
 }
 
-export function publishPeerTalkOffer(
+export async function publishPeerTalkOffer(
   gunService: WebGunService,
   receiverUserId: string,
   params: {
@@ -49,15 +50,46 @@ export function publishPeerTalkOffer(
     deliveryChatroomId?: string;
     directPeerSend?: boolean;
   },
-): void {
+): Promise<void> {
   if (!receiverUserId || receiverUserId === params.senderId) return;
-  const senderEpub = gunService.getStoredPair()?.epub;
+  const pair = gunService.getStoredPair();
+  if (!pair?.pub || !pair.priv) throw new Error('Peer talk offers require a SEA signing pair');
+  const senderEpub = pair.epub;
+  const unsignedOffer = createPeerTalkOfferWire({
+    ...params,
+    senderPub: String(pair.pub),
+    ...(senderEpub ? { senderEpub: String(senderEpub) } : {}),
+  });
+  const proof = await createSignedP2PEnvelopeProof({
+    pair,
+    payload: peerTalkOfferSigningPayload(unsignedOffer),
+  });
   const offer = createPeerTalkOfferWire({
     ...params,
+    senderPub: String(pair.pub),
     ...(senderEpub ? { senderEpub: String(senderEpub) } : {}),
+    proof,
   });
   const key = buildPeerTalkOfferKey(params.senderId, params.talkId);
   gunService.getGun().get(PEER_TALK_OFFERS_ROOT).get(receiverUserId).get(key).put(offer);
+}
+
+async function verifyPeerTalkOfferWire(offer: PeerTalkOfferWire): Promise<boolean> {
+  if (!offer.senderPub || !offer.senderPeerId || !offer.timestamp || !offer.payloadHash || !offer.signature || !offer.nonce) {
+    return false;
+  }
+  const verification = await verifySignedP2PEnvelopeProof({
+    proof: {
+      peerId: offer.senderPeerId,
+      pub: offer.senderPub,
+      timestamp: offer.timestamp,
+      nonce: offer.nonce,
+      payloadHash: offer.payloadHash,
+      signature: offer.signature,
+    },
+    payload: peerTalkOfferSigningPayload(offer),
+  });
+  return verification.ok;
 }
 
 export function upsertLocalIncomingTalkCluster(
@@ -116,7 +148,9 @@ export function subscribePeerTalkOffers(
     const offer = raw as PeerTalkOfferWire;
     if (offer?.version !== 1 || !offer.talkId || !offer.senderId || !offer.talkRef) return;
     seen.add(dedupe);
-    handler(offer, key);
+    void verifyPeerTalkOfferWire(offer).then((ok) => {
+      if (ok) handler(offer, key);
+    });
   });
   return () => {
     try {
@@ -160,6 +194,7 @@ export async function reconcilePeerTalkOffersFromGun(
     });
   });
   for (const offer of offers) {
+    if (!(await verifyPeerTalkOfferWire(offer))) continue;
     const talkData =
       offer.talkData ??
       (await loadPeerTalkCatalogFromGun(gunService, offer.talkRef.authorId, offer.talkRef.talkId, {

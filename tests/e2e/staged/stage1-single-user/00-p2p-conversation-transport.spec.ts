@@ -4,6 +4,11 @@ import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { gunBaseURL, webBaseURL } from '../../helpers/ports';
+import SEA from 'gun/sea';
+import {
+  createSignedP2PEnvelopeProof,
+  p2pSignalingSigningPayload,
+} from '../../../../src/shared/p2p-runtime';
 
 const P2P_DIRECT_ENABLED = process.env.P2P_DIRECT_CHAT_ENABLED !== '0';
 
@@ -38,14 +43,30 @@ test.describe('P2P roadmap P4 — conversation transport and signaling', () => {
       }),
     );
 
+    const pair = await SEA.pair();
+    const signalBody = {
+      conversationId: 'conv_e2e_transport',
+      kind: 'offer' as const,
+      senderPub: pair.pub,
+      recipientPub: 'pub_e2e_b',
+      signalCiphertext: 'SEA{"ct":"offer"}',
+    };
+    const proof = await createSignedP2PEnvelopeProof({
+      pair,
+      payload: p2pSignalingSigningPayload(signalBody),
+      nonce: 'nonce_e2e_a',
+    });
     const posted = await request.post(`${gunBaseURL()}/api/p2p/signaling/conv_e2e_transport`, {
       data: {
-        kind: 'offer',
-        senderPub: 'pub_e2e_a',
-        recipientPub: 'pub_e2e_b',
-        signalCiphertext: 'SEA{"ct":"offer"}',
-        signature: 'sig_e2e_a',
-        nonce: 'nonce_e2e_a',
+        kind: signalBody.kind,
+        senderPeerId: proof.peerId,
+        senderPub: signalBody.senderPub,
+        recipientPub: signalBody.recipientPub,
+        signalCiphertext: signalBody.signalCiphertext,
+        timestamp: proof.timestamp,
+        payloadHash: proof.payloadHash,
+        signature: proof.signature,
+        nonce: proof.nonce,
       },
     });
     expect(posted.ok()).toBeTruthy();
@@ -60,7 +81,7 @@ test.describe('P2P roadmap P4 — conversation transport and signaling', () => {
     const plaintext = await request.post(`${gunBaseURL()}/api/p2p/signaling/conv_e2e_transport`, {
       data: {
         kind: 'offer',
-        senderPub: 'pub_e2e_a',
+        senderPub: pair.pub,
         recipientPub: 'pub_e2e_b',
         signalCiphertext: '{"sdp":"plain"}',
         signature: 'sig_e2e_a',

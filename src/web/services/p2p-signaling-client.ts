@@ -1,10 +1,18 @@
-import type { P2PSignalingEnvelope, P2PSignalingKind } from '../../shared/p2p-runtime';
+import {
+  p2pSignalingSigningPayload,
+  verifySignedP2PEnvelopeProof,
+  type P2PSignalingEnvelope,
+  type P2PSignalingKind,
+} from '../../shared/p2p-runtime';
 
 export type PostSignalingBody = {
   kind: P2PSignalingKind;
+  senderPeerId: string;
   senderPub: string;
   recipientPub: string;
   signalCiphertext: string;
+  timestamp: string;
+  payloadHash: string;
   signature: string;
   nonce: string;
 };
@@ -72,9 +80,27 @@ export class P2PSignalingClient {
         for (const envelope of envelopes) {
           if (envelope.recipientPub && envelope.recipientPub !== localPub) continue;
           if (envelope.senderPub === localPub) continue;
-          const nonceKey = `${envelope.senderPub}:${envelope.nonce}`;
+          const nonceKey = `${envelope.senderPeerId}:${envelope.nonce}`;
           if (this.seenNonces.has(nonceKey)) continue;
-          this.seenNonces.add(nonceKey);
+          const verification = await verifySignedP2PEnvelopeProof({
+            proof: {
+              peerId: envelope.senderPeerId,
+              pub: envelope.senderPub,
+              timestamp: envelope.timestamp,
+              nonce: envelope.nonce,
+              payloadHash: envelope.payloadHash,
+              signature: envelope.signature,
+            },
+            payload: p2pSignalingSigningPayload({
+              conversationId: envelope.conversationId,
+              kind: envelope.kind,
+              senderPub: envelope.senderPub,
+              recipientPub: envelope.recipientPub,
+              signalCiphertext: envelope.signalCiphertext,
+            }),
+            nonceCache: this.seenNonces,
+          });
+          if (!verification.ok) continue;
           let payload: unknown;
           try {
             payload = decodeSignalingPayload(envelope.signalCiphertext);

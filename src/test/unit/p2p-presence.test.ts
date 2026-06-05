@@ -2,10 +2,14 @@ import {
   createPeerAckMessage,
   createPresenceRecord,
   listNearbyPresence,
+  peerAckSigningPayload,
   prunePresenceRecords,
   validatePeerAckMessage,
+  verifySignedPeerAckMessage,
   type PresenceRecord,
 } from '../../shared/p2p-presence';
+import { createSignedP2PEnvelopeProof } from '../../shared/p2p-runtime';
+import SEA from 'gun/sea';
 
 describe('p2p-presence', () => {
   it('registers and lists nearby live peers', () => {
@@ -30,14 +34,38 @@ describe('p2p-presence', () => {
     expect(records.size).toBe(0);
   });
 
-  it('validates peer ack messages', () => {
-    const ack = createPeerAckMessage({
+  it('validates signed peer ack messages', async () => {
+    const pair = await SEA.pair();
+    const ackCore = {
       fromUserId: 'alice',
-      fromPub: 'pub_a',
+      fromPub: pair.pub,
       toUserId: 'bob',
       toPub: 'pub_b',
+    };
+    const proof = await createSignedP2PEnvelopeProof({
+      pair,
+      payload: peerAckSigningPayload(ackCore),
+      timestamp: '2026-05-20T00:00:00.000Z',
+      nonce: 'nonce_ack',
     });
-    expect(validatePeerAckMessage(ack, 'pub_b').ok).toBe(true);
-    expect(validatePeerAckMessage(ack, 'pub_wrong').ok).toBe(false);
+    const ack = createPeerAckMessage({
+      ...ackCore,
+      fromPeerId: proof.peerId,
+      timestamp: proof.timestamp,
+      payloadHash: proof.payloadHash,
+      signature: proof.signature,
+      nonce: proof.nonce,
+      now: new Date('2026-05-20T00:00:00.000Z'),
+    });
+    expect(validatePeerAckMessage(ack, 'pub_b', new Date('2026-05-20T00:00:01.000Z')).ok).toBe(true);
+    expect(validatePeerAckMessage(ack, 'pub_wrong', new Date('2026-05-20T00:00:01.000Z')).ok).toBe(false);
+    await expect(verifySignedPeerAckMessage(ack, 'pub_b', new Date('2026-05-20T00:00:01.000Z'))).resolves.toEqual({ ok: true });
+    await expect(
+      verifySignedPeerAckMessage(
+        { ...ack, toPub: 'pub_tampered' },
+        'pub_tampered',
+        new Date('2026-05-20T00:00:01.000Z'),
+      ),
+    ).resolves.toEqual({ ok: false, reason: 'payload hash mismatch' });
   });
 });

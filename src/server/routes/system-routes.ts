@@ -20,6 +20,10 @@ import {
   createTransportDiagnosticEvent,
   createDirectP2PMessageEnvelope,
   createLocalNodeSupervisorSnapshot,
+  p2pDiscoverySigningPayload,
+  p2pRelaySigningPayload,
+  p2pSignalingSigningPayload,
+  verifySignedP2PEnvelopeProof,
   getP2PBootstrapCandidates,
   upsertP2PNeighbor,
   resolveP2PRuntimeFlags,
@@ -50,7 +54,7 @@ import {
   createPresenceRecord,
   listNearbyPresence,
   prunePresenceRecords,
-  validatePeerAckMessage,
+  verifySignedPeerAckMessage,
   type PeerAckMessage,
   type PresenceRecord,
 } from '../../shared/p2p-presence';
@@ -176,6 +180,10 @@ export function registerSystemRoutes(
   const discoveryMessages = new Map<string, P2PDiscoveryMessage>();
   const presenceByUserId = new Map<string, PresenceRecord>();
   const peerAckInbox = new Map<string, PeerAckMessage[]>();
+  const peerAckNonces = new Set<string>();
+  const signalingNonces = new Set<string>();
+  const relayNonces = new Set<string>();
+  const discoveryNonces = new Set<string>();
   const techSupportMessages = new TechSupportMessageStore();
   const directTalkDelivery = usesDirectTalkDelivery(resolveP2PRuntimeFlags(process.env));
 
@@ -257,7 +265,7 @@ export function registerSystemRoutes(
     res.json({ peers, count: peers.length });
   });
 
-  app.post('/api/presence/ack', (req, res) => {
+  app.post('/api/presence/ack', async (req, res) => {
     try {
       prunePresence();
       const body = req.body || {};
@@ -266,10 +274,13 @@ export function registerSystemRoutes(
         fromPub: String(body.fromPub || ''),
         toUserId: String(body.toUserId || ''),
         toPub: String(body.toPub || ''),
+        fromPeerId: String(body.fromPeerId || body.peerId || ''),
+        timestamp: String(body.timestamp || ''),
+        payloadHash: String(body.payloadHash || ''),
         ...(body.nonce ? { nonce: String(body.nonce) } : {}),
         ...(body.signature ? { signature: String(body.signature) } : {}),
       });
-      const validation = validatePeerAckMessage(ack, ack.toPub);
+      const validation = await verifySignedPeerAckMessage(ack, ack.toPub, new Date(), peerAckNonces);
       if (!validation.ok) {
         res.status(400).json({ error: validation.reason });
         return;
@@ -350,17 +361,40 @@ export function registerSystemRoutes(
     });
   });
 
-  app.post('/api/p2p/signaling/:conversationId', (req, res) => {
+  app.post('/api/p2p/signaling/:conversationId', async (req, res) => {
     try {
       pruneSignaling();
       const conversationId = String(req.params.conversationId || '');
       const body = req.body || {};
+      const kind = body.kind as P2PSignalingKind;
+      const senderPub = String(body.senderPub || '');
+      const recipientPub = String(body.recipientPub || '');
+      const signalCiphertext = String(body.signalCiphertext || '');
+      const verification = await verifySignedP2PEnvelopeProof({
+        proof: {
+          peerId: String(body.senderPeerId || body.peerId || ''),
+          pub: senderPub,
+          timestamp: String(body.timestamp || ''),
+          nonce: String(body.nonce || ''),
+          payloadHash: String(body.payloadHash || ''),
+          signature: String(body.signature || ''),
+        },
+        payload: p2pSignalingSigningPayload({ conversationId, kind, senderPub, recipientPub, signalCiphertext }),
+        nonceCache: signalingNonces,
+      });
+      if (!verification.ok) {
+        res.status(400).json({ error: verification.reason });
+        return;
+      }
       const envelope = createP2PSignalingEnvelope({
         conversationId,
-        kind: body.kind as P2PSignalingKind,
-        senderPub: String(body.senderPub || ''),
-        recipientPub: String(body.recipientPub || ''),
-        signalCiphertext: String(body.signalCiphertext || ''),
+        kind,
+        senderPeerId: String(body.senderPeerId || body.peerId || ''),
+        senderPub,
+        recipientPub,
+        signalCiphertext,
+        timestamp: String(body.timestamp || ''),
+        payloadHash: String(body.payloadHash || ''),
         signature: String(body.signature || ''),
         nonce: String(body.nonce || ''),
       });
@@ -382,17 +416,40 @@ export function registerSystemRoutes(
     res.json({ conversationId, envelopes });
   });
 
-  app.post('/api/p2p/conversation-relay/:conversationId', (req, res) => {
+  app.post('/api/p2p/conversation-relay/:conversationId', async (req, res) => {
     try {
       pruneConversationRelay();
       const conversationId = String(req.params.conversationId || '');
       const body = req.body || {};
+      const messageId = String(body.messageId || '');
+      const senderPub = String(body.senderPub || '');
+      const recipientPub = body.recipientPub ? String(body.recipientPub) : undefined;
+      const bodyCiphertext = String(body.bodyCiphertext || '');
+      const verification = await verifySignedP2PEnvelopeProof({
+        proof: {
+          peerId: String(body.peerId || ''),
+          pub: senderPub,
+          timestamp: String(body.timestamp || ''),
+          nonce: String(body.nonce || ''),
+          payloadHash: String(body.payloadHash || ''),
+          signature: String(body.signature || ''),
+        },
+        payload: p2pRelaySigningPayload({ conversationId, messageId, senderPub, ...(recipientPub ? { recipientPub } : {}), bodyCiphertext }),
+        nonceCache: relayNonces,
+      });
+      if (!verification.ok) {
+        res.status(400).json({ error: verification.reason });
+        return;
+      }
       const envelope = createDirectP2PMessageEnvelope({
         conversationId,
-        messageId: String(body.messageId || ''),
-        senderPub: String(body.senderPub || ''),
-        ...(body.recipientPub ? { recipientPub: String(body.recipientPub) } : {}),
-        bodyCiphertext: String(body.bodyCiphertext || ''),
+        messageId,
+        peerId: String(body.peerId || ''),
+        senderPub,
+        ...(recipientPub ? { recipientPub } : {}),
+        bodyCiphertext,
+        timestamp: String(body.timestamp || ''),
+        payloadHash: String(body.payloadHash || ''),
         signature: String(body.signature || ''),
         nonce: String(body.nonce || ''),
         expiresAt: String(body.expiresAt || new Date(Date.now() + 120_000).toISOString()),
@@ -470,19 +527,49 @@ export function registerSystemRoutes(
       });
     });
 
-    app.post('/api/p2p/discovery', (req, res) => {
+    app.post('/api/p2p/discovery', async (req, res) => {
       try {
         pruneDiscovery();
         const body = req.body || {};
+        const platform = String(body.platform || '') as P2PPlatformId;
+        const senderPub = String(body.senderPub || '');
+        const capabilities = Array.isArray(body.capabilities) ? (body.capabilities as P2PNodeCapability[]) : [];
+        const endpointHints = Array.isArray(body.endpointHints) ? body.endpointHints.map(String) : [];
+        const routeHint = body.routeHint ? String(body.routeHint) : undefined;
+        const verification = await verifySignedP2PEnvelopeProof({
+          proof: {
+            peerId: String(body.peerId || ''),
+            pub: senderPub,
+            timestamp: String(body.timestamp || ''),
+            nonce: String(body.nonce || ''),
+            payloadHash: String(body.payloadHash || ''),
+            signature: String(body.signature || ''),
+          },
+          payload: p2pDiscoverySigningPayload({
+            platform,
+            senderPub,
+            capabilities,
+            endpointHints,
+            ...(routeHint ? { routeHint } : {}),
+          }),
+          nonceCache: discoveryNonces,
+        });
+        if (!verification.ok) {
+          res.status(400).json({ error: verification.reason });
+          return;
+        }
         const message = createP2PDiscoveryMessage({
-          platform: String(body.platform || '') as P2PPlatformId,
-          senderPub: String(body.senderPub || ''),
-          capabilities: Array.isArray(body.capabilities) ? (body.capabilities as P2PNodeCapability[]) : [],
-          endpointHints: Array.isArray(body.endpointHints) ? body.endpointHints.map(String) : [],
+          platform,
+          peerId: String(body.peerId || ''),
+          senderPub,
+          capabilities,
+          endpointHints,
+          timestamp: String(body.timestamp || ''),
+          payloadHash: String(body.payloadHash || ''),
           signature: String(body.signature || ''),
           nonce: String(body.nonce || ''),
           expiresAt: String(body.expiresAt || ''),
-          ...(body.routeHint ? { routeHint: String(body.routeHint) } : {}),
+          ...(routeHint ? { routeHint } : {}),
           ...(body.bodyPlaintext ? { bodyPlaintext: String(body.bodyPlaintext) } : {}),
         });
         discoveryMessages.set(message.senderPub, message);

@@ -144,6 +144,8 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     otherUserId?: string,
   ) {
     const otherId = await this.resolveOtherUserId(conversationId, localUserId, otherUserId);
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.pub || !pair.priv) throw new Error('No SEA signing keypair');
     const localPub = await this.getLocalPub();
     const otherPub = await this.getUserPub(otherId);
     const isInitiator = localUserId.localeCompare(otherId) < 0;
@@ -152,6 +154,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       conversationId,
       localUserId,
       localPub,
+      localPair: pair,
       otherUserId: otherId,
       otherPub,
       isInitiator,

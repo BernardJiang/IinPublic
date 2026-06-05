@@ -9,6 +9,7 @@ import {
   createDataOwnershipRequest,
   createDeviceLocalDataDeletion,
   createDirectP2PMessageEnvelope,
+  createSignedP2PEnvelopeProof,
   createLocalNodeSupervisorSnapshot,
   createLinkedDeviceManifest,
   createP2PDiscoveryMessage,
@@ -18,7 +19,10 @@ import {
   createP2PSignalingEnvelope,
   createRelayOnlyTtlPolicy,
   createTransportDiagnosticEvent,
+  derivePeerIdFromPub,
   getP2PBootstrapCandidates,
+  p2pDataChannelSigningPayload,
+  p2pRelaySigningPayload,
   createRelayEnvelope,
   scanRelayStorageForSeaLeaks,
   scoreP2PNeighbor,
@@ -28,7 +32,17 @@ import {
   SEA_IDENTITY_POLICY,
   STAR_GUN_PATH_CLASSIFICATIONS,
   toPublicSeaIdentity,
+  verifySignedP2PEnvelopeProof,
 } from '../../shared/p2p-runtime';
+import SEA from 'gun/sea';
+
+const proofFields = {
+  peerId: 'peer_static',
+  timestamp: '2026-05-20T00:00:00.000Z',
+  payloadHash: 'hash_static',
+  signature: 'SEA{"m":"static"}',
+  nonce: 'nonce_static',
+};
 
 describe('p2p runtime flags', () => {
   it('defaults to durable star mode with local node and direct chat disabled', () => {
@@ -283,11 +297,10 @@ describe('p2p runtime flags', () => {
   it('keeps relay envelopes ciphertext-only and signed', () => {
     const envelope = createRelayEnvelope({
       kind: 'p2p-message',
+      ...proofFields,
       senderPub: 'pub_sender',
       recipientPub: 'pub_recipient',
       bodyCiphertext: 'SEA{"ct":"cipher"}',
-      signature: 'sig_sender',
-      nonce: 'nonce_1',
       expiresAt: '2026-05-20T01:00:00.000Z',
     });
 
@@ -296,19 +309,107 @@ describe('p2p runtime flags', () => {
         version: 1,
         senderPub: 'pub_sender',
         bodyCiphertext: 'SEA{"ct":"cipher"}',
-        signature: 'sig_sender',
+        signature: proofFields.signature,
       }),
     );
     expect(() =>
       createRelayEnvelope({
         kind: 'p2p-message',
+        ...proofFields,
+        nonce: 'nonce_2',
         senderPub: 'pub_sender',
         bodyPlaintext: 'hello relay',
-        signature: 'sig_sender',
-        nonce: 'nonce_2',
         expiresAt: '2026-05-20T01:00:00.000Z',
       }),
     ).toThrow(/plaintext/);
+  });
+
+  it('derives canonical peer IDs and verifies real SEA envelope signatures', async () => {
+    const pair = await SEA.pair();
+    const payload = p2pRelaySigningPayload({
+      conversationId: 'conv_signed',
+      messageId: 'msg_signed',
+      senderPub: pair.pub,
+      recipientPub: 'pub_b',
+      bodyCiphertext: 'SEA{"ct":"hello"}',
+    });
+    const proof = await createSignedP2PEnvelopeProof({
+      pair,
+      payload,
+      timestamp: '2026-05-20T00:00:00.000Z',
+      nonce: 'nonce_signed',
+    });
+
+    expect(proof.peerId).toBe(await derivePeerIdFromPub(pair.pub));
+    await expect(SEA.verify(proof.signature, pair.pub)).resolves.toBeTruthy();
+    await expect(
+      verifySignedP2PEnvelopeProof({
+        proof,
+        payload,
+        now: new Date('2026-05-20T00:00:01.000Z'),
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    await expect(
+      verifySignedP2PEnvelopeProof({
+        proof,
+        payload: { ...(payload as Record<string, unknown>), bodyCiphertext: 'SEA{"ct":"tampered"}' },
+        now: new Date('2026-05-20T00:00:01.000Z'),
+      }),
+    ).resolves.toEqual({ ok: false, reason: 'payload hash mismatch' });
+
+    await expect(
+      verifySignedP2PEnvelopeProof({
+        proof,
+        payload,
+        now: new Date('2026-05-20T00:03:00.000Z'),
+        maxSkewMs: 1_000,
+      }),
+    ).resolves.toEqual({ ok: false, reason: 'stale timestamp' });
+
+    await expect(
+      verifySignedP2PEnvelopeProof({
+        proof: { ...proof, peerId: 'peer_wrong' },
+        payload,
+        now: new Date('2026-05-20T00:00:01.000Z'),
+      }),
+    ).resolves.toEqual({ ok: false, reason: 'wrong peerId' });
+
+    const nonceCache = new Set<string>();
+    await expect(
+      verifySignedP2PEnvelopeProof({
+        proof,
+        payload,
+        now: new Date('2026-05-20T00:00:01.000Z'),
+        nonceCache,
+      }),
+    ).resolves.toEqual({ ok: true });
+    await expect(
+      verifySignedP2PEnvelopeProof({
+        proof,
+        payload,
+        now: new Date('2026-05-20T00:00:01.000Z'),
+        nonceCache,
+      }),
+    ).resolves.toEqual({ ok: false, reason: 'duplicate nonce' });
+
+    const framePayload = p2pDataChannelSigningPayload({
+      conversationId: 'conv_signed',
+      frame: { type: 'ledger-state', feeds: { [pair.pub]: 1 } },
+    });
+    const frameProof = await createSignedP2PEnvelopeProof({
+      pair,
+      payload: framePayload,
+      timestamp: '2026-05-20T00:00:00.000Z',
+      nonce: 'nonce_frame',
+    });
+    await expect(
+      verifySignedP2PEnvelopeProof({
+        proof: frameProof,
+        payload: framePayload,
+        now: new Date('2026-05-20T00:00:01.000Z'),
+      }),
+    ).resolves.toEqual({ ok: true });
   });
 
   it('stores linked-device manifests as random encrypted records', () => {
@@ -380,11 +481,14 @@ describe('p2p runtime flags', () => {
     const envelope = createP2PSignalingEnvelope({
       conversationId: 'conv_1',
       kind: 'offer',
+      senderPeerId: proofFields.peerId,
       senderPub: 'pub_a',
       recipientPub: 'pub_b',
       signalCiphertext: 'SEA{"ct":"offer"}',
-      signature: 'sig_a',
-      nonce: 'nonce_a',
+      timestamp: proofFields.timestamp,
+      payloadHash: proofFields.payloadHash,
+      signature: proofFields.signature,
+      nonce: proofFields.nonce,
       now: new Date('2026-05-20T00:00:00.000Z'),
       ttlSeconds: 30,
     });
@@ -401,11 +505,14 @@ describe('p2p runtime flags', () => {
       createP2PSignalingEnvelope({
         conversationId: 'conv_1',
         kind: 'offer',
+        senderPeerId: proofFields.peerId,
         senderPub: 'pub_a',
         recipientPub: 'pub_b',
         signalCiphertext: '{"sdp":"plain"}',
-        signature: 'sig_a',
-        nonce: 'nonce_a',
+        timestamp: proofFields.timestamp,
+        payloadHash: proofFields.payloadHash,
+        signature: proofFields.signature,
+        nonce: proofFields.nonce,
       }),
     ).toThrow(/encrypted ciphertext/);
   });
@@ -415,11 +522,14 @@ describe('p2p runtime flags', () => {
       createDirectP2PMessageEnvelope({
         conversationId: 'conv_1',
         messageId: 'msg_1',
+        peerId: proofFields.peerId,
         senderPub: 'pub_a',
         recipientPub: 'pub_b',
         bodyCiphertext: 'SEA{"ct":"hello"}',
-        signature: 'sig_a',
-        nonce: 'nonce_a',
+        timestamp: proofFields.timestamp,
+        payloadHash: proofFields.payloadHash,
+        signature: proofFields.signature,
+        nonce: proofFields.nonce,
         expiresAt: '2026-05-20T00:02:00.000Z',
       }),
     ).toEqual(
@@ -460,11 +570,10 @@ describe('p2p runtime flags', () => {
   it('creates signed discovery messages without plaintext or private keys', () => {
     const message = createP2PDiscoveryMessage({
       platform: 'android',
+      ...proofFields,
       senderPub: 'pub_android',
       capabilities: ['signed-discovery', 'foreground-service', 'relay-fallback'],
       endpointHints: ['wss://relay.example/discovery/android'],
-      signature: 'sig_android',
-      nonce: 'nonce_android',
       expiresAt: '2026-05-21T00:01:00.000Z',
     });
 
@@ -479,22 +588,20 @@ describe('p2p runtime flags', () => {
     expect(() =>
       createP2PDiscoveryMessage({
         platform: 'web',
+        ...proofFields,
         senderPub: 'pub_web',
         capabilities: ['relay-fallback'],
         endpointHints: ['webrtc:room'],
-        signature: 'sig_web',
-        nonce: 'nonce_web',
         expiresAt: '2026-05-21T00:01:00.000Z',
       }),
     ).toThrow(/signed-discovery/);
     expect(() =>
       createP2PDiscoveryMessage({
         platform: 'web',
+        ...proofFields,
         senderPub: 'pub_web',
         capabilities: ['signed-discovery'],
         endpointHints: ['webrtc:room'],
-        signature: 'sig_web',
-        nonce: 'nonce_web',
         expiresAt: '2026-05-21T00:01:00.000Z',
         bodyPlaintext: 'plain discovery body',
       }),

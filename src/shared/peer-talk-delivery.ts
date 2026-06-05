@@ -1,4 +1,5 @@
 import { buildTalkIdentityKey } from './cid';
+import { type SignedP2PEnvelopeProof } from './p2p-runtime';
 
 /** Gun path root for directed talk offers (P0 mesh delivery). */
 export const PEER_TALK_OFFERS_ROOT = 'peerTalkOffers';
@@ -28,6 +29,8 @@ export type PeerTalkOfferWire = {
   talkId: string;
   senderId: string;
   senderName: string;
+  senderPub?: string;
+  senderPeerId?: string;
   /** Sender SEA epub lets receivers encrypt pair-private responses without waiting for users/<id>. */
   senderEpub?: string;
   /** P1: pair offer metadata references the canonical author-owned body. */
@@ -39,6 +42,10 @@ export type PeerTalkOfferWire = {
   deliveryChatroomId?: string;
   /** Skip room membership gate (Send My Talks / directed peer send). */
   directPeerSend?: boolean;
+  timestamp?: string;
+  payloadHash?: string;
+  signature?: string;
+  nonce?: string;
 };
 
 export type IncomingTalkClusterWire = {
@@ -108,7 +115,9 @@ export function createPeerTalkOfferWire(params: {
   talkId: string;
   senderId: string;
   senderName: string;
+  senderPub?: string;
   senderEpub?: string;
+  proof?: SignedP2PEnvelopeProof;
   talkData: Record<string, unknown>;
   deliveryChatroomId?: string;
   directPeerSend?: boolean;
@@ -121,6 +130,8 @@ export function createPeerTalkOfferWire(params: {
     talkId: params.talkId,
     senderId: params.senderId,
     senderName: params.senderName,
+    ...(params.senderPub ? { senderPub: params.senderPub } : {}),
+    ...(params.proof ? { senderPeerId: params.proof.peerId } : {}),
     ...(params.senderEpub ? { senderEpub: params.senderEpub } : {}),
     talkRef: {
       root: PEER_TALK_CATALOG_ROOT,
@@ -131,6 +142,29 @@ export function createPeerTalkOfferWire(params: {
     createdAt: now.toISOString(),
     ...(params.deliveryChatroomId ? { deliveryChatroomId: params.deliveryChatroomId } : {}),
     ...(params.directPeerSend ? { directPeerSend: true } : {}),
+    ...(params.proof
+      ? {
+          timestamp: params.proof.timestamp,
+          payloadHash: params.proof.payloadHash,
+          signature: params.proof.signature,
+          nonce: params.proof.nonce,
+        }
+      : {}),
+  };
+}
+
+export function peerTalkOfferSigningPayload(offer: PeerTalkOfferWire): unknown {
+  return {
+    type: 'peer-talk-offer',
+    talkId: offer.talkId,
+    senderId: offer.senderId,
+    senderName: offer.senderName,
+    senderPub: offer.senderPub,
+    senderEpub: offer.senderEpub,
+    talkRef: offer.talkRef,
+    createdAt: offer.createdAt,
+    deliveryChatroomId: offer.deliveryChatroomId,
+    directPeerSend: !!offer.directPeerSend,
   };
 }
 

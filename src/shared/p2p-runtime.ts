@@ -1,3 +1,5 @@
+import SEA from 'gun/sea';
+
 export type StarServerPersistencePolicy = 'durable' | 'ephemeral';
 
 export type P2PRuntimeFlags = {
@@ -28,9 +30,12 @@ export type P2PSignalingEnvelope = {
   version: 1;
   conversationId: string;
   kind: P2PSignalingKind;
+  senderPeerId: string;
   senderPub: string;
   recipientPub: string;
   signalCiphertext: string;
+  timestamp: string;
+  payloadHash: string;
   signature: string;
   nonce: string;
   createdAt: string;
@@ -174,14 +179,37 @@ export type LinkedDeviceManifest = {
 export type RelayEnvelope = {
   version: 1;
   kind: 'discovery' | 'signaling' | 'p2p-message';
+  peerId: string;
   senderPub: string;
   recipientPub?: string;
   routeHint?: string;
   bodyCiphertext?: string;
   bodyPlaintext?: never;
+  timestamp: string;
+  payloadHash: string;
   signature: string;
   nonce: string;
   expiresAt: string;
+};
+
+export type SeaSigningPair = SeaPublicIdentity & {
+  priv: string;
+};
+
+export type SignedP2PEnvelopeProof = {
+  peerId: string;
+  pub: string;
+  timestamp: string;
+  nonce: string;
+  payloadHash: string;
+  signature: string;
+};
+
+export type P2PEnvelopeVerificationResult = { ok: true } | { ok: false; reason: string };
+
+export type P2PReplayNonceCache = {
+  has: (key: string) => boolean;
+  add: (key: string) => unknown;
 };
 
 export type SeaIdentityPolicy = {
@@ -438,6 +466,171 @@ function parsePersistencePolicy(value: string | undefined): StarServerPersistenc
   return value === 'ephemeral' ? 'ephemeral' : 'durable';
 }
 
+function sortObjectKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortObjectKeys);
+  if (!value || typeof value !== 'object') return value;
+  return Object.keys(value as Record<string, unknown>)
+    .sort()
+    .reduce<Record<string, unknown>>((acc, key) => {
+      acc[key] = sortObjectKeys((value as Record<string, unknown>)[key]);
+      return acc;
+    }, {});
+}
+
+export function canonicalSerialize(value: unknown): string {
+  return JSON.stringify(sortObjectKeys(value));
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const encoded = new TextEncoder().encode(value);
+  if (globalThis.crypto?.subtle) {
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', encoded);
+    return Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+  }
+  throw new Error('WebCrypto SHA-256 is not available');
+}
+
+export async function derivePeerIdFromPub(pub: string): Promise<string> {
+  const normalized = String(pub || '').trim();
+  if (!normalized) throw new Error('SEA public key is required to derive peerId');
+  return `peer_${await sha256Hex(normalized)}`;
+}
+
+export async function hashP2PPayload(payload: unknown): Promise<string> {
+  return sha256Hex(canonicalSerialize(payload));
+}
+
+function buildProofSigningPayload(params: {
+  peerId: string;
+  pub: string;
+  timestamp: string;
+  nonce: string;
+  payloadHash: string;
+}): string {
+  return canonicalSerialize({
+    peerId: params.peerId,
+    pub: params.pub,
+    timestamp: params.timestamp,
+    nonce: params.nonce,
+    payloadHash: params.payloadHash,
+  });
+}
+
+export async function createSignedP2PEnvelopeProof(params: {
+  pair: SeaSigningPair;
+  payload: unknown;
+  timestamp?: string;
+  nonce?: string;
+}): Promise<SignedP2PEnvelopeProof> {
+  assertNoPrivateSeaMaterial(params.payload);
+  const pub = String(params.pair.pub || '').trim();
+  if (!pub || !params.pair.priv) throw new Error('SEA signing pair requires pub and priv');
+  const timestamp = params.timestamp || new Date().toISOString();
+  const nonce = params.nonce || `p2p_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  const peerId = await derivePeerIdFromPub(pub);
+  const payloadHash = await hashP2PPayload(params.payload);
+  const signature = await SEA.sign(
+    buildProofSigningPayload({ peerId, pub, timestamp, nonce, payloadHash }),
+    params.pair,
+  );
+  if (!signature) throw new Error('SEA signing failed');
+  return { peerId, pub, timestamp, nonce, payloadHash, signature };
+}
+
+export async function verifySignedP2PEnvelopeProof(params: {
+  proof: SignedP2PEnvelopeProof;
+  payload: unknown;
+  now?: Date;
+  maxSkewMs?: number;
+  nonceCache?: P2PReplayNonceCache;
+}): Promise<P2PEnvelopeVerificationResult> {
+  const proof = params.proof;
+  if (!proof?.peerId || !proof.pub || !proof.timestamp || !proof.nonce || !proof.payloadHash || !proof.signature) {
+    return { ok: false, reason: 'missing signed envelope fields' };
+  }
+  const expectedPeerId = await derivePeerIdFromPub(proof.pub);
+  if (proof.peerId !== expectedPeerId) return { ok: false, reason: 'wrong peerId' };
+  const expectedHash = await hashP2PPayload(params.payload);
+  if (proof.payloadHash !== expectedHash) return { ok: false, reason: 'payload hash mismatch' };
+  const created = new Date(proof.timestamp).getTime();
+  if (!Number.isFinite(created)) return { ok: false, reason: 'invalid timestamp' };
+  const now = params.now ?? new Date();
+  const maxSkewMs = params.maxSkewMs ?? SIGNALING_TTL_SECONDS * 1000;
+  if (Math.abs(now.getTime() - created) > maxSkewMs) return { ok: false, reason: 'stale timestamp' };
+  const nonceKey = `${proof.peerId}:${proof.nonce}`;
+  if (params.nonceCache?.has(nonceKey)) return { ok: false, reason: 'duplicate nonce' };
+  const signedPayload = buildProofSigningPayload(proof);
+  const verified = await SEA.verify(proof.signature, proof.pub);
+  const verifiedPayload = typeof verified === 'string' ? verified : canonicalSerialize(verified);
+  if (verifiedPayload !== signedPayload) return { ok: false, reason: 'invalid signature' };
+  params.nonceCache?.add(nonceKey);
+  return { ok: true };
+}
+
+export function p2pSignalingSigningPayload(body: {
+  conversationId: string;
+  kind: P2PSignalingKind;
+  senderPub: string;
+  recipientPub: string;
+  signalCiphertext: string;
+}): unknown {
+  return {
+    type: 'p2p-signaling',
+    conversationId: body.conversationId,
+    kind: body.kind,
+    senderPub: body.senderPub,
+    recipientPub: body.recipientPub,
+    signalCiphertext: body.signalCiphertext,
+  };
+}
+
+export function p2pRelaySigningPayload(body: {
+  conversationId: string;
+  messageId: string;
+  senderPub: string;
+  recipientPub?: string;
+  bodyCiphertext: string;
+}): unknown {
+  return {
+    type: 'p2p-conversation-relay',
+    conversationId: body.conversationId,
+    messageId: body.messageId,
+    senderPub: body.senderPub,
+    ...(body.recipientPub ? { recipientPub: body.recipientPub } : {}),
+    bodyCiphertext: body.bodyCiphertext,
+  };
+}
+
+export function p2pDiscoverySigningPayload(body: {
+  platform: P2PPlatformId;
+  senderPub: string;
+  capabilities: P2PNodeCapability[];
+  endpointHints: string[];
+  routeHint?: string;
+}): unknown {
+  return {
+    type: 'p2p-discovery',
+    platform: body.platform,
+    senderPub: body.senderPub,
+    capabilities: body.capabilities,
+    endpointHints: body.endpointHints,
+    ...(body.routeHint ? { routeHint: body.routeHint } : {}),
+  };
+}
+
+export function p2pDataChannelSigningPayload(body: {
+  conversationId: string;
+  frame: unknown;
+}): unknown {
+  return {
+    type: 'p2p-data-channel-frame',
+    conversationId: body.conversationId,
+    frame: body.frame,
+  };
+}
+
 export function resolveP2PRuntimeFlags(env: Record<string, string | undefined> = {}): P2PRuntimeFlags {
   const get = (key: string): string | undefined => env[key] ?? readEnv(key);
   const relayOnlyHub = parseBooleanFlag(get('RELAY_ONLY_HUB'), false);
@@ -620,9 +813,12 @@ export function createP2PSignalingEnvelope(params: Omit<P2PSignalingEnvelope, 'v
     version: 1,
     conversationId: params.conversationId,
     kind: params.kind,
+    senderPeerId: params.senderPeerId,
     senderPub: params.senderPub,
     recipientPub: params.recipientPub,
     signalCiphertext: params.signalCiphertext,
+    timestamp: params.timestamp,
+    payloadHash: params.payloadHash,
     signature: params.signature,
     nonce: params.nonce,
     createdAt: now.toISOString(),
@@ -635,10 +831,13 @@ export function createDirectP2PMessageEnvelope(params: Omit<DirectP2PMessageEnve
 }): DirectP2PMessageEnvelope {
   const relayEnvelope = createRelayEnvelope({
     kind: 'p2p-message',
+    peerId: params.peerId,
     senderPub: params.senderPub,
     ...(params.recipientPub ? { recipientPub: params.recipientPub } : {}),
     ...(params.routeHint ? { routeHint: params.routeHint } : {}),
     ...(params.bodyCiphertext ? { bodyCiphertext: params.bodyCiphertext } : {}),
+    timestamp: params.timestamp,
+    payloadHash: params.payloadHash,
     signature: params.signature,
     nonce: params.nonce,
     expiresAt: params.expiresAt,
@@ -751,9 +950,12 @@ export function createP2PDiscoveryMessage(params: Omit<P2PDiscoveryMessage, 'ver
   }
   const relayEnvelope = createRelayEnvelope({
     kind: 'discovery',
+    peerId: params.peerId,
     senderPub: params.senderPub,
     ...(params.recipientPub ? { recipientPub: params.recipientPub } : {}),
     ...(params.routeHint ? { routeHint: params.routeHint } : {}),
+    timestamp: params.timestamp,
+    payloadHash: params.payloadHash,
     signature: params.signature,
     nonce: params.nonce,
     expiresAt: params.expiresAt,
@@ -1032,14 +1234,20 @@ export function createRelayEnvelope(params: Omit<RelayEnvelope, 'version' | 'bod
   if (params.bodyPlaintext) {
     throw new Error('Relay envelopes cannot contain plaintext message bodies');
   }
+  if (!params.peerId || !params.senderPub || !params.timestamp || !params.payloadHash || !params.signature || !params.nonce) {
+    throw new Error('Relay envelopes require peerId, senderPub, timestamp, payloadHash, signature, and nonce');
+  }
   assertNoPrivateSeaMaterial(params);
   return {
     version: 1,
     kind: params.kind,
+    peerId: params.peerId,
     senderPub: params.senderPub,
     ...(params.recipientPub ? { recipientPub: params.recipientPub } : {}),
     ...(params.routeHint ? { routeHint: params.routeHint } : {}),
     ...(params.bodyCiphertext ? { bodyCiphertext: params.bodyCiphertext } : {}),
+    timestamp: params.timestamp,
+    payloadHash: params.payloadHash,
     signature: params.signature,
     nonce: params.nonce,
     expiresAt: params.expiresAt,
