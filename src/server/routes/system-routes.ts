@@ -494,6 +494,22 @@ export function registerSystemRoutes(
       res.json(abuseCtx.getDiagnostics());
     });
 
+    // P2P-Z: relay-only hub status — confirms no radata/ persistence in relay mode
+    app.get('/api/debug/relay-only-status', (_req, res) => {
+      const flags = resolveP2PRuntimeFlags(process.env);
+      res.json({
+        relayOnlyHub: flags.relayOnlyHub,
+        starServerPersistence: flags.starServerPersistence,
+        radiskEnabled: !flags.relayOnlyHub && flags.starServerPersistence !== 'ephemeral',
+        inMemorySignaling: true,
+        inMemoryRelay: true,
+        inMemoryPresence: true,
+        note: flags.relayOnlyHub
+          ? 'Hub is relay-only: no application radata/ is used. All signaling, relay, and presence use in-memory TTL stores.'
+          : 'Hub is in standard mode.',
+      });
+    });
+
     app.get('/api/debug/storage', (_req, res) => {
       try {
         if (!gun?._?.graph) {

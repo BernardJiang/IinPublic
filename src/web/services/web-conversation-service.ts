@@ -123,6 +123,17 @@ export class WebConversationService {
     return 'idle';
   }
 
+  /** P2P-Y: expose handshake diagnostics for E2E verification. */
+  getHandshakeDiagnostics(
+    conversationId: string,
+    localUserId: string,
+  ): import('../../shared/p2p-handshake').HandshakeDiagnostics | null {
+    if (this.transport instanceof ResilientConversationTransport) {
+      return this.transport.getHandshakeDiagnostics(conversationId, localUserId);
+    }
+    return null;
+  }
+
   /** Align client transport with server/runtime flags (E2E webpack env + production hub). */
   applyRuntimeTransportFlags(flags: P2PRuntimeFlags): void {
     const desired: ConversationTransport = flags.p2pDirectChatEnabled

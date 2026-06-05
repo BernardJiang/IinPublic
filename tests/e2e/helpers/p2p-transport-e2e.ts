@@ -5,6 +5,7 @@ import {
   waitForServerConversationBetween,
 } from './conversation-e2e';
 import { gunBaseURL } from './ports';
+import type { HandshakeDiagnostics } from '../../../src/shared/p2p-handshake';
 
 /** Direct P2P should connect quickly on one machine; >10s usually means a setup bug. */
 export const P2P_E2E_TIMEOUT_MS = 10_000;
@@ -151,6 +152,37 @@ export async function assertGunStoredMessageBodies(
       expect(serialized.includes(snippet)).toBe(false);
     }
   }
+}
+
+/**
+ * P2P-Y: Read the handshake diagnostics for a specific conversation/user from
+ * the live page context.  Returns null when no session exists yet.
+ */
+export async function getHandshakeDiagnosticsFromPage(
+  page: Page,
+  conversationId: string,
+): Promise<HandshakeDiagnostics | null> {
+  return page.evaluate(({ cid }) => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    const userId: string = app?.currentUser?.id ?? '';
+    return (app?.conversationService?.getHandshakeDiagnostics?.(cid, userId) ?? null) as HandshakeDiagnostics | null;
+  }, { cid: conversationId });
+}
+
+/**
+ * P2P-Y: Poll until both peers report handshakeState: 'ok', or fail on timeout.
+ */
+export async function waitForHandshakeOk(
+  page: Page,
+  conversationId: string,
+  timeoutMs = P2P_E2E_TIMEOUT_MS,
+): Promise<void> {
+  await expect
+    .poll(
+      () => getHandshakeDiagnosticsFromPage(page, conversationId),
+      { timeout: timeoutMs, message: `Expected handshake ok on ${conversationId}` },
+    )
+    .toMatchObject({ handshakeState: 'ok', selectedProtocol: 'iinpublic-p2p-v1' });
 }
 
 /** @deprecated Superseded by assertGunStoredMessageBodies (P2P-H, spec §19.4). */

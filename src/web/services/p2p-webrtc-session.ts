@@ -122,6 +122,8 @@ export class P2PConversationSession {
   // P2P-Q: handshake state
   private localHandshakePayload: P2PHandshakePayload | null = null;
   private handshakeDiagnostics: HandshakeDiagnostics | null = null;
+  // Stash remote payload if it arrives before localHandshakePayload is ready
+  private pendingRemoteHandshake: P2PHandshakePayload | null = null;
 
   constructor(private config: P2PSessionConfig) {
     this.signaling = new P2PSignalingClient(config.apiBase);
@@ -333,6 +335,12 @@ export class P2PConversationSession {
     const peerId = await derivePeerIdFromPub(this.config.localPub);
     const payload = buildHandshakePayload({ peerId, publicKey: this.config.localPub });
     this.localHandshakePayload = payload;
+    // If the remote handshake already arrived while we were computing peerId, process it now
+    if (this.pendingRemoteHandshake) {
+      const result = negotiateProtocol(payload, this.pendingRemoteHandshake);
+      this.handshakeDiagnostics = buildHandshakeDiagnostics(payload, this.pendingRemoteHandshake, result);
+      this.pendingRemoteHandshake = null;
+    }
     const frame: HandshakeWirePayload = { type: 'handshake', payload };
     await this.sendChannelFrame(frame).catch(() => undefined);
   }
@@ -341,12 +349,16 @@ export class P2PConversationSession {
     const validation = validateHandshakePayload(payload);
     if (!validation.ok) return; // silently drop malformed handshakes
     if (this.localHandshakePayload) {
+      // Local is already set — compute diagnostics immediately
       const result = negotiateProtocol(this.localHandshakePayload, validation.payload);
       this.handshakeDiagnostics = buildHandshakeDiagnostics(
         this.localHandshakePayload,
         validation.payload,
         result,
       );
+    } else {
+      // Local not ready yet (derivePeerIdFromPub still pending) — stash for sendHandshake to process
+      this.pendingRemoteHandshake = validation.payload;
     }
   }
 

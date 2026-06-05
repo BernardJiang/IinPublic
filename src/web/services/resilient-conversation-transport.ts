@@ -59,6 +59,14 @@ export class ResilientConversationTransport implements ConversationTransport {
     return this.direct.getConnectionState(conversationId, localUserId);
   }
 
+  /** P2P-Y: expose handshake diagnostics for E2E verification. */
+  getHandshakeDiagnostics(
+    conversationId: string,
+    localUserId: string,
+  ): import('../../shared/p2p-handshake').HandshakeDiagnostics | null {
+    return this.direct.getHandshakeDiagnostics(conversationId, localUserId);
+  }
+
   setLedgerHandshakeHooks(hooks: {
     getLedgerState?: () => LedgerState;
     onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;

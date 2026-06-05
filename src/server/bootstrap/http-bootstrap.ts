@@ -1,4 +1,6 @@
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
 import type { Server as HttpServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
@@ -56,6 +58,27 @@ export function configureHttpMiddleware(app: express.Application): void {
   app.use((Gun as any).serve);
 }
 
+/**
+ * P2P-Z: Warn at startup if a stale radata/ directory exists while the server
+ * is configured as a relay-only hub (no application-layer persistence).
+ * The directory is harmless but indicates a misconfigured deployment.
+ */
+export function warnIfStaleRadataExists(cwd = process.cwd()): void {
+  const radataPath = path.join(cwd, 'radata');
+  try {
+    const stat = fs.statSync(radataPath);
+    if (stat.isDirectory()) {
+      const entries = fs.readdirSync(radataPath);
+      logger.warn(
+        { radataPath, fileCount: entries.length },
+        'P2P-Z: relay-only hub has a stale radata/ directory — remove it from the container image to keep the hub stateless',
+      );
+    }
+  } catch {
+    // radata/ does not exist — expected in relay-only mode
+  }
+}
+
 export function attachGun(server: HttpServer): any {
   const e2eMemoryOnly =
     process.env.E2E_GUN_MEMORY_ONLY === '1' || process.env.E2E_GUN_MEMORY_ONLY === 'true';
@@ -63,6 +86,12 @@ export function attachGun(server: HttpServer): any {
   const p2pFlags = resolveP2PRuntimeFlags(process.env);
   const ephemeralStarServer = p2pFlags.starServerPersistence === 'ephemeral';
   const isolatedGun = e2eMemoryOnly || devGunFresh || ephemeralStarServer || p2pFlags.relayOnlyHub;
+
+  // P2P-Z: warn about stale radata/ when running as relay-only hub
+  if (p2pFlags.relayOnlyHub) {
+    warnIfStaleRadataExists();
+  }
+
   const gun = Gun({
     web: server,
     localStorage: false,

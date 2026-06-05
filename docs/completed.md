@@ -2,6 +2,35 @@
 
 Last updated: 2026-06-04
 
+## 2026-06-04 - P2P-Y/Z: Handshake E2E coverage + relay-only hub hardening
+
+### P2P-Y — E2E coverage for P2P-Q handshake frame (REQ-P2P-14/15)
+
+**New E2E spec:** `tests/e2e/staged/stage2-two-user/00k-p2p-handshake.spec.ts`
+- Two-peer test: after `prepareDirectP2PConversation`, both pages call `waitForHandshakeOk`; asserts `handshakeState: 'ok'`, `selectedProtocol: 'iinpublic-p2p-v1'`, and `failureReason: null`.
+- In-browser negotiation test: `page.evaluate` runs `negotiateProtocol` with an incompatible remote protocol list; asserts `handshakeState: 'failed'` and `failureReason` matching `/no common protocol/`.
+
+**New helper:** `getHandshakeDiagnosticsFromPage` and `waitForHandshakeOk` added to `tests/e2e/helpers/p2p-transport-e2e.ts`.
+
+**Service plumbing:** `getHandshakeDiagnostics(conversationId, localUserId)` threaded through `DirectP2PConversationTransport` → `ResilientConversationTransport` → `WebConversationService` so E2E tests can read diagnostics from `app.conversationService`.
+
+### P2P-Z — Hub Phase C: relay-only hub hardening (REQ-P2P-Hub-C)
+
+**Modified:** `src/server/bootstrap/http-bootstrap.ts`
+- Added `warnIfStaleRadataExists(cwd)`: logs a warning at startup if a `radata/` directory exists when `relayOnlyHub=true`; harmless no-op when the directory is absent.
+- `attachGun` calls `warnIfStaleRadataExists()` automatically when `RELAY_ONLY_HUB=1`.
+- Gun boot already sets `radisk: false` in relay-only mode; this change adds the operational guard.
+
+**Modified:** `src/server/routes/system-routes.ts`
+- Added `GET /api/debug/relay-only-status`: reports `relayOnlyHub`, `radiskEnabled`, `inMemorySignaling/relay/presence` flags.
+
+**New integration test:** `src/test/integration/p2p-relay-only-hub.test.ts`
+- Flag resolution, `shouldSkipServerGunPersist` for all app paths, `/api/debug/relay-only-status` responses, presence routes still work in relay-only mode, `warnIfStaleRadataExists` with/without radata/.
+
+**Evidence:**
+- `npx tsc --noEmit` — clean
+- `npx jest --no-coverage` — 43 suites, 553 passed, 0 failures
+
 ## 2026-06-04 - P2P-V/W/X: Wire abuse defense, trust levels, and schema migrator into runtime paths
 
 ### P2P-V — Abuse defense wired into relay routes + client receive paths (REQ-P2P-20)

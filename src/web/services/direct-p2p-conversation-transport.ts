@@ -55,6 +55,14 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     return getP2PSession(conversationId, localUserId)?.getState() ?? 'idle';
   }
 
+  /** P2P-Y: expose handshake diagnostics for E2E verification. */
+  getHandshakeDiagnostics(
+    conversationId: string,
+    localUserId: string,
+  ): import('../../shared/p2p-handshake').HandshakeDiagnostics | null {
+    return getP2PSession(conversationId, localUserId)?.getHandshakeDiagnostics() ?? null;
+  }
+
   setLedgerHandshakeHooks(hooks: {
     getLedgerState?: () => LedgerState;
     onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
