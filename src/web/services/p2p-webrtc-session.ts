@@ -16,6 +16,7 @@ import {
   type HandshakeDiagnostics,
   type P2PHandshakePayload,
 } from '../../shared/p2p-handshake';
+import { BoundedNonceCache } from '../../shared/p2p-abuse-defense';
 import { P2PSignalingClient, encodeSignalingPayload, type PostSignalingBody } from './p2p-signaling-client';
 
 export type P2PConnectionState = 'idle' | 'connecting' | 'connected' | 'failed';
@@ -116,10 +117,10 @@ export class P2PConversationSession {
   private ledgerLocalSent = false;
   private ledgerRemoteReceived = false;
   private ledgerReady = false;
-  private readonly dataChannelNonces = new Set<string>();
+  // P2P-V: bounded nonce cache replaces unbounded Set to cap memory use
+  private readonly dataChannelNonces = new BoundedNonceCache();
   // P2P-Q: handshake state
   private localHandshakePayload: P2PHandshakePayload | null = null;
-  private remoteHandshakePayload: P2PHandshakePayload | null = null;
   private handshakeDiagnostics: HandshakeDiagnostics | null = null;
 
   constructor(private config: P2PSessionConfig) {
@@ -339,7 +340,6 @@ export class P2PConversationSession {
   private handleHandshake(payload: unknown): void {
     const validation = validateHandshakePayload(payload);
     if (!validation.ok) return; // silently drop malformed handshakes
-    this.remoteHandshakePayload = validation.payload;
     if (this.localHandshakePayload) {
       const result = negotiateProtocol(this.localHandshakePayload, validation.payload);
       this.handshakeDiagnostics = buildHandshakeDiagnostics(

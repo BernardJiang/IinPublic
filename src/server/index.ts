@@ -46,6 +46,10 @@ import {
   readOrCreateExactChatbotMemoryForUser,
   writeExactChatbotMemoryForUser,
 } from './exact-chatbot-memory-store';
+import {
+  inspectSchemaVersions,
+  type SchemaKind,
+} from '../shared/p2p-schema-migrations';
 
 const E2E_GUN_MEMORY_ONLY =
   process.env.E2E_GUN_MEMORY_ONLY === '1' || process.env.E2E_GUN_MEMORY_ONLY === 'true';
@@ -109,6 +113,29 @@ class IinPublicServer {
     this.reputationService = new ReputationService(this.gunService);
     this.chatroomManager = new ChatroomManager(this.gunService);
     this.talkService = new TalkService(this.gunService, this.reputationService);
+    this.logStartupSchemaDiagnostics();
+  }
+
+  /**
+   * P2P-X: Log schema-version diagnostics for in-memory record stores at
+   * startup so operators can see whether pending migrations exist.
+   * Runs synchronously; actual record migration happens on-read via migrateRecord.
+   */
+  private logStartupSchemaDiagnostics(): void {
+    const kinds: SchemaKind[] = [
+      'presence', 'peerOffer', 'catalogRecord', 'pairResponse', 'pairConversation',
+      'knownPerson', 'neighborCache', 'ledgerEvent', 'localInIndex', 'localOutIndex',
+      'peerTrustRecord', 'handshakeRecord',
+    ];
+    for (const kind of kinds) {
+      // Server starts with empty in-memory maps; log zero pending as confirmation.
+      const diag = inspectSchemaVersions(kind, []);
+      if (diag.pendingMigrations > 0) {
+        logger.info({ kind, pendingMigrations: diag.pendingMigrations, currentVersion: diag.currentVersion },
+          'P2P-X: schema migration needed for stored records');
+      }
+    }
+    logger.info({ kinds }, 'P2P-X: startup schema diagnostics complete');
   }
 
   private async getMergedIncomingClusterForUser(userId: string, identityKey: string): Promise<any> {

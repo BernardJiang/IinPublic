@@ -59,6 +59,7 @@ import {
   type PresenceRecord,
 } from '../../shared/p2p-presence';
 import { TechSupportMessageStore } from '../services/techsupport-message-store';
+import { BoundedNonceCache, P2PAbuseDefenseContext } from '../../shared/p2p-abuse-defense';
 
 /** Gun radisk default directory (see node_modules/gun/lib/radisk.js). */
 function clearRadiskOnDisk(): string[] {
@@ -150,6 +151,8 @@ type RegisterSystemRoutesDeps = {
   clearTalkResponseStats: () => void;
   onClearDatabase?: () => void;
   nodeEnv: string | undefined;
+  /** P2P-V: optional override for abuse defense config (useful in integration tests). */
+  abuseDefenseConfig?: import('../../shared/p2p-abuse-defense').AbuseDefenseConfig;
 };
 
 export function registerSystemRoutes(
@@ -164,6 +167,7 @@ export function registerSystemRoutes(
     clearTalkResponseStats,
     onClearDatabase,
     nodeEnv,
+    abuseDefenseConfig,
   }: RegisterSystemRoutesDeps,
 ): void {
   let localNodeSupervisor: LocalNodeSupervisorSnapshot = createLocalNodeSupervisorSnapshot();
@@ -180,10 +184,12 @@ export function registerSystemRoutes(
   const discoveryMessages = new Map<string, P2PDiscoveryMessage>();
   const presenceByUserId = new Map<string, PresenceRecord>();
   const peerAckInbox = new Map<string, PeerAckMessage[]>();
-  const peerAckNonces = new Set<string>();
-  const signalingNonces = new Set<string>();
-  const relayNonces = new Set<string>();
-  const discoveryNonces = new Set<string>();
+  const peerAckNonces = new BoundedNonceCache();
+  const signalingNonces = new BoundedNonceCache();
+  const relayNonces = new BoundedNonceCache();
+  const discoveryNonces = new BoundedNonceCache();
+  // P2P-V: shared abuse-defense context for all relay POST routes
+  const abuseCtx = new P2PAbuseDefenseContext(abuseDefenseConfig);
   const techSupportMessages = new TechSupportMessageStore();
   const directTalkDelivery = usesDirectTalkDelivery(resolveP2PRuntimeFlags(process.env));
 
@@ -269,6 +275,13 @@ export function registerSystemRoutes(
     try {
       prunePresence();
       const body = req.body || {};
+      const ackPeerId = String(body.fromPeerId || body.peerId || '');
+      const ackPub = String(body.fromPub || '');
+      const ackAbuseCheck = abuseCtx.checkInbound(ackPeerId || ackPub, ackPub);
+      if (!ackAbuseCheck.allowed) {
+        res.status(429).json({ error: ackAbuseCheck.reason });
+        return;
+      }
       const ack = createPeerAckMessage({
         fromUserId: String(body.fromUserId || ''),
         fromPub: String(body.fromPub || ''),
@@ -370,6 +383,12 @@ export function registerSystemRoutes(
       const senderPub = String(body.senderPub || '');
       const recipientPub = String(body.recipientPub || '');
       const signalCiphertext = String(body.signalCiphertext || '');
+      const inboundPeerId = String(body.senderPeerId || body.peerId || '');
+      const abuseCheck = abuseCtx.checkInbound(inboundPeerId || senderPub, senderPub);
+      if (!abuseCheck.allowed) {
+        res.status(429).json({ error: abuseCheck.reason });
+        return;
+      }
       const verification = await verifySignedP2PEnvelopeProof({
         proof: {
           peerId: String(body.senderPeerId || body.peerId || ''),
@@ -425,6 +444,12 @@ export function registerSystemRoutes(
       const senderPub = String(body.senderPub || '');
       const recipientPub = body.recipientPub ? String(body.recipientPub) : undefined;
       const bodyCiphertext = String(body.bodyCiphertext || '');
+      const relayPeerId = String(body.peerId || '');
+      const relayAbuseCheck = abuseCtx.checkInbound(relayPeerId || senderPub, senderPub);
+      if (!relayAbuseCheck.allowed) {
+        res.status(429).json({ error: relayAbuseCheck.reason });
+        return;
+      }
       const verification = await verifySignedP2PEnvelopeProof({
         proof: {
           peerId: String(body.peerId || ''),
@@ -464,6 +489,11 @@ export function registerSystemRoutes(
 
   // Test-only endpoints (non-production only)
   if (nodeEnv !== 'production') {
+    // P2P-V: abuse defense diagnostics (non-secret — no private keys or message bodies)
+    app.get('/api/debug/p2p-abuse', (_req, res) => {
+      res.json(abuseCtx.getDiagnostics());
+    });
+
     app.get('/api/debug/storage', (_req, res) => {
       try {
         if (!gun?._?.graph) {
@@ -536,6 +566,12 @@ export function registerSystemRoutes(
         const capabilities = Array.isArray(body.capabilities) ? (body.capabilities as P2PNodeCapability[]) : [];
         const endpointHints = Array.isArray(body.endpointHints) ? body.endpointHints.map(String) : [];
         const routeHint = body.routeHint ? String(body.routeHint) : undefined;
+        const discPeerId = String(body.peerId || '');
+        const discAbuseCheck = abuseCtx.checkInbound(discPeerId || senderPub, senderPub);
+        if (!discAbuseCheck.allowed) {
+          res.status(429).json({ error: discAbuseCheck.reason });
+          return;
+        }
         const verification = await verifySignedP2PEnvelopeProof({
           proof: {
             peerId: String(body.peerId || ''),

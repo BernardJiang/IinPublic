@@ -10,6 +10,11 @@ import {
   type KeyCustodyRecord,
   type SeaPrivateIdentityMaterial,
 } from '../../shared/p2p-runtime';
+import {
+  migrateRecord,
+  type SchemaKind,
+  type VersionedRecord,
+} from '../../shared/p2p-schema-migrations';
 
 const KEYPAIR_STORAGE = 'iinpublic_keypair';
 export const KEY_CUSTODY_STORAGE = 'iinpublic_key_custody_v1';
@@ -612,5 +617,20 @@ export class WebGunService extends EventEmitter {
     await this.persistCustodyRecord(pair, parsed.custody);
     this.seaPair = pair;
     return toPublicSeaIdentity(pair as SeaPrivateIdentityMaterial);
+  }
+
+  /**
+   * P2P-X: Run the schema migrator on a Gun-loaded record before returning it
+   * to callers.  If the record is already at the current schema version this is
+   * a cheap identity pass-through.
+   *
+   * Usage:
+   *   const record = this.migrateOnRead('presence', rawRecord);
+   */
+  migrateOnRead<T extends Record<string, unknown>>(
+    kind: SchemaKind,
+    record: T,
+  ): T & VersionedRecord {
+    return migrateRecord(kind, record);
   }
 }

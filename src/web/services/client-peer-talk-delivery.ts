@@ -16,6 +16,8 @@ import {
 import type { Talk } from '../../shared/types';
 import type { P2PRuntimeFlags } from '../../shared/p2p-runtime';
 import { createSignedP2PEnvelopeProof, usesDirectTalkDelivery, verifySignedP2PEnvelopeProof } from '../../shared/p2p-runtime';
+import { isTrustCapableForOffer } from '../../shared/p2p-trust-neighbor-bridge';
+import type { PeerTrustRecord } from '../../shared/p2p-trust';
 import type { WebGunService } from './web-gun-service';
 import { mirrorIncomingTalkClustersToLocalGun, mirrorTalkDefinitionToLocalGun } from './client-incoming-talk-mirror';
 
@@ -136,10 +138,18 @@ export function applyPeerTalkOfferToLocalInbox(
   );
 }
 
+/**
+ * Optional trust gate injected by the caller.
+ * Receives the sender id and returns `false` to silently drop the offer.
+ * When omitted all verified offers are accepted (existing behaviour).
+ */
+export type TrustGate = (senderId: string) => boolean | Promise<boolean>;
+
 export function subscribePeerTalkOffers(
   gunService: WebGunService,
   receiverUserId: string,
   handler: (offer: PeerTalkOfferWire, offerKey: string) => void,
+  opts: { trustGate?: TrustGate } = {},
 ): () => void {
   const gun = gunService.getGun();
   const seen = new Set<string>();
@@ -151,8 +161,13 @@ export function subscribePeerTalkOffers(
     const offer = raw as PeerTalkOfferWire;
     if (offer?.version !== 1 || !offer.talkId || !offer.senderId || !offer.talkRef) return;
     seen.add(dedupe);
-    void verifyPeerTalkOfferWire(offer).then((ok) => {
-      if (ok) handler(offer, key);
+    void verifyPeerTalkOfferWire(offer).then(async (ok) => {
+      if (!ok) return;
+      if (opts.trustGate) {
+        const allowed = await opts.trustGate(offer.senderId);
+        if (!allowed) return;
+      }
+      handler(offer, key);
     });
   });
   return () => {
@@ -164,12 +179,27 @@ export function subscribePeerTalkOffers(
   };
 }
 
+/**
+ * Build a `TrustGate` from an in-memory trust store.
+ * Blocked senders are silently dropped; unknown senders default to allowed.
+ */
+export function buildTrustGateFromStore(
+  trustStore: Map<string, PeerTrustRecord>,
+  getSenderPeerId: (senderId: string) => string | undefined,
+): TrustGate {
+  return (senderId: string) => {
+    const peerId = getSenderPeerId(senderId);
+    const trustRecord = peerId ? trustStore.get(peerId) : undefined;
+    return isTrustCapableForOffer(trustRecord, 'receive-broadcast');
+  };
+}
+
 export async function reconcilePeerTalkOffersFromGun(
   gunService: WebGunService,
   receiverUserId: string,
   flags: P2PRuntimeFlags,
   shouldAccept: (offer: PeerTalkOfferWire & { talkData: Record<string, unknown> }) => boolean | Promise<boolean>,
-  opts: { waitMs?: number } = {},
+  opts: { waitMs?: number; trustGate?: TrustGate } = {},
 ): Promise<IncomingTalkClusterWire[]> {
   const gun = gunService.getGun();
   const waitMs = opts.waitMs ?? 500;
@@ -198,6 +228,10 @@ export async function reconcilePeerTalkOffersFromGun(
   });
   for (const offer of offers) {
     if (!(await verifyPeerTalkOfferWire(offer))) continue;
+    if (opts.trustGate) {
+      const allowed = await opts.trustGate(offer.senderId);
+      if (!allowed) continue;
+    }
     const authorId = offer.talkRef?.authorId || offer.senderId;
     const talkId = offer.talkRef?.talkId || offer.talkId;
     const talkData =

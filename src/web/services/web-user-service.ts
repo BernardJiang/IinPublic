@@ -717,4 +717,34 @@ export class WebUserService {
     const updated = ReputationManager.updateReputation(targetUser.reputation, 'age_verified', 1);
     await this.gunService.put(`users/${targetUserId}/reputation`, updated);
   }
+
+  // ---------------------------------------------------------------------------
+  // P2P-W: Peer trust store — SEA-encrypted under the user's private Gun path
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Read the local peer trust store.  Returns an empty map when no data is
+   * stored yet or when the user is not authenticated.
+   */
+  async getPeerTrustStore(): Promise<Map<string, import('../../shared/p2p-trust').PeerTrustRecord>> {
+    const { importTrustStore } = await import('../../shared/p2p-trust');
+    try {
+      const raw = await this.gunService.getPrivate('peerTrustStore');
+      if (!raw || !Array.isArray(raw)) return new Map();
+      return importTrustStore(raw as import('../../shared/p2p-trust').PeerTrustRecord[]);
+    } catch {
+      return new Map();
+    }
+  }
+
+  /**
+   * Persist the peer trust store under the user's SEA-encrypted private path.
+   */
+  async putPeerTrustStore(
+    store: Map<string, import('../../shared/p2p-trust').PeerTrustRecord>,
+  ): Promise<void> {
+    const { exportTrustStore } = await import('../../shared/p2p-trust');
+    const records = exportTrustStore(store);
+    await this.gunService.putPrivate('peerTrustStore', records);
+  }
 }

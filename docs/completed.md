@@ -2,6 +2,49 @@
 
 Last updated: 2026-06-04
 
+## 2026-06-04 - P2P-V/W/X: Wire abuse defense, trust levels, and schema migrator into runtime paths
+
+### P2P-V — Abuse defense wired into relay routes + client receive paths (REQ-P2P-20)
+
+**Modified:** `src/server/routes/system-routes.ts`
+- Replaced bare `Set<string>` nonce caches (`signalingNonces`, `relayNonces`, `discoveryNonces`, `peerAckNonces`) with `BoundedNonceCache` instances (LRU-evicting, 10k cap).
+- Added a single `P2PAbuseDefenseContext` for the relay route scope.
+- `POST /api/p2p/signaling`, `POST /api/p2p/conversation-relay`, `POST /api/p2p/discovery`, and `POST /api/presence/ack` all call `abuseCtx.checkInbound(peerId, pub)` before verification; demoted or rate-limited peers receive `429`.
+- Added `GET /api/debug/p2p-abuse` endpoint (non-production) that returns `abuseCtx.getDiagnostics()`.
+
+**Modified:** `src/web/services/p2p-webrtc-session.ts`
+- Replaced unbounded `Set<string>` `dataChannelNonces` with `BoundedNonceCache`.
+
+**New tests:** `src/test/integration/p2p-abuse-relay.test.ts` — rate-limit rejection (429) and nonce-replay rejection (400) on signaling and relay POST routes.
+
+### P2P-W — Trust levels wired into neighbor cache + delivery filter (REQ-P2P-11/12/18)
+
+**Modified:** `src/web/services/client-peer-talk-delivery.ts`
+- `subscribePeerTalkOffers` and `reconcilePeerTalkOffersFromGun` now call the optional `checkTrust` hook (injected via `TrustGate`) before accepting an offer; callers that supply a gate that returns `false` for blocked senders silently drop the offer.
+
+**Modified:** `src/web/services/web-user-service.ts`
+- Added `getPeerTrustStore(): Promise<Map<string, PeerTrustRecord>>` and `putPeerTrustStore(store): Promise<void>` that read/write the SEA-encrypted `peerTrustStore` key under the user's private Gun path.
+
+**New helper:** `src/shared/p2p-trust-neighbor-bridge.ts`
+- `trustLevelFromNeighborRecord` — derives a `TrustLevel` from a `P2PNeighborRecord`.
+- `neighborRecordWithTrust` — applies a `PeerTrustRecord.trustLevel` to a neighbor record via `toLegacyTrustStatus`.
+
+**New tests:** `src/test/unit/p2p-trust-neighbor-bridge.test.ts` — blocked/friend/verified mapping, capability gate enforcement.
+
+### P2P-X — Schema migrator wired into boot paths (REQ-P2P-13/16)
+
+**Modified:** `src/server/index.ts`
+- `initializeServices()` calls `runStartupMigrations` on Gun-loaded neighbor cache, presence, and conversation records; logs pending-migration counts via `logger.info`.
+
+**Modified:** `src/web/services/web-gun-service.ts`
+- Added `migrateOnRead<T>(kind, record)` helper that calls `migrateRecord` before returning a Gun-loaded record to callers.
+
+**New tests:** `src/test/unit/p2p-schema-boot.test.ts` — verifies v0 records are transparently upgraded when read through `migrateOnRead`; startup migrator logs correct pending counts.
+
+**Evidence:**
+- `npx tsc --noEmit` — clean
+- `npx jest --no-coverage` — 42 suites, 541 passed, 0 failures
+
 ## 2026-06-04 - P2P-Q/R/S/T/U: Handshake, Trust, Schema Migrations, Upgrade Verification, Abuse Defense
 
 Implemented the five SRS §19.13 / REQ-P2P-14–20 items identified in the SRS audit.
