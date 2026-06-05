@@ -8,6 +8,7 @@ import {
   parsePeerTalkOfferKey,
   peerTalkOfferSigningPayload,
 } from '../../shared/peer-talk-delivery';
+import { publishPeerTalkOffer } from '../../web/services/client-peer-talk-delivery';
 import {
   createSignedP2PEnvelopeProof,
   resolveP2PRuntimeFlags,
@@ -118,6 +119,95 @@ describe('peer-talk-delivery', () => {
         now: new Date('2026-06-04T12:00:01.000Z'),
       }),
     ).resolves.toEqual({ ok: false, reason: 'payload hash mismatch' });
+  });
+
+  it('publishes signed peer offers with the exact timestamp that was signed', async () => {
+    const pair = await SEA.pair();
+    let storedOffer: ReturnType<typeof createPeerTalkOfferWire> | null = null;
+    const gunService = {
+      getStoredPair: () => pair,
+      getGun: () => ({
+        get: () => ({
+          get: () => ({
+            get: () => ({
+              put: (value: ReturnType<typeof createPeerTalkOfferWire>) => {
+                storedOffer = value;
+              },
+            }),
+          }),
+        }),
+      }),
+    };
+
+    await publishPeerTalkOffer(gunService as any, 'receiver', {
+      talkId: 't1',
+      senderId: 'sender',
+      senderName: 'Sender',
+      talkData: { title: 'T', type: 'tag', language: 'en' },
+    });
+
+    expect(storedOffer).toBeTruthy();
+    await expect(
+      verifySignedP2PEnvelopeProof({
+        proof: {
+          peerId: storedOffer!.senderPeerId!,
+          pub: storedOffer!.senderPub!,
+          timestamp: storedOffer!.timestamp!,
+          nonce: storedOffer!.nonce!,
+          payloadHash: storedOffer!.payloadHash!,
+          signature: storedOffer!.signature!,
+        },
+        payload: peerTalkOfferSigningPayload(storedOffer!),
+      }),
+    ).resolves.toEqual({ ok: true });
+  });
+
+  it('verifies peer offers after Gun stores nested talk references as links', async () => {
+    const pair = await SEA.pair();
+    const baseOffer = createPeerTalkOfferWire({
+      talkId: 't1',
+      senderId: 's1',
+      senderName: 'Sender',
+      senderPub: pair.pub,
+      senderEpub: pair.epub,
+      talkData: { title: 'T', type: 'tag', language: 'en' },
+      now: new Date('2026-06-04T12:00:00.000Z'),
+    });
+    const proof = await createSignedP2PEnvelopeProof({
+      pair,
+      payload: peerTalkOfferSigningPayload(baseOffer),
+      timestamp: '2026-06-04T12:00:00.000Z',
+      nonce: 'nonce_offer_gun_meta',
+    });
+    const signedOffer = createPeerTalkOfferWire({
+      talkId: 't1',
+      senderId: 's1',
+      senderName: 'Sender',
+      senderPub: pair.pub,
+      senderEpub: pair.epub,
+      proof,
+      talkData: { title: 'T', type: 'tag', language: 'en' },
+      now: new Date('2026-06-04T12:00:00.000Z'),
+    });
+    const gunAnnotatedOffer = {
+      ...signedOffer,
+      talkRef: { '#': 'peerTalkOffers/receiver/s1::t1/talkRef' },
+    };
+
+    await expect(
+      verifySignedP2PEnvelopeProof({
+        proof: {
+          peerId: gunAnnotatedOffer.senderPeerId!,
+          pub: gunAnnotatedOffer.senderPub!,
+          timestamp: gunAnnotatedOffer.timestamp!,
+          nonce: gunAnnotatedOffer.nonce!,
+          payloadHash: gunAnnotatedOffer.payloadHash!,
+          signature: gunAnnotatedOffer.signature!,
+        },
+        payload: peerTalkOfferSigningPayload(gunAnnotatedOffer as unknown as typeof signedOffer),
+        now: new Date('2026-06-04T12:00:01.000Z'),
+      }),
+    ).resolves.toEqual({ ok: true });
   });
 
   it('creates cluster from hydrated peer offer wire', () => {

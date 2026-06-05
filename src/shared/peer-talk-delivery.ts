@@ -161,7 +161,11 @@ export function peerTalkOfferSigningPayload(offer: PeerTalkOfferWire): unknown {
     senderName: offer.senderName,
     senderPub: offer.senderPub,
     senderEpub: offer.senderEpub,
-    talkRef: offer.talkRef,
+    talkRef: {
+      root: PEER_TALK_CATALOG_ROOT,
+      authorId: String(offer.talkRef?.authorId || offer.senderId || ''),
+      talkId: String(offer.talkRef?.talkId || offer.talkId || ''),
+    },
     createdAt: offer.createdAt,
     deliveryChatroomId: offer.deliveryChatroomId,
     directPeerSend: !!offer.directPeerSend,

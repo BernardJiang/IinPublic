@@ -55,10 +55,12 @@ export async function publishPeerTalkOffer(
   const pair = gunService.getStoredPair();
   if (!pair?.pub || !pair.priv) throw new Error('Peer talk offers require a SEA signing pair');
   const senderEpub = pair.epub;
+  const now = new Date();
   const unsignedOffer = createPeerTalkOfferWire({
     ...params,
     senderPub: String(pair.pub),
     ...(senderEpub ? { senderEpub: String(senderEpub) } : {}),
+    now,
   });
   const proof = await createSignedP2PEnvelopeProof({
     pair,
@@ -69,6 +71,7 @@ export async function publishPeerTalkOffer(
     senderPub: String(pair.pub),
     ...(senderEpub ? { senderEpub: String(senderEpub) } : {}),
     proof,
+    now,
   });
   const key = buildPeerTalkOfferKey(params.senderId, params.talkId);
   gunService.getGun().get(PEER_TALK_OFFERS_ROOT).get(receiverUserId).get(key).put(offer);
@@ -195,9 +198,11 @@ export async function reconcilePeerTalkOffersFromGun(
   });
   for (const offer of offers) {
     if (!(await verifyPeerTalkOfferWire(offer))) continue;
+    const authorId = offer.talkRef?.authorId || offer.senderId;
+    const talkId = offer.talkRef?.talkId || offer.talkId;
     const talkData =
       offer.talkData ??
-      (await loadPeerTalkCatalogFromGun(gunService, offer.talkRef.authorId, offer.talkRef.talkId, {
+      (await loadPeerTalkCatalogFromGun(gunService, authorId, talkId, {
         timeoutMs: 1200,
       }));
     if (!talkData) continue;
