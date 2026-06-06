@@ -1,8 +1,8 @@
 # IinPublic — Technical Specification
 ## Software Requirements, Architecture, Security, Data, Network, Mobile & API Interfaces
 
-> **Version:** 4.4 — SEA/zone-B guarantees (§19.14.9); zone-C dedup model (§19.14.10); REQ-P2P-29
-> **Date:** 2026-05-28
+> **Version:** 4.5 — Long-term decentralization vision, community ownership, challenge plugin framework, connection establishment priority, future architecture, local node diagram, profile/identity separation, Phase D peer discovery detail
+> **Date:** 2026-06-06
 > **Status:** Authoritative — single source of truth for all requirements and design decisions
 
 ---
@@ -137,6 +137,8 @@ IinPublic is:
 
 The product is not a traditional group chat: chatrooms are for **discovery and routing only**; all conversations remain one-on-one with optional chatbot participation.
 
+**Long-term architecture goal:** The website (`www.iinpublic.com`) is only a discovery and bootstrap entry point. User-to-user communication occurs directly whenever possible; no central server is required for message storage. User identity is cryptographically verifiable from the public key alone. Communities and talks are designed to survive even if the original website disappears — the network should be resilient through overlapping peer neighborhoods, content-addressed identifiers, and optional distributed peer discovery (Phase D, §19.12).
+
 ### 2.2 Product Functions (High-Level)
 
 - Automatic user identity assignment and location-based chatroom placement.
@@ -177,6 +179,7 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 - Mobile GPS provides true location, but location must be blurred before any public sharing.
 - No user registration or server-side authentication — identity is solely the Gun SEA key pair.
 - Node.js feasibility on iOS is uncertain and requires separate investigation.
+- **Out of scope (current phase):** Full IPFS as a general data store, blockchain, cryptocurrency, token systems, distributed consensus, mining, and global immutable ledgers are explicitly excluded. Gun.js is the data layer; IPFS is used only for binary media blobs referenced by CID field values in Gun nodes (§21.4).
 
 ### 2.6 Assumptions and Dependencies
 
@@ -232,6 +235,8 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 - **FR-CR-8**: The system SHALL store **true location** from GPS and use a blurred region for all public operations.
 - **FR-CR-9**: A user MAY belong to multiple chatrooms that include their true location.
 - **FR-CR-10**: A user MAY actively "travel" to exactly one remote chatroom at a time and SHALL be marked as **traveller** there.
+- **FR-CR-11 (Content-Addressed Community Identity)**: Each chatroom/community SHALL have a stable, globally unique identifier derived from its root object: `CommunityID = CIDv1(CommunityRootObject)` for user-defined rooms, or `CommunityID = CIDv1(Hash(OwnerPublicKey + label))` for owner-keyed rooms. A community address alone SHALL be sufficient to join, discover peers, and synchronize content — no centralized registry lookup is required. This aligns with the CIDv1 content-addressing scheme used for talks and ledger events (§3.12, §20).
+- **FR-CR-12 (Community Ownership and Roles)**: Each user-defined chatroom SHALL support a four-level ownership model: **Owner** (full control, can transfer ownership), **Moderator** (content and membership control), **Member** (standard participant), **Guest** (limited interaction, no posting by default). Permissions at each level SHALL be configurable by the Owner.
 
 ### 3.4 Question-Answer System
 
@@ -322,6 +327,8 @@ Q2:  "What is your skill level?"
      - reached via Q1b=Yes → stored answer: "Professional" (contextPath: [{q1b, yes}])
 ```
 The flat answer list for Q2 contains two distinct entries, keyed by their different context paths. Without the correct preceding context the chatbot does **not** reply automatically.
+
+**Context-aware answers in summary:** The same question text may warrant different answers depending on the conversational context that preceded it. This is the core motivation for the `route` type and `contextHash` — multiple contexts per question are supported, context is inherited from the preceding Q/A path, and context matching happens before chatbot answer selection. `tag` and `survey` questions have no context (`contextHash = ''`); `flow` questions derive context implicitly from sequential position; `route` questions derive context from the hash of the explicit branch path.
 
 #### 3.6.2 Talk Requirements
 
@@ -422,6 +429,20 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 
 - **REQ-LEDGER-14 — Question-level identity:** `questionId = CIDv1(canonicalSerialize({ text, type, options }))`. If text and options are unchanged between T1 and T2, the `questionId` is the same even if routing or match-flag logic changed, enabling the per-question chatbot cache to carry answers forward.
 
+### 3.13 Challenge Plugin Framework
+
+- **FR-CPF-01 (Pluggable Pre-Action Validation)**: The system SHALL support a pluggable challenge framework that executes one or more validation plugins before high-stakes user actions are accepted. Actions subject to challenge gates include at minimum: joining a community, broadcasting a talk, submitting a talk answer, and casting a vote on community content.
+
+- **FR-CPF-02 (Plugin Interface)**: Each challenge plugin SHALL implement a common interface: `evaluate(action, context) → { allowed: boolean, reason?: string }`. Plugins SHALL be composable — multiple plugins may gate the same action, with all-pass required by default (AND semantics). OR semantics (any plugin passing is sufficient) SHALL be configurable per gate.
+
+- **FR-CPF-03 (Built-in Plugin Examples)**: The framework SHALL ship with at minimum the following example plugins: `RequireVerifiedIdentity` (peer must have verified identity), `RequireTrustScore` (local reputation above threshold), `RequireInvitation` (must hold a signed invite token from a room member), `RequirePreviousInteraction` (must have an existing completed talk exchange with the community owner or a moderator).
+
+- **FR-CPF-04 (Extensibility)**: Third-party and community-defined plugins SHALL be loadable without modifying core application code. Plugin configuration SHALL be stored per-chatroom in zone-B (owner-private) storage.
+
+- **FR-CPF-05 (Graceful Failure)**: If a challenge gate denies an action, the system SHALL surface a human-readable reason to the user and SHALL NOT silently drop the action.
+
+---
+
 ### 3.12 P2P Production Model (`www.iinpublic.com`)
 
 > Full design: [§19 P2P Architecture](#19-p2p-architecture-data-storage-and-network-design)
@@ -502,6 +523,7 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 
 - **WebSockets**: Primary transport for Gun.js peer-to-peer message relay.
 - **HTTPS**: Initial loading of static assets; fallback and tech support REST endpoint.
+- **Connection establishment priority**: The system SHALL attempt peer-to-peer connections in the following order: (1) local network (same LAN/subnet), (2) direct public IP, (3) NAT hole punching via STUN/ICE/UDP hole punching, (4) relay fallback (TURN or hub-mediated envelope). Direct connections SHALL always be preferred; relay usage SHALL be minimized and relay servers SHALL NOT permanently store user content from relayed envelopes.
 - **Peer application data** (profiles, talks, matches, DM bodies) travels over the P2P Gun mesh and/or WebRTC transport and is **persisted on each participant's local Gun database** (IndexedDB in browser, radisk on a desktop node). It MUST NOT be stored durably on `www.iinpublic.com`.
 - **Server relay paths** (presence, signaling, TechSupport) are ephemeral or narrowly scoped; see [§19.2](#192-production-target-wwwiinpubliccom-authoritative) and [§19.7](#197-techsupport-server-exception).
 - Relay-only P2P support paths must expire quickly: discovery after 60 seconds, encrypted signaling after 120 seconds, presence after 45 seconds, and room membership after 180 seconds.
@@ -705,6 +727,24 @@ The current deployed system is a **star topology** (one server, many browser cli
 | D | DHT bootstrap | Optional distributed discovery; network survives hub downtime |
 
 **Stack implementation phases (§19.9 — no UI changes):** P2P-H through P2P-O make WebRTC a **sync channel** and Gun the **durable store**. See [§19.9](#199-stack-implementation-phases-no-ui-changes).
+
+**Future architecture target (Phase D+):** When distributed peer discovery (libp2p / Kademlia DHT) is introduced, the stack evolves so the website is purely a software distribution point and new users bootstrap through the DHT rather than the hub:
+
+```text
+Website (software distribution only)
+        ↓
+Bootstrap Service (initial peer introduction)
+        ↓
+libp2p / DHT (identity, peer lookup, NAT traversal)
+        ↓
+WebRTC (direct peer communication)
+        ↓
+Gun.js (data synchronization)
+        ↓
+Talk Engine (question/answer logic)
+```
+
+libp2p and Kademlia DHT are **future evaluation candidates**, not current runtime dependencies — see §16 and §21.4.
 
 **New Gun paths (Phase E+):**
 
@@ -2210,6 +2250,8 @@ The following items are known open questions or planned post-MVP work:
 8. **Web peer stability**: Browser-based Gun peers lose connectivity on tab close or sleep. A service worker peer or persistent relay strategy is needed for production reliability.
 9. **Key backup and recovery**: If a user loses their device, their SEA key pair is lost and identity cannot be recovered. A secure key backup/export mechanism is needed.
 10. **iOS key storage**: Android uses Keystore for key storage; the iOS equivalent (Secure Enclave / Keychain) needs design work.
+11. **Challenge Plugin Framework (FR-CPF)**: The pluggable pre-action validation framework (§3.13) has no implementation yet. Phase post-P2P-U.
+12. **Future P2P technology evaluation**: The following technologies are candidates for post-Phase-D evaluation: libp2p (identity, DHT, NAT traversal), Kademlia DHT (distributed peer lookup), full STUN/TURN infrastructure, Secure Scuttlebutt gossip concepts (already borrowed for ledger design — §21), Bitsocial community concepts. Each shall be evaluated individually against Gun.js integration cost and benefit before adoption. None are mandatory for initial release. See §21.4 for the current runtime vs. design-pattern-source boundary.
 
 ---
 
@@ -2243,6 +2285,7 @@ The following items are known open questions or planned post-MVP work:
 - **DAG-only talk structure**: No loops permitted; cycle detection enforced in the editor.
 - **Auto-capture syntax** (`**` / `*` / `;`): Inline question/answer syntax turns chat into reusable linear talks.
 - **Auto/Manual conversation modes**: User controls chatbot automation level (Auto = chatbot fires on all public/auto answers; Manual = fully user-driven). Yellow/semi-auto mode removed — equivalent behaviour is achieved through talk filters.
+- **Protocol/UI separation**: The talk network protocol is independent from any user interface. The same protocol implementation serves the web UI, mobile UI, desktop node UI, and any future CLI. Multiple clients on different tiers (§19.5) communicate using the same underlying Gun wire protocol and signed envelope format. Protocol stability is maintained independently of UI changes.
 - **Permission-based reputation**: Users control who sees their reputation at public / connections / private / hidden levels.
 - **Business chatrooms**: User-defined chatrooms tied to physical brand locations, with their own targeting scope.
 
@@ -2425,6 +2468,18 @@ Users may access IinPublic through increasing capability tiers. **No UI changes*
 
 **Important:** A normal browser tab cannot run unrestricted Node.js. Tier 3–4 are separate packages that speak the same Gun Wire protocol and pair with the browser via localhost signed session (see `docs/roadmap/p2p-node-network.md`).
 
+**Local node architecture (Tier 3–4):** A local background service acts as a persistent Gun peer, allowing multiple UIs (browser tabs, PWA, CLI) to connect via WebSocket and share a single P2P identity and sync state:
+
+```text
+Browser UI / PWA / CLI
+        ↓ WebSocket (localhost)
+Local Node (Gun peer + key custody + protocol stack)
+        ↓
+P2P Network (Gun mesh + WebRTC)
+```
+
+Benefits: background synchronization continues when the browser tab is closed; multiple UIs share the same peer identity without separate key material; lower browser complexity (no IndexedDB eviction risk); the node can act as a super-peer and relay for nearby peers. Implementation: Phase **P2P-O**.
+
 The website does **not** ship a pre-filled Gun database download. Users build local history through P2P sync and optional **encrypted backup export/import** (owner-controlled file).
 
 ---
@@ -2532,7 +2587,23 @@ Incremental migration from star to relay-only (complements ledger phases E–G, 
 1. **Phase A — Dual-mode server (partial):** WebRTC signaling endpoints live; browsers connect to hub and peers. Validate mesh sync.
 2. **Phase B — Client-authoritative writes:** Talk delivery and conversation writes persist to local Gun first; hub `radata/` is fallback read only.
 3. **Phase C — Relay-only hub:** Remove application `radata/` from `www.iinpublic.com`; hub holds presence + signaling + TechSupport only; super-peers hold neighborhood backups.
-4. **Phase D — Optional DHT bootstrap:** Supplement hub discovery so the network survives full hub downtime.
+4. **Phase D — Optional DHT bootstrap:** Supplement hub discovery so the network survives full hub downtime. A lightweight bootstrap service introduces new peers and publishes active entry points, but does NOT relay normal messages, store talk content, or store user conversations. The peer discovery flow is:
+
+   ```text
+   User Starts App
+         ↓
+   Bootstrap Request (hub or known super-peer)
+         ↓
+   Receive Peer List (20–50 live peers)
+         ↓
+   Connect To Peers (WebRTC / Gun mesh)
+         ↓
+   Join DHT (publish PeerID → network address)
+         ↓
+   Publish Presence (encrypted location blob)
+   ```
+
+   Peer lookup in the DHT follows `UserID → Current Network Address`. The implementation candidates are libp2p DHT or Kademlia — see §21.13 for evaluation criteria. No centralized directory server is required once Phase D is complete.
 5. **Phase E — Pair-private ownership graph:** Enforce three visibility zones ([§19.14](#1914-data-ownership-and-visibility-zones)); retire global `talks/<id>/responses` and server `talkResponsesMap` as sources of truth; chatroom = announcements only; answers and DMs = pair-scoped SEA ciphertext. Builds on P0 mesh delivery (`peerTalkOffers`, local IN). Implementation: **P1** in `docs/TODO.md`.
 
 Match logic (`src/shared/talk-engine.ts`) and SEA encryption are unchanged. CIDv1 content-addressing is shipped (Phase G).
@@ -2592,6 +2663,16 @@ Unsigned messages MUST be rejected. Modified payloads MUST fail signature verifi
 | Message integrity and origin for signed payloads | Government ID or platform account binding |
 
 Human identity is established separately (stage name, vouches, age verification, user labels in [§7.9](#79-stranger-model--known-person-trust)).
+
+**Profile is separate from identity.** The cryptographic identity (key pair, `PeerID`) is immutable once generated and requires no username for routing. The user profile — display name, avatar, bio, Q/A attributes — is mutable data stored separately under the user's SEA soul. Profile data may change without changing the underlying identity. No username is required for routing; `PeerID = HASH(PublicKey)` is sufficient.
+
+```json
+// Identity (immutable)
+{ "PeerID": "A8D4E6F9...", "pub": "03AF4C8B..." }
+
+// Profile (mutable, stored in zone B under ~{ownerPub}/private/profile/)
+{ "displayName": "Hongyu", "avatar": "...", "bio": "..." }
+```
 
 **Code anchors:** `src/web/services/web-gun-service.ts` (SEA custody), `src/shared/p2p-presence.ts` (`PeerAckMessage`), `src/shared/p2p-runtime.ts` (`P2PDiscoveryMessage`, relay envelopes).
 

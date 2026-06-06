@@ -1,6 +1,14 @@
 # IinPublic Completed Work
 
-Last updated: 2026-06-04
+Last updated: 2026-06-06
+
+## 2026-06-06 - SRS v4.5 + TODO cleanup: merged decentralized architecture additions
+
+All items previously listed in `TODO.md` under "Shipped" are recorded below. New open items (FR-CR-11/12, FR-CPF, Phase D, connection priority) are tracked in `TODO.md`.
+
+**SRS changes (v4.5):** Long-term decentralization vision (§2.1), explicit non-goals (§2.5), content-addressed community IDs FR-CR-11, community ownership FR-CR-12, context-aware answers clarification (§3.6.1), Challenge Plugin Framework §3.13, connection establishment priority (§4.4), future architecture diagram (§6.6), profile/identity separation (§19.13.2), Phase D peer discovery detail (§19.12), local node diagram (§19.5), protocol/UI separation (§17), future tech candidates (§16).
+
+---
 
 ## 2026-06-04 - P2P-Y/Z: Handshake E2E coverage + relay-only hub hardening
 
