@@ -2,6 +2,8 @@
  * Chatroom hierarchy definition
  * Tree structure: Global → Continents → Countries → State/region
  */
+import { computeCIDv1Sync } from './cid';
+import type { CommunityRole } from './types';
 
 export interface ChatroomNode {
   id: string;
@@ -726,4 +728,102 @@ export function getFlatChatroomList(): FlatChatroomNode[] {
 
   traverse(CHATROOM_HIERARCHY, 0);
   return flatList;
+}
+
+// ─── Content-addressed community IDs (FR-CR-11) ──────────────────────────────
+
+/**
+ * Derive a stable, self-certifying community ID for a user-defined chatroom.
+ *
+ * The ID is a CIDv1 (dag-json, sha2-256) of { ownerPub, label } — identical
+ * inputs always produce the same ID, different inputs never collide.
+ * This means a community address alone is sufficient to join, discover peers,
+ * and synchronise content without a centralised registry lookup.
+ *
+ * Spec: FR-CR-11 (SRS v4.5 §3.3)
+ *
+ * @param ownerPub  The SEA public key of the room creator (hex or base64url).
+ * @param label     A short human-readable room label chosen by the creator.
+ *                  Normalised to lower-case + trimmed before hashing.
+ */
+export function deriveCommunityId(ownerPub: string, label: string): string {
+  const normalised = label.trim().toLowerCase();
+  return computeCIDv1Sync({ ownerPub, label: normalised });
+}
+
+// ─── Community role helpers (FR-CR-12) ───────────────────────────────────────
+
+/**
+ * Permission matrix: what each role level is allowed to do.
+ * Actions not listed default to false.
+ */
+export interface RoleCapabilities {
+  /** May post messages into the chatroom */
+  canPost: boolean;
+  /** May broadcast a talk to chatroom members */
+  canBroadcast: boolean;
+  /** May change member ↔ guest roles */
+  canManageMembers: boolean;
+  /** May change moderator roles (and below) */
+  canManageModerators: boolean;
+  /** May transfer ownership or delete the room */
+  canManageRoom: boolean;
+}
+
+const ROLE_CAPABILITIES: Record<CommunityRole, RoleCapabilities> = {
+  owner: {
+    canPost: true,
+    canBroadcast: true,
+    canManageMembers: true,
+    canManageModerators: true,
+    canManageRoom: true,
+  },
+  moderator: {
+    canPost: true,
+    canBroadcast: true,
+    canManageMembers: true,
+    canManageModerators: false,
+    canManageRoom: false,
+  },
+  member: {
+    canPost: true,
+    canBroadcast: true,
+    canManageMembers: false,
+    canManageModerators: false,
+    canManageRoom: false,
+  },
+  guest: {
+    canPost: true,
+    canBroadcast: false,   // FR-CR-12: guests blocked from broadcasting by default
+    canManageMembers: false,
+    canManageModerators: false,
+    canManageRoom: false,
+  },
+};
+
+/** Return the capability matrix for a given role. */
+export function getRoleCapabilities(role: CommunityRole): RoleCapabilities {
+  return ROLE_CAPABILITIES[role];
+}
+
+/**
+ * Return true if `actorRole` may assign `targetRole` to another user.
+ *
+ * Rules:
+ *  - owner  → may set any role on any user (except themselves; callers enforce that).
+ *  - moderator → may set member or guest only.
+ *  - member / guest → no role management.
+ */
+export function canAssignRole(actorRole: CommunityRole, targetRole: CommunityRole): boolean {
+  if (actorRole === 'owner') return true;
+  if (actorRole === 'moderator') return targetRole === 'member' || targetRole === 'guest';
+  return false;
+}
+
+/**
+ * Gun path for a user's role record within a chatroom.
+ *   chatroomRoles/<chatroomId>/<userId>
+ */
+export function chatroomRolePath(chatroomId: string, userId: string): string {
+  return `chatroomRoles/${chatroomId}/${userId}`;
 }

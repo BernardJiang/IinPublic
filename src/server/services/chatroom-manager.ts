@@ -1,5 +1,6 @@
-import { GPSCoordinate } from '../../shared/types';
+import type { GPSCoordinate, CommunityRole, CommunityRoleRecord } from '../../shared/types';
 import { GunService } from './gun-service';
+import { canAssignRole, chatroomRolePath, deriveCommunityId } from '../../shared/chatroom-hierarchy';
 
 export class ChatroomManager {
   constructor(
@@ -62,7 +63,13 @@ export class ChatroomManager {
     capacity?: number;
     businessInfo?: any;
   }): Promise<any> {
-    const id = String(params.id || '').trim() || `room_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    // FR-CR-11: derive a content-addressed ID when the caller doesn't provide one.
+    // For business/custom rooms created by a known user we use deriveCommunityId
+    // so the address is self-certifying. Fallback to a random ID for anonymous creation.
+    const id = String(params.id || '').trim() ||
+      (params.createdBy
+        ? deriveCommunityId(params.createdBy, params.name)
+        : `room_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`);
     const room = {
       id,
       name: String(params.name || '').trim(),
@@ -80,7 +87,67 @@ export class ChatroomManager {
     }
     await this.gunService.putPath(['chatrooms', id, 'meta'], room);
     await this.gunService.putPath(['chatroomMeta', id], room);
+
+    // FR-CR-12: creator becomes owner automatically.
+    if (params.createdBy) {
+      await this.setRole(id, params.createdBy, 'owner', params.createdBy);
+    }
+
     return room;
+  }
+
+  // ─── Community ownership methods (FR-CR-12) ────────────────────────────────
+
+  /** Read the stored role for a user in a chatroom. Returns null if no record exists. */
+  async getRole(chatroomId: string, userId: string): Promise<CommunityRole | null> {
+    const path = chatroomRolePath(chatroomId, userId).split('/');
+    const record = await this.gunService.getPath(path);
+    if (!record || typeof record.role !== 'string') return null;
+    return record.role as CommunityRole;
+  }
+
+  /**
+   * Assign a role to a user.
+   * @param actorUserId  The user performing the assignment (must have canAssignRole permission).
+   *                     Pass the same value as userId when called internally (e.g. on room creation).
+   */
+  async setRole(
+    chatroomId: string,
+    userId: string,
+    role: CommunityRole,
+    actorUserId: string,
+  ): Promise<CommunityRoleRecord> {
+    // Internal bootstrap: owner sets their own role — always allowed.
+    if (actorUserId !== userId) {
+      const actorRole = await this.getRole(chatroomId, actorUserId);
+      if (!actorRole || !canAssignRole(actorRole, role)) {
+        throw new Error(
+          `actor ${actorUserId} with role '${actorRole ?? 'none'}' cannot assign role '${role}'`,
+        );
+      }
+    }
+    const record: CommunityRoleRecord = {
+      chatroomId,
+      userId,
+      role,
+      assignedAt: Date.now(),
+      assignedBy: actorUserId,
+    };
+    const path = chatroomRolePath(chatroomId, userId).split('/');
+    await this.gunService.putPath(path, record);
+    return record;
+  }
+
+  /**
+   * Return true if the user may broadcast a talk in this chatroom.
+   * Unknown users (no role record) are treated as guests (cannot broadcast).
+   */
+  async canUserBroadcast(chatroomId: string, userId: string): Promise<boolean> {
+    const role = await this.getRole(chatroomId, userId);
+    // No role record → treat as guest (most restrictive)
+    if (!role) return false;
+    const { getRoleCapabilities } = await import('../../shared/chatroom-hierarchy');
+    return getRoleCapabilities(role).canBroadcast;
   }
 
   async updateChatroom(

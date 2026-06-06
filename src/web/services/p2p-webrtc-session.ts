@@ -67,7 +67,22 @@ type SignedChannelWirePayload = {
 /** Local/same-machine peers should connect well under this; longer waits usually mean a bug. */
 export const P2P_WEBRTC_CONNECT_TIMEOUT_MS = 10_000;
 
-function defaultIceServers(): RTCIceServer[] {
+/**
+ * Returns the ICE server list for `RTCPeerConnection`.
+ *
+ * Connection priority order (§4.4):
+ *   1. local / host candidates   — same-machine or LAN (no STUN/TURN needed)
+ *   2. direct IP / srflx         — STUN-derived server-reflexive candidates
+ *   3. NAT hole punch            — STUN/ICE coordinated traversal
+ *   4. relay / TURN fallback     — only when all direct paths fail
+ *
+ * The browser WebRTC engine applies this ordering automatically via RFC 5245
+ * candidate priority values: host > srflx > relay.  This function configures
+ * which STUN/TURN servers are available; actual candidate selection is left
+ * to the browser.  A TURN relay should be added to the returned list when
+ * relay fallback (priority 4) is required in production.
+ */
+export function defaultIceServers(): RTCIceServer[] {
   const custom = typeof process !== 'undefined' ? process.env.E2E_WEBRTC_ICE_SERVERS : undefined;
   if (custom && custom.trim()) {
     try {
@@ -77,10 +92,14 @@ function defaultIceServers(): RTCIceServer[] {
       // fall through
     }
   }
-  // E2E webpack sets DISABLE_HMR=true — prefer host candidates on one machine.
+  // E2E webpack sets DISABLE_HMR=true — peers run on the same machine,
+  // so host candidates (priority 1) are always used; STUN is not needed.
   if (typeof process !== 'undefined' && process.env.DISABLE_HMR === 'true') {
     return [];
   }
+  // Production: provide STUN for NAT traversal (priorities 2–3).
+  // Priority 4 relay requires a TURN server; add one via E2E_WEBRTC_ICE_SERVERS
+  // or extend this list when relay fallback is required.
   return [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },

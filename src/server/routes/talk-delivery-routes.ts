@@ -10,6 +10,7 @@ import {
 } from '../../shared/talk-intake-filters';
 import type { TalkType } from '../../shared/talk-stats';
 import type { GPSCoordinate, TalkIntakeFilters } from '../../shared/types';
+import type { ChatroomManager } from '../services/chatroom-manager';
 import { appendBulkBroadcastDeliveryRejections } from '../../shared/bulk-broadcast-audience';
 import { logger } from '../logger';
 import { GunService } from '../services/gun-service';
@@ -98,6 +99,12 @@ type TalkDeliveryRouteDeps = {
   getServerBlockedTerms?: () => string[];
   symmetricTalkEdgeLimiter?: SymmetricTalkEdgeRateLimiter;
   dailyWeeklyTalkEdgeQuotaRateLimiter?: DailyWeeklyTalkEdgeQuotaRateLimiter;
+  /**
+   * When present, the broadcast route enforces FR-CR-12: guests may not
+   * broadcast talks in a chatroom. Callers that supply `sourceChatroomId`
+   * in the request body will have the sender's role checked.
+   */
+  chatroomManager?: ChatroomManager;
 };
 
 export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkDeliveryRouteDeps): void {
@@ -123,6 +130,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
     getServerBlockedTerms,
     symmetricTalkEdgeLimiter,
     dailyWeeklyTalkEdgeQuotaRateLimiter,
+    chatroomManager,
   } = deps;
 
   function mapExactMemoryToTalk(
@@ -654,7 +662,7 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
     try {
       const p0Direct = usesDirectTalkDelivery(resolveP2PRuntimeFlags(process.env));
       const talkId = req.params.id;
-      const { senderId, senderName, receiverIds, talkData: bodyTalkData, broadcastTargetTags: rawBt, broadcastMaxDistanceMiles: rawMaxDm } =
+      const { senderId, senderName, receiverIds, talkData: bodyTalkData, broadcastTargetTags: rawBt, broadcastMaxDistanceMiles: rawMaxDm, sourceChatroomId } =
         req.body as {
           senderId: string;
           senderName?: string;
@@ -662,6 +670,8 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
           talkData?: unknown;
           broadcastTargetTags?: unknown;
           broadcastMaxDistanceMiles?: unknown;
+          /** FR-CR-12: when set, sender's role is checked against chatroom rules. */
+          sourceChatroomId?: string;
         };
       const broadcastTargetTags = parseBulkBroadcastTargetTags(rawBt);
       const broadcastMaxDistanceMiles = parseBulkBroadcastMaxDistanceMiles(rawMaxDm);
@@ -683,6 +693,16 @@ export function registerTalkDeliveryRoutes(app: express.Application, deps: TalkD
         clearTimeout(hardTimeout);
         res.status(403).json({ error: 'senderId must match talk author' });
         return;
+      }
+      // FR-CR-12: guests may not broadcast talks in a chatroom.
+      if (sourceChatroomId && chatroomManager) {
+        const canBroadcast = await chatroomManager.canUserBroadcast(sourceChatroomId, senderId);
+        if (!canBroadcast) {
+          logger.warn({ senderId, sourceChatroomId }, '[register-receivers] 403: guest broadcast blocked (FR-CR-12)');
+          clearTimeout(hardTimeout);
+          res.status(403).json({ error: 'guests may not broadcast talks in this chatroom' });
+          return;
+        }
       }
       if (broadcastTargetTags.length > 0) {
         recordBroadcastTargetTagUses?.(broadcastTargetTags);

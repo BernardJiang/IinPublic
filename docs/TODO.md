@@ -8,51 +8,26 @@ This file is the short, execution-oriented plan.
 - **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specification.md` (§19.13, §19.14, REQ-P2P-09–29)
 - Supporting detail: `docs/roadmap/p2p-node-network.md`
 
-## Open items from SRS v4.5 (2026-06-06)
+## Open items
 
-### P2 — Community Ownership Model (FR-CR-12)
+### P3 — Challenge Plugin Framework: zone-B config storage (FR-CPF-04)
 
-Implement the four-level community ownership model for user-defined chatrooms. Currently chatrooms have no ownership hierarchy.
+The framework is implemented and wired into routes. The per-chatroom plugin configuration storage in zone-B Gun paths is not yet implemented.
 
-- [ ] Add `CommunityRole` type: `'owner' | 'moderator' | 'member' | 'guest'` to `src/shared/types.ts`
-- [ ] Add `chatroomRoles/<chatroomId>/<userId>` Gun path; write on room creation (creator = owner) and on role change
-- [ ] Add `PUT /api/chatrooms/:id/roles/:userId` route; enforce that only owners may promote/demote moderators, only owners/moderators may change members/guests
-- [ ] Enforce role gates in talk delivery (`talk-delivery-routes.ts`): guests blocked from broadcasting by default
-- [ ] Add role-check helper to `src/shared/chatroom-hierarchy.ts`; cover with unit tests
+- [ ] Store per-chatroom plugin configuration in zone-B (`~{ownerPub}/private/chatroom-config/<chatroomId>/challengePlugins`) so owners can enable/disable plugins without server restart
+- [ ] Add `WebChatroomService.setChallengeConfig(chatroomId, pluginIds)` that writes to zone-B and reads it back for the `resolveChallengeGate` hook
+- [ ] Unit test: round-trip serialize/deserialize plugin config from Gun zone-B path
 
-### P2 — Content-Addressed Community IDs (FR-CR-11)
+### Phase D — DHT Bootstrap implementation (§19.12)
 
-Chatrooms created today use opaque string IDs. New user-defined rooms should derive their ID from their root object so the address is self-certifying and survives hub downtime.
+Design doc written (`docs/roadmap/phase-d-dht-bootstrap.md`). Implementation not started.
 
-- [ ] Implement `deriveCommunityId(ownerPub: string, label: string): string` in `src/shared/chatroom-hierarchy.ts` using `CIDv1(dag-json, sha2-256)` via `multiformats` (already a dependency from ledger work)
-- [ ] Apply to new room creation in `WebChatroomService` and server `chatroom-routes.ts`; existing rooms keep their legacy IDs during migration
-- [ ] Add unit test: same inputs always produce the same ID; different inputs never collide
-
-### P3 — Challenge Plugin Framework (FR-CPF-01–05)
-
-New pluggable pre-action validation layer. No implementation exists yet.
-
-- [ ] Define `ChallengePlugin` interface in `src/shared/challenge-plugins.ts`: `evaluate(action: ChallengeAction, context: ChallengeContext): { allowed: boolean; reason?: string }`
-- [ ] Define `ChallengeAction` union: `'join-community' | 'broadcast-talk' | 'submit-answer' | 'cast-vote'`
-- [ ] Implement `ChallengeGate.evaluate(plugins, action, context)` with AND-semantics (all must pass); configurable OR mode per gate
-- [ ] Ship built-in plugins: `RequireVerifiedIdentity`, `RequireTrustScore(threshold)`, `RequireInvitation`, `RequirePreviousInteraction`
-- [ ] Wire `join-community` and `broadcast-talk` gates into delivery routes; return 403 with `reason` on denial (FR-CPF-05)
-- [ ] Store per-chatroom plugin configuration in zone-B (`~{ownerPub}/private/chatroom-config/<chatroomId>/challengePlugins`)
-- [ ] Unit tests: AND gate, OR gate, graceful denial response, plugin extensibility
-
-### P3 — Connection Establishment Priority Verification (§4.4)
-
-The spec now explicitly requires ordered connection attempts: local network → direct IP → NAT hole punch → relay. The WebRTC/ICE stack handles this via ICE candidate ordering, but it should be verified and documented.
-
-- [ ] Audit `p2p-webrtc-session.ts`: confirm ICE candidate priority order matches spec (host → srflx → relay); add comment referencing §4.4
-- [ ] Add integration test asserting that a relay candidate is only selected when direct candidates fail
-
-### Phase D — DHT Bootstrap (§19.12, now fully specified)
-
-Phase D has a detailed peer discovery flow in the spec. Design work can begin.
-
-- [ ] Write `docs/roadmap/phase-d-dht-bootstrap.md` with implementation plan: bootstrap service API, DHT library evaluation (libp2p vs. custom), `UserID → network address` lookup interface, and migration path from hub-mediated discovery
-- [ ] Evaluate `libp2p` and Kademlia as candidates per §16 item 12; document decision in the design doc before writing code
+- [ ] Create `src/shared/dht-bootstrap.ts` with `DhtBootstrapClient` interface and `BootstrapPeer` / `UserPeerRecord` types (see design doc §4.2)
+- [ ] Create `src/server/services/bootstrap-store.ts`: in-memory LRU peer store with 5-min TTL
+- [ ] Create `src/server/routes/bootstrap-routes.ts`: `GET /bootstrap/peers`, `POST /bootstrap/announce`, `GET /bootstrap/lookup/:userId`
+- [ ] Create `src/web/services/web-bootstrap-client.ts`: client backed by hub `/bootstrap/*` endpoints
+- [ ] Web client: try hub `/api/peers` first; fall back to `/bootstrap/peers` if hub unreachable
+- [ ] Unit + integration tests for announcement validation, TTL eviction, and lookup
 
 ## Hub migration track (§19.12)
 
@@ -61,7 +36,7 @@ Phase D has a detailed peer discovery flow in the spec. Design work can begin.
 | A Dual-mode mesh + signaling | Partial |
 | B Client-authoritative talks | Shipped — see `docs/completed.md` |
 | C Relay-only hub (no app `radata/`) | Shipped — see `docs/completed.md` |
-| D DHT bootstrap | **Not started** — design doc required first (see Phase D item above) |
+| D DHT bootstrap | Design done — see `docs/roadmap/phase-d-dht-bootstrap.md`; implementation pending |
 | E Pair-private ownership graph | Shipped — see `docs/completed.md` |
 
 ## Run commands

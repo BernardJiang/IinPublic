@@ -118,6 +118,31 @@ export interface ContextStep {
   answerId: string;
 }
 
+// ─── Community ownership (FR-CR-12) ─────────────────────────────────────────
+
+/**
+ * Four-level community ownership model for user-defined chatrooms.
+ * - owner:     Full control; can transfer ownership, change any role, delete room.
+ * - moderator: Content and membership control; cannot change owner role.
+ * - member:    Standard participant; can post and broadcast talks.
+ * - guest:     Limited interaction; blocked from broadcasting talks by default.
+ *
+ * Spec: FR-CR-12 (SRS v4.5 §3.3)
+ */
+export type CommunityRole = 'owner' | 'moderator' | 'member' | 'guest';
+
+/**
+ * A single user's role record within a chatroom.
+ * Stored at Gun path: chatroomRoles/<chatroomId>/<userId>
+ */
+export interface CommunityRoleRecord {
+  chatroomId: string;
+  userId: string;
+  role: CommunityRole;
+  assignedAt: number;   // unix ms
+  assignedBy: string;   // userId of the person who assigned this role
+}
+
 /**
  * A flat answer record stored in the user's answer table.
  * Used by the chatbot to decide whether it can auto-reply.

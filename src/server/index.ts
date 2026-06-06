@@ -896,6 +896,7 @@ class IinPublicServer {
       getServerBlockedTerms: () => getServerBlockedTerms(),
       symmetricTalkEdgeLimiter: this.symmetricTalkEdgeRateLimiter,
       dailyWeeklyTalkEdgeQuotaRateLimiter: this.dailyWeeklyTalkEdgeQuotaRateLimiter,
+      chatroomManager: this.chatroomManager,
     });
 
     registerChatroomRoutes(this.app, { chatroomManager: this.chatroomManager });

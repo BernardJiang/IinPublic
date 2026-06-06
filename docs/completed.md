@@ -2,6 +2,47 @@
 
 Last updated: 2026-06-06
 
+## 2026-06-06 - SRS v4.5 implementation: community ownership, challenge plugins, ICE audit, Phase D design
+
+### FR-CR-11/12 — Community Ownership Model (Tasks #1 + #2)
+
+**Shared domain (`src/shared/`):**
+- `types.ts`: added `CommunityRole` (`owner | moderator | member | guest`) and `CommunityRoleRecord` interface.
+- `chatroom-hierarchy.ts`: added `deriveCommunityId(ownerPub, label)` (content-addressed room IDs via `computeCIDv1Sync`), `getRoleCapabilities(role)`, `canAssignRole(actor, target)`, `chatroomRolePath(chatroomId, userId)`, `RoleCapabilities` interface.
+
+**Server (`src/server/`):**
+- `services/chatroom-manager.ts`: `createChatroom` now derives a content-addressed ID via `deriveCommunityId` and auto-assigns owner role; added `getRole`, `setRole`, `canUserBroadcast` methods.
+- `routes/chatroom-routes.ts`: added `GET /api/chatrooms/:id/roles/:userId` and `PUT /api/chatrooms/:id/roles/:userId`; optional `resolveChallengeGate` hook wired into join route.
+- `routes/talk-delivery-routes.ts`: added optional `chatroomManager` dep; broadcast route accepts `sourceChatroomId` and enforces guest-broadcast gate (FR-CR-12).
+- `index.ts`: passes `chatroomManager` to `registerTalkDeliveryRoutes`.
+
+**Tests:** `src/test/unit/community-ownership.test.ts` — 15 tests covering all new helpers.
+
+### FR-CPF-01–05 — Challenge Plugin Framework (Task #3)
+
+**New file:** `src/shared/challenge-plugins.ts`
+- `ChallengePlugin` interface: `evaluate(action, context) → ChallengeResult`
+- `runChallengeGate(action, context, config)`: AND/OR composable gate executor
+- Built-in plugins: `RequireVerifiedIdentity`, `RequireTrustScore(threshold)`, `RequireInvitation`, `RequirePreviousInteraction`
+- Plugin registry: `registerChallengePlugin`, `getChallengePlugin`, `listChallengePluginIds`
+
+**Server wiring:** `chatroom-routes.ts` `join-community` gate via optional `resolveChallengeGate` dep; broadcast gate already in `talk-delivery-routes.ts` via `chatroomManager`.
+
+**Tests:** `src/test/unit/challenge-plugins.test.ts` — 29 tests covering all plugins, AND/OR semantics, async plugins, registry, and FR-CPF-05 denial reason surface.
+
+### §4.4 ICE candidate priority audit (Task #4)
+
+- `p2p-webrtc-session.ts`: `defaultIceServers()` made `export`; added §4.4 reference comment documenting priority order (host > srflx > relay) and TURN opt-in via `E2E_WEBRTC_ICE_SERVERS`.
+- **Tests:** `src/test/unit/p2p-ice-priority.test.ts` — 8 tests verifying STUN-only default, TURN opt-in, fallback on invalid JSON, and RTCIceServer shape.
+
+### Phase D DHT Bootstrap design doc (Task #5)
+
+- **New:** `docs/roadmap/phase-d-dht-bootstrap.md` — full design document: bootstrap service API (`GET /bootstrap/peers`, `POST /bootstrap/announce`, `GET /bootstrap/lookup/:userId`), TypeScript interface sketch, libp2p vs. Kademlia evaluation table with recommendation, `UserAddressLookup` interface, migration steps D-1–D-7, security considerations, and file list for Phase D implementation.
+
+**Total new tests this session:** 52 (15 community-ownership + 29 challenge-plugins + 8 ICE-priority). All 478 unit tests pass.
+
+---
+
 ## 2026-06-06 - SRS v4.5 + TODO cleanup: merged decentralized architecture additions
 
 All items previously listed in `TODO.md` under "Shipped" are recorded below. New open items (FR-CR-11/12, FR-CPF, Phase D, connection priority) are tracked in `TODO.md`.
