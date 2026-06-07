@@ -1669,16 +1669,21 @@ export class IinPublicApp {
         talkData: talkRecord,
       });
       const deliveryRoom = this.currentChatroomId || this.chatroomService.getCurrentChatroomId() || '';
-      for (const receiverId of receiverIds) {
-        await publishPeerTalkOffer(this.gunService, receiverId, {
-          talkId,
-          senderId: me.id,
-          senderName: me.stageName || 'Unknown',
-          talkData: talkRecord,
-          ...(deliveryRoom ? { deliveryChatroomId: deliveryRoom } : {}),
-        });
-        this.subscribeToPairTalkResponses(talkId, talk, receiverId);
-      }
+      // Publish per-receiver offers in parallel — each offer is an independent signed
+      // Gun write, and serializing them makes a multi-receiver broadcast O(receivers)
+      // round-trips (the dominant cost when fanning one talk out to many peers).
+      await Promise.all(
+        receiverIds.map(async (receiverId) => {
+          await publishPeerTalkOffer(this.gunService, receiverId, {
+            talkId,
+            senderId: me.id,
+            senderName: me.stageName || 'Unknown',
+            talkData: talkRecord,
+            ...(deliveryRoom ? { deliveryChatroomId: deliveryRoom } : {}),
+          });
+          this.subscribeToPairTalkResponses(talkId, talk, receiverId);
+        }),
+      );
       console.log(`📡 Pair-direct talk offers published: talkId=${talkId} receivers=${receiverIds.length}`);
       return true;
     }

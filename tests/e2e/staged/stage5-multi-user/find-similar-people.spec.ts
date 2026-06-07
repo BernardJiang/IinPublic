@@ -37,10 +37,7 @@ import {
   waitForResponseModalClosed,
   openIncomingTalkModal,
 } from '../../helpers/talks-matching-flow';
-import {
-  waitForDistinctGunPeersExcludingSelf,
-  waitForChatroomMemberCountViaApi,
-} from '../../helpers/talk-demo-ui';
+import { waitForChatroomMemberCountViaApi } from '../../helpers/talk-demo-ui';
 
 // ─── Test data (not app logic) ──────────────────────────────────────────────────
 
@@ -53,8 +50,8 @@ const INTEREST_POOL = [
   'origami', 'birding', 'fencing', 'brewing', 'knitting',
 ];
 
-const NUM_USERS = 3;
-const TAGS_PER_USER = 3;
+const NUM_USERS = 10;
+const TAGS_PER_USER = 20;
 const RELATIONSHIP_LABEL = 'similar interest people';
 
 test.describe('Find similar people', () => {
@@ -168,51 +165,51 @@ test.describe('Find similar people', () => {
     );
 
     // ── Phase 4: each user broadcasts all tags to the Global chatroom ─────────
-    // Broadcast publishes a chatroom announcement, which is what triggers each
-    // receiver's chatbot to auto-answer tags they also created. We deliver via the
-    // E2E broadcast path with the audience-preview skipped: that preview is a
-    // per-talk server HTTP round-trip (20 tags x 10 users) that starves under load
-    // and is unused for direct delivery. Offers + announcement still happen, so the
-    // chatbot behaves exactly as with the Broadcast button — just far faster.
-    // Deliver sequentially: 10 contexts each publishing ~180 Gun offers at once
-    // exhausts Chrome's socket budget (net::ERR_INSUFFICIENT_RESOURCES). One user at
-    // a time keeps the write burst bounded. Each deliver is gated on the server
-    // member list reaching the full peer count (resolveBroadcastReceivers reads the
-    // server view) and retried if membership is momentarily short under load.
-    for (const { page, idx } of setups) {
-      await waitForDistinctGunPeersExcludingSelf(page, NUM_USERS - 1, 60_000);
-      await waitForChatroomMemberCountViaApi(page, NUM_USERS - 1, 60_000);
-      await afterSync();
-      const t0 = Date.now();
-      let result: { talksSent: number; receivers: number } | undefined;
-      for (let attempt = 0; attempt < 10; attempt++) {
-        try {
-          result = await page.evaluate(async (minReceivers) => {
-            const app = (window as any).__iinpublic_app?.getApp?.();
-            if (!app?.deliverPendingBroadcastTalksForE2e) {
-              throw new Error('deliverPendingBroadcastTalksForE2e unavailable');
-            }
-            const timeout = new Promise<never>((_, reject) => {
-              window.setTimeout(() => reject(new Error('broadcast delivery timed out')), 90_000);
-            });
-            return Promise.race([
-              app.deliverPendingBroadcastTalksForE2e(minReceivers, { skipAudiencePreview: true }),
-              timeout,
-            ]) as Promise<{ talksSent: number; receivers: number }>;
-          }, NUM_USERS - 1);
-          break;
-        } catch (err) {
-          if (!String(err).includes('receiverIds=')) throw err;
-          await page.waitForTimeout(2_000);
+    // Broadcast publishes a chatroom announcement, which triggers each receiver's
+    // chatbot to auto-answer tags they also created. Delivery uses the E2E broadcast
+    // path with the audience preview skipped (a per-talk server HTTP round-trip,
+    // unused for direct delivery); offers + announcement still happen, so the chatbot
+    // behaves exactly as with the Broadcast button.
+    //
+    // Each user runs in its own browser, so deliveries run concurrently: per-talk
+    // offer writes are parallelized app-side, and a single browser only issues a
+    // bounded number of concurrent writes — well under the socket budget that the
+    // shared-context approach blew. Each deliver waits for the server member list
+    // (which resolveBroadcastReceivers reads) and retries if it's briefly short.
+    await Promise.all(
+      setups.map(async ({ page, idx }) => {
+        await waitForChatroomMemberCountViaApi(page, NUM_USERS - 1, 90_000);
+        await afterSync();
+        const t0 = Date.now();
+        let result: { talksSent: number; receivers: number } | undefined;
+        for (let attempt = 0; attempt < 15; attempt++) {
+          try {
+            result = await page.evaluate(async (minReceivers) => {
+              const app = (window as any).__iinpublic_app?.getApp?.();
+              if (!app?.deliverPendingBroadcastTalksForE2e) {
+                throw new Error('deliverPendingBroadcastTalksForE2e unavailable');
+              }
+              const timeout = new Promise<never>((_, reject) => {
+                window.setTimeout(() => reject(new Error('broadcast delivery timed out')), 90_000);
+              });
+              return Promise.race([
+                app.deliverPendingBroadcastTalksForE2e(minReceivers, { skipAudiencePreview: true }),
+                timeout,
+              ]) as Promise<{ talksSent: number; receivers: number }>;
+            }, NUM_USERS - 1);
+            break;
+          } catch (err) {
+            if (!String(err).includes('receiverIds=')) throw err;
+            await page.waitForTimeout(2_000);
+          }
         }
-      }
-      if (!result) throw new Error(`user ${idx} broadcast never resolved enough receivers`);
-      // eslint-disable-next-line no-console
-      console.log(`[u${idx} broadcast] ${JSON.stringify(result)} after ${Date.now() - t0}ms`);
-      expect(result.talksSent, `user ${idx} talksSent`).toBeGreaterThanOrEqual(TAGS_PER_USER);
-      expect(result.receivers, `user ${idx} receivers`).toBeGreaterThanOrEqual(NUM_USERS - 1);
-      await afterAction();
-    }
+        if (!result) throw new Error(`user ${idx} broadcast never resolved enough receivers`);
+        // eslint-disable-next-line no-console
+        console.log(`[u${idx} broadcast] ${JSON.stringify(result)} after ${Date.now() - t0}ms`);
+        expect(result.talksSent, `user ${idx} talksSent`).toBeGreaterThanOrEqual(TAGS_PER_USER);
+        expect(result.receivers, `user ${idx} receivers`).toBeGreaterThanOrEqual(NUM_USERS - 1);
+      }),
+    );
     await afterSync();
 
     // ── Phase 5: answer incoming tags ────────────────────────────────────────
