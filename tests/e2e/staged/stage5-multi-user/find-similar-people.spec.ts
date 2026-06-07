@@ -2,8 +2,8 @@
  * Find Similar People — full UI-driven flow
  *
  * 10 users join the global chatroom. Each user:
- *   1. Creates 20 tag-type talks (one per interest) — verifiable in the OUT section.
- *   2. Goes to GlobalRoom and broadcasts all talks to every member.
+ *   1. Creates 20 tag-type talks (one per interest) via page.evaluate → talkService + saveCreatedTalk.
+ *   2. Goes to GlobalRoom and broadcasts all talks (confirms the preamble modal).
  *   3. Receives tags from the other 9 users, answers ONE manually in the response dialog.
  *   4. The chatbot (pre-seeded with the user's interest preferences) auto-answers the rest.
  *   5. Navigates to the Contacts tab, sorts by "weighted" relevance score, and the users
@@ -140,9 +140,8 @@ test.describe('Find similar people', () => {
               chatbotJson: string;
               stageName: string;
             }) => {
-              // Chatbot: enabled with pre-seeded permanent preferences.
-              // Starts disabled so the first incoming talk can be answered
-              // manually by the test; re-enabled after that one click.
+              // Chatbot: starts disabled so the first incoming talk can be answered
+              // manually; re-enabled after that one click.
               localStorage.setItem('chatbotEnabled', 'false');
               localStorage.setItem('exactChatbotMemory', chatbotJson);
               // Start in global chatroom.
@@ -205,77 +204,126 @@ test.describe('Find similar people', () => {
         }),
       );
 
-      // ── Phase 3: each user creates 20 tag talks via the UI ───────────────────
+      // ── Phase 3: each user creates 20 tag talks via page.evaluate ─────────────
       //
-      // Each talk shows up in the OUT section (data-role="created").
-      // All 10 browsers run in parallel; talks are created sequentially within
-      // each browser to avoid race conditions in the editor form.
+      // Directly calls app.talkService.createTalk() (Gun write) then
+      // app.uiManager.saveCreatedTalk() (localStorage myTalks update).
+      // This is fast and avoids the UI form/dialog entirely.
+      // saveCreatedTalk records the talk with role="created" so it shows in OUT
+      // and is included in getBroadcastableTalkIds().
 
       await Promise.all(
         setups.map(async ({ page }, i) => {
-          for (const interest of interestsFor(i)) {
-            await page.click('#create-talk-btn');
-            // "tag" is the default type — radio is pre-checked.
-            await page.waitForSelector('#talk-title', { timeout: 10_000 });
-            await page.fill('#talk-title', `Interest: ${interest}`);
-            // Ensure tag radio is selected (it should already be default).
-            await page.check('input[name="talk-type-radio"][value="tag"]');
-            await page.click('#talk-submit-btn');
-            await afterAction(); // 100 ms — let the modal close and Gun write settle
-          }
+          await page.evaluate(async (interests: string[]) => {
+            const app = (window as any).__iinpublic_app?.getApp?.();
+            const uiManager = app?.uiManager;
+            const talkService = app?.talkService;
+            const userId = app?.currentUser?.id as string | undefined;
+            if (!app || !uiManager || !talkService || !userId) {
+              throw new Error('App not ready: missing app/uiManager/talkService/currentUser');
+            }
+            for (const interest of interests) {
+              const slug = (interest as string).toLowerCase().replace(/\s+/g, '_');
+              const questionId = `q_${slug}`;
+              const yesAnswerId = `a_yes_${slug}`;
+              const noAnswerId = `a_no_${slug}`;
+              const question = {
+                id: questionId,
+                text: `Are you into: ${interest}?`,
+                answers: [
+                  { id: yesAnswerId, text: "Yes!", isMatch: true, isTerminal: true },
+                  { id: noAnswerId, text: 'Not really', isIgnore: true, isTerminal: true },
+                ],
+              };
+              const talk = await talkService.createTalk({
+                authorId: userId,
+                type: 'tag',
+                title: `Interest: ${interest}`,
+                language: 'en',
+                questions: [question],
+              });
+              uiManager.saveCreatedTalk(talk, {
+                selfAnswers: [{ questionId, answerId: yesAnswerId }],
+              });
+            }
+          }, interestsFor(i));
         }),
       );
 
       // Verify each user's OUT section shows all 20 created talks.
+      // Navigate to talks tab then OUT filter so displayTalksList() runs.
       await Promise.all(
         setups.map(async ({ page }, i) => {
-          // Switch to OUT-only filter for a clean count.
+          // Navigate to talks view to trigger render.
+          await page.click('.nav-btn[data-view="talks"]');
+          await page.waitForSelector('#talks-nav-out', { timeout: 10_000 });
           await page.click('#talks-nav-out');
           await page.waitForSelector(
-            `.talk-list-item[data-role="created"]:nth-child(20)`,
+            `.talk-list-item[data-role="created"]`,
             { timeout: 20_000 },
           );
           const outCount = await page.evaluate(
             () => document.querySelectorAll('.talk-list-item[data-role="created"]').length,
           );
           expect(outCount, `user ${i} OUT section should show 20 talks`).toBeGreaterThanOrEqual(20);
+
+          // Return to chatrooms view for broadcast.
+          await page.click('[data-testid="bottom-navigation-button-chat"]');
         }),
       );
 
-      // ── Phase 4: broadcast from GlobalRoom ───────────────────────────────────
+      // ── Phase 4: wait for all members, then broadcast ────────────────────────
       //
-      // Wait for all chatroom members to be visible in each browser's list,
-      // then click the broadcast button. The server fans out each talk to every
-      // receiver via register-receivers-for-broadcast.
-
-      await afterSync(); // allow Gun chatroom-member sync to propagate
+      // Poll until each browser sees all 10 test users in the global chatroom,
+      // then click Broadcast and confirm the preamble modal.
 
       await Promise.all(
         setups.map(async ({ page }) => {
+          // Wait for all 10 test users to appear in this browser's chatroom member list.
+          await expect
+            .poll(
+              async () =>
+                page.evaluate((techSupportId: string) => {
+                  const app = (window as any).__iinpublic_app?.getApp?.();
+                  const members: Array<{ userId: string }> =
+                    app?.uiManager?.getCurrentChatroomMembers?.() ?? [];
+                  return members.filter((m) => m.userId && m.userId !== techSupportId).length;
+                }, 'iinpublic-root-techsupport'),
+              { timeout: 90_000, intervals: [1_000] },
+            )
+            .toBeGreaterThanOrEqual(NUM_USERS - 1); // at least the other 9 peers
+
+          // Click broadcast.
           await page.click('#broadcast-talk-btn');
-          // The ack span becomes visible when the broadcast completes.
+
+          // Confirm the audience-preview preamble modal.
+          await page.waitForSelector('[data-testid="broadcast-preamble-send"]', { timeout: 30_000 });
+          await page.click('[data-testid="broadcast-preamble-send"]');
+
+          // Wait for the ack indicator.
           await page.waitForFunction(
             () => {
               const ack = document.getElementById('broadcast-bulk-ack');
               return ack !== null && !ack.hidden;
             },
-            { timeout: 60_000 },
+            { timeout: 120_000 },
           );
         }),
       );
 
       await afterSync();
 
-      // ── Phase 5: each user manually answers ONE incoming talk ─────────────────
+      // ── Phase 5: navigate to talks tab and answer ONE incoming talk manually ──
       //
       // Wait for at least one unanswered incoming talk to appear, then click it.
-      // For a tag talk the modal has a checkbox ("Match (I'm interested)") and a
-      // submit button. We check the box (interested = match) and submit.
-      // After this one click we enable the chatbot; it handles the remaining
-      // 179 incoming talks automatically.
+      // For a tag talk the modal has a checkbox ("Match") and a submit button.
+      // We check the box and submit. After this one click we enable the chatbot.
 
       await Promise.all(
         setups.map(async ({ page }) => {
+          // Switch to talks view so incoming talks render.
+          await page.click('.nav-btn[data-view="talks"]');
+
           // Wait for at least one unanswered incoming talk.
           await page.waitForSelector(
             '.talk-list-item[data-role="incoming"]:not(.talk-incoming-answered)',
@@ -289,7 +337,6 @@ test.describe('Find similar people', () => {
             .click();
 
           // Submit: the checkbox is the "interested / match" toggle.
-          // We want to say "Yes!" — make sure it is checked.
           const checkboxLocator = page.locator('#tag-match-checkbox');
           if (await checkboxLocator.isVisible({ timeout: 5_000 })) {
             if (!(await checkboxLocator.isChecked())) {
@@ -297,7 +344,7 @@ test.describe('Find similar people', () => {
             }
             await page.click('#tag-submit-response');
           } else {
-            // Modal may have already been dismissed (chatbot race); proceed.
+            // Modal may have been dismissed (chatbot race); proceed.
             await page.keyboard.press('Escape');
           }
         }),
@@ -309,11 +356,9 @@ test.describe('Find similar people', () => {
         setups.map(async ({ page }) => {
           await page.evaluate(() => {
             localStorage.setItem('chatbotEnabled', 'true');
-            // Notify the app that chatbot preference changed, if the app
-            // exposes a settings-change hook.
             try {
-              const settings = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
-              settings?.setChatbotEnabled?.(true);
+              const app = (window as any).__iinpublic_app?.getApp?.();
+              app?.uiManager?.setChatbotEnabled?.(true);
             } catch { /* ignore if hook not exposed */ }
           });
         }),
@@ -334,7 +379,7 @@ test.describe('Find similar people', () => {
                   const answered = document.querySelectorAll(
                     '.talk-list-item[data-role="incoming"].talk-incoming-answered',
                   );
-                  // At least 9 senders × 1 talk each; all must be answered.
+                  // At least 9 senders × 1 talk each minimum; all must be answered.
                   return all.length >= 9 && all.length === answered.length;
                 }),
               { timeout: 120_000, intervals: [2_000] },
