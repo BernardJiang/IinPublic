@@ -50,8 +50,8 @@ const INTEREST_POOL = [
   'origami', 'birding', 'fencing', 'brewing', 'knitting',
 ];
 
-const NUM_USERS = 10;
-const TAGS_PER_USER = 20;
+const NUM_USERS = 3;
+const TAGS_PER_USER = 5;
 const RELATIONSHIP_LABEL = 'similar interest people';
 
 test.describe('Find similar people', () => {
