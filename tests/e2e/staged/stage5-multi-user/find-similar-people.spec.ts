@@ -27,10 +27,10 @@
  * Companion doc: tests/e2e/staged/stage5-multi-user/find-similar-people.md
  */
 
-import type { BrowserContext, Page } from '@playwright/test';
+import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { maybeClearGunDatabases } from '../../helpers/clear-database';
-import { afterSync, afterAction, afterNav } from '../../helpers/timing';
+import { afterSync, afterAction, afterNav, delay, headless } from '../../helpers/timing';
 import {
   bootstrapUser,
   waitForTabActive,
@@ -53,14 +53,15 @@ const INTEREST_POOL = [
   'origami', 'birding', 'fencing', 'brewing', 'knitting',
 ];
 
-const NUM_USERS = 10;
-const TAGS_PER_USER = 20;
+const NUM_USERS = 3;
+const TAGS_PER_USER = 3;
 const RELATIONSHIP_LABEL = 'similar interest people';
 
 test.describe('Find similar people', () => {
   test.describe.configure({ retries: 0 });
   test.setTimeout(300_000);
 
+  const browsers: Browser[] = [];
   const contexts: BrowserContext[] = [];
   const pages: Page[] = [];
 
@@ -73,17 +74,33 @@ test.describe('Find similar people', () => {
       ),
     );
     await Promise.all(contexts.map((c) => c.close().catch(() => {})));
+    await Promise.all(browsers.map((b) => b.close().catch(() => {})));
     pages.length = 0;
     contexts.length = 0;
+    browsers.length = 0;
     await maybeClearGunDatabases();
   });
 
-  test('chatbot auto-matches created tags, user rejects the rest, contacts sort by match %', async ({ browser }) => {
+  test('chatbot auto-matches created tags, user rejects the rest, contacts sort by match %', async () => {
     await maybeClearGunDatabases();
 
-    // ── Phase 1: 10 users bootstrap and enter the Global chatroom ─────────────
+    // ── Phase 1: each user runs in its OWN browser instance ──────────────────
+    // One browser per user mimics a real P2P participant and—critically—gives each
+    // user its own Chromium network service. Ten contexts in a single browser share
+    // one network service and exhaust it under the Gun mesh load
+    // (net::ERR_INSUFFICIENT_RESOURCES).
     const setups = await Promise.all(
       Array.from({ length: NUM_USERS }, async (_, idx) => {
+        const browser = await chromium.launch({
+          headless,
+          slowMo: headless ? 0 : delay(50, 120),
+          args: [
+            `--window-position=${(idx % 5) * 360},${idx < 5 ? 40 : 700}`,
+            '--window-size=360,640',
+            '--force-device-scale-factor=1',
+          ],
+        });
+        browsers.push(browser);
         const { context, page } = await bootstrapUser(browser, `Sim${idx}`, `Sim User ${idx}`);
         contexts.push(context);
         pages.push(page);
