@@ -176,40 +176,43 @@ test.describe('Find similar people', () => {
     // bounded number of concurrent writes — well under the socket budget that the
     // shared-context approach blew. Each deliver waits for the server member list
     // (which resolveBroadcastReceivers reads) and retries if it's briefly short.
-    await Promise.all(
-      setups.map(async ({ page, idx }) => {
-        await waitForChatroomMemberCountViaApi(page, NUM_USERS - 1, 90_000);
-        await afterSync();
-        const t0 = Date.now();
-        let result: { talksSent: number; receivers: number } | undefined;
-        for (let attempt = 0; attempt < 15; attempt++) {
-          try {
-            result = await page.evaluate(async (minReceivers) => {
-              const app = (window as any).__iinpublic_app?.getApp?.();
-              if (!app?.deliverPendingBroadcastTalksForE2e) {
-                throw new Error('deliverPendingBroadcastTalksForE2e unavailable');
-              }
-              const timeout = new Promise<never>((_, reject) => {
-                window.setTimeout(() => reject(new Error('broadcast delivery timed out')), 90_000);
-              });
-              return Promise.race([
-                app.deliverPendingBroadcastTalksForE2e(minReceivers, { skipAudiencePreview: true }),
-                timeout,
-              ]) as Promise<{ talksSent: number; receivers: number }>;
-            }, NUM_USERS - 1);
-            break;
-          } catch (err) {
-            if (!String(err).includes('receiverIds=')) throw err;
-            await page.waitForTimeout(2_000);
-          }
+    // Deliver one user at a time. The dev server is a single Node process (Gun relay
+    // + HTTP API); 10 simultaneous broadcasts saturate it and the member-fetch HTTP
+    // inside resolveBroadcastReceivers stalls. Sequential keeps the star hub within
+    // its capacity — fast per deliver and reliable. (Once delivery moves onto the P2P
+    // mesh this serialization can go away.)
+    for (const { page, idx } of setups) {
+      await waitForChatroomMemberCountViaApi(page, NUM_USERS - 1, 90_000);
+      await afterSync();
+      const t0 = Date.now();
+      let result: { talksSent: number; receivers: number } | undefined;
+      for (let attempt = 0; attempt < 15; attempt++) {
+        try {
+          result = await page.evaluate(async (minReceivers) => {
+            const app = (window as any).__iinpublic_app?.getApp?.();
+            if (!app?.deliverPendingBroadcastTalksForE2e) {
+              throw new Error('deliverPendingBroadcastTalksForE2e unavailable');
+            }
+            const timeout = new Promise<never>((_, reject) => {
+              window.setTimeout(() => reject(new Error('broadcast delivery timed out')), 60_000);
+            });
+            return Promise.race([
+              app.deliverPendingBroadcastTalksForE2e(minReceivers, { skipAudiencePreview: true }),
+              timeout,
+            ]) as Promise<{ talksSent: number; receivers: number }>;
+          }, NUM_USERS - 1);
+          break;
+        } catch (err) {
+          if (!String(err).includes('receiverIds=')) throw err;
+          await page.waitForTimeout(2_000);
         }
-        if (!result) throw new Error(`user ${idx} broadcast never resolved enough receivers`);
-        // eslint-disable-next-line no-console
-        console.log(`[u${idx} broadcast] ${JSON.stringify(result)} after ${Date.now() - t0}ms`);
-        expect(result.talksSent, `user ${idx} talksSent`).toBeGreaterThanOrEqual(TAGS_PER_USER);
-        expect(result.receivers, `user ${idx} receivers`).toBeGreaterThanOrEqual(NUM_USERS - 1);
-      }),
-    );
+      }
+      if (!result) throw new Error(`user ${idx} broadcast never resolved enough receivers`);
+      // eslint-disable-next-line no-console
+      console.log(`[u${idx} broadcast] ${JSON.stringify(result)} after ${Date.now() - t0}ms`);
+      expect(result.talksSent, `user ${idx} talksSent`).toBeGreaterThanOrEqual(TAGS_PER_USER);
+      expect(result.receivers, `user ${idx} receivers`).toBeGreaterThanOrEqual(NUM_USERS - 1);
+    }
     await afterSync();
 
     // ── Phase 5: answer incoming tags ────────────────────────────────────────
