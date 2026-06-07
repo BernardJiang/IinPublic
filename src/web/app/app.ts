@@ -2426,6 +2426,7 @@ export class IinPublicApp {
    */
   public async deliverPendingBroadcastTalksForE2e(
     minReceivers = 1,
+    opts: { skipAudiencePreview?: boolean } = {},
   ): Promise<{ talksSent: number; receivers: number }> {
     if (!this.currentUser) throw new Error('App not ready for E2E broadcast delivery');
     const chatroomId = this.chatroomService.getCurrentChatroomId();
@@ -2492,11 +2493,16 @@ export class IinPublicApp {
       return { talksSent: attempted, receivers: 0 };
     }
     const supportExcludedCount = members.filter((m) => m.userId === TECHSUPPORT_ROOT_USER_ID).length;
-    const previews = await Promise.all(
-      talkPayloads.map(({ tid, talk }) =>
-        this.previewReceiversOnServerForTalk(tid, talk, receivers, undefined, undefined, supportExcludedCount),
-      ),
-    );
+    // E2E may skip the per-talk audience-preview HTTP round-trips (unused for direct
+    // delivery, which fans out to all resolved receivers). Offers + chatroom
+    // announcement still happen, so receiver chatbots auto-answer as usual.
+    const previews = opts.skipAudiencePreview
+      ? []
+      : await Promise.all(
+          talkPayloads.map(({ tid, talk }) =>
+            this.previewReceiversOnServerForTalk(tid, talk, receivers, undefined, undefined, supportExcludedCount),
+          ),
+        );
     const previewByTalkId = new Map(previews.map((p) => [p.talkId, p]));
     const REGISTER_BATCH = 5;
     const registeredTalkIds: string[] = [];

@@ -13,7 +13,12 @@ logic lives in the app.
    user's own match answer and the app records it as the chatbot's preference for that
    keyword.
 2. **Enable the chatbot** in Settings (before broadcasting).
-3. **Broadcast** every tag to the Global chatroom.
+3. **Broadcast** every tag to the Global chatroom. Delivery uses the app E2E
+   broadcast path with the audience preview skipped (`deliverPendingBroadcastTalksForE2e(n, { skipAudiencePreview: true })`):
+   the preview is a per-talk server HTTP round-trip that is unused for direct
+   delivery and does not scale to 10 users x 20 tags. Peer offers + the chatroom
+   announcement still publish, so receiver chatbots auto-answer exactly as they
+   would from the Broadcast button.
 4. **Answer incoming tags.** The chatbot auto-matches every tag the user already created
    (his interests). A tag the user never created is unknown to the chatbot, so it surfaces
    to the user, who answers it once (rejects a non-interest). After the first answer the
@@ -38,7 +43,7 @@ so adjacent users share the most tags and rank highest by match rate.
 | Submit talk | `#talk-editor-form button[type="submit"]` |
 | OUT list items | `.talk-list-item[data-role="created"]` |
 | Enable chatbot | `#settings-chatbot-enabled` |
-| Broadcast | `clickBroadcastUntilBulkAck` helper (clicks `#broadcast-talk-btn`, confirms preamble) |
+| Broadcast | `app.deliverPendingBroadcastTalksForE2e(n, { skipAudiencePreview: true })` (offers + announcement, no preview HTTP) |
 | Incoming filter | `#talks-nav-in` |
 | Incoming tag (unanswered) | `.talk-list-item[data-role="incoming"]:not(.talk-incoming-answered)` |
 | Tag match checkbox | `#tag-match-checkbox` |
