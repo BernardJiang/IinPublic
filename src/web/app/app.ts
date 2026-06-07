@@ -33,6 +33,7 @@ import {
   collectLocalIncomingTalkClusters,
   publishPeerTalkCatalog,
   publishPeerTalkOffer,
+  publishPeerTalkOfferToReceivers,
   reconcilePeerTalkOffersFromGun,
   resolveTalkFromPeerMesh,
   subscribeLocalIncomingTalkClusters,
@@ -1669,21 +1670,19 @@ export class IinPublicApp {
         talkData: talkRecord,
       });
       const deliveryRoom = this.currentChatroomId || this.chatroomService.getCurrentChatroomId() || '';
-      // Publish per-receiver offers in parallel — each offer is an independent signed
-      // Gun write, and serializing them makes a multi-receiver broadcast O(receivers)
-      // round-trips (the dominant cost when fanning one talk out to many peers).
-      await Promise.all(
-        receiverIds.map(async (receiverId) => {
-          await publishPeerTalkOffer(this.gunService, receiverId, {
-            talkId,
-            senderId: me.id,
-            senderName: me.stageName || 'Unknown',
-            talkData: talkRecord,
-            ...(deliveryRoom ? { deliveryChatroomId: deliveryRoom } : {}),
-          });
-          this.subscribeToPairTalkResponses(talkId, talk, receiverId);
-        }),
-      );
+      // Sign the offer once and fan it out to every receiver: the signed payload is
+      // receiver-independent, so this is O(1) signatures per talk instead of
+      // O(receivers) — the SEA signing was the dominant per-broadcast cost.
+      await publishPeerTalkOfferToReceivers(this.gunService, receiverIds, {
+        talkId,
+        senderId: me.id,
+        senderName: me.stageName || 'Unknown',
+        talkData: talkRecord,
+        ...(deliveryRoom ? { deliveryChatroomId: deliveryRoom } : {}),
+      });
+      for (const receiverId of receiverIds) {
+        this.subscribeToPairTalkResponses(talkId, talk, receiverId);
+      }
       console.log(`📡 Pair-direct talk offers published: talkId=${talkId} receivers=${receiverIds.length}`);
       return true;
     }

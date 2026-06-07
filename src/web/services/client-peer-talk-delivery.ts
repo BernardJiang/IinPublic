@@ -79,6 +79,58 @@ export async function publishPeerTalkOffer(
   gunService.getGun().get(PEER_TALK_OFFERS_ROOT).get(receiverUserId).get(key).put(offer);
 }
 
+/**
+ * Fan one talk offer out to many receivers with a single signature.
+ *
+ * The signed payload ({@link peerTalkOfferSigningPayload}) is receiver-independent,
+ * so signing once and writing the same proof to each receiver's inbox turns a
+ * multi-receiver broadcast from O(receivers) SEA signatures into O(1) — the
+ * dominant cost when fanning a talk out to many peers.
+ */
+export async function publishPeerTalkOfferToReceivers(
+  gunService: WebGunService,
+  receiverUserIds: string[],
+  params: {
+    talkId: string;
+    senderId: string;
+    senderName: string;
+    talkData: Record<string, unknown>;
+    deliveryChatroomId?: string;
+    directPeerSend?: boolean;
+  },
+): Promise<void> {
+  const recipients = [...new Set(receiverUserIds)].filter(
+    (id) => !!id && id !== params.senderId,
+  );
+  if (recipients.length === 0) return;
+  const pair = gunService.getStoredPair();
+  if (!pair?.pub || !pair.priv) throw new Error('Peer talk offers require a SEA signing pair');
+  const senderEpub = pair.epub;
+  const now = new Date();
+  const unsignedOffer = createPeerTalkOfferWire({
+    ...params,
+    senderPub: String(pair.pub),
+    ...(senderEpub ? { senderEpub: String(senderEpub) } : {}),
+    now,
+  });
+  const proof = await createSignedP2PEnvelopeProof({
+    pair,
+    payload: peerTalkOfferSigningPayload(unsignedOffer),
+  });
+  const offer = createPeerTalkOfferWire({
+    ...params,
+    senderPub: String(pair.pub),
+    ...(senderEpub ? { senderEpub: String(senderEpub) } : {}),
+    proof,
+    now,
+  });
+  const key = buildPeerTalkOfferKey(params.senderId, params.talkId);
+  const root = gunService.getGun().get(PEER_TALK_OFFERS_ROOT);
+  for (const receiverUserId of recipients) {
+    root.get(receiverUserId).get(key).put(offer);
+  }
+}
+
 async function verifyPeerTalkOfferWire(offer: PeerTalkOfferWire): Promise<boolean> {
   if (!offer.senderPub || !offer.senderPeerId || !offer.timestamp || !offer.payloadHash || !offer.signature || !offer.nonce) {
     return false;
