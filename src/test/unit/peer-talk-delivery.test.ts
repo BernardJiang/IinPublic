@@ -238,8 +238,9 @@ describe('peer-talk-delivery', () => {
 });
 
 describe('P0 direct talk delivery flags', () => {
-  it('enables direct talk delivery when P0_DIRECT_TALK_DELIVERY or RELAY_ONLY_HUB', () => {
-    expect(usesDirectTalkDelivery(resolveP2PRuntimeFlags({}))).toBe(false);
+  it('enables direct talk delivery by default and disables it only when P0_DIRECT_TALK_DELIVERY=0', () => {
+    expect(usesDirectTalkDelivery(resolveP2PRuntimeFlags({}))).toBe(true);
+    expect(usesDirectTalkDelivery(resolveP2PRuntimeFlags({ P0_DIRECT_TALK_DELIVERY: '0' }))).toBe(false);
     expect(usesDirectTalkDelivery(resolveP2PRuntimeFlags({ P0_DIRECT_TALK_DELIVERY: '1' }))).toBe(true);
     expect(usesDirectTalkDelivery(resolveP2PRuntimeFlags({ RELAY_ONLY_HUB: '1' }))).toBe(true);
   });

@@ -71,6 +71,7 @@ describe('system routes', () => {
     process.env.STAR_SERVER_PERSISTENCE = 'durable';
     process.env.P2P_NODE_ENABLED = 'false';
     process.env.P2P_DIRECT_CHAT_ENABLED = 'false';
+    process.env.P0_DIRECT_TALK_DELIVERY = 'false';
 
     const { app } = buildApp();
     const res = await request(app).get('/api/debug/storage');

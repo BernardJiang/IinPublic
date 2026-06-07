@@ -635,9 +635,12 @@ export function resolveP2PRuntimeFlags(env: Record<string, string | undefined> =
   const get = (key: string): string | undefined => env[key] ?? readEnv(key);
   const relayOnlyHub = parseBooleanFlag(get('RELAY_ONLY_HUB'), false);
   const urlP0 = readBrowserE2eFlag('e2e_p0_talks');
+  // Direct pair-to-pair talk delivery is the default: talks are delivered via peer
+  // Gun offers and a receiver-owned IN index; the server is only a discovery/connection
+  // relay. Set P0_DIRECT_TALK_DELIVERY=0 to fall back to legacy star-mode delivery.
   const p0DirectTalkDelivery = parseBooleanFlag(
     urlP0 ?? get('P0_DIRECT_TALK_DELIVERY'),
-    false,
+    true,
   );
   const starServerPersistence = relayOnlyHub
     ? 'ephemeral'

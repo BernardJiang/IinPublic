@@ -97,6 +97,20 @@ function addResponse(
   map.set(talkId, list);
 }
 
+// These suites validate the legacy star-mode server inbox/peer-history path.
+// Direct pair delivery is now the default (P0_DIRECT_TALK_DELIVERY=1), so opt the
+// whole file into star mode; tests that assert direct-mode behavior set the flag
+// to '1' locally and restore it.
+let starModePrevP0: string | undefined;
+beforeEach(() => {
+  starModePrevP0 = process.env.P0_DIRECT_TALK_DELIVERY;
+  process.env.P0_DIRECT_TALK_DELIVERY = '0';
+});
+afterEach(() => {
+  if (starModePrevP0 === undefined) delete process.env.P0_DIRECT_TALK_DELIVERY;
+  else process.env.P0_DIRECT_TALK_DELIVERY = starModePrevP0;
+});
+
 // ---------------------------------------------------------------------------
 // Tests: relationship endpoint
 // ---------------------------------------------------------------------------

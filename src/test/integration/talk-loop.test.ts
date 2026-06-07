@@ -398,6 +398,19 @@ function buildTestServer(opts?: {
 describe('Talk loop — incoming registration → answer submission → match → stats', () => {
   const talkId = TALK_DATA.id;
 
+  // These suites validate the legacy star-mode server inbox path. Direct pair
+  // delivery is now the default (P0_DIRECT_TALK_DELIVERY=1), so opt this suite into
+  // star mode; individual tests that need direct mode set the flag to '1' locally.
+  let starModePrevP0: string | undefined;
+  beforeEach(() => {
+    starModePrevP0 = process.env.P0_DIRECT_TALK_DELIVERY;
+    process.env.P0_DIRECT_TALK_DELIVERY = '0';
+  });
+  afterEach(() => {
+    if (starModePrevP0 === undefined) delete process.env.P0_DIRECT_TALK_DELIVERY;
+    else process.env.P0_DIRECT_TALK_DELIVERY = starModePrevP0;
+  });
+
   describe('POST /api/talks/:id/received — incoming talk registration', () => {
     it('registers a sender and returns identityKey', async () => {
       const { app } = buildTestServer();

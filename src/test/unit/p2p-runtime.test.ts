@@ -45,15 +45,19 @@ const proofFields = {
 };
 
 describe('p2p runtime flags', () => {
-  it('defaults to durable star mode with local node and direct chat disabled', () => {
+  it('defaults to durable star persistence with direct pair talk delivery on', () => {
     expect(resolveP2PRuntimeFlags({})).toEqual({
       starServerPersistence: 'durable',
       p2pNodeEnabled: false,
       p2pDirectChatEnabled: false,
       relayOnlyHub: false,
       p2pClientTalkMirror: true,
-      p2pDirectTalkDelivery: false,
+      p2pDirectTalkDelivery: true,
     });
+  });
+
+  it('falls back to legacy star talk delivery when P0_DIRECT_TALK_DELIVERY=0', () => {
+    expect(resolveP2PRuntimeFlags({ P0_DIRECT_TALK_DELIVERY: '0' }).p2pDirectTalkDelivery).toBe(false);
   });
 
   it('accepts explicit ephemeral persistence and enabled P2P flags', () => {
@@ -62,6 +66,7 @@ describe('p2p runtime flags', () => {
         STAR_SERVER_PERSISTENCE: 'ephemeral',
         P2P_NODE_ENABLED: 'true',
         P2P_DIRECT_CHAT_ENABLED: '1',
+        P0_DIRECT_TALK_DELIVERY: '0',
       }),
     ).toEqual({
       starServerPersistence: 'ephemeral',
