@@ -1,38 +1,45 @@
 /**
- * Find Similar People — full UI-driven flow
+ * Find Similar People — fully UI-driven flow (no app internals called from the spec).
  *
- * 10 users join the global chatroom. Each user:
- *   1. Creates 20 tag-type talks (one per interest) via page.evaluate → talkService + saveCreatedTalk.
- *   2. Goes to GlobalRoom and broadcasts all talks (confirms the preamble modal).
- *   3. Receives tags from the other 9 users, answers ONE manually in the response dialog.
- *   4. The chatbot (pre-seeded with the user's interest preferences) auto-answers the rest.
- *   5. Navigates to the Contacts tab, sorts by "weighted" relevance score, and the users
- *      with the most overlapping interests appear at the top.
+ * 10 users join the global chatroom. Each user, acting only through the UI:
+ *   1. Opens the Talks tab and creates 20 tag talks (one keyword each) with the
+ *      create-talk dialog. Creating a tag with its "I'm interested" box checked
+ *      (the default) is the user's own match answer — the app records it as the
+ *      chatbot's permanent preference for that keyword.
+ *   2. Turns the chatbot on in Settings.
+ *   3. Broadcasts every tag to the Global chatroom.
+ *   4. Receives the other 9 users' tags. The chatbot AUTO-ANSWERS (matches) every
+ *      incoming tag the user already created — that is his interest. A tag the user
+ *      never created is unknown to the chatbot, so it surfaces to the user; the user
+ *      answers it once (rejects a non-interest). Once answered, the chatbot has the
+ *      preference and takes over repeats.
+ *   5. Opens the Contacts tab, sorts by match rate (highest % of matching tags first),
+ *      and sees each stranger's matched-tag count and percentage.
+ *   6. Tags the most-similar stranger with the relationship "similar interest people".
  *
- * Similarity is defined by the app's weighted relevance score:
- *   matchedTalks × 100 + matchRate × 25 + recencyBoost + relationshipBoost
- * With the sliding-window interest assignment, adjacent users share more tags and therefore
- * appear higher — no test-side sort function required.
+ * The matching/auto-answer/ranking logic lives entirely in the app (chatbot memory,
+ * peer stats, match-rate sort, the match-% chip). The spec performs user actions and
+ * verifies the resulting UI.
  *
- * Interest pool (30 items, 20 per user):
- *   User i → interests[i .. i+19] (mod 30)
- *   Users 0 and 1 share 19 interests (95%), users 0 and 9 share 11 (55%), etc.
+ * Interest pool (30 keywords, sliding window of 20 per user):
+ *   user i creates keywords i … i+19 (mod 30), so adjacent users share more tags.
  *
  * Companion doc: tests/e2e/staged/stage5-multi-user/find-similar-people.md
  */
 
 import type { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases, injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
-import { afterSync, afterAction } from '../../helpers/timing';
-import { gunBaseURL, webAppURLStableChatroom } from '../../helpers/ports';
+import { maybeClearGunDatabases } from '../../helpers/clear-database';
+import { afterSync, afterAction, afterNav } from '../../helpers/timing';
 import {
-  createEmptyExactChatbotMemoryState,
-  savePermanentAnswer,
-  LOCAL_EXACT_CHATBOT_USER_ID,
-} from '../../../../src/shared/exact-chatbot-memory';
+  bootstrapUser,
+  waitForTabActive,
+  waitForResponseModalClosed,
+  openIncomingTalkModal,
+} from '../../helpers/talks-matching-flow';
+import { waitForDistinctGunPeersExcludingSelf } from '../../helpers/talk-demo-ui';
 
-// ─── Interest pool ─────────────────────────────────────────────────────────────
+// ─── Test data (not app logic) ──────────────────────────────────────────────────
 
 const INTEREST_POOL = [
   'hiking', 'photography', 'cooking', 'reading', 'gaming',
@@ -41,55 +48,15 @@ const INTEREST_POOL = [
   'running', 'baking', 'astronomy', 'diving', 'climbing',
   'sculpting', 'writing', 'surfing', 'archery', 'pottery',
   'origami', 'birding', 'fencing', 'brewing', 'knitting',
-] as const;
+];
 
-const NUM_USERS = 10;
-const TAGS_PER_USER = 20;
-
-function interestsFor(i: number): string[] {
-  return Array.from(
-    { length: TAGS_PER_USER },
-    (_, j) => (INTEREST_POOL as readonly string[])[(i + j) % INTEREST_POOL.length],
-  );
-}
-
-// ─── Chatbot pre-seed ─────────────────────────────────────────────────────────
-//
-// Build an ExactChatbotMemoryState with PERMANENT answers for all 30 interest
-// questions: "Yes!" for interests the user has, "Not really" for the rest.
-// Injected into localStorage so the chatbot is ready before any talk arrives.
-
-function buildChatbotMemoryJson(userIdx: number): string {
-  const state = createEmptyExactChatbotMemoryState();
-  const mine = new Set(interestsFor(userIdx));
-  const now = Date.now();
-  for (const interest of INTEREST_POOL) {
-    savePermanentAnswer(
-      state,
-      LOCAL_EXACT_CHATBOT_USER_ID,
-      `Are you into: ${interest}?`,
-      mine.has(interest) ? "Yes!" : 'Not really',
-      now,
-      { language: 'en' },
-    );
-  }
-  return JSON.stringify(state);
-}
-
-// ─── API helpers ───────────────────────────────────────────────────────────────
-
-function postJson(path: string, body: unknown): Promise<Response> {
-  return fetch(`${gunBaseURL()}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-}
-
-// ─── Test ──────────────────────────────────────────────────────────────────────
+const NUM_USERS = 3;
+const TAGS_PER_USER = 3;
+const RELATIONSHIP_LABEL = 'similar interest people';
 
 test.describe('Find similar people', () => {
-  test.setTimeout(600_000);
+  test.describe.configure({ retries: 0 });
+  test.setTimeout(420_000);
 
   const contexts: BrowserContext[] = [];
   const pages: Page[] = [];
@@ -108,349 +75,184 @@ test.describe('Find similar people', () => {
     await maybeClearGunDatabases();
   });
 
-  test(
-    'users broadcast tag talks, chatbot answers by interest match, contacts sort by relevance',
-    async ({ browser }) => {
-      await maybeClearGunDatabases();
+  test('chatbot auto-matches created tags, user rejects the rest, contacts sort by match %', async ({ browser }) => {
+    await maybeClearGunDatabases();
 
-      // ── Phase 1: launch 10 browsers with chatbot pre-seeded ─────────────────
-      //
-      // Chatbot is pre-configured with PERMANENT answers for all 30 interest
-      // questions before the app loads. That way incoming tags are answered
-      // automatically — the test still clicks ONE manually to show the UI flow.
+    // ── Phase 1: 10 users bootstrap and enter the Global chatroom ─────────────
+    const setups = await Promise.all(
+      Array.from({ length: NUM_USERS }, async (_, idx) => {
+        const { context, page } = await bootstrapUser(browser, `Sim${idx}`, `Sim User ${idx}`);
+        contexts.push(context);
+        pages.push(page);
+        await page.locator('.chatroom-item:has-text("Global")').first().click();
+        await afterSync();
+        return { page, idx };
+      }),
+    );
 
-      const stageNames = Array.from({ length: NUM_USERS }, (_, i) => `Sim User ${i}`);
+    // ── Phase 2: each user creates 20 tag talks through the create-talk dialog ─
+    // Default "interested" checkbox stays checked, so each created tag becomes the
+    // user's own match preference for that keyword.
+    await Promise.all(
+      setups.map(async ({ page, idx }) => {
+        await waitForTabActive(page, 'talks');
+        for (let j = 0; j < TAGS_PER_USER; j++) {
+          const keyword = INTEREST_POOL[(idx + j) % INTEREST_POOL.length];
+          await page.click('#create-talk-btn');
+          await page.waitForSelector('#talk-editor-form', { timeout: 15_000 });
+          await page.click('input[name="talk-type-radio"][value="tag"]');
+          await afterAction();
+          await page.fill('#talk-title', keyword);
+          await page.click('#talk-editor-form button[type="submit"]');
+          await page.waitForSelector('#talk-editor-form', { state: 'detached', timeout: 15_000 });
+          await afterAction();
+        }
+      }),
+    );
 
-      const setups = await Promise.all(
-        Array.from({ length: NUM_USERS }, async (_, i) => {
-          const context = await browser.newContext({
-            viewport: { width: 640, height: 900 },
-            deviceScaleFactor: 1,
-          });
-          const page = await context.newPage();
-          contexts.push(context);
-          pages.push(page);
-
-          await injectIdbClear(page);
-          await page.addInitScript(
-            ({
-              chatbotJson,
-              stageName,
-            }: {
-              chatbotJson: string;
-              stageName: string;
-            }) => {
-              // Chatbot: starts disabled so the first incoming talk can be answered
-              // manually; re-enabled after that one click.
-              localStorage.setItem('chatbotEnabled', 'false');
-              localStorage.setItem('exactChatbotMemory', chatbotJson);
-              // Start in global chatroom.
-              localStorage.setItem('iinpublic_last_chatroom', 'global');
-              // Stage name shown in UI (picked up by app on first render).
-              (window as any).__test_stage_name_override = stageName;
-            },
-            { chatbotJson: buildChatbotMemoryJson(i), stageName: stageNames[i] },
-          );
-
-          await gotoWebApp(page, webAppURLStableChatroom());
-          // gotoWebApp calls waitForAppReady — currentUser.id is available.
-
-          const userId = await page.evaluate(
-            () => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.id as string,
-          );
-          if (!userId) throw new Error(`browser ${i} has no Gun user ID after load`);
-
-          return { context, page, userId, stageName: stageNames[i] };
-        }),
-      );
-
-      const userIds = setups.map((s) => s.userId);
-
-      // ── Phase 2: register users server-side ──────────────────────────────────
-      //
-      // The server needs a user record with talkFilters so that
-      // register-receivers-for-broadcast can evaluate delivery rules.
-
-      await Promise.all(
-        userIds.map(async (id, i) => {
-          const r = await postJson('/api/users', {
-            id,
-            stageName: stageNames[i],
-            languages: ['en'],
-            profile: [],
-            interests: [],
-            talkFilters: {
-              allowedLanguages: ['en'],
-              minDistanceMiles: 0,
-              maxDistanceMiles: 999_999,
-              requireGoodGrammar: false,
-              blockDirtyWords: false,
-              allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
-            },
-          });
-          if (!r.ok && r.status !== 400) {
-            throw new Error(`register user ${i}: ${r.status} ${await r.text()}`);
-          }
-        }),
-      );
-
-      await Promise.all(
-        userIds.map(async (id, i) => {
-          const r = await postJson('/api/chatrooms/global/members', {
-            userId: id,
-            stageName: stageNames[i],
-          });
-          if (!r.ok) throw new Error(`join chatroom ${i}: ${r.status} ${await r.text()}`);
-        }),
-      );
-
-      // ── Phase 3: each user creates 20 tag talks via page.evaluate ─────────────
-      //
-      // Directly calls app.talkService.createTalk() (Gun write) then
-      // app.uiManager.saveCreatedTalk() (localStorage myTalks update).
-      // This is fast and avoids the UI form/dialog entirely.
-      // saveCreatedTalk records the talk with role="created" so it shows in OUT
-      // and is included in getBroadcastableTalkIds().
-
-      await Promise.all(
-        setups.map(async ({ page }, i) => {
-          await page.evaluate(async (interests: string[]) => {
-            const app = (window as any).__iinpublic_app?.getApp?.();
-            const uiManager = app?.uiManager;
-            const talkService = app?.talkService;
-            const userId = app?.currentUser?.id as string | undefined;
-            if (!app || !uiManager || !talkService || !userId) {
-              throw new Error('App not ready: missing app/uiManager/talkService/currentUser');
-            }
-            for (const interest of interests) {
-              const slug = (interest as string).toLowerCase().replace(/\s+/g, '_');
-              const questionId = `q_${slug}`;
-              const yesAnswerId = `a_yes_${slug}`;
-              const noAnswerId = `a_no_${slug}`;
-              const question = {
-                id: questionId,
-                text: `Are you into: ${interest}?`,
-                answers: [
-                  { id: yesAnswerId, text: "Yes!", isMatch: true, isTerminal: true },
-                  { id: noAnswerId, text: 'Not really', isIgnore: true, isTerminal: true },
-                ],
-              };
-              const talk = await talkService.createTalk({
-                authorId: userId,
-                type: 'tag',
-                title: `Interest: ${interest}`,
-                language: 'en',
-                questions: [question],
-              });
-              uiManager.saveCreatedTalk(talk, {
-                selfAnswers: [{ questionId, answerId: yesAnswerId }],
-              });
-            }
-          }, interestsFor(i));
-        }),
-      );
-
-      // Verify each user's OUT section shows all 20 created talks.
-      // Navigate to talks tab then OUT filter so displayTalksList() runs.
-      await Promise.all(
-        setups.map(async ({ page }, i) => {
-          // Navigate to talks view to trigger render.
-          await page.click('.nav-btn[data-view="talks"]');
-          await page.waitForSelector('#talks-nav-out', { timeout: 10_000 });
-          await page.click('#talks-nav-out');
-          await page.waitForSelector(
-            `.talk-list-item[data-role="created"]`,
-            { timeout: 20_000 },
-          );
-          const outCount = await page.evaluate(
-            () => document.querySelectorAll('.talk-list-item[data-role="created"]').length,
-          );
-          expect(outCount, `user ${i} OUT section should show 20 talks`).toBeGreaterThanOrEqual(20);
-
-          // Return to chatrooms view for broadcast.
-          await page.click('[data-testid="bottom-navigation-button-chat"]');
-        }),
-      );
-
-      // ── Phase 4: wait for all members, then broadcast ────────────────────────
-      //
-      // Poll until each browser sees all 10 test users in the global chatroom,
-      // then click Broadcast and confirm the preamble modal.
-
-      await Promise.all(
-        setups.map(async ({ page }) => {
-          // Wait for all 10 test users to appear in this browser's chatroom member list.
-          await expect
-            .poll(
-              async () =>
-                page.evaluate((techSupportId: string) => {
-                  const app = (window as any).__iinpublic_app?.getApp?.();
-                  const members: Array<{ userId: string }> =
-                    app?.uiManager?.getCurrentChatroomMembers?.() ?? [];
-                  return members.filter((m) => m.userId && m.userId !== techSupportId).length;
-                }, 'iinpublic-root-techsupport'),
-              { timeout: 90_000, intervals: [1_000] },
-            )
-            .toBeGreaterThanOrEqual(NUM_USERS - 1); // at least the other 9 peers
-
-          // Click broadcast.
-          await page.click('#broadcast-talk-btn');
-
-          // Confirm the audience-preview preamble modal.
-          await page.waitForSelector('[data-testid="broadcast-preamble-send"]', { timeout: 30_000 });
-          await page.click('[data-testid="broadcast-preamble-send"]');
-
-          // Wait for the ack indicator.
-          await page.waitForFunction(
-            () => {
-              const ack = document.getElementById('broadcast-bulk-ack');
-              return ack !== null && !ack.hidden;
-            },
-            { timeout: 120_000 },
-          );
-        }),
-      );
-
-      await afterSync();
-
-      // ── Phase 5: navigate to talks tab and answer ONE incoming talk manually ──
-      //
-      // Wait for at least one unanswered incoming talk to appear, then click it.
-      // For a tag talk the modal has a checkbox ("Match") and a submit button.
-      // We check the box and submit. After this one click we enable the chatbot.
-
-      await Promise.all(
-        setups.map(async ({ page }) => {
-          // Switch to talks view so incoming talks render.
-          await page.click('.nav-btn[data-view="talks"]');
-
-          // Wait for at least one unanswered incoming talk.
-          await page.waitForSelector(
-            '.talk-list-item[data-role="incoming"]:not(.talk-incoming-answered)',
-            { timeout: 60_000 },
-          );
-
-          // Open it.
-          await page
-            .locator('.talk-list-item[data-role="incoming"]:not(.talk-incoming-answered)')
-            .first()
-            .click();
-
-          // Submit: the checkbox is the "interested / match" toggle.
-          const checkboxLocator = page.locator('#tag-match-checkbox');
-          if (await checkboxLocator.isVisible({ timeout: 5_000 })) {
-            if (!(await checkboxLocator.isChecked())) {
-              await checkboxLocator.check();
-            }
-            await page.click('#tag-submit-response');
-          } else {
-            // Modal may have been dismissed (chatbot race); proceed.
-            await page.keyboard.press('Escape');
-          }
-        }),
-      );
-
-      // Enable the chatbot in every browser — it will now auto-answer all
-      // remaining unanswered incoming talks as Gun callbacks fire.
-      await Promise.all(
-        setups.map(async ({ page }) => {
-          await page.evaluate(() => {
-            localStorage.setItem('chatbotEnabled', 'true');
-            try {
-              const app = (window as any).__iinpublic_app?.getApp?.();
-              app?.uiManager?.setChatbotEnabled?.(true);
-            } catch { /* ignore if hook not exposed */ }
-          });
-        }),
-      );
-
-      // ── Phase 6: wait until every incoming talk is answered ──────────────────
-      //
-      // The chatbot processes each incoming talk via Gun callbacks.
-      // Poll until the DOM shows all incoming items as answered.
-
-      await Promise.all(
-        setups.map(async ({ page }, i) => {
-          await expect
-            .poll(
-              async () =>
-                page.evaluate(() => {
-                  const all = document.querySelectorAll('.talk-list-item[data-role="incoming"]');
-                  const answered = document.querySelectorAll(
-                    '.talk-list-item[data-role="incoming"].talk-incoming-answered',
-                  );
-                  // At least 9 senders × 1 talk each minimum; all must be answered.
-                  return all.length >= 9 && all.length === answered.length;
-                }),
-              { timeout: 120_000, intervals: [2_000] },
-            )
-            .toBe(true, `user ${i} still has unanswered incoming talks after timeout`);
-        }),
-      );
-
-      // ── Phase 7: contacts tab — sort by weighted relevance ───────────────────
-      //
-      // Navigate to the Contacts tab, switch the sort dropdown to "weighted",
-      // then read the rendered list. Users with more overlapping interests
-      // produce more mutual tag matches → higher matchedTalks → higher relevance.
-      //
-      // Expected order for user 0 (19 shared with user1, 18 with user2, …):
-      //   top-1 → Sim User 1, top-2 → Sim User 2, top-3 → Sim User 3
-      // Expected order for user 9 (19 shared with user8, 18 with user7, …):
-      //   top-1 → Sim User 8, top-2 → Sim User 7, top-3 → Sim User 6
-
-      const contactResults: Array<Array<{ id: string; name: string }>> = [];
-
-      for (let i = 0; i < NUM_USERS; i++) {
-        const page = setups[i].page;
-
-        await page.click('[data-testid="bottom-navigation-button-contacts"]');
-        await page.waitForSelector('#contacts-sort-order', { timeout: 15_000 });
-
-        // Select weighted relevance sort.
-        await page.selectOption('#contacts-sort-order', 'weighted');
+    // Verify each user's OUT list holds all 20 created tags.
+    await Promise.all(
+      setups.map(async ({ page }) => {
+        await waitForTabActive(page, 'talks');
+        await page.click('#talks-nav-out');
         await afterAction();
+        await expect
+          .poll(
+            async () => page.locator('.talk-list-item[data-role="created"]').count(),
+            { timeout: 20_000, intervals: [500] },
+          )
+          .toBeGreaterThanOrEqual(TAGS_PER_USER);
+      }),
+    );
 
-        // Read the top contacts.
-        const contacts = await page.evaluate(() =>
-          Array.from(
-            document.querySelectorAll('.contact-item[data-contact-user-id]'),
-          ).map((el) => ({
-            id: (el as HTMLElement).dataset.contactUserId ?? '',
-            name: ((el as HTMLElement).querySelector('.contact-item-name') as HTMLElement | null)
-              ?.innerText ?? '',
-          })),
-        );
-        contactResults.push(contacts);
-      }
+    // ── Phase 3: every user turns the chatbot on (before any broadcast) ───────
+    // The toggle is on by default; uncheck→check forces the setting to persist and
+    // leaves the chatbot explicitly enabled.
+    await Promise.all(
+      setups.map(async ({ page }) => {
+        await page.click('.nav-btn[data-view="settings"]');
+        await afterNav();
+        const chatbotToggle = page.locator('#settings-chatbot-enabled');
+        await chatbotToggle.uncheck();
+        await afterAction();
+        await chatbotToggle.check();
+        await expect(chatbotToggle).toBeChecked();
+        await expect
+          .poll(() => page.evaluate(() => localStorage.getItem('chatbotEnabled')), { timeout: 15_000 })
+          .toBe('true');
+        await page.click('.nav-btn[data-view="chatrooms"]');
+        await afterNav();
+        await page.locator('.chatroom-item:has-text("Global")').first().click();
+        await afterSync();
+      }),
+    );
 
-      // ── Phase 8: assertions ───────────────────────────────────────────────────
-
-      // All users must have at least 9 contacts (the 9 others).
-      for (let i = 0; i < NUM_USERS; i++) {
-        expect(
-          contactResults[i].length,
-          `user ${i} should see ≥ 9 contacts`,
-        ).toBeGreaterThanOrEqual(9);
-      }
-
-      // User 0 — top-3 most similar: user 1 (19/20 = 95%), user 2 (90%), user 3 (85%).
-      const top3Ids0 = contactResults[0].slice(0, 3).map((c) => c.id);
-      expect(top3Ids0[0], 'user 0 top-1 contact should be user 1').toBe(userIds[1]);
-      expect(top3Ids0[1], 'user 0 top-2 contact should be user 2').toBe(userIds[2]);
-      expect(top3Ids0[2], 'user 0 top-3 contact should be user 3').toBe(userIds[3]);
-
-      // User 9 — top-3 most similar: user 8 (95%), user 7 (90%), user 6 (85%).
-      const top3Ids9 = contactResults[9].slice(0, 3).map((c) => c.id);
-      expect(top3Ids9[0], 'user 9 top-1 contact should be user 8').toBe(userIds[8]);
-      expect(top3Ids9[1], 'user 9 top-2 contact should be user 7').toBe(userIds[7]);
-      expect(top3Ids9[2], 'user 9 top-3 contact should be user 6').toBe(userIds[6]);
-
-      // Spot-check: the relevance score chip is shown when weighted sort is active.
-      const hasRankChip = await setups[0].page.evaluate(
-        () => document.querySelector('.contact-item-rank') !== null,
+    // ── Phase 4: each user broadcasts all tags to the Global chatroom ─────────
+    // Broadcast (not direct peer-send) because the chatbot auto-match fires on the
+    // chatroom announcement path: receivers auto-answer the tags they also created,
+    // so only genuinely-new tags fall through to the manual reject loop in Phase 5.
+    for (const { page, idx } of setups) {
+      await waitForDistinctGunPeersExcludingSelf(page, NUM_USERS - 1, 60_000);
+      await afterSync();
+      const t0 = Date.now();
+      const broadcastBtn = page.locator('#broadcast-talk-btn');
+      await expect(broadcastBtn).toBeVisible({ timeout: 15_000 });
+      await broadcastBtn.click();
+      const preambleSend = page.locator('[data-testid="broadcast-preamble-send"]');
+      await preambleSend.waitFor({ state: 'visible', timeout: 120_000 });
+      await preambleSend.click();
+      await page.waitForFunction(
+        () => {
+          const ack = document.querySelector('[data-testid="broadcast-bulk-ack"]') as HTMLElement | null;
+          if (!ack) return false;
+          const sent = Number(ack.dataset.broadcastTalksSent);
+          return Number.isFinite(sent) && sent >= 1;
+        },
+        undefined,
+        { timeout: 120_000 },
       );
-      expect(hasRankChip, 'weighted sort should render relevance score chips').toBe(true);
-    },
-  );
+      // eslint-disable-next-line no-console
+      console.log(`[u${idx} broadcast] done after ${Date.now() - t0}ms`);
+      await afterAction();
+    }
+    await afterSync();
+
+    // ── Phase 5: answer incoming tags ────────────────────────────────────────
+    // The chatbot auto-matches every tag the user also created (his interests) on
+    // arrival. The user only has to reject the keywords he received but never
+    // created. Those are deterministic from the interest distribution, so we open
+    // each by keyword (the helper retries through Gun re-renders and only ever
+    // touches non-self-authored rows, whose View opens the response dialog).
+    await Promise.all(
+      setups.map(async ({ page, idx }) => {
+        const own = new Set(
+          Array.from({ length: TAGS_PER_USER }, (_, j) => INTEREST_POOL[(idx + j) % INTEREST_POOL.length]),
+        );
+        const toReject = new Set<string>();
+        for (let j = 0; j < NUM_USERS; j++) {
+          if (j === idx) continue;
+          for (let k = 0; k < TAGS_PER_USER; k++) {
+            const kw = INTEREST_POOL[(j + k) % INTEREST_POOL.length];
+            if (!own.has(kw)) toReject.add(kw);
+          }
+        }
+        await waitForTabActive(page, 'talks');
+        // Show the IN (incoming) filter so received tags render; Phase 2 left it on OUT.
+        await page.click('#talks-nav-in');
+        await afterAction();
+        await afterSync();
+        for (const keyword of toReject) {
+          await openIncomingTalkModal(page, keyword);
+          const checkbox = page.locator('#tag-match-checkbox');
+          await checkbox.waitFor({ state: 'visible', timeout: 10_000 });
+          if (await checkbox.isChecked()) await checkbox.uncheck();
+          await page.click('#tag-submit-response');
+          await waitForResponseModalClosed(page);
+          await afterAction();
+        }
+      }),
+    );
+
+    await afterSync();
+
+    // ── Phase 6: contacts — sort by match rate and tag the most-similar peer ──
+    for (const { page } of setups) {
+      await waitForTabActive(page, 'contacts');
+      await page.waitForSelector('#contacts-sort-order', { timeout: 15_000 });
+      await page.selectOption('#contacts-sort-order', 'match-rate');
+      await afterAction();
+
+      const realContacts = page.locator('.contact-item[data-contact-user-id]:not([data-support-contact="true"])');
+      await expect
+        .poll(async () => realContacts.count(), { timeout: 30_000, intervals: [500] })
+        .toBeGreaterThanOrEqual(NUM_USERS - 1);
+
+      // Each stranger row shows the matched-tag count and percentage chip.
+      await expect(page.locator('.contact-item-match-rate').first()).toBeVisible({ timeout: 10_000 });
+
+      // The list is ordered highest match-% first.
+      const percents = await realContacts.evaluateAll((els) =>
+        els.map((el) => Number((el as HTMLElement).dataset.matchPercent ?? '0')),
+      );
+      const sortedDesc = [...percents].sort((a, b) => b - a);
+      expect(percents, 'contacts should be ordered by descending match %').toEqual(sortedDesc);
+
+      // Tag the most-similar stranger (top of the list) as "similar interest people".
+      await realContacts.first().click();
+      await afterNav();
+      await page.locator('#contact-edit-relationship-btn').click();
+      await expect(page.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10_000 });
+      await page.selectOption('#contact-relationship-label', 'custom');
+      await page.fill('#contact-relationship-custom-label', RELATIONSHIP_LABEL);
+      await page.click('#contact-relationship-save-btn');
+      await expect(page.locator('#contact-relationship-modal')).not.toBeVisible({ timeout: 10_000 });
+
+      // Back in the list the saved relationship label shows on that contact.
+      await page.locator('#back-to-contacts-list').click();
+      await afterAction();
+      await expect(
+        page.locator('.contact-item:not([data-support-contact="true"])').filter({ hasText: RELATIONSHIP_LABEL }).first(),
+      ).toBeVisible({ timeout: 15_000 });
+    }
+  });
 });

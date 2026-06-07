@@ -866,15 +866,18 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
         const displayName = buildDisplayName(resolvedStageName, known);
         const relationship = known?.label ? formatRelationshipLabel(known, deps) : deps.text('stranger');
         const metrics = rankingMetrics(peer, known, deps);
+        const matchPercent = Math.round(metrics.matchRate * 100);
         const blockedBadge = deps.isBlockedByMe(peer.peerId)
           ? `<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#fff7ed;color:#c2410c;font-size:0.72em;font-weight:700;margin-left:8px;">${deps.text('contactsBlocked')}</span>`
           : '';
+        const matchRateChip = `<div class="contact-item-match-rate" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}" data-total-talks="${peer.stats.totalTalks}" style="font-size:0.8em;color:#0f766e;font-weight:700;margin-top:4px;">${deps.text('matchRate')}: ${matchPercent}% · ${formatText(deps, 'contactsMatchRateDetail', { matched: metrics.matchedTalks, total: peer.stats.totalTalks })}</div>`;
         return `
-          <div class="contact-item" data-contact-user-id="${deps.escapeHtml(peer.peerId)}" data-contact-name="${deps.escapeHtml(resolvedStageName)}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 8px; background: white; border-radius: 12px; border: 1px solid #e0e0e0; cursor: pointer;">
+          <div class="contact-item" data-contact-user-id="${deps.escapeHtml(peer.peerId)}" data-contact-name="${deps.escapeHtml(resolvedStageName)}" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 8px; background: white; border-radius: 12px; border: 1px solid #e0e0e0; cursor: pointer;">
             <div style="min-width: 0;">
               <div class="contact-item-name" style="font-weight: 700;">${deps.escapeHtml(displayName)}${blockedBadge}</div>
               <div class="contact-item-meta" style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(buildMetaLine(peer, known, deps))}</div>
               <div class="contact-item-meta" style="font-size: 0.8em; color: #94a3b8; margin-top: 4px;">${deps.text('sent')} ${peer.stats.sent.talks} · ${deps.text('received')} ${peer.stats.received.talks} · ${deps.text('relationship')}: ${deps.escapeHtml(relationship)}</div>
+              ${sortOrder === 'match-rate' ? matchRateChip : ''}
               ${sortOrder === 'weighted' ? `<div class="contact-item-rank" title="${deps.escapeHtml(metrics.explanation)}" style="font-size:0.8em;color:#475569;margin-top:4px;">${deps.text('relevanceScore')}: ${metrics.relevance} · ${deps.escapeHtml(metrics.explanation)}</div>` : ''}
             </div>
             <span style="color: #999; flex-shrink: 0;">›</span>

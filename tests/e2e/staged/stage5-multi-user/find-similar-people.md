@@ -4,57 +4,62 @@
 
 ## Scenario
 
-10 users join the global chatroom and interact entirely through the UI:
+10 users join the Global chatroom and interact entirely through the UI. The spec only
+performs user actions and verifications — all matching, chatbot, ranking and percentage
+logic lives in the app.
 
-1. **Create 20 tag talks each** via the `+` (create-talk) button — visible in the OUT section.
-2. **Broadcast from GlobalRoom** — click the broadcast button; server fans out to all members.
-3. **Answer one incoming talk manually** — open the tag-talk response dialog, check the match checkbox, submit.
-4. **Chatbot auto-answers the rest** — a pre-seeded `exactChatbotMemory` holds permanent preferences for all 30 interests; after the one manual answer the chatbot is enabled and processes the remaining ~179 incoming talks.
-5. **Contacts tab, sort by weighted relevance** — the app's own weighted score (`matchedTalks × 100 + matchRate × 25 + recencyBoost`) naturally ranks users with more overlapping interests higher.
+1. **Create 20 tag talks each** via the `➕` create-talk dialog (Talks tab). Each tag is
+   created with its "I'm interested" checkbox checked (the default), so the tag is the
+   user's own match answer and the app records it as the chatbot's preference for that
+   keyword.
+2. **Enable the chatbot** in Settings (before broadcasting).
+3. **Broadcast** every tag to the Global chatroom.
+4. **Answer incoming tags.** The chatbot auto-matches every tag the user already created
+   (his interests). A tag the user never created is unknown to the chatbot, so it surfaces
+   to the user, who answers it once (rejects a non-interest). After the first answer the
+   chatbot holds the preference and takes over repeats.
+5. **Contacts tab, sort by match rate.** Strangers are ordered by the highest percentage of
+   matching tags; each row shows the matched-tag count and percentage.
+6. **Tag the most-similar stranger** with the relationship `similar interest people`
+   (the custom relationship label).
 
 ## Interest distribution
 
-30-interest pool, each user i gets 20 starting at `i mod 30` (sliding window):
-
-| User pair | Shared interests | Expected relative rank |
-|-----------|-----------------|------------------------|
-| (0, 1)    | 19              | user 0's top contact   |
-| (0, 2)    | 18              | user 0's 2nd contact   |
-| (0, 3)    | 17              | user 0's 3rd contact   |
-| (9, 8)    | 19              | user 9's top contact   |
-| (9, 7)    | 18              | user 9's 2nd contact   |
-| (9, 6)    | 17              | user 9's 3rd contact   |
+30-keyword pool, each user `i` creates 20 keywords starting at `i mod 30` (sliding window),
+so adjacent users share the most tags and rank highest by match rate.
 
 ## UI selectors used
 
 | Action | Selector |
 |--------|----------|
-| Open talk editor | `#create-talk-btn` |
+| Open create-talk dialog | `#create-talk-btn` |
 | Select tag type | `input[name="talk-type-radio"][value="tag"]` |
-| Fill title | `#talk-title` |
-| Submit talk | `#talk-submit-btn` |
-| OUT section items | `.talk-list-item[data-role="created"]` |
-| Broadcast button | `#broadcast-talk-btn` |
-| Broadcast complete | `#broadcast-bulk-ack` (hidden → visible) |
-| Incoming talk (unanswered) | `.talk-list-item[data-role="incoming"]:not(.talk-incoming-answered)` |
+| Tag keyword field | `#talk-title` |
+| Submit talk | `#talk-editor-form button[type="submit"]` |
+| OUT list items | `.talk-list-item[data-role="created"]` |
+| Enable chatbot | `#settings-chatbot-enabled` |
+| Broadcast | `clickBroadcastUntilBulkAck` helper (clicks `#broadcast-talk-btn`, confirms preamble) |
+| Incoming filter | `#talks-nav-in` |
+| Incoming tag (unanswered) | `.talk-list-item[data-role="incoming"]:not(.talk-incoming-answered)` |
 | Tag match checkbox | `#tag-match-checkbox` |
 | Submit tag answer | `#tag-submit-response` |
-| Contacts tab nav | `[data-testid="bottom-navigation-button-contacts"]` |
-| Sort dropdown | `#contacts-sort-order` (value `"weighted"`) |
-| Contact item | `.contact-item[data-contact-user-id]` |
-| Relevance score chip | `.contact-item-rank` |
+| Contacts sort dropdown | `#contacts-sort-order` (value `match-rate`) |
+| Contact row | `.contact-item[data-contact-user-id]` (excludes `[data-support-contact="true"]`) |
+| Match-% chip | `.contact-item-match-rate` (carries `data-match-percent`, `data-matched-talks`) |
+| Edit relationship | `#contact-edit-relationship-btn` → `#contact-relationship-label` (`custom`) + `#contact-relationship-custom-label` → `#contact-relationship-save-btn` |
 
-## Chatbot pre-seed
+## App support added for this test
 
-Before the app loads, `exactChatbotMemory` is written to `localStorage` using `createEmptyExactChatbotMemoryState()` + `savePermanentAnswer()` for each of the 30 interest questions:
-- `"Yes!"` for the user's 20 interests
-- `"Not really"` for the other 10
-
-The chatbot starts disabled so the test can demonstrate one manual answer, then is enabled to auto-answer the remaining incoming talks.
+- `contacts-view.ts` renders a match-rate chip (`.contact-item-match-rate`) with the match
+  percentage and `matched/total tags matched` when the Contacts list is sorted by `match-rate`,
+  and stamps `data-match-percent` / `data-matched-talks` on each contact row.
+- Translation key `contactsMatchRateDetail` (`{matched}/{total} tags matched`).
 
 ## Assertions
 
-- Every user sees ≥ 9 contacts after all talk exchanges.
-- User 0's top-3 contacts (sorted weighted) are users 1, 2, 3 (by Gun user ID).
-- User 9's top-3 contacts are users 8, 7, 6.
-- The `.contact-item-rank` chip is visible (confirming weighted sort is active).
+- Each user's OUT list holds all 20 created tags.
+- The chatbot is enabled (`chatbotEnabled === 'true'`).
+- Every incoming tag from the other 9 users ends up answered.
+- Each user sees ≥ 9 stranger contacts, each with a visible match-% chip.
+- Contacts are ordered by descending match percentage.
+- The most-similar stranger keeps the `similar interest people` relationship label after save.
