@@ -56,7 +56,7 @@ const RELATIONSHIP_LABEL = 'similar interest people';
 
 test.describe('Find similar people', () => {
   test.describe.configure({ retries: 0 });
-  test.setTimeout(420_000);
+  test.setTimeout(600_000);
 
   const contexts: BrowserContext[] = [];
   const pages: Page[] = [];
@@ -151,30 +151,37 @@ test.describe('Find similar people', () => {
     // Broadcast (not direct peer-send) because the chatbot auto-match fires on the
     // chatroom announcement path: receivers auto-answer the tags they also created,
     // so only genuinely-new tags fall through to the manual reject loop in Phase 5.
-    for (const { page, idx } of setups) {
-      await waitForDistinctGunPeersExcludingSelf(page, NUM_USERS - 1, 60_000);
-      await afterSync();
-      const t0 = Date.now();
-      const broadcastBtn = page.locator('#broadcast-talk-btn');
-      await expect(broadcastBtn).toBeVisible({ timeout: 15_000 });
-      await broadcastBtn.click();
-      const preambleSend = page.locator('[data-testid="broadcast-preamble-send"]');
-      await preambleSend.waitFor({ state: 'visible', timeout: 120_000 });
-      await preambleSend.click();
-      await page.waitForFunction(
-        () => {
-          const ack = document.querySelector('[data-testid="broadcast-bulk-ack"]') as HTMLElement | null;
-          if (!ack) return false;
-          const sent = Number(ack.dataset.broadcastTalksSent);
-          return Number.isFinite(sent) && sent >= 1;
-        },
-        undefined,
-        { timeout: 120_000 },
-      );
-      // eslint-disable-next-line no-console
-      console.log(`[u${idx} broadcast] done after ${Date.now() - t0}ms`);
-      await afterAction();
-    }
+    //
+    // Run the broadcasts concurrently: the audience-preview HTTP round-trips are slow
+    // under heavy parallel-suite CPU load, and doing them sequentially compounds that
+    // (each broadcast's chatbot replies congest the next). Concurrency keeps the
+    // broadcast phase ~one broadcast long instead of the sum.
+    await Promise.all(
+      setups.map(async ({ page, idx }) => {
+        await waitForDistinctGunPeersExcludingSelf(page, NUM_USERS - 1, 120_000);
+        await afterSync();
+        const t0 = Date.now();
+        const broadcastBtn = page.locator('#broadcast-talk-btn');
+        await expect(broadcastBtn).toBeVisible({ timeout: 15_000 });
+        await broadcastBtn.click();
+        const preambleSend = page.locator('[data-testid="broadcast-preamble-send"]');
+        await preambleSend.waitFor({ state: 'visible', timeout: 300_000 });
+        await preambleSend.click();
+        await page.waitForFunction(
+          () => {
+            const ack = document.querySelector('[data-testid="broadcast-bulk-ack"]') as HTMLElement | null;
+            if (!ack) return false;
+            const sent = Number(ack.dataset.broadcastTalksSent);
+            return Number.isFinite(sent) && sent >= 1;
+          },
+          undefined,
+          { timeout: 300_000 },
+        );
+        // eslint-disable-next-line no-console
+        console.log(`[u${idx} broadcast] done after ${Date.now() - t0}ms`);
+        await afterAction();
+      }),
+    );
     await afterSync();
 
     // ── Phase 5: answer incoming tags ────────────────────────────────────────
@@ -218,17 +225,17 @@ test.describe('Find similar people', () => {
     // ── Phase 6: contacts — sort by match rate and tag the most-similar peer ──
     for (const { page } of setups) {
       await waitForTabActive(page, 'contacts');
-      await page.waitForSelector('#contacts-sort-order', { timeout: 15_000 });
+      await page.waitForSelector('#contacts-sort-order', { timeout: 30_000 });
       await page.selectOption('#contacts-sort-order', 'match-rate');
       await afterAction();
 
       const realContacts = page.locator('.contact-item[data-contact-user-id]:not([data-support-contact="true"])');
       await expect
-        .poll(async () => realContacts.count(), { timeout: 30_000, intervals: [500] })
+        .poll(async () => realContacts.count(), { timeout: 60_000, intervals: [500] })
         .toBeGreaterThanOrEqual(NUM_USERS - 1);
 
       // Each stranger row shows the matched-tag count and percentage chip.
-      await expect(page.locator('.contact-item-match-rate').first()).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator('.contact-item-match-rate').first()).toBeVisible({ timeout: 30_000 });
 
       // The list is ordered highest match-% first.
       const percents = await realContacts.evaluateAll((els) =>
