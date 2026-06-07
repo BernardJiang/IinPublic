@@ -37,7 +37,10 @@ import {
   waitForResponseModalClosed,
   openIncomingTalkModal,
 } from '../../helpers/talks-matching-flow';
-import { waitForDistinctGunPeersExcludingSelf } from '../../helpers/talk-demo-ui';
+import {
+  waitForDistinctGunPeersExcludingSelf,
+  waitForChatroomMemberCountViaApi,
+} from '../../helpers/talk-demo-ui';
 
 // ─── Test data (not app logic) ──────────────────────────────────────────────────
 
@@ -154,31 +157,45 @@ test.describe('Find similar people', () => {
     // per-talk server HTTP round-trip (20 tags x 10 users) that starves under load
     // and is unused for direct delivery. Offers + announcement still happen, so the
     // chatbot behaves exactly as with the Broadcast button — just far faster.
-    await Promise.all(
-      setups.map(async ({ page, idx }) => {
-        await waitForDistinctGunPeersExcludingSelf(page, NUM_USERS - 1, 60_000);
-        await afterSync();
-        const t0 = Date.now();
-        const result = await page.evaluate(async (minReceivers) => {
-          const app = (window as any).__iinpublic_app?.getApp?.();
-          if (!app?.deliverPendingBroadcastTalksForE2e) {
-            throw new Error('deliverPendingBroadcastTalksForE2e unavailable');
-          }
-          const timeout = new Promise<never>((_, reject) => {
-            window.setTimeout(() => reject(new Error('broadcast delivery timed out')), 90_000);
-          });
-          return Promise.race([
-            app.deliverPendingBroadcastTalksForE2e(minReceivers, { skipAudiencePreview: true }),
-            timeout,
-          ]) as Promise<{ talksSent: number; receivers: number }>;
-        }, NUM_USERS - 1);
-        // eslint-disable-next-line no-console
-        console.log(`[u${idx} broadcast] ${JSON.stringify(result)} after ${Date.now() - t0}ms`);
-        expect(result.talksSent, `user ${idx} talksSent`).toBeGreaterThanOrEqual(TAGS_PER_USER);
-        expect(result.receivers, `user ${idx} receivers`).toBeGreaterThanOrEqual(NUM_USERS - 1);
-        await afterAction();
-      }),
-    );
+    // Deliver sequentially: 10 contexts each publishing ~180 Gun offers at once
+    // exhausts Chrome's socket budget (net::ERR_INSUFFICIENT_RESOURCES). One user at
+    // a time keeps the write burst bounded. Each deliver is gated on the server
+    // member list reaching the full peer count (resolveBroadcastReceivers reads the
+    // server view) and retried if membership is momentarily short under load.
+    for (const { page, idx } of setups) {
+      await waitForDistinctGunPeersExcludingSelf(page, NUM_USERS - 1, 60_000);
+      await waitForChatroomMemberCountViaApi(page, NUM_USERS - 1, 60_000);
+      await afterSync();
+      const t0 = Date.now();
+      let result: { talksSent: number; receivers: number } | undefined;
+      for (let attempt = 0; attempt < 10; attempt++) {
+        try {
+          result = await page.evaluate(async (minReceivers) => {
+            const app = (window as any).__iinpublic_app?.getApp?.();
+            if (!app?.deliverPendingBroadcastTalksForE2e) {
+              throw new Error('deliverPendingBroadcastTalksForE2e unavailable');
+            }
+            const timeout = new Promise<never>((_, reject) => {
+              window.setTimeout(() => reject(new Error('broadcast delivery timed out')), 90_000);
+            });
+            return Promise.race([
+              app.deliverPendingBroadcastTalksForE2e(minReceivers, { skipAudiencePreview: true }),
+              timeout,
+            ]) as Promise<{ talksSent: number; receivers: number }>;
+          }, NUM_USERS - 1);
+          break;
+        } catch (err) {
+          if (!String(err).includes('receiverIds=')) throw err;
+          await page.waitForTimeout(2_000);
+        }
+      }
+      if (!result) throw new Error(`user ${idx} broadcast never resolved enough receivers`);
+      // eslint-disable-next-line no-console
+      console.log(`[u${idx} broadcast] ${JSON.stringify(result)} after ${Date.now() - t0}ms`);
+      expect(result.talksSent, `user ${idx} talksSent`).toBeGreaterThanOrEqual(TAGS_PER_USER);
+      expect(result.receivers, `user ${idx} receivers`).toBeGreaterThanOrEqual(NUM_USERS - 1);
+      await afterAction();
+    }
     await afterSync();
 
     // ── Phase 5: answer incoming tags ────────────────────────────────────────
