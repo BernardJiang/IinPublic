@@ -8,7 +8,7 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync, reloadAppReady } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 
-const P2P_DIRECT_ENABLED = process.env.P2P_DIRECT_CHAT_ENABLED !== '0';
+const P2P_DIRECT_ENABLED = true; // Direct P2P is always active — star transport removed.
 
 test.describe('UI navigation and settings shell', () => {
   let context: BrowserContext | undefined;

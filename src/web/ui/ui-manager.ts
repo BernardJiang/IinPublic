@@ -108,6 +108,12 @@ import {
 } from './talk-intake-filters';
 import { normalizeCustomBlockedTerms } from '../../shared/talk-intake-filters';
 
+function resolveExpiresAtMs(value: unknown): number {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string' && value.trim()) return new Date(value).getTime();
+  return Number.NaN;
+}
+
 const TALK_TYPE_VALUES: TalkIntakeFilters['allowedTalkTypes'] = ['flow', 'survey', 'tag', 'route'];
 const LANGUAGE_OPTIONS = [
   { code: 'en', label: 'English' },
@@ -3194,7 +3200,7 @@ export class UIManager extends EventEmitter {
           ${this.renderStoragePill(this.t('storageMode'), serverStorage?.mode || 'star')}
           ${this.renderStoragePill(this.t('storagePersistence'), this.storageValue(flags.starServerPersistence || 'unknown'))}
           ${this.renderStoragePill(this.t('storageLocalNode'), this.storageValue(flags.p2pNodeEnabled ? 'enabled' : 'disabled'))}
-          ${this.renderStoragePill(this.t('storageDirectChat'), this.storageValue(flags.p2pDirectChatEnabled ? 'enabled' : 'disabled'))}
+          ${this.renderStoragePill(this.t('storageDirectChat'), this.storageValue('enabled'))}
         </div>
         <div id="storage-inspector-runtime-features" style="display:flex;flex-wrap:wrap;gap:8px;">
           ${this.renderStoragePill(this.t('storageTransportFallback'), transport.fallback || this.t('storageNone'))}
@@ -5329,7 +5335,8 @@ export class UIManager extends EventEmitter {
       .filter(([, t]: [string, any]) => {
         if (t?.disabled) return false;
         if (t?.role !== 'created' && t?.role !== 'copied') return false;
-        if (t?.expiresAt != null && typeof t.expiresAt === 'number' && now > t.expiresAt) return false;
+        const expiresAt = resolveExpiresAtMs(t?.expiresAt ?? t?.fullTalk?.expiresAt);
+        if (Number.isFinite(expiresAt) && now > expiresAt) return false;
         return true;
       })
       .map(([id]) => id);
@@ -5345,7 +5352,8 @@ export class UIManager extends EventEmitter {
       const omittedBy: string[] = [];
       if (talk?.disabled) omittedBy.push('broadcast_disabled');
       const expiresAt = talk?.expiresAt ?? talk?.fullTalk?.expiresAt;
-      if (typeof expiresAt === 'number' && now > expiresAt) omittedBy.push('talk_expired');
+      const expiresAtMs = resolveExpiresAtMs(expiresAt);
+      if (Number.isFinite(expiresAtMs) && now > expiresAtMs) omittedBy.push('talk_expired');
       if (omittedBy.length === 0) continue;
       previews.push({
         talkId,
@@ -5540,7 +5548,7 @@ export class UIManager extends EventEmitter {
     if (isMatchNotification) {
       notification.dataset.matchNotification = 'true';
     }
-    // All toasts: tap to dismiss (E2E and users need to clear overlays blocking the header).
+    // All toasts stay dismissible while sitting below the fixed header.
     notification.style.cursor = 'pointer';
     notification.addEventListener('click', () => {
       if (document.body.contains(notification)) document.body.removeChild(notification);

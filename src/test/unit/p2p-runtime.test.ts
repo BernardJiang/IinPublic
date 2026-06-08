@@ -45,57 +45,38 @@ const proofFields = {
 };
 
 describe('p2p runtime flags', () => {
-  it('defaults to durable star persistence with direct pair talk delivery on', () => {
+  it('defaults to ephemeral persistence with P2P always active', () => {
     expect(resolveP2PRuntimeFlags({})).toEqual({
-      starServerPersistence: 'durable',
+      starServerPersistence: 'ephemeral',
       p2pNodeEnabled: false,
-      p2pDirectChatEnabled: false,
       relayOnlyHub: false,
       p2pClientTalkMirror: true,
       p2pDirectTalkDelivery: true,
     });
   });
 
-  it('falls back to legacy star talk delivery when P0_DIRECT_TALK_DELIVERY=0', () => {
-    expect(resolveP2PRuntimeFlags({ P0_DIRECT_TALK_DELIVERY: '0' }).p2pDirectTalkDelivery).toBe(false);
+  it('p2pDirectTalkDelivery is always true regardless of env', () => {
+    expect(resolveP2PRuntimeFlags({}).p2pDirectTalkDelivery).toBe(true);
   });
 
-  it('accepts explicit ephemeral persistence and enabled P2P flags', () => {
+  it('accepts P2P_NODE_ENABLED flag', () => {
     expect(
       resolveP2PRuntimeFlags({
-        STAR_SERVER_PERSISTENCE: 'ephemeral',
         P2P_NODE_ENABLED: 'true',
-        P2P_DIRECT_CHAT_ENABLED: '1',
-        P0_DIRECT_TALK_DELIVERY: '0',
       }),
     ).toEqual({
       starServerPersistence: 'ephemeral',
       p2pNodeEnabled: true,
-      p2pDirectChatEnabled: true,
       relayOnlyHub: false,
       p2pClientTalkMirror: true,
-      p2pDirectTalkDelivery: false,
+      p2pDirectTalkDelivery: true,
     });
   });
 
-  it('enables direct talk delivery from browser e2e_p0_talks URL param', () => {
-    const g = global as typeof globalThis & { window?: { location: { search: string } } };
-    const prev = g.window;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    g.window = { location: { search: '?e2e_p0_talks=1' } } as any;
-    try {
-      expect(resolveP2PRuntimeFlags({}).p2pDirectTalkDelivery).toBe(true);
-    } finally {
-      if (prev === undefined) delete g.window;
-      else g.window = prev;
-    }
-  });
-
-  it('relay-only hub forces ephemeral star persistence', () => {
+  it('relay-only hub is reflected in the flags', () => {
     expect(resolveP2PRuntimeFlags({ RELAY_ONLY_HUB: '1' })).toEqual({
       starServerPersistence: 'ephemeral',
       p2pNodeEnabled: false,
-      p2pDirectChatEnabled: false,
       relayOnlyHub: true,
       p2pClientTalkMirror: true,
       p2pDirectTalkDelivery: true,
@@ -450,29 +431,9 @@ describe('p2p runtime flags', () => {
     expect(leaking.plaintextMessagePaths).toContain('$.conversations/1/messages/m1.text');
   });
 
-  it('describes star and direct conversation transport storage boundaries', () => {
+  it('always describes direct-p2p conversation transport (star removed)', () => {
     expect(
-      createConversationTransportDiagnostics(
-        resolveP2PRuntimeFlags({
-          STAR_SERVER_PERSISTENCE: 'durable',
-          P2P_NODE_ENABLED: 'false',
-          P2P_DIRECT_CHAT_ENABLED: 'false',
-        }),
-      ),
-    ).toEqual(
-      expect.objectContaining({
-        activeMode: 'star-gun',
-        messageBodyStorage: 'gun-legacy',
-        fallback: null,
-      }),
-    );
-    expect(
-      createConversationTransportDiagnostics(
-        resolveP2PRuntimeFlags({
-          P2P_NODE_ENABLED: 'true',
-          P2P_DIRECT_CHAT_ENABLED: '1',
-        }),
-      ),
+      createConversationTransportDiagnostics(resolveP2PRuntimeFlags({})),
     ).toEqual(
       expect.objectContaining({
         activeMode: 'direct-p2p',

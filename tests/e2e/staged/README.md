@@ -26,7 +26,7 @@ User storage: `stage{N}-techsupport.storage.json`, `stage{N}-adam.storage.json`,
 
 ## Pair-Direct Model
 
-E2E defaults to `P0_DIRECT_TALK_DELIVERY=1`: the server is a bootstrap/signaling/room-membership connector, not the talk inbox authority. Tests should assert received talks from the receiver's local Gun IN index or UI. Legacy `/incoming-talks` assertions are only for explicit star-mode regressions.
+E2E defaults to mesh-talk delivery: the server is a bootstrap/signaling/room-membership connector, not the talk inbox authority. Tests should assert received talks from the receiver's local Gun IN index or UI.
 
 ## Status checks vs toasts
 

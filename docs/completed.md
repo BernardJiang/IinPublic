@@ -1,6 +1,46 @@
 # IinPublic Completed Work
 
-Last updated: 2026-06-06
+Last updated: 2026-06-07
+
+## 2026-06-07 - P2P mesh talk delivery foundation behind `P2P_MESH_TALKS`
+
+Converted `docs/p2p-mesh-talk-delivery-plan.md` into the active `docs/TODO.md` mesh checklist and landed the first implementation slice behind `P2P_MESH_TALKS=1`.
+
+**Mesh transport + protocol:**
+- Added `src/shared/p2p-mesh-protocol.ts` with signed origin-frame payloads for `mesh-ping`, `mesh-pong`, `talk-announce`, `talk-body-request`, `talk-body`, `talk-response`, and `ack`.
+- Added `p2pMeshTalks` / `usesMeshTalkDelivery` runtime flag plumbing and webpack exposure for `P2P_MESH_TALKS`.
+- Extended `P2PConversationSession` DataChannel frames with a `mesh` frame type and `sendMeshFrame`.
+- Added `src/web/services/peer-mesh-service.ts`: room join/leave, bounded neighbor selection, signed origin verification, seen-set dedupe, TTL forwarding, diagnostics, ping, talk body cache, body pull, and mesh response routing.
+
+**App integration:**
+- Room member updates now refresh mesh neighbor sessions when the flag is enabled.
+- Broadcast and directed talk sends use mesh `talk-announce` instead of `peerTalkOffers/*` when `P2P_MESH_TALKS=1`.
+- Receivers request `talk-body`, run the existing receiver-side intake path, and populate the local incoming index from mesh bodies.
+- Pair-private responses use mesh `talk-response` with `sea-ecdh-v1` ciphertext when the flag is enabled; author-side processing creates local matches/conversations from the single mesh response callback.
+- Mesh mode skips `broadcast-receiver-preview`, `peerTalkOffers` subscription, pair Gun response writes, and server talk stats writes for the mesh response path.
+
+**Verification:**
+- `npm run test:type -- --pretty false`
+- `npx jest src/test/unit/peer-mesh-service.test.ts src/test/unit/p2p-runtime.test.ts --runInBand`
+- `npm run test:unit -- --runInBand` — 40 suites, 480 passed
+- `npm run test:integration -- --runInBand` — 7 suites, 127 passed, 1 skipped
+- `npm run lint`
+- `npm run build:server`
+- `npm run build:web` — clean with existing bundle-size warnings
+- `npm run test:e2e:p0-talks` — 1 passed (legacy direct-Gun regression)
+- In-app browser smoke loaded `http://localhost:3001` with `P2P_MESH_TALKS=1` into the main UI
+
+## 2026-06-07 - TODO cleanup: moved shipped hub migration phases out of active queue
+
+Moved the completed rows from the `docs/TODO.md` hub migration track into completed work so the active TODO only carries unfinished implementation.
+
+| Phase | Completed status |
+|-------|------------------|
+| B Client-authoritative talks | Shipped |
+| C Relay-only hub (no app `radata/`) | Shipped |
+| E Pair-private ownership graph | Shipped |
+
+Phase A remains partial and Phase D remains implementation-pending, so they were not recorded as completed items.
 
 ## 2026-06-06 - SRS v4.5 implementation: community ownership, challenge plugins, ICE audit, Phase D design
 

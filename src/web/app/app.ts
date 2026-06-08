@@ -10,7 +10,7 @@ import { LocationPrivacy } from '../../shared/location';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
-import { buildTalkIdentityKey, computeTalkIdFromTalkData } from '../../shared/cid';
+import { computeTalkIdFromTalkData } from '../../shared/cid';
 import { isDevStageZero } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
 import {
@@ -18,28 +18,20 @@ import {
   TECHSUPPORT_ROOT_USER_ID,
   TECHSUPPORT_STAGE_NAME,
 } from '../../shared/techsupport';
-import { resolveP2PRuntimeFlags, usesDirectTalkDelivery, type P2PRuntimeFlags } from '../../shared/p2p-runtime';
-import { expandTalkDataFromGunWire, type PeerTalkOfferWire } from '../../shared/peer-talk-delivery';
+import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons } from '../../shared/talk-intake-filters';
 import { getTalkIntakeFilters } from '../ui/talk-intake-filters';
 import { P2PPresenceClient } from '../services/p2p-presence-client';
 import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
+import { PeerMeshService } from '../services/peer-mesh-service';
+import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload } from '../../shared/p2p-mesh-protocol';
 import {
+  collectLocalIncomingTalkClusters,
   mirrorIncomingTalkClustersToLocalGun,
   mirrorTalkDefinitionToLocalGun,
-} from '../services/client-incoming-talk-mirror';
-import {
-  applyPeerTalkOfferToLocalInbox,
-  collectLocalIncomingTalkClusters,
-  publishPeerTalkCatalog,
-  publishPeerTalkOffer,
-  publishPeerTalkOfferToReceivers,
-  reconcilePeerTalkOffersFromGun,
-  resolveTalkFromPeerMesh,
   subscribeLocalIncomingTalkClusters,
-  subscribePeerTalkOffers,
   upsertLocalIncomingTalkCluster,
-} from '../services/client-peer-talk-delivery';
+} from '../services/client-incoming-talk-mirror';
 import { getSEA, type GunPair } from '../sea-gun';
 
 export class IinPublicApp {
@@ -56,7 +48,6 @@ export class IinPublicApp {
   private currentChatroomId?: string;
   /** Gun .map().on may replay the same response node; avoid duplicate match UI/conversations. */
   private processedTalkResponseKeys = new Set<string>();
-  private directPairResponseSubscriptionKeys = new Set<string>();
   /** One auto chatbot reply per announcer for the same content-hash talk id (same qa_* = same talk; keys are not author-based talk identity). */
   private chatbotAutoReplySentForPair = new Set<string>();
   /** Bounded retries for template races (announcement can arrive before manual answer persistence finishes). */
@@ -73,18 +64,15 @@ export class IinPublicApp {
   private supportBootstrapChecked = false;
   private presenceClient: P2PPresenceClient | null = null;
   private localNodeBridge: P2PLocalNodeBridgeClient | null = null;
-  private peerTalkOfferUnsubscribe: (() => void) | null = null;
+  private peerMeshService: PeerMeshService | null = null;
   private incomingTalkClusterUnsubscribe: (() => void) | null = null;
   private chatroomTalksMapOff: (() => void) | null = null;
   private readonly p2pRuntimeFlags: P2PRuntimeFlags = resolveP2PRuntimeFlags(
     typeof process !== 'undefined'
       ? {
-          P2P_DIRECT_CHAT_ENABLED: process.env.P2P_DIRECT_CHAT_ENABLED,
           P2P_NODE_ENABLED: process.env.P2P_NODE_ENABLED,
-          STAR_SERVER_PERSISTENCE: process.env.STAR_SERVER_PERSISTENCE,
           RELAY_ONLY_HUB: process.env.RELAY_ONLY_HUB,
           P2P_CLIENT_TALK_MIRROR: process.env.P2P_CLIENT_TALK_MIRROR,
-          P0_DIRECT_TALK_DELIVERY: process.env.P0_DIRECT_TALK_DELIVERY,
         }
       : {},
   );
@@ -166,32 +154,6 @@ export class IinPublicApp {
     });
   }
 
-  private buildChatroomTalkAnnouncementKey(logicalTalkId: string, authorId: string): string {
-    return `${logicalTalkId}__${authorId}`;
-  }
-
-  private getChatroomTalkAnnouncementRoot(gun: any, chatroomId: string, legacy = false): any {
-    const room = gun.get('chatrooms').get(chatroomId);
-    if (usesDirectTalkDelivery(this.p2pRuntimeFlags) && !legacy) {
-      return room.get('announcements');
-    }
-    return room.get('talks');
-  }
-
-  private publishChatroomTalkAnnouncement(
-    gun: any,
-    chatroomId: string,
-    announcementKey: string,
-    announcement: Record<string, unknown>,
-  ): void {
-    this.getChatroomTalkAnnouncementRoot(gun, chatroomId).get(announcementKey).put(announcement);
-  }
-
-  private currentUserEpub(): string | undefined {
-    const epub = this.gunService.getStoredPair()?.epub;
-    return epub ? String(epub) : undefined;
-  }
-
   private countOrdinaryRoomMembers(members: Array<{ userId: string }>): number {
     return members.filter((member) => member.userId !== TECHSUPPORT_ROOT_USER_ID).length;
   }
@@ -201,7 +163,7 @@ export class IinPublicApp {
     this.userService = new WebUserService(this.gunService);
     this.chatroomService = new WebChatroomService(this.gunService);
     this.talkService = new WebTalkService(this.gunService, this.getBackendApiBase(), {
-      meshLocalFirst: usesDirectTalkDelivery(this.p2pRuntimeFlags),
+      meshLocalFirst: usesMeshTalkDelivery(this.p2pRuntimeFlags),
     });
     this.conversationService = new WebConversationService(this.gunService);
     this.uiManager = new UIManager();
@@ -442,6 +404,7 @@ export class IinPublicApp {
       this.chatroomService.subscribeToMembers(toChatroomId, (members) => {
         console.log('👥 Chatroom members updated:', members);
         this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
+        this.syncPeerMeshRoom(toChatroomId, members);
 
         // Update status bar with new chatroom info
         const chatroomName = this.getChatroomDisplayName(toChatroomId);
@@ -504,6 +467,7 @@ export class IinPublicApp {
     this.chatroomService.subscribeToMembers(chatroomId, (members) => {
       console.log('👥 Chatroom members updated:', members);
       this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
+      this.syncPeerMeshRoom(chatroomId, members);
 
       // Update status bar with current chatroom info (real-time)
       const chatroomName = this.getChatroomDisplayName(chatroomId);
@@ -546,6 +510,7 @@ export class IinPublicApp {
       this.uiManager.setCurrentChatroomId(this.currentChatroomId);
       this.chatroomService.subscribeToMembers(this.currentChatroomId, (members) => {
         this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
+        this.syncPeerMeshRoom(this.currentChatroomId!, members);
         const chatroomName = this.getChatroomDisplayName(this.currentChatroomId!);
         this.uiManager.updateStatusBar(
           this.currentUser!.stageName,
@@ -610,7 +575,7 @@ export class IinPublicApp {
     }
   }
 
-  private async shouldAcceptPeerTalkOfferAsync(offer: {
+  private async shouldAcceptIncomingTalkAsync(offer: {
     senderId: string;
     talkData: Record<string, unknown>;
     deliveryChatroomId?: string;
@@ -619,15 +584,8 @@ export class IinPublicApp {
     const me = this.currentUser;
     if (!me?.id || offer.senderId === me.id) return false;
     if (await this.resolveBlockStatusEitherWay(offer.senderId)) return false;
-    const talkData = expandTalkDataFromGunWire(offer.talkData);
-    const expiresAtValue = talkData?.expiresAt;
-    const expiresAt =
-      typeof expiresAtValue === 'number'
-        ? expiresAtValue
-        : typeof expiresAtValue === 'string'
-          ? new Date(expiresAtValue).getTime()
-          : Number.NaN;
-    if (Number.isFinite(expiresAt) && Date.now() > expiresAt) return false;
+    const talkData = offer.talkData;
+    if (this.isTalkExpiredForDelivery(talkData)) return false;
     if (talkData?.isAdult && !(await this.resolveAgeVerifiedForIntake())) return false;
     const chatroomId = this.currentChatroomId;
     if (!offer.directPeerSend && chatroomId) {
@@ -681,7 +639,51 @@ export class IinPublicApp {
     return reasons.length === 0;
   }
 
-  /** Directed peer send (Send My Talks) — mesh offer in P0, POST /received in star mode. */
+  private resolveTalkExpiresAtMs(talkData: unknown): number {
+    const record = talkData && typeof talkData === 'object'
+      ? talkData as Record<string, unknown>
+      : {};
+    const nested = record.fullTalk && typeof record.fullTalk === 'object'
+      ? record.fullTalk as Record<string, unknown>
+      : {};
+    const expiresAtValue = record.expiresAt ?? nested.expiresAt;
+    if (typeof expiresAtValue === 'number') return expiresAtValue;
+    if (typeof expiresAtValue === 'string' && expiresAtValue.trim()) {
+      return new Date(expiresAtValue).getTime();
+    }
+    return Number.NaN;
+  }
+
+  private isTalkExpiredForDelivery(talkData: unknown): boolean {
+    const expiresAt = this.resolveTalkExpiresAtMs(talkData);
+    return Number.isFinite(expiresAt) && Date.now() > expiresAt;
+  }
+
+  public async warmMeshConnectionToPeer(peerId: string, peerName = 'Unknown'): Promise<boolean> {
+    const me = this.currentUser;
+    const mesh = this.ensurePeerMeshService();
+    if (!me?.id || !peerId || !mesh) return false;
+    const chatroomId = this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId || 'global';
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        const activeIds = await this.chatroomService.getActiveMembers(chatroomId);
+        const members = Array.from(new Set([...activeIds, me.id, peerId]))
+          .filter(Boolean)
+          .map((userId) => ({
+            userId,
+            stageName: userId === me.id ? me.stageName : userId === peerId ? peerName : userId,
+          }));
+        await mesh.joinRoom(chatroomId, members);
+        if (await mesh.waitForConnectedNeighbor(peerId, 5_000)) return true;
+      } catch (error) {
+        console.warn('Mesh peer warm-up failed:', error);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300 + attempt * 250));
+    }
+    return false;
+  }
+
+  /** Directed peer send (Send My Talks) over the mesh-talk transport. */
   public async sendDirectTalkToPeer(
     talkId: string,
     talkData: Talk | Record<string, unknown>,
@@ -691,98 +693,26 @@ export class IinPublicApp {
     const me = this.currentUser;
     if (!me?.id) throw new Error('Not signed in');
     const talk = talkData as Talk;
-    if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
-      mirrorTalkDefinitionToLocalGun(this.gunService, talkId, talk, this.p2pRuntimeFlags);
-      const talkRecord = talk as unknown as Record<string, unknown>;
-      publishPeerTalkCatalog(this.gunService, {
-        talkId,
-        authorId: me.id,
-        talkData: talkRecord,
-      });
-      await publishPeerTalkOffer(this.gunService, peerId, {
-        talkId,
-        senderId: me.id,
-        senderName: me.stageName || 'Unknown',
-        talkData: talkRecord,
-        directPeerSend: true,
-      });
-      this.subscribeToPairTalkResponses(talkId, talk, peerId);
-      return;
+    if (this.isTalkExpiredForDelivery(talk)) {
+      throw new Error('Talk expired');
     }
-    const base = this.getBackendApiBase();
-    const res = await fetch(`${base}/api/talks/${encodeURIComponent(talkId)}/received`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        receiverId: peerId,
-        receiverName: peerName,
-        senderId: me.id,
-        senderName: me.stageName,
-        talkData: talk,
-        chatbotEnabled: this.uiManager.getChatbotEnabled(),
-      }),
+    const mesh = this.ensurePeerMeshService();
+    if (!mesh) throw new Error('Mesh talk delivery is not available');
+    mirrorTalkDefinitionToLocalGun(this.gunService, talkId, talk, this.p2pRuntimeFlags);
+    const ready = await this.warmMeshConnectionToPeer(peerId, peerName);
+    if (!ready) {
+      console.warn('Directed mesh send proceeding before peer link reported ready');
+    }
+    mesh.cacheTalkBody(talkId, talk as unknown as Record<string, unknown>);
+    await mesh.broadcastTalk({ ...talk, id: talkId, authorId: me.id }, {
+      recipientUserIds: [peerId],
     });
-    if (!res.ok) throw new Error(`register talk for peer failed: HTTP ${res.status}`);
-    const result = (await res.json()) as { registered?: boolean };
-    if (result.registered !== true) {
-      throw new Error('register talk for peer rejected by recipient delivery policy');
-    }
   }
 
-  /** P0: subscribe to directed talk offers on local Gun (mesh via hub relay). */
+  /** Subscribe to the receiver-owned local incoming-talk index used by mesh delivery. */
   private initDirectTalkDeliverySubscriptions(): void {
-    if (!usesDirectTalkDelivery(this.p2pRuntimeFlags) || !this.currentUser?.id) return;
-    this.peerTalkOfferUnsubscribe?.();
-    this.peerTalkOfferUnsubscribe = subscribePeerTalkOffers(
-      this.gunService,
-      this.currentUser.id,
-      (offer) => {
-        void this.handlePeerTalkOffer(offer);
-      },
-    );
+    if (!this.currentUser?.id) return;
     void this.refreshIncomingTalkClustersFromLocalGun();
-  }
-
-  private async handlePeerTalkOffer(offer: PeerTalkOfferWire): Promise<void> {
-    const talkData =
-      offer.talkData ??
-      (await resolveTalkFromPeerMesh(
-        this.gunService,
-        offer.talkRef?.talkId || offer.talkId,
-        offer.talkRef?.authorId || offer.senderId,
-        (id) => this.talkService.getTalk(id),
-        { attempts: 8, gapMs: 250 },
-      ));
-    if (!talkData) return;
-    const talkRecord = {
-      ...(talkData as unknown as Record<string, unknown>),
-      authorId: offer.senderId,
-      authorName: offer.senderName,
-      ...(offer.senderEpub ? { authorEpub: offer.senderEpub } : {}),
-    };
-    const acceptParams: {
-      senderId: string;
-      talkData: Record<string, unknown>;
-      deliveryChatroomId?: string;
-      directPeerSend?: boolean;
-    } = {
-      senderId: offer.senderId,
-      talkData: talkRecord,
-    };
-    if (offer.deliveryChatroomId) acceptParams.deliveryChatroomId = offer.deliveryChatroomId;
-    if (offer.directPeerSend) acceptParams.directPeerSend = offer.directPeerSend;
-    if (!(await this.shouldAcceptPeerTalkOfferAsync(acceptParams))) return;
-    const hydratedOffer: PeerTalkOfferWire & { talkData: Record<string, unknown> } = {
-      ...offer,
-      talkData: talkRecord,
-    };
-    const cluster = applyPeerTalkOfferToLocalInbox(
-      this.gunService,
-      this.currentUser!.id,
-      hydratedOffer,
-      this.p2pRuntimeFlags,
-    );
-    this.mergeIncomingClusterIntoUi([cluster]);
   }
 
   /** P2P-I / P2P-O: register live presence and probe local node bridge (stack only). */
@@ -819,6 +749,135 @@ export class IinPublicApp {
       this.localNodeBridge = new P2PLocalNodeBridgeClient(true);
       void this.localNodeBridge.probe(base);
     }
+  }
+
+  private ensurePeerMeshService(): PeerMeshService | null {
+    if (!usesMeshTalkDelivery(this.p2pRuntimeFlags) || !this.currentUser?.id) return null;
+    if (this.peerMeshService) return this.peerMeshService;
+    this.peerMeshService = new PeerMeshService(this.gunService, {
+      apiBase: this.getBackendApiBase(),
+      localUserId: this.currentUser.id,
+      localStageName: this.currentUser.stageName || this.currentUser.id,
+      onTalkBody: (payload) => this.handleMeshTalkBody(payload),
+      onTalkResponse: (payload) => this.handleMeshTalkResponse(payload),
+    });
+    (this as any).peerMeshService = this.peerMeshService;
+    return this.peerMeshService;
+  }
+
+  private syncPeerMeshRoom(
+    chatroomId: string,
+    members: Array<{ userId: string; stageName?: string }>,
+  ): void {
+    const mesh = this.ensurePeerMeshService();
+    if (!mesh || !this.currentUser?.id || !chatroomId) return;
+    const withSelf = members.some((member) => member.userId === this.currentUser!.id)
+      ? members
+      : [
+          ...members,
+          { userId: this.currentUser.id, stageName: this.currentUser.stageName },
+        ];
+    void mesh.joinRoom(chatroomId, withSelf).catch((error) => {
+      console.warn('Peer mesh room join failed:', error);
+    });
+  }
+
+  private async resolveMeshTalkData(talkId: string): Promise<any | null> {
+    const cached = this.peerMeshService?.getCachedTalkBody(talkId);
+    if (cached) return cached;
+    try {
+      const raw = localStorage.getItem('myTalks');
+      const myTalks = raw ? JSON.parse(raw) : {};
+      const entry = myTalks?.[talkId];
+      if (entry?.fullTalk) return entry.fullTalk;
+      if (entry) return entry;
+    } catch {
+      /* fallback below */
+    }
+    return this.talkService.getTalkWithRetry(talkId, { attempts: 3, gapMs: 150 });
+  }
+
+  private async handleMeshTalkBody(payload: P2PMeshTalkBodyPayload): Promise<void> {
+    if (!this.currentUser?.id || payload.authorId === this.currentUser.id) return;
+    const talkData = {
+      ...payload.talkData,
+      id: payload.talkId,
+      authorId: payload.authorId,
+      authorName: payload.authorName,
+      ...(payload.authorEpub ? { authorEpub: payload.authorEpub } : {}),
+    };
+    if (this.isTalkExpiredForDelivery(talkData)) return;
+    mirrorTalkDefinitionToLocalGun(this.gunService, payload.talkId, talkData, this.p2pRuntimeFlags);
+    const pairKey = `${payload.talkId}::${payload.authorId}`;
+    const firstUi = !this.processedTalkResponseKeys.has(`mesh-talk-body::${pairKey}`);
+    if (firstUi) {
+      this.processedTalkResponseKeys.add(`mesh-talk-body::${pairKey}`);
+      this.uiManager.displayIncomingTalk({
+        id: payload.talkId,
+        title: String(payload.title || (talkData as any).title || 'Talk'),
+        authorName: payload.authorName || 'Unknown',
+        type: (talkData as any).type,
+        questionCount: Array.isArray((talkData as any).questions) ? (talkData as any).questions.length : payload.questionCount,
+        timestamp: new Date().toISOString(),
+        isOwnTalk: false,
+        fullTalk: talkData,
+      });
+    }
+    await this.ingestIncomingTalkAnnouncement(
+      payload.talkId,
+      payload.authorId,
+      payload.authorName || 'Unknown',
+      talkData,
+    );
+    if (firstUi) {
+      this.maybeAutoChatbotReplyToAnnouncer(
+        payload.talkId,
+        talkData,
+        payload.authorId,
+        payload.authorName || 'Unknown',
+      );
+    }
+  }
+
+  private async handleMeshTalkResponse(payload: P2PMeshTalkResponsePayload): Promise<void> {
+    if (!this.currentUser?.id || payload.authorId !== this.currentUser.id) return;
+    const dedupeKey = `mesh-response::${payload.talkId}::${payload.responseId}`;
+    if (this.processedTalkResponseKeys.has(dedupeKey)) return;
+    const talkData = await this.resolveMeshTalkData(payload.talkId);
+    if (!talkData) return;
+    const decrypted = await this.decryptPairTalkResponsePayload(payload);
+    this.processedTalkResponseKeys.add(dedupeKey);
+    const isMatch = this.checkIfMatch(talkData, decrypted.answers);
+    this.recordLocalTalkExchange(
+      payload.responderId,
+      decrypted.responderName,
+      payload.talkId,
+      talkData,
+      isMatch ? 'match' : 'mismatch',
+    );
+    if (!isMatch) return;
+    this.uiManager.showNotification(
+      this.uiManager.formatTalkMatched(decrypted.responderName, talkData.title),
+      'success',
+    );
+    const conversationId = await this.conversationService.createConversation({
+      userId1: this.currentUser.id,
+      userName1: this.currentUser.stageName,
+      userId2: payload.responderId,
+      userName2: decrypted.responderName,
+      talkId: payload.talkId,
+      respondedByBotForUser1: !!decrypted.isChatbotResponse,
+      respondedByBotForUser2: false,
+    });
+    this.uiManager.addNewConversation({
+      conversationId,
+      otherUserId: payload.responderId,
+      otherUserName: decrypted.responderName,
+      talkId: payload.talkId,
+      respondedByBot: !!decrypted.isChatbotResponse,
+      transportMode: this.conversationService.getTransportMode(),
+    });
+    this.uiManager.setMemberMatched(payload.responderId);
   }
 
   private async ensureSupportBootstrapForCurrentUser(): Promise<void> {
@@ -996,22 +1055,19 @@ export class IinPublicApp {
     this.tryChatbotReply(talkId, talkData, authorId, authorName);
   }
 
-  /** Load full talk for an incoming announcement (P0: mesh/catalog only). */
+  /** Load full talk for an incoming mesh/local announcement. */
   private loadIncomingTalkData(talkId: string, authorId: string): Promise<Talk | null> {
-    if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
-      return resolveTalkFromPeerMesh(
-        this.gunService,
-        talkId,
-        authorId,
-        (id) => this.talkService.getTalk(id),
-      );
-    }
+    void authorId;
     return this.talkService.getTalkWithRetry(talkId);
   }
 
-  /** E2E: expose direct-talk flag and local IN snapshot. */
+  /** E2E: legacy shim kept for tests that assert server delivery is disabled. */
   public isDirectTalkDeliveryEnabled(): boolean {
-    return usesDirectTalkDelivery(this.p2pRuntimeFlags);
+    return usesMeshTalkDelivery(this.p2pRuntimeFlags);
+  }
+
+  public isMeshTalkDeliveryEnabled(): boolean {
+    return usesMeshTalkDelivery(this.p2pRuntimeFlags);
   }
 
   public async getLocalIncomingClustersForE2e(): Promise<any[]> {
@@ -1031,12 +1087,7 @@ export class IinPublicApp {
     }
     const gun = this.gunService.getGun();
 
-    const announcementRoots = usesDirectTalkDelivery(this.p2pRuntimeFlags)
-      ? [
-          this.getChatroomTalkAnnouncementRoot(gun, chatroomId),
-          this.getChatroomTalkAnnouncementRoot(gun, chatroomId, true),
-        ]
-      : [this.getChatroomTalkAnnouncementRoot(gun, chatroomId, true)];
+    const announcementRoots = [gun.get('chatrooms').get(chatroomId).get('announcements')];
 
     /** Dedupe by (talkId, authorId); same content-hash id from two senders must both register. */
     const seenTalkAuthor = new Set<string>();
@@ -1054,9 +1105,8 @@ export class IinPublicApp {
 
       /**
        * Gun may fire .once and .on in any order, and replay nodes after replication. We must not mark
-       * (talkId, author) as "seen" until full talk JSON loads — otherwise a first failed getTalkWithRetry
-       * blocks forever. Replays must re-run POST /received (idempotent) so incomingTalksByUser fills
-       * even when the first attempt ran before server/browser graph caught up.
+       * (talkId, author) as "seen" until full talk JSON loads; replays can still hydrate the local
+       * owner index when the first pass ran before browser graph catch-up.
        */
       if (seenTalkAuthor.has(pairKey)) {
         if (talkAnnouncement?.talkId && authorId && authorId !== this.currentUser?.id) {
@@ -1123,9 +1173,6 @@ export class IinPublicApp {
               isOwnTalk: talkAnnouncement.authorId === this.currentUser?.id,
               fullTalk: talkWithAuthor,
             });
-            if (talkAnnouncement.authorId === this.currentUser?.id) {
-              this.subscribeToTalkResponses(talkAnnouncement.talkId, talkWithAuthor);
-            }
           }
 
           if (talkAnnouncement.authorId !== this.currentUser?.id) {
@@ -1167,90 +1214,6 @@ export class IinPublicApp {
     };
   }
 
-  private subscribeToTalkResponses(talkId: string, talkData: any): void {
-    console.log('👂 Subscribing to responses for talk:', talkId);
-    const gun = this.gunService.getGun();
-
-    gun
-      .get(`talks/${talkId}`)
-      .get('responses')
-      .map()
-      .on((responseData: any, responseId: string) => {
-        if (responseId.startsWith('_')) return; // Skip Gun.js metadata
-
-        const dedupeKey = `${talkId}::${responseId}`;
-        if (this.processedTalkResponseKeys.has(dedupeKey)) return;
-
-        console.log('📬 Received talk response:', responseData);
-
-        // Gun can emit partial objects before replication completes; wait for a complete payload.
-        if (!(responseData && responseData.responderId && responseData.answers)) {
-          return;
-        }
-
-        // Don't notify for own responses
-        if (responseData.responderId === this.currentUser?.id) {
-          this.processedTalkResponseKeys.add(dedupeKey);
-          return;
-        }
-
-        // Chatbot responses include authorId: only that author should get the match/conversation
-        if (responseData.authorId && responseData.authorId !== this.currentUser?.id) {
-          this.processedTalkResponseKeys.add(dedupeKey);
-          return;
-        }
-
-        try {
-          const answers = Array.isArray(responseData.answers)
-            ? responseData.answers
-            : JSON.parse(String(responseData.answers));
-          this.processedTalkResponseKeys.add(dedupeKey);
-
-          // Check if this is a match
-          const isMatch = this.checkIfMatch(talkData, answers);
-          this.recordLocalTalkExchange(responseData.responderId, responseData.responderName, talkId, talkData, isMatch ? 'match' : 'mismatch');
-
-          if (isMatch) {
-            this.uiManager.showNotification(
-              this.uiManager.formatTalkMatched(responseData.responderName, talkData.title),
-              'success',
-            );
-            console.log(`✅ Match detected with ${responseData.responderName}`);
-
-            // Create conversation between the two users
-            this.conversationService
-              .createConversation({
-                userId1: this.currentUser!.id,
-                userName1: this.currentUser!.stageName,
-                userId2: responseData.responderId,
-                userName2: responseData.responderName,
-                talkId: talkId,
-                respondedByBotForUser1: !!responseData.isChatbotResponse,
-                respondedByBotForUser2: false,
-              })
-              .then((conversationId) => {
-                // Add conversation to UI
-                this.uiManager.addNewConversation({
-                  conversationId,
-                  otherUserId: responseData.responderId,
-                  otherUserName: responseData.responderName,
-                  talkId: talkId,
-                  respondedByBot: !!responseData.isChatbotResponse,
-                  transportMode: this.conversationService.getTransportMode(),
-                });
-                this.uiManager.setMemberMatched(responseData.responderId);
-              })
-              .catch((error) => {
-                console.error('Failed to create conversation:', error);
-              });
-          }
-        } catch (error) {
-          // Leave unprocessed so a later complete payload can still be handled.
-          console.error('Error processing talk response:', error);
-        }
-      });
-  }
-
   private recordLocalTalkExchange(
     peerId: string,
     peerName: string,
@@ -1280,7 +1243,7 @@ export class IinPublicApp {
   }
 
   private async syncDirectPairTalkExchangesForContacts(): Promise<void> {
-    if (!usesDirectTalkDelivery(this.p2pRuntimeFlags) || !this.currentUser?.id) return;
+    if (!usesMeshTalkDelivery(this.p2pRuntimeFlags) || !this.currentUser?.id) return;
     let myTalks: Record<string, any> = {};
     try {
       myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
@@ -1435,80 +1398,6 @@ export class IinPublicApp {
     };
   }
 
-  private subscribeToPairTalkResponses(talkId: string, talkData: any, peerId: string): void {
-    if (!this.currentUser?.id || !peerId || peerId === this.currentUser.id) return;
-    const pairId = this.pairIdForUsers(this.currentUser.id, peerId);
-    const subscriptionKey = `${pairId}::${talkId}`;
-    if (this.directPairResponseSubscriptionKeys.has(subscriptionKey)) return;
-    this.directPairResponseSubscriptionKeys.add(subscriptionKey);
-
-    const gun = this.gunService.getGun();
-    gun
-      .get('pairTalkResponses')
-      .get(pairId)
-      .get(talkId)
-      .map()
-      .on((responseData: any, responseId: string) => {
-        if (!responseData || !responseId || responseId.startsWith('_')) return;
-        const dedupeKey = `pair::${pairId}::${talkId}::${responseId}`;
-        if (this.processedTalkResponseKeys.has(dedupeKey)) return;
-        if (responseData.responderId === this.currentUser?.id) {
-          this.processedTalkResponseKeys.add(dedupeKey);
-          return;
-        }
-        if (responseData.authorId && responseData.authorId !== this.currentUser?.id) {
-          this.processedTalkResponseKeys.add(dedupeKey);
-          return;
-        }
-
-        void (async () => {
-          const decrypted = await this.decryptPairTalkResponsePayload(responseData);
-          const answers = decrypted.answers;
-          this.processedTalkResponseKeys.add(dedupeKey);
-          const isMatch = this.checkIfMatch(talkData, answers);
-          this.recordLocalTalkExchange(
-            responseData.responderId,
-            decrypted.responderName,
-            talkId,
-            talkData,
-            isMatch ? 'match' : 'mismatch',
-          );
-          if (!isMatch) return;
-
-          this.uiManager.showNotification(
-            this.uiManager.formatTalkMatched(decrypted.responderName, talkData.title),
-            'success',
-          );
-          this.conversationService
-            .createConversation({
-              userId1: this.currentUser!.id,
-              userName1: this.currentUser!.stageName,
-              userId2: responseData.responderId,
-              userName2: decrypted.responderName,
-              talkId,
-              respondedByBotForUser1: !!decrypted.isChatbotResponse,
-              respondedByBotForUser2: false,
-            })
-            .then((conversationId) => {
-              this.uiManager.addNewConversation({
-                conversationId,
-                otherUserId: responseData.responderId,
-                otherUserName: decrypted.responderName,
-                talkId,
-                respondedByBot: !!decrypted.isChatbotResponse,
-                transportMode: this.conversationService.getTransportMode(),
-              });
-              this.uiManager.setMemberMatched(responseData.responderId);
-            })
-            .catch((error) => {
-              console.error('Failed to create pair-direct conversation:', error);
-            });
-        })().catch((error) => {
-          console.error('Error processing pair-direct talk response:', error);
-        });
-      });
-  }
-
   /**
    * Auto-reply to a talk using saved template (chatbot). Puts response to Gun and creates
    * responder's conversation so the author will receive the match and see bot icon.
@@ -1541,60 +1430,15 @@ export class IinPublicApp {
       return;
     }
 
-    const gun = this.gunService.getGun();
-    const responseId = `response-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-
-    if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
-      void this.submitTalkResponsePairDirect({
-        talkId,
-        talkData,
-        answers: template.answers,
-        isChatbotResponse: true,
-        authorId,
-        authorName,
-        isAutoResponse: true,
-      });
-      return;
-    }
-
-    const responsePayload = {
-      responderId: this.currentUser.id,
-      responderName: this.currentUser.stageName,
-      answers: JSON.stringify(template.answers),
-      respondedAt: new Date().toISOString(),
+    void this.submitTalkResponsePairDirect({
+      talkId,
+      talkData,
+      answers: template.answers,
       isChatbotResponse: true,
-      authorId, // so only this author creates a conversation when they receive the response
+      authorId,
       authorName,
-    };
-
-    gun.get(`talks/${talkId}`).get('responses').get(responseId).put(responsePayload);
-    console.log('🤖 Chatbot response stored', { talkId, responseId, authorId, authorName });
-
-    const isMatch = this.checkIfMatch(talkData, template.answers);
-    if (isMatch) {
-      console.log('🤖 Chatbot reply produced a match', { talkId, authorId, authorName });
-      this.conversationService
-        .createConversation({
-          userId1: this.currentUser.id,
-          userName1: this.currentUser.stageName,
-          userId2: authorId,
-          userName2: authorName,
-          talkId,
-          respondedByBotForUser1: false,
-          respondedByBotForUser2: true,
-        })
-        .then((conversationId) => {
-          this.uiManager.addNewConversation({
-            conversationId,
-            otherUserId: authorId,
-            otherUserName: authorName,
-            talkId,
-            respondedByBot: false, // responder (Jerry) sees author (Bob), not bot
-            transportMode: this.conversationService.getTransportMode(),
-          });
-        })
-        .catch((err) => console.error('Chatbot conversation create failed:', err));
-    }
+      isAutoResponse: true,
+    });
   }
 
 
@@ -1638,20 +1482,17 @@ export class IinPublicApp {
   }
 
   /**
-   * Sender-driven: upsert `incomingTalksByUser` on the API for each room member so receivers see IN rows
-   * even when Gun does not replicate the chatroom announcement to their peer in time (common in e2e).
-   * Client POST /received remains supported and is idempotent with this path.
+   * Sender-driven mesh delivery for all resolved room receivers.
    */
-  private async registerReceiversOnServerForTalk(
+  private async deliverTalkToReceiversOverMesh(
     talkId: string,
     talk: Talk,
     members: Array<{ userId: string; stageName: string }>,
-    broadcastTargetTags?: string[],
-    broadcastMaxDistanceMiles?: number,
     eligibleReceiverIds?: string[],
   ): Promise<boolean> {
     const me = this.currentUser;
     if (!me?.id || members.length === 0) return false;
+    if (this.isTalkExpiredForDelivery(talk)) return false;
     let receiverIds = members
       .map((m) => m.userId)
       .filter((id) => id !== me.id && id !== TECHSUPPORT_ROOT_USER_ID);
@@ -1661,96 +1502,15 @@ export class IinPublicApp {
     }
     if (receiverIds.length === 0) return false;
 
-    if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
-      mirrorTalkDefinitionToLocalGun(this.gunService, talkId, talk, this.p2pRuntimeFlags);
-      const talkRecord = talk as unknown as Record<string, unknown>;
-      publishPeerTalkCatalog(this.gunService, {
-        talkId,
-        authorId: me.id,
-        talkData: talkRecord,
-      });
-      const deliveryRoom = this.currentChatroomId || this.chatroomService.getCurrentChatroomId() || '';
-      // Sign the offer once and fan it out to every receiver: the signed payload is
-      // receiver-independent, so this is O(1) signatures per talk instead of
-      // O(receivers) — the SEA signing was the dominant per-broadcast cost.
-      await publishPeerTalkOfferToReceivers(this.gunService, receiverIds, {
-        talkId,
-        senderId: me.id,
-        senderName: me.stageName || 'Unknown',
-        talkData: talkRecord,
-        ...(deliveryRoom ? { deliveryChatroomId: deliveryRoom } : {}),
-      });
-      for (const receiverId of receiverIds) {
-        this.subscribeToPairTalkResponses(talkId, talk, receiverId);
-      }
-      console.log(`📡 Pair-direct talk offers published: talkId=${talkId} receivers=${receiverIds.length}`);
-      return true;
-    }
-
-    return this.postRegisterReceiversForBroadcast(
-      talkId,
-      talk,
-      receiverIds,
-      broadcastTargetTags,
-      broadcastMaxDistanceMiles,
-    );
-  }
-
-  /** Legacy server-side IN metadata for star-mode peer APIs. Direct mode skips this path. */
-  private async postRegisterReceiversForBroadcast(
-    talkId: string,
-    talk: Talk,
-    receiverIds: string[],
-    broadcastTargetTags?: string[],
-    broadcastMaxDistanceMiles?: number,
-  ): Promise<boolean> {
-    const me = this.currentUser;
-    if (!me?.id || receiverIds.length === 0) return false;
-    const base = this.getBackendApiBase();
-    console.log(`📡 POSTing register-receivers: talkId=${talkId} receivers=${receiverIds.length}`);
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 300_000);
-      let res: Response;
-      try {
-        res = await fetch(
-          `${base}/api/talks/${encodeURIComponent(talkId)}/register-receivers-for-broadcast`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              senderId: me.id,
-              senderName: me.stageName,
-              receiverIds,
-              talkData: talk,
-              ...(broadcastTargetTags && broadcastTargetTags.length > 0
-                ? { broadcastTargetTags }
-                : {}),
-              ...(typeof broadcastMaxDistanceMiles === 'number' &&
-              Number.isFinite(broadcastMaxDistanceMiles) &&
-              broadcastMaxDistanceMiles > 0
-                ? { broadcastMaxDistanceMiles }
-                : {}),
-            }),
-            signal: controller.signal,
-          },
-        );
-      } finally {
-        clearTimeout(timeoutId);
-      }
-      if (!res.ok) {
-        const t = await res.text();
-        console.warn('register-receivers-for-broadcast failed:', res.status, t);
-        return false;
-      }
-      const r = await res.json();
-      const registered = Number(r?.registered ?? 0);
-      console.log(`register-receivers-for-broadcast ok: talkId=${talkId} registered=${registered}`);
-      return registered > 0;
-    } catch (e) {
-      console.warn('register-receivers-for-broadcast request failed:', e);
-      return false;
-    }
+    const mesh = this.ensurePeerMeshService();
+    if (!mesh) return false;
+    mirrorTalkDefinitionToLocalGun(this.gunService, talkId, talk, this.p2pRuntimeFlags);
+    mesh.cacheTalkBody(talkId, talk as unknown as Record<string, unknown>);
+    await mesh.broadcastTalk({ ...talk, id: talkId, authorId: me.id }, {
+      recipientUserIds: receiverIds,
+    });
+    console.log(`📡 Mesh talk announcement published: talkId=${talkId} receivers=${receiverIds.length}`);
+    return true;
   }
 
   private async previewReceiversOnServerForTalk(
@@ -1910,41 +1670,9 @@ export class IinPublicApp {
     }));
   }
 
-  /** Merges Gun members with UI list ids for bulk-send audience preview (same chatroom only). */
   /**
-   * Wait until GET /api/talks/:id returns full talk JSON from the server graph so POST /received
-   * and receivers’ incoming list can resolve the same id before we announce in the chatroom.
-   */
-  private async waitUntilTalkReadableOnServer(talkId: string): Promise<boolean> {
-    const base = this.getBackendApiBase();
-    const maxAttempts = 60;
-    const gapMs = 250;
-    for (let i = 0; i < maxAttempts; i++) {
-      try {
-        const res = await fetch(`${base}/api/talks/${encodeURIComponent(talkId)}`);
-        if (res.status === 202) {
-          /* pending — server graph not replicated yet; no 404 console spam */
-        } else if (res.ok) {
-          const data = await res.json();
-          if (data && typeof data === 'object' && (data as { pending?: boolean }).pending === true) {
-            /* same */
-          } else {
-            const qs = data?.questions;
-            if (Array.isArray(qs) && qs.length > 0) return true;
-          }
-        }
-      } catch {
-        /* network — retry */
-      }
-      await new Promise((r) => setTimeout(r, gapMs));
-    }
-    return false;
-  }
-
-  /**
-   * Current user saw a talk announcement in their subscribed chatroom — register with the backend
-   * so `incomingTalksByUser` is populated (IN list). Receiver-driven so it still works when the
-   * sender's on-screen member list is wrong (e.g. eviction / room mismatch).
+   * Current user saw a talk announcement in their subscribed chatroom. Receiver-driven intake still
+   * works when the sender's on-screen member list is wrong (e.g. eviction / room mismatch).
    */
   private registerSelfAsReceiverOfIncomingTalk(
     talkId: string,
@@ -1966,7 +1694,7 @@ export class IinPublicApp {
   ): Promise<void> {
     if (!this.currentUser) return;
     if (
-      !(await this.shouldAcceptPeerTalkOfferAsync({
+      !(await this.shouldAcceptIncomingTalkAsync({
         senderId,
         talkData: talkData as Record<string, unknown>,
       }))
@@ -1974,44 +1702,18 @@ export class IinPublicApp {
       return;
     }
 
-    if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
-      const cluster = upsertLocalIncomingTalkCluster(
-        this.gunService,
-        this.currentUser.id,
-        {
-          talkId,
-          talkData: talkData as Record<string, unknown>,
-          senderId,
-          senderName,
-        },
-        this.p2pRuntimeFlags,
-      );
-      this.mergeIncomingClusterIntoUi([cluster]);
-      return;
-    }
-
-    const base = this.getBackendApiBase();
-    void fetch(`${base}/api/talks/${encodeURIComponent(talkId)}/received`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        receiverId: this.currentUser.id,
-        receiverName: this.currentUser.stageName,
+    const cluster = upsertLocalIncomingTalkCluster(
+      this.gunService,
+      this.currentUser.id,
+      {
+        talkId,
+        talkData: talkData as Record<string, unknown>,
         senderId,
         senderName,
-        talkData,
-        chatbotEnabled: this.uiManager.getChatbotEnabled(),
-      }),
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          const text = await res.text();
-          console.error('Incoming talk registration failed:', res.status, text);
-          return;
-        }
-        await this.refreshIncomingTalkClustersFromApiUntilVisible(talkData, talkId);
-      })
-      .catch((e) => console.error('Incoming talk registration request failed:', e));
+      },
+      this.p2pRuntimeFlags,
+    );
+    this.mergeIncomingClusterIntoUi([cluster]);
   }
 
   /**
@@ -2084,7 +1786,7 @@ export class IinPublicApp {
         ? data.talkData.authorName
         : undefined;
 
-    if (usesDirectTalkDelivery(this.p2pRuntimeFlags) && data.talkData?.authorId && data.talkData.authorId !== this.currentUser?.id) {
+    if (data.talkData?.authorId && data.talkData.authorId !== this.currentUser?.id) {
       await this.submitTalkResponsePairDirect({
         talkId: data.talkId,
         talkData: data.talkData,
@@ -2233,7 +1935,6 @@ export class IinPublicApp {
       const answerText = String(answer?.answerText || '').toLowerCase();
       return answerId === 'ignore' || answerId.includes('ignore') || answerText === 'ignore';
     });
-    const pairId = this.pairIdForUsers(this.currentUser.id, params.authorId);
     const responseId = `resp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
     const authorEpub = this.pairTalkPeerEpubHint(params.talkData?.authorEpub, params.talkData?.senderEpub);
     const payloadCiphertext = await this.encryptPairTalkResponsePayload(params.authorId, {
@@ -2241,28 +1942,19 @@ export class IinPublicApp {
       authorName: params.authorName,
       answers: params.answers,
       isChatbotResponse: params.isChatbotResponse,
-      transportMode: 'pair-direct',
+      transportMode: 'mesh-p2p',
     }, authorEpub);
-    const responsePayload = {
-      version: 2,
+    const meshPayload: P2PMeshTalkResponsePayload = {
       responseId,
       talkId: params.talkId,
-      pairId,
-      responderId: this.currentUser.id,
       authorId: params.authorId,
+      responderId: this.currentUser.id,
       submittedAt: new Date().toISOString(),
       encryption: 'sea-ecdh-v1',
       payloadCiphertext,
-      transportMode: 'pair-direct',
+      transportMode: 'mesh-p2p',
     };
-
-    this.gunService
-      .getGun()
-      .get('pairTalkResponses')
-      .get(pairId)
-      .get(params.talkId)
-      .get(responseId)
-      .put(responsePayload);
+    await this.ensurePeerMeshService()?.sendTalkResponse(meshPayload);
 
     await this.recordDirectTalkStats({
       talkId: params.talkId,
@@ -2344,24 +2036,13 @@ export class IinPublicApp {
     return isMatch;
   }
 
-  /** Resolve full talk using the direct local IN index or the legacy server inbox. */
+  /** Resolve full talk using the receiver-owned local incoming-talk index. */
   private async loadFullTalkViaIncomingIdentity(identityKey: string): Promise<Talk | null> {
     if (!this.currentUser?.id) return null;
     try {
-      let clusters: unknown[];
-      if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
-        clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, {
-          waitMs: 400,
-        });
-      } else {
-        const base = this.getBackendApiBase();
-        const res = await fetch(
-          `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/incoming-talks`,
-          { cache: 'no-store' },
-        );
-        if (!res.ok) return null;
-        clusters = await res.json();
-      }
+      const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, {
+        waitMs: 400,
+      });
       if (!Array.isArray(clusters)) return null;
       const cluster = clusters.find(
         (c: any) =>
@@ -2393,36 +2074,10 @@ export class IinPublicApp {
         if (!cluster || !id || id.startsWith('_')) return;
         if (this.incomingApiRefreshTimer) clearTimeout(this.incomingApiRefreshTimer);
         this.incomingApiRefreshTimer = setTimeout(() => {
-          if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
-            void this.refreshIncomingTalkClustersFromLocalGun();
-          } else {
-            void this.refreshIncomingTalkClustersFromApi();
-          }
+          void this.refreshIncomingTalkClustersFromLocalGun();
         }, 120);
       },
     );
-  }
-
-  /**
-   * Merge IN clusters from the HTTP API (server Gun graph). Notifications can show before the browser
-   * peer replicates `incomingTalksByUser`; opening the Talks tab emits `needIncomingTalkClusters` to
-   * pull this list without waiting on Gun.
-   */
-  private async refreshIncomingTalkClustersFromApi(): Promise<void> {
-    if (!this.currentUser?.id) return;
-    const base = this.getBackendApiBase();
-    try {
-      const res = await fetch(
-        `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/incoming-talks`,
-        { cache: 'no-store' },
-      );
-      if (!res.ok) return;
-      const clusters = await res.json();
-      if (!Array.isArray(clusters)) return;
-      this.applyIncomingClustersFromApiArray(clusters);
-    } catch (e) {
-      console.warn('refreshIncomingTalkClustersFromApi failed:', e);
-    }
   }
 
   /**
@@ -2449,7 +2104,6 @@ export class IinPublicApp {
       this.uiManager.setBroadcastBulkAck(0, targetCount);
       return { talksSent: 0, receivers: targetCount };
     }
-    const gun = this.gunService.getGun();
     let sent = 0;
     const talkPayloads: Array<{ tid: string; talk: Talk }> = [];
     for (const talkId of broadcastableIds) {
@@ -2460,47 +2114,30 @@ export class IinPublicApp {
       if (!talk) continue;
       const tid = String(talk.id || talkId);
       talk = { ...talk, id: tid, authorId: talk.authorId || this.currentUser.id };
+      if (this.isTalkExpiredForDelivery(talk)) continue;
       talkPayloads.push({ tid, talk: talk as Talk });
     }
     if (talkPayloads.length === 0) {
       throw new Error('no talk payloads for E2E broadcast delivery');
     }
     if (receivers.length === 0) {
-      const broadcastableNowForGun = new Set(
-        this.uiManager.getBroadcastableTalkIds().filter((id) => broadcastableIds.includes(id)),
-      );
-      for (const { tid, talk } of talkPayloads) {
-        if (!broadcastableNowForGun.has(tid)) continue;
-        const authorEpub = this.currentUserEpub();
-        const announcementKey = this.buildChatroomTalkAnnouncementKey(
-          tid,
-          String(talk.authorId || this.currentUser.id),
-        );
-        this.publishChatroomTalkAnnouncement(gun, chatroomId, announcementKey, {
-          talkId: tid,
-          title: talk.title,
-          authorId: talk.authorId,
-          authorName: this.currentUser.stageName,
-          ...(authorEpub ? { authorEpub } : {}),
-          type: talk.type,
-          timestamp: new Date().toISOString(),
-          questionCount: talk.questions?.length ?? 0,
-        });
-      }
-      const attempted = talkPayloads.filter(({ tid }) => broadcastableNowForGun.has(tid)).length;
+      const attempted = talkPayloads
+        .filter(({ tid }) => this.uiManager.getBroadcastableTalkIds().includes(tid))
+        .length;
       this.uiManager.setBroadcastBulkAck(attempted, 0);
       this.uiManager.recordBroadcastConversation(
         chatroomId,
-        talkPayloads.filter(({ tid }) => broadcastableNowForGun.has(tid)).map(({ tid }) => tid),
+        talkPayloads
+          .filter(({ tid }) => this.uiManager.getBroadcastableTalkIds().includes(tid))
+          .map(({ tid }) => tid),
         [],
       );
       return { talksSent: attempted, receivers: 0 };
     }
     const supportExcludedCount = members.filter((m) => m.userId === TECHSUPPORT_ROOT_USER_ID).length;
-    // E2E may skip the per-talk audience-preview HTTP round-trips (unused for direct
-    // delivery, which fans out to all resolved receivers). Offers + chatroom
-    // announcement still happen, so receiver chatbots auto-answer as usual.
-    const previews = opts.skipAudiencePreview
+    // E2E may skip the per-talk audience-preview HTTP round-trips; mesh delivery fans
+    // out to resolved receivers directly.
+    const previews = opts.skipAudiencePreview || usesMeshTalkDelivery(this.p2pRuntimeFlags)
       ? []
       : await Promise.all(
           talkPayloads.map(({ tid, talk }) =>
@@ -2510,22 +2147,19 @@ export class IinPublicApp {
     const previewByTalkId = new Map(previews.map((p) => [p.talkId, p]));
     const REGISTER_BATCH = 5;
     const registeredTalkIds: string[] = [];
-    const directDelivery = usesDirectTalkDelivery(this.p2pRuntimeFlags);
     for (let i = 0; i < talkPayloads.length; i += REGISTER_BATCH) {
       const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
       const batchResults = await Promise.all(
         batch.map(async ({ tid, talk }) => {
           const preview = previewByTalkId.get(tid);
           const eligibleIds =
-            directDelivery || preview?.previewUnavailable || !Array.isArray(preview?.eligibleReceiverIds)
+            usesMeshTalkDelivery(this.p2pRuntimeFlags) || preview?.previewUnavailable || !Array.isArray(preview?.eligibleReceiverIds)
               ? undefined
               : preview.eligibleReceiverIds;
-          const ok = await this.registerReceiversOnServerForTalk(
+          const ok = await this.deliverTalkToReceiversOverMesh(
             tid,
             talk,
             receivers,
-            undefined,
-            undefined,
             eligibleIds,
           );
           if (ok) registeredTalkIds.push(tid);
@@ -2533,25 +2167,6 @@ export class IinPublicApp {
         }),
       );
       sent += batchResults.filter(Boolean).length;
-    }
-    const broadcastableNowForGun = new Set(registeredTalkIds);
-    for (const { tid, talk } of talkPayloads) {
-      if (!broadcastableNowForGun.has(tid)) continue;
-      const authorEpub = this.currentUserEpub();
-      const announcementKey = this.buildChatroomTalkAnnouncementKey(
-        tid,
-        String(talk.authorId || this.currentUser.id),
-      );
-      this.publishChatroomTalkAnnouncement(gun, chatroomId, announcementKey, {
-        talkId: tid,
-        title: talk.title,
-        authorId: talk.authorId,
-        authorName: this.currentUser.stageName,
-        ...(authorEpub ? { authorEpub } : {}),
-        type: talk.type,
-        timestamp: new Date().toISOString(),
-        questionCount: talk.questions?.length ?? 0,
-      });
     }
     this.uiManager.setBroadcastBulkAck(sent, targetCount);
     this.uiManager.recordBroadcastConversation(chatroomId, registeredTalkIds, receivers);
@@ -2563,22 +2178,11 @@ export class IinPublicApp {
    * `needIncomingTalkClusters` without awaiting; Playwright needs a promise-bound sync.
    */
   public async syncIncomingClustersFromServer(): Promise<void> {
-    if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
-      await this.refreshIncomingTalkClustersFromLocalGun();
-      return;
-    }
-    await this.refreshIncomingTalkClustersFromApi();
+    await this.refreshIncomingTalkClustersFromLocalGun();
   }
 
   private async refreshIncomingTalkClustersFromLocalGun(): Promise<void> {
     if (!this.currentUser?.id) return;
-    await reconcilePeerTalkOffersFromGun(
-      this.gunService,
-      this.currentUser.id,
-      this.p2pRuntimeFlags,
-      (offer) => this.shouldAcceptPeerTalkOfferAsync(offer),
-      { waitMs: 500 },
-    );
     const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, {
       waitMs: 500,
     });
@@ -2616,68 +2220,6 @@ export class IinPublicApp {
     }
     this.uiManager.setIncomingTalkClusters(list);
     this.uiManager.displayTalksList();
-  }
-
-  /** @deprecated name kept for call sites — applies cluster list from API or local Gun. */
-  private applyIncomingClustersFromApiArray(clusters: any[]): void {
-    this.applyIncomingTalkClusters(clusters);
-  }
-
-  /**
-   * After delivery, poll until this talk appears (or timeout). Aligns IN list
-   * with notification when Gun replication lags.
-   */
-  private async refreshIncomingTalkClustersFromApiUntilVisible(talkData: any, talkId: string): Promise<void> {
-    if (!this.currentUser?.id || !talkData) return;
-    const identityKey = buildTalkIdentityKey(talkData);
-    const maxAttempts = 30;
-    const gapMs = 400;
-
-    const clusterIncludesTalk = (clusters: any[]): boolean =>
-      clusters.some((c: any) => {
-        if (!c?.identityKey) return false;
-        if (c.identityKey === identityKey) return true;
-        if (c.identityAliases && typeof c.identityAliases === 'object' && c.identityAliases[identityKey]) {
-          return true;
-        }
-        if (c.talkIds && typeof c.talkIds === 'object' && c.talkIds[talkId]) return true;
-        return false;
-      });
-
-    for (let i = 0; i < maxAttempts; i++) {
-      if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
-        const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, {
-          waitMs: 200,
-        });
-        if (clusterIncludesTalk(clusters)) {
-          this.mergeIncomingClusterIntoUi(clusters);
-          return;
-        }
-      } else {
-        try {
-          const base = this.getBackendApiBase();
-          const res = await fetch(
-            `${base}/api/users/${encodeURIComponent(this.currentUser.id)}/incoming-talks`,
-            { cache: 'no-store' },
-          );
-          if (res.ok) {
-            const clusters = await res.json();
-            if (Array.isArray(clusters)) {
-              this.applyIncomingClustersFromApiArray(clusters);
-              if (clusterIncludesTalk(clusters)) return;
-            }
-          }
-        } catch {
-          /* retry */
-        }
-      }
-      await new Promise((r) => setTimeout(r, gapMs));
-    }
-    if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
-      await this.refreshIncomingTalkClustersFromLocalGun();
-    } else {
-      await this.refreshIncomingTalkClustersFromApi();
-    }
   }
 
   private async ingestConversationRecords(conversations: any[]): Promise<void> {
@@ -2988,35 +2530,15 @@ export class IinPublicApp {
           selfAnswers: talkData.selfAnswers ?? [],
         });
 
-        // Register receivers via API using local talk payload; Gun chatroom announce when server echoes talk.
+        // Deliver to the current room over mesh.
         const wantSendToChatroom = (talkData as { sendToChatroom?: boolean }).sendToChatroom !== false;
         const chatroomId = this.chatroomService.getCurrentChatroomId();
         if (chatroomId && wantSendToChatroom) {
-          const synced = await this.waitUntilTalkReadableOnServer(talk.id);
-          this.subscribeToTalkResponses(talk.id, talk);
           const receivers = await this.resolveBroadcastReceivers(
             chatroomId,
             this.uiManager.getCurrentChatroomMembers(),
           );
-          await this.registerReceiversOnServerForTalk(talk.id, talk, receivers);
-          if (!synced) {
-            this.uiManager.showNotification(this.uiManager.formatTalkCreateSyncSlow(), 'info');
-            return;
-          }
-
-          const gun = this.gunService.getGun();
-          const announcementKey = this.buildChatroomTalkAnnouncementKey(talk.id, talk.authorId);
-          const authorEpub = this.currentUserEpub();
-          this.publishChatroomTalkAnnouncement(gun, chatroomId, announcementKey, {
-            talkId: talk.id,
-            title: talk.title,
-            authorId: talk.authorId,
-            authorName: this.currentUser!.stageName,
-            ...(authorEpub ? { authorEpub } : {}),
-            type: talk.type,
-            timestamp: new Date().toISOString(),
-            questionCount: talk.questions.length,
-          });
+          await this.deliverTalkToReceiversOverMesh(talk.id, talk, receivers);
 
           console.log('📢 Talk broadcasted to chatroom:', chatroomId);
         }
@@ -3076,10 +2598,9 @@ export class IinPublicApp {
           console.log(`📢 broadcastTalk: ${targetCount} receivers resolved`);
           if (targetCount === 0) {
             console.warn(
-              '⚠️ broadcastTalk: no receivers resolved (no other active members in this chatroom id per Gun). IN list will not populate for others.',
+              '⚠️ broadcastTalk: no receivers resolved (no other active members in this chatroom).',
             );
           }
-          const gun = this.gunService.getGun();
           let sent = 0;
           // Resolve all talk payloads first (sync from localStorage, no awaits)
           const talkPayloads: Array<{ tid: string; talk: Talk }> = [];
@@ -3093,20 +2614,26 @@ export class IinPublicApp {
             if (!talk) { console.warn(`📢 broadcastTalk: skipping ${talkId} (no talk data)`); continue; }
             const tid = String(talk.id || talkId);
             talk = { ...talk, id: tid, authorId: talk.authorId || this.currentUser!.id };
+            if (this.isTalkExpiredForDelivery(talk)) {
+              console.warn(`📢 broadcastTalk: skipping ${talkId} (expired)`);
+              continue;
+            }
             talkPayloads.push({ tid, talk: talk as Talk });
           }
-          const previews = await Promise.all(
-            talkPayloads.map(({ tid, talk }) =>
-              this.previewReceiversOnServerForTalk(
-                tid,
-                talk,
-                receivers,
-                broadcastTargetTags,
-                broadcastMaxDistanceMiles,
-                supportExcludedCount,
-              ),
-            ),
-          );
+          const previews = usesMeshTalkDelivery(this.p2pRuntimeFlags)
+            ? []
+            : await Promise.all(
+                talkPayloads.map(({ tid, talk }) =>
+                  this.previewReceiversOnServerForTalk(
+                    tid,
+                    talk,
+                    receivers,
+                    broadcastTargetTags,
+                    broadcastMaxDistanceMiles,
+                    supportExcludedCount,
+                  ),
+                ),
+              );
           const previewTalkIds = new Set(talkPayloads.map(({ tid }) => tid));
           const senderOmittedPreviews = this.uiManager
             .getSenderOmittedBroadcastPreviews()
@@ -3129,17 +2656,15 @@ export class IinPublicApp {
                 if (!broadcastableSnapshot.has(tid)) return false;
                 const preview = previewByTalkId.get(tid);
                 const eligibleIds =
-                  usesDirectTalkDelivery(this.p2pRuntimeFlags) &&
+                  usesMeshTalkDelivery(this.p2pRuntimeFlags) &&
                   !preview?.previewUnavailable &&
                   Array.isArray(preview?.eligibleReceiverIds)
                     ? preview.eligibleReceiverIds
                     : undefined;
-                const ok = await this.registerReceiversOnServerForTalk(
+                const ok = await this.deliverTalkToReceiversOverMesh(
                   tid,
                   talk,
                   receivers,
-                  broadcastTargetTags,
-                  broadcastMaxDistanceMiles,
                   eligibleIds,
                 );
                 if (ok) registeredTalkIds.push(tid);
@@ -3149,22 +2674,6 @@ export class IinPublicApp {
             sent += batchResults.filter(Boolean).length;
           }
           const broadcastableNowForGun = new Set(registeredTalkIds);
-          for (const { tid, talk } of talkPayloads) {
-            if (!broadcastableNowForGun.has(tid)) continue;
-            const announcementKey = this.buildChatroomTalkAnnouncementKey(
-              tid,
-              String(talk.authorId || this.currentUser!.id),
-            );
-            this.publishChatroomTalkAnnouncement(gun, chatroomId, announcementKey, {
-              talkId: tid,
-              title: talk.title,
-              authorId: talk.authorId,
-              authorName: this.currentUser!.stageName,
-              type: talk.type,
-              timestamp: new Date().toISOString(),
-              questionCount: talk.questions?.length ?? 0,
-            });
-          }
           // Phase E: ledger hook — TALK_BROADCAST (one event per broadcasted talk)
           for (const { tid } of talkPayloads.filter(({ tid }) => broadcastableNowForGun.has(tid))) {
             this.ledgerEmit(InteractionKind.TALK_BROADCAST, {
@@ -3275,11 +2784,7 @@ export class IinPublicApp {
     });
 
     this.uiManager.on('needIncomingTalkClusters', () => {
-      if (usesDirectTalkDelivery(this.p2pRuntimeFlags)) {
-        void this.refreshIncomingTalkClustersFromLocalGun();
-      } else {
-        void this.refreshIncomingTalkClustersFromApi();
-      }
+      void this.refreshIncomingTalkClustersFromLocalGun();
     });
 
     this.uiManager.on('needTalkStats', async (data: { talkIds: string[] }) => {
@@ -3811,6 +3316,7 @@ export class IinPublicApp {
       // subscribeToMembers reuses the Gun listener when chatroomId is unchanged (see WebChatroomService)
       this.chatroomService.subscribeToMembers(chatroomId, (members) => {
         this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
+        this.syncPeerMeshRoom(chatroomId, members);
         const chatroomName = this.getChatroomDisplayName(chatroomId);
         this.uiManager.updateStatusBar(
           this.currentUser!.stageName,
@@ -3917,39 +3423,22 @@ export class IinPublicApp {
 
   /**
    * Re-announce a talk to the current room as the current user (for E2E: Bob "sends same talk" to trigger chatbot).
-   * Fetches talk from Gun and puts to chatroom with current user as author.
    */
-  public announceTalkToRoom(talkId: string): Promise<void> {
+  public async announceTalkToRoom(talkId: string): Promise<void> {
     const chatroomId = this.chatroomService.getCurrentChatroomId();
     if (!chatroomId || !this.currentUser) return Promise.reject(new Error('No chatroom or user'));
-
-    const gun = this.gunService.getGun();
-    return new Promise((resolve, reject) => {
-      gun.get(`talks/${talkId}`).once((wrapper: any) => {
-        if (!wrapper || !wrapper.data) {
-          reject(new Error(`Talk not found: ${talkId}`));
-          return;
-        }
-        try {
-          const talkData = JSON.parse(wrapper.data);
-          const announcementKey = this.buildChatroomTalkAnnouncementKey(talkId, this.currentUser!.id);
-          this.publishChatroomTalkAnnouncement(gun, chatroomId, announcementKey, {
-            talkId,
-            title: talkData.title,
-            authorId: this.currentUser!.id,
-            authorName: this.currentUser!.stageName,
-            type: talkData.type,
-            timestamp: new Date().toISOString(),
-            questionCount: talkData.questions?.length ?? 0,
-          });
-          // So we receive responses (e.g. chatbot reply) for this talk
-          this.subscribeToTalkResponses(talkId, talkData);
-          resolve();
-        } catch (e) {
-          reject(e);
-        }
-      });
-    });
+    const talkData = await this.talkService.getTalkWithRetry(talkId, { attempts: 8, gapMs: 200 });
+    if (!talkData) throw new Error(`Talk not found: ${talkId}`);
+    const receivers = await this.resolveBroadcastReceivers(
+      chatroomId,
+      this.uiManager.getCurrentChatroomMembers(),
+    );
+    await this.deliverTalkToReceiversOverMesh(talkId, {
+      ...talkData,
+      id: talkId,
+      authorId: this.currentUser.id,
+      authorName: this.currentUser.stageName,
+    } as Talk, receivers);
   }
 
   /**

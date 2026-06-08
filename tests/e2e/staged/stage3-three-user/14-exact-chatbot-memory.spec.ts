@@ -79,6 +79,7 @@ async function currentUser(page: Page): Promise<{ id: string; name: string }> {
 
 async function deliverTalkToReceiver(
   senderPage: Page,
+  receiverPage: Page,
   sender: { id: string; name: string },
   receiver: { id: string; name: string },
   talkId: string,
@@ -86,14 +87,70 @@ async function deliverTalkToReceiver(
   chatbotEnabled?: boolean,
 ): Promise<any> {
   if (isDirectTalkDeliveryE2e()) {
-    await senderPage.evaluate(
-      async ({ id, data, peerId, peerName }) => {
+    const title = String(talkData?.title || '');
+    const receiverHasTalk = async () =>
+      receiverPage.evaluate(async (needle) => {
         const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
-        if (!app?.sendDirectTalkToPeer) throw new Error('sendDirectTalkToPeer unavailable');
-        await app.sendDirectTalkToPeer(id, data, peerId, peerName);
-      },
-      { id: talkId, data: talkData, peerId: receiver.id, peerName: receiver.name },
-    );
+        await app?.syncIncomingClustersFromServer?.();
+        const clusters = (await app?.getLocalIncomingClustersForE2e?.()) ?? [];
+        return JSON.stringify(clusters).toLowerCase().includes(String(needle).toLowerCase());
+      }, title);
+
+    let lastWarmResults: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const warmResults = await Promise.all([
+        senderPage.evaluate(
+          async ({ peerId, peerName }) => {
+            const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+            const ready = await app?.warmMeshConnectionToPeer?.(peerId, peerName);
+            return {
+              ready: ready === true,
+              diagnostics: app?.peerMeshService?.getDiagnostics?.() ?? null,
+            };
+          },
+          { peerId: receiver.id, peerName: receiver.name },
+        ),
+        receiverPage.evaluate(
+          async ({ peerId, peerName }) => {
+            const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+            const ready = await app?.warmMeshConnectionToPeer?.(peerId, peerName);
+            return {
+              ready: ready === true,
+              diagnostics: app?.peerMeshService?.getDiagnostics?.() ?? null,
+            };
+          },
+          { peerId: sender.id, peerName: sender.name },
+        ),
+      ]);
+      lastWarmResults = warmResults;
+      expect(warmResults, `mesh warm-up failed: ${JSON.stringify(warmResults)}`).toEqual([
+        expect.objectContaining({ ready: true }),
+        expect.objectContaining({ ready: true }),
+      ]);
+      await senderPage.evaluate(
+        async ({ id, data, peerId, peerName }) => {
+          const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+          if (!app?.sendDirectTalkToPeer) throw new Error('sendDirectTalkToPeer unavailable');
+          await app.sendDirectTalkToPeer(id, data, peerId, peerName);
+        },
+        { id: talkId, data: talkData, peerId: receiver.id, peerName: receiver.name },
+      );
+      try {
+        await expect.poll(receiverHasTalk, { timeout: 15_000, intervals: [500, 1000] }).toBe(true);
+        return {
+          registered: true,
+          autoResponded: false,
+          ...(chatbotEnabled === false ? { reason: 'chatbot_disabled' } : {}),
+          directDelivery: true,
+        };
+      } catch (error) {
+        if (attempt === 2) {
+          throw new Error(
+            `mesh talk was not received after retries; warm=${JSON.stringify(lastWarmResults)}; cause=${String(error)}`,
+          );
+        }
+      }
+    }
     return {
       registered: true,
       autoResponded: false,
@@ -238,7 +295,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
     const applePayload = fruitTalk(TITLE_APPLE, 'a_apple', 'Apple', 'a_banana_ignore', 'Banana');
     const appleTalkId = await createTalkFromCompanyPage(pageJerry, applePayload);
     const appleTalkData = { ...applePayload, id: appleTalkId, authorId: jerryIdentity.id };
-    expect(await deliverTalkToReceiver(pageJerry, jerryIdentity, tomIdentity, appleTalkId, appleTalkData)).toMatchObject({
+    expect(await deliverTalkToReceiver(pageJerry, pageTom, jerryIdentity, tomIdentity, appleTalkId, appleTalkData)).toMatchObject({
       registered: true,
       autoResponded: false,
     });
@@ -254,7 +311,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
     const bananaPayload = fruitTalk(TITLE_BANANA, 'a_banana', 'Banana', 'a_mango_ignore', 'Mango');
     const bananaTalkId = await createTalkFromCompanyPage(pageJerry, bananaPayload);
     const bananaTalkData = { ...bananaPayload, id: bananaTalkId, authorId: jerryIdentity.id };
-    expect(await deliverTalkToReceiver(pageJerry, jerryIdentity, tomIdentity, bananaTalkId, bananaTalkData)).toMatchObject({
+    expect(await deliverTalkToReceiver(pageJerry, pageTom, jerryIdentity, tomIdentity, bananaTalkId, bananaTalkData)).toMatchObject({
       registered: true,
       autoResponded: false,
     });
@@ -278,7 +335,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
     const disabledPayload = fruitTalk(TITLE_DISABLED_APPLE, 'a_apple', 'Apple', 'a_orange_ignore', 'Orange');
     const disabledTalkId = await createTalkFromCompanyPage(pageBob, disabledPayload);
     const disabledTalkData = { ...disabledPayload, id: disabledTalkId, authorId: bobIdentity.id };
-    expect(await deliverTalkToReceiver(pageBob, bobIdentity, tomIdentity, disabledTalkId, disabledTalkData, false)).toMatchObject({
+    expect(await deliverTalkToReceiver(pageBob, pageTom, bobIdentity, tomIdentity, disabledTalkId, disabledTalkData, false)).toMatchObject({
       registered: true,
       autoResponded: false,
       reason: 'chatbot_disabled',
@@ -295,7 +352,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
     const reusePayload = fruitTalk(TITLE_REUSE_APPLE, 'a_apple', 'Apple', 'a_orange_ignore', 'Orange');
     const reuseTalkId = await createTalkFromCompanyPage(pageBob, reusePayload);
     const reuseTalkData = { ...reusePayload, id: reuseTalkId, authorId: bobIdentity.id };
-    expect(await deliverTalkToReceiver(pageBob, bobIdentity, tomIdentity, reuseTalkId, reuseTalkData, true)).toMatchObject({
+    expect(await deliverTalkToReceiver(pageBob, pageTom, bobIdentity, tomIdentity, reuseTalkId, reuseTalkData, true)).toMatchObject({
       registered: true,
       autoResponded: false,
     });

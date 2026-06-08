@@ -105,7 +105,6 @@ export function attachGun(server: HttpServer): any {
       starServerPersistence: p2pFlags.starServerPersistence,
       relayOnlyHub: p2pFlags.relayOnlyHub,
       p2pNodeEnabled: p2pFlags.p2pNodeEnabled,
-      p2pDirectChatEnabled: p2pFlags.p2pDirectChatEnabled,
     },
     '🔫 Gun.js attached to HTTP server',
   );

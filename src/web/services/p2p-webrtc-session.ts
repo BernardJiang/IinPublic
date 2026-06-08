@@ -16,6 +16,7 @@ import {
   type HandshakeDiagnostics,
   type P2PHandshakePayload,
 } from '../../shared/p2p-handshake';
+import type { P2PMeshFrame } from '../../shared/p2p-mesh-protocol';
 import { BoundedNonceCache } from '../../shared/p2p-abuse-defense';
 import { P2PSignalingClient, encodeSignalingPayload, type PostSignalingBody } from './p2p-signaling-client';
 
@@ -51,7 +52,12 @@ type LedgerStateWirePayload = {
   feeds: LedgerState;
 };
 
-type ChannelFramePayload = HandshakeWirePayload | DmWirePayload | LedgerStateWirePayload;
+type MeshWirePayload = {
+  type: 'mesh';
+  frame: P2PMeshFrame;
+};
+
+type ChannelFramePayload = HandshakeWirePayload | DmWirePayload | LedgerStateWirePayload | MeshWirePayload;
 
 type SignedChannelWirePayload = {
   type: 'signed-frame';
@@ -117,6 +123,7 @@ export type P2PSessionConfig = {
   isInitiator: boolean;
   getLedgerState?: () => LedgerState;
   onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
+  onRemoteMeshFrame?: (otherUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
   /** REQ-P2P-01: persist inbound DMs to local Gun before UI notify. */
   onRemoteDm?: (wire: DmWirePayload['message']) => void;
 };
@@ -183,6 +190,10 @@ export class P2PConversationSession {
 
   setOnRemoteDm(hook: (wire: DmWirePayload['message']) => void): void {
     this.config.onRemoteDm = hook;
+  }
+
+  setOnRemoteMeshFrame(hook: (otherUserId: string, frame: P2PMeshFrame) => void | Promise<void>): void {
+    this.config.onRemoteMeshFrame = hook;
   }
 
   private setState(state: P2PConnectionState): void {
@@ -445,6 +456,10 @@ export class P2PConversationSession {
       await this.handleLedgerState(parsed.frame.feeds || {});
       return;
     }
+    if (parsed.frame.type === 'mesh') {
+      await this.config.onRemoteMeshFrame?.(this.config.otherUserId, parsed.frame.frame);
+      return;
+    }
     if (parsed.frame.type !== 'dm' || !('message' in parsed.frame) || !parsed.frame.message) return;
     if (!this.ledgerReady && this.config.getLedgerState) return;
     this.ingestWireMessage(parsed.frame.message);
@@ -530,6 +545,14 @@ export class P2PConversationSession {
     const wire = { type: 'dm' as const, message };
     await this.sendChannelFrame(wire);
     this.ingestWireMessage(wire.message, { skipRemotePersist: true });
+  }
+
+  async sendMeshFrame(frame: P2PMeshFrame): Promise<void> {
+    await this.ensureConnected();
+    if (!this.dc || this.dc.readyState !== 'open') {
+      throw new Error('DataChannel not open');
+    }
+    await this.sendChannelFrame({ type: 'mesh', frame });
   }
 
   dispose(): void {

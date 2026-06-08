@@ -12,7 +12,7 @@ import {
 } from './talks-matching-flow';
 import { confirmBroadcastTagPreambleIfVisible } from './broadcast-preamble';
 import { deliverBroadcastViaAppPath, waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
-import { gunBaseURL, isDirectTalkDeliveryE2e } from './ports';
+import { gunBaseURL, isDirectTalkDeliveryE2e, isMeshTalkDeliveryE2e } from './ports';
 
 async function dismissBroadcastPreambleIfOpen(page: Page): Promise<void> {
   const preamble = page.locator('[data-testid="broadcast-preamble-modal"]');
@@ -503,6 +503,7 @@ export async function completeTalkInAppByAnswerIds(
       ]);
     }
   });
+  if (isMeshTalkDeliveryE2e()) return;
   const summaryTalkId = String(talkData?.id || talkId);
   const readSummaryTotal = async () => {
     const res = await page.context().request.get(

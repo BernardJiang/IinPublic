@@ -1,52 +1,7 @@
 import { buildTalkIdentityKey } from './cid';
-import { type SignedP2PEnvelopeProof } from './p2p-runtime';
 
-/** Gun path root for directed talk offers (P0 mesh delivery). */
-export const PEER_TALK_OFFERS_ROOT = 'peerTalkOffers';
-
-/** Author-published full talk body for mesh pull (P0-5). */
-export const PEER_TALK_CATALOG_ROOT = 'peerTalkCatalog';
-
-/** Owner-scoped direct-mode IN index; replaces public incomingTalksByUser for P1. */
+/** Owner-scoped mesh IN index. */
 export const OWNER_INCOMING_TALK_INDEX_ROOT = 'ownerIncomingTalkIndex';
-
-export type PeerTalkCatalogWire = {
-  version: 1;
-  talkId: string;
-  authorId: string;
-  talkData: Record<string, unknown>;
-  updatedAt: string;
-};
-
-export type PeerTalkReferenceWire = {
-  root: typeof PEER_TALK_CATALOG_ROOT;
-  authorId: string;
-  talkId: string;
-};
-
-export type PeerTalkOfferWire = {
-  version: 1;
-  talkId: string;
-  senderId: string;
-  senderName: string;
-  senderPub?: string;
-  senderPeerId?: string;
-  /** Sender SEA epub lets receivers encrypt pair-private responses without waiting for users/<id>. */
-  senderEpub?: string;
-  /** P1: pair offer metadata references the canonical author-owned body. */
-  talkRef: PeerTalkReferenceWire;
-  /** Legacy compatibility only. New direct-mode offers must not include the full body. */
-  talkData?: Record<string, unknown>;
-  createdAt: string;
-  /** Chatroom where the sender broadcast (FR-BM-7 room isolation). */
-  deliveryChatroomId?: string;
-  /** Skip room membership gate (Send My Talks / directed peer send). */
-  directPeerSend?: boolean;
-  timestamp?: string;
-  payloadHash?: string;
-  signature?: string;
-  nonce?: string;
-};
 
 export type IncomingTalkClusterWire = {
   identityKey: string;
@@ -66,16 +21,6 @@ export type IncomingTalkClusterWire = {
   authorLocation?: { latitude: number; longitude: number };
 };
 
-export function buildPeerTalkOfferKey(senderId: string, talkId: string): string {
-  return `${String(senderId || '').trim()}::${String(talkId || '').trim()}`;
-}
-
-export function parsePeerTalkOfferKey(key: string): { senderId: string; talkId: string } | null {
-  const idx = key.indexOf('::');
-  if (idx <= 0) return null;
-  return { senderId: key.slice(0, idx), talkId: key.slice(idx + 2) };
-}
-
 /** Gun cannot store nested arrays; serialize questions/tags before .put on mesh paths. */
 export function gunSafeTalkDataRecord(talkData: Record<string, unknown>): Record<string, unknown> {
   // Serialize through JSON to normalize Date instances into ISO strings.
@@ -91,89 +36,8 @@ export function gunSafeTalkDataRecord(talkData: Record<string, unknown>): Record
   return out;
 }
 
-/** Restore questions/tags after reading a Gun-safe offer or catalog node. */
-export function expandTalkDataFromGunWire(talkData: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...talkData };
-  if (!Array.isArray(out.questions) && typeof out.questionsJson === 'string') {
-    try {
-      out.questions = JSON.parse(out.questionsJson);
-    } catch {
-      /* ignore */
-    }
-  }
-  if (!Array.isArray(out.tags) && typeof out.tagsJson === 'string') {
-    try {
-      out.tags = JSON.parse(out.tagsJson);
-    } catch {
-      /* ignore */
-    }
-  }
-  return out;
-}
-
-export function createPeerTalkOfferWire(params: {
-  talkId: string;
-  senderId: string;
-  senderName: string;
-  senderPub?: string;
-  senderEpub?: string;
-  proof?: SignedP2PEnvelopeProof;
-  talkData: Record<string, unknown>;
-  deliveryChatroomId?: string;
-  directPeerSend?: boolean;
-  includeTalkData?: boolean;
-  now?: Date;
-}): PeerTalkOfferWire {
-  const now = params.now ?? new Date();
-  return {
-    version: 1,
-    talkId: params.talkId,
-    senderId: params.senderId,
-    senderName: params.senderName,
-    ...(params.senderPub ? { senderPub: params.senderPub } : {}),
-    ...(params.proof ? { senderPeerId: params.proof.peerId } : {}),
-    ...(params.senderEpub ? { senderEpub: params.senderEpub } : {}),
-    talkRef: {
-      root: PEER_TALK_CATALOG_ROOT,
-      authorId: params.senderId,
-      talkId: params.talkId,
-    },
-    ...(params.includeTalkData ? { talkData: gunSafeTalkDataRecord(params.talkData) } : {}),
-    createdAt: now.toISOString(),
-    ...(params.deliveryChatroomId ? { deliveryChatroomId: params.deliveryChatroomId } : {}),
-    ...(params.directPeerSend ? { directPeerSend: true } : {}),
-    ...(params.proof
-      ? {
-          timestamp: params.proof.timestamp,
-          payloadHash: params.proof.payloadHash,
-          signature: params.proof.signature,
-          nonce: params.proof.nonce,
-        }
-      : {}),
-  };
-}
-
-export function peerTalkOfferSigningPayload(offer: PeerTalkOfferWire): unknown {
-  return {
-    type: 'peer-talk-offer',
-    talkId: offer.talkId,
-    senderId: offer.senderId,
-    senderName: offer.senderName,
-    senderPub: offer.senderPub,
-    senderEpub: offer.senderEpub,
-    talkRef: {
-      root: PEER_TALK_CATALOG_ROOT,
-      authorId: String(offer.talkRef?.authorId || offer.senderId || ''),
-      talkId: String(offer.talkRef?.talkId || offer.talkId || ''),
-    },
-    createdAt: offer.createdAt,
-    deliveryChatroomId: offer.deliveryChatroomId,
-    directPeerSend: !!offer.directPeerSend,
-  };
-}
-
 /**
- * Merge one delivery into a local incoming cluster (same shape as server incomingTalksMap).
+ * Merge one mesh delivery into a local incoming cluster.
  */
 export function mergeIncomingTalkCluster(
   existing: IncomingTalkClusterWire | null | undefined,
@@ -240,17 +104,4 @@ export function mergeIncomingTalkCluster(
     },
     ...(authorLocation ? { authorLocation } : {}),
   };
-}
-
-export function clusterFromPeerTalkOffer(offer: PeerTalkOfferWire): IncomingTalkClusterWire {
-  if (!offer.talkData) {
-    throw new Error('Peer talk offer must be hydrated before creating an incoming cluster');
-  }
-  return mergeIncomingTalkCluster(null, {
-    talkId: offer.talkId,
-    talkData: expandTalkDataFromGunWire(offer.talkData),
-    senderId: offer.senderId,
-    senderName: offer.senderName,
-    now: new Date(offer.createdAt),
-  });
 }

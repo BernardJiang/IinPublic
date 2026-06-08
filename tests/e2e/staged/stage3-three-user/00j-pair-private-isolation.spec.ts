@@ -23,7 +23,7 @@ import {
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { prepareDirectP2PConversation, assertGunStoredMessageBodies } from '../../helpers/p2p-transport-e2e';
-import { gunBaseURL } from '../../helpers/ports';
+import { gunBaseURL, isMeshTalkDeliveryE2e } from '../../helpers/ports';
 
 type UserIdentity = { id: string; stageName: string; epub?: string };
 
@@ -138,6 +138,48 @@ async function assertCanonicalTalkBodyDedup(
   }
 }
 
+async function assertNoLegacyTalkDeliveryGraph(
+  page: Page,
+  authorId: string,
+  talkId: string,
+  receiverIds: string[],
+): Promise<void> {
+  const res = await page.request.get(`${gunBaseURL()}/api/test/export-snapshot`, {
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  expect(res.ok()).toBeTruthy();
+  const body = (await res.json()) as { gunGraph?: Record<string, any> };
+  const graph = body.gunGraph ?? {};
+  expect(graph[`peerTalkCatalog/${authorId}/${talkId}`]).toBeFalsy();
+  for (const receiverId of receiverIds) {
+    const offerNodes = Object.keys(graph).filter((soul) => soul.startsWith(`peerTalkOffers/${receiverId}/`));
+    expect(offerNodes).toHaveLength(0);
+  }
+}
+
+async function waitForLocalTalkExchange(
+  page: Page,
+  peerId: string,
+  talkId: string,
+  outcome: 'match' | 'mismatch' | 'ignore',
+): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          ({ pid, tid, expected }) => {
+            const raw = localStorage.getItem('localTalkExchanges');
+            const rows = raw ? JSON.parse(raw) : {};
+            const row = rows[`${pid}::${tid}`];
+            return row?.outcome === expected;
+          },
+          { pid: peerId, tid: talkId, expected: outcome },
+        ),
+      { timeout: 30_000, intervals: [300, 600, 1000] },
+    )
+    .toBe(true);
+}
+
 test.describe('Pair-private graph isolation', () => {
   let browsers: ThreeBrowsers;
   let browserBob: Browser;
@@ -230,26 +272,37 @@ test.describe('Pair-private graph isolation', () => {
     await completeTalkInAppByAnswerIds(pageAlice, talkId, talkData, [matchAnswerId], 'match');
 
     const bobAlicePairId = [bobUser.id, aliceUser.id].sort().join('__');
-    await expect
-      .poll(async () => collectRawPairResponses(pageBob!, bobAlicePairId, talkId), {
-        timeout: 20_000,
-        intervals: [500, 1000],
-      })
-      .toHaveLength(1);
+    if (isMeshTalkDeliveryE2e()) {
+      await waitForLocalTalkExchange(pageBob, aliceUser.id, talkId, 'match');
+      expect(await collectRawPairResponses(pageBob, bobAlicePairId, talkId)).toHaveLength(0);
+      const tomDecryption = await thirdPartyDecryptPairResponses(pageTom, bobAlicePairId, talkId, [
+        bobUser.id,
+        aliceUser.id,
+      ]);
+      expect(tomDecryption.visible).toBe(0);
+      expect(tomDecryption.decrypted).toHaveLength(0);
+    } else {
+      await expect
+        .poll(async () => collectRawPairResponses(pageBob!, bobAlicePairId, talkId), {
+          timeout: 20_000,
+          intervals: [500, 1000],
+        })
+        .toHaveLength(1);
 
-    const rawResponses = await collectRawPairResponses(pageBob, bobAlicePairId, talkId);
-    const rawResponseJson = JSON.stringify(rawResponses);
-    expect(rawResponses[0]?.encryption).toBe('sea-ecdh-v1');
-    expect(typeof rawResponses[0]?.payloadCiphertext).toBe('string');
-    expect(rawResponseJson.includes(aliceAnswerText)).toBe(false);
-    expect(rawResponseJson.includes('Alice P1')).toBe(false);
-    expect(rawResponseJson.includes('Bob P1')).toBe(false);
+      const rawResponses = await collectRawPairResponses(pageBob, bobAlicePairId, talkId);
+      const rawResponseJson = JSON.stringify(rawResponses);
+      expect(rawResponses[0]?.encryption).toBe('sea-ecdh-v1');
+      expect(typeof rawResponses[0]?.payloadCiphertext).toBe('string');
+      expect(rawResponseJson.includes(aliceAnswerText)).toBe(false);
+      expect(rawResponseJson.includes('Alice P1')).toBe(false);
+      expect(rawResponseJson.includes('Bob P1')).toBe(false);
 
-    const tomDecryption = await thirdPartyDecryptPairResponses(pageTom, bobAlicePairId, talkId, [
-      bobUser.id,
-      aliceUser.id,
-    ]);
-    expect(tomDecryption.decrypted).toHaveLength(0);
+      const tomDecryption = await thirdPartyDecryptPairResponses(pageTom, bobAlicePairId, talkId, [
+        bobUser.id,
+        aliceUser.id,
+      ]);
+      expect(tomDecryption.decrypted).toHaveLength(0);
+    }
 
     const conversationId = await prepareDirectP2PConversation(
       pageBob,
@@ -270,7 +323,11 @@ test.describe('Pair-private graph isolation', () => {
     );
 
     await assertGunStoredMessageBodies(pageBob, conversationId, 1, [dmText]);
-    await assertCanonicalTalkBodyDedup(pageBob, bobUser.id, talkId, [aliceUser.id, tomUser.id]);
+    if (isMeshTalkDeliveryE2e()) {
+      await assertNoLegacyTalkDeliveryGraph(pageBob, bobUser.id, talkId, [aliceUser.id, tomUser.id]);
+    } else {
+      await assertCanonicalTalkBodyDedup(pageBob, bobUser.id, talkId, [aliceUser.id, tomUser.id]);
+    }
 
     const snapshot = await pageTom.request.get(`${gunBaseURL()}/api/test/export-snapshot`, {
       headers: { 'Cache-Control': 'no-cache' },

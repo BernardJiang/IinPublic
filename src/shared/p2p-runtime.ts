@@ -5,12 +5,11 @@ export type StarServerPersistencePolicy = 'durable' | 'ephemeral';
 export type P2PRuntimeFlags = {
   starServerPersistence: StarServerPersistencePolicy;
   p2pNodeEnabled: boolean;
-  p2pDirectChatEnabled: boolean;
   /** Production relay-only hub (`www.iinpublic.com`) — no application radata. */
   relayOnlyHub: boolean;
   /** Mirror server incoming-talk snapshots into local Gun (P2P-L). */
   p2pClientTalkMirror: boolean;
-  /** P0: deliver talks via peer Gun offers + local IN index (not server incomingTalksMap). */
+  /** P0: deliver talks via peer Gun offers + local IN index (not server incomingTalksMap). Always true — star delivery removed. */
   p2pDirectTalkDelivery: boolean;
 };
 
@@ -446,25 +445,12 @@ function readEnv(key: string): string | undefined {
   return undefined;
 }
 
-/** E2E/browser override via `/?e2e_p0_talks=1` (see `webAppURLStableChatroom` in tests/e2e/helpers/ports.ts). */
-function readBrowserE2eFlag(param: string): string | undefined {
-  if (typeof window === 'undefined') return undefined;
-  try {
-    const v = new URLSearchParams(window.location.search).get(param);
-    return v == null || v === '' ? undefined : v;
-  } catch {
-    return undefined;
-  }
-}
 
 function parseBooleanFlag(value: string | undefined, fallback: boolean): boolean {
   if (value == null || value.trim() === '') return fallback;
   return ['1', 'true', 'yes', 'on', 'enabled'].includes(value.trim().toLowerCase());
 }
 
-function parsePersistencePolicy(value: string | undefined): StarServerPersistencePolicy {
-  return value === 'ephemeral' ? 'ephemeral' : 'durable';
-}
 
 function sortObjectKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortObjectKeys);
@@ -634,30 +620,25 @@ export function p2pDataChannelSigningPayload(body: {
 export function resolveP2PRuntimeFlags(env: Record<string, string | undefined> = {}): P2PRuntimeFlags {
   const get = (key: string): string | undefined => env[key] ?? readEnv(key);
   const relayOnlyHub = parseBooleanFlag(get('RELAY_ONLY_HUB'), false);
-  const urlP0 = readBrowserE2eFlag('e2e_p0_talks');
-  // Direct pair-to-pair talk delivery is the default: talks are delivered via peer
-  // Gun offers and a receiver-owned IN index; the server is only a discovery/connection
-  // relay. Set P0_DIRECT_TALK_DELIVERY=0 to fall back to legacy star-mode delivery.
-  const p0DirectTalkDelivery = parseBooleanFlag(
-    urlP0 ?? get('P0_DIRECT_TALK_DELIVERY'),
-    true,
-  );
-  const starServerPersistence = relayOnlyHub
-    ? 'ephemeral'
-    : parsePersistencePolicy(get('STAR_SERVER_PERSISTENCE'));
+  // Mesh talk delivery is always on — star topology removed.
+  const starServerPersistence: StarServerPersistencePolicy = 'ephemeral';
   return {
     starServerPersistence,
     p2pNodeEnabled: parseBooleanFlag(get('P2P_NODE_ENABLED'), false),
-    p2pDirectChatEnabled: parseBooleanFlag(get('P2P_DIRECT_CHAT_ENABLED'), false),
     relayOnlyHub,
     p2pClientTalkMirror: parseBooleanFlag(get('P2P_CLIENT_TALK_MIRROR'), true),
-    p2pDirectTalkDelivery: p0DirectTalkDelivery || relayOnlyHub,
+    p2pDirectTalkDelivery: true,
   };
 }
 
-/** P0 Phase B: browsers exchange talks over Gun mesh; server is discovery relay only. */
+/** Compatibility shim for call sites that mean "talk delivery is not server-star authoritative". */
 export function usesDirectTalkDelivery(flags: P2PRuntimeFlags): boolean {
   return flags.p2pDirectTalkDelivery;
+}
+
+/** Mesh talk delivery is always on — star delivery removed. */
+export function usesMeshTalkDelivery(_flags: P2PRuntimeFlags): boolean {
+  return true;
 }
 
 /** P2P-K: peer DM bodies must not durably persist on the public hub (TechSupport excepted). */
@@ -674,8 +655,6 @@ export function shouldSkipServerGunPersist(
   if (path[0] === 'conversations' && path.length >= 3 && path[2] === 'messages') return true;
   if (path[0] === 'talks') return true;
   if (path[0] === 'incomingTalksByUser') return true;
-  if (path[0] === 'peerTalkOffers') return true;
-  if (path[0] === 'peerTalkCatalog') return true;
   if (
     path[0] === 'chatrooms' &&
     path.length >= 3 &&
@@ -757,22 +736,6 @@ export function classifyServerConnectorPath(path: string[] | string): ServerConn
       reason: 'Incoming talk bodies must not be server inbox state in direct mode.',
     };
   }
-  if (root === 'peerTalkOffers') {
-    return {
-      kind: 'legacy-public-peer-offer',
-      serverCanPersistBody: false,
-      deprecatedPublicPath: true,
-      reason: 'Offer records must carry encrypted pair metadata or references, not plaintext talk bodies.',
-    };
-  }
-  if (root === 'peerTalkCatalog') {
-    return {
-      kind: 'legacy-public-peer-catalog',
-      serverCanPersistBody: false,
-      deprecatedPublicPath: true,
-      reason: 'Per-receiver owner indices replace the public peer talk catalog.',
-    };
-  }
   return {
     kind: 'unknown',
     serverCanPersistBody: true,
@@ -782,23 +745,15 @@ export function classifyServerConnectorPath(path: string[] | string): ServerConn
 }
 
 export function createConversationTransportDiagnostics(
-  flags: P2PRuntimeFlags = resolveP2PRuntimeFlags(),
+  _flags: P2PRuntimeFlags = resolveP2PRuntimeFlags(),
 ): ConversationTransportDiagnostics {
-  if (flags.p2pDirectChatEnabled) {
-    return {
-      activeMode: 'direct-p2p',
-      availableModes: ['star-gun', 'server-relay', 'direct-p2p'],
-      messageBodyStorage: 'gun-local',
-      receiptsStorage: 'gun-local',
-      fallback: 'server-relay',
-    };
-  }
+  // Direct P2P is always active — star-gun transport removed.
   return {
-    activeMode: 'star-gun',
+    activeMode: 'direct-p2p',
     availableModes: ['star-gun', 'server-relay', 'direct-p2p'],
-    messageBodyStorage: 'gun-legacy',
-    receiptsStorage: 'gun-legacy',
-    fallback: null,
+    messageBodyStorage: 'gun-local',
+    receiptsStorage: 'gun-local',
+    fallback: 'server-relay',
   };
 }
 
@@ -1324,7 +1279,7 @@ export const STAR_GUN_PATH_CLASSIFICATIONS = [
   {
     path: 'talks/{talkId}',
     category: 'encrypted-user-owned',
-    purpose: 'Author-owned canonical talk definitions referenced by direct pair offers.',
+    purpose: 'Author-owned canonical talk definitions mirrored locally for mesh delivery.',
   },
   {
     path: 'incomingTalksByUser/{userId}',
@@ -1334,7 +1289,7 @@ export const STAR_GUN_PATH_CLASSIFICATIONS = [
   {
     path: 'ownerIncomingTalkIndex/{userId}',
     category: 'encrypted-user-owned',
-    purpose: 'Direct-mode receiver-owned IN index hydrated from pair offers.',
+    purpose: 'Receiver-owned IN index hydrated from mesh talk bodies.',
   },
   {
     path: 'conversations/{conversationId}',

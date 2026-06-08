@@ -93,7 +93,7 @@ export async function waitForDirectP2PChannel(
 
 /**
  * After a match: wait for server conversations, open overlays on both peers, connect WebRTC.
- * Use before sending DMs in default `P2P_DIRECT_CHAT_ENABLED=1` e2e runs.
+ * Use before sending DMs — direct P2P is always active.
  */
 export async function prepareDirectP2PConversation(
   pageA: Page,

@@ -25,7 +25,7 @@ export class BroadcastTagPopularityStore {
     m.set(dayKey, (m.get(dayKey) ?? 0) + 1);
   }
 
-  /** Called once when `register-receivers-for-broadcast` includes non-empty targeting tags */
+  /** Called once per bulk broadcast with non-empty targeting tags. */
   recordFromTargetTags(tagStrings: readonly string[]): void {
     const seen = new Set<string>();
     const dayKey = this.utcDayKey(new Date());

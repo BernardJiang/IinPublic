@@ -161,23 +161,25 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     expect(copiedId).toBeTruthy();
     await pageJerry.click('#talks-nav-out');
     await afterSync();
+    const copiedBroadcastToggle = () =>
+      pageJerry.locator(`.talk-broadcast-toggle-btn[data-talk-id="${copiedId}"]`).first();
     const copiedOut = pageJerry.locator('.talk-list-item[data-role="copied"]').filter({ hasText: copiedTitle }).first();
     await expect(copiedOut).toBeVisible({ timeout: 30_000 });
     await expect(copiedOut).toHaveClass(/talk-broadcast-enabled/);
     await expect(copiedOut.locator('.talk-badge-broadcast-enabled, .talk-badge-broadcast-disabled')).toHaveCount(0);
-    await expect(copiedOut.locator('.talk-broadcast-toggle-btn')).toContainText('Broadcast On');
-    await expect(copiedOut.locator('.talk-broadcast-toggle-btn')).toHaveAttribute('data-broadcast-enabled', 'true');
+    await expect(copiedBroadcastToggle()).toContainText('Broadcast On');
+    await expect(copiedBroadcastToggle()).toHaveAttribute('data-broadcast-enabled', 'true');
     await expect(copiedOut.locator('.edit-talk-btn')).toHaveCount(0);
 
-    await copiedOut.locator('.talk-broadcast-toggle-btn').click();
+    await copiedBroadcastToggle().dispatchEvent('mousedown', { button: 0, bubbles: true, cancelable: true });
     await expect(copiedOut).toHaveClass(/talk-broadcast-disabled/);
-    await expect(copiedOut.locator('.talk-broadcast-toggle-btn')).toContainText('Broadcast Off');
-    await expect(copiedOut.locator('.talk-broadcast-toggle-btn')).toHaveAttribute('data-broadcast-enabled', 'false');
+    await expect(copiedBroadcastToggle()).toContainText('Broadcast Off');
+    await expect(copiedBroadcastToggle()).toHaveAttribute('data-broadcast-enabled', 'false');
 
-    await copiedOut.locator('.talk-broadcast-toggle-btn').click();
+    await copiedBroadcastToggle().dispatchEvent('mousedown', { button: 0, bubbles: true, cancelable: true });
     await expect(copiedOut).toHaveClass(/talk-broadcast-enabled/);
-    await expect(copiedOut.locator('.talk-broadcast-toggle-btn')).toContainText('Broadcast On');
-    await expect(copiedOut.locator('.talk-broadcast-toggle-btn')).toHaveAttribute('data-broadcast-enabled', 'true');
+    await expect(copiedBroadcastToggle()).toContainText('Broadcast On');
+    await expect(copiedBroadcastToggle()).toHaveAttribute('data-broadcast-enabled', 'true');
 
     await copiedOut.evaluate((row: HTMLElement) => row.click());
     await expect(pageJerry.locator('#talk-editor-modal')).toBeVisible({ timeout: 15_000 });

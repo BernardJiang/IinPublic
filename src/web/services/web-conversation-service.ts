@@ -1,6 +1,5 @@
 import { WebGunService } from './web-gun-service';
 import { Message } from '../../shared/types';
-import { resolveP2PRuntimeFlags } from '../../shared/p2p-runtime';
 import type { ConversationTransportMode, P2PRuntimeFlags } from '../../shared/p2p-runtime';
 import type { LedgerState } from '../../shared/types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
@@ -30,17 +29,6 @@ export type ConversationTransport = {
   ): () => void;
 };
 
-function resolveRuntimeFlags(): P2PRuntimeFlags {
-  return resolveP2PRuntimeFlags(
-    typeof process !== 'undefined'
-      ? {
-          P2P_DIRECT_CHAT_ENABLED: process.env.P2P_DIRECT_CHAT_ENABLED,
-          P2P_NODE_ENABLED: process.env.P2P_NODE_ENABLED,
-          STAR_SERVER_PERSISTENCE: process.env.STAR_SERVER_PERSISTENCE,
-        }
-      : {},
-  );
-}
 
 export class WebConversationService {
   private transport: ConversationTransport;
@@ -62,10 +50,8 @@ export class WebConversationService {
     if (transport) {
       this.transport = transport;
     } else {
-      const flags = resolveRuntimeFlags();
-      this.transport = flags.p2pDirectChatEnabled
-        ? this.createResilientTransport()
-        : this.starTransport;
+      // Direct P2P is always active — star-gun transport removed.
+      this.transport = this.createResilientTransport();
     }
   }
 
@@ -135,10 +121,9 @@ export class WebConversationService {
   }
 
   /** Align client transport with server/runtime flags (E2E webpack env + production hub). */
-  applyRuntimeTransportFlags(flags: P2PRuntimeFlags): void {
-    const desired: ConversationTransport = flags.p2pDirectChatEnabled
-      ? this.createResilientTransport()
-      : this.starTransport;
+  applyRuntimeTransportFlags(_flags: P2PRuntimeFlags): void {
+    // Direct P2P is always active — star-gun transport removed.
+    const desired = this.createResilientTransport();
     if (this.transport.mode !== desired.mode) {
       this.transport = desired;
       console.log(`🔀 Conversation transport set to ${desired.mode}`);

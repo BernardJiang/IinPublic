@@ -67,11 +67,8 @@ describe('system routes', () => {
     process.env = { ...originalEnv };
   });
 
-  it('reports star-mode storage policy and path classifications in non-production', async () => {
-    process.env.STAR_SERVER_PERSISTENCE = 'durable';
+  it('reports storage policy and path classifications in non-production', async () => {
     process.env.P2P_NODE_ENABLED = 'false';
-    process.env.P2P_DIRECT_CHAT_ENABLED = 'false';
-    process.env.P0_DIRECT_TALK_DELIVERY = 'false';
 
     const { app } = buildApp();
     const res = await request(app).get('/api/debug/storage');
@@ -84,12 +81,11 @@ describe('system routes', () => {
       routes: 'HTTP/Socket API',
     });
     expect(res.body.flags).toEqual({
-      starServerPersistence: 'durable',
+      starServerPersistence: 'ephemeral',
       p2pNodeEnabled: false,
-      p2pDirectChatEnabled: false,
       relayOnlyHub: false,
       p2pClientTalkMirror: true,
-      p2pDirectTalkDelivery: false,
+      p2pDirectTalkDelivery: true,
     });
     expect(res.body.localNode).toEqual(
       expect.objectContaining({
@@ -132,9 +128,9 @@ describe('system routes', () => {
     );
     expect(res.body.conversationTransport).toEqual(
       expect.objectContaining({
-        activeMode: 'star-gun',
+        activeMode: 'direct-p2p',
         availableModes: ['star-gun', 'server-relay', 'direct-p2p'],
-        messageBodyStorage: 'gun-legacy',
+        messageBodyStorage: 'gun-local',
       }),
     );
     expect(res.body.p2pNetworkProtocol).toEqual(
@@ -168,7 +164,7 @@ describe('system routes', () => {
     expect(res.body.serverPersistence).toEqual(
       expect.objectContaining({
         radisk: true,
-        policy: 'durable',
+        policy: 'ephemeral',
         graphSouls: 3,
       }),
     );

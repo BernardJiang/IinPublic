@@ -10,7 +10,7 @@ import {
   p2pSignalingSigningPayload,
 } from '../../../../src/shared/p2p-runtime';
 
-const P2P_DIRECT_ENABLED = process.env.P2P_DIRECT_CHAT_ENABLED !== '0';
+const P2P_DIRECT_ENABLED = true; // Direct P2P is always active — star transport removed.
 
 test.describe('P2P roadmap P4 — conversation transport and signaling', () => {
   let context: BrowserContext | undefined;

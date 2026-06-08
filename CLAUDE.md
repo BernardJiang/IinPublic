@@ -39,8 +39,6 @@ npx playwright test tests/e2e/talks-matching/12-two-responders-partial-match.spe
 PW_WORKERS=4 npm run test:e2e
 # Full suite, 20 workers, 10 min/test timeout (see playwright.config.ts):
 npm run test:e2e:parallel
-# Star-gun DM regression (P2P off):
-npm run test:e2e:star
 # Slow-motion for human watching:
 PW_SLOW_MO=500 npm run test:e2e
 ```
@@ -150,10 +148,8 @@ Four talk types share the same `Talk` struct but behave differently:
 
 ### Direct P2P conversation transport
 
-When `P2P_DIRECT_CHAT_ENABLED=1` (default in Playwright `webServer` / Gun spawn), post-match DMs use `DirectP2PConversationTransport`: messages persist to local Gun (`conversations/.../messages`) and WebRTC notifies the peer (P2P-H). Hub replication remains during star migration until P2P-K. The web app syncs transport mode from `GET /api/debug/storage` flags at boot.
+Post-match DMs always use `DirectP2PConversationTransport` (star-gun removed): messages persist to local Gun (`conversations/.../messages`) and WebRTC notifies the peer. The web app syncs transport mode from `GET /api/debug/storage` flags at boot.
 
-- Default E2E: `P2P_DIRECT_CHAT_ENABLED=1` (see `playwright.config.ts`)
-- Star-gun regression: `npm run test:e2e:star` (`P2P_DIRECT_CHAT_ENABLED=0`)
 - Helpers: `tests/e2e/helpers/p2p-transport-e2e.ts` (`P2P_E2E_TIMEOUT_MS=10s`), `tests/e2e/helpers/webrtc-chromium.ts`
 - Runtime WebRTC connect timeout: `P2P_WEBRTC_CONNECT_TIMEOUT_MS` (10s) in `p2p-webrtc-session.ts`
 

@@ -48,6 +48,12 @@ type ClassifiedPeerTalk = {
   omitReasons: PeerSendOmitReason[];
 };
 
+function resolveExpiresAtMs(value: unknown): number {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string' && value.trim()) return new Date(value).getTime();
+  return Number.NaN;
+}
+
 function omitReasonLabel(deps: UserDetailViewDeps, reason: PeerSendOmitReason): string {
   const key: UiTranslationKey = reason === 'talk_expired'
     ? 'reasonTalkExpired'
@@ -70,7 +76,8 @@ function classifyPeerSendTalks(
     const omitReasons: PeerSendOmitReason[] = [];
     if (talk?.disabled) omitReasons.push('broadcast_disabled');
     const expiresAt = talk?.expiresAt ?? talk?.fullTalk?.expiresAt;
-    if (typeof expiresAt === 'number' && now > expiresAt) omitReasons.push('talk_expired');
+    const expiresAtMs = resolveExpiresAtMs(expiresAt);
+    if (Number.isFinite(expiresAtMs) && now > expiresAtMs) omitReasons.push('talk_expired');
     if (alreadySentIds.has(talkId) || alreadySentIds.has(contentId)) omitReasons.push('peer_already_sent');
     const entry: ClassifiedPeerTalk = { talkId, talk, eligible: omitReasons.length === 0, omitReasons };
     if (entry.eligible) eligible.push(entry);

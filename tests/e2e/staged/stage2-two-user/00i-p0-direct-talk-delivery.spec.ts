@@ -13,7 +13,7 @@ import {
   completeTalkInAppByAnswerIds,
   findIncomingTalkIdByTitle,
 } from '../../helpers/talk-demo-ui';
-import { gunBaseURL } from '../../helpers/ports';
+import { isMeshTalkDeliveryE2e } from '../../helpers/ports';
 
 test.describe('Pair-direct talk delivery over Gun mesh', () => {
   let browserTom: Browser;
@@ -48,6 +48,12 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
       await expect
         .poll(() => pageJerry.evaluate(() => !!window.__iinpublic_app?.getApp?.()?.isDirectTalkDeliveryEnabled?.()))
         .toBe(true);
+      await expect
+        .poll(() => pageTom.evaluate(() => !!window.__iinpublic_app?.getApp?.()?.isMeshTalkDeliveryEnabled?.()))
+        .toBe(true);
+      await expect
+        .poll(() => pageJerry.evaluate(() => !!window.__iinpublic_app?.getApp?.()?.isMeshTalkDeliveryEnabled?.()))
+        .toBe(true);
 
       await pageTom.click('.chatroom-item:has-text("Global")');
       await pageJerry.click('.chatroom-item:has-text("Global")');
@@ -64,17 +70,9 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
       );
       expect(jerryId).toBeTruthy();
 
-      const serverInbox = await pageJerry.context().request.get(
-        `${gunBaseURL()}/api/users/${encodeURIComponent(jerryId)}/incoming-talks`,
-        { headers: { 'Cache-Control': 'no-cache' } },
-      );
-      expect(serverInbox.ok()).toBe(true);
-      expect(serverInbox.headers()['x-p0-direct-talk-delivery']).toBe('1');
-      const serverClusters = await serverInbox.json();
-      expect(Array.isArray(serverClusters) ? serverClusters.length : -1).toBe(0);
-
       await waitForIncomingTalkClusterOnLocalGun(pageJerry, title, { timeout: 60_000, polling: 500 });
 
+      const meshMode = isMeshTalkDeliveryE2e();
       const directDeliveryGraph = await pageJerry.evaluate(async (receiverId) => {
         const app = window.__iinpublic_app?.getApp?.();
         const gun = app?.gunService?.getGun?.();
@@ -118,11 +116,17 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
           legacyRoomTalkCount: legacyRoomTalks.length,
         };
       }, jerryId);
-      expect(directDeliveryGraph.offerCount).toBeGreaterThan(0);
-      expect(directDeliveryGraph.offersWithBody).toBe(0);
+      if (meshMode) {
+        expect(directDeliveryGraph.offerCount).toBe(0);
+        expect(directDeliveryGraph.offersWithBody).toBe(0);
+        expect(directDeliveryGraph.announcementCount).toBe(0);
+      } else {
+        expect(directDeliveryGraph.offerCount).toBeGreaterThan(0);
+        expect(directDeliveryGraph.offersWithBody).toBe(0);
+        expect(directDeliveryGraph.announcementCount).toBeGreaterThan(0);
+      }
       expect(directDeliveryGraph.ownerIndexCount).toBeGreaterThan(0);
       expect(directDeliveryGraph.legacyIndexCount).toBe(0);
-      expect(directDeliveryGraph.announcementCount).toBeGreaterThan(0);
       expect(directDeliveryGraph.legacyRoomTalkCount).toBe(0);
 
       await pageJerry.click('.nav-btn[data-view="talks"]');
@@ -190,7 +194,11 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
             ),
           { timeout: 20_000, intervals: [500, 1000] },
         )
-        .toEqual({ pairResponses: 1, legacyResponses: 0, encryptedResponses: 1, plaintextLeaks: 0 });
+        .toEqual(
+          meshMode
+            ? { pairResponses: 0, legacyResponses: 0, encryptedResponses: 0, plaintextLeaks: 0 }
+            : { pairResponses: 1, legacyResponses: 0, encryptedResponses: 1, plaintextLeaks: 0 },
+        );
     } finally {
       await tom.context.close().catch(() => {});
       await jerry.context.close().catch(() => {});
