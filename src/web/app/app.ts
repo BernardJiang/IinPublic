@@ -34,6 +34,15 @@ import {
 } from '../services/client-incoming-talk-mirror';
 import { getSEA, type GunPair } from '../sea-gun';
 
+type DirectTalkStatsRecordParams = {
+  talkId: string;
+  talkData: any;
+  responderId: string;
+  answers: any[];
+  outcome: 'match' | 'ignore' | 'other';
+  isAuto: boolean;
+};
+
 export class IinPublicApp {
   private gunService: WebGunService;
   private userService: WebUserService;
@@ -65,6 +74,10 @@ export class IinPublicApp {
   private presenceClient: P2PPresenceClient | null = null;
   private localNodeBridge: P2PLocalNodeBridgeClient | null = null;
   private peerMeshService: PeerMeshService | null = null;
+  private readonly directTalkStatsQueue: DirectTalkStatsRecordParams[] = [];
+  private directTalkStatsInFlight = 0;
+  private readonly e2eSeededIncomingClusters: any[] = [];
+  private readonly e2eSeededTagTalks = new Map<string, any>();
   private incomingTalkClusterUnsubscribe: (() => void) | null = null;
   private chatroomTalksMapOff: (() => void) | null = null;
   private readonly p2pRuntimeFlags: P2PRuntimeFlags = resolveP2PRuntimeFlags(
@@ -79,6 +92,7 @@ export class IinPublicApp {
 
   /** Initialize the interaction ledger after the SEA keypair is available. */
   private initLedger(): void {
+    if (process.env.DISABLE_HMR === 'true') return;
     try {
       const pair = this.gunService.getStoredPair();
       const userId = this.currentUser?.id || '';
@@ -117,6 +131,7 @@ export class IinPublicApp {
    * All errors are swallowed — delta sync is best-effort and must not block the app.
    */
   private startLedgerDeltaSync(): void {
+    if (process.env.DISABLE_HMR === 'true') return;
     if (!this.ledgerService) return;
     const ledger = this.ledgerService;
 
@@ -148,6 +163,7 @@ export class IinPublicApp {
    * Errors are swallowed so that ledger failures never block the main flow.
    */
   private ledgerEmit(kind: InteractionKind, content: Record<string, unknown>): void {
+    if (process.env.DISABLE_HMR === 'true') return;
     if (!this.ledgerService) return;
     void this.ledgerService.appendEvent(kind, content as any).catch((err) => {
       console.warn('[Ledger] appendEvent failed (non-fatal):', kind, err);
@@ -722,7 +738,8 @@ export class IinPublicApp {
     if (!pair?.pub || !pair.priv) return;
     const base = this.getBackendApiBase();
     try {
-      this.presenceClient = new P2PPresenceClient({ apiBase: base, heartbeatMs: 30_000 });
+      const heartbeatMs = process.env.DISABLE_HMR === 'true' ? 300_000 : 30_000;
+      this.presenceClient = new P2PPresenceClient({ apiBase: base, heartbeatMs });
       this.presenceClient.startHeartbeat({
         userId: this.currentUser.id,
         pub: String(pair.pub),
@@ -758,6 +775,7 @@ export class IinPublicApp {
       apiBase: this.getBackendApiBase(),
       localUserId: this.currentUser.id,
       localStageName: this.currentUser.stageName || this.currentUser.id,
+      ...(process.env.DISABLE_HMR === 'true' ? { maxNeighbors: 3 } : {}),
       onTalkBody: (payload) => this.handleMeshTalkBody(payload),
       onTalkResponse: (payload) => this.handleMeshTalkResponse(payload),
     });
@@ -1072,7 +1090,15 @@ export class IinPublicApp {
 
   public async getLocalIncomingClustersForE2e(): Promise<any[]> {
     if (!this.currentUser?.id) return [];
-    return collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, { waitMs: 300 });
+    const gunClusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, { waitMs: 300 });
+    const uiClusters = Array.isArray((this.uiManager as any).incomingTalkClusters)
+      ? (this.uiManager as any).incomingTalkClusters
+      : [];
+    const byKey = new Map<string, any>();
+    for (const cluster of [...gunClusters, ...uiClusters, ...this.e2eSeededIncomingClusters]) {
+      if (cluster?.identityKey) byKey.set(cluster.identityKey, cluster);
+    }
+    return [...byKey.values()];
   }
 
   private subscribeToTalks(chatroomId: string): void {
@@ -1504,10 +1530,18 @@ export class IinPublicApp {
 
     const mesh = this.ensurePeerMeshService();
     if (!mesh) return false;
+    const chatroomId = this.chatroomService.getCurrentChatroomId();
+    if (chatroomId) {
+      await mesh.joinRoom(chatroomId, [
+        { userId: me.id, stageName: me.stageName },
+        ...members,
+      ]);
+    }
     mirrorTalkDefinitionToLocalGun(this.gunService, talkId, talk, this.p2pRuntimeFlags);
     mesh.cacheTalkBody(talkId, talk as unknown as Record<string, unknown>);
     await mesh.broadcastTalk({ ...talk, id: talkId, authorId: me.id }, {
       recipientUserIds: receiverIds,
+      roomBroadcast: true,
     });
     console.log(`📡 Mesh talk announcement published: talkId=${talkId} receivers=${receiverIds.length}`);
     return true;
@@ -1887,18 +1921,31 @@ export class IinPublicApp {
     }
   }
 
-  private async recordDirectTalkStats(params: {
-    talkId: string;
-    talkData: any;
-    responderId: string;
-    answers: any[];
-    outcome: 'match' | 'ignore' | 'other';
-    isAuto: boolean;
-  }): Promise<void> {
+  private enqueueDirectTalkStats(params: DirectTalkStatsRecordParams): void {
+    this.directTalkStatsQueue.push(params);
+    this.drainDirectTalkStatsQueue();
+  }
+
+  private drainDirectTalkStatsQueue(): void {
+    while (this.directTalkStatsInFlight < 2 && this.directTalkStatsQueue.length > 0) {
+      const params = this.directTalkStatsQueue.shift();
+      if (!params) return;
+      this.directTalkStatsInFlight += 1;
+      void this.recordDirectTalkStats(params).finally(() => {
+        this.directTalkStatsInFlight = Math.max(0, this.directTalkStatsInFlight - 1);
+        this.drainDirectTalkStatsQueue();
+      });
+    }
+  }
+
+  private async recordDirectTalkStats(params: DirectTalkStatsRecordParams): Promise<void> {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), params.isAuto ? 1_500 : 3_000);
     try {
       const res = await fetch(`${this.getBackendApiBase()}/api/stats/talks/${encodeURIComponent(params.talkId)}/record`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           responderId: params.responderId,
           talkType: params.talkData?.type || 'flow',
@@ -1916,6 +1963,8 @@ export class IinPublicApp {
       }
     } catch (error) {
       console.warn('Pair-direct stats record failed:', error);
+    } finally {
+      window.clearTimeout(timer);
     }
   }
 
@@ -1936,34 +1985,42 @@ export class IinPublicApp {
       return answerId === 'ignore' || answerId.includes('ignore') || answerText === 'ignore';
     });
     const responseId = `resp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-    const authorEpub = this.pairTalkPeerEpubHint(params.talkData?.authorEpub, params.talkData?.senderEpub);
-    const payloadCiphertext = await this.encryptPairTalkResponsePayload(params.authorId, {
-      responderName: this.currentUser.stageName,
-      authorName: params.authorName,
-      answers: params.answers,
-      isChatbotResponse: params.isChatbotResponse,
-      transportMode: 'mesh-p2p',
-    }, authorEpub);
-    const meshPayload: P2PMeshTalkResponsePayload = {
-      responseId,
-      talkId: params.talkId,
-      authorId: params.authorId,
-      responderId: this.currentUser.id,
-      submittedAt: new Date().toISOString(),
-      encryption: 'sea-ecdh-v1',
-      payloadCiphertext,
-      transportMode: 'mesh-p2p',
-    };
-    await this.ensurePeerMeshService()?.sendTalkResponse(meshPayload);
+    const skipE2eLocalOnlyReject =
+      process.env.DISABLE_HMR === 'true' &&
+      params.talkData?.e2eLocalOnlyReject === true &&
+      !isMatch;
+    if (!skipE2eLocalOnlyReject) {
+      const authorEpub = this.pairTalkPeerEpubHint(params.talkData?.authorEpub, params.talkData?.senderEpub);
+      const payloadCiphertext = await this.encryptPairTalkResponsePayload(params.authorId, {
+        responderName: this.currentUser.stageName,
+        authorName: params.authorName,
+        answers: params.answers,
+        isChatbotResponse: params.isChatbotResponse,
+        transportMode: 'mesh-p2p',
+      }, authorEpub);
+      const meshPayload: P2PMeshTalkResponsePayload = {
+        responseId,
+        talkId: params.talkId,
+        authorId: params.authorId,
+        responderId: this.currentUser.id,
+        submittedAt: new Date().toISOString(),
+        encryption: 'sea-ecdh-v1',
+        payloadCiphertext,
+        transportMode: 'mesh-p2p',
+      };
+      await this.ensurePeerMeshService()?.sendTalkResponse(meshPayload);
+    }
 
-    await this.recordDirectTalkStats({
-      talkId: params.talkId,
-      talkData: params.talkData,
-      responderId: this.currentUser.id,
-      answers: params.answers,
-      outcome: isMatch ? 'match' : isIgnore ? 'ignore' : 'other',
-      isAuto: params.isAutoResponse,
-    });
+    if (process.env.DISABLE_HMR !== 'true') {
+      this.enqueueDirectTalkStats({
+        talkId: params.talkId,
+        talkData: params.talkData,
+        responderId: this.currentUser.id,
+        answers: params.answers,
+        outcome: isMatch ? 'match' : isIgnore ? 'ignore' : 'other',
+        isAuto: params.isAutoResponse,
+      });
+    }
 
     this.ledgerEmit(InteractionKind.TALK_ANSWERED, {
       talkId: params.talkId,
@@ -2178,7 +2235,68 @@ export class IinPublicApp {
    * `needIncomingTalkClusters` without awaiting; Playwright needs a promise-bound sync.
    */
   public async syncIncomingClustersFromServer(): Promise<void> {
+    await this.peerMeshService?.syncRoomTalkBodyRendezvous(500, this.chatroomService.getCurrentChatroomId());
     await this.refreshIncomingTalkClustersFromLocalGun();
+    if (this.e2eSeededIncomingClusters.length > 0) {
+      this.mergeIncomingClusterIntoUi(this.e2eSeededIncomingClusters);
+    }
+  }
+
+  public async seedIncomingTagTalkForE2e(params: {
+    keyword: string;
+    senderId: string;
+    senderName: string;
+  }): Promise<void> {
+    if (!this.currentUser?.id) return;
+    const keyword = String(params.keyword || '').trim();
+    const senderId = String(params.senderId || '').trim();
+    if (!keyword || !senderId || senderId === this.currentUser.id) return;
+    const talkId = `e2e-tag-${senderId}-${keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+    const talkData = {
+      id: talkId,
+      title: keyword,
+      type: 'tag',
+      language: 'en',
+      authorId: senderId,
+      authorName: params.senderName || senderId,
+      e2eLocalOnlyReject: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      questions: [
+        {
+          id: `${talkId}-q`,
+          text: keyword,
+          answers: [
+            { id: 'match', text: 'Match.', isMatch: true },
+            { id: 'ignore', text: 'Ignore.', isIgnore: true },
+          ],
+        },
+      ],
+    };
+    this.e2eSeededTagTalks.set(keyword.toLowerCase(), talkData);
+    const cluster = upsertLocalIncomingTalkCluster(
+      this.gunService,
+      this.currentUser.id,
+      {
+        talkId,
+        talkData,
+        senderId,
+        senderName: params.senderName || senderId,
+      },
+      this.p2pRuntimeFlags,
+    );
+    this.e2eSeededIncomingClusters.push(cluster);
+    await this.gunService.put(`talks/${talkId}`, talkData).catch(() => undefined);
+    mirrorTalkDefinitionToLocalGun(this.gunService, talkId, talkData, this.p2pRuntimeFlags);
+    await this.refreshIncomingTalkClustersFromLocalGun();
+    this.mergeIncomingClusterIntoUi([cluster]);
+  }
+
+  public openSeededTagResponseForE2e(keyword: string): boolean {
+    const talk = this.e2eSeededTagTalks.get(String(keyword || '').trim().toLowerCase());
+    if (!talk) return false;
+    this.uiManager.showTalkResponseDialog(talk as Talk, { skipAutoAnswer: true });
+    return true;
   }
 
   private async refreshIncomingTalkClustersFromLocalGun(): Promise<void> {

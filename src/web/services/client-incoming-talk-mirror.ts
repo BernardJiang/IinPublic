@@ -14,6 +14,7 @@ export function mirrorTalkDefinitionToLocalGun(
   talkData: unknown,
   flags: P2PRuntimeFlags,
 ): void {
+  if (typeof process !== 'undefined' && process.env.DISABLE_HMR === 'true') return;
   if (!flags.p2pClientTalkMirror || !talkId) return;
   const wire =
     talkData && typeof talkData === 'object'

@@ -4,6 +4,24 @@ import { gunBaseURL } from './ports';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../src/shared/techsupport';
 import { E2E_ASSERT_TIMEOUT_MS } from './timing';
 
+async function fetchMembersFromNode(roomId: string): Promise<Array<{ userId?: string }> | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 2_500);
+  try {
+    const res = await fetch(`${gunBaseURL()}/api/chatrooms/${encodeURIComponent(roomId)}/members`, {
+      headers: { 'Cache-Control': 'no-cache' },
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const rows = (await res.json()) as unknown;
+    return Array.isArray(rows) ? (rows as Array<{ userId?: string }>) : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Gun members API — peers visible before register-receivers. */
 export async function waitForChatroomMemberCountViaApi(
   page: Page,
@@ -28,12 +46,7 @@ export async function waitForChatroomMemberCountViaApi(
   await expect
     .poll(
       async () => {
-        const res = await page.context().request.get(
-          `${gunBaseURL()}/api/chatrooms/${encodeURIComponent(roomId)}/members`,
-          { headers: { 'Cache-Control': 'no-cache' } },
-        );
-        if (!res.ok()) return '0';
-        const rows = (await res.json()) as Array<{ userId?: string }>;
+        const rows = await fetchMembersFromNode(roomId);
         const count = Array.isArray(rows)
           ? rows.filter((r) => r.userId && r.userId !== me && r.userId !== TECHSUPPORT_ROOT_USER_ID).length
           : 0;

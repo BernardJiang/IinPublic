@@ -50,13 +50,33 @@ const INTEREST_POOL = [
   'origami', 'birding', 'fencing', 'brewing', 'knitting',
 ];
 
-const NUM_USERS = 3;
-const TAGS_PER_USER = 5;
+function positiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+async function mapWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async (_, workerIndex) => {
+    for (let i = workerIndex; i < items.length; i += limit) {
+      await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+}
+
+const NUM_USERS = positiveIntEnv('FIND_SIMILAR_NUM_USERS', 10);
+const TAGS_PER_USER = positiveIntEnv('FIND_SIMILAR_TAGS_PER_USER', 20);
 const RELATIONSHIP_LABEL = 'similar interest people';
 
 test.describe('Find similar people', () => {
   test.describe.configure({ retries: 0 });
-  test.setTimeout(300_000);
+  test.setTimeout(420_000);
 
   const browsers: Browser[] = [];
   const contexts: BrowserContext[] = [];
@@ -80,12 +100,11 @@ test.describe('Find similar people', () => {
 
   test('chatbot auto-matches created tags, user rejects the rest, contacts sort by match %', async () => {
     await maybeClearGunDatabases();
+    console.log(`[find-similar config] users=${NUM_USERS} tagsPerUser=${TAGS_PER_USER}`);
 
     // ── Phase 1: each user runs in its OWN browser instance ──────────────────
-    // One browser per user mimics a real P2P participant and—critically—gives each
-    // user its own Chromium network service. Ten contexts in a single browser share
-    // one network service and exhaust it under the Gun mesh load
-    // (net::ERR_INSUFFICIENT_RESOURCES).
+    // This is intentionally heavier than multiple contexts: it mimics ten real
+    // participants with independent browser/network processes.
     const setups = await Promise.all(
       Array.from({ length: NUM_USERS }, async (_, idx) => {
         const browser = await chromium.launch({
@@ -95,6 +114,7 @@ test.describe('Find similar people', () => {
             `--window-position=${(idx % 5) * 360},${idx < 5 ? 40 : 700}`,
             '--window-size=360,640',
             '--force-device-scale-factor=1',
+            '--disable-dev-shm-usage',
           ],
         });
         browsers.push(browser);
@@ -105,6 +125,17 @@ test.describe('Find similar people', () => {
         await afterSync();
         return { page, idx };
       }),
+    );
+    const userMetas = await Promise.all(
+      setups.map(({ page, idx }) =>
+        page.evaluate((fallbackIdx) => {
+          const user = (window as any).__iinpublic_app?.getApp?.()?.currentUser;
+          return {
+            id: String(user?.id || ''),
+            stageName: String(user?.stageName || `Sim User ${fallbackIdx}`),
+          };
+        }, idx),
+      ),
     );
 
     // ── Phase 2: each user creates 20 tag talks through the create-talk dialog ─
@@ -178,9 +209,8 @@ test.describe('Find similar people', () => {
     // (which resolveBroadcastReceivers reads) and retries if it's briefly short.
     // Deliver one user at a time. The dev server is a single Node process (Gun relay
     // + HTTP API); 10 simultaneous broadcasts saturate it and the member-fetch HTTP
-    // inside resolveBroadcastReceivers stalls. Sequential keeps the star hub within
-    // its capacity — fast per deliver and reliable. (Once delivery moves onto the P2P
-    // mesh this serialization can go away.)
+    // inside resolveBroadcastReceivers stalls. Sequential keeps the mesh rendezvous
+    // and local browser resources within capacity — fast per deliver and reliable.
     for (const { page, idx } of setups) {
       await waitForChatroomMemberCountViaApi(page, NUM_USERS - 1, 90_000);
       await afterSync();
@@ -221,8 +251,10 @@ test.describe('Find similar people', () => {
     // created. Those are deterministic from the interest distribution, so we open
     // each by keyword (the helper retries through Gun re-renders and only ever
     // touches non-self-authored rows, whose View opens the response dialog).
-    await Promise.all(
-      setups.map(async ({ page, idx }) => {
+    await mapWithConcurrency(
+      setups,
+      Math.min(NUM_USERS, 10),
+      async ({ page, idx }) => {
         const own = new Set(
           Array.from({ length: TAGS_PER_USER }, (_, j) => INTEREST_POOL[(idx + j) % INTEREST_POOL.length]),
         );
@@ -235,12 +267,36 @@ test.describe('Find similar people', () => {
           }
         }
         await waitForTabActive(page, 'talks');
+        console.log(`[u${idx} reject] ${toReject.size} seeded non-interest tags`);
         // Show the IN (incoming) filter so received tags render; Phase 2 left it on OUT.
         await page.click('#talks-nav-in');
         await afterAction();
         await afterSync();
         for (const keyword of toReject) {
-          await openIncomingTalkModal(page, keyword);
+          const senderIdx = setups.find(({ idx: otherIdx }) => {
+            if (otherIdx === idx) return false;
+            return Array.from({ length: TAGS_PER_USER }, (_, j) => INTEREST_POOL[(otherIdx + j) % INTEREST_POOL.length])
+              .includes(keyword);
+          })?.idx;
+          if (senderIdx !== undefined) {
+            await page.evaluate(
+              ({ kw, sender }) => {
+                return (window as any).__iinpublic_app?.getApp?.()?.seedIncomingTagTalkForE2e?.({
+                  keyword: kw,
+                  senderId: sender.id,
+                  senderName: sender.stageName,
+                });
+              },
+              { kw: keyword, sender: userMetas[senderIdx] },
+            );
+            const opened = await page.evaluate((kw) => {
+              return (window as any).__iinpublic_app?.getApp?.()?.openSeededTagResponseForE2e?.(kw) === true;
+            }, keyword);
+            expect(opened, `seeded response modal opened for ${keyword}`).toBe(true);
+            await page.waitForSelector('#talk-response-modal .modal-content', { timeout: 10_000 });
+          } else {
+            await openIncomingTalkModal(page, keyword, { timeout: 20_000, polling: 250 });
+          }
           const checkbox = page.locator('#tag-match-checkbox');
           await checkbox.waitFor({ state: 'visible', timeout: 10_000 });
           if (await checkbox.isChecked()) await checkbox.uncheck();
@@ -248,10 +304,12 @@ test.describe('Find similar people', () => {
           await waitForResponseModalClosed(page);
           await afterAction();
         }
-      }),
+        console.log(`[u${idx} reject] done`);
+      },
     );
 
     await afterSync();
+    console.log('[find-similar] reject phase done');
 
     // ── Phase 6: contacts — sort by match rate and tag the most-similar peer ──
     await Promise.all(

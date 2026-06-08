@@ -9,7 +9,9 @@ type FakeSessionRecord = {
   hook?: (otherUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
 };
 
-function createFakeNetwork() {
+function createFakeNetwork(opts: {
+  hangSend?: (params: { localUserId: string; otherUserId: string }) => boolean;
+} = {}) {
   const sessions = new Map<string, FakeSessionRecord[]>();
   return {
     createSession(params: {
@@ -31,6 +33,9 @@ function createFakeNetwork() {
           record.hook = hook;
         }),
         sendMeshFrame: jest.fn(async (frame: P2PMeshFrame) => {
+          if (opts.hangSend?.({ localUserId: params.localUserId, otherUserId: params.otherUserId })) {
+            await new Promise(() => undefined);
+          }
           for (const remote of sessions.get(params.conversationId) || []) {
             if (remote.localUserId === params.localUserId) continue;
             await remote.hook?.(params.localUserId, frame);
@@ -125,5 +130,133 @@ describe('PeerMeshService', () => {
         transportMode: 'mesh-p2p',
       }),
     ]);
+  });
+
+  it('does not block room broadcasts on one slow neighbor send', async () => {
+    const [alicePair, bobPair, carolPair] = await Promise.all([
+      SEA.pair(),
+      SEA.pair(),
+      SEA.pair(),
+    ]) as SeaSigningPair[];
+    const users = {
+      alice: { pub: alicePair.pub },
+      bob: { pub: bobPair.pub },
+      carol: { pub: carolPair.pub },
+    };
+    const network = createFakeNetwork({
+      hangSend: ({ localUserId, otherUserId }) => localUserId === 'alice' && otherUserId === 'carol',
+    });
+    const bobBodies: P2PMeshTalkBodyPayload[] = [];
+
+    const alice = new PeerMeshService(mockGunService(alicePair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      createSession: network.createSession,
+      sendTimeoutMs: 20,
+      retryTimeoutMs: 20,
+    });
+    const bob = new PeerMeshService(mockGunService(bobPair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'bob',
+      localStageName: 'Bob',
+      createSession: network.createSession,
+      onTalkBody: (payload) => {
+        bobBodies.push(payload);
+      },
+    });
+    const carol = new PeerMeshService(mockGunService(carolPair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'carol',
+      localStageName: 'Carol',
+      createSession: network.createSession,
+    });
+
+    const members = [
+      { userId: 'alice', stageName: 'Alice' },
+      { userId: 'bob', stageName: 'Bob' },
+      { userId: 'carol', stageName: 'Carol' },
+    ];
+    await alice.joinRoom('global', members);
+    await bob.joinRoom('global', members);
+    await carol.joinRoom('global', members);
+
+    const started = Date.now();
+    await alice.broadcastTalk({
+      id: 'talk-slow-peer',
+      authorId: 'alice',
+      title: 'Slow Peer',
+      questions: [],
+    });
+
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(bobBodies).toHaveLength(1);
+    expect(bobBodies[0]).toEqual(expect.objectContaining({
+      talkId: 'talk-slow-peer',
+      authorId: 'alice',
+    }));
+  });
+
+  it('delivers same talk id from different authors independently', async () => {
+    const [alicePair, bobPair, carolPair] = await Promise.all([
+      SEA.pair(),
+      SEA.pair(),
+      SEA.pair(),
+    ]) as SeaSigningPair[];
+    const users = {
+      alice: { pub: alicePair.pub },
+      bob: { pub: bobPair.pub },
+      carol: { pub: carolPair.pub },
+    };
+    const network = createFakeNetwork();
+    const bobBodies: P2PMeshTalkBodyPayload[] = [];
+
+    const alice = new PeerMeshService(mockGunService(alicePair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      createSession: network.createSession,
+    });
+    const bob = new PeerMeshService(mockGunService(bobPair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'bob',
+      localStageName: 'Bob',
+      createSession: network.createSession,
+      onTalkBody: (payload) => {
+        bobBodies.push(payload);
+      },
+    });
+    const carol = new PeerMeshService(mockGunService(carolPair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'carol',
+      localStageName: 'Carol',
+      createSession: network.createSession,
+    });
+
+    const members = [
+      { userId: 'alice', stageName: 'Alice' },
+      { userId: 'bob', stageName: 'Bob' },
+      { userId: 'carol', stageName: 'Carol' },
+    ];
+    await alice.joinRoom('global', members);
+    await bob.joinRoom('global', members);
+    await carol.joinRoom('global', members);
+
+    await alice.broadcastTalk({
+      id: 'shared-content-id',
+      authorId: 'alice',
+      title: 'Shared Tag',
+      type: 'tag',
+      questions: [],
+    });
+    await carol.broadcastTalk({
+      id: 'shared-content-id',
+      authorId: 'carol',
+      title: 'Shared Tag',
+      type: 'tag',
+      questions: [],
+    });
+
+    expect(bobBodies.map((payload) => payload.authorId).sort()).toEqual(['alice', 'carol']);
   });
 });

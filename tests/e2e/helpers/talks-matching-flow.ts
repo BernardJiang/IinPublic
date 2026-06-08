@@ -520,11 +520,15 @@ export async function openIncomingTalkModalByTalkId(
 }
 
 /** Open an incoming talk via the View button (more reliable than row click for Gun-synced rows). */
-export async function openIncomingTalkModal(page: Page, titleSubstring: string): Promise<void> {
+export async function openIncomingTalkModal(
+  page: Page,
+  titleSubstring: string,
+  options?: IncomingTalkServerWaitOptions,
+): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
   await afterSync();
-  await waitForIncomingTalkCluster(page, titleSubstring);
+  await waitForIncomingTalkCluster(page, titleSubstring, options);
   await syncIncomingFromServer(page);
   await afterSync();
   const row = page.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: titleSubstring });

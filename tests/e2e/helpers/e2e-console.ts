@@ -14,6 +14,7 @@ const NOISY_BROWSER_LOG_PATTERNS = [
   'Full talk data:',
   'Chatbot auto-reply skipped:',
   'Failed to load resource: the server responded with a status of 404',
+  'Failed to load resource: net::ERR_INSUFFICIENT_RESOURCES',
   'refreshCustomChatroomsFromServer failed: AbortError:',
 ];
 

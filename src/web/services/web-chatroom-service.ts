@@ -36,16 +36,21 @@ export class WebChatroomService {
 
   /** Fast member snapshot from server Gun (reads chatrooms/<id>/users). */
   async fetchMemberIdsFromServer(chatroomId: string): Promise<string[]> {
+    const controller = new AbortController();
+    const timeoutMs = typeof process !== 'undefined' && process.env.DISABLE_HMR === 'true' ? 2_500 : 5_000;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(
         `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members`,
-        { cache: 'no-store' },
+        { cache: 'no-store', signal: controller.signal },
       );
       if (!res.ok) return [];
       const rows = (await res.json()) as Array<{ userId?: string }>;
       return Array.isArray(rows) ? rows.map((r) => String(r.userId || '').trim()).filter(Boolean) : [];
     } catch {
       return [];
+    } finally {
+      clearTimeout(timer);
     }
   }
 

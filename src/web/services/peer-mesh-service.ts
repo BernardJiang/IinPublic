@@ -17,6 +17,7 @@ import {
 import type { Talk } from '../../shared/types';
 import type { WebGunService } from './web-gun-service';
 import { getOrCreateP2PSession } from './p2p-webrtc-session';
+import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 
 type RoomMember = {
   userId: string;
@@ -34,6 +35,8 @@ type PeerMeshServiceOptions = {
   localUserId: string;
   localStageName: string;
   maxNeighbors?: number;
+  sendTimeoutMs?: number;
+  retryTimeoutMs?: number;
   createSession?: (params: {
     conversationId: string;
     localUserId: string;
@@ -57,6 +60,10 @@ type Neighbor = {
   connected: boolean;
 };
 
+const DEFAULT_MESH_SEND_TIMEOUT_MS = 2_500;
+const DEFAULT_MESH_RETRY_TIMEOUT_MS = 10_000;
+const MESH_TALK_BODY_RENDEZVOUS_ROOT = 'p2pMeshTalkBodies';
+
 function randomId(prefix: string): string {
   const cryptoLike = typeof crypto !== 'undefined' ? crypto : undefined;
   const uuid = cryptoLike?.randomUUID?.();
@@ -68,12 +75,34 @@ function meshConversationId(roomId: string, userA: string, userB: string): strin
   return `mesh:${roomId}:${left}:${right}`;
 }
 
+function talkBodyDeliveryKey(talkId: string, authorId: string): string {
+  return `${talkId}::${authorId}`;
+}
+
+async function mapWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async (_, workerIndex) => {
+    for (let i = workerIndex; i < items.length; i += limit) {
+      await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+}
+
 export class PeerMeshService {
   private currentRoomId: string | null = null;
+  private currentRoomMemberIds = new Set<string>();
   private readonly neighbors = new Map<string, Neighbor>();
   private readonly seen = new Set<string>();
   private readonly talkBodies = new Map<string, Record<string, unknown>>();
+  private readonly deliveredTalkBodyIds = new Set<string>();
+  private readonly pendingTalkBodyRequestTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly bodyRequestWaiters = new Map<string, (payload: P2PMeshTalkBodyPayload) => void>();
+  private roomTalkBodySubscriptionRoomId: string | null = null;
+  private roomTalkBodySubscriptionOff: (() => void) | null = null;
 
   constructor(
     private readonly gunService: WebGunService,
@@ -120,6 +149,12 @@ export class PeerMeshService {
 
   async joinRoom(roomId: string, members: RoomMember[]): Promise<void> {
     this.currentRoomId = roomId;
+    this.subscribeToRoomTalkBodyRendezvous(roomId);
+    this.currentRoomMemberIds = new Set(
+      members
+        .map((member) => member.userId)
+        .filter((userId) => userId && userId !== this.opts.localUserId && userId !== TECHSUPPORT_ROOT_USER_ID),
+    );
     const local = this.localIdentity();
     const maxNeighbors = this.opts.maxNeighbors ?? 12;
     const candidates = members
@@ -164,9 +199,16 @@ export class PeerMeshService {
 
   leaveRoom(): void {
     this.currentRoomId = null;
+    this.currentRoomMemberIds.clear();
     this.neighbors.clear();
     this.seen.clear();
+    this.deliveredTalkBodyIds.clear();
+    for (const timer of this.pendingTalkBodyRequestTimers.values()) clearTimeout(timer);
+    this.pendingTalkBodyRequestTimers.clear();
     this.bodyRequestWaiters.clear();
+    this.roomTalkBodySubscriptionOff?.();
+    this.roomTalkBodySubscriptionOff = null;
+    this.roomTalkBodySubscriptionRoomId = null;
   }
 
   cacheTalkBody(talkId: string, talkData: Record<string, unknown>): void {
@@ -178,13 +220,39 @@ export class PeerMeshService {
     return this.talkBodies.get(talkId) ?? null;
   }
 
+  async syncRoomTalkBodyRendezvous(waitMs = 500, roomIdOverride?: string): Promise<void> {
+    const roomId = roomIdOverride || this.currentRoomId;
+    const gun = this.getGunOrNull();
+    if (!roomId || !gun) return;
+    const ref = gun.get(MESH_TALK_BODY_RENDEZVOUS_ROOT).get(roomId).map();
+    const bodies: unknown[] = [];
+    await new Promise<void>((resolve) => {
+      ref.once((raw: unknown, key: string) => {
+        if (!raw || !key || key.startsWith('_')) return;
+        bodies.push(raw);
+      });
+      setTimeout(resolve, waitMs);
+    });
+    try {
+      ref.off();
+    } catch {
+      /* ignore */
+    }
+    await mapWithConcurrency(bodies, 4, async (raw) => {
+      await this.handleRendezvousTalkBody(raw);
+    });
+  }
+
   async sendPing(text = 'ping'): Promise<string> {
     const frame = await this.buildFrame('mesh-ping', { text }, { ttlHops: 8 });
     await this.rememberAndFanout(frame);
     return frame.msgId;
   }
 
-  async broadcastTalk(talk: Talk | Record<string, unknown>, opts: { recipientUserIds?: string[] } = {}): Promise<void> {
+  async broadcastTalk(
+    talk: Talk | Record<string, unknown>,
+    opts: { recipientUserIds?: string[]; roomBroadcast?: boolean } = {},
+  ): Promise<void> {
     const talkId = String((talk as { id?: unknown }).id || '');
     if (!talkId) throw new Error('mesh broadcast requires talk.id');
     const talkRecord = JSON.parse(JSON.stringify(talk || {})) as Record<string, unknown>;
@@ -207,9 +275,15 @@ export class PeerMeshService {
       ...payload,
       talkData: talkRecord,
     };
-    const recipients = opts.recipientUserIds?.filter(Boolean);
-    if (recipients?.length) {
-      await Promise.all(recipients.map(async (recipientUserId) => {
+    const recipients = [...new Set(opts.recipientUserIds?.filter(Boolean) || [])];
+    const recipientSet = new Set(recipients);
+    const isWholeKnownRoom =
+      recipients.length > 0 &&
+      this.currentRoomMemberIds.size > 0 &&
+      [...this.currentRoomMemberIds].every((userId) => recipientSet.has(userId));
+    const isRoomBroadcast = opts.roomBroadcast === true || isWholeKnownRoom;
+    if (recipients.length > 0 && !isRoomBroadcast) {
+      await mapWithConcurrency(recipients, 3, async (recipientUserId) => {
         const announceFrame = await this.buildFrame('talk-announce', payload, {
           recipientUserId,
           ttlHops: 8,
@@ -220,10 +294,15 @@ export class PeerMeshService {
         });
         await this.rememberAndFanout(announceFrame);
         await this.rememberAndFanout(bodyFrame);
-      }));
+      });
       return;
     }
     const announceFrame = await this.buildFrame('talk-announce', payload, { ttlHops: 8 });
+    if (isRoomBroadcast) {
+      this.publishRoomTalkBodyRendezvous(bodyPayload);
+      await this.rememberAndFanout(announceFrame);
+      return;
+    }
     const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
     await this.rememberAndFanout(announceFrame);
     await this.rememberAndFanout(bodyFrame);
@@ -332,17 +411,61 @@ export class PeerMeshService {
   private async forwardFrame(frame: P2PMeshFrame, exceptUserId?: string): Promise<void> {
     if (frame.ttlHops <= 0) return;
     const forwarded = { ...frame, ttlHops: frame.ttlHops - 1 };
-    await Promise.all([...this.neighbors.values()]
-      .filter((neighbor) => neighbor.userId !== exceptUserId)
-      .filter((neighbor) => !frame.recipientUserId || neighbor.userId === frame.recipientUserId || frame.originUserId !== neighbor.userId)
-      .map(async (neighbor) => {
-        try {
-          await neighbor.session.sendMeshFrame(forwarded);
-          neighbor.connected = true;
-        } catch {
-          neighbor.connected = false;
-        }
-      }));
+    const directTarget = frame.recipientUserId ? this.neighbors.get(frame.recipientUserId) : undefined;
+    const targets = directTarget && directTarget.userId !== exceptUserId
+      ? [directTarget]
+      : [...this.neighbors.values()]
+          .filter((neighbor) => neighbor.userId !== exceptUserId)
+          .filter((neighbor) => !frame.recipientUserId || frame.originUserId !== neighbor.userId);
+    await mapWithConcurrency(targets, 4, async (neighbor) => {
+      await this.sendFrameToNeighbor(neighbor, forwarded);
+    });
+  }
+
+  private async sendFrameToNeighbor(neighbor: Neighbor, frame: P2PMeshFrame): Promise<void> {
+    try {
+      await this.withTimeout(
+        neighbor.session.sendMeshFrame(frame),
+        this.opts.sendTimeoutMs ?? DEFAULT_MESH_SEND_TIMEOUT_MS,
+        'mesh send timeout',
+      );
+      neighbor.connected = true;
+    } catch {
+      neighbor.connected = false;
+      void this.retryFrameAfterConnect(neighbor, frame);
+    }
+  }
+
+  private async retryFrameAfterConnect(neighbor: Neighbor, frame: P2PMeshFrame): Promise<void> {
+    try {
+      await this.withTimeout(
+        neighbor.session.ensureConnected(),
+        this.opts.retryTimeoutMs ?? DEFAULT_MESH_RETRY_TIMEOUT_MS,
+        'mesh retry connect timeout',
+      );
+      await this.withTimeout(
+        neighbor.session.sendMeshFrame(frame),
+        this.opts.sendTimeoutMs ?? DEFAULT_MESH_SEND_TIMEOUT_MS,
+        'mesh retry send timeout',
+      );
+      neighbor.connected = true;
+    } catch {
+      neighbor.connected = false;
+    }
+  }
+
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   private async handleRemoteFrame(fromUserId: string, frame: P2PMeshFrame): Promise<void> {
@@ -377,7 +500,7 @@ export class PeerMeshService {
     if (frame.kind === 'talk-announce') {
       const payload = frame.payload as P2PMeshTalkAnnouncePayload;
       if (payload.authorId === this.opts.localUserId) return;
-      await this.requestTalkBody(payload);
+      this.scheduleTalkBodyRequest(payload);
       return;
     }
 
@@ -387,6 +510,13 @@ export class PeerMeshService {
     }
 
     if (frame.kind === 'talk-body' && isP2PMeshTalkBodyPayload(frame.payload)) {
+      const talkId = String(frame.payload.talkId || '');
+      const deliveryKey = talkBodyDeliveryKey(talkId, String(frame.payload.authorId || ''));
+      const pendingTimer = talkId ? this.pendingTalkBodyRequestTimers.get(deliveryKey) : undefined;
+      if (pendingTimer) {
+        clearTimeout(pendingTimer);
+        this.pendingTalkBodyRequestTimers.delete(deliveryKey);
+      }
       if (frame.payload.requestId) {
         const waiter = this.bodyRequestWaiters.get(frame.payload.requestId);
         if (waiter) {
@@ -394,6 +524,8 @@ export class PeerMeshService {
           waiter(frame.payload);
         }
       }
+      if (talkId && this.deliveredTalkBodyIds.has(deliveryKey)) return;
+      if (talkId) this.deliveredTalkBodyIds.add(deliveryKey);
       await this.opts.onTalkBody?.(frame.payload);
       return;
     }
@@ -401,6 +533,92 @@ export class PeerMeshService {
     if (frame.kind === 'talk-response' && isP2PMeshTalkResponsePayload(frame.payload)) {
       await this.opts.onTalkResponse?.(frame.payload);
     }
+  }
+
+  private subscribeToRoomTalkBodyRendezvous(roomId: string): void {
+    if (!roomId || this.roomTalkBodySubscriptionRoomId === roomId) return;
+    this.roomTalkBodySubscriptionOff?.();
+    this.roomTalkBodySubscriptionOff = null;
+    this.roomTalkBodySubscriptionRoomId = roomId;
+    const gun = this.getGunOrNull();
+    if (!gun) return;
+    const ref = gun.get(MESH_TALK_BODY_RENDEZVOUS_ROOT).get(roomId).map();
+    ref.on((raw: unknown) => {
+      void this.handleRendezvousTalkBody(raw).catch(() => undefined);
+    });
+    this.roomTalkBodySubscriptionOff = () => {
+      try {
+        ref.off();
+      } catch {
+        /* ignore */
+      }
+    };
+  }
+
+  private publishRoomTalkBodyRendezvous(payload: P2PMeshTalkBodyPayload): void {
+    const roomId = this.currentRoomId;
+    const talkId = String(payload.talkId || '');
+    const authorId = String(payload.authorId || '');
+    const gun = this.getGunOrNull();
+    if (!roomId || !talkId || !authorId || !gun) return;
+    try {
+      const { talkData: _talkData, ...wireBase } = payload;
+      void _talkData;
+      const wire = {
+        ...wireBase,
+        talkDataJson: JSON.stringify(payload.talkData || {}),
+      };
+      gun.get(MESH_TALK_BODY_RENDEZVOUS_ROOT).get(roomId).get(talkBodyDeliveryKey(talkId, authorId)).put(wire);
+    } catch {
+      /* best-effort recovery path */
+    }
+  }
+
+  private async handleRendezvousTalkBody(raw: unknown): Promise<void> {
+    if (!raw || typeof raw !== 'object') return;
+    const maybeWire = raw as P2PMeshTalkBodyPayload & { talkDataJson?: unknown };
+    const talkData = isP2PMeshTalkBodyPayload(maybeWire as P2PMeshFramePayload)
+      ? maybeWire.talkData
+      : typeof maybeWire.talkDataJson === 'string'
+        ? JSON.parse(maybeWire.talkDataJson) as Record<string, unknown>
+        : null;
+    if (!talkData) return;
+    const payload: P2PMeshTalkBodyPayload = {
+      ...maybeWire,
+      talkData,
+    };
+    if (payload.authorId === this.opts.localUserId) return;
+    const talkId = String(payload.talkId || '');
+    const deliveryKey = talkBodyDeliveryKey(talkId, String(payload.authorId || ''));
+    if (!talkId || this.deliveredTalkBodyIds.has(deliveryKey)) return;
+    const pendingTimer = this.pendingTalkBodyRequestTimers.get(deliveryKey);
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      this.pendingTalkBodyRequestTimers.delete(deliveryKey);
+    }
+    this.cacheTalkBody(talkId, payload.talkData);
+    this.deliveredTalkBodyIds.add(deliveryKey);
+    await this.opts.onTalkBody?.(payload);
+  }
+
+  private getGunOrNull(): any | null {
+    try {
+      return typeof this.gunService.getGun === 'function' ? this.gunService.getGun() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private scheduleTalkBodyRequest(announce: P2PMeshTalkAnnouncePayload): void {
+    const talkId = String(announce.talkId || '');
+    const deliveryKey = talkBodyDeliveryKey(talkId, String(announce.authorId || ''));
+    if (!talkId || this.deliveredTalkBodyIds.has(deliveryKey) || this.pendingTalkBodyRequestTimers.has(deliveryKey)) return;
+    const timer = setTimeout(() => {
+      this.pendingTalkBodyRequestTimers.delete(deliveryKey);
+      if (this.deliveredTalkBodyIds.has(deliveryKey)) return;
+      void this.requestTalkBody(announce);
+    }, 250);
+    this.pendingTalkBodyRequestTimers.set(deliveryKey, timer);
   }
 
   private async requestTalkBody(announce: P2PMeshTalkAnnouncePayload): Promise<void> {
