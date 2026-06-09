@@ -47,7 +47,9 @@ type PeerMeshServiceOptions = {
     isInitiator: boolean;
     onRemoteMeshFrame: (otherUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
   }) => MeshSession;
-  onTalkBody?: (payload: P2PMeshTalkBodyPayload) => void | Promise<void>;
+  // Returns false when the receiver rejected the talk (e.g. intake/age filtering) so the
+  // caller can leave it eligible for re-delivery; any other return is treated as accepted.
+  onTalkBody?: (payload: P2PMeshTalkBodyPayload) => boolean | void | Promise<boolean | void>;
   onTalkResponse?: (payload: P2PMeshTalkResponsePayload) => void | Promise<void>;
   onPing?: (fromUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
 };
@@ -525,8 +527,8 @@ export class PeerMeshService {
         }
       }
       if (talkId && this.deliveredTalkBodyIds.has(deliveryKey)) return;
-      if (talkId) this.deliveredTalkBodyIds.add(deliveryKey);
-      await this.opts.onTalkBody?.(frame.payload);
+      const accepted = await this.opts.onTalkBody?.(frame.payload);
+      if (talkId && accepted !== false) this.deliveredTalkBodyIds.add(deliveryKey);
       return;
     }
 
@@ -597,8 +599,11 @@ export class PeerMeshService {
       this.pendingTalkBodyRequestTimers.delete(deliveryKey);
     }
     this.cacheTalkBody(talkId, payload.talkData);
-    this.deliveredTalkBodyIds.add(deliveryKey);
-    await this.opts.onTalkBody?.(payload);
+    // Only mark delivered once the receiver actually accepted the talk. A talk rejected
+    // by receiver-side intake (e.g. the age gate before verification) must stay eligible
+    // for re-delivery once the receiver later qualifies.
+    const accepted = await this.opts.onTalkBody?.(payload);
+    if (accepted !== false) this.deliveredTalkBodyIds.add(deliveryKey);
   }
 
   private getGunOrNull(): any | null {

@@ -817,8 +817,8 @@ export class IinPublicApp {
     return this.talkService.getTalkWithRetry(talkId, { attempts: 3, gapMs: 150 });
   }
 
-  private async handleMeshTalkBody(payload: P2PMeshTalkBodyPayload): Promise<void> {
-    if (!this.currentUser?.id || payload.authorId === this.currentUser.id) return;
+  private async handleMeshTalkBody(payload: P2PMeshTalkBodyPayload): Promise<boolean> {
+    if (!this.currentUser?.id || payload.authorId === this.currentUser.id) return false;
     const talkData = {
       ...payload.talkData,
       id: payload.talkId,
@@ -826,7 +826,7 @@ export class IinPublicApp {
       authorName: payload.authorName,
       ...(payload.authorEpub ? { authorEpub: payload.authorEpub } : {}),
     };
-    if (this.isTalkExpiredForDelivery(talkData)) return;
+    if (this.isTalkExpiredForDelivery(talkData)) return false;
     mirrorTalkDefinitionToLocalGun(this.gunService, payload.talkId, talkData, this.p2pRuntimeFlags);
     // Apply intake/age filtering BEFORE surfacing the talk in the UI. Mesh room
     // broadcasts reach every member, so age-gated/filtered talks must be rejected
@@ -840,7 +840,7 @@ export class IinPublicApp {
       talkData,
       this.currentChatroomId ? { deliveryChatroomId: this.currentChatroomId } : {},
     );
-    if (!accepted) return;
+    if (!accepted) return false;
     const pairKey = `${payload.talkId}::${payload.authorId}`;
     const firstUi = !this.processedTalkResponseKeys.has(`mesh-talk-body::${pairKey}`);
     if (firstUi) {
@@ -862,6 +862,7 @@ export class IinPublicApp {
         payload.authorName || 'Unknown',
       );
     }
+    return true;
   }
 
   private async handleMeshTalkResponse(payload: P2PMeshTalkResponsePayload): Promise<void> {

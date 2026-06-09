@@ -259,4 +259,59 @@ describe('PeerMeshService', () => {
 
     expect(bobBodies.map((payload) => payload.authorId).sort()).toEqual(['alice', 'carol']);
   });
+
+  it('re-delivers a talk body that the receiver rejected, then dedupes once accepted', async () => {
+    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+    const users = {
+      alice: { pub: alicePair.pub },
+      bob: { pub: bobPair.pub },
+    };
+    const network = createFakeNetwork();
+    let accept = false; // bob rejects until verified, then accepts
+    const bobBodies: P2PMeshTalkBodyPayload[] = [];
+
+    const alice = new PeerMeshService(mockGunService(alicePair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      createSession: network.createSession,
+    });
+    const bob = new PeerMeshService(mockGunService(bobPair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'bob',
+      localStageName: 'Bob',
+      createSession: network.createSession,
+      // Return false while "unverified" so the talk stays eligible for re-delivery.
+      onTalkBody: (payload) => {
+        bobBodies.push(payload);
+        return accept;
+      },
+    });
+
+    const members = [
+      { userId: 'alice', stageName: 'Alice' },
+      { userId: 'bob', stageName: 'Bob' },
+    ];
+    await alice.joinRoom('global', members);
+    await bob.joinRoom('global', members);
+
+    const adultTalk = { id: 'adult-1', authorId: 'alice', title: 'Adult', type: 'flow', isAdult: true, questions: [] };
+
+    // Rejected delivery: bob is called but does not mark the talk delivered.
+    await alice.broadcastTalk({ ...adultTalk });
+    expect(bobBodies).toHaveLength(1);
+
+    // Re-broadcast while still rejecting: must reach bob again (not deduped away).
+    await alice.broadcastTalk({ ...adultTalk });
+    expect(bobBodies).toHaveLength(2);
+
+    // Bob crosses the threshold and now accepts; this delivery is recorded.
+    accept = true;
+    await alice.broadcastTalk({ ...adultTalk });
+    expect(bobBodies).toHaveLength(3);
+
+    // Further re-broadcasts are deduped now that the talk was accepted.
+    await alice.broadcastTalk({ ...adultTalk });
+    expect(bobBodies).toHaveLength(3);
+  });
 });
