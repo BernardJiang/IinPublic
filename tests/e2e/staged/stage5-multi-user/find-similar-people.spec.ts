@@ -178,6 +178,12 @@ test.describe('Find similar people', () => {
     // leaves the chatbot explicitly enabled.
     await Promise.all(
       setups.map(async ({ page }) => {
+        // Opt out of per-answer stats POSTs: this spec generates hundreds of auto-match
+        // answers; recording each would saturate the single e2e Node server and stall
+        // the Phase 4 broadcast member-fetch. Other specs keep stats on (the default).
+        await page.evaluate(() => {
+          (window as any).__iinpublic_app?.getApp?.()?.setSkipDirectTalkStatsForE2e?.(true);
+        });
         await page.click('.nav-btn[data-view="settings"]');
         await afterNav();
         const chatbotToggle = page.locator('#settings-chatbot-enabled');

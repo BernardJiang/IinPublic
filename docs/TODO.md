@@ -73,6 +73,45 @@ Design doc written (`docs/roadmap/phase-d-dht-bootstrap.md`). Implementation not
 - [ ] Web client: try hub `/api/peers` first; fall back to `/bootstrap/peers` if hub unreachable
 - [ ] Unit + integration tests for announcement validation, TTL eviction, and lookup
 
+### P2 — Scalable "Find Similar People" by matched tags (REQ-SIM-01–08)
+
+Generalize the 10×20 find-similar scenario to arbitrary N users × Mᵢ weighted tags, scalable toward
+N ≈ 100k reachable users. **Design of record:** `docs/specs/similar-people-scalable-srs.md`.
+
+#### 1. Generalize correctness (P1)
+
+- [ ] Add weighted `matchScore(viewer, other, combine)` to `src/shared/` next to `checkIfMatch` (single source of truth)
+- [ ] Add `user-tags/<id>` tag **map** (`tag -> weight`, default 1) with `version` + content `hash` (reuse `talk-content-id.ts`)
+- [ ] Replace hardcoded 10×20 logic; parametrize the E2E to arbitrary N / Mᵢ
+- [ ] Test: N users each with Mᵢ tags rank all others by matched-tag score (unweighted = `combine = () => 1`)
+
+#### 2. Dropout-tolerant exchange (Scenario 1, REQ-SIM-04)
+
+- [ ] Model exchange as publish + independent local read (no pairwise barrier / completion gate)
+- [ ] Test: a peer dropping out mid-exchange does not block any other pairwise score
+
+#### 3. Incremental tag mutation + weighting (Scenarios 2 & 3, REQ-SIM-05/06)
+
+- [ ] Publish **deltas** (`{version, changed:{tag: weight|null}}`), O(1) `hash` change-detect, skip if unchanged
+- [ ] Incrementally patch the single affected pairwise score (O(|delta|)); recompute only the mutated user's row
+- [ ] Tag weighting end to end via the same delta path; pick + document the combine policy (asymmetry)
+- [ ] Test: one user mutates tags → exactly one publish; all peers' rankings update without full re-exchange
+
+#### 4. Scale to ~100k (P3, REQ-SIM-NFR-01/02/05)
+
+- [ ] Inverted `tag-index/<tag> : Set<userId>`; candidate set = union over viewer's tags (only ≥1-shared-tag users scored)
+- [ ] Bounded top-K heap retrieval (no full-population sort); hot-tag capping / min-shared-tags threshold
+- [ ] Locality scoping (chatroom/region/proximity) to bound effective N per query
+- [ ] Decide weight visibility vs. "their standard" sort (public weights = client-side; private = server-computed)
+- [ ] Test: top-K ranking over a 100k-scale population stays within latency budget and never goes O(N²)
+
+#### 5. Generic retrieve→sort→display pipeline (P4, REQ-SIM-07)
+
+- [ ] `SortStrategy` registry (`id`, `label`, `key`, `dir`): matched-tags, distance (blurred), their-standard (`matchScore` args swapped)
+- [ ] `rankPeople(viewer, candidates, sortId, filters)` — materialize candidates once, re-sort in memory
+- [ ] Wire `sortStrategies` + `activeSortId` through `ContactsViewDeps` (3 call sites in `ui-manager.ts`); UI dropdown built from registry
+- [ ] Test: same candidate set re-sorts by matched-tags / distance / their-standard with no extra reads
+
 ## Run commands
 
 ```bash

@@ -78,6 +78,8 @@ export class IinPublicApp {
   private directTalkStatsInFlight = 0;
   private readonly e2eSeededIncomingClusters: any[] = [];
   private readonly e2eSeededTagTalks = new Map<string, any>();
+  /** E2E opt-out: the find-similar spec disables stats POSTs to keep the single server unsaturated. */
+  private skipDirectTalkStatsForE2e = false;
   private incomingTalkClusterUnsubscribe: (() => void) | null = null;
   private chatroomTalksMapOff: (() => void) | null = null;
   private readonly p2pRuntimeFlags: P2PRuntimeFlags = resolveP2PRuntimeFlags(
@@ -826,6 +828,19 @@ export class IinPublicApp {
     };
     if (this.isTalkExpiredForDelivery(talkData)) return;
     mirrorTalkDefinitionToLocalGun(this.gunService, payload.talkId, talkData, this.p2pRuntimeFlags);
+    // Apply intake/age filtering BEFORE surfacing the talk in the UI. Mesh room
+    // broadcasts reach every member, so age-gated/filtered talks must be rejected
+    // here or they leak into the incoming-cluster UI (e.g. an adult talk shown to a
+    // not-yet-age-verified receiver). Pass the current room as the delivery hint so
+    // the receiver-side membership poll (flaky under Gun lag in e2e) is skipped.
+    const accepted = await this.ingestIncomingTalkAnnouncement(
+      payload.talkId,
+      payload.authorId,
+      payload.authorName || 'Unknown',
+      talkData,
+      this.currentChatroomId ? { deliveryChatroomId: this.currentChatroomId } : {},
+    );
+    if (!accepted) return;
     const pairKey = `${payload.talkId}::${payload.authorId}`;
     const firstUi = !this.processedTalkResponseKeys.has(`mesh-talk-body::${pairKey}`);
     if (firstUi) {
@@ -840,14 +855,6 @@ export class IinPublicApp {
         isOwnTalk: false,
         fullTalk: talkData,
       });
-    }
-    await this.ingestIncomingTalkAnnouncement(
-      payload.talkId,
-      payload.authorId,
-      payload.authorName || 'Unknown',
-      talkData,
-    );
-    if (firstUi) {
       this.maybeAutoChatbotReplyToAnnouncer(
         payload.talkId,
         talkData,
@@ -1090,6 +1097,14 @@ export class IinPublicApp {
 
   public async getLocalIncomingClustersForE2e(): Promise<any[]> {
     if (!this.currentUser?.id) return [];
+    // Actively pull the room talk-body rendezvous before reading clusters. Specs that
+    // poll this directly (e.g. reputation vouch threshold) never call
+    // syncIncomingClustersFromServer, so without this they depend on the live push
+    // subscription racing in — a talk broadcast just before the poll (e.g. the adult
+    // talk delivered once a receiver crosses the age-verify threshold) can be missed.
+    // Pulling here re-runs it through receiver-side intake filtering (handleMeshTalkBody),
+    // so age-gated talks are still rejected and only accepted ones land in clusters.
+    await this.peerMeshService?.syncRoomTalkBodyRendezvous(300, this.chatroomService.getCurrentChatroomId());
     const gunClusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, { waitMs: 300 });
     const uiClusters = Array.isArray((this.uiManager as any).incomingTalkClusters)
       ? (this.uiManager as any).incomingTalkClusters
@@ -1725,15 +1740,17 @@ export class IinPublicApp {
     senderId: string,
     senderName: string,
     talkData: any,
-  ): Promise<void> {
-    if (!this.currentUser) return;
+    opts: { deliveryChatroomId?: string } = {},
+  ): Promise<boolean> {
+    if (!this.currentUser) return false;
     if (
       !(await this.shouldAcceptIncomingTalkAsync({
         senderId,
         talkData: talkData as Record<string, unknown>,
+        ...(opts.deliveryChatroomId ? { deliveryChatroomId: opts.deliveryChatroomId } : {}),
       }))
     ) {
-      return;
+      return false;
     }
 
     const cluster = upsertLocalIncomingTalkCluster(
@@ -1748,6 +1765,7 @@ export class IinPublicApp {
       this.p2pRuntimeFlags,
     );
     this.mergeIncomingClusterIntoUi([cluster]);
+    return true;
   }
 
   /**
@@ -2011,7 +2029,11 @@ export class IinPublicApp {
       await this.ensurePeerMeshService()?.sendTalkResponse(meshPayload);
     }
 
-    if (process.env.DISABLE_HMR !== 'true') {
+    // Stats recording is ON by default for every spec — survey/route/analytics/
+    // chatbot-memory all poll /api/stats/.../summary and need it. Only the high-volume
+    // find-similar spec opts out (via setSkipDirectTalkStatsForE2e) because its hundreds
+    // of auto-match POSTs would saturate the single e2e Node server during broadcast.
+    if (!this.skipDirectTalkStatsForE2e) {
       this.enqueueDirectTalkStats({
         talkId: params.talkId,
         talkData: params.talkData,
@@ -2240,6 +2262,11 @@ export class IinPublicApp {
     if (this.e2eSeededIncomingClusters.length > 0) {
       this.mergeIncomingClusterIntoUi(this.e2eSeededIncomingClusters);
     }
+  }
+
+  /** E2E hook: high-volume specs (find-similar) call this to suppress per-answer stats POSTs. */
+  public setSkipDirectTalkStatsForE2e(skip: boolean): void {
+    this.skipDirectTalkStatsForE2e = skip === true;
   }
 
   public async seedIncomingTagTalkForE2e(params: {
