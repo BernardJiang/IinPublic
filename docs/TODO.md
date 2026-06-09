@@ -8,11 +8,27 @@ statistics / spec-gap follow-ups are consolidated into the appendices at the bot
 - **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specifications.md` (§19.13, §19.14, REQ-P2P-09–29; mesh talk delivery design §23; Phase D DHT §24; find-similar §22)
 - Detailed acceptance inventory: see "Appendix A — Detailed backlog inventory" below.
 
+## ⭐ TOP PRIORITY — Remove star topology / server-side talk function
+
+**This is the #1 priority and supersedes everything else below.** The definition of done is:
+**no talk body, offer, response, incoming index, match, conversation, or talk-derived stat is
+created, relayed, or stored on the server.** The hub is reduced to rendezvous + signaling +
+STUN/TURN + an encrypted TTL mailbox fallback only (spec §23). All other open items (P2, P3,
+Phase D, statistics) are explicitly deferred until star talk delivery is deleted and mesh is the
+default.
+
+Sequencing note: the mesh-delivery work below (steps 1–6) is the migration path; **step 7 — "Delete
+star talk delivery" — is the actual goal**, not an afterthought. Do not consider the P0 epic done
+until the server holds zero talk state and `P2P_MESH_TALKS` is on by default with the star path
+removed.
+
 ## Open items
 
-### P0 — Mesh talk delivery (`P2P_MESH_TALKS`)
+### P0 — Remove server-side talk delivery via mesh migration (`P2P_MESH_TALKS`)
 
-Goal: move talk delivery off the star/server data path. The hub remains rendezvous, presence, signaling, STUN/TURN config, and encrypted TTL mailbox fallback only.
+Goal: move talk delivery off the star/server data path **and then delete the star path entirely**.
+The hub remains rendezvous, presence, signaling, STUN/TURN config, and encrypted TTL mailbox
+fallback only.
 
 #### 1. Mesh transport foundation
 
@@ -44,7 +60,7 @@ Goal: move talk delivery off the star/server data path. The hub remains rendezvo
 - [ ] Route offline `talk-body`, `talk-response`, and receipts through mailbox fallback
 - [ ] Test: offline peer receives queued encrypted talk response after reconnect; expired envelopes are dropped
 
-#### 7. Delete star talk delivery
+#### 7. Delete star talk delivery (the goal)
 
 - [ ] Remove `talk-delivery-routes` and server talk maps (`incomingTalksMap`, `talkResponsesMap`, `conversationsMap`)
 - [ ] Remove `peer-routes` and server-derived talk stats routes
@@ -52,6 +68,59 @@ Goal: move talk delivery off the star/server data path. The hub remains rendezvo
 - [ ] Remove `P0_DIRECT_TALK_DELIVERY` / star branches and `usesDirectTalkDelivery` forks
 - [ ] Flip mesh talks on by default
 - [ ] Test: full direct-mode E2E suite passes with no star talk endpoints
+
+#### 8. Sender-side state to replace deleted server guards (blocks step 7)
+
+Deleting `talkResponsesMap` and the server cooldown/quota limiters removes the only place that
+remembers "Jerry already answered Tom" and the only re-send throttle. These must move client-side
+or the sender can re-broadcast unboundedly once star is gone (receiver-side identity dedup +
+exact chatbot memory still prevent re-*prompting* and re-*matching*, but not wasted re-sends).
+
+- [ ] Persist the author's per-talk response inbox locally (spec §23.6) recording each responder's outcome (`matched` / `ignored` / `no-reply`) **with the responder's response `version` and `respondedAt` timestamp**, so the sender has durable "already heard back" state without the server.
+- [ ] Suppress re-announcing a talk to recipients whose outcome is already recorded for that talk identity key (skip on the sender, in addition to receiver-side dedup).
+- [ ] Replace the server `SymmetricTalkEdgeRateLimiter` and daily/weekly edge quota with a client-side per-edge cooldown/quota (local-first; no server counters).
+- [ ] Test: after Jerry ignores Tom's tag, Tom does not re-deliver the same talk identity to Jerry on rebroadcast, and Jerry is never re-prompted (cache auto-applies the prior ignore).
+
+#### 9. Response versioning & change-of-mind propagation (REQ-LEDGER-04)
+
+The sender-side ignore record (step 8) must **suppress re-asking without becoming a dead end**: if a
+responder later changes their answer (e.g. Jerry ignores, then decides to match), the new answer
+must still reach every original sender of that talk identity — not be blocked by the recorded
+ignore. Suppression applies to *outbound re-asks only*; *inbound answer updates always flow*.
+
+- [ ] Version each response: `responseId = CIDv1({ talkId, responderId, responseContentJson })`, a monotonic `version`, and a `respondedAt`/`changedAt` timestamp (REQ-LEDGER-04). A changed answer is a new `TALK_ANSWERED` event that **supersedes** the prior response; the old response stays in history.
+- [ ] Propagate a changed answer to **all** original senders of that talk identity (not just the most recent), over the mesh `talk-response` path / ledger delta-sync — no server fan-in.
+- [ ] On each sender: ingest the superseded response only if its `version`/timestamp is newer than the recorded one (last-writer-by-version, ignore stale/replayed updates), update the local per-responder outcome, then re-run `checkIfMatch` — creating the conversation on ignore→match, or marking it ended on match→ignore.
+- [ ] Surface the change in the UI with the change timestamp (e.g. "Jerry changed their answer · 2026-06-08 14:02 — now a match").
+- [ ] Test (ignore → match): Jerry ignores Tom's `tennis` tag (no match); Jerry later switches to match; Tom — and any other sender of the same tag identity — receives the updated answer with its newer timestamp and a match/conversation is created.
+- [ ] Test (match → ignore): the reverse also propagates; stale/out-of-order updates (older `version`) are rejected.
+
+#### 10. Talk retraction / match teardown (delete or uncheck → "match is gone", REQ-LEDGER-15)
+
+The counterpart to step 9: when **Tom deletes the talk or unchecks the `tennis` tag**, every
+responder must be told the match is gone so they stop bothering Tom with further changes. This is a
+*hard* retraction, distinct from the advisory `TALK_WITHDRAWN` (which preserves matches). Authoritative
+design: spec §20.7 "TALK_RETRACTED event" + REQ-LEDGER-15.
+
+- [ ] Emit `TALK_RETRACTED { talkId, retractedAt }` on talk delete / tag uncheck; gossip it to every holder over the mesh / ledger delta-sync (no server fan-out).
+- [ ] On each responder (Jerry **and** Bob): show a clear notice — "Tom removed this talk — the match is gone · `retractedAt`" — with the timestamp.
+- [ ] Tear down any conversation/match created from that talk: set `status: 'withdrawn'` (ended, read-only) on both sides; keep the immutable match record flagged retracted as of `retractedAt`.
+- [ ] On responders, suppress all further change-of-mind `TALK_ANSWERED` for the retracted `talkId` (a retracted talk is a dead inbox — Jerry/Bob never bother Tom with new `tennis` answers).
+- [ ] On the author, drop the talk from the broadcast set and the per-responder outcome record (step 8); never re-announce or re-evaluate it.
+- [ ] Enforce last-writer ordering: an inbound `TALK_ANSWERED` older than `retractedAt` is discarded (retraction wins; an in-flight change cannot resurrect a retracted match).
+- [ ] Test: Jerry matched + Bob ignored Tom's `tennis`; Tom unchecks it → both receive the "match gone" notice with timestamp, the Tom↔Jerry conversation ends, and a subsequent Jerry/Bob answer change is not delivered to Tom.
+
+#### 11. Mutual exchange suppression — don't re-send an already-exchanged tag back across a pair (REQ-LEDGER-16)
+
+Once Tom sent `tennis` to Jerry and Jerry answered, the pair has swapped stances on that tag identity.
+When **Jerry later broadcasts his own talks, `tennis` must not go to Tom again** — the info is already
+exchanged and unchanged. Suppression is content-addressed (`identityKey` / CIDv1), symmetric, and acts
+at send time. Authoritative design: spec REQ-LEDGER-16 + §23.6 broadcast.
+
+- [ ] Maintain a local per-peer exchanged set `exchanged/<peerId>/<identityKey> = { outcome, version, lastExchangedAt }`, written when the user sends an identity and gets the peer's answer, or answers an identity the peer sent (so both sides record it).
+- [ ] At broadcast-time recipient selection, exclude — **per tag/identity** — any peer already covered for that `identityKey` at the current `version`; still deliver the talk's other, not-yet-exchanged tags to that peer.
+- [ ] Re-open delivery only on a content change (new `identityKey`) or a stance change (route the `TALK_ANSWERED` change-of-mind delta from step 9, not a fresh broadcast); clear the entry on `TALK_RETRACTED` (step 10).
+- [ ] Test: Tom sends `tennis` to Jerry, Jerry answers; later Jerry broadcasts a talk containing `tennis` + `chess` → Tom receives `chess` only, never a second `tennis`; after Jerry edits the tag's options (new identity), `tennis'` is delivered to Tom once.
 
 ### P3 — Challenge Plugin Framework: zone-B config storage (FR-CPF-04)
 

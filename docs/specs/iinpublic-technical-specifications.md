@@ -430,9 +430,24 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 
 - **REQ-LEDGER-12 — CIDv1 for all content addresses:** All content-addressed identifiers (`talkId`, `responseId`, `messageId`, event `id`) use CIDv1 (dag-json, sha2-256) via `multiformats`. No IPFS daemon required. Text-only talks are never added to IPFS; CIDv1 is a locally-computed identifier only.
 
-- **REQ-LEDGER-13 — TALK_WITHDRAWN:** Author emits `TALK_WITHDRAWN { talkId }` to stop new delivery. Peers cease routing the talk to recipients who have not yet seen it. In-flight answers still evaluated. After the configurable grace window (default 24h, see NFR-LEDGER-01), the author's client may demote new match notifications to archival. Standard post-edit workflow: TALK_CREATED(T2) → TALK_SUPERSEDED(T1→T2) → TALK_WITHDRAWN(T1).
+- **REQ-LEDGER-13 — TALK_WITHDRAWN (soft, advisory):** Author emits `TALK_WITHDRAWN { talkId }` to stop new delivery. Peers cease routing the talk to recipients who have not yet seen it. In-flight answers still evaluated; existing matches preserved. Used in the edit chain where matches carried over to the new version. After the configurable grace window (default 24h, see NFR-LEDGER-01), the author's client may demote new match notifications to archival. Standard post-edit workflow: TALK_CREATED(T2) → TALK_SUPERSEDED(T1→T2) → TALK_WITHDRAWN(T1).
 
 - **REQ-LEDGER-14 — Question-level identity:** `questionId = CIDv1(canonicalSerialize({ text, type, options }))`. If text and options are unchanged between T1 and T2, the `questionId` is the same even if routing or match-flag logic changed, enabling the per-question chatbot cache to carry answers forward.
+
+- **REQ-LEDGER-15 — TALK_RETRACTED (hard withdrawal with match teardown):** When the author **deletes a talk or unchecks a tag** — i.e. actively retracts it rather than editing it — the author emits `TALK_RETRACTED { talkId, retractedAt }` into the ledger. This is distinct from the advisory `TALK_WITHDRAWN` (REQ-LEDGER-13): it is a **retraction of any engagement on that talk**, and every peer that ingests it MUST:
+  1. **Notify the responder.** Each responder/receiver who holds the talk (e.g. Jerry and Bob who answered Tom's `tennis` tag) surfaces a clear notice — *"[Author] removed this talk — the match is gone · `retractedAt`"* — with the retraction timestamp.
+  2. **Tear down the match.** Any conversation/match created from `talkId` is moved to `status: 'withdrawn'` (ended, read-only) on **both** sides. A match record, once written, is not erased from history, but it is marked retracted as of `retractedAt`.
+  3. **Stop inbound answer changes.** Responders MUST suppress any further change-of-mind propagation (REQ-LEDGER-04 `TALK_ANSWERED`) for that `talkId` back to the author. A retracted talk is a dead inbox — so Jerry and Bob never bother Tom with new `tennis` answers after he unchecked it.
+  4. **Stop sender re-asks and outcome tracking.** The author drops the talk from its broadcast set and its local per-responder outcome record (step 8 of the mesh epic); it is neither re-announced nor re-evaluated.
+
+  `retractedAt` is authoritative for last-writer ordering: an inbound `TALK_ANSWERED` with a timestamp **earlier** than `retractedAt` is ignored; the retraction wins. Ledger index: `ledger/<userId>/index/retracted/<talkId>` → seq of the TALK_RETRACTED event.
+
+- **REQ-LEDGER-16 — Mutual exchange suppression (no re-sending an already-exchanged tag back across a pair):** A talk/tag identity is content-addressed (`identityKey` / CIDv1), so the **same** tag — e.g. `tennis` — has the **same** identity no matter who broadcasts it. Once two users have completed an exchange on that identity (one sent it, the other answered, and the answer is recorded), the pair has already swapped stances; re-sending the same identity in either direction is pure redundancy and MUST be suppressed automatically.
+
+  - **Pair-exchange record.** Each user keeps a local, per-peer set of exchanged identities: `exchanged/<peerId>/<identityKey>` → `{ outcome, version, lastExchangedAt }`. It is written whenever the user sends an identity and receives the peer's answer, **or** answers an identity the peer sent. The record is symmetric in effect: after Tom→Jerry(`tennis`)+answer, **both** Tom and Jerry hold `tennis` as exchanged with the other.
+  - **Broadcast-time suppression.** When a user broadcasts a talk, recipient selection MUST exclude, **per tag/identity**, any peer for whom that `identityKey` is already in the exchanged set at the same `version`. So when **Jerry** later broadcasts his own talks, `tennis` is **not** delivered to **Tom** — the information was already exchanged and nothing changed. Suppression is at tag granularity: a multi-tag talk still delivers its *other*, not-yet-exchanged tags to Tom.
+  - **What re-opens delivery.** Only a genuine change re-sends: (a) a **content change** produces a new `identityKey` (a different tag/option set is a different atom and is delivered), or (b) a **stance change** on the existing identity (REQ-LEDGER-04 change-of-mind) which propagates as a `TALK_ANSWERED` delta to the original senders rather than a fresh broadcast. A `TALK_RETRACTED` (REQ-LEDGER-15) clears the pair-exchange entry for that identity.
+  - **Relation to existing dedup.** REQ-LEDGER-05 dedups *identical re-receipt* of one talk; REQ-LEDGER-16 is stronger and **mutual**: it prevents the *reverse-direction rebroadcast* of an already-exchanged interest atom across the pair, and it acts at send time (saves the transmission), not just on receipt.
 
 ### 3.13 Challenge Plugin Framework
 
@@ -2284,7 +2299,9 @@ The following items are known open questions or planned post-MVP work:
 - **CIDv1 content addressing (Phase G):** All `talkId`, `responseId`, `messageId`, and event `id` use CIDv1 (dag-json, sha2-256) via `multiformats`. No IPFS daemon. Unifies content-addressing so IinPublic CIDs are IPFS-compatible.
 - **Interaction ledger (Phases E–G):** Append-only, hash-linked, SEA-signed ledger at `ledger/<userId>/events/<seq>`. Provides tamper-evident timeline and O(Δ) delta sync. Replaces `incomingTalksMap` and per-talk chatbot cache.
 - **TALK_SUPERSEDED:** Advisory event emitted on talk edit. Does not invalidate prior answers/matches. Enables chatbot differential answering.
-- **TALK_WITHDRAWN:** Delivery-stop event. In-flight answers still processed; grace window (default 24h) before notifications demoted.
+- **TALK_WITHDRAWN:** Soft delivery-stop event (advisory). In-flight answers still processed; existing matches preserved; grace window (default 24h) before notifications demoted.
+- **TALK_RETRACTED:** Hard withdrawal emitted when the author deletes a talk or unchecks a tag (REQ-LEDGER-15). Notifies all responders ("match is gone" + `retractedAt`), tears down the match (`status: 'withdrawn'`), and stops inbound change-of-mind updates for that talk. `retractedAt` wins last-writer ordering.
+- **Mutual exchange suppression:** pair-level, tag-identity dedup (REQ-LEDGER-16). Once two users have exchanged stances on a content-addressed `identityKey` (e.g. `tennis`), neither re-sends that identity to the other at broadcast time; only a content change (new `identityKey`) or a change-of-mind delta re-opens delivery. Backed by a local `exchanged/<peerId>/<identityKey>` set.
 - **Per-question chatbot cache:** Keyed by `questionId = CIDv1({ text, type, options })`. Propagates across talk versions and senders sharing identical questions.
 - **Chatbot differential answering:** Auto-fills questions with cached answers by `questionId`; presents only uncached questions for manual input. Always prompts for review after TALK_SUPERSEDED.
 - **DAG-only talk structure**: No loops permitted; cycle detection enforced in the editor.
@@ -3146,6 +3163,7 @@ type InteractionKind =
   | 'TALK_ANSWERED'      // user submitted an answer; or modified one (new CID → new event)
   | 'TALK_SUPERSEDED'    // author signals that oldTalkId is replaced by newTalkId (UI advisory)
   | 'TALK_WITHDRAWN'     // author stops new delivery of talkId; existing answers still processed
+  | 'TALK_RETRACTED'     // author deletes/unchecks talkId; matches torn down, inbound changes stop
   | 'MATCH_CREATED'      // a match was detected between this user and another
   | 'CONVERSATION_MSG';  // a message was sent in a conversation
 ```
@@ -3304,6 +3322,36 @@ When Alice's chatbot receives a new talk (T2):
 
 **Effect on UI:** Receivers who have T1 in their inbox see it marked as withdrawn. If TALK_SUPERSEDED(T1→T2) is also present, T1 is collapsed under T2 as an earlier version.
 
+#### TALK_RETRACTED event (delete / uncheck — hard withdrawal, REQ-LEDGER-15)
+
+`TALK_WITHDRAWN` is the *soft* case used inside the edit chain (matches carried over to T2, so T1's
+matches stay valid). When the author instead **deletes the talk or unchecks the tag** — there is no
+replacement and the author wants out — that is a *retraction*, and it tears the engagement down:
+
+```typescript
+// content field of a TALK_RETRACTED event
+{ talkId: string, retractedAt: number }   // e.g. Tom unchecks the `tennis` tag
+```
+
+Worked example — Tom unchecks `tennis` after Jerry matched and Bob ignored:
+
+1. **Notice to every responder.** Both Jerry (matched) and Bob (ignored) hold the `tennis` talk. On
+   ingesting `TALK_RETRACTED`, each shows: *"Tom removed this talk — the match is gone · `retractedAt`"*.
+   The retraction timestamp is displayed so the change of state is unambiguous.
+2. **Match teardown.** The Tom↔Jerry conversation created from this talk moves to
+   `status: 'withdrawn'` (ended, read-only) on both sides. The immutable match record is kept in
+   history but flagged retracted as of `retractedAt`.
+3. **Inbound changes stop.** Jerry and Bob suppress any further `TALK_ANSWERED` (change-of-mind,
+   REQ-LEDGER-04) for this `talkId` — so they *don't bother Tom with new `tennis` answers* after he
+   retracted. A retracted talk is a dead inbox.
+4. **Sender stops.** Tom drops `tennis` from his broadcast set and his per-responder outcome record;
+   it is never re-announced or re-evaluated.
+
+**Last-writer ordering:** `retractedAt` is authoritative. An inbound `TALK_ANSWERED` whose timestamp
+is earlier than `retractedAt` is discarded (the retraction wins); a responder change that was already
+in flight cannot resurrect a retracted match. This is the deliberate counterpart to the change-of-mind
+rule: change-of-mind propagates *until* the author retracts, then the door is closed.
+
 #### Bob's complete post-edit workflow
 
 After finishing the edit and deriving T2's CIDv1, Bob's client emits three consecutive ledger events:
@@ -3329,6 +3377,7 @@ The three events are logically independent and can be emitted separately. Bob ca
 | TALK_CREATED(T2) | Publish new version | No | Yes — T2 now matchable |
 | TALK_SUPERSEDED(T1→T2) | UI grouping + chatbot seeding | No | No |
 | TALK_WITHDRAWN(T1) | Stop new deliveries of T1 | No | No — in-flight answers still processed |
+| TALK_RETRACTED(T1) | Delete/uncheck: notify responders, tear down match | Yes — marks match retracted as of `retractedAt` | Yes — match ended; later/earlier inbound changes rejected |
 
 ### 20.8 Storage in Gun
 
@@ -3794,8 +3843,10 @@ Announce carries only metadata + content hash; the body is pulled on demand (`ta
 
 - **Discovery & connection:** keep room roster + presence on server. On entering a room, fetch roster, pick K bootstrap neighbors via `getP2PBootstrapCandidates` / neighbor cache, run signaling, open DataChannels. Deliverable: `PeerMeshService.joinRoom(roomId)` yields a live neighbor set + send/recv.
 - **Broadcast:** sender emits one `talk-announce` to its neighbors; gossip floods the room (no per-receiver offers). Each receiver runs receiver-side intake (`talkPassesIntakeFilters`); if it passes, `talk-body-request` the author, then `registerSelfAsReceiverOfIncomingTalk` + `maybeAutoChatbotReplyToAnnouncer`. Cost: O(talks) sender work, O(edges) gossip — no O(users×talks) writes.
+- **Mutual exchange suppression (REQ-LEDGER-16):** before announcing, the sender drops, per tag/identity, any neighbor whose `exchanged/<peerId>/<identityKey>` entry already covers that identity at the current version. So Jerry, having already answered Tom's `tennis`, never re-broadcasts `tennis` to Tom; other not-yet-exchanged tags in the same talk still go through. A new `identityKey` (content change) or a `TALK_ANSWERED` change-of-mind delta is what re-opens delivery.
 - **Incoming index:** `ownerIncomingTalkIndex` stays **local only** (`encrypted-user-owned`), populated from mesh `talk-body`.
-- **Responses & matches:** responder sends `talk-response` directly to the author (or via mailbox if offline). Author keeps a **single local response inbox** keyed by talk — replaces O(receivers) per-pair Gun subscriptions. Match logic stays in `src/shared/talk-engine.ts`; conversation creation becomes local on both sides on mutual match.
+- **Responses & matches:** responder sends `talk-response` directly to the author (or via mailbox if offline). Author keeps a **single local response inbox** keyed by talk — replaces O(receivers) per-pair Gun subscriptions. Match logic stays in `src/shared/talk-engine.ts`; conversation creation becomes local on both sides on mutual match. A changed answer (REQ-LEDGER-04) re-propagates to all original senders with its `version`/timestamp until the talk is retracted.
+- **Retraction (delete / uncheck):** when the author retracts a talk, a `TALK_RETRACTED { talkId, retractedAt }` event gossips to every holder (REQ-LEDGER-15). Responders show the "match is gone" notice, end the conversation (`status: 'withdrawn'`), and stop sending change-of-mind updates for that talk; the author drops it from its broadcast set and outcome record. `retractedAt` is authoritative — inbound answers older than it are discarded.
 - **Contacts / peer history:** drop `peer-routes`; the contacts view's local derivations become the only source.
 - **Intake filtering / audience preview:** move to receiver; compose-time preview becomes a local estimate from the known roster, or is dropped.
 - **Chatbot:** unchanged; fed from mesh announcements instead of Gun announcements.
