@@ -122,6 +122,20 @@ at send time. Authoritative design: spec REQ-LEDGER-16 + §23.6 broadcast.
 - [ ] Re-open delivery only on a content change (new `identityKey`) or a stance change (route the `TALK_ANSWERED` change-of-mind delta from step 9, not a fresh broadcast); clear the entry on `TALK_RETRACTED` (step 10).
 - [ ] Test: Tom sends `tennis` to Jerry, Jerry answers; later Jerry broadcasts a talk containing `tennis` + `chess` → Tom receives `chess` only, never a second `tennis`; after Jerry edits the tag's options (new identity), `tennis'` is delivered to Tom once.
 
+### P2 — Context-aware "Me" tab answer list (FR-QA-14, UI-8, §13.7)
+
+The "Me" tab shows the user's saved Q/A pairs. Flat for tag/survey, but **flow and route answers are
+context-bearing** — the same question can have different answers under different preceding contexts, so
+the list must show context and must not collapse distinct-context answers. Design: spec §13.7 + FR-QA-14.
+
+- [ ] Add display-only `contextLabel` (`"Q→A · Q→A"`) to `AnswerRecord`, written at answer-save time; `''` for tag/survey. `contextHash` stays the authoritative match key.
+- [ ] Render the "Me" list keyed by `(questionId, contextHash)`: flat rows for tag/survey; for flow/route show the `contextLabel` breadcrumb per row and never de-duplicate distinct-context answers.
+- [ ] Group rows by question with collapsible per-context sub-entries so a route question reached by many branches stays scannable; keep the per-row visibility lock (UI-5) and edit/history affordances.
+- [ ] Backfill/derive `contextLabel` for existing records from the retained talk definition where still available; tolerate missing source talks (show question + answer without the breadcrumb).
+- [ ] Test (flow): a 3-question flow yields three rows each showing its preceding `Q→A` context.
+- [ ] Test (route): the same question reached via two branches yields two rows with different `contextLabel`s and possibly different answers — not merged into one.
+- [ ] Test (durability): after the source talk is withdrawn/retracted, the "Me" rows still render from `contextLabel` (no blank/again-asked context).
+
 ### P3 — Challenge Plugin Framework: zone-B config storage (FR-CPF-04)
 
 The framework is implemented and wired into routes. The per-chatroom plugin configuration storage in zone-B Gun paths is not yet implemented.

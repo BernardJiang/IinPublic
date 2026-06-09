@@ -275,6 +275,8 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 
 - **FR-QA-13 (Deterministic IDs)**: Question and answer IDs SHALL be generated from normalized text using a stable hash such as SHA-256 with prefixes `q_` and `a_`. Normalization SHALL at minimum trim surrounding whitespace. If case-sensitive exact matching is desired, normalization SHALL NOT lowercase text; if case-insensitive exact matching is desired, normalization MAY lowercase text consistently for both questions and answers.
 
+- **FR-QA-14 (Context-aware "Me" answer list)**: The "Me" tab SHALL present the user's saved answers as a question/answer list keyed by `(questionId, contextHash)` — the same key used for storage (FR-TK-11). For **tag** and **survey** answers (`contextHash = ''`) the list is flat: one row per question. For **flow** and **route** answers (`contextHash ≠ ''`) the same question text MAY appear in multiple rows, one per distinct context, and each context-bearing row SHALL display its preceding `Q→A` context so the answer is interpretable; the list SHALL NOT collapse distinct-context answers into a single row. To remain self-describing after the source talk is withdrawn/retracted/pruned, each `AnswerRecord` SHALL persist a display-only `contextLabel` (human-readable `"Q→A · Q→A"`) alongside `contextHash`; `contextHash` remains the authoritative match key. See [§13.7](#137-me-tab--answer-list-rendering-context-aware).
+
 **Inline Syntax (chat auto-capture):**
 
 | Marker | Meaning |
@@ -526,6 +528,7 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 - **UI-5**: Every answer chip/card SHALL show a lock icon toggle (locked = private/manual, unlocked = public/auto) per §7.5.
 - **UI-6**: The status bar SHALL show current conversation mode (🟢 Auto / 🔴 Manual) and battery tier (Normal / Low / Critical / Emergency) on mobile.
 - **UI-7**: The initial screen SHALL show three lists: **nearby users**, **public chatroom**, and **talk list**.
+- **UI-8**: The **"Me" tab** SHALL render the user's saved answers as a question/answer list per FR-QA-14 and [§13.7](#137-me-tab--answer-list-rendering-context-aware): flat rows for tag/survey; context-bearing rows (with a `Q→A` context breadcrumb, grouped by question) for flow/route, never collapsing distinct-context answers.
 
 ### 4.2 Hardware Interfaces
 
@@ -1475,19 +1478,24 @@ const TalkSchema = {
 // Flat answer storage record (used by chatbot and profile Q/A list)
 //
 // Context is represented by a single contextHash, NOT by the full path list:
-//   tag / survey / flow : contextHash = ''  (no context required)
-//   tree                    : contextHash = 8-char FNV-1a hex of the
-//                             canonical "qId1:aId1|qId2:aId2|..." string.
+//   tag / survey   : contextHash = ''  (no context — answer stands alone)
+//   flow           : contextHash chains all prior Q/A (Q1 = ''; set from Q2 onward)
+//   route          : contextHash = 8-char FNV-1a hex of the
+//                    canonical "qId1:aId1|qId2:aId2|..." string for this branch.
 //
 // Chatbot lookup: compute hash of current path → compare contextHash → O(1).
 // The full ContextPath is retained only on the talk definition (Question.contextPath)
 // for route traversal; it is never written to persistent answer storage.
+// For DISPLAY, the "Me" tab uses the denormalized `contextLabel` below (FR-QA-14 / §13.7),
+// so the answer list stays interpretable even after the source talk is gone.
 const AnswerRecordSchema = {
   questionId: 'string',
   answerId: 'string',
   answerText: 'string',
-  // 8-char lowercase hex (FNV-1a 32-bit), or '' for no-context answers.
+  // 8-char lowercase hex (FNV-1a 32-bit), or '' for no-context answers. Authoritative match key.
   contextHash: 'string',
+  // Display-only human-readable context "Q→A · Q→A" for the Me tab (FR-QA-14). '' for tag/survey.
+  contextLabel: 'string',
   visibility: 'auto|manual',   // auto = chatbot may reuse; manual = private
   recordedAt: 'number'
 };
@@ -1839,6 +1847,50 @@ const ReputationPrivacy = {
   ui: { toggleComponent: 'PrivacyToggle', previewMode: 'ReputationPreview', permissionManager: 'AccessControl' }
 };
 ```
+
+### 13.7 "Me" Tab — Answer List Rendering (context-aware)
+
+The **"Me" tab** presents the user's saved answers as a list of question/answer pairs (their profile
+Q/A attributes, sourced from `AnswerRecord`). The rendering is **not uniform across the four talk
+types**, because an answer's meaning depends on whether the question carries context (FR-QA-14).
+
+**The core distinction — context-free vs context-bearing answers:**
+
+| Type | `contextHash` | "Me" list entry | Why |
+|---|---|---|---|
+| **tag** | `''` | one flat row: *tag → ✓/✗* | single isolated atom; the answer stands alone |
+| **survey** | `''` | one flat row per question | questions are independent; answer needs no context |
+| **flow** | set from Q2 onward | one row per question **with its preceding Q/A path** | each answer depends on all prior Q/A in the chain |
+| **route** | per `contextPath` | **one row per (question, contextHash)** — the same question can appear several times | the same question reached via different branches is a different answer |
+
+So for tag and survey the list is a flat `question → answer`. For flow and route the **same question
+text may legitimately appear more than once**, each occurrence carrying a different context and a
+different answer. A flat de-duplicated list would be **wrong** — it would collapse distinct,
+context-specific answers into one and misrepresent what the user actually said.
+
+**Rendering rules:**
+
+1. Entries are keyed by `(questionId, contextHash)`, matching the storage key (FR-TK-11). Two answers to the same question under different contexts are two separate rows.
+2. A context-bearing row (`contextHash !== ''`) MUST display its **context** — the preceding `Q→A` chain that led to the question — as a breadcrumb/sub-label above the answer, e.g.
+   *"Do you play singles or doubles?"* under context *"Do you like tennis? → Yes · How often? → Weekly"*.
+3. Rows SHOULD be **grouped by question**, with each distinct context shown as a collapsible sub-entry, so a route question reachable by many paths stays scannable instead of flooding the list.
+4. Each row keeps the per-answer visibility lock (auto/manual, UI-5) and edit/history affordances.
+
+**Where the context text comes from (design decision):** `AnswerRecord` stores only `contextHash`,
+**not** the human-readable path (FR-TK-11 keeps the record compact and the hash is the match key). The
+"Me" tab therefore reconstructs the display context one of two ways, and the spec mandates the second
+for durability:
+
+- *Reconstruct at render time* by joining `contextHash` back to the owning talk's `Question.contextPath`
+  — correct only while the talk definition is still retained locally; breaks if the talk is withdrawn,
+  retracted, or pruned.
+- **Persist a display-only `contextLabel`** (a short, human-readable `"Q→A · Q→A"` string) on the
+  `AnswerRecord` at save time. `contextHash` remains the authoritative match key for the chatbot;
+  `contextLabel` is denormalized display text the "Me" tab can show without re-reading the talk. This
+  is REQUIRED so the answer list stays self-describing even after the source talk is gone.
+
+This makes `AnswerRecord` (see §12.2) carry an optional `contextLabel: string` alongside the existing
+`contextHash`; tag/survey rows leave it `''`.
 
 ---
 
