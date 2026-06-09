@@ -1,6 +1,27 @@
 # IinPublic Completed Work
 
-Last updated: 2026-06-07
+Last updated: 2026-06-08
+
+## 2026-06-08 - Docs consolidation into four canonical files + archive
+
+Reorganized the `docs/` tree so all content lives in four canonical buckets, moving the redundant
+source documents to `docs/archive/`.
+
+**Feature/design detail → spec (`docs/specs/iinpublic-technical-specifications.md`, renamed from singular):**
+- Folded in `similar-people-scalable-srs.md` (new §22), `p2p-mesh-talk-delivery-plan.md` design (new §23), and `phase-d-dht-bootstrap.md` design (new §24).
+- `specs.md` (v1.0 SRS + P2P + blockchain survey) confirmed fully subsumed by the canonical spec's §19/§20/§21 — archived without re-merge.
+
+**Test detail → `docs/testing/testplan.md`:** added Appendix C (flake investigations & historical benchmarks, from `testing-benchmarks.md`, `P2P_nodes.md`, and root `test-12-flake-root-cause.md`), Appendix D (mesh test impact), Appendix E (statistics verification requirements).
+
+**Future tasks → `docs/TODO.md`:** added Appendix A (detailed backlog inventory, from `TODO-backlog-inventory.md`), Appendix B (statistics expansion backlog, from `roadmap/statistics-expansion.md`), Appendix C (residual P2P transport + spec-gap follow-ups, from `TODO-direct-p2p.md`, `roadmap/spec-gap-matrix.md`, `reports/PROJECT_STATUS.md`).
+
+**Retired status/audit facts captured here (sources archived):**
+- Gun authority audit complete (`roadmap/talk-loop-authority.md`): stats, match counts, and conversation creation all go through the server; `getTalkWithRetry()` prefers the server (Gun cache-first check only, then authoritative server, then alternating retry — replacing the old 20× Gun-retry that cost up to 5s); client-side Gun conversation-creation fallback removed.
+- Spec-gap matrix (`roadmap/spec-gap-matrix.md`) marked Implemented: profile foundation + viewer-filtered Q&A visibility; intake filters & moderation; reputation & abuse prevention; chatroom model expansion; tags & bulk-targeting; survey & statistics endpoints; rate limiting & cooldowns; exact chatbot memory.
+- Project status (`reports/PROJECT_STATUS.md`): server `index.ts` and `ui-manager.ts` de-monolithed; talk loop HTTP-integration tested; statistics baseline live; P0 UI correction pass live.
+- Direct-P2P transport stack (`TODO-direct-p2p.md`) shipped: `DirectP2PConversationTransport`, signaling client, WebRTC session, `ResilientConversationTransport` fallback chain (direct-p2p → server-relay → star-gun), LEDGER_STATE handshake, transport diagnostics, and Batch A–C E2E migration — only the full parallel-suite release gate remains (now in TODO Appendix C).
+
+Removed/archived source files: `specs.md`, `TODO-backlog-inventory.md`, `TODO-direct-p2p.md`, `p2p-mesh-talk-delivery-plan.md`, `P2P_nodes.md`, `testing-benchmarks.md`, `roadmap/p2p-node-network.md`, `roadmap/phase-d-dht-bootstrap.md`, `roadmap/spec-gap-matrix.md`, `roadmap/statistics-expansion.md`, `roadmap/talk-loop-authority.md`, `reports/PROJECT_STATUS.md`, and root `test-12-flake-root-cause.md`.
 
 ## 2026-06-07 - P2P mesh talk delivery foundation behind `P2P_MESH_TALKS`
 
@@ -394,7 +415,7 @@ when an item is finished, move it here with a short description and concrete evi
 Documented authoritative architecture for `www.iinpublic.com` relay-only hub, Gun-local persistence, transport/persistence split, TechSupport server exception, and stack phases P2P-H–O (no UI changes).
 
 **Evidence:**
-- `docs/specs/iinpublic-technical-specification.md` v4.1 — §19 rewritten
+- `docs/specs/iinpublic-technical-specifications.md` v4.1 — §19 rewritten
 - `docs/TODO.md` — forward work is P2P-H–O per spec
 - `docs/TODO-direct-p2p.md` — marked superseded for persistence policy
 
@@ -1295,7 +1316,7 @@ Evidence:
 
 ## 2026-05-20 - P2P Node Network Roadmap P1-P7
 
-Source roadmap: [P2P Node Network Roadmap](roadmap/p2p-node-network.md)
+Source roadmap: [P2P Node Network Roadmap](archive/consolidated-2026-06-08/roadmap-p2p-node-network.md) (archived 2026-06-08; design now in spec §19)
 
 ### P1 - Star Compatibility Baseline
 

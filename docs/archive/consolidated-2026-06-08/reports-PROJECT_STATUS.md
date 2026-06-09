@@ -33,7 +33,7 @@ Supporting infrastructure exists for CI, deploy scripts, Dockerfile, Jest, Playw
 ## What Is Still In Progress
 
 - Statistics expansion follow-up is now mostly visualization/product polish on top of the shipped dashboard and endpoints
-- Docs alignment: keep `docs/specs/iinpublic-technical-specification.md`, `docs/roadmap/spec-gap-matrix.md`, and `docs/TODO.md` synchronized as statistics work lands
+- Docs alignment: keep `docs/specs/iinpublic-technical-specifications.md`, `docs/roadmap/spec-gap-matrix.md`, and `docs/TODO.md` synchronized as statistics work lands
 - Android: maintenance-only until the web/server loop is stable
 
 ## Current Risks
@@ -61,7 +61,7 @@ Use these first:
 
 - [README](../../README.md)
 - [Docs Home](../README.md)
-- [Technical Specification](../specs/iinpublic-technical-specification.md)
+- [Technical Specification](../specs/iinpublic-technical-specifications.md)
 - [How To Run](../guides/HOW_TO_RUN.md)
 - [TODO](../TODO.md)
 - [Spec Gap Matrix](../roadmap/spec-gap-matrix.md)

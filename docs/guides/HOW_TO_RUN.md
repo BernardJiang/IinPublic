@@ -100,6 +100,6 @@ Prefer removing only what you need, and do not delete files you care about.
 ## Related Docs
 
 - [README](../../README.md)
-- [Project Status](../reports/PROJECT_STATUS.md)
+- [Completed Work](../completed.md) — shipped feature ledger + repo status
 - [TODO](../TODO.md)
 - [Contributing](../dev/contributing.md)

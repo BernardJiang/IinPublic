@@ -3,7 +3,7 @@
 Last updated: 2026-05-12
 
 Purpose: define the next statistics work on top of the current spec baseline in
-`docs/specs/iinpublic-technical-specification.md` §12.7 and §13.5.
+`docs/specs/iinpublic-technical-specifications.md` §12.7 and §13.5.
 
 ## Current Baseline
 

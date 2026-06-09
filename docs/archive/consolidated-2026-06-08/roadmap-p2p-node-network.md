@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-28
 
-> **Authoritative production model:** `docs/specs/iinpublic-technical-specification.md` **§19** (`www.iinpublic.com` relay-only, Gun-local persistence, P2P-H–O). This roadmap adds implementation detail for local nodes and storage classes.
+> **Authoritative production model:** `docs/specs/iinpublic-technical-specifications.md` **§19** (`www.iinpublic.com` relay-only, Gun-local persistence, P2P-H–O). This roadmap adds implementation detail for local nodes and storage classes.
 
 ## Goal
 

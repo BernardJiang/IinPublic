@@ -65,14 +65,12 @@ npm run lint
 Current working docs:
 
 - [Docs Home](./docs/README.md)
-- [Technical Specification](./docs/specs/iinpublic-technical-specification.md)
+- [Technical Specification](./docs/specs/iinpublic-technical-specifications.md) — all requirements, design, and feature deep dives
+- [Test Plan](./docs/testing/testplan.md) — all test detail
+- [TODO](./docs/TODO.md) — all future tasks
+- [Completed Work](./docs/completed.md) — all completed tasks + retired status/audit facts
 - [How To Run](./docs/guides/HOW_TO_RUN.md)
-- [Project Status](./docs/reports/PROJECT_STATUS.md)
 - [Contributing](./docs/dev/contributing.md)
-- [TODO](./docs/TODO.md)
-- [Completed Work](./docs/completed.md)
-- [Spec Gap Matrix](./docs/roadmap/spec-gap-matrix.md)
-- [Statistics Expansion Roadmap](./docs/roadmap/statistics-expansion.md)
 - [Current Docs Map](./docs/current/README.md)
 - [Archive Docs Map](./docs/archive/README.md)
 

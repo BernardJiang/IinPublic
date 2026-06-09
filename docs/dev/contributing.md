@@ -42,7 +42,7 @@ npm run test:e2e
 If your change affects a user-visible code path, update the relevant doc in `docs/`:
 
 - `docs/guides/HOW_TO_RUN.md` for run/build/test command changes
-- `docs/reports/PROJECT_STATUS.md` for significant architectural changes
-- `docs/roadmap/` for decisions about authority or long-term direction
+- `docs/completed.md` to log shipped work and significant architectural changes
+- `docs/specs/iinpublic-technical-specifications.md` for design/authority/long-term direction decisions
 - `docs/TODO.md` to add forward work
 - `docs/completed.md` when finished TODO items are moved out of the backlog

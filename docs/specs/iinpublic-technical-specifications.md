@@ -43,8 +43,13 @@
       - [19.14.10 Zone C Redundancy](#191410-zone-c-redundancy-when-one-talk-fanouts-to-many-receivers)
 20. [Interaction Ledger: DAG-Based History and Delta Sync](#20-interaction-ledger-dag-based-history-and-delta-sync)
 21. [Survey: Blockchain and DAG Structures in P2P Messaging Networks](#21-survey-blockchain-and-dag-structures-in-p2p-messaging-networks)
+22. [Scalable "Find Similar People" by Matched Tags](#22-scalable-find-similar-people-by-matched-tags)
+23. [Mesh Talk Delivery Design (PeerMeshService)](#23-mesh-talk-delivery-design-peermeshservice)
+24. [Phase D — DHT Bootstrap Design](#24-phase-d--dht-bootstrap-design)
 
 ---
+
+> **Consolidation note (2026-06-08):** Sections 22–24 were merged in from previously separate feature-design documents (`similar-people-scalable-srs.md`, `p2p-mesh-talk-delivery-plan.md`, `roadmap/phase-d-dht-bootstrap.md`) so that all feature/design detail lives in this single specification. Their action items remain in `docs/TODO.md`; their test-impact notes are in `docs/testing/testplan.md`; the source documents were moved to `docs/archive/`.
 
 # PART I — REQUIREMENTS
 
@@ -3553,3 +3558,328 @@ The detailed requirements that follow from this design are in [§4.8 Interaction
 - [CRDT — GUN Database](https://amark-gun-58.mintlify.app/concepts/crdt)
 - [Conflict Resolution with Guns](https://github.com/amark/gun/wiki/Conflict-Resolution-with-Guns)
 - [DAG — A potential game changer in M2M communication](https://www.bearingpoint.com/files/DAG_Technology.pdf?download=0&itemId=562844)
+
+---
+
+# PART V — FEATURE DESIGN DEEP DIVES
+
+> Merged 2026-06-08 from standalone feature-design documents (provenance noted per section). These are authoritative feature specifications; execution checklists live in `docs/TODO.md`.
+
+## 22. Scalable "Find Similar People" by Matched Tags
+
+> **Source:** `docs/specs/similar-people-scalable-srs.md` (design of record, Draft).
+> **Related:** `src/shared/talk-engine.ts`, `src/shared/talk-content-id.ts`, mesh-talk delivery (REQ-P2P-09–29), `docs/TODO.md` §"P2 — Scalable Find Similar People" (REQ-SIM-01–08).
+
+### 22.1 Purpose and scope
+
+Generalize the current "10 users × 20 tags, then find similar people" E2E scenario into a production feature: given **N** users where each user *i* holds **Mᵢ** tags, after users exchange tags, every user can rank all others by a **match score** derived from shared tags. The feature must remain correct and responsive as the reachable population grows toward **N ≈ 100,000** (all users a person can plausibly interact with over time), not just the 10-user test.
+
+In scope: the tag data model, the match-scoring function, candidate generation at scale, incremental update on churn/mutation, tag weighting, and a generic retrieve/sort/display API for the UI.
+
+Out of scope: the talk-exchange transport itself (covered by the mesh-talk spec, §23) beyond the requirements this feature places on it.
+
+### 22.2 Definitions
+
+- **Tag set / tag map** `Tᵢ`: user *i*'s tags as `tag -> weight` (weight default 1; an "important" tag has weight > 1).
+- **Shared tags** `Tᵢ ∩ Tⱼ`: tags present in both maps.
+- **Match score** `score(viewer, other)`: a number computed from shared tags (see §22.5.1). May be asymmetric when weighted.
+- **Candidate set**: the bounded subset of users a viewer actually scores and ranks (never all 100k).
+- **Reachable population**: users in the viewer's chatrooms / region / proximity / exchange history — the practical universe for a given query.
+
+### 22.3 Functional requirements
+
+- **REQ-SIM-01** Each user publishes a versioned tag map to a location every reachable peer (or the rendezvous index) can read independently — no pairwise handshake.
+- **REQ-SIM-02** A viewer can compute `score(viewer, other)` for any peer whose tag map it holds, using a single shared scoring function (also used by the existing match engine).
+- **REQ-SIM-03** A viewer can retrieve the **top-K** peers by match score without materializing or sorting the entire reachable population.
+- **REQ-SIM-04** Exchange is asynchronous and idempotent: a peer dropping out mid-exchange must not block any other pairwise score (Scenario 1, §22.6.1).
+- **REQ-SIM-05** When a user mutates tags (add / modify / delete), the system updates all affected rankings with **minimum re-exchange** — one publish by the mutated user; peers patch incrementally (Scenario 2, §22.6.2).
+- **REQ-SIM-06** A user may weight individual tags as more important; weighting is applied through the same scoring function and the same publish/delta path (Scenario 3, §22.6.3).
+- **REQ-SIM-07** The retrieve→sort→display pipeline exposes pluggable, named sort strategies (matched-tags, distance, "their standard", …) selectable from the UI without code changes (§22.7).
+- **REQ-SIM-08** All tag and weight data is treated as user content under the existing SEA encryption / privacy model; any score that requires another user's weights ("their standard") must be either computable from published data or delegated to a trusted compute path (§22.8.4).
+
+### 22.4 Data model
+
+```
+user-tags/<userId> : {
+  version:  number,            // monotonically increasing
+  hash:     string,            // content hash of weights, for O(1) change detection
+  weights:  { [tag: string]: number },   // tag -> weight (default 1)
+  updatedAt: ISO8601
+}
+```
+
+- Tags are a **map**, never a nested array (Gun.js cannot store nested arrays — same rule as `questionsJson`). Add / modify / delete are per-key operations.
+- `hash` reuses the content-hash approach in `talk-content-id.ts` so a peer can detect "did X actually change?" without diffing the full map.
+- A **delta** record carries only changed keys: `{ version, changed: { tag: weight | null } }` (`null` = delete).
+
+#### 22.4.1 Inverted index (scale-critical)
+
+To avoid O(N²) comparison, maintain an inverted index from tag to holders:
+
+```
+tag-index/<tag> : Set<userId>          // who holds this tag
+```
+
+Maintained by the publisher on each tag add/remove (or rebuilt server-side from `user-tags`). A viewer generates candidates as the union of `tag-index[t]` over the viewer's own tags — i.e. only users who share ≥ 1 tag are ever scored. This is the single most important scaling lever.
+
+### 22.5 Algorithms
+
+#### 22.5.1 Scoring (one function, all cases)
+
+```ts
+// combine() picks the policy; default = "viewer's standard" (asymmetric).
+function matchScore(
+  viewer: TagWeights,
+  other: TagWeights,
+  combine: (wViewer: number, wOther: number) => number = (wv) => wv,
+): number {
+  let s = 0;
+  for (const tag in viewer) if (tag in other) s += combine(viewer[tag], other[tag]);
+  return s;
+}
+```
+
+- Unweighted "number of matched tags" = `combine = () => 1` with all weights 1.
+- Mutual importance = `combine = (wv, wo) => wv * wo`.
+- Conservative = `combine = (wv, wo) => Math.min(wv, wo)`.
+- "Their standard" (how highly *they* rate the viewer) = `matchScore(other, viewer)` (args swapped).
+
+This must live in `src/shared/` next to `checkIfMatch` so server and browser never diverge (invariant: match logic is not duplicated in routes/UI).
+
+#### 22.5.2 Candidate generation + top-K
+
+1. Read viewer's tags `Tᵥ`.
+2. `candidates = ⋃ tag-index[t] for t in Tᵥ` (bounded by tag popularity; cap per tag if a tag is pathologically common).
+3. Score each candidate with `matchScore`; keep a **bounded heap of size K** (top-K), not a full sort.
+4. Return the K highest. Complexity ≈ O(C log K) where C = |candidates| ≪ N.
+
+For very hot tags, cap contribution (e.g. sample, or require ≥ 2 shared tags before a candidate is considered) to keep C bounded.
+
+### 22.6 Scenarios
+
+#### 22.6.1 Scenario 1 — dropouts during exchange (REQ-SIM-04)
+
+Model exchange as **publish + independent local read**, never a pairwise barrier. Each user's tag map lives at `user-tags/<id>` with a version; scoring reads whatever maps the viewer currently holds. A peer going offline mid-exchange is indistinguishable from "not synced yet": every other pairwise score still computes. This mirrors the existing authoritative-`incomingTalksMap` + eventual-Gun-mirror pattern. No global completion gate is required for ranking to be usable.
+
+#### 22.6.2 Scenario 2 — tag mutation with minimum re-exchange (REQ-SIM-05)
+
+Because every score is computed locally from per-peer published maps, a change requires **only the mutated user to re-publish**:
+
+- Publish a **delta** (`changed` keys + new `version`/`hash`), not the full map.
+- Peers detect the change in O(1) via `hash`; if unchanged, skip.
+- A peer holding a cached pairwise contribution patches its single affected score in O(|delta|), and only the **one row** for the mutated user is recomputed — O(N) single-pair patches across the network, never O(N²).
+- The publisher updates `tag-index` for added/removed tags only.
+
+Floor: 1 publish by the mutated user → each peer does an O(|delta|) local patch + an index touch.
+
+#### 22.6.3 Scenario 3 — weighting important tags (REQ-SIM-06)
+
+Marking a tag "important" writes a weight ≠ 1 into the same `weights` map and rides the identical delta/publish path as §22.6.2 — no separate mechanism. Choose the combine policy deliberately (§22.5.1). Note weighting makes the relation **asymmetric**: A may rank B highly while B ranks A low. The UI must state which score it shows ("my ranking of them" vs. a symmetrized score), because assertions and user expectations differ.
+
+### 22.7 Generic retrieve → sort → display (REQ-SIM-07)
+
+Separate three concerns and drive the UI from a strategy registry:
+
+```ts
+interface SortStrategy {
+  id: string;                 // "matchedTags" | "distance" | "theirStandard"
+  label: string;              // UI dropdown text
+  key: (viewer: User, other: User, ctx: Ctx) => number;
+  dir?: 'asc' | 'desc';
+}
+```
+
+- **Filter** (predicate): blocked, chatroom, region, `matchedTags >= k`.
+- **Sort** (named strategy): registry of `key` functions; "their standard" is `matchScore` with args swapped — same primitive, which signals the abstraction is right.
+- **Project** (display fields).
+
+Pipeline: `rankPeople(viewer, candidates, sortId, filters)` filters, then ranks via the selected strategy. **Materialize the candidate set once, then sort in memory** — the candidate set is bounded (§22.5.2), so re-sorting by any strategy (distance, score, their-standard) is microseconds and needs zero extra reads. The UI builds its sort dropdown by iterating the registry, so adding a sort is a one-line entry, not a view change. This fits the existing `ContactsViewDeps` injection (add `sortStrategies` + `activeSortId`; three call sites in `ui-manager.ts`). Distance uses blurred location (`LocationPrivacy.blurLocation`) — approximate is acceptable.
+
+### 22.8 Non-functional requirements
+
+- **REQ-SIM-NFR-01 (scale)** Correct and responsive at N ≈ 100k reachable users. No code path may be O(N²) in the reachable population, hold all peers' tag maps in memory, or fully sort the population.
+- **REQ-SIM-NFR-02 (latency)** Top-K (K ≤ 50) ranking returns in < 200 ms client-side over a candidate set bounded by the inverted index.
+- **REQ-SIM-NFR-03 (incremental)** A single-tag mutation propagates as one delta; no full re-exchange.
+- **REQ-SIM-NFR-04 (privacy)** Tag maps and weights follow the SEA encryption model. Decide explicitly whether weights are public: "their standard" sorting requires *their* weights client-side; if weights must stay private, that score must be computed by a trusted/server path instead (§22.8.4 open question).
+- **REQ-SIM-NFR-05 (locality)** Effective N per query is bounded by chatroom/region/proximity scoping, keeping candidate sets small even as global N grows.
+
+#### 22.8.4 Open questions / risks
+
+- **Weight visibility vs. "their standard" sort.** Publishing weights enables fully client-side asymmetric ranking but leaks importance signals. Private weights force a server-computed score.
+- **Hot tags.** A tag held by a large fraction of users inflates the candidate set; needs capping / min-shared-tags threshold / sampling.
+- **Index authority.** Inverted index can be publisher-maintained (P2P, eventually consistent) or server-rebuilt from `user-tags` (simpler, central). Pick per the mesh-vs-server trajectory.
+- **Consistency of cached pairwise scores** across deltas (versioning + idempotent patch required).
+
+### 22.9 Phasing
+
+1. **P1 — Generalize correctness:** weighted `matchScore` + `user-tags` map in `src/shared/`; replace the hardcoded 10×20 logic; parametrize the E2E to arbitrary N / Mᵢ. (No index yet; fine ≤ ~10³.)
+2. **P2 — Incremental + weights:** versioned delta publish, O(1) hash change-detect, incremental pairwise patch, tag weighting end to end (Scenarios 2 & 3).
+3. **P3 — Scale:** inverted `tag-index`, candidate generation, bounded top-K heap, hot-tag capping, locality scoping (NFR-01/02/05).
+4. **P4 — Generic UI pipeline:** `SortStrategy` registry wired through `ContactsViewDeps`; distance / matched-tags / their-standard strategies; in-memory re-sort.
+
+---
+
+## 23. Mesh Talk Delivery Design (PeerMeshService)
+
+> **Source:** `docs/p2p-mesh-talk-delivery-plan.md` (design sketch).
+> **Status:** Foundation shipped behind `P2P_MESH_TALKS` (see `docs/completed.md` 2026-06-07). Incremental rollout checklist: `docs/TODO.md` §"P0 — Mesh talk delivery". Test impact: `docs/testing/testplan.md`.
+> **Goal:** delete star-topology talk delivery. The Node server keeps only **rendezvous** (who/where peers are) and **signaling** (WebRTC handshake + STUN/TURN). No talk body, offer, response, incoming index, match, conversation, or talk-derived stat is created, relayed, or stored on the server.
+
+### 23.1 Principles
+
+1. **Server is a rendezvous, never a data path.** It answers "who is in room X" and forwards encrypted WebRTC signaling. Once a DataChannel is up, the server is out of the loop.
+2. **Author-owned / pair-private data.** Talk bodies are owned by the author and sent over the mesh on demand; responses go pair-to-pair over a DataChannel.
+3. **Receiver-side policy.** Intake filtering (language, distance, content, adult, cutoff) is evaluated by the *receiver* on arrival, not by a server preview. This also removes the `broadcast-receiver-preview` HTTP round-trip.
+4. **Local-first derivation.** Contacts, matches, talk history, and stats are computed locally from what a peer has sent/received — no server peer endpoints.
+5. **Sparse overlay, not full mesh.** At N peers a full mesh is N² connections (1000 peers ≈ 500k channels). Peers connect to K neighbors and **gossip**; messages propagate epidemically.
+
+### 23.2 Current hub touchpoints to remove
+
+| Concern | Current hub/server touchpoint |
+|---|---|
+| Broadcast announcement | `app.publishChatroomTalkAnnouncement` → Gun `chatrooms/<id>/announcements` (relayed by hub) |
+| Per-receiver offers | `registerReceiversOnServerForTalk` → `publishPeerTalkOfferToReceivers` (Gun `peerTalkOffers/<rid>`) |
+| Talk body fetch | `loadIncomingTalkData` → `resolveTalkFromPeerMesh` / `talks/<id>` (Gun) |
+| Audience preview | `previewReceiversOnServerForTalk` → `POST /api/talks/broadcast-receiver-preview` |
+| Receiver resolution | `resolveBroadcastReceivers` → `GET /api/chatrooms/:id/members` |
+| Star delivery (legacy) | `postRegisterReceiversForBroadcast` → `POST /api/talks/:id/register-receivers-for-broadcast`; server `incomingTalksMap` |
+| Responses | `submitTalkResponsePairDirect` (Gun pair paths) + `subscribeToPairTalkResponses`; star: `talks/<id>/responses` |
+| Matches / conversations | server `conversationsMap`; `POST /api/talks/:id/response` |
+| Contacts / peer history | `GET /api/users/:id/peers`, `/peers/:peerId/relationship`, `/talk-history`, `/replies` (derived from server maps) |
+| Stats | `recordTalkStatsResponse` + `stats-routes` indices |
+
+Reusable P2P substrate already present: `p2p-runtime.ts` (envelopes, signing, neighbor cache, discovery/signaling types), `P2PPresenceClient`, `p2p-signaling-client.ts`, `p2p-webrtc-session.ts`, `DirectP2PConversationTransport`, and the contacts view's local fallbacks (`peerSummariesFromLocalConversations`, `peerSummariesFromLocalTalkExchanges`).
+
+### 23.3 Target architecture
+
+```
+            ┌─────────────── server (minimum) ───────────────┐
+            │  • Room roster (discovery): who is in room X     │
+            │  • Presence: nearby peers, pub keys, TTL         │
+            │  • WebRTC signaling relay (encrypted, TTL)       │
+            │  • STUN/TURN config (NAT traversal)              │
+            │  • Offline mailbox (encrypted, TTL) — fallback   │
+            └──────────────────────────────────────────────────┘
+                     ▲ rendezvous + handshake only
+   peer A ──DataChannel── peer B ──DataChannel── peer C …  (sparse overlay)
+     │  gossip(talk-announce) ─────────────►  │  ────────►  │
+     │  ◄──── req/resp(talk-body) ──────────  │
+     │  ◄──── pair msg(talk-response) ───────  (direct A↔responder)
+```
+
+New client module: **`PeerMeshService`** (sits beside `WebGunService`, eventually replaces it for talk paths). Responsibilities: maintain DataChannels to K neighbors in the current room (re-establishing as membership changes); send typed, signed, framed messages (`talk-announce`, `talk-body-request`, `talk-body`, `talk-response`, `presence-gossip`, `ack`); gossip/forward with a seen-set (dedupe by message id + TTL hops); apply backpressure + flow control per channel, falling back to the server mailbox for offline targets.
+
+### 23.4 Server: keep vs remove
+
+**Keep (minimum):** `chatroom-routes` trimmed to roster-only (discovery); presence endpoints (`P2PPresenceClient`: heartbeat, nearby, ack); signaling endpoints in `system-routes` (offer/answer/ICE relay, TTL'd, ciphertext-only); a tiny STUN/TURN config endpoint; an encrypted **offline mailbox** (new, TTL, metadata-only; bodies are ciphertext); optionally non-talk public data (public profile, reputation, techsupport) server-side for now.
+
+**Remove (star talk path):** `talk-delivery-routes` entirely (`/received`, `/register-receivers-for-broadcast`, `/response`) and the server `incomingTalksMap`, `talkResponsesMap`, `conversationsMap`; `POST /api/talks/broadcast-receiver-preview`; `peer-routes` (`/peers`, `/relationship`, `/talk-history`, `/replies`); `stats-routes` talk aggregation; Gun relay of `talks/*`, `peerTalkOffers/*`, `incomingTalksByUser/*`, `chatrooms/*/announcements`, `chatrooms/*/talks`, and conversation messages.
+
+### 23.5 Mesh message protocol (over DataChannel)
+
+Reuse `createRelayEnvelope` / signed-proof model from `p2p-runtime.ts`. Frame: `{ v:1, kind, msgId, roomId, ttlHops, senderPub, proof, payloadCiphertext?, payload? }`.
+
+| kind | payload | routing |
+|---|---|---|
+| `talk-announce` | { talkId, authorId, title, type, qCount, contentHash } | gossip to neighbors, forward by seen-set |
+| `talk-body-request` | { talkId, authorId } | unicast toward author (or any holder) |
+| `talk-body` | { talkId, talkData } (ciphertext) | unicast reply |
+| `talk-response` | { talkId, answers, outcome } (pair ciphertext) | unicast author |
+| `presence-gossip` | { peerId, pub, room, ts } | gossip |
+| `ack` / `receipt` | { msgId } | unicast |
+
+Announce carries only metadata + content hash; the body is pulled on demand (`talk-body-request`/`talk-body`) so popular talks aren't duplicated needlessly and the author stays the source of truth.
+
+### 23.6 Feature-by-feature migration
+
+- **Discovery & connection:** keep room roster + presence on server. On entering a room, fetch roster, pick K bootstrap neighbors via `getP2PBootstrapCandidates` / neighbor cache, run signaling, open DataChannels. Deliverable: `PeerMeshService.joinRoom(roomId)` yields a live neighbor set + send/recv.
+- **Broadcast:** sender emits one `talk-announce` to its neighbors; gossip floods the room (no per-receiver offers). Each receiver runs receiver-side intake (`talkPassesIntakeFilters`); if it passes, `talk-body-request` the author, then `registerSelfAsReceiverOfIncomingTalk` + `maybeAutoChatbotReplyToAnnouncer`. Cost: O(talks) sender work, O(edges) gossip — no O(users×talks) writes.
+- **Incoming index:** `ownerIncomingTalkIndex` stays **local only** (`encrypted-user-owned`), populated from mesh `talk-body`.
+- **Responses & matches:** responder sends `talk-response` directly to the author (or via mailbox if offline). Author keeps a **single local response inbox** keyed by talk — replaces O(receivers) per-pair Gun subscriptions. Match logic stays in `src/shared/talk-engine.ts`; conversation creation becomes local on both sides on mutual match.
+- **Contacts / peer history:** drop `peer-routes`; the contacts view's local derivations become the only source.
+- **Intake filtering / audience preview:** move to receiver; compose-time preview becomes a local estimate from the known roster, or is dropped.
+- **Chatbot:** unchanged; fed from mesh announcements instead of Gun announcements.
+- **Stats:** server talk stats can't exist without seeing talks. Options: (a) drop global stats [recommended v1], (b) privacy-preserving gossip aggregation, (c) opt-in only.
+- **Offline delivery:** for offline targets, write a ciphertext envelope to the server **mailbox** (`mailbox/<recipientPub>`, TTL, metadata-only); recipient drains on connect, then it's deleted.
+
+### 23.7 Topology & scale (1000 × 1000)
+
+Do not full-mesh. Each peer keeps K (≈8–16) neighbor channels chosen by `scoreP2PNeighbor` (recency, room overlap, latency, contact). Announce floods via gossip with TTL + seen-set; expected room coverage in O(log N) hops. Talk bodies are **pulled**, so a 1000-peer room broadcasting 1000 talks doesn't pre-push 1M bodies. Responses are unicast author-ward; the author's single inbox is O(responders) messages, not O(responders) subscriptions. Low-capability peers (mobile/iOS per `P2P_PLATFORM_DESCRIPTORS`) lean on neighbor relays or the mailbox.
+
+### 23.8 Risks & open questions
+
+NAT traversal needs reliable STUN + TURN fallback (else some pairs must use the mailbox). Gossip storm/dedupe correctness depends on seen-set sizing, TTL hops, and fanout K tuning. Every mesh message is signed (`verifySignedP2PEnvelopeProof`); blocked peers must be dropped at the channel layer. Define TTL and "missed while offline" semantics for eventual consistency. Confirm product is OK relaxing global talk stats. iOS can't hold long-lived channels in background — relies on mailbox + notification-assisted wake.
+
+---
+
+## 24. Phase D — DHT Bootstrap Design
+
+> **Source:** `docs/roadmap/phase-d-dht-bootstrap.md` (design / pre-implementation).
+> **Spec reference:** §19.12 Phase D, §16 item 12, §21.4. **Depends on:** Phase C (relay-only hub, shipped).
+> **Implementation checklist & files-to-create:** `docs/TODO.md` §"Phase D — DHT Bootstrap implementation".
+
+### 24.1 Goal
+
+Supplement hub-based peer discovery so the IinPublic network continues to function when `www.iinpublic.com` is fully offline. After Phase D, a new user can join the network through any live super-peer or DHT entry point — no central server required at runtime. Phase D does **not** change message routing, talk delivery, conversation storage, or match logic; it is a pure peer-discovery upgrade. The hub becomes optional infrastructure; its `/api/peers` endpoint is retained as a fast-path convenience.
+
+### 24.2 Bootstrap service API
+
+A lightweight HTTP(S) endpoint any super-peer or dedicated node can run, storing **only** peer-discovery data.
+
+- **`GET /bootstrap/peers`** — returns a random sample of recently-active peers (`{ peers: [{ peerId, addresses[], lastSeen }], ttlSeconds }`). At most 50 peers, only those seen within `ttlSeconds`; callers are not authenticated.
+- **`POST /bootstrap/announce`** — a peer registers as reachable (`{ peerId, addresses[], pubkey, sig, timestamp }`). Validation: `sig` verifies against `pubkey` over canonical `{peerId, addresses, timestamp}`; `timestamp` within ±5 min (replay defence); `peerId == derivePeerIdFromPub(pubkey)`. Response `{ ok, ttlSeconds }`.
+- **`GET /bootstrap/lookup/:userId`** — resolves a `userId` (Gun pubkey hex) to most-recently-announced addresses; 404 when no record.
+
+TypeScript interfaces (`src/shared/dht-bootstrap.ts`):
+
+```typescript
+export interface BootstrapPeer { peerId: string; addresses: string[]; lastSeen: string; }
+export interface BootstrapAnnouncement { peerId: string; addresses: string[]; pubkey: string; sig: string; timestamp: string; }
+export interface UserPeerRecord { userId: string; peerId: string; addresses: string[]; lastSeen: string; }
+export interface DhtBootstrapClient {
+  getPeers(): Promise<BootstrapPeer[]>;
+  announce(a: BootstrapAnnouncement): Promise<void>;
+  lookupUser(userId: string): Promise<UserPeerRecord | null>;
+}
+```
+
+### 24.3 libp2p vs Kademlia evaluation
+
+| Criterion | libp2p | Kademlia (vanilla) |
+|---|---|---|
+| Browser runtime | ✅ `@libp2p/browser` | ⚠️ custom impl |
+| Gun.js integration | ⚠️ parallel/bridged | ⚠️ same |
+| Bundle size | ~250 KB | ~20 KB |
+| NAT traversal | ✅ Circuit Relay, hole-punch | ❌ manual |
+| Identity binding | ✅ PeerID = hash(pubkey) | ⚠️ manual |
+| Maintenance | ✅ Protocol Labs | ⚠️ self |
+| SEA keys | ⚠️ Ed25519 vs ECDSA mapping | ✅ key-agnostic |
+| Incremental adoption | ⚠️ large surface | ✅ bootstrap-only |
+
+**Recommendation:** start with a minimal Kademlia-inspired bootstrap service (§24.2) without the full libp2p stack — delivers Phase D goals at low integration cost. Upgrade to libp2p only when: > 10,000 concurrent peers makes a central list a bottleneck; measured NAT-traversal success drops < 80% and Circuit Relay is needed; or key management can be bridged (SEA → Ed25519).
+
+### 24.4 UserID → address lookup interface
+
+```typescript
+export interface UserAddressLookup {
+  /** Returns null when the user is unknown or offline. */
+  lookupUser(userId: string): Promise<UserPeerRecord | null>;
+}
+// Implementations: HubLookupClient (Phase D) → KademliaDhtClient (Phase D+) → LibP2PDhtClient (future)
+```
+
+Call sites that initiate a direct P2P session depend on `UserAddressLookup` (injected) rather than any concrete client, so the discovery backend can be swapped without changing call sites.
+
+### 24.5 Migration path from Phase C
+
+D-1 deploy bootstrap service alongside the hub (hub hosts `/bootstrap/*`); D-2 super-peers `POST /bootstrap/announce` on startup and every 60 s; D-3 web client tries the hub peer list first, falls back to bootstrap if unreachable; D-4 web client announces on first successful Gun connect; D-5 bake 3–5 known super-peer addresses into the client as cold-start fallback; D-6 hub `/api/peers` delegates to the bootstrap service internally; D-7 hub can be taken offline without breaking discovery (goal). No Gun schema or message-format changes required.
+
+### 24.6 Storage and security
+
+Storage: in-memory LRU (capacity 10,000 peers) with a 5-minute TTL; no disk persistence (self-healing — peers re-announce on restart). A Redis-backed store can substitute for HA without changing the API. Security: signed announcements with `peerId` bound to `pubkey` (Sybil resistance); ±5-min `timestamp` window (replay defence); ≤ 50 peers/request (no amplification); random-sample `/bootstrap/peers` (enumeration resistance); peer addresses are published voluntarily and location data is not stored.
+
+### 24.7 Open questions
+
+1. **Key bridge:** how to map Gun SEA (ECDSA) keys to libp2p PeerID (Ed25519) if full libp2p is adopted — separate Ed25519 key in Gun user space, or deterministic derivation from the SEA private key.
+2. **Super-peer incentives:** what motivates running a bootstrap node (not required for Phase D — hub + volunteer super-peers suffice initially).
+3. **DHT key space:** `sha256(pubkey)` (libp2p/Kademlia convention) vs current FNV-based `derivePeerIdFromPub`.

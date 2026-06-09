@@ -1,6 +1,6 @@
 # Direct P2P — Implementation & E2E Migration TODO
 
-> **SUPERSEDED (2026-05-28) for persistence policy.** Authoritative design: `docs/specs/iinpublic-technical-specification.md` **§19.4** — WebRTC is transport; **local Gun** is the durable store. Forward stack work: **`docs/TODO.md`** phases **P2P-H** through **P2P-O**. Do not add requirements that peer DM bodies stay off Gun on the device.
+> **SUPERSEDED (2026-05-28) for persistence policy.** Authoritative design: `docs/specs/iinpublic-technical-specifications.md` **§19.4** — WebRTC is transport; **local Gun** is the durable store. Forward stack work: **`docs/TODO.md`** phases **P2P-H** through **P2P-O**. Do not add requirements that peer DM bodies stay off Gun on the device.
 >
 > This file remains as a checklist for **already-shipped transport code** (signaling, WebRTC session, fallback, E2E). Reuse and refactor under P2P-H; do not delete transport infrastructure.
 

@@ -3,7 +3,7 @@
 Last updated: 2026-05-12
 
 Purpose: map the biggest remaining requirements in
-`docs/specs/iinpublic-technical-specification.md` to the current codebase, with
+`docs/specs/iinpublic-technical-specifications.md` to the current codebase, with
 file-level evidence for what already exists and what is still missing.
 
 This is not a replacement for `docs/TODO.md`. The TODO is the execution queue.

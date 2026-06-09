@@ -1640,3 +1640,67 @@ Sections **4.1–4.10** of the 2025 SRS-style case library (user management, bui
 ---
 
 _§4.2–4.3 generated from `PW_WORKERS=15` run 2026-05-16. Re-run §4.1 to update durations after major perf or test changes._
+
+---
+
+## Appendix C — Flake investigations & historical benchmarks
+
+> **Consolidated 2026-06-08** from `docs/testing-benchmarks.md`, `docs/P2P_nodes.md` (test-history portions), and the root-level `test-12-flake-root-cause.md`. Those source docs were moved to `docs/archive/`.
+
+### C.1 `12-two-responders-partial-match` — disk-race flake (2026-05-12)
+
+Root-cause analysis for historical flakiness observed at W4+ during full-suite runs.
+
+**Isolation benchmark (single test only) — 2026-05-02.** When run in isolation, the test passes at **every** worker count; it is not inherently flaky:
+
+| Workers | Duration | Pass | Fail | Exit |
+|---------|----------|------|------|------|
+| W1 | 47s | 1 | 0 | 0 |
+| W2 | 47s | 1 | 0 | 0 |
+| W3 | 49s | 1 | 0 | 0 |
+| W4 | 50s | 1 | 0 | 0 |
+| W5 | 52s | 1 | 0 | 0 |
+| W6 | 54s | 1 | 0 | 0 |
+| W7 | 58s | 1 | 0 | 0 |
+| W8 | 59s | 1 | 0 | 0 |
+
+**Full-suite run (talks-matching/, 13 files) — 2026-05-02.** At W4 the test fails (1 failed, 12 passed in 5.8m), reproducing the historical flakiness.
+
+**Root cause: cross-test interference via shared disk paths in `clearGunDatabases()`** (`tests/e2e/helpers/clear-database.ts`). Every worker deleted shared disk paths (`radata/`, `data1.json`, `data.json`); when Worker 0 deleted `radata/` mid-test, Worker 1 could be syncing, tearing down Gun's disk persistence mid-write and corrupting the graph for subsequent tests. The test is most vulnerable because it launches 3 browser instances with heavy Gun sync and has 30s polling timeouts.
+
+**Historical reference benchmarks:** W1 (clean) 4.75m / 32 pass; W4 (clean) 2.6m / 28 pass + 4 fail (12.5%); noisy runs worse due to port conflicts + disk races.
+
+**Fix applied:** `clearGunDatabases()` now polls `GET /health` before clearing, retries `POST /api/test/clear-database` with exponential backoff, relies on `E2E_GUN_MEMORY_ONLY=1` server state instead of deleting shared disk paths, waits a short settle window after a successful clear, and still clears browser IndexedDB via `injectIdbClear()`. Action items closed: root cause diagnosed; shared disk deletes removed (per-worker `radata_w{N}/` / `data1_w{N}.json` if disk persistence is needed); retry/synchronization added; revalidated — `PW_WORKERS=10 npm run test:e2e` passed 58 tests on 2026-05-12.
+
+### C.2 `12-two-responders-partial-match` — badge replication race (2026-05-03, commit `c1674942aaad`)
+
+A distinct earlier flake on the same spec. Symptom: with the full talks-matching suite at ≥3 workers, Tom's conversation badge showed 0/stale instead of the expected 1 (1–2 workers ~90% pass, 3–4 workers ~60–75%).
+
+**Root cause: the Gun replication race after a database clear.** `clearGunDatabases()` resets `gun._.graph = {}` on the server, but clients replicate incrementally — a `.once()` snapshot taken right after a clear can be stale/empty. The badge reads from localStorage, which only updates when the sync handler ingests fresh Gun data; if the first post-clear `.once()` missed the new conversation, the badge never converged. A prior fix (commit `2c58744`) added two `requestConversationSync` calls but `waitForConversationBadgeCount` still polled the DOM passively for 30s without pulling new data. More workers worsened it (concurrent clears, larger accumulated graph, less replication time).
+
+**Fix:** `waitForConversationBadgeCount` changed from passive DOM polling to an **active sync loop** — every iteration calls `requestConversationSync(page)` (dispatches `needConversationSync` → fresh Gun `.once()` → localStorage update → UI re-render), waits `afterSync()`, then reads the badge; timeout raised 30s → 45s. The test keeps "tugging" Gun until the replicated data converges.
+
+**Lesson:** do not treat localStorage as immediately authoritative after a database clear; test helpers must actively participate in the sync cycle.
+
+### C.3 `E2E_GUN_MEMORY_ONLY=1` semantics (test-environment note)
+
+When set: server Gun runs with `radisk: false` (no disk persistence); each Playwright worker runs its own server pair on offset ports; each worker has isolated in-memory Gun state and workers do not share graph state. This is why per-worker disk clears are unnecessary (see C.1) and why cross-worker disk races were the flake source.
+
+---
+
+## Appendix D — Mesh talk delivery test impact (`P2P_MESH_TALKS`)
+
+> Source: `docs/p2p-mesh-talk-delivery-plan.md` §9 (archived). Design detail now in spec §23; rollout checklist in `docs/TODO.md` §"P0 — Mesh talk delivery".
+
+- **`find-similar-people`:** once announce + responses are on the mesh (rollout steps 2/4), remove the sequential-deliver workaround and go concurrent again — the hub-saturation reason is gone. Multi-browser-per-user already models real peers, so it becomes the natural mesh test.
+- **Star-mode integration suites** (`talk-loop`, `peer-routes`, `system-routes`) shrink or are deleted as their endpoints go away; replace with mesh-transport + receiver-filter unit/integration tests.
+- **New mesh transport tests:** gossip coverage, seen-set dedupe, body pull, offline mailbox drain, neighbor churn.
+- **First proof:** a 3-browser E2E asserting a message gossips A→B→C without any `talks/*` or `peerTalkOffers/*` Gun write (proves the rendezvous-only server model before any feature moves).
+
+---
+
+## Appendix E — Statistics feature verification requirements
+
+> Source: `docs/roadmap/statistics-expansion.md` (archived). Forward feature work tracked in `docs/TODO.md`.
+
+Every new statistics feature should include: unit tests for aggregation math; integration tests for endpoint input validation, empty data, UTC boundaries, and privacy masking; E2E tests for dashboard entry points and visible results; and documentation updates in `docs/TODO.md` and the spec where the source-of-truth or privacy model changes.
