@@ -34,6 +34,14 @@ import {
   upsertLocalIncomingTalkCluster,
 } from '../services/client-incoming-talk-mirror';
 import { getSEA, type GunPair } from '../sea-gun';
+import {
+  applyTalkLedgerEvent,
+  applyEdgeGateForPeer,
+  shouldSuppressForPeer,
+  getTalkLedgerDoc,
+} from '../services/web-talk-ledger-store';
+import { buildTalkIdentityKey } from '../../shared/cid';
+import { buildTagIdentityKeys, setTalkLedgerQuotaUnlimited } from '../../shared/talk-ledger';
 
 type DirectTalkStatsRecordParams = {
   talkId: string;
@@ -1533,6 +1541,29 @@ export class IinPublicApp {
     } catch {
       // Local exchange summaries only support UI fallbacks; ignore storage failures.
     }
+
+    // Step 8: co-write to the talk ledger (author outcome + exchanged entry).
+    // Map outcome vocabulary: 'match' → 'matched', 'mismatch'|'ignore' → 'ignored'.
+    try {
+      const ledgerOutcome = outcome === 'match' ? 'matched' : 'ignored';
+      const identityKey = buildTalkIdentityKey(talkData);
+      const authorId = this.currentUser!.id;
+      const nowIso = new Date().toISOString();
+      applyTalkLedgerEvent({
+        kind: 'TALK_ANSWERED',
+        responderId: peerId,
+        talkId,
+        authorId,
+        identityKey,
+        outcome: ledgerOutcome,
+        version: meta?.version ?? 1,
+        responseId: meta?.responseId ?? `resp_${talkId}_${peerId}`,
+        respondedAt: meta?.respondedAt ?? nowIso,
+        now: nowIso,
+      });
+    } catch {
+      // Ledger write failures are non-fatal — suppression misses cost one redundant send.
+    }
   }
 
   private async syncDirectPairTalkExchangesForContacts(): Promise<void> {
@@ -1795,6 +1826,36 @@ export class IinPublicApp {
     }
     if (receiverIds.length === 0) return false;
 
+    // Step 8.2: sender-side suppression — skip recipients whose outcome is already
+    // recorded for this talk identity (per-identity granularity, step-11-aligned).
+    // NOTE: flood frames reach everyone by design; suppression applies only to the
+    // directed recipientUserIds list used for announce/body delivery.
+    const wholeTalkIdentityKey = buildTalkIdentityKey(talk);
+    const identityKeys = buildTagIdentityKeys(talk, wholeTalkIdentityKey);
+    const nowMs = Date.now();
+    const finalReceiverIds = receiverIds.filter((recipientId) => {
+      // Suppress if ALL identity keys for this talk are suppressed for this peer
+      const allSuppressed = identityKeys.every((ik) => shouldSuppressForPeer(recipientId, ik));
+      if (allSuppressed) {
+        console.debug(`[Ledger] Suppressing talk deliver to ${recipientId} for identityKey(s) ${identityKeys.join(',')} — already exchanged`);
+        return false;
+      }
+
+      // Step 8.3: client per-edge cooldown/quota gate
+      const gate = applyEdgeGateForPeer(recipientId, nowMs);
+      if (!gate.ok) {
+        console.debug(`[Ledger] Edge gate rejected deliver to ${recipientId}: ${gate.rejectedBy.join(',')}`);
+        return false;
+      }
+
+      return true;
+    });
+
+    if (finalReceiverIds.length === 0) {
+      console.debug(`[Ledger] All recipients suppressed or gated for talkId=${talkId}, skipping broadcastTalk`);
+      return true; // return true so the caller counts this as "sent" (suppression is silent)
+    }
+
     const mesh = this.ensurePeerMeshService();
     if (!mesh) return false;
     const chatroomId = this.chatroomService.getCurrentChatroomId();
@@ -1807,10 +1868,10 @@ export class IinPublicApp {
     mirrorTalkDefinitionToLocalGun(this.gunService, talkId, talk, this.p2pRuntimeFlags);
     mesh.cacheTalkBody(talkId, talk as unknown as Record<string, unknown>);
     await mesh.broadcastTalk({ ...talk, id: talkId, authorId: me.id }, {
-      recipientUserIds: receiverIds,
+      recipientUserIds: finalReceiverIds,
       roomBroadcast: true,
     });
-    console.log(`📡 Mesh talk announcement published: talkId=${talkId} receivers=${receiverIds.length}`);
+    console.log(`📡 Mesh talk announcement published: talkId=${talkId} receivers=${finalReceiverIds.length} (suppressed=${receiverIds.length - finalReceiverIds.length})`);
     return true;
   }
 
@@ -2547,6 +2608,23 @@ export class IinPublicApp {
   /** E2E hook: high-volume specs (find-similar) call this to suppress per-answer stats POSTs. */
   public setSkipDirectTalkStatsForE2e(skip: boolean): void {
     this.skipDirectTalkStatsForE2e = skip === true;
+  }
+
+  /**
+   * Step 8 E2E hook: when the server runs with E2E_GUN_MEMORY_ONLY=1 it sets
+   * quotas to Number.MAX_SAFE_INTEGER.  Callers that already call
+   * setSkipDirectTalkStatsForE2e(true) (find-similar spec) should also call this
+   * so high-fanout rebroadcasts are not throttled by the per-edge daily/weekly quota.
+   */
+  public setTalkLedgerQuotaUnlimitedForE2e(unlimited: boolean): void {
+    setTalkLedgerQuotaUnlimited(unlimited === true);
+  }
+
+  /**
+   * Step 8 E2E read helper: return the current talkLedger doc for assertions.
+   */
+  public getTalkLedgerDocForE2e(): unknown {
+    return getTalkLedgerDoc();
   }
 
   public async seedIncomingTagTalkForE2e(params: {
