@@ -10,7 +10,7 @@ import { LocationPrivacy } from '../../shared/location';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
-import { computeTalkIdFromTalkData } from '../../shared/cid';
+import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize } from '../../shared/cid';
 import { isDevStageZero } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
 import {
@@ -856,6 +856,68 @@ export class IinPublicApp {
     void mesh.joinRoom(chatroomId, withSelf).catch((error) => {
       console.warn('Peer mesh room join failed:', error);
     });
+    // STEP-6-REPLACE: drain the offline-author interim queue whenever roster changes —
+    // any newly-present member may be an author we were unable to reach before.
+    void this.drainPendingMeshResponses(withSelf.map((m) => m.userId)).catch(() => {});
+  }
+
+  // ─── Offline-author interim response queue (STEP-6-REPLACE) ──────────────────
+  //
+  // When `sendTalkResponse` cannot deliver (author absent from roster or WebRTC fails),
+  // persist the encrypted P2PMeshTalkResponsePayload to localStorage under the key
+  // `pendingMeshTalkResponses`, keyed `<talkId>::<authorId>::<responseId>`.
+  //
+  // Step 6 replaces this localStorage queue with the encrypted TTL mailbox.
+  // All methods below are tagged STEP-6-REPLACE to allow deletion in one place.
+
+  private static readonly PENDING_MESH_RESPONSES_KEY = 'pendingMeshTalkResponses';
+
+  // STEP-6-REPLACE
+  private enqueuePendingMeshResponse(payload: P2PMeshTalkResponsePayload): void {
+    try {
+      const raw = localStorage.getItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY);
+      const queue: Record<string, P2PMeshTalkResponsePayload> = raw ? JSON.parse(raw) : {};
+      const queueKey = `${payload.talkId}::${payload.authorId}::${payload.responseId}`;
+      queue[queueKey] = payload;
+      localStorage.setItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY, JSON.stringify(queue));
+      console.log('[MeshQueue] Queued offline response for author', payload.authorId, 'key:', queueKey);
+    } catch (err) {
+      console.warn('[MeshQueue] Failed to enqueue pending response:', err);
+    }
+  }
+
+  // STEP-6-REPLACE: drain pending responses for authors now present in the room roster.
+  private async drainPendingMeshResponses(rosterUserIds: string[]): Promise<void> {
+    if (!rosterUserIds.length) return;
+    let queue: Record<string, P2PMeshTalkResponsePayload>;
+    try {
+      const raw = localStorage.getItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY);
+      if (!raw) return;
+      queue = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    const rosterSet = new Set(rosterUserIds);
+    const drained: string[] = [];
+    for (const [queueKey, payload] of Object.entries(queue)) {
+      if (!rosterSet.has(payload.authorId)) continue;
+      const mesh = this.ensurePeerMeshService();
+      if (!mesh) break;
+      try {
+        await mesh.sendTalkResponse(payload);
+        drained.push(queueKey);
+        console.log('[MeshQueue] Drained pending response to author', payload.authorId);
+      } catch (err) {
+        console.warn('[MeshQueue] Failed to drain pending response for', payload.authorId, err);
+        // Leave in queue for next roster-change opportunity
+      }
+    }
+    if (drained.length > 0) {
+      for (const k of drained) delete queue[k];
+      try {
+        localStorage.setItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY, JSON.stringify(queue));
+      } catch {/* ignore */}
+    }
   }
 
   /**
@@ -959,12 +1021,18 @@ export class IinPublicApp {
     const decrypted = await this.decryptPairTalkResponsePayload(payload);
     this.processedTalkResponseKeys.add(dedupeKey);
     const isMatch = this.checkIfMatch(talkData, decrypted.answers);
+    // R-2: pass responseId/version/respondedAt for forward-compat (steps 8–11)
     this.recordLocalTalkExchange(
       payload.responderId,
       decrypted.responderName,
       payload.talkId,
       talkData,
       isMatch ? 'match' : 'mismatch',
+      {
+        responseId: payload.responseId,
+        version: payload.version ?? 1,
+        respondedAt: payload.respondedAt ?? payload.submittedAt,
+      },
     );
     if (!isMatch) return;
     this.uiManager.showNotification(
@@ -1347,6 +1415,8 @@ export class IinPublicApp {
     talkId: string,
     talkData: any,
     outcome: 'match' | 'mismatch' | 'ignore',
+    // R-2: forward-compat fields for steps 8–11 (responseId, version, respondedAt)
+    meta?: { responseId?: string; version?: number; respondedAt?: string },
   ): void {
     if (!this.currentUser?.id || !peerId || peerId === this.currentUser.id || !talkId) return;
     try {
@@ -1362,6 +1432,10 @@ export class IinPublicApp {
         outcome,
         direction: 'sent',
         date: new Date().toISOString(),
+        // R-2: forward-compat fields — inert in step 4, used by steps 8–11
+        ...(meta?.responseId ? { responseId: meta.responseId } : {}),
+        ...(meta?.version !== undefined ? { version: meta.version } : {}),
+        ...(meta?.respondedAt ? { respondedAt: meta.respondedAt } : {}),
       };
       localStorage.setItem('localTalkExchanges', JSON.stringify(exchanges));
     } catch {
@@ -2088,7 +2162,14 @@ export class IinPublicApp {
       const answerText = String(answer?.answerText || '').toLowerCase();
       return answerId === 'ignore' || answerId.includes('ignore') || answerText === 'ignore';
     });
-    const responseId = `resp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    // R-1: CIDv1 response id — REQ-LEDGER-04/12 (replaces resp_<ts>_<rand> non-deterministic id)
+    const responseContentJson = canonicalSerialize(params.answers);
+    const responseId = await computeResponseId({
+      talkId: params.talkId,
+      responderId: this.currentUser.id,
+      responseContentJson,
+    });
+    const submittedAt = new Date().toISOString();
     const skipE2eLocalOnlyReject =
       process.env.DISABLE_HMR === 'true' &&
       params.talkData?.e2eLocalOnlyReject === true &&
@@ -2107,12 +2188,30 @@ export class IinPublicApp {
         talkId: params.talkId,
         authorId: params.authorId,
         responderId: this.currentUser.id,
-        submittedAt: new Date().toISOString(),
+        submittedAt,
+        respondedAt: submittedAt,  // R-1: == submittedAt at v1; step 9 sets changedAt on supersession
+        version: 1,                // R-1: monotonic per (talkId,responderId); REQ-LEDGER-04
         encryption: 'sea-ecdh-v1',
         payloadCiphertext,
         transportMode: 'mesh-p2p',
       };
-      await this.ensurePeerMeshService()?.sendTalkResponse(meshPayload);
+      const mesh = this.ensurePeerMeshService();
+      let sent = false;
+      if (mesh) {
+        try {
+          await mesh.sendTalkResponse(meshPayload);
+          sent = true;
+        } catch (err) {
+          console.warn('[MeshResponse] sendTalkResponse failed, queuing for author presence:', err);
+        }
+      }
+      // STEP-6-REPLACE: offline-author interim queue — when unicast cannot be delivered
+      // (author not in roster or send failed), persist the encrypted payload to localStorage
+      // and re-send when the author appears in the room roster. Step 6 replaces this with
+      // the encrypted TTL mailbox (talk-response routed through mailbox fallback).
+      if (!sent) {
+        this.enqueuePendingMeshResponse(meshPayload);
+      }
     }
 
     // Stats recording is ON by default for every spec — survey/route/analytics/

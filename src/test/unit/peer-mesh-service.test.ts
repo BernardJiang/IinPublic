@@ -112,12 +112,15 @@ describe('PeerMeshService', () => {
     }));
     expect(bobBodies[0].talkData).toEqual(expect.objectContaining({ id: 'talk-1' }));
 
+    const responseAt = new Date().toISOString();
     await bob.sendTalkResponse({
       responseId: 'resp-1',
       talkId: 'talk-1',
       authorId: 'alice',
       responderId: 'bob',
-      submittedAt: new Date().toISOString(),
+      submittedAt: responseAt,
+      respondedAt: responseAt,
+      version: 1,
       encryption: 'sea-ecdh-v1',
       payloadCiphertext: 'SEA{"ct":"ciphertext"}',
       transportMode: 'mesh-p2p',
@@ -360,14 +363,15 @@ describe('PeerMeshService', () => {
     await bob.joinRoom('global', members);
 
     // Bob answers the shared content id X for each author independently.
+    const now = new Date().toISOString();
     await bob.sendTalkResponse({
       responseId: 'resp-alice', talkId: 'X', authorId: 'alice', responderId: 'bob',
-      submittedAt: new Date().toISOString(), encryption: 'sea-ecdh-v1',
+      submittedAt: now, respondedAt: now, version: 1, encryption: 'sea-ecdh-v1',
       payloadCiphertext: 'SEA{"ct":"a"}', transportMode: 'mesh-p2p',
     });
     await bob.sendTalkResponse({
       responseId: 'resp-carol', talkId: 'X', authorId: 'carol', responderId: 'bob',
-      submittedAt: new Date().toISOString(), encryption: 'sea-ecdh-v1',
+      submittedAt: now, respondedAt: now, version: 1, encryption: 'sea-ecdh-v1',
       payloadCiphertext: 'SEA{"ct":"c"}', transportMode: 'mesh-p2p',
     });
     await new Promise((resolve) => setTimeout(resolve, 0));

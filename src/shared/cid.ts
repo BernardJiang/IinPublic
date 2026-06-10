@@ -313,6 +313,43 @@ export function canonicalIdentityKeyFromStoredCluster(cluster: any): string {
   return buildTalkIdentityKey(cluster);
 }
 
+// ─── Response CIDv1 (REQ-LEDGER-04/12) ──────────────────────────────────────
+
+/**
+ * Compute a CIDv1 response id from the stable response-identity triple.
+ *
+ * REQ-LEDGER-04: every response has a stable, content-derived id so that duplicate
+ * deliveries (mesh dedup miss, queue re-send) are idempotent on both sides.
+ *
+ * The payload { talkId, responderId, responseContentJson } is canonically serialised
+ * before hashing so the id is independent of JSON key order.
+ *
+ * // REQ-LEDGER-12 CIDv1: this is the v1 seam — step 9 (change-of-mind / supersession)
+ * will extend the payload with a `version` counter if needed.
+ */
+export async function computeResponseId(opts: {
+  talkId: string;
+  responderId: string;
+  /** Canonical JSON of the response answers array (already serialised by caller). */
+  responseContentJson: string;
+}): Promise<string> {
+  return computeCIDv1({ talkId: opts.talkId, responderId: opts.responderId, responseContentJson: opts.responseContentJson });
+}
+
+/**
+ * Synchronous fallback for contexts where async is not available.
+ * Uses computeCIDv1Sync (FNV-1a, NOT cryptographic) — same caveat as computeCIDv1Sync.
+ *
+ * Production callers must use computeResponseId.
+ */
+export function computeResponseIdSync(opts: {
+  talkId: string;
+  responderId: string;
+  responseContentJson: string;
+}): string {
+  return computeCIDv1Sync({ talkId: opts.talkId, responderId: opts.responderId, responseContentJson: opts.responseContentJson });
+}
+
 /**
  * Phase G — CIDv1 talk identity (REQ-LEDGER-ENTITY-IDs).
  *

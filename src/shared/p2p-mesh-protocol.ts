@@ -32,13 +32,15 @@ export type P2PMeshTalkBodyPayload = P2PMeshTalkAnnouncePayload & {
 };
 
 export type P2PMeshTalkResponsePayload = {
-  responseId: string;
+  responseId: string;          // R-1: CIDv1({ talkId, responderId, responseContentJson }) — REQ-LEDGER-04/12
   talkId: string;
-  authorId: string;
+  authorId: string;            // unicast routing target (recipientUserId)
   responderId: string;
-  submittedAt: string;
+  submittedAt: string;         // ISO
+  respondedAt: string;         // R-1: ISO; == submittedAt at v1; step 9 sets changedAt on supersession
+  version: number;             // R-1: monotonic per (talkId,responderId); 1 at first answer (REQ-LEDGER-04)
   encryption: 'sea-ecdh-v1';
-  payloadCiphertext: string;
+  payloadCiphertext: string;   // pair ciphertext: { responderName, answers, isChatbotResponse, ... }
   transportMode: 'mesh-p2p';
 };
 
