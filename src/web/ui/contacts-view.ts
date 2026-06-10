@@ -801,6 +801,9 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
       deps.getPeerName(a.peerId, a.stageName).localeCompare(deps.getPeerName(b.peerId, b.stageName));
     const visiblePeers = peers
       .filter((peer) => {
+        // Never show the current user as their own contact. Local sources already filter
+        // self, but server peers (/api/users/:id/peers) are merged in unfiltered, so guard here.
+        if (!peer.peerId || peer.peerId === deps.currentUserId) return false;
         const known = knownMap.get(peer.peerId);
         const resolvedStageName = deps.getPeerName(peer.peerId, peer.stageName);
         const displayName = buildDisplayName(resolvedStageName, known).toLowerCase();

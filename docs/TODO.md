@@ -46,7 +46,7 @@ fallback only.
 
 #### 2. Mesh broadcast announcements `[Sonnet]` — builds on step 1's transport pattern
 
-- [ ] Test: find-similar broadcast reaches eligible receivers over mesh
+- [x] Test: find-similar broadcast reaches eligible receivers over mesh — ✅ shipped 2026-06-09, see `docs/completed.md`; interim Gun rendezvous fallback (below-degree / coverage-gap) tracked as step-6/7 debt in `docs/design/p0-step1-mesh-transport.md` R-a
 
 #### 3. Body pull and receiver-side intake `[Sonnet]` — rewires existing `talk-intake-filters.ts` predicates
 

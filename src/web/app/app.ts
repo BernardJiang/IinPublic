@@ -89,6 +89,18 @@ export class IinPublicApp {
     lastPingFrom: null,
     lastPongFrom: null,
   };
+
+  /**
+   * Step 2: durable mesh announce-receipt diagnostics updated by onTalkAnnounce callback.
+   * Each entry records a talkId + authorId pair received via a talk-announce mesh frame.
+   * Exposed via getApp() for E2E assertion without requiring the full body pull to complete.
+   */
+  public meshAnnounceDiagnostics: {
+    /** Announcements received: each entry is { talkId, authorId } */
+    received: Array<{ talkId: string; authorId: string }>;
+  } = {
+    received: [],
+  };
   private readonly directTalkStatsQueue: DirectTalkStatsRecordParams[] = [];
   private directTalkStatsInFlight = 0;
   private readonly e2eSeededIncomingClusters: any[] = [];
@@ -805,6 +817,18 @@ export class IinPublicApp {
         diag.lastPongFrom = fromUserId;
         if (!diag.pongedOrigins.includes(fromUserId)) diag.pongedOrigins.push(fromUserId);
       },
+      // Step 2: record announce receipt for durable E2E assertion (meshAnnounceDiagnostics).
+      // Fires before body pull, enabling the test to assert announce reachability without
+      // waiting for the full talk-body-request/talk-body round-trip.
+      onTalkAnnounce: (payload, _frame) => {
+        const diag = this.meshAnnounceDiagnostics;
+        const alreadyRecorded = diag.received.some(
+          (r) => r.talkId === payload.talkId && r.authorId === payload.authorId,
+        );
+        if (!alreadyRecorded) {
+          diag.received.push({ talkId: payload.talkId, authorId: payload.authorId });
+        }
+      },
     });
     (this as any).peerMeshService = this.peerMeshService;
     return this.peerMeshService;
@@ -825,6 +849,26 @@ export class IinPublicApp {
     void mesh.joinRoom(chatroomId, withSelf).catch((error) => {
       console.warn('Peer mesh room join failed:', error);
     });
+  }
+
+  /**
+   * True when the local user created a talk whose content-addressed id equals `talkId`.
+   * Used to protect the local author's own `talks/<talkId>` Gun mirror and cache from
+   * being clobbered by a remote author who broadcast identical (content-addressed) content.
+   */
+  private localUserAuthoredTalkContent(talkId: string): boolean {
+    if (!talkId) return false;
+    try {
+      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}') as Record<string, any>;
+      const entry = myTalks?.[talkId];
+      if (entry && (entry.role === 'created' || String(entry?.fullTalk?.authorId || entry?.authorId || '') === this.currentUser?.id)) {
+        return true;
+      }
+    } catch {
+      /* fall through to mesh cache check */
+    }
+    const own = this.peerMeshService?.getCachedTalkBody(talkId, this.currentUser?.id);
+    return !!own && String((own as { authorId?: unknown }).authorId || '') === this.currentUser?.id;
   }
 
   private async resolveMeshTalkData(talkId: string): Promise<any | null> {
@@ -852,7 +896,16 @@ export class IinPublicApp {
       ...(payload.authorEpub ? { authorEpub: payload.authorEpub } : {}),
     };
     if (this.isTalkExpiredForDelivery(talkData)) return false;
-    mirrorTalkDefinitionToLocalGun(this.gunService, payload.talkId, talkData, this.p2pRuntimeFlags);
+    // Talk ids are content-addressed (no authorId), so a remote author's identical-content
+    // talk shares this.currentUser's own talkId when both created the same content. The
+    // shared Gun node `talks/<talkId>` is keyed by talkId alone, so mirroring the remote
+    // body here would OVERWRITE the local author's own talk definition (flipping its
+    // authorId to the remote sender). Skip the mirror for content the local user authored
+    // — the author's own definition must survive (it drives `resolveMeshTalkData` /
+    // `getTalkWithRetry` on the author-side response/match path).
+    if (!this.localUserAuthoredTalkContent(payload.talkId)) {
+      mirrorTalkDefinitionToLocalGun(this.gunService, payload.talkId, talkData, this.p2pRuntimeFlags);
+    }
     // Apply intake/age filtering BEFORE surfacing the talk in the UI. Mesh room
     // broadcasts reach every member, so age-gated/filtered talks must be rejected
     // here or they leak into the incoming-cluster UI (e.g. an adult talk shown to a
@@ -2409,7 +2462,12 @@ export class IinPublicApp {
           ? conversationData.userName2
           : conversationData.userName1);
 
-      if (!otherUserId) continue;
+      // Never ingest a conversation whose other participant resolves to the local user.
+      // A content-collision (two authors, identical content-addressed talkId) can produce
+      // a `conv_<a>_<b>_<talkId>` record whose participants array, read back from the
+      // shared Gun node, leaves otherUserId ambiguous; guarding self here keeps the user
+      // out of their own contacts list.
+      if (!otherUserId || otherUserId === this.currentUser.id) continue;
 
       let resolvedOtherUserName = otherUserName ?? 'Unknown';
       if (

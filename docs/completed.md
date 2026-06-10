@@ -1615,3 +1615,21 @@ Evidence:
 
 - E2E: `tests/e2e/talks-matching/01-mesh-ping-overlay.spec.ts` (includes K=1 path-graph sparse forwarding + relay-side Gun emptiness assertion)
 - Unit: `src/test/unit/peer-mesh-service.test.ts` (origin/msgId stability across relay hop)
+
+## 2026-06-09 - P0 Step 2: Mesh Broadcast Announcements
+
+Find-similar room broadcasts now travel as `talk-announce` + `talk-body` floods over the mesh
+DataChannel overlay (primary path, zero delivery Gun writes). `publishRoomTalkBodyRendezvous`
+(`p2pMeshTalkBodies/*`) remains only as a conditional fallback when the overlay cannot guarantee
+coverage: below wanted degree, or named recipients exceed the degree bound K (sparse overlay may
+be partitioned). Author-qualified identity (`talkId::authorId`) is preserved end-to-end —
+content-addressed talkId collisions across authors no longer clobber cached bodies, the author's
+own `talks/<id>` definition, or response routing. Contacts view no longer leaks self.
+Interim fallback + author-side `talks/*` creation write tracked as step-6/7 debt
+(`docs/design/p0-step1-mesh-transport.md` R-a/R-f).
+
+Evidence:
+
+- E2E: `tests/e2e/talks-matching/02-mesh-broadcast-announce.spec.ts` (3 browsers, K=1 relay hop, strict `peerTalkOffers/*` + `p2pMeshTalkBodies/*` emptiness)
+- E2E: full suite green — 101 passed, 0 failed, 0 flaky (incl. stage2/08-super-user-copy-talk, stage5/find-similar-people 9/9 contacts)
+- Unit: `src/test/unit/peer-mesh-service.test.ts` (announce guards, relay-hop flood, fallback decision, author-collision cache, coverage-gap condition)

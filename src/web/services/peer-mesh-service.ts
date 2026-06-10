@@ -54,6 +54,12 @@ type PeerMeshServiceOptions = {
   onPing?: (fromUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
   /** R5: fired when a mesh-pong addressed to us arrives; enables durable E2E reachability assertion. */
   onPong?: (fromUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
+  /**
+   * Step 2: fired when a `talk-announce` frame arrives addressed to this peer (or flood).
+   * Fires before the body request is scheduled, so callers can record receipt for E2E
+   * diagnostics without waiting for the full body pull to complete.
+   */
+  onTalkAnnounce?: (payload: P2PMeshTalkAnnouncePayload, frame: P2PMeshFrame) => void | Promise<void>;
 };
 
 type Neighbor = {
@@ -310,13 +316,45 @@ export class PeerMeshService {
     this.roomTalkBodySubscriptionRoomId = null;
   }
 
+  /**
+   * Cache a talk body, author-qualified.
+   *
+   * Talk ids are content-addressed (computeTalkCIDv1, no authorId), so two authors
+   * who create identical content produce the SAME talkId with different authorIds
+   * (legal by design). The cache must therefore key by talkId::authorId, otherwise a
+   * remote author's body (e.g. arriving via the Gun rendezvous fallback,
+   * handleRendezvousTalkBody) would OVERWRITE the local author's own cached body for
+   * the same talkId. That corruption breaks `handleTalkBodyRequest` (serving the wrong
+   * author's data) and `getCachedTalkBody` / `resolveMeshTalkData` on the author side
+   * (the match-decision path uses the wrong author's talk definition).
+   *
+   * The local user's own authored copy is always preserved and preferred on read.
+   */
   cacheTalkBody(talkId: string, talkData: Record<string, unknown>): void {
     if (!talkId) return;
-    this.talkBodies.set(talkId, talkData);
+    const authorId = String((talkData as { authorId?: unknown }).authorId || '') || this.opts.localUserId;
+    this.talkBodies.set(talkBodyDeliveryKey(talkId, authorId), talkData);
   }
 
-  getCachedTalkBody(talkId: string): Record<string, unknown> | null {
-    return this.talkBodies.get(talkId) ?? null;
+  /**
+   * Read a cached talk body for `talkId`. Prefers the local user's own authored copy
+   * (talkId::localUserId) so the author-side response/match path always resolves its
+   * own talk definition even when a remote author broadcast identical content. Falls
+   * back to any cached author's copy for the same content id.
+   */
+  getCachedTalkBody(talkId: string, authorId?: string): Record<string, unknown> | null {
+    if (!talkId) return null;
+    if (authorId) {
+      const exact = this.talkBodies.get(talkBodyDeliveryKey(talkId, authorId));
+      if (exact) return exact;
+    }
+    const own = this.talkBodies.get(talkBodyDeliveryKey(talkId, this.opts.localUserId));
+    if (own) return own;
+    const prefix = `${talkId}::`;
+    for (const [key, value] of this.talkBodies) {
+      if (key.startsWith(prefix)) return value;
+    }
+    return null;
   }
 
   async syncRoomTalkBodyRendezvous(waitMs = 500, roomIdOverride?: string): Promise<void> {
@@ -398,8 +436,63 @@ export class PeerMeshService {
     }
     const announceFrame = await this.buildFrame('talk-announce', payload, { ttlHops: 8 });
     if (isRoomBroadcast) {
-      this.publishRoomTalkBodyRendezvous(bodyPayload);
+      // Step 2: primary path — flood announce + body over mesh DataChannel overlay.
+      // Conditional fallback (interim step-6/7 debt, tracked in R-a): fall back to the Gun
+      // p2pMeshTalkBodies/* rendezvous write whenever the broadcast cannot be *guaranteed*
+      // to reach every intended room recipient over the DataChannel overlay alone. Two
+      // conditions trigger it:
+      //
+      //   1. Below wanted degree: some wanted neighbors are still connecting (WebRTC
+      //      handshake in flight; chatbot/super-user contexts that never call
+      //      syncPeerMeshRoom; sequential broadcast sessions where joinRoom fires but
+      //      DataChannels are not all ready) — connectedCount < neighbors.size.
+      //
+      //   2. Sparse overlay can't directly cover the recipient set AND the recipient set is
+      //      larger than the degree bound: with a bounded degree K (e.g. e2e K=3) over many
+      //      recipients, delivery to the non-neighbor recipients depends on *relay
+      //      forwarding* across a sparse, possibly partitioned overlay, which can silently
+      //      miss a peer behind a non-bridged link (observed: find-similar-people delivering
+      //      exactly 8/9 — one recipient sat in a relay-unreachable component even though the
+      //      sender's own K neighbors were all connected, so condition 1 alone did NOT fire).
+      //      We only treat this as a coverage gap when the recipient set EXCEEDS the degree
+      //      bound (recipients > maxNeighbors): below the bound the overlay can directly hold
+      //      every recipient as a neighbor, so a plain relay flood is reliable.
+      //
+      // Spec 02 is unaffected: it broadcasts over a deliberately sparse K=1 path (Tom→relay→peer)
+      // to a 2-member room to PROVE relay forwarding works with zero Gun writes. There
+      // maxNeighbors === 1 and recipients are the whole room (size 2), but recipients are NOT
+      // passed explicitly (recipientUserIds omitted), so the coverage check uses the room
+      // member count only when recipients were given; with no explicit recipients we keep the
+      // original below-wanted-degree gate, and Tom waits for his single neighbor to connect
+      // (connectedCount === neighbors.size === 1), so neither condition fires and
+      // p2pMeshTalkBodies/* == 0 holds.
+      //
+      // TODO (step 6/7): remove the fallback once all callers gate on a fully connected
+      // mesh overlay before broadcasting (or the offline mailbox lands).
+      const connectedCount = [...this.neighbors.values()].filter((n) => n.connected).length;
+      const maxNeighbors = this.opts.maxNeighbors ?? 12;
+      const explicitRecipientCount = recipients.length;
+      const belowWantedDegree = connectedCount === 0 || connectedCount < this.neighbors.size;
+      // Coverage gap only when the caller named more recipients than the overlay degree bound
+      // can hold AND the connected overlay does not already cover them directly. Spec 02 omits
+      // recipientUserIds, so explicitRecipientCount === 0 and this branch is skipped there.
+      const cannotCoverRecipients =
+        explicitRecipientCount > maxNeighbors && connectedCount < explicitRecipientCount;
+      if (belowWantedDegree || cannotCoverRecipients) {
+        // Fallback: Gun rendezvous write for receivers who cannot be reached over DataChannel.
+        this.publishRoomTalkBodyRendezvous(bodyPayload);
+        // Still flood the mesh frames in case some neighbor connects shortly after:
+        // the retryFrameAfterConnect path will re-attempt delivery to any neighbor
+        // whose DataChannel was not yet open when the frame was first forwarded.
+        const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
+        await this.rememberAndFanout(announceFrame);
+        await this.rememberAndFanout(bodyFrame);
+        return;
+      }
+      // Primary path: all-mesh, no Gun write (spec 02 invariant preserved).
+      const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
       await this.rememberAndFanout(announceFrame);
+      await this.rememberAndFanout(bodyFrame);
       return;
     }
     const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
@@ -615,6 +708,10 @@ export class PeerMeshService {
     if (frame.kind === 'talk-announce') {
       const payload = frame.payload as P2PMeshTalkAnnouncePayload;
       if (payload.authorId === this.opts.localUserId) return;
+      // Step 2: fire announce callback before body pull so callers can record receipt
+      // for durable diagnostics (e.g. E2E meshAnnounceDiagnostics) without waiting for
+      // the talk-body-request/talk-body round-trip.
+      await this.opts.onTalkAnnounce?.(payload, frame);
       this.scheduleTalkBodyRequest(payload);
       return;
     }
@@ -670,6 +767,15 @@ export class PeerMeshService {
     };
   }
 
+  /**
+   * Fallback Gun rendezvous write for room broadcasts where the sender has zero connected
+   * mesh neighbors at broadcast time (interim step-6/7 debt; see R-a in the design note and
+   * broadcastTalk inline comment).  Receivers that subscribeToRoomTalkBodyRendezvous pick
+   * this up via Gun replication even when no DataChannel is established.
+   *
+   * NOT called when connectedNeighborCount > 0 (primary mesh path is used instead), so
+   * spec 02's p2pMeshTalkBodies/* == 0 invariant is preserved for the connected case.
+   */
   private publishRoomTalkBodyRendezvous(payload: P2PMeshTalkBodyPayload): void {
     const roomId = this.currentRoomId;
     const talkId = String(payload.talkId || '');
@@ -772,7 +878,9 @@ export class PeerMeshService {
     request: P2PMeshTalkBodyRequestPayload,
   ): Promise<void> {
     if (request.authorId !== this.opts.localUserId) return;
-    const talkData = this.talkBodies.get(request.talkId);
+    // Serve the local user's OWN authored copy (talkId::localUserId). A remote author's
+    // identical-content body must never be served here under our authorId.
+    const talkData = this.getCachedTalkBody(request.talkId, this.opts.localUserId);
     if (!talkData) return;
     const pair = this.gunService.getStoredPair();
     const bodyPayload: P2PMeshTalkBodyPayload = {
