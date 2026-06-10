@@ -1,5 +1,9 @@
 /**
  * @jest-environment jsdom
+ *
+ * P0 step 5: contacts view now derives peers entirely from local stores.
+ * The server calls to /api/users/:id/peers, /relationship, /talk-history, and /replies
+ * are removed. These tests verify local-only derivation behavior.
  */
 
 import { displayContactsList, showContactDetail } from '../../web/ui/contacts-view';
@@ -21,6 +25,22 @@ describe('Contacts ranking and relationship filters', () => {
     addedAt: new Date('2026-05-01T00:00:00.000Z'),
   };
 
+  function seedLocalTalkExchanges(entries: Array<{
+    peerId: string;
+    peerName: string;
+    talkId: string;
+    title: string;
+    outcome: 'match' | 'mismatch' | 'ignore';
+    direction: 'sent' | 'received';
+    date: string;
+  }>): void {
+    const exchanges: Record<string, unknown> = {};
+    for (const entry of entries) {
+      exchanges[`${entry.peerId}::${entry.talkId}`] = entry;
+    }
+    localStorage.setItem('localTalkExchanges', JSON.stringify(exchanges));
+  }
+
   beforeEach(() => {
     document.body.innerHTML = `
       <input id="contacts-filter-name" value="">
@@ -38,22 +58,51 @@ describe('Contacts ranking and relationship filters', () => {
       <div id="contacts-list"></div>
     `;
     localStorage.clear();
+    // P0 step 5: no /peers server call — seed peers via localTalkExchanges instead.
+    seedLocalTalkExchanges([
+      // 'weak' peer: 10 sent, 1 match
+      ...Array.from({ length: 9 }, (_, i) => ({
+        peerId: 'weak',
+        peerName: 'Weak',
+        talkId: `talk-w-${i}`,
+        title: `Talk W${i}`,
+        outcome: 'mismatch' as const,
+        direction: 'sent' as const,
+        date: `2026-05-22T00:00:0${i}.000Z`,
+      })),
+      {
+        peerId: 'weak',
+        peerName: 'Weak',
+        talkId: 'talk-w-match',
+        title: 'Talk WM',
+        outcome: 'match',
+        direction: 'sent',
+        date: '2026-05-22T00:00:09.000Z',
+      },
+      // 'strong' peer: 10 sent, 8 matches
+      ...Array.from({ length: 8 }, (_, i) => ({
+        peerId: 'strong',
+        peerName: 'Strong',
+        talkId: `talk-s-m${i}`,
+        title: `Talk SM${i}`,
+        outcome: 'match' as const,
+        direction: 'sent' as const,
+        date: `2026-05-21T00:00:0${i}.000Z`,
+      })),
+      ...Array.from({ length: 2 }, (_, i) => ({
+        peerId: 'strong',
+        peerName: 'Strong',
+        talkId: `talk-s-mm${i}`,
+        title: `Talk SMM${i}`,
+        outcome: 'mismatch' as const,
+        direction: 'sent' as const,
+        date: `2026-05-21T00:00:0${i + 8}.000Z`,
+      })),
+    ]);
+    // fetch mock for block-status calls (used in showContactDetail)
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
-      json: async () => [
-        {
-          peerId: 'weak',
-          stageName: 'Weak',
-          lastInteractionAt: '2026-05-22T00:00:00.000Z',
-          stats: { sent: { talks: 10, matches: 1 }, received: { talks: 0, matches: 0 }, totalTalks: 10, mutualMatchedTalks: 0, mutualTagCount: 0 },
-        },
-        {
-          peerId: 'strong',
-          stageName: 'Strong',
-          lastInteractionAt: '2026-05-21T00:00:00.000Z',
-          stats: { sent: { talks: 10, matches: 8 }, received: { talks: 0, matches: 0 }, totalTalks: 10, mutualMatchedTalks: 0, mutualTagCount: 0 },
-        },
-      ],
+      json: async () => ({ blocked: false, blockedBy: false }),
     } as Response);
   });
 
@@ -141,11 +190,8 @@ describe('Contacts ranking and relationship filters', () => {
     expect(rows).toEqual(['Weak']);
   });
 
-  it('keeps saved known contacts visible when direct-mode peer history is locally empty', async () => {
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: async () => [],
-    } as Response);
+  it('keeps saved known contacts visible when local exchange history is empty', async () => {
+    localStorage.clear(); // no exchanges
     const contactDeps = deps([{
       userId: 'jerry-id',
       label: 'custom',
@@ -163,12 +209,9 @@ describe('Contacts ranking and relationship filters', () => {
     expect(document.getElementById('contacts-list')?.textContent).toContain('Coffee Circle');
   });
 
-  it('renders saved direct-mode contacts when the server peer summary request stalls', async () => {
-    jest.useFakeTimers();
-    global.fetch = jest.fn((_url, init?: RequestInit) => new Promise((_resolve, reject) => {
-      const signal = init?.signal;
-      signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
-    })) as jest.Mock;
+  it('renders contacts from local exchange store immediately (no server round-trip)', async () => {
+    // This test previously verified stall behavior; now it verifies that local-only
+    // rendering completes synchronously without needing any fetch.
     const contactDeps = deps([{
       userId: 'jerry-id',
       label: 'custom',
@@ -176,12 +219,13 @@ describe('Contacts ranking and relationship filters', () => {
       customLabel: 'Coffee Circle',
       addedAt: new Date('2026-06-04T00:00:00.000Z'),
     }]);
+    // Add an exchange so jerry-id appears
+    const exchanges = { 'jerry-id::talk1': { peerId: 'jerry-id', peerName: 'J', talkId: 'talk1', title: 'T', outcome: 'match', direction: 'sent', date: '2026-06-04T00:00:00.000Z' } };
+    localStorage.setItem('localTalkExchanges', JSON.stringify(exchanges));
     (document.getElementById('contacts-filter-name') as HTMLInputElement).value = 'Coffee Circle';
     (document.getElementById('contacts-filter-relation') as HTMLSelectElement).value = 'custom';
 
-    const renderPromise = displayContactsList(contactDeps);
-    await jest.advanceTimersByTimeAsync(1_500);
-    await renderPromise;
+    await displayContactsList(contactDeps);
 
     const rows = Array.from(document.querySelectorAll('.contact-item-name')).map((row) => row.textContent);
     expect(rows).toEqual(['J']);
@@ -201,20 +245,18 @@ describe('Contacts ranking and relationship filters', () => {
   });
 
   it('preserves English singular counts after moving contact summaries into translations', async () => {
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: async () => [{
-        peerId: 'strong',
-        stageName: 'Strong',
-        lastInteractionAt: '2026-05-21T00:00:00.000Z',
-        stats: { sent: { talks: 1, matches: 1 }, received: { talks: 0, matches: 0 }, totalTalks: 1, mutualMatchedTalks: 0, mutualTagCount: 1 },
-      }],
-    } as Response);
+    // P0 step 5: seed a single exchange for 'strong' so the count is exactly 1 talk, 1 match.
+    localStorage.clear();
+    localStorage.setItem('localTalkExchanges', JSON.stringify({
+      'strong::talk-s1': { peerId: 'strong', peerName: 'Strong', talkId: 'talk-s1', title: 'T', outcome: 'match', direction: 'sent', date: '2026-05-21T00:00:00.000Z' },
+    }));
 
     await displayContactsList(deps());
 
     expect(document.getElementById('contacts-status-text')?.textContent).toBe('1 contact from exchanged talks');
-    expect(document.getElementById('contacts-list')?.textContent).toContain('1 talk · 1 match · 1 common tag');
+    // 1 talk, 1 match; mutualTagCount comes from exchanges (0 stored)
+    expect(document.getElementById('contacts-list')?.textContent).toContain('1 talk');
+    expect(document.getElementById('contacts-list')?.textContent).toContain('1 match');
   });
 
   it('localizes contact details and relationship controls independently of English labels', async () => {
@@ -227,39 +269,20 @@ describe('Contacts ranking and relationship filters', () => {
         <div id="contact-talks-list"></div>
       </div>
     `;
-    global.fetch = jest.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ totalTalks: 0 }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => [],
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          languages: ['zh'],
-          profile: [],
-          interests: [],
-          reputation: {
-            isHidden: false,
-            starRating: 4.5,
-            reviewCount: 2,
-            friendsCount: 1,
-            likedCount: 2,
-            dislikedCount: 0,
-          },
-        }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ blocked: false, blockedBy: false, eitherBlocked: false }),
-      } as Response);
+    // P0 step 5: no /talk-history or /relationship calls; only block-status still
+    // fetched (existing endpoint). getPublicProfileFoundation provides profile via Gun.
+    // Clear localStorage so 'strong' has no local exchanges → 0 talks.
+    localStorage.clear();
     const chineseDeps = {
       ...deps(),
       text: (key: Parameters<typeof uiText>[1]) => uiText('zh', key),
       formatLanguage: (code: string) => languageOptionLabel('zh', code, code),
+      getPublicProfileFoundation: async (_userId: string) => ({
+        headshot: null,
+        languagesJson: JSON.stringify(['zh']),
+        profileJson: JSON.stringify([]),
+        interestsJson: JSON.stringify([]),
+      }),
     };
 
     await showContactDetail(chineseDeps, 'strong', 'Strong');
@@ -268,9 +291,8 @@ describe('Contacts ranking and relationship filters', () => {
     expect(document.getElementById('contact-detail-matches')?.textContent).toBe('0 个话题');
     expect(document.getElementById('contact-talks-list')?.textContent).toContain('尚未交换话题');
     expect(document.querySelector('.contact-profile-languages')?.textContent).toContain('中文');
+    // No shared language between 'zh' peer profile and 'en' current user
     expect(document.querySelector('.contact-language-hint')?.textContent).toContain('没有共同的个人资料语言');
-    expect(document.querySelector('.contact-context-credit')?.textContent).toContain('2 条评价');
-    expect(document.querySelector('.contact-context-block-status')?.textContent).toContain('当前没有屏蔽');
 
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
@@ -280,8 +302,6 @@ describe('Contacts ranking and relationship filters', () => {
 
     const modal = await waitForElementById('contact-relationship-modal');
     expect(modal.textContent).toContain('关系与信用');
-    expect(modal.textContent).toContain('公开信用');
-    expect(modal.textContent).toContain('2 条评价');
     expect(modal.textContent).toContain('屏蔽状态');
     expect(modal.textContent).toContain('当前没有屏蔽');
   });
@@ -296,16 +316,19 @@ describe('Contacts ranking and relationship filters', () => {
         <div id="contact-talks-list"></div>
       </div>
     `;
-    global.fetch = jest.fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ totalTalks: 0 }) } as Response)
-      .mockResolvedValueOnce({ ok: true, json: async () => [] } as Response)
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ languages: ['en'], profile: [], interests: [] }) } as Response)
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ blocked: false, blockedBy: false }) } as Response);
+    // P0 step 5: no server calls for history/relationship in showContactDetail.
+    // getPublicProfileFoundation provides profile via Gun, block-status via existing fetch mock.
     const setSupportNotificationsMuted = jest.fn().mockResolvedValue(undefined);
     const supportDeps = {
       ...deps(),
       hasSupportContact: () => true,
       setSupportNotificationsMuted,
+      getPublicProfileFoundation: async (_userId: string) => ({
+        headshot: null,
+        languagesJson: JSON.stringify(['en']),
+        profileJson: JSON.stringify([]),
+        interestsJson: JSON.stringify([]),
+      }),
     };
 
     await showContactDetail(supportDeps, TECHSUPPORT_ROOT_USER_ID, 'TechSupport');

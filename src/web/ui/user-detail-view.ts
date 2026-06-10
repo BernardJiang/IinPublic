@@ -3,6 +3,10 @@ import type { PeerRelationshipStats, TalkHistoryItem } from '../../server/routes
 import type { KnownPerson } from '../../shared/types';
 import { avatarInnerHtml } from './profile-avatar';
 import type { UiTranslationKey } from './ui-translations';
+import {
+  localTalkHistoryForPeer,
+  readLocalTalkExchanges,
+} from '../services/local-peer-derivation';
 
 type PublicProfileFoundation = {
   headshot?: string | null;
@@ -285,57 +289,8 @@ async function applySendButtonFromBlockStatus(
   sendBtn.disabled = deps.isBlockedByMe(peerId);
 }
 
-async function fetchPeerDetailWithTimeout(
-  deps: UserDetailViewDeps,
-  path: string,
-  opts: { attempts?: number; timeoutMs?: number } = {},
-): Promise<Response> {
-  const attempts = opts.attempts ?? 2;
-  const timeoutMs = opts.timeoutMs ?? 3_500;
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    const ac = new AbortController();
-    const timeoutId = window.setTimeout(() => ac.abort(), timeoutMs);
-    try {
-      return await fetch(`${deps.apiBase}${path}`, { signal: ac.signal, cache: 'no-store' });
-    } catch {
-      if (attempt === attempts - 1) throw new Error(`fetch failed: ${path}`);
-    } finally {
-      window.clearTimeout(timeoutId);
-    }
-    await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
-  }
-  throw new Error(`fetch failed: ${path}`);
-}
-
-function renderBlockedPeerDetail(deps: UserDetailViewDeps): void {
-  const subtitleEl = document.getElementById('peer-detail-subtitle');
-  if (subtitleEl) subtitleEl.textContent = deps.text('peerProfileBlocked');
-  const statsEl = document.getElementById('peer-stats-section');
-  if (statsEl) {
-    statsEl.innerHTML = `
-      <div class="peer-stat-card">
-        <div style="font-weight:700;color:#b91c1c;">${deps.text('contactProfileUnavailable')}</div>
-        <div style="font-size:0.9em;color:#7f1d1d;margin-top:6px;">${deps.text('peerBlockedDetail')}</div>
-      </div>
-    `;
-  }
-  const sendBtn = document.getElementById('peer-send-talks-btn') as HTMLButtonElement | null;
-  if (sendBtn) sendBtn.disabled = true;
-}
-
-async function isPeerDetailBlocked(peerId: string, deps: UserDetailViewDeps): Promise<boolean> {
-  try {
-    const r = await fetch(
-      `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/block-status/${encodeURIComponent(peerId)}`,
-      { cache: 'no-store' },
-    );
-    if (!r.ok) return false;
-    const status = (await r.json()) as { eitherBlocked?: boolean; blocked?: boolean; blockedBy?: boolean };
-    return Boolean(status.eitherBlocked || status.blocked || status.blockedBy);
-  } catch {
-    return false;
-  }
-}
+// fetchPeerDetailWithTimeout, renderBlockedPeerDetail, isPeerDetailBlocked, and
+// publicUserHasProfileFoundation removed — no longer needed after P0 step 5.
 
 function parsePublicProfileArray<T>(value: string | undefined, fallback: T[]): T[] {
   if (!value) return fallback;
@@ -345,13 +300,6 @@ function parsePublicProfileArray<T>(value: string | undefined, fallback: T[]): T
   } catch {
     return fallback;
   }
-}
-
-function publicUserHasProfileFoundation(publicUser: any): boolean {
-  const languages = Array.isArray(publicUser?.languages) ? publicUser.languages.filter(Boolean) : [];
-  const profile = Array.isArray(publicUser?.profile) ? publicUser.profile.filter((qa: any) => qa?.question && qa?.answer) : [];
-  const interests = Array.isArray(publicUser?.interests) ? publicUser.interests.filter((tag: any) => tag?.name) : [];
-  return Boolean(String(publicUser?.headshot || '').trim() || languages.length || profile.length || interests.length);
 }
 
 async function readPublicProfileFoundation(peerId: string, deps: UserDetailViewDeps): Promise<any | null> {
@@ -370,61 +318,72 @@ async function readPublicProfileFoundation(peerId: string, deps: UserDetailViewD
   };
 }
 
+/**
+ * Compute local PeerRelationshipStats for peerId from localTalkExchanges and
+ * myConversations. This mirrors the formula in peer-routes.ts#computeRelationshipStats:
+ *   sent.talks  = exchanges where direction='sent'
+ *   sent.matches = sent exchanges where outcome='match'
+ *   received.talks = conversations (each match conversation = 1 received talk)
+ *   received.matches = conversations count
+ *   totalTalks = sent.talks + received.talks
+ *   matchRate = (sent.matches + received.matches) / max(totalTalks, 1)
+ */
+function computeLocalStats(peerId: string, deps: UserDetailViewDeps): PeerRelationshipStats {
+  const stats: PeerRelationshipStats = {
+    sent: { talks: 0, matches: 0 },
+    received: { talks: 0, matches: 0 },
+    mutualMatchedTalks: 0,
+    mutualTagCount: 0,
+    totalTalks: 0,
+  };
+  for (const exchange of readLocalTalkExchanges()) {
+    if (String(exchange?.peerId || '').trim() !== peerId) continue;
+    stats.sent.talks += 1;
+    if (String(exchange?.outcome || '').toLowerCase() === 'match') {
+      stats.sent.matches += 1;
+      stats.mutualMatchedTalks += 1;
+    }
+  }
+  const conversations = deps.getMyConversations();
+  for (const conv of Object.values(conversations || {}) as any[]) {
+    if (String(conv?.otherUserId || '').trim() !== peerId || conv?.supportChannel === true) continue;
+    stats.received.talks += 1;
+    stats.received.matches += 1;
+  }
+  stats.totalTalks = stats.sent.talks + stats.received.talks;
+  return stats;
+}
+
 async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserDetailViewDeps): Promise<void> {
   const statsEl = document.getElementById('peer-stats-section');
   try {
-    const peerBase = `/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(peerId)}`;
-    const [statsResult, userResult] = await Promise.allSettled([
-      fetchPeerDetailWithTimeout(deps, `${peerBase}/relationship`),
-      fetchPeerDetailWithTimeout(
-        deps,
-        `/api/users/${encodeURIComponent(peerId)}?viewerId=${encodeURIComponent(deps.currentUserId)}`,
-        { attempts: 1, timeoutMs: 8_500 },
-      ),
-    ]);
-    const statsRes = statsResult.status === 'fulfilled' ? statsResult.value : null;
-    const userRes = userResult.status === 'fulfilled' ? userResult.value : null;
-    if (statsRes?.status === 403 || userRes?.status === 403) {
-      renderBlockedPeerDetail(deps);
-      return;
-    }
-    const stats: PeerRelationshipStats | null = statsRes?.ok ? await statsRes.json() : null;
-    let publicUser = userRes?.ok ? await userRes.json() : null;
-    if (!publicUserHasProfileFoundation(publicUser)) {
-      publicUser = await readPublicProfileFoundation(peerId, deps) ?? publicUser;
-    }
+    // P0 step 5: relationship stats derived locally — no server call.
+    const stats = computeLocalStats(peerId, deps);
+
+    // Public profile still fetched from Gun (local Gun cache, not a REST endpoint).
+    const publicUser = await readPublicProfileFoundation(peerId, deps);
 
     const subtitleEl = document.getElementById('peer-detail-subtitle');
-    if (subtitleEl && stats) {
+    if (subtitleEl) {
       subtitleEl.textContent = buildStatsSubtitle(peerName, stats, deps);
     }
 
     if (statsEl) {
       statsEl.innerHTML = renderProfileHtml(publicUser, deps) +
         renderTransportHtml(deps) +
-        (stats ? renderStatsHtml(stats, deps) : renderStatsUnavailableHtml(deps));
+        renderStatsHtml(stats, deps);
     }
     await applySendButtonFromBlockStatus(peerId, deps);
 
     // Render matched conversations below stats
     renderMatchedConversations(peerId, deps);
-  } catch (err) {
-    if (await isPeerDetailBlocked(peerId, deps)) {
-      renderBlockedPeerDetail(deps);
-      return;
-    }
+  } catch {
     if (statsEl) statsEl.innerHTML = `<div style="padding:12px;color:#c00;">${deps.text('peerStatsUnavailable')}</div>`;
     await applySendButtonFromBlockStatus(peerId, deps);
   }
 }
 
-function renderStatsUnavailableHtml(deps: UserDetailViewDeps): string {
-  return `
-    <div class="peer-stat-card">
-      <div style="padding:12px;color:#c00;">${deps.text('peerStatsUnavailable')}</div>
-    </div>
-  `;
-}
+// renderStatsUnavailableHtml removed — P0 step 5 uses inline error handling.
 
 function renderProfileHtml(publicUser: any, deps: UserDetailViewDeps): string {
   const headshot = String(publicUser?.headshot || '').trim();
@@ -642,21 +601,30 @@ function renderMatchedConversations(peerId: string, deps: UserDetailViewDeps): v
 }
 
 async function fetchAndRenderHistory(peerId: string, deps: UserDetailViewDeps): Promise<void> {
-  try {
-    const peerBase = `/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(peerId)}`;
-    const res = await fetchPeerDetailWithTimeout(deps, `${peerBase}/talk-history`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const history: TalkHistoryItem[] = await res.json();
+  // P0 step 5: history derived from local stores only — no server call.
+  const fallbackTitle = deps.text('peerTalkFallback');
+  const localItems = localTalkHistoryForPeer(
+    peerId,
+    deps.getMyConversations(),
+    deps.getMyTalks(),
+    fallbackTitle,
+  );
+  // Convert LocalTalkHistoryItem → TalkHistoryItem (add missing fields with safe defaults)
+  const history: TalkHistoryItem[] = localItems.map((item) => ({
+    talkId: item.talkId,
+    identityKey: item.identityKey || item.talkId,
+    title: item.title,
+    type: item.type || 'flow',
+    direction: item.direction,
+    outcome: item.outcome === 'pending' ? 'mismatch' : item.outcome,
+    date: item.date,
+  }));
 
-    if (currentState && currentState.peerId === peerId) {
-      currentState.history = history;
-      const controls = document.getElementById('peer-history-controls');
-      if (controls) controls.style.display = history.length > 0 ? 'flex' : 'none';
-      renderHistory();
-    }
-  } catch (err) {
-    const historyEl = document.getElementById('peer-talk-history-list');
-    if (historyEl) historyEl.innerHTML = `<div style="padding:12px;color:#c00;">${deps.text('peerHistoryUnavailable')}</div>`;
+  if (currentState && currentState.peerId === peerId) {
+    currentState.history = history;
+    const controls = document.getElementById('peer-history-controls');
+    if (controls) controls.style.display = history.length > 0 ? 'flex' : 'none';
+    renderHistory();
   }
 }
 
@@ -728,13 +696,17 @@ async function handleSendMyTalks(): Promise<void> {
   }
 
   try {
-    // Fetch current history to skip already-exchanged talks
-    const histRes = await fetch(
-      `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(peerId)}/talk-history`,
+    // P0 step 5: use local exchange records to skip already-sent talks — no server call.
+    const localHistory = localTalkHistoryForPeer(
+      peerId,
+      deps.getMyConversations(),
+      deps.getMyTalks(),
+      deps.text('peerTalkFallback'),
     );
-    const history: TalkHistoryItem[] = histRes.ok ? await histRes.json() : [];
     const alreadySentIds = new Set<string>(
-      history.filter((h) => h.direction === 'sent').flatMap((h) => [h.talkId, h.identityKey]),
+      localHistory
+        .filter((h) => h.direction === 'sent')
+        .flatMap((h) => [h.talkId, h.identityKey || ''].filter(Boolean)),
     );
 
     const { eligible, omitted } = classifyPeerSendTalks(deps.getMyTalks(), alreadySentIds);

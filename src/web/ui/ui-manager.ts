@@ -101,6 +101,7 @@ import { showTalkEditorDialog as openTalkEditorDialog } from './talk-editor-dial
 import { openPeerDetailView } from './user-detail-view';
 import { avatarInnerHtml } from './profile-avatar';
 import { languageOptionLabel, uiLanguageFromProfile, uiText, type UiTranslationKey } from './ui-translations';
+import { deriveLocalCreatorReplies } from '../services/local-peer-derivation';
 import {
   filterIncomingTalkClusters,
   getTalkIntakeFilters,
@@ -2392,19 +2393,11 @@ export class UIManager extends EventEmitter {
   }
 
   private async refreshCreatorReplies(): Promise<void> {
-    if (!this.apiBase || !this.currentUserId) return;
-    const summary = document.getElementById('creator-replies-summary');
-    try {
-      const response = await fetch(`${this.apiBase}/api/users/${encodeURIComponent(this.currentUserId)}/replies`, {
-        cache: 'no-store',
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      this.creatorReplyRows = (await response.json()) as CreatorReplyRow[];
-      this.renderCreatorReplies();
-      if (document.getElementById('talks-view')?.classList.contains('active')) this.displayTalksList();
-    } catch {
-      if (summary) summary.textContent = this.t('repliesUnavailable');
-    }
+    if (!this.currentUserId) return;
+    // P0 step 5: replies derived from localTalkExchanges — no server call to /api/users/:id/replies.
+    this.creatorReplyRows = deriveLocalCreatorReplies(this.currentUserId) as CreatorReplyRow[];
+    this.renderCreatorReplies();
+    if (document.getElementById('talks-view')?.classList.contains('active')) this.displayTalksList();
   }
 
   private renderCreatorReplies(): void {

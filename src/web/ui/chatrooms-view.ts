@@ -1,6 +1,7 @@
 import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
 import type { PeerRelationshipStats } from '../../server/routes/peer-routes';
 import type { UiTranslationKey } from './ui-translations';
+import { readLocalTalkExchanges } from '../services/local-peer-derivation';
 
 type ChatroomMember = { userId: string; stageName: string; joinedAt?: string | Date };
 
@@ -387,28 +388,48 @@ function buildMemberStatusText(isMatched: boolean, stats: PeerRelationshipStats 
   return parts.join(' · ') || deps.text('chatroomOnlineNow');
 }
 
+/**
+ * Derive PeerRelationshipStats for a chatroom member from localTalkExchanges.
+ * P0 step 5: no server call to /relationship.
+ * Formula mirrors peer-routes.ts#computeRelationshipStats.
+ */
+function localMemberStats(memberId: string): PeerRelationshipStats {
+  const stats: PeerRelationshipStats = {
+    sent: { talks: 0, matches: 0 },
+    received: { talks: 0, matches: 0 },
+    mutualMatchedTalks: 0,
+    mutualTagCount: 0,
+    totalTalks: 0,
+  };
+  for (const exchange of readLocalTalkExchanges()) {
+    if (String(exchange?.peerId || '').trim() !== memberId) continue;
+    stats.sent.talks += 1;
+    if (String(exchange?.outcome || '').toLowerCase() === 'match') {
+      stats.sent.matches += 1;
+      stats.mutualMatchedTalks += 1;
+    }
+  }
+  stats.totalTalks = stats.sent.talks + stats.received.talks;
+  return stats;
+}
+
 async function loadMemberStats(
   container: HTMLElement,
   members: ChatroomMember[],
   currentUserId: string,
   deps: ChatroomsViewDeps,
 ): Promise<void> {
+  // P0 step 5: relationship stats derived locally — no server call.
   const statsMap = new Map<string, PeerRelationshipStats>();
-  await Promise.all(
-    members.map(async (member) => {
-      try {
-        const res = await fetch(
-          `${deps.apiBase}/api/users/${encodeURIComponent(currentUserId)}/peers/${encodeURIComponent(member.userId)}/relationship`,
-        );
-        if (res.ok) {
-          const stats: PeerRelationshipStats = await res.json();
-          statsMap.set(member.userId, stats);
-        }
-      } catch {
-        // skip — member remains without stats
-      }
-    }),
-  );
+  for (const member of members) {
+    if (!member.userId || member.userId === currentUserId) continue;
+    const stats = localMemberStats(member.userId);
+    // Only populate the map if there are known interactions (avoids "Stranger" flicker
+    // when stats are all zeros — buildMemberStatusText handles undefined correctly).
+    if (stats.totalTalks > 0) {
+      statsMap.set(member.userId, stats);
+    }
+  }
   // Re-render with stats (sorted)
   renderMemberList(container, members, deps, statsMap);
 }

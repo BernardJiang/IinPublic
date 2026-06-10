@@ -259,6 +259,12 @@ describe('extracted UI helpers', () => {
         formatRelativeTime: () => '刚刚',
         formatType: () => '流程',
         formatLanguage: () => '中文',
+        getPublicProfileFoundation: async (_userId: string) => ({
+          headshot: null,
+          languagesJson: JSON.stringify(['zh']),
+          profileJson: JSON.stringify([]),
+          interestsJson: JSON.stringify([{ name: '咖啡' }]),
+        }),
       });
       await new Promise((resolve) => setTimeout(resolve, 0));
       const overlayText = document.getElementById('peer-detail-overlay')?.textContent || '';

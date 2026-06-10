@@ -3,6 +3,10 @@ import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../shared/t
 import type { PeerSummary } from '../../server/routes/peer-routes';
 import { avatarInnerHtml } from './profile-avatar';
 import type { UiTranslationKey } from './ui-translations';
+import {
+  deriveLocalPeers,
+  localTalkHistoryForPeer,
+} from '../services/local-peer-derivation';
 
 type ContactsViewDeps = {
   apiBase: string;
@@ -61,21 +65,8 @@ async function runBeforeRender(deps: ContactsViewDeps): Promise<void> {
   ]);
 }
 
-async function fetchPeerSummariesWithTimeout(apiBase: string, currentUserId: string): Promise<PeerSummary[]> {
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 1_500);
-  try {
-    const response = await fetch(
-      `${apiBase}/api/users/${encodeURIComponent(currentUserId)}/peers`,
-      { cache: 'no-store', signal: controller.signal },
-    );
-    return response.ok ? (await response.json()) as PeerSummary[] : [];
-  } catch {
-    return [];
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
-}
+// fetchPeerSummariesWithTimeout removed — contacts are derived locally (P0 step 5).
+// Use deriveLocalPeers() from local-peer-derivation.ts instead.
 
 function formatRelationshipLabel(
   relationship: KnownPerson | string | undefined,
@@ -117,145 +108,8 @@ function buildMetaLine(summary: PeerSummary, known: KnownPerson | undefined, dep
   return parts.join(' · ');
 }
 
-function peerSummariesFromLocalConversations(deps: ContactsViewDeps): PeerSummary[] {
-  const byPeer = new Map<string, PeerSummary>();
-  const conversations = Object.values(deps.getMyConversations() || {});
-  for (const conversation of conversations as any[]) {
-    const peerId = String(conversation?.otherUserId || '');
-    if (!peerId || peerId === deps.currentUserId || conversation?.supportChannel === true) continue;
-    const stageName = deps.getPeerName(peerId, conversation?.otherUserName || 'Unknown');
-    const existing = byPeer.get(peerId);
-    const lastInteractionAt = String(
-      conversation?.lastMessageTime || conversation?.createdAt || new Date().toISOString(),
-    );
-    if (!existing) {
-      byPeer.set(peerId, {
-        peerId,
-        stageName,
-        lastInteractionAt,
-        stats: {
-          sent: { talks: 0, matches: 1 },
-          received: { talks: 0, matches: 0 },
-          mutualMatchedTalks: 1,
-          mutualTagCount: 0,
-          totalTalks: 1,
-        },
-      });
-      continue;
-    }
-    existing.stageName = deps.getPeerName(peerId, existing.stageName || stageName);
-    existing.stats.totalTalks += 1;
-    existing.stats.sent.matches += 1;
-    existing.stats.mutualMatchedTalks += 1;
-    if (
-      new Date(lastInteractionAt || 0).getTime()
-      > new Date(existing.lastInteractionAt || 0).getTime()
-    ) {
-      existing.lastInteractionAt = lastInteractionAt;
-    }
-  }
-  return Array.from(byPeer.values());
-}
-
-function readLocalTalkExchanges(): any[] {
-  try {
-    const raw = localStorage.getItem('localTalkExchanges');
-    const parsed = raw ? JSON.parse(raw) : {};
-    return Array.isArray(parsed) ? parsed : Object.values(parsed || {});
-  } catch {
-    return [];
-  }
-}
-
-function peerSummariesFromLocalTalkExchanges(deps: ContactsViewDeps): PeerSummary[] {
-  const byPeer = new Map<string, PeerSummary>();
-  for (const exchange of readLocalTalkExchanges()) {
-    const peerId = String(exchange?.peerId || '');
-    if (!peerId || peerId === deps.currentUserId) continue;
-    const stageName = deps.getPeerName(peerId, exchange?.peerName || 'Unknown');
-    const outcome = String(exchange?.outcome || '').toLowerCase();
-    const isMatch = outcome === 'match';
-    const lastInteractionAt = String(exchange?.date || new Date().toISOString());
-    const existing = byPeer.get(peerId);
-    if (!existing) {
-      byPeer.set(peerId, {
-        peerId,
-        stageName,
-        lastInteractionAt,
-        stats: {
-          sent: { talks: 1, matches: isMatch ? 1 : 0 },
-          received: { talks: 0, matches: 0 },
-          mutualMatchedTalks: isMatch ? 1 : 0,
-          mutualTagCount: 0,
-          totalTalks: 1,
-        },
-      });
-      continue;
-    }
-    existing.stageName = deps.getPeerName(peerId, existing.stageName || stageName);
-    existing.stats.sent.talks += 1;
-    existing.stats.totalTalks += 1;
-    if (isMatch) {
-      existing.stats.sent.matches += 1;
-      existing.stats.mutualMatchedTalks += 1;
-    }
-    if (
-      new Date(lastInteractionAt || 0).getTime()
-      > new Date(existing.lastInteractionAt || 0).getTime()
-    ) {
-      existing.lastInteractionAt = lastInteractionAt;
-    }
-  }
-  return Array.from(byPeer.values());
-}
-
-function peerSummariesFromKnownPeople(deps: ContactsViewDeps): PeerSummary[] {
-  return deps.getKnownPeople()
-    .filter((person) => person.userId && person.userId !== deps.currentUserId)
-    .map((person) => ({
-      peerId: person.userId,
-      stageName: deps.getPeerName(person.userId, person.nickname || 'Unknown'),
-      lastInteractionAt: new Date(person.addedAt || Date.now()).toISOString(),
-      stats: {
-        sent: { talks: 0, matches: 0 },
-        received: { talks: 0, matches: 0 },
-        mutualMatchedTalks: 0,
-        mutualTagCount: 0,
-        totalTalks: 0,
-      },
-    }));
-}
-
-function mergePeerSummaries(serverPeers: PeerSummary[], localPeers: PeerSummary[]): PeerSummary[] {
-  const byPeer = new Map<string, PeerSummary>();
-  for (const peer of serverPeers) {
-    byPeer.set(peer.peerId, peer);
-  }
-  for (const local of localPeers) {
-    const existing = byPeer.get(local.peerId);
-    if (!existing) {
-      byPeer.set(local.peerId, local);
-      continue;
-    }
-    existing.stageName =
-      existing.stageName && existing.stageName !== 'Unknown' ? existing.stageName : local.stageName;
-    existing.lastInteractionAt =
-      new Date(existing.lastInteractionAt || 0).getTime()
-      >= new Date(local.lastInteractionAt || 0).getTime()
-        ? existing.lastInteractionAt
-        : local.lastInteractionAt;
-    existing.stats.totalTalks = Math.max(existing.stats.totalTalks, local.stats.totalTalks);
-    existing.stats.sent.talks = Math.max(existing.stats.sent.talks, local.stats.sent.talks);
-    existing.stats.received.talks = Math.max(existing.stats.received.talks, local.stats.received.talks);
-    existing.stats.sent.matches = Math.max(existing.stats.sent.matches, local.stats.sent.matches);
-    existing.stats.received.matches = Math.max(existing.stats.received.matches, local.stats.received.matches);
-    existing.stats.mutualMatchedTalks = Math.max(
-      existing.stats.mutualMatchedTalks,
-      local.stats.mutualMatchedTalks,
-    );
-  }
-  return Array.from(byPeer.values());
-}
+// Local peer helper functions removed — now using deriveLocalPeers() from
+// src/web/services/local-peer-derivation.ts (P0 step 5).
 
 function rankingMetrics(peer: PeerSummary, known: KnownPerson | undefined, deps: ContactsViewDeps): {
   matchedTalks: number;
@@ -344,13 +198,7 @@ function parsePublicProfileArray<T>(value: string | undefined, fallback: T[]): T
   }
 }
 
-function publicUserHasProfileFoundation(publicUser: any): boolean {
-  const headshot = String(publicUser?.headshot || '').trim();
-  const languages = Array.isArray(publicUser?.languages) ? publicUser.languages.filter(Boolean) : [];
-  const profile = Array.isArray(publicUser?.profile) ? publicUser.profile.filter((qa: any) => qa?.question && qa?.answer) : [];
-  const interests = Array.isArray(publicUser?.interests) ? publicUser.interests.filter((tag: any) => tag?.name) : [];
-  return Boolean(headshot || languages.length || profile.length || interests.length);
-}
+// publicUserHasProfileFoundation removed — no longer needed after P0 step 5 (no server profile fetch).
 
 async function readPublicProfileFoundation(deps: ContactsViewDeps, userId: string): Promise<any | null> {
   if (!deps.getPublicProfileFoundation) return null;
@@ -737,15 +585,17 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
 
   try {
     await runBeforeRender(deps);
-    const serverPeers = await fetchPeerSummariesWithTimeout(deps.apiBase, deps.currentUserId);
-    const localPeers = mergePeerSummaries(
-      mergePeerSummaries(
-        peerSummariesFromKnownPeople(deps),
-        peerSummariesFromLocalConversations(deps),
-      ),
-      peerSummariesFromLocalTalkExchanges(deps),
-    );
-    const peers = mergePeerSummaries(serverPeers, localPeers);
+    // P0 step 5: peers derived from local stores only — no server call.
+    const rawPeers = deriveLocalPeers({
+      currentUserId: deps.currentUserId,
+      conversations: deps.getMyConversations() || {},
+      knownPeople: deps.getKnownPeople(),
+    });
+    // Apply getPeerName for resolved stage names (may read from Gun public profiles)
+    const peers: PeerSummary[] = rawPeers.map((p) => ({
+      ...p,
+      stageName: deps.getPeerName(p.peerId, p.stageName),
+    }));
     const knownMap = new Map(
       deps.getKnownPeople().map((entry) => [entry.userId, entry] as const),
     );
@@ -801,8 +651,7 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
       deps.getPeerName(a.peerId, a.stageName).localeCompare(deps.getPeerName(b.peerId, b.stageName));
     const visiblePeers = peers
       .filter((peer) => {
-        // Never show the current user as their own contact. Local sources already filter
-        // self, but server peers (/api/users/:id/peers) are merged in unfiltered, so guard here.
+        // Never show the current user as their own contact.
         if (!peer.peerId || peer.peerId === deps.currentUserId) return false;
         const known = knownMap.get(peer.peerId);
         const resolvedStageName = deps.getPeerName(peer.peerId, peer.stageName);
@@ -945,24 +794,9 @@ export async function showContactDetail(
   }
   renderContactContextSummaryInto(detailInfo, deps, otherUserId, null, deps.isBlockedByMe(otherUserId), false);
 
-  const fetchPeerDetail = async (path: string): Promise<Response> => {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const ac = new AbortController();
-      const timeoutId = window.setTimeout(() => ac.abort(), 3_000);
-      try {
-        return await fetch(`${deps.apiBase}${path}`, { signal: ac.signal, cache: 'no-store' });
-      } catch {
-        if (attempt === 1) throw new Error(`fetch failed: ${path}`);
-      } finally {
-        window.clearTimeout(timeoutId);
-      }
-      await new Promise((resolve) => window.setTimeout(resolve, 200 * (attempt + 1)));
-    }
-    throw new Error(`fetch failed: ${path}`);
-  };
-
-  const renderTalkHistory = (history: unknown[], publicUser: unknown): void => {
-    const totalTalks = Array.isArray(history) ? history.length : 0;
+  // P0 step 5: history and stats rendered entirely from local stores — no server calls.
+  const renderLocalTalkHistory = (history: ReturnType<typeof localTalkHistoryForPeer>, publicUser: unknown): void => {
+    const totalTalks = history.length;
     detailMatches.textContent = formatCountText(deps, totalTalks, 'contactsTalkCountOne', 'contactsTalkCount');
     if (detailInfo) {
       detailInfo.querySelector('.contact-public-profile-summary')?.remove();
@@ -971,126 +805,44 @@ export async function showContactDetail(
       summary.innerHTML = renderPublicProfileSummary(deps, publicUser);
       detailInfo.appendChild(summary);
     }
-    if (!Array.isArray(history) || history.length === 0) {
+    if (history.length === 0) {
       talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #999;">${deps.text('contactNoTalks')}</p>`;
       return;
     }
     const myTalks = deps.getMyTalks();
     talksList.innerHTML = history
-      .map((item: any) => {
-        const localTalk = item?.talkId ? myTalks[item.talkId] : null;
-        const title = String(localTalk?.title || item?.title || deps.text('contactTalkFallback')).trim();
+      .map((item) => {
+        const localTalk = item.talkId ? myTalks[item.talkId] : null;
+        const title = String(localTalk?.title || localTalk?.fullTalk?.title || item.title || deps.text('contactTalkFallback')).trim();
         return `
-          <div class="contact-talk-item" data-talk-id="${deps.escapeHtml(String(item?.talkId || ''))}" style="padding: 14px 16px; margin-bottom: 8px; background: #f9f9f9; border-radius: 10px; border: 1px solid #e0e0e0;">
+          <div class="contact-talk-item" data-talk-id="${deps.escapeHtml(String(item.talkId || ''))}" style="padding: 14px 16px; margin-bottom: 8px; background: #f9f9f9; border-radius: 10px; border: 1px solid #e0e0e0;">
             <div style="font-weight: 600;">${deps.escapeHtml(title)}</div>
-            <div style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(String(item?.direction || ''))} · ${deps.escapeHtml(String(item?.outcome || 'pending'))}</div>
+            <div style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(String(item.direction || ''))} · ${deps.escapeHtml(String(item.outcome || 'pending'))}</div>
           </div>
         `;
       })
       .join('');
   };
 
-  const localTalkHistoryForPeer = (): any[] => {
-    const byTalk = new Map<string, any>();
-    const myTalks = deps.getMyTalks();
-    for (const conversation of Object.values(deps.getMyConversations() || {}) as any[]) {
-      if (String(conversation?.otherUserId || '') !== otherUserId) continue;
-      const talkId = String(conversation?.talkId || '');
-      if (!talkId) continue;
-      const localTalk = myTalks[talkId];
-      byTalk.set(talkId, {
-        talkId,
-        title: String(localTalk?.title || localTalk?.fullTalk?.title || deps.text('contactTalkFallback')),
-        direction: 'sent',
-        outcome: 'match',
-      });
-    }
-    for (const exchange of readLocalTalkExchanges()) {
-      if (String(exchange?.peerId || '') !== otherUserId) continue;
-      const talkId = String(exchange?.talkId || '');
-      if (!talkId) continue;
-      byTalk.set(talkId, {
-        ...byTalk.get(talkId),
-        talkId: String(exchange?.talkId || ''),
-        title: String(exchange?.title || byTalk.get(talkId)?.title || deps.text('contactTalkFallback')),
-        direction: String(exchange?.direction || 'sent'),
-        outcome: String(exchange?.outcome || 'pending'),
-      });
-    }
-    return Array.from(byTalk.values());
-  };
+  // Derive history from local stores only
+  const history = localTalkHistoryForPeer(
+    otherUserId,
+    deps.getMyConversations() || {},
+    deps.getMyTalks(),
+    deps.text('contactTalkFallback'),
+  );
 
-  const initialLocalHistory = localTalkHistoryForPeer();
-  const initialPublicUser = await readPublicProfileFoundation(deps, otherUserId);
-  if (initialPublicUser || initialLocalHistory.length > 0) {
-    renderTalkHistory(initialLocalHistory, initialPublicUser);
-    contactDetailUserProfileCache = { userId: otherUserId, publicUser: initialPublicUser };
-    renderContactContextSummaryInto(
-      detailInfo,
-      deps,
-      otherUserId,
-      initialPublicUser,
-      deps.isBlockedByMe(otherUserId),
-      false,
-    );
-  }
+  // Fetch public profile from Gun (local Gun cache — no REST endpoint)
+  const publicUser = await readPublicProfileFoundation(deps, otherUserId);
+  contactDetailUserProfileCache = { userId: otherUserId, publicUser };
 
-  try {
-    const peerBase = `/api/users/${encodeURIComponent(deps.currentUserId)}/peers/${encodeURIComponent(otherUserId)}`;
-    const historyRes = await fetchPeerDetail(`${peerBase}/talk-history`);
-    if (historyRes.status === 403) {
-      detailMatches.textContent = deps.text('unavailable');
-      talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #c2410c;">${deps.text('contactDetailsUnavailable')}</p>`;
-      return;
-    }
-    const serverHistory = historyRes.ok ? await historyRes.json() : [];
-    const history = Array.isArray(serverHistory) && serverHistory.length > 0
-      ? serverHistory
-      : localTalkHistoryForPeer();
-    renderTalkHistory(history, null);
-
-    const [relationshipResult, userResult, blockStatusResult] = await Promise.allSettled([
-      fetchPeerDetail(`${peerBase}/relationship`),
-      fetchPeerDetail(
-        `/api/users/${encodeURIComponent(otherUserId)}?viewerId=${encodeURIComponent(deps.currentUserId)}`,
-      ),
-      fetchPeerDetail(
-        `/api/users/${encodeURIComponent(deps.currentUserId)}/block-status/${encodeURIComponent(otherUserId)}`,
-      ),
-    ]);
-    const relationshipRes = relationshipResult.status === 'fulfilled' ? relationshipResult.value : null;
-    const userRes = userResult.status === 'fulfilled' ? userResult.value : null;
-    const blockStatusRes = blockStatusResult.status === 'fulfilled' ? blockStatusResult.value : null;
-    const blockStatus = blockStatusRes?.ok ? await blockStatusRes.json() : {};
-    const blockedByMe = deps.isBlockedByMe(otherUserId) || !!blockStatus?.blocked;
-    const blockedBy =
-      userRes?.status === 403 || relationshipRes?.status === 403 || historyRes.status === 403 || !!blockStatus?.blockedBy;
-    let publicUser = userRes?.ok ? await userRes.json() : null;
-    if (!publicUserHasProfileFoundation(publicUser)) {
-      publicUser = await readPublicProfileFoundation(deps, otherUserId) ?? publicUser;
-    }
-    contactDetailUserProfileCache = { userId: otherUserId, publicUser };
-    renderContactContextSummaryInto(detailInfo, deps, otherUserId, publicUser, blockedByMe, blockedBy);
-    if (relationshipRes?.status === 403 || userRes?.status === 403) {
-      detailMatches.textContent = deps.text('unavailable');
-      return;
-    }
-    const relationship = relationshipRes?.ok ? await relationshipRes.json() : null;
-    const totalTalks = relationship?.totalTalks ?? (Array.isArray(history) ? history.length : 0);
-    detailMatches.textContent = formatCountText(deps, totalTalks, 'contactsTalkCountOne', 'contactsTalkCount');
-    if (detailInfo) {
-      detailInfo.querySelector('.contact-public-profile-summary')?.remove();
-      const summary = document.createElement('div');
-      summary.className = 'contact-public-profile-summary';
-      summary.innerHTML = renderPublicProfileSummary(deps, publicUser);
-      detailInfo.appendChild(summary);
-    }
-  } catch {
-    if (detailMatches.textContent === deps.text('loading')) {
-      detailMatches.textContent = formatCountText(deps, 0, 'contactsTalkCountOne', 'contactsTalkCount');
-    }
-    if (!talksList.querySelector('.contact-talk-item') && !talksList.textContent?.trim()) {
-      talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #c00;">${deps.text('contactCouldNotLoadTalks')}</p>`;
-    }
-  }
+  renderLocalTalkHistory(history, publicUser);
+  renderContactContextSummaryInto(
+    detailInfo,
+    deps,
+    otherUserId,
+    publicUser,
+    deps.isBlockedByMe(otherUserId),
+    false,
+  );
 }
