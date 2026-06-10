@@ -1648,3 +1648,20 @@ Evidence:
 
 - E2E: full suite green in mesh mode incl. distance (stage3/00n), content (stage3/00o), and adult/language/cutoff intake specs with receiver-side filtering
 - Unit: `src/test/unit/intake-filter-reasons.test.ts` (expiry, age-gate, per-dimension accept/reject), `src/test/unit/peer-mesh-service.test.ts` (mesh choke point honors rejection)
+
+## 2026-06-10 - P0 Steps 4-6: Mesh Responses/Matches, Local-Only Contacts, Encrypted Mailbox
+
+Step 4: talk responses unicast over mesh; both sides run shared `checkIfMatch` and create the
+conversation locally with deterministic ids (idempotent, no ack frame, no server response
+endpoints, no pair Gun subscriptions). `responseId = CIDv1`, `version`, `respondedAt` shipped
+for steps 8-11. Step 5: contacts/peer-detail/match-%/replies/history derive from local stores
+only (`local-peer-derivation.ts`); zero client calls to `/peers`, `/relationship`,
+`/talk-history`, `/replies`. Step 6: hub-side encrypted TTL mailbox (ciphertext-only envelopes,
+SEA ECDH, drain-then-delete on boot/roster change) replaces the step-4 interim localStorage
+queue for offline recipients.
+
+Evidence:
+
+- E2E: `03-mesh-response-match.spec.ts`, `04-local-contacts.spec.ts`, `05-mailbox-offline-response.spec.ts`; full suite green locally
+- Integration: `src/test/integration/mailbox-routes.test.ts` (25)
+- Unit: `mesh-response-step4.test.ts` (18), `local-peer-derivation.test.ts` (40)

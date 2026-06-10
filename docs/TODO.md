@@ -54,21 +54,21 @@ fallback only.
 
 #### 4. Responses, matches, and conversations over mesh `[Opus]` — match/conversation creation without server fan-in; race-prone
 
-- [ ] Keep offline author fallback routed through encrypted mailbox only
-- [ ] Test: responses produce matches/conversations without server response endpoints or pair Gun subscriptions
+- [x] Keep offline author fallback routed through encrypted mailbox only — ✅ step 4 interim queue replaced by step 6 mailbox, shipped 2026-06-10
+- [x] Test: responses produce matches/conversations without server response endpoints or pair Gun subscriptions — ✅ shipped 2026-06-10 (`03-mesh-response-match.spec.ts`), see `docs/completed.md`
 
 #### 5. Local-only contacts and history `[Sonnet]` — client refactor, clear endpoint removal list
 
-- [ ] Make contacts view derive peers only from local conversations, talk exchanges, and known people
-- [ ] Remove client dependencies on `/api/users/:id/peers`, `/relationship`, `/talk-history`, and `/replies`
-- [ ] Test: contacts, peer detail, match percentage, replies, and history render from local stores only
+- [x] Make contacts view derive peers only from local conversations, talk exchanges, and known people — ✅ shipped 2026-06-10 (`local-peer-derivation.ts`)
+- [x] Remove client dependencies on `/api/users/:id/peers`, `/relationship`, `/talk-history`, and `/replies` — ✅ shipped 2026-06-10; server routes deleted in step 7
+- [x] Test: contacts, peer detail, match percentage, replies, and history render from local stores only — ✅ shipped 2026-06-10 (`04-local-contacts.spec.ts`)
 
 #### 6. Encrypted offline mailbox `[Sonnet]` — endpoints + TTL semantics fully specified (spec §23)
 
-- [ ] Add TTL mailbox endpoints for ciphertext-only envelopes
-- [ ] Drain mailbox on connect and delete drained envelopes
-- [ ] Route offline `talk-body`, `talk-response`, and receipts through mailbox fallback
-- [ ] Test: offline peer receives queued encrypted talk response after reconnect; expired envelopes are dropped
+- [x] Add TTL mailbox endpoints for ciphertext-only envelopes — ✅ shipped 2026-06-10 (`mailbox-routes.ts`)
+- [x] Drain mailbox on connect and delete drained envelopes — ✅ shipped 2026-06-10 (`WebMailboxClient`, drain-then-delete)
+- [x] Route offline `talk-body`, `talk-response`, and receipts through mailbox fallback — ✅ shipped 2026-06-10 (receipts: no receipt concept exists yet; noted for step 9 acks)
+- [x] Test: offline peer receives queued encrypted talk response after reconnect; expired envelopes are dropped — ✅ shipped 2026-06-10 (`05-mailbox-offline-response.spec.ts` + 25 integration tests)
 
 #### 7. Delete star talk delivery (the goal) `[Sonnet]` — mechanical deletion once 1–6 land; run the E2E gate with `[Haiku]`
 
