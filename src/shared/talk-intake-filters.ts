@@ -7,10 +7,22 @@ export type IncomingTalkFilterSubject = {
   language?: string;
   updatedAt?: string;
   createdAt?: string;
+  /** Unix-ms timestamp after which the talk is considered expired and must not be delivered. */
+  expiresAt?: number | string | null;
   authorLocation?: { latitude: number; longitude: number };
   questionsJson?: string;
   questions?: Array<{ text?: string; answers?: Array<{ text?: string }> }>;
   isAdult?: boolean;
+};
+
+/**
+ * Receiver-context supplied by the caller after any async resolution (e.g. fetching ageVerified
+ * from the server). Kept separate from TalkIntakeFilters so the synchronous shared function does
+ * not need async I/O.
+ */
+export type ReceiverIntakeContext = {
+  /** Whether the receiver has passed age verification (AGE_VERIFICATION_THRESHOLD). */
+  ageVerified?: boolean;
 };
 
 const MAX_CUSTOM_BLOCKED_TERMS = 50;
@@ -133,7 +145,26 @@ export function intakeFilterRejectReasons(
   subject: IncomingTalkFilterSubject,
   filters: TalkIntakeFilters,
   currentLocation?: GPSCoordinate,
+  receiverContext?: ReceiverIntakeContext,
 ): string[] {
+  // Expiry check: reject before any other filter so expired bodies are never cached.
+  if (subject.expiresAt !== undefined && subject.expiresAt !== null) {
+    const expiresAtMs =
+      typeof subject.expiresAt === 'number'
+        ? subject.expiresAt
+        : typeof subject.expiresAt === 'string' && subject.expiresAt.trim()
+          ? new Date(subject.expiresAt).getTime()
+          : Number.NaN;
+    if (Number.isFinite(expiresAtMs) && Date.now() > expiresAtMs) {
+      return ['talk_expired'];
+    }
+  }
+
+  // Adult content gate: reject if talk is adult-flagged and the receiver has not verified age.
+  if (subject.isAdult && receiverContext && receiverContext.ageVerified === false) {
+    return ['age_gate'];
+  }
+
   const type = String(subject.type || 'flow').toLowerCase() as 'flow' | 'survey' | 'tag' | 'route';
   if (Array.isArray(filters.allowedTalkTypes) && filters.allowedTalkTypes.length > 0) {
     if (!filters.allowedTalkTypes.includes(type)) return ['intake_talk_type'];
@@ -225,19 +256,21 @@ export function talkPassesIntakeFilters(
   subject: IncomingTalkFilterSubject,
   filters: TalkIntakeFilters,
   currentLocation?: GPSCoordinate,
+  receiverContext?: ReceiverIntakeContext,
 ): boolean {
-  return intakeFilterRejectReasons(subject, filters, currentLocation).length === 0;
+  return intakeFilterRejectReasons(subject, filters, currentLocation, receiverContext).length === 0;
 }
 
 export function filterIncomingTalkClusters(
   subjects: IncomingTalkFilterSubject[],
   filters: TalkIntakeFilters,
   currentLocation?: GPSCoordinate,
+  receiverContext?: ReceiverIntakeContext,
 ): { visible: IncomingTalkFilterSubject[]; hiddenCount: number; hiddenByReason: Record<string, number> } {
   const visible: IncomingTalkFilterSubject[] = [];
   const hiddenByReason: Record<string, number> = {};
   for (const subject of subjects) {
-    const reasons = intakeFilterRejectReasons(subject, filters, currentLocation);
+    const reasons = intakeFilterRejectReasons(subject, filters, currentLocation, receiverContext);
     if (reasons.length === 0) {
       visible.push(subject);
       continue;

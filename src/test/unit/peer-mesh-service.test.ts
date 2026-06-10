@@ -1085,4 +1085,147 @@ describe('PeerMeshService', () => {
     expect(carolAnnounces[0].authorId).toBe('alice');
     expect(carolAnnounces[0].talkId).toBe('relay-announce-1');
   });
+
+  // ── Step 3: receiver-side intake filtering at the mesh choke point ────────────
+
+  /**
+   * P0 step 3 — onTalkBody returning false keeps the body eligible for re-delivery.
+   *
+   * When the caller's onTalkBody callback rejects a body (returns false), the mesh
+   * service must NOT record the delivery key in deliveredTalkBodyIds.  A subsequent
+   * broadcast of the same talkId::authorId must call onTalkBody again.  Once the
+   * callback accepts (returns true), further broadcasts are deduped.
+   *
+   * This exercises the choke point at peer-mesh-service.ts lines 739-741 (DataChannel
+   * path) for both the flood path and the re-delivery-after-rejection path.
+   */
+  it('step-3: intake-rejected body is not cached; accepted body is deduped', async () => {
+    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+    const users = { alice: { pub: alicePair.pub }, bob: { pub: bobPair.pub } };
+    const network = createFakeNetwork();
+
+    let bobAccepts = false; // simulates age-gate: false until verified
+    const bobCallCount: Record<string, number> = {};
+
+    const alice = new PeerMeshService(mockGunService(alicePair, users), {
+      apiBase: 'http://127.0.0.1:8080', localUserId: 'alice', localStageName: 'Alice',
+      createSession: network.createSession,
+    });
+    const bob = new PeerMeshService(mockGunService(bobPair, users), {
+      apiBase: 'http://127.0.0.1:8080', localUserId: 'bob', localStageName: 'Bob',
+      createSession: network.createSession,
+      onTalkBody: (payload) => {
+        const key = `${payload.talkId}::${payload.authorId}`;
+        bobCallCount[key] = (bobCallCount[key] ?? 0) + 1;
+        return bobAccepts; // false = rejected (age_gate), true = accepted
+      },
+    });
+
+    const members = [{ userId: 'alice', stageName: 'Alice' }, { userId: 'bob', stageName: 'Bob' }];
+    await alice.joinRoom('global', members);
+    await bob.joinRoom('global', members);
+
+    const adultTalk = { id: 'adult-mesh', authorId: 'alice', title: 'Adult Talk', type: 'flow', isAdult: true, questions: [] as any[] };
+
+    // First broadcast: bob rejects (age_gate). onTalkBody called once, delivery NOT cached.
+    await alice.broadcastTalk({ ...adultTalk });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(bobCallCount['adult-mesh::alice']).toBe(1);
+
+    // Second broadcast while still rejecting: re-delivered (not deduped), onTalkBody called again.
+    await alice.broadcastTalk({ ...adultTalk });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(bobCallCount['adult-mesh::alice']).toBe(2);
+
+    // Bob crosses the age-verification threshold — now accepts.
+    bobAccepts = true;
+    await alice.broadcastTalk({ ...adultTalk });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(bobCallCount['adult-mesh::alice']).toBe(3);
+
+    // Fourth broadcast: talk was accepted, delivery key is cached → NOT re-delivered.
+    await alice.broadcastTalk({ ...adultTalk });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(bobCallCount['adult-mesh::alice']).toBe(3); // unchanged
+  });
+
+  /**
+   * P0 step 3 — author-qualified delivery key: two talks with different authorIds but the
+   * same talkId are gated independently. Alice accepted, Carol rejected → only Carol's copy
+   * is eligible for re-delivery.
+   *
+   * Uses two isolated 2-node networks to avoid gossip relay duplicates (which are expected
+   * when onTalkBody returns false in a multi-hop overlay).
+   */
+  it('step-3: different author copies of same talkId are filtered independently', async () => {
+    const [alicePair, bobPair, carolPair] = await Promise.all([
+      SEA.pair(), SEA.pair(), SEA.pair(),
+    ]) as SeaSigningPair[];
+    const users = { alice: { pub: alicePair.pub }, bob: { pub: bobPair.pub }, carol: { pub: carolPair.pub } };
+
+    // Bob accepts alice's copy but rejects carol's copy.
+    const acceptByAuthor: Record<string, boolean> = { alice: true, carol: false };
+    const bobCallsByAuthor: Record<string, number> = {};
+
+    function makeBob(net: ReturnType<typeof createFakeNetwork>) {
+      return new PeerMeshService(mockGunService(bobPair, users), {
+        apiBase: 'http://127.0.0.1:8080', localUserId: 'bob', localStageName: 'Bob',
+        createSession: net.createSession,
+        onTalkBody: (payload) => {
+          bobCallsByAuthor[payload.authorId] = (bobCallsByAuthor[payload.authorId] ?? 0) + 1;
+          return acceptByAuthor[payload.authorId] ?? true;
+        },
+      });
+    }
+
+    // ── Alice → Bob (2-node network, no relay) ──────────────────────────────────
+    {
+      const net = createFakeNetwork();
+      const alice = new PeerMeshService(mockGunService(alicePair, users), {
+        apiBase: 'http://127.0.0.1:8080', localUserId: 'alice', localStageName: 'Alice',
+        createSession: net.createSession,
+      });
+      const bob = makeBob(net);
+      const members = [{ userId: 'alice', stageName: 'Alice' }, { userId: 'bob', stageName: 'Bob' }];
+      await alice.joinRoom('room-a', members);
+      await bob.joinRoom('room-a', members);
+
+      const sharedContent = { id: 'shared-id', title: 'Shared Talk', type: 'flow', questions: [] as any[] };
+
+      // First broadcast: accepted.
+      await alice.broadcastTalk({ ...sharedContent, authorId: 'alice' });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(bobCallsByAuthor['alice']).toBe(1);
+
+      // Second broadcast: already cached, deduped.
+      await alice.broadcastTalk({ ...sharedContent, authorId: 'alice' });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(bobCallsByAuthor['alice']).toBe(1); // unchanged
+    }
+
+    // ── Carol → Bob (separate 2-node network, no relay) ─────────────────────────
+    {
+      const net = createFakeNetwork();
+      const carol = new PeerMeshService(mockGunService(carolPair, users), {
+        apiBase: 'http://127.0.0.1:8080', localUserId: 'carol', localStageName: 'Carol',
+        createSession: net.createSession,
+      });
+      const bob = makeBob(net);
+      const members = [{ userId: 'carol', stageName: 'Carol' }, { userId: 'bob', stageName: 'Bob' }];
+      await carol.joinRoom('room-b', members);
+      await bob.joinRoom('room-b', members);
+
+      const sharedContent = { id: 'shared-id', title: 'Shared Talk', type: 'flow', questions: [] as any[] };
+
+      // First broadcast: rejected.
+      await carol.broadcastTalk({ ...sharedContent, authorId: 'carol' });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(bobCallsByAuthor['carol']).toBe(1);
+
+      // Second broadcast: still rejected → re-delivered (NOT deduped).
+      await carol.broadcastTalk({ ...sharedContent, authorId: 'carol' });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(bobCallsByAuthor['carol']).toBe(2);
+    }
+  });
 });

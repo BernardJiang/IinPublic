@@ -1633,3 +1633,18 @@ Evidence:
 - E2E: `tests/e2e/talks-matching/02-mesh-broadcast-announce.spec.ts` (3 browsers, K=1 relay hop, strict `peerTalkOffers/*` + `p2pMeshTalkBodies/*` emptiness)
 - E2E: full suite green — 101 passed, 0 failed, 0 flaky (incl. stage2/08-super-user-copy-talk, stage5/find-similar-people 9/9 contacts)
 - Unit: `src/test/unit/peer-mesh-service.test.ts` (announce guards, relay-hop flood, fallback decision, author-collision cache, coverage-gap condition)
+
+## 2026-06-10 - P0 Step 3: Receiver-Side Intake Filtering
+
+Intake decisions (language, distance, content/dirty-word, adult age-gate, expiry cutoff) are now
+applied on the RECEIVER at the single mesh choke point, via the shared
+`intakeFilterRejectReasons` (`src/shared/talk-intake-filters.ts`) extended with `expiresAt` and
+a synchronous `ReceiverIntakeContext` (`ageVerified` resolved async by the caller, only for
+adult-flagged talks). Rejected bodies are not cached/delivered and remain eligible for
+re-delivery after the user relaxes filters (`onTalkBody` returns false). The server's star-path
+`filterReasonsForTalk` is unchanged (deleted wholesale in step 7).
+
+Evidence:
+
+- E2E: full suite green in mesh mode incl. distance (stage3/00n), content (stage3/00o), and adult/language/cutoff intake specs with receiver-side filtering
+- Unit: `src/test/unit/intake-filter-reasons.test.ts` (expiry, age-gate, per-dimension accept/reject), `src/test/unit/peer-mesh-service.test.ts` (mesh choke point honors rejection)

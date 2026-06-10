@@ -50,7 +50,7 @@ fallback only.
 
 #### 3. Body pull and receiver-side intake `[Sonnet]` — rewires existing `talk-intake-filters.ts` predicates
 
-- [ ] Test: language/distance/content/adult/cutoff intake specs pass with receiver-side filtering
+- [x] Test: language/distance/content/adult/cutoff intake specs pass with receiver-side filtering — ✅ shipped 2026-06-10, see `docs/completed.md`
 
 #### 4. Responses, matches, and conversations over mesh `[Opus]` — match/conversation creation without server fan-in; race-prone
 

@@ -19,7 +19,7 @@ import {
   TECHSUPPORT_STAGE_NAME,
 } from '../../shared/techsupport';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags } from '../../shared/p2p-runtime';
-import { intakeFilterRejectReasons } from '../../shared/talk-intake-filters';
+import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
 import { getTalkIntakeFilters } from '../ui/talk-intake-filters';
 import { P2PPresenceClient } from '../services/p2p-presence-client';
 import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
@@ -630,8 +630,10 @@ export class IinPublicApp {
     if (!me?.id || offer.senderId === me.id) return false;
     if (await this.resolveBlockStatusEitherWay(offer.senderId)) return false;
     const talkData = offer.talkData;
-    if (this.isTalkExpiredForDelivery(talkData)) return false;
-    if (talkData?.isAdult && !(await this.resolveAgeVerifiedForIntake())) return false;
+    // Resolve ageVerified asynchronously before calling the shared synchronous filter function.
+    // Only fetch when the talk is actually adult-flagged to avoid an unnecessary API call.
+    const isAdultTalk = !!talkData?.isAdult;
+    const ageVerified = isAdultTalk ? await this.resolveAgeVerifiedForIntake() : true;
     const chatroomId = this.currentChatroomId;
     if (!offer.directPeerSend && chatroomId) {
       const deliveryRoom = String(offer.deliveryChatroomId || '').trim();
@@ -654,6 +656,9 @@ export class IinPublicApp {
       typeof (td.authorLocation as { longitude?: unknown }).longitude === 'number'
         ? (td.authorLocation as { latitude: number; longitude: number })
         : undefined;
+    // Resolve expiresAt for the shared function (handles nested fullTalk wrapper from dev seeds).
+    const expiresAtMs = this.resolveTalkExpiresAtMs(talkData);
+    const receiverContext: ReceiverIntakeContext = { ageVerified };
     const reasons = intakeFilterRejectReasons(
       {
         title: typeof td.title === 'string' ? td.title : String(td.title ?? ''),
@@ -673,13 +678,15 @@ export class IinPublicApp {
               : typeof td.createdAt === 'string' && td.createdAt
                 ? td.createdAt
                 : new Date().toISOString(),
+        ...(Number.isFinite(expiresAtMs) ? { expiresAt: expiresAtMs } : {}),
         ...(authorLoc ? { authorLocation: authorLoc } : {}),
         questions: Array.isArray(td.questions) ? td.questions : [],
         ...(typeof td.questionsJson === 'string' ? { questionsJson: td.questionsJson } : {}),
-        isAdult: !!td.isAdult,
+        isAdult: isAdultTalk,
       },
       filters,
       this.currentLocation,
+      receiverContext,
     );
     return reasons.length === 0;
   }
