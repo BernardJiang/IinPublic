@@ -4,6 +4,8 @@ import { WebGunService } from './web-gun-service';
 import { CONFIG } from '../../shared/config';
 import { findAppropriateChildChatroom } from '../../shared/location-to-chatroom';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import type { ChallengeGateConfig } from '../../shared/challenge-plugins';
+import { getChallengePlugin } from '../../shared/challenge-plugins';
 
 export class WebChatroomService {
   private currentChatroomId?: string;
@@ -565,6 +567,66 @@ export class WebChatroomService {
 
   getCurrentChatroomId(): string | undefined {
     return this.currentChatroomId;
+  }
+
+  // ─── Zone-B Challenge Plugin Configuration (FR-CPF-04) ────────────────────
+
+  /**
+   * Store per-chatroom plugin configuration in zone-B (~{ownerPub}/private/chatroom-config/<chatroomId>/challengePlugins).
+   * This allows chatroom owners to enable/disable plugins without server restart.
+   *
+   * @param chatroomId The chatroom identifier
+   * @param pluginIds Array of plugin IDs to enable for this chatroom
+   */
+  async setChallengeConfig(chatroomId: string, pluginIds: string[]): Promise<void> {
+    const path = `chatroom-config/${chatroomId}/challengePlugins`;
+    // Gun cannot store nested arrays; serialize as JSON string per CLAUDE.md pattern
+    const data = {
+      pluginIdsJson: JSON.stringify(pluginIds),
+      updatedAt: new Date().toISOString(),
+    };
+    await this.gunService.putPrivate(path, data);
+  }
+
+  /**
+   * Read and resolve per-chatroom challenge plugin configuration from zone-B.
+   * Returns a ChallengeGateConfig ready for runChallengeGate, or null if no config exists.
+   *
+   * @param chatroomId The chatroom identifier
+   * @returns ChallengeGateConfig | null
+   */
+  async getChallengeConfig(chatroomId: string): Promise<ChallengeGateConfig | null> {
+    try {
+      const path = `chatroom-config/${chatroomId}/challengePlugins`;
+      const data = await this.gunService.getPrivate(path);
+      if (!data || typeof data !== 'object') return null;
+
+      let pluginIds: string[] = [];
+      if (typeof data.pluginIdsJson === 'string') {
+        try {
+          pluginIds = JSON.parse(data.pluginIdsJson);
+        } catch {
+          return null;
+        }
+      }
+
+      if (!Array.isArray(pluginIds) || pluginIds.length === 0) return null;
+
+      // Resolve plugin instances from the registry
+      const plugins = pluginIds
+        .map((id) => getChallengePlugin(id))
+        .filter((p) => p !== undefined) as any[];
+
+      if (plugins.length === 0) return null;
+
+      return {
+        plugins,
+        semantics: 'all', // Default to AND semantics; could be extended to store in config
+      };
+    } catch {
+      // Graph lag or auth issue; no config available
+      return null;
+    }
   }
 
   /**
