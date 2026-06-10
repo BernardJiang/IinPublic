@@ -42,7 +42,7 @@ fallback only.
 
 #### 1. Mesh transport foundation `[Opus]` — novel gossip overlay; cascades into steps 2–7
 
-- [ ] Test: three browser peers can gossip `mesh-ping` across a sparse room overlay without `talks/*` or `peerTalkOffers/*` Gun writes
+- [x] Test: three browser peers can gossip `mesh-ping` across a sparse room overlay without `talks/*` or `peerTalkOffers/*` Gun writes — ✅ shipped 2026-06-09, see `docs/completed.md`; design: `docs/design/p0-step1-mesh-transport.md`
 
 #### 2. Mesh broadcast announcements `[Sonnet]` — builds on step 1's transport pattern
 

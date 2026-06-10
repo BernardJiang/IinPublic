@@ -52,6 +52,8 @@ type PeerMeshServiceOptions = {
   onTalkBody?: (payload: P2PMeshTalkBodyPayload) => boolean | void | Promise<boolean | void>;
   onTalkResponse?: (payload: P2PMeshTalkResponsePayload) => void | Promise<void>;
   onPing?: (fromUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
+  /** R5: fired when a mesh-pong addressed to us arrives; enables durable E2E reachability assertion. */
+  onPong?: (fromUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
 };
 
 type Neighbor = {
@@ -65,6 +67,42 @@ type Neighbor = {
 const DEFAULT_MESH_SEND_TIMEOUT_MS = 2_500;
 const DEFAULT_MESH_RETRY_TIMEOUT_MS = 10_000;
 const MESH_TALK_BODY_RENDEZVOUS_ROOT = 'p2pMeshTalkBodies';
+
+/**
+ * R4: Bounded FIFO seen-set. Prevents unbounded memory growth in long sessions
+ * while preserving dedup semantics (spec §23.8 "seen-set sizing").
+ */
+const SEEN_SET_MAX_SIZE = 10_000;
+
+class BoundedFifoSet {
+  private readonly set = new Set<string>();
+  private readonly queue: string[] = [];
+
+  constructor(private readonly maxSize: number) {}
+
+  has(id: string): boolean {
+    return this.set.has(id);
+  }
+
+  add(id: string): void {
+    if (this.set.has(id)) return;
+    this.set.add(id);
+    this.queue.push(id);
+    if (this.queue.length > this.maxSize) {
+      const evicted = this.queue.shift();
+      if (evicted !== undefined) this.set.delete(evicted);
+    }
+  }
+
+  get size(): number {
+    return this.set.size;
+  }
+
+  clear(): void {
+    this.set.clear();
+    this.queue.length = 0;
+  }
+}
 
 function randomId(prefix: string): string {
   const cryptoLike = typeof crypto !== 'undefined' ? crypto : undefined;
@@ -98,7 +136,8 @@ export class PeerMeshService {
   private currentRoomId: string | null = null;
   private currentRoomMemberIds = new Set<string>();
   private readonly neighbors = new Map<string, Neighbor>();
-  private readonly seen = new Set<string>();
+  /** R4: bounded FIFO dedup cache; cleared on leaveRoom (spec §23.8). */
+  private readonly seen = new BoundedFifoSet(SEEN_SET_MAX_SIZE);
   private readonly talkBodies = new Map<string, Record<string, unknown>>();
   private readonly deliveredTalkBodyIds = new Set<string>();
   private readonly pendingTalkBodyRequestTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -149,6 +188,19 @@ export class PeerMeshService {
     return this.neighbors.get(userId)?.connected === true;
   }
 
+  /**
+   * R2: Extract neighbor selection into its own method so step ≥2 can swap in
+   * `scoreP2PNeighbor`-based ranking without touching gossip/dedup/forwarding.
+   * For v1 keeps deterministic `localeCompare` sort (reproducible E2E).
+   */
+  private selectNeighbors(members: RoomMember[], K: number): RoomMember[] {
+    return members
+      .filter((member) => member.userId && member.userId !== this.opts.localUserId && member.userId !== TECHSUPPORT_ROOT_USER_ID)
+      .sort((a, b) => a.userId.localeCompare(b.userId))
+      .slice(0, K);
+    // TODO step ≥2: swap body for scoreP2PNeighbor-based ranking (spec §23.7)
+  }
+
   async joinRoom(roomId: string, members: RoomMember[]): Promise<void> {
     this.currentRoomId = roomId;
     this.subscribeToRoomTalkBodyRendezvous(roomId);
@@ -159,10 +211,7 @@ export class PeerMeshService {
     );
     const local = this.localIdentity();
     const maxNeighbors = this.opts.maxNeighbors ?? 12;
-    const candidates = members
-      .filter((member) => member.userId && member.userId !== this.opts.localUserId)
-      .sort((a, b) => a.userId.localeCompare(b.userId))
-      .slice(0, maxNeighbors);
+    const candidates = this.selectNeighbors(members, maxNeighbors);
 
     const wanted = new Set(candidates.map((member) => member.userId));
     for (const userId of [...this.neighbors.keys()]) {
@@ -195,8 +244,56 @@ export class PeerMeshService {
         })
         .catch(() => {
           neighbor.connected = false;
+          // R3: attempt replacement pick on connect failure
+          this.onNeighborClosed(member.userId);
         });
     }));
+  }
+
+  /**
+   * R3: Called when a neighbor's DataChannel closes unexpectedly.
+   * Re-runs candidate selection against the current room member list
+   * and connects to any newly eligible peer up to maxNeighbors.
+   */
+  private onNeighborClosed(closedUserId: string): void {
+    const roomId = this.currentRoomId;
+    if (!roomId) return;
+    const neighbor = this.neighbors.get(closedUserId);
+    if (neighbor) neighbor.connected = false;
+    // Build a synthetic members list from the known room member IDs
+    const allMembers: RoomMember[] = [...this.currentRoomMemberIds].map((userId) => ({ userId }));
+    const maxNeighbors = this.opts.maxNeighbors ?? 12;
+    const candidates = this.selectNeighbors(allMembers, maxNeighbors);
+    const wanted = new Set(candidates.map((m) => m.userId));
+    // Connect to any candidate we do not currently have a neighbor slot for
+    for (const member of candidates) {
+      if (this.neighbors.has(member.userId)) continue;
+      if (!wanted.has(member.userId)) continue;
+      void (async () => {
+        const local = this.localIdentity();
+        const pub = await this.resolveUserPub(member.userId);
+        if (!pub || !this.currentRoomId) return;
+        const session = this.createSession({
+          roomId: this.currentRoomId,
+          localPub: local.pub,
+          localPair: local.pair,
+          otherUserId: member.userId,
+          otherPub: pub,
+        });
+        const newNeighbor: Neighbor = {
+          userId: member.userId,
+          stageName: member.stageName || member.userId,
+          pub,
+          session,
+          connected: false,
+        };
+        this.neighbors.set(member.userId, newNeighbor);
+        session.setOnRemoteMeshFrame((otherUserId, frame) => this.handleRemoteFrame(otherUserId, frame));
+        void session.ensureConnected()
+          .then(() => { newNeighbor.connected = true; })
+          .catch(() => { newNeighbor.connected = false; });
+      })().catch(() => { /* best-effort re-pick */ });
+    }
   }
 
   leaveRoom(): void {
@@ -405,8 +502,13 @@ export class PeerMeshService {
     return verification.ok;
   }
 
+  /** Add msgId to the bounded seen-set (single call site so the bound is always respected). */
+  private rememberSeen(msgId: string): void {
+    this.seen.add(msgId);
+  }
+
   private async rememberAndFanout(frame: P2PMeshFrame, exceptUserId?: string): Promise<void> {
-    this.seen.add(frame.msgId);
+    this.rememberSeen(frame.msgId);
     await this.forwardFrame(frame, exceptUserId);
   }
 
@@ -475,7 +577,7 @@ export class PeerMeshService {
     if (this.currentRoomId && frame.roomId !== this.currentRoomId) return;
     if (this.seen.has(frame.msgId)) return;
     if (!(await this.verifyOrigin(frame))) return;
-    this.seen.add(frame.msgId);
+    this.rememberSeen(frame.msgId);
 
     const addressedToMe = !frame.recipientUserId || frame.recipientUserId === this.opts.localUserId;
     if (addressedToMe) {
@@ -486,9 +588,12 @@ export class PeerMeshService {
     await this.forwardFrame(frame, fromUserId);
   }
 
-  private async handleLocalFrame(fromUserId: string, frame: P2PMeshFrame): Promise<void> {
+  private async handleLocalFrame(_fromUserId: string, frame: P2PMeshFrame): Promise<void> {
     if (frame.kind === 'mesh-ping') {
-      await this.opts.onPing?.(fromUserId, frame);
+      // Pass frame.originUserId (the cryptographically-verified ping originator) rather than
+      // fromUserId (the immediate relay neighbor) so callers always see who sent the ping,
+      // regardless of how many hops it took to arrive (spec §23.4 "origin identity").
+      await this.opts.onPing?.(frame.originUserId, frame);
       if (frame.originUserId !== this.opts.localUserId) {
         const pong = await this.buildFrame('mesh-pong', { msgId: frame.msgId }, {
           recipientUserId: frame.originUserId,
@@ -496,6 +601,14 @@ export class PeerMeshService {
         });
         await this.rememberAndFanout(pong);
       }
+      return;
+    }
+
+    if (frame.kind === 'mesh-pong') {
+      // R5: surface inbound pong so the app can record reachability for durable E2E assertion.
+      // Pass frame.originUserId (the pong sender, cryptographically verified) rather than
+      // fromUserId (may be a relay hop in a sparse topology).
+      await this.opts.onPong?.(frame.originUserId, frame);
       return;
     }
 

@@ -1601,3 +1601,17 @@ receiver after that persisted toggle is disabled.
 Evidence:
 
 - E2E: `tests/e2e/staged/stage3-three-user/00o-content-intake-filter.spec.ts`
+
+## 2026-06-09 - P0 Step 1: Mesh Transport Foundation (mesh-ping gossip)
+
+Three browser peers gossip `mesh-ping` across a sparse room overlay with zero Gun writes to
+`talks/*` or `peerTalkOffers/*`. Hardened `PeerMeshService`: bounded seen-set dedup, neighbor
+re-pick on churn, `meshPingDiagnostics` for durable E2E assertions. Fixed origin attribution —
+`onPing`/`onPong` now report `frame.originUserId` (the envelope's verified origin), not the
+relay neighbor; msgId is stable across forward hops (dedup-safe, reused by P0 steps 2–4).
+Design note: `docs/design/p0-step1-mesh-transport.md`.
+
+Evidence:
+
+- E2E: `tests/e2e/talks-matching/01-mesh-ping-overlay.spec.ts` (includes K=1 path-graph sparse forwarding + relay-side Gun emptiness assertion)
+- Unit: `src/test/unit/peer-mesh-service.test.ts` (origin/msgId stability across relay hop)

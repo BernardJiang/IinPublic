@@ -74,6 +74,21 @@ export class IinPublicApp {
   private presenceClient: P2PPresenceClient | null = null;
   private localNodeBridge: P2PLocalNodeBridgeClient | null = null;
   private peerMeshService: PeerMeshService | null = null;
+  /**
+   * Durable mesh-ping diagnostics record updated by onPing/onPong callbacks.
+   * Exposed via getApp() for E2E assertion (design §6, R5).
+   */
+  public meshPingDiagnostics: {
+    pingedOrigins: string[];
+    pongedOrigins: string[];
+    lastPingFrom: string | null;
+    lastPongFrom: string | null;
+  } = {
+    pingedOrigins: [],
+    pongedOrigins: [],
+    lastPingFrom: null,
+    lastPongFrom: null,
+  };
   private readonly directTalkStatsQueue: DirectTalkStatsRecordParams[] = [];
   private directTalkStatsInFlight = 0;
   private readonly e2eSeededIncomingClusters: any[] = [];
@@ -780,6 +795,16 @@ export class IinPublicApp {
       ...(process.env.DISABLE_HMR === 'true' ? { maxNeighbors: 3 } : {}),
       onTalkBody: (payload) => this.handleMeshTalkBody(payload),
       onTalkResponse: (payload) => this.handleMeshTalkResponse(payload),
+      onPing: (fromUserId, _frame) => {
+        const diag = this.meshPingDiagnostics;
+        diag.lastPingFrom = fromUserId;
+        if (!diag.pingedOrigins.includes(fromUserId)) diag.pingedOrigins.push(fromUserId);
+      },
+      onPong: (fromUserId, _frame) => {
+        const diag = this.meshPingDiagnostics;
+        diag.lastPongFrom = fromUserId;
+        if (!diag.pongedOrigins.includes(fromUserId)) diag.pongedOrigins.push(fromUserId);
+      },
     });
     (this as any).peerMeshService = this.peerMeshService;
     return this.peerMeshService;

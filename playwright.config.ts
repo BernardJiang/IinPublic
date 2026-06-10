@@ -59,13 +59,16 @@ const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
       port: gunPort,
       timeout: 120 * 1000,
       // Must spawn with E2E_GUN_MEMORY_ONLY + CHATROOM_* ; reusing a manually started dev:server ignores those env vars and keeps e2e flaky.
-      reuseExistingServer: false,
+      reuseExistingServer: process.env.E2E_REUSE_SERVERS === '1',
     },
     {
-      command: `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false P2P_NODE_ENABLED=0 PORT=${webPort} npm run dev:web:e2e -- --port ${webPort}`,
+      // E2E_STATIC_WEB=1: serve pre-built dist/web/ with npx serve (no webpack recompile) for CI sandbox.
+      command: process.env.E2E_STATIC_WEB === '1'
+        ? `npx serve dist/web -l ${webPort} --no-clipboard`
+        : `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false P2P_NODE_ENABLED=0 PORT=${webPort} npm run dev:web:e2e -- --port ${webPort}`,
       port: webPort,
       timeout: 120 * 1000,
-      reuseExistingServer: false,
+      reuseExistingServer: process.env.E2E_REUSE_SERVERS === '1',
     },
   ];
 });
