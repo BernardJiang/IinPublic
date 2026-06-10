@@ -24,6 +24,7 @@ import { getTalkIntakeFilters } from '../ui/talk-intake-filters';
 import { P2PPresenceClient } from '../services/p2p-presence-client';
 import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
 import { PeerMeshService } from '../services/peer-mesh-service';
+import { WebMailboxClient } from '../services/web-mailbox-client';
 import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload } from '../../shared/p2p-mesh-protocol';
 import {
   collectLocalIncomingTalkClusters,
@@ -74,6 +75,7 @@ export class IinPublicApp {
   private presenceClient: P2PPresenceClient | null = null;
   private localNodeBridge: P2PLocalNodeBridgeClient | null = null;
   private peerMeshService: PeerMeshService | null = null;
+  private mailboxClient: WebMailboxClient | null = null;
   /**
    * Durable mesh-ping diagnostics record updated by onPing/onPong callbacks.
    * Exposed via getApp() for E2E assertion (design §6, R5).
@@ -574,6 +576,9 @@ export class IinPublicApp {
     await this.ensureSupportBootstrapForCurrentUser();
     await this.initP2PPresenceAndBridge();
     this.initDirectTalkDeliverySubscriptions();
+    // Step 6: drain mailbox on app boot + retry any failed mailbox POSTs.
+    void this.drainMailbox().catch(() => {});
+    void this.retryFailedMailboxPosts().catch(() => {});
   }
 
   /** P0: apply the same intake gates as POST /received (filters, age, block list). */
@@ -856,39 +861,136 @@ export class IinPublicApp {
     void mesh.joinRoom(chatroomId, withSelf).catch((error) => {
       console.warn('Peer mesh room join failed:', error);
     });
-    // STEP-6-REPLACE: drain the offline-author interim queue whenever roster changes —
-    // any newly-present member may be an author we were unable to reach before.
-    void this.drainPendingMeshResponses(withSelf.map((m) => m.userId)).catch(() => {});
+    // Step 6: drain the mailbox whenever roster changes (any newly-present member
+    // may be a sender for whom we have queued envelopes in the mailbox).
+    // Also retry failed mailbox POSTs now that network may be available.
+    void this.drainMailbox().catch(() => {});
+    void this.retryFailedMailboxPosts().catch(() => {});
   }
 
-  // ─── Offline-author interim response queue (STEP-6-REPLACE) ──────────────────
+  // ─── Encrypted offline mailbox — drain-on-connect (Step 6) ───────────────
   //
-  // When `sendTalkResponse` cannot deliver (author absent from roster or WebRTC fails),
-  // persist the encrypted P2PMeshTalkResponsePayload to localStorage under the key
-  // `pendingMeshTalkResponses`, keyed `<talkId>::<authorId>::<responseId>`.
+  // On every roster join / app boot, fetch and decrypt all pending envelopes
+  // addressed to the current user.  Each envelope carries a P2PMeshTalkResponsePayload
+  // encrypted with SEA ECDH (sender's epub, recipient's keypair).  After successful
+  // dispatch through handleMeshTalkResponse (which dedupes on responseId), delete
+  // the envelope from the server (drain-then-delete: a crash before delete causes
+  // re-delivery, which is safe because the handler is idempotent).
+
+  private ensureMailboxClient(): WebMailboxClient {
+    if (!this.mailboxClient) {
+      this.mailboxClient = new WebMailboxClient(this.getBackendApiBase());
+    }
+    return this.mailboxClient;
+  }
+
+  /**
+   * Drain all envelopes addressed to the current user from the server mailbox.
+   * Decrypt each, dispatch through handleMeshTalkResponse, then delete.
+   * Safe to call concurrently — handler dedupes on responseId.
+   */
+  private async drainMailbox(): Promise<void> {
+    if (!this.currentUser?.id) return;
+    const mailbox = this.ensureMailboxClient();
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.priv) return; // keypair not ready
+
+    const envelopes = await mailbox.fetchEnvelopes(this.currentUser.id);
+    if (!envelopes.length) return;
+
+    console.log(`[Mailbox] Draining ${envelopes.length} envelope(s) for user ${this.currentUser.id}`);
+    for (const envelope of envelopes) {
+      try {
+        const payload = await mailbox.decryptEnvelope<P2PMeshTalkResponsePayload>(
+          envelope.ciphertext,
+          pair as import('../sea-gun').GunPair,
+        );
+        // Dispatch through the same inbound handler the mesh uses — dedup on responseId.
+        await this.handleMeshTalkResponse(payload);
+        // Delete only after handler completes without throwing.
+        await mailbox.deleteEnvelope(this.currentUser.id, envelope.id);
+        console.log('[Mailbox] Drained and deleted envelope', envelope.id);
+      } catch (err) {
+        console.warn('[Mailbox] Failed to drain envelope', envelope.id, '— will retry on next connect:', err);
+        // Leave envelope on server for re-delivery.
+      }
+    }
+  }
+
+  /**
+   * Post a talk response to the mailbox as a ciphertext-only envelope.
+   * Falls back to localStorage queue only when the mailbox POST itself fails.
+   */
+  private async postToMailbox(payload: P2PMeshTalkResponsePayload): Promise<boolean> {
+    if (!this.currentUser?.id) return false;
+    const mailbox = this.ensureMailboxClient();
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.priv) return false;
+
+    // Look up the author's epub to encrypt for them.
+    let authorEpub: string;
+    try {
+      const peer = await Promise.race([
+        this.gunService.getPublicUser(payload.authorId),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+      ]);
+      authorEpub = typeof peer?.epub === 'string' ? peer.epub.trim() : '';
+    } catch {
+      authorEpub = '';
+    }
+    if (!authorEpub) {
+      console.warn('[Mailbox] Cannot post — author epub not found for', payload.authorId);
+      return false;
+    }
+
+    try {
+      const ciphertext = await mailbox.encryptForRecipient(
+        authorEpub,
+        pair as import('../sea-gun').GunPair,
+        payload,
+      );
+      const envelopeId = `mbx_${payload.responseId}`;
+      const result = await mailbox.postEnvelope({
+        id: envelopeId,
+        recipientId: payload.authorId,
+        ciphertext,
+      });
+      if (result.stored) {
+        console.log('[Mailbox] Posted envelope', envelopeId, 'for author', payload.authorId);
+        return true;
+      }
+      console.warn('[Mailbox] Server rejected envelope:', result.error);
+      return false;
+    } catch (err) {
+      console.warn('[Mailbox] postToMailbox failed:', err);
+      return false;
+    }
+  }
+
+  // ─── localStorage fallback queue (POST-to-mailbox failure only) ──────────
   //
-  // Step 6 replaces this localStorage queue with the encrypted TTL mailbox.
-  // All methods below are tagged STEP-6-REPLACE to allow deletion in one place.
+  // The STEP-6-REPLACE localStorage queue is now narrowed to a "mailbox POST
+  // itself failed" buffer only — it retries on the next roster-change drain
+  // via retryFailedMailboxPosts.  This covers transient network errors during the
+  // mailbox POST without requiring a new server endpoint or Gun path.
 
   private static readonly PENDING_MESH_RESPONSES_KEY = 'pendingMeshTalkResponses';
 
-  // STEP-6-REPLACE
-  private enqueuePendingMeshResponse(payload: P2PMeshTalkResponsePayload): void {
+  private enqueueFailedMailboxPost(payload: P2PMeshTalkResponsePayload): void {
     try {
       const raw = localStorage.getItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY);
       const queue: Record<string, P2PMeshTalkResponsePayload> = raw ? JSON.parse(raw) : {};
       const queueKey = `${payload.talkId}::${payload.authorId}::${payload.responseId}`;
       queue[queueKey] = payload;
       localStorage.setItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY, JSON.stringify(queue));
-      console.log('[MeshQueue] Queued offline response for author', payload.authorId, 'key:', queueKey);
+      console.log('[Mailbox] Queued failed-POST response for author', payload.authorId, 'key:', queueKey);
     } catch (err) {
-      console.warn('[MeshQueue] Failed to enqueue pending response:', err);
+      console.warn('[Mailbox] Failed to enqueue failed-POST response:', err);
     }
   }
 
-  // STEP-6-REPLACE: drain pending responses for authors now present in the room roster.
-  private async drainPendingMeshResponses(rosterUserIds: string[]): Promise<void> {
-    if (!rosterUserIds.length) return;
+  /** Retry pending mailbox POSTs on roster change (transient network error recovery). */
+  private async retryFailedMailboxPosts(): Promise<void> {
     let queue: Record<string, P2PMeshTalkResponsePayload>;
     try {
       const raw = localStorage.getItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY);
@@ -897,23 +999,13 @@ export class IinPublicApp {
     } catch {
       return;
     }
-    const rosterSet = new Set(rosterUserIds);
-    const drained: string[] = [];
+    const succeeded: string[] = [];
     for (const [queueKey, payload] of Object.entries(queue)) {
-      if (!rosterSet.has(payload.authorId)) continue;
-      const mesh = this.ensurePeerMeshService();
-      if (!mesh) break;
-      try {
-        await mesh.sendTalkResponse(payload);
-        drained.push(queueKey);
-        console.log('[MeshQueue] Drained pending response to author', payload.authorId);
-      } catch (err) {
-        console.warn('[MeshQueue] Failed to drain pending response for', payload.authorId, err);
-        // Leave in queue for next roster-change opportunity
-      }
+      const posted = await this.postToMailbox(payload);
+      if (posted) succeeded.push(queueKey);
     }
-    if (drained.length > 0) {
-      for (const k of drained) delete queue[k];
+    if (succeeded.length > 0) {
+      for (const k of succeeded) delete queue[k];
       try {
         localStorage.setItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY, JSON.stringify(queue));
       } catch {/* ignore */}
@@ -2202,15 +2294,18 @@ export class IinPublicApp {
           await mesh.sendTalkResponse(meshPayload);
           sent = true;
         } catch (err) {
-          console.warn('[MeshResponse] sendTalkResponse failed, queuing for author presence:', err);
+          console.warn('[MeshResponse] sendTalkResponse failed, falling back to mailbox:', err);
         }
       }
-      // STEP-6-REPLACE: offline-author interim queue — when unicast cannot be delivered
-      // (author not in roster or send failed), persist the encrypted payload to localStorage
-      // and re-send when the author appears in the room roster. Step 6 replaces this with
-      // the encrypted TTL mailbox (talk-response routed through mailbox fallback).
+      // Step 6: when unicast cannot be delivered (author offline or send failed),
+      // post a ciphertext envelope to the server mailbox. The author drains the
+      // mailbox on reconnect. If the mailbox POST itself fails, enqueue to localStorage
+      // for retry on the next roster-change (retryFailedMailboxPosts).
       if (!sent) {
-        this.enqueuePendingMeshResponse(meshPayload);
+        const posted = await this.postToMailbox(meshPayload);
+        if (!posted) {
+          this.enqueueFailedMailboxPost(meshPayload);
+        }
       }
     }
 

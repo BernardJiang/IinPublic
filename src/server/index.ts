@@ -24,6 +24,8 @@ import { registerSystemRoutes } from './routes/system-routes';
 import { registerTalkRoutes } from './routes/talk-routes';
 import { registerUserRoutes } from './routes/user-routes';
 import { registerSocketHandlers } from './socket/register-socket-handlers';
+import { MailboxStore } from './services/mailbox-store';
+import { registerMailboxRoutes } from './routes/mailbox-routes';
 import {
   inspectSchemaVersions,
   type SchemaKind,
@@ -54,6 +56,9 @@ class IinPublicServer {
     byRegion: new Map<string, Set<string>>(),
     byTalkAnswer: new Map<string, Set<string>>(),
   };
+
+  private mailboxStore = new MailboxStore();
+  private mailboxSweepTimer: ReturnType<typeof setInterval> | undefined;
 
   private broadcastTagPopularityStore = new BroadcastTagPopularityStore();
   private symmetricTalkEdgeRateLimiter = new SymmetricTalkEdgeRateLimiter(
@@ -329,6 +334,7 @@ class IinPublicServer {
     this.broadcastTagPopularityStore.resetForTesting();
     this.symmetricTalkEdgeRateLimiter.resetForTesting();
     this.dailyWeeklyTalkEdgeQuotaRateLimiter.resetForTesting();
+    this.mailboxStore.resetForTesting();
   }
 
   private setupRoutes(): void {
@@ -373,6 +379,11 @@ class IinPublicServer {
       getBroadcastTagTrends: (days: number) => this.broadcastTagPopularityStore.getTrends(days),
     });
 
+    registerMailboxRoutes(this.app, {
+      mailboxStore: this.mailboxStore,
+      nodeEnv: process.env.NODE_ENV,
+    });
+
   }
 
   private setupSocketHandlers(): void {
@@ -394,6 +405,11 @@ class IinPublicServer {
     this.server.listen(port, () => {
       logger.info({ port, env: process.env.NODE_ENV || 'development' }, '🚀 IinPublic server started');
     });
+    // Periodic mailbox sweep: evict expired envelopes every 5 minutes.
+    this.mailboxSweepTimer = setInterval(() => {
+      this.mailboxStore.pruneExpired();
+    }, 5 * 60 * 1000);
+    if (this.mailboxSweepTimer.unref) this.mailboxSweepTimer.unref();
   }
 }
 
