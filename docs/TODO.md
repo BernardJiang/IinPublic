@@ -8,6 +8,16 @@ statistics / spec-gap follow-ups are consolidated into the appendices at the bot
 - **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specifications.md` (§19.13, §19.14, REQ-P2P-09–29; mesh talk delivery design §23; Phase D DHT §24; find-similar §22)
 - Detailed acceptance inventory: see "Appendix A — Detailed backlog inventory" below.
 
+## Model routing legend
+
+Each item is tagged with the cheapest model that can do it reliably, to optimize token spend:
+
+- **`[Opus]`** — distributed-correctness / ordering / architecture is the hard part; design mistakes cascade.
+- **`[Sonnet]`** — standard implementation against an existing spec or pattern.
+- **`[Haiku]`** — mechanical, fully specified work; running test suites; scaffolding from a written design.
+
+Token-saving rules: for `[Opus]` items, have Opus write a short design note first, then hand implementation + tests to Sonnet. Do steps 9–11 in one Opus session (shared versioning/ordering machinery). `- [ ] Test:` items belong to whichever model implemented the step.
+
 ## ⭐ TOP PRIORITY — Remove star topology / server-side talk function
 
 **This is the #1 priority and supersedes everything else below.** The definition of done is:
@@ -30,37 +40,37 @@ Goal: move talk delivery off the star/server data path **and then delete the sta
 The hub remains rendezvous, presence, signaling, STUN/TURN config, and encrypted TTL mailbox
 fallback only.
 
-#### 1. Mesh transport foundation
+#### 1. Mesh transport foundation `[Opus]` — novel gossip overlay; cascades into steps 2–7
 
 - [ ] Test: three browser peers can gossip `mesh-ping` across a sparse room overlay without `talks/*` or `peerTalkOffers/*` Gun writes
 
-#### 2. Mesh broadcast announcements
+#### 2. Mesh broadcast announcements `[Sonnet]` — builds on step 1's transport pattern
 
 - [ ] Test: find-similar broadcast reaches eligible receivers over mesh
 
-#### 3. Body pull and receiver-side intake
+#### 3. Body pull and receiver-side intake `[Sonnet]` — rewires existing `talk-intake-filters.ts` predicates
 
 - [ ] Test: language/distance/content/adult/cutoff intake specs pass with receiver-side filtering
 
-#### 4. Responses, matches, and conversations over mesh
+#### 4. Responses, matches, and conversations over mesh `[Opus]` — match/conversation creation without server fan-in; race-prone
 
 - [ ] Keep offline author fallback routed through encrypted mailbox only
 - [ ] Test: responses produce matches/conversations without server response endpoints or pair Gun subscriptions
 
-#### 5. Local-only contacts and history
+#### 5. Local-only contacts and history `[Sonnet]` — client refactor, clear endpoint removal list
 
 - [ ] Make contacts view derive peers only from local conversations, talk exchanges, and known people
 - [ ] Remove client dependencies on `/api/users/:id/peers`, `/relationship`, `/talk-history`, and `/replies`
 - [ ] Test: contacts, peer detail, match percentage, replies, and history render from local stores only
 
-#### 6. Encrypted offline mailbox
+#### 6. Encrypted offline mailbox `[Sonnet]` — endpoints + TTL semantics fully specified (spec §23)
 
 - [ ] Add TTL mailbox endpoints for ciphertext-only envelopes
 - [ ] Drain mailbox on connect and delete drained envelopes
 - [ ] Route offline `talk-body`, `talk-response`, and receipts through mailbox fallback
 - [ ] Test: offline peer receives queued encrypted talk response after reconnect; expired envelopes are dropped
 
-#### 7. Delete star talk delivery (the goal)
+#### 7. Delete star talk delivery (the goal) `[Sonnet]` — mechanical deletion once 1–6 land; run the E2E gate with `[Haiku]`
 
 - [ ] Remove `talk-delivery-routes` and server talk maps (`incomingTalksMap`, `talkResponsesMap`, `conversationsMap`)
 - [ ] Remove `peer-routes` and server-derived talk stats routes
@@ -69,7 +79,7 @@ fallback only.
 - [ ] Flip mesh talks on by default
 - [ ] Test: full direct-mode E2E suite passes with no star talk endpoints
 
-#### 8. Sender-side state to replace deleted server guards (blocks step 7)
+#### 8. Sender-side state to replace deleted server guards (blocks step 7) `[Opus]` — unbounded-rebroadcast risk if subtly wrong
 
 Deleting `talkResponsesMap` and the server cooldown/quota limiters removes the only place that
 remembers "Jerry already answered Tom" and the only re-send throttle. These must move client-side
@@ -81,7 +91,7 @@ exact chatbot memory still prevent re-*prompting* and re-*matching*, but not was
 - [ ] Replace the server `SymmetricTalkEdgeRateLimiter` and daily/weekly edge quota with a client-side per-edge cooldown/quota (local-first; no server counters).
 - [ ] Test: after Jerry ignores Tom's tag, Tom does not re-deliver the same talk identity to Jerry on rebroadcast, and Jerry is never re-prompted (cache auto-applies the prior ignore).
 
-#### 9. Response versioning & change-of-mind propagation (REQ-LEDGER-04)
+#### 9. Response versioning & change-of-mind propagation (REQ-LEDGER-04) `[Opus]` — last-writer-by-version, supersession, stale-update rejection; same session as 10–11
 
 The sender-side ignore record (step 8) must **suppress re-asking without becoming a dead end**: if a
 responder later changes their answer (e.g. Jerry ignores, then decides to match), the new answer
@@ -95,7 +105,7 @@ ignore. Suppression applies to *outbound re-asks only*; *inbound answer updates 
 - [ ] Test (ignore → match): Jerry ignores Tom's `tennis` tag (no match); Jerry later switches to match; Tom — and any other sender of the same tag identity — receives the updated answer with its newer timestamp and a match/conversation is created.
 - [ ] Test (match → ignore): the reverse also propagates; stale/out-of-order updates (older `version`) are rejected.
 
-#### 10. Talk retraction / match teardown (delete or uncheck → "match is gone", REQ-LEDGER-15)
+#### 10. Talk retraction / match teardown (delete or uncheck → "match is gone", REQ-LEDGER-15) `[Opus]` — retraction-vs-in-flight ordering; interacts with 8 & 9
 
 The counterpart to step 9: when **Tom deletes the talk or unchecks the `tennis` tag**, every
 responder must be told the match is gone so they stop bothering Tom with further changes. This is a
@@ -110,7 +120,7 @@ design: spec §20.7 "TALK_RETRACTED event" + REQ-LEDGER-15.
 - [ ] Enforce last-writer ordering: an inbound `TALK_ANSWERED` older than `retractedAt` is discarded (retraction wins; an in-flight change cannot resurrect a retracted match).
 - [ ] Test: Jerry matched + Bob ignored Tom's `tennis`; Tom unchecks it → both receive the "match gone" notice with timestamp, the Tom↔Jerry conversation ends, and a subsequent Jerry/Bob answer change is not delivered to Tom.
 
-#### 11. Mutual exchange suppression — don't re-send an already-exchanged tag back across a pair (REQ-LEDGER-16)
+#### 11. Mutual exchange suppression — don't re-send an already-exchanged tag back across a pair (REQ-LEDGER-16) `[Sonnet]` — well-specified once 9/10 exist
 
 Once Tom sent `tennis` to Jerry and Jerry answered, the pair has swapped stances on that tag identity.
 When **Jerry later broadcasts his own talks, `tennis` must not go to Tom again** — the info is already
@@ -122,7 +132,7 @@ at send time. Authoritative design: spec REQ-LEDGER-16 + §23.6 broadcast.
 - [ ] Re-open delivery only on a content change (new `identityKey`) or a stance change (route the `TALK_ANSWERED` change-of-mind delta from step 9, not a fresh broadcast); clear the entry on `TALK_RETRACTED` (step 10).
 - [ ] Test: Tom sends `tennis` to Jerry, Jerry answers; later Jerry broadcasts a talk containing `tennis` + `chess` → Tom receives `chess` only, never a second `tennis`; after Jerry edits the tag's options (new identity), `tennis'` is delivered to Tom once.
 
-### P2 — Context-aware "Me" tab answer list (FR-QA-14, UI-8, §13.7)
+### P2 — Context-aware "Me" tab answer list (FR-QA-14, UI-8, §13.7) `[Sonnet]` — data model + UI fully specified; backfill needs care
 
 The "Me" tab shows the user's saved Q/A pairs. Flat for tag/survey, but **flow and route answers are
 context-bearing** — the same question can have different answers under different preceding contexts, so
@@ -136,7 +146,7 @@ the list must show context and must not collapse distinct-context answers. Desig
 - [ ] Test (route): the same question reached via two branches yields two rows with different `contextLabel`s and possibly different answers — not merged into one.
 - [ ] Test (durability): after the source talk is withdrawn/retracted, the "Me" rows still render from `contextLabel` (no blank/again-asked context).
 
-### P3 — Challenge Plugin Framework: zone-B config storage (FR-CPF-04)
+### P3 — Challenge Plugin Framework: zone-B config storage (FR-CPF-04) `[Haiku]` — small Gun read/write + round-trip test; framework already wired
 
 The framework is implemented and wired into routes. The per-chatroom plugin configuration storage in zone-B Gun paths is not yet implemented.
 
@@ -144,7 +154,7 @@ The framework is implemented and wired into routes. The per-chatroom plugin conf
 - [ ] Add `WebChatroomService.setChallengeConfig(chatroomId, pluginIds)` that writes to zone-B and reads it back for the `resolveChallengeGate` hook
 - [ ] Unit test: round-trip serialize/deserialize plugin config from Gun zone-B path
 
-### Phase D — DHT Bootstrap implementation (§19.12)
+### Phase D — DHT Bootstrap implementation (§19.12) `[Sonnet]` — spec §24 is complete; types/LRU store scaffolding is `[Haiku]`-feasible
 
 Design written in spec §24 (Phase D — DHT Bootstrap Design). Implementation not started.
 
@@ -160,26 +170,26 @@ Design written in spec §24 (Phase D — DHT Bootstrap Design). Implementation n
 Generalize the 10×20 find-similar scenario to arbitrary N users × Mᵢ weighted tags, scalable toward
 N ≈ 100k reachable users. **Design of record:** spec §22 (Scalable "Find Similar People" by Matched Tags).
 
-#### 1. Generalize correctness (P1)
+#### 1. Generalize correctness (P1) `[Sonnet]` — generalizes existing `checkIfMatch` pattern
 
 - [ ] Add weighted `matchScore(viewer, other, combine)` to `src/shared/` next to `checkIfMatch` (single source of truth)
 - [ ] Add `user-tags/<id>` tag **map** (`tag -> weight`, default 1) with `version` + content `hash` (reuse `talk-content-id.ts`)
 - [ ] Replace hardcoded 10×20 logic; parametrize the E2E to arbitrary N / Mᵢ
 - [ ] Test: N users each with Mᵢ tags rank all others by matched-tag score (unweighted = `combine = () => 1`)
 
-#### 2. Dropout-tolerant exchange (Scenario 1, REQ-SIM-04)
+#### 2. Dropout-tolerant exchange (Scenario 1, REQ-SIM-04) `[Opus]` — removing pairwise barriers; concurrency reasoning
 
 - [ ] Model exchange as publish + independent local read (no pairwise barrier / completion gate)
 - [ ] Test: a peer dropping out mid-exchange does not block any other pairwise score
 
-#### 3. Incremental tag mutation + weighting (Scenarios 2 & 3, REQ-SIM-05/06)
+#### 3. Incremental tag mutation + weighting (Scenarios 2 & 3, REQ-SIM-05/06) `[Opus]` — O(|delta|) patching correctness + combine-policy decision
 
 - [ ] Publish **deltas** (`{version, changed:{tag: weight|null}}`), O(1) `hash` change-detect, skip if unchanged
 - [ ] Incrementally patch the single affected pairwise score (O(|delta|)); recompute only the mutated user's row
 - [ ] Tag weighting end to end via the same delta path; pick + document the combine policy (asymmetry)
 - [ ] Test: one user mutates tags → exactly one publish; all peers' rankings update without full re-exchange
 
-#### 4. Scale to ~100k (P3, REQ-SIM-NFR-01/02/05)
+#### 4. Scale to ~100k (P3, REQ-SIM-NFR-01/02/05) `[Opus]` — index/heap architecture, latency budgets, open design decisions
 
 - [ ] Inverted `tag-index/<tag> : Set<userId>`; candidate set = union over viewer's tags (only ≥1-shared-tag users scored)
 - [ ] Bounded top-K heap retrieval (no full-population sort); hot-tag capping / min-shared-tags threshold
@@ -187,7 +197,7 @@ N ≈ 100k reachable users. **Design of record:** spec §22 (Scalable "Find Simi
 - [ ] Decide weight visibility vs. "their standard" sort (public weights = client-side; private = server-computed)
 - [ ] Test: top-K ranking over a 100k-scale population stays within latency budget and never goes O(N²)
 
-#### 5. Generic retrieve→sort→display pipeline (P4, REQ-SIM-07)
+#### 5. Generic retrieve→sort→display pipeline (P4, REQ-SIM-07) `[Haiku]` — mechanical registry + wiring 3 known call sites
 
 - [ ] `SortStrategy` registry (`id`, `label`, `key`, `dir`): matched-tags, distance (blurred), their-standard (`matchScore` args swapped)
 - [ ] `rankPeople(viewer, candidates, sortId, filters)` — materialize candidates once, re-sort in memory
@@ -212,7 +222,7 @@ npm run test:e2e:star         # Star-gun relay regression
 
 ---
 
-## Appendix A — Detailed backlog inventory
+## Appendix A — Detailed backlog inventory `[Haiku]` — acceptance closure against shipped code; escalate findings to Sonnet
 
 > Consolidated 2026-06-08 from `docs/TODO-backlog-inventory.md` (archived). This is the detailed D6 acceptance inventory; the action-ordered queue is the "Open items" section above. Move shipped outcomes to `docs/completed.md`.
 
@@ -265,7 +275,7 @@ Scope: FR-CR-1 / FR-CR-2 and P2P identity/signaling/direct-message boundaries. C
 - Intake controls are broadly covered but still need richer dirty-word diagnostics and distance preamble polish.
 - Lifecycle and triage work are materially advanced but not fully exhaustive across all branches/tabs.
 
-## Appendix B — Statistics expansion backlog
+## Appendix B — Statistics expansion backlog `[Sonnet]` — aggregation on shipped schemas; privacy-masking rules need attention
 
 > Consolidated 2026-06-08 from `docs/roadmap/statistics-expansion.md` (archived). Baseline stats are shipped (see `docs/completed.md`); the items below are forward analytics work. Verification requirements: `docs/testing/testplan.md` Appendix E.
 
@@ -277,7 +287,7 @@ Scope: FR-CR-1 / FR-CR-2 and P2P identity/signaling/direct-message boundaries. C
 - **Chatroom & location analytics:** room activity over time; broadcast volume/response/match rate by room; region-level trends without precise location; travel-mode participation and remote-room effectiveness.
 - **Peer & reputation analytics:** relationship history summaries; reputation trend inputs (ratings/blocks/age-votes/capacity impact); visibility-aware reputation sections respecting privacy settings.
 
-## Appendix C — Residual P2P transport & spec-gap follow-ups
+## Appendix C — Residual P2P transport & spec-gap follow-ups `[Haiku]` — suite runs and audits; escalate findings
 
 > Consolidated 2026-06-08 from `docs/TODO-direct-p2p.md`, `docs/roadmap/spec-gap-matrix.md`, and `docs/reports/PROJECT_STATUS.md` (all archived). The direct-P2P transport stack shipped (see `docs/completed.md`); only the items below remain open.
 
