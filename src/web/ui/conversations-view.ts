@@ -14,6 +14,8 @@ type ConversationRecord = {
   status?: string;
   /** Step 9: ISO timestamp when a match→ignore change happened. */
   changedAt?: string;
+  /** Step 10: ISO timestamp when the author retracted the talk. */
+  retractedAt?: string;
 };
 
 type ConversationsViewDeps = {
@@ -50,14 +52,16 @@ export function displayConversationsList(deps: ConversationsViewDeps): void {
   conversationsList.innerHTML = conversationEntries
     .map(
       ([conversationId, conversation]) => {
-        const isEnded = conversation.status === 'ignored';
+        const isEnded = conversation.status === 'ignored' || conversation.status === 'withdrawn';
         const changeTs = conversation.changeOfMindAt || conversation.changedAt;
+        const retractedTs = conversation.retractedAt;
         return `
         <div class="conversation-list-item ${conversation.unread ? 'unread' : ''} ${isEnded ? 'conversation-ended' : ''}"
              data-conversation-id="${conversationId}"
              data-responded-by-bot="${!!conversation.respondedByBot}"
              data-conversation-status="${deps.escapeHtml(conversation.status || 'active')}"
-             ${changeTs ? `data-change-of-mind-at="${deps.escapeHtml(changeTs)}"` : ''}>
+             ${changeTs ? `data-change-of-mind-at="${deps.escapeHtml(changeTs)}"` : ''}
+             ${retractedTs ? `data-retracted-at="${deps.escapeHtml(retractedTs)}"` : ''}>
           <div class="conversation-avatar-wrapper" style="position: relative;">
             <div class="conversation-avatar">
               ${conversation.otherUserName?.charAt(0).toUpperCase() || '?'}

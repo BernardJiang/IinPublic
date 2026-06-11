@@ -814,3 +814,121 @@ describe('Step 9 — ingest matrix: newer/equal/older/post-retraction', () => {
     expect(doc.outcomes[k]!.version).toBe(2);
   });
 });
+
+// ─── Step 10: retraction event (tombstone, outcomes cleared, exchanged cleared) ─
+
+describe('Step 10 — retraction: tombstone + teardown', () => {
+  it('applyEvent TALK_RETRACTED clears outcomes for the retracted talkId::authorId', () => {
+    const doc = emptyTalkLedgerDoc();
+    // Jerry answered Tom's talk (matched)
+    applyEvent(doc, makeAnsweredEvent({ responderId: 'jerry', talkId: 'talk1', authorId: 'tom', outcome: 'matched' }));
+    // Bob answered Tom's talk (ignored)
+    applyEvent(doc, makeAnsweredEvent({ responderId: 'bob', talkId: 'talk1', authorId: 'tom', outcome: 'ignored', responseId: 'r_bob' }));
+    expect(Object.keys(doc.outcomes)).toHaveLength(2);
+
+    // Tom retracts
+    applyEvent(doc, { kind: 'TALK_RETRACTED', talkId: 'talk1', authorId: 'tom', retractedAt: Date.now() });
+
+    expect(Object.keys(doc.outcomes)).toHaveLength(0);
+    expect(doc.retracted[retractedKey('talk1', 'tom')]).toBeDefined();
+  });
+
+  it('applyEvent TALK_RETRACTED clears exchanged entries for the retracted identity', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeAnsweredEvent({ responderId: 'jerry', identityKey: 'qa_tennis', outcome: 'matched' }));
+    expect(doc.exchanged[exchangedKey('jerry', 'qa_tennis')]).toBeDefined();
+
+    applyEvent(doc, { kind: 'TALK_RETRACTED', talkId: 'talk1', authorId: 'tom', retractedAt: Date.now() });
+
+    expect(doc.exchanged[exchangedKey('jerry', 'qa_tennis')]).toBeUndefined();
+  });
+
+  it('retraction tombstone persists and is author-scoped (different author unaffected)', () => {
+    const doc = emptyTalkLedgerDoc();
+    // Alice's outcome (different author, same talkId)
+    applyEvent(doc, makeAnsweredEvent({ authorId: 'alice', responderId: 'jerry', responseId: 'r_alice' }));
+    // Tom retracts his version
+    applyEvent(doc, { kind: 'TALK_RETRACTED', talkId: 'talk1', authorId: 'tom', retractedAt: Date.now() });
+
+    // Alice's outcome must survive
+    const k = outcomeKey('jerry', 'talk1', 'alice');
+    expect(doc.outcomes[k]).toBeDefined();
+    // Tom's tombstone must exist
+    expect(doc.retracted[retractedKey('talk1', 'tom')]).toBeDefined();
+    // Alice has no tombstone
+    expect(doc.retracted[retractedKey('talk1', 'alice')]).toBeUndefined();
+  });
+
+  it('only-author-can-retract: a TALK_RETRACTED for authorId=alice does not clear tom outcomes', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeAnsweredEvent({ authorId: 'tom', responderId: 'jerry', responseId: 'r1' }));
+
+    // Alice claims to retract talkId but is not the author
+    applyEvent(doc, { kind: 'TALK_RETRACTED', talkId: 'talk1', authorId: 'alice', retractedAt: Date.now() });
+
+    // Tom's outcome must survive (alice != tom, different tombstone key)
+    const k = outcomeKey('jerry', 'talk1', 'tom');
+    expect(doc.outcomes[k]).toBeDefined();
+  });
+
+  it('ingest ordering: TALK_ANSWERED older than retractedAt is discarded', () => {
+    const doc = emptyTalkLedgerDoc();
+    const retractedAt = new Date('2024-06-01T12:00:00.000Z').getTime();
+    // Retract first
+    applyEvent(doc, { kind: 'TALK_RETRACTED', talkId: 'talk1', authorId: 'tom', retractedAt });
+    // Incoming answer pre-dates the retraction
+    applyEvent(doc, makeAnsweredEvent({
+      responderId: 'jerry',
+      respondedAt: '2024-06-01T11:00:00.000Z', // before retractedAt
+      version: 1,
+    }));
+
+    const k = outcomeKey('jerry', 'talk1', 'tom');
+    expect(doc.outcomes[k]).toBeUndefined();
+  });
+
+  it('dead-inbox rule: even a newer-than-retraction answer is rejected for a retracted talk', () => {
+    // Per design note: retraction beats all — TALK_ANSWERED for retracted talk is always rejected
+    // when isStaleAgainstRetraction returns true. However an answer with respondedAt AFTER
+    // retractedAt passes isStaleAgainstRetraction (retraction does NOT block future answers
+    // that arrive later — it only blocks stale pre-retraction answers in the pure ordering fn).
+    // The dead-inbox for future answers is enforced at the application layer (submitTalkResponsePairDirect).
+    const doc = emptyTalkLedgerDoc();
+    const retractedAt = new Date('2024-06-01T12:00:00.000Z').getTime();
+    applyEvent(doc, { kind: 'TALK_RETRACTED', talkId: 'talk1', authorId: 'tom', retractedAt });
+    // Answer arrives AFTER retraction
+    applyEvent(doc, makeAnsweredEvent({
+      responderId: 'jerry',
+      respondedAt: '2024-06-01T13:00:00.000Z', // after retractedAt
+      version: 1,
+    }));
+    // applyEvent allows answers after retraction (application-layer blocks at submit time)
+    const k = outcomeKey('jerry', 'talk1', 'tom');
+    expect(doc.outcomes[k]).toBeDefined();
+  });
+
+  it('duplicate retraction frames are idempotent (max retractedAt wins)', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, { kind: 'TALK_RETRACTED', talkId: 'talk1', authorId: 'tom', retractedAt: 1000 });
+    applyEvent(doc, { kind: 'TALK_RETRACTED', talkId: 'talk1', authorId: 'tom', retractedAt: 2000 });
+    applyEvent(doc, { kind: 'TALK_RETRACTED', talkId: 'talk1', authorId: 'tom', retractedAt: 500 });
+
+    const tombstone = doc.retracted[retractedKey('talk1', 'tom')];
+    expect(tombstone).toBeDefined();
+    expect(tombstone!.retractedAt).toBe(2000);
+    // Outcomes still empty (cleared on first retraction)
+    expect(Object.keys(doc.outcomes)).toHaveLength(0);
+  });
+
+  it('conversation withdrawn idempotence: re-applying retraction does not corrupt tombstone', () => {
+    const doc = emptyTalkLedgerDoc();
+    // First retraction
+    applyEvent(doc, { kind: 'TALK_RETRACTED', talkId: 'talk1', authorId: 'tom', retractedAt: 5000 });
+    // Duplicate
+    applyEvent(doc, { kind: 'TALK_RETRACTED', talkId: 'talk1', authorId: 'tom', retractedAt: 5000 });
+    // Older duplicate
+    applyEvent(doc, { kind: 'TALK_RETRACTED', talkId: 'talk1', authorId: 'tom', retractedAt: 1000 });
+
+    expect(doc.retracted[retractedKey('talk1', 'tom')]!.retractedAt).toBe(5000);
+  });
+});

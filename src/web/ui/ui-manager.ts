@@ -3671,7 +3671,8 @@ export class UIManager extends EventEmitter {
     });
   }
 
-  private getMyConversations(): Record<string, any> {
+  /** Step 10: exposed publicly so app.ts can enumerate conversations for retraction teardown. */
+  public getMyConversations(): Record<string, any> {
     const conversationsJson = localStorage.getItem('myConversations');
     return conversationsJson ? JSON.parse(conversationsJson) : {};
   }
@@ -5460,7 +5461,12 @@ export class UIManager extends EventEmitter {
     myTalks[talkId].disabled = !!disabled;
     setMyTalks(myTalks);
     // Phase F: disabling broadcast = withdrawing the talk from active delivery
-    if (disabled) this.emit('withdrawTalk', { talkId });
+    if (disabled) {
+      this.emit('withdrawTalk', { talkId });
+      // Step 10: tag-uncheck is a hard retraction — flood the tombstone so responders
+      // learn the talk is gone even if they are offline at this moment.
+      this.emit('retractTalk', { talkId, retractedAt: Date.now() });
+    }
     // Patch visible rows so checkboxes stay in DOM and keep responding (no full list re-render)
     const talksList = document.getElementById('talks-list');
     const rows = talksList?.querySelectorAll(`.talk-list-item[data-talk-id="${talkId}"]`);
@@ -5524,6 +5530,9 @@ export class UIManager extends EventEmitter {
     this.showNotification(this.t('talksRemovedFromList'), 'success');
     // Phase F: notify ledger of withdrawal so peers stop routing this talk
     this.emit('withdrawTalk', { talkId });
+    // Step 10: hard retraction — flood talk-retracted frame to all holders.
+    // retractTalk carries retractedAt so the responder can order the tombstone.
+    this.emit('retractTalk', { talkId, retractedAt: Date.now() });
   }
 
   showNotification(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info'): void {
@@ -6596,6 +6605,48 @@ export class UIManager extends EventEmitter {
       this.displayContactsList();
     }
 
+    const meTab = document.querySelector('.nav-btn[data-view="me"]');
+    if (meTab?.classList.contains('active')) {
+      this.displayConversationsList();
+    }
+  }
+
+  /**
+   * Step 10: Mark a conversation as withdrawn (hard retraction by author).
+   * Finds the conversation by otherUserId+talkId (or talkId alone as fallback),
+   * sets status:'withdrawn' and records retractedAt so the conversation-list
+   * renders a durable "match gone" label assertable by E2E tests.
+   *
+   * If authorId is provided, the search is narrowed to conversations where
+   * the other participant is the retracting author (responder-side call).
+   */
+  markConversationWithdrawn(
+    otherUserId: string,
+    talkId: string,
+    retractedAt: number,
+  ): void {
+    const conversations = this.getMyConversations();
+    const retractedAtStr = new Date(retractedAt).toISOString();
+    // Find by otherUserId+talkId; fall back to talkId alone for author side.
+    let convId = Object.keys(conversations).find((id) => {
+      const c = conversations[id];
+      return c?.otherUserId === otherUserId && c?.talkId === talkId;
+    });
+    if (!convId) {
+      // Fallback: author-side teardown or retraction received before conversation was indexed
+      convId = Object.keys(conversations).find((id) => {
+        const c = conversations[id];
+        return c?.talkId === talkId;
+      });
+    }
+    if (!convId) return;
+    conversations[convId].status = 'withdrawn';
+    conversations[convId].retractedAt = retractedAtStr;
+    conversations[convId].lastMessage = `Author removed this talk — the match is gone · ${new Date(retractedAt).toLocaleString()}`;
+    conversations[convId].lastMessageTime = retractedAtStr;
+    localStorage.setItem('myConversations', JSON.stringify(conversations));
+    this.updateMatchBadge();
+    this.syncStatusBarMatchCount();
     const meTab = document.querySelector('.nav-btn[data-view="me"]');
     if (meTab?.classList.contains('active')) {
       this.displayConversationsList();

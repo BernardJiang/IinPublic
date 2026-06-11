@@ -292,7 +292,8 @@ export interface Conversation {
   participants: string[];
   talkId?: string; // if started from a talk
   messages: Message[];
-  status: 'active' | 'matched' | 'ignored' | 'expired';
+  /** `'withdrawn'` added in step 10: hard retraction by author; read-only both sides. */
+  status: 'active' | 'matched' | 'ignored' | 'expired' | 'withdrawn';
   createdAt: Date;
   lastActivity: Date;
   isSurvey: boolean;
@@ -435,6 +436,8 @@ export enum InteractionKind {
   TALK_ANSWERED      = 'TALK_ANSWERED',
   TALK_SUPERSEDED    = 'TALK_SUPERSEDED',
   TALK_WITHDRAWN     = 'TALK_WITHDRAWN',
+  /** Step 10 — hard retraction: author deleted or unchecked the talk; tombstone for all holders. */
+  TALK_RETRACTED     = 'TALK_RETRACTED',
   MATCH_CREATED      = 'MATCH_CREATED',
   CONVERSATION_MSG   = 'CONVERSATION_MSG',
 }

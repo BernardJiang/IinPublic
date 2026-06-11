@@ -6,6 +6,7 @@ import {
 import {
   isP2PMeshTalkBodyPayload,
   isP2PMeshTalkResponsePayload,
+  isP2PMeshTalkRetractedPayload,
   p2pMeshFrameSigningPayload,
   type P2PMeshFrame,
   type P2PMeshFramePayload,
@@ -13,6 +14,7 @@ import {
   type P2PMeshTalkBodyPayload,
   type P2PMeshTalkBodyRequestPayload,
   type P2PMeshTalkResponsePayload,
+  type P2PMeshTalkRetractedPayload,
 } from '../../shared/p2p-mesh-protocol';
 import type { Talk } from '../../shared/types';
 import type { WebGunService } from './web-gun-service';
@@ -51,6 +53,13 @@ type PeerMeshServiceOptions = {
   // caller can leave it eligible for re-delivery; any other return is treated as accepted.
   onTalkBody?: (payload: P2PMeshTalkBodyPayload) => boolean | void | Promise<boolean | void>;
   onTalkResponse?: (payload: P2PMeshTalkResponsePayload) => void | Promise<void>;
+  /**
+   * Step 10: fired when a `talk-retracted` flood frame arrives and passes:
+   *   - seen-set dedup (no duplicate delivery)
+   *   - signature verify (originUserId === frame.originUserId)
+   *   - only-author check: originUserId MUST equal payload.authorId (enforced here before firing)
+   */
+  onTalkRetracted?: (payload: P2PMeshTalkRetractedPayload) => void | Promise<void>;
   onPing?: (fromUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
   /** R5: fired when a mesh-pong addressed to us arrives; enables durable E2E reachability assertion. */
   onPong?: (fromUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
@@ -473,6 +482,16 @@ export class PeerMeshService {
     await this.rememberAndFanout(frame);
   }
 
+  /**
+   * Step 10: flood a `talk-retracted` frame to all neighbors (no recipientUserId = gossip flood).
+   * TTL 8 ensures the frame reaches offline-adjacent nodes within a few hops.
+   * The author's signature on the frame body (verified at ingest) proves origin.
+   */
+  async sendTalkRetraction(payload: P2PMeshTalkRetractedPayload): Promise<void> {
+    const frame = await this.buildFrame('talk-retracted', payload, { ttlHops: 8 });
+    await this.rememberAndFanout(frame);
+  }
+
   private localIdentity(): { pub: string; pair: SeaSigningPair } {
     const pair = this.gunService.getStoredPair();
     if (!pair?.pub || !pair.priv) throw new Error('Peer mesh requires a SEA signing pair');
@@ -709,6 +728,20 @@ export class PeerMeshService {
 
     if (frame.kind === 'talk-response' && isP2PMeshTalkResponsePayload(frame.payload)) {
       await this.opts.onTalkResponse?.(frame.payload);
+      return;
+    }
+
+    if (frame.kind === 'talk-retracted' && isP2PMeshTalkRetractedPayload(frame.payload)) {
+      // Step 10: only the talk's own author may retract it (guard against spoofing).
+      // The frame was already signature-verified in handleRemoteFrame; the extra check
+      // here ensures originUserId === authorId at the application layer.
+      if (frame.originUserId !== frame.payload.authorId) {
+        console.warn(
+          `[Retraction] Rejected frame from ${frame.originUserId}: authorId mismatch (${frame.payload.authorId})`,
+        );
+        return;
+      }
+      await this.opts.onTalkRetracted?.(frame.payload);
     }
   }
 

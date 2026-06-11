@@ -25,7 +25,7 @@ import { P2PPresenceClient } from '../services/p2p-presence-client';
 import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
 import { PeerMeshService } from '../services/peer-mesh-service';
 import { WebMailboxClient } from '../services/web-mailbox-client';
-import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload } from '../../shared/p2p-mesh-protocol';
+import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload, P2PMeshTalkRetractedPayload } from '../../shared/p2p-mesh-protocol';
 import {
   collectLocalIncomingTalkClusters,
   mirrorIncomingTalkClustersToLocalGun,
@@ -50,6 +50,7 @@ import {
   setTalkLedgerQuotaUnlimited,
   applyEvent as applyLedgerEvent,
   outcomeKey as ledgerOutcomeKey,
+  retractedKey as ledgerRetractedKey,
 } from '../../shared/talk-ledger';
 
 export class IinPublicApp {
@@ -846,6 +847,8 @@ export class IinPublicApp {
       // or coverage-gap). Replaces the deleted Gun p2pMeshTalkBodies/* rendezvous write.
       onMailboxFallback: (payload, recipientUserIds) =>
         this.postTalkBodyToMailboxForRecipients(payload, recipientUserIds),
+      // Step 10: responder side — handle incoming retraction flood frames.
+      onTalkRetracted: (payload) => this.handleMeshTalkRetracted(payload),
     });
     (this as any).peerMeshService = this.peerMeshService;
     return this.peerMeshService;
@@ -914,9 +917,12 @@ export class IinPublicApp {
         );
         // Dispatch based on payload kind:
         //   - has `talkData` → talk-body payload from R-a mailbox fallback
+        //   - has `retractedAt` (number) → step-10 retraction envelope
         //   - has `responseId` → talk-response payload from step 6
         if ((payload as any).talkData !== undefined) {
           await this.handleMeshTalkBody(payload as import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload);
+        } else if (typeof (payload as any).retractedAt === 'number') {
+          await this.handleMeshTalkRetracted(payload as unknown as P2PMeshTalkRetractedPayload);
         } else {
           await this.handleMeshTalkResponse(payload as P2PMeshTalkResponsePayload);
         }
@@ -1152,9 +1158,21 @@ export class IinPublicApp {
     if (!talkData) return;
     const decrypted = await this.decryptPairTalkResponsePayload(payload);
 
+    // Step 10: check dead-inbox tombstone before any processing.
+    // If the author has retracted this talk (talkId::authorId in retracted), discard all answers.
+    const ledgerDoc = getTalkLedgerDoc();
+    const tombstoneKey = ledgerRetractedKey(payload.talkId, this.currentUser.id);
+    if (ledgerDoc.retracted[tombstoneKey]) {
+      const tombstone = ledgerDoc.retracted[tombstoneKey]!;
+      const answerMs = new Date(payload.respondedAt ?? payload.submittedAt).getTime();
+      if (answerMs < tombstone.retractedAt) {
+        console.debug(`[Step10] Discarding answer from ${payload.responderId} — talk retracted`);
+        return;
+      }
+    }
+
     // Step 9: version-gate ingest via applyEvent.
     // Read the prior outcome for this (responderId, talkId, authorId) from ledger.
-    const ledgerDoc = getTalkLedgerDoc();
     const oKey = ledgerOutcomeKey(payload.responderId, payload.talkId, this.currentUser.id);
     const priorOutcome = ledgerDoc.outcomes[oKey];
     const incomingVersion = payload.version ?? 1;
@@ -1289,6 +1307,153 @@ export class IinPublicApp {
       transportMode: this.conversationService.getTransportMode(),
     });
     this.uiManager.setMemberMatched(payload.responderId);
+  }
+
+  /**
+   * Step 10 (author side): hard retraction on delete or tag-uncheck.
+   *
+   * 1. Write local tombstone via applyEvent.
+   * 2. Emit TALK_RETRACTED to the audit ledger.
+   * 3. Flood the `talk-retracted` mesh frame to all connected neighbors.
+   * 4. Mailbox-fanout to all known responders so offline holders are reached.
+   * 5. Tear down the author's own conversation view (if matched).
+   */
+  private async handleRetractTalk(talkId: string, retractedAt: number): Promise<void> {
+    if (!this.currentUser?.id) return;
+    const authorId = this.currentUser.id;
+
+    // 1. Write local tombstone (clears outcomes + exchanged for this talkId::authorId).
+    applyTalkLedgerEvent({
+      kind: 'TALK_RETRACTED',
+      talkId,
+      authorId,
+      retractedAt,
+    });
+
+    // 2. Emit audit ledger event.
+    this.ledgerEmit(InteractionKind.TALK_RETRACTED, { talkId, retractedAt });
+
+    // 3. Flood the mesh frame.
+    const mesh = this.ensurePeerMeshService();
+    if (mesh) {
+      const retractionPayload: P2PMeshTalkRetractedPayload = { talkId, authorId, retractedAt };
+      try {
+        await mesh.sendTalkRetraction(retractionPayload);
+      } catch (err) {
+        console.warn('[Retraction] Mesh flood failed (non-fatal):', err);
+      }
+    }
+
+    // 4. Mailbox fanout to known responders.
+    // The ledger already cleared outcomes, so we read from a pre-retraction snapshot:
+    // use the conversations store to enumerate responders.
+    void this.postRetractionToKnownResponders(talkId, authorId, retractedAt).catch(() => {});
+
+    // 5. Author side: tear down any conversations derived from this talkId.
+    const allConversations = this.uiManager.getMyConversations() as Record<string, any>;
+    for (const [, conv] of Object.entries(allConversations)) {
+      if ((conv as any).talkId === talkId) {
+        this.uiManager.markConversationWithdrawn(
+          String((conv as any).otherUserId || ''),
+          talkId,
+          retractedAt,
+        );
+        break;
+      }
+    }
+  }
+
+  /**
+   * Step 10 (responder side): handle an incoming `talk-retracted` mesh frame.
+   *
+   * 1. Write tombstone to local ledger.
+   * 2. Surface "match gone" notice to UI.
+   * 3. Mark any conversations for this talkId::authorId as withdrawn.
+   */
+  private async handleMeshTalkRetracted(payload: P2PMeshTalkRetractedPayload): Promise<void> {
+    if (!this.currentUser?.id) return;
+    // authorId check is already done in PeerMeshService.handleLocalFrame before firing this callback.
+
+    // 1. Write tombstone to local ledger.
+    applyTalkLedgerEvent({
+      kind: 'TALK_RETRACTED',
+      talkId: payload.talkId,
+      authorId: payload.authorId,
+      retractedAt: payload.retractedAt,
+    });
+
+    // 2. Surface notice.
+    this.uiManager.showNotification(
+      `${payload.authorId} removed a talk — the match is gone · ${new Date(payload.retractedAt).toLocaleTimeString()}`,
+      'info',
+    );
+
+    // 3. Mark any conversation involving this talkId as withdrawn.
+    const allConversations = this.uiManager.getMyConversations() as Record<string, any>;
+    for (const [, conv] of Object.entries(allConversations)) {
+      if ((conv as any).talkId === payload.talkId && (conv as any).otherUserId === payload.authorId) {
+        this.uiManager.markConversationWithdrawn(
+          payload.authorId,
+          payload.talkId,
+          payload.retractedAt,
+        );
+        break;
+      }
+    }
+  }
+
+  /**
+   * Step 10: post encrypted retraction envelopes to known responders via the mailbox.
+   * Reads the myConversations store for talkId matches — these are the peers who need
+   * the tombstone but may be offline at the moment of retraction.
+   */
+  private async postRetractionToKnownResponders(
+    talkId: string,
+    authorId: string,
+    retractedAt: number,
+  ): Promise<void> {
+    if (!this.currentUser?.id) return;
+    const mailbox = this.ensureMailboxClient();
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.priv) return;
+
+    // Collect distinct responders from the conversations store for this talkId.
+    const allConversations = this.uiManager.getMyConversations() as Record<string, any>;
+    const responderIds = new Set<string>();
+    for (const [, conv] of Object.entries(allConversations)) {
+      const otherId = String((conv as any).otherUserId || '');
+      if ((conv as any).talkId === talkId && otherId && otherId !== authorId) {
+        responderIds.add(otherId);
+      }
+    }
+    if (responderIds.size === 0) return;
+
+    const retractionPayload: P2PMeshTalkRetractedPayload = { talkId, authorId, retractedAt };
+    for (const responderId of responderIds) {
+      try {
+        let responderEpub: string;
+        try {
+          const peer = await Promise.race([
+            this.gunService.getPublicUser(responderId),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+          ]);
+          responderEpub = typeof peer?.epub === 'string' ? peer.epub.trim() : '';
+        } catch {
+          responderEpub = '';
+        }
+        if (!responderEpub) continue;
+        const ciphertext = await mailbox.encryptForRecipient(
+          responderEpub,
+          pair as import('../sea-gun').GunPair,
+          retractionPayload,
+        );
+        const envelopeId = `mbx_retract_${talkId}_${authorId}_${responderId}`;
+        await mailbox.postEnvelope({ id: envelopeId, recipientId: responderId, ciphertext });
+        console.log('[Retraction] Posted mailbox envelope for responder', responderId);
+      } catch (err) {
+        console.warn('[Retraction] Failed to post mailbox envelope for', responderId, ':', err);
+      }
+    }
   }
 
   private async ensureSupportBootstrapForCurrentUser(): Promise<void> {
@@ -2250,16 +2415,31 @@ export class IinPublicApp {
     };
 
     if (!skipE2eLocalOnlyReject) {
-      // Send to the primary author
-      await sendToAuthor(params.authorId, params.authorName);
+      // Step 10: check dead inbox — if the talk has been retracted by the author, skip delivery.
+      const ledgerDocForPrimary = getTalkLedgerDoc();
+      const primaryRetractKey = ledgerRetractedKey(params.talkId, params.authorId);
+      const talkRetractedForPrimary = !!ledgerDocForPrimary.retracted[primaryRetractKey];
+      if (talkRetractedForPrimary) {
+        console.debug(`[Step10] Skipping response send — talk ${params.talkId} retracted by ${params.authorId}`);
+      } else {
+        // Send to the primary author
+        await sendToAuthor(params.authorId, params.authorName);
+      }
 
       // Step 9.1: change-of-mind fanout — if this is a version bump (content change),
       // propagate to ALL original senders of this identity (not just the current author).
       // The responder's exchanged section records every author who sent them this identity.
       if (isContentChange) {
         const allSenders = getResponderSendersForIdentity(wholeTalkIdentityKey);
+        const ledgerDocForFanout = getTalkLedgerDoc();
         for (const senderId of allSenders) {
           if (senderId === params.authorId) continue; // already sent above
+          // Step 10: skip senders whose talk has been retracted (dead inbox).
+          const rKey = ledgerRetractedKey(params.talkId, senderId);
+          if (ledgerDocForFanout.retracted[rKey]) {
+            console.debug(`[Step10] Skipping fanout to retracted-talk sender ${senderId}`);
+            continue;
+          }
           console.log(`[Step9] Change-of-mind fanout to additional sender ${senderId}`);
           try {
             await sendToAuthor(senderId, 'Unknown');
@@ -3146,6 +3326,13 @@ export class IinPublicApp {
         talkId: data.talkId,
         gracePeriodMs,
       });
+    });
+
+    // Step 10: TALK_RETRACTED — hard retraction on delete or tag-uncheck.
+    // Emits the audit-feed event, writes the local tombstone, floods the mesh frame,
+    // and posts mailbox envelopes to all known responders (outcomes + exchanged).
+    this.uiManager.on('retractTalk', (data: { talkId: string; retractedAt: number }) => {
+      void this.handleRetractTalk(data.talkId, data.retractedAt);
     });
 
     this.uiManager.on(

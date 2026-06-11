@@ -7,6 +7,7 @@ export type P2PMeshMessageKind =
   | 'talk-body-request'
   | 'talk-body'
   | 'talk-response'
+  | 'talk-retracted'
   | 'ack';
 
 export type P2PMeshTalkAnnouncePayload = {
@@ -48,12 +49,26 @@ export type P2PMeshPingPayload = {
   text?: string;
 };
 
+/**
+ * Step 10 — talk-retracted frame payload.
+ * Flood (no recipientUserId) — every holder must learn of the retraction.
+ * Author-qualified: talkId is content-addressed (shared across authors), so
+ * authorId is mandatory to avoid tearing down another author's identical talk.
+ * Only the author themselves may issue a valid retraction (originUserId === authorId).
+ */
+export type P2PMeshTalkRetractedPayload = {
+  talkId: string;
+  authorId: string;
+  retractedAt: number; // ms epoch
+};
+
 export type P2PMeshFramePayload =
   | P2PMeshPingPayload
   | P2PMeshTalkAnnouncePayload
   | P2PMeshTalkBodyRequestPayload
   | P2PMeshTalkBodyPayload
   | P2PMeshTalkResponsePayload
+  | P2PMeshTalkRetractedPayload
   | { msgId: string };
 
 export type P2PMeshFrame = {
@@ -105,5 +120,20 @@ export function isP2PMeshTalkResponsePayload(
     'responseId' in payload &&
     'payloadCiphertext' in payload &&
     (payload as { transportMode?: unknown }).transportMode === 'mesh-p2p'
+  );
+}
+
+export function isP2PMeshTalkRetractedPayload(
+  payload: P2PMeshFramePayload,
+): payload is P2PMeshTalkRetractedPayload {
+  return (
+    !!payload &&
+    typeof payload === 'object' &&
+    'talkId' in payload &&
+    'authorId' in payload &&
+    'retractedAt' in payload &&
+    typeof (payload as { retractedAt?: unknown }).retractedAt === 'number' &&
+    !('talkData' in payload) &&
+    !('responseId' in payload)
   );
 }
