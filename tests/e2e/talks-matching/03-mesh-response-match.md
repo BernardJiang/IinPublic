@@ -22,8 +22,8 @@ Jerry is a **matching responder**; Bob is an **ignoring responder**.
 
 **Zero** calls to `POST /api/talks/:id/response` across the entire scenario, confirmed via
 Playwright `page.route` intercepts. The mesh `talk-response` unicast path completely displaces
-the server fan-in route (`fanoutResponseToSenders`). Stats calls (`/api/stats/*`) are **allowed**
-per design §4 (step-7 leftover).
+the server fan-in route (`fanoutResponseToSenders`). Client-side stats POSTs (`POST /api/stats/talks/:id/record`)
+are also removed (P0 step 7 RESOLVED).
 
 ### Pair-Gun invariant (ASI-safe collect-helper)
 

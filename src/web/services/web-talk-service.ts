@@ -4,6 +4,43 @@ import { WebGunService } from './web-gun-service';
 import { v4 as uuidv4 } from 'uuid';
 import { computeTalkCIDv1, computeCIDv1 } from '../../shared/cid';
 
+// ── Local authored-talks store (R-f debt: replaces Gun talks/* author writes) ──
+const AUTHORED_TALKS_KEY = 'myAuthoredTalks';
+
+function loadAuthoredTalks(): Record<string, { talkJson: string; createdAt: string }> {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(AUTHORED_TALKS_KEY) : null;
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveAuthoredTalk(talkId: string, talk: Talk): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const store = loadAuthoredTalks();
+    store[talkId] = {
+      talkJson: JSON.stringify(talk),
+      createdAt: talk.createdAt instanceof Date ? talk.createdAt.toISOString() : String(talk.createdAt),
+    };
+    localStorage.setItem(AUTHORED_TALKS_KEY, JSON.stringify(store));
+  } catch {
+    // Non-fatal: localStorage unavailable (e.g. SSR/Jest without jsdom)
+  }
+}
+
+function loadAuthoredTalk(talkId: string): Talk | null {
+  try {
+    const store = loadAuthoredTalks();
+    const entry = store[talkId];
+    if (!entry?.talkJson) return null;
+    return JSON.parse(entry.talkJson) as Talk;
+  } catch {
+    return null;
+  }
+}
+
 export class WebTalkService {
   constructor(
     private gunService: WebGunService,
@@ -102,27 +139,16 @@ export class WebTalkService {
 
     talk.id = talkData.id || await computeTalkCIDv1(talk);
 
-    console.log('🔍 About to store Talk in Gun.js:', JSON.stringify(talk, null, 2));
-
-    try {
-      // Store Talk as JSON string to avoid Gun.js nested object issues
-      const talkJson = JSON.stringify(talk);
-
-      await this.gunService.put(`talks/${talk.id}`, {
-        id: talk.id,
-        data: talkJson,
-        createdAt: talk.createdAt.toISOString(),
-      });
-
-      console.log('✅ Talk stored successfully in Gun.js as JSON string');
-      return talk;
-    } catch (error) {
-      console.error('❌ Failed to store Talk in Gun.js:', error);
-      throw new Error('Invalid data: ' + (error as Error).message);
-    }
+    // Store talk in local authored-talks store (R-f: replaces Gun talks/* write).
+    saveAuthoredTalk(talk.id, talk);
+    console.log('Talk stored in local authored-talks store:', talk.id);
+    return talk;
   }
 
   async getTalk(talkId: string): Promise<Talk | null> {
+    // Local-first: authored talks are stored in localStorage; fall back to Gun for legacy/receiver data.
+    const local = loadAuthoredTalk(talkId);
+    if (local) return this.normalizeTalkFromStorage(local);
     try {
       const raw = await this.gunService.get(`talks/${talkId}`);
       if (!raw || !raw.data) return null;
@@ -220,12 +246,8 @@ export class WebTalkService {
     else if (existing.authorLocation != null) updated.authorLocation = existing.authorLocation;
     // Re-stamp CIDs on edit so routing-only changes don't affect cidId
     updated.questions = await this.stampQuestionCids(updated.questions);
-    const talkJson = JSON.stringify(updated);
-    await this.gunService.put(`talks/${talkId}`, {
-      id: updated.id,
-      data: talkJson,
-      createdAt: updated.createdAt instanceof Date ? updated.createdAt.toISOString() : (existing as any).createdAt,
-    });
+    // Persist to local authored-talks store (R-f: replaces Gun talks/* write).
+    saveAuthoredTalk(talkId, updated);
     return updated;
   }
 

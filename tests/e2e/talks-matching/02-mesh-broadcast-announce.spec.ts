@@ -326,15 +326,12 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
       );
 
       expect(gunCounts.talkOffers, `${label}: peerTalkOffers[receiverId] must be 0`).toBe(0);
-      // talks/*: WebTalkService.createTalk still persists the talk DEFINITION to Gun talks/<id>
-      // (star-era CRUD; deleted in TODO P0 step 7 "Stop Gun relay use for talks/*"). Step 2's
-      // invariant is that mesh DELIVERY adds nothing: the author holds exactly the one creation
-      // write, and receivers hold at most that same record if the relay syncs it into the
-      // collect subscription — never a second entry from announce/body delivery.
+      // talks/*: WebTalkService.createTalk uses localStorage (myAuthoredTalks) exclusively —
+      // no Gun writes at creation time. Resolved in P0 step 7 (R-f debt).
       expect(
         gunCounts.talksRoot,
-        `${label}: talks/* must contain at most the author's creation write (no delivery writes)`,
-      ).toBeLessThanOrEqual(1);
+        `${label}: talks/* must be 0 (no author creation write, no delivery writes)`,
+      ).toBe(0);
       expect(gunCounts.talkOffersRoot, `${label}: peerTalkOffers/* must be 0`).toBe(0);
       expect(gunCounts.meshBodies, `${label}: p2pMeshTalkBodies/* must be 0`).toBe(0);
     }

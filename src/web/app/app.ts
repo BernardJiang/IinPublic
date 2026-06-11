@@ -43,15 +43,6 @@ import {
 import { buildTalkIdentityKey } from '../../shared/cid';
 import { buildTagIdentityKeys, setTalkLedgerQuotaUnlimited } from '../../shared/talk-ledger';
 
-type DirectTalkStatsRecordParams = {
-  talkId: string;
-  talkData: any;
-  responderId: string;
-  answers: any[];
-  outcome: 'match' | 'ignore' | 'other';
-  isAuto: boolean;
-};
-
 export class IinPublicApp {
   private gunService: WebGunService;
   private userService: WebUserService;
@@ -111,12 +102,8 @@ export class IinPublicApp {
   } = {
     received: [],
   };
-  private readonly directTalkStatsQueue: DirectTalkStatsRecordParams[] = [];
-  private directTalkStatsInFlight = 0;
   private readonly e2eSeededIncomingClusters: any[] = [];
   private readonly e2eSeededTagTalks = new Map<string, any>();
-  /** E2E opt-out: the find-similar spec disables stats POSTs to keep the single server unsaturated. */
-  private skipDirectTalkStatsForE2e = false;
   private incomingTalkClusterUnsubscribe: (() => void) | null = null;
   private chatroomTalksMapOff: (() => void) | null = null;
   private readonly p2pRuntimeFlags: P2PRuntimeFlags = resolveP2PRuntimeFlags(
@@ -763,7 +750,7 @@ export class IinPublicApp {
     }
     const mesh = this.ensurePeerMeshService();
     if (!mesh) throw new Error('Mesh talk delivery is not available');
-    mirrorTalkDefinitionToLocalGun(this.gunService, talkId, talk, this.p2pRuntimeFlags);
+    // R-f step 7: author-side Gun talks/* mirror removed; body cached in PeerMeshService directly.
     const ready = await this.warmMeshConnectionToPeer(peerId, peerName);
     if (!ready) {
       console.warn('Directed mesh send proceeding before peer link reported ready');
@@ -849,6 +836,11 @@ export class IinPublicApp {
           diag.received.push({ talkId: payload.talkId, authorId: payload.authorId });
         }
       },
+      // R-a step 7: mailbox fallback — post talk-body payload per unreachable recipient
+      // when the DataChannel overlay cannot guarantee full coverage (below-wanted-degree
+      // or coverage-gap). Replaces the deleted Gun p2pMeshTalkBodies/* rendezvous write.
+      onMailboxFallback: (payload, recipientUserIds) =>
+        this.postTalkBodyToMailboxForRecipients(payload, recipientUserIds),
     });
     (this as any).peerMeshService = this.peerMeshService;
     return this.peerMeshService;
@@ -894,8 +886,10 @@ export class IinPublicApp {
 
   /**
    * Drain all envelopes addressed to the current user from the server mailbox.
-   * Decrypt each, dispatch through handleMeshTalkResponse, then delete.
-   * Safe to call concurrently — handler dedupes on responseId.
+   * Decrypt each and dispatch:
+   *   - talk-body payloads (R-a step 7 fallback) → handleMeshTalkBody
+   *   - talk-response payloads → handleMeshTalkResponse
+   * Then delete each envelope (drain-then-delete; re-delivery on crash is safe — handlers dedup).
    */
   private async drainMailbox(): Promise<void> {
     if (!this.currentUser?.id) return;
@@ -909,12 +903,18 @@ export class IinPublicApp {
     console.log(`[Mailbox] Draining ${envelopes.length} envelope(s) for user ${this.currentUser.id}`);
     for (const envelope of envelopes) {
       try {
-        const payload = await mailbox.decryptEnvelope<P2PMeshTalkResponsePayload>(
+        const payload = await mailbox.decryptEnvelope<P2PMeshTalkResponsePayload | import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload>(
           envelope.ciphertext,
           pair as import('../sea-gun').GunPair,
         );
-        // Dispatch through the same inbound handler the mesh uses — dedup on responseId.
-        await this.handleMeshTalkResponse(payload);
+        // Dispatch based on payload kind:
+        //   - has `talkData` → talk-body payload from R-a mailbox fallback
+        //   - has `responseId` → talk-response payload from step 6
+        if ((payload as any).talkData !== undefined) {
+          await this.handleMeshTalkBody(payload as import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload);
+        } else {
+          await this.handleMeshTalkResponse(payload as P2PMeshTalkResponsePayload);
+        }
         // Delete only after handler completes without throwing.
         await mailbox.deleteEnvelope(this.currentUser.id, envelope.id);
         console.log('[Mailbox] Drained and deleted envelope', envelope.id);
@@ -975,6 +975,60 @@ export class IinPublicApp {
     }
   }
 
+  /**
+   * R-a step 7: mailbox fallback for talk-body delivery when DataChannel overlay cannot
+   * guarantee full room coverage. Posts an encrypted talk-body envelope per unreachable
+   * recipient. Recipients drain the mailbox on reconnect → flows through the same
+   * intake-filtered `handleMeshTalkBody` accept path.
+   * Best-effort: failures are logged but do not propagate.
+   */
+  private async postTalkBodyToMailboxForRecipients(
+    payload: import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload,
+    recipientUserIds: string[],
+  ): Promise<void> {
+    if (!this.currentUser?.id || recipientUserIds.length === 0) return;
+    const mailbox = this.ensureMailboxClient();
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.priv) return;
+    for (const recipientId of recipientUserIds) {
+      if (!recipientId || recipientId === this.currentUser.id) continue;
+      try {
+        let recipientEpub: string;
+        try {
+          const peer = await Promise.race([
+            this.gunService.getPublicUser(recipientId),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+          ]);
+          recipientEpub = typeof peer?.epub === 'string' ? peer.epub.trim() : '';
+        } catch {
+          recipientEpub = '';
+        }
+        if (!recipientEpub) {
+          console.warn('[Mesh/Mailbox] Cannot post talk body — epub not found for', recipientId);
+          continue;
+        }
+        const ciphertext = await mailbox.encryptForRecipient(
+          recipientEpub,
+          pair as import('../sea-gun').GunPair,
+          payload,
+        );
+        const envelopeId = `mbx_body_${payload.talkId}_${this.currentUser.id}_${recipientId}`;
+        const result = await mailbox.postEnvelope({
+          id: envelopeId,
+          recipientId,
+          ciphertext,
+        });
+        if (result.stored) {
+          console.log('[Mesh/Mailbox] Posted talk-body envelope for', recipientId);
+        } else {
+          console.warn('[Mesh/Mailbox] Server rejected talk-body envelope for', recipientId, ':', result.error);
+        }
+      } catch (err) {
+        console.warn('[Mesh/Mailbox] postTalkBodyToMailboxForRecipients failed for', recipientId, ':', err);
+      }
+    }
+  }
+
   // ─── localStorage fallback queue (POST-to-mailbox failure only) ──────────
   //
   // The STEP-6-REPLACE localStorage queue is now narrowed to a "mailbox POST
@@ -1020,26 +1074,6 @@ export class IinPublicApp {
     }
   }
 
-  /**
-   * True when the local user created a talk whose content-addressed id equals `talkId`.
-   * Used to protect the local author's own `talks/<talkId>` Gun mirror and cache from
-   * being clobbered by a remote author who broadcast identical (content-addressed) content.
-   */
-  private localUserAuthoredTalkContent(talkId: string): boolean {
-    if (!talkId) return false;
-    try {
-      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}') as Record<string, any>;
-      const entry = myTalks?.[talkId];
-      if (entry && (entry.role === 'created' || String(entry?.fullTalk?.authorId || entry?.authorId || '') === this.currentUser?.id)) {
-        return true;
-      }
-    } catch {
-      /* fall through to mesh cache check */
-    }
-    const own = this.peerMeshService?.getCachedTalkBody(talkId, this.currentUser?.id);
-    return !!own && String((own as { authorId?: unknown }).authorId || '') === this.currentUser?.id;
-  }
-
   private async resolveMeshTalkData(talkId: string): Promise<any | null> {
     const cached = this.peerMeshService?.getCachedTalkBody(talkId);
     if (cached) return cached;
@@ -1065,16 +1099,9 @@ export class IinPublicApp {
       ...(payload.authorEpub ? { authorEpub: payload.authorEpub } : {}),
     };
     if (this.isTalkExpiredForDelivery(talkData)) return false;
-    // Talk ids are content-addressed (no authorId), so a remote author's identical-content
-    // talk shares this.currentUser's own talkId when both created the same content. The
-    // shared Gun node `talks/<talkId>` is keyed by talkId alone, so mirroring the remote
-    // body here would OVERWRITE the local author's own talk definition (flipping its
-    // authorId to the remote sender). Skip the mirror for content the local user authored
-    // — the author's own definition must survive (it drives `resolveMeshTalkData` /
-    // `getTalkWithRetry` on the author-side response/match path).
-    if (!this.localUserAuthoredTalkContent(payload.talkId)) {
-      mirrorTalkDefinitionToLocalGun(this.gunService, payload.talkId, talkData, this.p2pRuntimeFlags);
-    }
+    // R-f step 7: Gun talks/* mirror removed — receiver talk bodies are cached in
+    // PeerMeshService.talkBodies (mesh body cache) and in the incoming-talk cluster
+    // local store. The Gun mirror was the only remaining talks/* write on the receiver side.
     // Apply intake/age filtering BEFORE surfacing the talk in the UI. Mesh room
     // broadcasts reach every member, so age-gated/filtered talks must be rejected
     // here or they leak into the incoming-cluster UI (e.g. an adult talk shown to a
@@ -1351,14 +1378,8 @@ export class IinPublicApp {
 
   public async getLocalIncomingClustersForE2e(): Promise<any[]> {
     if (!this.currentUser?.id) return [];
-    // Actively pull the room talk-body rendezvous before reading clusters. Specs that
-    // poll this directly (e.g. reputation vouch threshold) never call
-    // syncIncomingClustersFromServer, so without this they depend on the live push
-    // subscription racing in — a talk broadcast just before the poll (e.g. the adult
-    // talk delivered once a receiver crosses the age-verify threshold) can be missed.
-    // Pulling here re-runs it through receiver-side intake filtering (handleMeshTalkBody),
-    // so age-gated talks are still rejected and only accepted ones land in clusters.
-    await this.peerMeshService?.syncRoomTalkBodyRendezvous(300, this.chatroomService.getCurrentChatroomId());
+    // R-a step 7: syncRoomTalkBodyRendezvous removed (Gun p2pMeshTalkBodies/* path deleted).
+    // Incoming clusters arrive exclusively via mesh DataChannel push or mailbox drain.
     const gunClusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, { waitMs: 300 });
     const uiClusters = Array.isArray((this.uiManager as any).incomingTalkClusters)
       ? (this.uiManager as any).incomingTalkClusters
@@ -1865,7 +1886,7 @@ export class IinPublicApp {
         ...members,
       ]);
     }
-    mirrorTalkDefinitionToLocalGun(this.gunService, talkId, talk, this.p2pRuntimeFlags);
+    // R-f step 7: author-side Gun talks/* mirror removed; body cached in PeerMeshService directly.
     mesh.cacheTalkBody(talkId, talk as unknown as Record<string, unknown>);
     await mesh.broadcastTalk({ ...talk, id: talkId, authorId: me.id }, {
       recipientUserIds: finalReceiverIds,
@@ -2252,53 +2273,6 @@ export class IinPublicApp {
     }
   }
 
-  private enqueueDirectTalkStats(params: DirectTalkStatsRecordParams): void {
-    this.directTalkStatsQueue.push(params);
-    this.drainDirectTalkStatsQueue();
-  }
-
-  private drainDirectTalkStatsQueue(): void {
-    while (this.directTalkStatsInFlight < 2 && this.directTalkStatsQueue.length > 0) {
-      const params = this.directTalkStatsQueue.shift();
-      if (!params) return;
-      this.directTalkStatsInFlight += 1;
-      void this.recordDirectTalkStats(params).finally(() => {
-        this.directTalkStatsInFlight = Math.max(0, this.directTalkStatsInFlight - 1);
-        this.drainDirectTalkStatsQueue();
-      });
-    }
-  }
-
-  private async recordDirectTalkStats(params: DirectTalkStatsRecordParams): Promise<void> {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), params.isAuto ? 1_500 : 3_000);
-    try {
-      const res = await fetch(`${this.getBackendApiBase()}/api/stats/talks/${encodeURIComponent(params.talkId)}/record`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          responderId: params.responderId,
-          talkType: params.talkData?.type || 'flow',
-          answers: params.answers.map((a: any) => ({
-            questionId: String(a.questionId || ''),
-            answerId: String(a.answerId || ''),
-            answerText: String(a.answerText ?? ''),
-          })),
-          outcome: params.outcome,
-          isAuto: params.isAuto,
-        }),
-      });
-      if (!res.ok) {
-        console.warn(`Pair-direct stats record failed: HTTP ${res.status}`);
-      }
-    } catch (error) {
-      console.warn('Pair-direct stats record failed:', error);
-    } finally {
-      window.clearTimeout(timer);
-    }
-  }
-
   private async submitTalkResponsePairDirect(params: {
     talkId: string;
     talkData: any;
@@ -2370,21 +2344,7 @@ export class IinPublicApp {
       }
     }
 
-    // Stats recording is ON by default for every spec — survey/route/analytics/
-    // chatbot-memory all poll /api/stats/.../summary and need it. Only the high-volume
-    // find-similar spec opts out (via setSkipDirectTalkStatsForE2e) because its hundreds
-    // of auto-match POSTs would saturate the single e2e Node server during broadcast.
-    if (!this.skipDirectTalkStatsForE2e) {
-      this.enqueueDirectTalkStats({
-        talkId: params.talkId,
-        talkData: params.talkData,
-        responderId: this.currentUser.id,
-        answers: params.answers,
-        outcome: isMatch ? 'match' : isIgnore ? 'ignore' : 'other',
-        isAuto: params.isAutoResponse,
-      });
-    }
-
+    // Step 7: client-side stats POST removed (server route dies in phase B).
     this.ledgerEmit(InteractionKind.TALK_ANSWERED, {
       talkId: params.talkId,
       responseId,
@@ -2598,23 +2558,16 @@ export class IinPublicApp {
    * `needIncomingTalkClusters` without awaiting; Playwright needs a promise-bound sync.
    */
   public async syncIncomingClustersFromServer(): Promise<void> {
-    await this.peerMeshService?.syncRoomTalkBodyRendezvous(500, this.chatroomService.getCurrentChatroomId());
+    // R-a step 7: Gun p2pMeshTalkBodies/* rendezvous path removed; clusters arrive via mesh or mailbox drain.
     await this.refreshIncomingTalkClustersFromLocalGun();
     if (this.e2eSeededIncomingClusters.length > 0) {
       this.mergeIncomingClusterIntoUi(this.e2eSeededIncomingClusters);
     }
   }
 
-  /** E2E hook: high-volume specs (find-similar) call this to suppress per-answer stats POSTs. */
-  public setSkipDirectTalkStatsForE2e(skip: boolean): void {
-    this.skipDirectTalkStatsForE2e = skip === true;
-  }
-
   /**
-   * Step 8 E2E hook: when the server runs with E2E_GUN_MEMORY_ONLY=1 it sets
-   * quotas to Number.MAX_SAFE_INTEGER.  Callers that already call
-   * setSkipDirectTalkStatsForE2e(true) (find-similar spec) should also call this
-   * so high-fanout rebroadcasts are not throttled by the per-edge daily/weekly quota.
+   * Step 7: setSkipDirectTalkStatsForE2e removed — client stats POST deleted.
+   * Step 8 E2E hook: set quota unlimited for high-fanout rebroadcast specs.
    */
   public setTalkLedgerQuotaUnlimitedForE2e(unlimited: boolean): void {
     setTalkLedgerQuotaUnlimited(unlimited === true);
@@ -2671,7 +2624,7 @@ export class IinPublicApp {
       this.p2pRuntimeFlags,
     );
     this.e2eSeededIncomingClusters.push(cluster);
-    await this.gunService.put(`talks/${talkId}`, talkData).catch(() => undefined);
+    // R-f: no Gun talks/* write; receiver-side mirror only (not authored locally).
     mirrorTalkDefinitionToLocalGun(this.gunService, talkId, talkData, this.p2pRuntimeFlags);
     await this.refreshIncomingTalkClustersFromLocalGun();
     this.mergeIncomingClusterIntoUi([cluster]);

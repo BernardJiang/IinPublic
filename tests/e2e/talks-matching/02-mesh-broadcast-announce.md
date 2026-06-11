@@ -1,10 +1,9 @@
 # Mesh broadcast announcements (three browsers, zero Gun writes)
 
 **Features tested:** P0 step 2 — a find-similar broadcast reaches eligible receivers over the
-mesh DataChannel overlay with **zero delivery-path Gun writes** (`peerTalkOffers/*` and
-`p2pMeshTalkBodies/*` strictly empty; `talks/*` gains nothing beyond the author's one creation
-write — see "Known step-7 debt" below).  Ineligible peers (different chatroom, or the author
-itself) do NOT receive the announcement.
+mesh DataChannel overlay with **zero delivery-path Gun writes** (`peerTalkOffers/*`,
+`p2pMeshTalkBodies/*`, and `talks/*` all strictly empty).  Ineligible peers (different chatroom,
+or the author itself) do NOT receive the announcement.
 
 **Run:** `npx playwright test tests/e2e/talks-matching/02-mesh-broadcast-announce.spec.ts`
 
@@ -25,63 +24,37 @@ itself) do NOT receive the announcement.
 6. **Ineligible peer assertion:** Tom's own announce must NOT appear in Tom's
    `meshAnnounceDiagnostics.received` — the `not-self` guard in `handleLocalFrame` drops
    frames whose `authorId === localUserId`.
-7. **Gun invariant assertion:** each browser reads local Gun and asserts `peerTalkOffers/*`
-   and `p2pMeshTalkBodies/*` are empty, and `talks/*` holds **at most one** record (the
-   author's creation write, possibly relay-synced into the collect subscription) — proves
-   the announce/delivery path itself never writes to any displaced Gun path.
+7. **Gun invariant assertion:** each browser reads local Gun and asserts `peerTalkOffers/*`,
+   `p2pMeshTalkBodies/*`, and `talks/*` are all **strictly empty** (zero) — `createTalk` now
+   writes only to `myAuthoredTalks` localStorage (P0 step 7); no Gun creation write ever fires.
 8. Cleanup: `finalCleanupPages` + `shutdownThreeBrowsers`.
 
 ## Displaced Gun writes
 
-The following Gun write was displaced by this step:
+The following Gun writes were displaced:
 
 | Path | Written by | Replaced with |
 |---|---|---|
-| `p2pMeshTalkBodies/<roomId>/<talkId>::<authorId>` | `publishRoomTalkBodyRendezvous` (room broadcast path) | mesh `talk-body` flood (DataChannel) |
+| `p2pMeshTalkBodies/<roomId>/<talkId>::<authorId>` | `publishRoomTalkBodyRendezvous` (room broadcast path) | per-recipient mailbox posts via `WebMailboxClient` (P0 step 7, R-a RESOLVED) |
+| `talks/<id>` | `WebTalkService.createTalk` (star-era CRUD) | `myAuthoredTalks` localStorage (P0 step 7, R-f RESOLVED) |
 
-The `subscribeToRoomTalkBodyRendezvous` subscription still exists in `PeerMeshService` as a
-fallback for any legacy callers, and `publishRoomTalkBodyRendezvous` is still called as a
-**conditional fallback** when the overlay is below its wanted degree at broadcast time (see below).
-In this spec the three peers are fully mesh-connected before broadcasting, so the fallback is
-never reached and the `p2pMeshTalkBodies/*` assertion remains zero.
+`publishRoomTalkBodyRendezvous`, `subscribeToRoomTalkBodyRendezvous`, and `syncRoomTalkBodyRendezvous`
+have been deleted from `PeerMeshService`.  The coverage-gap and below-degree fallback branches now
+call `onMailboxFallback` (injected by app.ts) instead of writing to Gun.
 
-## Interim step-6/7 debt: conditional Gun fallback (R-a extended)
+## Fallback: mailbox posts (R-a RESOLVED, step 7)
 
-`broadcastTalk`'s room path includes a conditional fallback that fires on EITHER of two
-conditions — both meaning the DataChannel overlay cannot *guarantee* full room coverage, so
-`publishRoomTalkBodyRendezvous` is called in addition to the mesh flood:
+`broadcastTalk`'s room path calls `onMailboxFallback(payload, recipientUserIds)` on EITHER of two
+conditions — both meaning the DataChannel overlay cannot guarantee full room coverage:
 
 1. **Below wanted degree** (`connectedNeighborCount === 0 || connectedNeighborCount <
-   neighbors.size`): the overlay has not fully formed. Covers callers that broadcast immediately
-   after `joinRoom` without waiting for the WebRTC handshake.
+   neighbors.size`): the overlay has not fully formed.
 2. **Coverage gap** (`explicitRecipientCount > maxNeighbors && connectedNeighborCount <
-   explicitRecipientCount`): the caller named more recipients than the degree bound K can directly
-   hold, so non-neighbor recipients depend on **relay forwarding** across a sparse, possibly
-   **partitioned** overlay. This can silently miss a peer behind a non-bridged link **even when
-   the sender's own K neighbors are all connected** (condition 1 false). This was the root cause
-   of the deterministic find-similar-people "exactly 8 of 9 contacts" regression: with K=3 over 10
-   users, one recipient sat in a relay-unreachable component. Writing the author-qualified Gun
-   rendezvous (`p2pMeshTalkBodies/<roomId>/<talkId>::<authorId>`) makes it the authoritative
-   full-room delivery channel.
+   explicitRecipientCount`): the caller named more recipients than the degree bound K can hold.
 
-Callers this preserves correctness for:
-
-- **stage2/08-super-user-copy-talk**: `deliverTalkToReceiversOverMesh` calls `joinRoom` then
-  immediately `broadcastTalk`; the DataChannel may not be established yet
-  (connectedNeighborCount == 0 → condition 1), so the Gun rendezvous fires.
-- **stage5/find-similar-people**: 10 users, K=3, 9 recipients per broadcast — condition 2 fires
-  (recipients > K), guaranteeing every peer's body reaches every receiver via Gun even when the
-  sparse overlay is partitioned.
-
-This spec's `p2pMeshTalkBodies/* == 0` assertion is unaffected: Tom broadcasts over a FULLY
-connected K=1 overlay (condition 1 false: `connectedCount === neighbors.size === 1`) AND passes
-**no explicit `recipientUserIds`** (`explicitRecipientCount === 0`, so condition 2 is skipped),
-putting him on the primary all-mesh path.
-
-**Removal plan (step 6/7):** Once all broadcast callers either (a) gate on a fully connected
-overlay or (b) the offline mesh mailbox lands (step 6), remove BOTH fallback branches from
-`broadcastTalk` and delete `publishRoomTalkBodyRendezvous`.  At that point tighten the staged
-specs' assertion to confirm `p2pMeshTalkBodies/*` is also empty.
+`app.ts` wires `onMailboxFallback` to `postTalkBodyToMailboxForRecipients`, which posts an
+encrypted envelope per recipient via `POST /api/mailbox/:recipientId`. Receivers drain it on
+next `drainMailbox` call. The `p2pMeshTalkBodies` Gun path is completely absent.
 
 ## Author-qualified identity (content-address collision)
 
@@ -94,20 +67,12 @@ body-delivery paths (mesh flood + Gun rendezvous) keep author identity:
   identical-content body never clobbers the local author's own cached copy.
   `getCachedTalkBody(talkId)` prefers the local user's own copy; `handleTalkBodyRequest` serves
   only the local author's copy.
-- `handleMeshTalkBody` skips the `talks/<talkId>` Gun mirror when the local user authored content
-  with that id, so the author's own definition survives for the response/match path.
+- `handleMeshTalkBody` no longer mirrors to `talks/<talkId>` Gun (P0 step 7, R-f RESOLVED).
+  The author's definition lives in `myAuthoredTalks` localStorage; receiver-side mirrors via
+  `mirrorTalkDefinitionToLocalGun` are preserved so `getTalkWithRetry` can find the body after
+  the mesh body-pull completes.
 - Delivery/UI/chatbot dedup and response routing are all `talkId::authorId`-qualified, so a
   response reaches every author of identical content independently.
-
-## Known step-7 debt: the author's `talks/*` creation write
-
-`WebTalkService.createTalk` (src/web/services/web-talk-service.ts, `gunService.put('talks/<id>')`)
-still persists the talk **definition** to the relay-synced Gun graph at creation time. This is
-star-era CRUD state, scheduled for deletion in TODO P0 step 7 ("Stop Gun relay use for
-`talks/*`" — requires moving author-side talk persistence to local stores). It is **not** part
-of the step-2 delivery path, so this spec asserts `talks/*` does not grow beyond that single
-creation write rather than asserting strict emptiness. When step 7 lands, tighten the
-assertion back to `toBe(0)`.
 
 ## Key design invariants verified
 

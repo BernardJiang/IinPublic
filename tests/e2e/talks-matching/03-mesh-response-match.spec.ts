@@ -534,10 +534,10 @@ test.describe('Mesh response match — three browsers, zero server calls', () =>
         `${label}: peerTalkOffers/* must be 0`,
       ).toBe(0);
 
-      // p2pMeshTalkBodies/* must be 0 (no fallback broadcast fired — fully connected overlay)
+      // p2pMeshTalkBodies/* must be 0 — Gun rendezvous path deleted (P0 step 7, R-a RESOLVED)
       expect(
         gunCounts.meshBodies,
-        `${label}: p2pMeshTalkBodies/* must be 0 (fully-connected overlay, no fallback needed)`,
+        `${label}: p2pMeshTalkBodies/* must be 0 (Gun rendezvous path removed in step 7)`,
       ).toBe(0);
     }
 

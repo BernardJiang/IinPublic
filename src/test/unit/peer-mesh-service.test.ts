@@ -384,37 +384,30 @@ describe('PeerMeshService', () => {
    * Coverage-gap fallback (find-similar-people root cause): when a room broadcast names more
    * recipients than the overlay degree bound (maxNeighbors) can directly hold, the connected
    * overlay cannot guarantee full coverage — relay forwarding across a sparse, possibly
-   * partitioned overlay can silently miss a peer. The Gun rendezvous fallback must fire even
+   * partitioned overlay can silently miss a peer. The mailbox fallback must fire even
    * when the sender's OWN K neighbors are all connected (connectedCount === neighbors.size),
    * which the original below-wanted-degree gate alone did not catch.
+   * R-a step 7: asserts mailbox fallback (onMailboxFallback) fires instead of Gun rendezvous.
    */
-  it('coverage-gap fallback: rendezvous fires when recipients exceed the degree bound', async () => {
+  it('coverage-gap fallback: mailbox fallback fires when recipients exceed the degree bound', async () => {
     const alicePair = (await SEA.pair()) as SeaSigningPair;
     const peerIds = ['p1', 'p2', 'p3', 'p4', 'p5'];
     const users: Record<string, { pub: string }> = { alice: { pub: alicePair.pub } };
     for (const id of peerIds) users[id] = { pub: alicePair.pub };
 
-    const gunPutCalls: Array<{ path: string }> = [];
-    function makeGunChain(parts: string[]): any {
-      return {
-        get: (k: string) => makeGunChain([...parts, k]),
-        put: () => { gunPutCalls.push({ path: parts.join('/') }); },
-        on() {}, off() {}, map() { return this; }, once() {},
-      };
-    }
-    const gunService = {
-      getStoredPair: () => alicePair,
-      getPublicUser: async (id: string) => users[id],
-      getGun: () => makeGunChain([]),
-    } as unknown as WebGunService;
+    const gunService = mockGunService(alicePair, users);
 
     // maxNeighbors=3 (e2e bound). All 3 neighbors connect successfully via the fake network,
     // so connectedCount === neighbors.size === 3 and the below-wanted-degree gate is FALSE.
     const network = createFakeNetwork();
+    const mailboxCalls: Array<{ recipientUserIds: string[] }> = [];
     const alice = new PeerMeshService(gunService, {
       apiBase: 'http://127.0.0.1:8080', localUserId: 'alice', localStageName: 'Alice',
       maxNeighbors: 3,
       createSession: network.createSession,
+      onMailboxFallback: async (_payload, recipientUserIds) => {
+        mailboxCalls.push({ recipientUserIds });
+      },
     });
 
     const members = [{ userId: 'alice' }, ...peerIds.map((userId) => ({ userId }))];
@@ -430,16 +423,21 @@ describe('PeerMeshService', () => {
     expect(alice.getDiagnostics().neighborCount).toBe(3);
 
     // Now broadcast to all 5 recipients (> maxNeighbors 3) with the overlay fully connected
-    // at its bound. The coverage-gap branch must still write the Gun rendezvous.
-    gunPutCalls.length = 0;
+    // at its bound. The coverage-gap branch must call onMailboxFallback.
+    mailboxCalls.length = 0;
     await alice.broadcastTalk(
       { id: 'coverage-test', authorId: 'alice', title: 'c', type: 'tag', questions: [] },
       { recipientUserIds: peerIds, roomBroadcast: true },
     );
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
-    const rendezvousPuts = gunPutCalls.filter(({ path }) => path.includes('p2pMeshTalkBodies'));
-    expect(rendezvousPuts.length).toBeGreaterThanOrEqual(1);
+    // Mailbox fallback must have fired (Gun p2pMeshTalkBodies/* path removed).
+    expect(mailboxCalls.length).toBeGreaterThanOrEqual(1);
+    // All 5 explicit recipients must be included in the fallback call.
+    const allFallbackRecipients = mailboxCalls.flatMap((c) => c.recipientUserIds);
+    for (const id of peerIds) {
+      expect(allFallbackRecipients).toContain(id);
+    }
   });
 
   it('re-delivers a talk body that the receiver rejected, then dedupes once accepted', async () => {
@@ -884,49 +882,21 @@ describe('PeerMeshService', () => {
    * find-similar-people) where broadcastTalk fires immediately after joinRoom, before
    * any WebRTC DataChannel has been established (connectedNeighborCount === 0).
    *
-   * Verification strategy: use a fake Gun service that records gun.get/put calls.
-   * Confirm that with zero connected neighbors, a put to MESH_TALK_BODY_RENDEZVOUS_ROOT
-   * fires; with at least one connected neighbor, no such put fires.
+   * Verification strategy: inject onMailboxFallback callback and confirm it fires when
+   * zero neighbors are connected; confirm it does NOT fire when all neighbors are connected.
    */
-  it('step-2 fallback: publishRoomTalkBodyRendezvous fires when overlay is below wanted degree (incl. zero connected)', async () => {
+  it('step-2 fallback: mailbox fallback fires when overlay is below wanted degree (incl. zero connected)', async () => {
     const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
     const users = {
       alice: { pub: alicePair.pub },
       bob: { pub: bobPair.pub },
     };
 
-    // Track Gun put calls to verify the rendezvous write happens (or doesn't).
-    const gunPutCalls: Array<{ path: string; value: unknown }> = [];
-
-    // A fake Gun service that records nested get/put chains.
-    // We build a chainable proxy: each .get(key) returns a new node; .put(val) records the path.
-    function makeGunChain(pathParts: string[]): any {
-      return {
-        get(key: string) {
-          return makeGunChain([...pathParts, key]);
-        },
-        put(value: unknown) {
-          gunPutCalls.push({ path: pathParts.join('/'), value });
-        },
-        on() {},
-        off() {},
-        map() { return this; },
-        once() {},
-      };
-    }
-
-    function mockGunServiceWithGun(pair: SeaSigningPair): WebGunService {
-      return {
-        getStoredPair: () => pair,
-        getPublicUser: async (userId: string) => users[userId as keyof typeof users],
-        getGun: () => makeGunChain([]),
-      } as unknown as WebGunService;
-    }
-
     // Scenario A: zero connected neighbors (simulate callers like deliverTalkToReceiversOverMesh
     // that call joinRoom then immediately broadcastTalk without waiting for WebRTC connection).
     // We use a custom createSession that deliberately never sets neighbor.connected = true.
-    const aliceA = new PeerMeshService(mockGunServiceWithGun(alicePair), {
+    const mailboxCallsA: Array<{ recipientUserIds: string[] }> = [];
+    const aliceA = new PeerMeshService(mockGunService(alicePair, users), {
       apiBase: 'http://127.0.0.1:8080',
       localUserId: 'alice',
       localStageName: 'Alice',
@@ -936,6 +906,9 @@ describe('PeerMeshService', () => {
         // Never actually delivers — simulates a DataChannel still connecting.
         sendMeshFrame: jest.fn(async () => { throw new Error('not connected'); }),
       }),
+      onMailboxFallback: async (_payload, recipientUserIds) => {
+        mailboxCallsA.push({ recipientUserIds });
+      },
     });
 
     await aliceA.joinRoom('global', [
@@ -946,7 +919,6 @@ describe('PeerMeshService', () => {
     // Verify no neighbors are connected before broadcast.
     expect(aliceA.getDiagnostics().connectedNeighborCount).toBe(0);
 
-    gunPutCalls.length = 0;
     await aliceA.broadcastTalk({
       id: 'fallback-test-1',
       authorId: 'alice',
@@ -955,18 +927,23 @@ describe('PeerMeshService', () => {
       questions: [],
     }, { roomBroadcast: true });
 
-    // Rendezvous write must have fired (Gun fallback path).
-    const rendezvousPuts = gunPutCalls.filter(({ path }) => path.includes('p2pMeshTalkBodies'));
-    expect(rendezvousPuts.length).toBeGreaterThanOrEqual(1);
+    // Mailbox fallback must have fired (replaces Gun rendezvous path).
+    expect(mailboxCallsA.length).toBeGreaterThanOrEqual(1);
+    const fallbackRecipientsA = mailboxCallsA.flatMap((c) => c.recipientUserIds);
+    expect(fallbackRecipientsA).toContain('bob');
 
     // Scenario B: fully connected wanted set (connected === neighbors.size) — fallback must NOT fire; primary
-    // DataChannel path is used and p2pMeshTalkBodies stays clean.
+    // DataChannel path is used.
     const network = createFakeNetwork();
-    const aliceB = new PeerMeshService(mockGunServiceWithGun(alicePair), {
+    const mailboxCallsB: Array<{ recipientUserIds: string[] }> = [];
+    const aliceB = new PeerMeshService(mockGunService(alicePair, users), {
       apiBase: 'http://127.0.0.1:8080',
       localUserId: 'alice',
       localStageName: 'Alice',
       createSession: network.createSession,
+      onMailboxFallback: async (_payload, recipientUserIds) => {
+        mailboxCallsB.push({ recipientUserIds });
+      },
     });
     const bobB = new PeerMeshService(mockGunService(bobPair, users), {
       apiBase: 'http://127.0.0.1:8080',
@@ -989,8 +966,6 @@ describe('PeerMeshService', () => {
     // The fake network's ensureConnected resolves immediately, so calling broadcastTalk
     // after joinRoom is sufficient (sendMeshFrame succeeds synchronously on the fake network,
     // flipping neighbor.connected = true on first successful send).
-    // We just need to confirm that after a successful send, no rendezvous put fires.
-    gunPutCalls.length = 0;
     // Prime alice's neighbor connected flag by broadcasting once (fake net delivers instantly).
     await aliceB.broadcastTalk({
       id: 'prime-connect',
@@ -1005,7 +980,7 @@ describe('PeerMeshService', () => {
     const connectedAfterPrime = aliceB.getDiagnostics().connectedNeighborCount;
     expect(connectedAfterPrime).toBeGreaterThan(0);
 
-    gunPutCalls.length = 0;
+    mailboxCallsB.length = 0;
     await aliceB.broadcastTalk({
       id: 'primary-path-test',
       authorId: 'alice',
@@ -1015,9 +990,8 @@ describe('PeerMeshService', () => {
     }, { roomBroadcast: true });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // No rendezvous write must have fired — primary mesh path was used.
-    const rendezvousPutsB = gunPutCalls.filter(({ path }) => path.includes('p2pMeshTalkBodies'));
-    expect(rendezvousPutsB.length).toBe(0);
+    // No mailbox fallback must have fired — primary mesh path was used.
+    expect(mailboxCallsB.length).toBe(0);
   });
 
   /**

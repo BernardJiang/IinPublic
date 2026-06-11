@@ -224,58 +224,41 @@ fixed sleeps.
   `peerTalkOffers/*`, so it does **not** fail this step's literal invariant — but it is a Gun-relayed
   body path step 7 must remove. **Default:** out of scope here; `mesh-ping` carries payload inline and
   never calls that path. File a step-2/4 follow-up to replace rendezvous with `talk-body-request`/
-  `talk-body` unicast pull (§23.5). *(Partially resolved in step 2: room broadcast now floods
-  `talk-body` over DataChannel as the primary path. However, a **conditional fallback** was
-  required. The fallback fires (writes `publishRoomTalkBodyRendezvous` →
-  `p2pMeshTalkBodies/<roomId>/<talkId>::<authorId>`, **author-qualified key**) on EITHER of two
-  conditions — both meaning the DataChannel overlay cannot *guarantee* full room coverage:*
-  1. *Below wanted degree: `connectedNeighborCount === 0 || connectedNeighborCount < neighbors.size`
-     — the WebRTC overlay has not fully formed (staged specs that call `joinRoom` + `broadcastTalk`
-     without waiting for neighbors).*
-  2. *Coverage gap (find-similar-people 8/9 fix): the caller named more recipients than the degree
-     bound can directly hold AND the connected overlay does not cover them
-     (`explicitRecipientCount > maxNeighbors && connectedNeighborCount < explicitRecipientCount`).
-     With a bounded degree K (e2e K=3) over many recipients, delivery to the non-neighbor
-     recipients depends on **relay forwarding** across a sparse, possibly **partitioned** overlay,
-     which can silently miss a peer behind a non-bridged link — even when the sender's OWN K
-     neighbors are all connected (so condition 1 alone did NOT fire). Root cause of the
-     deterministic "exactly 8 of 9 contacts" regression: one recipient sat in a relay-unreachable
-     component. Writing the Gun rendezvous makes it the authoritative full-room delivery channel.*
+  `talk-body` unicast pull (§23.5). *(Partially resolved in step 2: room broadcast floods
+  `talk-body` over DataChannel as the primary path. A conditional fallback was required for two
+  conditions: (1) below-wanted-degree and (2) coverage-gap — see step-2/step-6 notes.)*
 
-  *Spec 02's `p2pMeshTalkBodies/* == 0` assertion is preserved because Tom broadcasts over a fully
-  connected K=1 overlay with **no explicit `recipientUserIds`** (`explicitRecipientCount === 0`, so
-  condition 2 is skipped) and `connectedCount === neighbors.size === 1` (condition 1 false). Full
-  removal of the fallback requires either (a) all broadcast callers gating on a fully connected
-  overlay, or (b) the offline mesh mailbox (step 6). Track as step-6/7 work item: remove both
-  fallback branches from `broadcastTalk`, delete `publishRoomTalkBodyRendezvous`, and add
-  `p2pMeshTalkBodies/* == 0` to the staged spec assertions.)*
+  **RESOLVED (step 7).** `publishRoomTalkBodyRendezvous`, `subscribeToRoomTalkBodyRendezvous`, and
+  `syncRoomTalkBodyRendezvous` have been deleted from `PeerMeshService`. The two fallback branches
+  (below-wanted-degree and coverage-gap) now call `onMailboxFallback(payload, recipientUserIds)` —
+  injected by `app.ts` as `postTalkBodyToMailboxForRecipients` — which posts an encrypted envelope
+  per recipient via `POST /api/mailbox/:recipientId` (WebMailboxClient). The `p2pMeshTalkBodies`
+  Gun path no longer exists. Spec 02 asserts `talks/*` and `p2pMeshTalkBodies/*` strictly zero.
 
   ***Author-qualified identity (content-address collision, find-similar fix).*** *Talk ids are
   content-addressed (`computeTalkCIDv1`, no `authorId`), so two authors who create identical content
   share the SAME `talkId` with different `authorId`s — legal by design (needed for step 8–11
-  per-author outcome records). Step-2's mesh flood added a second body-delivery path alongside the
-  Gun rendezvous; both must keep author identity. Keying that is now author-qualified end-to-end:*
-  - *Gun rendezvous key: `p2pMeshTalkBodies/<roomId>/<talkId>::<authorId>` (already; unchanged).*
-  - *Mesh body cache (`PeerMeshService.talkBodies`): now keyed `talkId::authorId`, so a remote
-    author's identical-content body no longer **clobbers the local author's own cached body**.
-    `getCachedTalkBody(talkId)` prefers the local user's own copy (`talkId::localUserId`);
-    `handleTalkBodyRequest` serves only the local author's copy.*
-  - *App-side `talks/<talkId>` Gun mirror is keyed by `talkId` alone (shared node). `handleMeshTalkBody`
-    now skips the mirror when the local user authored content with that id
-    (`localUserAuthoredTalkContent`), so the author's own definition survives for the response/match
-    path (`resolveMeshTalkData`).*
+  per-author outcome records). Keying is author-qualified end-to-end:*
+  - *Mesh body cache (`PeerMeshService.talkBodies`): keyed `talkId::authorId`, so a remote
+    author's identical-content body never clobbers the local author's own cached body.
+    `getCachedTalkBody(talkId)` prefers the local user's own copy; `handleTalkBodyRequest` serves
+    only the local author's copy.*
+  - *`handleMeshTalkBody` no longer mirrors to `talks/<talkId>` Gun — author definition lives in
+    `myAuthoredTalks` localStorage; receiver-side mirrors via `mirrorTalkDefinitionToLocalGun`
+    are preserved for the response/match path (`resolveMeshTalkData`).*
   - *Delivery dedup (`deliveredTalkBodyIds`), chatbot-reply dedup (`chatbotAutoReplySentForPair`),
     UI dedup (`processedTalkResponseKeys`), and response routing (`sendTalkResponse` →
-    `recipientUserId: authorId`) are all `talkId::authorId`-qualified, so a response reaches every
-    author of identical content independently.*
+    `recipientUserId: authorId`) are all `talkId::authorId`-qualified.*
 - **R-f (found in step 2): `WebTalkService.createTalk` persists the talk definition to Gun
   `talks/<id>`** (relay-synced) at creation time — author-side star-era CRUD, independent of the
   delivery path. Mesh E2Es therefore assert `talks/*` *does not grow beyond the single creation
-  write* rather than strict emptiness. **Step-7 work item:** move author talk persistence to local
-  stores ("Stop Gun relay use for `talks/*`"), then tighten the E2E assertions back to zero.
-  *(Note: the `talks/<id>` node is keyed by content-addressed id alone, so two authors of identical
-  content share the node; `handleMeshTalkBody` must not mirror a remote author's body over a
-  locally-authored `talks/<id>` — see the author-qualified-identity note under R-a.)*
+  write* rather than strict emptiness.
+
+  **RESOLVED (step 7).** `WebTalkService.createTalk` and `updateTalk` now write to `myAuthoredTalks`
+  localStorage only — no Gun `talks/<id>` write. `getTalk`/`getTalkWithRetry` reads local-first.
+  All author-side `talks/*` Gun writes in `app.ts` (`handleMeshTalkBody`, `sendDirectTalkToPeer`,
+  `deliverTalkToReceiversOverMesh`, `seedIncomingTagTalkForE2e`) have been removed. Receiver-side
+  `mirrorTalkDefinitionToLocalGun` calls are preserved. Spec 02 assertion tightened to strict `toBe(0)`.
 - **R-b: Unbounded `seen` set.** **Default:** bound to FIFO ~10k entries (R4); cleared on `leaveRoom`.
 - **R-c: Neighbor churn mid-ping (DataChannel still connecting).** **Default:** `sendPing` fans out to
   currently-connected neighbors; `sendFrameToNeighbor` already retries after `ensureConnected`

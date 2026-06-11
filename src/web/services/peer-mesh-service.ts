@@ -60,6 +60,13 @@ type PeerMeshServiceOptions = {
    * diagnostics without waiting for the full body pull to complete.
    */
   onTalkAnnounce?: (payload: P2PMeshTalkAnnouncePayload, frame: P2PMeshFrame) => void | Promise<void>;
+  /**
+   * R-a step 7: mailbox fallback for recipients unreachable over the DataChannel overlay.
+   * Called with the talk-body payload and the list of recipient user IDs that cannot be
+   * guaranteed delivery via DataChannel alone (coverage-gap or below-wanted-degree condition).
+   * The caller posts per-recipient encrypted envelopes via WebMailboxClient.
+   */
+  onMailboxFallback?: (payload: P2PMeshTalkBodyPayload, recipientUserIds: string[]) => void | Promise<void>;
 };
 
 type Neighbor = {
@@ -72,7 +79,6 @@ type Neighbor = {
 
 const DEFAULT_MESH_SEND_TIMEOUT_MS = 2_500;
 const DEFAULT_MESH_RETRY_TIMEOUT_MS = 10_000;
-const MESH_TALK_BODY_RENDEZVOUS_ROOT = 'p2pMeshTalkBodies';
 
 /**
  * R4: Bounded FIFO seen-set. Prevents unbounded memory growth in long sessions
@@ -148,8 +154,6 @@ export class PeerMeshService {
   private readonly deliveredTalkBodyIds = new Set<string>();
   private readonly pendingTalkBodyRequestTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly bodyRequestWaiters = new Map<string, (payload: P2PMeshTalkBodyPayload) => void>();
-  private roomTalkBodySubscriptionRoomId: string | null = null;
-  private roomTalkBodySubscriptionOff: (() => void) | null = null;
 
   constructor(
     private readonly gunService: WebGunService,
@@ -209,7 +213,6 @@ export class PeerMeshService {
 
   async joinRoom(roomId: string, members: RoomMember[]): Promise<void> {
     this.currentRoomId = roomId;
-    this.subscribeToRoomTalkBodyRendezvous(roomId);
     this.currentRoomMemberIds = new Set(
       members
         .map((member) => member.userId)
@@ -311,9 +314,6 @@ export class PeerMeshService {
     for (const timer of this.pendingTalkBodyRequestTimers.values()) clearTimeout(timer);
     this.pendingTalkBodyRequestTimers.clear();
     this.bodyRequestWaiters.clear();
-    this.roomTalkBodySubscriptionOff?.();
-    this.roomTalkBodySubscriptionOff = null;
-    this.roomTalkBodySubscriptionRoomId = null;
   }
 
   /**
@@ -355,29 +355,6 @@ export class PeerMeshService {
       if (key.startsWith(prefix)) return value;
     }
     return null;
-  }
-
-  async syncRoomTalkBodyRendezvous(waitMs = 500, roomIdOverride?: string): Promise<void> {
-    const roomId = roomIdOverride || this.currentRoomId;
-    const gun = this.getGunOrNull();
-    if (!roomId || !gun) return;
-    const ref = gun.get(MESH_TALK_BODY_RENDEZVOUS_ROOT).get(roomId).map();
-    const bodies: unknown[] = [];
-    await new Promise<void>((resolve) => {
-      ref.once((raw: unknown, key: string) => {
-        if (!raw || !key || key.startsWith('_')) return;
-        bodies.push(raw);
-      });
-      setTimeout(resolve, waitMs);
-    });
-    try {
-      ref.off();
-    } catch {
-      /* ignore */
-    }
-    await mapWithConcurrency(bodies, 4, async (raw) => {
-      await this.handleRendezvousTalkBody(raw);
-    });
   }
 
   async sendPing(text = 'ping'): Promise<string> {
@@ -437,53 +414,41 @@ export class PeerMeshService {
     const announceFrame = await this.buildFrame('talk-announce', payload, { ttlHops: 8 });
     if (isRoomBroadcast) {
       // Step 2: primary path — flood announce + body over mesh DataChannel overlay.
-      // Conditional fallback (interim step-6/7 debt, tracked in R-a): fall back to the Gun
-      // p2pMeshTalkBodies/* rendezvous write whenever the broadcast cannot be *guaranteed*
-      // to reach every intended room recipient over the DataChannel overlay alone. Two
-      // conditions trigger it:
+      // R-a step 7: Gun p2pMeshTalkBodies/* rendezvous path removed. When the overlay
+      // cannot guarantee full room coverage (below-wanted-degree or coverage-gap), post
+      // the talk-body payload per unreachable recipient via the step-6 mailbox instead.
+      // Two conditions trigger it:
       //
       //   1. Below wanted degree: some wanted neighbors are still connecting (WebRTC
       //      handshake in flight; chatbot/super-user contexts that never call
       //      syncPeerMeshRoom; sequential broadcast sessions where joinRoom fires but
       //      DataChannels are not all ready) — connectedCount < neighbors.size.
       //
-      //   2. Sparse overlay can't directly cover the recipient set AND the recipient set is
-      //      larger than the degree bound: with a bounded degree K (e.g. e2e K=3) over many
-      //      recipients, delivery to the non-neighbor recipients depends on *relay
-      //      forwarding* across a sparse, possibly partitioned overlay, which can silently
-      //      miss a peer behind a non-bridged link (observed: find-similar-people delivering
-      //      exactly 8/9 — one recipient sat in a relay-unreachable component even though the
-      //      sender's own K neighbors were all connected, so condition 1 alone did NOT fire).
-      //      We only treat this as a coverage gap when the recipient set EXCEEDS the degree
-      //      bound (recipients > maxNeighbors): below the bound the overlay can directly hold
-      //      every recipient as a neighbor, so a plain relay flood is reliable.
+      //   2. Coverage gap: the caller named more recipients than the overlay degree bound
+      //      (maxNeighbors) can directly hold AND the connected overlay does not already
+      //      cover them — recipients > maxNeighbors && connectedCount < recipientCount.
       //
-      // Spec 02 is unaffected: it broadcasts over a deliberately sparse K=1 path (Tom→relay→peer)
-      // to a 2-member room to PROVE relay forwarding works with zero Gun writes. There
-      // maxNeighbors === 1 and recipients are the whole room (size 2), but recipients are NOT
-      // passed explicitly (recipientUserIds omitted), so the coverage check uses the room
-      // member count only when recipients were given; with no explicit recipients we keep the
-      // original below-wanted-degree gate, and Tom waits for his single neighbor to connect
-      // (connectedCount === neighbors.size === 1), so neither condition fires and
-      // p2pMeshTalkBodies/* == 0 holds.
-      //
-      // TODO (step 6/7): remove the fallback once all callers gate on a fully connected
-      // mesh overlay before broadcasting (or the offline mailbox lands).
+      // Spec 02 is unaffected: broadcasts over a K=1 path with no explicit recipientUserIds
+      // (explicitRecipientCount === 0), connectedCount === neighbors.size === 1, so neither
+      // condition fires and p2pMeshTalkBodies/* stays 0.
       const connectedCount = [...this.neighbors.values()].filter((n) => n.connected).length;
       const maxNeighbors = this.opts.maxNeighbors ?? 12;
       const explicitRecipientCount = recipients.length;
       const belowWantedDegree = connectedCount === 0 || connectedCount < this.neighbors.size;
-      // Coverage gap only when the caller named more recipients than the overlay degree bound
-      // can hold AND the connected overlay does not already cover them directly. Spec 02 omits
-      // recipientUserIds, so explicitRecipientCount === 0 and this branch is skipped there.
       const cannotCoverRecipients =
         explicitRecipientCount > maxNeighbors && connectedCount < explicitRecipientCount;
       if (belowWantedDegree || cannotCoverRecipients) {
-        // Fallback: Gun rendezvous write for receivers who cannot be reached over DataChannel.
-        this.publishRoomTalkBodyRendezvous(bodyPayload);
-        // Still flood the mesh frames in case some neighbor connects shortly after:
-        // the retryFrameAfterConnect path will re-attempt delivery to any neighbor
-        // whose DataChannel was not yet open when the frame was first forwarded.
+        // Mailbox fallback: post per-recipient for those not reachable via DataChannel.
+        // Use explicit recipients when known; otherwise fall back to all room members.
+        const fallbackRecipients = explicitRecipientCount > 0
+          ? recipients
+          : [...this.currentRoomMemberIds];
+        if (this.opts.onMailboxFallback && fallbackRecipients.length > 0) {
+          void Promise.resolve(this.opts.onMailboxFallback(bodyPayload, fallbackRecipients)).catch(
+            (err) => console.warn('[Mesh] mailbox fallback failed:', err),
+          );
+        }
+        // Still flood the mesh frames in case some neighbor connects shortly after.
         const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
         await this.rememberAndFanout(announceFrame);
         await this.rememberAndFanout(bodyFrame);
@@ -744,92 +709,6 @@ export class PeerMeshService {
 
     if (frame.kind === 'talk-response' && isP2PMeshTalkResponsePayload(frame.payload)) {
       await this.opts.onTalkResponse?.(frame.payload);
-    }
-  }
-
-  private subscribeToRoomTalkBodyRendezvous(roomId: string): void {
-    if (!roomId || this.roomTalkBodySubscriptionRoomId === roomId) return;
-    this.roomTalkBodySubscriptionOff?.();
-    this.roomTalkBodySubscriptionOff = null;
-    this.roomTalkBodySubscriptionRoomId = roomId;
-    const gun = this.getGunOrNull();
-    if (!gun) return;
-    const ref = gun.get(MESH_TALK_BODY_RENDEZVOUS_ROOT).get(roomId).map();
-    ref.on((raw: unknown) => {
-      void this.handleRendezvousTalkBody(raw).catch(() => undefined);
-    });
-    this.roomTalkBodySubscriptionOff = () => {
-      try {
-        ref.off();
-      } catch {
-        /* ignore */
-      }
-    };
-  }
-
-  /**
-   * Fallback Gun rendezvous write for room broadcasts where the sender has zero connected
-   * mesh neighbors at broadcast time (interim step-6/7 debt; see R-a in the design note and
-   * broadcastTalk inline comment).  Receivers that subscribeToRoomTalkBodyRendezvous pick
-   * this up via Gun replication even when no DataChannel is established.
-   *
-   * NOT called when connectedNeighborCount > 0 (primary mesh path is used instead), so
-   * spec 02's p2pMeshTalkBodies/* == 0 invariant is preserved for the connected case.
-   */
-  private publishRoomTalkBodyRendezvous(payload: P2PMeshTalkBodyPayload): void {
-    const roomId = this.currentRoomId;
-    const talkId = String(payload.talkId || '');
-    const authorId = String(payload.authorId || '');
-    const gun = this.getGunOrNull();
-    if (!roomId || !talkId || !authorId || !gun) return;
-    try {
-      const { talkData: _talkData, ...wireBase } = payload;
-      void _talkData;
-      const wire = {
-        ...wireBase,
-        talkDataJson: JSON.stringify(payload.talkData || {}),
-      };
-      gun.get(MESH_TALK_BODY_RENDEZVOUS_ROOT).get(roomId).get(talkBodyDeliveryKey(talkId, authorId)).put(wire);
-    } catch {
-      /* best-effort recovery path */
-    }
-  }
-
-  private async handleRendezvousTalkBody(raw: unknown): Promise<void> {
-    if (!raw || typeof raw !== 'object') return;
-    const maybeWire = raw as P2PMeshTalkBodyPayload & { talkDataJson?: unknown };
-    const talkData = isP2PMeshTalkBodyPayload(maybeWire as P2PMeshFramePayload)
-      ? maybeWire.talkData
-      : typeof maybeWire.talkDataJson === 'string'
-        ? JSON.parse(maybeWire.talkDataJson) as Record<string, unknown>
-        : null;
-    if (!talkData) return;
-    const payload: P2PMeshTalkBodyPayload = {
-      ...maybeWire,
-      talkData,
-    };
-    if (payload.authorId === this.opts.localUserId) return;
-    const talkId = String(payload.talkId || '');
-    const deliveryKey = talkBodyDeliveryKey(talkId, String(payload.authorId || ''));
-    if (!talkId || this.deliveredTalkBodyIds.has(deliveryKey)) return;
-    const pendingTimer = this.pendingTalkBodyRequestTimers.get(deliveryKey);
-    if (pendingTimer) {
-      clearTimeout(pendingTimer);
-      this.pendingTalkBodyRequestTimers.delete(deliveryKey);
-    }
-    this.cacheTalkBody(talkId, payload.talkData);
-    // Only mark delivered once the receiver actually accepted the talk. A talk rejected
-    // by receiver-side intake (e.g. the age gate before verification) must stay eligible
-    // for re-delivery once the receiver later qualifies.
-    const accepted = await this.opts.onTalkBody?.(payload);
-    if (accepted !== false) this.deliveredTalkBodyIds.add(deliveryKey);
-  }
-
-  private getGunOrNull(): any | null {
-    try {
-      return typeof this.gunService.getGun === 'function' ? this.gunService.getGun() : null;
-    } catch {
-      return null;
     }
   }
 
