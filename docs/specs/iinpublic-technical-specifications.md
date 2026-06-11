@@ -3917,6 +3917,13 @@ NAT traversal needs reliable STUN + TURN fallback (else some pairs must use the 
 
 ## 24. Phase D — DHT Bootstrap Design
 
+> **⚠️ SUPERSEDED (2026-06-10) by §25 (libp2p Transport Migration & IPFS Content Layer).**
+> The custom bootstrap service + hand-rolled Kademlia design below is replaced by libp2p's
+> built-in Kademlia DHT + mDNS discovery (REQ-LIBP2P-03), which ships as part of the IPFS/Helia
+> dependency. This section is retained for the discovery-data threat model (announce signature
+> validation, replay defence, TTL semantics) which carries over to the libp2p rendezvous design.
+> Do not implement the §24.2 endpoints.
+
 > **Source:** `docs/roadmap/phase-d-dht-bootstrap.md` (design / pre-implementation).
 > **Spec reference:** §19.12 Phase D, §16 item 12, §21.4. **Depends on:** Phase C (relay-only hub, shipped).
 > **Implementation checklist & files-to-create:** `docs/TODO.md` §"Phase D — DHT Bootstrap implementation".
@@ -3986,3 +3993,132 @@ Storage: in-memory LRU (capacity 10,000 peers) with a 5-minute TTL; no disk pers
 1. **Key bridge:** how to map Gun SEA (ECDSA) keys to libp2p PeerID (Ed25519) if full libp2p is adopted — separate Ed25519 key in Gun user space, or deterministic derivation from the SEA private key.
 2. **Super-peer incentives:** what motivates running a bootstrap node (not required for Phase D — hub + volunteer super-peers suffice initially).
 3. **DHT key space:** `sha256(pubkey)` (libp2p/Kademlia convention) vs current FNV-based `derivePeerIdFromPub`.
+
+## 25. libp2p Transport Migration & IPFS Content Layer
+
+> **Source:** `docs/architecture/p2p-mesh-libp2p-analysis.md` (2026-06-10), merged into this SRS
+> 2026-06-10. **Supersedes:** §24 (Phase D custom DHT bootstrap). **Builds on:** §23 (mesh talk
+> delivery, P0 steps 1-8 shipped), §19.13/§19.14, §20 (ledger). **Status:** requirements approved,
+> implementation not started; sequenced AFTER P0 steps 9-11 in `docs/TODO.md`.
+
+### 25.1 Goals & non-goals
+
+**Goals.** (1) Replace the hand-rolled WebRTC connection layer (`p2p-webrtc-session.ts` ~800
+lines + server signaling endpoints) with libp2p streams, keeping every application-layer
+mechanism — `P2PMeshFrame` envelope, SEA signatures, seen-set dedup, split-horizon TTL
+forwarding, TalkLedger ordering — byte-identical. (2) Make peer discovery hub-independent via
+libp2p Kademlia DHT + mDNS, so the mesh re-forms when `www.iinpublic.com` is offline. (3) Add an
+IPFS content layer (Helia) for content-addressed file sharing, including the **matched-talk
+auto-share link** flow (§25.4, REQ-IPFS-04).
+
+**Non-goals.** No Gun.js replacement (Gun's WebSocket replication + IndexedDB adapter is
+untouched). No SEA→Ed25519 identity migration (two crypto namespaces coexist, REQ-LIBP2P-02). No
+change to gossip semantics — libp2p pubsub is explicitly NOT adopted; our TTL/split-horizon
+flood is more efficient for room-scoped delivery (analysis §3). The hub's encrypted TTL mailbox
+(§23, step 6) remains the offline fallback; IPFS does not replace it (a mailbox envelope carries
+an IPFS *link*, never file bytes — REQ-IPFS-05).
+
+### 25.2 Architecture after migration
+
+```
+App logic:    PeerMeshService — P2PMeshFrame build/verify/dedup/forward   (UNCHANGED)
+                  │  send/forward wraps stream writes
+                  ▼
+Transport:    libp2p stream handler  /iinpublic/mesh/1.0.0
+                  ├─ WebRTC / WebSocket transports (multiaddr-negotiated)
+                  ├─ Circuit Relay v2 fallback (NAT-blocked pairs)
+                  └─ Noise handshake, Ed25519 PeerIDs (transport security only)
+Discovery:    Kademlia DHT (room rendezvous) + mDNS (LAN) + Socket.IO roster (fast path)
+Content:      Helia (IPFS) — CIDv1 attachments, bitswap fetch        (NEW, lazy-init)
+State:        Gun.js relay/IndexedDB                                  (UNCHANGED)
+Offline:      hub encrypted TTL mailbox                               (UNCHANGED)
+```
+
+### 25.3 Transport & discovery requirements
+
+- **REQ-LIBP2P-01 — Transport abstraction.** `PeerMeshService` SHALL send and receive
+  `P2PMeshFrame`s over a libp2p stream protocol registered at `/iinpublic/mesh/1.0.0`. The frame
+  envelope (§23.5), SEA origin verification, bounded seen-set dedup, room scoping, and
+  split-horizon TTL forwarding SHALL remain unchanged. The swap SHALL be made behind the
+  existing `MeshSession` interface (`ensureConnected` / `sendMeshFrame` /
+  `setOnRemoteMeshFrame`) so unit tests and gossip logic are transport-agnostic.
+- **REQ-LIBP2P-02 — Identity binding.** Ed25519 PeerIDs secure the transport (noise) only. SEA
+  pairs remain the application identity (frame signatures, ECDH pair cipher, zone B/C
+  encryption). Each peer SHALL publish a **SEA-signed binding record**
+  `{ userId, seaPub, peerId, addresses[], issuedAt }` (signature over the canonical record by
+  the SEA pair); consumers SHALL verify the binding before treating a PeerID as that user.
+  Replay defence and TTL semantics carry over from §24.2 (announce validation).
+- **REQ-LIBP2P-03 — Hub-independent discovery (supersedes §24).** Room rendezvous SHALL use the
+  libp2p Kademlia DHT: peers `provide()` the CID of a canonical room key
+  (`cid(roomRendezvousKey(roomId))`) and discover members via `findProviders()`; mDNS SHALL be
+  enabled for LAN discovery. The Socket.IO roster remains a fast-path discovery source while the
+  hub is up. **Acceptance:** with the hub process stopped, peers already running SHALL rediscover
+  each other and re-form the room overlay (mesh-ping reachability, §23 step-1 invariant) without
+  any hub interaction; a documented bootstrap-peer list (≥1 reachable super-peer multiaddr)
+  substitutes for hub rendezvous on cold start.
+- **REQ-LIBP2P-04 — NAT traversal.** Circuit Relay v2 SHALL be available as automatic fallback
+  when direct connection fails; relayed connections carry the same noise-secured streams.
+  Direct-connection upgrade (DCUtR hole punching) SHOULD be enabled where supported.
+- **REQ-LIBP2P-05 — Coexistence.** Gun.js replication, the SEA crypto surface, TalkLedger
+  ordering rules, and the hub mailbox SHALL be unaffected. The migration is a transport-layer
+  swap only.
+- **REQ-LIBP2P-06 — Server reduction.** Once REQ-LIBP2P-01/03/04 are verified by the full E2E
+  suite, the server signaling endpoints (`/api/p2p/signaling`, conversation-relay, discovery
+  routes) SHALL be deleted, completing the §23 hub-role reduction (rendezvous fast path +
+  STUN/TURN config + mailbox only; STUN/TURN config itself becomes removable when REQ-LIBP2P-04
+  is the sole traversal path).
+- **REQ-LIBP2P-07 — Budget.** The libp2p/Helia node SHALL lazy-initialize alongside the SEA +
+  Gun bootstrap without blocking first paint; added gzipped bundle weight SHALL be measured and
+  recorded in the PR (webpack budget check); E2E worker isolation (per-worker ports) SHALL be
+  preserved.
+
+### 25.4 IPFS content layer requirements
+
+- **REQ-IPFS-01 — Node & CID alignment.** A Helia (browser IPFS) node SHALL be initialized
+  lazily on first content-layer use, exposing its `libp2p` instance for REQ-LIBP2P-01
+  registration (one dependency serves both layers). All content references SHALL be CIDv1,
+  aligning with the existing `talkId` / `responseId` content addressing (§19.13).
+- **REQ-IPFS-02 — Talk attachments.** A talk MAY carry
+  `ipfsAttachments: [{ cid, name, sizeBytes, mimeType, enc: 'sea-pair' | 'none' }]`. Attachments
+  ride the existing `talk-announce` metadata and `talk-body` payloads — no new frame kinds. Gun
+  SHALL never store attachment bytes (only the descriptor travels in mesh/mailbox payloads).
+- **REQ-IPFS-03 — Privacy before publication.** IPFS content is world-readable by CID. Private
+  attachment bytes SHALL be SEA-encrypted BEFORE `add()` (`enc:'sea-pair'`); the decryption key
+  SHALL be delivered only inside the matched pair's conversation (zone-C semantics, §19.14).
+  Publishing plaintext (`enc:'none'`) SHALL require an explicit per-attachment user opt-in
+  labeled as public. Profile/moderation rules (§7) apply to attachment names and descriptors.
+- **REQ-IPFS-04 — Matched-talk auto-share link.** When a match creates a conversation (§23 step
+  4 flow: both sides derive the verdict via shared `checkIfMatch`), and the matched talk carries
+  `ipfsAttachments`, the author side SHALL automatically send a conversation message containing
+  the `ipfs://<cid>` link(s) (plus key material for `enc:'sea-pair'` content, encrypted to the
+  pair cipher). The message id SHALL be deterministic
+  (`CIDv1({ conversationId, talkId::authorId, cid })`) so duplicate delivery (mesh dedup miss,
+  mailbox redrain, both-sides race) is idempotent — at most one share message per
+  (conversation, attachment). If the recipient is offline, the share message follows the
+  standard conversation/mailbox path (link + key only, never bytes).
+- **REQ-IPFS-05 — Fetch & availability.** Receivers SHALL fetch attachment bytes via bitswap
+  from any provider (author or prior fetchers). The author SHALL pin own attachments locally;
+  availability is best-effort P2P (author or any holder online). The hub mailbox SHALL NOT store
+  attachment bytes; size caps (§23 step-6 64 KiB envelope) make this structural.
+- **REQ-IPFS-06 — Retraction interaction.** `TALK_RETRACTED` (§20.7, REQ-LEDGER-15) SHALL unpin
+  the author's local copies and mark prior share links dead in the UI (best-effort): receivers
+  suppress fetch affordances for retracted talks. Content-addressed bytes already fetched by
+  peers cannot be recalled — this limitation SHALL be surfaced in the attachment-publish UI copy.
+
+### 25.5 Migration phases (mirrored in `docs/TODO.md`)
+
+L1 Helia/libp2p node bootstrap + budget (REQ-IPFS-01, REQ-LIBP2P-07) → L2 mesh stream handler
+behind `MeshSession` (REQ-LIBP2P-01/02/04) → L3 DHT+mDNS discovery & hub-down E2E (REQ-LIBP2P-03)
+→ L4 talk attachments + encrypt-before-add (REQ-IPFS-02/03) → L5 matched-talk auto-share
+(REQ-IPFS-04/05/06) → L6 signaling deletion (REQ-LIBP2P-06). L1-L2 are sequential; L4 may run
+parallel to L3. The epic is sequenced after P0 steps 9-11.
+
+### 25.6 What changes vs what stays (decision of record)
+
+| Replaced | Kept exactly as-is |
+|---|---|
+| `p2p-webrtc-session.ts` (~800 lines connection mgmt) | All frame kinds in `p2p-mesh-protocol.ts` |
+| Server signaling endpoints (post-L6) | SEA crypto (ECDH pair cipher, signing, zone B/C) |
+| §24 custom bootstrap service (never built) | Gossip logic: split-horizon, TTL, room scope, seen-set |
+| Manual ICE/STUN plumbing | TalkLedger ordering (version-then-timestamp, retraction-wins) |
+| | Gun.js replication + IndexedDB; hub encrypted mailbox |

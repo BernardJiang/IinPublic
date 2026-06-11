@@ -1,11 +1,11 @@
 # IinPublic TODO
 
-Last updated: 2026-06-08
+Last updated: 2026-06-10
 
 This file is the short, execution-oriented plan. The detailed acceptance inventory and the
 statistics / spec-gap follow-ups are consolidated into the appendices at the bottom of this file.
 - Completed work: `docs/completed.md`
-- **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specifications.md` (§19.13, §19.14, REQ-P2P-09–29; mesh talk delivery design §23; Phase D DHT §24; find-similar §22)
+- **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specifications.md` (§19.13, §19.14, REQ-P2P-09–29; mesh talk delivery design §23; libp2p/IPFS §25 — supersedes Phase D §24; find-similar §22)
 - Detailed acceptance inventory: see "Appendix A — Detailed backlog inventory" below.
 
 ## Model routing legend
@@ -132,6 +132,46 @@ at send time. Authoritative design: spec REQ-LEDGER-16 + §23.6 broadcast.
 - [ ] Re-open delivery only on a content change (new `identityKey`) or a stance change (route the `TALK_ANSWERED` change-of-mind delta from step 9, not a fresh broadcast); clear the entry on `TALK_RETRACTED` (step 10).
 - [ ] Test: Tom sends `tennis` to Jerry, Jerry answers; later Jerry broadcasts a talk containing `tennis` + `chess` → Tom receives `chess` only, never a second `tennis`; after Jerry edits the tag's options (new identity), `tennis'` is delivered to Tom once.
 
+### P1 — libp2p transport + IPFS content layer (SRS §25; supersedes Phase D §24)
+
+**Design of record:** SRS §25 (merged 2026-06-10 from `docs/architecture/p2p-mesh-libp2p-analysis.md`).
+One dependency (Helia) serves both: libp2p replaces the hand-rolled WebRTC connection layer and
+hub-bound discovery; IPFS adds content-addressed file sharing with the matched-talk auto-share
+link. App layers stay byte-identical: `P2PMeshFrame`, SEA crypto, gossip forwarding, TalkLedger,
+Gun, mailbox. **Sequenced after P0 steps 9–11.**
+
+#### L1. Helia/libp2p node bootstrap (REQ-IPFS-01, REQ-LIBP2P-07) `[Sonnet]`
+
+- [ ] Add Helia; lazy-init alongside SEA + Gun bootstrap; expose `node.libp2p`; record gzipped bundle delta; keep per-worker E2E port isolation
+- [ ] Test: app boots with node initialized on first content-layer use; no first-paint regression
+
+#### L2. Mesh stream handler over libp2p (REQ-LIBP2P-01/02/04) `[Opus design → Sonnet impl]` — transport swap behind `MeshSession`; connection-lifecycle correctness
+
+- [ ] Register `/iinpublic/mesh/1.0.0`; implement `MeshSession` over libp2p streams (frames/SEA/dedup/forwarding unchanged); circuit relay v2 fallback; SEA-signed `userId↔PeerID` binding records
+- [ ] Test: spec-01/02/03 invariants pass over libp2p transport; NAT-blocked pair connects via relay
+
+#### L3. Hub-independent discovery (REQ-LIBP2P-03) `[Sonnet]`
+
+- [ ] Kademlia DHT room rendezvous (`provide`/`findProviders` on room-key CID) + mDNS; Socket.IO roster stays as fast path; bootstrap-peer multiaddr list for cold start
+- [ ] Test: stop the hub mid-session → peers re-form the room overlay and mesh-ping reachability holds without hub interaction
+
+#### L4. IPFS talk attachments (REQ-IPFS-02/03) `[Sonnet]`
+
+- [ ] `ipfsAttachments` descriptor on talks (announce metadata + body payload; no new frame kinds; no bytes in Gun/mailbox)
+- [ ] SEA-encrypt-before-add for private attachments; plaintext requires explicit per-attachment public opt-in; author pins locally
+- [ ] Test: attachment descriptor round-trips announce→body→intake; ciphertext-only on IPFS for `enc:'sea-pair'`
+
+#### L5. Matched-talk auto-share link (REQ-IPFS-04/05/06) `[Sonnet]`
+
+- [ ] On match-created conversation, author auto-sends `ipfs://<cid>` message with pair-encrypted key; deterministic message id `CIDv1({conversationId, talkId::authorId, cid})` (idempotent both sides; offline → mailbox carries link+key only)
+- [ ] Receiver fetch via bitswap + decrypt; `TALK_RETRACTED` unpins + marks links dead (best-effort, UI copy notes irrecallability)
+- [ ] Test (E2E): Tom's talk carries an attachment; Jerry matches → share message appears exactly once in both views; Jerry fetches and decrypts; Bob (ignored) never receives the link; offline-Jerry receives link after mailbox drain
+
+#### L6. Signaling deletion (REQ-LIBP2P-06) `[Haiku]` — mechanical once L2/L3 E2E-stable
+
+- [ ] Delete `/api/p2p/signaling`, conversation-relay, discovery routes (+ dead client callers, tests prove 404); STUN/TURN config route when relay-only traversal is proven
+- [ ] Test: full E2E suite green with signaling endpoints absent
+
 ### P2 — Context-aware "Me" tab answer list (FR-QA-14, UI-8, §13.7) `[Sonnet]` — data model + UI fully specified; backfill needs care
 
 The "Me" tab shows the user's saved Q/A pairs. Flat for tag/survey, but **flow and route answers are
@@ -154,16 +194,12 @@ The framework is implemented and wired into routes. The per-chatroom plugin conf
 - [ ] Add `WebChatroomService.setChallengeConfig(chatroomId, pluginIds)` that writes to zone-B and reads it back for the `resolveChallengeGate` hook
 - [ ] Unit test: round-trip serialize/deserialize plugin config from Gun zone-B path
 
-### Phase D — DHT Bootstrap implementation (§19.12) `[Sonnet]` — spec §24 is complete; types/LRU store scaffolding is `[Haiku]`-feasible
+### ~~Phase D — DHT Bootstrap implementation (§19.12)~~ — SUPERSEDED 2026-06-10
 
-Design written in spec §24 (Phase D — DHT Bootstrap Design). Implementation not started.
-
-- [ ] Create `src/shared/dht-bootstrap.ts` with `DhtBootstrapClient` interface and `BootstrapPeer` / `UserPeerRecord` types (see spec §24.2)
-- [ ] Create `src/server/services/bootstrap-store.ts`: in-memory LRU peer store with 5-min TTL
-- [ ] Create `src/server/routes/bootstrap-routes.ts`: `GET /bootstrap/peers`, `POST /bootstrap/announce`, `GET /bootstrap/lookup/:userId`
-- [ ] Create `src/web/services/web-bootstrap-client.ts`: client backed by hub `/bootstrap/*` endpoints
-- [ ] Web client: try hub `/api/peers` first; fall back to `/bootstrap/peers` if hub unreachable
-- [ ] Unit + integration tests for announcement validation, TTL eviction, and lookup
+Superseded by **P1 — libp2p transport + IPFS content layer** (SRS §25, item L3): libp2p's
+built-in Kademlia DHT + mDNS replaces the custom bootstrap service. The §24 announce-validation
+threat model (signature, replay window, TTL) carries over to the L2 binding records. Do not
+implement the `/bootstrap/*` endpoints.
 
 ### P2 — Scalable "Find Similar People" by matched tags (REQ-SIM-01–08)
 
