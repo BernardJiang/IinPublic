@@ -86,10 +86,10 @@ remembers "Jerry already answered Tom" and the only re-send throttle. These must
 or the sender can re-broadcast unboundedly once star is gone (receiver-side identity dedup +
 exact chatbot memory still prevent re-*prompting* and re-*matching*, but not wasted re-sends).
 
-- [ ] Persist the author's per-talk response inbox locally (spec §23.6) recording each responder's outcome (`matched` / `ignored` / `no-reply`) **with the responder's response `version` and `respondedAt` timestamp**, so the sender has durable "already heard back" state without the server.
-- [ ] Suppress re-announcing a talk to recipients whose outcome is already recorded for that talk identity key (skip on the sender, in addition to receiver-side dedup).
-- [ ] Replace the server `SymmetricTalkEdgeRateLimiter` and daily/weekly edge quota with a client-side per-edge cooldown/quota (local-first; no server counters).
-- [ ] Test: after Jerry ignores Tom's tag, Tom does not re-deliver the same talk identity to Jerry on rebroadcast, and Jerry is never re-prompted (cache auto-applies the prior ignore).
+- [x] Persist the author's per-talk response inbox locally (spec §23.6) recording each responder's outcome (`matched` / `ignored` / `no-reply`) **with the responder's response `version` and `respondedAt` timestamp** — ✅ shipped 2026-06-10 (`talk-ledger.ts` outcomes section)
+- [x] Suppress re-announcing a talk to recipients whose outcome is already recorded for that talk identity key — ✅ shipped 2026-06-10 (per-identity `shouldSuppress` at recipient selection)
+- [x] Replace the server `SymmetricTalkEdgeRateLimiter` and daily/weekly edge quota with a client-side per-edge cooldown/quota — ✅ shipped 2026-06-10 (`applyEdgeGate`, local-outbound; server limiters deleted in step 7)
+- [x] Test: after Jerry ignores Tom's tag, Tom does not re-deliver the same talk identity to Jerry on rebroadcast, and Jerry is never re-prompted — ✅ shipped 2026-06-10 (`06-sender-suppression.spec.ts`)
 
 #### 9. Response versioning & change-of-mind propagation (REQ-LEDGER-04) `[Opus]` — last-writer-by-version, supersession, stale-update rejection; same session as 10–11
 

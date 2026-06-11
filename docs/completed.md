@@ -1665,3 +1665,17 @@ Evidence:
 - E2E: `03-mesh-response-match.spec.ts`, `04-local-contacts.spec.ts`, `05-mailbox-offline-response.spec.ts`; full suite green locally
 - Integration: `src/test/integration/mailbox-routes.test.ts` (25)
 - Unit: `mesh-response-step4.test.ts` (18), `local-peer-derivation.test.ts` (40)
+
+## 2026-06-10 - P0 Step 8: Sender-Side Ledger State
+
+Unified local `talkLedger` (outcomes / exchanged / edges / retracted) with pure ordering module
+`src/shared/talk-ledger.ts` (version-then-timestamp, retraction-wins, per-identity
+`shouldSuppress`, `applyEdgeGate` mirroring the server day/week quotas). Author records each
+responder's outcome with version + respondedAt; broadcast recipient selection skips
+already-answered identities and enforces the local-outbound edge quota. Steps 9-11 fields
+scaffolded (no migration needed). Design: `docs/design/p0-steps8-11-ledger.md`.
+
+Evidence:
+
+- E2E: `06-sender-suppression.spec.ts`; full suite green locally
+- Unit: `src/test/unit/talk-ledger.test.ts` (49)
