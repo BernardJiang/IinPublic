@@ -18,8 +18,10 @@ import {
   applyEvent,
   applyEdgeGate,
   shouldSuppress,
+  exchangedKey,
   type TalkLedgerDoc,
   type LedgerEvent,
+  type ExchangedEntry,
 } from '../../shared/talk-ledger';
 
 const STORAGE_KEY = 'talkLedger';
@@ -96,4 +98,96 @@ export function shouldSuppressForPeer(peerId: string, identityKey: string): bool
  */
 export function getTalkLedgerDoc(): TalkLedgerDoc {
   return loadTalkLedger();
+}
+
+// ─── Step 9: responder-side helpers ───────────────────────────────────────────
+
+/**
+ * Return the current version the responder (self) has sent for the given
+ * (talkId, authorId) identity, or 0 if no prior response exists.
+ *
+ * We store the responder's own sent-response in the exchanged section with
+ * role:'responder' and key `${authorId}::${identityKey}`.  The version field
+ * on that entry mirrors the version sent.
+ *
+ * This is the persistent "what version did I last send?" for monotonic bumping.
+ */
+export function getResponderVersionForTalk(
+  identityKey: string,
+  authorId: string,
+): number {
+  const doc = loadTalkLedger();
+  const key = exchangedKey(authorId, identityKey);
+  const entry = doc.exchanged[key];
+  if (!entry || entry.role !== 'responder') return 0;
+  return entry.version;
+}
+
+/**
+ * Write/update a responder-side exchanged entry recording that the responder
+ * (self) has answered a talk with the given identityKey from authorId.
+ *
+ * Called from submitTalkResponsePairDirect after sending the response.
+ * Stores version + responseId so change-of-mind fanout can read prior state.
+ */
+export function writeResponderExchangedEntry(params: {
+  authorId: string;
+  identityKey: string;
+  outcome: ExchangedEntry['outcome'];
+  version: number;
+  responseId: string;
+  respondedAt: string;
+}): void {
+  const doc = loadTalkLedger();
+  const key = exchangedKey(params.authorId, params.identityKey);
+  const existing = doc.exchanged[key];
+  // Only update if incoming version is >= existing (allow idempotent re-write at same version)
+  if (existing && existing.role === 'responder' && existing.version > params.version) {
+    return; // stale write — existing is newer
+  }
+  doc.exchanged[key] = {
+    peerId: params.authorId,
+    identityKey: params.identityKey,
+    outcome: params.outcome,
+    version: params.version,
+    role: 'responder',
+    lastExchangedAt: params.respondedAt,
+    // Extra field for change-of-mind fanout: store responseId so we can detect content change.
+    // TypeScript: cast to any is required because ExchangedEntry doesn't have responseId.
+    // We attach it as a non-schema field that fanout reads.
+    ...(params.responseId ? { responseId: params.responseId } as any : {}),
+  };
+  saveTalkLedger(doc);
+}
+
+/**
+ * Get all authorIds who have sent the responder a talk with this identityKey.
+ * Used by change-of-mind fanout: enumerates all senders to propagate the update to.
+ *
+ * Returns an array of authorIds where `exchanged[authorId::identityKey].role === 'responder'`.
+ */
+export function getResponderSendersForIdentity(identityKey: string): string[] {
+  const doc = loadTalkLedger();
+  const senders: string[] = [];
+  for (const entry of Object.values(doc.exchanged)) {
+    if (entry.role === 'responder' && entry.identityKey === identityKey) {
+      senders.push(entry.peerId);
+    }
+  }
+  return senders;
+}
+
+/**
+ * Get the responseId last sent by the responder for the given (authorId, identityKey).
+ * Used to detect content change: if new responseId !== stored, version must bump.
+ */
+export function getResponderLastResponseId(
+  identityKey: string,
+  authorId: string,
+): string | null {
+  const doc = loadTalkLedger();
+  const key = exchangedKey(authorId, identityKey);
+  const entry = doc.exchanged[key];
+  if (!entry || entry.role !== 'responder') return null;
+  return (entry as any).responseId ?? null;
 }

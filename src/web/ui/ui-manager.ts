@@ -6528,6 +6528,8 @@ export class UIManager extends EventEmitter {
     supportChannel?: boolean;
     transportMode?: string;
     transportFallbackReason?: string | null;
+    /** Step 9: ISO timestamp of when the responder changed their mind to produce this match. */
+    changeOfMindAt?: string;
   }): void {
     const conversations = this.getMyConversations();
     const existing = conversations[conversationData.conversationId];
@@ -6562,6 +6564,8 @@ export class UIManager extends EventEmitter {
       supportChannel: isSupportChannel,
       transportMode: conversationData.transportMode ?? existing?.transportMode ?? 'star-gun',
       transportFallbackReason: existing?.transportFallbackReason ?? conversationData.transportFallbackReason ?? null,
+      // Step 9: record change-of-mind timestamp for durable UI assertion
+      ...(conversationData.changeOfMindAt ? { changeOfMindAt: conversationData.changeOfMindAt } : {}),
     };
 
     localStorage.setItem('myConversations', JSON.stringify(conversations));
@@ -6592,6 +6596,33 @@ export class UIManager extends EventEmitter {
       this.displayContactsList();
     }
 
+    const meTab = document.querySelector('.nav-btn[data-view="me"]');
+    if (meTab?.classList.contains('active')) {
+      this.displayConversationsList();
+    }
+  }
+
+  /**
+   * Step 9: Mark a conversation as ended (match→ignore change-of-mind).
+   * Finds the conversation by otherUserId+talkId, sets status:'ignored' and
+   * records the changedAt timestamp so the conversation-list renders a durable
+   * "answer changed" label assertable by E2E tests.
+   */
+  markConversationEnded(otherUserId: string, talkId: string, changedAt: string): void {
+    const conversations = this.getMyConversations();
+    // Find the conversation by otherUserId + talkId
+    const convId = Object.keys(conversations).find((id) => {
+      const c = conversations[id];
+      return c?.otherUserId === otherUserId && c?.talkId === talkId;
+    });
+    if (!convId) return;
+    conversations[convId].status = 'ignored';
+    conversations[convId].changedAt = changedAt;
+    conversations[convId].lastMessage = `Answer changed · ${new Date(changedAt).toLocaleString()}`;
+    conversations[convId].lastMessageTime = changedAt;
+    localStorage.setItem('myConversations', JSON.stringify(conversations));
+    this.updateMatchBadge();
+    this.syncStatusBarMatchCount();
     const meTab = document.querySelector('.nav-btn[data-view="me"]');
     if (meTab?.classList.contains('active')) {
       this.displayConversationsList();

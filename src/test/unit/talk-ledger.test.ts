@@ -596,3 +596,221 @@ describe('store round-trip (localStorage mock)', () => {
     expect(doc.edges['jerry']!.sentToday).toBe(1);
   });
 });
+
+// ─── Step 9: version monotonicity + responder-side helpers ────────────────────
+
+describe('Step 9 — version monotonicity and responder-side helpers (localStorage mock)', () => {
+  beforeEach(() => {
+    // Clear via the globalThis.localStorage mock that was set up by the first describe block.
+    // If localStorage is defined, clear all keys explicitly so the shared store is empty.
+    if (typeof globalThis.localStorage !== 'undefined') {
+      globalThis.localStorage.clear();
+    }
+  });
+
+  it('getResponderVersionForTalk returns 0 when no prior response', async () => {
+    const { getResponderVersionForTalk } = await import('../../web/services/web-talk-ledger-store');
+    expect(getResponderVersionForTalk('qa_tennis', 'tom')).toBe(0);
+  });
+
+  it('writeResponderExchangedEntry persists version and is readable', async () => {
+    const {
+      writeResponderExchangedEntry,
+      getResponderVersionForTalk,
+      getResponderLastResponseId,
+    } = await import('../../web/services/web-talk-ledger-store');
+
+    writeResponderExchangedEntry({
+      authorId: 'tom',
+      identityKey: 'qa_tennis',
+      outcome: 'matched',
+      version: 1,
+      responseId: 'resp_v1',
+      respondedAt: '2024-01-01T10:00:00.000Z',
+    });
+
+    expect(getResponderVersionForTalk('qa_tennis', 'tom')).toBe(1);
+    expect(getResponderLastResponseId('qa_tennis', 'tom')).toBe('resp_v1');
+  });
+
+  it('version bump: writing version 2 overwrites version 1', async () => {
+    const {
+      writeResponderExchangedEntry,
+      getResponderVersionForTalk,
+      getResponderLastResponseId,
+    } = await import('../../web/services/web-talk-ledger-store');
+
+    writeResponderExchangedEntry({
+      authorId: 'tom',
+      identityKey: 'qa_tennis',
+      outcome: 'ignored',
+      version: 1,
+      responseId: 'resp_v1',
+      respondedAt: '2024-01-01T10:00:00.000Z',
+    });
+    writeResponderExchangedEntry({
+      authorId: 'tom',
+      identityKey: 'qa_tennis',
+      outcome: 'matched',
+      version: 2,
+      responseId: 'resp_v2',
+      respondedAt: '2024-01-01T11:00:00.000Z',
+    });
+
+    expect(getResponderVersionForTalk('qa_tennis', 'tom')).toBe(2);
+    expect(getResponderLastResponseId('qa_tennis', 'tom')).toBe('resp_v2');
+  });
+
+  it('stale write (lower version) is rejected', async () => {
+    const {
+      writeResponderExchangedEntry,
+      getResponderVersionForTalk,
+    } = await import('../../web/services/web-talk-ledger-store');
+
+    writeResponderExchangedEntry({
+      authorId: 'tom',
+      identityKey: 'qa_tennis',
+      outcome: 'matched',
+      version: 3,
+      responseId: 'resp_v3',
+      respondedAt: '2024-01-01T12:00:00.000Z',
+    });
+    // Attempt stale write
+    writeResponderExchangedEntry({
+      authorId: 'tom',
+      identityKey: 'qa_tennis',
+      outcome: 'ignored',
+      version: 2,
+      responseId: 'resp_v2',
+      respondedAt: '2024-01-01T11:00:00.000Z',
+    });
+
+    expect(getResponderVersionForTalk('qa_tennis', 'tom')).toBe(3);
+  });
+
+  it('version persists across store reload', async () => {
+    const {
+      writeResponderExchangedEntry,
+    } = await import('../../web/services/web-talk-ledger-store');
+
+    writeResponderExchangedEntry({
+      authorId: 'tom',
+      identityKey: 'qa_chess',
+      outcome: 'matched',
+      version: 5,
+      responseId: 'resp_v5',
+      respondedAt: '2024-01-01T12:00:00.000Z',
+    });
+
+    // Simulate reload by re-importing (module is cached, but store key is in the mock)
+    const { getResponderVersionForTalk: getV2 } = await import('../../web/services/web-talk-ledger-store');
+    expect(getV2('qa_chess', 'tom')).toBe(5);
+  });
+
+  it('getResponderSendersForIdentity returns all authors who sent the identity', async () => {
+    const {
+      writeResponderExchangedEntry,
+      getResponderSendersForIdentity,
+    } = await import('../../web/services/web-talk-ledger-store');
+
+    writeResponderExchangedEntry({
+      authorId: 'tom',
+      identityKey: 'qa_tennis',
+      outcome: 'ignored',
+      version: 1,
+      responseId: 'r1',
+      respondedAt: '2024-01-01T10:00:00.000Z',
+    });
+    writeResponderExchangedEntry({
+      authorId: 'bob',
+      identityKey: 'qa_tennis',
+      outcome: 'matched',
+      version: 1,
+      responseId: 'r2',
+      respondedAt: '2024-01-01T10:01:00.000Z',
+    });
+
+    const senders = getResponderSendersForIdentity('qa_tennis');
+    expect(senders).toHaveLength(2);
+    expect(senders).toContain('tom');
+    expect(senders).toContain('bob');
+  });
+
+  it('getResponderSendersForIdentity does not return senders for different identity', async () => {
+    const {
+      writeResponderExchangedEntry,
+      getResponderSendersForIdentity,
+    } = await import('../../web/services/web-talk-ledger-store');
+
+    writeResponderExchangedEntry({
+      authorId: 'tom',
+      identityKey: 'qa_tennis',
+      outcome: 'ignored',
+      version: 1,
+      responseId: 'r1',
+      respondedAt: '2024-01-01T10:00:00.000Z',
+    });
+
+    const senders = getResponderSendersForIdentity('qa_chess');
+    expect(senders).toHaveLength(0);
+  });
+});
+
+// ─── Step 9: ingest matrix (applyEvent ordering for supersession) ─────────────
+
+describe('Step 9 — ingest matrix: newer/equal/older/post-retraction', () => {
+  it('newer version replaces existing outcome (ignore→match flip)', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeAnsweredEvent({ outcome: 'ignored', version: 1, responseId: 'r1' }));
+    applyEvent(doc, makeAnsweredEvent({ outcome: 'matched', version: 2, responseId: 'r2', respondedAt: '2024-01-01T11:00:00.000Z' }));
+
+    const k = outcomeKey('jerry', 'talk1', 'tom');
+    expect(doc.outcomes[k]!.outcome).toBe('matched');
+    expect(doc.outcomes[k]!.version).toBe(2);
+  });
+
+  it('equal version with same responseId is idempotent (no change)', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeAnsweredEvent({ outcome: 'matched', version: 1, responseId: 'r1' }));
+    // Same version + same responseId = exact replay
+    applyEvent(doc, makeAnsweredEvent({ outcome: 'ignored', version: 1, responseId: 'r1' }));
+
+    const k = outcomeKey('jerry', 'talk1', 'tom');
+    expect(doc.outcomes[k]!.outcome).toBe('matched'); // unchanged
+  });
+
+  it('older version is rejected (stale)', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeAnsweredEvent({ outcome: 'matched', version: 3, responseId: 'r3' }));
+    applyEvent(doc, makeAnsweredEvent({ outcome: 'ignored', version: 2, responseId: 'r2' }));
+
+    const k = outcomeKey('jerry', 'talk1', 'tom');
+    expect(doc.outcomes[k]!.outcome).toBe('matched'); // unchanged
+    expect(doc.outcomes[k]!.version).toBe(3);
+  });
+
+  it('post-retraction answer is rejected', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, {
+      kind: 'TALK_RETRACTED',
+      talkId: 'talk1',
+      authorId: 'tom',
+      retractedAt: new Date('2024-01-01T10:00:00.000Z').getTime(),
+    });
+    // Answer came in BEFORE retraction time
+    applyEvent(doc, makeAnsweredEvent({ respondedAt: '2024-01-01T09:59:00.000Z', version: 2, responseId: 'r2' }));
+
+    const k = outcomeKey('jerry', 'talk1', 'tom');
+    expect(doc.outcomes[k]).toBeUndefined();
+  });
+
+  it('match→ignore: applyEvent flips the outcome and version increments', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeAnsweredEvent({ outcome: 'matched', version: 1, responseId: 'r1' }));
+    applyEvent(doc, makeAnsweredEvent({ outcome: 'ignored', version: 2, responseId: 'r2', respondedAt: '2024-01-01T11:00:00.000Z' }));
+
+    const k = outcomeKey('jerry', 'talk1', 'tom');
+    expect(doc.outcomes[k]!.outcome).toBe('ignored');
+    expect(doc.outcomes[k]!.version).toBe(2);
+  });
+});

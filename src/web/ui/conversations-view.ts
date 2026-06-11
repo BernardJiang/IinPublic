@@ -8,6 +8,12 @@ type ConversationRecord = {
   lastMessageTime?: string;
   createdAt?: string;
   lastMessage?: string;
+  /** Step 9: ISO timestamp when responder changed their mind creating this match. */
+  changeOfMindAt?: string;
+  /** Step 9: 'ignored' when a match→ignore change-of-mind ended this conversation. */
+  status?: string;
+  /** Step 9: ISO timestamp when a match→ignore change happened. */
+  changedAt?: string;
 };
 
 type ConversationsViewDeps = {
@@ -43,8 +49,15 @@ export function displayConversationsList(deps: ConversationsViewDeps): void {
 
   conversationsList.innerHTML = conversationEntries
     .map(
-      ([conversationId, conversation]) => `
-        <div class="conversation-list-item ${conversation.unread ? 'unread' : ''}" data-conversation-id="${conversationId}" data-responded-by-bot="${!!conversation.respondedByBot}">
+      ([conversationId, conversation]) => {
+        const isEnded = conversation.status === 'ignored';
+        const changeTs = conversation.changeOfMindAt || conversation.changedAt;
+        return `
+        <div class="conversation-list-item ${conversation.unread ? 'unread' : ''} ${isEnded ? 'conversation-ended' : ''}"
+             data-conversation-id="${conversationId}"
+             data-responded-by-bot="${!!conversation.respondedByBot}"
+             data-conversation-status="${deps.escapeHtml(conversation.status || 'active')}"
+             ${changeTs ? `data-change-of-mind-at="${deps.escapeHtml(changeTs)}"` : ''}>
           <div class="conversation-avatar-wrapper" style="position: relative;">
             <div class="conversation-avatar">
               ${conversation.otherUserName?.charAt(0).toUpperCase() || '?'}
@@ -65,7 +78,8 @@ export function displayConversationsList(deps: ConversationsViewDeps): void {
             </div>
           </div>
         </div>
-      `,
+        `;
+      },
     )
     .join('');
 

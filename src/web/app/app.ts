@@ -39,9 +39,18 @@ import {
   applyEdgeGateForPeer,
   shouldSuppressForPeer,
   getTalkLedgerDoc,
+  getResponderVersionForTalk,
+  writeResponderExchangedEntry,
+  getResponderSendersForIdentity,
+  getResponderLastResponseId,
 } from '../services/web-talk-ledger-store';
 import { buildTalkIdentityKey } from '../../shared/cid';
-import { buildTagIdentityKeys, setTalkLedgerQuotaUnlimited } from '../../shared/talk-ledger';
+import {
+  buildTagIdentityKeys,
+  setTalkLedgerQuotaUnlimited,
+  applyEvent as applyLedgerEvent,
+  outcomeKey as ledgerOutcomeKey,
+} from '../../shared/talk-ledger';
 
 export class IinPublicApp {
   private gunService: WebGunService;
@@ -1142,6 +1151,106 @@ export class IinPublicApp {
     const talkData = await this.resolveMeshTalkData(payload.talkId);
     if (!talkData) return;
     const decrypted = await this.decryptPairTalkResponsePayload(payload);
+
+    // Step 9: version-gate ingest via applyEvent.
+    // Read the prior outcome for this (responderId, talkId, authorId) from ledger.
+    const ledgerDoc = getTalkLedgerDoc();
+    const oKey = ledgerOutcomeKey(payload.responderId, payload.talkId, this.currentUser.id);
+    const priorOutcome = ledgerDoc.outcomes[oKey];
+    const incomingVersion = payload.version ?? 1;
+    const incomingRespondedAt = payload.respondedAt ?? payload.submittedAt;
+
+    if (priorOutcome) {
+      const identityKey = buildTalkIdentityKey(talkData);
+      // Use applyEvent to determine if this update should be accepted.
+      // Clone doc to avoid mutating the read copy before we know if it's accepted.
+      const testDoc = JSON.parse(JSON.stringify(ledgerDoc));
+      const isMatch = this.checkIfMatch(talkData, decrypted.answers);
+      const ledgerOutcome = isMatch ? 'matched' as const : 'ignored' as const;
+      const preApplyVersion = testDoc.outcomes[oKey]?.version ?? 0;
+      applyLedgerEvent(testDoc, {
+        kind: 'TALK_ANSWERED',
+        responderId: payload.responderId,
+        talkId: payload.talkId,
+        authorId: this.currentUser.id,
+        identityKey,
+        outcome: ledgerOutcome,
+        version: incomingVersion,
+        responseId: payload.responseId,
+        respondedAt: incomingRespondedAt,
+        now: new Date().toISOString(),
+      });
+      const postApplyVersion = testDoc.outcomes[oKey]?.version ?? 0;
+
+      // If applyEvent did not update the entry, this is stale/replay — reject.
+      if (postApplyVersion <= preApplyVersion && testDoc.outcomes[oKey]?.responseId === priorOutcome.responseId) {
+        console.debug(`[Step9] Rejecting stale/replay response from ${payload.responderId} version=${incomingVersion} (prior=${priorOutcome.version})`);
+        return;
+      }
+
+      // Accepted: add to dedupeKey set, record exchange, and handle outcome flip.
+      this.processedTalkResponseKeys.add(dedupeKey);
+      this.recordLocalTalkExchange(
+        payload.responderId,
+        decrypted.responderName,
+        payload.talkId,
+        talkData,
+        isMatch ? 'match' : 'mismatch',
+        {
+          responseId: payload.responseId,
+          version: incomingVersion,
+          respondedAt: incomingRespondedAt,
+        },
+      );
+
+      const wasMatch = priorOutcome.outcome === 'matched';
+      const nowMatch = isMatch;
+      const changedAt = incomingRespondedAt;
+
+      if (!wasMatch && nowMatch) {
+        // ignore → match: create conversation
+        this.uiManager.showNotification(
+          `${decrypted.responderName} changed their answer — now a match · ${new Date(changedAt).toLocaleTimeString()}`,
+          'success',
+        );
+        const conversationId = await this.conversationService.createConversation({
+          userId1: this.currentUser.id,
+          userName1: this.currentUser.stageName,
+          userId2: payload.responderId,
+          userName2: decrypted.responderName,
+          talkId: payload.talkId,
+          respondedByBotForUser1: !!decrypted.isChatbotResponse,
+          respondedByBotForUser2: false,
+        });
+        this.uiManager.addNewConversation({
+          conversationId,
+          otherUserId: payload.responderId,
+          otherUserName: decrypted.responderName,
+          talkId: payload.talkId,
+          respondedByBot: !!decrypted.isChatbotResponse,
+          transportMode: this.conversationService.getTransportMode(),
+          changeOfMindAt: changedAt,
+        });
+        this.uiManager.setMemberMatched(payload.responderId);
+      } else if (wasMatch && !nowMatch) {
+        // match → ignore: mark conversation ended with status 'ignored'
+        this.uiManager.showNotification(
+          `${decrypted.responderName} changed their answer — no longer a match · ${new Date(changedAt).toLocaleTimeString()}`,
+          'info',
+        );
+        this.uiManager.markConversationEnded(
+          payload.responderId,
+          payload.talkId,
+          changedAt,
+        );
+      } else {
+        // Outcome unchanged (both match or both not-match) — version bumped but no flip
+        console.debug(`[Step9] Version bump from ${payload.responderId}: v${priorOutcome.version}→v${incomingVersion}, outcome unchanged (${priorOutcome.outcome})`);
+      }
+      return;
+    }
+
+    // No prior entry — first receipt (original flow from step 8)
     this.processedTalkResponseKeys.add(dedupeKey);
     const isMatch = this.checkIfMatch(talkData, decrypted.answers);
     // R-2: pass responseId/version/respondedAt for forward-compat (steps 8–11)
@@ -1153,8 +1262,8 @@ export class IinPublicApp {
       isMatch ? 'match' : 'mismatch',
       {
         responseId: payload.responseId,
-        version: payload.version ?? 1,
-        respondedAt: payload.respondedAt ?? payload.submittedAt,
+        version: incomingVersion,
+        respondedAt: incomingRespondedAt,
       },
     );
     if (!isMatch) return;
@@ -1938,6 +2047,30 @@ export class IinPublicApp {
       this.p2pRuntimeFlags,
     );
     this.mergeIncomingClusterIntoUi([cluster]);
+
+    // Step 9: write responder-side exchanged entry so change-of-mind fanout can
+    // enumerate all senders of this identity.  Written here (on talk acceptance)
+    // so the sender list is populated before any submitTalkResponsePairDirect call.
+    // role:'responder' + version:0 means "received but not yet answered".
+    // submitTalkResponsePairDirect will overwrite with the actual version on answer.
+    try {
+      const identityKey = buildTalkIdentityKey(talkData);
+      const existingVersion = getResponderVersionForTalk(identityKey, senderId);
+      if (existingVersion === 0) {
+        // Only seed the sender record if not yet answered (version 0 = no prior answer)
+        writeResponderExchangedEntry({
+          authorId: senderId,
+          identityKey,
+          outcome: 'no-reply',
+          version: 0,
+          responseId: '',
+          respondedAt: new Date().toISOString(),
+        });
+      }
+    } catch {
+      // Non-fatal: fanout may miss this sender on first change-of-mind attempt
+    }
+
     return true;
   }
 
@@ -2043,27 +2176,55 @@ export class IinPublicApp {
       responseContentJson,
     });
     const submittedAt = new Date().toISOString();
+
+    // Step 9: monotonic version bump (REQ-LEDGER-04).
+    // The identityKey is the content-hash of the talk (same for all senders of identical content).
+    // We look up the prior version we sent for this (identityKey, authorId) pair.
+    const wholeTalkIdentityKey = buildTalkIdentityKey(params.talkData);
+    const priorVersion = getResponderVersionForTalk(wholeTalkIdentityKey, params.authorId);
+    const priorResponseId = getResponderLastResponseId(wholeTalkIdentityKey, params.authorId);
+    // If responseId is unchanged from prior (same answers re-submitted), keep version.
+    // If responseId changed (content changed), version = prior + 1.
+    const isContentChange = priorResponseId !== null && priorResponseId !== responseId;
+    const newVersion = priorResponseId === null
+      ? 1                        // first answer ever
+      : isContentChange
+        ? priorVersion + 1       // change of mind: bump
+        : priorVersion;          // same content re-submitted (idempotent)
+    const respondedAt = submittedAt; // first answer: respondedAt == submittedAt; supersession: now
+
     const skipE2eLocalOnlyReject =
       process.env.DISABLE_HMR === 'true' &&
       params.talkData?.e2eLocalOnlyReject === true &&
       !isMatch;
-    if (!skipE2eLocalOnlyReject) {
-      const authorEpub = this.pairTalkPeerEpubHint(params.talkData?.authorEpub, params.talkData?.senderEpub);
-      const payloadCiphertext = await this.encryptPairTalkResponsePayload(params.authorId, {
-        responderName: this.currentUser.stageName,
-        authorName: params.authorName,
-        answers: params.answers,
-        isChatbotResponse: params.isChatbotResponse,
-        transportMode: 'mesh-p2p',
-      }, authorEpub);
+
+    // Helper: send mesh+mailbox to a single target authorId
+    const sendToAuthor = async (targetAuthorId: string, targetAuthorName: string, targetEpub?: string): Promise<void> => {
+      const authorEpub = targetEpub ?? this.pairTalkPeerEpubHint(
+        targetAuthorId === params.authorId ? params.talkData?.authorEpub : undefined,
+        targetAuthorId === params.authorId ? params.talkData?.senderEpub : undefined,
+      );
+      let payloadCiphertext: string;
+      try {
+        payloadCiphertext = await this.encryptPairTalkResponsePayload(targetAuthorId, {
+          responderName: this.currentUser!.stageName,
+          authorName: targetAuthorName,
+          answers: params.answers,
+          isChatbotResponse: params.isChatbotResponse,
+          transportMode: 'mesh-p2p',
+        }, authorEpub);
+      } catch (err) {
+        console.warn(`[Step9] Failed to encrypt response for ${targetAuthorId}:`, err);
+        return;
+      }
       const meshPayload: P2PMeshTalkResponsePayload = {
         responseId,
         talkId: params.talkId,
-        authorId: params.authorId,
-        responderId: this.currentUser.id,
+        authorId: targetAuthorId,
+        responderId: this.currentUser!.id,
         submittedAt,
-        respondedAt: submittedAt,  // R-1: == submittedAt at v1; step 9 sets changedAt on supersession
-        version: 1,                // R-1: monotonic per (talkId,responderId); REQ-LEDGER-04
+        respondedAt,
+        version: newVersion,
         encryption: 'sea-ecdh-v1',
         payloadCiphertext,
         transportMode: 'mesh-p2p',
@@ -2079,15 +2240,65 @@ export class IinPublicApp {
         }
       }
       // Step 6: when unicast cannot be delivered (author offline or send failed),
-      // post a ciphertext envelope to the server mailbox. The author drains the
-      // mailbox on reconnect. If the mailbox POST itself fails, enqueue to localStorage
-      // for retry on the next roster-change (retryFailedMailboxPosts).
+      // post a ciphertext envelope to the server mailbox.
       if (!sent) {
         const posted = await this.postToMailbox(meshPayload);
         if (!posted) {
           this.enqueueFailedMailboxPost(meshPayload);
         }
       }
+    };
+
+    if (!skipE2eLocalOnlyReject) {
+      // Send to the primary author
+      await sendToAuthor(params.authorId, params.authorName);
+
+      // Step 9.1: change-of-mind fanout — if this is a version bump (content change),
+      // propagate to ALL original senders of this identity (not just the current author).
+      // The responder's exchanged section records every author who sent them this identity.
+      if (isContentChange) {
+        const allSenders = getResponderSendersForIdentity(wholeTalkIdentityKey);
+        for (const senderId of allSenders) {
+          if (senderId === params.authorId) continue; // already sent above
+          console.log(`[Step9] Change-of-mind fanout to additional sender ${senderId}`);
+          try {
+            await sendToAuthor(senderId, 'Unknown');
+          } catch (err) {
+            console.warn(`[Step9] Fanout to ${senderId} failed:`, err);
+          }
+        }
+      }
+    }
+
+    // Write/update the responder-side exchanged entry to track this response.
+    // This persists version + responseId for future version-bump decisions.
+    try {
+      const ledgerOutcomeVal = isMatch ? 'matched' as const : 'ignored' as const;
+      writeResponderExchangedEntry({
+        authorId: params.authorId,
+        identityKey: wholeTalkIdentityKey,
+        outcome: ledgerOutcomeVal,
+        version: newVersion,
+        responseId,
+        respondedAt,
+      });
+      // Also update for any other senders of the same identity (fanout case)
+      if (isContentChange) {
+        const allSenders = getResponderSendersForIdentity(wholeTalkIdentityKey);
+        for (const senderId of allSenders) {
+          if (senderId === params.authorId) continue;
+          writeResponderExchangedEntry({
+            authorId: senderId,
+            identityKey: wholeTalkIdentityKey,
+            outcome: ledgerOutcomeVal,
+            version: newVersion,
+            responseId,
+            respondedAt,
+          });
+        }
+      }
+    } catch {
+      // Non-fatal
     }
 
     // Step 7: client-side stats POST removed (server route dies in phase B).
