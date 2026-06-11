@@ -105,7 +105,6 @@ export class IinPublicApp {
   private readonly e2eSeededIncomingClusters: any[] = [];
   private readonly e2eSeededTagTalks = new Map<string, any>();
   private incomingTalkClusterUnsubscribe: (() => void) | null = null;
-  private chatroomTalksMapOff: (() => void) | null = null;
   private readonly p2pRuntimeFlags: P2PRuntimeFlags = resolveP2PRuntimeFlags(
     typeof process !== 'undefined'
       ? {
@@ -471,7 +470,6 @@ export class IinPublicApp {
 
       // Re-subscribe to messages and talks
       this.subscribeToMessages(toChatroomId);
-      this.subscribeToTalks(toChatroomId);
 
       // Also subscribe to the new chatroom's member count for the UI list
       this.chatroomService.subscribeToMemberCount(toChatroomId, (count) => {
@@ -525,7 +523,6 @@ export class IinPublicApp {
     this.subscribeToMessages(chatroomId);
 
     // Subscribe to chatroom talks
-    this.subscribeToTalks(chatroomId);
 
     // Subscribe to user's conversations (for matches)
     this.subscribeToUserConversations();
@@ -548,7 +545,6 @@ export class IinPublicApp {
       this.currentChatroomId = this.travelChatroomId;
       localStorage.setItem('iinpublic_last_chatroom', this.currentChatroomId);
       this.subscribeToMessages(this.currentChatroomId);
-      this.subscribeToTalks(this.currentChatroomId);
       this.uiManager.setCurrentChatroomId(this.currentChatroomId);
       this.chatroomService.subscribeToMembers(this.currentChatroomId, (members) => {
         this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
@@ -1362,12 +1358,6 @@ export class IinPublicApp {
   }
 
   /** Load full talk for an incoming mesh/local announcement. */
-  private loadIncomingTalkData(talkId: string, authorId: string): Promise<Talk | null> {
-    void authorId;
-    return this.talkService.getTalkWithRetry(talkId);
-  }
-
-  /** E2E: legacy shim kept for tests that assert server delivery is disabled. */
   public isDirectTalkDeliveryEnabled(): boolean {
     return usesMeshTalkDelivery(this.p2pRuntimeFlags);
   }
@@ -1389,145 +1379,6 @@ export class IinPublicApp {
       if (cluster?.identityKey) byKey.set(cluster.identityKey, cluster);
     }
     return [...byKey.values()];
-  }
-
-  private subscribeToTalks(chatroomId: string): void {
-    console.log('🎯 Subscribing to chatroom talks:', chatroomId);
-    if (this.chatroomTalksMapOff) {
-      try {
-        this.chatroomTalksMapOff();
-      } catch {
-        /* ignore */
-      }
-      this.chatroomTalksMapOff = null;
-    }
-    const gun = this.gunService.getGun();
-
-    const announcementRoots = [gun.get('chatrooms').get(chatroomId).get('announcements')];
-
-    /** Dedupe by (talkId, authorId); same content-hash id from two senders must both register. */
-    const seenTalkAuthor = new Set<string>();
-
-    const processTalkAnnouncement = (talkAnnouncement: any, talkId: string) => {
-      if (talkId.startsWith('_')) return; // Skip Gun.js metadata
-      // Ignore announcements from chatrooms we are not currently in (stale .on handlers or FR-BM-7).
-      if (this.currentChatroomId && this.currentChatroomId !== chatroomId) return;
-
-      console.log('📨 Received talk announcement:', { talkId, talkAnnouncement });
-
-      const authorId = String(talkAnnouncement?.authorId || '');
-      const logicalTalkId = String(talkAnnouncement?.talkId || talkId);
-      const pairKey = `${logicalTalkId}::${authorId}`;
-
-      /**
-       * Gun may fire .once and .on in any order, and replay nodes after replication. We must not mark
-       * (talkId, author) as "seen" until full talk JSON loads; replays can still hydrate the local
-       * owner index when the first pass ran before browser graph catch-up.
-       */
-      if (seenTalkAuthor.has(pairKey)) {
-        if (talkAnnouncement?.talkId && authorId && authorId !== this.currentUser?.id) {
-          void this.loadIncomingTalkData(talkAnnouncement.talkId, authorId).then((talkData) => {
-            if (!talkData) return;
-            mirrorTalkDefinitionToLocalGun(
-              this.gunService,
-              talkAnnouncement.talkId,
-              talkData,
-              this.p2pRuntimeFlags,
-            );
-            const talkWithAuthor = {
-              ...talkData,
-              authorName: talkAnnouncement.authorName || (talkData as any)?.authorName || 'Unknown',
-              ...(talkAnnouncement.authorEpub ? { authorEpub: talkAnnouncement.authorEpub } : {}),
-            };
-            this.registerSelfAsReceiverOfIncomingTalk(
-              talkAnnouncement.talkId,
-              authorId,
-              talkAnnouncement.authorName || 'Unknown',
-              talkWithAuthor,
-            );
-            this.maybeAutoChatbotReplyToAnnouncer(
-              logicalTalkId,
-              talkWithAuthor,
-              authorId,
-              talkAnnouncement.authorName || 'Unknown',
-            );
-          });
-        }
-        return;
-      }
-
-      if (talkAnnouncement && talkAnnouncement.talkId) {
-        // Wait for full JSON (questions/answers) — Gun .once often fires before replication completes.
-        void this.loadIncomingTalkData(talkAnnouncement.talkId, authorId).then((talkData) => {
-          if (!talkData) {
-            console.warn('Could not load full talk after retry:', talkAnnouncement.talkId);
-            return;
-          }
-          mirrorTalkDefinitionToLocalGun(
-            this.gunService,
-            talkAnnouncement.talkId,
-            talkData,
-            this.p2pRuntimeFlags,
-          );
-          console.log('📋 Full talk data:', talkData);
-          const talkWithAuthor = {
-            ...talkData,
-            authorName: talkAnnouncement.authorName || (talkData as any)?.authorName || 'Unknown',
-            ...(talkAnnouncement.authorEpub ? { authorEpub: talkAnnouncement.authorEpub } : {}),
-          };
-
-          const firstUi = !seenTalkAuthor.has(pairKey);
-          if (firstUi) {
-            seenTalkAuthor.add(pairKey);
-            this.uiManager.displayIncomingTalk({
-              id: talkData.id,
-              title: talkData.title,
-              authorName: talkAnnouncement.authorName || 'Unknown',
-              type: talkData.type,
-              questionCount: talkData.questions?.length || 0,
-              timestamp: talkAnnouncement.timestamp,
-              isOwnTalk: talkAnnouncement.authorId === this.currentUser?.id,
-              fullTalk: talkWithAuthor,
-            });
-          }
-
-          if (talkAnnouncement.authorId !== this.currentUser?.id) {
-            this.registerSelfAsReceiverOfIncomingTalk(
-              talkAnnouncement.talkId,
-              talkAnnouncement.authorId,
-              talkAnnouncement.authorName || 'Unknown',
-              talkWithAuthor,
-            );
-            if (firstUi) {
-              this.maybeAutoChatbotReplyToAnnouncer(
-                logicalTalkId,
-                talkWithAuthor,
-                authorId,
-                talkAnnouncement.authorName || 'Unknown',
-              );
-            }
-          }
-        });
-      }
-    };
-
-    const mapRefs = announcementRoots.map((root) => root.map());
-    for (const mapRef of mapRefs) {
-      mapRef.on(processTalkAnnouncement);
-    }
-    console.log('🔄 Loading existing talks with .once()...');
-    for (const mapRef of mapRefs) {
-      mapRef.once(processTalkAnnouncement);
-    }
-    this.chatroomTalksMapOff = () => {
-      for (const mapRef of mapRefs) {
-        try {
-          mapRef.off();
-        } catch {
-          /* ignore */
-        }
-      }
-    };
   }
 
   private recordLocalTalkExchange(
@@ -2057,18 +1908,6 @@ export class IinPublicApp {
    * Current user saw a talk announcement in their subscribed chatroom. Receiver-driven intake still
    * works when the sender's on-screen member list is wrong (e.g. eviction / room mismatch).
    */
-  private registerSelfAsReceiverOfIncomingTalk(
-    talkId: string,
-    senderId: string,
-    senderName: string,
-    talkData: any,
-  ): void {
-    if (!this.currentUser || !senderId || senderId === this.currentUser.id) return;
-    if (isTechSupportUser(this.currentUser)) return;
-
-    void this.ingestIncomingTalkAnnouncement(talkId, senderId, senderName, talkData);
-  }
-
   private async ingestIncomingTalkAnnouncement(
     talkId: string,
     senderId: string,
@@ -3404,7 +3243,6 @@ export class IinPublicApp {
           this.currentChatroomId = home;
           localStorage.setItem('iinpublic_last_chatroom', home);
           this.subscribeToMessages(home);
-          this.subscribeToTalks(home);
           this.uiManager.setCurrentChatroomId(home);
         this.chatroomService.subscribeToMembers(home, (members) => {
           this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
@@ -3439,7 +3277,6 @@ export class IinPublicApp {
         this.currentChatroomId = home;
         localStorage.setItem('iinpublic_last_chatroom', home);
         this.subscribeToMessages(home);
-        this.subscribeToTalks(home);
         this.uiManager.setCurrentChatroomId(home);
         this.chatroomService.subscribeToMembers(home, (members) => {
           this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
@@ -3674,8 +3511,7 @@ export class IinPublicApp {
         localStorage.setItem('iinpublic_last_chatroom', chatroomId);
 
         this.subscribeToMessages(chatroomId);
-        this.subscribeToTalks(chatroomId);
-        console.log(`✅ Switched to ${chatroomId}`);
+            console.log(`✅ Switched to ${chatroomId}`);
       } else {
         // Same room: ensure app id matches (e.g. first time opening detail after join)
         this.currentChatroomId = chatroomId;
