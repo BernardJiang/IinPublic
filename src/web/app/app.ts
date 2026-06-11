@@ -47,6 +47,7 @@ import {
 import { buildTalkIdentityKey } from '../../shared/cid';
 import {
   buildTagIdentityKeys,
+  filterTalkForRecipient,
   setTalkLedgerQuotaUnlimited,
   applyEvent as applyLedgerEvent,
   outcomeKey as ledgerOutcomeKey,
@@ -1972,32 +1973,62 @@ export class IinPublicApp {
     }
     if (receiverIds.length === 0) return false;
 
-    // Step 8.2: sender-side suppression — skip recipients whose outcome is already
-    // recorded for this talk identity (per-identity granularity, step-11-aligned).
+    // Step 8.2 / Step 11.3: sender-side per-identity suppression.
+    // For tag talks: compute suppressed identity keys per recipient and deliver a
+    // filtered talk body (only non-exchanged answers). For flow/survey/route: whole-talk
+    // suppression unchanged (no independent atoms).
     // NOTE: flood frames reach everyone by design; suppression applies only to the
     // directed recipientUserIds list used for announce/body delivery.
     const wholeTalkIdentityKey = buildTalkIdentityKey(talk);
     const identityKeys = buildTagIdentityKeys(talk, wholeTalkIdentityKey);
+    const isTagTalk = talk.type === 'tag' && identityKeys.length > 1;
     const nowMs = Date.now();
-    const finalReceiverIds = receiverIds.filter((recipientId) => {
-      // Suppress if ALL identity keys for this talk are suppressed for this peer
-      const allSuppressed = identityKeys.every((ik) => shouldSuppressForPeer(recipientId, ik));
-      if (allSuppressed) {
-        console.debug(`[Ledger] Suppressing talk deliver to ${recipientId} for identityKey(s) ${identityKeys.join(',')} — already exchanged`);
-        return false;
+
+    // Build per-recipient delivery plan:
+    //   null    → skip entirely (all identities suppressed or edge gated)
+    //   talk    → deliver unmodified talk (no suppression)
+    //   filtered → deliver tag-filtered version (partial suppression)
+    type DeliveryPlan = { recipientId: string; talkPayload: typeof talk };
+    const plans: DeliveryPlan[] = [];
+
+    for (const recipientId of receiverIds) {
+      // Compute which identity keys are suppressed for this recipient.
+      const suppressedSet = new Set<string>();
+      for (const ik of identityKeys) {
+        if (shouldSuppressForPeer(recipientId, ik)) suppressedSet.add(ik);
       }
 
-      // Step 8.3: client per-edge cooldown/quota gate
+      // If ALL identity keys suppressed → skip recipient entirely.
+      if (suppressedSet.size === identityKeys.length) {
+        console.debug(`[Ledger] Suppressing talk deliver to ${recipientId} for all identityKey(s) ${identityKeys.join(',')} — already exchanged`);
+        continue;
+      }
+
+      // Step 8.3: client per-edge cooldown/quota gate.
       const gate = applyEdgeGateForPeer(recipientId, nowMs);
       if (!gate.ok) {
         console.debug(`[Ledger] Edge gate rejected deliver to ${recipientId}: ${gate.rejectedBy.join(',')}`);
-        return false;
+        continue;
       }
 
-      return true;
-    });
+      if (isTagTalk && suppressedSet.size > 0) {
+        // Partial suppression for tag talk: deliver filtered body.
+        const filterResult = filterTalkForRecipient(talk, suppressedSet);
+        if (!filterResult) {
+          // filterTalkForRecipient returns null when all remaining are also suppressed (edge case).
+          console.debug(`[Ledger] filterTalkForRecipient returned null for ${recipientId} — skipping`);
+          continue;
+        }
+        const filteredTalk = { ...filterResult.filtered, id: talkId, authorId: me.id } as typeof talk;
+        plans.push({ recipientId, talkPayload: filteredTalk });
+        console.debug(`[Ledger] Partial tag suppression for ${recipientId}: delivering ${(filteredTalk.questions ?? []).length > 0 ? ((filteredTalk.questions as any[])[0]?.answers?.length ?? '?') : '?'} of ${identityKeys.length} tags`);
+      } else {
+        // No suppression (or non-tag talk with no suppression): deliver unmodified.
+        plans.push({ recipientId, talkPayload: { ...talk, id: talkId, authorId: me.id } });
+      }
+    }
 
-    if (finalReceiverIds.length === 0) {
+    if (plans.length === 0) {
       console.debug(`[Ledger] All recipients suppressed or gated for talkId=${talkId}, skipping broadcastTalk`);
       return true; // return true so the caller counts this as "sent" (suppression is silent)
     }
@@ -2012,12 +2043,38 @@ export class IinPublicApp {
       ]);
     }
     // R-f step 7: author-side Gun talks/* mirror removed; body cached in PeerMeshService directly.
+    // Cache the full (unfiltered) talk body so body-request fallbacks get the complete talk.
     mesh.cacheTalkBody(talkId, talk as unknown as Record<string, unknown>);
-    await mesh.broadcastTalk({ ...talk, id: talkId, authorId: me.id }, {
-      recipientUserIds: finalReceiverIds,
-      roomBroadcast: true,
-    });
-    console.log(`📡 Mesh talk announcement published: talkId=${talkId} receivers=${finalReceiverIds.length} (suppressed=${receiverIds.length - finalReceiverIds.length})`);
+
+    // Group plans by talkPayload identity to minimise frame count:
+    //   - Recipients that get the full unfiltered talk can share one broadcast call.
+    //   - Recipients that get different filtered versions each need a directed send.
+    const fullTalkPayload = JSON.stringify({ ...talk, id: talkId, authorId: me.id });
+    const fullRecipients = plans
+      .filter((p) => JSON.stringify(p.talkPayload) === fullTalkPayload)
+      .map((p) => p.recipientId);
+    const filteredPlans = plans.filter((p) => JSON.stringify(p.talkPayload) !== fullTalkPayload);
+
+    let announceCount = 0;
+    // Deliver full-talk recipients in one broadcast (batched).
+    if (fullRecipients.length > 0) {
+      await mesh.broadcastTalk({ ...talk, id: talkId, authorId: me.id }, {
+        recipientUserIds: fullRecipients,
+        roomBroadcast: true,
+      });
+      announceCount += fullRecipients.length;
+    }
+    // Deliver per-recipient filtered talk (directed sends, one per distinct filtered body).
+    for (const plan of filteredPlans) {
+      await mesh.broadcastTalk(plan.talkPayload, {
+        recipientUserIds: [plan.recipientId],
+        roomBroadcast: false,
+      });
+      announceCount += 1;
+    }
+
+    const suppressedCount = receiverIds.length - plans.length;
+    console.log(`📡 Mesh talk announcement published: talkId=${talkId} receivers=${announceCount} (suppressed=${suppressedCount}, partialFiltered=${filteredPlans.length})`);
     return true;
   }
 

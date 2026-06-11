@@ -14,6 +14,7 @@ import {
   applyEdgeGate,
   evictLedger,
   buildTagIdentityKeys,
+  filterTalkForRecipient,
   getUtcDayStartMs,
   getUtcWeekStartMs,
   outcomeKey,
@@ -930,5 +931,259 @@ describe('Step 10 — retraction: tombstone + teardown', () => {
     applyEvent(doc, { kind: 'TALK_RETRACTED', talkId: 'talk1', authorId: 'tom', retractedAt: 1000 });
 
     expect(doc.retracted[retractedKey('talk1', 'tom')]!.retractedAt).toBe(5000);
+  });
+});
+
+// ─── Step 11 — mutual exchange suppression ───────────────────────────────────
+
+describe('Step 11 — symmetric write coverage: both roles produce exchanged entries', () => {
+  it('author side (applyEvent TALK_ANSWERED) writes exchanged with role:author', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeAnsweredEvent({ responderId: 'jerry', identityKey: 'qa_tennis', outcome: 'matched' }));
+
+    const ek = exchangedKey('jerry', 'qa_tennis');
+    expect(doc.exchanged[ek]).toBeDefined();
+    expect(doc.exchanged[ek]!.role).toBe('author');
+    expect(doc.exchanged[ek]!.outcome).toBe('matched');
+    expect(doc.exchanged[ek]!.peerId).toBe('jerry');
+    expect(doc.exchanged[ek]!.identityKey).toBe('qa_tennis');
+    expect(doc.exchanged[ek]!.version).toBe(1);
+    expect(doc.exchanged[ek]!.lastExchangedAt).toBeTruthy();
+  });
+
+  it('responder side (writeResponderExchangedEntry) writes exchanged with role:responder', async () => {
+    if (typeof globalThis.localStorage === 'undefined') {
+      let store: Record<string, string> = {};
+      Object.defineProperty(globalThis, 'localStorage', {
+        value: {
+          getItem: (k: string) => store[k] ?? null,
+          setItem: (k: string, v: string) => { store[k] = v; },
+          removeItem: (k: string) => { delete store[k]; },
+          clear: () => { store = {}; },
+        },
+        writable: true,
+      });
+    }
+    globalThis.localStorage.clear();
+
+    const { writeResponderExchangedEntry, loadTalkLedger } = await import('../../web/services/web-talk-ledger-store');
+    writeResponderExchangedEntry({
+      authorId: 'tom',
+      identityKey: 'qa_tennis',
+      outcome: 'matched',
+      version: 1,
+      responseId: 'resp_v1',
+      respondedAt: '2024-01-01T10:00:00.000Z',
+    });
+
+    const doc = loadTalkLedger();
+    const ek = exchangedKey('tom', 'qa_tennis');
+    expect(doc.exchanged[ek]).toBeDefined();
+    expect(doc.exchanged[ek]!.role).toBe('responder');
+    expect(doc.exchanged[ek]!.outcome).toBe('matched');
+    expect(doc.exchanged[ek]!.peerId).toBe('tom');
+    expect(doc.exchanged[ek]!.identityKey).toBe('qa_tennis');
+    expect(doc.exchanged[ek]!.version).toBe(1);
+  });
+
+  it('both roles: after exchange, both peers suppress that identityKey', async () => {
+    if (typeof globalThis.localStorage !== 'undefined') globalThis.localStorage.clear();
+    const {
+      writeResponderExchangedEntry,
+      shouldSuppressForPeer,
+    } = await import('../../web/services/web-talk-ledger-store');
+
+    const doc = emptyTalkLedgerDoc();
+
+    // Author side: Tom gets Jerry's answer (role:'author' entry for peerId=jerry)
+    applyEvent(doc, makeAnsweredEvent({ responderId: 'jerry', identityKey: 'qa_tennis', outcome: 'matched', authorId: 'tom' }));
+    expect(shouldSuppress(doc, 'jerry', 'qa_tennis')).toBe(true);
+
+    // Responder side: Jerry records that he answered Tom's tennis (role:'responder' entry for peerId=tom)
+    writeResponderExchangedEntry({
+      authorId: 'tom',
+      identityKey: 'qa_tennis',
+      outcome: 'matched',
+      version: 1,
+      responseId: 'resp_v1',
+      respondedAt: '2024-01-01T10:00:00.000Z',
+    });
+    expect(shouldSuppressForPeer('tom', 'qa_tennis')).toBe(true);
+  });
+});
+
+describe('Step 11 — per-identity broadcast filtering: multi-tag talk', () => {
+  const makeTagTalk = (titles: string[]) => ({
+    type: 'tag' as const,
+    questions: [{ answers: titles.map((t, i) => ({ id: `a${i}`, text: t })) }],
+  });
+
+  it('filterTalkForRecipient returns null for non-tag talks', () => {
+    const flow = { type: 'flow', questions: [{ answers: [{ text: 'Yes' }] }] };
+    expect(filterTalkForRecipient(flow, new Set(['qa_yes']))).toBeNull();
+  });
+
+  it('filterTalkForRecipient returns null when no answers suppressed', () => {
+    const tag = makeTagTalk(['Tennis', 'Chess']);
+    expect(filterTalkForRecipient(tag, new Set())).toBeNull();
+  });
+
+  it('filterTalkForRecipient returns null when all answers suppressed', () => {
+    const tag = makeTagTalk(['Tennis', 'Chess']);
+    const keys = buildTagIdentityKeys(tag, 'qa_whole');
+    expect(filterTalkForRecipient(tag, new Set(keys))).toBeNull();
+  });
+
+  it('filterTalkForRecipient returns filtered copy when one of two tags is suppressed', () => {
+    const tag = makeTagTalk(['Tennis', 'Chess']);
+    const keys = buildTagIdentityKeys(tag, 'qa_whole');
+    const tennisKey = keys[0]!;
+    const result = filterTalkForRecipient(tag, new Set([tennisKey]));
+
+    expect(result).not.toBeNull();
+    const answers = (result!.filtered['questions'] as any[])[0]?.answers;
+    expect(answers).toHaveLength(1);
+    expect(answers[0].text).toBe('Chess');
+  });
+
+  it('per-identity suppression: Tom has tennis exchanged, Jerry does not — Tom receives chess only, Jerry receives both', () => {
+    const tag = makeTagTalk(['Tennis', 'Chess']);
+    const allKeys = buildTagIdentityKeys(tag, 'qa_whole');
+    const tennisKey = allKeys[0]!;
+    const chessKey = allKeys[1]!;
+
+    const docTom = emptyTalkLedgerDoc();
+    const docJerry = emptyTalkLedgerDoc();
+
+    // Tom already exchanged tennis with the broadcaster
+    docTom.exchanged[exchangedKey('broadcaster', 'qa_tennis_placeholder')] = {
+      peerId: 'broadcaster',
+      identityKey: tennisKey,
+      outcome: 'matched',
+      version: 1,
+      role: 'responder',
+      lastExchangedAt: new Date().toISOString(),
+    };
+    docTom.exchanged[exchangedKey('broadcaster', tennisKey)] = {
+      peerId: 'broadcaster',
+      identityKey: tennisKey,
+      outcome: 'matched',
+      version: 1,
+      role: 'responder',
+      lastExchangedAt: new Date().toISOString(),
+    };
+
+    // Tom: tennis suppressed, chess not
+    expect(shouldSuppress(docTom, 'broadcaster', tennisKey)).toBe(true);
+    expect(shouldSuppress(docTom, 'broadcaster', chessKey)).toBe(false);
+
+    // Jerry: neither suppressed
+    expect(shouldSuppress(docJerry, 'broadcaster', tennisKey)).toBe(false);
+    expect(shouldSuppress(docJerry, 'broadcaster', chessKey)).toBe(false);
+
+    // For Tom: partial suppression → filtered talk with chess only
+    const tomSuppressed = new Set<string>();
+    for (const ik of allKeys) {
+      if (shouldSuppress(docTom, 'broadcaster', ik)) tomSuppressed.add(ik);
+    }
+    expect(tomSuppressed.size).toBe(1);
+    const tomResult = filterTalkForRecipient(tag, tomSuppressed);
+    expect(tomResult).not.toBeNull();
+    const tomAnswers = (tomResult!.filtered['questions'] as any[])[0]?.answers;
+    expect(tomAnswers).toHaveLength(1);
+    expect(tomAnswers[0].text).toBe('Chess');
+
+    // For Jerry: no suppression → no filtering needed
+    const jerrySuppressed = new Set<string>();
+    for (const ik of allKeys) {
+      if (shouldSuppress(docJerry, 'broadcaster', ik)) jerrySuppressed.add(ik);
+    }
+    expect(jerrySuppressed.size).toBe(0);
+    expect(filterTalkForRecipient(tag, jerrySuppressed)).toBeNull();
+  });
+});
+
+describe('Step 11 — re-open delivery: new identityKey and post-retraction', () => {
+  it('new identityKey has no entry → shouldSuppress returns false (delivery re-opens)', () => {
+    const doc = emptyTalkLedgerDoc();
+    // Record tennis exchange
+    applyEvent(doc, makeAnsweredEvent({ responderId: 'jerry', identityKey: 'qa_tennis_v1', outcome: 'matched' }));
+    expect(shouldSuppress(doc, 'jerry', 'qa_tennis_v1')).toBe(true);
+
+    // After edit: new identity key (content changed) → not suppressed
+    expect(shouldSuppress(doc, 'jerry', 'qa_tennis_v2_new')).toBe(false);
+  });
+
+  it('after TALK_RETRACTED clears entry, re-delivery is not suppressed', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEvent(doc, makeAnsweredEvent({ responderId: 'jerry', identityKey: 'qa_tennis', outcome: 'matched' }));
+    expect(shouldSuppress(doc, 'jerry', 'qa_tennis')).toBe(true);
+
+    // Retraction clears exchanged entries
+    applyEvent(doc, { kind: 'TALK_RETRACTED', talkId: 'talk1', authorId: 'tom', retractedAt: Date.now() });
+    expect(shouldSuppress(doc, 'jerry', 'qa_tennis')).toBe(false);
+  });
+
+  it('stance-change (version bump) does NOT clear suppression — routes via delta only', () => {
+    const doc = emptyTalkLedgerDoc();
+    // Initial exchange at version 1 (matched)
+    applyEvent(doc, makeAnsweredEvent({ responderId: 'jerry', identityKey: 'qa_tennis', outcome: 'matched', version: 1, responseId: 'r1' }));
+    expect(shouldSuppress(doc, 'jerry', 'qa_tennis')).toBe(true);
+
+    // Jerry changes mind (version 2, now ignored) — arrives as TALK_ANSWERED supersession
+    applyEvent(doc, makeAnsweredEvent({ responderId: 'jerry', identityKey: 'qa_tennis', outcome: 'ignored', version: 2, responseId: 'r2', respondedAt: '2024-01-01T11:00:00.000Z' }));
+
+    // Suppression still holds — identity was exchanged; stance change is a delta update, not re-delivery
+    expect(shouldSuppress(doc, 'jerry', 'qa_tennis')).toBe(true);
+    // Version updated in exchanged entry
+    const ek = exchangedKey('jerry', 'qa_tennis');
+    expect(doc.exchanged[ek]!.version).toBe(2);
+    expect(doc.exchanged[ek]!.outcome).toBe('ignored');
+  });
+});
+
+describe('Step 11 — filterTalkForRecipient: edge cases', () => {
+  it('returns null for tag talk with no answers', () => {
+    const tag = { type: 'tag', questions: [{ answers: [] }] };
+    expect(filterTalkForRecipient(tag, new Set(['qa_x']))).toBeNull();
+  });
+
+  it('preserves non-answer fields in filtered talk', () => {
+    const tag = {
+      type: 'tag' as const,
+      id: 'talk99',
+      title: 'My Tags',
+      authorId: 'tom',
+      questions: [{ id: 'q1', text: 'Tags', answers: [{ id: 'a1', text: 'Tennis' }, { id: 'a2', text: 'Chess' }] }],
+    };
+    const keys = buildTagIdentityKeys(tag, 'qa_whole');
+    const result = filterTalkForRecipient(tag, new Set([keys[0]!]));
+    expect(result).not.toBeNull();
+    expect(result!.filtered['id']).toBe('talk99');
+    expect(result!.filtered['title']).toBe('My Tags');
+    expect(result!.filtered['authorId']).toBe('tom');
+  });
+
+  it('is case-insensitive consistent with buildTagIdentityKeys', () => {
+    const tag1 = {
+      type: 'tag' as const,
+      questions: [{ answers: [{ text: 'Tennis' }, { text: 'Chess' }] }],
+    };
+    const tag2 = {
+      type: 'tag' as const,
+      questions: [{ answers: [{ text: 'tennis' }, { text: 'chess' }] }],
+    };
+    const keys1 = buildTagIdentityKeys(tag1, 'qa_w');
+    const keys2 = buildTagIdentityKeys(tag2, 'qa_w');
+    // Keys should be identical (case-insensitive hash)
+    expect(keys1[0]).toBe(keys2[0]);
+    expect(keys1[1]).toBe(keys2[1]);
+
+    // Suppress tennis from tag1 using the key derived from tag2 (same key)
+    const result = filterTalkForRecipient(tag1, new Set([keys2[0]!]));
+    expect(result).not.toBeNull();
+    const answers = (result!.filtered['questions'] as any[])[0]?.answers;
+    expect(answers).toHaveLength(1);
+    expect(answers[0].text).toBe('Chess');
   });
 });

@@ -496,3 +496,60 @@ function fnv1a32(input: string): string {
   }
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
+
+// ─── filterTalkForRecipient ────────────────────────────────────────────────────
+
+/**
+ * Step 11.3 — per-recipient tag filtering.
+ *
+ * For a **tag** talk, returns a shallow copy of the talk with the
+ * `questions[0].answers` array reduced to only the answers whose identity key
+ * is NOT in `suppressedIdentityKeys`.
+ *
+ * For flow/route/survey talks (no independent atoms), returns null — the caller
+ * should skip the recipient entirely if the whole-talk identity is suppressed,
+ * or deliver the unmodified talk if not.
+ *
+ * Returns null also when:
+ *   - The talk has no questions/answers (guard).
+ *   - ALL answers are suppressed (caller should skip this recipient entirely).
+ *   - NO answers are suppressed (no filtering needed; caller uses the original).
+ *
+ * The return shape mirrors the input type so the caller can pass it directly to
+ * broadcastTalk.  The `wholeTalkIdentityKey` parameter is unused for tag talks
+ * (we compute per-answer keys) but is accepted so the call site is uniform.
+ *
+ * @returns  null when no filtering is needed or when the recipient should be
+ *           skipped entirely.
+ *           A filtered copy of the talk (with suppressed answers removed) when
+ *           partial filtering applies.
+ */
+export function filterTalkForRecipient(
+  talkData: { type?: string; questions?: Array<{ answers?: Array<{ text?: string }> }> },
+  suppressedIdentityKeys: Set<string>,
+): { filtered: Record<string, unknown> } | null {
+  if (!talkData || talkData.type !== 'tag') return null;
+
+  const answers = talkData.questions?.[0]?.answers;
+  if (!Array.isArray(answers) || answers.length === 0) return null;
+
+  const remaining = answers.filter((a) => {
+    const normalized = String(a?.text ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+    const key = `qa_tag_${fnv1a32(normalized)}`;
+    return !suppressedIdentityKeys.has(key);
+  });
+
+  // All answers suppressed — caller should skip recipient entirely.
+  if (remaining.length === 0) return null;
+  // No answers suppressed — no filtering needed.
+  if (remaining.length === answers.length) return null;
+
+  // Partial suppression: return a filtered shallow copy.
+  const talkRecord = talkData as Record<string, unknown>;
+  const questions = Array.isArray(talkRecord['questions']) ? (talkRecord['questions'] as unknown[]) : [];
+  const q0 = questions[0] as Record<string, unknown> | undefined;
+  const filteredQuestions = [{ ...q0, answers: remaining }, ...questions.slice(1)];
+  return {
+    filtered: { ...talkRecord, questions: filteredQuestions },
+  };
+}
