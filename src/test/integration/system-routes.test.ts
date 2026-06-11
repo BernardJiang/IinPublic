@@ -25,18 +25,9 @@ function buildApp(nodeEnv = 'test') {
       opt: { radisk: true },
     },
   };
-  const statsIdx = {
-    byDay: new Map<string, Set<string>>(),
-    byRegion: new Map<string, Set<string>>(),
-    byTalkAnswer: new Map<string, Set<string>>(),
-  };
   registerSystemRoutes(app, {
     gun,
-    incomingTalksMap: new Map(),
-    conversationsMap: new Map(),
-    talkResponsesMap: new Map(),
-    statsIdx,
-    clearTalkResponseStats: jest.fn(),
+    clearForTesting: jest.fn(),
     nodeEnv,
   });
   return { app, gun };

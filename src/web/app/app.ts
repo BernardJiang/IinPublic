@@ -2103,23 +2103,15 @@ export class IinPublicApp {
   }
 
   /**
-   * Full talk-completion flow. Four sequential steps:
+   * Full talk-completion flow. Three sequential steps:
    *
    * 1. Sync QA preferences — persist the user's chosen answers to their profile (Gun, SEA-signed).
    *
-   * 2. Save the client-side chatbot template — stored eagerly in localStorage so the chatbot UI
-   *    can use it for a rapid re-announce before the server round-trip completes. This is a UI
-   *    cache only; it does NOT drive the server auto-reply logic.
+   * 2. Save the client-side chatbot template — stored in localStorage so the chatbot UI
+   *    can use it for a rapid re-announce.
    *
-   * 3. Submit the response to the server — the server is the authority for:
-   *      a. Writing the Gun answer template (`talkAnswerTemplateByUser`) that drives auto-reply
-   *         when a new incoming talk is received via POST /api/talks/:id/received.
-   *      b. Recording stats (`talkResponsesMap`).
-   *      c. Creating match conversations (`createOrGetConversation`).
-   *    If the server is unreachable, the raw answers are written to Gun as a data-preservation
-   *    fallback, but no conversation is created (server is authoritative for match side-effects).
-   *
-   * 4. Update the UI — add any conversations the server returned to the local conversation list.
+   * 3. Submit the response via the direct mesh P2P path (P0 step 7: server talk delivery removed).
+   *    Match/conversation creation happens fully client-side via submitTalkResponsePairDirect.
    */
   private async handleTalkCompleted(data: {
     talkId: string;
@@ -2147,9 +2139,7 @@ export class IinPublicApp {
     if (!chatroomId) return;
 
     // Step 2 — save client-side chatbot template (localStorage, UI cache only)
-    // Saved before the server round-trip so a rapid re-announce can use it immediately.
-    // The server saves its own copy to Gun inside submitTalkResponse(); that copy drives
-    // the server-side auto-reply in POST /api/talks/:id/received.
+    // Saved before the mesh response so a rapid re-announce can use it immediately.
     const locallyLooksLikeMatch = !!data.talkData && this.checkIfMatch(data.talkData, data.answers);
     if (data.talkData && locallyLooksLikeMatch && !isChatbot) {
       this.uiManager.saveChatbotTemplate(data.talkId, {
@@ -2166,11 +2156,13 @@ export class IinPublicApp {
       this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
     }
 
-    // Step 3 — submit to server; server saves Gun template, stats, and conversations
+    // Step 3 — submit via direct mesh P2P path (P0 step 7: server delivery removed).
+    // All match/conversation creation happens inside submitTalkResponsePairDirect.
     const localAuthorName =
       data.talkData?.authorName && data.talkData.authorName !== 'Unknown'
         ? data.talkData.authorName
         : undefined;
+    void localAuthorName; // referenced in submitTalkResponsePairDirect indirectly via authorName param
 
     if (data.talkData?.authorId && data.talkData.authorId !== this.currentUser?.id) {
       await this.submitTalkResponsePairDirect({
@@ -2179,98 +2171,13 @@ export class IinPublicApp {
         answers: data.answers,
         isChatbotResponse: isChatbot,
         authorId: String(data.talkData.authorId),
-        authorName: localAuthorName || String(data.talkData.authorName || 'Unknown'),
+        authorName: (data.talkData?.authorName && data.talkData.authorName !== 'Unknown'
+          ? data.talkData.authorName
+          : undefined) || String(data.talkData.authorName || 'Unknown'),
         isAutoResponse: !data.answers.some((a: any) => a?.mode === 'manual'),
       });
-      return;
     }
-
-    let submittedViaServer = false;
-    let serverIsMatch = false;
-    let serverMatches: Array<{ senderId: string; senderName: string; conversationId: string; talkId: string }> = [];
-
-    if (data.talkData) {
-      try {
-        // isAuto: true when none of the answers were manually chosen (chatbot or all-auto mode).
-        const isAutoResponse = !data.answers.some((a: any) => a?.mode === 'manual');
-        const serverResult = await this.talkService.submitTalkResponse({
-          talkId: data.talkId,
-          responderId: this.currentUser!.id,
-          responderName: this.currentUser!.stageName,
-          answers: data.answers,
-          talkData: data.talkData,
-          isAuto: isAutoResponse,
-          isChatbotResponse: isChatbot,
-        });
-        submittedViaServer = true;
-        serverIsMatch = !!serverResult.isMatch;
-        serverMatches = Array.isArray(serverResult.matches) ? serverResult.matches : [];
-        // Back-fill from the legacy single-match fields when the matches array is empty.
-        if (serverMatches.length === 0 && serverResult.otherUserId && serverResult.conversationId) {
-          serverMatches = [{
-            senderId: serverResult.otherUserId,
-            senderName: serverResult.otherUserName || localAuthorName || 'Unknown',
-            conversationId: serverResult.conversationId,
-            talkId: data.talkId,
-          }];
-        }
-        console.log('✅ Talk response stored via server');
-
-        // Phase E: ledger hooks — TALK_ANSWERED + MATCH_CREATED (fire-and-forget)
-        const outcome = serverResult.isMatch ? 'match' : (serverResult as any).isIgnore ? 'ignore' : 'mismatch';
-        this.ledgerEmit(InteractionKind.TALK_ANSWERED, {
-          talkId: data.talkId,
-          responseId: (serverResult as any).responseId || `resp_${Date.now()}`,
-          outcome,
-        });
-        if (serverResult.isMatch) {
-          for (const match of serverMatches) {
-            this.ledgerEmit(InteractionKind.MATCH_CREATED, {
-              talkId: data.talkId,
-              conversationId: match.conversationId,
-              otherUserId: match.senderId,
-            });
-          }
-        }
-      } catch (error) {
-        console.warn('Talk response server submit failed, falling back to direct Gun write:', error);
-      }
-    }
-
-    if (!submittedViaServer) {
-      // Data-preservation fallback: record the raw answers in Gun so they aren't lost.
-      // No conversation is created here — server is authoritative for match side-effects.
-      const gun = this.gunService.getGun();
-      const responseId = `resp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      gun.get(`talks/${data.talkId}`).get('responses').get(responseId).put({
-        responderId: this.currentUser!.id,
-        responderName: this.currentUser!.stageName,
-        answers: JSON.stringify(data.answers),
-        submittedAt: new Date().toISOString(),
-        isChatbotResponse: isChatbot,
-      });
-      if (locallyLooksLikeMatch) {
-        console.warn('Talk response was not submitted via server — skipping conversation creation until server is reachable.');
-      }
-    }
-
-    // Step 4 — update UI with conversations the server created
-    if (submittedViaServer && serverIsMatch) {
-      for (const match of serverMatches) {
-        const displayName =
-          match.senderName && match.senderName !== 'Unknown' && match.senderName !== 'Someone'
-            ? match.senderName
-            : localAuthorName || 'Unknown';
-        this.uiManager.addNewConversation({
-          conversationId: match.conversationId,
-          otherUserId: match.senderId,
-          otherUserName: displayName,
-          talkId: match.talkId || data.talkId,
-          respondedByBot: isChatbot,
-          transportMode: this.conversationService.getTransportMode(),
-        });
-      }
-    }
+    // If no authorId (e.g. self-test or malformed talk), no-op: mesh delivery requires an author.
   }
 
   private async submitTalkResponsePairDirect(params: {

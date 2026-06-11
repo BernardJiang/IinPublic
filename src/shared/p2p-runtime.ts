@@ -631,12 +631,7 @@ export function resolveP2PRuntimeFlags(env: Record<string, string | undefined> =
   };
 }
 
-/** Compatibility shim for call sites that mean "talk delivery is not server-star authoritative". */
-export function usesDirectTalkDelivery(flags: P2PRuntimeFlags): boolean {
-  return flags.p2pDirectTalkDelivery;
-}
-
-/** Mesh talk delivery is always on — star delivery removed. */
+/** Mesh talk delivery is always on — star delivery removed (P0 step 7). */
 export function usesMeshTalkDelivery(_flags: P2PRuntimeFlags): boolean {
   return true;
 }

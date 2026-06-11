@@ -230,7 +230,6 @@ export class UIManager extends EventEmitter {
   private talksOutSortMode: 'recent' | 'oldest' | 'latest-reply' | 'matches' | 'responses' | 'match-rate' | 'weighted' | 'title' = 'recent';
   private apiBase: string = '';
   private currentUserId: string = '';
-  private currentUserStageName: string = '';
   private currentLocation: GPSCoordinate | undefined = undefined;
   private publicProfileFoundationReader: PublicProfileFoundationReader | undefined;
   private contactPreRenderSync: ContactPreRenderSync | undefined;
@@ -1371,7 +1370,6 @@ export class UIManager extends EventEmitter {
     user.talkFilters = normalizeTalkFilterShape(user.talkFilters, user.languages);
     this.currentUser = user;
     this.currentUserId = user.id;
-    this.currentUserStageName = user.stageName;
     this.applyShellTranslations();
   }
 
@@ -1380,7 +1378,6 @@ export class UIManager extends EventEmitter {
     user.talkFilters = normalizeTalkFilterShape(user.talkFilters, user.languages);
     this.currentUser = user;
     this.currentUserId = user.id;
-    this.currentUserStageName = user.stageName;
     this.applyShellTranslations();
     // Update the persistent header identity without duplicating the generated stage name.
     const headerStatus = document.getElementById('header-status');
@@ -6412,6 +6409,7 @@ export class UIManager extends EventEmitter {
   }
 
   private async registerTalkForPeer(talkId: string, talkData: any, peerId: string, peerName: string): Promise<void> {
+    // P0 step 7: server talk delivery removed. Always route via mesh (sendDirectTalkToPeer).
     const app = (
       window as unknown as {
         __iinpublic_app?: {
@@ -6430,23 +6428,8 @@ export class UIManager extends EventEmitter {
       await app.sendDirectTalkToPeer(talkId, talkData, peerId, peerName);
       return;
     }
-    if (!this.apiBase || !this.currentUserId) return;
-    const res = await fetch(`${this.apiBase}/api/talks/${encodeURIComponent(talkId)}/received`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        receiverId: peerId,
-        receiverName: peerName,
-        senderId: this.currentUserId,
-        senderName: this.currentUserStageName,
-        talkData,
-      }),
-    });
-    if (!res.ok) throw new Error(`register talk for peer failed: HTTP ${res.status}`);
-    const result = await res.json() as { registered?: boolean };
-    if (result.registered !== true) {
-      throw new Error('register talk for peer rejected by recipient delivery policy');
-    }
+    // No mesh connection available — no-op (star path removed).
+    console.warn('registerTalkForPeer: sendDirectTalkToPeer unavailable, skipping delivery to', peerId);
   }
 
   updateMatchBadge(): void {

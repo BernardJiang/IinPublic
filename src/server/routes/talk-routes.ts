@@ -2,23 +2,21 @@ import type express from 'express';
 import { TalkService } from '../services/talk-service';
 
 type TalkRouteDeps = {
+  // TalkService kept for potential future server-side survey/query use.
   talkService: TalkService;
   loadTalkDataFromGraphOrBody: (talkId: string, bodyTalkData?: unknown) => Promise<any | null>;
 };
 
 export function registerTalkRoutes(app: express.Application, deps: TalkRouteDeps): void {
-  const { talkService, loadTalkDataFromGraphOrBody } = deps;
+  const { loadTalkDataFromGraphOrBody } = deps;
 
-  app.post('/api/talks', async (req, res) => {
-    try {
-      const talk = await talkService.createTalk(req.body);
-      res.json(talk);
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
-  });
-
-  /** Full talk JSON from server Gun graph (peers may lag replicating to the browser). */
+  /**
+   * GET /api/talks/:id — Gun graph read-through for talk bodies.
+   * Still used by WebTalkService.getTalkWithRetry as a fallback when a receiver
+   * has not yet replicated the talk locally (mesh delivery) or when a dev seed
+   * needs to read back a Gun-stored talk.  All talk mutations (create/update/send)
+   * are now local-only on the client.
+   */
   app.get('/api/talks/:id', async (req, res) => {
     try {
       const talk = await loadTalkDataFromGraphOrBody(req.params.id);
@@ -30,20 +28,6 @@ export function registerTalkRoutes(app: express.Application, deps: TalkRouteDeps
       res.json(talk);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
-    }
-  });
-
-  app.post('/api/talks/:id/send', async (req, res) => {
-    try {
-      const job = await talkService.sendBulkTalk(
-        req.params.id,
-        req.body.senderId,
-        req.body.targetScope,
-        req.body.maxRecipients,
-      );
-      res.json(job);
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
     }
   });
 }

@@ -21,18 +21,9 @@ function buildApp(rateLimitMaxEvents = 200) {
   const app = express();
   app.use(express.json());
   const gun = { _: { graph: {}, opt: { radisk: false } } };
-  const statsIdx = {
-    byDay: new Map<string, Set<string>>(),
-    byRegion: new Map<string, Set<string>>(),
-    byTalkAnswer: new Map<string, Set<string>>(),
-  };
   registerSystemRoutes(app, {
     gun,
-    incomingTalksMap: new Map(),
-    conversationsMap: new Map(),
-    talkResponsesMap: new Map(),
-    statsIdx,
-    clearTalkResponseStats: jest.fn(),
+    clearForTesting: jest.fn(),
     nodeEnv: 'test',
     abuseDefenseConfig: {
       rateLimitWindowMs: 60_000,

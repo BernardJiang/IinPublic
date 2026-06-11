@@ -1,5 +1,5 @@
 import { escapeHtml } from './ui-formatters';
-import type { PeerRelationshipStats, TalkHistoryItem } from '../../server/routes/peer-routes';
+import type { PeerRelationshipStats, TalkHistoryItem } from '../../shared/peer-summary-types';
 import type { KnownPerson } from '../../shared/types';
 import { avatarInnerHtml } from './profile-avatar';
 import type { UiTranslationKey } from './ui-translations';

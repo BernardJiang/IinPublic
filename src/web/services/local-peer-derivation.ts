@@ -22,7 +22,7 @@
  */
 
 import type { KnownPerson } from '../../shared/types';
-import type { PeerRelationshipStats, PeerSummary } from '../../server/routes/peer-routes';
+import type { PeerRelationshipStats, PeerSummary } from '../../shared/peer-summary-types';
 
 // ── Local exchange record shape (written by app.ts#recordLocalTalkExchange) ──
 

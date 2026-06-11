@@ -211,7 +211,6 @@ npm run dev:p0-talks          # P0 mesh delivery (shipped)
 npm run test:e2e:p0-talks     # P0 E2E only
 npm run dev:relay-only        # Relay-only hub (RELAY_ONLY_HUB=1)
 npm run test:e2e:parallel     # Full E2E suite in direct mode
-npm run test:e2e:star         # Star-gun relay regression
 ```
 
 ## Working Rule

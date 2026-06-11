@@ -1,6 +1,6 @@
 import type { KnownPerson } from '../../shared/types';
 import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../shared/techsupport';
-import type { PeerSummary } from '../../server/routes/peer-routes';
+import type { PeerSummary } from '../../shared/peer-summary-types';
 import { avatarInnerHtml } from './profile-avatar';
 import type { UiTranslationKey } from './ui-translations';
 import {

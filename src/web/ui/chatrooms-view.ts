@@ -1,5 +1,5 @@
 import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
-import type { PeerRelationshipStats } from '../../server/routes/peer-routes';
+import type { PeerRelationshipStats } from '../../shared/peer-summary-types';
 import type { UiTranslationKey } from './ui-translations';
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
 

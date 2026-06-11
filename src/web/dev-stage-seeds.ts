@@ -23,12 +23,6 @@ type StageTalk = {
   }>;
 };
 
-type StageAnswer = {
-  questionId: string;
-  answerId: string;
-  answerText: string;
-};
-
 type StageSeedName = 'stage-zero' | 'empty' | 'user1' | 'user2-match' | 'user3-network';
 
 function buildApiBase(): string {
@@ -125,37 +119,24 @@ async function createServerUser(base: string, stageName: string): Promise<StageU
   return { id: user.id, stageName: user.stageName };
 }
 
-async function registerIncoming(base: string, talk: StageTalk, sender: StageUser, receiver: StageUser): Promise<void> {
-  await fetch(`${base}/api/talks/${encodeURIComponent(talk.id)}/received`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      receiverId: receiver.id,
-      receiverName: receiver.stageName,
-      senderId: sender.id,
-      senderName: sender.stageName,
-      talkData: talk,
-    }),
-  });
-}
-
-async function submitResponse(
-  base: string,
-  talk: StageTalk,
-  responder: StageUser,
-  answers: StageAnswer[],
-): Promise<void> {
-  await fetch(`${base}/api/talks/${encodeURIComponent(talk.id)}/response`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      talkId: talk.id,
-      responderId: responder.id,
-      responderName: responder.stageName,
-      answers,
-      talkData: talk,
-    }),
-  });
+/** P0 step 7: server talk delivery removed — incoming cluster is seeded into client UI state only. */
+function registerIncomingLocal(app: any, talk: StageTalk, sender: StageUser): void {
+  const cluster = {
+    identityKey: talk.id,
+    latestTalkId: talk.id,
+    title: talk.title,
+    type: talk.type,
+    updatedAt: new Date().toISOString(),
+    isAnswered: false,
+    senders: {
+      [sender.id]: { senderId: sender.id, senderName: sender.stageName, lastTalkId: talk.id },
+    },
+    talkIds: { [talk.id]: new Date().toISOString() },
+  };
+  const existing: any[] = Array.isArray(app?.uiManager?.incomingTalkClusters)
+    ? app.uiManager.incomingTalkClusters
+    : [];
+  app?.uiManager?.setIncomingTalkClusters?.([...existing, cluster]);
 }
 
 function saveConversationForCurrentUser(other: StageUser, talk: StageTalk, respondedByBot = false): void {
@@ -256,14 +237,8 @@ async function seedUser2Match(app: any, base: string): Promise<void> {
   const myTalk = buildFlowTalk(me.id, 'Lunch Break', 'Lunch together tomorrow?', 'Yes, lunch works.');
   const jordanTalk = buildFlowTalk(jordan.id, 'Board Game Night', 'Board games tonight?', 'Yes, count me in.');
 
-  await registerIncoming(base, myTalk, me, jordan);
-  await submitResponse(base, myTalk, jordan, [
-    { questionId: myTalk.questions[0].id, answerId: 'yes', answerText: 'Yes, lunch works.' },
-  ]);
-  await registerIncoming(base, jordanTalk, jordan, me);
-  await submitResponse(base, jordanTalk, me, [
-    { questionId: jordanTalk.questions[0].id, answerId: 'no', answerText: 'No thanks.' },
-  ]);
+  // P0 step 7: server talk delivery removed — seed incoming clusters locally.
+  registerIncomingLocal(app, jordanTalk, jordan);
 
   setStageMyTalks({
     [myTalk.id]: {
@@ -291,20 +266,6 @@ async function seedUser2Match(app: any, base: string): Promise<void> {
   });
   saveConversationForCurrentUser(jordan, myTalk);
   seedChatroomMembers(app, [jordan]);
-  app.uiManager.setIncomingTalkClusters([
-    {
-      identityKey: jordanTalk.id,
-      latestTalkId: jordanTalk.id,
-      title: jordanTalk.title,
-      type: jordanTalk.type,
-      updatedAt: iso(20),
-      isAnswered: true,
-      senders: {
-        [jordan.id]: { senderId: jordan.id, senderName: jordan.stageName, lastTalkId: jordanTalk.id },
-      },
-      talkIds: { [jordanTalk.id]: iso(20) },
-    },
-  ]);
   refreshUi(app);
 }
 
@@ -325,22 +286,9 @@ async function seedUser3Network(app: any, base: string): Promise<void> {
   const jordanTalk = buildFlowTalk(jordan.id, 'Tag: Tennis', 'Tennis this weekend?', 'Yes, lets play.');
   const caseyTalk = buildFlowTalk(casey.id, 'Road Trip', 'Road trip next month?', 'Yes, I am in.');
 
-  await registerIncoming(base, myTalkA, me, jordan);
-  await submitResponse(base, myTalkA, jordan, [
-    { questionId: myTalkA.questions[0].id, answerId: 'yes', answerText: 'Yes, lets run.' },
-  ]);
-  await registerIncoming(base, myTalkB, me, casey);
-  await submitResponse(base, myTalkB, casey, [
-    { questionId: myTalkB.questions[0].id, answerId: 'no', answerText: 'No thanks.' },
-  ]);
-  await registerIncoming(base, jordanTalk, jordan, me);
-  await submitResponse(base, jordanTalk, me, [
-    { questionId: jordanTalk.questions[0].id, answerId: 'yes', answerText: 'Yes, lets play.' },
-  ]);
-  await registerIncoming(base, caseyTalk, casey, me);
-  await submitResponse(base, caseyTalk, me, [
-    { questionId: caseyTalk.questions[0].id, answerId: 'no', answerText: 'No thanks.' },
-  ]);
+  // P0 step 7: server talk delivery removed — seed incoming clusters locally.
+  registerIncomingLocal(app, jordanTalk, jordan);
+  registerIncomingLocal(app, caseyTalk, casey);
 
   setStageMyTalks({
     [myTalkA.id]: {
@@ -390,32 +338,6 @@ async function seedUser3Network(app: any, base: string): Promise<void> {
   });
   saveConversationForCurrentUser(jordan, myTalkA);
   seedChatroomMembers(app, [jordan, casey]);
-  app.uiManager.setIncomingTalkClusters([
-    {
-      identityKey: jordanTalk.id,
-      latestTalkId: jordanTalk.id,
-      title: jordanTalk.title,
-      type: jordanTalk.type,
-      updatedAt: iso(16),
-      isAnswered: true,
-      senders: {
-        [jordan.id]: { senderId: jordan.id, senderName: jordan.stageName, lastTalkId: jordanTalk.id },
-      },
-      talkIds: { [jordanTalk.id]: iso(16) },
-    },
-    {
-      identityKey: caseyTalk.id,
-      latestTalkId: caseyTalk.id,
-      title: caseyTalk.title,
-      type: caseyTalk.type,
-      updatedAt: iso(14),
-      isAnswered: true,
-      senders: {
-        [casey.id]: { senderId: casey.id, senderName: casey.stageName, lastTalkId: caseyTalk.id },
-      },
-      talkIds: { [caseyTalk.id]: iso(14) },
-    },
-  ]);
   refreshUi(app);
 }
 
