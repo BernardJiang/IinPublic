@@ -26,6 +26,7 @@ import { P2PPresenceClient } from '../services/p2p-presence-client';
 import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
 import { PeerMeshService } from '../services/peer-mesh-service';
 import { WebMailboxClient } from '../services/web-mailbox-client';
+import { getOrCreateLibp2pMeshSession } from '../services/p2p-libp2p-mesh-session';
 import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload, P2PMeshTalkRetractedPayload } from '../../shared/p2p-mesh-protocol';
 import {
   collectLocalIncomingTalkClusters,
@@ -829,6 +830,22 @@ export class IinPublicApp {
       localUserId: this.currentUser.id,
       localStageName: this.currentUser.stageName || this.currentUser.id,
       ...(process.env.DISABLE_HMR === 'true' ? { maxNeighbors: 3 } : {}),
+      ...(this.p2pRuntimeFlags.p2pNodeEnabled
+        ? {
+            createSession: (params) =>
+              getOrCreateLibp2pMeshSession({
+                conversationId: params.conversationId,
+                localUserId: params.localUserId,
+                localPub: params.localPub,
+                localPair: params.localPair,
+                otherUserId: params.otherUserId,
+                otherPub: params.otherPub,
+                gunService: this.gunService,
+                ensureLibp2pNode: () => this.ensureContentLibp2pInitialized(),
+                onRemoteMeshFrame: params.onRemoteMeshFrame,
+              }),
+          }
+        : {}),
       onTalkBody: (payload) => this.handleMeshTalkBody(payload),
       onTalkResponse: (payload) => this.handleMeshTalkResponse(payload),
       onPing: (fromUserId, _frame) => {
