@@ -37,8 +37,10 @@ Gun, mailbox. **Sequenced after P0 steps 9–11.**
 
 #### L2. Mesh stream handler over libp2p (REQ-LIBP2P-01/02/04) `[Opus design → Sonnet impl]` — transport swap behind `MeshSession`; connection-lifecycle correctness
 
-- [ ] Register `/iinpublic/mesh/1.0.0`; implement `MeshSession` over libp2p streams (frames/SEA/dedup/forwarding unchanged); circuit relay v2 fallback; SEA-signed `userId↔PeerID` binding records
-- [ ] Test: spec-01/02/03 invariants pass over libp2p transport; NAT-blocked pair connects via relay
+- [x] Register `/iinpublic/mesh/1.0.0`; implement `MeshSession` over libp2p streams (frames/SEA/dedup/forwarding unchanged); SEA-signed `userId↔PeerID` binding records
+- [x] Add connection-lifecycle failover wrapper: libp2p primary session with automatic WebRTC fallback (`createFallbackMeshSession`) and app wiring in mesh session factory
+- [x] Test: spec-01/02/03 core invariants (ping, talk body delivery, talk response routing) pass over libp2p transport in unit coverage (`p2p-libp2p-mesh-invariants.test.ts`)
+- [ ] Remaining for L2 closure: prove NAT-blocked pair connects via libp2p circuit relay v2 path (targeted E2E/integration)
 
 #### L3. Hub-independent discovery (REQ-LIBP2P-03) `[Sonnet]`
 
