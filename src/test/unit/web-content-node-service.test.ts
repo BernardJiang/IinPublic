@@ -1,4 +1,8 @@
-import { WebContentNodeService, type WebContentNode } from '../../web/services/web-content-node-service';
+import {
+  WebContentNodeService,
+  applyDiscoveryConfigToLibp2pConfig,
+  type WebContentNode,
+} from '../../web/services/web-content-node-service';
 
 describe('WebContentNodeService', () => {
   test('lazy initializes only on first use and exposes libp2p', async () => {
@@ -64,5 +68,54 @@ describe('WebContentNodeService', () => {
       if (prevDht === undefined) delete process.env.IINPUBLIC_P2P_DHT_ENABLED;
       else process.env.IINPUBLIC_P2P_DHT_ENABLED = prevDht;
     }
+  });
+
+  test('passes discovery config into node factory', async () => {
+    const factory = jest.fn(async () => ({ libp2p: { id: 'peer-x' } as any }));
+    const service = new WebContentNodeService(factory, {
+      bootstrapPeers: ['/dns4/bootstrap-a/tcp/443/wss'],
+      mdnsEnabled: false,
+      dhtEnabled: true,
+    });
+
+    await service.ensureNode();
+
+    expect(factory).toHaveBeenCalledWith({
+      bootstrapPeers: ['/dns4/bootstrap-a/tcp/443/wss'],
+      mdnsEnabled: false,
+      dhtEnabled: true,
+    });
+  });
+
+  test('applyDiscoveryConfigToLibp2pConfig overrides bootstrap and dht flags', () => {
+    const out = applyDiscoveryConfigToLibp2pConfig(
+      {
+        peerDiscovery: ['bootstrap-default', 'mdns-default'],
+        services: { dht: { enabled: true }, ping: { enabled: true } },
+      },
+      {
+        bootstrapPeers: ['/dns4/bootstrap-custom/tcp/443/wss'],
+        mdnsEnabled: false,
+        dhtEnabled: false,
+      },
+      {
+        bootstrap: (init) => ({ kind: 'bootstrap-custom', init }),
+        mdns: () => ({ kind: 'mdns-custom' }),
+      },
+      false,
+    );
+
+    expect(out.peerDiscovery).toEqual([
+      {
+        kind: 'bootstrap-custom',
+        init: {
+          list: ['/dns4/bootstrap-custom/tcp/443/wss'],
+          timeout: 1500,
+          tagName: 'iinpublic-bootstrap',
+          tagTTL: Number.POSITIVE_INFINITY,
+        },
+      },
+    ]);
+    expect(out.services).toEqual({ ping: { enabled: true } });
   });
 });

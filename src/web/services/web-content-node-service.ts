@@ -4,7 +4,7 @@ export type WebContentNode = {
 
 import { parseBootstrapPeerMultiaddrs } from './p2p-room-discovery';
 
-type NodeFactory = () => Promise<WebContentNode>;
+type NodeFactory = (discoveryConfig: WebContentNodeDiscoveryConfig) => Promise<WebContentNode>;
 
 export type WebContentNodeDiscoveryConfig = {
   bootstrapPeers: string[];
@@ -30,9 +30,86 @@ function resolveDiscoveryConfigFromEnv(): WebContentNodeDiscoveryConfig {
   };
 }
 
-async function defaultNodeFactory(): Promise<WebContentNode> {
-  const { createHelia } = await import('helia');
-  const node = await createHelia();
+type Libp2pConfigLike = {
+  peerDiscovery?: unknown[];
+  services?: Record<string, unknown>;
+};
+
+type DiscoveryModules = {
+  bootstrap?: (init: { list: string[]; timeout?: number; tagName?: string; tagTTL?: number }) => unknown;
+  mdns?: () => unknown;
+};
+
+function pluginLooksLike(plugin: unknown, keyword: string): boolean {
+  const text = String(plugin ?? '').toLowerCase();
+  return text.includes(keyword);
+}
+
+/**
+ * Applies runtime discovery toggles to a libp2p config object.
+ * Best-effort keyword filtering is used because discovery plugin factories are opaque values.
+ */
+export function applyDiscoveryConfigToLibp2pConfig(
+  base: Libp2pConfigLike,
+  discoveryConfig: WebContentNodeDiscoveryConfig,
+  modules: DiscoveryModules,
+  browserLike: boolean,
+): Libp2pConfigLike {
+  const existingPeerDiscovery = Array.isArray(base.peerDiscovery) ? [...base.peerDiscovery] : [];
+  const services = { ...(base.services || {}) };
+
+  let peerDiscovery = [...existingPeerDiscovery];
+
+  if (discoveryConfig.bootstrapPeers.length > 0 && typeof modules.bootstrap === 'function') {
+    peerDiscovery = peerDiscovery.filter((plugin) => !pluginLooksLike(plugin, 'bootstrap'));
+    peerDiscovery.push(
+      modules.bootstrap({
+        list: [...discoveryConfig.bootstrapPeers],
+        timeout: 1_500,
+        tagName: 'iinpublic-bootstrap',
+        tagTTL: Number.POSITIVE_INFINITY,
+      }),
+    );
+  }
+
+  if (!discoveryConfig.mdnsEnabled) {
+    peerDiscovery = peerDiscovery.filter((plugin) => !pluginLooksLike(plugin, 'mdns'));
+  } else if (!browserLike && typeof modules.mdns === 'function') {
+    const hasMdns = peerDiscovery.some((plugin) => pluginLooksLike(plugin, 'mdns'));
+    if (!hasMdns) peerDiscovery.push(modules.mdns());
+  }
+
+  if (!discoveryConfig.dhtEnabled && services.dht !== undefined) {
+    delete services.dht;
+  }
+
+  return {
+    ...base,
+    peerDiscovery,
+    services,
+  };
+}
+
+async function defaultNodeFactory(discoveryConfig: WebContentNodeDiscoveryConfig): Promise<WebContentNode> {
+  const [{ createHelia, libp2pDefaults }, bootstrapMod, mdnsMod] = await Promise.all([
+    import('helia'),
+    import('@libp2p/bootstrap'),
+    import('@libp2p/mdns'),
+  ]);
+
+  const browserLike = typeof window !== 'undefined' && typeof document !== 'undefined';
+  const baseLibp2p = libp2pDefaults();
+  const libp2p = applyDiscoveryConfigToLibp2pConfig(
+    baseLibp2p,
+    discoveryConfig,
+    {
+      bootstrap: bootstrapMod.bootstrap,
+      mdns: mdnsMod.mdns,
+    },
+    browserLike,
+  );
+
+  const node = await createHelia({ libp2p: libp2p as any });
   return node as unknown as WebContentNode;
 }
 
@@ -75,7 +152,7 @@ export class WebContentNodeService {
   async ensureNode(): Promise<WebContentNode> {
     if (this.node) return this.node;
     if (!this.nodePromise) {
-      this.nodePromise = this.factory()
+      this.nodePromise = this.factory(this.discoveryConfig)
         .then((node) => {
           this.node = node;
           return node;
