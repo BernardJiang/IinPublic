@@ -41,7 +41,7 @@ const NUM_WORKERS = STAGE_PIPELINE
 process.env.PW_WORKERS = String(NUM_WORKERS);
 
 /**
- * Per-test ceiling. Parallel runs (PW_WORKERS≥4, target ~10 min suite @ 20 workers) use 2 min/test;
+ * Per-test ceiling. Parallel runs (PW_WORKERS≥4) use 2 min/test;
  * single-worker debug keeps 5 min. Helpers use E2E_ASSERT_TIMEOUT_MS (10s) for polls — fail fast.
  */
 const E2E_ASSERT_TIMEOUT_MS = 10_000;
@@ -55,7 +55,10 @@ const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
       // Mesh-talk default: server bootstraps discovery/signaling, then browsers exchange talks over WebRTC.
       // In-memory server Gun only: disk radisk + graph clear races leave ghost chatroom members and break IN-list e2e.
       // High capacity + no FIFO: default capacity 3 evicts users when Gun map over-counts; Tom and Jerry must stay in the same room for broadcast/IN sync.
-      command: `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false E2E_GUN_MEMORY_ONLY=1 P2P_NODE_ENABLED=0 NODE_OPTIONS=--max-old-space-size=8192 PORT=${gunPort} node dist/server/server/index.js`,
+      // P2P_RATE_LIMIT_MAX_EVENTS: the per-peer abuse limiter (default 200/min) is shared across
+      // signaling/ack/relay/discovery POSTs; parallel multi-browser WebRTC reconnect cycles can
+      // exceed it and 429s stall mesh formation. Raise it for E2E only.
+      command: `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false E2E_GUN_MEMORY_ONLY=1 P2P_NODE_ENABLED=0 P2P_RATE_LIMIT_MAX_EVENTS=5000 NODE_OPTIONS=--max-old-space-size=8192 PORT=${gunPort} node dist/server/server/index.js`,
       port: gunPort,
       timeout: 120 * 1000,
       // Must spawn with E2E_GUN_MEMORY_ONLY + CHATROOM_* ; reusing a manually started dev:server ignores those env vars and keeps e2e flaky.
@@ -139,6 +142,14 @@ export default defineConfig({
             // creator replies read pair-edge responses instead of imported server talkResponsesMap state.
             /00v-creator-reply-triage-matrix\.spec\.ts/,
             /00ad-reply-triage-group-date\.spec\.ts/,
+            // Server-owned aggregate talk analytics were removed with star persistence. These
+            // scenarios return when the local ledger/IPFS aggregate index replaces /api/stats.
+            /00-statistics-dashboard\.spec\.ts/,
+            /06-survey-customer-satisfaction\.spec\.ts/,
+            /07-survey-restaurants\.spec\.ts/,
+            /08-route-job-seeking\.spec\.ts/,
+            /10-stats-four-types\.spec\.ts/,
+            /00i-survey-analytics-dashboard\.spec\.ts/,
           ],
         },
       ],

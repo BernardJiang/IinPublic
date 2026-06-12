@@ -1,6 +1,6 @@
 /**
  * E2E tests for chatroom peer-detail views:
- *   1. Chatroom member list shows "Stranger" for unknown users
+ *   1. Chatroom member list shows local online presence for unknown users
  *   2. Clicking a member opens the peer detail overlay (back button closes it)
  *   3. Peer detail shows talk history + sort/filter controls after a talk exchange
  *   4. "Send My Talks" auto mode delivers talks to a peer
@@ -123,10 +123,10 @@ test.describe('Chatroom peer detail views', () => {
   }
 
   // ---------------------------------------------------------------------------
-  // Test 1: Stranger status
+  // Test 1: local presence status
   // ---------------------------------------------------------------------------
 
-  test('member list shows Stranger status for unknown user', async () => {
+  test('member list shows online presence for an unknown user', async () => {
     const { ctxTom, pageTom, ctxJerry, pageJerry } = await setup('TomS', 'JerryS');
     try {
       await enterGlobalChatroom(pageTom);
@@ -137,9 +137,9 @@ test.describe('Chatroom peer detail views', () => {
       const jerryItem = pageTom.locator('.chatroom-member-item').filter({ hasText: 'JerryS' });
       await expect(jerryItem).toBeVisible({ timeout: 15_000 });
 
-      // After async stats load, status should become "Stranger"
+      // Room membership is local presence; relationship labels belong in peer detail.
       const status = jerryItem.locator('.chatroom-member-status');
-      await expect(status).toHaveText('Stranger', { timeout: 15_000 });
+      await expect(status).toHaveText('Online now', { timeout: 15_000 });
     } finally {
       await teardown(ctxTom, ctxJerry, pageTom, pageJerry);
     }

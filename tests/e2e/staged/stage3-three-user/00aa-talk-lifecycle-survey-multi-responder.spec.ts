@@ -24,7 +24,6 @@ import {
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
 import { makeSurveyTalk } from '../../talks-matching/lib/four-types-talks';
-import { gunBaseURL } from '../../helpers/ports';
 
 const RUN_ID = 900401;
 const SURVEY_TITLE = `E2E FourTypes Survey ${RUN_ID}`;
@@ -119,20 +118,16 @@ test.describe('Talk lifecycle — survey multi-responder matrix (D4)', () => {
       'mismatch',
     );
 
-    // --- Aggregate stats: creator can see at least 2 total responses via API ---
+    // --- Creator ledger records both peer-signed responses locally ---
     await expect
       .poll(
-        async () => {
-          const res = await pageTom!.context().request.get(
-            `${gunBaseURL()}/api/stats/talks/${encodeURIComponent(created.talkId)}/summary`,
-          );
-          if (!res.ok()) return 0;
-          const contentType = (res.headers()['content-type'] || '').toLowerCase();
-          if (!contentType.includes('application/json')) return 0;
-          const data = (await res.json()) as { total?: number };
-          return Number(data.total ?? 0);
-        },
-        { timeout: 60_000, message: 'Expected at least 2 survey responses in aggregate stats' },
+        () => pageTom!.evaluate((talkId) => {
+          const doc = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
+          return Object.values(doc?.outcomes || {}).filter(
+            (entry: any) => String(entry?.talkId || '') === talkId,
+          ).length;
+        }, created.talkId),
+        { timeout: 30_000, message: 'Expected both survey responses in the creator local ledger' },
       )
       .toBeGreaterThanOrEqual(2);
 

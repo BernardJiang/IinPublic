@@ -127,8 +127,22 @@ export function registerSystemRoutes(
   const signalingNonces = new BoundedNonceCache();
   const relayNonces = new BoundedNonceCache();
   const discoveryNonces = new BoundedNonceCache();
-  // P2P-V: shared abuse-defense context for all relay POST routes
-  const abuseCtx = new P2PAbuseDefenseContext(abuseDefenseConfig);
+  // P2P-V: shared abuse-defense context for all relay POST routes.
+  // When no explicit config is injected, allow env overrides so parallel E2E runs
+  // (many browsers × ICE/signaling POSTs per minute sharing one per-peer budget)
+  // can raise the per-peer rate cap without touching production defaults.
+  const envRateLimitMaxEvents = Number(process.env.P2P_RATE_LIMIT_MAX_EVENTS);
+  const envRateLimitWindowMs = Number(process.env.P2P_RATE_LIMIT_WINDOW_MS);
+  const abuseCtx = new P2PAbuseDefenseContext(
+    abuseDefenseConfig ?? {
+      ...(Number.isFinite(envRateLimitMaxEvents) && envRateLimitMaxEvents > 0
+        ? { rateLimitMaxEvents: Math.floor(envRateLimitMaxEvents) }
+        : {}),
+      ...(Number.isFinite(envRateLimitWindowMs) && envRateLimitWindowMs > 0
+        ? { rateLimitWindowMs: Math.floor(envRateLimitWindowMs) }
+        : {}),
+    },
+  );
   const techSupportMessages = new TechSupportMessageStore();
 
   const prunePresence = (now = new Date()): void => {

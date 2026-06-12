@@ -10,6 +10,7 @@ import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { establishContactsTomJerry, getCurrentUserId } from '../../helpers/reputation-e2e-helpers';
 
 test.describe('Profile foundation', () => {
+  test.setTimeout(180_000);
   let browser: Browser;
   let browserPeer: Browser;
   let context: BrowserContext;

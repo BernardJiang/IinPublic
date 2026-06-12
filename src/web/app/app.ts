@@ -29,7 +29,6 @@ import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload, P2PMeshTalkRet
 import {
   collectLocalIncomingTalkClusters,
   mirrorIncomingTalkClustersToLocalGun,
-  mirrorTalkDefinitionToLocalGun,
   subscribeLocalIncomingTalkClusters,
   upsertLocalIncomingTalkCluster,
 } from '../services/client-incoming-talk-mirror';
@@ -41,8 +40,9 @@ import {
   getTalkLedgerDoc,
   getResponderVersionForTalk,
   writeResponderExchangedEntry,
-  getResponderSendersForIdentity,
+  getResponderTargetsForIdentity,
   getResponderLastResponseId,
+  writeAuthorExchangedEntries,
 } from '../services/web-talk-ledger-store';
 import { buildTalkIdentityKey } from '../../shared/cid';
 import {
@@ -83,9 +83,12 @@ export class IinPublicApp {
   private travelChatroomId: string | undefined = undefined;
   private supportBootstrapChecked = false;
   private presenceClient: P2PPresenceClient | null = null;
+  private peerEpubByUserId = new Map<string, string>();
   private localNodeBridge: P2PLocalNodeBridgeClient | null = null;
   private peerMeshService: PeerMeshService | null = null;
   private mailboxClient: WebMailboxClient | null = null;
+  private mailboxPollTimer: ReturnType<typeof setInterval> | undefined;
+  private mailboxDrainPromise: Promise<void> | null = null;
   /**
    * Durable mesh-ping diagnostics record updated by onPing/onPong callbacks.
    * Exposed via getApp() for E2E assertion (design §6, R5).
@@ -580,6 +583,7 @@ export class IinPublicApp {
     this.initDirectTalkDeliverySubscriptions();
     // Step 6: drain mailbox on app boot + retry any failed mailbox POSTs.
     void this.drainMailbox().catch(() => {});
+    this.startMailboxPolling();
     void this.retryFailedMailboxPosts().catch(() => {});
   }
 
@@ -790,6 +794,7 @@ export class IinPublicApp {
       });
       const peers = await this.presenceClient.fetchNearby(this.currentUser.id, 20);
       for (const peer of peers) {
+        if (peer.epub) this.peerEpubByUserId.set(peer.userId, peer.epub);
         try {
           await this.presenceClient.acknowledgePeer({
             fromUserId: this.currentUser.id,
@@ -893,6 +898,14 @@ export class IinPublicApp {
     return this.mailboxClient;
   }
 
+  private startMailboxPolling(): void {
+    if (this.mailboxPollTimer) return;
+    this.mailboxPollTimer = setInterval(() => {
+      void this.drainMailbox().catch(() => {});
+      void this.retryFailedMailboxPosts().catch(() => {});
+    }, 3_000);
+  }
+
   /**
    * Drain all envelopes addressed to the current user from the server mailbox.
    * Decrypt each and dispatch:
@@ -901,6 +914,14 @@ export class IinPublicApp {
    * Then delete each envelope (drain-then-delete; re-delivery on crash is safe — handlers dedup).
    */
   private async drainMailbox(): Promise<void> {
+    if (this.mailboxDrainPromise) return this.mailboxDrainPromise;
+    this.mailboxDrainPromise = this.drainMailboxOnce().finally(() => {
+      this.mailboxDrainPromise = null;
+    });
+    return this.mailboxDrainPromise;
+  }
+
+  private async drainMailboxOnce(): Promise<void> {
     if (!this.currentUser?.id) return;
     const mailbox = this.ensureMailboxClient();
     const pair = this.gunService.getStoredPair();
@@ -947,17 +968,7 @@ export class IinPublicApp {
     const pair = this.gunService.getStoredPair();
     if (!pair?.priv) return false;
 
-    // Look up the author's epub to encrypt for them.
-    let authorEpub: string;
-    try {
-      const peer = await Promise.race([
-        this.gunService.getPublicUser(payload.authorId),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
-      ]);
-      authorEpub = typeof peer?.epub === 'string' ? peer.epub.trim() : '';
-    } catch {
-      authorEpub = '';
-    }
+    const authorEpub = await this.resolvePeerEpub(payload.authorId);
     if (!authorEpub) {
       console.warn('[Mailbox] Cannot post — author epub not found for', payload.authorId);
       return false;
@@ -1005,16 +1016,7 @@ export class IinPublicApp {
     for (const recipientId of recipientUserIds) {
       if (!recipientId || recipientId === this.currentUser.id) continue;
       try {
-        let recipientEpub: string;
-        try {
-          const peer = await Promise.race([
-            this.gunService.getPublicUser(recipientId),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
-          ]);
-          recipientEpub = typeof peer?.epub === 'string' ? peer.epub.trim() : '';
-        } catch {
-          recipientEpub = '';
-        }
+        const recipientEpub = await this.resolvePeerEpub(recipientId);
         if (!recipientEpub) {
           console.warn('[Mesh/Mailbox] Cannot post talk body — epub not found for', recipientId);
           continue;
@@ -1103,6 +1105,7 @@ export class IinPublicApp {
 
   private async handleMeshTalkBody(payload: P2PMeshTalkBodyPayload): Promise<boolean> {
     if (!this.currentUser?.id || payload.authorId === this.currentUser.id) return false;
+    if (payload.authorEpub) this.peerEpubByUserId.set(payload.authorId, payload.authorEpub);
     const talkData = {
       ...payload.talkData,
       id: payload.talkId,
@@ -1127,6 +1130,8 @@ export class IinPublicApp {
       this.currentChatroomId ? { deliveryChatroomId: this.currentChatroomId } : {},
     );
     if (!accepted) return false;
+    this.peerMeshService?.cacheTalkBody(payload.talkId, talkData);
+    this.talkService.cacheReceivedTalk(payload.talkId, talkData);
     const pairKey = `${payload.talkId}::${payload.authorId}`;
     const firstUi = !this.processedTalkResponseKeys.has(`mesh-talk-body::${pairKey}`);
     if (firstUi) {
@@ -1153,7 +1158,7 @@ export class IinPublicApp {
 
   private async handleMeshTalkResponse(payload: P2PMeshTalkResponsePayload): Promise<void> {
     if (!this.currentUser?.id || payload.authorId !== this.currentUser.id) return;
-    const dedupeKey = `mesh-response::${payload.talkId}::${payload.responseId}`;
+    const dedupeKey = `mesh-response::${payload.talkId}::${payload.responseId}::v${payload.version ?? 1}`;
     if (this.processedTalkResponseKeys.has(dedupeKey)) return;
     const talkData = await this.resolveMeshTalkData(payload.talkId);
     if (!talkData) return;
@@ -1219,6 +1224,7 @@ export class IinPublicApp {
           responseId: payload.responseId,
           version: incomingVersion,
           respondedAt: incomingRespondedAt,
+          answers: decrypted.answers,
         },
       );
 
@@ -1283,6 +1289,7 @@ export class IinPublicApp {
         responseId: payload.responseId,
         version: incomingVersion,
         respondedAt: incomingRespondedAt,
+        answers: decrypted.answers,
       },
     );
     if (!isMatch) return;
@@ -1432,16 +1439,7 @@ export class IinPublicApp {
     const retractionPayload: P2PMeshTalkRetractedPayload = { talkId, authorId, retractedAt };
     for (const responderId of responderIds) {
       try {
-        let responderEpub: string;
-        try {
-          const peer = await Promise.race([
-            this.gunService.getPublicUser(responderId),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
-          ]);
-          responderEpub = typeof peer?.epub === 'string' ? peer.epub.trim() : '';
-        } catch {
-          responderEpub = '';
-        }
+        const responderEpub = await this.resolvePeerEpub(responderId);
         if (!responderEpub) continue;
         const ciphertext = await mailbox.encryptForRecipient(
           responderEpub,
@@ -1663,7 +1661,13 @@ export class IinPublicApp {
     talkData: any,
     outcome: 'match' | 'mismatch' | 'ignore',
     // R-2: forward-compat fields for steps 8–11 (responseId, version, respondedAt)
-    meta?: { responseId?: string; version?: number; respondedAt?: string },
+    meta?: {
+      responseId?: string;
+      version?: number;
+      respondedAt?: string;
+      answers?: any[];
+      direction?: 'sent' | 'received';
+    },
   ): void {
     if (!this.currentUser?.id || !peerId || peerId === this.currentUser.id || !talkId) return;
     try {
@@ -1676,9 +1680,13 @@ export class IinPublicApp {
         peerName: String(peerName || 'Unknown'),
         talkId,
         title: String(talkData?.title || 'Talk'),
+        type: String(talkData?.type || 'flow'),
+        language: String(talkData?.language || 'en'),
         outcome,
-        direction: 'sent',
+        direction: meta?.direction || 'sent',
         date: new Date().toISOString(),
+        answerMode: meta?.answers ? 'manual' : (exchanges[key]?.answerMode || 'manual'),
+        ...(meta?.answers ? { answers: meta.answers } : {}),
         // R-2: forward-compat fields — inert in step 4, used by steps 8–11
         ...(meta?.responseId ? { responseId: meta.responseId } : {}),
         ...(meta?.version !== undefined ? { version: meta.version } : {}),
@@ -1689,11 +1697,19 @@ export class IinPublicApp {
       // Local exchange summaries only support UI fallbacks; ignore storage failures.
     }
 
+    // A received talk answered by this user is already recorded as a responder-side
+    // exchange by submitTalkResponsePairDirect. Writing the author-side projection here
+    // would reuse the same peer::identity key and erase change-of-mind fanout targets.
+    if (meta?.direction === 'received') return;
+
     // Step 8: co-write to the talk ledger (author outcome + exchanged entry).
     // Map outcome vocabulary: 'match' → 'matched', 'mismatch'|'ignore' → 'ignored'.
     try {
       const ledgerOutcome = outcome === 'match' ? 'matched' : 'ignored';
-      const identityKey = buildTalkIdentityKey(talkData);
+      const wholeTalkIdentityKey = buildTalkIdentityKey(talkData);
+      const identityKeys = outcome === 'match'
+        ? this.selectedTalkIdentityKeys(talkData, meta?.answers)
+        : [wholeTalkIdentityKey];
       const authorId = this.currentUser!.id;
       const nowIso = new Date().toISOString();
       applyTalkLedgerEvent({
@@ -1701,16 +1717,49 @@ export class IinPublicApp {
         responderId: peerId,
         talkId,
         authorId,
-        identityKey,
+        identityKey: wholeTalkIdentityKey,
         outcome: ledgerOutcome,
         version: meta?.version ?? 1,
         responseId: meta?.responseId ?? `resp_${talkId}_${peerId}`,
         respondedAt: meta?.respondedAt ?? nowIso,
         now: nowIso,
       });
+      writeAuthorExchangedEntries({
+        responderId: peerId,
+        identityKeys,
+        outcome: ledgerOutcome,
+        version: meta?.version ?? 1,
+        respondedAt: meta?.respondedAt ?? nowIso,
+      });
     } catch {
       // Ledger write failures are non-fatal — suppression misses cost one redundant send.
     }
+  }
+
+  private selectedTalkIdentityKeys(talkData: any, answers?: any[]): string[] {
+    const wholeTalkIdentityKey = buildTalkIdentityKey(talkData);
+    if (talkData?.type !== 'tag' || !Array.isArray(answers)) return [wholeTalkIdentityKey];
+    const selectedAnswerIds = new Set(
+      answers.map((answer: any) => String(answer?.answerId || '')).filter(Boolean),
+    );
+    const selectedAnswerTexts = new Set(
+      answers.map((answer: any) => String(answer?.answerText || '').trim().toLowerCase()).filter(Boolean),
+    );
+    const selectedTalk = {
+      ...talkData,
+      questions: Array.isArray(talkData?.questions)
+        ? talkData.questions.map((question: any, index: number) => index === 0
+          ? {
+              ...question,
+              answers: (Array.isArray(question?.answers) ? question.answers : []).filter((answer: any) =>
+                selectedAnswerIds.has(String(answer?.id || '')) ||
+                selectedAnswerTexts.has(String(answer?.text || '').trim().toLowerCase()),
+              ),
+            }
+          : question)
+        : [],
+    };
+    return buildTagIdentityKeys(selectedTalk, wholeTalkIdentityKey);
   }
 
   private async syncDirectPairTalkExchangesForContacts(): Promise<void> {
@@ -1800,16 +1849,37 @@ export class IinPublicApp {
     return undefined;
   }
 
-  private async getPairTalkResponseSecret(peerUserId: string, peerEpubHint?: string): Promise<string> {
-    const pair = this.gunService.getStoredPair();
-    if (!pair) {
-      throw new Error('No SEA keypair is available for pair-private talk response');
+  private async resolvePeerEpub(peerUserId: string, hint?: string): Promise<string> {
+    const hinted = this.pairTalkPeerEpubHint(hint);
+    if (hinted) {
+      this.peerEpubByUserId.set(peerUserId, hinted);
+      return hinted;
     }
-    if (peerEpubHint) {
-      return getSEA().secret(peerEpubHint, pair as GunPair);
-    }
-    let lastError: unknown;
-    for (let attempt = 0; attempt < 10; attempt += 1) {
+    const cached = this.peerEpubByUserId.get(peerUserId);
+    if (cached) return cached;
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        const presence = this.presenceClient ?? new P2PPresenceClient({
+          apiBase: this.getBackendApiBase(),
+        });
+        const peers = await Promise.race([
+          presence.fetchNearby(this.currentUser?.id, 200),
+          new Promise<never>((_, reject) => setTimeout(
+            () => reject(new Error('presence key lookup timeout')),
+            1_500,
+          )),
+        ]);
+        const peer = peers.find((candidate) => candidate.userId === peerUserId);
+        const epub = typeof peer?.epub === 'string' ? peer.epub.trim() : '';
+        if (epub) {
+          this.peerEpubByUserId.set(peerUserId, epub);
+          return epub;
+        }
+      } catch {
+        /* bounded Gun fallback below */
+      }
+
       try {
         const peer = await Promise.race([
           this.gunService.getPublicUser(peerUserId),
@@ -1817,15 +1887,25 @@ export class IinPublicApp {
         ]);
         const epub = typeof peer?.epub === 'string' ? peer.epub.trim() : '';
         if (epub) {
-          return getSEA().secret(epub, pair as GunPair);
+          this.peerEpubByUserId.set(peerUserId, epub);
+          return epub;
         }
-      } catch (error) {
-        lastError = error;
+      } catch {
+        /* retry */
       }
-      await new Promise((resolve) => setTimeout(resolve, 250 + attempt * 100));
+      await new Promise((resolve) => setTimeout(resolve, 200 + attempt * 100));
     }
-    const suffix = lastError instanceof Error ? ` (${lastError.message})` : '';
-    throw new Error(`Peer ${peerUserId} has no public encryption key${suffix}`);
+    return '';
+  }
+
+  private async getPairTalkResponseSecret(peerUserId: string, peerEpubHint?: string): Promise<string> {
+    const pair = this.gunService.getStoredPair();
+    if (!pair) {
+      throw new Error('No SEA keypair is available for pair-private talk response');
+    }
+    const epub = await this.resolvePeerEpub(peerUserId, peerEpubHint);
+    if (!epub) throw new Error(`Peer ${peerUserId} has no public encryption key`);
+    return getSEA().secret(epub, pair as GunPair);
   }
 
   private async encryptPairTalkResponsePayload(
@@ -2283,6 +2363,9 @@ export class IinPublicApp {
         writeResponderExchangedEntry({
           authorId: senderId,
           identityKey,
+          talkId,
+          authorName: senderName,
+          authorEpub: String(talkData?.authorEpub || talkData?.senderEpub || ''),
           outcome: 'no-reply',
           version: 0,
           responseId: '',
@@ -2421,7 +2504,13 @@ export class IinPublicApp {
       !isMatch;
 
     // Helper: send mesh+mailbox to a single target authorId
-    const sendToAuthor = async (targetAuthorId: string, targetAuthorName: string, targetEpub?: string): Promise<void> => {
+    const sentResponseByAuthor = new Map<string, { talkId: string; responseId: string; version: number }>();
+    const sendToAuthor = async (
+      targetAuthorId: string,
+      targetAuthorName: string,
+      targetEpub?: string,
+      targetTalkId = params.talkId,
+    ): Promise<void> => {
       const authorEpub = targetEpub ?? this.pairTalkPeerEpubHint(
         targetAuthorId === params.authorId ? params.talkData?.authorEpub : undefined,
         targetAuthorId === params.authorId ? params.talkData?.senderEpub : undefined,
@@ -2439,14 +2528,28 @@ export class IinPublicApp {
         console.warn(`[Step9] Failed to encrypt response for ${targetAuthorId}:`, err);
         return;
       }
+      const targetResponseId = targetTalkId === params.talkId
+        ? responseId
+        : await computeResponseId({
+            talkId: targetTalkId,
+            responderId: this.currentUser!.id,
+            responseContentJson,
+          });
+      const targetPriorResponseId = getResponderLastResponseId(wholeTalkIdentityKey, targetAuthorId);
+      const targetPriorVersion = getResponderVersionForTalk(wholeTalkIdentityKey, targetAuthorId);
+      const targetVersion = targetPriorResponseId === null
+        ? 1
+        : targetPriorResponseId === targetResponseId
+          ? targetPriorVersion
+          : targetPriorVersion + 1;
       const meshPayload: P2PMeshTalkResponsePayload = {
-        responseId,
-        talkId: params.talkId,
+        responseId: targetResponseId,
+        talkId: targetTalkId,
         authorId: targetAuthorId,
         responderId: this.currentUser!.id,
         submittedAt,
         respondedAt,
-        version: newVersion,
+        version: targetVersion,
         encryption: 'sea-ecdh-v1',
         payloadCiphertext,
         transportMode: 'mesh-p2p',
@@ -2455,8 +2558,7 @@ export class IinPublicApp {
       let sent = false;
       if (mesh) {
         try {
-          await mesh.sendTalkResponse(meshPayload);
-          sent = true;
+          sent = await mesh.sendTalkResponse(meshPayload);
         } catch (err) {
           console.warn('[MeshResponse] sendTalkResponse failed, falling back to mailbox:', err);
         }
@@ -2469,6 +2571,11 @@ export class IinPublicApp {
           this.enqueueFailedMailboxPost(meshPayload);
         }
       }
+      sentResponseByAuthor.set(targetAuthorId, {
+        talkId: targetTalkId,
+        responseId: targetResponseId,
+        version: targetVersion,
+      });
     };
 
     if (!skipE2eLocalOnlyReject) {
@@ -2487,9 +2594,10 @@ export class IinPublicApp {
       // propagate to ALL original senders of this identity (not just the current author).
       // The responder's exchanged section records every author who sent them this identity.
       if (isContentChange) {
-        const allSenders = getResponderSendersForIdentity(wholeTalkIdentityKey);
+        const allSenders = getResponderTargetsForIdentity(wholeTalkIdentityKey);
         const ledgerDocForFanout = getTalkLedgerDoc();
-        for (const senderId of allSenders) {
+        for (const sender of allSenders) {
+          const senderId = sender.peerId;
           if (senderId === params.authorId) continue; // already sent above
           // Step 10: skip senders whose talk has been retracted (dead inbox).
           const rKey = ledgerRetractedKey(params.talkId, senderId);
@@ -2499,7 +2607,12 @@ export class IinPublicApp {
           }
           console.log(`[Step9] Change-of-mind fanout to additional sender ${senderId}`);
           try {
-            await sendToAuthor(senderId, 'Unknown');
+            await sendToAuthor(
+              senderId,
+              sender.peerName || 'Unknown',
+              sender.peerEpub,
+              sender.talkId || params.talkId,
+            );
           } catch (err) {
             console.warn(`[Step9] Fanout to ${senderId} failed:`, err);
           }
@@ -2514,22 +2627,46 @@ export class IinPublicApp {
       writeResponderExchangedEntry({
         authorId: params.authorId,
         identityKey: wholeTalkIdentityKey,
+        talkId: params.talkId,
+        authorName: params.authorName,
+        authorEpub: String(params.talkData?.authorEpub || params.talkData?.senderEpub || ''),
         outcome: ledgerOutcomeVal,
         version: newVersion,
         responseId,
         respondedAt,
       });
+      for (const identityKey of this.selectedTalkIdentityKeys(params.talkData, params.answers)) {
+        if (identityKey === wholeTalkIdentityKey) continue;
+        writeResponderExchangedEntry({
+          authorId: params.authorId,
+          identityKey,
+          talkId: params.talkId,
+          authorName: params.authorName,
+          authorEpub: String(params.talkData?.authorEpub || params.talkData?.senderEpub || ''),
+          outcome: ledgerOutcomeVal,
+          version: newVersion,
+          responseId,
+          respondedAt,
+        });
+      }
       // Also update for any other senders of the same identity (fanout case)
       if (isContentChange) {
-        const allSenders = getResponderSendersForIdentity(wholeTalkIdentityKey);
-        for (const senderId of allSenders) {
+        const allSenders = getResponderTargetsForIdentity(wholeTalkIdentityKey);
+        for (const sender of allSenders) {
+          const senderId = sender.peerId;
           if (senderId === params.authorId) continue;
+          const sentResponse = sentResponseByAuthor.get(senderId);
           writeResponderExchangedEntry({
             authorId: senderId,
             identityKey: wholeTalkIdentityKey,
+            ...(sentResponse?.talkId || sender.talkId
+              ? { talkId: sentResponse?.talkId || sender.talkId }
+              : {}),
+            ...(sender.peerName ? { authorName: sender.peerName } : {}),
+            ...(sender.peerEpub ? { authorEpub: sender.peerEpub } : {}),
             outcome: ledgerOutcomeVal,
-            version: newVersion,
-            responseId,
+            version: sentResponse?.version ?? sender.version,
+            responseId: sentResponse?.responseId || String((sender as any).responseId || ''),
             respondedAt,
           });
         }
@@ -2544,6 +2681,21 @@ export class IinPublicApp {
       responseId,
       outcome: isMatch ? 'match' : isIgnore ? 'ignore' : 'mismatch',
     });
+
+    this.recordLocalTalkExchange(
+      params.authorId,
+      params.authorName,
+      params.talkId,
+      params.talkData,
+      isMatch ? 'match' : 'mismatch',
+      {
+        responseId,
+        version: newVersion,
+        respondedAt,
+        answers: params.answers,
+        direction: 'received',
+      },
+    );
 
     if (!isMatch) return;
     const conversationId = await this.conversationService.createConversation({
@@ -2629,6 +2781,31 @@ export class IinPublicApp {
       if (!cluster) return null;
       const latestTalkId = pickLatestTalkIdFromIncomingCluster(cluster);
       if (!latestTalkId) return null;
+      const cached = this.peerMeshService?.getCachedTalkBody(latestTalkId);
+      if (cached) return cached as unknown as Talk;
+      if (cluster.questionsJson) {
+        try {
+          const sender = Object.values(cluster.senders || {}).find(
+            (candidate: any) => candidate?.lastTalkId === latestTalkId,
+          ) as any;
+          return {
+            id: latestTalkId,
+            title: cluster.title,
+            type: cluster.type,
+            language: cluster.language,
+            authorId: sender?.senderId || '',
+            authorName: sender?.senderName || 'Unknown',
+            questions: JSON.parse(cluster.questionsJson),
+            isAdult: false,
+            tags: [],
+            createdAt: new Date(cluster.updatedAt),
+            isTemplate: false,
+            usageCount: 0,
+          } as unknown as Talk;
+        } catch {
+          /* retry the legacy lookup below */
+        }
+      }
       return this.talkService.getTalkWithRetry(latestTalkId);
     } catch {
       return null;
@@ -2818,8 +2995,6 @@ export class IinPublicApp {
       this.p2pRuntimeFlags,
     );
     this.e2eSeededIncomingClusters.push(cluster);
-    // R-f: no Gun talks/* write; receiver-side mirror only (not authored locally).
-    mirrorTalkDefinitionToLocalGun(this.gunService, talkId, talkData, this.p2pRuntimeFlags);
     await this.refreshIncomingTalkClustersFromLocalGun();
     this.mergeIncomingClusterIntoUi([cluster]);
   }
@@ -2860,13 +3035,6 @@ export class IinPublicApp {
         list,
         this.p2pRuntimeFlags,
       );
-      for (const cluster of list) {
-        const talkId = pickLatestTalkIdFromIncomingCluster(cluster);
-        const talkBody = (cluster as { latestTalk?: unknown }).latestTalk ?? cluster;
-        if (talkId) {
-          mirrorTalkDefinitionToLocalGun(this.gunService, talkId, talkBody, this.p2pRuntimeFlags);
-        }
-      }
     }
     this.uiManager.setIncomingTalkClusters(list);
     this.uiManager.displayTalksList();
@@ -3402,7 +3570,7 @@ export class IinPublicApp {
         try {
           let talk: Talk | null = null;
           const id = (data.talkId || '').trim();
-          if (id) talk = await this.talkService.getTalkWithRetry(id);
+          if (id) talk = await this.resolveMeshTalkData(id);
           if (!talk && data.identityKeyFallback) {
             talk = await this.loadFullTalkViaIncomingIdentity(data.identityKeyFallback);
           }
@@ -3456,32 +3624,17 @@ export class IinPublicApp {
         return;
       }
       const statsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
-      let localTalks: Record<string, any> = {};
-      try {
-        localTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
-      } catch {
-        localTalks = {};
+      const outcomes = Object.values(getTalkLedgerDoc().outcomes);
+      for (const talkId of data.talkIds) {
+        const rows = outcomes.filter(
+          (entry) => entry.talkId === talkId && entry.authorId === this.currentUser?.id,
+        );
+        statsMap[talkId] = {
+          responses: rows.length,
+          matches: rows.filter((entry) => entry.outcome === 'matched').length,
+          ignores: rows.filter((entry) => entry.outcome === 'ignored').length,
+        };
       }
-      await Promise.all(
-        data.talkIds.map(async (talkId) => {
-          try {
-            const statsTalkId = String(localTalks?.[talkId]?.fullTalk?.id || talkId);
-            const summary = await this.talkService.queryStats(statsTalkId, 'summary');
-            if (summary && typeof summary.total === 'number') {
-              statsMap[talkId] = {
-                responses: summary.total,
-                matches: typeof summary.matches === 'number' ? summary.matches : 0,
-                ignores: typeof summary.ignores === 'number' ? summary.ignores : 0,
-              };
-              return;
-            }
-          } catch {
-            // Fall back to local talk structure inference only when the stats endpoint is unavailable.
-          }
-
-          statsMap[talkId] = { responses: 0, matches: 0, ignores: 0 };
-        }),
-      );
       this.uiManager.setTalkStats(statsMap);
       // Refresh status bar so match count is shown
       this.refreshStatusBar();
@@ -4010,6 +4163,9 @@ export class IinPublicApp {
 
     // Handle beforeunload to cleanup
     window.addEventListener('beforeunload', () => {
+      if (this.mailboxPollTimer) clearInterval(this.mailboxPollTimer);
+      this.mailboxPollTimer = undefined;
+      this.peerMeshService?.leaveRoom();
       if (this.currentUser && this.currentChatroomId) {
         // Mark user as inactive in current chatroom (for member count)
         this.chatroomService.leaveChatroom(this.currentChatroomId, this.currentUser.id);
@@ -4083,10 +4239,10 @@ export class IinPublicApp {
   /**
    * Re-announce a talk to the current room as the current user (for E2E: Bob "sends same talk" to trigger chatbot).
    */
-  public async announceTalkToRoom(talkId: string): Promise<void> {
+  public async announceTalkToRoom(talkId: string, localTalkData?: any): Promise<void> {
     const chatroomId = this.chatroomService.getCurrentChatroomId();
     if (!chatroomId || !this.currentUser) return Promise.reject(new Error('No chatroom or user'));
-    const talkData = await this.talkService.getTalkWithRetry(talkId, { attempts: 8, gapMs: 200 });
+    const talkData = localTalkData || await this.resolveMeshTalkData(talkId);
     if (!talkData) throw new Error(`Talk not found: ${talkId}`);
     const receivers = await this.resolveBroadcastReceivers(
       chatroomId,
@@ -4105,7 +4261,7 @@ export class IinPublicApp {
    * The normal IN-row "View" path uses skipAutoAnswer so opening the list does not instantly complete a match.
    */
   public async openTalkResponseDialogWithAuto(talkId: string): Promise<void> {
-    const talk = await this.talkService.getTalkWithRetry(talkId);
+    const talk = await this.resolveMeshTalkData(talkId);
     if (!talk) {
       this.uiManager.showNotification(this.uiManager.formatTalkCouldNotLoad(), 'error');
       return;
@@ -4207,6 +4363,11 @@ export class IinPublicApp {
       clearTimeout(this.incomingApiRefreshTimer);
       this.incomingApiRefreshTimer = undefined;
     }
+    if (this.mailboxPollTimer) {
+      clearInterval(this.mailboxPollTimer);
+      this.mailboxPollTimer = undefined;
+    }
+    this.peerMeshService?.leaveRoom();
     if (this.currentUser && this.currentChatroomId) {
       console.log(`🧹 Cleanup: user=${this.currentUser.id}, chatroom=${this.currentChatroomId}`);
       this.chatroomService.unsubscribeAllMemberCounts();

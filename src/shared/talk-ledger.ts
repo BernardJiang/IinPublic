@@ -72,6 +72,10 @@ export type OutcomeEntry = {
 export type ExchangedEntry = {
   peerId: string;
   identityKey: string;
+  /** The concrete content id this peer used for the shared identity. */
+  talkId?: string;
+  peerName?: string;
+  peerEpub?: string;
   outcome: Outcome;
   version: number;
   /** Who sent the identity; both sides still write an entry. */

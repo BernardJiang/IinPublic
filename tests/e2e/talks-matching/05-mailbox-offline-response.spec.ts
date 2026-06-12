@@ -27,7 +27,7 @@ import * as path from 'path';
 import { chromium, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { maybeClearGunDatabases } from '../helpers/clear-database';
-import { afterLoad, afterSync, afterAction } from '../helpers/timing';
+import { afterLoad, afterSync, afterAction, gotoAppReady } from '../helpers/timing';
 import {
   bootstrapUser,
   waitForTabActive,
@@ -173,10 +173,6 @@ test.describe('Mailbox offline response — two browsers, ciphertext-only envelo
           ],
         };
         mesh.cacheTalkBody(talkId, talkDef);
-        const gun = app?.gunService?.getGun?.();
-        if (gun) {
-          gun.get(`talks/${talkId}`).put({ data: JSON.stringify(talkDef) });
-        }
         const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
         myTalks[talkId] = { role: 'created', fullTalk: talkDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
@@ -313,8 +309,7 @@ test.describe('Mailbox offline response — two browsers, ciphertext-only envelo
     contextTom = tomContextReconnect;
     pageTom = await tomContextReconnect.newPage();
 
-    await pageTom.goto(webAppURLStableChatroom(), { waitUntil: 'domcontentloaded' });
-    await afterLoad();
+    await gotoAppReady(pageTom, webAppURLStableChatroom());
 
     // Verify Tom reconnected with the same user id
     const tomIdReconnect = await pageTom.evaluate(
@@ -371,14 +366,14 @@ test.describe('Mailbox offline response — two browsers, ciphertext-only envelo
     // ── 14. Conversation id matches on both sides ─────────────────────────────
     const tomConvId = await pageTom.evaluate(({ jId }: { jId: string }) => {
       const conversations = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
-      const conv = Object.values(conversations).find((c: any) => c?.otherUserId === jId) as any;
-      return conv?.conversationId ?? null;
+      const entry = Object.entries(conversations).find(([, c]: [string, any]) => c?.otherUserId === jId);
+      return entry ? ((entry[1] as any)?.conversationId ?? entry[0]) : null;
     }, { jId: jerryId });
 
     const jerryConvId = await pageJerry.evaluate(({ tId }: { tId: string }) => {
       const conversations = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
-      const conv = Object.values(conversations).find((c: any) => c?.otherUserId === tId) as any;
-      return conv?.conversationId ?? null;
+      const entry = Object.entries(conversations).find(([, c]: [string, any]) => c?.otherUserId === tId);
+      return entry ? ((entry[1] as any)?.conversationId ?? entry[0]) : null;
     }, { tId: tomId });
 
     expect(tomConvId, 'Tom has a conversation id').toBeTruthy();

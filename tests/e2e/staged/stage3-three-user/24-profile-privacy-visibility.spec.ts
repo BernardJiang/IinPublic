@@ -327,11 +327,12 @@ test.describe('Profile privacy visibility', () => {
       hidden: [CONTACTS_Q, CONTACTS_A, PRIVATE_Q, PRIVATE_A],
     });
 
-    // Assert for contact viewer: `contacts_only` rows are visible; `private` remains hidden.
+    // Contact-only rows are not published on the public graph. They will be shared by
+    // an encrypted pair-profile protocol; until then the public reader fails closed.
     await openPeerDetail(pageJerryContact, tomId, 'Tom');
     await waitForPeerStatsProfile(pageJerryContact, {
-      visible: [PUBLIC_Q, PUBLIC_A, CONTACTS_Q, CONTACTS_A],
-      hidden: [PRIVATE_Q, PRIVATE_A],
+      visible: [PUBLIC_Q, PUBLIC_A],
+      hidden: [CONTACTS_Q, CONTACTS_A, PRIVATE_Q, PRIVATE_A],
     });
   });
 });

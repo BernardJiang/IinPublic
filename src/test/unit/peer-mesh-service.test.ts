@@ -389,7 +389,7 @@ describe('PeerMeshService', () => {
    * which the original below-wanted-degree gate alone did not catch.
    * R-a step 7: asserts mailbox fallback (onMailboxFallback) fires instead of Gun rendezvous.
    */
-  it('coverage-gap fallback: mailbox fallback fires when recipients exceed the degree bound', async () => {
+  it('ACK fallback mailboxes recipients that gossip does not reach', async () => {
     const alicePair = (await SEA.pair()) as SeaSigningPair;
     const peerIds = ['p1', 'p2', 'p3', 'p4', 'p5'];
     const users: Record<string, { pub: string }> = { alice: { pub: alicePair.pub } };
@@ -404,6 +404,7 @@ describe('PeerMeshService', () => {
     const alice = new PeerMeshService(gunService, {
       apiBase: 'http://127.0.0.1:8080', localUserId: 'alice', localStageName: 'Alice',
       maxNeighbors: 3,
+      ackTimeoutMs: 20,
       createSession: network.createSession,
       onMailboxFallback: async (_payload, recipientUserIds) => {
         mailboxCalls.push({ recipientUserIds });
@@ -422,8 +423,8 @@ describe('PeerMeshService', () => {
     expect(alice.getDiagnostics().connectedNeighborCount).toBe(3);
     expect(alice.getDiagnostics().neighborCount).toBe(3);
 
-    // Now broadcast to all 5 recipients (> maxNeighbors 3) with the overlay fully connected
-    // at its bound. The coverage-gap branch must call onMailboxFallback.
+    // Now broadcast to all 5 recipients. The fake sessions have no remote endpoints,
+    // so none can ACK and the encrypted mailbox fallback must cover the missed peers.
     mailboxCalls.length = 0;
     await alice.broadcastTalk(
       { id: 'coverage-test', authorId: 'alice', title: 'c', type: 'tag', questions: [] },

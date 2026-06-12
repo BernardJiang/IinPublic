@@ -143,10 +143,13 @@ export class WebUserService {
   }
 
   private buildPublicUserRecord(user: User): Omit<User, 'headshot'> & { headshot: string } {
+    const publicProfile = (user.profile || []).filter((entry) =>
+      String((entry as QuestionAnswer & { visibility?: string }).visibility || 'public') === 'public',
+    );
     const publicUser: Omit<User, 'headshot'> & { headshot: string } = {
       id: user.id,
       stageName: user.stageName,
-      profile: user.profile || [],
+      profile: publicProfile,
       reputation: user.reputation,
       location: user.location,
       languages: user.languages || ['en'],
@@ -183,10 +186,14 @@ export class WebUserService {
     profileJson: string;
     interestsJson: string;
   } {
+    const publicProfile = (user.profile || []).filter((entry) => {
+      const visibility = String((entry as QuestionAnswer & { visibility?: string }).visibility || 'public');
+      return visibility === 'public';
+    });
     return {
       headshot: user.headshot || '',
       languagesJson: JSON.stringify(user.languages || ['en']),
-      profileJson: JSON.stringify(user.profile || []),
+      profileJson: JSON.stringify(publicProfile),
       interestsJson: JSON.stringify(user.interests || []),
     };
   }

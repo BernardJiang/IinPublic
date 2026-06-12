@@ -74,6 +74,47 @@ const NUM_USERS = positiveIntEnv('FIND_SIMILAR_NUM_USERS', 10);
 const TAGS_PER_USER = positiveIntEnv('FIND_SIMILAR_TAGS_PER_USER', 20);
 const RELATIONSHIP_LABEL = 'similar interest people';
 
+function keywordsForUser(userIndex: number): string[] {
+  return Array.from(
+    { length: TAGS_PER_USER },
+    (_, offset) => INTEREST_POOL[(userIndex + offset) % INTEREST_POOL.length],
+  );
+}
+
+function assignDistinctRejectSenders(recipientIndex: number, keywords: string[]): Map<string, number> {
+  const candidates = new Map(
+    keywords.map((keyword) => [
+      keyword,
+      Array.from({ length: NUM_USERS }, (_, index) => index)
+        .filter((index) => index !== recipientIndex && keywordsForUser(index).includes(keyword)),
+    ]),
+  );
+  const keywordBySender = new Map<number, string>();
+  const senderByKeyword = new Map<string, number>();
+
+  const assign = (keyword: string, visited: Set<number>): boolean => {
+    for (const senderIndex of candidates.get(keyword) ?? []) {
+      if (visited.has(senderIndex)) continue;
+      visited.add(senderIndex);
+      const displacedKeyword = keywordBySender.get(senderIndex);
+      if (!displacedKeyword || assign(displacedKeyword, visited)) {
+        keywordBySender.set(senderIndex, keyword);
+        senderByKeyword.set(keyword, senderIndex);
+        return true;
+      }
+    }
+    return false;
+  };
+
+  for (const keyword of [...keywords].sort((a, b) =>
+    (candidates.get(a)?.length ?? 0) - (candidates.get(b)?.length ?? 0))) {
+    if (!assign(keyword, new Set())) {
+      throw new Error(`Could not assign a distinct sender for rejected tag ${keyword}`);
+    }
+  }
+  return senderByKeyword;
+}
+
 test.describe('Find similar people', () => {
   test.describe.configure({ retries: 0 });
   test.setTimeout(420_000);
@@ -178,12 +219,6 @@ test.describe('Find similar people', () => {
     // leaves the chatbot explicitly enabled.
     await Promise.all(
       setups.map(async ({ page }) => {
-        // Opt out of per-answer stats POSTs: this spec generates hundreds of auto-match
-        // answers; recording each would saturate the single e2e Node server and stall
-        // the Phase 4 broadcast member-fetch. Other specs keep stats on (the default).
-        await page.evaluate(() => {
-          (window as any).__iinpublic_app?.getApp?.()?.setSkipDirectTalkStatsForE2e?.(true);
-        });
         await page.click('.nav-btn[data-view="settings"]');
         await afterNav();
         const chatbotToggle = page.locator('#settings-chatbot-enabled');
@@ -209,14 +244,9 @@ test.describe('Find similar people', () => {
     // behaves exactly as with the Broadcast button.
     //
     // Each user runs in its own browser, so deliveries run concurrently: per-talk
-    // offer writes are parallelized app-side, and a single browser only issues a
-    // bounded number of concurrent writes — well under the socket budget that the
-    // shared-context approach blew. Each deliver waits for the server member list
-    // (which resolveBroadcastReceivers reads) and retries if it's briefly short.
-    // Deliver one user at a time. The dev server is a single Node process (Gun relay
-    // + HTTP API); 10 simultaneous broadcasts saturate it and the member-fetch HTTP
-    // inside resolveBroadcastReceivers stalls. Sequential keeps the mesh rendezvous
-    // and local browser resources within capacity — fast per deliver and reliable.
+    // mesh sends are parallelized app-side, and a single browser only issues a
+    // bounded number of concurrent deliveries. Deliver one user at a time so ten
+    // independent browser meshes do not contend for the shared test relay at once.
     for (const { page, idx } of setups) {
       await waitForChatroomMemberCountViaApi(page, NUM_USERS - 1, 90_000);
       await afterSync();
@@ -261,9 +291,7 @@ test.describe('Find similar people', () => {
       setups,
       Math.min(NUM_USERS, 10),
       async ({ page, idx }) => {
-        const own = new Set(
-          Array.from({ length: TAGS_PER_USER }, (_, j) => INTEREST_POOL[(idx + j) % INTEREST_POOL.length]),
-        );
+        const own = new Set(keywordsForUser(idx));
         const toReject = new Set<string>();
         for (let j = 0; j < NUM_USERS; j++) {
           if (j === idx) continue;
@@ -272,6 +300,7 @@ test.describe('Find similar people', () => {
             if (!own.has(kw)) toReject.add(kw);
           }
         }
+        const senderByKeyword = assignDistinctRejectSenders(idx, [...toReject]);
         await waitForTabActive(page, 'talks');
         console.log(`[u${idx} reject] ${toReject.size} seeded non-interest tags`);
         // Show the IN (incoming) filter so received tags render; Phase 2 left it on OUT.
@@ -279,11 +308,7 @@ test.describe('Find similar people', () => {
         await afterAction();
         await afterSync();
         for (const keyword of toReject) {
-          const senderIdx = setups.find(({ idx: otherIdx }) => {
-            if (otherIdx === idx) return false;
-            return Array.from({ length: TAGS_PER_USER }, (_, j) => INTEREST_POOL[(otherIdx + j) % INTEREST_POOL.length])
-              .includes(keyword);
-          })?.idx;
+          const senderIdx = senderByKeyword.get(keyword);
           if (senderIdx !== undefined) {
             await page.evaluate(
               ({ kw, sender }) => {

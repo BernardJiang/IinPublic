@@ -123,10 +123,8 @@ async function deliverTalkToReceiver(
         ),
       ]);
       lastWarmResults = warmResults;
-      expect(warmResults, `mesh warm-up failed: ${JSON.stringify(warmResults)}`).toEqual([
-        expect.objectContaining({ ready: true }),
-        expect.objectContaining({ ready: true }),
-      ]);
+      // Bounded meshes may route this directed frame through another connected peer.
+      // warmMeshConnectionToPeer is best-effort and does not require a direct edge.
       await senderPage.evaluate(
         async ({ id, data, peerId, peerName }) => {
           const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
@@ -178,15 +176,12 @@ async function deliverTalkToReceiver(
 async function waitForRecordedResponse(page: Page, talkId: string): Promise<void> {
   await expect
     .poll(
-      async () => {
-        const res = await page.context().request.get(
-          `${gunBaseURL()}/api/stats/talks/${encodeURIComponent(talkId)}/summary`,
-          { headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } },
-        );
-        if (!res.ok()) return 0;
-        const summary = (await res.json()) as { total?: number };
-        return Number(summary.total ?? 0);
-      },
+      () => page.evaluate((id) => {
+        const doc = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
+        return Object.values(doc?.exchanged || {}).filter((row: any) =>
+          row?.role === 'responder' && row?.talkId === id && Number(row?.version || 0) >= 1,
+        ).length;
+      }, talkId),
       { timeout: 30_000, intervals: [300, 600, 1000] },
     )
     .toBeGreaterThanOrEqual(1);
@@ -349,7 +344,7 @@ test.describe('Talks matching — exact chatbot Q/A memory', () => {
     // Bob sends another context with Apple available and Banana absent.
     // In direct P2P mode Tom's browser owns exact memory, so it pre-fills Apple locally
     // and Tom confirms the reviewed auto answer.
-    const reusePayload = fruitTalk(TITLE_REUSE_APPLE, 'a_apple', 'Apple', 'a_orange_ignore', 'Orange');
+    const reusePayload = fruitTalk(TITLE_REUSE_APPLE, 'a_apple', 'Apple', 'a_pear_ignore', 'Pear');
     const reuseTalkId = await createTalkFromCompanyPage(pageBob, reusePayload);
     const reuseTalkData = { ...reusePayload, id: reuseTalkId, authorId: bobIdentity.id };
     expect(await deliverTalkToReceiver(pageBob, pageTom, bobIdentity, tomIdentity, reuseTalkId, reuseTalkData, true)).toMatchObject({

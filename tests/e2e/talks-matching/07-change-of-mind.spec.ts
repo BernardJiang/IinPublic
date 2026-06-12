@@ -28,6 +28,7 @@ import {
 } from '../helpers/talks-matching-browsers';
 import {
   bootstrapUser,
+  ensureMeshNeighbors,
   finalCleanupPages,
   waitForTabActive,
 } from '../helpers/talks-matching-flow';
@@ -35,16 +36,6 @@ import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
 
 const MESH_E2E_TIMEOUT_MS = 30_000;
-
-async function warmMesh(page: Page, otherIds: string[]): Promise<void> {
-  await page.evaluate(async (peerIds: string[]) => {
-    const app = (window as any).__iinpublic_app?.getApp?.() as any;
-    if (!app?.warmMeshConnectionToPeer) return;
-    for (const peerId of peerIds) {
-      await app.warmMeshConnectionToPeer(peerId).catch(() => { /* best-effort */ });
-    }
-  }, otherIds);
-}
 
 test.describe('Change-of-mind -- step 9 (three browsers)', () => {
   let browsers: ThreeBrowsers;
@@ -149,28 +140,12 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
     await pageTom.route('**/api/talks/*/response', (route) => { tomResponseCalls++; void route.continue(); });
     await pageBob.route('**/api/talks/*/response', (route) => { bobResponseCalls++; void route.continue(); });
 
-    // ---- 4. Warm mesh connections -------------------------------------------
-    await Promise.all([
-      warmMesh(pageTom, [jerryId, bobId]),
-      warmMesh(pageJerry, [tomId, bobId]),
-      warmMesh(pageBob, [tomId, jerryId]),
+    // ---- 4. Warm mesh connections (active re-warm until linked) -------------
+    await ensureMeshNeighbors([
+      { label: 'Tom', page: pageTom, otherIds: [jerryId, bobId] },
+      { label: 'Jerry', page: pageJerry, otherIds: [tomId, bobId] },
+      { label: 'Bob', page: pageBob, otherIds: [tomId, jerryId] },
     ]);
-
-    for (const [label, page] of [
-      ['Tom', pageTom],
-      ['Jerry', pageJerry],
-      ['Bob', pageBob],
-    ] as const) {
-      await expect
-        .poll(
-          () => page.evaluate(() => {
-            const app = (window as any).__iinpublic_app?.getApp?.() as any;
-            return app?.peerMeshService?.getDiagnostics?.()?.connectedNeighborCount ?? 0;
-          }),
-          { timeout: MESH_E2E_TIMEOUT_MS, intervals: [300, 500, 1000], message: `${label}: no mesh neighbors` },
-        )
-        .toBeGreaterThan(0);
-    }
 
     // ---- 5. Tom and Bob broadcast SAME tag content (same identityKey) -------
     // Use identical questions+answers so buildTalkIdentityKey gives the same qa_* hash.
@@ -190,8 +165,8 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
 
     const TOM_TALK_ID = `com-tom-${Date.now()}`;
     const BOB_TALK_ID = `com-bob-${Date.now() + 1}`;
-    const TOM_TALK_TITLE = 'CoM Tennis Tom';
-    const BOB_TALK_TITLE = 'CoM Tennis Bob';
+    const TOM_TALK_TITLE = 'CoM Tennis';
+    const BOB_TALK_TITLE = 'CoM Tennis';
 
     const tomEpub = await pageTom.evaluate(() => {
       const pair = (window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.();
@@ -251,7 +226,7 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
 
     await afterAction();
 
-    // ---- 6. Wait for Jerry to receive both talk bodies ----------------------
+    // ---- 6. Wait for Jerry to receive both acknowledged talk bodies --------
     for (const [label, talkId, authorId] of [
       ['Tom', TOM_TALK_ID, tomId],
       ['Bob', BOB_TALK_ID, bobId],
@@ -261,10 +236,7 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
           () => pageJerry.evaluate(
             ({ tId, aId }: { tId: string; aId: string }) => {
               const app = (window as any).__iinpublic_app?.getApp?.() as any;
-              const diag = app?.meshAnnounceDiagnostics as
-                | { received: Array<{ talkId: string; authorId: string }> }
-                | undefined;
-              return (diag?.received ?? []).some((r) => r.talkId === tId && r.authorId === aId);
+              return !!app?.peerMeshService?.getCachedTalkBody?.(tId, aId);
             },
             { tId: talkId, aId: authorId },
           ),
@@ -284,8 +256,6 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
       async ({ tomTalkId, tomAuthorId, tomName, tomDef, bobTalkId, bobAuthorId, bobName, bobDef, ignAns }: any) => {
         const app = (window as any).__iinpublic_app?.getApp?.() as any;
         if (!app) throw new Error('Jerry: app unavailable');
-        app.peerMeshService?.cacheTalkBody?.(tomTalkId, tomDef);
-        app.peerMeshService?.cacheTalkBody?.(bobTalkId, bobDef);
         await (app as any).submitTalkResponsePairDirect({
           talkId: tomTalkId,
           talkData: { ...tomDef, authorId: tomAuthorId, authorName: tomName },
@@ -448,14 +418,13 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
     }, { jId: jerryId });
     expect(tomConvChangedAt, 'Tom: changedAt not set on ended conversation').not.toBeNull();
 
-    // ---- 15. Bob conversation still active (Jerry did not revert for Bob) ---
+    // ---- 15. Shared-identity revert also reaches Bob ------------------------
     const bobConvStatus = await pageBob.evaluate(({ jId }: { jId: string }) => {
       const convs = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
       const conv = Object.values(convs).find((c: any) => c?.otherUserId === jId) as any;
       return conv?.status ?? 'active';
     }, { jId: jerryId });
-    // Bob's conversation should not be 'ignored' because Jerry only reverted Tom's
-    expect(bobConvStatus, "Bob: conversation should NOT be ended after Jerry reverted Tom's").not.toBe('ignored');
+    expect(bobConvStatus, 'Bob: shared-identity revert should fan out').toBe('ignored');
 
     // ---- 16. Inject stale older-version update -> rejected ------------------
     // Directly call handleMeshTalkResponse with an older version

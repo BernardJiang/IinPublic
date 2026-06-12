@@ -121,12 +121,12 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
     await waitForTabActive(sam.page, 'chatrooms');
     await afterSync();
 
-    for (const { talkId } of createdByKind) {
-      await sam.page.evaluate(async (id: string) => {
+    for (const { talkId, talkData } of createdByKind) {
+      await sam.page.evaluate(async ({ id, talk }: { id: string; talk: any }) => {
         const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
         if (!app?.announceTalkToRoom) throw new Error('announceTalkToRoom not found');
-        await app.announceTalkToRoom(id);
-      }, talkId);
+        await app.announceTalkToRoom(id, talk);
+      }, { id: talkId, talk: talkData });
       await afterSync();
     }
 

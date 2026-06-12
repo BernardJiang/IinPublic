@@ -2290,7 +2290,14 @@ export class UIManager extends EventEmitter {
         if (role !== 'incoming' && !talkId) return;
         item.addEventListener('click', (e) => {
           if ((e.target as HTMLElement).closest('.talk-item-actions')) return;
-          if (role === 'created' || role === 'copied') {
+          if (role === 'copied') {
+            const copied = myTalks[talkId];
+            if (copied?.fullTalk) {
+              this.showTalkEditorDialog(this.toOwnedOutgoingTalk(copied.fullTalk));
+            } else {
+              this.showNotification(this.t('talksCouldNotLoad'), 'error');
+            }
+          } else if (role === 'created') {
             this.emit('loadTalkForEdit', { talkId });
           } else {
             this.showTalkDetail(talkId, identityKey || undefined);
@@ -6272,7 +6279,7 @@ export class UIManager extends EventEmitter {
             - new Date(a.lastMessageTime || a.createdAt || 0).getTime(),
           )[0] as { transportMode?: string; transportFallbackReason?: string | null; lastMessageTime?: string | null } | undefined;
         return {
-          mode: String(conversation?.transportMode || 'star-gun'),
+          mode: String(conversation?.transportMode || 'direct-p2p'),
           fallbackReason: conversation?.transportFallbackReason ?? null,
           lastHealthyAt: conversation?.lastMessageTime ?? null,
         };
@@ -6573,8 +6580,12 @@ export class UIManager extends EventEmitter {
       supportChannel: isSupportChannel,
       transportMode: conversationData.transportMode ?? existing?.transportMode ?? 'star-gun',
       transportFallbackReason: existing?.transportFallbackReason ?? conversationData.transportFallbackReason ?? null,
+      ...(existing?.status ? { status: existing.status } : {}),
+      ...(existing?.changedAt ? { changedAt: existing.changedAt } : {}),
       // Step 9: record change-of-mind timestamp for durable UI assertion
-      ...(conversationData.changeOfMindAt ? { changeOfMindAt: conversationData.changeOfMindAt } : {}),
+      ...(conversationData.changeOfMindAt || existing?.changeOfMindAt
+        ? { changeOfMindAt: conversationData.changeOfMindAt ?? existing?.changeOfMindAt }
+        : {}),
     };
 
     localStorage.setItem('myConversations', JSON.stringify(conversations));
@@ -6662,10 +6673,13 @@ export class UIManager extends EventEmitter {
   markConversationEnded(otherUserId: string, talkId: string, changedAt: string): void {
     const conversations = this.getMyConversations();
     // Find the conversation by otherUserId + talkId
-    const convId = Object.keys(conversations).find((id) => {
+    let convId = Object.keys(conversations).find((id) => {
       const c = conversations[id];
       return c?.otherUserId === otherUserId && c?.talkId === talkId;
     });
+    if (!convId) {
+      convId = Object.keys(conversations).find((id) => conversations[id]?.otherUserId === otherUserId);
+    }
     if (!convId) return;
     conversations[convId].status = 'ignored';
     conversations[convId].changedAt = changedAt;

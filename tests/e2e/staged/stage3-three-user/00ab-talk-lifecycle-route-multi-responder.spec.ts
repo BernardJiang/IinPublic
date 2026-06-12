@@ -25,7 +25,6 @@ import {
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
 import { makeRouteTalk } from '../../talks-matching/lib/four-types-talks';
-import { gunBaseURL } from '../../helpers/ports';
 
 const RUN_ID = 900402;
 const ROUTE_TITLE = `E2E FourTypes Route ${RUN_ID}`;
@@ -122,18 +121,16 @@ test.describe('Talk lifecycle — route multi-responder matrix (D4)', () => {
       'mismatch',
     );
 
-    // --- Creator sees both responses recorded in aggregate stats ---
+    // --- Creator sees both peer-signed responses in its local ledger ---
     await expect
       .poll(
-        async () => {
-          const res = await pageTom.context().request.get(
-            `${gunBaseURL()}/api/stats/talks/${encodeURIComponent(created.talkId)}/summary`,
-          );
-          if (!res.ok()) return 0;
-          const data = (await res.json()) as { total?: number };
-          return Number(data.total ?? 0);
-        },
-        { timeout: 60_000, message: 'Expected at least 2 route responses in aggregate stats' },
+        () => pageTom.evaluate((talkId) => {
+          const doc = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
+          return Object.values(doc?.outcomes || {}).filter(
+            (entry: any) => String(entry?.talkId || '') === talkId,
+          ).length;
+        }, created.talkId),
+        { timeout: 30_000, message: 'Expected both route responses in the creator local ledger' },
       )
       .toBeGreaterThanOrEqual(2);
 

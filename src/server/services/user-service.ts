@@ -303,14 +303,21 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     userId: string,
     updates: { headshot?: string; languages?: string[]; profile?: QuestionAnswer[]; interests?: Tag[] },
   ): Promise<void> {
-    const node = {
+    const fullNode = {
       headshot: updates.headshot || '',
       languagesJson: JSON.stringify(Array.isArray(updates.languages) ? updates.languages : ['en']),
       profileJson: JSON.stringify(Array.isArray(updates.profile) ? updates.profile : []),
       interestsJson: JSON.stringify(Array.isArray(updates.interests) ? updates.interests : []),
     };
-    await this.gunService.put(`${PUBLIC_PROFILE_FOUNDATION_KEY}/${userId}`, node);
-    this.recentPublicProfileFoundations.set(userId, node);
+    const publicProfile = (updates.profile || []).filter((entry) =>
+      String((entry as QuestionAnswer & { visibility?: string }).visibility || 'public') === 'public',
+    );
+    await this.gunService.put(`${PUBLIC_PROFILE_FOUNDATION_KEY}/${userId}`, {
+      ...fullNode,
+      profileJson: JSON.stringify(publicProfile),
+    });
+    // The compatibility API still applies viewer-specific filtering from this process-local copy.
+    this.recentPublicProfileFoundations.set(userId, fullNode);
   }
 
   /** True if `ownerId` has saved `candidateId` under knownPeople (public Gun path). */

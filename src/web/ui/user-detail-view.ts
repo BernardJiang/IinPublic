@@ -264,15 +264,14 @@ export function closePeerDetailView(): void {
 }
 
 /** Server-authoritative block edges for disabling Send My Talks (matches register-receivers / delivery). */
-async function applySendButtonFromBlockStatus(
+type PeerBlockStatus = { eitherBlocked: boolean; blocked: boolean; blockedBy: boolean };
+
+async function readPeerBlockStatus(
   peerId: string,
   deps: UserDetailViewDeps,
-): Promise<void> {
-  const sendBtn = document.getElementById('peer-send-talks-btn') as HTMLButtonElement | null;
-  if (!sendBtn) return;
+): Promise<PeerBlockStatus> {
   if (deps.isSupportContact(peerId)) {
-    sendBtn.disabled = false;
-    return;
+    return { eitherBlocked: false, blocked: false, blockedBy: false };
   }
   try {
     const r = await fetch(
@@ -280,13 +279,28 @@ async function applySendButtonFromBlockStatus(
     );
     if (r.ok) {
       const s = (await r.json()) as { eitherBlocked?: boolean; blocked?: boolean; blockedBy?: boolean };
-      sendBtn.disabled = Boolean(s.eitherBlocked || s.blocked || s.blockedBy);
-      return;
+      return {
+        eitherBlocked: Boolean(s.eitherBlocked || s.blocked || s.blockedBy),
+        blocked: Boolean(s.blocked),
+        blockedBy: Boolean(s.blockedBy),
+      };
     }
   } catch {
     /* fall through */
   }
-  sendBtn.disabled = deps.isBlockedByMe(peerId);
+  const blocked = deps.isBlockedByMe(peerId);
+  return { eitherBlocked: blocked, blocked, blockedBy: false };
+}
+
+async function applySendButtonFromBlockStatus(
+  peerId: string,
+  deps: UserDetailViewDeps,
+  status?: PeerBlockStatus,
+): Promise<void> {
+  const sendBtn = document.getElementById('peer-send-talks-btn') as HTMLButtonElement | null;
+  if (!sendBtn) return;
+  const resolved = status || await readPeerBlockStatus(peerId, deps);
+  sendBtn.disabled = resolved.eitherBlocked;
 }
 
 // fetchPeerDetailWithTimeout, renderBlockedPeerDetail, isPeerDetailBlocked, and
@@ -304,11 +318,15 @@ function parsePublicProfileArray<T>(value: string | undefined, fallback: T[]): T
 
 async function readPublicProfileFoundation(peerId: string, deps: UserDetailViewDeps): Promise<any | null> {
   if (!deps.getPublicProfileFoundation) return null;
-  const timeout = new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 2_500));
-  const foundation = await Promise.race([
-    deps.getPublicProfileFoundation(peerId).catch(() => null),
-    timeout,
-  ]);
+  const deadline = Date.now() + 8_500;
+  let foundation: PublicProfileFoundation | null = null;
+  while (!foundation && Date.now() < deadline) {
+    foundation = await Promise.race([
+      deps.getPublicProfileFoundation(peerId).catch(() => null),
+      new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1_500)),
+    ]);
+    if (!foundation) await new Promise((resolve) => window.setTimeout(resolve, 250));
+  }
   if (!foundation) return null;
   return {
     headshot: foundation.headshot || '',
@@ -357,6 +375,16 @@ function computeLocalStats(peerId: string, deps: UserDetailViewDeps): PeerRelati
 async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserDetailViewDeps): Promise<void> {
   const statsEl = document.getElementById('peer-stats-section');
   try {
+    const blockStatus = await readPeerBlockStatus(peerId, deps);
+    if (blockStatus.blockedBy) {
+      const subtitleEl = document.getElementById('peer-detail-subtitle');
+      if (subtitleEl) subtitleEl.textContent = `${peerName} · blocked`;
+      if (statsEl) {
+        statsEl.innerHTML = `<div style="padding:12px;color:#64748b;">${deps.text('contactProfileUnavailable')} ${deps.text('peerBlockedDetail')}</div>`;
+      }
+      await applySendButtonFromBlockStatus(peerId, deps, blockStatus);
+      return;
+    }
     // P0 step 5: relationship stats derived locally — no server call.
     const stats = computeLocalStats(peerId, deps);
 

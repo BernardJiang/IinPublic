@@ -23,9 +23,9 @@ import { P2PSignalingClient, encodeSignalingPayload, type PostSignalingBody } fr
 export type P2PConnectionState = 'idle' | 'connecting' | 'connected' | 'failed';
 
 type SignalPayload =
-  | { type: 'offer'; sdp: RTCSessionDescriptionInit }
-  | { type: 'answer'; sdp: RTCSessionDescriptionInit }
-  | { type: 'ice'; candidate: RTCIceCandidateInit | null };
+  | { type: 'offer'; sdp: RTCSessionDescriptionInit; offerId?: string }
+  | { type: 'answer'; sdp: RTCSessionDescriptionInit; offerId?: string }
+  | { type: 'ice'; candidate: RTCIceCandidateInit | null; offerId?: string };
 
 type HandshakeWirePayload = {
   type: 'handshake';
@@ -140,6 +140,16 @@ export class P2PConversationSession {
   private connectPromise: Promise<void> | null = null;
   private remoteDescriptionSet = false;
   private makingOffer = false;
+  /**
+   * Correlates answers/ICE with the offer generation they belong to. Each connect
+   * cycle (fresh RTCPeerConnection) gets a new offerId; the responder echoes the
+   * offerId of the offer it answered. Without this, a STALE answer from a previous
+   * timed-out cycle still sitting in the signaling queue gets applied to the new
+   * RTCPeerConnection, consuming the one-shot `remoteDescriptionSet` slot so the
+   * real answer is ignored — a connect livelock that repeats 10s-timeout cycles
+   * under parallel E2E CPU load ("no mesh neighbors" flake).
+   */
+  private currentOfferId: string | null = null;
   private ledgerLocalSent = false;
   private ledgerRemoteReceived = false;
   private ledgerReady = false;
@@ -269,7 +279,11 @@ export class P2PConversationSession {
     if (this._state === 'connected') return Promise.resolve();
     if (this.connectPromise) return this.connectPromise;
 
-    this.connectPromise = new Promise<void>((resolve, reject) => {
+    if (this._state === 'failed') {
+      this.resetTransport();
+    }
+
+    const attempt = new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this._state !== 'connected') {
           this.setState('failed');
@@ -304,7 +318,24 @@ export class P2PConversationSession {
         });
     });
 
-    return this.connectPromise;
+    this.connectPromise = attempt;
+    void attempt.catch(() => {
+      if (this.connectPromise === attempt) this.connectPromise = null;
+    });
+    return attempt;
+  }
+
+  private resetTransport(): void {
+    this.stopPolling?.();
+    this.stopPolling = null;
+    this.dc?.close();
+    this.pc?.close();
+    this.dc = null;
+    this.pc = null;
+    this.remoteDescriptionSet = false;
+    this.makingOffer = false;
+    this.currentOfferId = null;
+    this.setState('idle');
   }
 
   private async start(): Promise<void> {
@@ -325,6 +356,7 @@ export class P2PConversationSession {
       void this.postSignal('ice-candidate', {
         type: 'ice',
         candidate: event.candidate.toJSON(),
+        ...(this.currentOfferId ? { offerId: this.currentOfferId } : {}),
       }).catch(() => undefined);
     };
     this.pc.onconnectionstatechange = () => {
@@ -332,7 +364,8 @@ export class P2PConversationSession {
       if (cs === 'connected') {
         this.setState('connected');
       } else if (cs === 'failed' || cs === 'closed' || cs === 'disconnected') {
-        if (this._state !== 'connected') this.setState('failed');
+        this.setState('failed');
+        this.connectPromise = null;
       }
     };
     this.pc.oniceconnectionstatechange = () => {
@@ -340,7 +373,8 @@ export class P2PConversationSession {
       if (ice === 'connected' || ice === 'completed') {
         this.setState('connected');
       } else if (ice === 'failed') {
-        if (this._state !== 'connected') this.setState('failed');
+        this.setState('failed');
+        this.connectPromise = null;
       }
     };
 
@@ -348,9 +382,10 @@ export class P2PConversationSession {
       this.dc = this.pc.createDataChannel('iinpublic-dm', { ordered: true });
       this.attachDataChannel(this.dc);
       this.makingOffer = true;
+      this.currentOfferId = `offer_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
       const offer = await this.pc.createOffer();
       await this.pc.setLocalDescription(offer);
-      await this.postSignal('offer', { type: 'offer', sdp: offer });
+      await this.postSignal('offer', { type: 'offer', sdp: offer, offerId: this.currentOfferId });
       this.makingOffer = false;
     } else {
       this.pc.ondatachannel = (event) => {
@@ -404,6 +439,14 @@ export class P2PConversationSession {
       } catch {
         // ignore malformed frames
       }
+    };
+    channel.onclose = () => {
+      this.setState('failed');
+      this.connectPromise = null;
+    };
+    channel.onerror = () => {
+      this.setState('failed');
+      this.connectPromise = null;
     };
   }
 
@@ -499,17 +542,31 @@ export class P2PConversationSession {
     if (!this.pc) return;
     if (payload.type === 'offer') {
       if (this.makingOffer) return;
+      // Track which offer generation we are answering so the initiator can
+      // correlate our answer (and discard answers to retired offers).
+      this.currentOfferId = payload.offerId ?? null;
       await this.pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
       this.remoteDescriptionSet = true;
       const answer = await this.pc.createAnswer();
       await this.pc.setLocalDescription(answer);
-      await this.postSignal('answer', { type: 'answer', sdp: answer });
+      await this.postSignal('answer', {
+        type: 'answer',
+        sdp: answer,
+        ...(this.currentOfferId ? { offerId: this.currentOfferId } : {}),
+      });
     } else if (payload.type === 'answer') {
+      // Drop answers that correspond to a previous (timed-out, reset) offer cycle;
+      // applying them would consume `remoteDescriptionSet` and the real answer
+      // for the current offer would then be ignored.
+      if (payload.offerId && payload.offerId !== this.currentOfferId) return;
       if (this.config.isInitiator && !this.remoteDescriptionSet) {
         await this.pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
         this.remoteDescriptionSet = true;
       }
     } else if (payload.type === 'ice' && payload.candidate) {
+      // Same correlation for ICE: candidates from a retired connect cycle target a
+      // closed RTCPeerConnection on the other side and only pollute this one.
+      if (payload.offerId && this.currentOfferId && payload.offerId !== this.currentOfferId) return;
       try {
         await this.pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
       } catch {
@@ -556,13 +613,8 @@ export class P2PConversationSession {
   }
 
   dispose(): void {
-    this.stopPolling?.();
-    this.stopPolling = null;
-    this.dc?.close();
-    this.pc?.close();
-    this.dc = null;
-    this.pc = null;
-    this.setState('idle');
+    this.resetTransport();
+    this.connectPromise = null;
   }
 }
 

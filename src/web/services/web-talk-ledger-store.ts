@@ -133,6 +133,9 @@ export function getResponderVersionForTalk(
 export function writeResponderExchangedEntry(params: {
   authorId: string;
   identityKey: string;
+  talkId?: string;
+  authorName?: string;
+  authorEpub?: string;
   outcome: ExchangedEntry['outcome'];
   version: number;
   responseId: string;
@@ -148,6 +151,9 @@ export function writeResponderExchangedEntry(params: {
   doc.exchanged[key] = {
     peerId: params.authorId,
     identityKey: params.identityKey,
+    ...(params.talkId || existing?.talkId ? { talkId: params.talkId || existing?.talkId } : {}),
+    ...(params.authorName || existing?.peerName ? { peerName: params.authorName || existing?.peerName } : {}),
+    ...(params.authorEpub || existing?.peerEpub ? { peerEpub: params.authorEpub || existing?.peerEpub } : {}),
     outcome: params.outcome,
     version: params.version,
     role: 'responder',
@@ -175,6 +181,37 @@ export function getResponderSendersForIdentity(identityKey: string): string[] {
     }
   }
   return senders;
+}
+
+export function getResponderTargetsForIdentity(identityKey: string): ExchangedEntry[] {
+  const doc = loadTalkLedger();
+  return Object.values(doc.exchanged).filter(
+    (entry) => entry.role === 'responder' && entry.identityKey === identityKey,
+  );
+}
+
+export function writeAuthorExchangedEntries(params: {
+  responderId: string;
+  identityKeys: string[];
+  outcome: ExchangedEntry['outcome'];
+  version: number;
+  respondedAt: string;
+}): void {
+  const doc = loadTalkLedger();
+  for (const identityKey of new Set(params.identityKeys.filter(Boolean))) {
+    const key = exchangedKey(params.responderId, identityKey);
+    const existing = doc.exchanged[key];
+    if (existing && existing.version > params.version) continue;
+    doc.exchanged[key] = {
+      peerId: params.responderId,
+      identityKey,
+      outcome: params.outcome,
+      version: params.version,
+      role: 'author',
+      lastExchangedAt: params.respondedAt,
+    };
+  }
+  saveTalkLedger(doc);
 }
 
 /**

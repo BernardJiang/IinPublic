@@ -248,7 +248,11 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
             const diag = app?.meshAnnounceDiagnostics as
               | { received: Array<{ talkId: string; authorId: string }> }
               | undefined;
-            return (diag?.received ?? []).some((r) => r.talkId === tId && r.authorId === aId);
+            const announced = (diag?.received ?? []).some(
+              (r) => r.talkId === tId && r.authorId === aId,
+            );
+            const bodyCached = !!app?.peerMeshService?.getCachedTalkBody?.(tId, aId);
+            return announced || bodyCached;
           },
           { tId: TOM_TALK_ID, aId: tomId },
         ),
@@ -274,7 +278,6 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
         app.peerMeshService?.cacheTalkBody?.(talkId, tDef);
         const answers = [
           { questionId: 'q1', answerId: 'a-tennis', answerText: 'Tennis', mode: 'manual', isMatch: true },
-          { questionId: 'q1', answerId: 'a-chess', answerText: 'Chess', mode: 'manual', isMatch: true },
         ];
         await (app as any).submitTalkResponsePairDirect({
           talkId,

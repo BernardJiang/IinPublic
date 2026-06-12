@@ -117,9 +117,26 @@ test.describe('UI navigation and settings shell', () => {
       date: new Date(Date.UTC(2026, 4, 1, 0, index)).toISOString(),
       answers: [{ questionId: 'q1', answerId: 'a1', answerText: `Answer ${index}` }],
     }));
-    await p.route('**/api/users/*/replies', async (route) => {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(replyFixture) });
-    });
+    await p.evaluate((rows) => {
+      const exchanges = Object.fromEntries(rows.map((row) => [
+        `${row.responderId}::${row.talkId}::${row.responseId}`,
+        {
+          peerId: row.responderId,
+          peerName: row.responderName,
+          talkId: row.talkId,
+          title: row.title,
+          type: row.type,
+          language: row.language,
+          outcome: row.outcome,
+          answerMode: row.answerMode,
+          direction: 'sent',
+          date: row.date,
+          responseId: row.responseId,
+          answers: row.answers,
+        },
+      ]));
+      localStorage.setItem('localTalkExchanges', JSON.stringify(exchanges));
+    }, replyFixture);
     await p.locator('.nav-btn[data-view="talks"]').click();
     await afterNav();
     await expect(p.locator('#header-title')).toBeEmpty();
@@ -309,28 +326,28 @@ test.describe('UI navigation and settings shell', () => {
     await expect(supportContact).toContainText('TechSupport');
     await expect(supportContact).toContainText('内置支持联系人');
     await expect(supportContact).toContainText('支持通知已开启');
-    await p.route('**/api/users/*/peers/localized-peer/relationship', async (route) => route.fulfill({
-      json: {
-        totalTalks: 1,
-        sent: { talks: 1, matches: 1 },
-        received: { talks: 0, matches: 0 },
-        mutualMatchedTalks: 1,
-        mutualTagCount: 0,
-      },
-    }));
-    await p.route('**/api/users/localized-peer?**', async (route) => route.fulfill({
-      json: { languages: ['zh'], interests: [{ name: '咖啡' }], profile: [] },
-    }));
-    await p.route('**/api/users/*/peers/localized-peer/talk-history', async (route) => route.fulfill({
-      json: [{
+    await p.evaluate(async () => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      await app.gunService.put('user-public-profile/localized-peer', {
+        languagesJson: JSON.stringify(['zh']),
+        interestsJson: JSON.stringify([{ name: '咖啡' }]),
+        profileJson: '[]',
+      });
+      localStorage.setItem('localTalkExchanges', JSON.stringify({
+        'localized-peer::localized-peer-talk': {
+          peerId: 'localized-peer',
+          peerName: 'Ming',
+          responseId: 'localized-peer-response',
         talkId: 'localized-peer-talk',
         title: 'Localized History',
         direction: 'sent',
         outcome: 'match',
         type: 'flow',
+          language: 'zh',
         date: new Date().toISOString(),
-      }],
-    }));
+        },
+      }));
+    });
     await p.route('**/api/users/*/block-status/localized-peer', async (route) => route.fulfill({ json: {} }));
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.openPeerDetailForUser('localized-peer', 'Ming'));
     await expect(p.locator('#peer-detail-overlay')).toBeVisible();
@@ -340,8 +357,8 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#peer-detail-overlay')).toContainText('交换的话题');
     await expect(p.locator('#peer-detail-overlay')).toContainText('流程');
     await expect(p.locator('.peer-transport-status')).toContainText('频道传输');
-    await expect(p.locator('.peer-transport-status')).toContainText('兼容星型同步');
-    await expect(p.locator('.peer-transport-fallback')).toContainText('当前未启用传输回退');
+    await expect(p.locator('.peer-transport-status')).toContainText('直接 P2P');
+    await expect(p.locator('.peer-transport-fallback')).toContainText('尚未报告回退原因');
     await expect(p.locator('.peer-transport-health')).toContainText('尚未记录已送达的消息');
     await expect(p.locator('#peer-send-talks-btn')).toContainText('发送我的话题');
     await expect(p.locator('#peer-dm-input')).toHaveAttribute('placeholder', '输入消息...');

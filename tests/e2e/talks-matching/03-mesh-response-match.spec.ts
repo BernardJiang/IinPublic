@@ -24,6 +24,7 @@ import {
 } from '../helpers/talks-matching-browsers';
 import {
   bootstrapUser,
+  ensureMeshNeighbors,
   finalCleanupPages,
   waitForTabActive,
 } from '../helpers/talks-matching-flow';
@@ -38,17 +39,6 @@ const COLLECT_GUN_WINDOW_MS = 500;
  * 3× P2P_WEBRTC_CONNECT_TIMEOUT_MS (10s) so parallel-suite load still passes.
  */
 const MESH_E2E_TIMEOUT_MS = 30_000;
-
-/** Warm mesh connections between a page and a list of peer ids. */
-async function warmMesh(page: Page, otherIds: string[]): Promise<void> {
-  await page.evaluate(async (peerIds: string[]) => {
-    const app = (window as any).__iinpublic_app?.getApp?.() as any;
-    if (!app?.warmMeshConnectionToPeer) return;
-    for (const peerId of peerIds) {
-      await app.warmMeshConnectionToPeer(peerId).catch(() => { /* best-effort */ });
-    }
-  }, otherIds);
-}
 
 test.describe('Mesh response match — three browsers, zero server calls', () => {
   let browsers: ThreeBrowsers;
@@ -172,34 +162,12 @@ test.describe('Mesh response match — three browsers, zero server calls', () =>
       void route.continue();
     });
 
-    // ── 4. Warm mesh connections ─────────────────────────────────────────────
-    await Promise.all([
-      warmMesh(pageTom, [jerryId, bobId]),
-      warmMesh(pageJerry, [tomId, bobId]),
-      warmMesh(pageBob, [tomId, jerryId]),
+    // ── 4. Warm mesh connections (active re-warm until linked) ───────────────
+    await ensureMeshNeighbors([
+      { label: 'Tom', page: pageTom, otherIds: [jerryId, bobId] },
+      { label: 'Jerry', page: pageJerry, otherIds: [tomId, bobId] },
+      { label: 'Bob', page: pageBob, otherIds: [tomId, jerryId] },
     ]);
-
-    // Wait for at least 1 connected neighbor on each peer
-    for (const [label, page] of [
-      ['Tom', pageTom],
-      ['Jerry', pageJerry],
-      ['Bob', pageBob],
-    ] as const) {
-      await expect
-        .poll(
-          () =>
-            page.evaluate(() => {
-              const app = (window as any).__iinpublic_app?.getApp?.() as any;
-              return app?.peerMeshService?.getDiagnostics?.()?.connectedNeighborCount ?? 0;
-            }),
-          {
-            timeout: MESH_E2E_TIMEOUT_MS,
-            intervals: [300, 500, 1000],
-            message: `${label}: no connected mesh neighbors`,
-          },
-        )
-        .toBeGreaterThan(0);
-    }
 
     // ── 5. Tom creates and broadcasts a tag talk ─────────────────────────────
     const TEST_TALK_ID = `mesh-response-e2e-${Date.now()}`;
@@ -228,11 +196,6 @@ test.describe('Mesh response match — three browsers, zero server calls', () =>
           ],
         };
         mesh.cacheTalkBody(talkId, talkDef);
-        // Also mirror to local Gun so resolveMeshTalkData.getTalkWithRetry can find it
-        const gun = app?.gunService?.getGun?.();
-        if (gun) {
-          gun.get(`talks/${talkId}`).put({ data: JSON.stringify(talkDef) });
-        }
         // Store in myTalks so localUserAuthoredTalkContent returns true
         const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
         myTalks[talkId] = { role: 'created', fullTalk: talkDef };

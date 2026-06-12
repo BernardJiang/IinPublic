@@ -6,6 +6,7 @@ import { computeTalkCIDv1, computeCIDv1 } from '../../shared/cid';
 
 // ── Local authored-talks store (R-f debt: replaces Gun talks/* author writes) ──
 const AUTHORED_TALKS_KEY = 'myAuthoredTalks';
+const RECEIVED_TALKS_KEY = 'myReceivedTalks';
 
 function loadAuthoredTalks(): Record<string, { talkJson: string; createdAt: string }> {
   try {
@@ -36,6 +37,24 @@ function loadAuthoredTalk(talkId: string): Talk | null {
     const entry = store[talkId];
     if (!entry?.talkJson) return null;
     return JSON.parse(entry.talkJson) as Talk;
+  } catch {
+    return null;
+  }
+}
+
+function loadReceivedTalks(): Record<string, { talkJson: string; receivedAt: string }> {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(RECEIVED_TALKS_KEY) : null;
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function loadReceivedTalk(talkId: string): Talk | null {
+  try {
+    const entry = loadReceivedTalks()[talkId];
+    return entry?.talkJson ? JSON.parse(entry.talkJson) as Talk : null;
   } catch {
     return null;
   }
@@ -145,10 +164,32 @@ export class WebTalkService {
     return talk;
   }
 
+  /**
+   * Persist a body received over the mesh in the receiver-owned content cache.
+   * The key is the content-addressed talk id; this local block store is the
+   * browser-side boundary that can later be backed by Helia/IPFS.
+   */
+  cacheReceivedTalk(talkId: string, talkData: Talk | Record<string, unknown>): void {
+    if (!talkId || typeof localStorage === 'undefined') return;
+    try {
+      const store = loadReceivedTalks();
+      store[talkId] = {
+        talkJson: JSON.stringify({ ...talkData, id: talkId }),
+        receivedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(RECEIVED_TALKS_KEY, JSON.stringify(store));
+    } catch {
+      // Non-fatal: the live mesh cache still serves the current session.
+    }
+  }
+
   async getTalk(talkId: string): Promise<Talk | null> {
-    // Local-first: authored talks are stored in localStorage; fall back to Gun for legacy/receiver data.
+    // Local-first: authored and mesh-received bodies are receiver-owned. Gun is
+    // retained only as a legacy read fallback during the P2P migration.
     const local = loadAuthoredTalk(talkId);
     if (local) return this.normalizeTalkFromStorage(local);
+    const received = loadReceivedTalk(talkId);
+    if (received) return this.normalizeTalkFromStorage(received);
     try {
       const raw = await this.gunService.get(`talks/${talkId}`);
       if (!raw || !raw.data) return null;

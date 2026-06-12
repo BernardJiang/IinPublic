@@ -32,6 +32,7 @@ import {
 } from '../helpers/talks-matching-browsers';
 import {
   bootstrapUser,
+  ensureMeshNeighbors,
   finalCleanupPages,
   waitForTabActive,
 } from '../helpers/talks-matching-flow';
@@ -39,16 +40,6 @@ import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
 
 const MESH_E2E_TIMEOUT_MS = 30_000;
-
-async function warmMesh(page: Page, otherIds: string[]): Promise<void> {
-  await page.evaluate(async (peerIds: string[]) => {
-    const app = (window as any).__iinpublic_app?.getApp?.() as any;
-    if (!app?.warmMeshConnectionToPeer) return;
-    for (const peerId of peerIds) {
-      await app.warmMeshConnectionToPeer(peerId).catch(() => { /* best-effort */ });
-    }
-  }, otherIds);
-}
 
 test.describe('Retraction -- step 10 (three browsers)', () => {
   let browsers: ThreeBrowsers;
@@ -151,28 +142,12 @@ test.describe('Retraction -- step 10 (three browsers)', () => {
     let tomResponseCalls = 0;
     await pageTom.route('**/api/talks/*/response', (route) => { tomResponseCalls++; void route.continue(); });
 
-    // ---- 4. Warm mesh connections ------------------------------------------
-    await Promise.all([
-      warmMesh(pageTom, [jerryId, bobId]),
-      warmMesh(pageJerry, [tomId, bobId]),
-      warmMesh(pageBob, [tomId, jerryId]),
+    // ---- 4. Warm mesh connections (active re-warm until linked) -------------
+    await ensureMeshNeighbors([
+      { label: 'Tom', page: pageTom, otherIds: [jerryId, bobId] },
+      { label: 'Jerry', page: pageJerry, otherIds: [tomId, bobId] },
+      { label: 'Bob', page: pageBob, otherIds: [tomId, jerryId] },
     ]);
-
-    for (const [label, page] of [
-      ['Tom', pageTom],
-      ['Jerry', pageJerry],
-      ['Bob', pageBob],
-    ] as const) {
-      await expect
-        .poll(
-          () => page.evaluate(() => {
-            const app = (window as any).__iinpublic_app?.getApp?.() as any;
-            return app?.peerMeshService?.getDiagnostics?.()?.connectedNeighborCount ?? 0;
-          }),
-          { timeout: MESH_E2E_TIMEOUT_MS, intervals: [300, 500, 1000], message: `${label}: no mesh neighbors` },
-        )
-        .toBeGreaterThan(0);
-    }
 
     // ---- 5. Tom broadcasts a tag talk to Jerry and Bob --------------------
     const TOM_TALK_ID = `ret-tom-${Date.now()}`;

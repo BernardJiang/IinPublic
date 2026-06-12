@@ -38,6 +38,10 @@ export type LocalTalkExchange = {
   responseId?: string;
   version?: number;
   respondedAt?: string;
+  type?: string;
+  language?: string;
+  answerMode?: 'auto' | 'manual';
+  answers?: Array<{ questionId: string; answerId: string; answerText: string }>;
 };
 
 export type LocalTalkHistoryItem = {
@@ -375,14 +379,14 @@ export function deriveLocalCreatorReplies(currentUserId: string): LocalCreatorRe
       responseId,
       talkId,
       title: String(exchange?.title || 'Untitled Talk'),
-      type: 'flow',        // type not stored in local exchange; default to 'flow'
-      language: 'en',      // language not stored; default to 'en'
+      type: String(exchange?.type || 'flow'),
+      language: String(exchange?.language || 'en'),
       responderId: peerId,
       responderName: String(exchange?.peerName || 'Unknown'),
       outcome,
-      answerMode: 'manual', // answerMode not stored locally; default to 'manual'
+      answerMode: exchange?.answerMode === 'auto' ? 'auto' : 'manual',
       date: String(exchange?.date || new Date(0).toISOString()),
-      answers: [],           // answers not stored locally
+      answers: Array.isArray(exchange?.answers) ? exchange.answers : [],
     });
   }
   rows.sort(

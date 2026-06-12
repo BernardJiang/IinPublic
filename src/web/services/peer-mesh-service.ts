@@ -30,6 +30,7 @@ type MeshSession = {
   ensureConnected: () => Promise<void>;
   sendMeshFrame: (frame: P2PMeshFrame) => Promise<void>;
   setOnRemoteMeshFrame: (hook: (otherUserId: string, frame: P2PMeshFrame) => void | Promise<void>) => void;
+  dispose?: () => void;
 };
 
 type PeerMeshServiceOptions = {
@@ -39,6 +40,7 @@ type PeerMeshServiceOptions = {
   maxNeighbors?: number;
   sendTimeoutMs?: number;
   retryTimeoutMs?: number;
+  ackTimeoutMs?: number;
   createSession?: (params: {
     conversationId: string;
     localUserId: string;
@@ -88,6 +90,13 @@ type Neighbor = {
 
 const DEFAULT_MESH_SEND_TIMEOUT_MS = 2_500;
 const DEFAULT_MESH_RETRY_TIMEOUT_MS = 10_000;
+const DEFAULT_MESH_ACK_TIMEOUT_MS = 3_000;
+/**
+ * Room-broadcast flood attempts before falling back to the encrypted mailbox.
+ * Re-flooding is idempotent (receivers dedup by msgId) and recovers recipients
+ * whose DataChannel flapped during an earlier attempt.
+ */
+const MESH_BROADCAST_FLOOD_ATTEMPTS = 3;
 
 /**
  * R4: Bounded FIFO seen-set. Prevents unbounded memory growth in long sessions
@@ -156,13 +165,19 @@ async function mapWithConcurrency<T>(
 export class PeerMeshService {
   private currentRoomId: string | null = null;
   private currentRoomMemberIds = new Set<string>();
+  private currentRoomMembers = new Map<string, RoomMember>();
   private readonly neighbors = new Map<string, Neighbor>();
+  private reconcileTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconcileInFlight: Promise<void> | null = null;
+  private reconcileRequested = false;
   /** R4: bounded FIFO dedup cache; cleared on leaveRoom (spec §23.8). */
   private readonly seen = new BoundedFifoSet(SEEN_SET_MAX_SIZE);
   private readonly talkBodies = new Map<string, Record<string, unknown>>();
   private readonly deliveredTalkBodyIds = new Set<string>();
   private readonly pendingTalkBodyRequestTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly bodyRequestWaiters = new Map<string, (payload: P2PMeshTalkBodyPayload) => void>();
+  private readonly acknowledgements = new Map<string, Set<string>>();
+  private readonly acknowledgementWaiters = new Map<string, Set<() => void>>();
 
   constructor(
     private readonly gunService: WebGunService,
@@ -221,25 +236,104 @@ export class PeerMeshService {
   }
 
   async joinRoom(roomId: string, members: RoomMember[]): Promise<void> {
+    const roomChanged = this.currentRoomId !== null && this.currentRoomId !== roomId;
+    if (roomChanged) {
+      for (const neighbor of this.neighbors.values()) neighbor.session.dispose?.();
+      this.neighbors.clear();
+      this.currentRoomMembers.clear();
+      this.currentRoomMemberIds.clear();
+    }
     this.currentRoomId = roomId;
-    this.currentRoomMemberIds = new Set(
-      members
-        .map((member) => member.userId)
-        .filter((userId) => userId && userId !== this.opts.localUserId && userId !== TECHSUPPORT_ROOT_USER_ID),
+    const remoteMembers = members.filter(
+      (member) => member.userId &&
+        member.userId !== this.opts.localUserId &&
+        member.userId !== TECHSUPPORT_ROOT_USER_ID,
     );
+    // Gun room membership arrives as a stream of partial snapshots. Replacing the
+    // roster on every callback tears down healthy links whenever a callback contains
+    // only the newest member. Keep the discovered same-room set until leave/room
+    // change; libp2p discovery has the same eventually-consistent shape.
+    for (const member of remoteMembers) {
+      const prior = this.currentRoomMembers.get(member.userId);
+      const stageName = member.stageName || prior?.stageName;
+      this.currentRoomMembers.set(member.userId, {
+        ...prior,
+        ...member,
+        ...(stageName ? { stageName } : {}),
+      });
+    }
+    this.currentRoomMemberIds = new Set(this.currentRoomMembers.keys());
+    await this.reconcileNeighbors();
+    this.scheduleReconcile();
+  }
+
+  private async reconcileNeighbors(): Promise<void> {
+    this.reconcileRequested = true;
+    if (this.reconcileInFlight) return this.reconcileInFlight;
+
+    const reconcile = (async () => {
+      while (this.reconcileRequested) {
+        this.reconcileRequested = false;
+        const roomId = this.currentRoomId;
+        if (!roomId) return;
+        await this.runNeighborReconcile(roomId);
+      }
+    })();
+    this.reconcileInFlight = reconcile;
+    try {
+      await reconcile;
+    } finally {
+      if (this.reconcileInFlight === reconcile) this.reconcileInFlight = null;
+    }
+  }
+
+  private async runNeighborReconcile(roomId: string): Promise<void> {
+    if (this.currentRoomId !== roomId) return;
     const local = this.localIdentity();
     const maxNeighbors = this.opts.maxNeighbors ?? 12;
-    const candidates = this.selectNeighbors(members, maxNeighbors);
+    const rankedCandidates = this.selectNeighbors(
+      [...this.currentRoomMembers.values()],
+      this.currentRoomMembers.size,
+    );
+    const presencePubs = await this.fetchPresencePubs();
+    const resolvedByUserId = new Map<string, string>();
+    for (const member of rankedCandidates) {
+      const existing = this.neighbors.get(member.userId);
+      const pub = existing?.pub || presencePubs.get(member.userId);
+      if (pub) resolvedByUserId.set(member.userId, pub);
+    }
+    if (resolvedByUserId.size < maxNeighbors) {
+      const fallbackMembers = rankedCandidates
+        .filter((member) => !resolvedByUserId.has(member.userId))
+        .slice(0, Math.max(maxNeighbors * 2, maxNeighbors));
+      const fallbackPubs = await Promise.all(fallbackMembers.map(async (member) => ({
+        member,
+        pub: await this.resolveUserPub(member.userId, 2),
+      })));
+      for (const { member, pub } of fallbackPubs) {
+        if (pub) resolvedByUserId.set(member.userId, pub);
+      }
+    }
+    const candidates = rankedCandidates
+      .map((member) => ({ member, pub: resolvedByUserId.get(member.userId) || '' }))
+      .filter((candidate) => !!candidate.pub)
+      .slice(0, maxNeighbors);
 
-    const wanted = new Set(candidates.map((member) => member.userId));
+    const wanted = new Set(candidates.map(({ member }) => member.userId));
     for (const userId of [...this.neighbors.keys()]) {
-      if (!wanted.has(userId)) this.neighbors.delete(userId);
+      if (!wanted.has(userId)) {
+        this.neighbors.get(userId)?.session.dispose?.();
+        this.neighbors.delete(userId);
+      }
     }
 
-    await Promise.all(candidates.map(async (member) => {
-      if (this.neighbors.has(member.userId)) return;
-      const pub = await this.resolveUserPub(member.userId);
-      if (!pub) return;
+    await Promise.all(candidates.map(async ({ member, pub }) => {
+      const existing = this.neighbors.get(member.userId);
+      if (existing) {
+        if (!existing.connected) this.connectNeighbor(existing);
+        return;
+      }
+      if (this.currentRoomId !== roomId || !wanted.has(member.userId)) return;
       const session = this.createSession({
         roomId,
         localPub: local.pub,
@@ -256,73 +350,48 @@ export class PeerMeshService {
       };
       this.neighbors.set(member.userId, neighbor);
       session.setOnRemoteMeshFrame((otherUserId, frame) => this.handleRemoteFrame(otherUserId, frame));
-      void session.ensureConnected()
-        .then(() => {
-          neighbor.connected = true;
-        })
-        .catch(() => {
-          neighbor.connected = false;
-          // R3: attempt replacement pick on connect failure
-          this.onNeighborClosed(member.userId);
-        });
+      this.connectNeighbor(neighbor);
     }));
   }
 
-  /**
-   * R3: Called when a neighbor's DataChannel closes unexpectedly.
-   * Re-runs candidate selection against the current room member list
-   * and connects to any newly eligible peer up to maxNeighbors.
-   */
-  private onNeighborClosed(closedUserId: string): void {
-    const roomId = this.currentRoomId;
-    if (!roomId) return;
-    const neighbor = this.neighbors.get(closedUserId);
-    if (neighbor) neighbor.connected = false;
-    // Build a synthetic members list from the known room member IDs
-    const allMembers: RoomMember[] = [...this.currentRoomMemberIds].map((userId) => ({ userId }));
-    const maxNeighbors = this.opts.maxNeighbors ?? 12;
-    const candidates = this.selectNeighbors(allMembers, maxNeighbors);
-    const wanted = new Set(candidates.map((m) => m.userId));
-    // Connect to any candidate we do not currently have a neighbor slot for
-    for (const member of candidates) {
-      if (this.neighbors.has(member.userId)) continue;
-      if (!wanted.has(member.userId)) continue;
-      void (async () => {
-        const local = this.localIdentity();
-        const pub = await this.resolveUserPub(member.userId);
-        if (!pub || !this.currentRoomId) return;
-        const session = this.createSession({
-          roomId: this.currentRoomId,
-          localPub: local.pub,
-          localPair: local.pair,
-          otherUserId: member.userId,
-          otherPub: pub,
-        });
-        const newNeighbor: Neighbor = {
-          userId: member.userId,
-          stageName: member.stageName || member.userId,
-          pub,
-          session,
-          connected: false,
-        };
-        this.neighbors.set(member.userId, newNeighbor);
-        session.setOnRemoteMeshFrame((otherUserId, frame) => this.handleRemoteFrame(otherUserId, frame));
-        void session.ensureConnected()
-          .then(() => { newNeighbor.connected = true; })
-          .catch(() => { newNeighbor.connected = false; });
-      })().catch(() => { /* best-effort re-pick */ });
-    }
+  private connectNeighbor(neighbor: Neighbor): void {
+    void neighbor.session.ensureConnected()
+      .then(() => {
+        neighbor.connected = true;
+      })
+      .catch(() => {
+        neighbor.connected = false;
+        this.scheduleReconcile(500);
+      });
+  }
+
+  private scheduleReconcile(delayMs = 1_000): void {
+    if (!this.currentRoomId || this.reconcileTimer) return;
+    this.reconcileTimer = setTimeout(() => {
+      this.reconcileTimer = null;
+      void this.reconcileNeighbors().finally(() => {
+        if (this.currentRoomId) this.scheduleReconcile();
+      });
+    }, delayMs);
+    (this.reconcileTimer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
   }
 
   leaveRoom(): void {
+    if (this.reconcileTimer) clearTimeout(this.reconcileTimer);
+    this.reconcileTimer = null;
+    this.reconcileRequested = false;
     this.currentRoomId = null;
     this.currentRoomMemberIds.clear();
+    this.currentRoomMembers.clear();
+    for (const neighbor of this.neighbors.values()) neighbor.session.dispose?.();
     this.neighbors.clear();
     this.seen.clear();
     this.deliveredTalkBodyIds.clear();
     for (const timer of this.pendingTalkBodyRequestTimers.values()) clearTimeout(timer);
     this.pendingTalkBodyRequestTimers.clear();
     this.bodyRequestWaiters.clear();
+    this.acknowledgements.clear();
+    this.acknowledgementWaiters.clear();
   }
 
   /**
@@ -404,7 +473,9 @@ export class PeerMeshService {
       recipients.length > 0 &&
       this.currentRoomMemberIds.size > 0 &&
       [...this.currentRoomMemberIds].every((userId) => recipientSet.has(userId));
-    const isRoomBroadcast = opts.roomBroadcast === true || isWholeKnownRoom;
+    const isRoomBroadcast = recipients.length === 0
+      ? opts.roomBroadcast === true
+      : isWholeKnownRoom;
     if (recipients.length > 0 && !isRoomBroadcast) {
       await mapWithConcurrency(recipients, 3, async (recipientUserId) => {
         const announceFrame = await this.buildFrame('talk-announce', payload, {
@@ -416,57 +487,60 @@ export class PeerMeshService {
           ttlHops: 8,
         });
         await this.rememberAndFanout(announceFrame);
-        await this.rememberAndFanout(bodyFrame);
+        const acknowledged = await this.sendAndWaitForAcks(bodyFrame, [recipientUserId]);
+        if (!acknowledged.has(recipientUserId) && this.opts.onMailboxFallback) {
+          await this.opts.onMailboxFallback(bodyPayload, [recipientUserId]);
+        }
       });
       return;
     }
     const announceFrame = await this.buildFrame('talk-announce', payload, { ttlHops: 8 });
     if (isRoomBroadcast) {
-      // Step 2: primary path — flood announce + body over mesh DataChannel overlay.
-      // R-a step 7: Gun p2pMeshTalkBodies/* rendezvous path removed. When the overlay
-      // cannot guarantee full room coverage (below-wanted-degree or coverage-gap), post
-      // the talk-body payload per unreachable recipient via the step-6 mailbox instead.
-      // Two conditions trigger it:
-      //
-      //   1. Below wanted degree: some wanted neighbors are still connecting (WebRTC
-      //      handshake in flight; chatbot/super-user contexts that never call
-      //      syncPeerMeshRoom; sequential broadcast sessions where joinRoom fires but
-      //      DataChannels are not all ready) — connectedCount < neighbors.size.
-      //
-      //   2. Coverage gap: the caller named more recipients than the overlay degree bound
-      //      (maxNeighbors) can directly hold AND the connected overlay does not already
-      //      cover them — recipients > maxNeighbors && connectedCount < recipientCount.
-      //
-      // Spec 02 is unaffected: broadcasts over a K=1 path with no explicit recipientUserIds
-      // (explicitRecipientCount === 0), connectedCount === neighbors.size === 1, so neither
-      // condition fires and p2pMeshTalkBodies/* stays 0.
-      const connectedCount = [...this.neighbors.values()].filter((n) => n.connected).length;
-      const maxNeighbors = this.opts.maxNeighbors ?? 12;
-      const explicitRecipientCount = recipients.length;
-      const belowWantedDegree = connectedCount === 0 || connectedCount < this.neighbors.size;
-      const cannotCoverRecipients =
-        explicitRecipientCount > maxNeighbors && connectedCount < explicitRecipientCount;
-      if (belowWantedDegree || cannotCoverRecipients) {
-        // Mailbox fallback: post per-recipient for those not reachable via DataChannel.
-        // Use explicit recipients when known; otherwise fall back to all room members.
-        const fallbackRecipients = explicitRecipientCount > 0
-          ? recipients
-          : [...this.currentRoomMemberIds];
-        if (this.opts.onMailboxFallback && fallbackRecipients.length > 0) {
-          void Promise.resolve(this.opts.onMailboxFallback(bodyPayload, fallbackRecipients)).catch(
-            (err) => console.warn('[Mesh] mailbox fallback failed:', err),
-          );
-        }
-        // Still flood the mesh frames in case some neighbor connects shortly after.
-        const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
-        await this.rememberAndFanout(announceFrame);
+      // Flood first, then use signed end-recipient ACKs to identify actual gaps.
+      // Overlay degree bounds direct links, not reachability; preemptively mailboxing
+      // every non-neighbor defeats gossip and overloads the encrypted fallback at scale.
+      const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
+      await this.rememberAndFanout(announceFrame);
+      const expectedRecipients = await this.activeExpectedRecipients(recipients.length > 0
+        ? recipients
+        : [...this.currentRoomMemberIds]);
+      if (expectedRecipients.length === 0) {
         await this.rememberAndFanout(bodyFrame);
         return;
       }
-      // Primary path: all-mesh, no Gun write (spec 02 invariant preserved).
-      const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
-      await this.rememberAndFanout(announceFrame);
-      await this.rememberAndFanout(bodyFrame);
+      // A single flood is lossy when a neighbor link flaps at send time (the frame is
+      // dropped and seen-set dedup means nothing re-delivers it). Re-flood the SAME
+      // announce+body frames for un-ACKed recipients before mailbox fallback:
+      // receivers that already processed them dedup by msgId, stragglers whose links
+      // recovered get a fresh copy (announce included, so announce-level diagnostics
+      // and body-request scheduling still fire on their side).
+      this.rememberSeen(bodyFrame.msgId);
+      const ackTimeoutMs = this.opts.ackTimeoutMs ?? DEFAULT_MESH_ACK_TIMEOUT_MS;
+      let acknowledged = new Set<string>();
+      for (let attempt = 0; attempt < MESH_BROADCAST_FLOOD_ATTEMPTS; attempt += 1) {
+        if (attempt > 0) {
+          await this.forwardFrame(announceFrame);
+        }
+        this.acknowledgements.set(bodyFrame.msgId, acknowledged);
+        const forwarded = await this.forwardFrame(bodyFrame);
+        if (forwarded === 0) {
+          // No neighbor accepted the frame — waiting for ACKs is pointless; clean up
+          // and let the mailbox fallback cover every missing recipient immediately.
+          this.acknowledgements.delete(bodyFrame.msgId);
+          this.acknowledgementWaiters.delete(bodyFrame.msgId);
+          break;
+        }
+        acknowledged = await this.waitForAcks(bodyFrame.msgId, expectedRecipients, ackTimeoutMs);
+        if (expectedRecipients.every((userId) => acknowledged.has(userId))) break;
+      }
+      if (this.opts.onMailboxFallback) {
+        const missingRecipients = expectedRecipients.filter((userId) => !acknowledged.has(userId));
+        if (missingRecipients.length > 0) {
+          await Promise.resolve(this.opts.onMailboxFallback(bodyPayload, missingRecipients)).catch(
+            (err) => console.warn('[Mesh] mailbox fallback failed:', err),
+          );
+        }
+      }
       return;
     }
     const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
@@ -474,12 +548,13 @@ export class PeerMeshService {
     await this.rememberAndFanout(bodyFrame);
   }
 
-  async sendTalkResponse(payload: P2PMeshTalkResponsePayload): Promise<void> {
+  async sendTalkResponse(payload: P2PMeshTalkResponsePayload): Promise<boolean> {
     const frame = await this.buildFrame('talk-response', payload, {
       recipientUserId: payload.authorId,
       ttlHops: 8,
     });
-    await this.rememberAndFanout(frame);
+    const acknowledged = await this.sendAndWaitForAcks(frame, [payload.authorId]);
+    return acknowledged.has(payload.authorId);
   }
 
   /**
@@ -532,17 +607,59 @@ export class PeerMeshService {
     });
   }
 
-  private async resolveUserPub(userId: string, attempts = 8): Promise<string | null> {
+  private async resolveUserPub(userId: string, attempts = 6): Promise<string | null> {
     for (let i = 0; i < attempts; i += 1) {
       try {
-        const user = await this.gunService.getPublicUser(userId);
+        const user = await this.withTimeout(
+          this.gunService.getPublicUser(userId),
+          900,
+          'Gun public-key lookup timeout',
+        );
         if (user?.pub) return String(user.pub);
       } catch {
         /* retry */
       }
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await new Promise((resolve) => setTimeout(resolve, 250 + i * 100));
     }
     return null;
+  }
+
+  private async fetchPresencePubs(): Promise<Map<string, string>> {
+    const pubs = new Map<string, string>();
+    try {
+      const params = new URLSearchParams({ limit: '200' });
+      const response = await this.withTimeout(
+        fetch(`${this.opts.apiBase}/api/presence/nearby?${params.toString()}`, {
+          cache: 'no-store',
+        }),
+        1_500,
+        'presence lookup timeout',
+      );
+      if (!response.ok) return pubs;
+      const body = await response.json() as {
+        peers?: Array<{ userId?: unknown; pub?: unknown }>;
+      };
+      for (const peer of body.peers || []) {
+        const userId = String(peer.userId || '');
+        const pub = typeof peer.pub === 'string' ? peer.pub.trim() : '';
+        if (userId && pub) pubs.set(userId, pub);
+      }
+    } catch {
+      /* Gun fallback remains available for the bounded candidate set. */
+    }
+    return pubs;
+  }
+
+  private async activeExpectedRecipients(recipientIds: string[]): Promise<string[]> {
+    const unique = [...new Set(recipientIds.filter(
+      (userId) => userId && userId !== this.opts.localUserId,
+    ))];
+    if (unique.length === 0) return unique;
+    const presencePubs = await this.fetchPresencePubs();
+    if (presencePubs.size === 0) return unique;
+    return unique.filter((userId) =>
+      presencePubs.has(userId) || this.neighbors.get(userId)?.connected === true,
+    );
   }
 
   private async buildFrame(
@@ -584,26 +701,102 @@ export class PeerMeshService {
     this.seen.add(msgId);
   }
 
-  private async rememberAndFanout(frame: P2PMeshFrame, exceptUserId?: string): Promise<void> {
+  private async rememberAndFanout(frame: P2PMeshFrame, exceptUserId?: string): Promise<number> {
     this.rememberSeen(frame.msgId);
-    await this.forwardFrame(frame, exceptUserId);
+    return this.forwardFrame(frame, exceptUserId);
   }
 
-  private async forwardFrame(frame: P2PMeshFrame, exceptUserId?: string): Promise<void> {
-    if (frame.ttlHops <= 0) return;
+  private async sendAndWaitForAcks(
+    frame: P2PMeshFrame,
+    expectedRecipientIds: string[],
+  ): Promise<Set<string>> {
+    const expected = [...new Set(expectedRecipientIds.filter(
+      (userId) => userId && userId !== this.opts.localUserId,
+    ))];
+    if (expected.length === 0) {
+      await this.rememberAndFanout(frame);
+      return new Set();
+    }
+
+    this.acknowledgements.set(frame.msgId, new Set());
+    const forwarded = await this.rememberAndFanout(frame);
+    if (forwarded === 0) {
+      this.acknowledgements.delete(frame.msgId);
+      return new Set();
+    }
+    return this.waitForAcks(
+      frame.msgId,
+      expected,
+      this.opts.ackTimeoutMs ?? DEFAULT_MESH_ACK_TIMEOUT_MS,
+    );
+  }
+
+  private async waitForAcks(
+    msgId: string,
+    expectedRecipientIds: string[],
+    timeoutMs: number,
+  ): Promise<Set<string>> {
+    const acknowledged = this.acknowledgements.get(msgId) ?? new Set<string>();
+    const isComplete = () => expectedRecipientIds.every((userId) => acknowledged.has(userId));
+    if (!isComplete()) {
+      await new Promise<void>((resolve) => {
+        // eslint-disable-next-line prefer-const -- assigned after `done`, which closes over it
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const done = (): void => {
+          if (!isComplete()) return;
+          if (timer !== undefined) clearTimeout(timer);
+          this.acknowledgementWaiters.get(msgId)?.delete(done);
+          resolve();
+        };
+        const waiters = this.acknowledgementWaiters.get(msgId) ?? new Set<() => void>();
+        waiters.add(done);
+        this.acknowledgementWaiters.set(msgId, waiters);
+        timer = setTimeout(() => {
+          waiters.delete(done);
+          resolve();
+        }, timeoutMs);
+      });
+    }
+    this.acknowledgementWaiters.delete(msgId);
+    this.acknowledgements.delete(msgId);
+    return new Set(acknowledged);
+  }
+
+  private recordAck(msgId: string, fromUserId: string): void {
+    const acknowledged = this.acknowledgements.get(msgId);
+    if (!acknowledged) return;
+    acknowledged.add(fromUserId);
+    for (const notify of this.acknowledgementWaiters.get(msgId) ?? []) notify();
+  }
+
+  private async acknowledge(frame: P2PMeshFrame): Promise<void> {
+    if (frame.originUserId === this.opts.localUserId) return;
+    const ack = await this.buildFrame('ack', { msgId: frame.msgId }, {
+      recipientUserId: frame.originUserId,
+      ttlHops: 8,
+    });
+    await this.rememberAndFanout(ack);
+  }
+
+  private async forwardFrame(frame: P2PMeshFrame, exceptUserId?: string): Promise<number> {
+    if (frame.ttlHops <= 0) return 0;
     const forwarded = { ...frame, ttlHops: frame.ttlHops - 1 };
     const directTarget = frame.recipientUserId ? this.neighbors.get(frame.recipientUserId) : undefined;
+    const available = [...this.neighbors.values()]
+      .filter((neighbor) => neighbor.userId !== exceptUserId);
+    // A cached direct edge may be stale while a healthy relay path exists. Directed
+    // frames therefore remain gossip-routed: try the direct peer first, but also send
+    // through the rest of the bounded overlay. Seen-set dedup and TTL cap duplicates.
     const targets = directTarget && directTarget.userId !== exceptUserId
-      ? [directTarget]
-      : [...this.neighbors.values()]
-          .filter((neighbor) => neighbor.userId !== exceptUserId)
-          .filter((neighbor) => !frame.recipientUserId || frame.originUserId !== neighbor.userId);
-    await mapWithConcurrency(targets, 4, async (neighbor) => {
-      await this.sendFrameToNeighbor(neighbor, forwarded);
-    });
+      ? [directTarget, ...available.filter((neighbor) => neighbor.userId !== directTarget.userId)]
+      : available;
+    const results = await Promise.all(
+      targets.map((neighbor) => this.sendFrameToNeighbor(neighbor, forwarded)),
+    );
+    return results.filter(Boolean).length;
   }
 
-  private async sendFrameToNeighbor(neighbor: Neighbor, frame: P2PMeshFrame): Promise<void> {
+  private async sendFrameToNeighbor(neighbor: Neighbor, frame: P2PMeshFrame): Promise<boolean> {
     try {
       await this.withTimeout(
         neighbor.session.sendMeshFrame(frame),
@@ -611,13 +804,14 @@ export class PeerMeshService {
         'mesh send timeout',
       );
       neighbor.connected = true;
+      return true;
     } catch {
       neighbor.connected = false;
-      void this.retryFrameAfterConnect(neighbor, frame);
+      return this.retryFrameAfterConnect(neighbor, frame);
     }
   }
 
-  private async retryFrameAfterConnect(neighbor: Neighbor, frame: P2PMeshFrame): Promise<void> {
+  private async retryFrameAfterConnect(neighbor: Neighbor, frame: P2PMeshFrame): Promise<boolean> {
     try {
       await this.withTimeout(
         neighbor.session.ensureConnected(),
@@ -630,8 +824,10 @@ export class PeerMeshService {
         'mesh retry send timeout',
       );
       neighbor.connected = true;
+      return true;
     } catch {
       neighbor.connected = false;
+      return false;
     }
   }
 
@@ -689,6 +885,12 @@ export class PeerMeshService {
       return;
     }
 
+    if (frame.kind === 'ack') {
+      const acknowledgedMsgId = String((frame.payload as { msgId?: unknown }).msgId || '');
+      if (acknowledgedMsgId) this.recordAck(acknowledgedMsgId, frame.originUserId);
+      return;
+    }
+
     if (frame.kind === 'talk-announce') {
       const payload = frame.payload as P2PMeshTalkAnnouncePayload;
       if (payload.authorId === this.opts.localUserId) return;
@@ -720,14 +922,28 @@ export class PeerMeshService {
           waiter(frame.payload);
         }
       }
-      if (talkId && this.deliveredTalkBodyIds.has(deliveryKey)) return;
+      if (talkId && this.deliveredTalkBodyIds.has(deliveryKey)) {
+        await this.acknowledge(frame);
+        return;
+      }
       const accepted = await this.opts.onTalkBody?.(frame.payload);
-      if (talkId && accepted !== false) this.deliveredTalkBodyIds.add(deliveryKey);
+      if (talkId && accepted !== false) {
+        this.deliveredTalkBodyIds.add(deliveryKey);
+        this.cacheTalkBody(talkId, {
+          ...frame.payload.talkData,
+          id: talkId,
+          authorId: frame.payload.authorId,
+          authorName: frame.payload.authorName,
+          ...(frame.payload.authorEpub ? { authorEpub: frame.payload.authorEpub } : {}),
+        });
+      }
+      await this.acknowledge(frame);
       return;
     }
 
     if (frame.kind === 'talk-response' && isP2PMeshTalkResponsePayload(frame.payload)) {
       await this.opts.onTalkResponse?.(frame.payload);
+      await this.acknowledge(frame);
       return;
     }
 

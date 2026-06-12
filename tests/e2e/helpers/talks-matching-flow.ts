@@ -605,6 +605,53 @@ export async function openIncomingTalkModalWithAutoAnswers(
   await page.waitForSelector('#talk-response-modal .modal-content', { timeout: RESPONSE_MODAL_CONTENT_MS });
 }
 
+/**
+ * Actively establish ≥1 connected mesh neighbor on every page, re-warming while waiting.
+ *
+ * A single warm pass followed by a passive `expect.poll` flakes under parallel load
+ * (PW_WORKERS≥4): a 10s WebRTC connect timeout plus a transport reset/re-offer cycle
+ * can exceed a 15–30s passive window when many Chromium instances contend for CPU.
+ * Re-issuing `warmMeshConnectionToPeer` keeps posting fresh offers (each warm call
+ * internally retries joinRoom up to 4×) until the link lands or the deadline expires.
+ */
+export async function ensureMeshNeighbors(
+  peers: ReadonlyArray<{ label: string; page: Page; otherIds: string[] }>,
+  timeoutMs = 90_000,
+): Promise<void> {
+  const connectedCount = (page: Page) =>
+    page.evaluate(() => {
+      const app = (window as any).__iinpublic_app?.getApp?.() as any;
+      return app?.peerMeshService?.getDiagnostics?.()?.connectedNeighborCount ?? 0;
+    });
+  const warm = (page: Page, otherIds: string[]) =>
+    page.evaluate(async (ids: string[]) => {
+      const app = (window as any).__iinpublic_app?.getApp?.() as any;
+      if (!app?.warmMeshConnectionToPeer) return;
+      for (const id of ids) {
+        await app.warmMeshConnectionToPeer(id).catch(() => { /* best-effort */ });
+      }
+    }, otherIds);
+
+  const deadline = Date.now() + timeoutMs;
+  // First pass in parallel — the common case connects here.
+  await Promise.all(peers.map(({ page, otherIds }) => warm(page, otherIds).catch(() => {})));
+  for (;;) {
+    const counts = await Promise.all(
+      peers.map(({ page }) => connectedCount(page).catch(() => 0)),
+    );
+    const pending = peers.filter((_, i) => counts[i] <= 0);
+    if (pending.length === 0) return;
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `ensureMeshNeighbors: no connected mesh neighbors after ${timeoutMs}ms: ` +
+        pending.map((p) => p.label).join(', '),
+      );
+    }
+    await Promise.all(pending.map(({ page, otherIds }) => warm(page, otherIds).catch(() => {})));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
 /** Close pages/contexts, manualCleanup, clear Gun — use in beforeEach for multi-user talks suites. */
 export async function resetTalksMatchingSession(
   pages: { tom?: Page; jerry?: Page; bob?: Page },

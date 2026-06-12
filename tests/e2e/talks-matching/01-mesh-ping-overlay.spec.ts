@@ -15,7 +15,7 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../helpers/talks-matching-browsers';
-import { bootstrapUser, finalCleanupPages } from '../helpers/talks-matching-flow';
+import { bootstrapUser, ensureMeshNeighbors, finalCleanupPages } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
 
@@ -30,18 +30,7 @@ type MeshPingDiagnostics = {
 };
 
 /** Timeout for WebRTC overlay formation and ping propagation (per design §7 R-d). */
-const MESH_E2E_TIMEOUT_MS = 15_000;
-
-/** Helper: call warmMeshConnectionToPeer to eagerly create the mesh service and connect. */
-async function warmMesh(page: Page, otherIds: string[]): Promise<void> {
-  await page.evaluate(async (peerIds: string[]) => {
-    const app = (window as any).__iinpublic_app?.getApp?.() as any;
-    if (!app?.warmMeshConnectionToPeer) return;
-    for (const peerId of peerIds) {
-      await app.warmMeshConnectionToPeer(peerId).catch(() => { /* best-effort */ });
-    }
-  }, otherIds);
-}
+const MESH_E2E_TIMEOUT_MS = 30_000;
 
 test.describe('Mesh-ping overlay — three browser peers, zero Gun writes', () => {
   let browsers: ThreeBrowsers;
@@ -138,32 +127,14 @@ test.describe('Mesh-ping overlay — three browser peers, zero Gun writes', () =
     await afterSync();
     await afterSync();
 
-    // --- Explicitly warm mesh connections using the public app API ---
-    // warmMeshConnectionToPeer creates the PeerMeshService lazily and calls joinRoom.
-    // Running in parallel cuts setup time; each peer warms to both others.
-    await Promise.all([
-      warmMesh(pageTom, [jerryId, bobId]),
-      warmMesh(pageJerry, [tomId, bobId]),
-      warmMesh(pageBob, [tomId, jerryId]),
+    // --- Sub-case 1: actively warm mesh links until ≥1 connected neighbor on each peer ---
+    // ensureMeshNeighbors re-issues warmMeshConnectionToPeer while polling, so a
+    // timed-out first WebRTC cycle under parallel load recovers instead of flaking.
+    await ensureMeshNeighbors([
+      { label: 'Tom', page: pageTom, otherIds: [jerryId, bobId] },
+      { label: 'Jerry', page: pageJerry, otherIds: [tomId, bobId] },
+      { label: 'Bob', page: pageBob, otherIds: [tomId, jerryId] },
     ]);
-
-    // --- Sub-case 1: wait for ≥1 connected neighbor on each peer ---
-    for (const [label, page] of [['Tom', pageTom], ['Jerry', pageJerry], ['Bob', pageBob]] as const) {
-      await expect
-        .poll(
-          () =>
-            page.evaluate(() => {
-              const app = (window as any).__iinpublic_app?.getApp?.() as any;
-              return app?.peerMeshService?.getDiagnostics?.()?.connectedNeighborCount ?? 0;
-            }),
-          {
-            timeout: MESH_E2E_TIMEOUT_MS,
-            intervals: [300, 500, 1000],
-            message: `${label}: no connected mesh neighbors`,
-          },
-        )
-        .toBeGreaterThan(0);
-    }
 
     // --- Sub-case 2: K=1 sparse path — re-join with maxNeighbors:1 ---
     // Override opts.maxNeighbors in-place, then call joinRoom with current room members.

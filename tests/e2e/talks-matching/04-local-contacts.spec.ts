@@ -236,7 +236,7 @@ test.describe('Local-only contacts — zero server peer/history/replies calls', 
 
     // Broadcast via mesh
     await pageTom.evaluate(
-      async ({ talkId, authorId, title }: { talkId: string; authorId: string; title: string }) => {
+      async ({ talkId, authorId, title, recipientIds }: { talkId: string; authorId: string; title: string; recipientIds: string[] }) => {
         const app = (window as any).__iinpublic_app?.getApp?.() as any;
         const talk = {
           id: talkId,
@@ -256,9 +256,11 @@ test.describe('Local-only contacts — zero server peer/history/replies calls', 
           ]),
           createdAt: new Date().toISOString(),
         };
-        await app.meshBroadcastTalk?.(talkId, talk);
+        const mesh = app?.peerMeshService;
+        if (!mesh) throw new Error('peerMeshService unavailable');
+        await mesh.broadcastTalk(talk, { recipientUserIds: recipientIds, roomBroadcast: true });
       },
-      { talkId: TEST_TALK_ID, authorId: tomId, title: TEST_TALK_TITLE },
+      { talkId: TEST_TALK_ID, authorId: tomId, title: TEST_TALK_TITLE, recipientIds: [jerryId, bobId] },
     );
 
     await afterSync();
@@ -266,9 +268,10 @@ test.describe('Local-only contacts — zero server peer/history/replies calls', 
     // ── 6. Jerry and Bob receive the talk ────────────────────────────────────
     await expect
       .poll(
-        () => pageJerry.evaluate((id: string) => {
+        () => pageJerry.evaluate(async (id: string) => {
           const app = (window as any).__iinpublic_app?.getApp?.() as any;
-          return app?.getIncomingTalks?.()?.some?.((t: any) => t?.latestTalkId === id || t?.identityKey === id);
+          const clusters = await app?.getLocalIncomingClustersForE2e?.();
+          return clusters?.some?.((t: any) => t?.latestTalkId === id || t?.identityKey === id);
         }, TEST_TALK_ID),
         { timeout: MESH_E2E_TIMEOUT_MS, message: 'Jerry did not receive talk' },
       )
