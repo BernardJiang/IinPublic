@@ -196,7 +196,7 @@ test.describe('Find similar people', () => {
           const keyword = INTEREST_POOL[(idx + j) % INTEREST_POOL.length];
           await page.click('#create-talk-btn');
           await page.waitForSelector('#talk-editor-form', { timeout: 15_000 });
-          await page.click('input[name="talk-type-radio"][value="tag"]');
+          await page.locator('input[name="talk-type-radio"][value="tag"]').check();
           await afterAction();
           await page.fill('#talk-title', keyword);
           await page.click('#talk-editor-form button[type="submit"]');

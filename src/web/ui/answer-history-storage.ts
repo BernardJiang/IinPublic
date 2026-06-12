@@ -5,6 +5,7 @@ export type FlatAnswerHistoryItem = {
   choice: string;
   kind: 'tag' | 'question';
   contextPath: string[];
+  contextLabel?: string;
   mode?: string;
   contextHash?: string;
 };

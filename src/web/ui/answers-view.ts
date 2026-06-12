@@ -26,10 +26,12 @@ type AnswersViewDeps = {
 type AnswerEntry = { questionId: string; answerId: string; answerText?: string; mode?: string };
 
 type AnswerItemModel = {
+  questionId: string;
   kind: 'tag' | 'question';
   prompt: string;
   choice: string;
   contextHash?: string;
+  contextLabel: string;
   contextPath: string[];
   answeredCount: number;
   answerCounter?: number;
@@ -60,12 +62,70 @@ function getQuestionMemory(
   return scoped || (language === 'en' ? userMemory?.[makeQuestionId(prompt)] : undefined);
 }
 
+function formatContextPathFromTalk(talk: any, contextPath: any[]): string[] {
+  const questions = Array.isArray(talk?.questions) ? talk.questions : [];
+  return contextPath.map((step: any, index: number) => {
+    const questionId = String(step?.questionId || '').trim();
+    const parentQuestion = questions.find((item: any) => String(item?.id || '') === questionId);
+    const answerId = String(step?.answerId || '').trim();
+    const parentAnswer = Array.isArray(parentQuestion?.answers)
+      ? parentQuestion.answers.find((item: any) => String(item?.id || '') === answerId)
+      : null;
+    const questionText = String(parentQuestion?.text || questionId || `Q${index + 1}`).trim();
+    const answerText = String(parentAnswer?.text || answerId || '?').trim();
+    return `${questionText}→${answerText}`;
+  });
+}
+
+function normalizeContextLabel(rawValue: unknown): string {
+  return String(rawValue || '').trim();
+}
+
+function deriveContextLabelFromFlatRecord(
+  record: FlatAnswerHistoryRecord,
+  item: FlatAnswerHistoryRecord['items'][number],
+  itemIndex: number,
+  myTalks: Record<string, any>,
+): string {
+  const existingLabel = normalizeContextLabel(item.contextLabel);
+  if (existingLabel) return existingLabel;
+
+  if (Array.isArray(item.contextPath) && item.contextPath.length > 0) {
+    return item.contextPath
+      .map((step) => String(step || '').trim())
+      .filter(Boolean)
+      .map((step) => step.replace(/\s*->\s*/g, '→'))
+      .join(' · ');
+  }
+
+  const recordType = String(record.type || '').toLowerCase();
+  if (recordType === 'flow') {
+    return (record.items || [])
+      .slice(0, itemIndex)
+      .map((previousItem) => `${String(previousItem.prompt || '').trim()}→${String(previousItem.choice || '').trim()}`)
+      .filter((step) => step !== '→')
+      .join(' · ');
+  }
+
+  if (recordType === 'route') {
+    const sourceTalk = myTalks?.[record.talkId]?.fullTalk;
+    const questions = Array.isArray(sourceTalk?.questions) ? sourceTalk.questions : [];
+    const question = questions.find((candidate: any) => String(candidate?.id || '') === item.questionId);
+    if (Array.isArray(question?.contextPath) && question.contextPath.length > 0) {
+      return formatContextPathFromTalk(sourceTalk, question.contextPath).join(' · ');
+    }
+  }
+
+  return '';
+}
+
 function buildAnswerItemModelsFromFlatRecord(
   record: FlatAnswerHistoryRecord,
   answeredCount: number,
+  myTalks: Record<string, any>,
   exactMemory?: ExactChatbotMemoryState,
 ): AnswerItemModel[] {
-  return (record.items || []).map((item) => {
+  return (record.items || []).map((item, index) => {
     const questionMemory = getQuestionMemory(exactMemory, item.prompt, record.language);
     const matchingHistory = readHistory(questionMemory || null).filter(
       (event) => event.answerId === makeAnswerId(item.choice),
@@ -75,12 +135,18 @@ function buildAnswerItemModelsFromFlatRecord(
       if (event.lastAutoUsedAt == null) return latest;
       return latest == null ? event.lastAutoUsedAt : Math.max(latest, event.lastAutoUsedAt);
     }, undefined);
+    const contextLabel = deriveContextLabelFromFlatRecord(record, item, index, myTalks);
+    const fallbackContextPath = contextLabel ? contextLabel.split(' · ') : [];
     return {
+      questionId: item.questionId,
       kind: item.kind,
       prompt: item.prompt,
       choice: item.choice,
       ...(item.contextHash ? { contextHash: item.contextHash } : {}),
-      contextPath: Array.isArray(item.contextPath) ? item.contextPath : [],
+      contextLabel,
+      contextPath: Array.isArray(item.contextPath) && item.contextPath.length > 0
+        ? item.contextPath
+        : fallbackContextPath,
       answeredCount,
       ...(item.mode ? { mode: item.mode } : {}),
       chatbotGenerated: item.mode === 'auto' || item.mode === 'permanent',
@@ -107,17 +173,7 @@ export function getAnswerDisplayText(
 function formatQuestionContext(talk: any, question: any): string[] {
   const questions = Array.isArray(talk?.questions) ? talk.questions : [];
   const contextPath = Array.isArray(question?.contextPath) ? question.contextPath : [];
-  return contextPath.map((step: any, index: number) => {
-    const questionId = String(step?.questionId || '').trim();
-    const parentQuestion = questions.find((item: any) => String(item?.id || '') === questionId);
-    const answerId = String(step?.answerId || '').trim();
-    const parentAnswer = Array.isArray(parentQuestion?.answers)
-      ? parentQuestion.answers.find((item: any) => String(item?.id || '') === answerId)
-      : null;
-    const questionText = String(parentQuestion?.text || questionId || `Q${index + 1}`).trim();
-    const answerText = String(parentAnswer?.text || answerId || '?').trim();
-    return `${questionText} -> ${answerText}`;
-  });
+  return formatContextPathFromTalk({ questions }, contextPath);
 }
 
 export function buildAnswerItemModels(
@@ -148,14 +204,18 @@ export function buildAnswerItemModels(
       if (event.lastAutoUsedAt == null) return latest;
       return latest == null ? event.lastAutoUsedAt : Math.max(latest, event.lastAutoUsedAt);
     }, undefined);
+    const contextPath = formatQuestionContext(talk, question);
+    const contextLabel = contextPath.join(' · ');
     return {
+      questionId: entry.questionId,
       kind: isTag ? 'tag' : 'question',
       prompt,
       choice,
       ...(String(question?.contextHashId || '').trim()
         ? { contextHash: String(question?.contextHashId || '').trim() }
         : {}),
-      contextPath: formatQuestionContext(talk, question),
+      contextLabel,
+      contextPath,
       answeredCount,
       ...(typeof answer?.counter === 'number' ? { answerCounter: answer.counter } : {}),
       ...(entry.mode ? { mode: entry.mode } : {}),
@@ -175,21 +235,22 @@ function renderAnswerItemsHtml(
       (result, [name, value]) => result.replaceAll(`{${name}}`, String(value)),
       deps.text(key),
     );
-  return items
-    .map((item, index) => {
-      const isConditional = !!item.contextHash || item.contextPath.length > 0 || item.kind !== 'tag';
-      const modeGroup = item.chatbotGenerated ? 'auto' : isConditional ? 'conditional' : 'manual';
-      const answeredLabel = format(item.answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: item.answeredCount });
-      const choice = item.kind === 'tag'
-        ? deps.text(item.choice === 'Checked' ? 'meChecked' : 'meUnchecked')
-        : item.choice === 'Ignored' ? deps.text('responseIgnore') : item.choice;
-      const tone =
-        modeGroup === 'auto'
-          ? 'background:#ecfdf5;border-color:#bbf7d0;'
-          : modeGroup === 'conditional'
-            ? 'background:#fef9c3;border-color:#fde68a;'
-            : 'background:#fef2f2;border-color:#fecaca;';
-      return `
+  const renderSingleItem = (item: AnswerItemModel, index: number, showPrompt = true): string => {
+    const hasContext = !!item.contextHash || item.contextLabel.length > 0 || item.contextPath.length > 0;
+    const isConditional = hasContext || item.kind !== 'tag';
+    const modeGroup = item.chatbotGenerated ? 'auto' : isConditional ? 'conditional' : 'manual';
+    const answeredLabel = format(item.answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: item.answeredCount });
+    const choice = item.kind === 'tag'
+      ? deps.text(item.choice === 'Checked' ? 'meChecked' : 'meUnchecked')
+      : item.choice === 'Ignored' ? deps.text('responseIgnore') : item.choice;
+    const tone =
+      modeGroup === 'auto'
+        ? 'background:#ecfdf5;border-color:#bbf7d0;'
+        : modeGroup === 'conditional'
+          ? 'background:#fef9c3;border-color:#fde68a;'
+          : 'background:#fef2f2;border-color:#fecaca;';
+    const contextLabel = item.contextLabel || item.contextPath.join(' · ');
+    return `
       <div class="answer-outcome-item answer-mode-${modeGroup}" data-answer-mode="${modeGroup}" style="padding: 12px; border-radius: 10px; ${tone} border-width: 1px; border-style: solid;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
           <div style="font-size:0.8em; color:#64748b;">${item.kind === 'tag' ? deps.text('meTag') : format('meQuestion', { count: index + 1 })}</div>
@@ -197,7 +258,7 @@ function renderAnswerItemsHtml(
             ${answeredLabel}${typeof item.answerCounter === 'number' ? ` · ${format('meChoiceCount', { count: item.answerCounter })}` : ''}
           </div>
         </div>
-        <div style="font-weight: 600; color: #1f2937; margin-top: 4px;">${deps.escapeHtml(item.prompt)}</div>
+        ${showPrompt ? `<div style="font-weight: 600; color: #1f2937; margin-top: 4px;">${deps.escapeHtml(item.prompt)}</div>` : ''}
         <div style="margin-top: 6px; color: ${item.kind === 'tag' ? '#7c3aed' : '#0f766e'}; font-weight: 600;">${deps.escapeHtml(choice)}</div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; font-size:0.78em; color:#475569;">
           ${item.mode ? `<span style="padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3730a3;">${deps.escapeHtml(deps.text(item.mode === 'auto' ? 'meChatbotGenerated' : item.mode === 'permanent' ? 'mePermanent' : 'meManual'))}</span>` : ''}
@@ -205,15 +266,55 @@ function renderAnswerItemsHtml(
           ${item.latestAutoUseAt ? `<span>${format('meLatestAutoUse', { date: deps.escapeHtml(deps.formatDate(new Date(item.latestAutoUseAt))) })}</span>` : ''}
         </div>
         ${
-          item.contextHash || item.contextPath.length > 0
+          hasContext
             ? `<div style="margin-top:8px; font-size:0.82em; color:#475569;">
                  ${item.contextHash ? `<div>${deps.text('meContextHash')} <code>${deps.escapeHtml(item.contextHash)}</code></div>` : ''}
-                 ${item.contextPath.length > 0 ? `<div>${deps.text('meContextPath')} ${item.contextPath.map((part) => `<span>${deps.escapeHtml(part)}</span>`).join(' · ')}</div>` : ''}
+                 ${contextLabel ? `<div>${deps.text('meContextPath')} ${deps.escapeHtml(contextLabel)}</div>` : ''}
                </div>`
             : ''
         }
       </div>
     `;
+  };
+
+  const groupedRows = new Map<string, AnswerItemModel[]>();
+  items.forEach((item, index) => {
+    const key = item.questionId || `${item.prompt}:${index}`;
+    const current = groupedRows.get(key);
+    if (current) {
+      current.push(item);
+      return;
+    }
+    groupedRows.set(key, [item]);
+  });
+
+  let displayIndex = 0;
+  return Array.from(groupedRows.values())
+    .map((group) => {
+      const hasContextVariants = group.length > 1 && group.some((item) => !!item.contextHash || item.contextLabel.length > 0);
+      if (!hasContextVariants) {
+        const row = renderSingleItem(group[0], displayIndex, true);
+        displayIndex += 1;
+        return row;
+      }
+
+      const prompt = group[0]?.prompt || '';
+      const nestedRows = group
+        .map((item) => {
+          const row = renderSingleItem(item, displayIndex, false);
+          displayIndex += 1;
+          return row;
+        })
+        .join('');
+
+      return `
+        <details class="answer-context-group" style="border:1px solid #d1d5db; border-radius:10px; background:#f8fafc;" open>
+          <summary style="cursor:pointer; padding:10px 12px; font-weight:600; color:#1f2937;">${deps.escapeHtml(prompt)} (${group.length} contexts)</summary>
+          <div style="display:grid; gap:8px; padding: 0 10px 10px 10px;">
+            ${nestedRows}
+          </div>
+        </details>
+      `;
     })
     .join('');
 }
@@ -247,7 +348,9 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
   const groupedFlat = new Map<string, { id: string; record: FlatAnswerHistoryRecord; answeredCount: number }>();
   for (const [id, record] of answeredEntriesFromFlatHistory) {
     const language = String(record.language || 'en').toLowerCase();
-    const contentKey = `${language}:${record.type}:${record.title}:${record.items.map((item) => `${item.prompt}->${item.choice}`).join('|')}`;
+    const contentKey = `${language}:${record.type}:${record.title}:${record.items
+      .map((item) => `${item.questionId}:${item.contextHash || ''}:${item.prompt}->${item.choice}`)
+      .join('|')}`;
     const existing = groupedFlat.get(contentKey);
     if (existing) {
       existing.answeredCount += 1;
@@ -315,7 +418,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         : record.senderIds.length > 1
           ? format('meFromSenders', { count: record.senderIds.length })
           : '';
-      const answerItems = buildAnswerItemModelsFromFlatRecord(record, answeredCount, exactMemory);
+      const answerItems = buildAnswerItemModelsFromFlatRecord(record, answeredCount, myTalks, exactMemory);
       const language = String(record.language || 'en').toLowerCase();
       const languageLabel = deps.formatLanguage(language);
       const metadata = [
@@ -331,7 +434,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         languageLabel,
         metadata,
         outcome,
-        ...answerItems.flatMap((answerItem) => [answerItem.prompt, answerItem.choice, answerItem.mode || '']),
+        ...answerItems.flatMap((answerItem) => [answerItem.prompt, answerItem.choice, answerItem.mode || '', answerItem.contextLabel]),
       ].join(' ').toLowerCase();
       renderModels.push({
         talkId: id,
@@ -393,7 +496,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         languageLabel,
         metadata,
         outcome,
-        ...answerItems.flatMap((answerItem) => [answerItem.prompt, answerItem.choice, answerItem.mode || '']),
+        ...answerItems.flatMap((answerItem) => [answerItem.prompt, answerItem.choice, answerItem.mode || '', answerItem.contextLabel]),
       ].join(' ').toLowerCase();
       renderModels.push({
         talkId,

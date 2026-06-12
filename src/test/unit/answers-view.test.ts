@@ -68,7 +68,167 @@ describe('answers view models', () => {
     expect(items[0].kind).toBe('question');
     expect(items[0].choice).toBe('Blue Bottle');
     expect(items[0].contextHash).toBe('cafefeed');
-    expect(items[0].contextPath[0]).toBe('Need coffee? -> Yes, please');
+    expect(items[0].contextPath[0]).toBe('Need coffee?→Yes, please');
+    expect(items[0].contextLabel).toBe('Need coffee?→Yes, please');
+  });
+
+  it('keeps route branches with same prompt as separate context rows', () => {
+    document.body.innerHTML = '<div id="answers-content"></div>';
+    const baseRecord = {
+      id: 'route-history',
+      talkId: 'route-talk',
+      title: 'Branching cafe talk',
+      type: 'route',
+      language: 'en',
+      outcome: 'match' as const,
+      answeredAt: '2026-06-11T00:00:00.000Z',
+      senderIds: ['u1'],
+      items: [
+        {
+          questionId: 'q_level',
+          answerId: 'a_beginner',
+          prompt: 'Skill level?',
+          choice: 'Beginner',
+          kind: 'question' as const,
+          contextPath: [],
+          contextHash: 'hash_tennis',
+          contextLabel: 'Tennis?→Yes',
+        },
+        {
+          questionId: 'q_level',
+          answerId: 'a_pro',
+          prompt: 'Skill level?',
+          choice: 'Professional',
+          kind: 'question' as const,
+          contextPath: [],
+          contextHash: 'hash_badminton',
+          contextLabel: 'Badminton?→Yes',
+        },
+      ],
+    };
+
+    displayAnswersList({
+      getMyTalks: () => ({}),
+      getFlatAnswerHistory: () => ({ history: baseRecord }),
+      escapeHtml: (value) => value,
+      copyAnsweredTalkToTalks: jest.fn(),
+      showTalkDetail: jest.fn(),
+      showPreferencesDialog: jest.fn(),
+      getTalkContentKey: jest.fn(),
+      text: (key) => uiText('en', key),
+      formatDate: () => 'date',
+      formatType: () => 'Route',
+      formatLanguage: () => 'English',
+    });
+
+    expect(document.querySelectorAll('.answer-context-group').length).toBe(1);
+    const content = document.getElementById('answers-content')?.textContent || '';
+    expect(content).toContain('Tennis?→Yes');
+    expect(content).toContain('Badminton?→Yes');
+  });
+
+  it('renders stored contextLabel even when source talk is unavailable', () => {
+    document.body.innerHTML = '<div id="answers-content"></div>';
+    displayAnswersList({
+      getMyTalks: () => ({}),
+      getFlatAnswerHistory: () => ({
+        persisted: {
+          id: 'persisted',
+          talkId: 'missing-talk',
+          title: 'Withdrawn flow',
+          type: 'flow',
+          language: 'en',
+          outcome: 'mismatch',
+          answeredAt: '2026-06-11T00:00:00.000Z',
+          senderIds: [],
+          items: [
+            {
+              questionId: 'q2',
+              answerId: 'a2',
+              prompt: 'Second question?',
+              choice: 'Answer B',
+              kind: 'question',
+              contextPath: [],
+              contextHash: 'deadbeef',
+              contextLabel: 'First question?→Answer A',
+            },
+          ],
+        },
+      }),
+      escapeHtml: (value) => value,
+      copyAnsweredTalkToTalks: jest.fn(),
+      showTalkDetail: jest.fn(),
+      showPreferencesDialog: jest.fn(),
+      getTalkContentKey: jest.fn(),
+      text: (key) => uiText('en', key),
+      formatDate: () => 'date',
+      formatType: () => 'Flow',
+      formatLanguage: () => 'English',
+    });
+
+    const content = document.getElementById('answers-content')?.textContent || '';
+    expect(content).toContain('First question?→Answer A');
+  });
+
+  it('derives flow context labels from earlier answered rows when backfill data is missing', () => {
+    document.body.innerHTML = '<div id="answers-content"></div>';
+    displayAnswersList({
+      getMyTalks: () => ({}),
+      getFlatAnswerHistory: () => ({
+        flow: {
+          id: 'flow',
+          talkId: 'flow-talk',
+          title: 'Three-step flow',
+          type: 'flow',
+          language: 'en',
+          outcome: 'match',
+          answeredAt: '2026-06-11T00:00:00.000Z',
+          senderIds: [],
+          items: [
+            {
+              questionId: 'q1',
+              answerId: 'a1',
+              prompt: 'Q1?',
+              choice: 'A1',
+              kind: 'question',
+              contextPath: [],
+              contextHash: '',
+            },
+            {
+              questionId: 'q2',
+              answerId: 'a2',
+              prompt: 'Q2?',
+              choice: 'A2',
+              kind: 'question',
+              contextPath: [],
+              contextHash: 'hash_q2',
+            },
+            {
+              questionId: 'q3',
+              answerId: 'a3',
+              prompt: 'Q3?',
+              choice: 'A3',
+              kind: 'question',
+              contextPath: [],
+              contextHash: 'hash_q3',
+            },
+          ],
+        },
+      }),
+      escapeHtml: (value) => value,
+      copyAnsweredTalkToTalks: jest.fn(),
+      showTalkDetail: jest.fn(),
+      showPreferencesDialog: jest.fn(),
+      getTalkContentKey: jest.fn(),
+      text: (key) => uiText('en', key),
+      formatDate: () => 'date',
+      formatType: () => 'Flow',
+      formatLanguage: () => 'English',
+    });
+
+    const content = document.getElementById('answers-content')?.textContent || '';
+    expect(content).toContain('Q1?→A1');
+    expect(content).toContain('Q1?→A1 · Q2?→A2');
   });
 
   it('falls back to the talk answer text when a stored answer says ignore', () => {

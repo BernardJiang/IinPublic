@@ -4913,12 +4913,13 @@ export class UIManager extends EventEmitter {
     senders: string[],
   ): void {
     const questions = Array.isArray(talk?.questions) ? talk.questions : [];
+    const talkType = String(talk?.type || '').toLowerCase();
     const items: FlatAnswerHistoryItem[] = completedAnswers.map((entry, index) => {
       const question = questions.find((item: any) => String(item?.id || '') === entry.questionId) || {};
       const answer = Array.isArray(question?.answers)
         ? question.answers.find((item: any) => String(item?.id || '') === entry.answerId)
         : null;
-      const isTag = String(talk?.type || '').toLowerCase() === 'tag';
+      const isTag = talkType === 'tag';
       const prompt = String(question?.text || talk?.title || `Question ${index + 1}`).trim();
       const rawChoice = String(entry.answerText || '').trim();
       const choice = isTag
@@ -4938,9 +4939,33 @@ export class UIManager extends EventEmitter {
               : null;
             const questionText = String(parentQuestion?.text || questionId || `Q${stepIndex + 1}`).trim();
             const answerText = String(parentAnswer?.text || answerId || '?').trim();
-            return `${questionText} -> ${answerText}`;
+            return `${questionText}→${answerText}`;
           })
         : [];
+      const flowContextLabel = completedAnswers
+        .slice(0, index)
+        .map((previousEntry, stepIndex) => {
+          const previousQuestion = questions.find((item: any) => String(item?.id || '') === previousEntry.questionId);
+          const previousAnswer = Array.isArray(previousQuestion?.answers)
+            ? previousQuestion.answers.find((item: any) => String(item?.id || '') === previousEntry.answerId)
+            : null;
+          const previousPrompt = String(previousQuestion?.text || `Q${stepIndex + 1}`).trim();
+          const previousRawChoice = String(previousEntry.answerText || '').trim();
+          const previousChoice = previousRawChoice && previousRawChoice.toLowerCase() !== 'ignore'
+            ? previousRawChoice
+            : String(previousAnswer?.text || '').trim() || 'Ignored';
+          return `${previousPrompt}→${previousChoice}`;
+        })
+        .filter(Boolean)
+        .join(' · ');
+      const contextLabel = talkType === 'tag' || talkType === 'survey'
+        ? ''
+        : talkType === 'flow'
+          ? flowContextLabel
+          : contextPath.join(' · ');
+      const contextHash = talkType === 'tag' || talkType === 'survey'
+        ? ''
+        : String(question?.contextHashId || '').trim();
       return {
         questionId: entry.questionId,
         answerId: entry.answerId,
@@ -4948,8 +4973,9 @@ export class UIManager extends EventEmitter {
         choice,
         kind: isTag ? 'tag' : 'question',
         contextPath,
+        contextLabel,
         ...(entry.mode ? { mode: entry.mode } : {}),
-        ...(String(question?.contextHashId || '').trim() ? { contextHash: String(question.contextHashId).trim() } : {}),
+        ...(contextHash ? { contextHash } : {}),
       };
     });
     upsertFlatAnswerHistory({
