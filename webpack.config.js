@@ -14,6 +14,10 @@ module.exports = {
     alias: {
       '@shared': path.resolve(__dirname, 'src/shared'),
       '@web': path.resolve(__dirname, 'src/web'),
+      'node:stream': 'stream-browserify',
+    },
+    fallback: {
+      stream: require.resolve('stream-browserify'),
     },
   },
   module: {
@@ -37,6 +41,9 @@ module.exports = {
     ],
   },
   plugins: [
+    new webpack.NormalModuleReplacementPlugin(/^node:/, (resource) => {
+      resource.request = resource.request.replace(/^node:/, '');
+    }),
     new HtmlWebpackPlugin({
       template: './src/web/index.html',
       title: 'IinPublic',

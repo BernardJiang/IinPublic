@@ -30,8 +30,10 @@ Gun, mailbox. **Sequenced after P0 steps 9–11.**
 
 #### L1. Helia/libp2p node bootstrap (REQ-IPFS-01, REQ-LIBP2P-07) `[Sonnet]`
 
-- [ ] Add Helia; lazy-init alongside SEA + Gun bootstrap; expose `node.libp2p`; record gzipped bundle delta; keep per-worker E2E port isolation
-- [ ] Test: app boots with node initialized on first content-layer use; no first-paint regression
+- [x] Add Helia; lazy-init alongside SEA + Gun bootstrap; expose `node.libp2p`; record gzipped bundle delta; keep per-worker E2E port isolation
+	- 2026-06-11 measurement after lazy split: `dist/web/bundle.js.gz = 214,582` bytes, async Helia chunk `dist/web/898.bundle.js.gz = 371,158` bytes
+- [x] Test: app boots with node initialized on first content-layer use; no first-paint regression
+	- Verified by `src/test/unit/web-content-node-service.test.ts` (lazy init semantics), `npm run test:type`, and `npm run build:web`
 
 #### L2. Mesh stream handler over libp2p (REQ-LIBP2P-01/02/04) `[Opus design → Sonnet impl]` — transport swap behind `MeshSession`; connection-lifecycle correctness
 

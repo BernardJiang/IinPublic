@@ -4,6 +4,7 @@ import { WebUserService } from '../services/web-user-service';
 import { WebChatroomService } from '../services/web-chatroom-service';
 import { WebTalkService } from '../services/web-talk-service';
 import { WebConversationService } from '../services/web-conversation-service';
+import { WebContentNodeService, type WebContentNode } from '../services/web-content-node-service';
 import { WebLedgerService } from '../services/web-ledger-service';
 import { UIManager, type BroadcastAudiencePreview } from '../ui/ui-manager';
 import { LocationPrivacy } from '../../shared/location';
@@ -60,6 +61,7 @@ export class IinPublicApp {
   private chatroomService: WebChatroomService;
   private talkService: WebTalkService;
   private conversationService: WebConversationService;
+  private contentNodeService: WebContentNodeService;
   /** Interaction ledger (Phase E). Initialized lazily after SEA keypair is ready. */
   private ledgerService: WebLedgerService | null = null;
   private uiManager: UIManager;
@@ -223,6 +225,7 @@ export class IinPublicApp {
       meshLocalFirst: usesMeshTalkDelivery(this.p2pRuntimeFlags),
     });
     this.conversationService = new WebConversationService(this.gunService);
+    this.contentNodeService = new WebContentNodeService();
     this.uiManager = new UIManager();
   }
 
@@ -4212,6 +4215,18 @@ export class IinPublicApp {
 
   public getCurrentLocation(): GPSCoordinate | undefined {
     return this.currentLocation;
+  }
+
+  /**
+   * Content layer bootstrap entry point. Helia/libp2p initializes on first use,
+   * never on first paint.
+   */
+  public async ensureContentNodeInitialized(): Promise<WebContentNode> {
+    return this.contentNodeService.ensureNode();
+  }
+
+  public async ensureContentLibp2pInitialized(): Promise<unknown> {
+    return this.contentNodeService.ensureLibp2p();
   }
 
   public async refreshUserData(): Promise<void> {
