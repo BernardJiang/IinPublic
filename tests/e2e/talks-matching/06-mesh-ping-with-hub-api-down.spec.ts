@@ -1,8 +1,9 @@
 /**
- * L3 acceptance increment: mesh reachability after hub API loss mid-session.
+ * L3 acceptance increment: mesh re-forms after hub API loss mid-session.
  *
  * We simulate hub loss by aborting presence/member API calls in all three browsers,
- * then force mesh room reconcile and verify mesh-ping still propagates across peers.
+ * tear down each peer's current overlay, rejoin with explicit peer IDs,
+ * and verify mesh-ping still propagates.
  */
 import { chromium, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
@@ -116,12 +117,13 @@ test.describe('Mesh-ping with hub API down mid-session', () => {
 
     await Promise.all([blockHubApi(pageTom), blockHubApi(pageJerry), blockHubApi(pageBob)]);
 
-    // Force a room reconcile after hub API calls are blocked.
+    // Tear down and re-form overlay using explicit peer IDs after hub API loss.
     await pageTom.evaluate(async ([jId, bId]: string[]) => {
       const app = (window as any).__iinpublic_app?.getApp?.() as any;
       const mesh = app?.peerMeshService;
       if (!mesh) return;
       const roomId = mesh.getDiagnostics?.()?.roomId ?? 'global';
+      mesh.leaveRoom?.();
       await mesh.joinRoom(roomId, [
         { userId: app.currentUser?.id },
         { userId: jId },
@@ -134,6 +136,7 @@ test.describe('Mesh-ping with hub API down mid-session', () => {
       const mesh = app?.peerMeshService;
       if (!mesh) return;
       const roomId = mesh.getDiagnostics?.()?.roomId ?? 'global';
+      mesh.leaveRoom?.();
       await mesh.joinRoom(roomId, [
         { userId: app.currentUser?.id },
         { userId: tId },
@@ -146,12 +149,46 @@ test.describe('Mesh-ping with hub API down mid-session', () => {
       const mesh = app?.peerMeshService;
       if (!mesh) return;
       const roomId = mesh.getDiagnostics?.()?.roomId ?? 'global';
+      mesh.leaveRoom?.();
       await mesh.joinRoom(roomId, [
         { userId: app.currentUser?.id },
         { userId: tId },
         { userId: jId },
       ]);
     }, [tomId, jerryId]);
+
+    await expect
+      .poll(
+        () =>
+          pageTom.evaluate(() => {
+            const app = (window as any).__iinpublic_app?.getApp?.() as any;
+            return app?.peerMeshService?.getDiagnostics?.()?.connectedNeighborCount ?? 0;
+          }),
+        { timeout: MESH_E2E_TIMEOUT_MS, intervals: [200, 400, 800], message: 'Tom did not re-form neighbors' },
+      )
+      .toBeGreaterThan(0);
+
+    await expect
+      .poll(
+        () =>
+          pageJerry.evaluate(() => {
+            const app = (window as any).__iinpublic_app?.getApp?.() as any;
+            return app?.peerMeshService?.getDiagnostics?.()?.connectedNeighborCount ?? 0;
+          }),
+        { timeout: MESH_E2E_TIMEOUT_MS, intervals: [200, 400, 800], message: 'Jerry did not re-form neighbors' },
+      )
+      .toBeGreaterThan(0);
+
+    await expect
+      .poll(
+        () =>
+          pageBob.evaluate(() => {
+            const app = (window as any).__iinpublic_app?.getApp?.() as any;
+            return app?.peerMeshService?.getDiagnostics?.()?.connectedNeighborCount ?? 0;
+          }),
+        { timeout: MESH_E2E_TIMEOUT_MS, intervals: [200, 400, 800], message: 'Bob did not re-form neighbors' },
+      )
+      .toBeGreaterThan(0);
 
     await afterAction();
     await afterSync();

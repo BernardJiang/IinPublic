@@ -127,11 +127,13 @@ export class IinPublicApp {
   public meshDiscoveryDiagnostics: {
     roomId: string | null;
     providerPeerIds: string[];
+    discoveredUserIds: string[];
     bootstrapPeers: string[];
     updatedAt: string | null;
   } = {
     roomId: null,
     providerPeerIds: [],
+    discoveredUserIds: [],
     bootstrapPeers: [],
     updatedAt: null,
   };
@@ -983,10 +985,17 @@ export class IinPublicApp {
       void discovery.findRoomProviderPeerIds(chatroomId, { timeoutMs: 2_500, limit: 20 })
         .then(async (peers) => {
           const discoveredUserIds = await this.resolveDiscoveredUserIds(peers, withSelf);
-          this.roomDiscoveredUserIds.set(chatroomId, new Set(discoveredUserIds));
+          const cached = this.roomDiscoveredUserIds.get(chatroomId) || new Set<string>();
+          const sameRoomUserIds = withSelf
+            .map((member) => String(member.userId || '').trim())
+            .filter((userId) => !!userId && userId !== this.currentUser?.id);
+          for (const userId of sameRoomUserIds) cached.add(userId);
+          for (const userId of discoveredUserIds) cached.add(userId);
+          this.roomDiscoveredUserIds.set(chatroomId, cached);
           this.meshDiscoveryDiagnostics = {
             roomId: chatroomId,
             providerPeerIds: peers,
+            discoveredUserIds: [...cached],
             bootstrapPeers: discovery.getBootstrapPeers(),
             updatedAt: new Date().toISOString(),
           };
