@@ -29,6 +29,7 @@ import { WebMailboxClient } from '../services/web-mailbox-client';
 import { getOrCreateLibp2pMeshSession } from '../services/p2p-libp2p-mesh-session';
 import { getOrCreateP2PSession } from '../services/p2p-webrtc-session';
 import { createFallbackMeshSession } from '../services/p2p-mesh-session-fallback';
+import { P2PRoomDiscoveryService } from '../services/p2p-room-discovery';
 import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload, P2PMeshTalkRetractedPayload } from '../../shared/p2p-mesh-protocol';
 import {
   collectLocalIncomingTalkClusters,
@@ -123,9 +124,21 @@ export class IinPublicApp {
   } = {
     received: [],
   };
+  public meshDiscoveryDiagnostics: {
+    roomId: string | null;
+    providerPeerIds: string[];
+    bootstrapPeers: string[];
+    updatedAt: string | null;
+  } = {
+    roomId: null,
+    providerPeerIds: [],
+    bootstrapPeers: [],
+    updatedAt: null,
+  };
   private readonly e2eSeededIncomingClusters: any[] = [];
   private readonly e2eSeededTagTalks = new Map<string, any>();
   private incomingTalkClusterUnsubscribe: (() => void) | null = null;
+  private roomDiscoveryService: P2PRoomDiscoveryService | null = null;
   private readonly p2pRuntimeFlags: P2PRuntimeFlags = resolveP2PRuntimeFlags(
     typeof process !== 'undefined'
       ? {
@@ -902,6 +915,14 @@ export class IinPublicApp {
     return this.peerMeshService;
   }
 
+  private ensureRoomDiscoveryService(): P2PRoomDiscoveryService | null {
+    if (!this.p2pRuntimeFlags.p2pNodeEnabled) return null;
+    if (this.roomDiscoveryService) return this.roomDiscoveryService;
+    this.roomDiscoveryService = P2PRoomDiscoveryService.fromEnv(() => this.ensureContentLibp2pInitialized());
+    this.meshDiscoveryDiagnostics.bootstrapPeers = this.roomDiscoveryService.getBootstrapPeers();
+    return this.roomDiscoveryService;
+  }
+
   private syncPeerMeshRoom(
     chatroomId: string,
     members: Array<{ userId: string; stageName?: string }>,
@@ -917,6 +938,24 @@ export class IinPublicApp {
     void mesh.joinRoom(chatroomId, withSelf).catch((error) => {
       console.warn('Peer mesh room join failed:', error);
     });
+    const discovery = this.ensureRoomDiscoveryService();
+    if (discovery) {
+      void discovery.announceRoom(chatroomId).catch((error) => {
+        console.warn('Room discovery provide failed:', error);
+      });
+      void discovery.findRoomProviderPeerIds(chatroomId, { timeoutMs: 2_500, limit: 20 })
+        .then((peers) => {
+          this.meshDiscoveryDiagnostics = {
+            roomId: chatroomId,
+            providerPeerIds: peers,
+            bootstrapPeers: discovery.getBootstrapPeers(),
+            updatedAt: new Date().toISOString(),
+          };
+        })
+        .catch((error) => {
+          console.warn('Room discovery findProviders failed:', error);
+        });
+    }
     // Step 6: drain the mailbox whenever roster changes (any newly-present member
     // may be a sender for whom we have queued envelopes in the mailbox).
     // Also retry failed mailbox POSTs now that network may be available.
