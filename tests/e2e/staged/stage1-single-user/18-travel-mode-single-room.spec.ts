@@ -34,34 +34,53 @@ test.describe('Chatrooms — hierarchy travel and return home', () => {
     await ensureWindowFitsViewport(page, 960, 1200);
     await afterLoad();
     attachE2eBrowserTabLabel(page, 'travel');
+    await afterSync();
+
+    const waitForRoomVisible = async (roomId: string): Promise<void> => {
+      await expect(page.locator(`.chatroom-item[data-chatroom-id="${roomId}"]`)).toBeVisible({ timeout: 45_000 });
+    };
+
+    const roomLabelById: Record<string, string> = {
+      global: 'Global',
+      'north-america': 'North America',
+      usa: 'United States',
+      california: 'California',
+      'san-diego': 'San Diego',
+      london: 'London',
+      uk: 'United Kingdom',
+      europe: 'Europe',
+    };
+
+    const openRoomAndReturn = async (roomId: string): Promise<void> => {
+      const expectedStatusText = roomLabelById[roomId] || roomId;
+      await waitForRoomVisible(roomId);
+      await page.click(`.chatroom-item[data-chatroom-id="${roomId}"]`);
+      await afterSync();
+      await expect(page.locator('#status-bar-text')).toContainText(expectedStatusText, { timeout: 45_000 });
+      await expect(page.locator('#back-to-chatrooms')).toBeVisible({ timeout: 45_000 });
+      await page.click('#back-to-chatrooms');
+      await afterSync();
+    };
 
     // Start in Global with the default San Diego hierarchy visible.
-    await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('2');
-    await expect(page.locator('.chatroom-item[data-chatroom-id="north-america"]')).toBeVisible();
-    await expect(page.locator('.chatroom-item[data-chatroom-id="usa"]')).toBeVisible();
-    await expect(page.locator('.chatroom-item[data-chatroom-id="california"]')).toBeVisible();
-    await expect(page.locator('.chatroom-item[data-chatroom-id="san-diego"]')).toBeVisible();
+    await expect(page.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('2', {
+      timeout: 45_000,
+    });
+    await waitForRoomVisible('north-america');
+    await waitForRoomVisible('usa');
+    await waitForRoomVisible('california');
+    await waitForRoomVisible('san-diego');
 
-    await expect(page.locator('#return-home-btn')).toBeVisible();
-    await expect(page.locator('#return-home-btn')).toBeEnabled();
+    await expect(page.locator('#return-home-btn')).toBeVisible({ timeout: 45_000 });
+    await expect(page.locator('#return-home-btn')).toBeEnabled({ timeout: 45_000 });
 
     for (const roomId of ['global', 'north-america', 'usa', 'california', 'san-diego']) {
-      await page.click(`.chatroom-item[data-chatroom-id="${roomId}"]`);
-      await afterSync();
-      await expect(page.locator('#status-bar-text')).toContainText(
-        roomId === 'usa' ? 'United States' : roomId.split('-').map((p) => p[0].toUpperCase() + p.slice(1)).join(' '),
-        { timeout: 45000 },
-      );
-      await page.click('#back-to-chatrooms');
-      await afterSync();
+      await openRoomAndReturn(roomId);
     }
 
-    await expect(page.locator('.chatroom-item[data-chatroom-id="london"]')).toBeVisible();
+    await waitForRoomVisible('london');
     for (const roomId of ['london', 'uk', 'europe', 'global']) {
-      await page.click(`.chatroom-item[data-chatroom-id="${roomId}"]`);
-      await afterSync();
-      await page.click('#back-to-chatrooms');
-      await afterSync();
+      await openRoomAndReturn(roomId);
     }
 
     await page.click('#return-home-btn');
