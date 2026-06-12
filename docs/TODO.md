@@ -76,11 +76,11 @@ the list must show context and must not collapse distinct-context answers. Desig
 
 ### P3 — Challenge Plugin Framework: zone-B config storage (FR-CPF-04) `[Haiku]` — small Gun read/write + round-trip test; framework already wired
 
-The framework is implemented and wired into routes. The per-chatroom plugin configuration storage in zone-B Gun paths is not yet implemented.
+The framework is implemented and wired into routes, including per-chatroom plugin configuration storage in zone-B Gun paths.
 
-- [ ] Store per-chatroom plugin configuration in zone-B (`~{ownerPub}/private/chatroom-config/<chatroomId>/challengePlugins`) so owners can enable/disable plugins without server restart
-- [ ] Add `WebChatroomService.setChallengeConfig(chatroomId, pluginIds)` that writes to zone-B and reads it back for the `resolveChallengeGate` hook
-- [ ] Unit test: round-trip serialize/deserialize plugin config from Gun zone-B path
+- [x] Store per-chatroom plugin configuration in zone-B (`~{ownerPub}/private/chatroom-config/<chatroomId>/challengePlugins`) so owners can enable/disable plugins without server restart
+- [x] Add `WebChatroomService.setChallengeConfig(chatroomId, pluginIds)` that writes to zone-B and reads it back for the `resolveChallengeGate` hook
+- [x] Unit test: round-trip serialize/deserialize plugin config from Gun zone-B path
 
 ### ~~Phase D — DHT Bootstrap implementation (§19.12)~~ — SUPERSEDED 2026-06-10
 
