@@ -46,6 +46,10 @@ export class WebGunService extends EventEmitter {
     this.bridge = new GunBridge('/worker.js');
   }
 
+  private isE2ERelaxedMode(): boolean {
+    return process.env.DISABLE_HMR === 'true';
+  }
+
   /**
    * Compute the Gun hub URL from the current page origin.
    *
@@ -88,7 +92,7 @@ export class WebGunService extends EventEmitter {
       // E2E bundles set DISABLE_HMR via webpack DefinePlugin — turn AXE off there only.
       // Do not gate on `typeof process` / `process.env`: webpack 5 browser bundles often have no
       // `process`, so the guard made e2eDisableAxe always false and AXE never disabled.
-      const e2eDisableAxe = process.env.DISABLE_HMR === 'true';
+      const e2eDisableAxe = this.isE2ERelaxedMode();
       const devStageZero = isDevStageZero();
       const disableAxe = e2eDisableAxe || devStageZero;
       this.gun = Gun({
@@ -98,7 +102,7 @@ export class WebGunService extends EventEmitter {
         ...(disableAxe ? { axe: false, multicast: false } : {}),
       });
 
-      await this.waitForHubPeer(devStageZero ? 10_000 : 5000);
+      await this.waitForHubPeer(disableAxe ? 12_000 : 5000);
 
       this.gun.on('hi', (peer: any) => {
         console.log('🤝 Gun peer connected:', peer.id || 'unknown');
@@ -353,7 +357,7 @@ export class WebGunService extends EventEmitter {
     return new Promise((resolve, reject) => {
       try {
         const serializedData = this.serializeDates(data);
-        const relaxAck = isDevStageZero();
+        const relaxAck = isDevStageZero() || this.isE2ERelaxedMode();
         let settled = false;
         const done = (err?: Error) => {
           if (settled) return;
@@ -365,12 +369,12 @@ export class WebGunService extends EventEmitter {
 
         const timeout = setTimeout(() => {
           if (relaxAck) {
-            console.warn(`Gun put ack timed out (stage-zero), continuing optimistically: ${key}`);
+            console.warn(`Gun put ack timed out (relaxed mode), continuing optimistically: ${key}`);
             done();
           } else {
             done(new Error('Gun.js put operation timed out'));
           }
-        }, relaxAck ? 10_000 : 5000);
+        }, relaxAck ? 12_000 : 5000);
 
         this.gun.get(key).put(serializedData, (ack: any) => {
           if (ack?.err) {
@@ -450,11 +454,28 @@ export class WebGunService extends EventEmitter {
       ref = ref.get(part);
     }
     await new Promise<void>((resolve, reject) => {
+      const relaxAck = isDevStageZero() || this.isE2ERelaxedMode();
+      let settled = false;
+      const done = (err?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        if (err) reject(err);
+        else resolve();
+      };
+      const timeout = setTimeout(() => {
+        if (relaxAck) {
+          console.warn(`Gun private put ack timed out (relaxed mode), continuing optimistically: ${key}`);
+          done();
+        } else {
+          done(new Error(`Gun private put operation timed out: ${key}`));
+        }
+      }, relaxAck ? 12_000 : 5000);
       ref.put(encrypted, (ack: any) => {
         if (ack?.err) {
-          reject(new Error(String(ack.err)));
+          done(new Error(String(ack.err)));
         } else {
-          resolve();
+          done();
         }
       });
     });

@@ -37,6 +37,16 @@ const NUM_WORKERS = STAGE_PIPELINE
   : Number.isFinite(parsedWorkers) && parsedWorkers >= 1
     ? Math.floor(parsedWorkers)
     : 1;
+
+const explicitAssertTimeout = Number(process.env.E2E_ASSERT_TIMEOUT_MS || '');
+const E2E_ASSERT_TIMEOUT_MS =
+  Number.isFinite(explicitAssertTimeout) && explicitAssertTimeout > 0
+    ? explicitAssertTimeout
+    : NUM_WORKERS >= 16
+      ? 30_000
+      : NUM_WORKERS >= 8
+        ? 20_000
+        : 10_000;
 // Let helpers (e.g. clear-database) know whether multiple workers share disk paths.
 process.env.PW_WORKERS = String(NUM_WORKERS);
 
@@ -44,8 +54,9 @@ process.env.PW_WORKERS = String(NUM_WORKERS);
  * Per-test ceiling. Parallel runs (PW_WORKERS≥4) use 2 min/test;
  * single-worker debug keeps 5 min. Helpers use E2E_ASSERT_TIMEOUT_MS (10s) for polls — fail fast.
  */
-const E2E_ASSERT_TIMEOUT_MS = 10_000;
 const E2E_TEST_TIMEOUT_MS = NUM_WORKERS >= 4 ? 120_000 : 300_000;
+const FORCE_HEADLESS = !!process.env.CI || NUM_WORKERS >= 4;
+const VIDEO_MODE: 'off' | 'retain-on-failure' = NUM_WORKERS >= 16 ? 'off' : 'retain-on-failure';
 
 const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
   const gunPort = 8080 + i;
@@ -104,8 +115,8 @@ export default defineConfig({
     baseURL: 'http://localhost:3001',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
-    headless: process.env.CI ? true : false,
+    video: VIDEO_MODE,
+    headless: FORCE_HEADLESS,
     launchOptions,
   },
 

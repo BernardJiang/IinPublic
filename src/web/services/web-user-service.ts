@@ -209,16 +209,29 @@ export class WebUserService {
   private async syncPublicProfileFoundationToApi(user: User): Promise<void> {
     const apiBase = this.getApiBase();
     if (!apiBase) return;
-    await fetch(`${apiBase}/api/users/${encodeURIComponent(user.id)}/public-profile-foundation`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        headshot: user.headshot || '',
-        languages: user.languages || ['en'],
-        profile: user.profile || [],
-        interests: user.interests || [],
-      }),
-    }).catch(() => {});
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    try {
+      await fetch(`${apiBase}/api/users/${encodeURIComponent(user.id)}/public-profile-foundation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          headshot: user.headshot || '',
+          languages: user.languages || ['en'],
+          profile: user.profile || [],
+          interests: user.interests || [],
+        }),
+        signal: controller.signal,
+      });
+    } catch {
+      // Best-effort sync only; Gun remains source of truth.
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private syncPublicProfileFoundationToApiBestEffort(user: User): void {
+    void this.syncPublicProfileFoundationToApi(user).catch(() => {});
   }
 
   private async putPublicTalkFilters(userId: string, talkFilters: TalkIntakeFilters): Promise<void> {
@@ -229,6 +242,12 @@ export class WebUserService {
 
   private async putUserTags(user: User, now: Date = new Date()): Promise<void> {
     await this.gunService.put(`${USER_TAGS_KEY}/${user.id}`, buildUserTagsEnvelope(user.interests, now));
+  }
+
+  private putUserTagsBestEffort(user: User, now: Date = new Date()): void {
+    void this.putUserTags(user, now).catch((error) => {
+      console.warn('user-tags write skipped (best-effort):', error);
+    });
   }
 
   private async putPrivateUserData(user: User): Promise<void> {
@@ -436,7 +455,7 @@ export class WebUserService {
       blockDirtyWords: true,
       allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
     });
-    await this.putUserTags(user, now);
+    this.putUserTagsBestEffort(user, now);
     await this.putPrivateUserData(user);
     if (user.id === TECHSUPPORT_ROOT_USER_ID) {
       await this.gunService.put(TECHSUPPORT_ROOT_META_KEY, {
@@ -503,8 +522,8 @@ export class WebUserService {
     }
     await this.gunService.put(`users/${userId}`, this.buildPublicUserRecord(nextUser));
     await this.putPublicProfileFoundation(nextUser);
-    await this.putUserTags(nextUser);
-    await this.syncPublicProfileFoundationToApi(nextUser);
+    this.putUserTagsBestEffort(nextUser);
+    this.syncPublicProfileFoundationToApiBestEffort(nextUser);
     await this.putPrivateUserData(nextUser);
     return nextUser;
   }

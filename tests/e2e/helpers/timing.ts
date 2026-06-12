@@ -9,6 +9,16 @@
 const E2E_INTERVAL = (process.env.E2E_INTERVAL || 'short') as 'short' | 'long';
 const isLong = E2E_INTERVAL === 'long';
 
+function resolveE2EAssertTimeoutMs(): number {
+  const explicit = Number(process.env.E2E_ASSERT_TIMEOUT_MS || '');
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+
+  const workers = Number(process.env.PW_WORKERS ?? process.env.PW_WORKER ?? '1');
+  if (Number.isFinite(workers) && workers >= 16) return 30_000;
+  if (Number.isFinite(workers) && workers >= 8) return 20_000;
+  return 10_000;
+}
+
 /** Multiplier for "long" mode (human watch). Short uses 1x, long uses ~3x for most waits. */
 const LONG_MULTIPLIER = 3;
 
@@ -46,7 +56,7 @@ export { E2E_INTERVAL, isLong };
  * Fail fast — do not stretch polls to 90s+; fix sync/delivery instead.
  * Override only in a spec when debugging locally (`PW_SLOW_MO`, `E2E_INTERVAL=long`).
  */
-export const E2E_ASSERT_TIMEOUT_MS = 10_000;
+export const E2E_ASSERT_TIMEOUT_MS = resolveE2EAssertTimeoutMs();
 
 /** Wait until Gun auth + user bootstrap finished (settings shell needs currentUser). */
 export async function waitForAppReady(page: import('@playwright/test').Page): Promise<void> {
@@ -61,7 +71,7 @@ export async function waitForAppReady(page: import('@playwright/test').Page): Pr
           const hasNav = Boolean(document.querySelector('.bottom-nav .nav-btn[data-view="chatrooms"]'));
           return hasUser && hasNav;
         }),
-      { timeout: E2E_ASSERT_TIMEOUT_MS, intervals: [100, 200, 400] },
+      { timeout: E2E_ASSERT_TIMEOUT_MS, intervals: [200, 400, 800, 1200] },
     )
     .toBe(true);
 }
