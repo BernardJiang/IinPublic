@@ -115,47 +115,61 @@ test.describe('Mesh-ping with hub API down mid-session', () => {
       { label: 'Bob', page: pageBob, otherIds: [tomId, jerryId] },
     ]);
 
+    const p2pNodeEnabled = await pageTom.evaluate(() => {
+      const app = (window as any).__iinpublic_app?.getApp?.() as any;
+      return !!app?.p2pRuntimeFlags?.p2pNodeEnabled;
+    });
+
     await Promise.all([blockHubApi(pageTom), blockHubApi(pageJerry), blockHubApi(pageBob)]);
 
-    // Tear down and re-form overlay using explicit peer IDs after hub API loss.
-    await pageTom.evaluate(async ([jId, bId]: string[]) => {
+    // Tear down and re-form overlay after hub API loss.
+    await pageTom.evaluate(async ([jId, bId, selfOnlyMode]: [string, string, boolean]) => {
       const app = (window as any).__iinpublic_app?.getApp?.() as any;
       const mesh = app?.peerMeshService;
       if (!mesh) return;
       const roomId = mesh.getDiagnostics?.()?.roomId ?? 'global';
       mesh.leaveRoom?.();
-      await mesh.joinRoom(roomId, [
-        { userId: app.currentUser?.id },
-        { userId: jId },
-        { userId: bId },
-      ]);
-    }, [jerryId, bobId]);
+      const members = selfOnlyMode
+        ? [{ userId: app.currentUser?.id }]
+        : [
+            { userId: app.currentUser?.id },
+            { userId: jId },
+            { userId: bId },
+          ];
+      await mesh.joinRoom(roomId, members);
+    }, [jerryId, bobId, p2pNodeEnabled]);
 
-    await pageJerry.evaluate(async ([tId, bId]: string[]) => {
+    await pageJerry.evaluate(async ([tId, bId, selfOnlyMode]: [string, string, boolean]) => {
       const app = (window as any).__iinpublic_app?.getApp?.() as any;
       const mesh = app?.peerMeshService;
       if (!mesh) return;
       const roomId = mesh.getDiagnostics?.()?.roomId ?? 'global';
       mesh.leaveRoom?.();
-      await mesh.joinRoom(roomId, [
-        { userId: app.currentUser?.id },
-        { userId: tId },
-        { userId: bId },
-      ]);
-    }, [tomId, bobId]);
+      const members = selfOnlyMode
+        ? [{ userId: app.currentUser?.id }]
+        : [
+            { userId: app.currentUser?.id },
+            { userId: tId },
+            { userId: bId },
+          ];
+      await mesh.joinRoom(roomId, members);
+    }, [tomId, bobId, p2pNodeEnabled]);
 
-    await pageBob.evaluate(async ([tId, jId]: string[]) => {
+    await pageBob.evaluate(async ([tId, jId, selfOnlyMode]: [string, string, boolean]) => {
       const app = (window as any).__iinpublic_app?.getApp?.() as any;
       const mesh = app?.peerMeshService;
       if (!mesh) return;
       const roomId = mesh.getDiagnostics?.()?.roomId ?? 'global';
       mesh.leaveRoom?.();
-      await mesh.joinRoom(roomId, [
-        { userId: app.currentUser?.id },
-        { userId: tId },
-        { userId: jId },
-      ]);
-    }, [tomId, jerryId]);
+      const members = selfOnlyMode
+        ? [{ userId: app.currentUser?.id }]
+        : [
+            { userId: app.currentUser?.id },
+            { userId: tId },
+            { userId: jId },
+          ];
+      await mesh.joinRoom(roomId, members);
+    }, [tomId, jerryId, p2pNodeEnabled]);
 
     await expect
       .poll(

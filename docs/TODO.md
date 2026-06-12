@@ -48,6 +48,7 @@ Gun, mailbox. **Sequenced after P0 steps 9–11.**
 - 2026-06-12 progress: added E2E coverage `tests/e2e/talks-matching/06-mesh-ping-with-hub-api-down.spec.ts` validating mesh-ping/pong reachability after mid-session hub API loss simulation (`/api/presence/*`, `/api/chatrooms/*/members` blocked), including explicit overlay teardown (`leaveRoom`) and re-form (`joinRoom`) without hub API access.
 - 2026-06-12 progress: `WebContentNodeService` now parses discovery config defaults from env (`IINPUBLIC_P2P_BOOTSTRAP_PEERS`, `IINPUBLIC_P2P_MDNS_ENABLED`, `IINPUBLIC_P2P_DHT_ENABLED`) and exposes `getDiscoveryConfig()` for app-level wiring.
 - 2026-06-12 progress: `PeerMeshService` reconciliation now accepts discovery fallback candidates (`getDiscoveryUserIds`) and still reconciles under sparse roster callbacks; app maps discovered provider peerIds to room userIds via libp2p binding records (`p2p-peer-bindings/<userId>`).
+- 2026-06-12 progress: Playwright now supports opt-in p2p-node E2E mode via `E2E_P2P_NODE_ENABLED=1` (applies to both server and web dev process), and `npm run test:e2e:l3:node-discovery` validates the L3 hub-loss mesh reform spec in node-enabled mode.
 - [ ] Kademlia DHT room rendezvous (`provide`/`findProviders` on room-key CID) + mDNS; Socket.IO roster stays as fast path; bootstrap-peer multiaddr list for cold start
 - [ ] Test: stop the hub mid-session → peers re-form the room overlay and mesh-ping reachability holds without hub interaction
 

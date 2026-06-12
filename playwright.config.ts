@@ -57,6 +57,11 @@ process.env.PW_WORKERS = String(NUM_WORKERS);
 const E2E_TEST_TIMEOUT_MS = NUM_WORKERS >= 4 ? 120_000 : 300_000;
 const FORCE_HEADLESS = !!process.env.CI || NUM_WORKERS >= 4;
 const VIDEO_MODE: 'off' | 'retain-on-failure' = NUM_WORKERS >= 16 ? 'off' : 'retain-on-failure';
+const E2E_P2P_NODE_ENABLED =
+  process.env.E2E_P2P_NODE_ENABLED === '1' ||
+  process.env.E2E_P2P_NODE_ENABLED === 'true'
+    ? '1'
+    : '0';
 
 const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
   const gunPort = 8080 + i;
@@ -69,7 +74,7 @@ const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
       // P2P_RATE_LIMIT_MAX_EVENTS: the per-peer abuse limiter (default 200/min) is shared across
       // signaling/ack/relay/discovery POSTs; parallel multi-browser WebRTC reconnect cycles can
       // exceed it and 429s stall mesh formation. Raise it for E2E only.
-      command: `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false E2E_GUN_MEMORY_ONLY=1 P2P_NODE_ENABLED=0 P2P_RATE_LIMIT_MAX_EVENTS=5000 NODE_OPTIONS=--max-old-space-size=8192 PORT=${gunPort} node dist/server/server/index.js`,
+      command: `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false E2E_GUN_MEMORY_ONLY=1 P2P_NODE_ENABLED=${E2E_P2P_NODE_ENABLED} P2P_RATE_LIMIT_MAX_EVENTS=5000 NODE_OPTIONS=--max-old-space-size=8192 PORT=${gunPort} node dist/server/server/index.js`,
       port: gunPort,
       timeout: 120 * 1000,
       // Must spawn with E2E_GUN_MEMORY_ONLY + CHATROOM_* ; reusing a manually started dev:server ignores those env vars and keeps e2e flaky.
@@ -79,7 +84,7 @@ const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
       // E2E_STATIC_WEB=1: serve pre-built dist/web/ with npx serve (no webpack recompile) for CI sandbox.
       command: process.env.E2E_STATIC_WEB === '1'
         ? `npx serve dist/web -l ${webPort} --no-clipboard`
-        : `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false P2P_NODE_ENABLED=0 PORT=${webPort} npm run dev:web:e2e -- --port ${webPort}`,
+        : `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false P2P_NODE_ENABLED=${E2E_P2P_NODE_ENABLED} PORT=${webPort} npm run dev:web:e2e -- --port ${webPort}`,
       port: webPort,
       timeout: 120 * 1000,
       reuseExistingServer: process.env.E2E_REUSE_SERVERS === '1',
