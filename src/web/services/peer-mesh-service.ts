@@ -249,6 +249,7 @@ export class PeerMeshService {
         member.userId !== this.opts.localUserId &&
         member.userId !== TECHSUPPORT_ROOT_USER_ID,
     );
+    let rosterChanged = roomChanged || this.currentRoomId === null;
     // Gun room membership arrives as a stream of partial snapshots. Replacing the
     // roster on every callback tears down healthy links whenever a callback contains
     // only the newest member. Keep the discovered same-room set until leave/room
@@ -256,13 +257,19 @@ export class PeerMeshService {
     for (const member of remoteMembers) {
       const prior = this.currentRoomMembers.get(member.userId);
       const stageName = member.stageName || prior?.stageName;
-      this.currentRoomMembers.set(member.userId, {
+      const next = {
         ...prior,
         ...member,
         ...(stageName ? { stageName } : {}),
-      });
+      };
+      if (!prior || prior.stageName !== next.stageName) {
+        rosterChanged = true;
+      }
+      this.currentRoomMembers.set(member.userId, next);
     }
     this.currentRoomMemberIds = new Set(this.currentRoomMembers.keys());
+    const maxNeighbors = this.opts.maxNeighbors ?? 12;
+    if (!rosterChanged && this.neighbors.size <= maxNeighbors) return;
     await this.reconcileNeighbors();
     this.scheduleReconcile();
   }
@@ -443,7 +450,7 @@ export class PeerMeshService {
 
   async broadcastTalk(
     talk: Talk | Record<string, unknown>,
-    opts: { recipientUserIds?: string[]; roomBroadcast?: boolean } = {},
+    opts: { recipientUserIds?: string[]; roomBroadcast?: boolean; skipAcknowledgements?: boolean } = {},
   ): Promise<void> {
     const talkId = String((talk as { id?: unknown }).id || '');
     if (!talkId) throw new Error('mesh broadcast requires talk.id');
@@ -467,6 +474,13 @@ export class PeerMeshService {
       ...payload,
       talkData: talkRecord,
     };
+    if (opts.skipAcknowledgements) {
+      const announceFrame = await this.buildFrame('talk-announce', payload, { ttlHops: 8 });
+      const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
+      await this.rememberAndFanout(announceFrame);
+      await this.rememberAndFanout(bodyFrame);
+      return;
+    }
     const recipients = [...new Set(opts.recipientUserIds?.filter(Boolean) || [])];
     const recipientSet = new Set(recipients);
     const isWholeKnownRoom =
@@ -489,7 +503,9 @@ export class PeerMeshService {
         await this.rememberAndFanout(announceFrame);
         const acknowledged = await this.sendAndWaitForAcks(bodyFrame, [recipientUserId]);
         if (!acknowledged.has(recipientUserId) && this.opts.onMailboxFallback) {
-          await this.opts.onMailboxFallback(bodyPayload, [recipientUserId]);
+          void Promise.resolve(this.opts.onMailboxFallback(bodyPayload, [recipientUserId])).catch(
+            (err) => console.warn('[Mesh] mailbox fallback failed:', err),
+          );
         }
       });
       return;
@@ -536,7 +552,7 @@ export class PeerMeshService {
       if (this.opts.onMailboxFallback) {
         const missingRecipients = expectedRecipients.filter((userId) => !acknowledged.has(userId));
         if (missingRecipients.length > 0) {
-          await Promise.resolve(this.opts.onMailboxFallback(bodyPayload, missingRecipients)).catch(
+          void Promise.resolve(this.opts.onMailboxFallback(bodyPayload, missingRecipients)).catch(
             (err) => console.warn('[Mesh] mailbox fallback failed:', err),
           );
         }

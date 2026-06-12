@@ -515,8 +515,29 @@ export async function openIncomingTalkModalByTalkId(
     }
   }
   await expect(row.first()).toBeVisible({ timeout: INCOMING_ROW_FINAL_MS });
-  await row.first().locator('button.view-talk-btn').click();
-  await page.waitForSelector('#talk-response-modal .modal-content', { timeout: RESPONSE_MODAL_CONTENT_MS });
+  const modal = page.locator('#talk-response-modal .modal-content');
+  const openDeadline = Date.now() + RESPONSE_MODAL_CONTENT_MS;
+  while (Date.now() < openDeadline) {
+    const clicked = await page.evaluate((title) => {
+      const rows = Array.from(document.querySelectorAll<HTMLElement>('.talk-list-item[data-role="incoming"]'));
+      const current = rows.find((candidate) => candidate.textContent?.includes(title));
+      const button = current?.querySelector<HTMLButtonElement>('button.view-talk-btn');
+      if (!button) return false;
+      button.click();
+      return true;
+    }, titleSubstring);
+    if (clicked) {
+      try {
+        await modal.waitFor({ state: 'visible', timeout: 2_000 });
+        return;
+      } catch {
+        // The incoming list refreshed between lookup and handler completion.
+      }
+    }
+    await syncIncomingFromServer(page);
+    await page.waitForTimeout(200);
+  }
+  await expect(modal).toBeVisible({ timeout: 1_000 });
 }
 
 /** Open an incoming talk via the View button (more reliable than row click for Gun-synced rows). */

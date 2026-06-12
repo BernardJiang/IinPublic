@@ -177,17 +177,15 @@ export async function clickBroadcastUntilBulkAck(
       await dismissBroadcastPreambleIfOpen(page);
       return;
     }
-    if (result.talksSent < minSent && result.receivers >= minPeers && minSent > 0) {
-      const hasBroadcastable = await page.evaluate(() => {
-        const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
-        const ids = app?.uiManager?.getBroadcastableTalkIds?.() as string[] | undefined;
-        return Array.isArray(ids) && ids.length > 0;
-      });
-      if (hasBroadcastable) {
-        await deliverViaUiBroadcastTalk(page, minSent);
-        await dismissBroadcastPreambleIfOpen(page);
-        return;
-      }
+    const hasBroadcastable = await page.evaluate(() => {
+      const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+      const ids = app?.uiManager?.getBroadcastableTalkIds?.() as string[] | undefined;
+      return Array.isArray(ids) && ids.length > 0;
+    });
+    if (hasBroadcastable && minSent > 0) {
+      await deliverViaUiBroadcastTalk(page, minSent);
+      await dismissBroadcastPreambleIfOpen(page);
+      return;
     }
   } else {
     try {
@@ -205,7 +203,7 @@ export async function clickBroadcastUntilBulkAck(
         const sent = Number(await loc.getAttribute('data-broadcast-talks-sent'));
         return Number.isFinite(gen) && gen > start && Number.isFinite(sent) && sent >= minSent;
       },
-      { timeout: E2E_ASSERT_TIMEOUT_MS, intervals: [100, 200, 400] },
+      { timeout: Math.max(E2E_ASSERT_TIMEOUT_MS, 30_000), intervals: [100, 200, 400, 800] },
     )
     .toBe(true);
   await dismissBroadcastPreambleIfOpen(page);

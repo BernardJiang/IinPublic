@@ -528,25 +528,8 @@ describe('UTC bucket helpers', () => {
 // ─── Store round-trip (mock localStorage) ────────────────────────────────────
 
 describe('store round-trip (localStorage mock)', () => {
-  let store: Record<string, string> = {};
-
-  beforeAll(() => {
-    // Mock localStorage for Jest (Node environment)
-    if (typeof globalThis.localStorage === 'undefined') {
-      Object.defineProperty(globalThis, 'localStorage', {
-        value: {
-          getItem: (k: string) => store[k] ?? null,
-          setItem: (k: string, v: string) => { store[k] = v; },
-          removeItem: (k: string) => { delete store[k]; },
-          clear: () => { store = {}; },
-        },
-        writable: true,
-      });
-    }
-  });
-
   beforeEach(() => {
-    store = {};
+    globalThis.localStorage.clear();
   });
 
   it('loadTalkLedger returns empty doc when key is absent', async () => {

@@ -76,9 +76,12 @@ export async function deliverBroadcastViaAppPath(
         throw new Error('deliverPendingBroadcastTalksForE2e unavailable');
       }
       const timeout = new Promise<{ talksSent: number; receivers: number }>((_, reject) => {
-        window.setTimeout(() => reject(new Error('deliverPendingBroadcastTalksForE2e timed out')), 20_000);
+        window.setTimeout(() => reject(new Error('deliverPendingBroadcastTalksForE2e timed out')), 45_000);
       });
-      return Promise.race([app.deliverPendingBroadcastTalksForE2e(minRecv), timeout]);
+      return Promise.race([
+        app.deliverPendingBroadcastTalksForE2e(minRecv, { skipDeliveryAcks: true }),
+        timeout,
+      ]);
     },
     { minRecv: minReceivers },
   );

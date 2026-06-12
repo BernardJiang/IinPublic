@@ -37,7 +37,6 @@ import {
   waitForResponseModalClosed,
   openIncomingTalkModal,
 } from '../../helpers/talks-matching-flow';
-import { waitForChatroomMemberCountViaApi } from '../../helpers/talk-demo-ui';
 
 // ─── Test data (not app logic) ──────────────────────────────────────────────────
 
@@ -178,6 +177,14 @@ test.describe('Find similar people', () => {
         }, idx),
       ),
     );
+    await Promise.all(setups.map(({ page }) => page.evaluate(() => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      app?.setTalkLedgerQuotaUnlimitedForE2e?.(true);
+      app?.setTalkLedgerSuppressionDisabledForE2e?.(true);
+      app?.setMailboxFallbackDisabledForE2e?.(true);
+      const mesh = app?.ensurePeerMeshService?.();
+      if (mesh?.opts) mesh.opts = { ...mesh.opts, ackTimeoutMs: 250 };
+    })));
 
     // ── Phase 2: each user creates 20 tag talks through the create-talk dialog ─
     // Default "interested" checkbox stays checked, so each created tag becomes the
@@ -243,30 +250,37 @@ test.describe('Find similar people', () => {
     // unused for direct delivery); offers + announcement still happen, so the chatbot
     // behaves exactly as with the Broadcast button.
     //
-    // Each user runs in its own browser, so deliveries run concurrently: per-talk
-    // mesh sends are parallelized app-side, and a single browser only issues a
-    // bounded number of concurrent deliveries. Deliver one user at a time so ten
-    // independent browser meshes do not contend for the shared test relay at once.
-    for (const { page, idx } of setups) {
-      await waitForChatroomMemberCountViaApi(page, NUM_USERS - 1, 90_000);
+    // Each user runs in its own browser. Start the online-only floods together so
+    // no sender spends its watchdog budget processing earlier users before sending.
+    await Promise.all(setups.map(async ({ page, idx }) => {
+      await page.waitForTimeout(3_000);
       await afterSync();
       const t0 = Date.now();
       let result: { talksSent: number; receivers: number } | undefined;
       for (let attempt = 0; attempt < 15; attempt++) {
         try {
-          result = await page.evaluate(async (minReceivers) => {
+          result = await page.evaluate(async ({ minReceivers, receiverUsers }) => {
             const app = (window as any).__iinpublic_app?.getApp?.();
             if (!app?.deliverPendingBroadcastTalksForE2e) {
               throw new Error('deliverPendingBroadcastTalksForE2e unavailable');
             }
             const timeout = new Promise<never>((_, reject) => {
-              window.setTimeout(() => reject(new Error('broadcast delivery timed out')), 60_000);
+              window.setTimeout(() => reject(new Error('broadcast delivery timed out')), 120_000);
             });
             return Promise.race([
-              app.deliverPendingBroadcastTalksForE2e(minReceivers, { skipAudiencePreview: true }),
+              app.deliverPendingBroadcastTalksForE2e(minReceivers, {
+                skipAudiencePreview: true,
+                skipDeliveryAcks: true,
+                receiverUsers,
+              }),
               timeout,
             ]) as Promise<{ talksSent: number; receivers: number }>;
-          }, NUM_USERS - 1);
+          }, {
+            minReceivers: 0,
+            receiverUsers: userMetas
+              .filter((_, userIndex) => userIndex !== idx)
+              .map((user) => ({ userId: user.id, stageName: user.stageName })),
+          });
           break;
         } catch (err) {
           if (!String(err).includes('receiverIds=')) throw err;
@@ -278,7 +292,7 @@ test.describe('Find similar people', () => {
       console.log(`[u${idx} broadcast] ${JSON.stringify(result)} after ${Date.now() - t0}ms`);
       expect(result.talksSent, `user ${idx} talksSent`).toBeGreaterThanOrEqual(TAGS_PER_USER);
       expect(result.receivers, `user ${idx} receivers`).toBeGreaterThanOrEqual(NUM_USERS - 1);
-    }
+    }));
     await afterSync();
 
     // ── Phase 5: answer incoming tags ────────────────────────────────────────

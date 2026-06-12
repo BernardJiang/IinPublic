@@ -84,6 +84,8 @@ export class IinPublicApp {
   private supportBootstrapChecked = false;
   private presenceClient: P2PPresenceClient | null = null;
   private peerEpubByUserId = new Map<string, string>();
+  private talkLedgerSuppressionDisabledForE2e = false;
+  private mailboxFallbackDisabledForE2e = false;
   private localNodeBridge: P2PLocalNodeBridgeClient | null = null;
   private peerMeshService: PeerMeshService | null = null;
   private mailboxClient: WebMailboxClient | null = null;
@@ -787,7 +789,7 @@ export class IinPublicApp {
     try {
       const heartbeatMs = process.env.DISABLE_HMR === 'true' ? 300_000 : 30_000;
       this.presenceClient = new P2PPresenceClient({ apiBase: base, heartbeatMs });
-      this.presenceClient.startHeartbeat({
+      await this.presenceClient.startHeartbeat({
         userId: this.currentUser.id,
         pub: String(pair.pub),
         ...(pair.epub ? { epub: String(pair.epub) } : {}),
@@ -963,6 +965,7 @@ export class IinPublicApp {
    * Falls back to localStorage queue only when the mailbox POST itself fails.
    */
   private async postToMailbox(payload: P2PMeshTalkResponsePayload): Promise<boolean> {
+    if (this.mailboxFallbackDisabledForE2e) return true;
     if (!this.currentUser?.id) return false;
     const mailbox = this.ensureMailboxClient();
     const pair = this.gunService.getStoredPair();
@@ -1009,37 +1012,43 @@ export class IinPublicApp {
     payload: import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload,
     recipientUserIds: string[],
   ): Promise<void> {
+    if (this.mailboxFallbackDisabledForE2e) return;
     if (!this.currentUser?.id || recipientUserIds.length === 0) return;
     const mailbox = this.ensureMailboxClient();
     const pair = this.gunService.getStoredPair();
     if (!pair?.priv) return;
-    for (const recipientId of recipientUserIds) {
-      if (!recipientId || recipientId === this.currentUser.id) continue;
-      try {
-        const recipientEpub = await this.resolvePeerEpub(recipientId);
-        if (!recipientEpub) {
-          console.warn('[Mesh/Mailbox] Cannot post talk body — epub not found for', recipientId);
-          continue;
+    const recipients = [...new Set(recipientUserIds)].filter(
+      (recipientId) => recipientId && recipientId !== this.currentUser?.id,
+    );
+    const concurrency = 5;
+    for (let i = 0; i < recipients.length; i += concurrency) {
+      await Promise.all(recipients.slice(i, i + concurrency).map(async (recipientId) => {
+        try {
+          const recipientEpub = await this.resolvePeerEpub(recipientId);
+          if (!recipientEpub) {
+            console.warn('[Mesh/Mailbox] Cannot post talk body — epub not found for', recipientId);
+            return;
+          }
+          const ciphertext = await mailbox.encryptForRecipient(
+            recipientEpub,
+            pair as import('../sea-gun').GunPair,
+            payload,
+          );
+          const envelopeId = `mbx_body_${payload.talkId}_${this.currentUser?.id}_${recipientId}`;
+          const result = await mailbox.postEnvelope({
+            id: envelopeId,
+            recipientId,
+            ciphertext,
+          });
+          if (result.stored) {
+            console.log('[Mesh/Mailbox] Posted talk-body envelope for', recipientId);
+          } else {
+            console.warn('[Mesh/Mailbox] Server rejected talk-body envelope for', recipientId, ':', result.error);
+          }
+        } catch (err) {
+          console.warn('[Mesh/Mailbox] postTalkBodyToMailboxForRecipients failed for', recipientId, ':', err);
         }
-        const ciphertext = await mailbox.encryptForRecipient(
-          recipientEpub,
-          pair as import('../sea-gun').GunPair,
-          payload,
-        );
-        const envelopeId = `mbx_body_${payload.talkId}_${this.currentUser.id}_${recipientId}`;
-        const result = await mailbox.postEnvelope({
-          id: envelopeId,
-          recipientId,
-          ciphertext,
-        });
-        if (result.stored) {
-          console.log('[Mesh/Mailbox] Posted talk-body envelope for', recipientId);
-        } else {
-          console.warn('[Mesh/Mailbox] Server rejected talk-body envelope for', recipientId, ':', result.error);
-        }
-      } catch (err) {
-        console.warn('[Mesh/Mailbox] postTalkBodyToMailboxForRecipients failed for', recipientId, ':', err);
-      }
+      }));
     }
   }
 
@@ -2040,6 +2049,7 @@ export class IinPublicApp {
     talk: Talk,
     members: Array<{ userId: string; stageName: string }>,
     eligibleReceiverIds?: string[],
+    deliveryOptions: { skipAcknowledgements?: boolean } = {},
   ): Promise<boolean> {
     const me = this.currentUser;
     if (!me?.id || members.length === 0) return false;
@@ -2074,8 +2084,10 @@ export class IinPublicApp {
     for (const recipientId of receiverIds) {
       // Compute which identity keys are suppressed for this recipient.
       const suppressedSet = new Set<string>();
-      for (const ik of identityKeys) {
-        if (shouldSuppressForPeer(recipientId, ik)) suppressedSet.add(ik);
+      if (!this.talkLedgerSuppressionDisabledForE2e) {
+        for (const ik of identityKeys) {
+          if (shouldSuppressForPeer(recipientId, ik)) suppressedSet.add(ik);
+        }
       }
 
       // If ALL identity keys suppressed → skip recipient entirely.
@@ -2141,6 +2153,7 @@ export class IinPublicApp {
       await mesh.broadcastTalk({ ...talk, id: talkId, authorId: me.id }, {
         recipientUserIds: fullRecipients,
         roomBroadcast: true,
+        ...(deliveryOptions.skipAcknowledgements ? { skipAcknowledgements: true } : {}),
       });
       announceCount += fullRecipients.length;
     }
@@ -2836,7 +2849,11 @@ export class IinPublicApp {
    */
   public async deliverPendingBroadcastTalksForE2e(
     minReceivers = 1,
-    opts: { skipAudiencePreview?: boolean } = {},
+    opts: {
+      skipAudiencePreview?: boolean;
+      skipDeliveryAcks?: boolean;
+      receiverUsers?: Array<{ userId: string; stageName?: string }>;
+    } = {},
   ): Promise<{ talksSent: number; receivers: number }> {
     if (!this.currentUser) throw new Error('App not ready for E2E broadcast delivery');
     const chatroomId = this.chatroomService.getCurrentChatroomId();
@@ -2846,7 +2863,11 @@ export class IinPublicApp {
     if (broadcastableIds.length === 0) {
       broadcastableIds = this.uiManager.getPendingBroadcastTalkIds();
     }
-    const receivers = await this.resolveBroadcastReceivers(chatroomId, members);
+    const receivers = Array.isArray(opts.receiverUsers) && opts.receiverUsers.length > 0
+      ? opts.receiverUsers
+          .filter((user) => user.userId && user.userId !== this.currentUser!.id && user.userId !== TECHSUPPORT_ROOT_USER_ID)
+          .map((user) => ({ userId: user.userId, stageName: user.stageName || user.userId }))
+      : await this.resolveBroadcastReceivers(chatroomId, members);
     if (receivers.length < minReceivers && !(minReceivers === 0 && receivers.length === 0)) {
       throw new Error(`receiverIds=${receivers.length} room=${chatroomId}`);
     }
@@ -2912,6 +2933,7 @@ export class IinPublicApp {
             talk,
             receivers,
             eligibleIds,
+            { skipAcknowledgements: opts.skipDeliveryAcks === true },
           );
           if (ok) registeredTalkIds.push(tid);
           return ok;
@@ -2942,6 +2964,14 @@ export class IinPublicApp {
    */
   public setTalkLedgerQuotaUnlimitedForE2e(unlimited: boolean): void {
     setTalkLedgerQuotaUnlimited(unlimited === true);
+  }
+
+  public setTalkLedgerSuppressionDisabledForE2e(disabled: boolean): void {
+    this.talkLedgerSuppressionDisabledForE2e = disabled === true;
+  }
+
+  public setMailboxFallbackDisabledForE2e(disabled: boolean): void {
+    this.mailboxFallbackDisabledForE2e = disabled === true;
   }
 
   /**

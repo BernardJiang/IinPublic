@@ -81,19 +81,19 @@ export class P2PPresenceClient {
     return (await res.json()) as PeerAckMessage;
   }
 
-  startHeartbeat(input: {
+  async startHeartbeat(input: {
     userId: string;
     pub: string;
     epub?: string;
     encryptedLocation?: string;
-  }): void {
+  }): Promise<void> {
     this.stopHeartbeat();
     const beat = () => {
       void this.register(input).catch((err) => {
         console.warn('presence heartbeat failed:', err);
       });
     };
-    beat();
+    await this.register(input);
     this.heartbeatTimer = setInterval(beat, this.options.heartbeatMs ?? 30_000);
   }
 

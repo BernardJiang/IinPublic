@@ -1,6 +1,6 @@
 # IinPublic Completed Work
 
-Last updated: 2026-06-08
+Last updated: 2026-06-12
 
 ## 2026-06-08 - Docs consolidation into four canonical files + archive
 
@@ -1679,3 +1679,47 @@ Evidence:
 
 - E2E: `06-sender-suppression.spec.ts`; full suite green locally
 - Unit: `src/test/unit/talk-ledger.test.ts` (49)
+
+## 2026-06-12 - P0 Step 7: Star Talk Delivery Removed
+
+Deleted the server-authoritative talk delivery path and its derived peer state. Talk bodies,
+announcements, responses, matches, conversations, incoming indexes, and talk-derived contact data
+now remain client-owned and travel over the mesh, with the server limited to rendezvous/presence,
+signaling, STUN/TURN configuration, and ciphertext-only TTL mailbox fallback. Mesh delivery is the
+default; the old direct/star feature flags and endpoint forks are gone.
+
+Evidence:
+
+- Integration: `src/test/integration/star-endpoints-removed.test.ts`
+- Integration: `src/test/integration/mailbox-routes.test.ts`
+- E2E: `tests/e2e/talks-matching/01-mesh-ping-overlay.spec.ts` through `05-mailbox-offline-response.spec.ts`
+
+## 2026-06-12 - P0 Steps 9-11: Change of Mind, Retraction, Exchange Suppression
+
+Completed the local ledger lifecycle. Responses use content-derived IDs, monotonic versions, and
+timestamps; newer answer changes propagate to every original sender while stale updates are
+rejected. Hard retraction gossips a tombstone, ends matching conversations, and prevents in-flight
+or later answers from resurrecting them. Symmetric per-peer identity records suppress unchanged
+tags already exchanged across a pair while allowing changed content through once.
+
+Evidence:
+
+- E2E: `tests/e2e/talks-matching/07-change-of-mind.spec.ts`
+- E2E: `tests/e2e/talks-matching/08-retraction.spec.ts`
+- E2E: `tests/e2e/talks-matching/09-exchange-suppression.spec.ts`
+- Unit: `src/test/unit/talk-ledger.test.ts`
+
+## 2026-06-12 - P0 Full-Suite Gate and Parallel Reliability Closeout
+
+Hardened presence-key readiness, made unchanged-room mesh joins idempotent, bounded mailbox key
+resolution concurrency, decoupled best-effort mailbox posting from live-send acknowledgement, and
+stabilized high-load E2E broadcast/incoming-row helpers. The 10-user x 20-tag scenario now uses
+known fixture recipients and an online mesh-flood mode so it tests matching/ranking throughput
+without duplicating the dedicated ACK, suppression, quota, and offline-mailbox suites.
+
+Verification:
+
+- `npm run test:type`
+- Focused Jest: 151 passed across ledger, mesh, mailbox, and removed-star endpoint suites
+- Focused E2E: previously flaky broadcast paths pass with `--retries=0`
+- Exact release gate: `PW_WORKERS=20 npm run test:e2e:parallel` - 102 passed, 2 skipped, 0 failed, 0 flaky (4.4 minutes)
