@@ -50,8 +50,9 @@ Gun, mailbox. **Sequenced after P0 steps 9–11.**
 - 2026-06-12 progress: `WebContentNodeService` now applies discovery toggles into Helia libp2p bootstrap (`libp2pDefaults()`), including custom bootstrap-peer list override, mDNS enable/disable handling, and DHT service toggle before `createHelia({ libp2p })`.
 - 2026-06-12 progress: `PeerMeshService` reconciliation now accepts discovery fallback candidates (`getDiscoveryUserIds`) and still reconciles under sparse roster callbacks; app maps discovered provider peerIds to room userIds via libp2p binding records (`p2p-peer-bindings/<userId>`).
 - 2026-06-12 progress: Playwright now supports opt-in p2p-node E2E mode via `E2E_P2P_NODE_ENABLED=1` (applies to both server and web dev process), and `npm run test:e2e:l3:node-discovery` validates the L3 hub-loss mesh reform spec in node-enabled mode.
+- 2026-06-12 progress: added strict process-stop acceptance path `npm run test:e2e:l3:hub-stop` with test-only hub shutdown endpoint (`POST /api/test/shutdown-hub`) and E2E `07-mesh-ping-after-hub-stop.spec.ts` proving mesh neighbor survivability + ping reachability after hub process termination.
 - [x] Kademlia DHT room rendezvous (`provide`/`findProviders` on room-key CID) + mDNS; Socket.IO roster stays as fast path; bootstrap-peer multiaddr list for cold start
-- [ ] Test: stop the hub mid-session → peers re-form the room overlay and mesh-ping reachability holds without hub interaction
+- [x] Test: stop the hub mid-session → peers re-form the room overlay and mesh-ping reachability holds without hub interaction
 
 #### L4. IPFS talk attachments (REQ-IPFS-02/03) `[Sonnet]`
 

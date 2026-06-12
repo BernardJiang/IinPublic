@@ -35,6 +35,7 @@
     "test:e2e:staged": "npm run build:server && E2E_STAGE_PIPELINE=1 PW_WORKERS=1 DISABLE_HMR=true playwright test",
     "test:e2e:talks-matching": "npm run build:server && DISABLE_HMR=true playwright test tests/e2e/talks-matching",
     "test:e2e:l3:node-discovery": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true E2E_P2P_NODE_ENABLED=1 PW_WORKERS=1 playwright test tests/e2e/talks-matching/06-mesh-ping-with-hub-api-down.spec.ts",
+    "test:e2e:l3:hub-stop": "npm run build:server && bash scripts/run_l3_hub_stop_e2e.sh",
     "test:e2e:partial-auto": "npm run build:server && DISABLE_HMR=true playwright test tests/e2e/talks-matching/05-partial-auto-answers.spec.ts",
     "test:e2e:phase-d": "npm run build:server && DISABLE_HMR=true playwright test tests/e2e/staged/stage1-single-user/00x-tab-sweep-smoke.spec.ts tests/e2e/staged/stage3-three-user/00t-talk-type-intake-filter.spec.ts tests/e2e/staged/stage3-three-user/00u-talk-lifecycle-stranger-match.spec.ts tests/e2e/staged/stage3-three-user/00v-creator-reply-triage-matrix.spec.ts",
     "test:e2e:phase-d2": "npm run build:server && DISABLE_HMR=true playwright test tests/e2e/staged/stage1-single-user/00y-chinese-ui-traversal.spec.ts tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts",

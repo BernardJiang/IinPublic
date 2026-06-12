@@ -762,5 +762,25 @@ export function registerSystemRoutes(
         res.status(500).json({ error: (error as Error).message });
       }
     });
+
+    app.post('/api/test/shutdown-hub', (req, res) => {
+      if (process.env.DISABLE_HMR !== 'true') {
+        res.status(403).json({ error: 'shutdown-hub is only available in E2E mode' });
+        return;
+      }
+
+      const requestedDelay = Number(req.body?.delayMs);
+      const delayMs = Number.isFinite(requestedDelay) && requestedDelay >= 0
+        ? Math.floor(requestedDelay)
+        : 100;
+
+      logger.warn({ delayMs }, 'E2E requested hub shutdown');
+      res.status(202).json({ accepted: true, delayMs });
+
+      const timer = setTimeout(() => {
+        process.exit(0);
+      }, delayMs);
+      (timer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
+    });
   }
 }
