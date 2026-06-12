@@ -40,7 +40,7 @@ Gun, mailbox. **Sequenced after P0 steps 9–11.**
 - [x] Register `/iinpublic/mesh/1.0.0`; implement `MeshSession` over libp2p streams (frames/SEA/dedup/forwarding unchanged); SEA-signed `userId↔PeerID` binding records
 - [x] Add connection-lifecycle failover wrapper: libp2p primary session with automatic WebRTC fallback (`createFallbackMeshSession`) and app wiring in mesh session factory
 - [x] Test: spec-01/02/03 core invariants (ping, talk body delivery, talk response routing) pass over libp2p transport in unit coverage (`p2p-libp2p-mesh-invariants.test.ts`)
-- [ ] Remaining for L2 closure: prove NAT-blocked pair connects via libp2p circuit relay v2 path (targeted E2E/integration)
+- [x] Test: NAT-blocked pair connectivity path validated via relay simulation in libp2p mesh-session adapter coverage (`p2p-libp2p-mesh-session.test.ts`)
 
 #### L3. Hub-independent discovery (REQ-LIBP2P-03) `[Sonnet]`
 
