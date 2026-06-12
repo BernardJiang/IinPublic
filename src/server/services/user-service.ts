@@ -21,6 +21,7 @@ export class UserService {
     headshot?: string | null;
     languagesJson?: string;
     profileJson?: string;
+    fullProfileJson?: string;
     interestsJson?: string;
   }>();
   private readonly recentReputationWrites = new Map<string, Reputation>();
@@ -251,11 +252,12 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
           headshot?: string | null;
           languagesJson?: string;
           profileJson?: string;
+          fullProfileJson?: string;
           interestsJson?: string;
         }
       | null;
     let profile = publicProfile
-      ? this.parseJsonArray(publicProfile.profileJson, user.profile || [])
+      ? this.parseJsonArray(publicProfile.fullProfileJson ?? publicProfile.profileJson, user.profile || [])
       : user.profile || [];
     if (view !== undefined) {
       const raw = view.viewerId;
@@ -308,6 +310,7 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
       headshot: updates.headshot || '',
       languagesJson: JSON.stringify(Array.isArray(updates.languages) ? updates.languages : ['en']),
       profileJson: JSON.stringify(Array.isArray(updates.profile) ? updates.profile : []),
+      fullProfileJson: JSON.stringify(Array.isArray(updates.profile) ? updates.profile : []),
       interestsJson: JSON.stringify(Array.isArray(updates.interests) ? updates.interests : []),
     };
     const publicProfile = (updates.profile || []).filter((entry) =>

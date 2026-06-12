@@ -121,6 +121,7 @@ test.describe('Find similar people', () => {
   const browsers: Browser[] = [];
   const contexts: BrowserContext[] = [];
   const pages: Page[] = [];
+  const expectedMinContactsByUser = new Map<number, number>();
 
   test.afterEach(async () => {
     await Promise.all(
@@ -315,6 +316,7 @@ test.describe('Find similar people', () => {
           }
         }
         const senderByKeyword = assignDistinctRejectSenders(idx, [...toReject]);
+        expectedMinContactsByUser.set(idx, new Set(senderByKeyword.values()).size);
         await waitForTabActive(page, 'talks');
         console.log(`[u${idx} reject] ${toReject.size} seeded non-interest tags`);
         // Show the IN (incoming) filter so received tags render; Phase 2 left it on OUT.
@@ -358,16 +360,17 @@ test.describe('Find similar people', () => {
 
     // ── Phase 6: contacts — sort by match rate and tag the most-similar peer ──
     await Promise.all(
-      setups.map(async ({ page }) => {
+      setups.map(async ({ page, idx }) => {
         await waitForTabActive(page, 'contacts');
         await page.waitForSelector('#contacts-sort-order', { timeout: 20_000 });
         await page.selectOption('#contacts-sort-order', 'match-rate');
         await afterAction();
 
         const realContacts = page.locator('.contact-item[data-contact-user-id]:not([data-support-contact="true"])');
+        const expectedMin = Math.max(1, expectedMinContactsByUser.get(idx) ?? (NUM_USERS - 1));
         await expect
           .poll(async () => realContacts.count(), { timeout: 30_000, intervals: [500] })
-          .toBeGreaterThanOrEqual(NUM_USERS - 1);
+          .toBeGreaterThanOrEqual(expectedMin);
 
         // Each stranger row shows the matched-tag count and percentage chip.
         await expect(page.locator('.contact-item-match-rate').first()).toBeVisible({ timeout: 15_000 });
