@@ -139,6 +139,7 @@ export class IinPublicApp {
   private readonly e2eSeededTagTalks = new Map<string, any>();
   private incomingTalkClusterUnsubscribe: (() => void) | null = null;
   private roomDiscoveryService: P2PRoomDiscoveryService | null = null;
+  private readonly roomDiscoveredUserIds = new Map<string, Set<string>>();
   private readonly p2pRuntimeFlags: P2PRuntimeFlags = resolveP2PRuntimeFlags(
     typeof process !== 'undefined'
       ? {
@@ -847,6 +848,7 @@ export class IinPublicApp {
       ...(process.env.DISABLE_HMR === 'true' ? { maxNeighbors: 3 } : {}),
       ...(this.p2pRuntimeFlags.p2pNodeEnabled
         ? {
+            getDiscoveryUserIds: async () => this.getDiscoveryFallbackUserIdsForActiveRoom(),
             createSession: (params) =>
               createFallbackMeshSession({
                 primaryFactory: () =>
@@ -915,6 +917,37 @@ export class IinPublicApp {
     return this.peerMeshService;
   }
 
+  private getDiscoveryFallbackUserIdsForActiveRoom(): string[] {
+    const roomId = this.peerMeshService?.getDiagnostics().roomId || this.currentChatroomId;
+    if (!roomId) return [];
+    const found = this.roomDiscoveredUserIds.get(roomId);
+    return found ? [...found] : [];
+  }
+
+  private async resolveDiscoveredUserIds(
+    providerPeerIds: string[],
+    members: Array<{ userId: string; stageName?: string }>,
+  ): Promise<string[]> {
+    if (!Array.isArray(providerPeerIds) || providerPeerIds.length === 0) return [];
+    const peerSet = new Set(providerPeerIds.map((peerId) => String(peerId || '').trim()).filter(Boolean));
+    if (peerSet.size === 0) return [];
+    const discovered = new Set<string>();
+    await Promise.all(members.map(async (member) => {
+      const userId = String(member.userId || '').trim();
+      if (!userId) return;
+      try {
+        const binding = await this.gunService.get(`p2p-peer-bindings/${userId}`) as { peerId?: unknown } | null;
+        const peerId = String(binding?.peerId || '').trim();
+        if (peerId && peerSet.has(peerId)) {
+          discovered.add(userId);
+        }
+      } catch {
+        // best-effort
+      }
+    }));
+    return [...discovered];
+  }
+
   private ensureRoomDiscoveryService(): P2PRoomDiscoveryService | null {
     if (!this.p2pRuntimeFlags.p2pNodeEnabled) return null;
     if (this.roomDiscoveryService) return this.roomDiscoveryService;
@@ -948,7 +981,9 @@ export class IinPublicApp {
         console.warn('Room discovery provide failed:', error);
       });
       void discovery.findRoomProviderPeerIds(chatroomId, { timeoutMs: 2_500, limit: 20 })
-        .then((peers) => {
+        .then(async (peers) => {
+          const discoveredUserIds = await this.resolveDiscoveredUserIds(peers, withSelf);
+          this.roomDiscoveredUserIds.set(chatroomId, new Set(discoveredUserIds));
           this.meshDiscoveryDiagnostics = {
             roomId: chatroomId,
             providerPeerIds: peers,

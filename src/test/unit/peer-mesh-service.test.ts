@@ -59,6 +59,45 @@ function mockGunService(
 }
 
 describe('PeerMeshService', () => {
+  it('uses discovery fallback user ids to form neighbors when roster is sparse', async () => {
+    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+    const users = {
+      alice: { pub: alicePair.pub },
+      bob: { pub: bobPair.pub },
+    };
+    const network = createFakeNetwork();
+    const bobPings: string[] = [];
+
+    const alice = new PeerMeshService(mockGunService(alicePair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      createSession: network.createSession,
+      getDiscoveryUserIds: async () => ['bob'],
+    });
+    const bob = new PeerMeshService(mockGunService(bobPair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'bob',
+      localStageName: 'Bob',
+      createSession: network.createSession,
+      getDiscoveryUserIds: async () => ['alice'],
+      onPing: (fromUserId) => {
+        bobPings.push(fromUserId);
+      },
+    });
+
+    // Each peer sees only itself in the local roster, then discovery supplies the neighbor.
+    await alice.joinRoom('global', [{ userId: 'alice', stageName: 'Alice' }]);
+    await bob.joinRoom('global', [{ userId: 'bob', stageName: 'Bob' }]);
+
+    const connected = await alice.waitForConnectedNeighbor('bob', 2_000);
+    expect(connected).toBe(true);
+
+    await alice.sendPing('discovery-fallback');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(bobPings).toContain('alice');
+  });
+
   it('gossips talk announcements, pulls bodies, and routes mesh responses', async () => {
     const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
     const users = {

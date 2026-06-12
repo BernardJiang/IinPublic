@@ -51,6 +51,11 @@ type PeerMeshServiceOptions = {
     isInitiator: boolean;
     onRemoteMeshFrame: (otherUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
   }) => MeshSession;
+  /**
+   * Optional L3 discovery fallback: returns extra candidate userIds for the
+   * current room when roster/presence paths are stale or unavailable.
+   */
+  getDiscoveryUserIds?: () => Promise<string[]>;
   // Returns false when the receiver rejected the talk (e.g. intake/age filtering) so the
   // caller can leave it eligible for re-delivery; any other return is treated as accepted.
   onTalkBody?: (payload: P2PMeshTalkBodyPayload) => boolean | void | Promise<boolean | void>;
@@ -269,7 +274,8 @@ export class PeerMeshService {
     }
     this.currentRoomMemberIds = new Set(this.currentRoomMembers.keys());
     const maxNeighbors = this.opts.maxNeighbors ?? 12;
-    if (!rosterChanged && this.neighbors.size <= maxNeighbors) return;
+    const hasDiscoveryFallback = typeof this.opts.getDiscoveryUserIds === 'function';
+    if (!rosterChanged && !hasDiscoveryFallback && this.neighbors.size <= maxNeighbors) return;
     await this.reconcileNeighbors();
     this.scheduleReconcile();
   }
@@ -298,9 +304,24 @@ export class PeerMeshService {
     if (this.currentRoomId !== roomId) return;
     const local = this.localIdentity();
     const maxNeighbors = this.opts.maxNeighbors ?? 12;
+    const mergedMembers = new Map<string, RoomMember>(this.currentRoomMembers);
+    if (typeof this.opts.getDiscoveryUserIds === 'function') {
+      try {
+        const discovered = await this.opts.getDiscoveryUserIds();
+        for (const userId of discovered || []) {
+          const normalized = String(userId || '').trim();
+          if (!normalized || normalized === this.opts.localUserId || normalized === TECHSUPPORT_ROOT_USER_ID) continue;
+          if (!mergedMembers.has(normalized)) {
+            mergedMembers.set(normalized, { userId: normalized, stageName: normalized });
+          }
+        }
+      } catch {
+        // Discovery fallback is best-effort.
+      }
+    }
     const rankedCandidates = this.selectNeighbors(
-      [...this.currentRoomMembers.values()],
-      this.currentRoomMembers.size,
+      [...mergedMembers.values()],
+      mergedMembers.size,
     );
     const presencePubs = await this.fetchPresencePubs();
     const resolvedByUserId = new Map<string, string>();
