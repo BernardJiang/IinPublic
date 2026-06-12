@@ -27,6 +27,8 @@ import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-clie
 import { PeerMeshService } from '../services/peer-mesh-service';
 import { WebMailboxClient } from '../services/web-mailbox-client';
 import { getOrCreateLibp2pMeshSession } from '../services/p2p-libp2p-mesh-session';
+import { getOrCreateP2PSession } from '../services/p2p-webrtc-session';
+import { createFallbackMeshSession } from '../services/p2p-mesh-session-fallback';
 import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload, P2PMeshTalkRetractedPayload } from '../../shared/p2p-mesh-protocol';
 import {
   collectLocalIncomingTalkClusters,
@@ -833,16 +835,34 @@ export class IinPublicApp {
       ...(this.p2pRuntimeFlags.p2pNodeEnabled
         ? {
             createSession: (params) =>
-              getOrCreateLibp2pMeshSession({
-                conversationId: params.conversationId,
-                localUserId: params.localUserId,
-                localPub: params.localPub,
-                localPair: params.localPair,
-                otherUserId: params.otherUserId,
-                otherPub: params.otherPub,
-                gunService: this.gunService,
-                ensureLibp2pNode: () => this.ensureContentLibp2pInitialized(),
-                onRemoteMeshFrame: params.onRemoteMeshFrame,
+              createFallbackMeshSession({
+                primaryFactory: () =>
+                  getOrCreateLibp2pMeshSession({
+                    conversationId: params.conversationId,
+                    localUserId: params.localUserId,
+                    localPub: params.localPub,
+                    localPair: params.localPair,
+                    otherUserId: params.otherUserId,
+                    otherPub: params.otherPub,
+                    gunService: this.gunService,
+                    ensureLibp2pNode: () => this.ensureContentLibp2pInitialized(),
+                    onRemoteMeshFrame: params.onRemoteMeshFrame,
+                  }),
+                fallbackFactory: () =>
+                  getOrCreateP2PSession({
+                    apiBase: this.getBackendApiBase(),
+                    conversationId: params.conversationId,
+                    localUserId: params.localUserId,
+                    localPub: params.localPub,
+                    localPair: params.localPair,
+                    otherUserId: params.otherUserId,
+                    otherPub: params.otherPub,
+                    isInitiator: params.isInitiator,
+                    onRemoteMeshFrame: params.onRemoteMeshFrame,
+                  }),
+                onFallback: (cause, error) => {
+                  console.warn(`[Mesh] falling back to WebRTC session after libp2p ${cause} failure`, error);
+                },
               }),
           }
         : {}),
