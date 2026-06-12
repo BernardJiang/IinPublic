@@ -22,6 +22,7 @@ import {
   TECHSUPPORT_ROOT_USER_ID,
   TECHSUPPORT_STAGE_NAME,
 } from '../../shared/techsupport';
+import { buildUserTagsEnvelope, USER_TAGS_KEY } from '../../shared/user-tags';
 
 type PrivateUserData = Pick<User, 'profile' | 'languages' | 'interests' | 'knownPeople' | 'blockedUserIds' | 'talkFilters'> & {
   headshot?: string;
@@ -224,6 +225,10 @@ export class WebUserService {
     await this.gunService.put(`${PUBLIC_TALK_FILTERS_KEY}/${userId}`, {
       filtersJson: JSON.stringify(talkFilters),
     });
+  }
+
+  private async putUserTags(user: User, now: Date = new Date()): Promise<void> {
+    await this.gunService.put(`${USER_TAGS_KEY}/${user.id}`, buildUserTagsEnvelope(user.interests, now));
   }
 
   private async putPrivateUserData(user: User): Promise<void> {
@@ -431,6 +436,7 @@ export class WebUserService {
       blockDirtyWords: true,
       allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
     });
+    await this.putUserTags(user, now);
     await this.putPrivateUserData(user);
     if (user.id === TECHSUPPORT_ROOT_USER_ID) {
       await this.gunService.put(TECHSUPPORT_ROOT_META_KEY, {
@@ -497,6 +503,7 @@ export class WebUserService {
     }
     await this.gunService.put(`users/${userId}`, this.buildPublicUserRecord(nextUser));
     await this.putPublicProfileFoundation(nextUser);
+    await this.putUserTags(nextUser);
     await this.syncPublicProfileFoundationToApi(nextUser);
     await this.putPrivateUserData(nextUser);
     return nextUser;

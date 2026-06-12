@@ -6,6 +6,7 @@ import { CONFIG } from '../../shared/config';
 import { filterProfileAttributesForViewer } from '../../shared/profile-privacy';
 import { v4 as uuidv4 } from 'uuid';
 import { assertStageNameAllowed, TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import { buildUserTagsEnvelope, USER_TAGS_KEY } from '../../shared/user-tags';
 
 const PUBLIC_TALK_FILTERS_KEY = 'user-talk-filters';
 const PUBLIC_PROFILE_FOUNDATION_KEY = 'user-public-profile';
@@ -316,6 +317,7 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
       ...fullNode,
       profileJson: JSON.stringify(publicProfile),
     });
+    await this.gunService.put(`${USER_TAGS_KEY}/${userId}`, buildUserTagsEnvelope(updates.interests));
     // The compatibility API still applies viewer-specific filtering from this process-local copy.
     this.recentPublicProfileFoundations.set(userId, fullNode);
   }

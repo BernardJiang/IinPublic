@@ -43,7 +43,7 @@ describe('WebUserService', () => {
       epub: pair.epub,
     });
 
-    expect(gunService.put).toHaveBeenCalledTimes(3);
+    expect(gunService.put).toHaveBeenCalledTimes(4);
     const publicRecord = gunService.put.mock.calls[0][1] as User;
     expect(publicRecord.stageName).toBe('Alice');
     expect(publicRecord.pub).toBe(pair.pub);
@@ -73,6 +73,14 @@ describe('WebUserService', () => {
           blockDirtyWords: true,
           allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
         }),
+      }),
+    );
+    expect(gunService.put).toHaveBeenCalledWith(
+      `user-tags/${createdUserId}`,
+      expect.objectContaining({
+        version: 1,
+        hash: expect.any(String),
+        tags: { coffee: 1 },
       }),
     );
 
@@ -306,6 +314,14 @@ describe('WebUserService', () => {
         languagesJson: JSON.stringify(['en', 'zh']),
         profileJson: JSON.stringify(updated.profile),
         interestsJson: JSON.stringify(updated.interests),
+      }),
+    );
+    expect(gunService.put).toHaveBeenCalledWith(
+      'user-tags/user-1',
+      expect.objectContaining({
+        version: 1,
+        hash: expect.any(String),
+        tags: { tennis: 1 },
       }),
     );
     expect(gunService.putPrivate).toHaveBeenCalledWith(

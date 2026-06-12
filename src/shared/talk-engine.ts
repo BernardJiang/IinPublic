@@ -10,6 +10,80 @@ export interface SubmittedAnswer {
   isChecked?: boolean;
 }
 
+export type WeightedTagInput =
+  | Record<string, number>
+  | Map<string, number>
+  | Array<string | { id?: string; name?: string; weight?: number; popularity?: number }>
+  | null
+  | undefined;
+
+export type MatchScoreCombine = (viewerWeight: number, otherWeight: number, tag: string) => number;
+
+function normalizeTagKey(raw: unknown): string {
+  return String(raw ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function toWeightMap(input: WeightedTagInput): Map<string, number> {
+  const map = new Map<string, number>();
+  if (!input) return map;
+
+  const setWeight = (rawKey: unknown, rawWeight: unknown) => {
+    const key = normalizeTagKey(rawKey);
+    if (!key) return;
+    const parsed = Number(rawWeight);
+    map.set(key, Number.isFinite(parsed) && parsed > 0 ? parsed : 1);
+  };
+
+  if (input instanceof Map) {
+    for (const [k, v] of input.entries()) setWeight(k, v);
+    return map;
+  }
+
+  if (Array.isArray(input)) {
+    for (const entry of input) {
+      if (typeof entry === 'string') {
+        setWeight(entry, 1);
+        continue;
+      }
+      setWeight(entry?.name || entry?.id, (entry as any)?.weight ?? (entry as any)?.popularity ?? 1);
+    }
+    return map;
+  }
+
+  for (const [k, v] of Object.entries(input)) {
+    setWeight(k, v);
+  }
+  return map;
+}
+
+/**
+ * Shared weighted score for find-similar ranking.
+ *
+ * Inputs can be a tag-weight map, array of tags, or array of tag names.
+ * Score is the sum of `combine(viewerWeight, otherWeight, tag)` over all shared tags.
+ *
+ * Use `combine = () => 1` for unweighted overlap count.
+ */
+export function matchScore(
+  viewer: WeightedTagInput,
+  other: WeightedTagInput,
+  combine: MatchScoreCombine = (viewerWeight, otherWeight) => Math.min(viewerWeight, otherWeight),
+): number {
+  const viewerMap = toWeightMap(viewer);
+  const otherMap = toWeightMap(other);
+  let score = 0;
+  for (const [tag, viewerWeight] of viewerMap.entries()) {
+    const otherWeight = otherMap.get(tag);
+    if (otherWeight === undefined) continue;
+    const delta = Number(combine(viewerWeight, otherWeight, tag));
+    if (Number.isFinite(delta)) score += delta;
+  }
+  return score;
+}
+
 /**
  * Determines if the last submitted answer is a match (flow/tag talks).
  * Used by both frontend and backend so match logic lives in one place.

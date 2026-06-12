@@ -96,10 +96,10 @@ N ≈ 100k reachable users. **Design of record:** spec §22 (Scalable "Find Simi
 
 #### 1. Generalize correctness (P1) `[Sonnet]` — generalizes existing `checkIfMatch` pattern
 
-- [ ] Add weighted `matchScore(viewer, other, combine)` to `src/shared/` next to `checkIfMatch` (single source of truth)
-- [ ] Add `user-tags/<id>` tag **map** (`tag -> weight`, default 1) with `version` + content `hash` (reuse `talk-content-id.ts`)
-- [ ] Replace hardcoded 10×20 logic; parametrize the E2E to arbitrary N / Mᵢ
-- [ ] Test: N users each with Mᵢ tags rank all others by matched-tag score (unweighted = `combine = () => 1`)
+- [x] Add weighted `matchScore(viewer, other, combine)` to `src/shared/` next to `checkIfMatch` (single source of truth)
+- [x] Add `user-tags/<id>` tag **map** (`tag -> weight`, default 1) with `version` + content `hash` (reuse `talk-content-id.ts`)
+- [x] Replace hardcoded 10×20 logic; parametrize the E2E to arbitrary N / Mᵢ
+- [x] Test: N users each with Mᵢ tags rank all others by matched-tag score (unweighted = `combine = () => 1`)
 
 #### 2. Dropout-tolerant exchange (Scenario 1, REQ-SIM-04) `[Opus]` — removing pairwise barriers; concurrency reasoning
 

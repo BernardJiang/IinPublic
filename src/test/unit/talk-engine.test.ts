@@ -1,5 +1,48 @@
-import { TalkValidator } from '../../shared/talk-engine';
+import { TalkValidator, matchScore } from '../../shared/talk-engine';
 import { Talk } from '../../shared/types';
+
+describe('matchScore', () => {
+  it('counts shared tags when combine returns one', () => {
+    const viewer = { hiking: 1, cooking: 1, chess: 1 };
+    const other = { chess: 1, music: 1, hiking: 1 };
+    expect(matchScore(viewer, other, () => 1)).toBe(2);
+  });
+
+  it('supports weighted scoring via custom combine policy', () => {
+    const viewer = { hiking: 3, cooking: 2, chess: 1 };
+    const other = { hiking: 2, cooking: 5, music: 7 };
+    const sumMinWeight = matchScore(viewer, other, (a, b) => Math.min(a, b));
+    expect(sumMinWeight).toBe(4);
+  });
+
+  it('handles arbitrary N users x Mi tags with monotonic ranking', () => {
+    const users = Array.from({ length: 12 }, (_, userIndex) => {
+      const tagCount = 3 + (userIndex % 5);
+      const tags = Array.from({ length: tagCount }, (_, offset) => `tag-${(userIndex + offset) % 18}`);
+      return { id: `u${userIndex}`, tags };
+    });
+
+    for (const viewer of users) {
+      const ranked = users
+        .filter((candidate) => candidate.id !== viewer.id)
+        .map((candidate) => ({
+          candidateId: candidate.id,
+          score: matchScore(viewer.tags, candidate.tags, () => 1),
+        }))
+        .sort((a, b) => b.score - a.score);
+
+      for (let i = 1; i < ranked.length; i += 1) {
+        expect(ranked[i - 1].score).toBeGreaterThanOrEqual(ranked[i].score);
+      }
+
+      for (const row of ranked) {
+        const candidate = users.find((u) => u.id === row.candidateId)!;
+        const expected = viewer.tags.filter((tag) => candidate.tags.includes(tag)).length;
+        expect(row.score).toBe(expected);
+      }
+    }
+  });
+});
 
 describe('TalkValidator', () => {
   describe('validateDAGStructure', () => {
