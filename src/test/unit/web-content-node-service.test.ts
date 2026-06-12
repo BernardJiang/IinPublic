@@ -40,4 +40,29 @@ describe('WebContentNodeService', () => {
     expect(service.hasInitialized()).toBe(true);
     expect(attempt).toBe(2);
   });
+
+  test('reads discovery config from environment by default', () => {
+    const prevPeers = process.env.IINPUBLIC_P2P_BOOTSTRAP_PEERS;
+    const prevMdns = process.env.IINPUBLIC_P2P_MDNS_ENABLED;
+    const prevDht = process.env.IINPUBLIC_P2P_DHT_ENABLED;
+    process.env.IINPUBLIC_P2P_BOOTSTRAP_PEERS = '/dns4/bootstrap-a/tcp/443/wss, /dns4/bootstrap-b/tcp/443/wss';
+    process.env.IINPUBLIC_P2P_MDNS_ENABLED = 'false';
+    process.env.IINPUBLIC_P2P_DHT_ENABLED = 'true';
+
+    try {
+      const service = new WebContentNodeService(async () => ({ libp2p: null }));
+      expect(service.getDiscoveryConfig()).toEqual({
+        bootstrapPeers: ['/dns4/bootstrap-a/tcp/443/wss', '/dns4/bootstrap-b/tcp/443/wss'],
+        mdnsEnabled: false,
+        dhtEnabled: true,
+      });
+    } finally {
+      if (prevPeers === undefined) delete process.env.IINPUBLIC_P2P_BOOTSTRAP_PEERS;
+      else process.env.IINPUBLIC_P2P_BOOTSTRAP_PEERS = prevPeers;
+      if (prevMdns === undefined) delete process.env.IINPUBLIC_P2P_MDNS_ENABLED;
+      else process.env.IINPUBLIC_P2P_MDNS_ENABLED = prevMdns;
+      if (prevDht === undefined) delete process.env.IINPUBLIC_P2P_DHT_ENABLED;
+      else process.env.IINPUBLIC_P2P_DHT_ENABLED = prevDht;
+    }
+  });
 });

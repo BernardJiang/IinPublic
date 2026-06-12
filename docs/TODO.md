@@ -46,6 +46,7 @@ Gun, mailbox. **Sequenced after P0 steps 9–11.**
 
 - 2026-06-12 progress: added `P2PRoomDiscoveryService` (`src/web/services/p2p-room-discovery.ts`) with deterministic room rendezvous key derivation, `provide`/`findProviders` hooks, bootstrap-peer list parsing (`IINPUBLIC_P2P_BOOTSTRAP_PEERS`), and app wiring in mesh room sync (`meshDiscoveryDiagnostics` for E2E-visible state).
 - 2026-06-12 progress: added E2E coverage `tests/e2e/talks-matching/06-mesh-ping-with-hub-api-down.spec.ts` validating mesh-ping/pong reachability after mid-session hub API loss simulation (`/api/presence/*`, `/api/chatrooms/*/members` blocked) and forced mesh reconcile.
+- 2026-06-12 progress: `WebContentNodeService` now parses discovery config defaults from env (`IINPUBLIC_P2P_BOOTSTRAP_PEERS`, `IINPUBLIC_P2P_MDNS_ENABLED`, `IINPUBLIC_P2P_DHT_ENABLED`) and exposes `getDiscoveryConfig()` for app-level wiring.
 - [ ] Kademlia DHT room rendezvous (`provide`/`findProviders` on room-key CID) + mDNS; Socket.IO roster stays as fast path; bootstrap-peer multiaddr list for cold start
 - [ ] Test: stop the hub mid-session → peers re-form the room overlay and mesh-ping reachability holds without hub interaction
 

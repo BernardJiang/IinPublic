@@ -918,7 +918,11 @@ export class IinPublicApp {
   private ensureRoomDiscoveryService(): P2PRoomDiscoveryService | null {
     if (!this.p2pRuntimeFlags.p2pNodeEnabled) return null;
     if (this.roomDiscoveryService) return this.roomDiscoveryService;
-    this.roomDiscoveryService = P2PRoomDiscoveryService.fromEnv(() => this.ensureContentLibp2pInitialized());
+    const discoveryConfig = this.contentNodeService.getDiscoveryConfig();
+    this.roomDiscoveryService = new P2PRoomDiscoveryService(
+      () => this.ensureContentLibp2pInitialized(),
+      discoveryConfig.bootstrapPeers,
+    );
     this.meshDiscoveryDiagnostics.bootstrapPeers = this.roomDiscoveryService.getBootstrapPeers();
     return this.roomDiscoveryService;
   }
