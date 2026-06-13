@@ -1,6 +1,74 @@
 # IinPublic Completed Work
 
-Last updated: 2026-06-13
+Last updated: 2026-06-12
+
+## 2026-06-12 - P1 libp2p transport + IPFS, P2 Find Similar, P2.5 sort pipeline (REQ-LIBP2P, REQ-SIM, REQ-SIM-07)
+
+### P1 — libp2p transport + IPFS content layer (L1–L4 complete)
+
+All four layers of P1 implemented and verified per SRS §25:
+- **L1** Helia/libp2p node bootstrap: lazy-init, bundle measured (214.5 KB base + 371 KB async chunk), E2E verified
+- **L2** Mesh stream handler: `/iinpublic/mesh/1.0.0` protocol, SEA-signed bindings, libp2p→WebRTC fallback, 4 spec invariants tested
+- **L3** Hub-independent discovery: Kademlia DHT + mDNS, bootstrap-peer override, mesh-ping/pong E2E after hub API loss and hub process stop
+- **L4** IPFS talk attachments: descriptor round-trip, SEA-encrypt-before-add, private/public opt-in
+
+**Verification:** Type-clean; mesh transport invariants, attachment descriptor, and hub-loss scenarios all passing in unit + E2E.
+
+### P2 — Scalable "Find Similar People" by matched tags (§1–4 complete)
+
+All four steps of P2 implemented and verified per SRS §22:
+- **§1** Generalize correctness: `matchScore(viewer, other, combine)`, weighted tag maps with version/hash, parametrized E2E for N×Mᵢ
+- **§2** Dropout-tolerant exchange: `FindSimilarIndex`, publish/read decoupled, peer dropout never blocks pairwise scores
+- **§3** Incremental mutation: delta transport O(|delta|), cached pairwise patch, combine policies (count / viewer-standard / mutual-importance / conservative)
+- **§4** Scale to ~100k: inverted tag index, bounded top-K heap, hot-tag capping, min-shared-tags threshold, locality scoping; 100k unit test: combineCalls < N, query < 1s
+
+**Verification:** 100k-population correctness test (candidates < N/10, work < N², query < 1s); delta idempotency; asymmetric ranking.
+
+### P2.5 — Generic retrieve→sort→display pipeline (REQ-SIM-07)
+
+Implemented the sort strategy registry and ranking pipeline for contacts view:
+- `SortStrategy` type and `SORT_STRATEGIES` registry covering matched-tags (score desc), distance (asc, placeholder), their-standard (reciprocal score desc)
+- `rankPeople(candidates, viewerId, index, sortId, filters)` for in-memory re-sorting without additional index reads
+- Extended `ContactsViewDeps` with `sortStrategies`, `activeSortId`, `onSortChange` handler
+- Wired through UIManager in 3 call sites: `showContactsList()`, `displayContactsList()`, `showContactDetail()`
+- 5 unit tests: matched-tags re-sort, their-standard asymmetry, in-memory re-materialization, registry structure, fallback behavior
+
+**Verification:** `npm test` (762 unit passed); `npm run test:type` (no errors).
+
+### Appendix C audit — Residual P2P transport & spec-gap follow-ups (2026-06-12)
+
+Audited the 5 items in Appendix C (consolidated from archived TODO-direct-p2p.md, spec-gap-matrix.md, PROJECT_STATUS.md):
+
+**1. Reputation/credit section visibility allowlists (FR-UM-7) + profile-surface audit**
+   - Status: **Deferred** — Not yet scoped. Requires new feature gate (visibility allowlists) and profile section audit across Me/Settings/Peer Detail.
+   - Impact: Medium — affects user privacy controls but not core functionality.
+
+**2. Broader moderation UX and centralized reporting/appeal model (FR-BF / FR-SP)**
+   - Status: **Deferred** — Out of scope for current iteration. Requires design review on moderation flow.
+   - Impact: High — safety-critical but not blocking initial release.
+
+**3. Production-durability review: in-memory stats indices, quota counters, rate-limit counters**
+   - Status: **AUDITED** ✓ Findings:
+     - **Stats indices** (`src/shared/talk-stats.ts`): By design, `StatsSourceOfTruth` declares indices as **"derived-cache"** — recomputable from Gun append-only response events. Per P0 step 7, all talk-delivery-derived stats are local-only; server keeps only broadcast-tag popularity (server-cache-with-trend-buckets) and survey results (Gun-stored).
+     - **Quota counters** (`src/shared/talk-ledger.ts`): Edge counters track daily/weekly sent counts in `TalkLedgerDoc` (localStorage). Per design, these are ephemeral derivations reset on day/week boundaries; loss during restart is acceptable (quota resets anyway).
+     - **Rate-limit counters**: No central server-side rate-limit implementation found. Client-side quota gates via talk-ledger edge counters only.
+     - **Durability verdict**: Current design is correct by spec — indices and quotas are intentionally ephemeral derived state. If persistence tightens (e.g., tamper-proof quota in multi-tab scenario), will require Gun-backed EdgeCounter writes.
+     - All 763 unit tests pass; no durability regressions detected.
+
+**4. Statistics/visualization product polish (shipped dashboard/endpoints)**
+   - Status: **Complete** — Baseline stats shipped (see completed.md prior entries). Dashboard covers broadcast-tag analytics. Per-talk aggregates moved to client-local in P0 step 7.
+   - Polish backlog: Per-survey aggregates (cross-question correlation, completion rates, segment filters under privacy thresholds) deferred to Appendix B forward work.
+
+**5. Android: maintenance-only until web/server loop stable**
+   - Status: **Acknowledged** — Android deferred post web/server stabilization. Not blocking.
+
+**Known runtime risks (checked)**:
+   - ✓ Gun replication timing on incoming-talk auto-reply path: Mitigated by `POST /api/talks/:id/received` server-side path (doesn't rely on client Gun replication for talk stats).
+   - ✓ `talkCompleted` handler Gun fallback: Verified in `src/web/app/app.ts` and `ui-manager.ts` — fallback preserves ledger entries; matches/conversations created on success path only.
+
+**Verification:** Type-clean; full test suite passing (763 unit); no new durability issues surfaced.
+
+---
 
 ## 2026-06-13 - L6 Signaling deletion, P2/P3 answer context & plugin config
 
