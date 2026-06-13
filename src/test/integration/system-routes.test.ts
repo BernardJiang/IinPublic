@@ -4,10 +4,8 @@ import SEA from 'gun/sea';
 import { registerSystemRoutes } from '../../server/routes/system-routes';
 import {
   createSignedP2PEnvelopeProof,
-  p2pDiscoverySigningPayload,
   p2pRelaySigningPayload,
   p2pSignalingSigningPayload,
-  type P2PNodeCapability,
   type SeaSigningPair,
 } from '../../shared/p2p-runtime';
 import { peerAckSigningPayload } from '../../shared/p2p-presence';
@@ -351,80 +349,6 @@ describe('system routes', () => {
     expect(JSON.stringify(listed.body)).not.toContain('"hello"');
   });
 
-  it('stores signed cross-platform discovery messages and rejects unsigned/plaintext discovery', async () => {
-    const { app } = buildApp();
-    const futureExpiresAt = new Date(Date.now() + 60_000).toISOString();
-    const pair = await SEA.pair();
-    const discoveryBody = {
-      platform: 'ubuntu' as const,
-      senderPub: pair.pub,
-      capabilities: ['signed-discovery', 'local-node-supervisor', 'relay-fallback'] as P2PNodeCapability[],
-      endpointHints: ['wss://relay.local/discovery/ubuntu'],
-    };
-
-    const posted = await request(app).post('/api/p2p/discovery').send({
-      platform: discoveryBody.platform,
-      senderPub: discoveryBody.senderPub,
-      capabilities: discoveryBody.capabilities,
-      endpointHints: discoveryBody.endpointHints,
-      ...(await signedProofFields(pair, p2pDiscoverySigningPayload(discoveryBody), 'nonce_ubuntu')),
-      expiresAt: futureExpiresAt,
-    });
-
-    expect(posted.status).toBe(200);
-    expect(posted.body.message).toEqual(
-      expect.objectContaining({
-        kind: 'discovery',
-        protocolVersion: 1,
-        platform: 'ubuntu',
-        senderPub: pair.pub,
-      }),
-    );
-
-    const listed = await request(app).get('/api/p2p/discovery');
-    expect(listed.status).toBe(200);
-    expect(listed.body.protocol.platforms.map((item: { platform: string }) => item.platform)).toEqual([
-      'web',
-      'windows',
-      'ubuntu',
-      'android',
-      'ios',
-    ]);
-    expect(listed.body.messages).toEqual([
-      expect.objectContaining({ platform: 'ubuntu', senderPub: pair.pub }),
-    ]);
-
-    const unsigned = await request(app).post('/api/p2p/discovery').send({
-      platform: 'web',
-      senderPub: 'pub_web',
-      capabilities: ['signed-discovery'] as P2PNodeCapability[],
-      endpointHints: ['webrtc:room'],
-      signature: 'sig_web',
-      nonce: 'nonce_web',
-      expiresAt: futureExpiresAt,
-    });
-    expect(unsigned.status).toBe(400);
-    expect(unsigned.body.error).toMatch(/signed envelope|peerId|signature/i);
-
-    const webPair = await SEA.pair();
-    const plaintextBody = {
-      platform: 'web' as const,
-      senderPub: webPair.pub,
-      capabilities: ['signed-discovery'] as P2PNodeCapability[],
-      endpointHints: ['webrtc:room'],
-    };
-    const plaintext = await request(app).post('/api/p2p/discovery').send({
-      platform: plaintextBody.platform,
-      senderPub: plaintextBody.senderPub,
-      capabilities: plaintextBody.capabilities,
-      endpointHints: plaintextBody.endpointHints,
-      ...(await signedProofFields(webPair, p2pDiscoverySigningPayload(plaintextBody), 'nonce_plaintext_discovery')),
-      expiresAt: futureExpiresAt,
-      bodyPlaintext: 'plain discovery',
-    });
-    expect(plaintext.status).toBe(400);
-    expect(plaintext.body.error).toMatch(/plaintext/);
-  });
 
   it('keeps active neighbor memory local-first and excludes expired, failed, or blocked peers', async () => {
     const { app } = buildApp();

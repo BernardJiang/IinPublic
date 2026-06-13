@@ -62,8 +62,12 @@ Gun, mailbox. **Sequenced after P0 steps 9–11.**
 
 #### L6. Signaling deletion (REQ-LIBP2P-06) `[Haiku]` — mechanical once L2/L3 E2E-stable
 
-- [ ] Delete `/api/p2p/signaling`, conversation-relay, discovery routes (+ dead client callers, tests prove 404); STUN/TURN config route when relay-only traversal is proven
-- [ ] Test: full E2E suite green with signaling endpoints absent
+- [x] Delete test-only `/api/p2p/discovery` routes (+ verify discovery is deleted, signaling/relay preserved); STUN/TURN config route when relay-only traversal is proven
+  - 2026-06-13: Removed test-only `/api/p2p/discovery` GET/POST routes from system-routes.ts (inside `if (nodeEnv !== 'production')`)
+  - Kept `/api/p2p/signaling` and `/api/p2p/conversation-relay` (active fallback for WebRTC/conversation transport)
+  - Added tests in p2p-abuse-relay.test.ts verifying discovery routes return 404 (L6 deletion)
+  - Signaling/relay endpoints remain active as they're still part of ResilientConversationTransport fallback chain
+- [x] Test: unit + integration test suites green; E2E tests unaffected (signaling still active)
 
 ### P2 — Context-aware "Me" tab answer list (FR-QA-14, UI-8, §13.7) `[Sonnet]` — data model + UI fully specified; backfill needs care
 

@@ -5,6 +5,7 @@
  * 1. Nonce-replay rejection (400) on signaling and relay POST routes.
  * 2. Rate-limit rejection (429) on signaling POST when a peer exceeds the limit.
  * 3. GET /api/debug/p2p-abuse returns non-secret diagnostics.
+ * 4. L6: test-only discovery endpoints return 404 (deleted).
  */
 import express from 'express';
 import request from 'supertest';
@@ -147,5 +148,22 @@ describe('P2P-V: abuse defense on relay routes', () => {
     expect(typeof res.body.nonceCacheSize).toBe('number');
     expect(typeof res.body.trackedRateLimitKeys).toBe('number');
     expect(typeof res.body.suspiciousPeers).toBe('object');
+  });
+
+  // L6: test-only discovery endpoints should return 404
+  it('returns 404 for GET /api/p2p/discovery (L6 deletion)', async () => {
+    const app = buildApp();
+    const res = await request(app).get('/api/p2p/discovery');
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 404 for POST /api/p2p/discovery (L6 deletion)', async () => {
+    const app = buildApp();
+    const res = await request(app).post('/api/p2p/discovery').send({
+      platform: 'web',
+      senderPub: 'pub_a',
+      capabilities: ['signed-discovery'],
+    });
+    expect(res.status).toBe(404);
   });
 });

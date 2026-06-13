@@ -12,7 +12,6 @@ import {
   createDataOwnershipPolicy,
   createDataOwnershipRequest,
   createDeviceLocalDataDeletion,
-  createP2PDiscoveryMessage,
   createP2PNeighborCacheState,
   createP2PNodeProtocolSpec,
   createP2PSignalingEnvelope,
@@ -20,7 +19,6 @@ import {
   createTransportDiagnosticEvent,
   createDirectP2PMessageEnvelope,
   createLocalNodeSupervisorSnapshot,
-  p2pDiscoverySigningPayload,
   p2pRelaySigningPayload,
   p2pSignalingSigningPayload,
   verifySignedP2PEnvelopeProof,
@@ -32,14 +30,12 @@ import {
   STAR_GUN_PATH_CLASSIFICATIONS,
   type P2PSignalingEnvelope,
   type P2PSignalingKind,
-  type P2PDiscoveryMessage,
   type P2PNeighborCacheAction,
   type P2PNeighborCacheState,
   type P2PNeighborEndpointStatus,
   type P2PNeighborTransportType,
   type P2PNeighborTrustStatus,
   type P2PNodeCapability,
-  type P2PPlatformId,
   type DataOwnershipRequest,
   type DataOwnershipRequestType,
   type DeviceLocalDataDeletion,
@@ -120,13 +116,11 @@ export function registerSystemRoutes(
   const transportDiagnostics: TransportDiagnosticEvent[] = [];
   const signalingByConversation = new Map<string, P2PSignalingEnvelope[]>();
   const relayByConversation = new Map<string, DirectP2PMessageEnvelope[]>();
-  const discoveryMessages = new Map<string, P2PDiscoveryMessage>();
   const presenceByUserId = new Map<string, PresenceRecord>();
   const peerAckInbox = new Map<string, PeerAckMessage[]>();
   const peerAckNonces = new BoundedNonceCache();
   const signalingNonces = new BoundedNonceCache();
   const relayNonces = new BoundedNonceCache();
-  const discoveryNonces = new BoundedNonceCache();
   // P2P-V: shared abuse-defense context for all relay POST routes.
   // When no explicit config is injected, allow env overrides so parallel E2E runs
   // (many browsers × ICE/signaling POSTs per minute sharing one per-peer budget)
@@ -167,14 +161,6 @@ export function registerSystemRoutes(
       const fresh = envelopes.filter((envelope) => new Date(envelope.expiresAt).getTime() > now.getTime());
       if (fresh.length === 0) relayByConversation.delete(conversationId);
       else relayByConversation.set(conversationId, fresh);
-    }
-  };
-
-  const pruneDiscovery = (now = new Date()): void => {
-    for (const [senderPub, message] of discoveryMessages) {
-      if (new Date(message.expiresAt).getTime() <= now.getTime()) {
-        discoveryMessages.delete(senderPub);
-      }
     }
   };
 
@@ -439,6 +425,8 @@ export function registerSystemRoutes(
     }
   });
 
+
+
   // Test-only endpoints (non-production only)
   if (nodeEnv !== 'production') {
     // P2P-V: abuse defense diagnostics (non-secret — no private keys or message bodies)
@@ -517,71 +505,6 @@ export function registerSystemRoutes(
       }
     });
 
-    app.get('/api/p2p/discovery', (_req, res) => {
-      pruneDiscovery();
-      res.json({
-        protocol: createP2PNodeProtocolSpec(),
-        messages: Array.from(discoveryMessages.values()),
-      });
-    });
-
-    app.post('/api/p2p/discovery', async (req, res) => {
-      try {
-        pruneDiscovery();
-        const body = req.body || {};
-        const platform = String(body.platform || '') as P2PPlatformId;
-        const senderPub = String(body.senderPub || '');
-        const capabilities = Array.isArray(body.capabilities) ? (body.capabilities as P2PNodeCapability[]) : [];
-        const endpointHints = Array.isArray(body.endpointHints) ? body.endpointHints.map(String) : [];
-        const routeHint = body.routeHint ? String(body.routeHint) : undefined;
-        const discPeerId = String(body.peerId || '');
-        const discAbuseCheck = abuseCtx.checkInbound(discPeerId || senderPub, senderPub);
-        if (!discAbuseCheck.allowed) {
-          res.status(429).json({ error: discAbuseCheck.reason });
-          return;
-        }
-        const verification = await verifySignedP2PEnvelopeProof({
-          proof: {
-            peerId: String(body.peerId || ''),
-            pub: senderPub,
-            timestamp: String(body.timestamp || ''),
-            nonce: String(body.nonce || ''),
-            payloadHash: String(body.payloadHash || ''),
-            signature: String(body.signature || ''),
-          },
-          payload: p2pDiscoverySigningPayload({
-            platform,
-            senderPub,
-            capabilities,
-            endpointHints,
-            ...(routeHint ? { routeHint } : {}),
-          }),
-          nonceCache: discoveryNonces,
-        });
-        if (!verification.ok) {
-          res.status(400).json({ error: verification.reason });
-          return;
-        }
-        const message = createP2PDiscoveryMessage({
-          platform,
-          peerId: String(body.peerId || ''),
-          senderPub,
-          capabilities,
-          endpointHints,
-          timestamp: String(body.timestamp || ''),
-          payloadHash: String(body.payloadHash || ''),
-          signature: String(body.signature || ''),
-          nonce: String(body.nonce || ''),
-          expiresAt: String(body.expiresAt || ''),
-          ...(routeHint ? { routeHint } : {}),
-          ...(body.bodyPlaintext ? { bodyPlaintext: String(body.bodyPlaintext) } : {}),
-        });
-        discoveryMessages.set(message.senderPub, message);
-        res.json({ stored: true, message });
-      } catch (error) {
-        res.status(400).json({ error: (error as Error).message });
-      }
-    });
 
     app.get('/api/p2p/local-node', (_req, res) => {
       res.json(localNodeSupervisor);
