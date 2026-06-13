@@ -1,6 +1,18 @@
 # IinPublic Completed Work
 
-Last updated: 2026-06-12
+Last updated: 2026-06-13
+
+## 2026-06-13 - L5 matched-talk IPFS auto-share acceptance
+
+Completed REQ-IPFS-04/05/06 acceptance coverage for attachment-bearing matched talks:
+
+- Added a three-user E2E proving Tom's deterministic `ipfs://<cid>` share appears exactly once for Tom and matched Jerry, decrypts private attachment bytes for Jerry, never reaches ignored Bob, and is idempotently recreated from Jerry's encrypted mailbox envelope after reconnect.
+- Fixed browser content-node startup by excluding Node-only mDNS loading in Chromium and using ESM-compatible `multiformats` CID imports.
+- Normalized Helia blockstore byte results before plaintext/SEA decoding.
+- Made mailbox attachment fetch best-effort after link materialization so unavailable providers cannot block envelope acknowledgment.
+- Preserved known peer IDs through resilient/direct conversation subscriptions to avoid resumed pair-root lookup races.
+
+**Verification:** `npm run test:type`; content-node unit tests (9/9); L5 Playwright spec (1/1); `PW_WORKERS=20 npm run test:e2e:parallel` (106 passed, 2 skipped in 4.3m).
 
 ## 2026-06-08 - Docs consolidation into four canonical files + archive
 

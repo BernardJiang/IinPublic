@@ -17,7 +17,10 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../helpers/talks-matching-browsers';
-import { bootstrapUser, finalCleanupPages } from '../helpers/talks-matching-flow';
+import {
+  bootstrapUser,
+  finalCleanupPages,
+} from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
 
@@ -49,7 +52,9 @@ async function warmMesh(page: Page, otherIds: string[]): Promise<void> {
 }
 
 test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () => {
-  let browsers: ThreeBrowsers;
+  test.describe.configure({ mode: 'parallel' });
+  let browsers!: ThreeBrowsers;
+  let browsersReady = false;
   let contextTom: BrowserContext | undefined;
   let contextJerry: BrowserContext | undefined;
   let contextBob: BrowserContext | undefined;
@@ -60,6 +65,21 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     test.setTimeout(180_000);
     await maybeClearGunDatabases();
+  });
+
+  test.beforeEach(async () => {
+    await Promise.all([
+      contextTom?.close().catch(() => {}),
+      contextJerry?.close().catch(() => {}),
+      contextBob?.close().catch(() => {}),
+    ]);
+    if (browsersReady) {
+      await shutdownThreeBrowsers(browsers);
+      await afterSync();
+    }
+    await maybeClearGunDatabases();
+    pageTom = pageJerry = pageBob = undefined;
+    contextTom = contextJerry = contextBob = undefined;
     const mk = (x: number) => ({
       headless: !!process.env.CI,
       args: [
@@ -75,14 +95,7 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
       chromium.launch(mk(1280)),
     ]);
     browsers = { tom, jerry, bob };
-  });
-
-  test.beforeEach(async () => {
-    contextTom?.close().catch(() => {});
-    contextJerry?.close().catch(() => {});
-    contextBob?.close().catch(() => {});
-    pageTom = pageJerry = pageBob = undefined;
-    contextTom = contextJerry = contextBob = undefined;
+    browsersReady = true;
   });
 
   test.afterAll(async () => {
@@ -90,7 +103,7 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
       { tom: pageTom, jerry: pageJerry, bob: pageBob },
       { tom: contextTom, jerry: contextJerry, bob: contextBob },
     );
-    await shutdownThreeBrowsers(browsers);
+    if (browsersReady) await shutdownThreeBrowsers(browsers);
     await maybeClearGunDatabases();
   });
 
@@ -382,25 +395,19 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
     await afterSync();
     await afterSync();
 
-    await warmMesh(pageTom, [jerryId, bobId]);
-    await warmMesh(pageJerry, [tomId, bobId]);
-    await warmMesh(pageBob, [tomId, jerryId]);
-
-    for (const [label, page] of [['Tom', pageTom], ['Jerry', pageJerry], ['Bob', pageBob]] as const) {
-      await expect
-        .poll(
-          () =>
-            page.evaluate(() => {
-              const app = (window as any).__iinpublic_app?.getApp?.() as any;
-              return app?.peerMeshService?.getDiagnostics?.()?.connectedNeighborCount ?? 0;
-            }),
-          {
-            timeout: MESH_E2E_TIMEOUT_MS,
-            intervals: [300, 500, 1000],
-            message: `${label}: no connected mesh neighbors`,
-          },
-        )
-        .toBeGreaterThan(0);
+    for (const [label, peerId] of [['Jerry', jerryId], ['Bob', bobId]] as const) {
+      await expect.poll(
+        () => pageTom.evaluate(async (id) => {
+          const app = (window as any).__iinpublic_app?.getApp?.() as any;
+          await app.warmMeshConnectionToPeer?.(id).catch(() => {});
+          return app.peerMeshService?.waitForConnectedNeighbor?.(id, 5_000) ?? false;
+        }, peerId),
+        {
+          timeout: 90_000,
+          intervals: [500],
+          message: `Tom: no direct mesh connection to ${label}`,
+        },
+      ).toBe(true);
     }
 
     const TEST_TALK_ID = `mesh-ipfs-attachment-e2e-${Date.now()}`;
@@ -414,10 +421,11 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
 
     await afterAction();
     await pageTom.evaluate(
-      async ({ talkId, authorId, attachment }: {
+      async ({ talkId, authorId, attachment, recipientIds }: {
         talkId: string;
         authorId: string;
         attachment: typeof expectedAttachment;
+        recipientIds: string[];
       }) => {
         const app = (window as any).__iinpublic_app?.getApp?.() as any;
         const mesh = app?.peerMeshService;
@@ -430,9 +438,17 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
           questions: [{ id: 'q1', text: 'Do you want attachments?', answers: [{ text: 'Yes' }, { text: 'No' }] }],
           ipfsAttachments: [attachment],
         };
-        await mesh.broadcastTalk(talk, { roomBroadcast: true });
+        await mesh.broadcastTalk(talk, {
+          recipientUserIds: recipientIds,
+          roomBroadcast: true,
+        });
       },
-      { talkId: TEST_TALK_ID, authorId: tomId, attachment: expectedAttachment },
+      {
+        talkId: TEST_TALK_ID,
+        authorId: tomId,
+        attachment: expectedAttachment,
+        recipientIds: [jerryId, bobId],
+      },
     );
 
     for (const [label, page] of [['Jerry', pageJerry], ['Bob', pageBob]] as const) {

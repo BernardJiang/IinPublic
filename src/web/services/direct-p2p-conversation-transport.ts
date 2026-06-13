@@ -236,6 +236,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     conversationId: string,
     callback: (messages: Message[]) => void,
     myUserId?: string,
+    otherUserIdHint?: string,
   ): () => void {
     if (!myUserId) {
       callback([]);
@@ -260,7 +261,9 @@ export class DirectP2PConversationTransport implements ConversationTransport {
         console.warn(`Direct P2P session setup failed for ${conversationId}:`, err);
       });
 
-    void this.resolveOtherUserId(conversationId, myUserId)
+    void (otherUserIdHint
+      ? Promise.resolve(otherUserIdHint)
+      : this.resolveOtherUserId(conversationId, myUserId))
       .then((otherUserId) => {
         if (disposed) return;
         unsubscribeGun = this.gunStore.subscribeToMessages(conversationId, callback, myUserId, otherUserId);

@@ -31,6 +31,7 @@ export type ConversationTransport = {
     conversationId: string,
     callback: (messages: Message[]) => void,
     myUserId?: string,
+    otherUserId?: string,
   ): () => void;
 };
 
@@ -227,6 +228,7 @@ export class WebConversationService {
       conversationId,
       callback,
       myUserId,
+      otherUserId,
     );
   }
 

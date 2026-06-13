@@ -2,7 +2,7 @@ export type WebContentNode = {
   libp2p?: unknown;
   blockstore?: {
     put: (cid: unknown, bytes: Uint8Array) => Promise<void>;
-    get?: (cid: unknown) => Promise<Uint8Array>;
+    get?: (cid: unknown) => Promise<unknown>;
   };
   pins?: {
     add: (cid: unknown) => Promise<void>;
@@ -15,7 +15,7 @@ import { parseBootstrapPeerMultiaddrs } from './p2p-room-discovery';
 
 type NodeFactory = (discoveryConfig: WebContentNodeDiscoveryConfig) => Promise<WebContentNode>;
 type CidFactory = (bytes: Uint8Array) => Promise<unknown>;
-type CidParser = (cid: string) => unknown;
+type CidParser = (cid: string) => unknown | Promise<unknown>;
 
 export type WebContentNodeDiscoveryConfig = {
   bootstrapPeers: string[];
@@ -70,6 +70,40 @@ function pluginLooksLike(plugin: unknown, keyword: string): boolean {
   return text.includes(keyword);
 }
 
+async function normalizeBlockBytes(value: unknown): Promise<Uint8Array> {
+  if (value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  const candidate = value as {
+    toUint8Array?: () => Uint8Array;
+    [Symbol.asyncIterator]?: () => AsyncIterator<unknown>;
+    [Symbol.iterator]?: () => Iterator<number>;
+  } | null;
+  if (typeof candidate?.toUint8Array === 'function') return candidate.toUint8Array();
+  if (typeof candidate?.[Symbol.asyncIterator] === 'function') {
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for await (const chunk of candidate as AsyncIterable<unknown>) {
+      const bytes = await normalizeBlockBytes(chunk);
+      chunks.push(bytes);
+      total += bytes.length;
+    }
+    const joined = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      joined.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return joined;
+  }
+  if (typeof candidate?.[Symbol.iterator] === 'function') {
+    return Uint8Array.from(candidate as Iterable<number>);
+  }
+  throw new Error('Unsupported blockstore byte result');
+}
+
 /**
  * Applies runtime discovery toggles to a libp2p config object.
  * Best-effort keyword filtering is used because discovery plugin factories are opaque values.
@@ -116,20 +150,20 @@ export function applyDiscoveryConfigToLibp2pConfig(
 }
 
 async function defaultNodeFactory(discoveryConfig: WebContentNodeDiscoveryConfig): Promise<WebContentNode> {
+  const browserLike = typeof window !== 'undefined' && typeof document !== 'undefined';
   const [{ createHelia, libp2pDefaults }, bootstrapMod, mdnsMod] = await Promise.all([
     import('helia'),
     import('@libp2p/bootstrap'),
-    import('@libp2p/mdns'),
+    browserLike ? Promise.resolve(undefined) : import('@libp2p/mdns'),
   ]);
 
-  const browserLike = typeof window !== 'undefined' && typeof document !== 'undefined';
   const baseLibp2p = libp2pDefaults();
   const libp2p = applyDiscoveryConfigToLibp2pConfig(
     baseLibp2p,
     discoveryConfig,
     {
       bootstrap: bootstrapMod.bootstrap,
-      mdns: mdnsMod.mdns,
+      ...(mdnsMod ? { mdns: mdnsMod.mdns } : {}),
     },
     browserLike,
   );
@@ -139,14 +173,16 @@ async function defaultNodeFactory(discoveryConfig: WebContentNodeDiscoveryConfig
 }
 
 async function defaultCidFactory(bytes: Uint8Array): Promise<unknown> {
-  const { CID } = require('multiformats') as typeof import('multiformats');
-  const { sha256 } = require('multiformats/hashes/sha2') as typeof import('multiformats/hashes/sha2');
-  const raw = require('multiformats/codecs/raw') as { code: number };
+  const [{ CID }, { sha256 }, raw] = await Promise.all([
+    import('multiformats'),
+    import('multiformats/hashes/sha2'),
+    import('multiformats/codecs/raw'),
+  ]);
   return CID.createV1(raw.code, await sha256.digest(bytes));
 }
 
-function defaultCidParser(cid: string): unknown {
-  const { CID } = require('multiformats') as typeof import('multiformats');
+async function defaultCidParser(cid: string): Promise<unknown> {
+  const { CID } = await import('multiformats');
   return CID.parse(cid);
 }
 
@@ -309,8 +345,8 @@ export class WebContentNodeService {
     const node = await this.ensureNode();
     if (!node.blockstore?.get) return null;
 
-    const cid = this.cidParser(cidString);
-    const storedBytes = await node.blockstore.get(cid);
+    const cid = await this.cidParser(cidString);
+    const storedBytes = await normalizeBlockBytes(await node.blockstore.get(cid));
     if (params.enc === 'none') return storedBytes;
 
     const senderEpub = String(params.senderEpub || '').trim();

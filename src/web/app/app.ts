@@ -501,7 +501,7 @@ export class IinPublicApp {
     );
     const sharePayload = this.parseAttachmentShareMessageText(payload.text);
     if (sharePayload) {
-      await this.maybeFetchSharedAttachmentBytes(sharePayload, payload.senderId).catch((err) => {
+      void this.maybeFetchSharedAttachmentBytes(sharePayload, payload.senderId).catch((err) => {
         console.warn('[L5] mailbox attachment fetch failed:', err);
       });
     }

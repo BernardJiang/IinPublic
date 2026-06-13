@@ -131,6 +131,7 @@ export class ResilientConversationTransport implements ConversationTransport {
     conversationId: string,
     callback: (messages: Message[]) => void,
     myUserId?: string,
+    otherUserId?: string,
   ): () => void {
     if (!myUserId) {
       callback([]);
@@ -143,7 +144,12 @@ export class ResilientConversationTransport implements ConversationTransport {
 
     const attach = (transport: ConversationTransport) => {
       activeUnsub?.();
-      activeUnsub = transport.subscribeToMessages(conversationId, callback, myUserId);
+      activeUnsub = transport.subscribeToMessages(
+        conversationId,
+        callback,
+        myUserId,
+        otherUserId,
+      );
     };
 
     attach(this.direct);

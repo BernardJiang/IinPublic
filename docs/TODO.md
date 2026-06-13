@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-06-12
+Last updated: 2026-06-13
 
 This file is the short, execution-oriented plan. The detailed acceptance inventory and the
 statistics / spec-gap follow-ups are consolidated into the appendices at the bottom of this file.
@@ -59,12 +59,6 @@ Gun, mailbox. **Sequenced after P0 steps 9–11.**
 - [x] `ipfsAttachments` descriptor on talks (announce metadata + body payload; no new frame kinds; no bytes in Gun/mailbox)
 - [x] SEA-encrypt-before-add for private attachments; plaintext requires explicit per-attachment public opt-in; author pins locally
 - [x] Test: attachment descriptor round-trips announce→body→intake; ciphertext-only on IPFS for `enc:'sea-pair'`
-
-#### L5. Matched-talk auto-share link (REQ-IPFS-04/05/06) `[Sonnet]`
-
-- [x] On match-created conversation, author auto-sends `ipfs://<cid>` message with pair-encrypted key; deterministic message id `CIDv1({conversationId, talkId::authorId, cid})` (idempotent both sides; offline → mailbox carries link+key only)
-- [x] Receiver fetch via bitswap + decrypt; `TALK_RETRACTED` unpins + marks links dead (best-effort, UI copy notes irrecallability)
-- [ ] Test (E2E): Tom's talk carries an attachment; Jerry matches → share message appears exactly once in both views; Jerry fetches and decrypts; Bob (ignored) never receives the link; offline-Jerry receives link after mailbox drain
 
 #### L6. Signaling deletion (REQ-LIBP2P-06) `[Haiku]` — mechanical once L2/L3 E2E-stable
 
