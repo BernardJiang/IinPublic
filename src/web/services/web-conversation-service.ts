@@ -4,6 +4,7 @@ import type { ConversationTransportMode, P2PRuntimeFlags } from '../../shared/p2
 import type { LedgerState } from '../../shared/types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { StarGunConversationTransport } from './star-gun-conversation-transport';
+import type { ConversationMessageWire } from './star-gun-conversation-transport';
 import { ResilientConversationTransport } from './resilient-conversation-transport';
 import { TechSupportConversationTransport } from './techsupport-conversation-transport';
 
@@ -11,6 +12,10 @@ export type SendMessageOptions = {
   channel?: Message['channel'];
   /** If omitted, the other participant is inferred from the conversation record. */
   otherUserId?: string;
+  /** Deterministic/idempotent message id override (used by auto-share links). */
+  messageId?: string;
+  /** Preserve chatbot marker when caller emits synthetic/system messages. */
+  isFromChatbot?: boolean;
 };
 
 export type ConversationTransport = {
@@ -223,6 +228,19 @@ export class WebConversationService {
       callback,
       myUserId,
     );
+  }
+
+  /**
+   * Idempotent low-level upsert for a conversation message record.
+   * Used by mailbox-drained auto-share payloads to materialize deterministic
+   * link messages even when the recipient was offline.
+   */
+  upsertMessageRecord(
+    conversationId: string,
+    wire: ConversationMessageWire,
+    opts?: { otherUserId?: string },
+  ): void {
+    this.starTransport.putMessageRecord(conversationId, wire, opts);
   }
 
   /**

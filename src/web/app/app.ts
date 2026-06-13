@@ -1,4 +1,4 @@
-import { User, GPSCoordinate, Talk, type Tag, InteractionKind } from '../../shared/types';
+import { User, GPSCoordinate, Talk, type Tag, type IpfsAttachment, InteractionKind } from '../../shared/types';
 import { KEY_CUSTODY_DEVICE_SECRET_STORAGE, KEY_CUSTODY_STORAGE, WebGunService } from '../services/web-gun-service';
 import { WebUserService } from '../services/web-user-service';
 import { WebChatroomService } from '../services/web-chatroom-service';
@@ -11,7 +11,7 @@ import { LocationPrivacy } from '../../shared/location';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
-import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize } from '../../shared/cid';
+import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, computeCIDv1 } from '../../shared/cid';
 import { isDevStageZero } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
 import {
@@ -59,6 +59,33 @@ import {
   retractedKey as ledgerRetractedKey,
 } from '../../shared/talk-ledger';
 
+type AttachmentShareMessagePayload = {
+  kind: 'ipfs-auto-share-v1';
+  conversationId: string;
+  talkId: string;
+  authorId: string;
+  cid: string;
+  link: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  enc: 'sea-pair' | 'none';
+  keyCiphertext: string;
+  sharedAt: string;
+};
+
+type MailboxAttachmentSharePayload = {
+  kind: 'ipfs-conversation-share-v1';
+  conversationId: string;
+  messageId: string;
+  senderId: string;
+  senderName: string;
+  recipientId: string;
+  recipientName: string;
+  text: string;
+  timestamp: string;
+};
+
 export class IinPublicApp {
   private gunService: WebGunService;
   private userService: WebUserService;
@@ -97,6 +124,9 @@ export class IinPublicApp {
   private mailboxClient: WebMailboxClient | null = null;
   private mailboxPollTimer: ReturnType<typeof setInterval> | undefined;
   private mailboxDrainPromise: Promise<void> | null = null;
+  private attachmentShareSentIds = new Set<string>();
+  private fetchedAttachmentBytesByCid = new Map<string, Uint8Array>();
+  private static readonly ATTACHMENT_SHARE_SENT_KEY = 'iinpublic_ipfs_share_sent_ids';
   /**
    * Durable mesh-ping diagnostics record updated by onPing/onPong callbacks.
    * Exposed via getApp() for E2E assertion (design §6, R5).
@@ -236,6 +266,296 @@ export class IinPublicApp {
     return members.filter((member) => member.userId !== TECHSUPPORT_ROOT_USER_ID).length;
   }
 
+  private loadAttachmentShareSentIds(): void {
+    this.attachmentShareSentIds.clear();
+    try {
+      const raw = localStorage.getItem(IinPublicApp.ATTACHMENT_SHARE_SENT_KEY);
+      if (!raw) return;
+      const values = JSON.parse(raw);
+      if (!Array.isArray(values)) return;
+      for (const value of values) {
+        const id = String(value || '').trim();
+        if (id) this.attachmentShareSentIds.add(id);
+      }
+    } catch {
+      /* best-effort local idempotency cache */
+    }
+  }
+
+  private persistAttachmentShareSentIds(): void {
+    try {
+      localStorage.setItem(
+        IinPublicApp.ATTACHMENT_SHARE_SENT_KEY,
+        JSON.stringify([...this.attachmentShareSentIds]),
+      );
+    } catch {
+      /* best-effort local idempotency cache */
+    }
+  }
+
+  private getTalkAttachmentsForShare(talkData: any): IpfsAttachment[] {
+    return this.contentNodeService.normalizeIpfsAttachments((talkData as any)?.ipfsAttachments);
+  }
+
+  private async buildAttachmentShareMessageId(
+    conversationId: string,
+    talkId: string,
+    authorId: string,
+    cid: string,
+  ): Promise<string> {
+    return computeCIDv1({
+      kind: 'ipfs-auto-share-v1',
+      conversationId,
+      talkRef: `${talkId}::${authorId}`,
+      cid,
+    });
+  }
+
+  private async buildAttachmentSharePayload(params: {
+    conversationId: string;
+    talkId: string;
+    authorId: string;
+    recipientId: string;
+    attachment: IpfsAttachment;
+  }): Promise<AttachmentShareMessagePayload> {
+    const keyPayload = {
+      kind: 'ipfs-share-key-v1',
+      talkRef: `${params.talkId}::${params.authorId}`,
+      cid: params.attachment.cid,
+      enc: params.attachment.enc,
+      // L5 key envelope is transport material only. File bytes stay out of Gun/mailbox.
+      keyMaterial: `ipfs-share:${params.talkId}:${params.authorId}:${params.attachment.cid}`,
+    };
+    const keyCiphertext = await this.encryptPairTalkResponsePayload(
+      params.recipientId,
+      keyPayload,
+    );
+    return {
+      kind: 'ipfs-auto-share-v1',
+      conversationId: params.conversationId,
+      talkId: params.talkId,
+      authorId: params.authorId,
+      cid: params.attachment.cid,
+      link: `ipfs://${params.attachment.cid}`,
+      name: params.attachment.name,
+      mimeType: params.attachment.mimeType,
+      sizeBytes: params.attachment.sizeBytes,
+      enc: params.attachment.enc,
+      keyCiphertext,
+      sharedAt: new Date().toISOString(),
+    };
+  }
+
+  private formatAttachmentShareMessageText(payload: AttachmentShareMessagePayload): string {
+    return `IPFS_SHARE:${JSON.stringify(payload)}`;
+  }
+
+  private parseAttachmentShareMessageText(text: string): AttachmentShareMessagePayload | null {
+    const raw = String(text || '');
+    if (!raw.startsWith('IPFS_SHARE:')) return null;
+    try {
+      const payload = JSON.parse(raw.slice('IPFS_SHARE:'.length));
+      if (!payload || payload.kind !== 'ipfs-auto-share-v1') return null;
+      const cid = String(payload.cid || '').trim();
+      const keyCiphertext = String(payload.keyCiphertext || '').trim();
+      if (!cid || !keyCiphertext) return null;
+      return payload as AttachmentShareMessagePayload;
+    } catch {
+      return null;
+    }
+  }
+
+  private async maybeFetchSharedAttachmentBytes(
+    sharePayload: AttachmentShareMessagePayload,
+    senderUserId: string,
+  ): Promise<void> {
+    const cid = String(sharePayload.cid || '').trim();
+    if (!cid || this.fetchedAttachmentBytesByCid.has(cid)) return;
+
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.priv) return;
+
+    const senderEpub = await this.resolvePeerEpub(senderUserId);
+    if (sharePayload.enc === 'sea-pair') {
+      const secret = await this.getPairTalkResponseSecret(senderUserId, senderEpub);
+      const keyPayloadRaw = await getSEA().decrypt(sharePayload.keyCiphertext, secret);
+      if (!keyPayloadRaw) {
+        throw new Error('Attachment share key decrypt failed');
+      }
+    }
+
+    const bytes = await this.contentNodeService.fetchAttachmentBytes({
+      cid,
+      enc: sharePayload.enc,
+      senderEpub,
+      recipientPair: pair as GunPair,
+    });
+    if (bytes) {
+      this.fetchedAttachmentBytesByCid.set(cid, bytes);
+    }
+  }
+
+  private async postAttachmentShareToMailbox(payload: MailboxAttachmentSharePayload): Promise<void> {
+    if (!this.currentUser?.id) return;
+    const mailbox = this.ensureMailboxClient();
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.priv) return;
+    try {
+      const recipientEpub = await this.resolvePeerEpub(payload.recipientId);
+      if (!recipientEpub) return;
+      const ciphertext = await mailbox.encryptForRecipient(
+        recipientEpub,
+        pair as import('../sea-gun').GunPair,
+        payload,
+      );
+      const envelopeId = `mbx_share_${payload.messageId}`;
+      await mailbox.postEnvelope({
+        id: envelopeId,
+        recipientId: payload.recipientId,
+        ciphertext,
+      });
+    } catch (err) {
+      console.warn('[Mailbox] Failed to post attachment-share envelope:', err);
+    }
+  }
+
+  private async autoShareMatchedTalkAttachments(params: {
+    conversationId: string;
+    talkId: string;
+    authorId: string;
+    responderId: string;
+    responderName: string;
+    talkData: any;
+  }): Promise<void> {
+    if (!this.currentUser?.id || this.currentUser.id !== params.authorId) return;
+    const attachments = this.getTalkAttachmentsForShare(params.talkData);
+    if (attachments.length === 0) return;
+
+    for (const attachment of attachments) {
+      try {
+        const messageId = await this.buildAttachmentShareMessageId(
+          params.conversationId,
+          params.talkId,
+          params.authorId,
+          attachment.cid,
+        );
+        if (this.attachmentShareSentIds.has(messageId)) continue;
+
+        const sharePayload = await this.buildAttachmentSharePayload({
+          conversationId: params.conversationId,
+          talkId: params.talkId,
+          authorId: params.authorId,
+          recipientId: params.responderId,
+          attachment,
+        });
+        const messageText = this.formatAttachmentShareMessageText(sharePayload);
+        const timestamp = new Date().toISOString();
+        await this.conversationService.sendMessage(
+          params.conversationId,
+          params.authorId,
+          messageText,
+          {
+            otherUserId: params.responderId,
+            messageId,
+            channel: 'known',
+          },
+        );
+        await this.postAttachmentShareToMailbox({
+          kind: 'ipfs-conversation-share-v1',
+          conversationId: params.conversationId,
+          messageId,
+          senderId: params.authorId,
+          senderName: this.currentUser.stageName,
+          recipientId: params.responderId,
+          recipientName: params.responderName,
+          text: messageText,
+          timestamp,
+        });
+        this.attachmentShareSentIds.add(messageId);
+      } catch (err) {
+        console.warn('[L5] autoShareMatchedTalkAttachments failed:', err);
+      }
+    }
+
+    this.persistAttachmentShareSentIds();
+  }
+
+  private async ingestAttachmentShareFromMailbox(payload: MailboxAttachmentSharePayload): Promise<void> {
+    if (!this.currentUser?.id) return;
+    if (payload.kind !== 'ipfs-conversation-share-v1') return;
+    const messageId = String(payload.messageId || '').trim();
+    if (!messageId) return;
+    if (this.attachmentShareSentIds.has(messageId)) return;
+
+    this.conversationService.upsertMessageRecord(
+      payload.conversationId,
+      {
+        id: messageId,
+        senderId: payload.senderId,
+        text: payload.text,
+        timestamp: payload.timestamp,
+        channel: 'pair',
+        transport: this.conversationService.getTransportMode(),
+      },
+      { otherUserId: this.currentUser.id },
+    );
+    const sharePayload = this.parseAttachmentShareMessageText(payload.text);
+    if (sharePayload) {
+      await this.maybeFetchSharedAttachmentBytes(sharePayload, payload.senderId).catch((err) => {
+        console.warn('[L5] mailbox attachment fetch failed:', err);
+      });
+    }
+    this.attachmentShareSentIds.add(messageId);
+    this.persistAttachmentShareSentIds();
+  }
+
+  private async markSharedAttachmentLinksDead(params: {
+    talkId: string;
+    authorId: string;
+    conversationPeerId: string;
+    conversationId: string;
+    attachments: IpfsAttachment[];
+    retractedAt: number;
+  }): Promise<void> {
+    if (!this.currentUser?.id || params.attachments.length === 0) return;
+
+    for (const attachment of params.attachments) {
+      try {
+        const messageId = await computeCIDv1({
+          kind: 'ipfs-auto-share-retracted-v1',
+          conversationId: params.conversationId,
+          talkRef: `${params.talkId}::${params.authorId}`,
+          cid: attachment.cid,
+        });
+        if (this.attachmentShareSentIds.has(messageId)) continue;
+        const messageText = `IPFS_SHARE_RETRACTED:${JSON.stringify({
+          kind: 'ipfs-auto-share-retracted-v1',
+          talkId: params.talkId,
+          authorId: params.authorId,
+          cid: attachment.cid,
+          link: `ipfs://${attachment.cid}`,
+          retractedAt: params.retractedAt,
+          note: 'Link is now marked dead in this conversation. Remote copies may still exist.',
+        })}`;
+        await this.conversationService.sendMessage(
+          params.conversationId,
+          this.currentUser.id,
+          messageText,
+          {
+            otherUserId: params.conversationPeerId,
+            messageId,
+            channel: 'known',
+          },
+        );
+        this.attachmentShareSentIds.add(messageId);
+      } catch (err) {
+        console.warn('[L5] markSharedAttachmentLinksDead failed:', err);
+      }
+    }
+
+    this.persistAttachmentShareSentIds();
+  }
+
   constructor() {
     this.gunService = new WebGunService();
     this.userService = new WebUserService(this.gunService);
@@ -246,6 +566,7 @@ export class IinPublicApp {
     this.conversationService = new WebConversationService(this.gunService);
     this.contentNodeService = new WebContentNodeService();
     this.uiManager = new UIManager();
+    this.loadAttachmentShareSentIds();
   }
 
   async initialize(location: GPSCoordinate): Promise<void> {
@@ -1062,7 +1383,11 @@ export class IinPublicApp {
     console.log(`[Mailbox] Draining ${envelopes.length} envelope(s) for user ${this.currentUser.id}`);
     for (const envelope of envelopes) {
       try {
-        const payload = await mailbox.decryptEnvelope<P2PMeshTalkResponsePayload | import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload>(
+        const payload = await mailbox.decryptEnvelope<
+          | P2PMeshTalkResponsePayload
+          | import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload
+          | MailboxAttachmentSharePayload
+        >(
           envelope.ciphertext,
           pair as import('../sea-gun').GunPair,
         );
@@ -1070,7 +1395,9 @@ export class IinPublicApp {
         //   - has `talkData` → talk-body payload from R-a mailbox fallback
         //   - has `retractedAt` (number) → step-10 retraction envelope
         //   - has `responseId` → talk-response payload from step 6
-        if ((payload as any).talkData !== undefined) {
+        if ((payload as any).kind === 'ipfs-conversation-share-v1') {
+          await this.ingestAttachmentShareFromMailbox(payload as MailboxAttachmentSharePayload);
+        } else if ((payload as any).talkData !== undefined) {
           await this.handleMeshTalkBody(payload as import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload);
         } else if (typeof (payload as any).retractedAt === 'number') {
           await this.handleMeshTalkRetracted(payload as unknown as P2PMeshTalkRetractedPayload);
@@ -1392,6 +1719,14 @@ export class IinPublicApp {
           transportMode: this.conversationService.getTransportMode(),
           changeOfMindAt: changedAt,
         });
+        await this.autoShareMatchedTalkAttachments({
+          conversationId,
+          talkId: payload.talkId,
+          authorId: this.currentUser.id,
+          responderId: payload.responderId,
+          responderName: decrypted.responderName,
+          talkData,
+        });
         this.uiManager.setMemberMatched(payload.responderId);
       } else if (wasMatch && !nowMatch) {
         // match → ignore: mark conversation ended with status 'ignored'
@@ -1450,6 +1785,14 @@ export class IinPublicApp {
       respondedByBot: !!decrypted.isChatbotResponse,
       transportMode: this.conversationService.getTransportMode(),
     });
+    await this.autoShareMatchedTalkAttachments({
+      conversationId,
+      talkId: payload.talkId,
+      authorId: this.currentUser.id,
+      responderId: payload.responderId,
+      responderName: decrypted.responderName,
+      talkData,
+    });
     this.uiManager.setMemberMatched(payload.responderId);
   }
 
@@ -1465,6 +1808,9 @@ export class IinPublicApp {
   private async handleRetractTalk(talkId: string, retractedAt: number): Promise<void> {
     if (!this.currentUser?.id) return;
     const authorId = this.currentUser.id;
+    const talkData = await this.resolveMeshTalkData(talkId);
+    const attachments = this.getTalkAttachmentsForShare(talkData);
+    this.contentNodeService.unpinTalkAttachments(talkId);
 
     // 1. Write local tombstone (clears outcomes + exchanged for this talkId::authorId).
     applyTalkLedgerEvent({
@@ -1497,12 +1843,23 @@ export class IinPublicApp {
     const allConversations = this.uiManager.getMyConversations() as Record<string, any>;
     for (const [, conv] of Object.entries(allConversations)) {
       if ((conv as any).talkId === talkId) {
+        const otherUserId = String((conv as any).otherUserId || '');
+        const conversationId = String((conv as any).conversationId || '');
         this.uiManager.markConversationWithdrawn(
-          String((conv as any).otherUserId || ''),
+          otherUserId,
           talkId,
           retractedAt,
         );
-        break;
+        if (conversationId && otherUserId && otherUserId !== authorId) {
+          await this.markSharedAttachmentLinksDead({
+            talkId,
+            authorId,
+            conversationPeerId: otherUserId,
+            conversationId,
+            attachments,
+            retractedAt,
+          });
+        }
       }
     }
   }
@@ -1531,6 +1888,7 @@ export class IinPublicApp {
       `${payload.authorId} removed a talk — the match is gone · ${new Date(payload.retractedAt).toLocaleTimeString()}`,
       'info',
     );
+    this.contentNodeService.unpinTalkAttachments(payload.talkId);
 
     // 3. Mark any conversation involving this talkId as withdrawn.
     const allConversations = this.uiManager.getMyConversations() as Record<string, any>;
@@ -3101,6 +3459,11 @@ export class IinPublicApp {
     this.mailboxFallbackDisabledForE2e = disabled === true;
   }
 
+  public getFetchedAttachmentBytesLengthForE2e(cid: string): number {
+    const bytes = this.fetchedAttachmentBytesByCid.get(String(cid || '').trim());
+    return bytes ? bytes.length : 0;
+  }
+
   /**
    * Step 8 E2E read helper: return the current talkLedger doc for assertions.
    */
@@ -3496,6 +3859,11 @@ export class IinPublicApp {
             : {}),
         });
 
+        if (Array.isArray(talk.ipfsAttachments) && talk.ipfsAttachments.length > 0) {
+          await this.ensureContentNodeInitialized();
+          this.contentNodeService.pinTalkAttachments(talk.id, talk.ipfsAttachments);
+        }
+
         console.log('✅ Talk created:', talk);
 
         // Phase E: ledger hook — TALK_CREATED
@@ -3675,13 +4043,17 @@ export class IinPublicApp {
 
     this.uiManager.on('updateTalk', async (data: { id: string; title: string; type: string; questions: any[]; language?: string; tags?: any[] }) => {
       try {
-        await this.talkService.updateTalk(data.id, {
+        const updatedTalk = await this.talkService.updateTalk(data.id, {
           title: data.title,
           type: data.type as 'flow' | 'survey',
           questions: data.questions,
           language: data.language || 'en',
           tags: data.tags || [],
         });
+        if (Array.isArray(updatedTalk.ipfsAttachments) && updatedTalk.ipfsAttachments.length > 0) {
+          await this.ensureContentNodeInitialized();
+          this.contentNodeService.pinTalkAttachments(updatedTalk.id, updatedTalk.ipfsAttachments);
+        }
         this.uiManager.showNotification(this.uiManager.formatTalkUpdated(), 'success');
         this.uiManager.displayTalksList();
         // Phase F: emit TALK_SUPERSEDED so peers know this talk was revised.
@@ -3881,6 +4253,14 @@ export class IinPublicApp {
         this.conversationService.subscribeToMessages(data.conversationId, (messages) => {
           console.log('📨 Received conversation messages:', messages);
           this.uiManager.displayConversationMessages(data.conversationId, messages);
+          for (const message of messages) {
+            const sharePayload = this.parseAttachmentShareMessageText(String(message.text || ''));
+            if (!sharePayload) continue;
+            if (!message.senderId || message.senderId === this.currentUser?.id) continue;
+            void this.maybeFetchSharedAttachmentBytes(sharePayload, String(message.senderId)).catch((err) => {
+              console.warn('[L5] conversation attachment fetch failed:', err);
+            });
+          }
           // When a message update arrives for a conversation the user isn't currently viewing,
           // record the latest message and mark the conversation unread so the badge appears.
           if (messages.length > 0) {

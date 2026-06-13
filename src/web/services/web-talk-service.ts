@@ -1,4 +1,4 @@
-import { Talk, BulkSendJob, TargetScope, type Question } from '../../shared/types';
+import { Talk, BulkSendJob, TargetScope, type IpfsAttachment, type Question } from '../../shared/types';
 import { FlowCapture } from '../../shared/talk-engine';
 import { WebGunService } from './web-gun-service';
 import { v4 as uuidv4 } from 'uuid';
@@ -117,11 +117,29 @@ export class WebTalkService {
     return { ...qu, answers: this.normalizeAnswersArray(qu.answers) };
   }
 
+  private normalizeIpfsAttachments(attachments: unknown): IpfsAttachment[] {
+    if (!Array.isArray(attachments)) return [];
+    const normalized: IpfsAttachment[] = [];
+    for (const attachment of attachments) {
+      if (!attachment || typeof attachment !== 'object') continue;
+      const cid = String((attachment as { cid?: unknown }).cid || '').trim();
+      const name = String((attachment as { name?: unknown }).name || '').trim();
+      const mimeType = String((attachment as { mimeType?: unknown }).mimeType || '').trim();
+      const sizeBytes = Number((attachment as { sizeBytes?: unknown }).sizeBytes);
+      const enc = (attachment as { enc?: unknown }).enc;
+      if (!cid || !name || !mimeType || !Number.isFinite(sizeBytes)) continue;
+      if (enc !== 'sea-pair' && enc !== 'none') continue;
+      normalized.push({ cid, name, mimeType, sizeBytes, enc });
+    }
+    return normalized;
+  }
+
   private normalizeTalkFromStorage(talk: any): Talk {
     if (!talk || typeof talk !== 'object') return talk as Talk;
     const q = talk.questions;
+    const attachments = this.normalizeIpfsAttachments(talk.ipfsAttachments);
     if (Array.isArray(q)) {
-      return { ...talk, questions: q.map((qu) => this.normalizeQuestion(qu)) } as Talk;
+      return { ...talk, questions: q.map((qu) => this.normalizeQuestion(qu)), ipfsAttachments: attachments } as Talk;
     }
     if (q && typeof q === 'object' && (q._isArray || q.isArray)) {
       const len = Number(q._length ?? q.length) || 0;
@@ -130,9 +148,9 @@ export class WebTalkService {
         if (!Object.prototype.hasOwnProperty.call(q, String(i))) continue;
         arr.push(this.normalizeQuestion(q[String(i)]));
       }
-      return { ...talk, questions: arr } as Talk;
+      return { ...talk, questions: arr, ipfsAttachments: attachments } as Talk;
     }
-    return talk as Talk;
+    return { ...talk, ipfsAttachments: attachments } as Talk;
   }
 
   async createTalk(talkData: Partial<Talk>): Promise<Talk> {
@@ -145,6 +163,7 @@ export class WebTalkService {
       language: talkData.language || 'en',
       tags: talkData.tags || [],
       questions: talkData.questions || [],
+      ipfsAttachments: this.normalizeIpfsAttachments(talkData.ipfsAttachments),
       createdAt: new Date(),
       isTemplate: talkData.isTemplate || false,
       usageCount: 0,
@@ -279,6 +298,12 @@ export class WebTalkService {
       isTemplate: talkData.isTemplate ?? existing.isTemplate,
       usageCount: existing.usageCount,
     };
+    const nextAttachments = talkData.ipfsAttachments !== undefined
+      ? this.normalizeIpfsAttachments(talkData.ipfsAttachments)
+      : existing.ipfsAttachments;
+    if (nextAttachments !== undefined) {
+      updated.ipfsAttachments = nextAttachments;
+    }
     if (talkData.expiresAt !== undefined) updated.expiresAt = talkData.expiresAt;
     else if (existing.expiresAt != null) updated.expiresAt = existing.expiresAt;
     if (talkData.locationRadiusMiles !== undefined) updated.locationRadiusMiles = talkData.locationRadiusMiles;

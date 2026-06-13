@@ -51,6 +51,39 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     buildSpy.mockRestore();
   });
 
+  it('passes explicit messageId to Gun store for idempotent sends', async () => {
+    const buildSpy = jest
+      .spyOn(StarGunConversationTransport.prototype, 'buildAndPersistMessage')
+      .mockResolvedValue({ ...wire, id: 'bafy-auto-share-msg' });
+    const sendDm = jest.fn(async () => undefined);
+
+    const transport = new DirectP2PConversationTransport(mockGun);
+    jest.spyOn(transport as unknown as { sessionFor: () => Promise<unknown> }, 'sessionFor').mockResolvedValue({
+      sendDm,
+      setLedgerHooks: jest.fn(),
+      setOnRemoteDm: jest.fn(),
+    });
+
+    await transport.sendMessage('conv1', 'alice', 'ipfs://bafy...', {
+      otherUserId: 'bob',
+      messageId: 'bafy-auto-share-msg',
+      channel: 'known',
+    });
+
+    expect(buildSpy).toHaveBeenCalledWith(
+      'conv1',
+      'alice',
+      'ipfs://bafy...',
+      expect.objectContaining({
+        transport: 'direct-p2p',
+        messageId: 'bafy-auto-share-msg',
+        channel: 'known',
+      }),
+    );
+
+    buildSpy.mockRestore();
+  });
+
   it('subscribeToMessages delegates to Gun store subscription after participant resolution fallback', async () => {
     const subSpy = jest
       .spyOn(StarGunConversationTransport.prototype, 'subscribeToMessages')

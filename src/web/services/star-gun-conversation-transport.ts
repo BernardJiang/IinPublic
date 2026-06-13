@@ -96,7 +96,7 @@ export class StarGunConversationTransport implements ConversationTransport {
   ): Promise<ConversationMessageWire> {
     const channel = opts?.channel ?? 'public';
     const transport = opts?.transport ?? this.mode;
-    const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const messageId = String(opts?.messageId || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
     const prevSeen = this.lastSeenFromOther.get(`${conversationId}:${senderId}`) ?? undefined;
     const otherUserId = opts?.otherUserId ?? (await this.getOtherParticipantId(conversationId, senderId));
 
@@ -109,6 +109,7 @@ export class StarGunConversationTransport implements ConversationTransport {
       timestamp: new Date().toISOString(),
       channel,
       transport,
+      ...(opts?.isFromChatbot ? { isFromChatbot: true } : {}),
       ...(prevSeen !== undefined ? { prevSeen } : {}),
     };
 

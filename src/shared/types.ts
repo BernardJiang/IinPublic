@@ -57,6 +57,14 @@ export interface QuestionAnswer {
   visibility?: ProfileAttributeVisibility;
 }
 
+export interface IpfsAttachment {
+  cid: string;
+  name: string;
+  sizeBytes: number;
+  mimeType: string;
+  enc: 'sea-pair' | 'none';
+}
+
 export interface Reputation {
   questionsAnswered: number;
   talksSent: number;
@@ -197,6 +205,7 @@ export interface Talk {
   language: string;
   tags: Tag[];
   questions: Question[];
+  ipfsAttachments?: IpfsAttachment[];
   createdAt: Date;
   isTemplate: boolean;
   usageCount: number;

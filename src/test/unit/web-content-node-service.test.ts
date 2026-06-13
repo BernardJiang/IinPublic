@@ -3,6 +3,7 @@ import {
   applyDiscoveryConfigToLibp2pConfig,
   type WebContentNode,
 } from '../../web/services/web-content-node-service';
+import SEA from 'gun/sea';
 
 describe('WebContentNodeService', () => {
   test('lazy initializes only on first use and exposes libp2p', async () => {
@@ -117,5 +118,139 @@ describe('WebContentNodeService', () => {
       },
     ]);
     expect(out.services).toEqual({ ping: { enabled: true } });
+  });
+
+  test('normalizes and pins attachment descriptors locally', () => {
+    const service = new WebContentNodeService(async () => ({ libp2p: null }));
+
+    const normalized = service.pinTalkAttachments('talk-1', [
+      { cid: 'bafy1', name: 'private.bin', sizeBytes: 10, mimeType: 'application/octet-stream', enc: 'sea-pair' },
+      { cid: 'bafy2', name: 'public.txt', sizeBytes: 4, mimeType: 'text/plain', enc: 'none' },
+      { cid: '', name: 'ignored.txt', sizeBytes: 1, mimeType: 'text/plain', enc: 'none' },
+    ]);
+
+    expect(normalized).toEqual([
+      { cid: 'bafy1', name: 'private.bin', sizeBytes: 10, mimeType: 'application/octet-stream', enc: 'sea-pair' },
+      { cid: 'bafy2', name: 'public.txt', sizeBytes: 4, mimeType: 'text/plain', enc: 'none' },
+    ]);
+    expect(service.getPinnedTalkAttachments('talk-1')).toEqual(normalized);
+  });
+
+  test('publishes plaintext only with explicit opt-in and encrypts private bytes before add', async () => {
+    const putCalls: Array<{ cid: string; bytes: Uint8Array }> = [];
+    const pinCalls: string[] = [];
+    const fakeNode: WebContentNode = {
+      libp2p: null,
+      blockstore: {
+        put: async (cid, bytes) => {
+          putCalls.push({ cid: String(cid), bytes: new Uint8Array(bytes) });
+        },
+      },
+      pins: {
+        add: async (cid) => {
+          pinCalls.push(String(cid));
+        },
+      },
+    };
+    const service = new WebContentNodeService(async () => fakeNode, undefined, async (bytes) => `cid-${bytes.length}`);
+    const senderPair = await SEA.pair();
+
+    await expect(
+      service.publishAttachmentBytes({
+        talkId: 'talk-public',
+        attachment: { cid: '', name: 'public.txt', sizeBytes: 5, mimeType: 'text/plain', enc: 'none' },
+        bytes: 'hello',
+        publicOptIn: true,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        name: 'public.txt',
+        enc: 'none',
+      }),
+    );
+    expect(new TextDecoder().decode(putCalls[0].bytes)).toBe('hello');
+    expect(pinCalls).toHaveLength(1);
+
+    await expect(
+      service.publishAttachmentBytes({
+        talkId: 'talk-private',
+        attachment: { cid: '', name: 'private.txt', sizeBytes: 6, mimeType: 'text/plain', enc: 'sea-pair' },
+        bytes: 'secret',
+        senderPair,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        name: 'private.txt',
+        enc: 'sea-pair',
+      }),
+    );
+    expect(new TextDecoder().decode(putCalls[1].bytes)).not.toBe('secret');
+    expect(pinCalls).toHaveLength(2);
+
+    await expect(
+      service.publishAttachmentBytes({
+        talkId: 'talk-denied',
+        attachment: { cid: '', name: 'denied.txt', sizeBytes: 4, mimeType: 'text/plain', enc: 'none' },
+        bytes: 'oops',
+      }),
+    ).rejects.toThrow('publicOptIn');
+  });
+
+  test('fetches plaintext attachment bytes by cid', async () => {
+    const byCid = new Map<string, Uint8Array>();
+    byCid.set('cid-plain', new TextEncoder().encode('plain-bytes'));
+    const fakeNode: WebContentNode = {
+      libp2p: null,
+      blockstore: {
+        put: async () => undefined,
+        get: async (cid) => byCid.get(String(cid)) || new Uint8Array(),
+      },
+    };
+    const service = new WebContentNodeService(
+      async () => fakeNode,
+      undefined,
+      async (bytes) => `cid-${bytes.length}`,
+      (cid) => cid,
+    );
+
+    const out = await service.fetchAttachmentBytes({
+      cid: 'cid-plain',
+      enc: 'none',
+    });
+
+    expect(new TextDecoder().decode(out || new Uint8Array())).toBe('plain-bytes');
+  });
+
+  test('fetches and decrypts sea-pair attachment bytes by cid', async () => {
+    const senderPair = await SEA.pair();
+    const recipientPair = await SEA.pair();
+    const secret = await SEA.secret(recipientPair.epub, senderPair as any);
+    if (!secret) throw new Error('Expected SEA secret for test fixture');
+    const ciphertext = await SEA.encrypt(JSON.stringify({ bytes: [1, 2, 3, 4] }), secret);
+    const byCid = new Map<string, Uint8Array>();
+    byCid.set('cid-private', new TextEncoder().encode(ciphertext));
+
+    const fakeNode: WebContentNode = {
+      libp2p: null,
+      blockstore: {
+        put: async () => undefined,
+        get: async (cid) => byCid.get(String(cid)) || new Uint8Array(),
+      },
+    };
+    const service = new WebContentNodeService(
+      async () => fakeNode,
+      undefined,
+      async (bytes) => `cid-${bytes.length}`,
+      (cid) => cid,
+    );
+
+    const out = await service.fetchAttachmentBytes({
+      cid: 'cid-private',
+      enc: 'sea-pair',
+      senderEpub: senderPair.epub,
+      recipientPair: recipientPair as any,
+    });
+
+    expect(Array.from(out || new Uint8Array())).toEqual([1, 2, 3, 4]);
   });
 });

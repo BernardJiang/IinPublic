@@ -336,4 +336,164 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
       expect(gunCounts.meshBodies, `${label}: p2pMeshTalkBodies/* must be 0`).toBe(0);
     }
   });
+
+  test('ipfs attachment descriptor survives announce, body, and intake', async () => {
+    test.setTimeout(180_000);
+
+    // --- Setup: bootstrap all three users in the same stable chatroom ---
+    void webAppURLStableChatroom();
+    const [tomResult, jerryResult, bobResult] = await Promise.all([
+      bootstrapUser(browsers.tom, 'Tom', 'Tom Attachment'),
+      bootstrapUser(browsers.jerry, 'Jerry', 'Jerry Attachment'),
+      bootstrapUser(browsers.bob, 'Bob', 'Bob Attachment'),
+    ]);
+
+    contextTom = tomResult.context;
+    contextJerry = jerryResult.context;
+    contextBob = bobResult.context;
+    pageTom = tomResult.page;
+    pageJerry = jerryResult.page;
+    pageBob = bobResult.page;
+
+    await afterLoad();
+
+    for (const [label, page] of [['Tom', pageTom], ['Jerry', pageJerry], ['Bob', pageBob]] as const) {
+      await expect
+        .poll(
+          () => page.evaluate(() => !!(window as any).__iinpublic_app?.getApp?.()?.isMeshTalkDeliveryEnabled?.()),
+          { timeout: MESH_E2E_TIMEOUT_MS, message: `${label}: mesh delivery not enabled` },
+        )
+        .toBe(true);
+    }
+
+    const tomId = await pageTom.evaluate(() =>
+      String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''),
+    );
+    const jerryId = await pageJerry.evaluate(() =>
+      String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''),
+    );
+    const bobId = await pageBob.evaluate(() =>
+      String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''),
+    );
+    expect(tomId).toBeTruthy();
+    expect(jerryId).toBeTruthy();
+    expect(bobId).toBeTruthy();
+
+    await afterSync();
+    await afterSync();
+
+    await warmMesh(pageTom, [jerryId, bobId]);
+    await warmMesh(pageJerry, [tomId, bobId]);
+    await warmMesh(pageBob, [tomId, jerryId]);
+
+    for (const [label, page] of [['Tom', pageTom], ['Jerry', pageJerry], ['Bob', pageBob]] as const) {
+      await expect
+        .poll(
+          () =>
+            page.evaluate(() => {
+              const app = (window as any).__iinpublic_app?.getApp?.() as any;
+              return app?.peerMeshService?.getDiagnostics?.()?.connectedNeighborCount ?? 0;
+            }),
+          {
+            timeout: MESH_E2E_TIMEOUT_MS,
+            intervals: [300, 500, 1000],
+            message: `${label}: no connected mesh neighbors`,
+          },
+        )
+        .toBeGreaterThan(0);
+    }
+
+    const TEST_TALK_ID = `mesh-ipfs-attachment-e2e-${Date.now()}`;
+    const expectedAttachment = {
+      cid: 'bafybeigdyrzt4v5a7y4k2w5c7kq4t7x2x3h2y6z5m3qk7w6y5n4t3u2r1qa',
+      name: 'hello.txt',
+      sizeBytes: 42,
+      mimeType: 'text/plain',
+      enc: 'sea-pair' as const,
+    };
+
+    await afterAction();
+    await pageTom.evaluate(
+      async ({ talkId, authorId, attachment }: {
+        talkId: string;
+        authorId: string;
+        attachment: typeof expectedAttachment;
+      }) => {
+        const app = (window as any).__iinpublic_app?.getApp?.() as any;
+        const mesh = app?.peerMeshService;
+        if (!mesh) throw new Error('peerMeshService not available on Tom');
+        const talk = {
+          id: talkId,
+          authorId,
+          title: 'Mesh Attachment Test Talk',
+          type: 'tag',
+          questions: [{ id: 'q1', text: 'Do you want attachments?', answers: [{ text: 'Yes' }, { text: 'No' }] }],
+          ipfsAttachments: [attachment],
+        };
+        await mesh.broadcastTalk(talk, { roomBroadcast: true });
+      },
+      { talkId: TEST_TALK_ID, authorId: tomId, attachment: expectedAttachment },
+    );
+
+    for (const [label, page] of [['Jerry', pageJerry], ['Bob', pageBob]] as const) {
+      await expect
+        .poll(
+          () =>
+            page.evaluate(
+              ({ tId, aId }: { tId: string; aId: string }) => {
+                const app = (window as any).__iinpublic_app?.getApp?.() as any;
+                const diag = app?.meshAnnounceDiagnostics as { received?: Array<{ talkId: string; authorId: string }> } | undefined;
+                return (diag?.received ?? []).some((r) => r.talkId === tId && r.authorId === aId);
+              },
+              { tId: TEST_TALK_ID, aId: tomId },
+            ),
+          {
+            timeout: MESH_E2E_TIMEOUT_MS,
+            intervals: [200, 400, 800],
+            message: `${label}: did not receive mesh talk-announce from Tom`,
+          },
+        )
+        .toBe(true);
+    }
+
+    for (const [label, page] of [['Jerry', pageJerry], ['Bob', pageBob]] as const) {
+      await expect
+        .poll(
+          () =>
+            page.evaluate(
+              async ({ tId, aId, expected }: { tId: string; aId: string; expected: typeof expectedAttachment }) => {
+                const app = (window as any).__iinpublic_app?.getApp?.() as any;
+                const cached = app?.peerMeshService?.getCachedTalkBody?.(tId, aId);
+                return JSON.stringify(cached?.ipfsAttachments || []) === JSON.stringify([expected]);
+              },
+              { tId: TEST_TALK_ID, aId: tomId, expected: expectedAttachment },
+            ),
+          {
+            timeout: MESH_E2E_TIMEOUT_MS,
+            intervals: [200, 400, 800],
+            message: `${label}: attachment descriptor did not survive body/intake`,
+          },
+        )
+        .toBe(true);
+
+      await expect
+        .poll(
+          () =>
+            page.evaluate(
+              async ({ tId }: { tId: string }) => {
+                const app = (window as any).__iinpublic_app?.getApp?.() as any;
+                const clusters = await app?.getLocalIncomingClustersForE2e?.();
+                return Array.isArray(clusters) && clusters.some((cluster: any) => cluster?.latestTalkId === tId);
+              },
+              { tId: TEST_TALK_ID },
+            ),
+          {
+            timeout: MESH_E2E_TIMEOUT_MS,
+            intervals: [200, 400, 800],
+            message: `${label}: incoming cluster missing for attachment talk`,
+          },
+        )
+        .toBe(true);
+    }
+  });
 });

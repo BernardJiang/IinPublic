@@ -119,13 +119,14 @@ export class ServerRelayConversationTransport implements ConversationTransport {
     const otherPub = await this.getUserPub(otherId);
     const prevSeen =
       this.lastSeenFromOther.get(`${conversationId}:${senderId}`) ?? undefined;
-    const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const messageId = String(opts?.messageId || `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`);
     const wire: RelayWireMessage = {
       id: messageId,
       senderId,
       text,
       timestamp: new Date().toISOString(),
       channel,
+      ...(opts?.isFromChatbot ? { isFromChatbot: true } : {}),
       ...(prevSeen !== undefined ? { prevSeen } : {}),
     };
     const bodyCiphertext = encodeSignalingPayload(wire);
