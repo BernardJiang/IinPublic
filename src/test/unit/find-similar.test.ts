@@ -1,4 +1,5 @@
 import {
+  blurredDistanceMiles,
   COMBINE_POLICIES,
   FindSimilarIndex,
   patchPairwiseScore,
@@ -331,6 +332,43 @@ describe('find-similar §5 — generic retrieve→sort→display pipeline (REQ-S
     expect(theirStandard.id).toBe('their-standard');
     expect(theirStandard.key).toBe('their-standard');
     expect(theirStandard.dir).toBe('desc');
+  });
+
+  it('rankPeople with distance sort orders by blurred-location distance (ascending)', () => {
+    const idx = new FindSimilarIndex();
+    const candidates: RankedPerson[] = [
+      { userId: 'far', score: 1, sharedTags: 1 },
+      { userId: 'near', score: 1, sharedTags: 1 },
+      { userId: 'mid', score: 1, sharedTags: 1 },
+      { userId: 'unknown', score: 1, sharedTags: 1 },
+    ];
+    const viewer = { latitude: 37.0, longitude: -122.0 };
+    const coords: Record<string, { latitude: number; longitude: number }> = {
+      near: { latitude: 37.02, longitude: -122.0 },
+      mid: { latitude: 37.2, longitude: -122.0 },
+      far: { latitude: 38.0, longitude: -122.0 },
+    };
+    const sorted = rankPeople(candidates, 'viewer', idx, 'distance', {
+      distanceMiles: (userId) =>
+        coords[userId] ? blurredDistanceMiles(viewer, coords[userId]) : undefined,
+    });
+
+    // Nearest first; the unknown-distance candidate sorts last.
+    expect(sorted.map((p) => p.userId)).toEqual(['near', 'mid', 'far', 'unknown']);
+    expect(sorted[0].distance).toBeGreaterThanOrEqual(0);
+    expect(sorted[3].distance).toBeUndefined();
+    // Distances are monotonic in true separation despite grid blurring.
+    expect(sorted[0].distance!).toBeLessThan(sorted[1].distance!);
+    expect(sorted[1].distance!).toBeLessThan(sorted[2].distance!);
+  });
+
+  it('blurredDistanceMiles snaps to the privacy grid (never uses exact GPS)', () => {
+    // Two points in the SAME ~2km grid cell blur to distance 0.
+    const a = { latitude: 37.001, longitude: -122.001 };
+    const b = { latitude: 37.009, longitude: -122.009 };
+    expect(blurredDistanceMiles(a, b)).toBe(0);
+    // A point a full degree away is clearly farther.
+    expect(blurredDistanceMiles(a, { latitude: 38.0, longitude: -122.0 })).toBeGreaterThan(50);
   });
 
   it('rankPeople with unknown sortId falls back to default (matched-tags)', () => {

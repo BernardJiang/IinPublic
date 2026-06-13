@@ -28,6 +28,11 @@
  */
 
 import { matchScore, MatchScoreCombine, WeightedTagInput } from './talk-engine';
+import { LocationPrivacy } from './location';
+import type { GPSCoordinate } from './types';
+
+/** Minimal coordinate for distance ranking — callers needn't supply accuracy/timestamp. */
+export type LatLon = { latitude: number; longitude: number };
 import {
   applyUserTagsDelta,
   buildUserTagsEnvelope,
@@ -111,7 +116,33 @@ export type RankedPerson = {
   score: number;
   /** number of the viewer's tags this candidate shares (for min-shared-tags / display) */
   sharedTags: number;
+  /** blurred-location distance in miles, populated when sorting by distance (§22.7) */
+  distance?: number;
 };
+
+const METERS_PER_MILE = 1609.344;
+const BLUR_GRID = 0.01; // matches LocationPrivacy.blurLocation's ~2km grid
+
+/** Snap a coordinate to the center of its privacy grid cell (never use exact GPS). */
+function snapToBlurGrid(coord: LatLon): GPSCoordinate {
+  return {
+    latitude: Math.floor(coord.latitude / BLUR_GRID) * BLUR_GRID + BLUR_GRID / 2,
+    longitude: Math.floor(coord.longitude / BLUR_GRID) * BLUR_GRID + BLUR_GRID / 2,
+    accuracy: 0,
+    timestamp: new Date(0),
+  };
+}
+
+/**
+ * Approximate distance in miles between two users, computed from BLURRED locations
+ * (spec §22.7: "Distance uses blurred location — approximate is acceptable"). Both
+ * coordinates are snapped to their grid-cell centers before the Haversine distance,
+ * so exact GPS is never used in the ranking.
+ */
+export function blurredDistanceMiles(a: LatLon, b: LatLon): number {
+  const meters = LocationPrivacy.calculateDistance(snapToBlurGrid(a), snapToBlurGrid(b));
+  return meters / METERS_PER_MILE;
+}
 
 /** A is "weaker" than B (and thus closer to the heap root / eviction). */
 function weaker(a: RankedPerson, b: RankedPerson): boolean {
@@ -403,7 +434,15 @@ export function rankPeople(
   viewerId: string,
   index: FindSimilarIndex,
   sortId: string = 'matched-tags',
-  filters?: { combine?: CombinePolicyId | MatchScoreCombine },
+  filters?: {
+    combine?: CombinePolicyId | MatchScoreCombine;
+    /**
+     * Distance resolver for the 'distance' strategy: returns the blurred-location
+     * distance (miles) from the viewer to `userId`, or undefined if unknown.
+     * Build it with `blurredDistanceMiles(viewerCoord, candidateCoord)`.
+     */
+    distanceMiles?: (userId: string) => number | undefined;
+  },
 ): RankedPerson[] {
   const strategy = SORT_STRATEGIES[sortId] ?? DEFAULT_SORT_STRATEGY;
   const combine = resolveCombine(filters?.combine);
@@ -425,9 +464,18 @@ export function rankPeople(
   }
 
   if (strategy.key === 'distance') {
-    // Distance sorting (future: integrate with location/proximity data).
-    // For now, a placeholder that preserves order (distance data not yet in RankedPerson).
-    return candidates;
+    const resolve = filters?.distanceMiles;
+    if (!resolve) return candidates; // no location data → preserve order (caller opt-in)
+    const withDistance = candidates.map((candidate) => {
+      const miles = resolve(candidate.userId);
+      return miles === undefined ? candidate : { ...candidate, distance: miles };
+    });
+    return withDistance.sort((a, b) => {
+      // Candidates with unknown distance sort last regardless of direction.
+      const da = a.distance ?? Infinity;
+      const db = b.distance ?? Infinity;
+      return strategy.dir === 'asc' ? da - db : db - da;
+    });
   }
 
   // Fallback: return as-is.

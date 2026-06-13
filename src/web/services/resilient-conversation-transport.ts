@@ -20,6 +20,16 @@ export type ResilientConversationTransportOptions = {
 };
 
 /**
+ * Test-only seam: lets unit tests inject fake leg transports so the fallback chain
+ * can be exercised deterministically without a browser / real WebRTC / Gun relay.
+ * Never supplied in production (the constructor builds the real transports).
+ */
+export type ResilientTransportTestOverrides = {
+  direct?: DirectP2PConversationTransport;
+  relay?: ServerRelayConversationTransport;
+};
+
+/**
  * Tries direct-p2p first, then encrypted server-relay, then star-gun —
  * matching createConversationTransportDiagnostics().fallback policy.
  */
@@ -30,17 +40,29 @@ export class ResilientConversationTransport implements ConversationTransport {
   private readonly star: StarGunConversationTransport;
   private readonly apiBase: string;
   private options: ResilientConversationTransportOptions;
+  /** E2E fault injection: modes in this set throw on send to force the next fallback. */
+  private failModesForE2e = new Set<ConversationTransportMode>();
 
   constructor(
     gunService: WebGunService,
     starTransport: StarGunConversationTransport,
     options: ResilientConversationTransportOptions = {},
+    testOverrides?: ResilientTransportTestOverrides,
   ) {
     this.options = options;
     this.apiBase = DirectP2PConversationTransport.resolveApiBase();
-    this.direct = new DirectP2PConversationTransport(gunService, this.apiBase);
-    this.relay = new ServerRelayConversationTransport(gunService, this.apiBase);
+    this.direct = testOverrides?.direct ?? new DirectP2PConversationTransport(gunService, this.apiBase);
+    this.relay = testOverrides?.relay ?? new ServerRelayConversationTransport(gunService, this.apiBase);
     this.star = starTransport;
+  }
+
+  /**
+   * Test-only: force the named transports to fail on send so the fallback chain
+   * (`direct-p2p → server-relay → star-gun`) can be exercised deterministically in
+   * E2E without depending on real WebRTC/STUN timing. Pass `[]` to clear.
+   */
+  setFailModesForE2e(modes: ConversationTransportMode[]): void {
+    this.failModesForE2e = new Set(modes);
   }
 
   get mode(): ConversationTransportMode {
@@ -93,6 +115,7 @@ export class ResilientConversationTransport implements ConversationTransport {
   }
 
   private async tryDirectConnect(conversationId: string, localUserId: string): Promise<boolean> {
+    if (this.failModesForE2e.has('direct-p2p')) return false; // E2E: simulate WebRTC never connecting
     try {
       await this.direct.ensureSessionConnected(conversationId, localUserId);
       const state = this.direct.getConnectionState(conversationId, localUserId);
@@ -110,6 +133,7 @@ export class ResilientConversationTransport implements ConversationTransport {
   ): Promise<void> {
     if (this.activeMode === 'direct-p2p') {
       try {
+        if (this.failModesForE2e.has('direct-p2p')) throw new Error('E2E forced direct-p2p failure');
         await this.direct.sendMessage(conversationId, senderId, text, opts);
         return;
       } catch (err) {
@@ -118,6 +142,7 @@ export class ResilientConversationTransport implements ConversationTransport {
     }
     if (this.activeMode === 'server-relay') {
       try {
+        if (this.failModesForE2e.has('server-relay')) throw new Error('E2E forced server-relay failure');
         await this.relay.sendMessage(conversationId, senderId, text, opts);
         return;
       } catch (err) {

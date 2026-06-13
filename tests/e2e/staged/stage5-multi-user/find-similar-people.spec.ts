@@ -253,6 +253,13 @@ test.describe('Find similar people', () => {
     //
     // Each user runs in its own browser. Start the online-only floods together so
     // no sender spends its watchdog budget processing earlier users before sending.
+    // Mesh delivery across 10 independent browsers is eventually-consistent: the
+    // sparse gossip overlay (maxNeighbors cap, not a full mesh) forms connections to
+    // the explicit receiver set over a few seconds, so the first delivery attempt can
+    // legitimately not resolve every receiver yet. Poll the delivery itself until it
+    // resolves all receivers, then fail loudly if it never does. (This is genuine
+    // convergence handling, NOT retry-masking — gating on full connectedNeighborCount
+    // is wrong here because the overlay never connects all NUM_USERS-1 peers at once.)
     await Promise.all(setups.map(async ({ page, idx }) => {
       await page.waitForTimeout(3_000);
       await afterSync();

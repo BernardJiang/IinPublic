@@ -96,6 +96,17 @@ export class WebConversationService {
     return this.transport.mode;
   }
 
+  /**
+   * Test-only: force the named conversation transports to fail so the resilient
+   * fallback chain (`direct-p2p → server-relay → star-gun`) can be exercised
+   * deterministically in E2E. No-op unless the active transport is resilient.
+   */
+  setTransportFailModesForE2e(modes: ConversationTransportMode[]): void {
+    if (this.transport instanceof ResilientConversationTransport) {
+      this.transport.setFailModesForE2e(modes);
+    }
+  }
+
   private isSupportConversation(conversationId: string, otherUserId?: string): boolean {
     if (conversationId.startsWith('conv_support_')) return true;
     return otherUserId === TECHSUPPORT_ROOT_USER_ID;
