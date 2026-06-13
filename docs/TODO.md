@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-06-12
+Last updated: 2026-06-13
 
 This file is the short, execution-oriented plan. The detailed acceptance inventory and the
 statistics / spec-gap follow-ups are consolidated into the appendices at the bottom of this file.
@@ -22,7 +22,7 @@ Token-saving rules: for `[Opus]` items, have Opus write a short design note firs
 
 All P1 (libp2p/IPFS), P2 (Find Similar), and P2.5 (sort pipeline) **completed** and moved to `docs/completed.md` (2026-06-12).
 
-**Next phase:** Appendix B (Statistics expansion `[Sonnet]`) and Appendix C (P2P spec-gap audits `[Haiku]`).
+**Next phase:** Appendix C (P2P spec-gap audits `[Haiku]`). Appendix B (Statistics expansion) completed 2026-06-13 — see `docs/completed.md`.
 
 
 ## Run commands
@@ -66,17 +66,9 @@ npm run test:e2e:parallel     # Full E2E suite in direct mode
 
 **Verification:** All 763 unit tests passing; type checking clean; no acceptance gaps or regressions detected.
 
-## Appendix B — Statistics expansion backlog `[Sonnet]` — aggregation on shipped schemas; privacy-masking rules need attention
+## Appendix B — Statistics expansion backlog `[Sonnet]` — **COMPLETED 2026-06-13**
 
-> Consolidated 2026-06-08 from `docs/roadmap/statistics-expansion.md` (archived). Baseline stats are shipped (see `docs/completed.md`); the items below are forward analytics work. Verification requirements: `docs/testing/testplan.md` Appendix E.
-
-**Design decisions already made:** normalized response events are append-only + Gun-mirrored; in-memory indices are derived caches; broadcast tag counters are server trend buckets; quota counters remain server-cache state. No precise locations in stats (regions use blurred/chatroom ids); small cohorts masked at < 3 responses; exports keep masking on. Shared schemas/aggregators live in `src/shared/talk-stats.ts`. Raw stats events retained as Gun-mirrored append-only records; compaction/user-pruning is a production policy follow-up.
-
-- **Survey analytics:** cross-question correlation; completion/skip rates by question; time-to-answer; segment filters (region/time bucket/talk type/responder cohort) under privacy thresholds; original vs follow-up survey comparison.
-- **Talk analytics:** unified creator dashboard (tags/flows/routes/surveys); match/ignore/response/completion rates across types; time series with day/week/month controls; per-question answer-distribution drilldown.
-- **Broadcast & tag analytics:** reach vs response rate; tag demand trends by region/time bucket; targeting effectiveness (tags → eligible → delivered → responses → matches); distance-cap effectiveness and local-vs-traveller split.
-- **Chatroom & location analytics:** room activity over time; broadcast volume/response/match rate by room; region-level trends without precise location; travel-mode participation and remote-room effectiveness.
-- **Peer & reputation analytics:** relationship history summaries; reputation trend inputs (ratings/blocks/age-votes/capacity impact); visibility-aware reputation sections respecting privacy settings.
+> All items shipped. See `docs/completed.md` for full details. Verification: `npx tsc --noEmit` clean; all 763 unit tests pass.
 
 ## Appendix C — Residual P2P transport & spec-gap follow-ups `[Haiku]` — AUDITED (2026-06-12)
 

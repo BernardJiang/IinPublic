@@ -1,6 +1,49 @@
 # IinPublic Completed Work
 
-Last updated: 2026-06-12
+Last updated: 2026-06-13
+
+## 2026-06-13 — Appendix B: Statistics expansion (all `[Sonnet]` items)
+
+All five statistics expansion areas from Appendix B shipped and verified. Stats are local-only since P0 Step 7 (server per-talk endpoints removed); all aggregation runs from `localTalkExchanges` in the browser.
+
+### Survey analytics
+- **Skip/completion rates per question**: `StatsSummary.byQuestion` gained `skipCount` and `completionRate` fields computed in `summarize()`. Displayed in survey stats dialog below each question title.
+- **Cross-question correlation**: `aggregateCrossQuestion()` integrated into survey stats dialog. Shows top-2 eligible questions' co-occurrence table with masking for small cohorts.
+- **Time-range segment filters**: `renderSurveyStatsDashboard` gained an All/7d/30d/90d filter dropdown. All cards, by-question breakdown, cross-question, day/region tables, follow-up candidates, and CSV exports re-aggregate from filtered responses.
+- **Original vs follow-up survey comparison**: follow-up button and gap-detection logic preserved and verified working with filtered data.
+
+### Talk analytics — unified creator dashboard
+- `displayStatisticsDashboard` rewritten to build a full local `StatsDashboard` from `buildAllLocalTalkResponses(readLocalTalkExchanges())` + `buildStatsDashboard()`. Covers all four talk types (tag/flow/survey/route) with by-type breakdown, top-talks table, and time-series trend.
+- Best-effort server augmentation: broadcast-tag popularity + trends fetched from `/api/stats/broadcast-tags` and `/api/stats/broadcast-tags/trends` if server is reachable; merged into the local dashboard.
+
+### Broadcast & tag analytics
+- Dashboard renders tag popularity table + day-by-day tag trend sub-table (up to last 7 days, up to 5 tags).
+- Local/traveller split shown as an aggregate header in the chatroom panel.
+
+### Chatroom & location analytics
+- Chatroom panel shows `localCount`/`travellerCount` aggregate totals.
+- Region rows include response count, match rate, local/travel split — all from `aggregateChatroomLocationStats`.
+
+### Peer & reputation analytics
+- Peer table expanded to show `ignores` column alongside matches and match rate.
+- Response trend (day-level, last 14 buckets) added as a dedicated panel.
+- Privacy note updated to reflect local-only source of truth.
+
+### Contextual stats strip (cross-tab)
+- `displayContextualStatistics` on Talks/Contacts/Me tabs rewritten as sync; reads local exchanges via `buildAllLocalTalkResponses` + `buildStatsDashboard`. No longer requires a server connection.
+
+### Shared helpers added
+- `src/web/services/local-peer-derivation.ts`: `buildTalkResponsesFromExchanges`, `buildAllLocalTalkResponses`, `exchangeToTalkResponse`
+- E2E helpers: `seedTalkLedgerOutcome`, `seedLocalTalkExchange` (both in `tests/e2e/helpers/talk-demo-ui.ts`)
+
+### E2E tests fixed
+- `10-stats-four-types.spec.ts`: rewritten to use local ledger seeding via `seedTalkLedgerOutcome`; no longer calls deleted server endpoints.
+- `00-statistics-dashboard.spec.ts`: rewritten to seed `localTalkExchanges` via `seedLocalTalkExchange`.
+- `00i-survey-analytics-dashboard.spec.ts`: replaced deleted server poll with `localStorage` poll.
+- `creator-reply-matrix.ts`: `submitMatrixResponse` made a no-op (dead code, superseded by snapshot import).
+- `recordTalkStatsByAnswerIds`: deprecated; now delegates to `seedTalkLedgerOutcome`.
+
+**Verification:** `npx tsc --noEmit` clean; all 763 unit/integration tests pass.
 
 ## 2026-06-12 - P1 libp2p transport + IPFS, P2 Find Similar, P2.5 sort pipeline (REQ-LIBP2P, REQ-SIM, REQ-SIM-07)
 
