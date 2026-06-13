@@ -23,6 +23,7 @@
 
 import type { KnownPerson } from '../../shared/types';
 import type { PeerRelationshipStats, PeerSummary } from '../../shared/peer-summary-types';
+import type { TalkResponse, TalkType } from '../../shared/talk-stats';
 
 // ── Local exchange record shape (written by app.ts#recordLocalTalkExchange) ──
 
@@ -393,4 +394,59 @@ export function deriveLocalCreatorReplies(currentUserId: string): LocalCreatorRe
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   );
   return rows;
+}
+
+// ── Talk-response helpers for local stats aggregation (STAT-01, Appendix B) ─
+
+/**
+ * Convert a single LocalTalkExchange (author side: received responses to MY talk)
+ * into a TalkResponse suitable for talk-stats.ts aggregation functions.
+ *
+ * Author-side exchanges have direction !== 'received'. Region is not stored
+ * locally (privacy by design); it is set to 'unknown'.
+ */
+function exchangeToTalkResponse(e: LocalTalkExchange): TalkResponse {
+  return {
+    responseId: e.responseId || `${e.peerId}::${e.talkId}::${e.date}`,
+    talkId: e.talkId,
+    talkType: (e.type || 'flow') as TalkType,
+    responderId: e.peerId,
+    region: 'unknown',
+    answers: Array.isArray(e.answers) ? e.answers : [],
+    createdAt: e.respondedAt
+      ? new Date(e.respondedAt).getTime()
+      : new Date(e.date).getTime(),
+    outcome: e.outcome === 'match' ? 'match' : e.outcome === 'ignore' ? 'ignore' : 'other',
+    ...(e.answerMode !== undefined && { answerMode: e.answerMode }),
+  };
+}
+
+/**
+ * Build TalkResponse[] for a specific talkId from local exchanges.
+ * Only includes exchanges where the current user is the AUTHOR (direction !== 'received').
+ */
+export function buildTalkResponsesFromExchanges(
+  talkId: string,
+  exchanges: LocalTalkExchange[],
+): TalkResponse[] {
+  return exchanges
+    .filter((e) => e.talkId === talkId && e.direction !== 'received')
+    .map(exchangeToTalkResponse);
+}
+
+/**
+ * Build a Map<talkId, TalkResponse[]> for all talks from local exchanges.
+ * Only includes author-side exchanges (direction !== 'received').
+ */
+export function buildAllLocalTalkResponses(
+  exchanges: LocalTalkExchange[],
+): Map<string, TalkResponse[]> {
+  const byTalk = new Map<string, TalkResponse[]>();
+  for (const e of exchanges) {
+    if (e.direction === 'received') continue;
+    const list = byTalk.get(e.talkId) ?? [];
+    list.push(exchangeToTalkResponse(e));
+    byTalk.set(e.talkId, list);
+  }
+  return byTalk;
 }

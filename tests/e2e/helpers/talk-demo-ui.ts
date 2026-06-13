@@ -446,6 +446,108 @@ export async function findIncomingTalkIdByTitle(page: Page, titleSubstring: stri
   throw new Error(`findIncomingTalkIdByTitle: no talk matching "${titleSubstring}"`);
 }
 
+/**
+ * Seed a TalkLedger outcome entry directly into the browser's localStorage.
+ *
+ * Replaces the now-deleted POST /api/stats/talks/:id/record server endpoint.
+ * Stats are local-only since P0 Step 7; this helper writes the authoritative
+ * `talkLedger` localStorage key so that:
+ *   - app.ts `needTalkStats` shows the correct "Responses: N" count in the UI
+ *   - summarize() / buildAllLocalTalkResponses() produce correct output
+ *
+ * @param page         Browser page where the app is running (authorId is read from the app)
+ * @param talkId       The talk's ID
+ * @param responderId  Synthetic responder ID (e.g. 'stats-jerry')
+ * @param ledgerOutcome 'matched' | 'ignored' | 'other' (TalkLedger outcome, not TalkResponse outcome)
+ */
+export async function seedTalkLedgerOutcome(
+  page: Page,
+  talkId: string,
+  responderId: string,
+  ledgerOutcome: 'matched' | 'ignored' | 'other' = 'other',
+): Promise<void> {
+  await page.evaluate(
+    ({ talkId, responderId, ledgerOutcome }) => {
+      const authorId: string =
+        (window as any).__iinpublic_app?.getApp?.()?.currentUser?.id ?? 'unknown-author';
+      const key = `${responderId}::${talkId}::${authorId}`;
+      const now = new Date().toISOString();
+      const raw = localStorage.getItem('talkLedger');
+      const doc: any = raw
+        ? JSON.parse(raw)
+        : { version: 1, outcomes: {}, exchanged: {}, edges: {}, retracted: {} };
+      doc.outcomes[key] = {
+        responderId,
+        talkId,
+        authorId,
+        identityKey: `${talkId}::${authorId}`,
+        outcome: ledgerOutcome,
+        version: 1,
+        responseId: `seed::${key}`,
+        respondedAt: now,
+        updatedAt: now,
+      };
+      localStorage.setItem('talkLedger', JSON.stringify(doc));
+    },
+    { talkId, responderId, ledgerOutcome },
+  );
+}
+
+/**
+ * Seed a LocalTalkExchange record directly into the browser's localStorage.
+ *
+ * This populates the `localTalkExchanges` key which drives:
+ *   - The contextual stats strip (#talks-stats-strip, #contacts-stats-strip, etc.)
+ *   - Survey stats dialog (showSurveyStatsDialog)
+ *   - displayStatisticsDashboard (unified creator dashboard)
+ *
+ * Direction is always 'sent' (author side) so buildAllLocalTalkResponses picks it up.
+ */
+export async function seedLocalTalkExchange(
+  page: Page,
+  talkId: string,
+  opts: {
+    responderId?: string;
+    outcome?: 'match' | 'mismatch' | 'ignore';
+    talkType?: string;
+    answers?: Array<{ questionId: string; answerId: string; answerText?: string }>;
+    region?: string;
+  } = {},
+): Promise<void> {
+  await page.evaluate(
+    ({ talkId, opts }) => {
+      const responderId = opts.responderId || `seed-responder-${Math.random().toString(36).slice(2, 7)}`;
+      const key = `${responderId}::${talkId}`;
+      const now = new Date().toISOString();
+      const raw = localStorage.getItem('localTalkExchanges');
+      const store: Record<string, unknown> = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      store[key] = {
+        peerId: responderId,
+        peerName: responderId,
+        talkId,
+        title: `Seeded talk ${talkId}`,
+        type: opts.talkType || 'survey',
+        outcome: opts.outcome || 'mismatch',
+        direction: 'sent',
+        date: now,
+        respondedAt: now,
+        answers: opts.answers || [],
+        responseId: `seed::${key}::${Date.now()}`,
+        version: 1,
+        language: 'en',
+        region: opts.region || 'unknown',
+      };
+      localStorage.setItem('localTalkExchanges', JSON.stringify(store));
+    },
+    { talkId, opts },
+  );
+}
+
+/**
+ * @deprecated The server-side stats record endpoint was removed in P0 Step 7.
+ *   Use seedTalkLedgerOutcome() to seed local ledger state instead.
+ *   Kept for reference during migration.
+ */
 export async function recordTalkStatsByAnswerIds(
   page: Page,
   talkId: string,
@@ -454,18 +556,9 @@ export async function recordTalkStatsByAnswerIds(
   answerIds: string[],
   outcome: 'match' | 'ignore' | 'other' = 'other',
 ): Promise<void> {
-  const answers = answersForIds(talkData, answerIds);
-  const res = await page.context().request.post(`${gunBaseURL()}/api/stats/talks/${encodeURIComponent(talkId)}/record`, {
-    data: {
-      responderId,
-      talkType: talkData?.type || 'flow',
-      answers,
-      outcome,
-    },
-  });
-  if (!res.ok()) {
-    throw new Error(`POST /api/stats/talks/${talkId}/record failed: ${res.status()} ${await res.text()}`);
-  }
+  // Map TalkResponse outcome to TalkLedger outcome and delegate to local seeding.
+  const ledgerOutcome = outcome === 'match' ? 'matched' : outcome === 'ignore' ? 'ignored' : 'other';
+  await seedTalkLedgerOutcome(page, talkId, responderId, ledgerOutcome as 'matched' | 'ignored' | 'other');
 }
 
 /**

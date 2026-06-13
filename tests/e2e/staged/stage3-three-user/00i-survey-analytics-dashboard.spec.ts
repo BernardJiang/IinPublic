@@ -88,17 +88,25 @@ test.describe('Survey analytics dashboard', () => {
     await answerSurveyByAnswerIds(pageBob, title, ['bg_kfc', 'fr_kfc', 'pz_dom'], talkId);
     await afterSync();
 
+    // Since P0 Step 7 stats are local-only. Wait until Tom's localTalkExchanges
+    // has received both responders' answers (direction='sent', authored by Tom).
     await expect
       .poll(
         async () => {
-          const res = await pageTom.context().request.get(
-            `${gunBaseURL()}/api/stats/talks/${encodeURIComponent(talkId)}/summary`,
-          );
-          if (!res.ok()) return 0;
-          const data = (await res.json()) as { total?: number };
-          return Number(data.total ?? 0);
+          return pageTom.evaluate((tid) => {
+            try {
+              const raw = localStorage.getItem('localTalkExchanges');
+              if (!raw) return 0;
+              const store = JSON.parse(raw) as Record<string, unknown>;
+              return Object.values(store).filter(
+                (e: any) => e?.talkId === tid && e?.direction !== 'received',
+              ).length;
+            } catch {
+              return 0;
+            }
+          }, talkId);
         },
-        { timeout: 60_000, message: 'Expected survey summary to include both responder answers' },
+        { timeout: 60_000, message: 'Expected localTalkExchanges to include both responder answers' },
       )
       .toBeGreaterThanOrEqual(2);
 

@@ -47,7 +47,12 @@ export interface StatsSummary {
   ignores: number;
   byQuestion: Array<{
     questionId: string;
+    /** Number of responses that answered this question. */
     total: number;
+    /** Number of responses that skipped (did not answer) this question. */
+    skipCount: number;
+    /** Fraction (0–100) of respondents who answered this question. */
+    completionRate: number;
     answers: Array<{ answerId: string; answerText: string; count: number; percentage: number }>;
   }>;
 }
@@ -263,8 +268,12 @@ export function summarize(talkId: string, talkType: TalkType, responses: TalkRes
       m.set(a.answerId, (m.get(a.answerId) ?? 0) + 1);
     }
   }
+  const totalResponses = responses.length;
   const byQuestion = Object.entries(byQ).map(([questionId, counts]) => {
+    // total = unique respondents who answered this question (each respondent answers once per question)
     const total = Array.from(counts.values()).reduce((s, n) => s + n, 0);
+    const skipCount = Math.max(0, totalResponses - total);
+    const completionRate = totalResponses > 0 ? +((total * 100) / totalResponses).toFixed(1) : 0;
     const answers = Array.from(counts.entries()).map(([answerId, count]) => ({
       answerId,
       answerText: answerTextById(questionId, answerId, responses),
@@ -272,9 +281,9 @@ export function summarize(talkId: string, talkType: TalkType, responses: TalkRes
       percentage: total > 0 ? +((count * 100) / total).toFixed(2) : 0,
     }));
     answers.sort((a, b) => b.count - a.count);
-    return { questionId, total, answers };
+    return { questionId, total, skipCount, completionRate, answers };
   });
-  return { talkId, talkType, total: responses.length, matches, ignores, byQuestion };
+  return { talkId, talkType, total: totalResponses, matches, ignores, byQuestion };
 }
 
 export function aggregateByTime(

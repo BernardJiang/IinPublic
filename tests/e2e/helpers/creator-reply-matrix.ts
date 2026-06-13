@@ -142,34 +142,18 @@ export async function registerTalkToResponders(
   }
 }
 
+/**
+ * @deprecated POST /api/stats/talks/:id/record was removed in P0 Step 7.
+ * Stats are now local-only. This function is a no-op; matrix tests use
+ * importChampionReplyMatrixSnapshot (snapshot import) instead.
+ */
 export async function submitMatrixResponse(
-  talk: MatrixTalk,
-  responder: MatrixResponder,
-  match: boolean,
+  _talk: MatrixTalk,
+  _responder: MatrixResponder,
+  _match: boolean,
 ): Promise<void> {
-  const base = gunBaseURL();
-  const talkData = talk.talkData as any;
-  const questions = Array.isArray(talkData?.questions) ? talkData.questions : [];
-  const q = questions[0];
-  const answers = Array.isArray(q?.answers) ? q.answers : [];
-  const picked = match
-    ? answers.find((a: any) => a?.isMatch)
-    : answers.find((a: any) => a?.isIgnore);
-  const res = await postJson(base, `/api/stats/talks/${encodeURIComponent(talk.talkId)}/record`, {
-    responderId: responder.id,
-    talkType: talkData?.type || 'flow',
-    answers: [
-      {
-        questionId: String(q?.id || 'q1'),
-        answerId: String(picked?.id || (match ? 'a_match' : 'a_ignore')),
-        answerText: String(picked?.text || (match ? 'Yes' : 'No')),
-      },
-    ],
-    outcome: match ? 'match' : 'other',
-  });
-  if (!res.ok) {
-    throw new Error(`matrix stats record failed: ${res.status} ${await res.text()}`);
-  }
+  // No-op: server-side stats record endpoint removed in P0 Step 7.
+  // Matrix seeding uses importChampionReplyMatrixSnapshot (Gun snapshot import).
 }
 
 /** Responder i matches talk i; all other pairs mismatch (10×10 = 100 replies). */
