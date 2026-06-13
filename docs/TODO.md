@@ -81,23 +81,27 @@ N ≈ 100k reachable users. **Design of record:** spec §22 (Scalable "Find Simi
 
 #### 2. Dropout-tolerant exchange (Scenario 1, REQ-SIM-04) `[Opus]` — removing pairwise barriers; concurrency reasoning
 
-- [ ] Model exchange as publish + independent local read (no pairwise barrier / completion gate)
-- [ ] Test: a peer dropping out mid-exchange does not block any other pairwise score
+- 2026-06-12: shared core `src/shared/find-similar.ts` (`FindSimilarIndex`). Publish (`upsert`/`publishWeights`/`applyDelta`) and read (`score`/`topK`) are decoupled — a peer that never published or dropped out is simply absent and never blocks any other pairwise score. No completion gate.
+- [x] Model exchange as publish + independent local read (no pairwise barrier / completion gate)
+- [x] Test: a peer dropping out mid-exchange does not block any other pairwise score (`src/test/unit/find-similar.test.ts` §2)
 
 #### 3. Incremental tag mutation + weighting (Scenarios 2 & 3, REQ-SIM-05/06) `[Opus]` — O(|delta|) patching correctness + combine-policy decision
 
-- [ ] Publish **deltas** (`{version, changed:{tag: weight|null}}`), O(1) `hash` change-detect, skip if unchanged
-- [ ] Incrementally patch the single affected pairwise score (O(|delta|)); recompute only the mutated user's row
-- [ ] Tag weighting end to end via the same delta path; pick + document the combine policy (asymmetry)
-- [ ] Test: one user mutates tags → exactly one publish; all peers' rankings update without full re-exchange
+- 2026-06-12: delta transport in `src/shared/user-tags.ts` (`diffUserTags` → `{version, changed:{tag:weight|null}}`, `applyUserTagsDelta` version-gated); `patchPairwiseScore` in `find-similar.ts` patches one cached score in O(|delta|). Combine policy: default **viewer-standard** (asymmetric, "my ranking of them"); `COMBINE_POLICIES` also offers count / mutual-importance / conservative. Wired into `web-user-service.putUserTags` (in-memory snapshot → minimal Gun delta publish, no nested-read race).
+- [x] Publish **deltas** (`{version, changed:{tag: weight|null}}`), O(1) `hash` change-detect, skip if unchanged
+- [x] Incrementally patch the single affected pairwise score (O(|delta|)); recompute only the mutated user's row
+- [x] Tag weighting end to end via the same delta path; pick + document the combine policy (asymmetry)
+- [x] Test: one user mutates tags → exactly one publish; all peers' rankings update without full re-exchange (`find-similar.test.ts` §3)
 
 #### 4. Scale to ~100k (P3, REQ-SIM-NFR-01/02/05) `[Opus]` — index/heap architecture, latency budgets, open design decisions
 
-- [ ] Inverted `tag-index/<tag> : Set<userId>`; candidate set = union over viewer's tags (only ≥1-shared-tag users scored)
-- [ ] Bounded top-K heap retrieval (no full-population sort); hot-tag capping / min-shared-tags threshold
-- [ ] Locality scoping (chatroom/region/proximity) to bound effective N per query
-- [ ] Decide weight visibility vs. "their standard" sort (public weights = client-side; private = server-computed)
-- [ ] Test: top-K ranking over a 100k-scale population stays within latency budget and never goes O(N²)
+- 2026-06-12: inverted `tag-index` maintained in `FindSimilarIndex` (and published to Gun `tag-index/<tag>` by `web-user-service.reconcileTagIndex`, added/removed tags only). `candidatesFor` = union over viewer tags with hot-tag cap + min-shared-tags threshold + locality predicate; `topK` uses a bounded min-heap (no full sort). 100k-population unit test asserts twin ranks #1, `candidatesScored < N/10`, `combineCalls < N`, query < 1s.
+- **Weight-visibility decision:** weights are published (client-side asymmetric ranking incl. "their standard" = `matchScore(other, viewer)`); a private-weight path would require server compute (§22.8.4) — deferred until a privacy requirement forces it.
+- [x] Inverted `tag-index/<tag> : Set<userId>`; candidate set = union over viewer's tags (only ≥1-shared-tag users scored)
+- [x] Bounded top-K heap retrieval (no full-population sort); hot-tag capping / min-shared-tags threshold
+- [x] Locality scoping (chatroom/region/proximity) to bound effective N per query
+- [x] Decide weight visibility vs. "their standard" sort (public weights = client-side; private = server-computed)
+- [x] Test: top-K ranking over a 100k-scale population stays within latency budget and never goes O(N²) (`find-similar.test.ts` §4)
 
 #### 5. Generic retrieve→sort→display pipeline (P4, REQ-SIM-07) `[Haiku]` — mechanical registry + wiring 3 known call sites
 

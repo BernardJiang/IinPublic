@@ -22,7 +22,16 @@ import {
   TECHSUPPORT_ROOT_USER_ID,
   TECHSUPPORT_STAGE_NAME,
 } from '../../shared/techsupport';
-import { buildUserTagsEnvelope, USER_TAGS_KEY } from '../../shared/user-tags';
+import {
+  buildUserTagsEnvelope,
+  buildUserTagWeightMap,
+  diffUserTags,
+  USER_TAGS_KEY,
+  type UserTagsEnvelope,
+} from '../../shared/user-tags';
+
+const USER_TAGS_DELTA_KEY = 'user-tags-delta';
+const TAG_INDEX_KEY = 'tag-index';
 
 type PrivateUserData = Pick<User, 'profile' | 'languages' | 'interests' | 'knownPeople' | 'blockedUserIds' | 'talkFilters'> & {
   headshot?: string;
@@ -240,8 +249,49 @@ export class WebUserService {
     });
   }
 
+  /**
+   * Last-published tag envelope per user, kept in-memory so an update can publish
+   * a minimal delta (REQ-SIM-05) and reconcile only the changed inverted-index
+   * entries (spec §22.4.1) without a racy Gun nested-read.
+   */
+  private readonly lastPublishedTags = new Map<string, UserTagsEnvelope>();
+
   private async putUserTags(user: User, now: Date = new Date()): Promise<void> {
-    await this.gunService.put(`${USER_TAGS_KEY}/${user.id}`, buildUserTagsEnvelope(user.interests, now));
+    const prev = this.lastPublishedTags.get(user.id);
+    const nextTags = buildUserTagWeightMap(user.interests);
+
+    if (!prev) {
+      const envelope = buildUserTagsEnvelope(user.interests, now);
+      await this.gunService.put(`${USER_TAGS_KEY}/${user.id}`, envelope);
+      await this.reconcileTagIndex(user.id, {}, envelope.tags);
+      this.lastPublishedTags.set(user.id, envelope);
+      return;
+    }
+
+    // O(1) hash change-detect; skip the publish entirely if nothing changed.
+    const { envelope, delta } = diffUserTags(prev, nextTags, now);
+    if (!delta) return;
+
+    await this.gunService.put(`${USER_TAGS_KEY}/${user.id}`, envelope);
+    await this.gunService.put(`${USER_TAGS_DELTA_KEY}/${user.id}`, delta);
+    await this.reconcileTagIndex(user.id, prev.tags, envelope.tags);
+    this.lastPublishedTags.set(user.id, envelope);
+  }
+
+  /** Maintain the inverted `tag-index/<tag>` index for added/removed tags only. */
+  private async reconcileTagIndex(
+    userId: string,
+    prevTags: Record<string, number>,
+    nextTags: Record<string, number>,
+  ): Promise<void> {
+    const touched = new Map<string, boolean>();
+    for (const tag of Object.keys(nextTags)) if (!(tag in prevTags)) touched.set(tag, true);
+    for (const tag of Object.keys(prevTags)) if (!(tag in nextTags)) touched.set(tag, false);
+    await Promise.all(
+      [...touched.entries()].map(([tag, present]) =>
+        this.gunService.put(`${TAG_INDEX_KEY}/${tag}`, { [userId]: present }),
+      ),
+    );
   }
 
   private putUserTagsBestEffort(user: User, now: Date = new Date()): void {

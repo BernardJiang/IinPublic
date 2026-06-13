@@ -43,7 +43,8 @@ describe('WebUserService', () => {
       epub: pair.epub,
     });
 
-    expect(gunService.put).toHaveBeenCalledTimes(4);
+    // users, user-public-profile, user-talk-filters, user-tags, tag-index/<tag>
+    expect(gunService.put).toHaveBeenCalledTimes(5);
     const publicRecord = gunService.put.mock.calls[0][1] as User;
     expect(publicRecord.stageName).toBe('Alice');
     expect(publicRecord.pub).toBe(pair.pub);
@@ -82,6 +83,11 @@ describe('WebUserService', () => {
         hash: expect.any(String),
         tags: { coffee: 1 },
       }),
+    );
+    // Inverted index (spec §22.4.1): the new user is registered under each tag.
+    expect(gunService.put).toHaveBeenCalledWith(
+      `tag-index/coffee`,
+      { [createdUserId]: true },
     );
 
     expect(gunService.putPrivate).toHaveBeenCalledWith(
