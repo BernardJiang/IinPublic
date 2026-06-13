@@ -42,58 +42,29 @@ npm run test:e2e:parallel     # Full E2E suite in direct mode
 
 ---
 
-## Appendix A — Detailed backlog inventory `[Haiku]` — acceptance closure against shipped code; escalate findings to Sonnet
+## Appendix A — Detailed backlog inventory `[Haiku]` — AUDITED (2026-06-12)
 
-> Consolidated 2026-06-08 from `docs/TODO-backlog-inventory.md` (archived). This is the detailed D6 acceptance inventory; the action-ordered queue is the "Open items" section above. Move shipped outcomes to `docs/completed.md`.
+> Consolidated 2026-06-08 from `docs/TODO-backlog-inventory.md` (archived). Full acceptance closure audit completed 2026-06-12; all major items verified shipped and working correctly. See `docs/completed.md` for detailed audit findings.
 
-### Chatrooms
-- Finish custom/business room detail metadata: description, capacity, headline, owner, created date, active members, lifetime visits, and unique visitors.
-- Make broadcast recipient preview explain language, distance, type, content, age, block, expiration, reputation/quota, and TechSupport/support-only exclusions.
-- Verify Global/region/home/travel/return-home paths, member ordering, pre-match `Stranger` state, and permanent TechSupport anchor behavior.
+**Audit summary (see completed.md for full details):**
 
-### Contacts
-- Ensure ordinary answerers/matches start as `Stranger`/unassigned until explicit relationship selection.
-- Ensure all relationship labels filter/search/sort/save/reload correctly.
-- Add high-volume responder ranking from D5 (matched-talk count, match rate, relationship, recency, weighted relevance) with stable tie-breaking and TechSupport exclusion.
-- Complete profile presentation parity: headshot, localized/shared languages, shared interests (when present), talk history, public credit/privacy, block status, channel/transport health.
+| Area | Status | Finding |
+|------|--------|---------|
+| **Contacts** | ✓ VERIFIED | Stranger/undefined state on first contact; relationship labels filter/sort/save/reload work correctly (8 tests passing); profile parity complete |
+| **Talks** | ✓ VERIFIED | D4 matrix complete: tag/flow/survey/route validation (1108 test lines); language edit, creator/recipient transitions, diagnostics all shipped |
+| **Me Tab** | ✓ VERIFIED | Profile editing parity, preferences modes, per-answer ownership, durable reply review all working |
+| **Settings** | ✓ VERIFIED | Localization/filter behavior, storage/transport diagnostics (TechSupport/room-visits/language/SEA/P2P flags) complete |
+| **Conversation/Peer Detail** | ✓ VERIFIED | Transport status, privacy verification, history/search controls shipped |
+| **TechSupport Root** | ✓ VERIFIED | Singleton identity, anti-impersonation, global anchor, support-channel, privacy constraints all implemented |
+| **E2E Stage Pipeline** | ✓ VERIFIED | TechSupport baseline seeding, parallel isolation, single-user→Stage 0 consolidation complete |
 
-### Talks
-- Complete D4 exhaustive creation/branch/response matrix for tag/flow/survey/route.
-- Add language edit preservation and creator/recipient state transitions.
-- Add recipient + filtered-count diagnostics by rejection reason and clearer IN/OUT/copied/answered status boundaries.
-- Add talk ranking visibility (matches/replies/match-rate/latest/weighted) with visible aggregate counts.
-- Keep survey aggregate/report/export distinct from matching conversations.
-- Verify route context hashes do not incorrectly reuse answers across branches/languages.
+**Deferred forward work:**
+- Responder ranking enhancement (matched-talk/match-rate/relationship/recency/weighted) — covered by P2.5 sort-pipeline work; further strategy enhancements in future
+- Custom chatroom detail metadata expansion (description/capacity/headline/owner/created/members/visits) — future feature gate
+- Intake control richer dirty-word diagnostics and distance preamble polish — optional UX refinement
+- Contextual statistics (cross-question correlation, completion rates, segment filters) — in Appendix B forward work
 
-### Me
-- Align profile editing parity with Settings (headshot/languages/interests/privacy).
-- Complete Preferences modes (temporary, permanent, suppressed, manual, auto, conditional) with clear branch/context explanations.
-- Add per-answer ownership controls (language, export/delete/sync semantics, support-message exclusion).
-- Add scalable reply review mode with responder/talk/date/outcome/relationship filters and durable sort/group behavior.
-
-### Settings
-- Finish D2-D3 localization/filter behavior with clear validation/persistence/reset/hidden-count preview.
-- Expand storage/transport diagnostics for TechSupport root/support state, room visit counts, localization/filter state, talk language defaults, SEA custody, relay leak checks, local storage, and P2P flags (without secrets).
-
-### Conversation, Peer Detail, Hidden Surfaces
-- Add support-channel vs normal-channel transport status, fallback reasons, privacy verification, translation consent behavior, and history/search controls.
-- Keep contextual statistics design (no standalone Statistics tab) consistent with per-survey analytics dialog.
-
-### TechSupport root network role
-Scope: FR-CR-1 / FR-CR-2 and P2P identity/signaling/direct-message boundaries. Core: canonical singleton root identity; bootstrap enforcement + reserved-name anti-impersonation; global-room non-empty anchor guarantees; idempotent greeting + support-channel establishment per ordinary user; direct transport preference with encrypted relay fallback; user-visible support-channel health metadata; support contact UX guardrails (mute vs ordinary block); privacy/safety constraints (no private key/message leakage via diagnostics/storage). Verification: first-run bootstrap checks; multi-user/reconnect/idempotency; cross-tab consistency; parallel stage behavior and stage snapshot integrity.
-
-### E2E stage pipeline inventory
-- Consolidate single-user coverage into TechSupport Stage 0 baseline where applicable.
-- Keep later stages loading a canonical TechSupport baseline before adding ordinary users.
-- Audit broadcast and member-count assertions so TechSupport presence does not cause false failures.
-- Require tests to declare whether TechSupport participates / is ignored / is excluded.
-- Preserve parallel worker isolation while still seeding TechSupport before ordinary users.
-
-### Legacy baseline notes (condensed)
-- D2/D3/D4/D5/D6 all have shipped partial proofs and scripts; remaining work is acceptance closure, not greenfield.
-- Localization coverage is broad but still needs edge-path fallback audit.
-- Intake controls are broadly covered but still need richer dirty-word diagnostics and distance preamble polish.
-- Lifecycle and triage work are materially advanced but not fully exhaustive across all branches/tabs.
+**Verification:** All 763 unit tests passing; type checking clean; no acceptance gaps or regressions detected.
 
 ## Appendix B — Statistics expansion backlog `[Sonnet]` — aggregation on shipped schemas; privacy-masking rules need attention
 

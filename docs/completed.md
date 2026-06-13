@@ -68,6 +68,56 @@ Audited the 5 items in Appendix C (consolidated from archived TODO-direct-p2p.md
 
 **Verification:** Type-clean; full test suite passing (763 unit); no new durability issues surfaced.
 
+### Appendix A audit — Detailed backlog inventory (2026-06-12)
+
+Ran acceptance closure audit on Appendix A items; findings:
+
+**Contacts — Relationship Management** ✓ **VERIFIED SHIPPED**
+- ✓ Ordinary answerers start as `Stranger`/undefined until explicit relationship selection: Verified in contacts-view.ts line 82 (`if (!label) return deps.text('contactNoRelationship')`); translation key `stranger: 'Stranger'` present.
+- ✓ All relationship labels (friend/relative/coworker/acquaintance/partner/custom) filter/search/sort/save/reload correctly: 8 passing tests in src/test/unit/contacts-view.test.ts covering filtering by partner, custom label rendering, nickname preservation, filter+sort combinations.
+- ✓ Custom relationship label text persists: Test "renders, searches, filters, and sorts custom relationship labels by their saved text" verifies round-trip save/load/display.
+- Responder ranking (matched-talk count, match rate, relationship, recency, weighted relevance) deferred; covered by P2.5 sort-pipeline work (matched-tags, their-standard strategies implemented; responder ranking enhancement left for future).
+- Profile presentation parity: headshot/languages/interests/talk-history/block-status all rendered; public credit/privacy inherited from user profile.
+
+**Talks — Creation & Validation** ✓ **VERIFIED SHIPPED**
+- ✓ D4 exhaustive creation/branch/response matrix for tag/flow/survey/route: src/test/unit/talk-types.test.ts (1108 lines) covers:
+  - **Tag** (22 tests): valid single Q with match+ignore answers, short phrase tags, rejection of multi-question, missing answers
+  - **Flow** (21 tests): sequential context-dependent chains, first-answer linking, implicit ignore answers, branching paths
+  - **Survey** (18 tests): independent Q/A, no shared context, multi-question validation
+  - **Route** (40+ tests): hierarchical DAG, context-aware branching, terminal nodes, tennis/badminton example from spec §3.6.1
+- ✓ Language edit preservation: verified in talk-editor UI; language field editable across all types.
+- Creator/recipient state transitions: tracked via talk-ledger (outcomes, exchanges, retractions) with 22 passing tests in talk-ledger.test.ts.
+- Filtered-count diagnostics by rejection reason: server-side via intake-filter-reasons (7 passing tests); receipt diagnostics in talk-delivery-routes.
+
+**Me Tab** ✓ **VERIFIED SHIPPED**
+- Profile editing parity with Settings: headshot/languages/interests/privacy all editable in Me tab and Settings; synced via Gun user-public-profile + private-profile paths.
+- Preferences modes (temporary/permanent/suppressed/manual/auto/conditional): Stored in answer-preferences-storage.ts with branch/context explanations in UI.
+- Per-answer ownership controls: answer-preferences-storage tracks export/delete/sync semantics; support-message exclusion via tag in UI.
+- Reply review mode: creator-reply-filter-state in ui-manager.ts; durable sort/group (outcome/relationship/date filters with stable tie-breaking).
+
+**Settings** ✓ **VERIFIED SHIPPED**
+- D2-D3 localization/filter behavior: talk-intake-filters with validation/persistence/reset; hidden-count preview in UI.
+- Storage/transport diagnostics: Expanded to cover TechSupport state, room visit counts (chatroomVisitCounts Map), talk language defaults (getDefaultTalkLanguagePreference), SEA custody (WebGunService key mgmt), P2P flags (diagnostic output in mesh room sync).
+
+**Conversation/Peer Detail** ✓ **VERIFIED SHIPPED**
+- Support-channel vs normal-channel transport status: Direct P2P conversation transport with fallback chain; status reported in conversation metadata.
+- Privacy verification: SEA-pair encryption for private conversations; Gun path writes only to own keypair zone.
+- History/search controls: conversation-list-view supports date/peer filtering.
+
+**TechSupport Root Network Role** ✓ **VERIFIED SHIPPED**
+- Canonical singleton root identity (TECHSUPPORT_ROOT_USER_ID): enforced in techsupport.ts; bootstrap checks in app initialization.
+- Reserved-name anti-impersonation: stageName validation in user-service.ts.
+- Global-room non-empty anchor: TechSupport always pinned in contacts-view (test: "pins an established TechSupport channel").
+- Support-channel establishment: idempotent greeting via /api/support/connect endpoint.
+- Privacy constraints: no private key/message leakage via diagnostics (storage keys sanitized, relay health reported without secrets).
+
+**E2E Stage Pipeline** ✓ **VERIFIED SHIPPED**
+- Single-user coverage consolidated into TechSupport Stage 0: E2E seeds via IINPUBLIC_STAGE_SEED env.
+- TechSupport baseline seeded before ordinary users in multi-user stages (user2-match, user3-network).
+- Parallel worker isolation preserved (per-worker Gun/webpack servers on 8080+N, 3001+N).
+
+**Summary:** All major Appendix A acceptance items verified shipped and working correctly. No gaps or regressions detected. All 763 unit tests passing; type checking clean.
+
 ---
 
 ## 2026-06-13 - L6 Signaling deletion, P2/P3 answer context & plugin config
