@@ -21,6 +21,7 @@ import { normalizeQuestionKey, interestsFromCommaInput } from '../../shared/user
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../shared/interest-catalog';
 import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
+import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { getFlatChatroomList, CHATROOM_HIERARCHY } from '../../shared/chatroom-hierarchy';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
@@ -228,6 +229,7 @@ export class UIManager extends EventEmitter {
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
   private talksViewMode: 'all' | 'in' | 'out' = 'all';
   private talksOutSortMode: 'recent' | 'oldest' | 'latest-reply' | 'matches' | 'responses' | 'match-rate' | 'weighted' | 'title' = 'recent';
+  private contactsSortId: string = 'matched-tags'; // Sort strategy for contacts view
   private apiBase: string = '';
   private currentUserId: string = '';
   private currentLocation: GPSCoordinate | undefined = undefined;
@@ -1597,6 +1599,12 @@ export class UIManager extends EventEmitter {
       text: this.t.bind(this),
       formatLanguage: this.formatTalkLanguage.bind(this),
       getProfileLanguages: () => this.currentUser?.languages || ['en'],
+      sortStrategies: SORT_STRATEGIES,
+      activeSortId: this.contactsSortId,
+      onSortChange: (sortId: string) => {
+        this.contactsSortId = sortId;
+        this.showContactsList();
+      },
       ...(this.contactPreRenderSync ? { beforeRender: this.contactPreRenderSync } : {}),
       ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
     });
@@ -1624,6 +1632,12 @@ export class UIManager extends EventEmitter {
       text: this.t.bind(this),
       formatLanguage: this.formatTalkLanguage.bind(this),
       getProfileLanguages: () => this.currentUser?.languages || ['en'],
+      sortStrategies: SORT_STRATEGIES,
+      activeSortId: this.contactsSortId,
+      onSortChange: (sortId: string) => {
+        this.contactsSortId = sortId;
+        this.displayContactsList();
+      },
       ...(this.contactPreRenderSync ? { beforeRender: this.contactPreRenderSync } : {}),
       ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
     });
@@ -1652,6 +1666,11 @@ export class UIManager extends EventEmitter {
         text: this.t.bind(this),
         formatLanguage: this.formatTalkLanguage.bind(this),
         getProfileLanguages: () => this.currentUser?.languages || ['en'],
+        sortStrategies: SORT_STRATEGIES,
+        activeSortId: this.contactsSortId,
+        onSortChange: (sortId: string) => {
+          this.contactsSortId = sortId;
+        },
         ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
       },
       otherUserId,

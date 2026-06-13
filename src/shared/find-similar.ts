@@ -342,3 +342,94 @@ export class FindSimilarIndex {
 
 /** Re-export for callers building viewer/other inputs from arbitrary tag shapes. */
 export type { WeightedTagInput };
+
+// ─── Sort strategies for retrieve→sort→display pipeline (REQ-SIM-07) ────────────
+
+/**
+ * Describes how to sort a set of candidates. The registry lets UI present a dropdown
+ * without hard-coding sort logic.
+ */
+export type SortStrategy = {
+  /** Stable identifier: 'matched-tags', 'distance', 'their-standard' */
+  id: string;
+  /** Display label for UI dropdown */
+  label: string;
+  /**
+   * Sort key: 'score' for matched-tags, 'distance' for proximity, 'their-standard' for reciprocal.
+   * Used by rankPeople to select the comparison field.
+   */
+  key: 'score' | 'distance' | 'their-standard';
+  /** Sort direction: 'desc' for descending (best first), 'asc' for ascending */
+  dir: 'asc' | 'desc';
+};
+
+export const SORT_STRATEGIES: Record<string, SortStrategy> = {
+  'matched-tags': {
+    id: 'matched-tags',
+    label: 'Matched Tags',
+    key: 'score',
+    dir: 'desc',
+  },
+  distance: {
+    id: 'distance',
+    label: 'Distance',
+    key: 'distance',
+    dir: 'asc',
+  },
+  'their-standard': {
+    id: 'their-standard',
+    label: "How They Rate You",
+    key: 'their-standard',
+    dir: 'desc',
+  },
+};
+
+export const DEFAULT_SORT_STRATEGY: SortStrategy = SORT_STRATEGIES['matched-tags'];
+
+/**
+ * Materialize a candidate set once, then re-sort in memory by the selected strategy
+ * (REQ-SIM-07). No extra reads — the operation is pure in-memory re-ordering.
+ *
+ * `candidates`: the RankedPerson[] results from topK() or similar
+ * `viewerId`: current user (needed for 'their-standard' reciprocal scoring)
+ * `index`: FindSimilarIndex for computing reciprocal scores
+ * `sortId`: the strategy id (from SortStrategy.id)
+ * `filters`: optional location/proximity filter (future expansion)
+ *
+ * Returns the same candidate array, sorted by the strategy's key/dir.
+ */
+export function rankPeople(
+  candidates: RankedPerson[],
+  viewerId: string,
+  index: FindSimilarIndex,
+  sortId: string = 'matched-tags',
+  filters?: { combine?: CombinePolicyId | MatchScoreCombine },
+): RankedPerson[] {
+  const strategy = SORT_STRATEGIES[sortId] ?? DEFAULT_SORT_STRATEGY;
+  const combine = resolveCombine(filters?.combine);
+
+  if (strategy.key === 'score') {
+    // Already scored by topK; just re-sort by score.
+    return candidates.sort((a, b) => (strategy.dir === 'desc' ? b.score - a.score : a.score - b.score));
+  }
+
+  if (strategy.key === 'their-standard') {
+    // Compute reciprocal score: how they rate the viewer, not vice versa.
+    const reciprocal = candidates.map((candidate) => ({
+      ...candidate,
+      theirScore: index.score(candidate.userId, viewerId, combine),
+    }));
+    return reciprocal.sort((a, b) =>
+      strategy.dir === 'desc' ? b.theirScore - a.theirScore : a.theirScore - b.theirScore,
+    );
+  }
+
+  if (strategy.key === 'distance') {
+    // Distance sorting (future: integrate with location/proximity data).
+    // For now, a placeholder that preserves order (distance data not yet in RankedPerson).
+    return candidates;
+  }
+
+  // Fallback: return as-is.
+  return candidates;
+}

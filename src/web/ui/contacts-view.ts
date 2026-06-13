@@ -39,6 +39,12 @@ type ContactsViewDeps = {
     profileJson?: string;
     interestsJson?: string;
   } | null>;
+  /** Sort strategies (registry from find-similar.ts) */
+  sortStrategies?: Record<string, { id: string; label: string }>;
+  /** Current active sort strategy id */
+  activeSortId?: string;
+  /** Handler to change sort strategy */
+  onSortChange?: (sortId: string) => void;
 };
 
 function formatText(deps: ContactsViewDeps, key: UiTranslationKey, values: Record<string, string | number>): string {

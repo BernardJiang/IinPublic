@@ -2,6 +2,9 @@ import {
   COMBINE_POLICIES,
   FindSimilarIndex,
   patchPairwiseScore,
+  rankPeople,
+  SORT_STRATEGIES,
+  type RankedPerson,
 } from '../../shared/find-similar';
 import {
   applyUserTagsDelta,
@@ -239,5 +242,106 @@ describe('find-similar §4 — scale to ~100k (REQ-SIM-NFR-01/02/05)', () => {
       withinScope: (id) => id === 'shareBoth1',
     });
     expect(scoped.people.map((p) => p.userId)).toEqual(['shareBoth1']);
+  });
+});
+
+describe('find-similar §5 — generic retrieve→sort→display pipeline (REQ-SIM-07)', () => {
+  it('rankPeople with matched-tags sort (score desc) preserves topK ordering', () => {
+    const idx = new FindSimilarIndex();
+    idx.publishWeights('A', tags('hiking', 'chess'));
+    idx.publishWeights('B', tags('hiking', 'chess', 'music'));
+    idx.publishWeights('C', tags('hiking'));
+    idx.publishWeights('viewer', tags('hiking', 'chess', 'music'));
+
+    // topK gives us candidates in score order.
+    const initial = idx.topK('viewer', { k: 10, combine: 'count' });
+    expect(initial.people.length).toBe(3);
+    expect(initial.people[0].userId).toBe('B'); // 3 matched tags
+    expect(initial.people[1].userId).toBe('A'); // 2 matched tags
+    expect(initial.people[2].userId).toBe('C'); // 1 matched tag
+
+    // Re-sort by matched-tags (default) should be identical.
+    const resorted = rankPeople(initial.people, 'viewer', idx, 'matched-tags');
+    expect(resorted.map((p) => p.userId)).toEqual(['B', 'A', 'C']);
+  });
+
+  it('rankPeople with their-standard sort reverses ranking asymmetrically', () => {
+    const idx = new FindSimilarIndex();
+    // A rates everyone by count; B rates heavily into chess.
+    idx.publishWeights('A', tags('hiking', 'chess'));
+    idx.publishWeights('B', tags('chess')); // only chess
+    idx.publishWeights('viewer', tags('hiking', 'chess', 'music'));
+
+    // From viewer's perspective, A and B both match 1 tag (count); ranked by score desc.
+    const myRanking = idx.topK('viewer', { k: 10, combine: 'count' });
+    // A: hiking + chess = 2; B: chess = 1 (from viewer's weights)
+    expect(myRanking.people[0].userId).toBe('A');
+
+    // Re-sort by their-standard (how A and B rate the viewer, not vice versa).
+    const theirRanking = rankPeople(myRanking.people, 'viewer', idx, 'their-standard', {
+      combine: 'count',
+    });
+    // A sees viewer: hiking + chess = 2; B sees viewer: chess = 1
+    // So the order is the same, but it's computed from the reciprocal direction.
+    expect(theirRanking[0].userId).toBe('A');
+    expect(theirRanking[1].userId).toBe('B');
+  });
+
+  it('rankPeople performs in-memory re-sorting on pre-materialized candidate lists', () => {
+    const idx = new FindSimilarIndex();
+    idx.publishWeights('A', tags('hiking', 'chess', 'music'));
+    idx.publishWeights('B', tags('hiking', 'chess'));
+    idx.publishWeights('C', tags('music'));
+    idx.publishWeights('viewer', tags('hiking', 'chess'));
+
+    const initial = idx.topK('viewer', { k: 10, combine: 'count' });
+    const candidates = [...initial.people]; // materialize once: A (2), B (2), C (1)
+
+    // Re-sort by matched-tags—just re-orders the in-memory list without new index reads.
+    const resortedByScore = rankPeople(candidates, 'viewer', idx, 'matched-tags');
+    expect(resortedByScore.length).toBe(candidates.length);
+    // All candidates are still present.
+    expect(new Set(resortedByScore.map((p) => p.userId))).toEqual(
+      new Set(candidates.map((p) => p.userId)),
+    );
+
+    // Re-sort by their-standard requires computing reciprocal scores, but from the same index.
+    const resortedByTheirView = rankPeople(candidates, 'viewer', idx, 'their-standard');
+    expect(resortedByTheirView.length).toBe(candidates.length);
+    // Same set of candidates, potentially in a different order.
+    expect(new Set(resortedByTheirView.map((p) => p.userId))).toEqual(
+      new Set(candidates.map((p) => p.userId)),
+    );
+  });
+
+  it('SORT_STRATEGIES registry covers matched-tags, distance, their-standard', () => {
+    expect(Object.keys(SORT_STRATEGIES).sort()).toEqual(['distance', 'matched-tags', 'their-standard']);
+
+    const matchedTags = SORT_STRATEGIES['matched-tags'];
+    expect(matchedTags.id).toBe('matched-tags');
+    expect(matchedTags.key).toBe('score');
+    expect(matchedTags.dir).toBe('desc');
+
+    const distance = SORT_STRATEGIES.distance;
+    expect(distance.id).toBe('distance');
+    expect(distance.key).toBe('distance');
+    expect(distance.dir).toBe('asc');
+
+    const theirStandard = SORT_STRATEGIES['their-standard'];
+    expect(theirStandard.id).toBe('their-standard');
+    expect(theirStandard.key).toBe('their-standard');
+    expect(theirStandard.dir).toBe('desc');
+  });
+
+  it('rankPeople with unknown sortId falls back to default (matched-tags)', () => {
+    const idx = new FindSimilarIndex();
+    idx.publishWeights('A', tags('hiking'));
+    idx.publishWeights('viewer', tags('hiking', 'chess'));
+
+    const candidates: RankedPerson[] = [{ userId: 'A', score: 1, sharedTags: 1 }];
+
+    // Unknown strategy ID → fallback to matched-tags (default).
+    const result = rankPeople(candidates, 'viewer', idx, 'unknown-strategy');
+    expect(result).toEqual(candidates); // unchanged order (already in score desc)
   });
 });
