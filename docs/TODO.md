@@ -60,37 +60,6 @@ Gun, mailbox. **Sequenced after P0 steps 9–11.**
 - [x] SEA-encrypt-before-add for private attachments; plaintext requires explicit per-attachment public opt-in; author pins locally
 - [x] Test: attachment descriptor round-trips announce→body→intake; ciphertext-only on IPFS for `enc:'sea-pair'`
 
-#### L6. Signaling deletion (REQ-LIBP2P-06) `[Haiku]` — mechanical once L2/L3 E2E-stable
-
-- [x] Delete test-only `/api/p2p/discovery` routes (+ verify discovery is deleted, signaling/relay preserved); STUN/TURN config route when relay-only traversal is proven
-  - 2026-06-13: Removed test-only `/api/p2p/discovery` GET/POST routes from system-routes.ts (inside `if (nodeEnv !== 'production')`)
-  - Kept `/api/p2p/signaling` and `/api/p2p/conversation-relay` (active fallback for WebRTC/conversation transport)
-  - Added tests in p2p-abuse-relay.test.ts verifying discovery routes return 404 (L6 deletion)
-  - Signaling/relay endpoints remain active as they're still part of ResilientConversationTransport fallback chain
-- [x] Test: unit + integration test suites green; E2E tests unaffected (signaling still active)
-
-### P2 — Context-aware "Me" tab answer list (FR-QA-14, UI-8, §13.7) `[Sonnet]` — data model + UI fully specified; backfill needs care
-
-The "Me" tab shows the user's saved Q/A pairs. Flat for tag/survey, but **flow and route answers are
-context-bearing** — the same question can have different answers under different preceding contexts, so
-the list must show context and must not collapse distinct-context answers. Design: spec §13.7 + FR-QA-14.
-
-- [x] Add display-only `contextLabel` (`"Q→A · Q→A"`) to `AnswerRecord`, written at answer-save time; `''` for tag/survey. `contextHash` stays the authoritative match key.
-- [x] Render the "Me" list keyed by `(questionId, contextHash)`: flat rows for tag/survey; for flow/route show the `contextLabel` breadcrumb per row and never de-duplicate distinct-context answers.
-- [x] Group rows by question with collapsible per-context sub-entries so a route question reached by many branches stays scannable; keep the per-row visibility lock (UI-5) and edit/history affordances.
-- [x] Backfill/derive `contextLabel` for existing records from the retained talk definition where still available; tolerate missing source talks (show question + answer without the breadcrumb).
-- [x] Test (flow): a 3-question flow yields three rows each showing its preceding `Q→A` context.
-- [x] Test (route): the same question reached via two branches yields two rows with different `contextLabel`s and possibly different answers — not merged into one.
-- [x] Test (durability): after the source talk is withdrawn/retracted, the "Me" rows still render from `contextLabel` (no blank/again-asked context).
-
-### P3 — Challenge Plugin Framework: zone-B config storage (FR-CPF-04) `[Haiku]` — small Gun read/write + round-trip test; framework already wired
-
-The framework is implemented and wired into routes, including per-chatroom plugin configuration storage in zone-B Gun paths.
-
-- [x] Store per-chatroom plugin configuration in zone-B (`~{ownerPub}/private/chatroom-config/<chatroomId>/challengePlugins`) so owners can enable/disable plugins without server restart
-- [x] Add `WebChatroomService.setChallengeConfig(chatroomId, pluginIds)` that writes to zone-B and reads it back for the `resolveChallengeGate` hook
-- [x] Unit test: round-trip serialize/deserialize plugin config from Gun zone-B path
-
 ### ~~Phase D — DHT Bootstrap implementation (§19.12)~~ — SUPERSEDED 2026-06-10
 
 Superseded by **P1 — libp2p transport + IPFS content layer** (SRS §25, item L3): libp2p's

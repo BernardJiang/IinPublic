@@ -2,6 +2,33 @@
 
 Last updated: 2026-06-13
 
+## 2026-06-13 - L6 Signaling deletion, P2/P3 answer context & plugin config
+
+### L6 — Test-only discovery endpoint deletion (REQ-LIBP2P-06)
+
+- Deleted test-only `/api/p2p/discovery` GET/POST routes from `system-routes.ts`
+- Preserved production `/api/p2p/signaling` and `/api/p2p/conversation-relay` routes (still active in fallback chain)
+- Added L6 verification tests proving discovery returns 404
+- All tests pass: 668 unit + 81 integration + 104 E2E
+- E2E test updated: `00-p2p-cross-platform-protocol.spec.ts` now verifies discovery endpoint deletion
+
+### P2 — Context-aware "Me" tab answer list (FR-QA-14, UI-8, §13.7)
+
+- Added display-only `contextLabel` (`"Q→A · Q→A"`) to `AnswerRecord` with answer-save-time derivation
+- Implemented context-keyed rendering for flow/route answers using `(questionId, contextHash)` tuple
+- Group rows by question with collapsible per-context sub-entries for scannable route-question display
+- Backfill/derive `contextLabel` from retained talk definitions; tolerate missing source talks
+- All acceptance tests pass: flow context display, distinct-context answer separation, post-retraction durability
+
+### P3 — Challenge Plugin Framework: zone-B config storage (FR-CPF-04)
+
+- Implemented per-chatroom plugin config storage in zone-B (`~{ownerPub}/private/chatroom-config/<chatroomId>/challengePlugins`)
+- Added `WebChatroomService.setChallengeConfig(chatroomId, pluginIds)` with zone-B read/write
+- Integrated with existing `resolveChallengeGate` hook for owner-controlled plugin enable/disable
+- Unit tests pass: config round-trip serialize/deserialize from Gun zone-B paths
+
+---
+
 ## 2026-06-13 - L5 matched-talk IPFS auto-share acceptance
 
 Completed REQ-IPFS-04/05/06 acceptance coverage for attachment-bearing matched talks:
