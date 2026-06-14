@@ -2982,16 +2982,21 @@ export class IinPublicApp {
     console.log('📝 User completed talk:', data);
     const isChatbot = !!data.isChatbotResponse;
 
-    // Step 1 — sync QA preferences
+    // Step 1 — sync QA preferences (best-effort: a transient Gun SEA write failure
+    // must not abort step 3 which creates the match/conversation/contact).
     if (data.talkData) {
       const pair = this.gunService.getStoredPair();
       if (pair) {
-        await this.userService.syncQuestionAnswersFromTalkCompletion(
-          data.talkData,
-          data.answers,
-          this.uiManager.getAnswerPreferencesSnapshot(),
-          pair,
-        );
+        try {
+          await this.userService.syncQuestionAnswersFromTalkCompletion(
+            data.talkData,
+            data.answers,
+            this.uiManager.getAnswerPreferencesSnapshot(),
+            pair,
+          );
+        } catch (syncErr) {
+          console.warn('syncQuestionAnswersFromTalkCompletion failed (non-fatal):', syncErr);
+        }
       }
     }
 

@@ -45,6 +45,8 @@ type ContactsViewDeps = {
   activeSortId?: string;
   /** Handler to change sort strategy */
   onSortChange?: (sortId: string) => void;
+  /** Returns distance in miles to a peer; undefined when location is unavailable (peers without distance sort last) */
+  distanceMiles?: (userId: string) => number | undefined;
 };
 
 function formatText(deps: ContactsViewDeps, key: UiTranslationKey, values: Record<string, string | number>): string {
@@ -685,6 +687,13 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
         if (sortOrder === 'match-rate' && bMetrics.matchRate !== aMetrics.matchRate) return bMetrics.matchRate - aMetrics.matchRate;
         if (sortOrder === 'weighted' && bMetrics.relevance !== aMetrics.relevance) return bMetrics.relevance - aMetrics.relevance;
         if (sortOrder === 'talks' && b.stats.totalTalks !== a.stats.totalTalks) return b.stats.totalTalks - a.stats.totalTalks;
+        if (sortOrder === 'distance') {
+          const aDist = deps.distanceMiles?.(a.peerId);
+          const bDist = deps.distanceMiles?.(b.peerId);
+          if (aDist !== undefined && bDist !== undefined && aDist !== bDist) return aDist - bDist;
+          if (aDist !== undefined && bDist === undefined) return -1;
+          if (aDist === undefined && bDist !== undefined) return 1;
+        }
         const timeDiff = new Date(b.lastInteractionAt || 0).getTime() - new Date(a.lastInteractionAt || 0).getTime();
         return timeDiff !== 0 ? timeDiff : tieBreak(a, b);
       });

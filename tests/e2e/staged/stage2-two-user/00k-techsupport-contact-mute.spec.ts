@@ -6,6 +6,7 @@ import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
 
 test.describe('TechSupport built-in contact controls', () => {
+  test.describe.configure({ retries: 0 });
   let browser: Browser;
   let context: BrowserContext | undefined;
   let page: Page | undefined;

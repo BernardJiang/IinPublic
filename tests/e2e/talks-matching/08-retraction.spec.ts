@@ -42,6 +42,7 @@ import { webAppURLStableChatroom } from '../helpers/ports';
 const MESH_E2E_TIMEOUT_MS = 30_000;
 
 test.describe('Retraction -- step 10 (three browsers)', () => {
+  test.describe.configure({ retries: 0 });
   let browsers: ThreeBrowsers;
   let contextTom: BrowserContext | undefined;
   let contextJerry: BrowserContext | undefined;

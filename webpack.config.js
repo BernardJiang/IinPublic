@@ -18,6 +18,12 @@ module.exports = {
     },
     fallback: {
       stream: require.resolve('stream-browserify'),
+      // @libp2p/mdns uses multicast-dns which requires dgram and os (Node.js only).
+      // The import is conditional on !browserLike at runtime so these paths never
+      // execute in the browser; empty stubs keep the bundle from erroring.
+      dgram: false,
+      os: false,
+      net: false,
     },
   },
   module: {

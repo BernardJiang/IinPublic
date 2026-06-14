@@ -49,6 +49,7 @@ async function receiverHasIncomingTitle(page: Page, title: string): Promise<bool
 }
 
 test.describe('Talk expiration broadcast behavior', () => {
+  test.describe.configure({ retries: 0 });
   let browsers: ThreeBrowsers;
   let browserTom: Browser;
   let browserJerry: Browser;

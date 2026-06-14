@@ -9,6 +9,7 @@ import { afterNav, afterSync, reloadAppReady } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 
 test.describe('UI navigation and settings shell', () => {
+  test.describe.configure({ retries: 0 });
   let context: BrowserContext | undefined;
   let page: Page | undefined;
 
