@@ -57,7 +57,19 @@ type MeshWirePayload = {
   frame: P2PMeshFrame;
 };
 
-type ChannelFramePayload = HandshakeWirePayload | DmWirePayload | LedgerStateWirePayload | MeshWirePayload;
+/** Phase 5: "here are the message ids I hold for this conversation" — peer backfills the rest. */
+type SyncDigestWirePayload = {
+  type: 'sync-digest';
+  conversationId: string;
+  messageIds: string[];
+};
+
+type ChannelFramePayload =
+  | HandshakeWirePayload
+  | DmWirePayload
+  | LedgerStateWirePayload
+  | MeshWirePayload
+  | SyncDigestWirePayload;
 
 type SignedChannelWirePayload = {
   type: 'signed-frame';
@@ -126,6 +138,13 @@ export type P2PSessionConfig = {
   onRemoteMeshFrame?: (otherUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
   /** REQ-P2P-01: persist inbound DMs to local Gun before UI notify. */
   onRemoteDm?: (wire: DmWirePayload['message']) => void;
+  /**
+   * Phase 5 peer↔peer reconciliation (spec §19.4): the local message-id digest for this
+   * conversation, sent on connect so the peer can backfill gaps directly (no hub).
+   */
+  getLocalMessageDigest?: () => Promise<string[]>;
+  /** Phase 5: given the peer's digest ids, return the local wires the peer is missing. */
+  getMessagesForBackfill?: (remoteMessageIds: string[]) => Promise<DmWirePayload['message'][]>;
 };
 
 export class P2PConversationSession {
@@ -430,7 +449,9 @@ export class P2PConversationSession {
   private attachDataChannel(channel: RTCDataChannel): void {
     channel.onopen = () => {
       this.setState('connected');
-      void this.sendHandshake().then(() => this.sendLedgerState());
+      void this.sendHandshake()
+        .then(() => this.sendLedgerState())
+        .then(() => this.sendSyncDigest());
     };
     channel.onmessage = (event) => {
       try {
@@ -448,6 +469,38 @@ export class P2PConversationSession {
       this.setState('failed');
       this.connectPromise = null;
     };
+  }
+
+  /**
+   * Phase 5: on connect, advertise the local message-id digest so the peer can backfill
+   * any messages we're missing directly over the DataChannel (no hub relay). Guarded +
+   * isolated: a no-op without the hook, and errors never disturb the DM channel.
+   */
+  private async sendSyncDigest(): Promise<void> {
+    if (!this.config.getLocalMessageDigest) return;
+    try {
+      const messageIds = await this.config.getLocalMessageDigest();
+      await this.sendChannelFrame({
+        type: 'sync-digest',
+        conversationId: this.config.conversationId,
+        messageIds: messageIds ?? [],
+      });
+    } catch (err) {
+      console.warn(`P2P sync-digest send failed for ${this.config.conversationId}:`, err);
+    }
+  }
+
+  /** Phase 5: peer sent its digest → backfill the messages it is missing as `dm` frames. */
+  private async handleSyncDigest(frame: SyncDigestWirePayload): Promise<void> {
+    if (!this.config.getMessagesForBackfill || frame.conversationId !== this.config.conversationId) return;
+    try {
+      const missing = await this.config.getMessagesForBackfill(frame.messageIds ?? []);
+      for (const wire of missing) {
+        await this.sendChannelFrame({ type: 'dm', message: { ...wire, transport: wire.transport ?? 'direct-p2p' } });
+      }
+    } catch (err) {
+      console.warn(`P2P sync backfill failed for ${this.config.conversationId}:`, err);
+    }
   }
 
   private async sendChannelFrame(frame: ChannelFramePayload): Promise<void> {
@@ -501,6 +554,10 @@ export class P2PConversationSession {
     }
     if (parsed.frame.type === 'mesh') {
       await this.config.onRemoteMeshFrame?.(this.config.otherUserId, parsed.frame.frame);
+      return;
+    }
+    if (parsed.frame.type === 'sync-digest') {
+      await this.handleSyncDigest(parsed.frame);
       return;
     }
     if (parsed.frame.type !== 'dm' || !('message' in parsed.frame) || !parsed.frame.message) return;

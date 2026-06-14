@@ -34,6 +34,9 @@ async function stopHubProcess(): Promise<void> {
 }
 
 test.describe('Mesh-ping after process-level hub stop', () => {
+  // retries:0 is intentional — the spec stops the hub via `/api/test/shutdown-hub`,
+  // which does `process.exit(0)` with NO restart. A retry would re-run bootstrap
+  // against a dead hub and fail, so retrying is futile (not a contention fix).
   test.describe.configure({ retries: 0 });
   let browsers: ThreeBrowsers;
   let contextTom: BrowserContext | undefined;

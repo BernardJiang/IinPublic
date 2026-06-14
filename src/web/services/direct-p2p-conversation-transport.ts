@@ -6,6 +6,7 @@ import { WebGunService } from './web-gun-service';
 import { getOrCreateP2PSession, getP2PSession } from './p2p-webrtc-session';
 import type { P2PConnectionState } from './p2p-webrtc-session';
 import { GunMessageStore, type ConversationMessageWire } from './gun-message-store';
+import { buildConversationDigest, computeMissingForPeer } from '../../shared/conversation-reconcile';
 import { getSEA, type GunPair } from '../sea-gun';
 
 export class DirectP2PConversationTransport implements ConversationTransport {
@@ -185,6 +186,19 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       otherPub,
       isInitiator,
       ...this.ledgerHooks,
+      // Phase 5: peer↔peer reconciliation — advertise our local digest on connect and
+      // backfill whatever the peer is missing, straight over the DataChannel (no hub).
+      getLocalMessageDigest: async () =>
+        buildConversationDigest(
+          conversationId,
+          await this.gunStore.listLocalWires(conversationId, localUserId, otherId),
+        ).messageIds,
+      getMessagesForBackfill: async (remoteMessageIds: string[]) =>
+        computeMissingForPeer(
+          conversationId,
+          await this.gunStore.listLocalWires(conversationId, localUserId, otherId),
+          { conversationId, messageIds: remoteMessageIds },
+        ),
     });
     session.setLedgerHooks(this.ledgerHooks);
     session.setOnRemoteDm((wire) => {

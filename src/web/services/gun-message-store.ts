@@ -2,6 +2,7 @@ import { Message } from '../../shared/types';
 import { getSEA } from '../sea-gun';
 import type { GunPair } from './gun-bridge';
 import type { ConversationTransportMode } from '../../shared/p2p-runtime';
+import type { ReconcileMessage } from '../../shared/conversation-reconcile';
 import type { SendMessageOptions } from './web-conversation-service';
 import { WebGunService } from './web-gun-service';
 
@@ -166,6 +167,43 @@ export class GunMessageStore {
       return;
     }
     gun.get(`conversations/${conversationId}`).get('messages').get(wire.id).put(record);
+  }
+
+  /**
+   * One-shot read of all locally-held RAW message wires for a conversation (pair-private
+   * path + legacy path), without decrypting. Used by Phase 5 peer↔peer reconciliation to
+   * build the local digest and backfill set. Best-effort: resolves after a short settle.
+   */
+  async listLocalWires(
+    conversationId: string,
+    myUserId: string,
+    otherUserId?: string,
+  ): Promise<ReconcileMessage[]> {
+    const gun = this.gunService.getGun();
+    const byId = new Map<string, ReconcileMessage>();
+    const collect = (record: any, id: string) => {
+      if (!id || id.startsWith('_') || !record || typeof record !== 'object' || !record.text) return;
+      byId.set(id, {
+        id: String(record.id || id),
+        senderId: String(record.senderId || ''),
+        text: String(record.text),
+        timestamp: String(record.timestamp || ''),
+        channel: String(record.channel || 'public'),
+        transport: String(record.transport || this.mode),
+        ...(record.encryption === 'sea-ecdh-v1' ? { encryption: 'sea-ecdh-v1' as const } : {}),
+        ...(record.prevSeen !== undefined ? { prevSeen: String(record.prevSeen) } : {}),
+        ...(record.isFromChatbot ? { isFromChatbot: true } : {}),
+      });
+    };
+    return new Promise((resolve) => {
+      gun.get(`conversations/${conversationId}`).get('messages').map().once(collect);
+      void this.getPairMessageRoot(conversationId, myUserId, otherUserId)
+        .then((root) => {
+          if (root) root.map().once(collect);
+        })
+        .catch(() => undefined);
+      setTimeout(() => resolve([...byId.values()]), 500);
+    });
   }
 
   subscribeToMessages(

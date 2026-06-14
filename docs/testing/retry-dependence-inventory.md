@@ -100,6 +100,15 @@ the template for fixing the **G** specs above.
 
 ## Changelog
 
+- **2026-06-13 (find-similar contention flake — retry REVERTED, will fix properly):**
+  `find-similar-people.spec.ts` flakes at `PW_WORKERS=20` (seen as 8/9 contacts at :378, and as a
+  missed TechSupport greeting in `bootstrapUser` at `talks-matching-flow.ts:87`). The 10-browser spec
+  oversubscribes the machine at max parallelism (broadcasts <70ms uncontended took ~78s). Not a
+  regression — P2P-messaging Phases 1–4 don't touch talk-exchange / TechSupport / contact derivation.
+  A `retries: 1` budget was tried and **reverted per direction: no retry fallback that hides failures.**
+  Correct fix = load-scaled timeouts for the genuinely-slower-under-load waits (TechSupport greeting,
+  contacts convergence) and/or running the heavy multi-browser specs at lower concurrency — NOT retries.
+
 - **2026-06-13 (Phase 1 regression — FIXED; + 1 flake):**
   - `00-ui-navigation-settings.spec.ts:240` was a **real Phase 1 regression** (not a flake — an earlier
     guess that mis-diagnosed it as one was reverted). The storage inspector asserted the conversation
@@ -108,10 +117,14 @@ the template for fixing the **G** specs above.
     `P2P_DIRECT_ENABLED` const. Lesson: when a spec touches transport diagnostics, grep ALL specs for
     `server-relay`/`fallback`/`availableModes`, not just the unit/integration tests. (The other UI
     `star-gun` hits — TechSupport conversations, stage2 snapshots — are legitimate per spec §19.7.)
-  - `07-mesh-ping-after-hub-stop.spec.ts:227` ("Jerry: did not receive mesh-ping after hub stop") is a
-    **contention flake**, not a regression: it stops the hub *process* and checks mesh reachability,
-    runs with `retries: 0`, and passed in prior runs. No code in the P2P-messaging phases touches the
-    mesh-ping / WebRTC-session path. Likely needs lower concurrency or a retry budget at `PW_WORKERS=20`.
+  - `07-mesh-ping-after-hub-stop.spec.ts` ("Jerry: did not receive mesh-ping after hub stop") is a
+    **contention flake**, not a regression (no P2P-messaging code touches the mesh-ping / WebRTC path).
+    **A retry budget does NOT help and was reverted:** `/api/test/shutdown-hub` does `process.exit(0)`
+    with no restart, so a retry re-runs bootstrap against a dead hub and fails — `retries: 0` is correct
+    (now documented in-spec). The only real lever for the post-kill timing flake is a longer
+    ping-reachability timeout under load, or not running this spec at `PW_WORKERS=20`. It passed on the
+    latest run; left as-is. (Lesson: check a flaky spec's teardown/precondition before prescribing
+    retries.)
 
 - **2026-06-13 (L — REVERTED after CI run):** the attempted find-similar gate
   (`expect.poll` until `connectedNeighborCount >= NUM_USERS-1`) **timed out at 90s in CI** — the

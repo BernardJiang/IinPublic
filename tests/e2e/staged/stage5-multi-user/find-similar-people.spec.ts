@@ -115,6 +115,9 @@ function assignDistinctRejectSenders(recipientIndex: number, keywords: string[])
 }
 
 test.describe('Find similar people', () => {
+  // retries:0 — failures must surface, not be hidden by a retry. This is the heaviest
+  // spec (10 browser processes); flakes here mean the machine is oversubscribed at
+  // high PW_WORKERS. The fix is load-scaled timeouts / lower concurrency, not retries.
   test.describe.configure({ retries: 0 });
   test.setTimeout(420_000);
 

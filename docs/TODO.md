@@ -90,9 +90,19 @@ stays available behind a flag.
   `upsertMessageRecord` (same pair-private path, keyed by message id → re-delivery safe). Respects
   `mailboxFallbackDisabledForE2e`. Verify: `tsc`/eslint clean; **770 unit/integration green** incl. 2 new
   trigger tests (handler fires on WebRTC failure, not on success). Browser round-trip pending CI.
-- [ ] **Phase 5 — peer↔peer Gun reconciliation (larger, last/optional).** Wire Gun-over-WebRTC (or
-  libp2p, building on L1–L4) so two peers' conversation graphs reconcile directly for catch-up /
-  multi-device, removing the hub from the data path entirely.
+- [~] **Phase 5 — peer↔peer Gun reconciliation (larger).** Core DONE + tested 2026-06-13; WebRTC
+  round-trip pending CI. Approach: on DataChannel connect, each peer advertises a message-id **digest**
+  for the conversation; the other backfills whatever's missing as ordinary `dm` frames (reuses the
+  proven, deduped `ingestWireMessage` path). Both local Gun graphs converge directly — hub not in the
+  data path even as a relay. Pieces: `src/shared/conversation-reconcile.ts` (pure
+  `buildConversationDigest` / `computeMissingForPeer` / `selectNewBackfill` — **9 unit tests incl. a
+  symmetric two-peer convergence + idempotence proof**); `GunMessageStore.listLocalWires` (one-shot
+  local-history read); `P2PConversationSession` `sync-digest` frame + `sendSyncDigest`/`handleSyncDigest`
+  (**strictly additive + guarded**: no-op without the hooks, every handler try/caught so reconciliation
+  can never disturb DM delivery); `DirectP2PConversationTransport` provides the hooks. Verify: `tsc`/
+  eslint clean, **781 unit/integration green**. **Needs CI:** the live WebRTC digest→backfill round-trip
+  and the Gun `.map().once()` enumeration in `listLocalWires` (browser-only). Follow-up: trigger a
+  re-digest on reconnect/gap, and bound `listLocalWires` for very long conversations.
 - [ ] **Verify:** `npm run health` clean each phase; Phase 3 proven in `dev:relay-only`; no regression
   in messaging E2E (`09-messaging`, `10-message-unread-badge`, `12-two-responders-partial-match`).
 
