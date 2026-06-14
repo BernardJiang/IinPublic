@@ -2,7 +2,7 @@ import { Message } from '../../shared/types';
 import { getSEA } from '../sea-gun';
 import type { GunPair } from './gun-bridge';
 import type { ConversationTransportMode } from '../../shared/p2p-runtime';
-import type { ReconcileMessage } from '../../shared/conversation-reconcile';
+import { boundRecentWires, DEFAULT_RECONCILE_WINDOW, type ReconcileMessage } from '../../shared/conversation-reconcile';
 import type { SendMessageOptions } from './web-conversation-service';
 import { WebGunService } from './web-gun-service';
 
@@ -173,11 +173,17 @@ export class GunMessageStore {
    * One-shot read of all locally-held RAW message wires for a conversation (pair-private
    * path + legacy path), without decrypting. Used by Phase 5 peer↔peer reconciliation to
    * build the local digest and backfill set. Best-effort: resolves after a short settle.
+   *
+   * Bounded to the most-recent `limit` messages (default `DEFAULT_RECONCILE_WINDOW`) so a
+   * very long conversation neither produces a huge digest frame nor enumerates the whole
+   * history each reconcile; pass `limit <= 0` to read the full set. Old messages outside
+   * the window are assumed already converged (they were reconciled when recent).
    */
   async listLocalWires(
     conversationId: string,
     myUserId: string,
     otherUserId?: string,
+    limit: number = DEFAULT_RECONCILE_WINDOW,
   ): Promise<ReconcileMessage[]> {
     const gun = this.gunService.getGun();
     const byId = new Map<string, ReconcileMessage>();
@@ -202,7 +208,7 @@ export class GunMessageStore {
           if (root) root.map().once(collect);
         })
         .catch(() => undefined);
-      setTimeout(() => resolve([...byId.values()]), 500);
+      setTimeout(() => resolve(boundRecentWires([...byId.values()], limit)), 500);
     });
   }
 

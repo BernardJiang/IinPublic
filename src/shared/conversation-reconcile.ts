@@ -32,6 +32,34 @@ export type ConversationDigest = {
   messageIds: string[];
 };
 
+/**
+ * Default cap on how many of the most-recent messages a single reconciliation pass
+ * considers. Very long conversations have effectively converged for their old history;
+ * bounding the digest/backfill to a recent window keeps the digest frame small and the
+ * `listLocalWires` enumeration cheap, while still closing any recent gap. Older messages
+ * are assumed already replicated (they were reconciled when they were recent).
+ */
+export const DEFAULT_RECONCILE_WINDOW = 500;
+
+/**
+ * Keep only the most-recent `limit` messages (by ISO `timestamp`, ties broken by id for
+ * determinism), returned in ascending chronological order. Pure: no Gun/DOM/WebRTC.
+ * `limit <= 0` means "no bound" (return all, still chronologically sorted).
+ */
+export function boundRecentWires<T extends { id: string; timestamp: string }>(
+  messages: ReadonlyArray<T>,
+  limit: number = DEFAULT_RECONCILE_WINDOW,
+): T[] {
+  const sorted = [...messages].sort((a, b) => {
+    const ta = String(a?.timestamp ?? '');
+    const tb = String(b?.timestamp ?? '');
+    if (ta !== tb) return ta < tb ? -1 : 1;
+    return String(a?.id ?? '') < String(b?.id ?? '') ? -1 : 1;
+  });
+  if (!Number.isFinite(limit) || limit <= 0 || sorted.length <= limit) return sorted;
+  return sorted.slice(sorted.length - limit);
+}
+
 /** Build the local digest for a conversation (ids only — never message bodies). */
 export function buildConversationDigest(
   conversationId: string,
@@ -66,6 +94,25 @@ export function computeMissingForPeer(
     out.push(m);
   }
   return out;
+}
+
+/**
+ * Phase 5 gap detection (pure): does an inbound message imply we're missing earlier
+ * history? True when the message comes from the *other* peer and names a `prevSeen`
+ * predecessor that we don't already hold — i.e. the thread skipped ahead and we should
+ * ask the peer to re-send its digest so it can backfill the middle. Our own echoes and
+ * messages with no/known predecessor never trigger a re-digest.
+ */
+export function messageIntroducesGap(
+  localIds: ReadonlyArray<string> | ReadonlySet<string>,
+  wire: { senderId?: string; prevSeen?: string },
+  localUserId: string,
+): boolean {
+  if (!wire || wire.senderId === localUserId) return false;
+  const prev = String(wire.prevSeen ?? '').trim();
+  if (!prev) return false;
+  const have = localIds instanceof Set ? localIds : new Set([...localIds].map((id) => String(id)));
+  return !have.has(prev);
 }
 
 /**

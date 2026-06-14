@@ -120,13 +120,16 @@ test.describe('Conversation transport fallback (T3)', () => {
     return { context, page };
   }
 
-  // PARKED (test.fixme) pending CI iteration: the fallback ROUTING is fully proven
-  // deterministically in src/test/unit/resilient-conversation-transport-fallback.test.ts.
-  // This browser-level spec additionally needs (a) confirmation that server-relay
-  // delivers cross-browser in the standard E2E hub (no existing spec exercises relay
-  // delivery — only direct-p2p), and (b) the resilient SUBSCRIBE path to fall back
-  // direct->relay->star for full receiver-side render of the star leg (today it stops
-  // at relay). Un-fixme and validate once those are in place. See docs/TODO.md T3.
+  // PARKED (test.fixme) pending live-CI iteration only. Status:
+  //   - Fallback ROUTING (send side) proven deterministically in
+  //     src/test/unit/resilient-conversation-transport-fallback.test.ts.
+  //   - Gap (b) CLOSED: the resilient SUBSCRIBE path now falls back direct->relay->star
+  //     (advanceSubscription in resilient-conversation-transport.ts), unit-tested in the
+  //     same file ("subscribe-side fallback" describe). The star-leg receiver render is
+  //     now asserted below (no longer transport-layer only).
+  //   - Remaining (a): confirm cross-browser server-relay + star delivery in the standard
+  //     E2E hub on browser-capable CI (this sandbox cannot launch Playwright Chromium).
+  // Un-fixme once (a) is validated in CI. See docs/TODO.md T3.
   test.fixme('forced WebRTC failure falls back to server-relay, then to star-gun', async () => {
     const talkTitle = `Fallback Tennis ${Date.now()}`;
 
@@ -248,8 +251,16 @@ test.describe('Conversation transport fallback (T3)', () => {
       )
       .toBeGreaterThanOrEqual(1);
 
-    // CI follow-up: full receiver-side render of the star leg needs the resilient
-    // subscribe path to fall back to star-gun (it currently falls back direct->relay
-    // only). Until then, the star leg is asserted at the transport layer above.
+    // Receiver-side render of the star leg: the resilient subscribe path now advances
+    // direct->relay->star (gap (b) closed), so Jerry renders the star message, not just
+    // the persisted body asserted above.
+    await expectTransportMode(pageJerry, 'star-gun');
+    await expect
+      .poll(
+        async () =>
+          pageJerry.locator('#conversation-messages .message-text').filter({ hasText: STAR_MESSAGE }).first().isVisible().catch(() => false),
+        { message: 'Jerry should render the star-leg message', timeout: 40_000 },
+      )
+      .toBe(true);
   });
 });

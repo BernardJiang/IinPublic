@@ -1,6 +1,9 @@
 import {
+  boundRecentWires,
   buildConversationDigest,
   computeMissingForPeer,
+  DEFAULT_RECONCILE_WINDOW,
+  messageIntroducesGap,
   selectNewBackfill,
   type ReconcileMessage,
 } from '../../shared/conversation-reconcile';
@@ -69,6 +72,81 @@ describe('conversation-reconcile (Phase 5 peer↔peer convergence)', () => {
 
     it('returns [] when all backfill is already held', () => {
       expect(selectNewBackfill(['a', 'b'], [msg('a'), msg('b')])).toEqual([]);
+    });
+  });
+
+  describe('boundRecentWires (Phase 5 long-conversation bound)', () => {
+    const at = (iso: string, id: string): ReconcileMessage => msg(id, { timestamp: iso });
+
+    it('returns all messages in ascending time order when under the limit', () => {
+      const out = boundRecentWires(
+        [at('2026-06-13T00:00:03.000Z', 'c'), at('2026-06-13T00:00:01.000Z', 'a'), at('2026-06-13T00:00:02.000Z', 'b')],
+        10,
+      );
+      expect(out.map((m) => m.id)).toEqual(['a', 'b', 'c']);
+    });
+
+    it('keeps only the most-recent `limit` messages (oldest dropped)', () => {
+      const out = boundRecentWires(
+        [at('2026-06-13T00:00:01.000Z', 'a'), at('2026-06-13T00:00:02.000Z', 'b'), at('2026-06-13T00:00:03.000Z', 'c')],
+        2,
+      );
+      expect(out.map((m) => m.id)).toEqual(['b', 'c']);
+    });
+
+    it('breaks timestamp ties by id for deterministic ordering', () => {
+      const out = boundRecentWires(
+        [at('2026-06-13T00:00:01.000Z', 'y'), at('2026-06-13T00:00:01.000Z', 'x')],
+        10,
+      );
+      expect(out.map((m) => m.id)).toEqual(['x', 'y']);
+    });
+
+    it('treats limit <= 0 as unbounded', () => {
+      const ms = Array.from({ length: 5 }, (_, i) => at(`2026-06-13T00:00:0${i}.000Z`, `m${i}`));
+      expect(boundRecentWires(ms, 0)).toHaveLength(5);
+    });
+
+    it('exposes a sane default window', () => {
+      expect(DEFAULT_RECONCILE_WINDOW).toBeGreaterThan(0);
+    });
+
+    it('a bounded digest still converges the recent window between two peers', () => {
+      // 4 messages; window = 2. Each peer is missing one of the two most-recent messages.
+      const m1 = at('2026-06-13T00:00:01.000Z', 'm1');
+      const m2 = at('2026-06-13T00:00:02.000Z', 'm2');
+      const m3 = at('2026-06-13T00:00:03.000Z', 'm3');
+      const m4 = at('2026-06-13T00:00:04.000Z', 'm4');
+      const aRecent = boundRecentWires([m1, m2, m3], 2); // [m2, m3]
+      const bRecent = boundRecentWires([m1, m2, m4], 2); // [m2, m4]
+
+      const aToB = computeMissingForPeer('c1', aRecent, buildConversationDigest('c1', bRecent));
+      const bToA = computeMissingForPeer('c1', bRecent, buildConversationDigest('c1', aRecent));
+      expect(aToB.map((m) => m.id)).toEqual(['m3']);
+      expect(bToA.map((m) => m.id)).toEqual(['m4']);
+    });
+  });
+
+  describe('messageIntroducesGap (Phase 5 re-digest trigger)', () => {
+    it('flags an inbound message whose predecessor we do not hold', () => {
+      expect(messageIntroducesGap(['a'], { senderId: 'bob', prevSeen: 'X' }, 'alice')).toBe(true);
+    });
+
+    it('does not flag when the predecessor is already held', () => {
+      expect(messageIntroducesGap(['a', 'X'], { senderId: 'bob', prevSeen: 'X' }, 'alice')).toBe(false);
+    });
+
+    it('never flags our own echoed messages', () => {
+      expect(messageIntroducesGap([], { senderId: 'alice', prevSeen: 'X' }, 'alice')).toBe(false);
+    });
+
+    it('does not flag a message with no predecessor (thread head)', () => {
+      expect(messageIntroducesGap([], { senderId: 'bob' }, 'alice')).toBe(false);
+      expect(messageIntroducesGap([], { senderId: 'bob', prevSeen: '' }, 'alice')).toBe(false);
+    });
+
+    it('accepts a Set of local ids', () => {
+      expect(messageIntroducesGap(new Set(['X']), { senderId: 'bob', prevSeen: 'X' }, 'alice')).toBe(false);
     });
   });
 

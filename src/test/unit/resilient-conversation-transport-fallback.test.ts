@@ -99,3 +99,51 @@ describe('ResilientConversationTransport fallback chain (T3 fault injection)', (
     expect(transport.mode).toBe('direct-p2p');
   });
 });
+
+describe('ResilientConversationTransport subscribe-side fallback (T3 receiver render)', () => {
+  beforeAll(() => {
+    (global as any).fetch = jest.fn(async () => ({ ok: true }));
+  });
+
+  const flush = async () => {
+    for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
+  };
+
+  it('renders from direct-p2p when nothing is forced to fail', async () => {
+    const { transport, direct, relay, star } = buildResilient();
+    const unsub = transport.subscribeToMessages('c1', () => undefined, 'me', 'other');
+    await flush();
+    expect(direct.subscribeToMessages).toHaveBeenCalledTimes(1);
+    expect(relay.subscribeToMessages).not.toHaveBeenCalled();
+    expect(star.subscribeToMessages).not.toHaveBeenCalled();
+    unsub();
+  });
+
+  it('re-subscribes on server-relay when direct-p2p is forced to fail', async () => {
+    const { transport, direct, relay, star, fallbacks } = buildResilient();
+    transport.setFailModesForE2e(['direct-p2p']);
+    const unsub = transport.subscribeToMessages('c1', () => undefined, 'me', 'other');
+    await flush();
+    expect(direct.subscribeToMessages).toHaveBeenCalledTimes(1); // initial attach
+    expect(relay.subscribeToMessages).toHaveBeenCalledTimes(1);
+    expect(star.subscribeToMessages).not.toHaveBeenCalled();
+    expect(transport.mode).toBe('server-relay');
+    expect(fallbacks.map((f) => f.mode)).toEqual(['server-relay']);
+    unsub();
+  });
+
+  it('advances the subscription all the way to star-gun when direct AND relay fail', async () => {
+    const { transport, relay, star, fallbacks } = buildResilient();
+    transport.setFailModesForE2e(['direct-p2p', 'server-relay']);
+    const unsub = transport.subscribeToMessages('c1', () => undefined, 'me', 'other');
+    await flush();
+    // Receiver ends up subscribed on star-gun — the leg the sender delivers on — so the
+    // star message renders, not merely persists.
+    expect(star.subscribeToMessages).toHaveBeenCalledTimes(1);
+    expect(transport.mode).toBe('star-gun');
+    expect(fallbacks.map((f) => f.mode)).toEqual(['server-relay', 'star-gun']);
+    // Relay is not used as the final render leg (it was forced to fail).
+    expect(relay.subscribeToMessages).not.toHaveBeenCalled();
+    unsub();
+  });
+});

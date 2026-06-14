@@ -1,6 +1,50 @@
 # IinPublic Completed Work
 
-Last updated: 2026-06-13
+Last updated: 2026-06-14
+
+## 2026-06-13 — P0 P2P messaging (spec §19.4 Phase C), Phases 1–4 + T2 sort core
+
+Moved from `docs/TODO.md` 2026-06-14.
+
+- **Phase 1 — direct-p2p is the only ordinary-peer transport.** `WebConversationService` builds
+  `DirectP2PConversationTransport` by default (`createOrdinaryTransport`), TechSupport branch untouched;
+  transport-helper methods (`setLedgerHandshakeHooks`, `getDirectP2PConnectionState`,
+  `getHandshakeDiagnostics`, fallback/fail-mode hooks) duck-typed via a `DirectCapableTransport` shape
+  instead of `instanceof ResilientConversationTransport`; `createConversationTransportDiagnostics` →
+  `availableModes:['direct-p2p']`, `fallback:null`. Resilient/relay/star classes retained in-tree
+  (unit-tested, reserved for the optional flag). Updated diagnostics tests (`p2p-runtime`, `system-routes`
+  integration, `00-p2p-conversation-transport` E2E) + reconciled CLAUDE.md. Verify: `tsc` clean, eslint
+  clean, **768 unit/integration green**. (`build:web` has 2 pre-existing `multicast-dns`/libp2p-mdns
+  bundling errors, unrelated.)
+- **Phase 2 — split the Gun store from the star transport.** Extracted all Gun persistence (build/persist,
+  `putMessageRecord`, subscribe, decrypt, pair-secret helpers) into `src/web/services/gun-message-store.ts`
+  (`GunMessageStore`, with `ConversationMessageWire` moved here + re-exported). `StarGunConversationTransport`
+  is now a thin `extends GunMessageStore` subclass adding only `mode:'star-gun'` + the `sendMessage` facade
+  (kept for the off-by-default resilient star leg + TechSupport base + unit coverage).
+  `DirectP2PConversationTransport` composes `GunMessageStore` directly. Updated DirectP2P unit test spies to
+  `GunMessageStore.prototype`. Behavior preserved. Verify: `tsc` clean, eslint clean, **768 green**.
+- **Phase 3 — no message archive on the hub.** `starServerPersistence` hardcoded `'ephemeral'`, so the
+  server's `GunService.put`/`putPath` always skip device-owned bodies via `shouldSkipServerGunPersist`
+  (`conversations/*/messages`, `talks`, `incomingTalksByUser`, …) in every mode; hub radisk gated
+  `radisk: !isolatedGun` (includes `relayOnlyHub` + `e2eMemoryOnly`). **Gap closed:** skip list missed
+  `pairConversations/*/messages` (the direct-p2p ordinary-DM path) — added it + integration tests. Verify:
+  `tsc`/eslint clean, **772 green**. Standalone `npm run dev` hub keeps radisk for local convenience.
+  CI follow-up: explicit relay-only spec asserting `conversations|pairConversations/*` bodies never appear
+  in a `radata/` snapshot.
+- **Phase 4 — offline mailbox for DMs.** Reused `WebMailboxClient` (encrypt-for-recipient / post /
+  drain-then-delete). `DirectP2PConversationTransport` gained an `onUndeliverable` hook firing when a message
+  is persisted to local Gun but WebRTC `sendDm` throws; the service forwards it
+  (`setMessageUndeliverableHandler`) and the app wires it to `postConversationMessageToMailbox` (new
+  `kind:'conversation-message-v1'` envelope). Drain loop dispatches to `ingestConversationMessageFromMailbox`
+  → `upsertMessageRecord` (idempotent, keyed by message id). Respects `mailboxFallbackDisabledForE2e`.
+  Verify: `tsc`/eslint clean; **770 green** incl. 2 new trigger tests. Browser round-trip pending CI.
+- **T2 (core) — distance sort strategy (spec §22.7).** `rankPeople` `distance` branch sorts by
+  `blurredDistanceMiles` (snaps both coords to the privacy grid before Haversine — exact GPS never used);
+  added optional `distance` to `RankedPerson` + a `filters.distanceMiles` resolver; unknown-distance
+  candidates sort last. Unit tests: ascending-by-blurred-distance + grid-snap. `find-similar.test.ts` 16
+  green; `tsc`/eslint clean. (UI resolver wiring tracked as remaining T2 in TODO.md.)
+
+## 2026-06-13 — Appendix B: Statistics expansion (all `[Sonnet]` items)
 
 ## 2026-06-13 — Appendix B: Statistics expansion (all `[Sonnet]` items)
 

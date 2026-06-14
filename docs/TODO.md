@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-06-13
+Last updated: 2026-06-14
 
 This file is the short, execution-oriented plan. The detailed acceptance inventory and the
 statistics / spec-gap follow-ups are consolidated into the appendices at the bottom of this file.
@@ -47,50 +47,10 @@ fallback transport." **TechSupport stays server-backed (spec §19.7) — out of 
 ephemeral, TTL-pruned* encrypted forward for hard-NAT cases (no message archive); pure-direct (B)
 stays available behind a flag.
 
-- [x] **Phase 1 — direct-p2p is the only ordinary-peer transport (small).** DONE 2026-06-13:
-  `WebConversationService` now builds `DirectP2PConversationTransport` by default (`createOrdinaryTransport`),
-  TechSupport branch untouched; the transport-helper methods (`setLedgerHandshakeHooks`,
-  `getDirectP2PConnectionState`, `getHandshakeDiagnostics`, fallback/fail-mode hooks) are duck-typed
-  via a `DirectCapableTransport` shape instead of `instanceof ResilientConversationTransport`;
-  `createConversationTransportDiagnostics` → `availableModes:['direct-p2p']`, `fallback:null`. Resilient/
-  relay/star classes retained in-tree (unit-tested, reserved for the optional flag). Updated diagnostics
-  tests (`p2p-runtime`, `system-routes` integration, `00-p2p-conversation-transport` E2E) + reconciled
-  CLAUDE.md. Verify: `tsc` clean, full eslint clean, **768 unit/integration green**. (`build:web` has 2
-  pre-existing `multicast-dns`/libp2p-mdns bundling errors, unrelated to this change.)
-- [x] **Phase 2 — split the Gun store from the star transport (small).** DONE 2026-06-13: extracted
-  all Gun persistence (build/persist, `putMessageRecord`, subscribe, decrypt, pair-secret helpers) into
-  `src/web/services/gun-message-store.ts` (`GunMessageStore`, with `ConversationMessageWire` moved here +
-  re-exported). `StarGunConversationTransport` is now a thin `extends GunMessageStore` subclass adding
-  only `mode:'star-gun'` + the `sendMessage` facade (kept for the off-by-default resilient star leg +
-  TechSupport base + unit coverage). `DirectP2PConversationTransport` now composes `GunMessageStore`
-  directly (its true role). Updated the DirectP2P unit test spies to `GunMessageStore.prototype`. Behavior
-  preserved (routing/encryption unchanged; only the store's default `mode` label differs). Verify: `tsc`
-  clean, eslint clean, **768 unit/integration green**.
-- [x] **Phase 3 — no message archive on the hub (medium).** DONE 2026-06-13 (audit found most of this
-  already built). Reality: `starServerPersistence` is hardcoded `'ephemeral'`, so the server's own
-  `GunService.put`/`putPath` **always** skip device-owned bodies via `shouldSkipServerGunPersist`
-  (`conversations/*/messages`, `talks`, `incomingTalksByUser`, …) in every mode; and the hub's radisk is
-  gated `radisk: !isolatedGun` where `isolatedGun` includes `relayOnlyHub` **and** `e2eMemoryOnly` — so
-  E2E already runs with no radata and production runs `RELAY_ONLY_HUB=1` (spec §19.4 Phase C). **Gap I
-  closed:** the skip list missed `pairConversations/*/messages` — the path Phase 1/2 direct-p2p writes
-  ordinary DMs to — so the new ordinary-DM body wasn't in the device-owned set. Added it +
-  integration tests (skips the pair message path; still persists non-message pair nodes). Verify:
-  `tsc`/eslint clean, **772 unit/integration green**. **Intentionally NOT changed:** the standalone
-  `npm run dev` hub keeps radisk for local convenience (production/E2E already archive-free).
-  **CI follow-up:** an explicit relay-only messaging spec asserting `conversations|pairConversations/*`
-  bodies never appear in a `radata/` snapshot (the messaging E2E already runs memory-only, so it
-  exercises the no-archive path today).
-- [x] **Phase 4 — offline mailbox for DMs (medium).** DONE 2026-06-13: reused the existing
-  `WebMailboxClient` (encrypt-for-recipient / post / drain-then-delete). `DirectP2PConversationTransport`
-  gained an `onUndeliverable` hook that fires when a message is persisted to local Gun but the WebRTC
-  `sendDm` throws (peer offline); the service forwards it (`setMessageUndeliverableHandler`) and the app
-  wires it to `postConversationMessageToMailbox` (new `kind:'conversation-message-v1'` envelope, already
-  SEA-ECDH wire double-wrapped by the mailbox). The drain loop dispatches that kind to
-  `ingestConversationMessageFromMailbox`, which writes the wire idempotently into local Gun via
-  `upsertMessageRecord` (same pair-private path, keyed by message id → re-delivery safe). Respects
-  `mailboxFallbackDisabledForE2e`. Verify: `tsc`/eslint clean; **770 unit/integration green** incl. 2 new
-  trigger tests (handler fires on WebRTC failure, not on success). Browser round-trip pending CI.
-- [~] **Phase 5 — peer↔peer Gun reconciliation (larger).** Core DONE + tested 2026-06-13; WebRTC
+Phases 1–4 **completed** 2026-06-13 and moved to `docs/completed.md` (direct-p2p default transport;
+Gun store split from star transport; no hub message archive; offline DM mailbox).
+
+- [~] **Phase 5 — peer↔peer Gun reconciliation (larger).** `[Opus]` design → `[Sonnet]` impl. Core DONE + tested 2026-06-13; WebRTC
   round-trip pending CI. Approach: on DataChannel connect, each peer advertises a message-id **digest**
   for the conversation; the other backfills whatever's missing as ordinary `dm` frames (reuses the
   proven, deduped `ingestWireMessage` path). Both local Gun graphs converge directly — hub not in the
@@ -103,7 +63,7 @@ stays available behind a flag.
   eslint clean, **781 unit/integration green**. **Needs CI:** the live WebRTC digest→backfill round-trip
   and the Gun `.map().once()` enumeration in `listLocalWires` (browser-only). Follow-up: trigger a
   re-digest on reconnect/gap, and bound `listLocalWires` for very long conversations.
-- [ ] **Verify:** `npm run health` clean each phase; Phase 3 proven in `dev:relay-only`; no regression
+- [ ] **Verify:** `[Haiku]` `npm run health` clean each phase; Phase 3 proven in `dev:relay-only`; no regression
   in messaging E2E (`09-messaging`, `10-message-unread-badge`, `12-two-responders-partial-match`).
 
 
@@ -118,13 +78,13 @@ All P1 (libp2p/IPFS), P2 (Find Similar), and P2.5 (sort pipeline) **completed** 
 
 **Context.** `playwright.config.ts` sets `retries: 1`, so a spec that only passes on the second run is currently green — masking nondeterminism in the mesh/WebRTC path. The `ResilientConversationTransport` fallback chain (`direct-p2p → server-relay → star-gun`, `src/web/services/resilient-conversation-transport.ts`) is wired and unit-tested (`p2p-mesh-session-fallback.test.ts`, integration `p2p-relay-only-hub.test.ts`), but **no E2E spec forces a WebRTC failure and asserts the message still arrives via relay or star-gun** — the `subscribeToMessages` fallback-timer path (`P2P_WEBRTC_CONNECT_TIMEOUT_MS`) is E2E-uncovered. Several specs lean on in-spec retry loops (e.g. find-similar's 15-attempt broadcast) instead.
 
-- [~] **T1. Inventory retry-dependent specs.** Static source analysis DONE 2026-06-13 → `docs/testing/retry-dependence-inventory.md` (107 specs scanned; at-risk subset tabled with root cause + fix class F/G/L/V; ordered to feed T3–T5). **Correction after reading the flagged specs:** the initial "Tier A = `07`+`08` toast race" was a grep false positive (it matched their *"durable, not toast-only"* comment) — both are already durable-surface + `ensureMeshNeighbors`-gated and need no rewrite; likewise `.notification` in `00-ui-navigation-settings` is synchronous form-validation and `.notification-badge` is durable derived state. **Real risk = WebRTC/`direct-p2p` timing in messaging specs (`09-messaging`, `00j-messaging-edge-cases`, `10-message-unread-badge`, `12-two-responders-partial-match`) — these motivate T3 — plus in-spec retry loops (fix class L).** **Live `--retries=0` confirmation still pending:** the dev sandbox can't launch Playwright Chromium (missing system libs, no sudo, loader ignores `LD_LIBRARY_PATH`); run `PW_WORKERS=4 npm run test:e2e -- --retries=0` in browser-capable CI to fill the "observed" column.
-- [x] **T2. Fix the distance sort strategy (spec §22.7).** DONE 2026-06-13: `rankPeople` `distance` branch now sorts by `blurredDistanceMiles` (snaps both coords to the privacy grid before Haversine — exact GPS never used); added optional `distance` to `RankedPerson` + a `filters.distanceMiles` resolver; unknown-distance candidates sort last. Unit tests: ascending-by-blurred-distance ordering + grid-snap (same-cell → 0). `find-similar.test.ts` now 16 green; `tsc`/eslint clean. **UI follow-up:** `ui-manager.ts` still needs to pass a `distanceMiles` resolver into the contacts pipeline for the `distance` option to sort live (registry entry already present).
-- [~] **T3. Deterministic fallback E2E.** Routing DONE; browser spec PARKED 2026-06-13. Added a deterministic fault-injection seam `ResilientConversationTransport.setFailModesForE2e([...])` (+ `WebConversationService.setTransportFailModesForE2e`, injectable leg transports via a test-only ctor override) instead of flaking real WebRTC/STUN. **Routing fully proven** by `src/test/unit/resilient-conversation-transport-fallback.test.ts` (4 unit tests, green: direct→relay→star + onFallback reasons). E2E spec `tests/e2e/staged/stage2-two-user/00m-transport-fallback.spec.ts` is committed but marked **`test.fixme`** (skipped, does not fail the suite) pending CI iteration — it still needs (a) confirmation that server-relay actually delivers cross-browser in the standard hub (no existing spec exercises relay delivery) and (b) subscribe-side `direct→relay→star` fallback for full receiver render of the star leg. tsc/eslint clean; Playwright lists it.
+- [~] **T1. Inventory retry-dependent specs.** `[Haiku]` (remaining: run live `--retries=0` in CI). Static source analysis DONE 2026-06-13 → `docs/testing/retry-dependence-inventory.md` (107 specs scanned; at-risk subset tabled with root cause + fix class F/G/L/V; ordered to feed T3–T5). **Correction after reading the flagged specs:** the initial "Tier A = `07`+`08` toast race" was a grep false positive (it matched their *"durable, not toast-only"* comment) — both are already durable-surface + `ensureMeshNeighbors`-gated and need no rewrite; likewise `.notification` in `00-ui-navigation-settings` is synchronous form-validation and `.notification-badge` is durable derived state. **Real risk = WebRTC/`direct-p2p` timing in messaging specs (`09-messaging`, `00j-messaging-edge-cases`, `10-message-unread-badge`, `12-two-responders-partial-match`) — these motivate T3 — plus in-spec retry loops (fix class L).** **Live `--retries=0` confirmation still pending:** the dev sandbox can't launch Playwright Chromium (missing system libs, no sudo, loader ignores `LD_LIBRARY_PATH`); run `PW_WORKERS=4 npm run test:e2e -- --retries=0` in browser-capable CI to fill the "observed" column.
+- [ ] **T2. UI follow-up for distance sort (spec §22.7).** `[Sonnet]` Core sort logic DONE 2026-06-13 (moved to `docs/completed.md`). Remaining: `ui-manager.ts` still needs to pass a `distanceMiles` resolver into the contacts pipeline for the `distance` option to sort live (registry entry already present).
+- [~] **T3. Deterministic fallback E2E.** `[Opus]` assertion model → `[Sonnet]` spec edits. Routing DONE; **subscribe-side fallback gap (b) CLOSED 2026-06-14**; live browser run still PARKED. Fault-injection seam `ResilientConversationTransport.setFailModesForE2e([...])` (+ `WebConversationService.setTransportFailModesForE2e`, injectable leg transports via a test-only ctor override). **Send routing** proven by `src/test/unit/resilient-conversation-transport-fallback.test.ts` (direct→relay→star + onFallback reasons). **2026-06-14:** the resilient **subscribe** path now advances `direct→relay→star` (`advanceSubscription` in `resilient-conversation-transport.ts`) so the receiver renders the star leg instead of only persisting it — 3 new subscribe-side unit tests added; the E2E spec now asserts Jerry's star-leg render. E2E spec `tests/e2e/staged/stage2-two-user/00m-transport-fallback.spec.ts` stays **`test.fixme`** pending the one remaining item: (a) confirm cross-browser server-relay + star delivery in the standard hub on browser-capable CI (this dev sandbox can't launch Playwright Chromium).
   - **L-fix note (find-similar):** the attempted `connectedNeighborCount >= NUM_USERS-1` gate **failed in CI (90s timeout)** — the sparse gossip overlay never connects all 9 peers at once. **Reverted** to the original 15× delivery poll, which is legitimate cross-browser convergence handling, not retry-masking. Inventory reclassifies that loop as keep/V.
-- [ ] **T4. Replace masking retries with real waits.** For each T1 spec whose root cause is timing (not a bug), swap the implicit retry for an explicit `afterSync`/`waitForTabActive`/connected-neighbor gate; once a spec is deterministic, set `test.describe.configure({ retries: 0 })` on it so regressions surface immediately.
-- [ ] **T5. Lower the global retry budget.** After T1–T4, drop `playwright.config.ts` `retries` to `0` (keep `1` only on an explicit allowlist of specs with a documented external-flake reason).
-- [ ] **Test/verify:** `PW_WORKERS=4 npm run test:e2e` green with `retries: 0`; the fallback spec passes in both direct and `dev:relay-only` modes; `npm run health` clean.
+- [ ] **T4. Replace masking retries with real waits.** `[Sonnet]` For each T1 spec whose root cause is timing (not a bug), swap the implicit retry for an explicit `afterSync`/`waitForTabActive`/connected-neighbor gate; once a spec is deterministic, set `test.describe.configure({ retries: 0 })` on it so regressions surface immediately.
+- [ ] **T5. Lower the global retry budget.** `[Haiku]` After T1–T4, drop `playwright.config.ts` `retries` to `0` (keep `1` only on an explicit allowlist of specs with a documented external-flake reason).
+- [ ] **Test/verify:** `[Haiku]` `PW_WORKERS=4 npm run test:e2e` green with `retries: 0`; the fallback spec passes in both direct and `dev:relay-only` modes; `npm run health` clean.
 
 **Next phase:** Appendix C (P2P spec-gap audits `[Haiku]`). Appendix B (Statistics expansion) completed 2026-06-13 — see `docs/completed.md`.
 

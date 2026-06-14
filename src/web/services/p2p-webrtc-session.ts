@@ -17,6 +17,7 @@ import {
   type P2PHandshakePayload,
 } from '../../shared/p2p-handshake';
 import type { P2PMeshFrame } from '../../shared/p2p-mesh-protocol';
+import { messageIntroducesGap } from '../../shared/conversation-reconcile';
 import { BoundedNonceCache } from '../../shared/p2p-abuse-defense';
 import { P2PSignalingClient, encodeSignalingPayload, type PostSignalingBody } from './p2p-signaling-client';
 
@@ -172,6 +173,8 @@ export class P2PConversationSession {
   private ledgerLocalSent = false;
   private ledgerRemoteReceived = false;
   private ledgerReady = false;
+  /** Phase 5: debounce timer for a gap-triggered re-digest (coalesces bursts). */
+  private reDigestTimer: ReturnType<typeof setTimeout> | null = null;
   // P2P-V: bounded nonce cache replaces unbounded Set to cap memory use
   private readonly dataChannelNonces = new BoundedNonceCache();
   // P2P-Q: handshake state
@@ -490,6 +493,21 @@ export class P2PConversationSession {
     }
   }
 
+  /**
+   * Phase 5: re-advertise our digest after a gap is detected (an incoming DM references a
+   * `prevSeen` we don't hold) so the peer backfills the missing middle. Debounced to
+   * coalesce a burst of out-of-order frames into a single digest. Strictly additive +
+   * guarded: a no-op without the digest hook, and never throws into the DM path.
+   */
+  private scheduleReDigest(): void {
+    if (!this.config.getLocalMessageDigest) return;
+    if (this.reDigestTimer) return;
+    this.reDigestTimer = setTimeout(() => {
+      this.reDigestTimer = null;
+      void this.sendSyncDigest();
+    }, 250);
+  }
+
   /** Phase 5: peer sent its digest → backfill the messages it is missing as `dm` frames. */
   private async handleSyncDigest(frame: SyncDigestWirePayload): Promise<void> {
     if (!this.config.getMessagesForBackfill || frame.conversationId !== this.config.conversationId) return;
@@ -585,6 +603,11 @@ export class P2PConversationSession {
       ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
     };
     if (this.messages.some((m) => m.id === msg.id)) return;
+    // Phase 5 gap detection: an inbound message whose predecessor we've never seen means
+    // we're missing the middle of the thread — ask the peer to backfill via a re-digest.
+    if (messageIntroducesGap(this.messages.map((m) => m.id), wire, this.config.localUserId)) {
+      this.scheduleReDigest();
+    }
     this.messages.push(msg);
     if (wire.senderId !== this.config.localUserId) {
       this.lastSeenFromOther.set(
@@ -670,6 +693,10 @@ export class P2PConversationSession {
   }
 
   dispose(): void {
+    if (this.reDigestTimer) {
+      clearTimeout(this.reDigestTimer);
+      this.reDigestTimer = null;
+    }
     this.resetTransport();
     this.connectPromise = null;
   }

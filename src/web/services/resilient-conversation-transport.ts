@@ -167,6 +167,9 @@ export class ResilientConversationTransport implements ConversationTransport {
     let disposed = false;
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
+    const transportFor = (mode: ConversationTransportMode): ConversationTransport =>
+      mode === 'server-relay' ? this.relay : mode === 'star-gun' ? this.star : this.direct;
+
     const attach = (transport: ConversationTransport) => {
       activeUnsub?.();
       activeUnsub = transport.subscribeToMessages(
@@ -177,19 +180,45 @@ export class ResilientConversationTransport implements ConversationTransport {
       );
     };
 
+    /**
+     * Advance the subscription one leg down the chain, re-attaching to the new
+     * transport so the receiver renders from the same leg the sender delivered on.
+     * Mirrors the sendMessage chain: when E2E fault-injects the next mode too, keep
+     * advancing (relay → star) so the star leg is renderable, not just persisted.
+     */
+    const advanceSubscription = async (
+      mode: ConversationTransportMode,
+      reason: string,
+    ): Promise<void> => {
+      if (disposed) return;
+      await this.switchMode(mode, reason, conversationId);
+      if (disposed) return;
+      if (mode === 'server-relay' && this.failModesForE2e.has('server-relay')) {
+        await this.switchMode('star-gun', 'E2E forced server-relay failure', conversationId);
+        if (disposed) return;
+        attach(this.star);
+        return;
+      }
+      attach(transportFor(this.activeMode));
+    };
+
     attach(this.direct);
 
-    void this.tryDirectConnect(conversationId, myUserId).then((connected) => {
-      if (disposed || connected || this.activeMode !== 'direct-p2p') return;
-      fallbackTimer = setTimeout(() => {
-        if (disposed || this.activeMode !== 'direct-p2p') return;
-        const state = this.direct.getConnectionState(conversationId, myUserId);
-        if (state === 'connected') return;
-        void this.switchMode('server-relay', 'WebRTC connection timeout', conversationId).then(() => {
-          if (!disposed) attach(this.relay);
-        });
-      }, P2P_WEBRTC_CONNECT_TIMEOUT_MS);
-    });
+    // E2E: when direct-p2p is fault-injected to never connect, don't burn the full
+    // WebRTC connect timeout before falling back — advance the subscription at once.
+    if (this.failModesForE2e.has('direct-p2p')) {
+      void advanceSubscription('server-relay', 'E2E forced direct-p2p failure');
+    } else {
+      void this.tryDirectConnect(conversationId, myUserId).then((connected) => {
+        if (disposed || connected || this.activeMode !== 'direct-p2p') return;
+        fallbackTimer = setTimeout(() => {
+          if (disposed || this.activeMode !== 'direct-p2p') return;
+          const state = this.direct.getConnectionState(conversationId, myUserId);
+          if (state === 'connected') return;
+          void advanceSubscription('server-relay', 'WebRTC connection timeout');
+        }, P2P_WEBRTC_CONNECT_TIMEOUT_MS);
+      });
+    }
 
     return () => {
       disposed = true;
