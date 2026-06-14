@@ -20,6 +20,84 @@ Token-saving rules: for `[Opus]` items, have Opus write a short design note firs
 
 ## Open items — SHIPPING GATES & FOLLOW-UPS
 
+### P0 — P2P messaging: Gun-as-graph-DB, no star fallback (spec §19.4 Phase C) `[Opus]`
+
+**Goal:** ordinary-peer DMs travel over WebRTC (delivery) with **Gun-on-device as the source of
+truth** for `conversations/<id>/messages`; the server is signaling/presence rendezvous only and the
+central hub retains **no** message bodies. This is spec §19.4's own end state (WebRTC = ephemeral
+delivery lane, Gun local = durable truth, star hub = migration-only / disabled in Phase C).
+
+**Where we are (audit 2026-06-13):** the §19.4 core already works — `DirectP2PConversationTransport`
+writes each message to local Gun then notifies over WebRTC; the receiver applies the peer update to
+its own local Gun; the UI reads from a Gun subscription. A relay-only (no-archive) hub already exists
+behind `RELAY_ONLY_HUB=1` (`npm run dev:relay-only`) with a `/api/debug/storage` diagnostic. What
+remains is fallback/config scaffolding plus one real missing capability (offline mailbox for DMs).
+
+**Gaps:** (1) the default ordinary transport is still `ResilientConversationTransport`
+(direct → server-relay → **star-gun**); diagnostics still advertise all three modes; CLAUDE.md already
+*claims* star-gun is removed (docs ahead of code). (2) the central hub still `radisk`-persists the
+graph (`server gun-service.ts`: `radisk:true, file:data.json`) → it keeps message copies even in
+direct mode (the "star at the data layer"). (3) removing the hub archive needs an **offline mailbox**
+for DMs (reuse the talks encrypted-TTL mailbox). (4) peer↔peer Gun reconciliation (catch-up /
+multi-device) still goes through the hub; Gun-over-WebRTC / libp2p not wired for conversations.
+(5) `StarGunConversationTransport` conflates "the Gun store DirectP2P writes through" with "the star
+fallback transport." **TechSupport stays server-backed (spec §19.7) — out of scope.**
+
+**Decision (A, adopted):** remove star-gun entirely; keep server-relay only as an *off-by-default,
+ephemeral, TTL-pruned* encrypted forward for hard-NAT cases (no message archive); pure-direct (B)
+stays available behind a flag.
+
+- [x] **Phase 1 — direct-p2p is the only ordinary-peer transport (small).** DONE 2026-06-13:
+  `WebConversationService` now builds `DirectP2PConversationTransport` by default (`createOrdinaryTransport`),
+  TechSupport branch untouched; the transport-helper methods (`setLedgerHandshakeHooks`,
+  `getDirectP2PConnectionState`, `getHandshakeDiagnostics`, fallback/fail-mode hooks) are duck-typed
+  via a `DirectCapableTransport` shape instead of `instanceof ResilientConversationTransport`;
+  `createConversationTransportDiagnostics` → `availableModes:['direct-p2p']`, `fallback:null`. Resilient/
+  relay/star classes retained in-tree (unit-tested, reserved for the optional flag). Updated diagnostics
+  tests (`p2p-runtime`, `system-routes` integration, `00-p2p-conversation-transport` E2E) + reconciled
+  CLAUDE.md. Verify: `tsc` clean, full eslint clean, **768 unit/integration green**. (`build:web` has 2
+  pre-existing `multicast-dns`/libp2p-mdns bundling errors, unrelated to this change.)
+- [x] **Phase 2 — split the Gun store from the star transport (small).** DONE 2026-06-13: extracted
+  all Gun persistence (build/persist, `putMessageRecord`, subscribe, decrypt, pair-secret helpers) into
+  `src/web/services/gun-message-store.ts` (`GunMessageStore`, with `ConversationMessageWire` moved here +
+  re-exported). `StarGunConversationTransport` is now a thin `extends GunMessageStore` subclass adding
+  only `mode:'star-gun'` + the `sendMessage` facade (kept for the off-by-default resilient star leg +
+  TechSupport base + unit coverage). `DirectP2PConversationTransport` now composes `GunMessageStore`
+  directly (its true role). Updated the DirectP2P unit test spies to `GunMessageStore.prototype`. Behavior
+  preserved (routing/encryption unchanged; only the store's default `mode` label differs). Verify: `tsc`
+  clean, eslint clean, **768 unit/integration green**.
+- [x] **Phase 3 — no message archive on the hub (medium).** DONE 2026-06-13 (audit found most of this
+  already built). Reality: `starServerPersistence` is hardcoded `'ephemeral'`, so the server's own
+  `GunService.put`/`putPath` **always** skip device-owned bodies via `shouldSkipServerGunPersist`
+  (`conversations/*/messages`, `talks`, `incomingTalksByUser`, …) in every mode; and the hub's radisk is
+  gated `radisk: !isolatedGun` where `isolatedGun` includes `relayOnlyHub` **and** `e2eMemoryOnly` — so
+  E2E already runs with no radata and production runs `RELAY_ONLY_HUB=1` (spec §19.4 Phase C). **Gap I
+  closed:** the skip list missed `pairConversations/*/messages` — the path Phase 1/2 direct-p2p writes
+  ordinary DMs to — so the new ordinary-DM body wasn't in the device-owned set. Added it +
+  integration tests (skips the pair message path; still persists non-message pair nodes). Verify:
+  `tsc`/eslint clean, **772 unit/integration green**. **Intentionally NOT changed:** the standalone
+  `npm run dev` hub keeps radisk for local convenience (production/E2E already archive-free).
+  **CI follow-up:** an explicit relay-only messaging spec asserting `conversations|pairConversations/*`
+  bodies never appear in a `radata/` snapshot (the messaging E2E already runs memory-only, so it
+  exercises the no-archive path today).
+- [x] **Phase 4 — offline mailbox for DMs (medium).** DONE 2026-06-13: reused the existing
+  `WebMailboxClient` (encrypt-for-recipient / post / drain-then-delete). `DirectP2PConversationTransport`
+  gained an `onUndeliverable` hook that fires when a message is persisted to local Gun but the WebRTC
+  `sendDm` throws (peer offline); the service forwards it (`setMessageUndeliverableHandler`) and the app
+  wires it to `postConversationMessageToMailbox` (new `kind:'conversation-message-v1'` envelope, already
+  SEA-ECDH wire double-wrapped by the mailbox). The drain loop dispatches that kind to
+  `ingestConversationMessageFromMailbox`, which writes the wire idempotently into local Gun via
+  `upsertMessageRecord` (same pair-private path, keyed by message id → re-delivery safe). Respects
+  `mailboxFallbackDisabledForE2e`. Verify: `tsc`/eslint clean; **770 unit/integration green** incl. 2 new
+  trigger tests (handler fires on WebRTC failure, not on success). Browser round-trip pending CI.
+- [ ] **Phase 5 — peer↔peer Gun reconciliation (larger, last/optional).** Wire Gun-over-WebRTC (or
+  libp2p, building on L1–L4) so two peers' conversation graphs reconcile directly for catch-up /
+  multi-device, removing the hub from the data path entirely.
+- [ ] **Verify:** `npm run health` clean each phase; Phase 3 proven in `dev:relay-only`; no regression
+  in messaging E2E (`09-messaging`, `10-message-unread-badge`, `12-two-responders-partial-match`).
+
+
+
 All P1 (libp2p/IPFS), P2 (Find Similar), and P2.5 (sort pipeline) **completed** and moved to `docs/completed.md` (2026-06-12).
 
 **Spec audit 2026-06-13 (find-similar vs SRS §22):** REQ-SIM-01–08 all implemented in `src/shared/find-similar.ts` (`FindSimilarIndex`, `matchScore`, delta/patch, inverted index, bounded top-K heap, `SORT_STRATEGIES`/`rankPeople`) and wired through `ui-manager.ts` `ContactsViewDeps` (3 call sites). 14 dedicated unit tests + 762 total unit/integration tests green; `tsc` + eslint clean. **One residual gap:** the `distance` sort strategy (§22.7) is a pass-through placeholder — it does not yet sort by `LocationPrivacy.blurLocation`. Tracked in T2 below.

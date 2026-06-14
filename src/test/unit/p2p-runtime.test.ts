@@ -431,14 +431,15 @@ describe('p2p runtime flags', () => {
     expect(leaking.plaintextMessagePaths).toContain('$.conversations/1/messages/m1.text');
   });
 
-  it('always describes direct-p2p conversation transport (star removed)', () => {
+  it('describes direct-p2p-only conversation transport (no star/relay fallback)', () => {
     expect(
       createConversationTransportDiagnostics(resolveP2PRuntimeFlags({})),
     ).toEqual(
       expect.objectContaining({
         activeMode: 'direct-p2p',
+        availableModes: ['direct-p2p'],
         messageBodyStorage: 'gun-local',
-        fallback: 'server-relay',
+        fallback: null,
       }),
     );
   });

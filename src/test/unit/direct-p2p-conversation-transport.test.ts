@@ -1,5 +1,5 @@
 import { DirectP2PConversationTransport } from '../../web/services/direct-p2p-conversation-transport';
-import { StarGunConversationTransport } from '../../web/services/star-gun-conversation-transport';
+import { GunMessageStore } from '../../web/services/gun-message-store';
 import type { WebGunService } from '../../web/services/web-gun-service';
 
 describe('DirectP2PConversationTransport (P2P-H)', () => {
@@ -27,7 +27,7 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
 
   it('buildAndPersistMessage on Gun store before WebRTC sendDm', async () => {
     const buildSpy = jest
-      .spyOn(StarGunConversationTransport.prototype, 'buildAndPersistMessage')
+      .spyOn(GunMessageStore.prototype, 'buildAndPersistMessage')
       .mockResolvedValue(wire);
     const sendDm = jest.fn(async () => undefined);
 
@@ -53,7 +53,7 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
 
   it('passes explicit messageId to Gun store for idempotent sends', async () => {
     const buildSpy = jest
-      .spyOn(StarGunConversationTransport.prototype, 'buildAndPersistMessage')
+      .spyOn(GunMessageStore.prototype, 'buildAndPersistMessage')
       .mockResolvedValue({ ...wire, id: 'bafy-auto-share-msg' });
     const sendDm = jest.fn(async () => undefined);
 
@@ -84,9 +84,52 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     buildSpy.mockRestore();
   });
 
+  it('fires the undeliverable handler with the wire + recipient when WebRTC send fails (Phase 4 mailbox)', async () => {
+    const buildSpy = jest
+      .spyOn(GunMessageStore.prototype, 'buildAndPersistMessage')
+      .mockResolvedValue(wire);
+    const sendDm = jest.fn(async () => {
+      throw new Error('DataChannel not connected (peer offline)');
+    });
+
+    const transport = new DirectP2PConversationTransport(mockGun);
+    jest.spyOn(transport as unknown as { sessionFor: () => Promise<unknown> }, 'sessionFor').mockResolvedValue({
+      sendDm,
+      setLedgerHooks: jest.fn(),
+      setOnRemoteDm: jest.fn(),
+    });
+    const onUndeliverable = jest.fn();
+    transport.setUndeliverableHandler(onUndeliverable);
+
+    await transport.sendMessage('conv1', 'alice', 'hello', { otherUserId: 'bob' });
+
+    expect(sendDm).toHaveBeenCalled();
+    expect(onUndeliverable).toHaveBeenCalledWith(wire, 'conv1', 'bob');
+    buildSpy.mockRestore();
+  });
+
+  it('does NOT fire the undeliverable handler when WebRTC delivery succeeds', async () => {
+    const buildSpy = jest
+      .spyOn(GunMessageStore.prototype, 'buildAndPersistMessage')
+      .mockResolvedValue(wire);
+    const transport = new DirectP2PConversationTransport(mockGun);
+    jest.spyOn(transport as unknown as { sessionFor: () => Promise<unknown> }, 'sessionFor').mockResolvedValue({
+      sendDm: jest.fn(async () => undefined),
+      setLedgerHooks: jest.fn(),
+      setOnRemoteDm: jest.fn(),
+    });
+    const onUndeliverable = jest.fn();
+    transport.setUndeliverableHandler(onUndeliverable);
+
+    await transport.sendMessage('conv1', 'alice', 'hello', { otherUserId: 'bob' });
+
+    expect(onUndeliverable).not.toHaveBeenCalled();
+    buildSpy.mockRestore();
+  });
+
   it('subscribeToMessages delegates to Gun store subscription after participant resolution fallback', async () => {
     const subSpy = jest
-      .spyOn(StarGunConversationTransport.prototype, 'subscribeToMessages')
+      .spyOn(GunMessageStore.prototype, 'subscribeToMessages')
       .mockReturnValue(() => undefined);
 
     const transport = new DirectP2PConversationTransport(mockGun);

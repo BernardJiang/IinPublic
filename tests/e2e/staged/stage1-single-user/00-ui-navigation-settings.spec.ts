@@ -8,8 +8,6 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync, reloadAppReady } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 
-const P2P_DIRECT_ENABLED = true; // Direct P2P is always active — star transport removed.
-
 test.describe('UI navigation and settings shell', () => {
   let context: BrowserContext | undefined;
   let page: Page | undefined;
@@ -236,9 +234,9 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#storage-inspector-flags')).toContainText('本地节点');
     await expect(p.locator('#storage-inspector-flags')).toContainText('已禁用');
     await expect(p.locator('#storage-inspector-runtime-features')).toContainText('传输回退');
-    await expect(p.locator('#storage-inspector-runtime-features')).toContainText(
-      P2P_DIRECT_ENABLED ? 'server-relay' : '无',
-    );
+    // P2P-messaging Phase 1: ordinary DMs are direct-p2p only, so the conversation
+    // transport advertises no fallback (`fallback: null`) → inspector shows 无 (none).
+    await expect(p.locator('#storage-inspector-runtime-features')).toContainText('无');
     await expect(p.locator('#storage-inspector-runtime-features')).toContainText('支持引导');
     await expect(p.locator('#storage-inspector-runtime-features')).toContainText('活动');
     await expect(p.locator('#storage-inspector-app-state')).toContainText('TechSupport 根身份');

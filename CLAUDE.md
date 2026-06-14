@@ -148,7 +148,7 @@ Four talk types share the same `Talk` struct but behave differently:
 
 ### Direct P2P conversation transport
 
-Post-match DMs always use `DirectP2PConversationTransport` (star-gun removed): messages persist to local Gun (`conversations/.../messages`) and WebRTC notifies the peer. The web app syncs transport mode from `GET /api/debug/storage` flags at boot.
+Ordinary post-match DMs use `DirectP2PConversationTransport` **only** — no star/relay fallback (P2P-messaging Phase 1, spec §19.4). On send, the message is written to local Gun (`conversations/.../messages`, via the Gun store) and then notified to the peer over the WebRTC DataChannel; on receive, the peer's update is applied to the receiver's local Gun and the UI reads from a Gun subscription. Gun-on-device is the source of truth; WebRTC is notify/sync only. `createConversationTransportDiagnostics` reports `availableModes: ['direct-p2p'], fallback: null`. TechSupport keeps its own server-backed transport (spec §19.7). `ResilientConversationTransport` (direct → server-relay → star-gun) and the relay/star classes remain in-tree but are **not wired by default** — reserved for an optional, off-by-default ephemeral server-relay forward (decision A) and for unit coverage. The web app syncs transport mode from `GET /api/debug/storage` flags at boot.
 
 - Helpers: `tests/e2e/helpers/p2p-transport-e2e.ts` (`P2P_E2E_TIMEOUT_MS=10s`), `tests/e2e/helpers/webrtc-chromium.ts`
 - Runtime WebRTC connect timeout: `P2P_WEBRTC_CONNECT_TIMEOUT_MS` (10s) in `p2p-webrtc-session.ts`

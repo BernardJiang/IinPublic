@@ -100,6 +100,19 @@ the template for fixing the **G** specs above.
 
 ## Changelog
 
+- **2026-06-13 (Phase 1 regression — FIXED; + 1 flake):**
+  - `00-ui-navigation-settings.spec.ts:240` was a **real Phase 1 regression** (not a flake — an earlier
+    guess that mis-diagnosed it as one was reverted). The storage inspector asserted the conversation
+    transport fallback contained `'server-relay'`, but Phase 1 set `fallback: null` (direct-p2p only), so
+    the inspector correctly renders 无 (none). Updated the assertion to `'无'` and removed the now-unused
+    `P2P_DIRECT_ENABLED` const. Lesson: when a spec touches transport diagnostics, grep ALL specs for
+    `server-relay`/`fallback`/`availableModes`, not just the unit/integration tests. (The other UI
+    `star-gun` hits — TechSupport conversations, stage2 snapshots — are legitimate per spec §19.7.)
+  - `07-mesh-ping-after-hub-stop.spec.ts:227` ("Jerry: did not receive mesh-ping after hub stop") is a
+    **contention flake**, not a regression: it stops the hub *process* and checks mesh reachability,
+    runs with `retries: 0`, and passed in prior runs. No code in the P2P-messaging phases touches the
+    mesh-ping / WebRTC-session path. Likely needs lower concurrency or a retry budget at `PW_WORKERS=20`.
+
 - **2026-06-13 (L — REVERTED after CI run):** the attempted find-similar gate
   (`expect.poll` until `connectedNeighborCount >= NUM_USERS-1`) **timed out at 90s in CI** — the
   sparse gossip overlay (capped by `maxNeighbors`) never connects all 9 peers at once, so a full-mesh

@@ -648,6 +648,9 @@ export function shouldSkipServerGunPersist(
   }
   if (flags.starServerPersistence !== 'ephemeral' && !flags.relayOnlyHub) return false;
   if (path[0] === 'conversations' && path.length >= 3 && path[2] === 'messages') return true;
+  // Direct-p2p ordinary DMs write to the pair-private path; it is device-owned (spec
+  // §19.4) and must not be archived on the hub (P2P-messaging Phase 3).
+  if (path[0] === 'pairConversations' && path.length >= 4 && path[3] === 'messages') return true;
   if (path[0] === 'talks') return true;
   if (path[0] === 'incomingTalksByUser') return true;
   if (
@@ -742,13 +745,16 @@ export function classifyServerConnectorPath(path: string[] | string): ServerConn
 export function createConversationTransportDiagnostics(
   _flags: P2PRuntimeFlags = resolveP2PRuntimeFlags(),
 ): ConversationTransportDiagnostics {
-  // Direct P2P is always active — star-gun transport removed.
+  // P2P-messaging Phase 1 (spec §19.4): ordinary-peer DMs use direct-p2p ONLY, with
+  // Gun-on-device as the source of truth. The star-gun fallback is removed and
+  // server-relay is off by default (re-enablable as an ephemeral, no-archive forward
+  // in a later phase). TechSupport is a separate server-backed transport (spec §19.7).
   return {
     activeMode: 'direct-p2p',
-    availableModes: ['star-gun', 'server-relay', 'direct-p2p'],
+    availableModes: ['direct-p2p'],
     messageBodyStorage: 'gun-local',
     receiptsStorage: 'gun-local',
-    fallback: 'server-relay',
+    fallback: null,
   };
 }
 

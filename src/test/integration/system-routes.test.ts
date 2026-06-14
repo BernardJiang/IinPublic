@@ -118,8 +118,9 @@ describe('system routes', () => {
     expect(res.body.conversationTransport).toEqual(
       expect.objectContaining({
         activeMode: 'direct-p2p',
-        availableModes: ['star-gun', 'server-relay', 'direct-p2p'],
+        availableModes: ['direct-p2p'],
         messageBodyStorage: 'gun-local',
+        fallback: null,
       }),
     );
     expect(res.body.p2pNetworkProtocol).toEqual(

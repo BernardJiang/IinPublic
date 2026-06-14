@@ -5,7 +5,7 @@ import type { ConversationTransportMode } from '../../shared/p2p-runtime';
 import { WebGunService } from './web-gun-service';
 import { getOrCreateP2PSession, getP2PSession } from './p2p-webrtc-session';
 import type { P2PConnectionState } from './p2p-webrtc-session';
-import { StarGunConversationTransport } from './star-gun-conversation-transport';
+import { GunMessageStore, type ConversationMessageWire } from './gun-message-store';
 import { getSEA, type GunPair } from '../sea-gun';
 
 export class DirectP2PConversationTransport implements ConversationTransport {
@@ -13,10 +13,21 @@ export class DirectP2PConversationTransport implements ConversationTransport {
 
   private readonly apiBase: string;
   /** Authoritative store — WebRTC is notify/sync only (spec §19.4, P2P-H). */
-  private readonly gunStore: StarGunConversationTransport;
+  private readonly gunStore: GunMessageStore;
   private readonly participantCache = new Map<string, string>();
   private readonly liveMessagesByConversation = new Map<string, Message[]>();
   private readonly listenersByConversation = new Map<string, Set<(messages: Message[]) => void>>();
+  /**
+   * Fired when a message is persisted to local Gun but could NOT be delivered over
+   * the WebRTC DataChannel (peer offline / channel not connected). The app uses this
+   * to queue the message into the recipient's encrypted offline mailbox so removing
+   * the hub archive (P2P-messaging Phase 3) never drops an offline message (Phase 4).
+   */
+  private onUndeliverable?: (
+    wire: ConversationMessageWire,
+    conversationId: string,
+    recipientUserId: string,
+  ) => void;
   private ledgerHooks: {
     getLedgerState?: () => LedgerState;
     onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
@@ -27,7 +38,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     apiBase?: string,
   ) {
     this.apiBase = apiBase || DirectP2PConversationTransport.resolveApiBase();
-    this.gunStore = new StarGunConversationTransport(gunService);
+    this.gunStore = new GunMessageStore(gunService);
   }
 
   /** Same port mapping as IinPublicApp.getBackendApiBase(). */
@@ -68,6 +79,13 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
   }): void {
     this.ledgerHooks = hooks;
+  }
+
+  /** Wire the offline-mailbox fallback (Phase 4); see `onUndeliverable`. */
+  setUndeliverableHandler(
+    handler: (wire: ConversationMessageWire, conversationId: string, recipientUserId: string) => void,
+  ): void {
+    this.onUndeliverable = handler;
   }
 
   async ensureSessionConnected(conversationId: string, localUserId: string): Promise<void> {
@@ -210,24 +228,36 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       transport: this.mode,
     });
 
+    // Echo locally regardless of WebRTC outcome — Gun is authoritative (P2P-H).
+    this.pushLiveMessage(conversationId, {
+      id: wire.id,
+      senderId,
+      text,
+      timestamp: new Date(wire.timestamp),
+      channel: (channel as Message['channel']) || 'public',
+      readBy: [],
+      isFromChatbot: !!wire.isFromChatbot,
+      ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
+    });
+
     try {
       const session = await this.sessionFor(conversationId, senderId, opts?.otherUserId);
       await session.sendDm(senderId, text, channel, wire);
-      this.pushLiveMessage(conversationId, {
-        id: wire.id,
-        senderId,
-        text,
-        timestamp: new Date(wire.timestamp),
-        channel: (channel as Message['channel']) || 'public',
-        readBy: [],
-        isFromChatbot: !!wire.isFromChatbot,
-        ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
-      });
     } catch (err) {
       console.warn(
-        `Direct P2P WebRTC notify failed for ${conversationId}; Gun record is authoritative:`,
+        `Direct P2P WebRTC notify failed for ${conversationId}; Gun record is authoritative, queueing to mailbox:`,
         err,
       );
+      // Phase 4: peer unreachable over WebRTC → queue the (already-encrypted) wire to
+      // the recipient's offline mailbox so it survives even without a hub archive.
+      if (this.onUndeliverable) {
+        try {
+          const recipientUserId = opts?.otherUserId ?? (await this.resolveOtherUserId(conversationId, senderId));
+          if (recipientUserId) this.onUndeliverable(wire, conversationId, recipientUserId);
+        } catch (resolveErr) {
+          console.warn(`Direct P2P mailbox fallback skipped (no recipient) for ${conversationId}:`, resolveErr);
+        }
+      }
     }
     console.log(`📤 Message sent in conversation ${conversationId} (${channel}, ${this.mode})`);
   }

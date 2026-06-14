@@ -52,6 +52,20 @@ describe('P2P-Z: relay-only hub', () => {
       expect(shouldSkipServerGunPersist(['conversations', 'conv_1', 'messages', 'msg_1'], relayFlags)).toBe(true);
     });
 
+    it('skips direct-p2p pair-private message persistence (Phase 3)', () => {
+      // The ordinary-DM path is device-owned (spec §19.4); the server never archives it.
+      expect(
+        shouldSkipServerGunPersist(['pairConversations', 'alice__bob', 'conv_1', 'messages', 'msg_1'], relayFlags),
+      ).toBe(true);
+    });
+
+    it('still persists non-message pair nodes (only message bodies are device-owned)', () => {
+      // A pair node that is not a `.../messages/...` write is not covered by the skip.
+      expect(
+        shouldSkipServerGunPersist(['pairConversations', 'alice__bob', 'conv_1', 'meta'], relayFlags),
+      ).toBe(false);
+    });
+
     it('skips talks persistence', () => {
       expect(shouldSkipServerGunPersist(['talks', 'talk_1'], relayFlags)).toBe(true);
     });

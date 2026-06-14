@@ -86,6 +86,20 @@ type MailboxAttachmentSharePayload = {
   timestamp: string;
 };
 
+/**
+ * Phase 4: an ordinary DM queued to the recipient's offline mailbox because WebRTC
+ * delivery failed. The `wire` is already SEA-ECDH-encrypted between the two users
+ * (the mailbox additionally wraps it); on drain the recipient writes it idempotently
+ * into local Gun via `conversationService.upsertMessageRecord`.
+ */
+type MailboxConversationMessagePayload = {
+  kind: 'conversation-message-v1';
+  conversationId: string;
+  senderId: string;
+  recipientUserId: string;
+  wire: import('../services/gun-message-store').ConversationMessageWire;
+};
+
 export class IinPublicApp {
   private gunService: WebGunService;
   private userService: WebUserService;
@@ -204,6 +218,10 @@ export class IinPublicApp {
   private initLedgerTransportHooks(): void {
     this.conversationService.setTransportFallbackHandler(({ conversationId, mode, fallbackReason }) => {
       this.uiManager.updateConversationTransportMode(conversationId, mode, fallbackReason);
+    });
+    // Phase 4: queue undeliverable DMs to the recipient's offline mailbox.
+    this.conversationService.setMessageUndeliverableHandler((wire, conversationId, recipientUserId) => {
+      void this.postConversationMessageToMailbox(wire, conversationId, recipientUserId).catch(() => {});
     });
     if (!this.ledgerService) return;
     const ledger = this.ledgerService;
@@ -1387,15 +1405,20 @@ export class IinPublicApp {
           | P2PMeshTalkResponsePayload
           | import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload
           | MailboxAttachmentSharePayload
+          | MailboxConversationMessagePayload
         >(
           envelope.ciphertext,
           pair as import('../sea-gun').GunPair,
         );
         // Dispatch based on payload kind:
+        //   - kind 'conversation-message-v1' → offline DM (Phase 4)
+        //   - kind 'ipfs-conversation-share-v1' → attachment share link
         //   - has `talkData` → talk-body payload from R-a mailbox fallback
         //   - has `retractedAt` (number) → step-10 retraction envelope
         //   - has `responseId` → talk-response payload from step 6
-        if ((payload as any).kind === 'ipfs-conversation-share-v1') {
+        if ((payload as any).kind === 'conversation-message-v1') {
+          await this.ingestConversationMessageFromMailbox(payload as MailboxConversationMessagePayload);
+        } else if ((payload as any).kind === 'ipfs-conversation-share-v1') {
           await this.ingestAttachmentShareFromMailbox(payload as MailboxAttachmentSharePayload);
         } else if ((payload as any).talkData !== undefined) {
           await this.handleMeshTalkBody(payload as import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload);
@@ -1453,6 +1476,68 @@ export class IinPublicApp {
       console.warn('[Mailbox] postToMailbox failed:', err);
       return false;
     }
+  }
+
+  /**
+   * Phase 4: queue an undeliverable DM to the recipient's encrypted offline mailbox.
+   * Fired by the direct transport when WebRTC delivery fails (peer offline). The wire
+   * is already SEA-ECDH-encrypted between the two users; the mailbox wraps it again.
+   * Idempotent: the envelope id is derived from the message id, and drain → upsert is
+   * keyed by message id, so re-delivery is safe.
+   */
+  private async postConversationMessageToMailbox(
+    wire: import('../services/gun-message-store').ConversationMessageWire,
+    conversationId: string,
+    recipientUserId: string,
+  ): Promise<void> {
+    if (this.mailboxFallbackDisabledForE2e) return;
+    if (!this.currentUser?.id || !recipientUserId || recipientUserId === this.currentUser.id) return;
+    const mailbox = this.ensureMailboxClient();
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.priv) return;
+    try {
+      const recipientEpub = await this.resolvePeerEpub(recipientUserId);
+      if (!recipientEpub) {
+        console.warn('[Mailbox] Cannot post DM — epub not found for', recipientUserId);
+        return;
+      }
+      const payload: MailboxConversationMessagePayload = {
+        kind: 'conversation-message-v1',
+        conversationId,
+        senderId: wire.senderId,
+        recipientUserId,
+        wire,
+      };
+      const ciphertext = await mailbox.encryptForRecipient(recipientEpub, pair as import('../sea-gun').GunPair, payload);
+      const result = await mailbox.postEnvelope({
+        id: `mbx_dm_${conversationId}_${wire.id}`,
+        recipientId: recipientUserId,
+        ciphertext,
+      });
+      if (result.stored) {
+        console.log('[Mailbox] Posted DM envelope', wire.id, 'for', recipientUserId);
+      } else {
+        console.warn('[Mailbox] Server rejected DM envelope:', result.error);
+      }
+    } catch (err) {
+      console.warn('[Mailbox] postConversationMessageToMailbox failed:', err);
+    }
+  }
+
+  /**
+   * Phase 4: drain handler for an offline DM — writes the wire idempotently into the
+   * recipient's local Gun (same pair-private path the live transport uses), so the UI
+   * renders it via the existing conversation subscription.
+   */
+  private async ingestConversationMessageFromMailbox(payload: MailboxConversationMessagePayload): Promise<void> {
+    if (!this.currentUser?.id) return;
+    if (payload.kind !== 'conversation-message-v1' || !payload.wire?.id) return;
+    this.conversationService.upsertMessageRecord(
+      payload.conversationId,
+      payload.wire,
+      { otherUserId: this.currentUser.id },
+    );
+    console.log('[Mailbox] Ingested offline DM', payload.wire.id, 'in', payload.conversationId);
   }
 
   /**
