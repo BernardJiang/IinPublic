@@ -63,6 +63,21 @@ const E2E_P2P_NODE_ENABLED =
     ? '1'
     : '0';
 
+/**
+ * Heavy multi-browser specs (4–10 real browser processes each). At high PW_WORKERS they
+ * oversubscribe the machine and flake — see docs/testing/retry-dependence-inventory.md.
+ * They run in a separate low-worker shard (`test:e2e:parallel` chains light → heavy):
+ * E2E_SKIP_HEAVY=1 excludes them from the high-worker light run; the heavy run targets these
+ * paths directly at PW_WORKERS=2, where E2E_ASSERT_TIMEOUT_MS is 10s and the machine is not
+ * oversubscribed — so they pass within a small budget, no retries / inflated timeouts.
+ */
+const HEAVY_SPEC_PATTERNS = [
+  /staged\/stage4-four-user\//,
+  /staged\/stage5-multi-user\//,
+  /talks-matching\//,
+];
+const SKIP_HEAVY = process.env.E2E_SKIP_HEAVY === '1';
+
 const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
   const gunPort = 8080 + i;
   const webPort = 3001 + i;
@@ -94,6 +109,10 @@ const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
 
 export default defineConfig({
   testDir: './tests/e2e',
+  // Light run (E2E_SKIP_HEAVY=1) excludes the heavy multi-browser specs; they run in their
+  // own low-worker shard. Without the flag, the full set is collected (back-compat). Applies to
+  // projects that don't define their own testIgnore; the chromium project re-applies it below.
+  testIgnore: SKIP_HEAVY ? HEAVY_SPEC_PATTERNS : [],
   // Keep tests in a file serial so shared beforeAll/afterAll and multi-step flows stay ordered.
   // Parallelism is across files only (different workers still use isolated ports + artifacts).
   // Playwright schedules files in lexicographic path order; put the slowest specs first (e.g.
@@ -166,6 +185,8 @@ export default defineConfig({
             /08-route-job-seeking\.spec\.ts/,
             /10-stats-four-types\.spec\.ts/,
             /00i-survey-analytics-dashboard\.spec\.ts/,
+            // Heavy multi-browser specs run in their own low-worker shard (E2E_SKIP_HEAVY=1).
+            ...(SKIP_HEAVY ? HEAVY_SPEC_PATTERNS : []),
           ],
         },
       ],
