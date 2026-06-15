@@ -1,0 +1,143 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>
+<title>IinPublic &mdash; Gun.js Database Architecture</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,sans-serif;background:#0d1117;color:#c9d1d9;line-height:1.6}
+.w{max-width:1200px;margin:0 auto;padding:2rem 15px}
+h1{font-size:1.4rem;font-weight:700;color:#58a6ff;border-bottom:1px solid #30363d;padding-bottom:.4rem;margin-bottom:1rem}
+h2{font-size:1.15rem;color:#58a6ff;margin:1.8rem 0 .6rem}
+h3{font-size:1rem;color:#d2a8ff;margin:1.1rem 0 .4rem}
+p{margin-bottom:.6rem;font-size:.9rem}
+.cg{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.8rem;margin:.8rem 0}
+.cd{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:1rem}
+.cd b{color:#f0883e;display:block;margin-bottom:.3rem;font-size:.9rem}
+table{width:100%;border-collapse:collapse;margin:.6rem 0;font-size:.8rem}
+th,td{padding:.35rem .5rem;border:1px solid #30363d;text-align:left}
+th{background:#161b22;color:#58a6ff;font-weight:600}
+code{background:#161b22;padding:.05em .2em;border-radius:2px;font-size:.9em;color:#79c0ff}
+.fl{background:#161b22;border-left:3px solid #f0883e;padding:.4rem .7rem;margin:.3rem 0;border-radius:0 4px 4px 0;font-size:.85rem}
+.fl b{color:#f0883e}
+.fot{text-align:center;color:#484f58;padding:1.2rem 0;border-top:1px solid #21262d;margin-top:1.5rem;font-size:.7rem}
+.LEGEND{display:flex;flex-wrap:wrap;gap:.6rem;margin:.6rem 0;font-size:.78rem}
+.LD{display:flex;align-items:center;gap:.2rem;color:#8b949e}
+.DT{width:10px;height:10px;border-radius:2px;display:inline-block}
+.DTR{background:#fb7185}.DTT{background:#22d3ee}.DTO{background:#fb923c}.DTA{background:#fbbf24}.DTG{background:#34d399}.DTV{background:#a78bfa}
+</style></head><body><div class="w">
+<h1>IinPublic &mdash; Gun.js Database Architecture</h1>
+<p style="color:#8b949e;font-size:.9rem;margin-bottom:1.5rem">A public self-definition platform, NOT a chat app. Identity = Q&A list + 4 talk types + SEA-encrypted interactions.</p>
+
+<h2>The Three Pillars</h2>
+<div class="cg">
+<div class="cd"><b>Pillar 1 &mdash; Profile Q&A</b><p>Each user builds a <code>QuestionAnswer[]</code>. Auto-generated or manual. Visibility: <code>public | contacts_only | private</code>.</p></div>
+<div class="cd"><b>Pillar 2 &mdash; Talks (4 Types)</b><p>Structured interaction templates broadcast via Gun mesh:<ul style="margin:.3rem 0 0 .8rem;font-size:.85rem"><li><b>tag</b>&nbsp;&mdash; single keyword toggle</li><li><b>flow</b>&nbsp;&mdash; linear Q/A chain (path graph)</li><li><b>survey</b>&nbsp;&mdash; independent polls (star graph)</li><li><b>route</b>&nbsp;&mdash; branching DAG w/ FNV-1a hash</li></ul></p></div>
+<div class="cd"><b>Pillar 3 &mdash; Interactions</b><p>Conversations triggered by talk matches. Two-writer message DAG with SEA+ECDH encryption. Every interaction cryptographically signed in append-only ledger.</p></div>
+</div>
+
+<h2>Tech Stack Summary</h2>
+<table>
+<tr><th>Layer</th><th>Technology</th><th>Purpose</th></tr>
+<tr><td>Mesh Database</td><td>Gun.js (radisk server + localStorage)</td><td>P2P graph replication, real-time sync</td></tr>
+<tr><td>Identity &amp; Signing</td><td>Gun SEA (Sodium-based)</td><td>Signing keypairs for auth + ledger verification</td></tr>
+<tr><td>Message Encryption</td><td>SEA ECDH per-pair shared secret</td><td>End-to-end encrypted messages (non-public channels)</td></tr>
+<tr><td>Persistence</td><td>Server: radisk file &nbsp; Client: IndexedDB via Web Worker</td><td>Durable storage across sessions</td></tr>
+</table>
+
+<div class="LEGEND">
+<div class="LD"><span class="DT DTR"></span> SEA Identity / Crypto</div>
+<div class="LD"><span class="DT DTT"></span> User Public Data</div>
+<div class="LD"><span class="DT DTO"></span> Private Space (SEA-encrypted)</div>
+<div class="LD"><span class="DT DTA"></span> Discovery Indexes</div>
+<div class="LD"><span class="DT DTG"></span> Interaction Layer</div>
+<div class="LD"><span class="DT DTV"></span> Persistence / Messages</div>
+</div>
+
+<h2>Gun Graph Structure</h2>
+<p style="font-size:.85rem;color:#8b949e">All data lives in Gun.js graph paths. Two users (A and B) share a mesh; their personal data flows through the same topology.</p>
+
+<table>
+<tr><th colspan="3" style="text-align:center;background:rgba(251,113,133,.15);color:#fb7185">Layer 1 &mdash; SEA Identity &amp; Crypto</th></tr>
+<tr><td><code>gun.sea()</code></td><td>Generates two keypairs: <code>pub/priv</code> (signing) + <code>epub/epriv</code> (ECDH)</td><td>Private, never transmitted raw</td></tr>
+<tr><td>localStorage custody</td><td>AES-GCM ciphertext wrapped by PBKDF2-SHA256 (150k iterations)</td><td>Device-only, exportable via signed recovery package</td></tr>
+</table>
+
+<table>
+<tr><th colspan="3" style="text-align:center;background:rgba(34,211,238,.1);color:#22d3ee">Layer 2 &mdash; User Records (Public Mesh)</th></tr>
+<tr><td><code>users/&lt;userId&gt;</code></td><td>stageName, headshot, pub/epub keys, location{region}, languages[], createdAt</td><td>Public mesh &mdash; everyone can read</td></tr>
+<tr><td><code>private/profile</code></td><td>Full QuestionAnswer[] (incl private), knownPeople[], blockedUserIds[], talkFilters[]</td><td>SEA-encrypted &mdash; only owner decrypts</td></tr>
+<tr><td><code>user-public-profile/&lt;userId&gt;</code></td><td>headshot, profileJSON (visibility applied), languagesJson, interestsJson</td><td>Peer-discovery optimized subset</td></tr>
+<tr><td><code>user-tags/&lt;userId&gt;</code></td><td>{tags: Record&lt;tagName, weight&gt;, updated} &mdash; categories: for-sale, housing, community...</td><td>Public (discovery)</td></tr>
+<tr><td><code>tag-index/&lt;tagName&gt;/&lt;userId&gt;</code></td><td>Reverse index mapping tag &rarr; set of users who have it</td><td>Public (discovery)</td></tr>
+<tr><td><code>user-talk-filters/&lt;userId&gt;</code></td><td>TalkIntakeFilters: min/maxDistance, allowedLanguages, blockDirtyWords, requiredGrammar</td><td>Public (incoming filter)</td></tr>
+</table>
+
+<table>
+<tr><th colspan="3" style="text-align:center;background:rgba(251,191,36,.1);color:#fbbf24">Layer 3 &mdash; Talk Definitions &amp; Chatrooms</th></tr>
+<tr><td><code>talks/&lt;talkId&gt;</code></td><td>Stringified Talk: {id, title, authorId, type, questions[], isAdult, language, tags[], usageCount, expiresAt?}</td><td>Public mesh &mdash; all nodes see</td></tr>
+<tr><td colspan="3" style="padding:.5rem"><b>Talk type topology:</b> <code>tag</code>&nbsp;&mdash; isolated node (Boolean flag) &nbsp;|&nbsp; <code>flow</code>&nbsp;&mdash; path graph (linear Q/A) &nbsp;|&nbsp; <code>survey</code>&nbsp;&mdash; star graph (independent polls) &nbsp;|&nbsp; <code>route</code>&nbsp;&mdash; branching DAG w/ FNV-1a contextHash for O(1) lookup)</td></tr>
+<tr><td><code>chatrooms/&lt;id&gt;/users/{userId}</code></td><td>{isActive: true/false} &mdash; membership flag. Also: visitCount, uniqueVisitors</td><td>Public mesh</td></tr>
+<tr><td><code>bulkJobs/&lt;jobId&gt;</code></td><td>Broadcast job: {talkId, senderId, targetScope, sentCount, matchedCount...}</td><td>Internal tracking</td></tr>
+</table>
+
+<table>
+<tr><th colspan="3" style="text-align:center;background:rgba(52,211,153,.1);color:#34d399">Layer 4 &mdash; Incoming Index, Conversations &amp; Messages</th></tr>
+<tr><td><code>ownerIncomingTalkIndex/&lt;receiverId&gt;/&lt;identityKey&gt;</code></td><td>Clustered topics: {title, senders{}, talkIds={}, questionCount, latestTalkId}. Content-hash-based identityKey = one topic per person &rarr; NOT 47 duplicates</td><td>Semi-public (owner-scoped)</td></tr>
+<tr><td><code>conversations/&lt;convId&gt;</code></td><td>participants:[A,B], talkId?, status (active|matched|ignored|expired), answers[], createdAt, matched</td><td>Semi-public</td></tr>
+<tr><td><code>users/&lt;id&gt;/conversations/...}</code></td><td>Indexed per-user &mdash; quick lookup of "my conversations + otherUserId"</td><td>User-scoped index</td></tr>
+<tr><td><code>pairConversations/{pairId}/{convId}/messages/</code></td><td>Duplicate message storage in pair-scoped paths for direct-p2p mode. pairId = sorted(A,B).join("__").</td><td>Pair-scoped, SEA-encrypted (non-public channels)</td></tr>
+</table>
+
+<table>
+<tr><th colspan="2" style="text-align:center;background:rgba(167,138,250,.1);color:#a78bfa">Layer 5 &mdash; Interaction Ledger</th></tr>
+<tr><td><code>ledger/&lt;pubkey&gt;/events/...</code></td><td>Signed event: {id:CIDv1 seq, prev:CIDv1, kind, pubkey, timestamp, contentJson, sig}</td></tr>
+<tr><td><code>ledger/&lt;userId&gt;/head</code></td><td>Feed head pointer: {seq, prevCid} &mdash; chain verification</td></tr>
+<tr><td><code>ledger/&lt;userId&gt;/state</code></td><td>Broadcasted LedgerState: maps userId &rarr; highest seq for delta-sync handshake (O(Delta) sync)</td></tr>
+<tr><td><code>ledger/{userId}/inbox/{eventId}</code></td><td>Incoming delta events pushed by peers during sync: {eventId, deliveredAt}</td></tr>
+</table>
+
+<h2>Ledger Event Kinds</h2>
+<table>
+<tr><th>Kind</th><th>Meaning</th></tr>
+<tr><td>TALK_CREATED</td><td>New talk definition authored by user. Content: {talkId, title, type, language}</td></tr>
+<tr><td>TALK_BROADCAST</td><td>Talk broadcast with recipients listed. Content: {talkId, recipientCount, chatroomIds[]}</td></tr>
+<tr><td>TALK_RECEIVED</td><td>Talk received from sender's delivery system. Content: {talkId, senderId}. Incoming talk filter applied per <code>user-talk-filters/...</code>. Cluster merge into index.</td></tr>
+<tr><td>TALK_ANSWERED</td><td>Answer submitted with outcome. Content: {talkId, responseId, outcome: match|mismatch|ignore}</td></tr>
+<tr><td>TALK_SUPERSEDED</td><td>Old talk replaced by new version. Content: {oldTalkId, newTalkId}. Auto-supersedes incoming entries.</td></tr>
+<tr><td>TALK_WITHDRAWN</td><td>Author withdrew talk with grace period. Content: {talkId, gracePeriodMs}</td></tr>
+<tr><td>TALK_RETRACTED</td><td>Hard retraction &mdash; tombstone for all downstream consumers. Content: {talkId}</td></tr>
+<tr><td>MATCH_CREATED</td><td>Match established between two people. Both sides create event. Content: {talkId, conversationId, otherUserId}</td></tr>
+<tr><td>CONVERSATION_MSG</td><td>Outbound message sent to partner. Content: {conversationId, messageId (CIDv1), seq}</td></tr>
+</table>
+
+<h2>Two-Person Interaction Flow</h2>
+<p style="font-size:.85rem;color:#8b949e">How Two people share their interactions from start to finish:</p>
+
+<div class="flow"><b>Step 1 &mdash; A creates + broadcasts a talk</b><br/>A defines a Talk (type: tag|flow|survey|route) stored at <code>talks/&lt;id&gt;</code>. Ledger event <code>TALK_CREATED</code> signed via SEA. Broadcast to chatrooms + mesh delivers copies + peer discovery via tags.</div>
+
+<div class="flow"><b>Step 2 &mdash; B receives talk delivery</b><br/>Gun mesh pushes to receiver's node. Cluster merged into <code>ownerIncomingTalkIndex/B/&lt;identityKey&gt;</code>. Ledger event <code>TALK_RECEIVED</code> recorded. Incoming talk filter (distance, language, blockByWords...) applied per <code>user-talk-filters/B</code>. Content-hash-based identityKey ensures one topic per person &mdash; NOT 47 duplicates.</div>
+
+<div class="flow"><b>Step 3 &mdash; B answers</b><br/>B submits answers stored at <code>conversations/&lt;convId&gt;/answers&lt;qId&gt;</code>. Ledger event <code>TALK_ANSWERED</code> with outcome (match|mismatch|ignore).</div>
+
+<div class="flow"><b>Step 4 &mdash; Match occurs</b><br/>When answers trigger match: conversation created at <code>conversations/&lt;convId&gt;</code>. Both participants indexed under <code>users/A/conversations/..}</code> and <code>users/B/conversations/...</code>. Ledger event <code>MATCH_CREATED</code>.</div>
+
+<div class="flow"><b>Step 5 &mdash; Messages exchanged</b><br/>Each message persisted to Gun with idempotent writes. Stored in BOTH mesh path AND pair-private path. For non-public channels, text encrypted via SEA-ECDH: <code>SEA.encrypt(text, SEA.secret(peerEpub, myPair))</code>. <code>prevSeen</code>DAG link forms two-writer DAG for deterministic offline merge.</div>
+
+<div class="flow"><b>Step 6 &mdash; Delta-sync converges</b><br/>Both peers publish <code>ledger/{id}/state</code> containing highest seq per user feed. Read peer's state &rarr; compute missing events pushed to <code>ledger/peerId/inbox/&lt;eventId&gt;</code>. Inbox subscription ingests remote events with SEA sig verification.</div>
+
+<h2>Encryption Model</h2>
+<div class="cg">
+<div class="cd"><b>SEA Signing Keys (pub/priv)</b><p style="font-size:.85rem">Used for: signing ledger events, talk authorship proof. Published to mesh at <code>users/id/pub</code>. Every event carry SEA signature verified by any reader.</p></div>
+<div class="cd"><b>SEA Ephemeral Keys (epub/epriv)</b><p style="font-size:.85rem">Used for: ECDH shared-secret derivation between peers. Each pair shares secret via <code>SEA.secret(epub_A, pair_B)</code> or vice versa.</p></div>
+<div class="cd"><b>Message Encryption</b><p style="font-size:.85rem">When channel is not <code>public</code>, text encrypted with shared secret:<br/><code>SEA.encrypt(plainText, sharedSecret)</code><br/>Decrypted on read with owner's epriv key. Two-writer DAG ensures deterministic offline merge without central sequencer.</p></div>
+<div class="cd"><b>Key Custody</b><p style="font-size:.85rem">Full keypair stored in localStorage as AES-GCM ciphertext wrapped by PBKDF2-SHA256 (150k iterations). Supports export/recovery via signed recovery package.</p></div>
+</div>
+
+<h2>Persistence &amp; Replication Model</h2>
+<table>
+<tr><th>Layer</th><th>Storage</th><th>Role</th></tr>
+<tr><td>Server Hub Gun</td><td>radisk (persistent JSON file on disk)</td><td>Relay + mesh hub. All client nodes connect. Sync point while data flows P2P via Gun's built-in replication protocol.</td></tr>
+<tr><td>Client Gun (browser)</td><td>localStorage (direct) OR IndexedDB (via Web Worker bridge)</td><td>Partial graph &mdash; each browser holds its subset, synced via WebSocket/WebRTC to hub. Gun handles conflict resolution automatically.</td></tr>
+<tr><td>SEA Private Space</td><td>AES-GCM ciphertext stored on public mesh at <code>gun.user().private/&lt;path&gt;</code></td><td>Only decryptable with owner's SEA pair. Content is fully replicated but cryptographically sealed &mdash; peers see encrypted blobs they cannot read.</td></tr>
+</table>
+
+<div class="fot">IinPublic Project &mdash; Gun.js Mesh Architecture Documentation</div>
+</div></body></html>
