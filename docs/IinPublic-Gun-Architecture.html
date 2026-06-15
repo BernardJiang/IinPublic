@@ -139,5 +139,88 @@ code{background:#161b22;padding:.05em .2em;border-radius:2px;font-size:.9em;colo
 <tr><td>SEA Private Space</td><td>AES-GCM ciphertext stored on public mesh at <code>gun.user().private/&lt;path&gt;</code></td><td>Only decryptable with owner's SEA pair. Content is fully replicated but cryptographically sealed &mdash; peers see encrypted blobs they cannot read.</td></tr>
 </table>
 
+<h2>Database Size Estimation</h2>
+<p style="font-size:.85rem;color:#8b949e">Per-record overhead and total storage projections by usage scenario. The dominant cost is always message history. For full formulas see the companion <code>Gun-Database-Architecture.md §7</code>.</p>
+
+<h3>Per-Record Overhead Reference</h3>
+<table>
+<tr><th>Data category</th><th>Size per unit</th><th>Primary Gun path</th></tr>
+<tr><td>Conversation message (encrypted, <code>direct-p2p</code>)</td><td><b>~800B avg</b></td><td><code>pairConversations/…/messages/&lt;msgId&gt;</code> — wire (~200B) + SEA seal (+176B) + Gun node envelope (+400B)</td></tr>
+<tr><td>Conversation message (plaintext public channel)</td><td><b>~600B avg</b></td><td><code>conversations/…/messages/&lt;msgId&gt;</code> — wire (~200B) + Gun node envelope (+400B); no SEA overhead</td></tr>
+<tr><td>Talk definition (simple <code>tag</code>/<code>flow</code>)</td><td>~400B</td><td><code>talks/&lt;talkId&gt;</code> — one copy per unique talk, not per sender</td></tr>
+<tr><td>Talk definition (complex <code>route</code> DAG)</td><td>up to ~5KB</td><td><code>talks/&lt;talkId&gt;</code> — branching logic + <code>contextHashId</code> fields</td></tr>
+<tr><td>Answer record</td><td>~300B</td><td><code>conversations/&lt;convId&gt;/answers/&lt;qId&gt;</code></td></tr>
+<tr><td>Conversation header</td><td>~200B</td><td><code>conversations/&lt;convId&gt;</code> + <code>users/&lt;id&gt;/conversations/&lt;convId&gt;</code> index</td></tr>
+<tr><td>Chatbot memory entry</td><td>~200B</td><td><code>talkAnswerTemplateByUser/&lt;userId&gt;/&lt;identityKey&gt;</code></td></tr>
+<tr><td>Public profile index node</td><td>~500B</td><td><code>user-public-profile/&lt;userId&gt;</code> — replicated from chatroom peers</td></tr>
+<tr><td>Ledger event</td><td>~350B</td><td><code>ledger/&lt;userId&gt;/events/&lt;seq&gt;</code> — CIDv1 + SEA sig + <code>prev</code> chain pointer + payload</td></tr>
+</table>
+
+<h3>Scenario Projections</h3>
+<table>
+<tr><th>Scenario</th><th>Talks</th><th>Convs × Msgs</th><th>Messages</th><th>Ledger</th><th>Other</th><th><b>Total</b></th></tr>
+<tr><td><b>A</b> — Light user</td><td>5</td><td>3 × 20</td><td>48 KB</td><td>15 KB</td><td>18 KB</td><td><b>~81 KB</b></td></tr>
+<tr><td><b>B</b> — Active user</td><td>50</td><td>15 × 50</td><td>600 KB</td><td>172 KB</td><td>123 KB</td><td><b>~0.9 MB</b></td></tr>
+<tr><td><b>C</b> — Power user</td><td>200</td><td>50 × 200</td><td>8,000 KB</td><td>1,925 KB</td><td>500 KB</td><td><b>~10.2 MB</b></td></tr>
+<tr><td><b>D</b> — Degenerate</td><td>—</td><td>1,000 × 100</td><td>78 MB</td><td>17 MB</td><td>2 MB</td><td><b>~97 MB</b></td></tr>
+</table>
+<div class="fl"><b>Key formula:</b> <code>S_total = (C × n_avg × 800B) + (2t + C + m_sent) × 350B + t × (400 + 300a)B + peers_seen × 500B</code>. Variables: C = conversations, n_avg = avg messages/conv, t = talks exchanged, m_sent = outbound messages, a = avg answers/talk. At 10,000 conversations storage approaches IndexedDB browser limits — message TTL and on-demand pagination are required above ~500 conversations.</div>
+
+<h2>Data Ownership &amp; Retention Policy</h2>
+<p style="font-size:.85rem;color:#8b949e">Gun.js replicates all subscribed graph nodes locally — no built-in scope boundary. This tiered policy defines what the local node should keep and for how long. See <code>Gun-Database-Architecture.md §8</code> for full rationale.</p>
+
+<table>
+<tr><th>Tier</th><th>What</th><th>TTL</th><th>Examples</th></tr>
+<tr style="background:rgba(251,113,133,.08)">
+  <td><b>Tier 1</b><br/><span style="color:#fb7185;font-size:.78rem">Cryptographic Root</span></td>
+  <td>Never delete</td>
+  <td>Permanent</td>
+  <td>SEA keypair custody, device secret, ledger head pointer, merkle checkpoint events, CIDv1 hashes of my authored content</td>
+</tr>
+<tr style="background:rgba(34,211,238,.06)">
+  <td><b>Tier 2</b><br/><span style="color:#22d3ee;font-size:.78rem">Mine + Pair-Confidential</span></td>
+  <td>Indefinite (or merkle-checkpointed)</td>
+  <td>Until user wipes</td>
+  <td>My talk definitions, pair-scoped message history (<code>pairConversations/…</code>), my ledger events (full detail for last 500; older → merkle checkpoint), chatbot memory, private profile</td>
+</tr>
+<tr style="background:rgba(251,191,36,.06)">
+  <td><b>Tier 3</b><br/><span style="color:#fbbf24;font-size:.78rem">Others' Public Data</span></td>
+  <td>Bounded</td>
+  <td>7 days after last interaction</td>
+  <td>Others' talk definitions, other users' public profiles, chatroom presence records, answered/dismissed incoming talk clusters, tag indexes</td>
+</tr>
+<tr style="background:rgba(167,138,250,.06)">
+  <td><b>Tier 4</b><br/><span style="color:#a78bfa;font-size:.78rem">Session State</span></td>
+  <td>Ephemeral</td>
+  <td>Page session only</td>
+  <td>WebRTC session state, neighbor cache, polling cursors, answer buffers, transport mode flag cache</td>
+</tr>
+</table>
+<div class="fl"><b>Chain integrity constraint:</b> Ledger <code>prev</code> pointers form a hash-linked chain. Deleting events in the middle severs verifiability. A pruning operation MUST write a signed merkle checkpoint for the range before deleting any events. The checkpoint is the only evidence those events existed — and it is sufficient for O(log N) proof verification.</div>
+
+<h2>Blockchain-Style Integrity During Trim</h2>
+<p style="font-size:.85rem;color:#8b949e">The ledger and message history use the same pattern as Bitcoin SPV: prune old entries but keep a signed merkle root that commits to all of them. See <code>Gun-Database-Architecture.md §9</code> for the full verification protocol.</p>
+
+<div class="cg">
+<div class="cd"><b>Merkle Checkpoint (Ledger)</b>
+<p style="font-size:.85rem">Every N=100 events: compute SHA-256 of sorted CIDv1 array → sign with SEA key → write as <code>CHECKPOINT_CREATED</code> event at <code>ledger/&lt;userId&gt;/checkpoints/seq_N</code>. Keep last M=500 events in full detail; prune older ranges.</p>
+<p style="font-size:.8rem;color:#8b949e">Storage: 256 bytes/checkpoint vs 35 KB/100 events <b>→ 99.3% reduction</b></p></div>
+<div class="cd"><b>Merkle Checkpoint (Messages)</b>
+<p style="font-size:.85rem">Every K=50 messages: compute SHA-256 of sorted [msgId + SHA-256(ciphertext)] pairs → sign → write at <code>pairConversations/…/checkpoints/&lt;seq&gt;</code>. Keep last 200 messages/conversation in full detail.</p>
+<p style="font-size:.8rem;color:#8b949e">Storage: 512 bytes/checkpoint vs 40 KB/50 messages <b>→ 98.8% reduction</b></p></div>
+<div class="cd"><b>Verification Protocol</b>
+<p style="font-size:.85rem">To prove event E existed after pruning: (1) locate checkpoint for E's range; (2) return checkpoint (merkle root + SEA sig) + 7-hash merkle proof path for E's CID; (3) verifier checks SEA sig + merkle path. Cost: O(log N) ≈ 7 hash comparisons for N=100.</p></div>
+<div class="cd"><b>Net Storage Impact</b>
+<p style="font-size:.85rem">Power user (50 convs × 2,000 msgs): without pruning ~97 MB; with pruning (keep 200 msgs + 500 ledger events in full) → <b>~10 MB (90% reduction)</b>. Pruned content is proven-committed but not reconstructible — which is the correct privacy posture for old messages.</p></div>
+</div>
+
+<table>
+<tr><th>What is pruned</th><th>Before</th><th>After (checkpoints)</th><th>Reduction</th></tr>
+<tr><td>100 ledger events</td><td>35.0 KB</td><td>0.25 KB (1 checkpoint)</td><td><b>99.3%</b></td></tr>
+<tr><td>500 ledger events</td><td>175.0 KB</td><td>1.3 KB (5 checkpoints)</td><td><b>99.3%</b></td></tr>
+<tr><td>50 conversation messages</td><td>40.0 KB</td><td>0.5 KB (1 checkpoint)</td><td><b>98.8%</b></td></tr>
+<tr><td>200 conversation messages</td><td>160.0 KB</td><td>2.0 KB (4 checkpoints)</td><td><b>98.8%</b></td></tr>
+</table>
+
 <div class="fot">IinPublic Project &mdash; Gun.js Mesh Architecture Documentation</div>
 </div></body></html>
