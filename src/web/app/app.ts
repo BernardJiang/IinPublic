@@ -617,6 +617,16 @@ export class IinPublicApp {
     this.uiManager.setContactPreRenderSync(async () => {
       await this.syncDirectPairTalkExchangesForContacts();
     });
+    this.uiManager.setPeerLocationReader(async (peerId: string) => {
+      const data = await new Promise<unknown>((resolve) => {
+        this.gunService.getGun()
+          .get('users')
+          .get(peerId)
+          .get('location')
+          .once((locData: unknown) => resolve(locData));
+      });
+      return (data as any)?.trueLocation ?? (data as any) ?? undefined;
+    });
     // Get or create user
     await this.initializeUser();
 

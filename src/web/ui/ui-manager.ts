@@ -24,6 +24,7 @@ import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { getFlatChatroomList, CHATROOM_HIERARCHY } from '../../shared/chatroom-hierarchy';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
+import { LocationPrivacy } from '../../shared/location';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import type { StatsByRegion, StatsByTime, StatsDashboard, StatsSummary, TalkType } from '../../shared/talk-stats';
 import {
@@ -192,6 +193,7 @@ type PublicProfileFoundationReader = (userId: string) => Promise<{
 } | null>;
 
 type ContactPreRenderSync = () => Promise<void>;
+type PeerLocationReader = (userId: string) => Promise<GPSCoordinate | undefined>;
 
 function normalizeStringList(value: unknown, fallback: string[] = []): string[] {
   const raw = Array.isArray(value)
@@ -247,6 +249,8 @@ export class UIManager extends EventEmitter {
   private currentLocation: GPSCoordinate | undefined = undefined;
   private publicProfileFoundationReader: PublicProfileFoundationReader | undefined;
   private contactPreRenderSync: ContactPreRenderSync | undefined;
+  private peerLocationReader: PeerLocationReader | undefined;
+  private peerLocationCache = new Map<string, GPSCoordinate | null>();
 
   /** Other users in the current chatroom detail view (excludes self); used for broadcast delivery. */
   getCurrentChatroomMembers(): Array<{ userId: string; stageName: string }> {
@@ -527,6 +531,42 @@ export class UIManager extends EventEmitter {
 
   setContactPreRenderSync(sync: ContactPreRenderSync | undefined): void {
     this.contactPreRenderSync = sync;
+  }
+
+  setPeerLocationReader(reader: PeerLocationReader | undefined): void {
+    this.peerLocationReader = reader;
+  }
+
+  private async getPeerLocation(peerId: string): Promise<GPSCoordinate | null> {
+    if (this.peerLocationCache.has(peerId)) {
+      return this.peerLocationCache.get(peerId) ?? null;
+    }
+    if (!this.peerLocationReader) return null;
+    try {
+      const loc = await this.peerLocationReader(peerId);
+      const result = loc ?? null;
+      this.peerLocationCache.set(peerId, result);
+      return result;
+    } catch {
+      this.peerLocationCache.set(peerId, null);
+      return null;
+    }
+  }
+
+  private async prefetchPeerLocations(peerIds: string[]): Promise<void> {
+    const uncached = peerIds.filter((id) => !this.peerLocationCache.has(id));
+    if (uncached.length === 0) return;
+    await Promise.race([
+      Promise.all(uncached.map((id) => this.getPeerLocation(id))),
+      new Promise<void>((resolve) => setTimeout(resolve, 2000)),
+    ]);
+  }
+
+  private distanceMilesFromCache(userId: string): number | undefined {
+    if (!this.currentLocation || !this.peerLocationReader) return undefined;
+    const peerLoc = this.peerLocationCache.get(userId);
+    if (!peerLoc) return undefined;
+    return LocationPrivacy.calculateDistance(this.currentLocation, peerLoc) / 1609.34;
   }
 
   private getHomeChatroomId(): string {
@@ -1617,7 +1657,11 @@ export class UIManager extends EventEmitter {
         this.contactsSortId = sortId;
         this.showContactsList();
       },
-      ...(this.contactPreRenderSync ? { beforeRender: this.contactPreRenderSync } : {}),
+      beforeRender: async () => {
+        if (this.contactPreRenderSync) await this.contactPreRenderSync();
+        await this.prefetchPeerLocations(this.getKnownPeople().map((p) => p.userId));
+      },
+      distanceMiles: (userId: string) => this.distanceMilesFromCache(userId),
       ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
     });
   }
@@ -1650,7 +1694,11 @@ export class UIManager extends EventEmitter {
         this.contactsSortId = sortId;
         this.displayContactsList();
       },
-      ...(this.contactPreRenderSync ? { beforeRender: this.contactPreRenderSync } : {}),
+      beforeRender: async () => {
+        if (this.contactPreRenderSync) await this.contactPreRenderSync();
+        await this.prefetchPeerLocations(this.getKnownPeople().map((p) => p.userId));
+      },
+      distanceMiles: (userId: string) => this.distanceMilesFromCache(userId),
       ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
     });
   }
