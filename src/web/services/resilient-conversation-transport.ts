@@ -42,6 +42,8 @@ export class ResilientConversationTransport implements ConversationTransport {
   private options: ResilientConversationTransportOptions;
   /** E2E fault injection: modes in this set throw on send to force the next fallback. */
   private failModesForE2e = new Set<ConversationTransportMode>();
+  /** E2E: advance functions from active subscriptions, so setFailModesForE2e can push them forward immediately. */
+  private readonly subscriptionAdvancers = new Set<(mode: ConversationTransportMode, reason: string) => Promise<void>>();
 
   constructor(
     gunService: WebGunService,
@@ -63,6 +65,15 @@ export class ResilientConversationTransport implements ConversationTransport {
    */
   setFailModesForE2e(modes: ConversationTransportMode[]): void {
     this.failModesForE2e = new Set(modes);
+    // Immediately advance any active subscriptions stuck on a now-faulted transport,
+    // closing the race where WebRTC connected before fault injection was applied.
+    if (this.subscriptionAdvancers.size > 0 && this.failModesForE2e.has(this.activeMode)) {
+      const nextMode: ConversationTransportMode =
+        this.activeMode === 'direct-p2p' ? 'server-relay' : 'star-gun';
+      for (const advance of this.subscriptionAdvancers) {
+        void advance(nextMode, `E2E fault injection: ${this.activeMode} faulted`);
+      }
+    }
   }
 
   get mode(): ConversationTransportMode {
@@ -203,6 +214,7 @@ export class ResilientConversationTransport implements ConversationTransport {
     };
 
     attach(this.direct);
+    this.subscriptionAdvancers.add(advanceSubscription);
 
     // E2E: when direct-p2p is fault-injected to never connect, don't burn the full
     // WebRTC connect timeout before falling back — advance the subscription at once.
@@ -222,6 +234,7 @@ export class ResilientConversationTransport implements ConversationTransport {
 
     return () => {
       disposed = true;
+      this.subscriptionAdvancers.delete(advanceSubscription);
       if (fallbackTimer) clearTimeout(fallbackTimer);
       activeUnsub?.();
       console.log(`👋 Unsubscribed from conversation ${conversationId} messages (${this.activeMode})`);

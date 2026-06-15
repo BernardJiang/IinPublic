@@ -30,6 +30,8 @@ export class ServerRelayConversationTransport implements ConversationTransport {
   private readonly participantCache = new Map<string, string>();
   private readonly messagesByConversation = new Map<string, Message[]>();
   private readonly lastSeenFromOther = new Map<string, string>();
+  /** Active notify fns keyed by conversationId — called by sendMessage so the sender sees their own message immediately. */
+  private readonly subscriptionNotifiers = new Map<string, Set<() => void>>();
 
   constructor(private gunService: WebGunService, apiBase?: string) {
     this.apiBase = apiBase || DirectP2PConversationTransport.resolveApiBase();
@@ -155,6 +157,7 @@ export class ServerRelayConversationTransport implements ConversationTransport {
     });
     await this.relay.post(conversationId, envelope);
     this.ingest(conversationId, wire, senderId);
+    this.subscriptionNotifiers.get(conversationId)?.forEach((fn) => fn());
     console.log(`📤 Message sent in conversation ${conversationId} (${channel}, ${this.mode})`);
   }
 
@@ -178,6 +181,11 @@ export class ServerRelayConversationTransport implements ConversationTransport {
       for (const listener of listeners) listener(snapshot);
     };
 
+    if (!this.subscriptionNotifiers.has(conversationId)) {
+      this.subscriptionNotifiers.set(conversationId, new Set());
+    }
+    this.subscriptionNotifiers.get(conversationId)!.add(notify);
+
     void this.getLocalPub()
       .then((localPub) => {
         stopRelayPoll = this.relay.startPolling(conversationId, localPub, async (envelope) => {
@@ -196,6 +204,7 @@ export class ServerRelayConversationTransport implements ConversationTransport {
 
     return () => {
       listeners.delete(callback);
+      this.subscriptionNotifiers.get(conversationId)?.delete(notify);
       stopRelayPoll?.();
       console.log(`👋 Unsubscribed from conversation ${conversationId} messages (${this.mode})`);
     };
