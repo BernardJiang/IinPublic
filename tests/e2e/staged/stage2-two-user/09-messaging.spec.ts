@@ -20,6 +20,7 @@ import {
 } from '../../helpers/p2p-transport-e2e';
 
 test.describe('Direct messaging between matched users', () => {
+  test.describe.configure({ retries: 0 });
   let browserTom: Browser;
   let browserJerry: Browser;
   let contextTom: BrowserContext;

@@ -28,6 +28,7 @@ import {
 const TALK_TITLE = 'E2E Partial Match Tennis';
 
 test.describe('Talks matching — one match one mismatch from two responders', () => {
+  test.describe.configure({ retries: 0 });
   let browsers: ThreeBrowsers;
   let browserTom: Browser;
   let browserJerry: Browser;

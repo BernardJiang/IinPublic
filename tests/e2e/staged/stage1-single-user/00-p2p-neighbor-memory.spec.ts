@@ -6,6 +6,8 @@ import { afterNav, afterSync } from '../../helpers/timing';
 import { gunBaseURL, webBaseURL } from '../../helpers/ports';
 
 test.describe('P2P roadmap P6 — active neighbor memory', () => {
+  // Allowlist: pending G-fix (add connectedNeighborCount gate) — see docs/testing/retry-dependence-inventory.md
+  test.describe.configure({ retries: 1 });
   let context: BrowserContext | undefined;
   let page: Page | undefined;
 

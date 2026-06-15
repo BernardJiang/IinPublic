@@ -28,6 +28,7 @@ import {
 } from '../../helpers/p2p-transport-e2e';
 
 test.describe('Unread badge on Me tab after match and new message', () => {
+  test.describe.configure({ retries: 0 });
   let browserTom: Browser;
   let browserJerry: Browser;
   let contextTom: BrowserContext;

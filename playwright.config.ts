@@ -121,8 +121,8 @@ export default defineConfig({
   // files so each long flow can occupy its own worker in parallel.
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  /** One retry only — long multi-retry runs hid flakes and stretched suite past 30 min. */
-  retries: 1,
+  /** Global retries: 0 — specs pin their own retries only when documented (see retry-dependence-inventory.md). */
+  retries: 0,
   workers: NUM_WORKERS,
   reporter: 'html',
   timeout: E2E_TEST_TIMEOUT_MS,

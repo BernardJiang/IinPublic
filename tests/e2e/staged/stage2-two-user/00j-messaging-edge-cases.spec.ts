@@ -29,6 +29,7 @@ async function getCurrentUserId(page: Page): Promise<string> {
 }
 
 test.describe('Messaging edge cases', () => {
+  test.describe.configure({ retries: 0 });
   let browserTom: Browser;
   let browserJerry: Browser;
   let contextTom: BrowserContext;

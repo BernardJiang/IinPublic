@@ -7,6 +7,8 @@ import { gunBaseURL, webBaseURL } from '../../helpers/ports';
 import SEA from 'gun/sea';
 
 test.describe('P2P roadmap P5 — cross-platform node protocol', () => {
+  // Allowlist: pending G-fix (add connectedNeighborCount gate) — see docs/testing/retry-dependence-inventory.md
+  test.describe.configure({ retries: 1 });
   let context: BrowserContext | undefined;
   let page: Page | undefined;
 
