@@ -43,6 +43,13 @@ import { getTransportModeFromPage, warmDirectP2PSession } from '../../helpers/p2
 
 type TransportMode = 'direct-p2p' | 'server-relay' | 'star-gun';
 
+async function activateResilientTransport(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    app?.conversationService?.activateResilientTransportForE2e?.();
+  });
+}
+
 async function setFailModes(page: Page, modes: TransportMode[]): Promise<void> {
   await page.evaluate((m) => {
     const app = (window as any).__iinpublic_app?.getApp?.();
@@ -130,7 +137,7 @@ test.describe('Conversation transport fallback (T3)', () => {
   //   - Remaining (a): confirm cross-browser server-relay + star delivery in the standard
   //     E2E hub on browser-capable CI (this sandbox cannot launch Playwright Chromium).
   // Un-fixme once (a) is validated in CI. See docs/TODO.md T3.
-  test.fixme('forced WebRTC failure falls back to server-relay, then to star-gun', async () => {
+  test('forced WebRTC failure falls back to server-relay, then to star-gun', async () => {
     const talkTitle = `Fallback Tennis ${Date.now()}`;
 
     // ── Bootstrap + match (reuse the standard direct-message setup) ──────────
@@ -183,17 +190,25 @@ test.describe('Conversation transport fallback (T3)', () => {
     await waitForResponseModalClosed(pageJerry);
     await afterSync();
 
-    // Conversation exists on both sides; capture id and open both overlays.
+    // Conversation exists on both sides; capture id.
     await waitForServerConversationBetween(pageTom, tomUserId, jerryUserId);
     await waitForServerConversationBetween(pageJerry, jerryUserId, tomUserId);
     const conversationId = await getConversationIdBetween(pageTom, tomUserId, jerryUserId);
+
+    // Swap onto ResilientConversationTransport BEFORE opening conversation overlays so
+    // that showConversationDetail's subscribeToMessages call goes through the resilient
+    // transport (not the DirectP2P default which has no relay/star legs).
+    await activateResilientTransport(pageTom);
+    await activateResilientTransport(pageJerry);
+
+    // Open overlays — subscriptions now route through ResilientConversationTransport.
     await openConversationViaServer(pageTom, tomUserId, 'Jerry', jerryUserId);
     await openConversationViaServer(pageJerry, jerryUserId, 'Tom', tomUserId);
 
     // ── Leg 1: force direct-p2p to fail -> server-relay carries the message ──
     await setFailModes(pageTom, ['direct-p2p']);
     await setFailModes(pageJerry, ['direct-p2p']);
-    // Warm both subscriptions so the receiver's resilient transport runs its own
+    // Warm subscriptions so the receiver's resilient transport runs its own
     // direct->relay fallback timer (direct can never connect under the fault).
     await warmDirectP2PSession(pageTom, conversationId);
     await warmDirectP2PSession(pageJerry, conversationId);

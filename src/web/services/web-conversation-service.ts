@@ -6,7 +6,7 @@ import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { StarGunConversationTransport } from './star-gun-conversation-transport';
 import type { ConversationMessageWire } from './star-gun-conversation-transport';
 import { DirectP2PConversationTransport } from './direct-p2p-conversation-transport';
-import type { TransportFallbackInfo } from './resilient-conversation-transport';
+import { ResilientConversationTransport, type TransportFallbackInfo } from './resilient-conversation-transport';
 import { TechSupportConversationTransport } from './techsupport-conversation-transport';
 
 /**
@@ -128,6 +128,18 @@ export class WebConversationService {
    */
   setTransportFailModesForE2e(modes: ConversationTransportMode[]): void {
     (this.transport as DirectCapableTransport).setFailModesForE2e?.(modes);
+  }
+
+  /**
+   * Test-only: swap in ResilientConversationTransport so E2E can fault-inject legs
+   * and exercise the direct→relay→star fallback chain deterministically. Must be
+   * called before setTransportFailModesForE2e — the default DirectP2PConversationTransport
+   * has no fallback legs to fault-inject.
+   */
+  activateResilientTransportForE2e(): void {
+    const resilient = new ResilientConversationTransport(this.gunService, this.starTransport);
+    resilient.setLedgerHandshakeHooks(this.ledgerHooks);
+    this.transport = resilient;
   }
 
   private isSupportConversation(conversationId: string, otherUserId?: string): boolean {
