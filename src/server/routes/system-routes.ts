@@ -94,6 +94,19 @@ type RegisterSystemRoutesDeps = {
   abuseDefenseConfig?: import('../../shared/p2p-abuse-defense').AbuseDefenseConfig;
 };
 
+export function pruneSignalingMap(map: Map<string, P2PSignalingEnvelope[]>, now = new Date()): void {
+  for (const [conversationId, envelopes] of map) {
+    const fresh = envelopes.filter((e) => new Date(e.expiresAt).getTime() > now.getTime());
+    if (fresh.length === 0) map.delete(conversationId);
+    else map.set(conversationId, fresh);
+  }
+}
+
+export function startSignalingPruning(map: Map<string, P2PSignalingEnvelope[]>): () => void {
+  const handle = setInterval(() => pruneSignalingMap(map), 60_000);
+  return () => clearInterval(handle);
+}
+
 export function registerSystemRoutes(
   app: express.Application,
   {
@@ -148,13 +161,8 @@ export function registerSystemRoutes(
     }
   };
 
-  const pruneSignaling = (now = new Date()): void => {
-    for (const [conversationId, envelopes] of signalingByConversation) {
-      const fresh = envelopes.filter((envelope) => new Date(envelope.expiresAt).getTime() > now.getTime());
-      if (fresh.length === 0) signalingByConversation.delete(conversationId);
-      else signalingByConversation.set(conversationId, fresh);
-    }
-  };
+  const pruneSignaling = (now = new Date()): void => pruneSignalingMap(signalingByConversation, now);
+  startSignalingPruning(signalingByConversation);
 
   const pruneConversationRelay = (now = new Date()): void => {
     for (const [conversationId, envelopes] of relayByConversation) {

@@ -59,8 +59,8 @@ T1 retry-dependence inventory **promoted to `docs/completed.md` 2026-06-16** (st
 
 `pruneSignaling()` in `src/server/routes/system-routes.ts` is lazy — it runs only when a request hits the same `conversationId`. In high-churn production, envelopes from disconnected users accumulate until the next request for that key, which may never come.
 
-- [ ] Add `setInterval(() => pruneSignaling(), 60_000)` to `system-routes.ts` (or `server/index.ts`) so expired envelopes are swept every minute regardless of traffic.
-- [ ] Unit test: populate stale envelopes, advance clock past TTL, verify interval callback reduces `signalingByConversation` size to zero.
+- [x] Add `setInterval(() => pruneSignaling(), 60_000)` to `system-routes.ts` (or `server/index.ts`) so expired envelopes are swept every minute regardless of traffic.
+- [x] Unit test: populate stale envelopes, advance clock past TTL, verify interval callback reduces `signalingByConversation` size to zero.
 
 ### S2 — Replace HTTP signaling poll with Gun pub/sub `[Sonnet]`
 
