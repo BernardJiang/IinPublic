@@ -6,14 +6,11 @@ import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { StarGunConversationTransport } from './star-gun-conversation-transport';
 import type { ConversationMessageWire } from './star-gun-conversation-transport';
 import { DirectP2PConversationTransport } from './direct-p2p-conversation-transport';
-import { ResilientConversationTransport, type TransportFallbackInfo } from './resilient-conversation-transport';
 import { TechSupportConversationTransport } from './techsupport-conversation-transport';
 
 /**
- * Methods an ordinary-peer conversation transport may optionally expose for P2P
- * diagnostics / ledger handshakes. Both DirectP2PConversationTransport and the
- * (now non-default) ResilientConversationTransport satisfy this, so the service no
- * longer special-cases the resilient wrapper.
+ * Optional diagnostics / ledger-handshake methods that DirectP2PConversationTransport
+ * exposes beyond the base ConversationTransport interface.
  */
 type DirectCapableTransport = ConversationTransport & {
   getConnectionState?(conversationId: string, localUserId: string): string;
@@ -25,8 +22,6 @@ type DirectCapableTransport = ConversationTransport & {
     getLedgerState?: () => LedgerState;
     onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
   }): void;
-  setFallbackHandler?(handler: (info: TransportFallbackInfo) => void): void;
-  setFailModesForE2e?(modes: ConversationTransportMode[]): void;
   setUndeliverableHandler?(
     handler: (wire: ConversationMessageWire, conversationId: string, recipientUserId: string) => void,
   ): void;
@@ -62,32 +57,33 @@ export type ConversationTransport = {
 
 export class WebConversationService {
   private transport: ConversationTransport;
-  private readonly starTransport: StarGunConversationTransport;
   private readonly supportTransport: TechSupportConversationTransport;
+  /**
+   * Gun-backed message store — used only for local Gun writes (e.g. offline mailbox
+   * ingestion via upsertMessageRecord). NOT used as a conversation transport.
+   */
+  private readonly gunMessageStore: StarGunConversationTransport;
   private ledgerHooks: {
     getLedgerState?: () => LedgerState;
     onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
   } = {};
 
   constructor(private gunService: WebGunService, transport?: ConversationTransport) {
-    this.starTransport = new StarGunConversationTransport(gunService);
+    this.gunMessageStore = new StarGunConversationTransport(gunService);
     this.supportTransport = new TechSupportConversationTransport(gunService);
-    // P2P-messaging Phase 1 (spec §19.4): ordinary-peer DMs use direct-p2p ONLY —
-    // WebRTC delivery with Gun-on-device as the source of truth, no star/relay
-    // fallback. (TechSupport keeps its own server-backed transport.)
+    // Ordinary-peer DMs use direct-p2p ONLY (spec §19.4): WebRTC + Gun-on-device.
+    // No star-gun or server-relay fallback. TechSupport keeps its own transport.
     this.transport = transport ?? this.createOrdinaryTransport();
   }
 
   setTransportFallbackHandler(
-    handler: (info: {
+    _handler: (info: {
       conversationId: string;
       mode: ConversationTransportMode;
       fallbackReason: string;
     }) => void,
   ): void {
-    // No-op for the direct-p2p default (no fallback chain); honored if a resilient
-    // transport is injected.
-    (this.transport as DirectCapableTransport).setFallbackHandler?.(handler);
+    // No-op: direct-p2p has no fallback chain so the handler is never invoked.
   }
 
   setLedgerHandshakeHooks(hooks: {
@@ -119,27 +115,6 @@ export class WebConversationService {
     handler: (wire: ConversationMessageWire, conversationId: string, recipientUserId: string) => void,
   ): void {
     (this.transport as DirectCapableTransport).setUndeliverableHandler?.(handler);
-  }
-
-  /**
-   * Test-only: force the named conversation transports to fail so the resilient
-   * fallback chain (`direct-p2p → server-relay → star-gun`) can be exercised
-   * deterministically in E2E. No-op for the direct-p2p default (no fallback chain).
-   */
-  setTransportFailModesForE2e(modes: ConversationTransportMode[]): void {
-    (this.transport as DirectCapableTransport).setFailModesForE2e?.(modes);
-  }
-
-  /**
-   * Test-only: swap in ResilientConversationTransport so E2E can fault-inject legs
-   * and exercise the direct→relay→star fallback chain deterministically. Must be
-   * called before setTransportFailModesForE2e — the default DirectP2PConversationTransport
-   * has no fallback legs to fault-inject.
-   */
-  activateResilientTransportForE2e(): void {
-    const resilient = new ResilientConversationTransport(this.gunService, this.starTransport);
-    resilient.setLedgerHandshakeHooks(this.ledgerHooks);
-    this.transport = resilient;
   }
 
   private isSupportConversation(conversationId: string, otherUserId?: string): boolean {
@@ -281,7 +256,7 @@ export class WebConversationService {
     wire: ConversationMessageWire,
     opts?: { otherUserId?: string },
   ): void {
-    this.starTransport.putMessageRecord(conversationId, wire, opts);
+    this.gunMessageStore.putMessageRecord(conversationId, wire, opts);
   }
 
   /**

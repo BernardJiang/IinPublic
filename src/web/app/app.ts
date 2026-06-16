@@ -2751,108 +2751,6 @@ export class IinPublicApp {
     return true;
   }
 
-  private async previewReceiversOnServerForTalk(
-    talkId: string,
-    talk: Talk,
-    members: Array<{ userId: string; stageName: string }>,
-    broadcastTargetTags?: string[],
-    broadcastMaxDistanceMiles?: number,
-    supportExcludedCount = 0,
-  ): Promise<BroadcastAudiencePreview> {
-    const me = this.currentUser;
-    const stageNameById = new Map(members.map((member) => [member.userId, member.stageName || member.userId]));
-    const receiverIds = members
-      .map((member) => member.userId)
-      .filter((id) => !!id && id !== me?.id && id !== TECHSUPPORT_ROOT_USER_ID);
-    const fallback = {
-      talkId,
-      title: String(talk.title || 'Untitled Talk'),
-      totalCandidates: receiverIds.length,
-      eligibleReceivers: receiverIds.length,
-      eligibleReceiverIds: receiverIds,
-      rejectedByCounts: {},
-      eligibleReceiverNames: receiverIds.map((receiverId) => stageNameById.get(receiverId) || receiverId),
-      rejectedReceiverDetails: [],
-      supportExcludedCount,
-      previewUnavailable: receiverIds.length > 0,
-    };
-    if (!me?.id || receiverIds.length === 0) return fallback;
-
-    const talkPayload: Talk = {
-      ...talk,
-      id: String(talk.id || talkId),
-      authorId: me.id,
-      ...(this.currentLocation &&
-      (!talk.authorLocation ||
-        typeof talk.authorLocation.latitude !== 'number' ||
-        typeof talk.authorLocation.longitude !== 'number')
-        ? {
-            authorLocation: {
-              latitude: this.currentLocation.latitude,
-              longitude: this.currentLocation.longitude,
-            },
-          }
-        : {}),
-    };
-    const previewBody = {
-      senderId: me.id,
-      receiverIds,
-      talkData: JSON.parse(JSON.stringify(talkPayload)) as Talk,
-      ...(broadcastTargetTags && broadcastTargetTags.length > 0 ? { broadcastTargetTags } : {}),
-      ...(typeof broadcastMaxDistanceMiles === 'number' && Number.isFinite(broadcastMaxDistanceMiles) && broadcastMaxDistanceMiles > 0
-        ? { broadcastMaxDistanceMiles }
-        : {}),
-    };
-
-    const parsePreviewResponse = (preview: Partial<BroadcastAudiencePreview>): BroadcastAudiencePreview => {
-      const eligibleReceiverIds = Array.isArray((preview as any).eligibleReceiverIds)
-        ? (preview as any).eligibleReceiverIds.map(String)
-        : receiverIds;
-      const rejectedReceivers = Array.isArray((preview as any).rejectedReceivers)
-        ? (preview as any).rejectedReceivers as Array<{ receiverId?: string; rejectedBy?: string[] }>
-        : [];
-      return {
-        talkId,
-        title: String(talk.title || 'Untitled Talk'),
-        totalCandidates: Number(preview.totalCandidates ?? receiverIds.length),
-        eligibleReceivers: Number(preview.eligibleReceivers ?? receiverIds.length),
-        eligibleReceiverIds,
-        rejectedByCounts: preview.rejectedByCounts && typeof preview.rejectedByCounts === 'object'
-          ? preview.rejectedByCounts
-          : {},
-        eligibleReceiverNames: eligibleReceiverIds.map((receiverId: string) => stageNameById.get(receiverId) || receiverId),
-        rejectedReceiverDetails: rejectedReceivers.map((receiver) => ({
-          name: stageNameById.get(String(receiver.receiverId || '')) || String(receiver.receiverId || ''),
-          rejectedBy: Array.isArray(receiver.rejectedBy) ? receiver.rejectedBy.map(String) : [],
-        })),
-        supportExcludedCount,
-        previewUnavailable: false,
-      };
-    };
-
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const response = await fetch(`${this.getBackendApiBase()}/api/talks/broadcast-receiver-preview`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(previewBody),
-        });
-        if (!response.ok) {
-          const errText = await response.text().catch(() => '');
-          console.warn(
-            `broadcast-receiver-preview HTTP ${response.status} (attempt ${attempt + 1}/2): ${errText.slice(0, 200)}`,
-          );
-          continue;
-        }
-        return parsePreviewResponse(await response.json() as Partial<BroadcastAudiencePreview>);
-      } catch (error) {
-        console.warn(`broadcast-receiver-preview failed (attempt ${attempt + 1}/2):`, error);
-      }
-      if (attempt < 1) await new Promise((r) => setTimeout(r, 500));
-    }
-    return fallback;
-  }
-
   /**
    * Other users who should receive direct offers or legacy server-side IN registration for a broadcast.
    * **Gun `chatrooms/<id>/users` is authoritative** for who is in the room (FR-BM-7: same node only,
@@ -3491,16 +3389,8 @@ export class IinPublicApp {
       );
       return { talksSent: attempted, receivers: 0 };
     }
-    const supportExcludedCount = members.filter((m) => m.userId === TECHSUPPORT_ROOT_USER_ID).length;
-    // E2E may skip the per-talk audience-preview HTTP round-trips; mesh delivery fans
-    // out to resolved receivers directly.
-    const previews = opts.skipAudiencePreview || usesMeshTalkDelivery(this.p2pRuntimeFlags)
-      ? []
-      : await Promise.all(
-          talkPayloads.map(({ tid, talk }) =>
-            this.previewReceiversOnServerForTalk(tid, talk, receivers, undefined, undefined, supportExcludedCount),
-          ),
-        );
+    // Mesh delivery fans out to resolved receivers directly; no server preview needed.
+    const previews: BroadcastAudiencePreview[] = [];
     const previewByTalkId = new Map(previews.map((p) => [p.talkId, p]));
     const REGISTER_BATCH = 5;
     const registeredTalkIds: string[] = [];
@@ -4032,16 +3922,6 @@ export class IinPublicApp {
             return;
           }
 
-          const supportExcludedCount = (data.members ?? [])
-            .filter((member) => member.userId === TECHSUPPORT_ROOT_USER_ID).length;
-
-          const broadcastTargetTags = data.broadcastTargetTags;
-          const broadcastMaxDistanceMiles =
-            typeof data.broadcastMaxDistanceMiles === 'number' &&
-            Number.isFinite(data.broadcastMaxDistanceMiles) &&
-            data.broadcastMaxDistanceMiles > 0
-              ? data.broadcastMaxDistanceMiles
-              : undefined;
           const targetCount = receivers.length;
           console.log(`📢 broadcastTalk: ${targetCount} receivers resolved`);
           if (targetCount === 0) {
@@ -4068,20 +3948,8 @@ export class IinPublicApp {
             }
             talkPayloads.push({ tid, talk: talk as Talk });
           }
-          const previews = usesMeshTalkDelivery(this.p2pRuntimeFlags)
-            ? []
-            : await Promise.all(
-                talkPayloads.map(({ tid, talk }) =>
-                  this.previewReceiversOnServerForTalk(
-                    tid,
-                    talk,
-                    receivers,
-                    broadcastTargetTags,
-                    broadcastMaxDistanceMiles,
-                    supportExcludedCount,
-                  ),
-                ),
-              );
+          // Mesh delivery fans out to resolved receivers directly; no server preview needed.
+          const previews: BroadcastAudiencePreview[] = [];
           const previewTalkIds = new Set(talkPayloads.map(({ tid }) => tid));
           const senderOmittedPreviews = this.uiManager
             .getSenderOmittedBroadcastPreviews()
