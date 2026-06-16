@@ -1,6 +1,6 @@
 # IinPublic Completed Work
 
-Last updated: 2026-06-14
+Last updated: 2026-06-15
 
 ## 2026-06-13 — P0 P2P messaging (spec §19.4 Phase C), Phases 1–4 + T2 sort core
 
@@ -1967,3 +1967,45 @@ Verification:
 - Focused Jest: 151 passed across ledger, mesh, mailbox, and removed-star endpoint suites
 - Focused E2E: previously flaky broadcast paths pass with `--retries=0`
 - Exact release gate: `PW_WORKERS=20 npm run test:e2e:parallel` - 102 passed, 2 skipped, 0 failed, 0 flaky (4.4 minutes)
+
+## 2026-06-15 — Test determinism cleanup, dead code removal, T2/T4/T5 completion
+
+### T2 — Distance sort UI wiring (spec §22.7) — DONE 2026-06-14
+
+Full implementation of the `distance` sort strategy across both core logic and UI:
+- **Core (DONE 2026-06-13):** `rankPeople` `distance` branch sorts by `blurredDistanceMiles` (snaps both coords to the privacy grid before Haversine — exact GPS never exposed); unknown-distance candidates sort last.
+- **UI step (a) DONE 2026-06-14:** `distanceMiles` added to `ContactsViewDeps`; `distance` branch wired in the sort switch in `ui-manager.ts` (3 call sites).
+- **UI step (b) DONE 2026-06-14:** Real distance resolver wired — `setPeerLocationReader` calls Gun via `gunService.getGun()`, `prefetchPeerLocations` populates cache before render, `distanceMilesFromCache` converts GPS to miles. Fix: corrected `this.gunService.gun` → `this.gunService.getGun()` (private property access). 713 unit tests green, `tsc` clean.
+
+### T3 — Deterministic fallback E2E — SUPERSEDED 2026-06-15
+
+T3 aimed to E2E-prove the `ResilientConversationTransport` fallback chain (`direct-p2p → server-relay → star-gun`) by forcing WebRTC failure and asserting the message still arrives via relay or star. This goal is superseded by the architectural decision (2026-06-15) to **delete the fallback chain entirely**:
+
+- `src/web/services/resilient-conversation-transport.ts` — deleted
+- `src/web/services/server-relay-conversation-transport.ts` — deleted
+- `src/test/unit/resilient-conversation-transport-fallback.test.ts` — deleted
+- `tests/e2e/staged/stage2-two-user/00m-transport-fallback.spec.ts` — deleted
+
+The transport is now `DirectP2PConversationTransport` only; `createConversationTransportDiagnostics` returns `{ availableModes: ['direct-p2p'], fallback: null }`. No fallback to test.
+
+### T4 — Replace masking retries with real waits — DONE 2026-06-14/15
+
+Pinned `test.describe.configure({ retries: 0 })` across two waves:
+- **Safe set (2026-06-14):** `talks-matching/07-change-of-mind`, `talks-matching/08-retraction`, `stage1/00-ui-navigation-settings`, `stage2/00k-techsupport-contact-mute`, `stage3/00q-expiration-broadcast`.
+- **F-class messaging specs (2026-06-15):** `09-messaging`, `00j-messaging-edge-cases`, `10-message-unread-badge`, `12-two-responders-partial-match` — these were deterministic once `DirectP2PConversationTransport` became the sole transport (no fallback timing races).
+
+### T5 — Lower global retry budget — DONE 2026-06-15
+
+`playwright.config.ts` `retries` dropped from `1` to `0`. Two specs remain at `retries: 1` via inline allowlist: `00-p2p-neighbor-memory` and `00-p2p-cross-platform-protocol` — pending G-fix (connectedNeighborCount gate); tracked in `docs/testing/retry-dependence-inventory.md`.
+
+### P0 Phase verify — VERIFIED 2026-06-14
+
+`npm run health` clean after each phase. Phase 3 proven in `dev:relay-only`. No regression in messaging E2E (`09-messaging`, `10-message-unread-badge`, `12-two-responders-partial-match`). Full suite: EXIT_CODE 0; 796 unit tests pass; 87+18 E2E specs pass.
+
+### Dead code removed — 2026-06-15
+
+- `previewReceiversOnServerForTalk` private method (~100 lines) deleted from `src/web/app/app.ts` — called a non-existent `POST /api/talks/broadcast-receiver-preview` endpoint; replaced with `const previews: BroadcastAudiencePreview[] = []` at both call sites. Removed three unused variables (`supportExcludedCount`, `broadcastTargetTags`, `broadcastMaxDistanceMiles`) that were only passed to the deleted call.
+- `ResilientConversationTransport`, `ServerRelayConversationTransport`, and their test/E2E files deleted (see T3 above).
+- `WebConversationService.gunMessageStore` (formerly `starTransport`) clarified: renamed field, added JSDoc — it is a local Gun write store for offline mailbox ingestion, not a transport.
+
+**Verification:** `tsc` + eslint clean; integration test `star-endpoints-removed.test.ts` confirms all 7 old star endpoints return 404.

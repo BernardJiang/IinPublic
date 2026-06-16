@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-06-14
+Last updated: 2026-06-15
 
 This file is the short, execution-oriented plan. The detailed acceptance inventory and the
 statistics / spec-gap follow-ups are consolidated into the appendices at the bottom of this file.
@@ -33,19 +33,7 @@ its own local Gun; the UI reads from a Gun subscription. A relay-only (no-archiv
 behind `RELAY_ONLY_HUB=1` (`npm run dev:relay-only`) with a `/api/debug/storage` diagnostic. What
 remains is fallback/config scaffolding plus one real missing capability (offline mailbox for DMs).
 
-**Gaps:** (1) the default ordinary transport is still `ResilientConversationTransport`
-(direct → server-relay → **star-gun**); diagnostics still advertise all three modes; CLAUDE.md already
-*claims* star-gun is removed (docs ahead of code). (2) the central hub still `radisk`-persists the
-graph (`server gun-service.ts`: `radisk:true, file:data.json`) → it keeps message copies even in
-direct mode (the "star at the data layer"). (3) removing the hub archive needs an **offline mailbox**
-for DMs (reuse the talks encrypted-TTL mailbox). (4) peer↔peer Gun reconciliation (catch-up /
-multi-device) still goes through the hub; Gun-over-WebRTC / libp2p not wired for conversations.
-(5) `StarGunConversationTransport` conflates "the Gun store DirectP2P writes through" with "the star
-fallback transport." **TechSupport stays server-backed (spec §19.7) — out of scope.**
-
-**Decision (A, adopted):** remove star-gun entirely; keep server-relay only as an *off-by-default,
-ephemeral, TTL-pruned* encrypted forward for hard-NAT cases (no message archive); pure-direct (B)
-stays available behind a flag.
+**Current state (2026-06-15):** Phases 1–4 shipped: `DirectP2PConversationTransport` is the only ordinary-peer transport; `ResilientConversationTransport` and `ServerRelayConversationTransport` deleted; hub skips all message bodies (`shouldSkipServerGunPersist`); offline DM mailbox wired. `GunMessageStore` is the local Gun write path (not a transport). The only remaining gap is Phase 5 peer reconciliation (browser CI pending). **TechSupport stays server-backed (spec §19.7) — out of scope.**
 
 Phases 1–4 **completed** 2026-06-13 and moved to `docs/completed.md` (direct-p2p default transport;
 Gun store split from star transport; no hub message archive; offline DM mailbox).
@@ -62,31 +50,184 @@ Gun store split from star transport; no hub message archive; offline DM mailbox)
   can never disturb DM delivery); `DirectP2PConversationTransport` provides the hooks. Verify: `tsc`/
   eslint clean, **781 unit/integration green**. **Needs CI:** the live WebRTC digest→backfill round-trip
   and the Gun `.map().once()` enumeration in `listLocalWires` (browser-only). **Follow-ups verified DONE 2026-06-14:** (a) re-digest on reconnect — already fires: `onclose`/`onerror` → state `'failed'` → next `ensureConnected()` → `resetTransport()` → `start()` → new `attachDataChannel()` → `onopen` → `sendSyncDigest()`; no code change needed. (b) `listLocalWires` bounding — already applied: `gun-message-store.ts:186` has `limit: number = DEFAULT_RECONCILE_WINDOW` default and passes it to `boundRecentWires` at line 211; call sites omit the arg and get the 500-message cap by default.
-- [x] **Verify:** `[Haiku]` `npm run health` clean each phase; Phase 3 proven in `dev:relay-only`; no regression
-  in messaging E2E (`09-messaging`, `10-message-unread-badge`, `12-two-responders-partial-match`). **VERIFIED 2026-06-14:** full suite green (EXIT_CODE 0); 796 unit tests pass; 87+18 E2E specs pass.
+All P1 (libp2p/IPFS), P2 (Find Similar), and P2.5 (sort pipeline) **completed** and moved to `docs/completed.md` (2026-06-12). REQ-SIM-01–08 fully implemented including distance sort (§22.7) with blurred-GPS Haversine — see `docs/completed.md`.
 
+### P0 — Test determinism `[Opus]` — CI VERIFICATION PENDING
 
+**Context (2026-06-15).** `playwright.config.ts` global `retries` dropped to `0`; 9 specs pinned with `test.describe.configure({ retries: 0 })`; `ResilientConversationTransport` and its fallback spec deleted — fallback chain gone by design. Remaining open: live `--retries=0` full-suite run in browser-capable CI, and two specs still at `retries:1` allowlist (`00-p2p-neighbor-memory`, `00-p2p-cross-platform-protocol`) pending the connectedNeighborCount gate (G-fix class).
 
-All P1 (libp2p/IPFS), P2 (Find Similar), and P2.5 (sort pipeline) **completed** and moved to `docs/completed.md` (2026-06-12).
-
-**Spec audit 2026-06-13 (find-similar vs SRS §22):** REQ-SIM-01–08 all implemented in `src/shared/find-similar.ts` (`FindSimilarIndex`, `matchScore`, delta/patch, inverted index, bounded top-K heap, `SORT_STRATEGIES`/`rankPeople`) and wired through `ui-manager.ts` `ContactsViewDeps` (3 call sites). 14 dedicated unit tests + 762 total unit/integration tests green; `tsc` + eslint clean. **One residual gap:** the `distance` sort strategy (§22.7) is a pass-through placeholder — it does not yet sort by `LocationPrivacy.blurLocation`. Tracked in T2 below.
-
-### P0 — Test determinism & transport fallback `[Opus]` — HIGH PRIORITY
-
-> Why Opus: the hard part is distributed/timing correctness — making delivery deterministic without papering over real races, and proving the relay/star-gun fallback actually carries messages when WebRTC fails. Design the fallback-trigger + assertion model first, then hand mechanical spec edits to Sonnet/Haiku.
-
-**Context.** `playwright.config.ts` sets `retries: 1`, so a spec that only passes on the second run is currently green — masking nondeterminism in the mesh/WebRTC path. The `ResilientConversationTransport` fallback chain (`direct-p2p → server-relay → star-gun`, `src/web/services/resilient-conversation-transport.ts`) is wired and unit-tested (`p2p-mesh-session-fallback.test.ts`, integration `p2p-relay-only-hub.test.ts`), but **no E2E spec forces a WebRTC failure and asserts the message still arrives via relay or star-gun** — the `subscribeToMessages` fallback-timer path (`P2P_WEBRTC_CONNECT_TIMEOUT_MS`) is E2E-uncovered. Several specs lean on in-spec retry loops (e.g. find-similar's 15-attempt broadcast) instead.
-
-- [~] **T1. Inventory retry-dependent specs.** `[Haiku]` Live `--retries=0` **confirmed 2026-06-14** on local browser CI: full suite passes with `retries:1` global; all 5 pinned-at-0 specs stayed green. Static source analysis DONE 2026-06-13 → `docs/testing/retry-dependence-inventory.md` (107 specs scanned; at-risk subset tabled with root cause + fix class F/G/L/V; ordered to feed T3–T5). **Correction after reading the flagged specs:** the initial "Tier A = `07`+`08` toast race" was a grep false positive (it matched their *"durable, not toast-only"* comment) — both are already durable-surface + `ensureMeshNeighbors`-gated and need no rewrite; likewise `.notification` in `00-ui-navigation-settings` is synchronous form-validation and `.notification-badge` is durable derived state. **Real risk = WebRTC/`direct-p2p` timing in messaging specs (`09-messaging`, `00j-messaging-edge-cases`, `10-message-unread-badge`, `12-two-responders-partial-match`) — these motivate T3 — plus in-spec retry loops (fix class L).** **Live `--retries=0` confirmation still pending:** the dev sandbox can't launch Playwright Chromium (missing system libs, no sudo, loader ignores `LD_LIBRARY_PATH`); run `PW_WORKERS=4 npm run test:e2e -- --retries=0` in browser-capable CI to fill the "observed" column.
-- [x] **T2. UI follow-up for distance sort (spec §22.7).** `[Sonnet]` Core sort logic DONE 2026-06-13. Step **(a) DONE 2026-06-14:** `distanceMiles` added to `ContactsViewDeps`, `distance` branch in sort switch. Step **(b) DONE 2026-06-14:** real distance resolver wired — `setPeerLocationReader` calls Gun via `gunService.getGun()`, `prefetchPeerLocations` populates cache before render, `distanceMilesFromCache` converts GPS to miles. Fix: changed `this.gunService.gun` → `this.gunService.getGun()` (private property access). 713 unit tests green, `tsc` clean.
-- [~] **T3. Deterministic fallback E2E.** `[Opus]` assertion model → `[Sonnet]` spec edits. Routing DONE; **subscribe-side fallback gap (b) CLOSED 2026-06-14**; live browser run still PARKED. Fault-injection seam `ResilientConversationTransport.setFailModesForE2e([...])` (+ `WebConversationService.setTransportFailModesForE2e`, injectable leg transports via a test-only ctor override). **Send routing** proven by `src/test/unit/resilient-conversation-transport-fallback.test.ts` (direct→relay→star + onFallback reasons). **2026-06-14:** the resilient **subscribe** path now advances `direct→relay→star` (`advanceSubscription` in `resilient-conversation-transport.ts`) so the receiver renders the star leg instead of only persisting it — 3 new subscribe-side unit tests added; the E2E spec now asserts Jerry's star-leg render. E2E spec `tests/e2e/staged/stage2-two-user/00m-transport-fallback.spec.ts` stays **`test.fixme`** pending the one remaining item: (a) confirm cross-browser server-relay + star delivery in the standard hub on browser-capable CI (this dev sandbox can't launch Playwright Chromium).
-  - **L-fix note (find-similar):** the attempted `connectedNeighborCount >= NUM_USERS-1` gate **failed in CI (90s timeout)** — the sparse gossip overlay never connects all 9 peers at once. **Reverted** to the original 15× delivery poll, which is legitimate cross-browser convergence handling, not retry-masking. Inventory reclassifies that loop as keep/V.
-- [x] **T4. Replace masking retries with real waits.** `[Sonnet]` For each T1 spec whose root cause is timing (not a bug), swap the implicit retry for an explicit `afterSync`/`waitForTabActive`/connected-neighbor gate; once a spec is deterministic, set `test.describe.configure({ retries: 0 })` on it so regressions surface immediately. **DONE 2026-06-14 (safe set):** pinned `test.describe.configure({ retries: 0 })` in the 5 already-deterministic specs: `talks-matching/07-change-of-mind`, `talks-matching/08-retraction`, `stage1/00-ui-navigation-settings`, `stage2/00k-techsupport-contact-mute`, `stage3/00q-expiration-broadcast`. **DONE 2026-06-15 (F-class):** T3 now E2E-proven; pinned `test.describe.configure({ retries: 0 })` in `09-messaging`, `00j-messaging-edge-cases`, `10-message-unread-badge`, `12-two-responders-partial-match`.
-- [x] **T5. Lower the global retry budget.** `[Haiku]` **DONE 2026-06-15:** dropped `playwright.config.ts` `retries` to `0`. Allowlist (inline `retries: 1`): `00-p2p-neighbor-memory` and `00-p2p-cross-platform-protocol` — pending G-fix (connectedNeighborCount gate); see `docs/testing/retry-dependence-inventory.md`.
-- [ ] **Test/verify:** `[Haiku]` `PW_WORKERS=4 npm run test:e2e` green with `retries: 0`; the fallback spec passes in both direct and `dev:relay-only` modes; `npm run health` clean.
+- [~] **T1. Inventory retry-dependent specs.** `[Haiku]` Static analysis DONE 2026-06-13 → `docs/testing/retry-dependence-inventory.md` (107 specs scanned; F/G/L/V fix classes). **Real risk confirmed:** WebRTC timing in messaging specs — addressed by T4 pin + T5 global drop. **G-fix (connectedNeighborCount gate) still open** for the two allowlisted specs. **Live `--retries=0` confirmation pending browser-capable CI:** run `PW_WORKERS=4 npm run test:e2e -- --retries=0` to fill the "observed" column.
+- [ ] **Test/verify:** `[Haiku]` `PW_WORKERS=4 npm run test:e2e` green with `retries: 0`; `npm run health` clean.
 
 **Next phase:** Appendix C (P2P spec-gap audits `[Haiku]`). Appendix B (Statistics expansion) completed 2026-06-13 — see `docs/completed.md`.
 
+---
+
+## Infrastructure & Architecture Follow-ups
+
+### S1 — Signaling server memory: add background pruning `[Haiku]`
+
+`pruneSignaling()` in `src/server/routes/system-routes.ts` is lazy — it runs only when a request hits the same `conversationId`. In high-churn production, envelopes from disconnected users accumulate until the next request for that key, which may never come.
+
+- [ ] Add `setInterval(() => pruneSignaling(), 60_000)` to `system-routes.ts` (or `server/index.ts`) so expired envelopes are swept every minute regardless of traffic.
+- [ ] Unit test: populate stale envelopes, advance clock past TTL, verify interval callback reduces `signalingByConversation` size to zero.
+
+### S2 — Replace HTTP signaling poll with Gun pub/sub `[Sonnet]`
+
+`P2PSignalingClient` (`src/web/services/p2p-signaling-client.ts`) currently polls `GET /api/p2p/signaling/:conversationId` every ~400 ms. The Gun WebSocket is already open for every user in a chatroom. Writing signaling envelopes to a Gun path (`gun.get('p2p-signal').get(sharedKey)`) and subscribing via `.on(callback)` would deliver offers/answers the moment they're written — no polling, no server HTTP route needed.
+
+Plan:
+- Derive `sharedKey` deterministically from two `pub` values: `sha256(sorted([pubA, pubB]).join(':'))` — same namespace logic as current conversationId, but derived from identity keys known at presence time.
+- Write SDP offer/answer/ICE frames to `gun.get('p2p-signal').get(sharedKey)` (serialized array or append-only log pattern).
+- Subscribe in `P2PSignalingClient` via Gun `.on()` instead of `setInterval` poll.
+- Add `shouldSkipServerGunPersist()` rule for `p2p-signal/` so the hub never archives these (TTL-only, in-memory on the gun node).
+- For native nodes (those with a `Libp2pBindingRecord` in Gun at `p2p-peer-bindings/<userId>`): skip signaling entirely — read their multiaddrs and dial via `node.dialProtocol(peerId, '/iinpublic/mesh/1.0.0')`.
+- Remove `POST /api/p2p/signaling/:conversationId` and `GET /api/p2p/signaling/:conversationId` server routes once Gun-signaling is proven in E2E.
+
+
+
+---
+
+## GUI Polish — Talks presentation & information density `[Sonnet]`
+
+The current talk UI surfaces minimal metadata. Each item below adds a concrete, self-contained layer of information or interaction quality.
+
+### G1 — Richer talk cards in the incoming list
+
+Each incoming talk card currently shows title + type badge only. Add:
+- [ ] **Question count + progress ring** for flow/route talks (e.g. "Q3 of 5") so the user knows the depth before accepting.
+- [ ] **Language badge** (flag icon + ISO code) when the talk language differs from the viewer's preferred language — gives instant filter signal.
+- [ ] **Creator name + avatar thumbnail** (from `user-public-profile/<creatorId>`) — currently absent; adds social context.
+- [ ] **Time-to-expiry chip** ("Expires in 2 h") derived from `talk.expiresAt`; color-coded (green/amber/red).
+- [ ] **Distance chip** if the creator's blurred location is available in presence ("~3 km away") — reuse `blurredDistanceMiles` from the find-similar pipeline.
+- [ ] **Answer count** for survey and tag talks ("47 responses") pulled from local ledger aggregates.
+
+### G2 — Talk response flow UX
+
+Inside the response modal for flow/route talks:
+- [ ] **Step indicator bar** at the top: "Question 2 of 4" with filled dots for completed steps and an empty dot for the current one.
+- [ ] **Back button** for flow talks — allow the user to revise the previous answer before submitting (requires buffering answers locally and only submitting on the final step).
+- [ ] **Branch preview** for route talks: after selecting an answer show a subtle "this leads to: [next question title]" preview before the user commits.
+- [ ] **Auto-save draft** — if the modal is closed mid-flow, re-open at the same question (store draft in `localStorage` keyed by `talkId`).
+- [ ] **Estimated completion time** shown at the start of a flow/route talk (e.g. "~2 min, 4 questions").
+
+### G3 — Conversation list improvements
+
+`conversations-view.ts` currently shows: other user's name + talkId. Add:
+- [ ] **Last message preview** (first 60 chars, ellipsised) and **relative timestamp** ("3 min ago") — read from `GunMessageStore.listLocalWires` for the conversation.
+- [ ] **Unread badge** (count of messages since last `readAt` cursor) — store cursor in `localStorage`.
+- [ ] **Transport mode chip** ("P2P" / "Relay") derived from `transportMode` field already on the conversation record.
+- [ ] **Online indicator** — green dot if the peer has a live `PresenceRecord` (not expired).
+
+### G4 — Peer detail view enhancements
+
+`user-detail-view.ts` shows basic profile fields. Add:
+- [ ] **Compatibility score** (the `matchScore` from `find-similar.ts`) rendered as a percentage bar next to the peer's name — already computed in the contacts index, just needs to be passed through to the detail view.
+- [ ] **Talk exchange timeline** — chronological list of talks the two users exchanged (from `localTalkExchanges`), each showing outcome (match / ignore / pending) and date.
+- [ ] **Shared tags** panel — the intersection of their matched tag sets, ordered by mutual importance weight.
+- [ ] **Reputation summary** — render the peer's `Reputation` struct as compact icon-row (response rate, match rate, flagged count) rather than raw numbers.
+
+### G5 — Survey results visualization
+
+`displayStatisticsDashboard` renders tables. Replace/augment with:
+- [ ] **Horizontal bar chart** for tag-frequency and per-answer distribution — use the existing Canvas/SVG budget (no new library; D3 or plain SVG).
+- [ ] **Day-over-day sparkline** for response volume (last 14 days) on the dashboard header.
+- [ ] **Question completion funnel** for flow/route talks: each step's drop-off shown as a narrowing funnel chart, highlighting where users abandon.
+- [ ] **Cross-question heatmap** for survey talks: a 2-D matrix showing co-occurrence frequency for the top N question pairs.
+
+---
+
+## Public Gun Bootstrap — Shared knowledge graph `[Sonnet]`
+
+Certain data is logically global and should be replicated to every peer's local Gun graph on first connection, rather than fetched on demand. This makes the app functional with a degraded or offline hub.
+
+### P1 — Chatroom hierarchy as Gun-published constant
+
+`CHATROOM_HIERARCHY` in `src/shared/chatroom-hierarchy.ts` is a hardcoded static tree (Global → Region → City). It should also live in Gun at a well-known path so any peer can read/subscribe to additions without a code deploy.
+
+- [ ] On server startup, write `CHATROOM_HIERARCHY` to `gun.get('public/chatroom-hierarchy').put(JSON.stringify(hierarchy))` (idempotent).
+- [ ] Add `shouldSkipServerGunPersist` exemption so this path IS persisted (it's shared public knowledge, not user-private).
+- [ ] Browser: on boot, subscribe to `gun.get('public/chatroom-hierarchy')` and merge with the local static constant — remote wins for additions; local constant is the safe fallback.
+- [ ] Unit test: server write → browser read produces the same tree as the static import.
+
+### P2 — TechSupport root identity bootstrap
+
+The TechSupport root user ID and public key (`TECHSUPPORT_ROOT_USER_ID`, `TECHSUPPORT_PUB`) are currently constants in `src/shared/techsupport.ts`. They should also be announced in Gun so a new peer can verify them without trusting the bundle.
+
+- [ ] Write `{ userId, pub, epub, role: 'techsupport' }` to `gun.get('public/techsupport-identity')` signed with the TechSupport SEA key on server startup.
+- [ ] Browser: on boot, read `public/techsupport-identity`, verify signature, and cross-check against the compiled constant — mismatch triggers a visible security warning.
+- [ ] E2E: assert that a fresh browser without the compiled constant can discover TechSupport identity solely from the Gun path.
+
+### P3 — Location-based chatroom auto-join hints
+
+When a user grants location access, the app should suggest or auto-join the most specific matching chatroom from the hierarchy.
+
+- [ ] `getCurrentLocation()` (`src/shared/location.ts`) → `LocationPrivacy.blurLocation()` → walk `CHATROOM_HIERARCHY` to find the best-match city/region room.
+- [ ] Write the user's blurred chatroom affinity to `gun.get('user-public-profile/<userId>').get('chatroomAffinity')` so peers in the same room can discover them.
+- [ ] UI: on first location grant, show "Suggested room: [City]" banner with one-click join.
+- [ ] Gun path `public/room-member-counts/<roomId>` maintained by server presence heartbeat — browser reads it to show live member counts in the room list without a separate HTTP call.
+
+### P4 — System announcements channel
+
+TechSupport needs a broadcast channel for maintenance notices, rule changes, and safety alerts that every peer sees without a DM conversation.
+
+- [ ] Gun path `public/announcements` — append-only list of `{ id, authorPub, text, createdAt, expiresAt, signature }`.
+- [ ] Server-side: `POST /api/admin/announcements` (TechSupport-auth only) writes + signs a new entry.
+- [ ] Browser: on boot subscribe to `gun.get('public/announcements').map().on(...)`, render unexpired entries as a dismissible banner above the chatroom list.
+- [ ] `shouldSkipServerGunPersist` exemption so announcements ARE hub-persisted (public, not user-private).
+- [ ] Unit test: announcement with expired `expiresAt` not rendered; invalid signature rejected.
+
+---
+
+## Massive Talks Exchange E2E `[Sonnet]`
+
+High-volume multi-user E2E scripts stress-test the mesh delivery, match engine, and stats pipeline beyond the current 2–3 user specs.
+
+### M1 — Flow talks: branching-path mass exchange
+
+`tests/e2e/mass/01-flow-mass-exchange.spec.ts`
+
+Scenario: 10 users in the same chatroom; creator broadcasts a 4-question flow talk with 3 branching paths (match / ignore / neutral). Each non-creator user follows a different answer path. Assert:
+- [ ] All 9 responses received by creator (Gun ledger + HTTP `/api/incoming-talks` agrees).
+- [ ] Correct subset of users matched (those whose final answer has `isMatch: true`).
+- [ ] Correct subset ignored.
+- [ ] `buildConversationDigest` / reconcile sync completes for each matched pair within `P2P_E2E_TIMEOUT_MS`.
+- [ ] No duplicate conversations created (idempotent `conv_<sorted>_<talkId>` key).
+- [ ] Stats: `matchRate` in local ledger equals `matches / totalResponses`.
+
+Seed helper: extend `talks-matching-flow.ts` with `broadcastFlowTalkToN(page, n, branchMap)` where `branchMap` maps user index → answer sequence.
+
+### M2 — Survey talks: aggregate correctness under load
+
+`tests/e2e/mass/02-survey-mass-exchange.spec.ts`
+
+Scenario: 15 users; one survey talk with 5 questions, each with 4 answer options. Each user submits a randomly seeded answer vector (deterministic via `userId` hash so the test is reproducible). Assert:
+- [ ] All 14 responses recorded in `localTalkExchanges`.
+- [ ] `summarize(responses)` `byQuestion[i].skipCount` + `byQuestion[i].answerCounts` totals equal 14.
+- [ ] `completionRate` for each question equals `(14 - skipCount) / 14`.
+- [ ] `aggregateCrossQuestion` co-occurrence table is symmetric: `coOccurrence[a][b] === coOccurrence[b][a]`.
+- [ ] Time-range filter (7d) returns all 14 (all submitted within the test run).
+- [ ] CSV export row count equals response count.
+
+### M3 — Route talks: DAG traversal correctness
+
+`tests/e2e/mass/03-route-mass-exchange.spec.ts`
+
+Scenario: 8 users; one route talk modelled as a binary DAG (depth 3, 7 terminal nodes). Each user follows a unique root-to-leaf path. Assert:
+- [ ] Each user reaches a distinct terminal node.
+- [ ] Terminal nodes marked `isMatch`/`isIgnore` correctly route each user into the matched or ignored set.
+- [ ] No user is stuck in a cycle or hits an undefined `next` pointer (timeout guard: 10s per user).
+- [ ] `computeTalkIdFromTalkData` (`src/shared/talk-content-id.ts`) produces the same id on creator and all responders — content-hash dedup verified across 8 instances.
+
+### M4 — Mixed-type saturation test
+
+`tests/e2e/mass/04-mixed-saturation.spec.ts`
+
+Scenario: 20 users; creator broadcasts one of each type (flow, tag, survey, route) in sequence. Assert:
+- [ ] All 4 talks delivered to all 19 non-creators (76 total delivery events) within 30s.
+- [ ] No cross-talk contamination: responses to talk A do not appear in talk B's ledger.
+- [ ] Mesh flood stats: `PeerMeshService` `ping/pong` round-trips complete for all 20 users (full mesh within `maxNeighbors=12` cap; assert ≥12 neighbors per node for a 20-node graph).
+- [ ] Memory: Gun graph size (measured via `gun.get('talks').once()` key count) does not grow unboundedly after test — `shouldSkipServerGunPersist` verified by checking hub radata is empty for talk bodies.
 
 ## Run commands
 
@@ -143,7 +284,26 @@ npm run test:e2e:parallel     # Full E2E suite in direct mode
 - [x] Broader moderation UX and centralized reporting/appeal model (FR-BF / FR-SP) — **Deferred** (safety-critical, out of scope).
 - [x] Production-durability review of in-memory stats indices, quota counters, rate-limit counters — **VERIFIED**: All intentionally ephemeral per spec; Gun-backed persistence deferred if requirements tighten. All 763 unit tests passing.
 - [x] Statistics/visualization product polish (shipped dashboard/endpoints) — **Complete**; baseline live, forward aggregates in Appendix B.
-- [x] Android: maintenance-only until web/server loop stable — **Acknowledged** (not blocking).
+- [x] Android: maintenance-only until web/server loop stable — **Acknowledged** (superseded by S3 below).
+
+### S3 — Cross-platform native clients `[Opus]`
+
+Add native builds that run a real libp2p node (TCP/QUIC), eliminating WebRTC signaling overhead for native↔native and exposing a Circuit Relay so browser peers can connect.
+
+**Target platforms:** Windows, Linux, macOS desktop (Electron or Tauri); Android (WebView + Kotlin native module); iOS (WKWebView + Swift native module).
+
+**Browser ↔ native-node connection design (chosen: hybrid):**
+- Native↔native: libp2p direct TCP/QUIC via published multiaddrs in `Libp2pBindingRecord` (Gun path `p2p-peer-bindings/<userId>`, already spec'd).
+- Browser↔native: native node runs `circuitRelayServer()` and includes the relay multiaddr in its `Libp2pBindingRecord`. Browser reads the record from Gun and dials via `@libp2p/webrtc` through that relay — no HTTP signaling needed.
+- Browser↔browser: unchanged — Gun WebSocket + WebRTC with HTTP or Gun-pubsub signaling (see S2).
+
+**Pieces to build:**
+- [ ] Electron/Tauri shell (Windows/Linux/macOS): bundled libp2p node with `@libp2p/tcp`, `@libp2p/quic`, Circuit Relay v2 server, Kademlia DHT. Shares the same Gun hub WebSocket as the browser build.
+- [ ] `Libp2pBindingRecord` extended with Circuit Relay multiaddr; published to Gun on startup; refreshed on address change.
+- [ ] Browser-side dial upgrade: in `P2PRoomDiscoveryService.findRoomProviderPeerIds()`, if a peer has a `Libp2pBindingRecord` with a Circuit Relay addr, attempt `node.dialProtocol(peerId, '/iinpublic/mesh/1.0.0')` via the relay before falling back to Gun-WebRTC signaling.
+- [ ] Android: WebView shell + Kotlin `Libp2pBridgeService` exposing a local WebSocket; same libp2p node logic as desktop.
+- [ ] iOS: WKWebView shell + Swift `Libp2pBridgeService` over WKScriptMessageHandler; same circuit-relay logic.
+- [ ] E2E spec: one browser peer + one native node in the same chatroom; exchange a talk and open a conversation; assert DataChannel opens through the Circuit Relay multiaddr from `Libp2pBindingRecord`.
 
 **Known runtime risks (verified):**
 - ✓ Gun replication timing on auto-reply path: Mitigated by server POST path.
