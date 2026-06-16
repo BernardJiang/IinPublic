@@ -38,25 +38,15 @@ remains is fallback/config scaffolding plus one real missing capability (offline
 Phases 1–4 **completed** 2026-06-13 and moved to `docs/completed.md` (direct-p2p default transport;
 Gun store split from star transport; no hub message archive; offline DM mailbox).
 
-- [~] **Phase 5 — peer↔peer Gun reconciliation (larger).** `[Opus]` design → `[Sonnet]` impl. Core DONE + tested 2026-06-13; WebRTC
-  round-trip **CI GREEN 2026-06-14 (local browser CI).** Approach: on DataChannel connect, each peer advertises a message-id **digest**
-  for the conversation; the other backfills whatever's missing as ordinary `dm` frames (reuses the
-  proven, deduped `ingestWireMessage` path). Both local Gun graphs converge directly — hub not in the
-  data path even as a relay. Pieces: `src/shared/conversation-reconcile.ts` (pure
-  `buildConversationDigest` / `computeMissingForPeer` / `selectNewBackfill` — **9 unit tests incl. a
-  symmetric two-peer convergence + idempotence proof**); `GunMessageStore.listLocalWires` (one-shot
-  local-history read); `P2PConversationSession` `sync-digest` frame + `sendSyncDigest`/`handleSyncDigest`
-  (**strictly additive + guarded**: no-op without the hooks, every handler try/caught so reconciliation
-  can never disturb DM delivery); `DirectP2PConversationTransport` provides the hooks. Verify: `tsc`/
-  eslint clean, **781 unit/integration green**. **Needs CI:** the live WebRTC digest→backfill round-trip
-  and the Gun `.map().once()` enumeration in `listLocalWires` (browser-only). **Follow-ups verified DONE 2026-06-14:** (a) re-digest on reconnect — already fires: `onclose`/`onerror` → state `'failed'` → next `ensureConnected()` → `resetTransport()` → `start()` → new `attachDataChannel()` → `onopen` → `sendSyncDigest()`; no code change needed. (b) `listLocalWires` bounding — already applied: `gun-message-store.ts:186` has `limit: number = DEFAULT_RECONCILE_WINDOW` default and passes it to `boundRecentWires` at line 211; call sites omit the arg and get the 500-message cap by default.
 All P1 (libp2p/IPFS), P2 (Find Similar), and P2.5 (sort pipeline) **completed** and moved to `docs/completed.md` (2026-06-12). REQ-SIM-01–08 fully implemented including distance sort (§22.7) with blurred-GPS Haversine — see `docs/completed.md`.
+
+Phase 5 peer↔peer Gun reconciliation **promoted to `docs/completed.md` 2026-06-16** (core DONE; browser CI verification still pending).
 
 ### P0 — Test determinism `[Opus]` — CI VERIFICATION PENDING
 
 **Context (2026-06-15).** `playwright.config.ts` global `retries` dropped to `0`; 9 specs pinned with `test.describe.configure({ retries: 0 })`; `ResilientConversationTransport` and its fallback spec deleted — fallback chain gone by design. Remaining open: live `--retries=0` full-suite run in browser-capable CI, and two specs still at `retries:1` allowlist (`00-p2p-neighbor-memory`, `00-p2p-cross-platform-protocol`) pending the connectedNeighborCount gate (G-fix class).
 
-- [~] **T1. Inventory retry-dependent specs.** `[Haiku]` Static analysis DONE 2026-06-13 → `docs/testing/retry-dependence-inventory.md` (107 specs scanned; F/G/L/V fix classes). **Real risk confirmed:** WebRTC timing in messaging specs — addressed by T4 pin + T5 global drop. **G-fix (connectedNeighborCount gate) still open** for the two allowlisted specs. **Live `--retries=0` confirmation pending browser-capable CI:** run `PW_WORKERS=4 npm run test:e2e -- --retries=0` to fill the "observed" column.
+T1 retry-dependence inventory **promoted to `docs/completed.md` 2026-06-16** (static analysis DONE; G-fix gate + live retries=0 CI run still pending).
 - [ ] **Test/verify:** `[Haiku]` `PW_WORKERS=4 npm run test:e2e` green with `retries: 0`; `npm run health` clean.
 
 **Next phase:** Appendix C (P2P spec-gap audits `[Haiku]`). Appendix B (Statistics expansion) completed 2026-06-13 — see `docs/completed.md`.
