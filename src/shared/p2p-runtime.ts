@@ -653,6 +653,7 @@ export function shouldSkipServerGunPersist(
   if (path[0] === 'pairConversations' && path.length >= 4 && path[3] === 'messages') return true;
   if (path[0] === 'talks') return true;
   if (path[0] === 'incomingTalksByUser') return true;
+  if (path[0] === 'p2p-signal') return true;
   if (
     path[0] === 'chatrooms' &&
     path.length >= 3 &&
