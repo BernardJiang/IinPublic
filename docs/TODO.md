@@ -67,7 +67,7 @@ Plan:
 - [x] Subscribe via Gun `.map().on()` instead of the `setInterval` poll — `GunPubSubSignaler.startPolling()`. Both signalers now implement a shared `SignalingTransport` interface; `P2PConversationSession` picks `GunPubSubSignaler` when `config.gun` is supplied, else the HTTP `P2PSignalingClient` (default).
 - [x] Add `shouldSkipServerGunPersist()` rule for `p2p-signal/` so the hub never archives these — `src/shared/p2p-runtime.ts:656`.
 - [x] Unit coverage: `src/test/unit/gun-pubsub-signaler.test.ts` (sharedKey determinism/symmetry; post path; signed-frame delivery; self-frame skip + nonce dedup).
-- [ ] **Wire `config.gun` at the live construction sites** (`peer-mesh-service.ts`, `direct-p2p-conversation-transport.ts`, `app.ts`) so Gun-signaling becomes the default — gated on the E2E proof below.
+- [x] **Wire `config.gun` at the live construction sites** so Gun-signaling is the default: `peer-mesh-service.ts:634`, `direct-p2p-conversation-transport.ts:179`, `app.ts:1218` all pass `gun: this.gunService.getGun()`. The HTTP `P2PSignalingClient` is now only selected when no Gun handle is supplied (never in the live app); the server routes stay registered as a safety net until the E2E item below removes them.
 - [ ] For native nodes (those with a `Libp2pBindingRecord` in Gun at `p2p-peer-bindings/<userId>`): skip signaling entirely — read their multiaddrs and dial via `node.dialProtocol(peerId, '/iinpublic/mesh/1.0.0')`.
 - [ ] E2E: prove Gun-signaling connects two browser peers (browser-capable CI), then remove `POST`/`GET /api/p2p/signaling/:conversationId` server routes.
 

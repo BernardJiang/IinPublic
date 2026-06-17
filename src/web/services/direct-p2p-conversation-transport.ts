@@ -185,6 +185,8 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       otherUserId: otherId,
       otherPub,
       isInitiator,
+      // S2: default to Gun pub/sub signaling (the Gun WebSocket is already open for presence).
+      gun: this.gunService.getGun(),
       ...this.ledgerHooks,
       // Phase 5: peer↔peer reconciliation — advertise our local digest on connect and
       // backfill whatever the peer is missing, straight over the DataChannel (no hub).
