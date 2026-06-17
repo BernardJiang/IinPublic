@@ -39,15 +39,17 @@ type SignalFrameRecord = {
  * Gun pub/sub replacement for HTTP signaling polling.
  *
  * Writes each SDP/ICE frame as a Gun NODE (flat object) keyed by its nonce at
- * gun.get('p2p-signal').get(sharedKey).get(nonce), and the peer subscribes via `.map().on()`.
- * Pure peer↔peer: frames travel over the open Gun connection with no HTTP signaling endpoint
- * and no server in the data path. `.map().on()` fires both for frames already present when the
- * subscription opens (so an offer written before the answerer subscribes is still delivered)
- * and for every subsequent frame.
+ * gun.get('p2p-signal').get(sharedKey).get(nonce), and the peer subscribes via
+ * `.map().on()` — no HTTP roundtrips while the Gun WebSocket is already open for presence.
+ * This mirrors the proven `GunMessageStore` record-per-id pattern
+ * (`conversations/<id>/messages/<msgId>` object node + `.map().on()`), which replicates
+ * peer→peer through the relay in production.
  *
- * Frames MUST be stored as object nodes, not primitive JSON strings: Gun's `.map()` iterates
- * child *nodes*; every field here is a primitive string (no nested arrays/objects). Keying by
- * the unique nonce means frames never overwrite each other; handleFrame dedups by nonce.
+ * Frames MUST be stored as object nodes, not primitive JSON strings: Gun's `.map()`
+ * iterates child *nodes*, and primitive-string leaves do not replicate to a peer's map
+ * subscription across the relay — so the WebRTC handshake never received the offer/answer
+ * frames. Every field is a primitive string (no nested arrays/objects), which Gun stores as
+ * a valid single node. Keying by the unique nonce means frames never overwrite each other.
  *
  * The Gun path is in-memory only on the server node (shouldSkipServerGunPersist
  * returns true for 'p2p-signal' paths), so frames never land on radata.
@@ -93,28 +95,28 @@ export class GunPubSubSignaler implements SignalingTransport {
     onEnvelope: (envelope: P2PSignalingEnvelope, payload: unknown) => void | Promise<void>,
   ): () => void {
     let stopped = false;
-    let liveRef: any = null;
+    let gunRef: any = null;
 
     void this.keyReady.then(() => {
       if (stopped) return;
-      // Pure peer↔peer push: subscribe to the shared channel and let Gun deliver each frame.
-      // `.map().on()` fires for children already present when the subscription opens (e.g. an
-      // offer written before the answerer subscribed) and for every subsequent frame — no
-      // polling and no server in the data path. handleFrame dedups by nonce.
-      liveRef = this.gun
-        .get('p2p-signal')
-        .get(this.sharedKey!)
-        .map()
-        .on((data: unknown, key: string) => {
-          if (stopped || !key || key.startsWith('_')) return;
-          void this.handleFrame(data, localPub, onEnvelope);
+      const channel = this.gun.get('p2p-signal').get(this.sharedKey!);
+      gunRef = channel.map().on((data: unknown, nonceKey: string) => {
+        if (stopped || !nonceKey || nonceKey.startsWith('_')) return;
+        // `.map().on()` can fire before every property of a freshly-put node has
+        // replicated; re-read the node once for a consolidated snapshot. Partial/echo
+        // snapshots fail the field/verify guards in handleFrame and are retried on the
+        // next emission (the nonce cache is only populated on a verified frame).
+        channel.get(nonceKey).once((snapshot: unknown) => {
+          if (stopped) return;
+          void this.handleFrame(snapshot ?? data, localPub, onEnvelope);
         });
+      });
     });
 
     return () => {
       stopped = true;
       try {
-        liveRef?.off?.();
+        gunRef?.off?.();
       } catch {
         // ignore
       }

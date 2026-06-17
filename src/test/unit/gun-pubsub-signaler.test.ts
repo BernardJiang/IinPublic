@@ -49,24 +49,16 @@ class FakeGunNode {
     return this;
   }
 
-  map(): {
-    on: (cb: (value: unknown, key: string) => void) => { off: () => void };
-    once: (cb: (value: unknown, key: string) => void) => void;
-  } {
-    const emitExisting = (cb: (value: unknown, key: string) => void) => {
-      for (const [k, child] of this.children) {
-        if (child.value !== undefined) cb(child.value, k);
-      }
-    };
+  map(): { on: (cb: (value: unknown, key: string) => void) => { off: () => void } } {
     return {
       on: (cb) => {
         // Emit already-present children, then subscribe to future puts.
-        emitExisting(cb);
+        for (const [k, child] of this.children) {
+          if (child.value !== undefined) cb(child.value, k);
+        }
         this.mapSubs.add(cb);
         return { off: () => this.mapSubs.delete(cb) };
       },
-      // One-shot read of current children (Gun `.map().once()` — the pull path).
-      once: (cb) => emitExisting(cb),
     };
   }
 }
