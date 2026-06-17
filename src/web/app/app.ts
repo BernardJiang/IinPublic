@@ -1224,8 +1224,8 @@ export class IinPublicApp {
                     otherUserId: params.otherUserId,
                     otherPub: params.otherPub,
                     isInitiator: params.isInitiator,
-                    // S2 NOTE: mesh fallback session stays on HTTP signaling (see
-                    // peer-mesh-service.ts). Gun signaling is scoped to conversation DMs.
+                    // S2: Gun pub/sub signaling for the mesh fallback session too.
+                    gun: this.gunService.getGun(),
                     onRemoteMeshFrame: params.onRemoteMeshFrame,
                   }),
                 onFallback: (cause, error) => {

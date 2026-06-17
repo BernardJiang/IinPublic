@@ -640,10 +640,10 @@ export class PeerMeshService {
       otherUserId: params.otherUserId,
       otherPub: params.otherPub,
       isInitiator,
-      // S2 NOTE: the mesh talk-delivery path stays on HTTP signaling for now. Gun pub/sub
-      // signaling is enabled only for conversation DMs (direct-p2p transport); wiring it into
-      // the timing-sensitive mesh slowed peer connect enough to exhaust the broadcast
-      // retry/rate-limit budget in stage2 E2E. Revisit with dedicated mesh E2E coverage.
+      // S2: Gun pub/sub signaling (pure peer↔peer `.on()` push) for the mesh too. An earlier
+      // attempt used a slower poll-based signaler that delayed mesh connect and burned the
+      // broadcast rate-limit budget; the push-only signaler connects as fast as HTTP.
+      gun: this.gunService.getGun(),
       onRemoteMeshFrame: (otherUserId, frame) => this.handleRemoteFrame(otherUserId, frame),
     });
   }
