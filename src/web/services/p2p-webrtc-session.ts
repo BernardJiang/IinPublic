@@ -201,7 +201,7 @@ export class P2PConversationSession {
     // S2: prefer Gun pub/sub signaling when a Gun instance is wired in; otherwise use the
     // HTTP poll client. Both implement SignalingTransport (post + startPolling).
     this.signaling = config.gun
-      ? new GunPubSubSignaler(config.gun, config.localPub, config.otherPub, config.conversationId)
+      ? new GunPubSubSignaler(config.gun, config.localPub, config.otherPub)
       : new P2PSignalingClient(config.apiBase);
   }
 

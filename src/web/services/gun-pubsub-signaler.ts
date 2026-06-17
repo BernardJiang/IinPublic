@@ -10,24 +10,11 @@ import {
   type SignalingTransport,
 } from './p2p-signaling-client';
 
-/**
- * Derive a deterministic 64-hex channel key from two peer public keys and a channel id.
- *
- * The channel id (the session's conversationId) is essential: the same pair of users runs
- * BOTH a mesh session (`mesh:<room>:<sortedUsers>`) and a DM conversation session
- * (`conv_<sortedUsers>_<talkId>`) concurrently. Keying on the pubs alone would put both on one
- * `p2p-signal` channel, cross-feeding mesh SDP into the DM RTCPeerConnection (and vice versa)
- * and breaking the handshake. Both peers derive the same conversationId, so the key stays
- * symmetric.
- */
-export async function deriveSignalingSharedKey(
-  pubA: string,
-  pubB: string,
-  channelId = '',
-): Promise<string> {
+/** Derive a deterministic 64-hex channel key from two peer public keys. */
+export async function deriveSignalingSharedKey(pubA: string, pubB: string): Promise<string> {
   const sorted = [pubA, pubB].sort();
   const encoder = new TextEncoder();
-  const data = encoder.encode(`${sorted.join(':')}|${channelId}`);
+  const data = encoder.encode(sorted.join(':'));
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(hashBuffer))
     .map(b => b.toString(16).padStart(2, '0'))
@@ -74,9 +61,8 @@ export class GunPubSubSignaler implements SignalingTransport {
     private readonly gun: any,
     localPub: string,
     otherPub: string,
-    channelId = '',
   ) {
-    this.keyReady = deriveSignalingSharedKey(localPub, otherPub, channelId).then(k => {
+    this.keyReady = deriveSignalingSharedKey(localPub, otherPub).then(k => {
       this.sharedKey = k;
     });
   }

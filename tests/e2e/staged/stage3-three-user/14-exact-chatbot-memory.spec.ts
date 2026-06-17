@@ -97,8 +97,7 @@ async function deliverTalkToReceiver(
       }, title);
 
     let lastWarmResults: unknown = null;
-    const maxAttempts = 5;
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
       const warmResults = await Promise.all([
         senderPage.evaluate(
           async ({ peerId, peerName }) => {
@@ -143,7 +142,7 @@ async function deliverTalkToReceiver(
           directDelivery: true,
         };
       } catch (error) {
-        if (attempt === maxAttempts - 1) {
+        if (attempt === 2) {
           throw new Error(
             `mesh talk was not received after retries; warm=${JSON.stringify(lastWarmResults)}; cause=${String(error)}`,
           );
