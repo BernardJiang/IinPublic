@@ -72,9 +72,10 @@ Plan:
 - [x] **Object-node frames (2026-06-16).** Store each frame as a flat Gun node keyed by nonce, not a primitive JSON string — primitive leaves don't replicate to a peer's `.map()`.
 - [x] **Pure peer↔peer `.on()` push (2026-06-16).** `GunPubSubSignaler` subscribes via `.map().on()` only — no interval polling and no server in the data path (a brief hub-side relay experiment was rejected: it would put the hub in the signaling path, defeating P2P). `.map().on()` delivers both frames already present at subscribe time (offer-before-subscribe race) and subsequent frames; handleFrame dedups by nonce. Conversation DMs verified connecting over Gun in stage2 E2E (09-messaging, 00k-p2p-handshake) with the earlier poll; this commit drops the poll in favor of pure push — **re-verify** below.
 - [x] **VERIFIED (browser, 2026-06-16):** `09-messaging` + `00k-p2p-handshake` pass with pure `.on()` push (no poll, no server relay) — conversation DMs connect over Gun browser↔browser. AXE-off in E2E was NOT a blocker; vanilla hub relays peer↔peer fine. The earlier connect failures were the primitive-string storage bug.
-- [ ] Run the full `tests/e2e/staged/stage2-two-user/` + stage3 once to confirm no regressions before landing.
+- [x] **Mesh path extended to Gun signaling (2026-06-16).** Re-wired `gun:` at `peer-mesh-service.ts` + `app.ts` fallback. The earlier mesh-on-Gun failure was the slow poll/`.once()` signaler delaying connect → broadcast retries burned the 10/day talk-send limit; the pure-`.on()` push signaler connects as fast as HTTP, so all three session sites now use Gun and no site selects HTTP `P2PSignalingClient`. Also bumped the `14-exact-chatbot-memory` mesh-delivery retry budget 3→5.
+- [ ] **VERIFY (browser) before route removal:** `npx playwright test tests/e2e/staged/stage2-two-user/` (esp. `00-broadcast-*`) + `tests/e2e/staged/stage3-three-user/14-exact-chatbot-memory.spec.ts`. Confirms mesh-over-Gun doesn't regress talk broadcast / rate limit.
+- [ ] **Once green:** remove `GET`/`POST /api/p2p/signaling/:conversationId` (`system-routes.ts`) and `P2PSignalingClient` — now unused (every session site passes `gun:`). Keep the `SignalingTransport` interface + `GunPubSubSignaler`.
 - [ ] For native nodes (those with a `Libp2pBindingRecord` in Gun at `p2p-peer-bindings/<userId>`): skip signaling entirely — read their multiaddrs and dial via `node.dialProtocol(peerId, '/iinpublic/mesh/1.0.0')`.
-- [ ] E2E: once the above is green, remove `POST`/`GET /api/p2p/signaling/:conversationId` server routes.
 
 
 
