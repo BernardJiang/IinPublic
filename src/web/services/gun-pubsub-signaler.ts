@@ -21,6 +21,13 @@ export async function deriveSignalingSharedKey(pubA: string, pubB: string): Prom
     .join('');
 }
 
+/**
+ * Pull interval for re-reading the signaling channel from the hub. Short so the WebRTC
+ * handshake completes well inside the connect timeout on the first attempt (no reconnect
+ * cycle). Roughly matches the previous HTTP signaling poll cadence.
+ */
+const SIGNAL_POLL_MS = 250;
+
 /** Flat (single-level, all-primitive) shape stored as a Gun node per signaling frame. */
 type SignalFrameRecord = {
   conversationId: string;
@@ -39,17 +46,20 @@ type SignalFrameRecord = {
  * Gun pub/sub replacement for HTTP signaling polling.
  *
  * Writes each SDP/ICE frame as a Gun NODE (flat object) keyed by its nonce at
- * gun.get('p2p-signal').get(sharedKey).get(nonce), and the peer subscribes via
- * `.map().on()` — no HTTP roundtrips while the Gun WebSocket is already open for presence.
- * This mirrors the proven `GunMessageStore` record-per-id pattern
- * (`conversations/<id>/messages/<msgId>` object node + `.map().on()`), which replicates
- * peer→peer through the relay in production.
+ * gun.get('p2p-signal').get(sharedKey).get(nonce). The peer both subscribes live
+ * (`.map().on()`) and, crucially, PULLS the channel on a short interval (`.map().once()`).
  *
- * Frames MUST be stored as object nodes, not primitive JSON strings: Gun's `.map()`
- * iterates child *nodes*, and primitive-string leaves do not replicate to a peer's map
- * subscription across the relay — so the WebRTC handshake never received the offer/answer
- * frames. Every field is a primitive string (no nested arrays/objects), which Gun stores as
- * a valid single node. Keying by the unique nonce means frames never overwrite each other.
+ * Why pull, not just push: in this app the hub is used as a local-graph relay where reads
+ * are effectively server-authoritative; browser↔browser live `.on()` push of a peer's write
+ * does not reliably propagate (presence, talks, messages all use HTTP/WebRTC, not Gun
+ * push). A periodic `.map().once()` issues a Gun GET that retrieves whatever the writer has
+ * replicated to the hub — the Gun analog of the previous HTTP signaling poll — so offer/
+ * answer/ICE frames reach the other peer and the WebRTC handshake completes.
+ *
+ * Frames MUST be stored as object nodes, not primitive JSON strings: Gun's `.map()` iterates
+ * child *nodes*; every field here is a primitive string (no nested arrays/objects). Keying by
+ * the unique nonce means frames never overwrite each other; handleFrame dedups by nonce so a
+ * frame re-read on each poll tick is processed at most once.
  *
  * The Gun path is in-memory only on the server node (shouldSkipServerGunPersist
  * returns true for 'p2p-signal' paths), so frames never land on radata.
@@ -95,28 +105,36 @@ export class GunPubSubSignaler implements SignalingTransport {
     onEnvelope: (envelope: P2PSignalingEnvelope, payload: unknown) => void | Promise<void>,
   ): () => void {
     let stopped = false;
-    let gunRef: any = null;
+    let liveRef: any = null;
+    let timer: ReturnType<typeof setInterval> | undefined;
+
+    const consume = (data: unknown, key: string): void => {
+      if (stopped || !key || key.startsWith('_')) return;
+      void this.handleFrame(data, localPub, onEnvelope);
+    };
 
     void this.keyReady.then(() => {
       if (stopped) return;
       const channel = this.gun.get('p2p-signal').get(this.sharedKey!);
-      gunRef = channel.map().on((data: unknown, nonceKey: string) => {
-        if (stopped || !nonceKey || nonceKey.startsWith('_')) return;
-        // `.map().on()` can fire before every property of a freshly-put node has
-        // replicated; re-read the node once for a consolidated snapshot. Partial/echo
-        // snapshots fail the field/verify guards in handleFrame and are retried on the
-        // next emission (the nonce cache is only populated on a verified frame).
-        channel.get(nonceKey).once((snapshot: unknown) => {
-          if (stopped) return;
-          void this.handleFrame(snapshot ?? data, localPub, onEnvelope);
-        });
-      });
+      // Fast path: live push subscription (fires for local writes and any pushed updates).
+      liveRef = channel.map().on(consume);
+      // Robust path: periodically PULL the channel from the hub with `.map().once()` (a Gun
+      // GET). Unlike `.on()` push, this works even where browser↔browser push does not
+      // propagate in this hub topology — the Gun analog of the previous HTTP poll. handleFrame
+      // dedups by nonce, so re-reading the same frames each tick is idempotent.
+      const drain = () => {
+        if (stopped) return;
+        channel.map().once(consume);
+      };
+      drain();
+      timer = setInterval(drain, SIGNAL_POLL_MS);
     });
 
     return () => {
       stopped = true;
+      if (timer) clearInterval(timer);
       try {
-        gunRef?.off?.();
+        liveRef?.off?.();
       } catch {
         // ignore
       }
