@@ -1224,6 +1224,8 @@ export class IinPublicApp {
                     otherUserId: params.otherUserId,
                     otherPub: params.otherPub,
                     isInitiator: params.isInitiator,
+                    // S2: default to Gun pub/sub signaling.
+                    gun: this.gunService.getGun(),
                     onRemoteMeshFrame: params.onRemoteMeshFrame,
                   }),
                 onFallback: (cause, error) => {

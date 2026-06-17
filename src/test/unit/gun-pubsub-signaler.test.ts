@@ -44,6 +44,11 @@ class FakeGunNode {
     }
   }
 
+  once(cb: (value: unknown, key: string) => void): FakeGunNode {
+    cb(this.value, this.keyInParent);
+    return this;
+  }
+
   map(): { on: (cb: (value: unknown, key: string) => void) => { off: () => void } } {
     return {
       on: (cb) => {
@@ -114,7 +119,7 @@ describe('deriveSignalingSharedKey', () => {
 });
 
 describe('GunPubSubSignaler', () => {
-  it('writes a frame to gun.get(p2p-signal).get(sharedKey).get(nonce)', async () => {
+  it('writes a frame record (object node) keyed by nonce under p2p-signal/sharedKey', async () => {
     const gun = new FakeGunNode();
     const signaler = new GunPubSubSignaler(gun, 'localPub', 'otherPub');
     const sharedKey = await deriveSignalingSharedKey('localPub', 'otherPub');
@@ -133,8 +138,8 @@ describe('GunPubSubSignaler', () => {
     await signaler.post('conv1', body);
 
     const stored = gun.get('p2p-signal').get(sharedKey).get('nonce-123').value;
-    expect(typeof stored).toBe('string');
-    expect(JSON.parse(stored as string)).toMatchObject({
+    expect(typeof stored).toBe('object');
+    expect(stored).toMatchObject({
       conversationId: 'conv1',
       kind: 'offer',
       senderPub: 'localPub',
