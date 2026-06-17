@@ -640,8 +640,6 @@ export class PeerMeshService {
       otherUserId: params.otherUserId,
       otherPub: params.otherPub,
       isInitiator,
-      // S2: default to Gun pub/sub signaling (the Gun WebSocket is already open for presence).
-      gun: this.gunService.getGun(),
       onRemoteMeshFrame: (otherUserId, frame) => this.handleRemoteFrame(otherUserId, frame),
     });
   }
