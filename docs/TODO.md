@@ -55,24 +55,21 @@ T1 retry-dependence inventory **promoted to `docs/completed.md` 2026-06-16** (st
 
 ## Infrastructure & Architecture Follow-ups
 
-### S1 — Signaling server memory: add background pruning `[Haiku]`
-
-`pruneSignaling()` in `src/server/routes/system-routes.ts` is lazy — it runs only when a request hits the same `conversationId`. In high-churn production, envelopes from disconnected users accumulate until the next request for that key, which may never come.
-
-- [x] Add `setInterval(() => pruneSignaling(), 60_000)` to `system-routes.ts` (or `server/index.ts`) so expired envelopes are swept every minute regardless of traffic.
-- [x] Unit test: populate stale envelopes, advance clock past TTL, verify interval callback reduces `signalingByConversation` size to zero.
+### S1 — Signaling server memory: add background pruning `[Haiku]` — **COMPLETED 2026-06-16** (moved to `docs/completed.md`)
 
 ### S2 — Replace HTTP signaling poll with Gun pub/sub `[Sonnet]`
 
 `P2PSignalingClient` (`src/web/services/p2p-signaling-client.ts`) currently polls `GET /api/p2p/signaling/:conversationId` every ~400 ms. The Gun WebSocket is already open for every user in a chatroom. Writing signaling envelopes to a Gun path (`gun.get('p2p-signal').get(sharedKey)`) and subscribing via `.on(callback)` would deliver offers/answers the moment they're written — no polling, no server HTTP route needed.
 
 Plan:
-- Derive `sharedKey` deterministically from two `pub` values: `sha256(sorted([pubA, pubB]).join(':'))` — same namespace logic as current conversationId, but derived from identity keys known at presence time.
-- Write SDP offer/answer/ICE frames to `gun.get('p2p-signal').get(sharedKey)` (serialized array or append-only log pattern).
-- Subscribe in `P2PSignalingClient` via Gun `.on()` instead of `setInterval` poll.
-- Add `shouldSkipServerGunPersist()` rule for `p2p-signal/` so the hub never archives these (TTL-only, in-memory on the gun node).
-- For native nodes (those with a `Libp2pBindingRecord` in Gun at `p2p-peer-bindings/<userId>`): skip signaling entirely — read their multiaddrs and dial via `node.dialProtocol(peerId, '/iinpublic/mesh/1.0.0')`.
-- Remove `POST /api/p2p/signaling/:conversationId` and `GET /api/p2p/signaling/:conversationId` server routes once Gun-signaling is proven in E2E.
+- [x] Derive `sharedKey` deterministically from two `pub` values: `sha256(sorted([pubA, pubB]).join(':'))` — `deriveSignalingSharedKey()` in `src/web/services/gun-pubsub-signaler.ts`.
+- [x] Write SDP offer/answer/ICE frames to `gun.get('p2p-signal').get(sharedKey).get(nonce)` (one node per nonce so frames never overwrite) — `GunPubSubSignaler.post()`.
+- [x] Subscribe via Gun `.map().on()` instead of the `setInterval` poll — `GunPubSubSignaler.startPolling()`. Both signalers now implement a shared `SignalingTransport` interface; `P2PConversationSession` picks `GunPubSubSignaler` when `config.gun` is supplied, else the HTTP `P2PSignalingClient` (default).
+- [x] Add `shouldSkipServerGunPersist()` rule for `p2p-signal/` so the hub never archives these — `src/shared/p2p-runtime.ts:656`.
+- [x] Unit coverage: `src/test/unit/gun-pubsub-signaler.test.ts` (sharedKey determinism/symmetry; post path; signed-frame delivery; self-frame skip + nonce dedup).
+- [ ] **Wire `config.gun` at the live construction sites** (`peer-mesh-service.ts`, `direct-p2p-conversation-transport.ts`, `app.ts`) so Gun-signaling becomes the default — gated on the E2E proof below.
+- [ ] For native nodes (those with a `Libp2pBindingRecord` in Gun at `p2p-peer-bindings/<userId>`): skip signaling entirely — read their multiaddrs and dial via `node.dialProtocol(peerId, '/iinpublic/mesh/1.0.0')`.
+- [ ] E2E: prove Gun-signaling connects two browser peers (browser-capable CI), then remove `POST`/`GET /api/p2p/signaling/:conversationId` server routes.
 
 
 

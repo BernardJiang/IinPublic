@@ -17,6 +17,21 @@ export type PostSignalingBody = {
   nonce: string;
 };
 
+/**
+ * Common shape for delivering SDP/ICE signaling frames between two peers. Implemented by
+ * both `P2PSignalingClient` (HTTP poll — the proven default) and `GunPubSubSignaler`
+ * (Gun pub/sub — S2). The session depends on this interface so the underlying transport
+ * can be swapped without touching the WebRTC negotiation code.
+ */
+export interface SignalingTransport {
+  post(conversationId: string, body: PostSignalingBody): Promise<void>;
+  startPolling(
+    conversationId: string,
+    localPub: string,
+    onEnvelope: (envelope: P2PSignalingEnvelope, payload: unknown) => void | Promise<void>,
+  ): () => void;
+}
+
 /** Wrap signaling JSON so server validation accepts `SEA{` prefix. */
 export function encodeSignalingPayload(payload: unknown): string {
   return `SEA${JSON.stringify(payload)}`;
@@ -32,7 +47,7 @@ export function decodeSignalingPayload(signalCiphertext: string): unknown {
   return JSON.parse(json);
 }
 
-export class P2PSignalingClient {
+export class P2PSignalingClient implements SignalingTransport {
   private seenNonces = new Set<string>();
 
   constructor(

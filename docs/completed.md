@@ -2012,6 +2012,14 @@ Pinned `test.describe.configure({ retries: 0 })` across two waves:
 
 ## 2026-06-16 — Promoted from active TODO
 
+### S1 — Signaling server memory: background pruning `[Haiku]` — DONE
+
+`pruneSignaling()` in `src/server/routes/system-routes.ts` was lazy — it ran only when a request hit the same `conversationId`, so envelopes from disconnected users could accumulate indefinitely for keys that never get another request.
+
+Pieces shipped: `pruneSignalingMap(map, now)` extracted as a pure, exported helper; `startSignalingPruning(map)` registers `setInterval(() => pruneSignalingMap(map), 60_000)` so expired envelopes are swept every minute regardless of traffic (the per-request `pruneSignaling()` lazy path is retained as a fast-path). Unit test `src/test/unit/signaling-pruning.test.ts` populates stale envelopes, advances the clock past TTL, and asserts the interval callback drains `signalingByConversation` to zero.
+
+**Verification:** `tsc`/eslint clean; `signaling-pruning.test.ts` green.
+
 ### Phase 5 — peer↔peer Gun reconciliation — Core DONE, browser CI pending
 
 Core implementation complete and tested 2026-06-13; local browser CI green 2026-06-14. On DataChannel connect, each peer advertises a message-id digest for the conversation; the other backfills whatever's missing as ordinary `dm` frames (reuses the proven, deduped `ingestWireMessage` path). Both local Gun graphs converge directly — hub not in the data path even as a relay.
