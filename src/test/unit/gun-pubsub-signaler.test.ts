@@ -112,17 +112,25 @@ describe('deriveSignalingSharedKey', () => {
     expect(key).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('is deterministic and order-independent (symmetric)', async () => {
-    const ab = await deriveSignalingSharedKey('pubA', 'pubB');
-    const ba = await deriveSignalingSharedKey('pubB', 'pubA');
+  it('is deterministic and order-independent (symmetric), including the channel id', async () => {
+    const ab = await deriveSignalingSharedKey('pubA', 'pubB', 'conv1');
+    const ba = await deriveSignalingSharedKey('pubB', 'pubA', 'conv1');
     expect(ab).toBe(ba);
-    expect(await deriveSignalingSharedKey('pubA', 'pubB')).toBe(ab);
+    expect(await deriveSignalingSharedKey('pubA', 'pubB', 'conv1')).toBe(ab);
   });
 
   it('differs for different peer pairs', async () => {
     const ab = await deriveSignalingSharedKey('pubA', 'pubB');
     const ac = await deriveSignalingSharedKey('pubA', 'pubC');
     expect(ab).not.toBe(ac);
+  });
+
+  it('namespaces by channel id so the same pair gets distinct channels (mesh vs DM)', async () => {
+    const dm = await deriveSignalingSharedKey('pubA', 'pubB', 'conv_ab_talk1');
+    const mesh = await deriveSignalingSharedKey('pubA', 'pubB', 'mesh:global:a:b');
+    expect(dm).not.toBe(mesh);
+    // Empty channel id (legacy/default) is also distinct from a namespaced one.
+    expect(await deriveSignalingSharedKey('pubA', 'pubB')).not.toBe(dm);
   });
 });
 
