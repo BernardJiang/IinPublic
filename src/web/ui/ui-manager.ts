@@ -279,6 +279,7 @@ export class UIManager extends EventEmitter {
   private customChatrooms: CustomChatroomRow[] = [];
   private travelModeActive: boolean = false;
   private travelHomeChatroomId: string | undefined = undefined;
+  private notificationsSuppressedForE2e: boolean = false;
   private static readonly SURVEY_ANONYMITY_MIN_COUNT = 3;
 
   private getUiLanguage() {
@@ -5799,7 +5800,16 @@ export class UIManager extends EventEmitter {
     this.emit('retractTalk', { talkId, retractedAt: Date.now() });
   }
 
+  setNotificationsSuppressedForE2e(suppressed: boolean): void {
+    this.notificationsSuppressedForE2e = suppressed;
+    if (suppressed) {
+      document.querySelectorAll('.notification').forEach((el) => el.remove());
+    }
+  }
+
   showNotification(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info'): void {
+    if (this.notificationsSuppressedForE2e) return;
+
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
     notification.textContent = message;

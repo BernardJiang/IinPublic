@@ -186,6 +186,7 @@ test.describe('Find similar people', () => {
       app?.setTalkLedgerQuotaUnlimitedForE2e?.(true);
       app?.setTalkLedgerSuppressionDisabledForE2e?.(true);
       app?.setMailboxFallbackDisabledForE2e?.(true);
+      app?.uiManager?.setNotificationsSuppressedForE2e?.(true);
       const mesh = app?.ensurePeerMeshService?.();
       if (mesh?.opts) mesh.opts = { ...mesh.opts, ackTimeoutMs: 250 };
     })));
