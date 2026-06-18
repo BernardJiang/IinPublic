@@ -1,6 +1,19 @@
 # IinPublic Completed Work
 
-Last updated: 2026-06-15
+Last updated: 2026-06-18
+
+## 2026-06-18 — S2 Gun pub/sub signaling completed; HTTP signaling route removed
+
+Moved from `docs/TODO.md` 2026-06-18.
+
+- Replaced HTTP-poll signaling with Gun pub/sub for WebRTC SDP/ICE frames. `GunPubSubSignaler` writes one flat object node per nonce under `p2p-signal/<sharedKey>/<nonce>` and receives frames through `.map().on()` push.
+- Derived signaling channel keys from the sorted peer `pub` values plus the session `conversationId`, preventing mesh and DM sessions for the same user pair from cross-feeding offer/answer frames.
+- Extended Gun signaling to both conversation DMs and mesh talk delivery; all session construction sites now pass `gun: this.gunService.getGun()`.
+- Kept `SignalingTransport` plus `encodeSignalingPayload`/`decodeSignalingPayload` in `src/web/services/signaling-transport.ts`; deleted the HTTP `P2PSignalingClient`.
+- Removed `GET`/`POST /api/p2p/signaling/:conversationId` from `system-routes.ts`; tests now assert the retired route returns 404. Conversation relay remains live for offline DM mailbox delivery.
+- Removed the obsolete server signaling cache/pruning unit test. Abuse-defense coverage now targets the still-live relay route.
+- User-reported browser E2E green before route removal; follow-up implementation adds route-deletion unit/integration/E2E coverage.
+- Verification: `npm run test:type -- --pretty false`; focused Jest for signaling/runtime/system/relay tests; `npm run build:server && E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage1-single-user/00-p2p-conversation-transport.spec.ts --project=chromium`; `npm run health`.
 
 ## 2026-06-13 — P0 P2P messaging (spec §19.4 Phase C), Phases 1–4 + T2 sort core
 

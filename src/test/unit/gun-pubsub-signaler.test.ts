@@ -6,7 +6,7 @@ import {
 import {
   encodeSignalingPayload,
   type PostSignalingBody,
-} from '../../web/services/p2p-signaling-client';
+} from '../../web/services/signaling-transport';
 import {
   createSignedP2PEnvelopeProof,
   derivePeerIdFromPub,

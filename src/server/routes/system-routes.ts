@@ -14,13 +14,11 @@ import {
   createDeviceLocalDataDeletion,
   createP2PNeighborCacheState,
   createP2PNodeProtocolSpec,
-  createP2PSignalingEnvelope,
   createRelayOnlyTtlPolicy,
   createTransportDiagnosticEvent,
   createDirectP2PMessageEnvelope,
   createLocalNodeSupervisorSnapshot,
   p2pRelaySigningPayload,
-  p2pSignalingSigningPayload,
   verifySignedP2PEnvelopeProof,
   getP2PBootstrapCandidates,
   upsertP2PNeighbor,
@@ -28,8 +26,6 @@ import {
   scanRelayStorageForSeaLeaks,
   SEA_IDENTITY_POLICY,
   STAR_GUN_PATH_CLASSIFICATIONS,
-  type P2PSignalingEnvelope,
-  type P2PSignalingKind,
   type P2PNeighborCacheAction,
   type P2PNeighborCacheState,
   type P2PNeighborEndpointStatus,
@@ -94,19 +90,6 @@ type RegisterSystemRoutesDeps = {
   abuseDefenseConfig?: import('../../shared/p2p-abuse-defense').AbuseDefenseConfig;
 };
 
-export function pruneSignalingMap(map: Map<string, P2PSignalingEnvelope[]>, now = new Date()): void {
-  for (const [conversationId, envelopes] of map) {
-    const fresh = envelopes.filter((e) => new Date(e.expiresAt).getTime() > now.getTime());
-    if (fresh.length === 0) map.delete(conversationId);
-    else map.set(conversationId, fresh);
-  }
-}
-
-export function startSignalingPruning(map: Map<string, P2PSignalingEnvelope[]>): () => void {
-  const handle = setInterval(() => pruneSignalingMap(map), 60_000);
-  return () => clearInterval(handle);
-}
-
 export function registerSystemRoutes(
   app: express.Application,
   {
@@ -127,12 +110,10 @@ export function registerSystemRoutes(
   };
   const dataOwnershipRequests: DataOwnershipRequest[] = [];
   const transportDiagnostics: TransportDiagnosticEvent[] = [];
-  const signalingByConversation = new Map<string, P2PSignalingEnvelope[]>();
   const relayByConversation = new Map<string, DirectP2PMessageEnvelope[]>();
   const presenceByUserId = new Map<string, PresenceRecord>();
   const peerAckInbox = new Map<string, PeerAckMessage[]>();
   const peerAckNonces = new BoundedNonceCache();
-  const signalingNonces = new BoundedNonceCache();
   const relayNonces = new BoundedNonceCache();
   // P2P-V: shared abuse-defense context for all relay POST routes.
   // When no explicit config is injected, allow env overrides so parallel E2E runs
@@ -160,9 +141,6 @@ export function registerSystemRoutes(
       else peerAckInbox.set(toPub, fresh);
     }
   };
-
-  const pruneSignaling = (now = new Date()): void => pruneSignalingMap(signalingByConversation, now);
-  startSignalingPruning(signalingByConversation);
 
   const pruneConversationRelay = (now = new Date()): void => {
     for (const [conversationId, envelopes] of relayByConversation) {
@@ -306,66 +284,6 @@ export function registerSystemRoutes(
         );
       }
       res.json({ stored: true, message });
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
-  });
-
-  app.get('/api/p2p/signaling/:conversationId', (req, res) => {
-    pruneSignaling();
-    const conversationId = String(req.params.conversationId || '');
-    res.json({
-      conversationId,
-      envelopes: signalingByConversation.get(conversationId) || [],
-    });
-  });
-
-  app.post('/api/p2p/signaling/:conversationId', async (req, res) => {
-    try {
-      pruneSignaling();
-      const conversationId = String(req.params.conversationId || '');
-      const body = req.body || {};
-      const kind = body.kind as P2PSignalingKind;
-      const senderPub = String(body.senderPub || '');
-      const recipientPub = String(body.recipientPub || '');
-      const signalCiphertext = String(body.signalCiphertext || '');
-      const inboundPeerId = String(body.senderPeerId || body.peerId || '');
-      const abuseCheck = abuseCtx.checkInbound(inboundPeerId || senderPub, senderPub);
-      if (!abuseCheck.allowed) {
-        res.status(429).json({ error: abuseCheck.reason });
-        return;
-      }
-      const verification = await verifySignedP2PEnvelopeProof({
-        proof: {
-          peerId: String(body.senderPeerId || body.peerId || ''),
-          pub: senderPub,
-          timestamp: String(body.timestamp || ''),
-          nonce: String(body.nonce || ''),
-          payloadHash: String(body.payloadHash || ''),
-          signature: String(body.signature || ''),
-        },
-        payload: p2pSignalingSigningPayload({ conversationId, kind, senderPub, recipientPub, signalCiphertext }),
-        nonceCache: signalingNonces,
-      });
-      if (!verification.ok) {
-        res.status(400).json({ error: verification.reason });
-        return;
-      }
-      const envelope = createP2PSignalingEnvelope({
-        conversationId,
-        kind,
-        senderPeerId: String(body.senderPeerId || body.peerId || ''),
-        senderPub,
-        recipientPub,
-        signalCiphertext,
-        timestamp: String(body.timestamp || ''),
-        payloadHash: String(body.payloadHash || ''),
-        signature: String(body.signature || ''),
-        nonce: String(body.nonce || ''),
-      });
-      const current = signalingByConversation.get(conversationId) || [];
-      signalingByConversation.set(conversationId, [...current, envelope]);
-      res.json({ stored: true, envelope });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }

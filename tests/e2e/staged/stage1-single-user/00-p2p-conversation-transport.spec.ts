@@ -4,11 +4,6 @@ import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { gunBaseURL, webBaseURL } from '../../helpers/ports';
-import SEA from 'gun/sea';
-import {
-  createSignedP2PEnvelopeProof,
-  p2pSignalingSigningPayload,
-} from '../../../../src/shared/p2p-runtime';
 
 const P2P_DIRECT_ENABLED = true; // Direct P2P is always active — star transport removed.
 
@@ -31,7 +26,7 @@ test.describe('P2P roadmap P4 — conversation transport and signaling', () => {
     await clearGunForStage1Spec();
   });
 
-  test('debug storage exposes transport modes and signaling accepts encrypted setup only', async ({ request }) => {
+  test('debug storage exposes transport modes and HTTP signaling endpoint is retired', async ({ request }) => {
     const storage = await request.get(`${gunBaseURL()}/api/debug/storage`);
     expect(storage.ok()).toBeTruthy();
     const payload = await storage.json();
@@ -44,52 +39,10 @@ test.describe('P2P roadmap P4 — conversation transport and signaling', () => {
       }),
     );
 
-    const pair = await SEA.pair();
-    const signalBody = {
-      conversationId: 'conv_e2e_transport',
-      kind: 'offer' as const,
-      senderPub: pair.pub,
-      recipientPub: 'pub_e2e_b',
-      signalCiphertext: 'SEA{"ct":"offer"}',
-    };
-    const proof = await createSignedP2PEnvelopeProof({
-      pair,
-      payload: p2pSignalingSigningPayload(signalBody),
-      nonce: 'nonce_e2e_a',
-    });
-    const posted = await request.post(`${gunBaseURL()}/api/p2p/signaling/conv_e2e_transport`, {
-      data: {
-        kind: signalBody.kind,
-        senderPeerId: proof.peerId,
-        senderPub: signalBody.senderPub,
-        recipientPub: signalBody.recipientPub,
-        signalCiphertext: signalBody.signalCiphertext,
-        timestamp: proof.timestamp,
-        payloadHash: proof.payloadHash,
-        signature: proof.signature,
-        nonce: proof.nonce,
-      },
-    });
-    expect(posted.ok()).toBeTruthy();
-    expect((await posted.json()).envelope).toEqual(
-      expect.objectContaining({
-        conversationId: 'conv_e2e_transport',
-        kind: 'offer',
-        signalCiphertext: 'SEA{"ct":"offer"}',
-      }),
-    );
-
-    const plaintext = await request.post(`${gunBaseURL()}/api/p2p/signaling/conv_e2e_transport`, {
-      data: {
-        kind: 'offer',
-        senderPub: pair.pub,
-        recipientPub: 'pub_e2e_b',
-        signalCiphertext: '{"sdp":"plain"}',
-        signature: 'sig_e2e_a',
-        nonce: 'nonce_e2e_plain',
-      },
-    });
-    expect(plaintext.status()).toBe(400);
+    const retiredGet = await request.get(`${gunBaseURL()}/api/p2p/signaling/conv_e2e_transport`);
+    expect(retiredGet.status()).toBe(404);
+    const retiredPost = await request.post(`${gunBaseURL()}/api/p2p/signaling/conv_e2e_transport`, { data: {} });
+    expect(retiredPost.status()).toBe(404);
 
     const p = page!;
     await p.locator('.nav-btn[data-view="settings"]').click();

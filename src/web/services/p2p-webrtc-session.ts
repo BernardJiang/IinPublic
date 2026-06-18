@@ -20,11 +20,10 @@ import type { P2PMeshFrame } from '../../shared/p2p-mesh-protocol';
 import { messageIntroducesGap } from '../../shared/conversation-reconcile';
 import { BoundedNonceCache } from '../../shared/p2p-abuse-defense';
 import {
-  P2PSignalingClient,
   encodeSignalingPayload,
   type PostSignalingBody,
   type SignalingTransport,
-} from './p2p-signaling-client';
+} from './signaling-transport';
 import { GunPubSubSignaler } from './gun-pubsub-signaler';
 
 export type P2PConnectionState = 'idle' | 'connecting' | 'connected' | 'failed';
@@ -152,14 +151,8 @@ export type P2PSessionConfig = {
   getLocalMessageDigest?: () => Promise<string[]>;
   /** Phase 5: given the peer's digest ids, return the local wires the peer is missing. */
   getMessagesForBackfill?: (remoteMessageIds: string[]) => Promise<DmWirePayload['message'][]>;
-  /**
-   * S2: when a Gun instance is supplied, SDP/ICE frames travel over Gun pub/sub
-   * (`gun.get('p2p-signal')`) instead of the HTTP signaling poll — the Gun WebSocket
-   * is already open for chatroom presence. When omitted, the session falls back to the
-   * proven HTTP `P2PSignalingClient` (the default until Gun-signaling is E2E-verified and
-   * the server routes are removed).
-   */
-  gun?: unknown;
+  /** SDP/ICE frames travel over Gun pub/sub (`gun.get('p2p-signal')`). */
+  gun: unknown;
 };
 
 export class P2PConversationSession {
@@ -198,11 +191,7 @@ export class P2PConversationSession {
   private pendingRemoteHandshake: P2PHandshakePayload | null = null;
 
   constructor(private config: P2PSessionConfig) {
-    // S2: prefer Gun pub/sub signaling when a Gun instance is wired in; otherwise use the
-    // HTTP poll client. Both implement SignalingTransport (post + startPolling).
-    this.signaling = config.gun
-      ? new GunPubSubSignaler(config.gun, config.localPub, config.otherPub, config.conversationId)
-      : new P2PSignalingClient(config.apiBase);
+    this.signaling = new GunPubSubSignaler(config.gun, config.localPub, config.otherPub, config.conversationId);
   }
 
   getState(): P2PConnectionState {

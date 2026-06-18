@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-06-15
+Last updated: 2026-06-18
 
 This file is the short, execution-oriented plan. The detailed acceptance inventory and the
 statistics / spec-gap follow-ups are consolidated into the appendices at the bottom of this file.
@@ -57,28 +57,7 @@ T1 retry-dependence inventory **promoted to `docs/completed.md` 2026-06-16** (st
 
 ### S1 — Signaling server memory: add background pruning `[Haiku]` — **COMPLETED 2026-06-16** (moved to `docs/completed.md`)
 
-### S2 — Replace HTTP signaling poll with Gun pub/sub `[Sonnet]`
-
-`P2PSignalingClient` (`src/web/services/p2p-signaling-client.ts`) currently polls `GET /api/p2p/signaling/:conversationId` every ~400 ms. The Gun WebSocket is already open for every user in a chatroom. Writing signaling envelopes to a Gun path (`gun.get('p2p-signal').get(sharedKey)`) and subscribing via `.on(callback)` would deliver offers/answers the moment they're written — no polling, no server HTTP route needed.
-
-Plan:
-- [x] Derive `sharedKey` deterministically from two `pub` values: `sha256(sorted([pubA, pubB]).join(':'))` — `deriveSignalingSharedKey()` in `src/web/services/gun-pubsub-signaler.ts`.
-- [x] Write SDP offer/answer/ICE frames to `gun.get('p2p-signal').get(sharedKey).get(nonce)` (one node per nonce so frames never overwrite) — `GunPubSubSignaler.post()`.
-- [x] Subscribe via Gun `.map().on()` instead of the `setInterval` poll — `GunPubSubSignaler.startPolling()`. Both signalers now implement a shared `SignalingTransport` interface; `P2PConversationSession` picks `GunPubSubSignaler` when `config.gun` is supplied, else the HTTP `P2PSignalingClient` (default).
-- [x] Add `shouldSkipServerGunPersist()` rule for `p2p-signal/` so the hub never archives these — `src/shared/p2p-runtime.ts:656`.
-- [x] Unit coverage: `src/test/unit/gun-pubsub-signaler.test.ts` (sharedKey determinism/symmetry; post path; signed-frame delivery; self-frame skip + nonce dedup).
-- [x] **Wire `config.gun` so Gun-signaling is the default — scoped to conversation DMs.** Only `direct-p2p-conversation-transport.ts` passes `gun: this.gunService.getGun()`. The mesh talk-delivery path (`peer-mesh-service.ts`, `app.ts` fallback) was reverted to HTTP signaling: enabling Gun signaling there slowed peer connect enough that the broadcast retry loop exhausted the daily talk-send rate limit (10/day) and gated all recipients (`00-broadcast-boundary-match`, `00-broadcast-deletion-mid-broadcast` red-lined in stage2 E2E). HTTP `P2PSignalingClient` remains the no-gun fallback everywhere. **Follow-up:** extend Gun signaling to the mesh once it has dedicated E2E coverage that tolerates connect latency without burning the rate-limit budget.
-- [x] **Root-caused the first default-flip failure (2026-06-16).** The original `GunPubSubSignaler` stored each frame as a **primitive JSON string** at `p2p-signal/<sharedKey>/<nonce>`; Gun's `.map()` iterates child *nodes*, and primitive-string leaves do not replicate to a peer's map subscription, so offer/answer frames never reached the peer and the WebRTC handshake never completed (red-lined `00j-messaging-edge-cases`, `00k-p2p-handshake`, `09-messaging`, `10-message-unread-badge`). **Fix:** store each frame as a flat **object node** keyed by nonce (`.get(nonce).put(record)`) + consolidate via `.get(nonceKey).once()` on each `.map().on()` emission — mirrors the proven `GunMessageStore` record-per-id pattern (`conversations/<id>/messages/<msgId>`). Unit tests updated; logic green. NOTE: a real-Gun *node* integration test is not possible — node in-memory Gun never fires `.map().on()` for nested (`depth ≥ 2`) keyed children, only top-level `.set()`; the browser relay handles nested paths fine (the message store relies on it). So the cross-peer proof is the E2E item below.
-- [x] **Object-node frames (2026-06-16).** Store each frame as a flat Gun node keyed by nonce, not a primitive JSON string — primitive leaves don't replicate to a peer's `.map()`.
-- [x] **Pure peer↔peer `.on()` push (2026-06-16).** `GunPubSubSignaler` subscribes via `.map().on()` only — no interval polling and no server in the data path (a brief hub-side relay experiment was rejected: it would put the hub in the signaling path, defeating P2P). `.map().on()` delivers both frames already present at subscribe time (offer-before-subscribe race) and subsequent frames; handleFrame dedups by nonce. Conversation DMs verified connecting over Gun in stage2 E2E (09-messaging, 00k-p2p-handshake) with the earlier poll; this commit drops the poll in favor of pure push — **re-verify** below.
-- [x] **VERIFIED (browser, 2026-06-16):** `09-messaging` + `00k-p2p-handshake` pass with pure `.on()` push (no poll, no server relay) — conversation DMs connect over Gun browser↔browser. AXE-off in E2E was NOT a blocker; vanilla hub relays peer↔peer fine. The earlier connect failures were the primitive-string storage bug.
-- [x] **Mesh path extended to Gun signaling (2026-06-16).** Re-wired `gun:` at `peer-mesh-service.ts` + `app.ts` fallback. The earlier mesh-on-Gun failure was the slow poll/`.once()` signaler delaying connect → broadcast retries burned the 10/day talk-send limit; the pure-`.on()` push signaler connects as fast as HTTP, so all three session sites now use Gun and no site selects HTTP `P2PSignalingClient`. Also bumped the `14-exact-chatbot-memory` mesh-delivery retry budget 3→5.
-- [x] **Mesh↔DM channel collision fixed (2026-06-16).** Putting the mesh on Gun made the mesh session and the DM session for the same user pair share one `p2p-signal/<sharedKey>` channel (key was `sha256(sorted pubs)` only), cross-feeding offer/answer frames and breaking the DM handshake (full stage2 run: 09/10/00j/00k failed). Fix: include the session `conversationId` in `deriveSignalingSharedKey` (symmetric on both peers) so mesh (`mesh:…`) and DM (`conv_…`) get distinct channels.
-- [ ] **VERIFY (browser) before route removal:** rerun the FULL `npx playwright test tests/e2e/staged/stage2-two-user/` (DM messaging + `00-broadcast-*`) + `tests/e2e/staged/stage3-three-user/14-exact-chatbot-memory.spec.ts`. Confirms mesh-over-Gun + the channel-namespacing fix: DM handshakes connect AND broadcast doesn't regress.
-- [ ] **Once green:** remove `GET`/`POST /api/p2p/signaling/:conversationId` (`system-routes.ts`) and `P2PSignalingClient` — now unused (every session site passes `gun:`). Keep the `SignalingTransport` interface + `GunPubSubSignaler`.
-- [ ] For native nodes (those with a `Libp2pBindingRecord` in Gun at `p2p-peer-bindings/<userId>`): skip signaling entirely — read their multiaddrs and dial via `node.dialProtocol(peerId, '/iinpublic/mesh/1.0.0')`.
-
-
+### S2 — Replace HTTP signaling poll with Gun pub/sub `[Sonnet]` — **COMPLETED 2026-06-18** (moved to `docs/completed.md`)
 
 ---
 
@@ -295,6 +274,7 @@ Add native builds that run a real libp2p node (TCP/QUIC), eliminating WebRTC sig
 - [ ] Electron/Tauri shell (Windows/Linux/macOS): bundled libp2p node with `@libp2p/tcp`, `@libp2p/quic`, Circuit Relay v2 server, Kademlia DHT. Shares the same Gun hub WebSocket as the browser build.
 - [ ] `Libp2pBindingRecord` extended with Circuit Relay multiaddr; published to Gun on startup; refreshed on address change.
 - [ ] Browser-side dial upgrade: in `P2PRoomDiscoveryService.findRoomProviderPeerIds()`, if a peer has a `Libp2pBindingRecord` with a Circuit Relay addr, attempt `node.dialProtocol(peerId, '/iinpublic/mesh/1.0.0')` via the relay before falling back to Gun-WebRTC signaling.
+- [ ] Native-node shortcut: for peers with a `Libp2pBindingRecord` in Gun at `p2p-peer-bindings/<userId>`, skip Gun-WebRTC signaling entirely and dial their multiaddrs via `node.dialProtocol(peerId, '/iinpublic/mesh/1.0.0')`.
 - [ ] Android: WebView shell + Kotlin `Libp2pBridgeService` exposing a local WebSocket; same libp2p node logic as desktop.
 - [ ] iOS: WKWebView shell + Swift `Libp2pBridgeService` over WKScriptMessageHandler; same circuit-relay logic.
 - [ ] E2E spec: one browser peer + one native node in the same chatroom; exchange a talk and open a conversation; assert DataChannel opens through the Circuit Relay multiaddr from `Libp2pBindingRecord`.

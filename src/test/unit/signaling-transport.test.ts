@@ -1,9 +1,9 @@
 import {
   decodeSignalingPayload,
   encodeSignalingPayload,
-} from '../../web/services/p2p-signaling-client';
+} from '../../web/services/signaling-transport';
 
-describe('p2p-signaling-client', () => {
+describe('signaling-transport', () => {
   it('round-trips signaling payloads with SEA prefix', () => {
     const payload = { type: 'offer', sdp: { type: 'offer', sdp: 'v=0' } };
     const encoded = encodeSignalingPayload(payload);

@@ -5,7 +5,6 @@ import { registerSystemRoutes } from '../../server/routes/system-routes';
 import {
   createSignedP2PEnvelopeProof,
   p2pRelaySigningPayload,
-  p2pSignalingSigningPayload,
   type SeaSigningPair,
 } from '../../shared/p2p-runtime';
 import { peerAckSigningPayload } from '../../shared/p2p-presence';
@@ -221,97 +220,10 @@ describe('system routes', () => {
     expect(wiped.body.identityBinding).toBeNull();
   });
 
-  it('stores only encrypted short-lived P2P signaling envelopes in non-production', async () => {
+  it('does not expose the retired HTTP P2P signaling endpoint', async () => {
     const { app } = buildApp();
-    const pair = await SEA.pair();
-    const signalBody = {
-      conversationId: 'conv_1',
-      kind: 'offer' as const,
-      senderPub: pair.pub,
-      recipientPub: 'pub_b',
-      signalCiphertext: 'SEA{"ct":"offer"}',
-    };
-
-    const posted = await request(app).post('/api/p2p/signaling/conv_1').send({
-      kind: signalBody.kind,
-      senderPub: signalBody.senderPub,
-      recipientPub: signalBody.recipientPub,
-      signalCiphertext: signalBody.signalCiphertext,
-      ...(await signedProofFields(pair, p2pSignalingSigningPayload(signalBody), 'nonce_a')),
-    });
-    expect(posted.status).toBe(200);
-    expect(posted.body.envelope).toEqual(
-      expect.objectContaining({
-        version: 1,
-        conversationId: 'conv_1',
-        kind: 'offer',
-        signalCiphertext: 'SEA{"ct":"offer"}',
-      }),
-    );
-    expect(posted.body.envelope.expiresAt).toBeTruthy();
-
-    const listed = await request(app).get('/api/p2p/signaling/conv_1');
-    expect(listed.status).toBe(200);
-    expect(listed.body.envelopes).toHaveLength(1);
-    expect(JSON.stringify(listed.body)).not.toContain('"sdp"');
-
-    const plaintext = await request(app).post('/api/p2p/signaling/conv_1').send({
-      kind: 'offer',
-      senderPub: pair.pub,
-      recipientPub: 'pub_b',
-      signalCiphertext: '{"sdp":"plain"}',
-      ...(await signedProofFields(
-        pair,
-        p2pSignalingSigningPayload({
-          ...signalBody,
-          signalCiphertext: '{"sdp":"plain"}',
-        }),
-        'nonce_plain',
-      )),
-    });
-    expect(plaintext.status).toBe(400);
-  });
-
-  it('two logical peers complete signaling offer and answer exchange', async () => {
-    const { app } = buildApp();
-    const alice = await SEA.pair();
-    const bob = await SEA.pair();
-    const offerBody = {
-      conversationId: 'conv_peer',
-      kind: 'offer' as const,
-      senderPub: alice.pub,
-      recipientPub: bob.pub,
-      signalCiphertext: 'SEA{"type":"offer","sdp":{"type":"offer","sdp":"v=0"}}',
-    };
-    const answerBody = {
-      conversationId: 'conv_peer',
-      kind: 'answer' as const,
-      senderPub: bob.pub,
-      recipientPub: alice.pub,
-      signalCiphertext: 'SEA{"type":"answer","sdp":{"type":"answer","sdp":"v=0"}}',
-    };
-
-    await request(app).post('/api/p2p/signaling/conv_peer').send({
-      kind: offerBody.kind,
-      senderPub: offerBody.senderPub,
-      recipientPub: offerBody.recipientPub,
-      signalCiphertext: offerBody.signalCiphertext,
-      ...(await signedProofFields(alice, p2pSignalingSigningPayload(offerBody), 'nonce_offer')),
-    });
-    await request(app).post('/api/p2p/signaling/conv_peer').send({
-      kind: answerBody.kind,
-      senderPub: answerBody.senderPub,
-      recipientPub: answerBody.recipientPub,
-      signalCiphertext: answerBody.signalCiphertext,
-      ...(await signedProofFields(bob, p2pSignalingSigningPayload(answerBody), 'nonce_answer')),
-    });
-
-    const listed = await request(app).get('/api/p2p/signaling/conv_peer');
-    expect(listed.status).toBe(200);
-    expect(listed.body.envelopes).toHaveLength(2);
-    expect(listed.body.envelopes.map((item: { kind: string }) => item.kind)).toEqual(
-      expect.arrayContaining(['offer', 'answer']),
-    );
+    expect((await request(app).get('/api/p2p/signaling/conv_1')).status).toBe(404);
+    expect((await request(app).post('/api/p2p/signaling/conv_1').send({})).status).toBe(404);
   });
 
   it('stores encrypted short-lived conversation relay envelopes for two peers', async () => {

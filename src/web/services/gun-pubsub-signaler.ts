@@ -8,7 +8,7 @@ import {
   decodeSignalingPayload,
   type PostSignalingBody,
   type SignalingTransport,
-} from './p2p-signaling-client';
+} from './signaling-transport';
 
 /**
  * Derive a deterministic 64-hex channel key from two peer public keys and a channel id.
