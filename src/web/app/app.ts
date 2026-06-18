@@ -2891,6 +2891,31 @@ export class IinPublicApp {
   }): Promise<void> {
     console.log('📝 User completed talk:', data);
     const isChatbot = !!data.isChatbotResponse;
+    const locallyLooksLikeMatch = !!data.talkData && this.checkIfMatch(data.talkData, data.answers);
+    const isE2eLocalOnlyReject =
+      data.talkData?.e2eLocalOnlyReject === true &&
+      !locallyLooksLikeMatch &&
+      data.talkData?.authorId &&
+      data.talkData.authorId !== this.currentUser?.id;
+
+    if (isE2eLocalOnlyReject) {
+      this.recordLocalTalkExchange(
+        String(data.talkData.authorId),
+        String(data.talkData.authorName || 'Unknown'),
+        data.talkId,
+        data.talkData,
+        'mismatch',
+        {
+          answers: data.answers,
+          direction: 'received',
+          respondedAt: new Date().toISOString(),
+        },
+      );
+      const pairKey = `${data.talkId}::${String(data.talkData.authorId)}`;
+      this.chatbotAutoReplySentForPair.add(pairKey);
+      this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
+      return;
+    }
 
     // Step 1 — sync QA preferences (best-effort: a transient Gun SEA write failure
     // must not abort step 3 which creates the match/conversation/contact).
@@ -2915,7 +2940,6 @@ export class IinPublicApp {
 
     // Step 2 — save client-side chatbot template (localStorage, UI cache only)
     // Saved before the mesh response so a rapid re-announce can use it immediately.
-    const locallyLooksLikeMatch = !!data.talkData && this.checkIfMatch(data.talkData, data.answers);
     if (data.talkData && locallyLooksLikeMatch && !isChatbot) {
       this.uiManager.saveChatbotTemplate(data.talkId, {
         answers: data.answers,

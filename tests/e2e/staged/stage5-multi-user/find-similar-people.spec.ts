@@ -119,7 +119,7 @@ test.describe('Find similar people', () => {
   // spec (10 browser processes); flakes here mean the machine is oversubscribed at
   // high PW_WORKERS. The fix is load-scaled timeouts / lower concurrency, not retries.
   test.describe.configure({ retries: 0 });
-  test.setTimeout(420_000);
+  test.setTimeout(300_000);
 
   const browsers: Browser[] = [];
   const contexts: BrowserContext[] = [];
@@ -359,7 +359,12 @@ test.describe('Find similar people', () => {
           if (await checkbox.isChecked()) await checkbox.uncheck();
           await page.click('#tag-submit-response');
           await waitForResponseModalClosed(page);
-          await page.evaluate(() => (globalThis as any).__iinpublic_lastTalkCompletion?.catch?.(() => {}));
+          await page.evaluate(() =>
+            Promise.race([
+              (globalThis as any).__iinpublic_lastTalkCompletion?.catch?.(() => {}),
+              new Promise((resolve) => window.setTimeout(resolve, 5_000)),
+            ]),
+          );
           await afterAction();
         }
         await expect
@@ -396,6 +401,9 @@ test.describe('Find similar people', () => {
       setups.map(async ({ page, idx }) => {
         await waitForTabActive(page, 'contacts');
         await page.waitForSelector('#contacts-sort-order', { timeout: 20_000 });
+        await page.evaluate(() => localStorage.removeItem('iinpublic_contacts_tab_state'));
+        await page.fill('#contacts-filter-name', '');
+        await page.selectOption('#contacts-filter-relation', 'all');
         await page.selectOption('#contacts-sort-order', 'match-rate');
         await afterAction();
 
