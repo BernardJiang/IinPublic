@@ -359,8 +359,31 @@ test.describe('Find similar people', () => {
           if (await checkbox.isChecked()) await checkbox.uncheck();
           await page.click('#tag-submit-response');
           await waitForResponseModalClosed(page);
+          await page.evaluate(() => (globalThis as any).__iinpublic_lastTalkCompletion?.catch?.(() => {}));
           await afterAction();
         }
+        await expect
+          .poll(
+            async () =>
+              page.evaluate((expectedSenderIds) => {
+                const expected = new Set(expectedSenderIds);
+                try {
+                  const raw = localStorage.getItem('localTalkExchanges');
+                  const parsed = raw ? JSON.parse(raw) : {};
+                  const rows = Array.isArray(parsed) ? parsed : Object.values(parsed || {});
+                  const seen = new Set(
+                    rows
+                      .map((row: any) => String(row?.peerId || ''))
+                      .filter((peerId: string) => expected.has(peerId)),
+                  );
+                  return seen.size;
+                } catch {
+                  return 0;
+                }
+              }, [...new Set(senderByKeyword.values())].map((senderIdx) => userMetas[senderIdx].id)),
+            { timeout: 30_000, intervals: [500] },
+          )
+          .toBeGreaterThanOrEqual(expectedMinContactsByUser.get(idx) ?? 1);
         console.log(`[u${idx} reject] done`);
       },
     );

@@ -6,7 +6,7 @@ import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import {maybeClearGunDatabases, injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { afterLoad, afterSync } from '../../helpers/timing';
-import { webBaseURL } from '../../helpers/ports';
+import { gunBaseURL, webBaseURL } from '../../helpers/ports';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
 
 const E2E_URL = '/?e2e_capacity=3&e2e_fifo=true';
@@ -36,7 +36,7 @@ test.describe('Capacity regional spread', () => {
     await maybeClearGunDatabases();
   });
 
-  test('fills global, all continental rooms, USA, and creates blurred regional rooms', async ({ browser }) => {
+  test('fills global, all continental rooms, USA, and creates blurred regional rooms', async ({ browser, request }) => {
     await maybeClearGunDatabases();
 
     for (let i = 0; i < TARGETS.length; i++) {
@@ -60,17 +60,25 @@ test.describe('Capacity regional spread', () => {
     await afterSync();
     await expect
       .poll(async () => {
-        const counts = await pages[0].evaluate(async ({ regionalRoom, techSupportId }) => {
-          const app = (window as any).__iinpublic_app?.getApp?.();
-          const service = app?.chatroomService;
-          const rooms = ['global', 'north-america', 'south-america', 'europe', 'asia', 'africa', 'oceania', 'usa', regionalRoom];
-          const result: Record<string, number> = {};
-          for (const room of rooms) {
-            result[room] = ((await service.getActiveMembers(room)) as string[])
-              .filter((id) => id && id !== techSupportId).length;
-          }
-          return result;
-        }, { regionalRoom: REGIONAL_SF_ROOM, techSupportId: TECHSUPPORT_ROOT_USER_ID });
+        const rooms = [
+          'global',
+          'north-america',
+          'south-america',
+          'europe',
+          'asia',
+          'africa',
+          'oceania',
+          'usa',
+          REGIONAL_SF_ROOM,
+        ];
+        const counts: Record<string, number> = {};
+        for (const room of rooms) {
+          const res = await request.get(`${gunBaseURL()}/api/chatrooms/${encodeURIComponent(room)}/members`, {
+            headers: { 'Cache-Control': 'no-cache' },
+          });
+          const rows = res.ok() ? ((await res.json()) as Array<{ userId?: string }>) : [];
+          counts[room] = rows.filter((row) => row.userId && row.userId !== TECHSUPPORT_ROOT_USER_ID).length;
+        }
         return {
           global: counts.global >= 3,
           northAmerica: counts['north-america'] >= 3,

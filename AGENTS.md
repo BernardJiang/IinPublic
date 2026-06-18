@@ -215,79 +215,79 @@ This is a starting point. Add your own conventions, style, and rules as you figu
 <claude-mem-context>
 # Memory Context
 
-# [IinPublic] recent context, 2026-06-12 9:13pm PDT
+# [IinPublic] recent context, 2026-06-17 4:59pm PDT
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (19,196t read) | 468,669t work | 96% savings
+Stats: 50 obs (20,971t read) | 513,776t work | 96% savings
 
-### May 1, 2026
-S10 E2E Tests 12 & 13: Replaced Ephemeral Toast Assertions with Durable UI State Checks (May 1 at 7:19 PM)
-S11 Git commit flaky E2E test fixes for tests 12 and 13 after all 35 tests passed (May 1 at 7:27 PM)
-S12 E2E Test Reliability Issue: Toast Notification Assertions Are Transient (May 1 at 7:27 PM)
-### May 3, 2026
-S13 Fix transient toast assertions in E2E tests + Age-gating UI feature (isAdult talk flag, age-verify vouch, Credit badge) (May 3 at 1:39 PM)
-S14 New P0 Section Inserted at Top of docs/TODO.md with 3 Remaining Incomplete Items (May 3 at 1:40 PM)
 ### May 14, 2026
-S15 Cross-reference current codebase status against deleted P0 section of docs/TODO.md from git history, then insert a new plan at the beginning of TODO.md for any incomplete items (May 14 at 11:45 PM)
 S16 Full E2E suite now 65/65 passing — previous failure confirmed intermittent flake (May 14 at 11:45 PM)
 ### May 15, 2026
 S17 Double-check current status against deleted P0 section of TODO.md from git history; create new plan and insert at beginning of TODO.md if differences found (May 15 at 12:10 AM)
 S18 Pre-commit State: Major UI Refactor Pending in /IinPublic (May 15 at 12:10 AM)
-S19 Git commit pending UI refactor changes in /IinPublic project (May 15 at 12:16 AM)
-### Jun 2, 2026
-526 6:31p 🟣 Added `addMemberFast` Fast-Path for Chatroom Join
-527 " 🔵 Block/Unblock System Remains Server-Mediated After P2P Migration
-528 6:38p ⚖️ Architecture Migration: Star Topology → P2P Network
-529 " 🔵 P2P Talk Delivery Uses Hybrid Fallback Pattern in ui-manager.ts
-530 6:46p ⚖️ Architectural Switch from Star Topology to P2P Network
-531 " 🔴 Block/Unblock Now Makes API Calls in P2P Mode
-532 6:47p 🔴 E2E Test 15a Fixed with waitForContactDetailReady Guards
-533 6:54p ⚖️ Architecture Shift: Star Topology to P2P Network for Messaging
-534 6:55p 🔵 E2E Test Run: 4 Tests Still Failing After P2P Migration (Down from 26)
-535 " 🔵 Peer Stats Panel Fetches from Server API, Not P2P Gun.js
-536 6:58p 🔵 Block/Unblock Architecture: Gun Paths, In-Memory Cache, and Peer Stats 403 Flow
-537 " ⚖️ Architecture Migration: Star Topology → P2P Network
-538 6:59p 🔵 Server Retains `conversationsMap` and P2P Transport Diagnostics After Star→P2P Migration
-539 " 🔵 E2E Reputation Block-Count Test Structure for P2P Architecture
-540 " 🔵 Block/Unblock Flow Has Dual API Call Path and Gun-Based Reputation Update
-541 7:02p 🔵 Server-Side `user-service.ts` Also Writes `blockCount` to Gun — Potential Conflict with Client P2P Writes
-542 " 🔵 Server Uses Separate Gun Path for Age Verification to Avoid Race Conditions — Pattern Not Applied to `blockCount`
-543 " 🔴 Fixed `readReputation` to Use In-Memory Cache First, and `resetBlockMutationsForTesting` to Also Clear Reputation Cache
-544 7:05p 🔴 Peer Detail View Handles P2P Block Detection on Fetch Failure and Increases Retry Resilience
-545 7:06p 🔴 E2E `getReputation` Helper Retry Count and Timeout Increased for P2P Latency
-546 7:07p 🔵 TypeScript Compilation and Server Build Pass Clean After P2P Fixes
-547 7:10p 🔵 E2E Test `04-profile-edit-stage-name` Fails: Peer Stats Section Stuck on "Loading relationship stats..."
-548 7:11p 🔵 Targeted E2E Run: 3 Failed, 1 Passed — Concrete Failure Modes Identified
-549 " 🔵 Error Context Screenshots Reveal UI State at Time of Failure for 21a and 15a
-550 7:12p 🔵 Full Diff of P2P Migration Fixes: `getReputation` Refactored to Browser-Side Evaluation with Gun Fallback
-551 " 🔴 `fetchPeerDetailWithTimeout` Retry Timeout Reduced from 3×5s to 2×3.5s to Unblock Error Path
-552 7:24p ⚖️ Architecture Switch: Star Topology → P2P Network
-553 7:27p 🔵 E2E Test Suite Status After P2P Migration — 3 Remaining Failures
-554 7:28p 🔴 Graceful Handling of Failed Peer Stats API Calls in User Detail View
-555 7:29p 🔴 Null-Safe Optional Chaining Follow-up in fetchAndRenderStats
-556 7:34p ⚖️ Architecture Migration: Star Topology → Peer-to-Peer Network
-557 " 🔵 Stage Name Reservation Enforcement and P2P Test Environment Variables
-558 7:35p 🔵 P2P Transport Confirmed Active; TechSupport System Conversation Persists Across Reloads
-559 7:52p ⚖️ Architecture Migration: Star Topology → P2P Network
-560 8:04p ⚖️ P2P Network Architecture Migration for Chat Application
-561 " 🟣 Public Profile Foundation Dual-Write: GunDB + REST API Sync
-562 8:38p ⚖️ Architecture Switch: Star Topology → P2P Network
-563 8:40p 🔵 P2P Mode: Public Profile Data Not Propagating to Peers
-564 " 🔵 Reserved Stage Name Blocklist Confirmed Working
-565 " 🔵 Dual Port-Mapping Logic: WebUserService vs IinPublicApp
-566 8:41p 🔵 Profile Update Test Uses Server API to Verify Propagation
-567 8:42p 🔵 Profile Propagation: Languages Rendered from Gun Data, Not Backend API
-568 8:43p 🔴 E2E Test Fix: Added Explicit Public Profile Foundation Sync After Profile Changes
-569 " 🔵 Patch Verification Failure: Import Context Mismatch in apply_patch
-570 8:45p 🔵 Spec File Import Structure Confirms Why Patch Failed
-571 8:46p 🔵 Server Receives Profile Data But Gun Peer Propagation Fails
-572 " 🔴 user-detail-view.ts: Increased Timeout for Public Profile Fetch to 8.5s
-573 8:47p 🔵 TypeScript Types and Server Build Both Pass After user-detail-view.ts Change
-574 8:50p 🔵 Client Bundle Not Yet Rebuilt After user-detail-view.ts Change
-575 " 🔵 Test Still Fails After Timeout Fix — Bundle Not Recompiled, Root Cause Remains
+S19 Git commit pending UI refactor changes in /IinPublic project (May 15 at 12:15 AM)
+S20 Software Architect: Prioritized Development Plan for IinPublic (2026-06-14) (May 15 at 12:16 AM)
+### Jun 14, 2026
+S21 Activate Software Architect and Minimal Change Engineer to review IinPublic repo and propose a development plan (Jun 14 at 2:35 PM)
+S22 Distance Sort Branch Implemented in contacts-view.ts Sort Comparator (Jun 14 at 2:36 PM)
+S23 Verify Phase 5 follow-up items (steps 3 and 4): re-digest on reconnect and listLocalWires bounding (Jun 14 at 2:42 PM)
+S24 Green CI Commit dbf22108 Landed with scripts/ci-local.sh Created (Jun 14 at 2:51 PM)
+S25 Use local PC as CI — run ./scripts/ci-local.sh, fix failures, commit on green (Jun 14 at 3:52 PM)
+### Jun 15, 2026
+694 9:51a 🔵 Confirmed: Ghost Subscription from warmDirectP2PSession Can Win Nonce Race and Suppress Real UI Delivery
+695 " 🔴 ServerRelayConversationTransport Refactored to Use Shared Broadcaster Pattern
+696 12:33p 🔵 T4/T5 Test Determinism Context: F-class Messaging Specs Blocked on T3 Relay Fallback
+697 " 🔵 E2E Timing Helpers Available for Explicit Wait Replacement
+698 " 🔵 F-class Spec Actual Paths Differ from TODO.md References
+699 12:34p 🔵 09-messaging.spec.ts Already Uses Timing Helpers and Peer Gates
+700 " 🔵 All Four F-class Specs Confirmed Missing retries=0 Pin; 00j Imports P2P Channel Wait Helpers
+701 " 🔵 Exact Insertion Points for retries=0 Pin Identified Across All Four F-class Specs
+702 12:36p ✅ T4 Complete: All Four F-class Messaging Specs Pinned to retries=0
+703 " 🔵 12-two-responders-partial-match.spec.ts Refactored to Use Shared Browser/Flow Helpers
+704 " 🔵 00k-p2p-handshake.spec.ts Has Peer Gate but No retries=0 Pin
+705 " 🔵 Two Single-User P2P Specs Missing Both Peer Gates and retries=0 Pin
+706 12:37p 🔵 playwright.config.ts Structure Confirmed for T5: retries:1 at Line 125 in defineConfig
+707 " ✅ T5 Complete: playwright.config.ts Global retries Lowered from 1 to 0
+708 3:59p 🟣 Gun.js Database Size Estimation Formulas Added to Architecture Docs
+709 " ⚖️ Four-Tier Data Retention Policy Defined for Gun.js Local Database
+710 " 🟣 Blockchain-Style Merkle Checkpoint Pattern Specified for Ledger and Conversation Pruning
+711 4:00p 🔵 TalkLedgerDoc Is a Pure In-Memory Value Object, Not a Gun Graph Node
+712 4:05p ✅ Gun.js Architecture Docs Enhanced with Storage, Retention, and Integrity Sections
+713 11:16p 🔵 Current P2PSignalingClient Uses HTTP Polling at 400ms Interval
+714 11:17p 🔵 GunBridge Architecture: Web Worker Proxy with subscribe() API Ready for P2P Signaling
+715 " 🔵 P2PConversationSession Integration Points for Gun Pub/Sub Signaling Migration
+716 " 🔵 WebGunService Holds GunBridge Instance and SEA Keypair — Integration Point for GunPubSubSignaler
+717 11:18p 🔵 P2PConversationSession Created via getOrCreateP2PSession() Factory — Single Injection Point for GunBridge
+718 11:19p 🔵 Three Call Sites for getOrCreateP2PSession() Require GunBridge Threading
+719 11:22p 🔵 P2PConversationSession.dispose() Is the Cleanup Hook for Gun Subscription Unsubscribe
+720 11:23p 🟣 GunPubSubSignaler Implemented — Gun pub/sub Replaces HTTP Polling for WebRTC Signaling
+721 11:33p 🔵 Pre-existing Unit Test Failures in peer-mesh-service Before S2 Implementation
+722 11:34p 🔵 Confirmed: 2 peer-mesh-service Unit Test Failures Are Pre-existing, Not Caused by S2 Changes
+723 " 🟣 S2 Gun Pub/Sub Signaling Implementation — Files Modified and New File Created
+724 " 🟣 S2 Implementation Passes TypeScript Type Check Clean
+725 11:35p 🔵 Integration Tests Pass and E2E Playwright Suite Confirmed Active
+726 " 🟣 S2 Implementation: All Integration Tests Pass (82/83)
+### Jun 16, 2026
+727 12:26a 🟣 GunPubSubSignaler — Gun Pub/Sub WebRTC Signaling Implementation (Phase 1 of S2)
+728 " 🔵 gun-pubsub-signaler.ts exists at 143 lines — within spec constraint
+729 " 🟣 GunPubSubSignaler: Full Implementation Details
+730 " 🔵 TypeScript type-check passes clean; E2E test path not found
+731 12:27a 🔵 No direct-p2p E2E spec exists — referenced test file was never created
+732 " 🔵 Existing E2E suite passes clean after GunPubSubSignaler addition
+733 3:13p ✅ TODO Housekeeping: Phase 5 P2P and T1 Retry Items Promoted to Completed
+734 " 🔵 docs/TODO.md and docs/completed.md State Snapshot (2026-06-16)
+735 3:14p 🔵 docs/completed.md Tail Content: T3/T4/T5/P0-Phase Entries from 2026-06-14/15
+736 3:15p ✅ docs/completed.md Appended with 2026-06-16 Promoted TODO Section
+737 3:19p 🟣 S1: Signaling Server Background Pruning with setInterval
+738 " 🔵 system-routes.ts: pruneSignaling() is lazy — only fires on HTTP requests
+739 3:20p 🔵 Server has no shutdown/cleanup lifecycle hook for interval management
+740 " 🔵 P2PSignalingEnvelope TTL: expiresAt set by SIGNALING_TTL_SECONDS constant in createP2PSignalingEnvelope()
+741 " 🟣 Extracted pruneSignalingMap() and startSignalingPruning() as exported functions in system-routes.ts
+742 " 🔄 Internal pruneSignaling closure simplified to one-liner; startSignalingPruning() wired into registerSystemRoutes()
+743 3:21p 🟣 Unit test file created for signaling pruning; TypeScript types clean
 
-Access 469k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 514k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>
