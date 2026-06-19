@@ -1878,6 +1878,24 @@ export class UIManager extends EventEmitter {
           if (e.button !== 0) return; // only left button
           const target = e.target as HTMLElement;
           if (!target.closest('#talks-list')) return;
+          const outgoingTagCheckbox = target.closest('.talk-tag-out-checkbox') as HTMLInputElement | null;
+          if (outgoingTagCheckbox) {
+            e.preventDefault();
+            e.stopPropagation();
+            const talkId = outgoingTagCheckbox.dataset.talkId;
+            if (talkId) setTimeout(() => this.deleteMyTalk(talkId), 0);
+            return;
+          }
+          const incomingTagCheckbox = target.closest('.talk-tag-in-checkbox') as HTMLInputElement | null;
+          if (incomingTagCheckbox) {
+            e.preventDefault();
+            e.stopPropagation();
+            const talkId = incomingTagCheckbox.dataset.talkId || '';
+            const identityKey = incomingTagCheckbox.dataset.identityKey || '';
+            const checked = !e.shiftKey;
+            setTimeout(() => this.quickAnswerIncomingTag(talkId, identityKey || undefined, checked), 0);
+            return;
+          }
           const removeBtn = target.closest('.remove-talk-btn');
           if (removeBtn) {
             e.preventDefault();
@@ -2081,6 +2099,16 @@ export class UIManager extends EventEmitter {
                     : talkTypeLower === 'survey' ? '#059669'
                     : talkTypeLower === 'route' ? '#d97706'
                     : '#2563eb';
+                  if (talkTypeLower === 'tag') {
+                    return `
+        <div class="talk-list-item talk-tag-chip talk-tag-out ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-role="${talk.role || 'created'}" data-talk-type="tag">
+          <label class="talk-tag-checkbox-wrap" aria-label="${escapeHtml(this.t('talksTagChecked'))}">
+            <input type="checkbox" class="talk-tag-checkbox talk-tag-out-checkbox" data-talk-id="${escapeHtml(talkId)}" checked>
+          </label>
+          <span class="talk-tag-text">${escapeHtml(talk.title)}</span>
+        </div>
+      `;
+                  }
                   return `
         <div class="talk-list-item talk-type-${escapeHtml(talkTypeLower || 'flow')} ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-role="${talk.role || 'created'}" data-talk-type="${escapeHtml(talkTypeLower || 'flow')}" style="border-left:5px solid ${typeAccent};">
           <div class="talk-item-header">
@@ -2145,6 +2173,16 @@ export class UIManager extends EventEmitter {
                   : incomingType === 'survey' ? '#059669'
                   : incomingType === 'route' ? '#d97706'
                   : '#2563eb';
+                if (incomingType === 'tag') {
+                  return `
+        <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag">
+          <label class="talk-tag-checkbox-wrap" aria-label="${escapeHtml(this.t('talksTagUndetermined'))}">
+            <input type="checkbox" class="talk-tag-checkbox talk-tag-in-checkbox" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" data-indeterminate="true" title="${escapeHtml(this.t('talksTagQuickDecision'))}">
+          </label>
+          <button type="button" class="talk-tag-text talk-tag-text-button view-talk-btn" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}">${escapeHtml(cluster?.title || this.t('talksIncomingFallback'))}</button>
+        </div>
+      `;
+                }
                 return `
         <div class="talk-list-item talk-type-${escapeHtml(incomingType)} ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}" style="border-left:5px solid ${typeAccent};">
           <div class="talk-item-header">
@@ -2208,6 +2246,10 @@ export class UIManager extends EventEmitter {
         this.emit('needTalkStats', { talkIds });
       }
 
+      talksList.querySelectorAll<HTMLInputElement>('.talk-tag-in-checkbox[data-indeterminate="true"]').forEach((checkbox) => {
+        checkbox.indeterminate = true;
+      });
+
       // Row click opens edit/detail only when not clicking an action button (handled in capture above)
       talksList.querySelectorAll('.talk-list-item').forEach((item) => {
         const el = item as HTMLElement;
@@ -2217,7 +2259,7 @@ export class UIManager extends EventEmitter {
         if (role === 'incoming' && !talkId && !identityKey) return;
         if (role !== 'incoming' && !talkId) return;
         item.addEventListener('click', (e) => {
-          if ((e.target as HTMLElement).closest('.talk-item-actions')) return;
+          if ((e.target as HTMLElement).closest('.talk-item-actions, .talk-tag-checkbox-wrap, .view-talk-btn')) return;
           if (role === 'copied') {
             const copied = myTalks[talkId];
             if (copied?.fullTalk) {
@@ -3718,6 +3760,59 @@ export class UIManager extends EventEmitter {
   /** Resolve a concrete talk UUID for an incoming cluster (Gun may reshape talkIds). */
   private pickIncomingRowTalkId(cluster: any): string {
     return pickLatestTalkIdFromIncomingCluster(cluster || {});
+  }
+
+  private quickAnswerIncomingTag(talkId: string, identityKeyFallback: string | undefined, checked: boolean): void {
+    const finish = (fullTalk: any): void => {
+      if (!fullTalk) {
+        this.showNotification(this.t('talksCouldNotLoad'), 'error');
+        return;
+      }
+      this.quickCompleteTagTalk(fullTalk, checked);
+    };
+    const tid = isValidTalkId((talkId || '').trim()) ? talkId.trim() : '';
+    if (!tid && identityKeyFallback) {
+      this.emit('demandFullTalkByIdentity', { identityKey: identityKeyFallback, callback: finish });
+      return;
+    }
+    if (!tid) {
+      this.showNotification(this.t('talksCouldNotOpen'), 'error');
+      return;
+    }
+    this.emit('demandFullTalk', { talkId: tid, identityKeyFallback: identityKeyFallback || undefined, callback: finish });
+  }
+
+  private quickCompleteTagTalk(talk: any, checked: boolean): void {
+    if (String(talk?.type || '').toLowerCase() !== 'tag') {
+      this.showTalkResponseDialog(talk, { skipAutoAnswer: true });
+      return;
+    }
+    const question = Array.isArray(talk.questions) ? talk.questions[0] : null;
+    const answers = Array.isArray(question?.answers) ? question.answers : [];
+    const answer = checked
+      ? answers.find((item: any) => item?.isMatch)
+      : answers.find((item: any) => item?.isIgnore);
+    if (!question || !answer) {
+      this.showNotification(this.t('responseInvalidTag'), 'error');
+      return;
+    }
+    const completed = [{
+      questionId: question.id,
+      answerId: answer.id,
+      answerText: answer.text || (checked ? 'Match.' : 'Ignore.'),
+    }];
+    this.saveAnswerPreference(
+      talk,
+      talk.id,
+      question,
+      answer.id,
+      answer.text || (checked ? 'Match.' : 'Ignore.'),
+      completed.map((item) => ({ questionId: item.questionId, answerText: item.answerText })),
+      'auto',
+    );
+    if (checked) this.showNotification(this.t('responseMatch'), 'success');
+    else this.showNotification(this.t('responseTagIgnored'), 'info');
+    this.completeTalk(talk, completed, checked ? 'match' : 'mismatch');
   }
 
   private showTalkDetail(talkId: string, identityKeyFallback?: string): void {
