@@ -1604,6 +1604,48 @@ body {
 }
 
 /* Answer modal: table-style grid – Auto | Manual | Permanent columns, answers on the right */
+.response-step-panel {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+}
+
+.response-step-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #475569;
+  font-size: 0.86em;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.response-step-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.response-step-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  flex: 0 0 10px;
+}
+
+.response-step-done {
+  background: #22c55e;
+}
+
+.response-step-current {
+  background: #2563eb;
+  box-shadow: 0 0 0 3px #dbeafe;
+}
+
 .answer-radio-grid {
   display: flex;
   flex-direction: column;

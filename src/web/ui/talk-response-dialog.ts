@@ -100,6 +100,45 @@ function tryCollectAllAutoAnswers(
   return collected.length > 0 ? collected : null;
 }
 
+function estimateCompletionMinutes(questionCount: number): number {
+  return Math.max(1, Math.ceil(Math.max(1, questionCount) * 0.45));
+}
+
+function renderStepIndicator(
+  talk: any,
+  currentQuestionIndex: number,
+  answers: Array<{ questionId: string }>,
+  text: (key: UiTranslationKey, fallback: string) => string,
+  escapeHtml: (text: string) => string,
+): string {
+  const questions = Array.isArray(talk.questions) ? talk.questions : [];
+  const total = questions.length;
+  if (total <= 1) return '';
+  const completedIds = new Set(answers.map((answer) => answer.questionId));
+  const dots = questions.map((question: any, index: number) => {
+    const state = index === currentQuestionIndex
+      ? 'current'
+      : completedIds.has(question.id)
+        ? 'done'
+        : 'pending';
+    return `<span class="response-step-dot response-step-${state}" aria-hidden="true"></span>`;
+  }).join('');
+  const minutes = estimateCompletionMinutes(total);
+  const timeLabel = text(minutes === 1 ? 'responseEstimateMinute' : 'responseEstimateMinutes', '~{count} min')
+    .replace('{count}', String(minutes));
+  return `
+    <div class="response-step-panel">
+      <div class="response-step-summary">
+        <span>${escapeHtml(text('responseQuestion', 'Question'))} ${currentQuestionIndex + 1} ${escapeHtml(text('responseOf', 'of'))} ${total}</span>
+        <span>${escapeHtml(timeLabel)}</span>
+      </div>
+      <div class="response-step-dots" aria-label="${escapeHtml(text('responseProgress', 'Response progress'))}">
+        ${dots}
+      </div>
+    </div>
+  `;
+}
+
 export function showTalkResponseDialog(options: TalkResponseDialogOptions): void {
   const { talk } = options;
   const text = (key: UiTranslationKey, fallback: string): string => options.text?.(key) || fallback;
@@ -423,6 +462,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
             mode: (savedPreferenceForDisplay.mode as 'auto' | 'manual') || 'manual',
           }
         : undefined);
+    const stepIndicator = renderStepIndicator(talk, currentQuestionIndex, answers, text, options.escapeHtml);
 
     modal.innerHTML = `
       <div class="modal-content" style="max-width: 600px;">
@@ -434,6 +474,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           ${showBackButton ? `<button type="button" class="btn btn-back-question" data-testid="back-question-btn">← ${text('responsePrevious', 'Previous question')}</button>` : ''}
         </div>
         <div style="padding: 20px;">
+          ${stepIndicator}
           <div style="font-size: 1.1em; font-weight: 600; margin-bottom: 16px;">
             ${options.escapeHtml(currentQuestion.text)}
           </div>
