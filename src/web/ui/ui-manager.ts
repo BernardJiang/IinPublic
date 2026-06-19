@@ -353,6 +353,59 @@ export class UIManager extends EventEmitter {
     return radiusMiles == null ? this.t('talksAnywhere') : this.tf('talksMiles', { count: radiusMiles });
   }
 
+  private formatTalkDistanceFromAuthor(authorLocation: { latitude?: number; longitude?: number } | null | undefined): string {
+    if (!this.currentLocation || !authorLocation) return '';
+    const latitude = Number(authorLocation.latitude);
+    const longitude = Number(authorLocation.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
+    const meters = LocationPrivacy.calculateDistance(this.currentLocation, {
+      latitude,
+      longitude,
+      accuracy: 100,
+      timestamp: new Date(),
+    });
+    const miles = meters / 1609.344;
+    if (!Number.isFinite(miles)) return '';
+    if (miles < 0.1) return '<0.1 mi';
+    if (miles < 10) return `~${miles.toFixed(1)} mi`;
+    return `~${Math.round(miles)} mi`;
+  }
+
+  private formatTalkExpiryTone(expiresAt: unknown): 'neutral' | 'green' | 'amber' | 'red' {
+    const ms = resolveExpiresAtMs(expiresAt);
+    if (!Number.isFinite(ms)) return 'neutral';
+    const left = ms - Date.now();
+    if (left <= 0 || left <= 2 * 60 * 60 * 1000) return 'red';
+    if (left <= 24 * 60 * 60 * 1000) return 'amber';
+    return 'green';
+  }
+
+  private getIncomingQuestionCount(cluster: any): number {
+    const explicit = Number(cluster?.questionCount);
+    if (Number.isFinite(explicit) && explicit > 0) return Math.floor(explicit);
+    const questions = cluster?.latestTalk?.questions;
+    if (Array.isArray(questions)) return questions.length;
+    try {
+      const parsed = JSON.parse(String(cluster?.questionsJson || '[]'));
+      return Array.isArray(parsed) ? parsed.length : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  private getPreferredTalkLanguage(): string {
+    const languages = Array.isArray(this.currentUser?.languages) ? this.currentUser.languages : [];
+    const primary = String(languages[0] || '').trim().toLowerCase();
+    return primary || getDefaultTalkLanguagePreference(this.getUiLanguage());
+  }
+
+  private getIncomingResponseCount(talkId: string): number {
+    if (!talkId) return 0;
+    const stats = this.talkStatsMap[talkId];
+    if (stats?.responses) return stats.responses;
+    return readLocalTalkExchanges().filter((exchange) => exchange.talkId === talkId).length;
+  }
+
   private formatUiDate(date: Date): string {
     return date.toLocaleString(this.getUiLanguage() === 'zh' ? 'zh-CN' : 'en-US');
   }
@@ -2156,6 +2209,10 @@ export class UIManager extends EventEmitter {
                       .filter(Boolean),
                   ),
                 );
+                const senderList = Object.values(sendersObj) as Array<{ senderId?: string; senderName?: string; headshot?: string }>;
+                const primarySender = senderList[0] || {};
+                const primarySenderName = String(primarySender.senderName || senderNames[0] || this.t('settingsUnknown'));
+                const senderInitial = primarySenderName.trim().charAt(0).toUpperCase() || '?';
                 const talkId = this.pickIncomingRowTalkId(cluster);
                 const identityKey = String(cluster?.identityKey || '');
                 const isAnswered = !!cluster?.isAnswered;
@@ -2168,6 +2225,29 @@ export class UIManager extends EventEmitter {
                   : `<span class="talk-badge" style="background:#dbeafe;color:#1d4ed8;font-weight:700;">🆕 ${this.t('talksNew')}</span>`;
                 const incomingType = String(cluster?.type || 'flow').toLowerCase();
                 const incomingLanguage = String(cluster?.language || cluster?.latestTalk?.language || 'en').toLowerCase();
+                const questionCount = this.getIncomingQuestionCount(cluster);
+                const responseCount = this.getIncomingResponseCount(talkId);
+                const expiresAt = cluster?.expiresAt ?? cluster?.latestTalk?.expiresAt;
+                const expiryTone = this.formatTalkExpiryTone(expiresAt);
+                const expText = this.formatTalkExpiration(Number.isFinite(resolveExpiresAtMs(expiresAt)) ? resolveExpiresAtMs(expiresAt) : null);
+                const locRadius = cluster?.locationRadiusMiles ?? cluster?.latestTalk?.locationRadiusMiles;
+                const locText = this.formatTalkLocation(locRadius);
+                const distanceText = this.formatTalkDistanceFromAuthor(cluster?.authorLocation || cluster?.latestTalk?.authorLocation);
+                const showLanguageBadge = incomingLanguage && incomingLanguage !== this.getPreferredTalkLanguage();
+                const progressChip = (incomingType === 'flow' || incomingType === 'route') && questionCount > 0
+                  ? `<span class="talk-info-chip talk-progress-chip" style="--progress: 0%;"><span class="talk-progress-ring" aria-hidden="true"></span>${escapeHtml(`Q1/${questionCount}`)}</span>`
+                  : questionCount > 0
+                    ? `<span class="talk-info-chip">${escapeHtml(`${questionCount} Q`)}</span>`
+                    : '';
+                const languageChip = showLanguageBadge
+                  ? `<span class="talk-info-chip talk-language-alert">${escapeHtml(this.formatTalkLanguage(incomingLanguage))}</span>`
+                  : '';
+                const responseChip = responseCount > 0
+                  ? `<span class="talk-info-chip">${escapeHtml(this.tf(responseCount === 1 ? 'talksResponseOne' : 'talksResponses', { count: responseCount }))}</span>`
+                  : '';
+                const distanceChip = distanceText
+                  ? `<span class="talk-info-chip">${escapeHtml(distanceText)}</span>`
+                  : '';
                 const typeAccent =
                   incomingType === 'tag' ? '#7c3aed'
                   : incomingType === 'survey' ? '#059669'
@@ -2190,9 +2270,20 @@ export class UIManager extends EventEmitter {
             <div class="talk-item-badges">
               ${statusBadge}
               <span class="talk-badge talk-badge-type">${escapeHtml(this.formatTalkType(String(cluster?.type || 'flow')))}</span>
-              <span class="talk-badge talk-badge-language" data-language="${escapeHtml(incomingLanguage)}">${escapeHtml(this.formatTalkLanguage(incomingLanguage))}</span>
-              <span class="talk-badge" style="background:#eef2ff;color:#3730a3;">👥 ${this.tf(senderNames.length === 1 ? 'talksSenderOne' : 'talksSenders', { count: senderNames.length })}</span>
             </div>
+          </div>
+          <div class="talk-incoming-sender">
+            <span class="talk-incoming-avatar">${avatarInnerHtml(primarySender.headshot, senderInitial, escapeHtml)}</span>
+            <span class="talk-incoming-sender-name">${escapeHtml(primarySenderName)}</span>
+            ${senderNames.length > 1 ? `<span class="talk-info-chip">${this.tf('talksSenders', { count: senderNames.length })}</span>` : ''}
+          </div>
+          <div class="talk-info-chips">
+            ${progressChip}
+            ${languageChip}
+            <span class="talk-info-chip talk-expiry-${expiryTone}">${escapeHtml(expText)}</span>
+            <span class="talk-info-chip">${escapeHtml(locText)}</span>
+            ${distanceChip}
+            ${responseChip}
           </div>
           <div class="talk-item-meta" style="${metaStyle}">
             <span class="talk-item-time">${this.formatTalkRelativeTime(new Date(cluster?.updatedAt || Date.now()))}</span>

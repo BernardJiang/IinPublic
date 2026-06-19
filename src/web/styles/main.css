@@ -943,6 +943,103 @@ body {
   border-color: #86efac;
 }
 
+.talk-incoming-sender {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 6px;
+  min-width: 0;
+}
+
+.talk-incoming-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #e0f2fe;
+  color: #075985;
+  border: 1px solid #bae6fd;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 26px;
+  font-size: 0.78em;
+  font-weight: 800;
+  overflow: hidden;
+}
+
+.talk-incoming-avatar .profile-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.talk-incoming-sender-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9em;
+  font-weight: 700;
+  color: #334155;
+}
+
+.talk-info-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 8px;
+}
+
+.talk-info-chip {
+  min-height: 22px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  font-size: 0.78em;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.talk-language-alert {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #9a3412;
+}
+
+.talk-expiry-green {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #047857;
+}
+
+.talk-expiry-amber {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.talk-expiry-red {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.talk-progress-ring {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: conic-gradient(#2563eb var(--progress, 0%), #dbeafe 0);
+  box-shadow: inset 0 0 0 3px #fff;
+  flex: 0 0 14px;
+}
+
 .talk-list-item.talk-type-tag,
 .talk-list-item.talk-tag-chip {
   min-height: 34px;
