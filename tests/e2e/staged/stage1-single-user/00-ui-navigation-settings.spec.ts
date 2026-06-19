@@ -171,10 +171,13 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#me-view .status-bar')).toHaveCount(0);
     await expect(p.locator('#me-view')).toBeVisible();
     await expect(p.locator('#answers-content')).toBeVisible();
-    await expect(p.locator('.me-answer-filter')).toHaveText(['All', 'Auto', 'Manual', 'Conditional']);
+    await expect(p.locator('.me-talk-type-filter')).toHaveText(['Tag', 'Flow', 'Survey', 'Route']);
+    await expect(p.locator('.me-tag-state-checkbox')).toHaveCount(3);
     await expect(p.locator('#me-view')).not.toContainText('My Talks');
     await expect(p.locator('#me-view')).not.toContainText('My Answers');
     await expect(p.locator('#me-view')).not.toContainText('Conversations');
+    await expect(p.locator('#me-view')).not.toContainText('Credit');
+    await expect(p.locator('#me-view')).not.toContainText('Profile');
     await expect(p.locator('#copy-talk-autosave-checkbox')).toHaveCount(0);
     await expect(p.locator('#chatbot-enabled-checkbox')).toHaveCount(0);
     await expect(p.locator('#talk-filter-min-distance')).toHaveCount(0);
@@ -198,7 +201,8 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#settings-stage-name-input')).toBeVisible();
     await expect(p.locator('#settings-headshot-select')).toBeVisible();
     await expect(p.locator('#settings-edit-stagename-btn')).toHaveCount(0);
-    await expect(p.locator('#settings-edit-profile-btn')).toHaveCount(0);
+    await expect(p.locator('#settings-edit-profile-btn')).toBeVisible();
+    await expect(p.locator('#settings-content')).toContainText('Credit');
     await expect(p.locator('#settings-copy-talk-autosave')).toBeVisible();
     await expect(p.locator('#settings-chatbot-enabled')).toBeVisible();
     await expect(p.locator('#settings-home-room')).toBeVisible();
@@ -528,25 +532,24 @@ test.describe('UI navigation and settings shell', () => {
     await p.evaluate(() => localStorage.removeItem('myTalks'));
     await p.locator('.nav-btn[data-view="me"]').click();
     await afterNav();
-    await expect(p.locator('.me-answer-filter[data-me-answer-filter="all"]')).toHaveText('全部');
-    await expect(p.locator('.me-answer-filter[data-me-answer-filter="conditional"]')).toHaveText('条件');
-    await expect(p.locator('#me-view-preferences-btn')).toHaveText('偏好设置');
-    await expect(p.locator('#user-info-me')).toContainText('每项问答的可见范围');
-    await expect(p.locator('#user-info-me')).toContainText('语言: 英语');
-    await expect(p.locator('#user-info-me')).toContainText('广播标签趋势');
-    await expect(p.locator('#user-info-me')).toContainText('信用');
-    await expect(p.locator('#user-info-me')).toContainText('来自其他用户互动的只读信誉摘要');
-    await expect(p.locator('#user-info-me')).toContainText('评价');
-    await expect(p.locator('#user-info-me')).toContainText('星级');
-    await expect(p.locator('#user-info-me')).toContainText('匹配数');
-    await expect(p.locator('#user-info-me')).toContainText('年龄已验证');
-    await p.locator('#edit-stagename-btn').click();
-    await expect(p.locator('#edit-stagename-form').locator('xpath=..')).toContainText('编辑昵称');
-    await expect(p.locator('#edit-stagename-form')).toContainText('新昵称');
-    await expect(p.locator('#new-stage-name')).toHaveAttribute('placeholder', '输入新昵称');
-    await expect(p.locator('[data-testid="save-stage-name-button"]')).toHaveText('保存');
-    await p.locator('#cancel-edit-btn').click();
-    await p.locator('#edit-profile-btn').click();
+    await expect(p.locator('.me-talk-type-filter')).toHaveText(['标签', '流程', '问卷', '路线']);
+    await expect(p.locator('#me-tag-state-filter-label')).toHaveText('标签状态');
+    await expect(p.locator('#me-view')).not.toContainText('信用');
+    await expect(p.locator('#me-view')).not.toContainText('资料');
+
+    await p.locator('.nav-btn[data-view="settings"]').click();
+    await afterNav();
+    await expect(p.locator('#settings-content')).toContainText('昵称');
+    await expect(p.locator('#settings-stage-name-input')).toBeVisible();
+    await expect(p.locator('#settings-content')).toContainText('每项问答的可见范围');
+    await expect(p.locator('#settings-content')).toContainText('语言: 英语');
+    await expect(p.locator('#settings-content')).toContainText('信用');
+    await expect(p.locator('#settings-content')).toContainText('来自其他用户互动的只读信誉摘要');
+    await expect(p.locator('#settings-content')).toContainText('评价');
+    await expect(p.locator('#settings-content')).toContainText('星级');
+    await expect(p.locator('#settings-content')).toContainText('匹配数');
+    await expect(p.locator('#settings-content')).toContainText('年龄已验证');
+    await p.locator('#settings-edit-profile-btn').click();
     await expect(p.locator('#edit-profile-form')).toContainText('头像');
     await expect(p.locator('#edit-profile-form')).toContainText('输入兴趣的默认分类');
     await expect(p.locator('#edit-profile-form')).toContainText('资料项目');
@@ -561,9 +564,10 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('.remove-profile-qa-btn').last()).toHaveText('移除');
     await expect(p.locator('#save-profile-btn')).toHaveText('保存资料');
     await p.locator('#save-profile-btn').click();
-    await expect(p.locator('#user-info-me')).toContainText('语言: 英语, 中文');
+    await expect(p.locator('#settings-content')).toContainText('语言: 英语, 中文');
+    await p.locator('.nav-btn[data-view="me"]').click();
+    await afterNav();
     await expect(p.locator('#answers-content')).toContainText('你收到并回答的话题会显示在这里');
-    await expect(p.locator('#answers-content')).toContainText('偏好设置');
     await p.evaluate(() => {
       localStorage.setItem('myAnswerHistory', JSON.stringify({
         support_message_leak: {

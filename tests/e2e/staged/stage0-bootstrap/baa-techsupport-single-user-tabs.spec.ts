@@ -50,12 +50,14 @@ test.describe('Stage 0 — TechSupport single-user traversal', () => {
     await page.click('.nav-btn[data-view="me"]');
     await afterNav();
     await expect(page.locator('#answers-content')).toBeVisible();
-    await expect(page.locator('.me-answer-filter[data-me-answer-filter="all"]')).toBeVisible();
-    await expect(page.locator('#me-view-preferences-btn')).toBeVisible();
+    await expect(page.locator('.me-talk-type-filter')).toHaveCount(4);
+    await expect(page.locator('.me-tag-state-checkbox')).toHaveCount(3);
 
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
     await expect(page.locator('#settings-stage-name-input')).toHaveValue('TechSupport');
+    await expect(page.locator('#settings-edit-profile-btn')).toBeVisible();
+    await expect(page.locator('#settings-credit-visible')).toBeVisible();
     await expect(page.locator('#settings-profile-languages')).toBeVisible();
     await expect(page.locator('#settings-filter-languages')).toBeVisible();
     await expect(page.locator('.settings-filter-language-option[value="en"]')).toBeChecked();

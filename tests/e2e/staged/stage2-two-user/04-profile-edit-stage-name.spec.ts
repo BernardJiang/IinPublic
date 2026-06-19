@@ -182,9 +182,6 @@ test.describe('Profile foundation', () => {
         { timeout: 30000, message: 'reloaded owner session should load the public profile photo' },
       )
       .toContain('data:image/png;base64,');
-    await page.click('.nav-btn[data-view="me"]');
-    await afterNav();
-    await expect(page.locator('#user-info-me .profile-avatar-image').first()).toBeVisible({ timeout: 10000 });
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
     await expect(page.locator('#settings-content .profile-avatar-image')).toBeVisible({ timeout: 10000 });

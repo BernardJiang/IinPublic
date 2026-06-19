@@ -44,6 +44,7 @@ type AnswerItemModel = {
 type AnswerTalkRenderModel = {
   talkId: string;
   title: string;
+  type?: string;
   metadata: string;
   outcome: 'match' | 'mismatch';
   items: AnswerItemModel[];
@@ -325,6 +326,14 @@ export function answerTalkMatchesQuery(model: AnswerTalkRenderModel, rawQuery: s
   return model.searchText.includes(query);
 }
 
+function tagStateForItems(items: AnswerItemModel[]): 'checked' | 'unchecked' | 'indeterminate' {
+  const tagItem = items.find((item) => item.kind === 'tag');
+  if (!tagItem) return 'indeterminate';
+  if (tagItem.choice === 'Checked') return 'checked';
+  if (tagItem.choice === 'Unchecked') return 'unchecked';
+  return 'indeterminate';
+}
+
 export function displayAnswersList(deps: AnswersViewDeps): void {
   const container = document.getElementById('answers-content');
   if (!container) return;
@@ -405,7 +414,6 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
   `;
 
   const listEl = document.getElementById('answers-list');
-  const renderModels: AnswerTalkRenderModel[] = [];
   if (listEl) {
     dedupedFlat.forEach(({ id, record, answeredCount }) => {
       const outcome = record.outcome === 'match' ? 'match' : 'mismatch';
@@ -436,18 +444,13 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         outcome,
         ...answerItems.flatMap((answerItem) => [answerItem.prompt, answerItem.choice, answerItem.mode || '', answerItem.contextLabel]),
       ].join(' ').toLowerCase();
-      renderModels.push({
-        talkId: id,
-        title: record.title,
-        metadata,
-        outcome,
-        items: answerItems,
-        searchText,
-      });
       const item = document.createElement('div');
-      item.className = `answer-talk-item talk-type-${deps.escapeHtml(String(record.type || 'flow').toLowerCase())}`;
+      const talkType = String(record.type || 'flow').toLowerCase();
+      item.className = `answer-talk-item talk-type-${deps.escapeHtml(talkType)}`;
       item.dataset.talkId = id;
       item.dataset.sourceTalkId = record.talkId;
+      item.dataset.talkType = talkType;
+      item.dataset.tagState = talkType === 'tag' ? tagStateForItems(answerItems) : '';
       item.dataset.searchText = searchText;
       item.style.cssText = `display:flex; flex-direction:column; gap:12px; padding:14px 16px; border-radius:12px; cursor:pointer; background:${outcome === 'match' ? '#e8f5e9' : '#fff7ed'}; border:1px solid ${outcome === 'match' ? '#c8e6c9' : '#fed7aa'};`;
       item.innerHTML = `
@@ -498,17 +501,12 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         outcome,
         ...answerItems.flatMap((answerItem) => [answerItem.prompt, answerItem.choice, answerItem.mode || '', answerItem.contextLabel]),
       ].join(' ').toLowerCase();
-      renderModels.push({
-        talkId,
-        title: talk.title,
-        metadata,
-        outcome,
-        items: answerItems,
-        searchText,
-      });
       const item = document.createElement('div');
-      item.className = 'answer-talk-item';
+      const talkType = String(talk.fullTalk?.type || talk.type || 'flow').toLowerCase();
+      item.className = `answer-talk-item talk-type-${deps.escapeHtml(talkType)}`;
       item.dataset.talkId = talkId;
+      item.dataset.talkType = talkType;
+      item.dataset.tagState = talkType === 'tag' ? tagStateForItems(answerItems) : '';
       item.dataset.searchText = searchText;
       item.style.cssText = `display:flex; flex-direction:column; gap:12px; padding:14px 16px; border-radius:12px; cursor:pointer; background:${outcome === 'match' ? '#e8f5e9' : '#fff7ed'}; border:1px solid ${outcome === 'match' ? '#c8e6c9' : '#fed7aa'};`;
       item.innerHTML = `
@@ -532,11 +530,12 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
 
   const searchInput = document.getElementById('answers-search-input') as HTMLInputElement | null;
   searchInput?.addEventListener('input', () => {
-    const query = searchInput.value;
+    const query = searchInput.value.trim().toLowerCase();
     listEl?.querySelectorAll<HTMLElement>('.answer-talk-item').forEach((item) => {
-      const model = renderModels.find((candidate) => candidate.talkId === item.dataset.talkId);
-      item.style.display = model && answerTalkMatchesQuery(model, query) ? 'flex' : 'none';
+      const matchesQuery = !query || String(item.dataset.searchText || '').toLowerCase().includes(query);
+      item.style.display = matchesQuery ? 'flex' : 'none';
     });
+    window.dispatchEvent(new CustomEvent('iinpublic:answers-filter-change'));
   });
 
   listEl?.querySelectorAll('.answer-copy-talk-btn').forEach((btn) => {

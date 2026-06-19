@@ -69,9 +69,9 @@ test.describe('Chinese UI localization traversal (D2)', () => {
 
     await p.locator('.nav-btn[data-view="me"]').click();
     await afterNav();
-    await expect(p.locator('#me-view-preferences-btn')).toHaveText('偏好设置');
-    await expect(p.locator('.me-answer-filter[data-me-answer-filter="all"]')).toHaveText('全部');
-    await expect(p.locator('.me-answer-filter[data-me-answer-filter="conditional"]')).toHaveText('条件');
+    await expect(p.locator('#me-talk-type-filter-label')).toHaveText('话题类型');
+    await expect(p.locator('.me-talk-type-filter')).toHaveText(['标签', '流程', '问卷', '路线']);
+    await expect(p.locator('#me-tag-state-filter-label')).toHaveText('标签状态');
 
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();

@@ -428,11 +428,15 @@ export class UIManager extends EventEmitter {
       ['#back-to-contacts-list', 'back'],
       ['#talks-nav-back', 'back'],
       ['#talks-nav-all', 'talksAll'],
-      ['.me-answer-filter[data-me-answer-filter="all"]', 'meAll'],
-      ['.me-answer-filter[data-me-answer-filter="auto"]', 'meAuto'],
-      ['.me-answer-filter[data-me-answer-filter="manual"]', 'meManualFilter'],
-      ['.me-answer-filter[data-me-answer-filter="conditional"]', 'meConditional'],
-      ['#me-view-preferences-btn', 'preferences'],
+      ['#me-talk-type-filter-label', 'meTalkTypeFilters'],
+      ['.me-talk-type-filter[data-me-talk-type="tag"]', 'talkTypeTag'],
+      ['.me-talk-type-filter[data-me-talk-type="flow"]', 'talkTypeFlow'],
+      ['.me-talk-type-filter[data-me-talk-type="survey"]', 'talkTypeSurvey'],
+      ['.me-talk-type-filter[data-me-talk-type="route"]', 'talkTypeRoute'],
+      ['#me-tag-state-filter-label', 'meTagStateFilters'],
+      ['.me-tag-state-filter[data-me-tag-state="checked"] .me-tag-state-label', 'meChecked'],
+      ['.me-tag-state-filter[data-me-tag-state="unchecked"] .me-tag-state-label', 'meUnchecked'],
+      ['.me-tag-state-filter[data-me-tag-state="indeterminate"] .me-tag-state-label', 'meIndeterminate'],
     ];
     for (const [selector, key] of textBySelector) {
       const element = document.querySelector<HTMLElement>(selector);
@@ -650,58 +654,6 @@ export class UIManager extends EventEmitter {
       .split('-')
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
-  }
-
-  private async refreshMeBroadcastTagTrends(): Promise<void> {
-    const host = document.getElementById('me-broadcast-tag-trends');
-    if (!host) return;
-    const base = (this.apiBase || '').trim();
-    if (!base) {
-      host.innerHTML =
-        `<p style="font-size:0.85em;color:#6b7280;margin:0;">${escapeHtml(this.t('meTrendConnect'))}</p>`;
-      return;
-    }
-    host.innerHTML = `<p style="font-size:0.85em;color:#6b7280;margin:0;">${escapeHtml(this.t('loading'))}</p>`;
-    try {
-      const c = new AbortController();
-      const tid = window.setTimeout(() => c.abort(), 4000);
-      const res = await fetch(`${base}/api/stats/broadcast-tags/trends?days=7`, { signal: c.signal });
-      window.clearTimeout(tid);
-      if (!res.ok) throw new Error(String(res.status));
-      const body = (await res.json()) as {
-        days?: string[];
-        tags?: Array<{ id?: string; total?: number; byDay?: number[] }>;
-      };
-      const days = Array.isArray(body.days) ? body.days : [];
-      const tags = Array.isArray(body.tags) ? body.tags : [];
-      if (tags.length === 0) {
-        host.innerHTML =
-          `<p style="font-size:0.85em;color:#6b7280;margin:0;">${escapeHtml(this.t('meTrendNoData'))}</p>`;
-        return;
-      }
-      const top = tags.slice(0, 8);
-      const head =
-        `<tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(this.t('meTrendTag'))}</th><th style="text-align:right;padding:4px 8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(this.t('meTrendWindow'))}</th><th style="text-align:left;padding:4px 8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(this.t('meTrendDaily'))}</th></tr>`;
-      const rows = top
-        .map((row) => {
-          const id = escapeHtml(String(row.id || ''));
-          const byDay = Array.isArray(row.byDay) ? row.byDay : [];
-          const sumWindow = byDay.reduce((a, b) => a + (Number(b) || 0), 0);
-          const mini = days
-            .map((d, i) => `${escapeHtml(d.slice(5))}:${byDay[i] ?? 0}`)
-            .join(' ');
-          return `<tr><td style="padding:6px 8px;font-weight:600;">${id}</td><td style="padding:6px 8px;text-align:right;">${sumWindow}</td><td style="padding:6px 8px;font-size:0.78em;color:#374151;">${mini}</td></tr>`;
-        })
-        .join('');
-      host.innerHTML = `
-        <p style="font-size:0.82em;color:#6b7280;margin:0 0 10px 0;">${escapeHtml(this.t('meTrendHelp'))}</p>
-        <div style="overflow:auto;max-width:100%;">
-          <table style="width:100%;border-collapse:collapse;font-size:0.88em;">${head}${rows}</table>
-        </div>`;
-    } catch {
-      host.innerHTML =
-        `<p style="font-size:0.85em;color:#b45309;margin:0;">${escapeHtml(this.t('meTrendUnavailable'))}</p>`;
-    }
   }
 
   private getMyTalks(): Record<string, any> {
@@ -1040,16 +992,27 @@ export class UIManager extends EventEmitter {
           <!-- Me View -->
           <div class="view-panel" id="me-view">
             <div class="view-content">
-              <div class="tab-action-bar me-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                <button class="btn me-answer-filter active" data-me-answer-filter="all" type="button">All</button>
-                <button class="btn me-answer-filter" data-me-answer-filter="auto" type="button">Auto</button>
-                <button class="btn me-answer-filter" data-me-answer-filter="manual" type="button">Manual</button>
-                <button class="btn me-answer-filter" data-me-answer-filter="conditional" type="button">Conditional</button>
-                <button class="btn primary-btn" id="me-view-preferences-btn" type="button">Preferences</button>
+              <div class="tab-action-bar me-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+                <span id="me-talk-type-filter-label" style="font-size:0.82em;color:#64748b;font-weight:700;">Talk types</span>
+                <button class="btn me-talk-type-filter active" data-me-talk-type="tag" type="button">Tag</button>
+                <button class="btn me-talk-type-filter active" data-me-talk-type="flow" type="button">Flow</button>
+                <button class="btn me-talk-type-filter active" data-me-talk-type="survey" type="button">Survey</button>
+                <button class="btn me-talk-type-filter active" data-me-talk-type="route" type="button">Route</button>
+                <span id="me-tag-state-filter-label" style="font-size:0.82em;color:#64748b;font-weight:700;margin-left:6px;">Tag states</span>
+                <label class="me-tag-state-filter" data-me-tag-state="checked" style="display:flex;align-items:center;gap:5px;font-size:0.86em;">
+                  <input type="checkbox" class="me-tag-state-checkbox" value="checked" checked>
+                  <span class="me-tag-state-label">Checked</span>
+                </label>
+                <label class="me-tag-state-filter" data-me-tag-state="unchecked" style="display:flex;align-items:center;gap:5px;font-size:0.86em;">
+                  <input type="checkbox" class="me-tag-state-checkbox" value="unchecked" checked>
+                  <span class="me-tag-state-label">Unchecked</span>
+                </label>
+                <label class="me-tag-state-filter" data-me-tag-state="indeterminate" style="display:flex;align-items:center;gap:5px;font-size:0.86em;">
+                  <input type="checkbox" class="me-tag-state-checkbox" value="indeterminate" checked>
+                  <span class="me-tag-state-label">Indeterminate</span>
+                </label>
               </div>
-              <div class="embedded-stats-strip" id="me-stats-strip" style="padding:8px 12px;color:#64748b;font-size:0.88em;"></div>
-              <div id="user-info-me" style="padding:0 12px;"></div>
-              <div class="answers-section" style="margin-top: 24px;">
+              <div class="answers-section">
                 <div id="answers-content">
                   <div style="padding: 20px; text-align: center; color: #999;">
                     <p>Your answered questions will appear here.</p>
@@ -1141,12 +1104,6 @@ export class UIManager extends EventEmitter {
         this.showPreferencesDialog();
       });
     }
-    const meViewPreferencesBtn = document.getElementById('me-view-preferences-btn');
-    if (meViewPreferencesBtn) {
-      meViewPreferencesBtn.addEventListener('click', () => {
-        this.showPreferencesDialog();
-      });
-    }
 
     // Back to chatrooms button
     const backToChatroomsBtn = document.getElementById('back-to-chatrooms');
@@ -1179,12 +1136,14 @@ export class UIManager extends EventEmitter {
         this.emit('requestLocationUpdate', {});
       });
     }
-    document.querySelectorAll('.me-answer-filter').forEach((button) => {
+    document.querySelectorAll('.me-talk-type-filter').forEach((button) => {
       button.addEventListener('click', () => {
-        document.querySelectorAll('.me-answer-filter').forEach((btn) => btn.classList.remove('active'));
-        button.classList.add('active');
-        this.applyMeAnswerFilter((button as HTMLElement).dataset.meAnswerFilter || 'all');
+        button.classList.toggle('active');
+        this.applyMeAnswerFilter();
       });
+    });
+    document.querySelectorAll('.me-tag-state-checkbox').forEach((checkbox) => {
+      checkbox.addEventListener('change', () => this.applyMeAnswerFilter());
     });
 
     // Back to contacts list button
@@ -1400,7 +1359,6 @@ export class UIManager extends EventEmitter {
           if (this.currentUser) this.showMainInterface(this.currentUser);
           this.emit('needConversationSync');
           this.displayAnswersList();
-          this.displayContextualStatistics('me-stats-strip');
         }
 
         if (targetView === 'settings') {
@@ -1447,116 +1405,6 @@ export class UIManager extends EventEmitter {
     }
     if (headerStatus) {
       headerStatus.style.display = 'flex';
-    }
-
-    // Update user info in Me view
-    const userInfoMe = document.getElementById('user-info-me');
-    if (userInfoMe) {
-      const headshot = String(user.headshot || '').trim();
-      const profileAnswers = Array.isArray(user.profile) ? user.profile : [];
-      const interestNames = Array.isArray(user.interests)
-        ? user.interests.map((t: Tag) => String(t?.name || '').trim()).filter(Boolean)
-        : [];
-      const profilePreview = profileAnswers.length > 0
-        ? profileAnswers
-            .slice(0, 4)
-            .map((qa) => {
-              const vis = normalizeProfileAttributeVisibility(qa.visibility);
-              const canonicalSupportRole =
-                qa.id === 'techsupport_profile_role' &&
-                qa.question === 'Role' &&
-                qa.answer === 'IinPublic network support';
-              const visNote =
-                vis === 'public'
-                  ? ''
-                  : `<div style="font-size:0.72em;color:#64748b;margin-top:2px;">${escapeHtml(
-                      vis === 'contacts_only' ? this.t('meVisibilityContacts') : this.t('meVisibilityPrivate'),
-                    )}</div>`;
-              const question = canonicalSupportRole ? this.t('meTechSupportRole') : qa.question;
-              const answer = canonicalSupportRole ? this.t('meTechSupportRoleValue') : qa.answer;
-              return `<div style="padding:8px 10px;border-radius:10px;background:white;border:1px solid #e5e7eb;"><div style="font-size:0.78em;color:#64748b;">${escapeHtml(question)}</div>${visNote}<div style="font-size:0.92em;font-weight:600;color:#111827;margin-top:2px;">${escapeHtml(answer)}</div></div>`;
-            })
-            .join('')
-        : `<div style="font-size:0.88em;color:#6b7280;">${escapeHtml(this.t('meNoPublicProfile'))}</div>`;
-      const reputation = user.reputation || ({} as typeof user.reputation);
-      const reviewCount = reputation.reviewCount ?? 0;
-      const starRating = Number(reputation.starRating ?? 0);
-      const friendsCount = reputation.friendsCount ?? 0;
-      const matchesFound = reputation.matchesFound ?? 0;
-      const likedCount = reputation.likedCount ?? 0;
-      const dislikedCount = reputation.dislikedCount ?? 0;
-      const ageVerified = reputation.ageVerified === true;
-      const isCreditVisible = reputation.isHidden !== true;
-      userInfoMe.innerHTML = `
-        <div class="user-avatar" style="width: 80px; height: 80px; font-size: 2em; margin: 20px auto;">
-          ${avatarInnerHtml(headshot, user.stageName.charAt(0).toUpperCase(), escapeHtml)}
-        </div>
-        <div style="text-align: center; margin-top: 10px;">
-          <div style="font-size: 1.2em; font-weight: 600;">${user.stageName}</div>
-          <div style="font-size: 0.9em; color: #999; margin-top: 5px;">${this.t('online')}</div>
-          <div style="display:flex; justify-content:center; gap:10px; flex-wrap:wrap; margin-top:10px;">
-            <button class="btn" id="edit-stagename-btn" data-testid="edit-stage-name-button">${this.t('editStageName')}</button>
-            <button class="btn" id="edit-profile-btn" data-testid="edit-profile-button">${this.t('editProfile')}</button>
-          </div>
-        </div>
-        <div style="margin-top: 20px; padding: 16px; background: #ffffff; border-radius: 12px; text-align: left; border:1px solid #e5e7eb;">
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px;">
-            <div style="font-weight:700; color:#111827;">${this.t('profile')}</div>
-            <div style="font-size:0.82em; color:#6b7280;">${this.t('meProfileVisibilityHelp')}</div>
-          </div>
-          <div style="font-size:0.88em; color:#374151; margin-bottom:10px;">
-            ${this.t('languagesLabel')}: ${escapeHtml((Array.isArray(user.languages) && user.languages.length > 0 ? user.languages : ['en']).map((code) => this.formatTalkLanguage(code)).join(', '))}
-          </div>
-          ${interestNames.length > 0 ? `<div style="font-size:0.88em; color:#374151; margin-bottom:10px;">${this.t('interestsLabel')}: ${escapeHtml(interestNames.join(', '))}</div>` : ''}
-          <div style="display:grid; gap:8px;">
-            ${profilePreview}
-          </div>
-        </div>
-        <div style="margin-top: 20px; padding: 16px; background: #f0fdf4; border-radius: 12px; text-align: left; border:1px solid #bbf7d0;">
-          <div style="font-weight: 700; color: #111827; margin-bottom: 8px;">${this.t('broadcastTagTrends')}</div>
-          <div id="me-broadcast-tag-trends" data-testid="me-broadcast-tag-trends"></div>
-        </div>
-        <div style="margin-top: 20px; padding: 16px; background: #fff7ed; border-radius: 12px; text-align: left;">
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
-            <div>
-              <div style="font-weight: 700; color: #111827;">${this.t('credit')}</div>
-              <div style="font-size: 0.82em; color: #6b7280;">${this.t('meCreditHelp')}</div>
-            </div>
-            <label style="display:flex; align-items:center; gap:8px; font-size:0.85em;">
-              <input type="checkbox" id="credit-visibility-checkbox" ${isCreditVisible ? 'checked' : ''}>
-              <span>${this.t('showToOthers')}</span>
-            </label>
-          </div>
-          <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
-            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meReviews')}</div><div style="font-size:1.15em;font-weight:700;">${reviewCount}</div></div>
-            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meStarRating')}</div><div style="font-size:1.15em;font-weight:700;">${starRating.toFixed(1)}</div></div>
-            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meFriends')}</div><div style="font-size:1.15em;font-weight:700;">${friendsCount}</div></div>
-            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meLiked')}</div><div style="font-size:1.15em;font-weight:700;">${likedCount}</div></div>
-            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meDisliked')}</div><div style="font-size:1.15em;font-weight:700;">${dislikedCount}</div></div>
-            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meMatches')}</div><div style="font-size:1.15em;font-weight:700;">${matchesFound}</div></div>
-            <div style="padding:10px;border-radius:10px;background:white;border:1px solid #fed7aa;grid-column:span 2;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meAgeVerified')}</div><div style="font-size:1.15em;font-weight:700;">${ageVerified ? '✓ 18+' : '—'}</div></div>
-          </div>
-        </div>
-      `;
-
-      void this.refreshMeBroadcastTagTrends();
-
-      // Add event listener for edit stage name button
-      const editBtn = document.getElementById('edit-stagename-btn');
-      if (editBtn) {
-        editBtn.addEventListener('click', () => this.showEditStageNameDialog(user));
-      }
-      const editProfileBtn = document.getElementById('edit-profile-btn');
-      if (editProfileBtn) {
-        editProfileBtn.addEventListener('click', () => this.showEditProfileDialog(user));
-      }
-      const creditVisibilityCheckbox = document.getElementById('credit-visibility-checkbox') as HTMLInputElement | null;
-      if (creditVisibilityCheckbox) {
-        creditVisibilityCheckbox.addEventListener('change', () => {
-          if (this.currentUser?.reputation) this.currentUser.reputation.isHidden = !creditVisibilityCheckbox.checked;
-          this.emit('setCreditVisibility', { visible: creditVisibilityCheckbox.checked });
-        });
-      }
     }
 
     this.renderSettingsView(user);
@@ -2641,15 +2489,40 @@ export class UIManager extends EventEmitter {
       formatType: this.formatTalkType.bind(this),
       formatLanguage: this.formatTalkLanguage.bind(this),
     });
-    const activeFilter = (document.querySelector('.me-answer-filter.active') as HTMLElement | null)?.dataset.meAnswerFilter || 'all';
-    this.applyMeAnswerFilter(activeFilter);
+    document.getElementById('answers-search-input')?.addEventListener('input', () => this.applyMeAnswerFilter());
+    this.applyMeAnswerFilter();
   }
 
-  private applyMeAnswerFilter(filter: string): void {
-    document.querySelectorAll<HTMLElement>('#answers-content .answer-outcome-item').forEach((item) => {
-      const mode = item.dataset.answerMode || 'manual';
-      item.style.display = filter === 'all' || filter === mode ? 'block' : 'none';
+  private applyMeAnswerFilter(): void {
+    const activeTypes = Array.from(document.querySelectorAll<HTMLElement>('.me-talk-type-filter.active'))
+      .map((button) => String(button.dataset.meTalkType || '').toLowerCase())
+      .filter(Boolean);
+    const allowedTagStates = Array.from(document.querySelectorAll<HTMLInputElement>('.me-tag-state-checkbox:checked'))
+      .map((checkbox) => checkbox.value);
+    const query = ((document.getElementById('answers-search-input') as HTMLInputElement | null)?.value || '').trim().toLowerCase();
+    let visibleCount = 0;
+
+    document.querySelectorAll<HTMLElement>('#answers-content .answer-talk-item').forEach((item) => {
+      const talkType = String(item.dataset.talkType || 'flow').toLowerCase();
+      const tagState = String(item.dataset.tagState || 'indeterminate');
+      const matchesType = activeTypes.length === 0 ? false : activeTypes.includes(talkType);
+      const matchesTagState = talkType !== 'tag' || allowedTagStates.includes(tagState);
+      const matchesQuery = !query || String(item.dataset.searchText || '').toLowerCase().includes(query);
+      const visible = matchesType && matchesTagState && matchesQuery;
+      item.style.display = visible ? 'flex' : 'none';
+      if (visible) visibleCount += 1;
     });
+
+    const list = document.getElementById('answers-list');
+    let empty = document.getElementById('answers-filter-empty');
+    if (list && !empty) {
+      empty = document.createElement('div');
+      empty.id = 'answers-filter-empty';
+      empty.style.cssText = 'display:none;padding:20px;text-align:center;color:#64748b;border:1px dashed #cbd5e1;border-radius:8px;background:#f8fafc;';
+      empty.textContent = this.t('meNoMatchingAnswers');
+      list.appendChild(empty);
+    }
+    if (empty) empty.style.display = visibleCount === 0 && document.querySelector('#answers-content .answer-talk-item') ? 'block' : 'none';
   }
 
   private renderSettingsView(user: User): void {
@@ -2661,11 +2534,41 @@ export class UIManager extends EventEmitter {
     user.talkFilters = talkFilters;
     setTalkIntakeFilters(talkFilters);
     const reputation = user.reputation || ({} as typeof user.reputation);
+    const reviewCount = reputation.reviewCount ?? 0;
+    const starRating = Number(reputation.starRating ?? 0);
+    const friendsCount = reputation.friendsCount ?? 0;
+    const matchesFound = reputation.matchesFound ?? 0;
+    const likedCount = reputation.likedCount ?? 0;
+    const dislikedCount = reputation.dislikedCount ?? 0;
+    const ageVerified = reputation.ageVerified === true;
+    const isCreditVisible = reputation.isHidden !== true;
     const home = this.getHomeChatroomId();
     const headshot = String(user.headshot || '').trim();
     const interestNames = Array.isArray(user.interests)
       ? user.interests.map((t: Tag) => String(t?.name || '').trim()).filter(Boolean)
       : [];
+    const profileAnswers = Array.isArray(user.profile) ? user.profile : [];
+    const profilePreview = profileAnswers.length > 0
+      ? profileAnswers
+          .slice(0, 4)
+          .map((qa) => {
+            const vis = normalizeProfileAttributeVisibility(qa.visibility);
+            const canonicalSupportRole =
+              qa.id === 'techsupport_profile_role' &&
+              qa.question === 'Role' &&
+              qa.answer === 'IinPublic network support';
+            const visNote =
+              vis === 'public'
+                ? ''
+                : `<div style="font-size:0.72em;color:#64748b;margin-top:2px;">${escapeHtml(
+                    vis === 'contacts_only' ? this.t('meVisibilityContacts') : this.t('meVisibilityPrivate'),
+                  )}</div>`;
+            const question = canonicalSupportRole ? this.t('meTechSupportRole') : qa.question;
+            const answer = canonicalSupportRole ? this.t('meTechSupportRoleValue') : qa.answer;
+            return `<div style="padding:8px 10px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;"><div style="font-size:0.78em;color:#64748b;">${escapeHtml(question)}</div>${visNote}<div style="font-size:0.92em;font-weight:600;color:#111827;margin-top:2px;">${escapeHtml(answer)}</div></div>`;
+          })
+          .join('')
+      : `<div style="font-size:0.88em;color:#6b7280;">${escapeHtml(this.t('meNoPublicProfile'))}</div>`;
     const locationText = this.currentLocation
       ? `${this.currentLocation.latitude.toFixed(3)}, ${this.currentLocation.longitude.toFixed(3)}`
       : this.t('settingsUnknown');
@@ -2695,22 +2598,20 @@ export class UIManager extends EventEmitter {
     container.innerHTML = `
       <div style="display:grid;gap:14px;">
         <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
-          <div style="display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:center;">
-            <div style="display:flex;align-items:center;gap:12px;min-width:0;">
-              <div class="user-avatar" style="width:48px;height:48px;font-size:1.25em;flex:0 0 auto;">
+          <div style="display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start;">
+            <div style="display:grid;gap:8px;min-width:0;">
+              <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
+                <span>${this.t('settingsStageName')}</span>
+                <input type="text" class="form-input" id="settings-stage-name-input" data-testid="settings-stage-name-input" value="${escapeHtml(user.stageName)}" minlength="3">
+              </label>
+              <div id="settings-stage-name-error" role="alert" style="display:none;font-size:0.82em;color:#b91c1c;margin-top:5px;"></div>
+              ${interestNames.length > 0 ? `<div style="font-size:0.86em;color:#64748b;">${this.t('interestsLabel')}: ${escapeHtml(interestNames.join(', '))}</div>` : ''}
+            </div>
+            <div style="display:grid;gap:8px;font-size:0.9em;">
+              <span>${this.t('settingsHeadshot')}</span>
+              <div class="user-avatar" style="width:72px;height:72px;font-size:1.7em;">
                 ${avatarInnerHtml(headshot, user.stageName.charAt(0).toUpperCase(), escapeHtml)}
               </div>
-              <div style="min-width:0;">
-                <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
-                  <span>${this.t('settingsStageName')}</span>
-                  <input type="text" class="form-input" id="settings-stage-name-input" data-testid="settings-stage-name-input" value="${escapeHtml(user.stageName)}" minlength="3">
-                </label>
-                <div id="settings-stage-name-error" role="alert" style="display:none;font-size:0.82em;color:#b91c1c;margin-top:5px;"></div>
-                ${interestNames.length > 0 ? `<div style="font-size:0.86em;color:#64748b;">Interests: ${escapeHtml(interestNames.join(', '))}</div>` : ''}
-              </div>
-            </div>
-            <div style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
-              <span>${this.t('settingsHeadshot')}</span>
               <select class="form-input" id="settings-headshot-select" data-testid="settings-headshot-select">
                 <option value="">${this.t('settingsInitial')}</option>
                 ${headshotChoices
@@ -2727,6 +2628,40 @@ export class UIManager extends EventEmitter {
               <div style="font-size:0.78em;color:#64748b;">${this.t('settingsPhotoHelp')}</div>
               <div id="settings-camera-status" role="status" style="display:none;font-size:0.8em;color:#b91c1c;"></div>
             </div>
+            <div style="display:grid;gap:10px;border-top:1px solid #e5e7eb;padding-top:12px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+                <div>
+                  <div style="font-weight:700;color:#111827;">${this.t('profile')}</div>
+                  <div style="font-size:0.82em;color:#64748b;">${this.t('meProfileVisibilityHelp')}</div>
+                </div>
+                <button class="btn" type="button" id="settings-edit-profile-btn" data-testid="settings-edit-profile-button">${this.t('editProfile')}</button>
+              </div>
+              <div style="font-size:0.88em;color:#374151;">
+                ${this.t('languagesLabel')}: ${escapeHtml(profileLanguages.map((code) => this.formatTalkLanguage(code)).join(', '))}
+              </div>
+              <div style="display:grid;gap:8px;">${profilePreview}</div>
+            </div>
+          </div>
+        </section>
+        <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+            <div>
+              <div style="font-weight:700;color:#111827;">${this.t('credit')}</div>
+              <div style="font-size:0.82em;color:#6b7280;">${this.t('meCreditHelp')}</div>
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;">
+              <input type="checkbox" id="settings-credit-visible" ${isCreditVisible ? 'checked' : ''}>
+              <span>${this.t('settingsCreditVisible')}</span>
+            </label>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
+            <div style="padding:10px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meReviews')}</div><div style="font-size:1.15em;font-weight:700;">${reviewCount}</div></div>
+            <div style="padding:10px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meStarRating')}</div><div style="font-size:1.15em;font-weight:700;">${starRating.toFixed(1)}</div></div>
+            <div style="padding:10px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meFriends')}</div><div style="font-size:1.15em;font-weight:700;">${friendsCount}</div></div>
+            <div style="padding:10px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meLiked')}</div><div style="font-size:1.15em;font-weight:700;">${likedCount}</div></div>
+            <div style="padding:10px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meDisliked')}</div><div style="font-size:1.15em;font-weight:700;">${dislikedCount}</div></div>
+            <div style="padding:10px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meMatches')}</div><div style="font-size:1.15em;font-weight:700;">${matchesFound}</div></div>
+            <div style="padding:10px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;grid-column:span 2;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meAgeVerified')}</div><div style="font-size:1.15em;font-weight:700;">${ageVerified ? '18+' : this.t('unavailable')}</div></div>
           </div>
         </section>
         <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
@@ -2815,7 +2750,6 @@ export class UIManager extends EventEmitter {
           <div style="display:flex;flex-wrap:wrap;gap:10px;">
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-grammar-filter" ${talkFilters.requireGoodGrammar ? 'checked' : ''}> ${this.t('settingsGrammar')}</label>
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-dirty-words-filter" ${talkFilters.blockDirtyWords ? 'checked' : ''}> ${this.t('settingsDirtyWords')}</label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-credit-visible" ${reputation.isHidden === true ? '' : 'checked'}> ${this.t('settingsCreditVisible')}</label>
           </div>
           <div style="font-size:0.8em;color:#64748b;margin-top:8px;">${this.t('settingsGrammarHelp')}</div>
           <div style="font-size:0.8em;color:#64748b;margin-top:4px;">${this.t('settingsDirtyWordsHelp')}</div>
@@ -3144,6 +3078,9 @@ export class UIManager extends EventEmitter {
     photoInput?.addEventListener('change', () => void readPhoto(photoInput.files?.[0]));
     cameraInput?.addEventListener('change', () => void readPhoto(cameraInput.files?.[0]));
     document.getElementById('settings-remove-photo-btn')?.addEventListener('click', () => void saveHeadshot());
+    document.getElementById('settings-edit-profile-btn')?.addEventListener('click', () => {
+      if (this.currentUser) this.showEditProfileDialog(this.currentUser);
+    });
     document.getElementById('settings-credit-visible')?.addEventListener('change', (event) => {
       const visible = (event.currentTarget as HTMLInputElement).checked;
       if (this.currentUser?.reputation) this.currentUser.reputation.isHidden = !visible;

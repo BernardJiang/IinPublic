@@ -53,8 +53,9 @@ test.describe('Tab sweep smoke (D6)', () => {
 
     await page.click('.nav-btn[data-view="me"]');
     await afterNav();
-    await expect(page.locator('#me-view-preferences-btn')).toBeVisible();
-    await expect(page.locator('.me-answer-filter[data-me-answer-filter="conditional"]')).toBeVisible();
+    await expect(page.locator('.me-talk-type-filter[data-me-talk-type="tag"]')).toBeVisible();
+    await expect(page.locator('.me-talk-type-filter[data-me-talk-type="route"]')).toBeVisible();
+    await expect(page.locator('.me-tag-state-checkbox[value="indeterminate"]')).toBeVisible();
 
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
