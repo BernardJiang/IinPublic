@@ -95,6 +95,12 @@ describe('p2p runtime flags', () => {
     ).toBe(false);
   });
 
+  it('keeps public chatroom bootstrap metadata durable', () => {
+    expect(
+      shouldSkipServerGunPersist(['public', 'chatroom-hierarchy'], resolveP2PRuntimeFlags({})),
+    ).toBe(false);
+  });
+
   it('classifies representative star Gun paths', () => {
     expect(STAR_GUN_PATH_CLASSIFICATIONS).toEqual(
       expect.arrayContaining([

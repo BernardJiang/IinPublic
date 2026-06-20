@@ -642,6 +642,9 @@ export function shouldSkipServerGunPersist(
   flags: P2PRuntimeFlags,
   options: { supportChannel?: boolean; relayP0TalkDelivery?: boolean } = {},
 ): boolean {
+  // Shared bootstrap metadata is intentionally hub-persisted so a fresh/offline peer
+  // can reconstruct the room tree without trusting a particular live neighbor.
+  if (path[0] === 'public' && path[1] === 'chatroom-hierarchy') return false;
   if (options.supportChannel) return false;
   if (options.relayP0TalkDelivery && parseBooleanFlag(readEnv('IINPUBLIC_ALLOW_LEGACY_SERVER_TALK_HISTORY'), false)) {
     return false;
