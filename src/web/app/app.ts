@@ -606,14 +606,17 @@ export class IinPublicApp {
     this.uiManager.setApiBase(this.getBackendApiBase());
     this.uiManager.setCurrentLocation(location);
     this.uiManager.setPublicProfileFoundationReader(async (userId: string) => {
-      const data = await this.gunService.get(`user-public-profile/${userId}`);
+      const [data, reputation] = await Promise.all([
+        this.gunService.get(`user-public-profile/${userId}`),
+        this.gunService.get(`users/${userId}/reputation`).catch(() => null),
+      ]);
       if (!data || typeof data !== 'object') return null;
-      return data as {
+      return { ...(data as object), ...(reputation && typeof reputation === 'object' ? { reputation } : {}) } as {
         headshot?: string | null;
         languagesJson?: string;
         profileJson?: string;
         interestsJson?: string;
-      };
+      } & { reputation?: { questionsAnswered?: number; matchesFound?: number; blockCount?: number; isHidden?: boolean } };
     });
     this.uiManager.setContactPreRenderSync(async () => {
       await this.syncDirectPairTalkExchangesForContacts();

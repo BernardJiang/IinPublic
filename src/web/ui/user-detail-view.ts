@@ -14,6 +14,7 @@ type PublicProfileFoundation = {
   languagesJson?: string;
   profileJson?: string;
   interestsJson?: string;
+  reputation?: { questionsAnswered?: number; matchesFound?: number; blockCount?: number; isHidden?: boolean };
 };
 
 export type UserDetailViewDeps = {
@@ -335,6 +336,7 @@ async function readPublicProfileFoundation(peerId: string, deps: UserDetailViewD
     languages: parsePublicProfileArray<string>(foundation.languagesJson, []),
     profile: parsePublicProfileArray<any>(foundation.profileJson, []),
     interests: parsePublicProfileArray<any>(foundation.interestsJson, []),
+    reputation: foundation.reputation,
   };
 }
 
@@ -429,6 +431,14 @@ function renderProfileHtml(publicUser: any, deps: UserDetailViewDeps): string {
   const compatibility = ownInterests.length || interests.length
     ? Math.min(100, Math.round((score / Math.max(ownInterests.length, interests.length, 1)) * 100))
     : 0;
+  const reputation = publicUser?.reputation;
+  const reputationHtml = reputation && reputation.isHidden !== true
+    ? `<div class="peer-reputation-row" aria-label="Reputation summary">
+        <span title="Responses">↳ ${Number(reputation.questionsAnswered || 0)}</span>
+        <span title="Matches">✓ ${Number(reputation.matchesFound || 0)}</span>
+        <span title="Flags">⚑ ${Number(reputation.blockCount || 0)}</span>
+      </div>`
+    : '';
   return `
     <div class="peer-stat-card" style="margin-bottom:12px;">
       <div style="display:flex; gap:12px; align-items:flex-start;">
@@ -442,6 +452,7 @@ function renderProfileHtml(publicUser: any, deps: UserDetailViewDeps): string {
           <div style="font-size:0.85em; color:#475569; margin-top:4px;">${deps.text('languagesLabel')}: ${escapeHtml(languages.length > 0 ? languages.map((code: string) => deps.formatLanguage(code)).join(', ') : deps.text('notListed'))}</div>
           ${interests.length > 0 ? `<div style="font-size:0.85em; color:#475569; margin-top:4px;">${deps.text('interestsLabel')}: ${escapeHtml(interests.join(', '))}</div>` : ''}
           ${sharedInterests.length > 0 ? `<div class="peer-shared-tags"><strong>Shared tags</strong><span>${escapeHtml(sharedInterests.join(', '))}</span></div>` : ''}
+          ${reputationHtml}
           <div style="display:grid; gap:8px; margin-top:10px;">
             ${
               profile.length > 0

@@ -264,6 +264,7 @@ describe('extracted UI helpers', () => {
           languagesJson: JSON.stringify(['zh']),
           profileJson: JSON.stringify([]),
           interestsJson: JSON.stringify([{ name: '咖啡' }]),
+          reputation: { questionsAnswered: 4, matchesFound: 2, blockCount: 1 },
         }),
       });
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -278,6 +279,8 @@ describe('extracted UI helpers', () => {
       expect(overlayText).toContain('最近确认通信：刚刚');
       expect(overlayText).toContain('流程');
       expect(overlayText).toContain('刚刚');
+      expect(overlayText).toContain('↳ 4');
+      expect(overlayText).toContain('✓ 2');
       expect(overlayText).toContain('对话（1）');
       expect(document.getElementById('peer-dm-input')?.getAttribute('placeholder')).toBe('输入消息...');
 

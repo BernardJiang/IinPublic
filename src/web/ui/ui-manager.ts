@@ -190,6 +190,7 @@ type PublicProfileFoundationReader = (userId: string) => Promise<{
   languagesJson?: string;
   profileJson?: string;
   interestsJson?: string;
+  reputation?: { questionsAnswered?: number; matchesFound?: number; blockCount?: number; isHidden?: boolean };
 } | null>;
 
 type ContactPreRenderSync = () => Promise<void>;
