@@ -74,7 +74,7 @@ function formatContextPathFromTalk(talk: any, contextPath: any[]): string[] {
       : null;
     const questionText = String(parentQuestion?.text || questionId || `Q${index + 1}`).trim();
     const answerText = String(parentAnswer?.text || answerId || '?').trim();
-    return `${questionText}→${answerText}`;
+    return `${questionText} -> ${answerText}`;
   });
 }
 
@@ -95,7 +95,7 @@ function deriveContextLabelFromFlatRecord(
     return item.contextPath
       .map((step) => String(step || '').trim())
       .filter(Boolean)
-      .map((step) => step.replace(/\s*->\s*/g, '→'))
+      .map((step) => step.replace(/\s*(?:->|→)\s*/g, ' -> '))
       .join(' · ');
   }
 
@@ -103,8 +103,8 @@ function deriveContextLabelFromFlatRecord(
   if (recordType === 'flow') {
     return (record.items || [])
       .slice(0, itemIndex)
-      .map((previousItem) => `${String(previousItem.prompt || '').trim()}→${String(previousItem.choice || '').trim()}`)
-      .filter((step) => step !== '→')
+      .map((previousItem) => `${String(previousItem.prompt || '').trim()} -> ${String(previousItem.choice || '').trim()}`)
+      .filter((step) => step !== ' -> ')
       .join(' · ');
   }
 

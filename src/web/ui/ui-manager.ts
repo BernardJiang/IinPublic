@@ -5330,7 +5330,7 @@ export class UIManager extends EventEmitter {
               : null;
             const questionText = String(parentQuestion?.text || questionId || `Q${stepIndex + 1}`).trim();
             const answerText = String(parentAnswer?.text || answerId || '?').trim();
-            return `${questionText}→${answerText}`;
+            return `${questionText} -> ${answerText}`;
           })
         : [];
       const flowContextLabel = completedAnswers
@@ -5345,7 +5345,7 @@ export class UIManager extends EventEmitter {
           const previousChoice = previousRawChoice && previousRawChoice.toLowerCase() !== 'ignore'
             ? previousRawChoice
             : String(previousAnswer?.text || '').trim() || 'Ignored';
-          return `${previousPrompt}→${previousChoice}`;
+          return `${previousPrompt} -> ${previousChoice}`;
         })
         .filter(Boolean)
         .join(' · ');
