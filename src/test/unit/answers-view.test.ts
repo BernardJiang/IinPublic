@@ -123,8 +123,8 @@ describe('answers view models', () => {
 
     expect(document.querySelectorAll('.answer-context-group').length).toBe(1);
     const content = document.getElementById('answers-content')?.textContent || '';
-    expect(content).toContain('Tennis?→Yes');
-    expect(content).toContain('Badminton?→Yes');
+    expect(content).toContain('Tennis? -> Yes');
+    expect(content).toContain('Badminton? -> Yes');
   });
 
   it('renders stored contextLabel even when source talk is unavailable', () => {
@@ -167,7 +167,7 @@ describe('answers view models', () => {
     });
 
     const content = document.getElementById('answers-content')?.textContent || '';
-    expect(content).toContain('First question?→Answer A');
+    expect(content).toContain('First question? -> Answer A');
   });
 
   it('derives flow context labels from earlier answered rows when backfill data is missing', () => {
@@ -227,8 +227,8 @@ describe('answers view models', () => {
     });
 
     const content = document.getElementById('answers-content')?.textContent || '';
-    expect(content).toContain('Q1?→A1');
-    expect(content).toContain('Q1?→A1 · Q2?→A2');
+    expect(content).toContain('Q1? -> A1');
+    expect(content).toContain('Q1? -> A1 · Q2? -> A2');
   });
 
   it('falls back to the talk answer text when a stored answer says ignore', () => {
