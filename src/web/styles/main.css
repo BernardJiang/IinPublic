@@ -1646,6 +1646,46 @@ body {
   box-shadow: 0 0 0 3px #dbeafe;
 }
 
+.route-branch-preview {
+  min-height: 0;
+  margin-top: 14px;
+}
+
+.route-branch-preview:not(:empty) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #a5b4fc;
+  border-radius: 6px;
+  background: #eef2ff;
+  padding: 10px 12px;
+}
+
+.route-branch-preview-copy {
+  color: #3730a3;
+  font-weight: 600;
+}
+
+.route-branch-preview-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.response-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.response-close-button {
+  width: 32px;
+  height: 32px;
+  font-size: 22px;
+  line-height: 1;
+}
+
 .answer-radio-grid {
   display: flex;
   flex-direction: column;

@@ -13,6 +13,52 @@ type SavedPreference = {
   autoAnswerReason?: string;
 } | null;
 
+type ResponseDraft = {
+  version: 1;
+  currentQuestionId: string;
+  answers: Array<{ questionId: string; answerId: string; answerText: string; mode?: AnswerSelectionMode }>;
+};
+
+function responseDraftKey(talkId: string): string {
+  return `iinpublic:talk-response-draft:${talkId}`;
+}
+
+function loadResponseDraft(talk: any): ResponseDraft | null {
+  try {
+    const raw = localStorage.getItem(responseDraftKey(talk.id));
+    if (!raw) return null;
+    const draft = JSON.parse(raw) as ResponseDraft;
+    if (
+      draft?.version !== 1 ||
+      !Array.isArray(draft.answers) ||
+      !talk.questions?.some((question: any) => question.id === draft.currentQuestionId) ||
+      !draft.answers.every((answer) => talk.questions?.some((question: any) => question.id === answer.questionId))
+    ) {
+      localStorage.removeItem(responseDraftKey(talk.id));
+      return null;
+    }
+    return draft;
+  } catch {
+    return null;
+  }
+}
+
+function saveResponseDraft(talk: any, currentQuestionId: string, answers: ResponseDraft['answers']): void {
+  try {
+    localStorage.setItem(responseDraftKey(talk.id), JSON.stringify({ version: 1, currentQuestionId, answers } satisfies ResponseDraft));
+  } catch {
+    // A blocked or full local storage should not prevent answering a talk.
+  }
+}
+
+function clearResponseDraft(talk: any): void {
+  try {
+    localStorage.removeItem(responseDraftKey(talk.id));
+  } catch {
+    // Keep completion resilient when local storage is unavailable.
+  }
+}
+
 type TalkResponseDialogOptions = {
   talk: any;
   skipAutoAnswer?: boolean;
@@ -365,13 +411,19 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
     }
   }
 
-  let currentQuestion = talk.questions[0];
-  const answers: { questionId: string; answerId: string; answerText: string; mode?: AnswerSelectionMode }[] = [];
+  const draft = loadResponseDraft(talk);
+  let currentQuestion = talk.questions.find((question: any) => question.id === draft?.currentQuestionId) || talk.questions[0];
+  const answers: { questionId: string; answerId: string; answerText: string; mode?: AnswerSelectionMode }[] = draft?.answers || [];
+
+  const completeAndClose = (outcome: 'match' | 'mismatch' = 'mismatch'): void => {
+    clearResponseDraft(talk);
+    options.completeTalk(talk, answers, outcome);
+    closeModal();
+  };
 
   const renderQuestion = (): void => {
     if (!currentQuestion) {
-      options.completeTalk(talk, answers, 'mismatch');
-      closeModal();
+      completeAndClose();
       return;
     }
 
@@ -396,8 +448,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           mode: 'auto',
         });
         options.showNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
-        options.completeTalk(talk, answers, 'mismatch');
-        closeModal();
+        completeAndClose();
         return;
       }
       const answer = currentQuestion.answers.find((a: any) => a.id === savedPreference.answerId);
@@ -411,19 +462,18 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
 
         if (answer.isIgnore) {
           options.showNotification(text('responseTalkIgnoredAuto', 'Talk ignored - no match (auto)'), 'info');
-          options.completeTalk(talk, answers, 'mismatch');
-          closeModal();
+          completeAndClose();
           return;
         }
         if (answer.isMatch) {
+          clearResponseDraft(talk);
           options.completeTalk(talk, answers, 'match');
           options.showNotification(text('responseMatchAuto', 'Match! You both noticed each other. (auto)'), 'success');
           closeModal();
           return;
         }
         if (answer.isTerminal) {
-          options.completeTalk(talk, answers, 'mismatch');
-          closeModal();
+          completeAndClose();
           return;
         }
         if (answer.nextQuestionId) {
@@ -431,19 +481,17 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           if (currentQuestion) {
             renderQuestion();
           } else {
-            options.completeTalk(talk, answers, 'mismatch');
-            closeModal();
+            completeAndClose();
           }
           return;
         }
-        options.completeTalk(talk, answers);
-        closeModal();
+        completeAndClose();
         return;
       }
     }
 
     const choiceRadioName = `choice-${currentQuestion.id}`;
-    const showBackButton = currentQuestionIndex > 0;
+    const showBackButton = talk.type === 'flow' && answers.length > 0;
     const previousChoiceFromSession = answers.find((a) => a.questionId === currentQuestion.id);
     const previousPairsForDisplay = sessionAnswersToQAPairs(talk, answers);
     const savedPreferenceForDisplay = options.resolveAnswerPreferenceForTalkQuestion(
@@ -471,7 +519,10 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
             <h2 class="modal-title">${options.escapeHtml(talk.title)}</h2>
             <p>${text('responseQuestion', 'Question')} ${currentQuestionIndex + 1} ${text('responseOf', 'of')} ${talk.questions.length}</p>
           </div>
-          ${showBackButton ? `<button type="button" class="btn btn-back-question" data-testid="back-question-btn">← ${text('responsePrevious', 'Previous question')}</button>` : ''}
+          <div class="response-header-actions">
+            ${showBackButton ? `<button type="button" class="btn btn-back-question" data-testid="back-question-btn">← ${text('responsePrevious', 'Previous question')}</button>` : ''}
+            <button type="button" class="icon-button response-close-button" data-testid="close-response-btn" aria-label="${text('responseClose', 'Close response')}">×</button>
+          </div>
         </div>
         <div style="padding: 20px;">
           ${stepIndicator}
@@ -533,6 +584,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
               <span class="answer-grid-label">${text('responseIgnore', 'Ignore')}</span>
             </div>
           </div>
+          ${talk.type === 'route' ? '<div class="route-branch-preview" data-testid="route-branch-preview"></div>' : ''}
         </div>
       </div>
     `;
@@ -546,12 +598,15 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       const isMatch = radio.dataset.isMatch === 'true';
       const nextQuestionId = radio.dataset.nextQuestionId || '';
 
-      answers.push({
+      const existingAnswer = answers.findIndex((answer) => answer.questionId === currentQuestion.id);
+      const selectedAnswer = {
         questionId: currentQuestion.id,
         answerId,
         answerText: isIgnore ? 'ignore' : answerText,
         mode: answerMode,
-      });
+      };
+      if (existingAnswer >= 0) answers.splice(existingAnswer, 1, selectedAnswer);
+      else answers.push(selectedAnswer);
 
       options.saveAnswerPreference(
         talk,
@@ -565,9 +620,9 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
 
       if (isIgnore) {
         options.showNotification(text('responseTalkIgnored', 'Talk ignored - no match'), 'info');
-        options.completeTalk(talk, answers, 'mismatch');
-        closeModal();
+        completeAndClose();
       } else if (isMatch) {
+        clearResponseDraft(talk);
         options.completeTalk(talk, answers, 'match');
         options.showNotification(text('responseMatch', 'Match! You both noticed each other.'), 'success');
         closeModal();
@@ -576,31 +631,55 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           const qIdx = talk.questions.findIndex((q: { id: string }) => q.id === currentQuestion.id);
           if (qIdx >= 0 && qIdx < talk.questions.length - 1) {
             currentQuestion = talk.questions[qIdx + 1];
+            saveResponseDraft(talk, currentQuestion.id, answers);
             renderQuestion();
             return;
           }
         }
-        options.completeTalk(talk, answers, 'mismatch');
-        closeModal();
+        completeAndClose();
       } else if (nextQuestionId) {
         const nextQ = talk.questions.find((q: any) => q.id === nextQuestionId);
         if (nextQ) {
           currentQuestion = nextQ;
+          saveResponseDraft(talk, currentQuestion.id, answers);
           renderQuestion();
         } else {
-          options.completeTalk(talk, answers, 'mismatch');
-          closeModal();
+          completeAndClose();
         }
       } else {
-        options.completeTalk(talk, answers, 'mismatch');
-        closeModal();
+        completeAndClose();
       }
     };
 
     modal.querySelectorAll('.choice-radio').forEach((radioEl) => {
       radioEl.addEventListener('change', (event) => {
         const radio = event.target as HTMLInputElement;
-        if (radio.checked) applyChoice(radio);
+        if (!radio.checked) return;
+        if (talk.type !== 'route') {
+          applyChoice(radio);
+          return;
+        }
+        const nextQuestion = talk.questions.find((question: any) => question.id === radio.dataset.nextQuestionId);
+        const previewText = nextQuestion
+          ? text('responseRouteLeadsTo', 'This leads to: {question}').replace('{question}', nextQuestion.text || '')
+          : radio.dataset.isMatch === 'true'
+            ? text('responseRouteLeadsToMatch', 'This leads to a match')
+            : radio.dataset.isIgnore === 'true'
+              ? text('responseRouteLeadsToIgnore', 'This ends this route')
+              : text('responseRouteLeadsToEnd', 'This ends this route');
+        const preview = modal.querySelector<HTMLElement>('[data-testid="route-branch-preview"]');
+        if (!preview) return;
+        preview.innerHTML = `
+          <div class="route-branch-preview-copy">${options.escapeHtml(previewText)}</div>
+          <div class="route-branch-preview-actions">
+            <button type="button" class="btn btn-secondary" data-testid="route-branch-change">${text('responseRouteChange', 'Change')}</button>
+            <button type="button" class="btn btn-primary" data-testid="route-branch-continue">${text('responseRouteContinue', 'Continue')}</button>
+          </div>`;
+        preview.querySelector('[data-testid="route-branch-change"]')?.addEventListener('click', () => {
+          radio.checked = false;
+          preview.innerHTML = '';
+        });
+        preview.querySelector('[data-testid="route-branch-continue"]')?.addEventListener('click', () => applyChoice(radio));
       });
     });
 
@@ -608,8 +687,10 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
     backBtn?.addEventListener('click', () => {
       answers.pop();
       currentQuestion = talk.questions[currentQuestionIndex - 1];
+      saveResponseDraft(talk, currentQuestion.id, answers);
       renderQuestion();
     });
+    modal.querySelector('[data-testid="close-response-btn"]')?.addEventListener('click', closeModal);
   };
 
   document.body.appendChild(modal);

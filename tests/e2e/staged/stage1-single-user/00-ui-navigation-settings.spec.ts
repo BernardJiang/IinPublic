@@ -990,4 +990,51 @@ test.describe('UI navigation and settings shell', () => {
     expect(result.afterSame).toEqual([]);
     expect(result.afterUpdate).toEqual(['repeat_talk_1']);
   });
+
+  test('route responses preview the selected branch and resume saved progress', async () => {
+    const p = page!;
+    await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showTalkResponseDialog({
+      id: 'route-response-draft',
+      title: 'Route draft',
+      type: 'route',
+      questions: [
+        {
+          id: 'q1',
+          text: 'Start here?',
+          answers: [{ id: 'go', text: 'Continue', nextQuestionId: 'q2' }],
+        },
+        {
+          id: 'q2',
+          text: 'Resumed question?',
+          answers: [{ id: 'finish', text: 'Finish', isTerminal: true }],
+        },
+      ],
+    }, { skipAutoAnswer: true }));
+
+    await p.locator('.choice-radio[data-answer-id="go"][data-mode="manual"]').check();
+    await expect(p.locator('[data-testid="route-branch-preview"]')).toContainText('This leads to: Resumed question?');
+    await p.locator('[data-testid="route-branch-continue"]').click();
+    await expect(p.locator('#talk-response-modal')).toContainText('Question 2 of 2');
+    await p.locator('[data-testid="close-response-btn"]').click();
+
+    await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showTalkResponseDialog({
+      id: 'route-response-draft',
+      title: 'Route draft',
+      type: 'route',
+      questions: [
+        {
+          id: 'q1',
+          text: 'Start here?',
+          answers: [{ id: 'go', text: 'Continue', nextQuestionId: 'q2' }],
+        },
+        {
+          id: 'q2',
+          text: 'Resumed question?',
+          answers: [{ id: 'finish', text: 'Finish', isTerminal: true }],
+        },
+      ],
+    }, { skipAutoAnswer: true }));
+    await expect(p.locator('#talk-response-modal')).toContainText('Question 2 of 2');
+    await p.locator('[data-testid="close-response-btn"]').click();
+  });
 });
