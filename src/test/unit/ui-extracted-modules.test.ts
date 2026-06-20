@@ -308,6 +308,9 @@ describe('extracted UI helpers', () => {
         support: {
           otherUserName: 'TechSupport',
           supportChannel: true,
+          online: true,
+          transportMode: 'direct-p2p',
+          unreadCount: 2,
           lastMessage: 'Welcome to IinPublic, Ming. TechSupport is here if you need help.',
           createdAt: '2026-04-21T10:00:00.000Z',
         },
@@ -320,6 +323,9 @@ describe('extracted UI helpers', () => {
     });
     expect(document.getElementById('conversations-list')?.textContent).toContain('欢迎来到 IinPublic，Ming');
     expect(document.getElementById('conversations-list')?.textContent).toContain('刚刚');
+    expect(document.getElementById('conversations-list')?.textContent).toContain('P2P');
+    expect(document.querySelector('.conversation-online-indicator')).not.toBeNull();
+    expect(document.querySelector('.unread-count-badge')?.textContent).toBe('2');
 
     displayConversationsList({
       getMyConversations: () => ({}),

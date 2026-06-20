@@ -4200,8 +4200,9 @@ export class UIManager extends EventEmitter {
       messagesContainer.innerHTML = `<p style="text-align: center; padding: 20px; color: #999;">${escapeHtml(this.t('conversationStart'))}</p>`;
     }
 
-    // Mark conversation as read
+    // The message subscription records a durable read cursor once it has the latest message.
     conversation.unread = false;
+    conversation.unreadCount = 0;
     localStorage.setItem('myConversations', JSON.stringify(conversations));
     this.updateMatchBadge();
 
@@ -7110,5 +7111,52 @@ export class UIManager extends EventEmitter {
         this.displayContactsList();
       }
     }
+  }
+
+  public syncConversationMessageSummary(conversationId: string, messages: any[], currentUserId: string): void {
+    const conversations = this.getMyConversations();
+    const conversation = conversations[conversationId];
+    if (!conversation || messages.length === 0) return;
+    const ordered = [...messages].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    const latest = ordered[ordered.length - 1];
+    conversation.lastMessage = String(latest.text || '');
+    conversation.lastMessageTime = new Date(latest.timestamp || Date.now()).toISOString();
+
+    const cursorKey = 'iinpublic:conversation-read-cursors';
+    let cursors: Record<string, { timestamp: string; id?: string }> = {};
+    try { cursors = JSON.parse(localStorage.getItem(cursorKey) || '{}'); } catch { /* ignore malformed local data */ }
+    if (this.currentConversationId === conversationId) {
+      cursors[conversationId] = { timestamp: conversation.lastMessageTime, id: String(latest.id || '') };
+      conversation.unread = false;
+      conversation.unreadCount = 0;
+    } else {
+      const readAt = new Date(cursors[conversationId]?.timestamp || 0).getTime();
+      const unreadCount = ordered.filter((message) =>
+        String(message.senderId || '') !== currentUserId && new Date(message.timestamp || 0).getTime() > readAt,
+      ).length;
+      conversation.unreadCount = unreadCount;
+      conversation.unread = unreadCount > 0;
+    }
+    localStorage.setItem(cursorKey, JSON.stringify(cursors));
+    localStorage.setItem('myConversations', JSON.stringify(conversations));
+    this.updateMatchBadge();
+    const meTab = document.querySelector('.nav-btn[data-view="me"]');
+    if (meTab?.classList.contains('active')) this.displayConversationsList();
+  }
+
+  public setConversationOnlineStatus(otherUserIds: Set<string>): void {
+    const conversations = this.getMyConversations();
+    let changed = false;
+    for (const conversation of Object.values(conversations)) {
+      const online = otherUserIds.has(String((conversation as any).otherUserId || ''));
+      if ((conversation as any).online !== online) {
+        (conversation as any).online = online;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    localStorage.setItem('myConversations', JSON.stringify(conversations));
+    const meTab = document.querySelector('.nav-btn[data-view="me"]');
+    if (meTab?.classList.contains('active')) this.displayConversationsList();
   }
 }

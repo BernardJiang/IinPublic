@@ -130,6 +130,7 @@ export class IinPublicApp {
   private travelChatroomId: string | undefined = undefined;
   private supportBootstrapChecked = false;
   private presenceClient: P2PPresenceClient | null = null;
+  private conversationPreviewUnsubscribers = new Map<string, () => void>();
   private peerEpubByUserId = new Map<string, string>();
   private talkLedgerSuppressionDisabledForE2e = false;
   private mailboxFallbackDisabledForE2e = false;
@@ -3657,6 +3658,30 @@ export class IinPublicApp {
     );
   }
 
+  private ensureConversationPreviewSubscription(conversationId: string): void {
+    if (!this.currentUser || this.conversationPreviewUnsubscribers.has(conversationId)) return;
+    const conversation = this.uiManager.getMyConversations()[conversationId];
+    if (!conversation?.otherUserId) return;
+    const unsubscribe = this.conversationService.subscribeToMessages(
+      conversationId,
+      (messages) => this.uiManager.syncConversationMessageSummary(conversationId, messages, this.currentUser!.id),
+      this.currentUser.id,
+      conversation.otherUserId,
+    );
+    this.conversationPreviewUnsubscribers.set(conversationId, unsubscribe);
+  }
+
+  private async refreshConversationPresence(): Promise<void> {
+    if (!this.currentUser) return;
+    const presence = this.presenceClient ?? new P2PPresenceClient({ apiBase: this.getBackendApiBase() });
+    try {
+      const peers = await presence.fetchNearby(this.currentUser.id, 200);
+      this.uiManager.setConversationOnlineStatus(new Set(peers.map((peer) => peer.userId)));
+    } catch {
+      // Presence is supplemental list metadata; leave the existing state intact on failure.
+    }
+  }
+
   private refreshStatusBar(): void {
     const chatroomId = this.currentChatroomId || this.chatroomService.getCurrentChatroomId();
     if (!chatroomId || !this.currentUser) return;
@@ -3673,8 +3698,10 @@ export class IinPublicApp {
   private setupEventHandlers(): void {
     // Handle UI events
 
-    this.uiManager.on('conversationAdded', () => {
+    this.uiManager.on('conversationAdded', (data: { conversationId: string }) => {
       this.refreshStatusBar();
+      this.ensureConversationPreviewSubscription(data.conversationId);
+      void this.refreshConversationPresence();
     });
 
     this.uiManager.on('updateTalkFilters', async (filters: any) => {
@@ -4911,6 +4938,8 @@ export class IinPublicApp {
       this.mailboxPollTimer = undefined;
     }
     this.peerMeshService?.leaveRoom();
+    for (const unsubscribe of this.conversationPreviewUnsubscribers.values()) unsubscribe();
+    this.conversationPreviewUnsubscribers.clear();
     if (this.currentUser && this.currentChatroomId) {
       console.log(`🧹 Cleanup: user=${this.currentUser.id}, chatroom=${this.currentChatroomId}`);
       this.chatroomService.unsubscribeAllMemberCounts();

@@ -1,6 +1,7 @@
 import type { UiTranslationKey } from './ui-translations';
 
 type ConversationRecord = {
+  otherUserId?: string;
   otherUserName?: string;
   unread?: boolean;
   respondedByBot?: boolean;
@@ -8,6 +9,9 @@ type ConversationRecord = {
   lastMessageTime?: string;
   createdAt?: string;
   lastMessage?: string;
+  unreadCount?: number;
+  online?: boolean;
+  transportMode?: string;
   /** Step 9: ISO timestamp when responder changed their mind creating this match. */
   changeOfMindAt?: string;
   /** Step 9: 'ignored' when a match→ignore change-of-mind ended this conversation. */
@@ -56,7 +60,7 @@ export function displayConversationsList(deps: ConversationsViewDeps): void {
         const changeTs = conversation.changeOfMindAt || conversation.changedAt;
         const retractedTs = conversation.retractedAt;
         return `
-        <div class="conversation-list-item ${conversation.unread ? 'unread' : ''} ${isEnded ? 'conversation-ended' : ''}"
+        <div class="conversation-list-item ${(conversation.unreadCount || 0) > 0 || conversation.unread ? 'unread' : ''} ${isEnded ? 'conversation-ended' : ''}"
              data-conversation-id="${conversationId}"
              data-responded-by-bot="${!!conversation.respondedByBot}"
              data-conversation-status="${deps.escapeHtml(conversation.status || 'active')}"
@@ -66,15 +70,17 @@ export function displayConversationsList(deps: ConversationsViewDeps): void {
             <div class="conversation-avatar">
               ${conversation.otherUserName?.charAt(0).toUpperCase() || '?'}
             </div>
+            ${conversation.online ? '<span class="conversation-online-indicator" aria-label="Online"></span>' : ''}
             ${conversation.respondedByBot ? `<span class="conversation-bot-badge" title="${deps.escapeHtml(deps.text('conversationBotAnswered'))}">🤖</span>` : ''}
           </div>
           <div class="conversation-content">
             <div class="conversation-header">
               <div class="conversation-name">${deps.escapeHtml(conversation.otherUserName || deps.text('conversationUnknown'))}</div>
+              <span class="conversation-transport-chip">${deps.escapeHtml(conversation.transportMode === 'direct-p2p' || conversation.transportMode === 'mesh-p2p' ? 'P2P' : 'Relay')}</span>
               <div class="conversation-time">${deps.formatTimeAgo(new Date(conversation.lastMessageTime || conversation.createdAt || 0))}</div>
             </div>
             <div class="conversation-preview">
-              ${conversation.unread ? '<span class="unread-badge"></span>' : ''}
+              ${(conversation.unreadCount || 0) > 0 ? `<span class="unread-count-badge">${Math.min(conversation.unreadCount || 0, 99)}</span>` : ''}
               ${deps.escapeHtml(deps.formatMessage(
                 conversation.lastMessage || deps.text('conversationMatchedPreview'),
                 conversation.supportChannel === true,
