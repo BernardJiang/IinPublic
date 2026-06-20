@@ -10,6 +10,8 @@ import {
   canAssignRole,
   chatroomRolePath,
   CHATROOM_HIERARCHY,
+  applyPublicChatroomHierarchy,
+  getAllChatroomIds,
   mergeChatroomHierarchy,
 } from '../../shared/chatroom-hierarchy';
 import type { CommunityRole } from '../../shared/types';
@@ -148,5 +150,16 @@ describe('public chatroom hierarchy bootstrap', () => {
   it('rejects malformed remote hierarchy data', () => {
     expect(mergeChatroomHierarchy(CHATROOM_HIERARCHY, { id: 'global', children: [{ id: 'bad' }] }))
       .toBe(CHATROOM_HIERARCHY);
+  });
+
+  it('applies serialized public additions to the runtime room list', () => {
+    applyPublicChatroomHierarchy(JSON.stringify({
+      ...CHATROOM_HIERARCHY,
+      children: [...(CHATROOM_HIERARCHY.children || []), {
+        id: 'remote-runtime-room', name: 'Runtime Room', icon: '#', description: 'Remote addition',
+      }],
+    }));
+    expect(getAllChatroomIds()).toContain('remote-runtime-room');
+    applyPublicChatroomHierarchy(CHATROOM_HIERARCHY);
   });
 });
