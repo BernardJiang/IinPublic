@@ -65,7 +65,7 @@ T1 retry-dependence inventory **promoted to `docs/completed.md` 2026-06-16** (st
 
 The current profile/talk UI mixes editing, review, and response history. Each item below adds a concrete, self-contained layer of information architecture, metadata, or interaction quality.
 
-### G0 — Settings and Me tab information architecture
+### G0 — Settings and Me tab information architecture — **COMPLETED 2026-06-20**
 
 Settings should own account/profile editing, while Me should become a clean answer-history surface.
 - [ ] **Settings profile layout:** render StageName and Headshot in a vertical layout, with Headshot below or above StageName instead of side-by-side compression.
@@ -78,7 +78,7 @@ Settings should own account/profile editing, while Me should become a clean answ
 - [ ] **Survey answer independence:** for survey talks, render each question as an independent question/answer record with no implied path dependency.
 - [ ] **Route answer context:** for route talks, support both independent survey-like questions and flow-like contextual questions; each recorded answer should indicate which mode/context applies.
 
-### G1 — Talks tab visual taxonomy + tag quick decision
+### G1 — Talks tab visual taxonomy + tag quick decision — **COMPLETED 2026-06-20**
 
 The talks tab should make the four talk types visually distinct at a glance by varying size, color, and shape.
 - [ ] **Tag talks:** render as the smallest talk type. In OUT, show only the tag text and a checked tri-state checkbox; hide all other talk metadata from the list. Clicking the tag text opens the talk editor. Unchecking or moving the checkbox to unanswered removes the tag from the OUT list, and after page refresh it should remain gone. In IN, show the same compact tag with an indeterminate checkbox; clicking the checkbox makes a quick like/not-like decision, while clicking the tag text opens the talk editor for full details and editor-based decision.
@@ -87,7 +87,7 @@ The talks tab should make the four talk types visually distinct at a glance by v
 - [ ] **Survey talks:** render at middle size, matching flow talk scale but using a different shape and color from flow.
 - [ ] **Route talks:** render as the largest talk type with its own distinct shape and color.
 
-### G2 — Richer talk cards in the incoming list
+### G2 — Richer talk cards in the incoming list — **COMPLETED 2026-06-20**
 
 Each incoming talk card currently shows title + type badge only. Add:
 - [ ] **Question count + progress ring** for flow/route talks (e.g. "Q3 of 5") so the user knows the depth before accepting.
@@ -97,7 +97,7 @@ Each incoming talk card currently shows title + type badge only. Add:
 - [ ] **Distance chip** if the creator's blurred location is available in presence ("~3 km away") — reuse `blurredDistanceMiles` from the find-similar pipeline.
 - [ ] **Answer count** for survey and tag talks ("47 responses") pulled from local ledger aggregates.
 
-### G3 — Talk response flow UX
+### G3 — Talk response flow UX — **COMPLETED 2026-06-20**
 
 Inside the response modal for flow/route talks:
 - [ ] **Step indicator bar** at the top: "Question 2 of 4" with filled dots for completed steps and an empty dot for the current one.
@@ -106,7 +106,7 @@ Inside the response modal for flow/route talks:
 - [ ] **Auto-save draft** — if the modal is closed mid-flow, re-open at the same question (store draft in `localStorage` keyed by `talkId`).
 - [ ] **Estimated completion time** shown at the start of a flow/route talk (e.g. "~2 min, 4 questions").
 
-### G4 — Conversation list improvements
+### G4 — Conversation list improvements — **COMPLETED 2026-06-20**
 
 `conversations-view.ts` currently shows: other user's name + talkId. Add:
 - [ ] **Last message preview** (first 60 chars, ellipsised) and **relative timestamp** ("3 min ago") — read from `GunMessageStore.listLocalWires` for the conversation.
@@ -114,7 +114,7 @@ Inside the response modal for flow/route talks:
 - [ ] **Transport mode chip** ("P2P" / "Relay") derived from `transportMode` field already on the conversation record.
 - [ ] **Online indicator** — green dot if the peer has a live `PresenceRecord` (not expired).
 
-### G5 — Peer detail view enhancements
+### G5 — Peer detail view enhancements — **COMPLETED 2026-06-20**
 
 `user-detail-view.ts` shows basic profile fields. Add:
 - [ ] **Compatibility score** (the `matchScore` from `find-similar.ts`) rendered as a percentage bar next to the peer's name — already computed in the contacts index, just needs to be passed through to the detail view.
@@ -122,7 +122,7 @@ Inside the response modal for flow/route talks:
 - [ ] **Shared tags** panel — the intersection of their matched tag sets, ordered by mutual importance weight.
 - [ ] **Reputation summary** — render the peer's `Reputation` struct as compact icon-row (response rate, match rate, flagged count) rather than raw numbers.
 
-### G6 — Survey results visualization
+### G6 — Survey results visualization — **COMPLETED 2026-06-20**
 
 `displayStatisticsDashboard` renders tables. Replace/augment with:
 - [ ] **Horizontal bar chart** for tag-frequency and per-answer distribution — use the existing Canvas/SVG budget (no new library; D3 or plain SVG).
