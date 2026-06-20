@@ -19,6 +19,7 @@ radata/
 user_data/
 logs/
 data.json
+.env.local
 
 # Local tooling state
 .ci-test.log
@@ -30,5 +31,4 @@ data.json
 .DS_Store
 *.tmp
 *.log
-
 

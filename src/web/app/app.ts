@@ -10,12 +10,14 @@ import { UIManager, type BroadcastAudiencePreview } from '../ui/ui-manager';
 import { LocationPrivacy } from '../../shared/location';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { applyPublicChatroomHierarchy, getAllChatroomIds, getFlatChatroomList } from '../../shared/chatroom-hierarchy';
+import { isRenderableSystemAnnouncement, isVerifiedTechSupportIdentity } from '../../shared/system-announcements';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, computeCIDv1 } from '../../shared/cid';
 import { isDevStageZero } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
 import {
   isTechSupportUser,
+  TECHSUPPORT_PUB,
   TECHSUPPORT_ROOT_USER_ID,
   TECHSUPPORT_STAGE_NAME,
 } from '../../shared/techsupport';
@@ -645,6 +647,7 @@ export class IinPublicApp {
 
     // Show main interface
     this.uiManager.showMainInterface(this.currentUser!);
+    this.subscribeToPublicAnnouncements();
     this.showLocationRoomSuggestion();
 
     // Subscribe to member counts for all chatrooms (real-time updates)
@@ -657,6 +660,23 @@ export class IinPublicApp {
       this.stageZeroBootedAt = Date.now();
       this.startStageZeroHeadcountWatchdog();
     }
+  }
+
+  private subscribeToPublicAnnouncements(): void {
+    const publicGun = this.gunService.getGun().get('public');
+    publicGun.get('techsupport-identity').on((raw: unknown) => {
+      void isVerifiedTechSupportIdentity(raw, TECHSUPPORT_PUB).then((valid) => {
+        if (raw && !valid) this.uiManager.showNotification('TechSupport identity verification failed.', 'warning');
+      });
+    });
+    publicGun.get('announcements').map().on((raw: unknown) => {
+      void isRenderableSystemAnnouncement(raw, TECHSUPPORT_PUB).then((valid) => {
+        if (valid) {
+          const announcement = raw as { id: string; text: string };
+          this.uiManager.showSystemAnnouncement(announcement);
+        }
+      });
+    });
   }
 
   /** Show once per user/device after location has selected a more specific hierarchy room. */

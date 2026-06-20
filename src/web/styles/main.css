@@ -420,6 +420,33 @@ body {
   line-height: 1;
 }
 
+.system-announcements {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.system-announcement {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #f1c56a;
+  border-radius: 8px;
+  background: #fff8df;
+  color: #664a00;
+}
+
+.system-announcement button {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
 /* Status Bar - Permanent chatroom status display */
 .status-bar {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);

@@ -71,8 +71,8 @@ Certain data is logically global and should be replicated to every peer's local 
 
 The TechSupport root user ID and public key (`TECHSUPPORT_ROOT_USER_ID`, `TECHSUPPORT_PUB`) are currently constants in `src/shared/techsupport.ts`. They should also be announced in Gun so a new peer can verify them without trusting the bundle.
 
-- [ ] Write `{ userId, pub, epub, role: 'techsupport' }` to `gun.get('public/techsupport-identity')` signed with the TechSupport SEA key on server startup.
-- [ ] Browser: on boot, read `public/techsupport-identity`, verify signature, and cross-check against the compiled constant — mismatch triggers a visible security warning.
+- [x] Write `{ userId, pub, epub, role: 'techsupport' }` to `gun.get('public/techsupport-identity')` signed with the TechSupport SEA key on server startup. Development keypair is local-only in `.env.local`; rotate it before production.
+- [x] Browser: on boot, read `public/techsupport-identity`, verify signature, and cross-check against the compiled constant — mismatch triggers a visible security warning.
 - [ ] E2E: assert that a fresh browser without the compiled constant can discover TechSupport identity solely from the Gun path.
 
 ### P3 — Location-based chatroom auto-join hints
@@ -88,11 +88,11 @@ When a user grants location access, the app should suggest or auto-join the most
 
 TechSupport needs a broadcast channel for maintenance notices, rule changes, and safety alerts that every peer sees without a DM conversation.
 
-- [ ] Gun path `public/announcements` — append-only list of `{ id, authorPub, text, createdAt, expiresAt, signature }`.
-- [ ] Server-side: `POST /api/admin/announcements` (TechSupport-auth only) writes + signs a new entry.
-- [ ] Browser: on boot subscribe to `gun.get('public/announcements').map().on(...)`, render unexpired entries as a dismissible banner above the chatroom list.
-- [ ] `shouldSkipServerGunPersist` exemption so announcements ARE hub-persisted (public, not user-private).
-- [ ] Unit test: announcement with expired `expiresAt` not rendered; invalid signature rejected.
+- [x] Gun path `public/announcements` — append-only list of `{ id, authorPub, text, createdAt, expiresAt, signature }`.
+- [x] Server-side: `POST /api/admin/announcements` (TechSupport-auth only) writes + signs a new entry.
+- [x] Browser: on boot subscribe to `gun.get('public/announcements').map().on(...)`, render unexpired entries as a dismissible banner above the chatroom list.
+- [x] `shouldSkipServerGunPersist` exemption so announcements ARE hub-persisted (public, not user-private).
+- [x] Unit test: announcement with expired `expiresAt` not rendered; invalid signature rejected.
 
 ---
 

@@ -17,6 +17,8 @@ import { registerUserRoutes } from './routes/user-routes';
 import { registerSocketHandlers } from './socket/register-socket-handlers';
 import { MailboxStore } from './services/mailbox-store';
 import { registerMailboxRoutes } from './routes/mailbox-routes';
+import { registerAdminRoutes } from './routes/admin-routes';
+import { TechSupportAnnouncementService } from './services/techsupport-announcement-service';
 import {
   inspectSchemaVersions,
   type SchemaKind,
@@ -33,6 +35,7 @@ class IinPublicServer {
   private talkService!: TalkService;
   private userService!: UserService;
   private reputationService!: ReputationService;
+  private techSupportAnnouncements!: TechSupportAnnouncementService;
 
   private mailboxStore = new MailboxStore();
   private mailboxSweepTimer: ReturnType<typeof setInterval> | undefined;
@@ -65,8 +68,16 @@ class IinPublicServer {
     this.reputationService = new ReputationService(this.gunService);
     this.chatroomManager = new ChatroomManager(this.gunService);
     this.talkService = new TalkService(this.gunService, this.reputationService);
+    this.techSupportAnnouncements = new TechSupportAnnouncementService(this.gunService);
     this.logStartupSchemaDiagnostics();
     this.gun.get('public').get('chatroom-hierarchy').put(JSON.stringify(CHATROOM_HIERARCHY));
+    if (this.techSupportAnnouncements.isConfigured()) {
+      void this.techSupportAnnouncements.publishIdentity().catch((error) => {
+        logger.error({ error }, 'Could not publish TechSupport identity');
+      });
+    } else {
+      logger.warn('TechSupport SEA identity is not configured; bootstrap identity and announcements are disabled');
+    }
   }
 
   /**
@@ -157,6 +168,7 @@ class IinPublicServer {
     });
 
     registerChatroomRoutes(this.app, { chatroomManager: this.chatroomManager });
+    registerAdminRoutes(this.app, this.techSupportAnnouncements);
 
     registerStatsRoutes(this.app, {
       talkService: this.talkService,

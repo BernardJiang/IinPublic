@@ -645,6 +645,8 @@ export function shouldSkipServerGunPersist(
   // Shared bootstrap metadata is intentionally hub-persisted so a fresh/offline peer
   // can reconstruct the room tree without trusting a particular live neighbor.
   if (path[0] === 'public' && path[1] === 'chatroom-hierarchy') return false;
+  // Signed TechSupport bootstrap records and announcements are public network metadata.
+  if (path[0] === 'public' && (path[1] === 'techsupport-identity' || path[1] === 'announcements')) return false;
   if (options.supportChannel) return false;
   if (options.relayP0TalkDelivery && parseBooleanFlag(readEnv('IINPUBLIC_ALLOW_LEGACY_SERVER_TALK_HISTORY'), false)) {
     return false;

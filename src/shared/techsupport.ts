@@ -2,6 +2,8 @@ import type { User } from './types';
 
 export const TECHSUPPORT_STAGE_NAME = 'TechSupport';
 export const TECHSUPPORT_ROOT_USER_ID = 'iinpublic-root-techsupport';
+/** Development trust anchor. Replace this public key together with the server secret before production. */
+export const TECHSUPPORT_PUB = 'mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ';
 export const TECHSUPPORT_NETWORK_ROLE = 'root-techsupport';
 export const TECHSUPPORT_HEADSHOT = 'TS';
 
@@ -39,4 +41,3 @@ export function assertStageNameAllowed(stageName: string, options?: { allowTechS
     throw new Error(`Stage name "${stageName}" is reserved.`);
   }
 }
-

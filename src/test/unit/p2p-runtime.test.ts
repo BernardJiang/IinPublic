@@ -101,6 +101,12 @@ describe('p2p runtime flags', () => {
     ).toBe(false);
   });
 
+  it('keeps signed TechSupport announcements durable', () => {
+    expect(
+      shouldSkipServerGunPersist(['public', 'announcements', 'notice-1'], resolveP2PRuntimeFlags({})),
+    ).toBe(false);
+  });
+
   it('classifies representative star Gun paths', () => {
     expect(STAR_GUN_PATH_CLASSIFICATIONS).toEqual(
       expect.arrayContaining([
