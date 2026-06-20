@@ -4691,6 +4691,12 @@ export class UIManager extends EventEmitter {
       </div>`;
 
       const byQuestionParts: string[] = [];
+      const completionFunnel = (filteredSummary.talkType === 'flow' || filteredSummary.talkType === 'route')
+        ? `<div class="survey-completion-funnel"><div class="survey-chart-title">Question completion</div>${(filteredSummary.byQuestion || []).map((q, index) => {
+            const width = Math.max(12, Math.round(q.completionRate));
+            return `<div class="survey-funnel-step"><span>Q${index + 1}</span><i style="width:${width}%"></i><b>${q.completionRate}%</b></div>`;
+          }).join('')}</div>`
+        : '';
       if (!filteredSummary.byQuestion || filteredSummary.byQuestion.length === 0) {
         byQuestionParts.push(`<p style="color:#64748b;font-size:0.92em;">${this.t('surveyNoQuestionBreakdown')}</p>`);
       } else {
@@ -4705,9 +4711,10 @@ export class UIManager extends EventEmitter {
             : q.answers
                 .map(
                   (a) => `
-              <div style="display:flex;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:8px;background:#f8fafc;margin-top:6px;border:1px solid #e2e8f0;">
-                <span style="min-width:0;">${escapeHtml(a.answerText || a.answerId)}</span>
-                <span style="flex-shrink:0;font-weight:600;">${a.count} <span style="color:#64748b;font-weight:500;">(${a.percentage}%)</span></span>
+              <div class="survey-answer-bar">
+                <span>${escapeHtml(a.answerText || a.answerId)}</span>
+                <i><b style="width:${Math.max(2, a.percentage)}%"></b></i>
+                <strong>${a.count} <em>(${a.percentage}%)</em></strong>
               </div>`,
                 )
                 .join('');
@@ -4740,15 +4747,15 @@ export class UIManager extends EventEmitter {
           .map((cell) => `<tr>
             <td style="padding:6px 8px;border-top:1px solid #e2e8f0;">${cell.masked ? '—' : escapeHtml(cell.answerAText)}</td>
             <td style="padding:6px 8px;border-top:1px solid #e2e8f0;">${cell.masked ? '—' : escapeHtml(cell.answerBText)}</td>
-            <td style="padding:6px 8px;border-top:1px solid #e2e8f0;text-align:right;">${cell.masked ? '—' : cell.count}</td>
-            <td style="padding:6px 8px;border-top:1px solid #e2e8f0;text-align:right;">${cell.masked ? '—' : `${cell.percentage}%`}</td>
+            <td style="padding:6px 8px;border-top:1px solid #e2e8f0;text-align:right;background:rgba(15,118,110,${cell.masked ? 0 : Math.min(0.5, cell.percentage / 160)});">${cell.masked ? '—' : cell.count}</td>
+            <td style="padding:6px 8px;border-top:1px solid #e2e8f0;text-align:right;background:rgba(15,118,110,${cell.masked ? 0 : Math.min(0.5, cell.percentage / 160)});">${cell.masked ? '—' : `${cell.percentage}%`}</td>
           </tr>`)
           .join('');
         crossQSection = `
           <div style="margin-top:12px;padding:12px;border:1px solid #e2e8f0;border-radius:8px;">
             <div style="font-weight:700;color:#0f172a;margin-bottom:4px;">${this.t('surveyCrossQuestion')}</div>
             <div style="font-size:0.82em;color:#64748b;margin-bottom:8px;">${escapeHtml(questionLabel(qA.questionId))} × ${escapeHtml(questionLabel(qB.questionId))}</div>
-            <table style="width:100%;border-collapse:collapse;font-size:0.88em;">
+            <table class="survey-heatmap" style="width:100%;border-collapse:collapse;font-size:0.88em;">
               <thead><tr>
                 <th style="text-align:left;padding:6px 8px;">${escapeHtml(questionLabel(qA.questionId).slice(0, 20))}</th>
                 <th style="text-align:left;padding:6px 8px;">${escapeHtml(questionLabel(qB.questionId).slice(0, 20))}</th>
@@ -4789,6 +4796,7 @@ export class UIManager extends EventEmitter {
         ${privacyLine}
         <div style="margin-top:14px;padding:12px;border:1px solid #e2e8f0;border-radius:8px;">
           <div style="font-weight:700;color:#0f172a;">${this.t('surveyQuestionDistribution')}</div>
+          ${completionFunnel}
           ${byQuestionParts.join('')}
         </div>
         ${crossQSection}

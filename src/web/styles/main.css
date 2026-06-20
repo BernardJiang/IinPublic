@@ -2178,6 +2178,20 @@ body {
   font-size: 0.78em;
 }
 
+.survey-chart-title { margin-bottom: 8px; color: #0f172a; font-size: 0.9em; font-weight: 700; }
+.survey-completion-funnel { display: grid; gap: 6px; margin: 14px 0; padding: 12px; border: 1px solid #dbeafe; border-radius: 8px; background: #f8fbff; }
+.survey-funnel-step { display: grid; grid-template-columns: 28px 1fr 42px; align-items: center; gap: 8px; color: #475569; font-size: 0.82em; }
+.survey-funnel-step i { display: block; height: 14px; overflow: hidden; border-radius: 3px; background: #dbeafe; }
+.survey-funnel-step i::before { content: ''; display: block; width: 100%; height: 100%; background: #2563eb; }
+.survey-funnel-step i { clip-path: polygon(0 0, 100% 0, 88% 100%, 12% 100%); }
+.survey-funnel-step b { text-align: right; }
+.survey-answer-bar { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(90px, 2fr) auto; align-items: center; gap: 10px; padding: 8px 10px; margin-top: 6px; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; }
+.survey-answer-bar > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.survey-answer-bar i { height: 8px; overflow: hidden; border-radius: 4px; background: #dbeafe; }
+.survey-answer-bar i b { display: block; height: 100%; background: #2563eb; }
+.survey-answer-bar strong { white-space: nowrap; }
+.survey-answer-bar em { color: #64748b; font-style: normal; font-weight: 500; }
+
 .conversation-transport-chip {
   margin-left: 7px;
   border: 1px solid #bfdbfe;
