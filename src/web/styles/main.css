@@ -2077,6 +2077,39 @@ body {
   background: #22c55e;
 }
 
+.peer-compatibility {
+  margin-top: 9px;
+}
+
+.peer-compatibility-label {
+  display: flex;
+  justify-content: space-between;
+  color: #475569;
+  font-size: 0.8em;
+}
+
+.peer-compatibility-track {
+  height: 7px;
+  overflow: hidden;
+  margin-top: 4px;
+  border-radius: 4px;
+  background: #e2e8f0;
+}
+
+.peer-compatibility-track span {
+  display: block;
+  height: 100%;
+  background: #16a34a;
+}
+
+.peer-shared-tags {
+  display: grid;
+  gap: 3px;
+  margin-top: 8px;
+  color: #166534;
+  font-size: 0.84em;
+}
+
 .conversation-transport-chip {
   margin-left: 7px;
   border: 1px solid #bfdbfe;

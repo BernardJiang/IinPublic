@@ -6655,6 +6655,7 @@ export class UIManager extends EventEmitter {
       apiBase: this.apiBase,
       getMyConversations: this.getMyConversations.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
+      getCurrentInterests: () => Array.isArray(this.currentUser?.interests) ? this.currentUser!.interests : [],
       showConversationDetail: this.showConversationDetail.bind(this),
       registerTalkForPeer: this.registerTalkForPeer.bind(this),
       isBlockedByMe: this.isBlockedByMe.bind(this),

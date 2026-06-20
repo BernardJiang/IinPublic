@@ -7,6 +7,7 @@ import {
   localTalkHistoryForPeer,
   readLocalTalkExchanges,
 } from '../services/local-peer-derivation';
+import { matchScore } from '../../shared/talk-engine';
 
 type PublicProfileFoundation = {
   headshot?: string | null;
@@ -20,6 +21,7 @@ export type UserDetailViewDeps = {
   apiBase: string;
   getMyConversations: () => Record<string, any>;
   getMyTalks: () => Record<string, any>;
+  getCurrentInterests?: () => Array<{ name?: string; weight?: number; popularity?: number } | string>;
   showConversationDetail: (conversationId: string) => void;
   registerTalkForPeer: (talkId: string, talkData: any, peerId: string, peerName: string) => Promise<void>;
   isBlockedByMe: (userId: string) => boolean;
@@ -420,14 +422,26 @@ function renderProfileHtml(publicUser: any, deps: UserDetailViewDeps): string {
     ? publicUser.interests.map((t: { name?: string }) => String(t?.name || '').trim()).filter(Boolean)
     : [];
   const profile = Array.isArray(publicUser?.profile) ? publicUser.profile.filter((qa: any) => qa?.question && qa?.answer) : [];
+  const ownInterests = (deps.getCurrentInterests?.() || []).map((interest) => typeof interest === 'string' ? interest : String(interest?.name || '')).filter(Boolean);
+  const ownKeys = new Set(ownInterests.map((interest) => interest.trim().toLowerCase()));
+  const sharedInterests = interests.filter((interest: string) => ownKeys.has(interest.trim().toLowerCase()));
+  const score = matchScore(ownInterests, interests);
+  const compatibility = ownInterests.length || interests.length
+    ? Math.min(100, Math.round((score / Math.max(ownInterests.length, interests.length, 1)) * 100))
+    : 0;
   return `
     <div class="peer-stat-card" style="margin-bottom:12px;">
       <div style="display:flex; gap:12px; align-items:flex-start;">
         <div class="user-avatar" style="width:56px; height:56px; font-size:1.5em; flex-shrink:0;">${avatarInnerHtml(headshot, '?', escapeHtml)}</div>
         <div style="min-width:0; flex:1;">
           <div style="font-weight:700; color:#111827;">${deps.text('publicProfile')}</div>
+          <div class="peer-compatibility" aria-label="Compatibility ${compatibility}%">
+            <div class="peer-compatibility-label"><span>Compatibility</span><strong>${compatibility}%</strong></div>
+            <div class="peer-compatibility-track"><span style="width:${compatibility}%"></span></div>
+          </div>
           <div style="font-size:0.85em; color:#475569; margin-top:4px;">${deps.text('languagesLabel')}: ${escapeHtml(languages.length > 0 ? languages.map((code: string) => deps.formatLanguage(code)).join(', ') : deps.text('notListed'))}</div>
           ${interests.length > 0 ? `<div style="font-size:0.85em; color:#475569; margin-top:4px;">${deps.text('interestsLabel')}: ${escapeHtml(interests.join(', '))}</div>` : ''}
+          ${sharedInterests.length > 0 ? `<div class="peer-shared-tags"><strong>Shared tags</strong><span>${escapeHtml(sharedInterests.join(', '))}</span></div>` : ''}
           <div style="display:grid; gap:8px; margin-top:10px;">
             ${
               profile.length > 0
