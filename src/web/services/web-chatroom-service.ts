@@ -645,6 +645,17 @@ export class WebChatroomService {
     console.log(`👂 Subscribing to member count for chatroom: ${chatroomId}`);
     const gun = this.gunService.getGun();
 
+    // The server publishes this aggregate alongside its presence updates.  Reading it
+    // avoids a separate HTTP request and does not disclose the room's member list.
+    const publicCountRef = gun
+      .get('public')
+      .get('room-member-counts')
+      .get(chatroomId);
+    const publicCountOff = publicCountRef.on((value: unknown) => {
+      const count = Number((value as { count?: unknown } | null)?.count);
+      if (Number.isFinite(count) && count >= 0) callback(count);
+    });
+
     // Track active members for this chatroom
     const activeMembers = new Map<string, any>();
     let updateTimeout: NodeJS.Timeout | null = null;
@@ -718,6 +729,7 @@ export class WebChatroomService {
         updateTimeout = null;
       }
       off.off();
+      publicCountOff?.off?.();
     });
   }
 

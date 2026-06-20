@@ -270,6 +270,7 @@ export class ChatroomManager {
     const headcount = Number(current) || 0;
     await this.gunService.putPath(['chatrooms', chatroomId, 'headcount'], headcount + 1);
     await this.recordVisit(chatroomId, userId);
+    await this.publishRoomMemberCount(chatroomId);
   }
 
   async addMemberFast(chatroomId: string, userId: string, stageName?: string): Promise<void> {
@@ -282,6 +283,7 @@ export class ChatroomManager {
       this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], memberData),
       this.gunService.putPath(['chatroomMembers', chatroomId, userId], memberData),
     ]);
+    await this.publishRoomMemberCount(chatroomId);
   }
 
   private async recordVisit(chatroomId: string, userId: string): Promise<void> {
@@ -314,6 +316,19 @@ export class ChatroomManager {
     const current = await this.gunService.getPath(['chatrooms', chatroomId, 'headcount']);
     const headcount = Number(current) || 0;
     await this.gunService.putPath(['chatrooms', chatroomId, 'headcount'], Math.max(0, headcount - 1));
+    await this.publishRoomMemberCount(chatroomId);
+  }
+
+  /**
+   * Publish the server-observed active-member total for lightweight room-list badges.
+   * This is deliberately public aggregate data: no member identities are exposed here.
+   */
+  private async publishRoomMemberCount(chatroomId: string): Promise<void> {
+    const count = (await this.getActiveMembersWithStageName(chatroomId)).length;
+    await this.gunService.putPath(['public', 'room-member-counts', chatroomId], {
+      count,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   async moveChatroom(userId: string, oldChatroomId: string, newChatroomId: string): Promise<void> {

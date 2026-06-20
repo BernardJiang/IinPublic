@@ -9,7 +9,7 @@ import { WebLedgerService } from '../services/web-ledger-service';
 import { UIManager, type BroadcastAudiencePreview } from '../ui/ui-manager';
 import { LocationPrivacy } from '../../shared/location';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
-import { applyPublicChatroomHierarchy, getAllChatroomIds } from '../../shared/chatroom-hierarchy';
+import { applyPublicChatroomHierarchy, getAllChatroomIds, getFlatChatroomList } from '../../shared/chatroom-hierarchy';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, computeCIDv1 } from '../../shared/cid';
 import { isDevStageZero } from '../dev-stage-env';
@@ -645,6 +645,7 @@ export class IinPublicApp {
 
     // Show main interface
     this.uiManager.showMainInterface(this.currentUser!);
+    this.showLocationRoomSuggestion();
 
     // Subscribe to member counts for all chatrooms (real-time updates)
     this.subscribeToAllChatroomMemberCounts();
@@ -656,6 +657,22 @@ export class IinPublicApp {
       this.stageZeroBootedAt = Date.now();
       this.startStageZeroHeadcountWatchdog();
     }
+  }
+
+  /** Show once per user/device after location has selected a more specific hierarchy room. */
+  private showLocationRoomSuggestion(): void {
+    if (!this.currentUser || !this.currentLocation) return;
+    const key = `iinpublic_location_room_suggestion_shown:${this.currentUser.id}`;
+    if (localStorage.getItem(key)) return;
+    const path = getLocationChatroomPath(this.currentLocation);
+    const roomId = path[path.length - 1];
+    if (!roomId || roomId === this.currentChatroomId) return;
+    const room = getFlatChatroomList().find((entry) => entry.id === roomId);
+    if (!room) return;
+    localStorage.setItem(key, '1');
+    this.uiManager.showLocationRoomSuggestion(room.name, () => {
+      this.uiManager.emit('chatroomChanged', roomId);
+    });
   }
 
   /**

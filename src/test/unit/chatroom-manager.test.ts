@@ -49,10 +49,14 @@ describe('ChatroomManager visit accounting', () => {
     await manager.joinChatroom('room_1', 'user_1', 'Tom');
     await manager.joinChatroom('room_1', 'user_1', 'Tom');
     expect(await manager.getActiveMembersWithStageName('room_1')).toEqual([{ userId: 'user_1', stageName: 'Tom' }]);
+    expect(await (manager as any).gunService.getPath(['public', 'room-member-counts', 'room_1']))
+      .toMatchObject({ count: 1 });
     expect(await manager.getChatroom('room_1')).toMatchObject({ visitCount: 1, uniqueVisitorCount: 1 });
 
     await manager.leaveChatroom('room_1', 'user_1');
     expect(await manager.getActiveMembersWithStageName('room_1')).toEqual([]);
+    expect(await (manager as any).gunService.getPath(['public', 'room-member-counts', 'room_1']))
+      .toMatchObject({ count: 0 });
     expect(await manager.getChatroom('room_1')).toMatchObject({ visitCount: 1, uniqueVisitorCount: 1 });
 
     await manager.joinChatroom('room_1', 'user_1', 'Tom');

@@ -391,6 +391,35 @@ body {
 }
 
 /* Welcome Banner */
+.location-room-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #b9c8ff;
+  border-radius: 8px;
+  background: #f2f5ff;
+  color: #25356f;
+}
+
+.location-room-suggestion button {
+  border: 0;
+  border-radius: 5px;
+  padding: 5px 9px;
+  cursor: pointer;
+  background: #667eea;
+  color: #fff;
+}
+
+.location-room-suggestion button[data-action="dismiss"] {
+  margin-left: auto;
+  background: transparent;
+  color: #53618b;
+  font-size: 18px;
+  line-height: 1;
+}
+
 /* Status Bar - Permanent chatroom status display */
 .status-bar {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);

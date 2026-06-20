@@ -79,10 +79,10 @@ The TechSupport root user ID and public key (`TECHSUPPORT_ROOT_USER_ID`, `TECHSU
 
 When a user grants location access, the app should suggest or auto-join the most specific matching chatroom from the hierarchy.
 
-- [ ] `getCurrentLocation()` (`src/shared/location.ts`) → `LocationPrivacy.blurLocation()` → walk `CHATROOM_HIERARCHY` to find the best-match city/region room.
-- [ ] Write the user's blurred chatroom affinity to `gun.get('user-public-profile/<userId>').get('chatroomAffinity')` so peers in the same room can discover them.
-- [ ] UI: on first location grant, show "Suggested room: [City]" banner with one-click join.
-- [ ] Gun path `public/room-member-counts/<roomId>` maintained by server presence heartbeat — browser reads it to show live member counts in the room list without a separate HTTP call.
+- [x] `getCurrentLocation()` (`src/shared/location.ts`) → `LocationPrivacy.blurLocation()` → walk `CHATROOM_HIERARCHY` to find the best-match city/region room.
+- [x] Write the user's blurred chatroom affinity to `gun.get('user-public-profile/<userId>').get('chatroomAffinity')` so peers in the same room can discover them.
+- [x] UI: on first location grant, show "Suggested room: [City]" banner with one-click join.
+- [x] Gun path `public/room-member-counts/<roomId>` maintained by server presence heartbeat — browser reads it to show live member counts in the room list without a separate HTTP call.
 
 ### P4 — System announcements channel
 
