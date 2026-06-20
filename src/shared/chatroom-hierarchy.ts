@@ -670,6 +670,37 @@ export const CHATROOM_HIERARCHY: ChatroomNode = {
   ],
 };
 
+let runtimeChatroomHierarchy: ChatroomNode = CHATROOM_HIERARCHY;
+
+export function getActiveChatroomHierarchy(): ChatroomNode {
+  return runtimeChatroomHierarchy;
+}
+
+function isChatroomNode(value: unknown): value is ChatroomNode {
+  if (!value || typeof value !== 'object') return false;
+  const node = value as Partial<ChatroomNode>;
+  return typeof node.id === 'string' && typeof node.name === 'string' &&
+    typeof node.icon === 'string' && typeof node.description === 'string' &&
+    (node.children === undefined || (Array.isArray(node.children) && node.children.every(isChatroomNode)));
+}
+
+/** Merge remote public additions without allowing a malformed or partial graph to replace the bundled fallback. */
+export function mergeChatroomHierarchy(local: ChatroomNode, remote: unknown): ChatroomNode {
+  if (!isChatroomNode(remote) || remote.id !== local.id) return local;
+  const remoteById = new Map((remote.children || []).map((child) => [child.id, child]));
+  const localChildren = (local.children || []).map((child) =>
+    mergeChatroomHierarchy(child, remoteById.get(child.id)),
+  );
+  const additions = (remote.children || []).filter((child) => !localChildren.some((localChild) => localChild.id === child.id));
+  return { ...local, children: [...localChildren, ...additions] };
+}
+
+export function applyPublicChatroomHierarchy(raw: unknown): ChatroomNode {
+  const parsed = typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : raw;
+  runtimeChatroomHierarchy = mergeChatroomHierarchy(CHATROOM_HIERARCHY, parsed);
+  return runtimeChatroomHierarchy;
+}
+
 /**
  * Flatten the tree structure into a list of all chatroom IDs
  * Useful for subscribing to all chatrooms
@@ -684,7 +715,7 @@ export function getAllChatroomIds(): string[] {
     }
   }
 
-  traverse(CHATROOM_HIERARCHY);
+  traverse(runtimeChatroomHierarchy);
   return ids;
 }
 
@@ -726,7 +757,7 @@ export function getFlatChatroomList(): FlatChatroomNode[] {
     }
   }
 
-  traverse(CHATROOM_HIERARCHY, 0);
+  traverse(runtimeChatroomHierarchy, 0);
   return flatList;
 }
 

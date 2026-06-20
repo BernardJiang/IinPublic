@@ -21,6 +21,7 @@ import {
   inspectSchemaVersions,
   type SchemaKind,
 } from '../shared/p2p-schema-migrations';
+import { CHATROOM_HIERARCHY } from '../shared/chatroom-hierarchy';
 
 class IinPublicServer {
   private app: express.Application;
@@ -65,6 +66,7 @@ class IinPublicServer {
     this.chatroomManager = new ChatroomManager(this.gunService);
     this.talkService = new TalkService(this.gunService, this.reputationService);
     this.logStartupSchemaDiagnostics();
+    this.gun.get('public').get('chatroom-hierarchy').put(JSON.stringify(CHATROOM_HIERARCHY));
   }
 
   /**

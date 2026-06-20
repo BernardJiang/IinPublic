@@ -9,6 +9,8 @@ import {
   getRoleCapabilities,
   canAssignRole,
   chatroomRolePath,
+  CHATROOM_HIERARCHY,
+  mergeChatroomHierarchy,
 } from '../../shared/chatroom-hierarchy';
 import type { CommunityRole } from '../../shared/types';
 
@@ -128,5 +130,23 @@ describe('canAssignRole (FR-CR-12)', () => {
 describe('chatroomRolePath', () => {
   it('produces the expected Gun path', () => {
     expect(chatroomRolePath('room-1', 'user-abc')).toBe('chatroomRoles/room-1/user-abc');
+  });
+});
+
+describe('public chatroom hierarchy bootstrap', () => {
+  it('keeps the bundled hierarchy and accepts remote child additions', () => {
+    const merged = mergeChatroomHierarchy(CHATROOM_HIERARCHY, {
+      ...CHATROOM_HIERARCHY,
+      children: [...(CHATROOM_HIERARCHY.children || []), {
+        id: 'remote-room', name: 'Remote Room', icon: '#', description: 'Published room',
+      }],
+    });
+    expect(merged.children?.some((child) => child.id === 'remote-room')).toBe(true);
+    expect(merged.children?.some((child) => child.id === 'north-america')).toBe(true);
+  });
+
+  it('rejects malformed remote hierarchy data', () => {
+    expect(mergeChatroomHierarchy(CHATROOM_HIERARCHY, { id: 'global', children: [{ id: 'bad' }] }))
+      .toBe(CHATROOM_HIERARCHY);
   });
 });

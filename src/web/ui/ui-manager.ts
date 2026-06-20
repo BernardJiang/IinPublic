@@ -22,7 +22,7 @@ import { normalizeProfileAttributeVisibility } from '../../shared/profile-privac
 import { INTEREST_CATEGORY_LABELS, INTEREST_CATEGORY_SELECT_ORDER } from '../../shared/interest-catalog';
 import { TalkValidator, TalkAutofix } from '../../shared/talk-engine';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
-import { getFlatChatroomList, CHATROOM_HIERARCHY } from '../../shared/chatroom-hierarchy';
+import { getFlatChatroomList, getActiveChatroomHierarchy } from '../../shared/chatroom-hierarchy';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { LocationPrivacy } from '../../shared/location';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
@@ -692,7 +692,7 @@ export class UIManager extends EventEmitter {
     const flat = getFlatChatroomList();
     const node = flat.find((n) => n.id === chatroomId);
     if (node) return `${node.icon} ${node.name}`;
-    const findInTree = (node: typeof CHATROOM_HIERARCHY): string | null => {
+    const findInTree = (node: ReturnType<typeof getActiveChatroomHierarchy>): string | null => {
       if (node.id === chatroomId) return node.name;
       if (node.children) {
         for (const ch of node.children) {
@@ -702,7 +702,7 @@ export class UIManager extends EventEmitter {
       }
       return null;
     };
-    const treeName = findInTree(CHATROOM_HIERARCHY);
+    const treeName = findInTree(getActiveChatroomHierarchy());
     if (treeName) return treeName;
     return chatroomId
       .split('-')

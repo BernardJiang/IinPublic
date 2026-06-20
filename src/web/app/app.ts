@@ -9,7 +9,7 @@ import { WebLedgerService } from '../services/web-ledger-service';
 import { UIManager, type BroadcastAudiencePreview } from '../ui/ui-manager';
 import { LocationPrivacy } from '../../shared/location';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
-import { getAllChatroomIds } from '../../shared/chatroom-hierarchy';
+import { applyPublicChatroomHierarchy, getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, computeCIDv1 } from '../../shared/cid';
 import { isDevStageZero } from '../dev-stage-env';
@@ -594,6 +594,9 @@ export class IinPublicApp {
     // Initialize services (stage-zero server wipe happens in index.ts before init; do not purge
     // here — clearing the graph before SEA auth breaks gun.user().auth()).
     await this.gunService.initialize();
+    this.gunService.getGun().get('public').get('chatroom-hierarchy').on((raw: unknown) => {
+      applyPublicChatroomHierarchy(raw);
+    });
     await this.gunService.ensureKeypairAndAuth();
     await this.syncConversationTransportFromServer();
     this.initLedgerTransportHooks();
