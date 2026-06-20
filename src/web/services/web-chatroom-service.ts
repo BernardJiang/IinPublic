@@ -1,8 +1,7 @@
 import { GPSCoordinate } from '../../shared/types';
-import { LocationPrivacy } from '../../shared/location';
 import { WebGunService } from './web-gun-service';
 import { CONFIG } from '../../shared/config';
-import { findAppropriateChildChatroom } from '../../shared/location-to-chatroom';
+import { findAppropriateChildChatroom, getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import type { ChallengeGateConfig } from '../../shared/challenge-plugins';
 import { getChallengePlugin } from '../../shared/challenge-plugins';
@@ -57,15 +56,9 @@ export class WebChatroomService {
   }
 
   async findOptimalChatroom(location: GPSCoordinate): Promise<string> {
-    // Blur location and get the region
-    const blurredLocation = LocationPrivacy.blurLocation(location);
-
-    // Use the primary region with room_0 suffix
-    // This ensures all users in the same region are in the same chatroom
-    const chatroomId = `${blurredLocation.region}_room_0`;
-
-    console.log(`🔍 Finding chatroom for region: ${blurredLocation.region} -> ${chatroomId}`);
-
+    const chatroomPath = getLocationChatroomPath(location);
+    const chatroomId = chatroomPath[chatroomPath.length - 1] || CONFIG.GLOBAL_CHATROOM_ID;
+    console.log(`🔍 Finding hierarchical chatroom: ${chatroomPath.join(' → ')} -> ${chatroomId}`);
     return chatroomId;
   }
 

@@ -9,6 +9,7 @@ import {
   type Tag,
 } from '../../shared/types';
 import { LocationPrivacy } from '../../shared/location';
+import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { WebGunService } from './web-gun-service';
 import { v4 as uuidv4 } from 'uuid';
 import { generateRandomStageName, normalizeQuestionKey } from '../../shared/user-utils';
@@ -534,6 +535,14 @@ export class WebUserService {
   async updateUserLocation(userId: string, location: GPSCoordinate): Promise<void> {
     const blurredLocation = LocationPrivacy.blurLocation(location);
     await this.gunService.put(`users/${userId}/location`, blurredLocation);
+    const chatroomPath = getLocationChatroomPath(location);
+    const chatroomId = chatroomPath[chatroomPath.length - 1] || 'global';
+    // Public affinity is a room identifier/path only — never publish raw GPS.
+    await this.gunService.put(`user-public-profile/${userId}/chatroomAffinity`, {
+      chatroomId,
+      chatroomPath,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   async setUserStatus(userId: string, status: 'online' | 'away' | 'offline'): Promise<void> {

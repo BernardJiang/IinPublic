@@ -244,6 +244,9 @@ export class UIManager extends EventEmitter {
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
   private talksViewMode: 'all' | 'in' | 'out' = 'all';
   private talksOutSortMode: 'recent' | 'oldest' | 'latest-reply' | 'matches' | 'responses' | 'match-rate' | 'weighted' | 'title' = 'recent';
+  private talksQuery = '';
+  private talksTypeFilter = 'all';
+  private talksCompletionFilter: 'all' | 'unanswered' | 'answered' = 'all';
   private contactsSortId: string = 'matched-tags'; // Sort strategy for contacts view
   private apiBase: string = '';
   private currentUserId: string = '';
@@ -905,6 +908,19 @@ export class UIManager extends EventEmitter {
                   <option value="weighted">Weighted performance</option>
                   <option value="title">Title</option>
                 </select>
+                <input class="form-input" id="talks-filter-query" aria-label="Search talks" type="search" placeholder="Search talks" style="flex:1 1 150px; min-width:0;">
+                <select class="form-input" id="talks-filter-type" aria-label="Filter talks by type" style="flex:0 0 125px;">
+                  <option value="all">All types</option>
+                  <option value="tag">Tag</option>
+                  <option value="flow">Flow</option>
+                  <option value="survey">Survey</option>
+                  <option value="route">Route</option>
+                </select>
+                <select class="form-input" id="talks-filter-completion" aria-label="Filter talks by completion" style="flex:0 0 135px;">
+                  <option value="all">Any status</option>
+                  <option value="unanswered">Unanswered</option>
+                  <option value="answered">Answered</option>
+                </select>
               </div>
               <div class="embedded-stats-strip" id="talks-stats-strip" style="padding:8px 12px;color:#64748b;font-size:0.88em;"></div>
               <section id="creator-replies-panel" style="padding:12px;border-bottom:1px solid #e5e7eb;background:#fff;">
@@ -1223,6 +1239,18 @@ export class UIManager extends EventEmitter {
     });
     document.getElementById('talks-out-sort-order')?.addEventListener('change', (event) => {
       this.talksOutSortMode = (event.currentTarget as HTMLSelectElement).value as typeof this.talksOutSortMode;
+      this.displayTalksList();
+    });
+    document.getElementById('talks-filter-query')?.addEventListener('input', (event) => {
+      this.talksQuery = (event.currentTarget as HTMLInputElement).value;
+      this.displayTalksList();
+    });
+    document.getElementById('talks-filter-type')?.addEventListener('change', (event) => {
+      this.talksTypeFilter = (event.currentTarget as HTMLSelectElement).value;
+      this.displayTalksList();
+    });
+    document.getElementById('talks-filter-completion')?.addEventListener('change', (event) => {
+      this.talksCompletionFilter = (event.currentTarget as HTMLSelectElement).value as typeof this.talksCompletionFilter;
       this.displayTalksList();
     });
     this.restoreCreatorReplyFilterState();
@@ -2068,7 +2096,50 @@ export class UIManager extends EventEmitter {
       }
       return true;
     });
-    const inEntries = backendInEntries;
+    // Answered talks are retained locally after they leave the actionable inbox. Put
+    // them back in IN as read-only history so All/IN remains a complete talk ledger.
+    const answeredIncomingEntries = allEntries
+      .filter(([, talk]: [string, any]) => talk?.role === 'answered')
+      .map(([talkId, talk]: [string, any]) => {
+        const fullTalk = talk?.fullTalk || {};
+        const senderNames = Array.isArray(talk?.senders) ? talk.senders : [];
+        const primaryName = String(senderNames[0] || talk?.senderName || this.t('settingsUnknown'));
+        return {
+          identityKey: `answered:${talkId}`,
+          title: String(talk?.title || fullTalk?.title || this.t('talksIncomingFallback')),
+          type: String(talk?.type || fullTalk?.type || 'flow'),
+          language: String(fullTalk?.language || talk?.language || 'en'),
+          latestTalk: fullTalk,
+          senders: { [talkId]: { senderName: primaryName } },
+          isAnswered: true,
+          questionCount: Array.isArray(fullTalk?.questions) ? fullTalk.questions.length : 0,
+          updatedAt: talk?.lastInteraction || talk?.timestamp || Date.now(),
+          expiresAt: fullTalk?.expiresAt ?? talk?.expiresAt,
+          locationRadiusMiles: fullTalk?.locationRadiusMiles ?? talk?.locationRadiusMiles,
+          latestTalkId: talkId,
+        };
+      });
+    const allIncomingEntries = [...answeredIncomingEntries, ...backendInEntries];
+    const matchesTalkFilter = (entry: any, isIncoming: boolean): boolean => {
+      const talk = isIncoming ? entry : entry[1];
+      const type = String(talk?.type || talk?.fullTalk?.type || talk?.latestTalk?.type || 'flow').toLowerCase();
+      const title = String(talk?.title || talk?.fullTalk?.title || talk?.latestTalk?.title || '').toLowerCase();
+      const query = this.talksQuery.trim().toLowerCase();
+      const answered = isIncoming ? !!talk?.isAnswered : false;
+      return (!query || title.includes(query))
+        && (this.talksTypeFilter === 'all' || type === this.talksTypeFilter)
+        && (this.talksCompletionFilter === 'all'
+          || (this.talksCompletionFilter === 'answered' && answered)
+          || (this.talksCompletionFilter === 'unanswered' && !answered));
+    };
+    const filteredOutEntries = outEntries.filter((entry) => matchesTalkFilter(entry, false));
+    const inEntries = allIncomingEntries
+      .filter((entry) => matchesTalkFilter(entry, true))
+      .sort((a: any, b: any) => {
+        if (this.talksOutSortMode === 'title') return String(a.title || '').localeCompare(String(b.title || ''));
+        if (this.talksOutSortMode === 'oldest') return new Date(a.updatedAt || 0).getTime() - new Date(b.updatedAt || 0).getTime();
+        return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+      });
     const talksNavBack = document.getElementById('talks-nav-back');
     const activeMode = this.talksViewMode;
     const talksStatus = document.getElementById('talks-status-text');
@@ -2085,12 +2156,18 @@ export class UIManager extends EventEmitter {
       } as const)[this.talksOutSortMode]);
       talksStatus.textContent = this.tf('talksStatusSummary', {
         incoming: inEntries.length,
-        outgoing: outEntries.length,
+        outgoing: filteredOutEntries.length,
         sort: sortLabel,
       });
     }
     const talksSort = document.getElementById('talks-out-sort-order') as HTMLSelectElement | null;
     if (talksSort) talksSort.value = this.talksOutSortMode;
+    const talksQuery = document.getElementById('talks-filter-query') as HTMLInputElement | null;
+    if (talksQuery && talksQuery.value !== this.talksQuery) talksQuery.value = this.talksQuery;
+    const talksTypeFilter = document.getElementById('talks-filter-type') as HTMLSelectElement | null;
+    if (talksTypeFilter) talksTypeFilter.value = this.talksTypeFilter;
+    const talksCompletionFilter = document.getElementById('talks-filter-completion') as HTMLSelectElement | null;
+    if (talksCompletionFilter) talksCompletionFilter.value = this.talksCompletionFilter;
 
     document.querySelectorAll('.talks-nav-btn').forEach((button) => {
       button.classList.toggle('active', (button as HTMLElement).dataset.talksMode === activeMode);
@@ -2099,7 +2176,7 @@ export class UIManager extends EventEmitter {
       talksNavBack.style.display = activeMode === 'all' ? 'none' : 'inline-flex';
     }
 
-    if (allEntries.length === 0 && inEntries.length === 0) {
+    if (filteredOutEntries.length === 0 && inEntries.length === 0) {
       talksList.innerHTML = `
         <div class="empty-state" style="padding: 60px 20px; text-align: center;">
           <div style="font-size: 3em; margin-bottom: 16px;">💬</div>
@@ -2109,8 +2186,8 @@ export class UIManager extends EventEmitter {
       `;
     } else {
       const outHtml =
-        outEntries.length > 0
-          ? outEntries
+        filteredOutEntries.length > 0
+          ? filteredOutEntries
               .map(
                 ([talkId, talk]) => {
                   const stats = this.talkStatsMap[talkId];
@@ -2200,7 +2277,7 @@ export class UIManager extends EventEmitter {
 
       const inHtml =
         inEntries.length > 0
-          ? backendInEntries
+          ? inEntries
               .map((cluster: any) => {
                 const sendersObj = cluster?.senders && typeof cluster.senders === 'object' ? cluster.senders : {};
                 const senderNames = Array.from(
@@ -2302,9 +2379,9 @@ export class UIManager extends EventEmitter {
           : '';
 
       const sectionOut =
-        outEntries.length > 0
+        filteredOutEntries.length > 0
           ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: #374151; background: #f3f4f6; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
-               <span style="font-size: 1.2em;">📤</span> OUT <span style="font-size: 0.8em; font-weight: 400; color: #6b7280;">(${this.tf('talksOutSection', { count: this.formatTalkCount(outEntries.length) })})</span>
+               <span style="font-size: 1.2em;">📤</span> OUT <span style="font-size: 0.8em; font-weight: 400; color: #6b7280;">(${this.tf('talksOutSection', { count: this.formatTalkCount(filteredOutEntries.length) })})</span>
              </div>${outHtml}`
           : '';
       const sectionIn =
@@ -2333,8 +2410,8 @@ export class UIManager extends EventEmitter {
       }
 
       // Request stats for out talks (created/copied) only
-      if (outEntries.length > 0) {
-        const talkIds = outEntries.map(([id]) => id);
+      if (filteredOutEntries.length > 0) {
+        const talkIds = filteredOutEntries.map(([id]) => id);
         this.emit('needTalkStats', { talkIds });
       }
 

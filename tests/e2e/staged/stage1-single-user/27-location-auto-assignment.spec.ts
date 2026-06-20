@@ -51,7 +51,7 @@ test.describe('Location-based chatroom assignment', () => {
     await clearGunForStage1Spec();
   });
 
-  test('explicit location refresh moves the user to the blurred regional chatroom', async () => {
+  test('explicit location refresh moves the user to the mapped regional chatroom', async () => {
     const p = page!;
     await expect.poll(async () => p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.getCurrentChatroomId?.() || '')).toBe('global');
 
@@ -70,6 +70,6 @@ test.describe('Location-based chatroom assignment', () => {
         async () => p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.getCurrentChatroomId?.() || ''),
         { timeout: 30_000, intervals: [300, 600, 1000] },
       )
-      .toBe('region_40.71_-74.01_room_0');
+      .toBe('new-york-state');
   });
 });

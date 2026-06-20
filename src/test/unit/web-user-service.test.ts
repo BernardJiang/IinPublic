@@ -10,6 +10,23 @@ const pair: GunPair = {
 };
 
 describe('WebUserService', () => {
+  it('publishes only a hierarchical room affinity when location changes', async () => {
+    const gunService = { put: jest.fn().mockResolvedValue(undefined) };
+    const service = new WebUserService(gunService as any);
+
+    await service.updateUserLocation('user-1', {
+      latitude: 32.7157, longitude: -117.1611, accuracy: 10, timestamp: new Date(),
+    });
+
+    expect(gunService.put).toHaveBeenCalledWith('user-public-profile/user-1/chatroomAffinity', expect.objectContaining({
+      chatroomId: 'san-diego',
+      chatroomPath: ['global', 'north-america', 'usa', 'california', 'san-diego'],
+    }));
+    const affinity = gunService.put.mock.calls[1][1];
+    expect(JSON.stringify(affinity)).not.toContain('latitude');
+    expect(JSON.stringify(affinity)).not.toContain('longitude');
+  });
+
   it('creates a public user record and stores owner-only fields privately', async () => {
     const gunService = {
       put: jest.fn().mockResolvedValue(undefined),

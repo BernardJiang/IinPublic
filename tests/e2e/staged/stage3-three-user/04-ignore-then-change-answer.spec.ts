@@ -1,5 +1,5 @@
 /**
- * Multi-question talk: answered incoming talks leave IN and land in Me history.
+ * Multi-question talk: answered incoming talks remain as read-only IN history and land in Me history.
  */
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -18,7 +18,7 @@ import {
   finalCleanupPages,
 } from '../../helpers/talks-matching-flow';
 
-test.describe('Talks matching — answered incoming leaves IN', () => {
+test.describe('Talks matching — answered incoming remains in IN history', () => {
   let browsers: ThreeBrowsers;
   let browserTom: Browser;
   let browserJerry: Browser;
@@ -56,7 +56,7 @@ test.describe('Talks matching — answered incoming leaves IN', () => {
     await maybeClearGunDatabases();
   });
 
-  test('Jerry answers No and the answered incoming talk is removed from IN', async () => {
+  test('Jerry answers No and the answered incoming talk remains in read-only IN history', async () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
@@ -68,6 +68,9 @@ test.describe('Talks matching — answered incoming leaves IN', () => {
     pageJerry = jerry.page;
     await pageJerry.click('.chatroom-item:has-text("Global")');
     await afterSync();
+    // This scenario covers the read-only answered-IN ledger, not the separate
+    // auto-copy-to-OUT feature (which is enabled by default for new users).
+    await pageJerry.evaluate(() => localStorage.setItem('copyTalkAutoSave', 'false'));
 
     await pageTom.click('#create-talk-btn');
     await pageTom.waitForSelector('#talk-editor-form');
@@ -119,7 +122,7 @@ test.describe('Talks matching — answered incoming leaves IN', () => {
     await waitForTabActive(pageJerry, 'talks');
     await pageJerry.click('#talks-nav-in');
     await afterSync();
-    await expect(pageJerry.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: 'E2E Ignore Then Match Tennis' })).toHaveCount(0);
+    await expect(pageJerry.locator('.talk-list-item[data-role="incoming"].talk-incoming-answered').filter({ hasText: 'E2E Ignore Then Match Tennis' })).toHaveCount(1);
     await pageJerry.click('.nav-btn[data-view="me"]');
     await afterSync();
     await expect(pageJerry.locator('#answers-content').getByText('E2E Ignore Then Match Tennis').first()).toBeVisible({ timeout: 15000 });

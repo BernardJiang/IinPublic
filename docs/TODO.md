@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-06-18
+Last updated: 2026-06-20
 
 This file is the short, execution-oriented plan. The detailed acceptance inventory and the
 statistics / spec-gap follow-ups are consolidated into the appendices at the bottom of this file.
@@ -61,89 +61,11 @@ T1 retry-dependence inventory **promoted to `docs/completed.md` 2026-06-16** (st
 
 ---
 
-## GUI Polish — Talks presentation & information density `[Sonnet]`
-
-The current profile/talk UI mixes editing, review, and response history. Each item below adds a concrete, self-contained layer of information architecture, metadata, or interaction quality.
-
-### G0 — Settings and Me tab information architecture — **COMPLETED 2026-06-20**
-
-Settings should own account/profile editing, while Me should become a clean answer-history surface.
-- [ ] **Settings profile layout:** render StageName and Headshot in a vertical layout, with Headshot below or above StageName instead of side-by-side compression.
-- [ ] **Move profile editor to Settings:** remove the StageName/profile editing option from the Me tab; profile question/answer editing belongs in Settings with the other account controls.
-- [ ] **Move credit section to Settings:** relocate the reputation/credit section out of Me and into Settings so account status lives with account configuration.
-- [ ] **Me tab content contract:** Me shows only the user's recorded talk choices as a question/answer list; no StageName editor, profile editor, or credit panel.
-- [ ] **Me tab talk-type filters:** add four filters at the top of Me for tag, flow, survey, and route talks. All user choices across these talk types should be recorded and browsable here.
-- [ ] **Tag answer filters:** for tag talks, let the user choose whether to display checked, unchecked, and indeterminate/unanswered tags.
-- [ ] **Flow answer context:** for flow talks, each question/answer entry must show the flow context that produced it, including enough path/step context to understand why the question appeared.
-- [ ] **Survey answer independence:** for survey talks, render each question as an independent question/answer record with no implied path dependency.
-- [ ] **Route answer context:** for route talks, support both independent survey-like questions and flow-like contextual questions; each recorded answer should indicate which mode/context applies.
-
-### G1 — Talks tab visual taxonomy + tag quick decision — **COMPLETED 2026-06-20**
-
-The talks tab should make the four talk types visually distinct at a glance by varying size, color, and shape.
-- [ ] **Tag talks:** render as the smallest talk type. In OUT, show only the tag text and a checked tri-state checkbox; hide all other talk metadata from the list. Clicking the tag text opens the talk editor. Unchecking or moving the checkbox to unanswered removes the tag from the OUT list, and after page refresh it should remain gone. In IN, show the same compact tag with an indeterminate checkbox; clicking the checkbox makes a quick like/not-like decision, while clicking the tag text opens the talk editor for full details and editor-based decision.
-- [ ] **Tag state colors:** IN vs OUT and liked vs not-liked must use different colors so state and decision are recognizable without reading secondary text.
-- [ ] **Flow talks:** render at middle size with a distinct shape and color.
-- [ ] **Survey talks:** render at middle size, matching flow talk scale but using a different shape and color from flow.
-- [ ] **Route talks:** render as the largest talk type with its own distinct shape and color.
-
-### G2 — Richer talk cards in the incoming list — **COMPLETED 2026-06-20**
-
-Each incoming talk card currently shows title + type badge only. Add:
-- [ ] **Question count + progress ring** for flow/route talks (e.g. "Q3 of 5") so the user knows the depth before accepting.
-- [ ] **Language badge** (flag icon + ISO code) when the talk language differs from the viewer's preferred language — gives instant filter signal.
-- [ ] **Creator name + avatar thumbnail** (from `user-public-profile/<creatorId>`) — currently absent; adds social context.
-- [ ] **Time-to-expiry chip** ("Expires in 2 h") derived from `talk.expiresAt`; color-coded (green/amber/red).
-- [ ] **Distance chip** if the creator's blurred location is available in presence ("~3 km away") — reuse `blurredDistanceMiles` from the find-similar pipeline.
-- [ ] **Answer count** for survey and tag talks ("47 responses") pulled from local ledger aggregates.
-
-### G3 — Talk response flow UX — **COMPLETED 2026-06-20**
-
-Inside the response modal for flow/route talks:
-- [ ] **Step indicator bar** at the top: "Question 2 of 4" with filled dots for completed steps and an empty dot for the current one.
-- [ ] **Back button** for flow talks — allow the user to revise the previous answer before submitting (requires buffering answers locally and only submitting on the final step).
-- [ ] **Branch preview** for route talks: after selecting an answer show a subtle "this leads to: [next question title]" preview before the user commits.
-- [ ] **Auto-save draft** — if the modal is closed mid-flow, re-open at the same question (store draft in `localStorage` keyed by `talkId`).
-- [ ] **Estimated completion time** shown at the start of a flow/route talk (e.g. "~2 min, 4 questions").
-
-### G4 — Conversation list improvements — **COMPLETED 2026-06-20**
-
-`conversations-view.ts` currently shows: other user's name + talkId. Add:
-- [ ] **Last message preview** (first 60 chars, ellipsised) and **relative timestamp** ("3 min ago") — read from `GunMessageStore.listLocalWires` for the conversation.
-- [ ] **Unread badge** (count of messages since last `readAt` cursor) — store cursor in `localStorage`.
-- [ ] **Transport mode chip** ("P2P" / "Relay") derived from `transportMode` field already on the conversation record.
-- [ ] **Online indicator** — green dot if the peer has a live `PresenceRecord` (not expired).
-
-### G5 — Peer detail view enhancements — **COMPLETED 2026-06-20**
-
-`user-detail-view.ts` shows basic profile fields. Add:
-- [ ] **Compatibility score** (the `matchScore` from `find-similar.ts`) rendered as a percentage bar next to the peer's name — already computed in the contacts index, just needs to be passed through to the detail view.
-- [ ] **Talk exchange timeline** — chronological list of talks the two users exchanged (from `localTalkExchanges`), each showing outcome (match / ignore / pending) and date.
-- [ ] **Shared tags** panel — the intersection of their matched tag sets, ordered by mutual importance weight.
-- [ ] **Reputation summary** — render the peer's `Reputation` struct as compact icon-row (response rate, match rate, flagged count) rather than raw numbers.
-
-### G6 — Survey results visualization — **COMPLETED 2026-06-20**
-
-`displayStatisticsDashboard` renders tables. Replace/augment with:
-- [ ] **Horizontal bar chart** for tag-frequency and per-answer distribution — use the existing Canvas/SVG budget (no new library; D3 or plain SVG).
-- [ ] **Day-over-day sparkline** for response volume (last 14 days) on the dashboard header.
-- [ ] **Question completion funnel** for flow/route talks: each step's drop-off shown as a narrowing funnel chart, highlighting where users abandon.
-- [ ] **Cross-question heatmap** for survey talks: a 2-D matrix showing co-occurrence frequency for the top N question pairs.
-
 ---
 
 ## Public Gun Bootstrap — Shared knowledge graph `[Sonnet]`
 
 Certain data is logically global and should be replicated to every peer's local Gun graph on first connection, rather than fetched on demand. This makes the app functional with a degraded or offline hub.
-
-### P1 — Chatroom hierarchy as Gun-published constant
-
-`CHATROOM_HIERARCHY` in `src/shared/chatroom-hierarchy.ts` is a hardcoded static tree (Global → Region → City). It should also live in Gun at a well-known path so any peer can read/subscribe to additions without a code deploy.
-
-- [ ] On server startup, write `CHATROOM_HIERARCHY` to `gun.get('public/chatroom-hierarchy').put(JSON.stringify(hierarchy))` (idempotent).
-- [ ] Add `shouldSkipServerGunPersist` exemption so this path IS persisted (it's shared public knowledge, not user-private).
-- [ ] Browser: on boot, subscribe to `gun.get('public/chatroom-hierarchy')` and merge with the local static constant — remote wins for additions; local constant is the safe fallback.
-- [ ] Unit test: server write → browser read produces the same tree as the static import.
 
 ### P2 — TechSupport root identity bootstrap
 

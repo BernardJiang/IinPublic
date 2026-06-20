@@ -1,6 +1,6 @@
 /**
  * Alice creates a tag, broadcasts. Tom opens it and leaves the checkbox unchecked (mismatch).
- * Answered incoming tags are removed from IN and retained in Me history.
+ * Answered incoming tags remain as read-only IN history and are retained in Me history.
  */
 import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -21,7 +21,7 @@ import { waitForStatusBarMatchCountAtMost } from '../../helpers/durable-ui';
 
 const TAG_TITLE = 'E2E Tag Reopen Coffee';
 
-test.describe('Talks matching — tag answer removed from IN', () => {
+test.describe('Talks matching — tag answer retained in IN history', () => {
   let browsers: ThreeBrowsers;
   let browserAlice: Browser;
   let browserTom: Browser;
@@ -71,6 +71,9 @@ test.describe('Talks matching — tag answer removed from IN', () => {
     pageTom = tom.page;
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterSync();
+    // Keep this assertion focused on answered IN history rather than the
+    // independent auto-copy-to-OUT preference.
+    await pageTom.evaluate(() => localStorage.setItem('copyTalkAutoSave', 'false'));
 
     // Alice creates and broadcasts a tag
     await pageAlice.click('#create-talk-btn');
@@ -98,11 +101,11 @@ test.describe('Talks matching — tag answer removed from IN', () => {
     await expect(pageTom.locator('#answers-content').getByText(TAG_TITLE).first()).toBeVisible({ timeout: 15000 });
     await expect(pageTom.locator('#answers-content').getByText(/Mismatch/i).first()).toBeVisible({ timeout: 10000 });
 
-    // Answered incoming tags are removed from IN, so the old reopen path is no longer available.
+    // Answered incoming tags are retained in IN as read-only history.
     await pageTom.click('.nav-btn[data-view="talks"]');
     await afterSync();
     await pageTom.click('#talks-nav-in');
     await afterSync();
-    await expect(pageTom.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: TAG_TITLE })).toHaveCount(0);
+    await expect(pageTom.locator('.talk-list-item[data-role="incoming"].talk-incoming-answered').filter({ hasText: TAG_TITLE })).toHaveCount(1);
   });
 });

@@ -121,7 +121,7 @@ describe('answers view models', () => {
       formatLanguage: () => 'English',
     });
 
-    expect(document.querySelectorAll('.answer-context-group').length).toBe(1);
+    expect(document.querySelectorAll('.answer-question-item').length).toBe(2);
     const content = document.getElementById('answers-content')?.textContent || '';
     expect(content).toContain('Tennis? -> Yes');
     expect(content).toContain('Badminton? -> Yes');

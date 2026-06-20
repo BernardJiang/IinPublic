@@ -35,6 +35,7 @@
     "test:e2e:p0-talks": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 playwright test tests/e2e/staged/stage2-two-user/00i-p0-direct-talk-delivery.spec.ts",
     "test:e2e:staged": "npm run build:server && E2E_STAGE_PIPELINE=1 PW_WORKERS=1 DISABLE_HMR=true playwright test",
     "test:e2e:talks-matching": "npm run build:server && DISABLE_HMR=true playwright test tests/e2e/talks-matching",
+    "test:e2e:three-user-talk-matrix": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 playwright test tests/e2e/staged/stage3-three-user/15-three-user-talk-matrix.spec.ts",
     "test:e2e:l3:node-discovery": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true E2E_P2P_NODE_ENABLED=1 PW_WORKERS=1 playwright test tests/e2e/talks-matching/06-mesh-ping-with-hub-api-down.spec.ts",
     "test:e2e:l3:hub-stop": "npm run build:server && bash scripts/run_l3_hub_stop_e2e.sh",
     "test:e2e:partial-auto": "npm run build:server && DISABLE_HMR=true playwright test tests/e2e/talks-matching/05-partial-auto-answers.spec.ts",

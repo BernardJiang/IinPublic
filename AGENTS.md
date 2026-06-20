@@ -215,13 +215,13 @@ This is a starting point. Add your own conventions, style, and rules as you figu
 <claude-mem-context>
 # Memory Context
 
-# [IinPublic] recent context, 2026-06-18 11:07pm PDT
+# [IinPublic] recent context, 2026-06-20 12:06pm PDT
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (20,971t read) | 513,776t work | 96% savings
+Stats: 50 obs (20,001t read) | 580,379t work | 97% savings
 
 ### May 14, 2026
 S16 Full E2E suite now 65/65 passing — previous failure confirmed intermittent flake (May 14 at 11:45 PM)
@@ -237,29 +237,7 @@ S23 Verify Phase 5 follow-up items (steps 3 and 4): re-digest on reconnect and l
 S24 Green CI Commit dbf22108 Landed with scripts/ci-local.sh Created (Jun 14 at 2:51 PM)
 S25 Use local PC as CI — run ./scripts/ci-local.sh, fix failures, commit on green (Jun 14 at 3:52 PM)
 ### Jun 15, 2026
-694 9:51a 🔵 Confirmed: Ghost Subscription from warmDirectP2PSession Can Win Nonce Race and Suppress Real UI Delivery
-695 " 🔴 ServerRelayConversationTransport Refactored to Use Shared Broadcaster Pattern
-696 12:33p 🔵 T4/T5 Test Determinism Context: F-class Messaging Specs Blocked on T3 Relay Fallback
-697 " 🔵 E2E Timing Helpers Available for Explicit Wait Replacement
-698 " 🔵 F-class Spec Actual Paths Differ from TODO.md References
-699 12:34p 🔵 09-messaging.spec.ts Already Uses Timing Helpers and Peer Gates
-700 " 🔵 All Four F-class Specs Confirmed Missing retries=0 Pin; 00j Imports P2P Channel Wait Helpers
-701 " 🔵 Exact Insertion Points for retries=0 Pin Identified Across All Four F-class Specs
-702 12:36p ✅ T4 Complete: All Four F-class Messaging Specs Pinned to retries=0
-703 " 🔵 12-two-responders-partial-match.spec.ts Refactored to Use Shared Browser/Flow Helpers
-704 " 🔵 00k-p2p-handshake.spec.ts Has Peer Gate but No retries=0 Pin
-705 " 🔵 Two Single-User P2P Specs Missing Both Peer Gates and retries=0 Pin
-706 12:37p 🔵 playwright.config.ts Structure Confirmed for T5: retries:1 at Line 125 in defineConfig
-707 " ✅ T5 Complete: playwright.config.ts Global retries Lowered from 1 to 0
-708 3:59p 🟣 Gun.js Database Size Estimation Formulas Added to Architecture Docs
-709 " ⚖️ Four-Tier Data Retention Policy Defined for Gun.js Local Database
-710 " 🟣 Blockchain-Style Merkle Checkpoint Pattern Specified for Ledger and Conversation Pruning
-711 4:00p 🔵 TalkLedgerDoc Is a Pure In-Memory Value Object, Not a Gun Graph Node
-712 4:05p ✅ Gun.js Architecture Docs Enhanced with Storage, Retention, and Integrity Sections
-713 11:16p 🔵 Current P2PSignalingClient Uses HTTP Polling at 400ms Interval
-714 11:17p 🔵 GunBridge Architecture: Web Worker Proxy with subscribe() API Ready for P2P Signaling
-715 " 🔵 P2PConversationSession Integration Points for Gun Pub/Sub Signaling Migration
-716 " 🔵 WebGunService Holds GunBridge Instance and SEA Keypair — Integration Point for GunPubSubSignaler
+716 11:17p 🔵 WebGunService Holds GunBridge Instance and SEA Keypair — Integration Point for GunPubSubSignaler
 717 11:18p 🔵 P2PConversationSession Created via getOrCreateP2PSession() Factory — Single Injection Point for GunBridge
 718 11:19p 🔵 Three Call Sites for getOrCreateP2PSession() Require GunBridge Threading
 719 11:22p 🔵 P2PConversationSession.dispose() Is the Cleanup Hook for Gun Subscription Unsubscribe
@@ -288,6 +266,29 @@ S25 Use local PC as CI — run ./scripts/ci-local.sh, fix failures, commit on gr
 741 " 🟣 Extracted pruneSignalingMap() and startSignalingPruning() as exported functions in system-routes.ts
 742 " 🔄 Internal pruneSignaling closure simplified to one-liner; startSignalingPruning() wired into registerSystemRoutes()
 743 3:21p 🟣 Unit test file created for signaling pruning; TypeScript types clean
+### Jun 19, 2026
+744 11:18p 🔵 IinPublic Project Structure: Talk/Flow/Survey/Route E2E Test Infrastructure
+745 " 🔵 Talks Tab Architecture: All/IN/OUT Mode + Multi-Dimensional Sort/Filter System
+746 " 🔵 Me Tab Architecture: Flat Question List with Type/State Filters and Search
+747 " 🔵 Talk Lifecycle Fixture Helpers: buildFlowTalkPayload, buildTagTalkPayload and Answer ID Builders
+748 11:19p 🟣 Talks Tab: Added Search Query, Type Filter, and Completion Status Filter Controls
+749 11:20p 🟣 Talks Tab: Answered Talks Restored to IN Section + Universal Filter Applied to Both OUT and IN
+750 " 🔵 TypeScript Type Check Passes After Talks Tab Filter Patch
+751 11:21p 🔵 answers-view.ts Patch Failed: File Content Mismatch in Deduplication Block
+752 " 🔵 answers-view.ts Exact Current State: Dual-Path Deduplication Blocks at Lines 356-529
+753 " 🔄 answers-view.ts: Removed Deduplication Logic, Empty State Now Uses Raw Entry Counts
+754 " 🔵 answers-view.ts Post-Patch State: dedupedFlat/deduped forEach Still Present, Need Replacement
+755 11:22p 🟣 Me Tab: Questions Now Flattened to Individual Rows via flattenedHistory
+756 11:23p 🟣 New E2E Test: Three-User Complete Talk Matrix (15-three-user-talk-matrix.spec.ts)
+757 " 🔴 Answered Cluster Objects Must Use latestTalkId Not talkId for pickIncomingRowTalkId Compatibility
+758 " 🔵 E2E Test Blocked by Talk Ledger daily_talk_send_rate_limit on Broadcast
+759 11:24p 🔵 Talk Ledger Rate Limit Root Cause: TALK_SEND_DAILY=10 Cap With 12-Talk Broadcast Per User
+760 " 🔴 E2E Test Now Disables Talk Ledger Rate Limit via setTalkLedgerQuotaUnlimitedForE2e(true)
+761 " 🔵 Stale Node Processes on Ports 8080 and 3001 Blocking E2E Re-run
+762 11:25p 🔵 Rate Limit Fix Working: No daily_talk_send_rate_limit Errors in New Test Run
+763 11:26p 🟣 E2E Test 15-three-user-talk-matrix PASSED in 111.6 Seconds
+764 " 🔴 Me Tab Expected Question Count Corrected from 81 to 54 (Per-User Received Talks Only)
+765 11:27p ✅ Session Complete: Memory File Created, All Changes Confirmed Clean
 
-Access 514k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 580k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

@@ -2052,3 +2052,12 @@ Static analysis complete 2026-06-13 → `docs/testing/retry-dependence-inventory
 **Remaining open:**
 - G-fix (connectedNeighborCount gate) still open for two allowlisted specs (`00-p2p-neighbor-memory`, `00-p2p-cross-platform-protocol`) that remain at `retries: 1`.
 - Live `--retries=0` full-suite confirmation still requires browser-capable CI: run `PW_WORKERS=4 npm run test:e2e -- --retries=0` to fill the "observed" column in the inventory.
+# 2026-06-20 — GUI Polish G0–G6
+
+Moved from `docs/TODO.md`: Settings/Me information architecture, talk-card taxonomy and rich incoming metadata, response-flow UX, conversation and peer-detail improvements, and survey visualization work. These sections were already marked complete in the active TODO; this move restores the TODO as an actionable backlog.
+
+## P1 — Public Gun chatroom hierarchy bootstrap
+
+Already implemented and now verified: server startup publishes the hierarchy at `public/chatroom-hierarchy`; relay-only persistence explicitly preserves this public path; the browser subscribes on boot and safely merges valid remote additions with the bundled fallback. Unit coverage verifies persistence policy and merge/runtime behavior.
+
+Verification: `npm test -- --runInBand src/test/unit/community-ownership.test.ts src/test/unit/p2p-runtime.test.ts` — 41 tests passed.

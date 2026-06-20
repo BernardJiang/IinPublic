@@ -353,47 +353,18 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
     .filter(([, talk]) => talk?.role === 'answered' || talk?.role === 'copied')
     .sort(([, a], [, b]) => new Date(b.lastInteraction || 0).getTime() - new Date(a.lastInteraction || 0).getTime());
 
-  const grouped = new Map<string, { talkId: string; talk: any; answeredCount: number }>();
-  const groupedFlat = new Map<string, { id: string; record: FlatAnswerHistoryRecord; answeredCount: number }>();
-  for (const [id, record] of answeredEntriesFromFlatHistory) {
-    const language = String(record.language || 'en').toLowerCase();
-    const contentKey = `${language}:${record.type}:${record.title}:${record.items
-      .map((item) => `${item.questionId}:${item.contextHash || ''}:${item.prompt}->${item.choice}`)
-      .join('|')}`;
-    const existing = groupedFlat.get(contentKey);
-    if (existing) {
-      existing.answeredCount += 1;
-      if (new Date(record.answeredAt || 0).getTime() > new Date(existing.record.answeredAt || 0).getTime()) {
-        existing.record = record;
-        existing.id = id;
-      }
-      continue;
-    }
-    groupedFlat.set(contentKey, { id, record, answeredCount: 1 });
-  }
-  for (const [talkId, talk] of answeredEntries) {
-    const full = talk.fullTalk;
-    const contentKey = full ? deps.getTalkContentKey(full) : talkId;
-    const existing = grouped.get(contentKey);
-    if (existing) {
-      existing.answeredCount += 1;
-      if (new Date(talk.lastInteraction || 0).getTime() > new Date(existing.talk.lastInteraction || 0).getTime()) {
-        existing.talk = talk;
-        existing.talkId = talkId;
-      }
-      continue;
-    }
-    grouped.set(contentKey, { talkId, talk, answeredCount: 1 });
-  }
-
-  const deduped = Array.from(grouped.values()).sort(
-    (a, b) => new Date(b.talk.lastInteraction || 0).getTime() - new Date(a.talk.lastInteraction || 0).getTime(),
+  const flattenedHistory = answeredEntriesFromFlatHistory.flatMap(([id, record]) =>
+    (record.items || []).map((answer, itemIndex) => ({
+      id: `${id}:${answer.questionId || itemIndex}:${answer.contextHash || ''}`,
+      record,
+      itemIndex,
+    })),
   );
-  const dedupedFlat = Array.from(groupedFlat.values()).sort(
-    (a, b) => new Date(b.record.answeredAt || 0).getTime() - new Date(a.record.answeredAt || 0).getTime(),
-  );
+  // Older sessions may not yet have the flattened history record; keep that
+  // compatibility path while new completions render as one row per question.
+  const deduped = answeredEntries.map(([talkId, talk]) => ({ talkId, talk, answeredCount: 1 }));
 
-  if (deduped.length === 0 && dedupedFlat.length === 0) {
+  if (answeredEntries.length === 0 && flattenedHistory.length === 0) {
     container.innerHTML = `
       <div style="padding: 20px; text-align: center; color: #999;">
         <p>${deps.text('meNoAnswers')}</p>
@@ -406,7 +377,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
 
   container.innerHTML = `
     <div class="answers-view-inner" style="padding: 16px; max-width: min(980px, 96%); margin: 0 auto;">
-      <p style="margin-bottom: 12px; color: #666;">${deps.text('meAnswersIntro')}</p>
+      <p style="margin-bottom: 12px; color: #666;">${deps.text('meAnswersIntro')} Each answered question is listed separately.</p>
       <input id="answers-search-input" class="form-input" type="search" placeholder="${deps.text('meSearchAnswers')}" style="width:100%; margin-bottom:12px;">
       <div id="answers-list" class="answers-list" style="display: flex; flex-direction: column; gap: 12px;"></div>
       <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">${deps.text('preferences')}</button>
@@ -415,7 +386,8 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
 
   const listEl = document.getElementById('answers-list');
   if (listEl) {
-    dedupedFlat.forEach(({ id, record, answeredCount }) => {
+    flattenedHistory.forEach(({ id, record, itemIndex }) => {
+      const answeredCount = 1;
       const outcome = record.outcome === 'match' ? 'match' : 'mismatch';
       const answeredAt = new Date(record.answeredAt || Date.now());
       const locationText = record.locationRadiusMiles != null
@@ -426,7 +398,11 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
         : record.senderIds.length > 1
           ? format('meFromSenders', { count: record.senderIds.length })
           : '';
-      const answerItems = buildAnswerItemModelsFromFlatRecord(record, answeredCount, myTalks, exactMemory);
+      // Build from the complete record first: a flow/route row needs earlier
+      // choices to derive its context, even though it renders as one flat row.
+      const answerItems = [
+        buildAnswerItemModelsFromFlatRecord(record, answeredCount, myTalks, exactMemory)[itemIndex],
+      ].filter((item): item is AnswerItemModel => !!item);
       const language = String(record.language || 'en').toLowerCase();
       const languageLabel = deps.formatLanguage(language);
       const metadata = [
@@ -446,7 +422,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       ].join(' ').toLowerCase();
       const item = document.createElement('div');
       const talkType = String(record.type || 'flow').toLowerCase();
-      item.className = `answer-talk-item talk-type-${deps.escapeHtml(talkType)}`;
+      item.className = `answer-question-item answer-talk-item talk-type-${deps.escapeHtml(talkType)}`;
       item.dataset.talkId = id;
       item.dataset.sourceTalkId = record.talkId;
       item.dataset.talkType = talkType;
@@ -503,7 +479,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       ].join(' ').toLowerCase();
       const item = document.createElement('div');
       const talkType = String(talk.fullTalk?.type || talk.type || 'flow').toLowerCase();
-      item.className = `answer-talk-item talk-type-${deps.escapeHtml(talkType)}`;
+      item.className = `answer-question-item answer-talk-item talk-type-${deps.escapeHtml(talkType)}`;
       item.dataset.talkId = talkId;
       item.dataset.talkType = talkType;
       item.dataset.tagState = talkType === 'tag' ? tagStateForItems(answerItems) : '';
