@@ -3739,6 +3739,8 @@ export class UIManager extends EventEmitter {
       </div>` : '';
     // Time-series trend section (day-level, up to 14 recent buckets).
     const recentDayBuckets = (dashboard.timeSeries?.day || []).slice(-14);
+    const responseSparkline = this.renderStatsSparkline(recentDayBuckets);
+    const tagFrequencyBars = this.renderStatsBarList((dashboard.broadcastTags?.popularity || []).slice(0, 8));
     const trendRows = recentDayBuckets
       .map((item) => `<tr>
         <td style="padding:6px 8px;border-top:1px solid #e2e8f0;">${escapeHtml(item.bucket)}</td>
@@ -3786,6 +3788,7 @@ export class UIManager extends EventEmitter {
           ${this.renderStatsTable(this.t('statsPeerHeader'), ['Peer', 'Responses', 'Matches', 'Ignores', 'Match rate'], peerRows)}
           <div style="padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:white;overflow:auto;">
             <div style="font-weight:700;color:#0f172a;margin-bottom:8px;">${this.t('statsBroadcastTagsHeader')}</div>
+            ${tagFrequencyBars}
             <table style="width:100%;border-collapse:collapse;font-size:0.88em;">
               <thead><tr><th style="text-align:left;padding:6px 8px;">Tag</th><th style="text-align:right;padding:6px 8px;">Uses</th></tr></thead>
               <tbody>${tagRows || `<tr><td colspan="2" style="padding:8px;color:#64748b;">No data yet.</td></tr>`}</tbody>
@@ -3794,6 +3797,7 @@ export class UIManager extends EventEmitter {
           </div>
           <div style="padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:white;overflow:auto;">
             <div style="font-weight:700;color:#0f172a;margin-bottom:8px;">${this.t('statsTimeTrendHeader')}</div>
+            ${responseSparkline}
             <table style="width:100%;border-collapse:collapse;font-size:0.88em;">
               <thead><tr><th style="text-align:left;padding:6px 8px;">Day</th><th style="text-align:right;padding:6px 8px;">Responses</th></tr></thead>
               <tbody>${trendRows || `<tr><td colspan="2" style="padding:8px;color:#64748b;">No data yet.</td></tr>`}</tbody>
@@ -3820,6 +3824,28 @@ export class UIManager extends EventEmitter {
           <tbody>${rows || `<tr><td colspan="${headers.length}" style="padding:8px;color:#64748b;">No data yet.</td></tr>`}</tbody>
         </table>
       </div>`;
+  }
+
+  private renderStatsBarList(rows: Array<{ id: string; count: number }>): string {
+    if (rows.length === 0) return '';
+    const max = Math.max(...rows.map((row) => row.count), 1);
+    return `<div class="stats-bar-list" aria-label="Tag frequency chart">${rows.map((row) => {
+      const width = Math.max(2, Math.round((row.count / max) * 100));
+      return `<div class="stats-bar-row"><span title="${escapeHtml(row.id)}">${escapeHtml(row.id)}</span><div class="stats-bar-track"><i style="width:${width}%"></i></div><b>${row.count}</b></div>`;
+    }).join('')}</div>`;
+  }
+
+  private renderStatsSparkline(rows: Array<{ bucket: string; count: number }>): string {
+    if (rows.length === 0) return '';
+    const width = 280;
+    const height = 56;
+    const max = Math.max(...rows.map((row) => row.count), 1);
+    const points = rows.map((row, index) => {
+      const x = rows.length === 1 ? width / 2 : (index / (rows.length - 1)) * width;
+      const y = height - 6 - ((row.count / max) * (height - 14));
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    return `<div class="stats-sparkline" aria-label="Response volume over the last ${rows.length} days"><svg viewBox="0 0 ${width} ${height}" role="img"><polyline points="${points}" fill="none" stroke="#0f766e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></polyline></svg><span>${rows.length} days · ${rows.reduce((sum, row) => sum + row.count, 0)} responses</span></div>`;
   }
 
   private copyAnsweredTalkToTalks(talkId: string): void {

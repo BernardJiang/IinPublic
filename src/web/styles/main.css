@@ -2120,6 +2120,64 @@ body {
   font-weight: 700;
 }
 
+.stats-bar-list {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.stats-bar-row {
+  display: grid;
+  grid-template-columns: minmax(72px, 1fr) minmax(80px, 2fr) 28px;
+  align-items: center;
+  gap: 8px;
+  color: #475569;
+  font-size: 0.78em;
+}
+
+.stats-bar-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats-bar-row b {
+  color: #0f172a;
+  text-align: right;
+}
+
+.stats-bar-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #e2e8f0;
+}
+
+.stats-bar-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #0f766e;
+}
+
+.stats-sparkline {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 10px;
+}
+
+.stats-sparkline svg {
+  width: 100%;
+  height: 56px;
+  border-bottom: 1px solid #cbd5e1;
+  background: #f8fafc;
+}
+
+.stats-sparkline span {
+  color: #64748b;
+  font-size: 0.78em;
+}
+
 .conversation-transport-chip {
   margin-left: 7px;
   border: 1px solid #bfdbfe;
