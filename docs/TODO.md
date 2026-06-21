@@ -59,6 +59,43 @@ the last two historical allowlist entries were verified deterministic without re
 
 ---
 
+## Talk and answer lifecycle follow-ups
+
+### T6 — Me tab: complete answer history, filtering, and sorting `[Sonnet]`
+
+Every question a user answers from a received talk must remain as its own durable Me-tab row,
+including talk context and selected answer. Existing controls are the baseline.
+
+- [ ] Include every answered incoming question exactly once across tag, flow, survey, and route,
+  retaining matched, ignored, and undetermined outcomes.
+- [ ] Add composable filters/sorts for type (tag/non-tag and four individual types), selected answer,
+  outcome (liked/disliked/undetermined), answer date, last chatbot-use date, and chatbot-use count.
+- [ ] Default to newest answer first, with stable ordering, pagination, and reset-to-default.
+- [ ] Test multi-user E2E across all types/outcomes and pure row/comparator unit tests.
+
+### T7 — Talks tab: complete IN/OUT history and attention-first ordering `[Sonnet]`
+
+Keep every IN and OUT talk visible while prioritizing newly received unanswered IN talks. Answered
+talks move below active incoming work rather than disappearing.
+
+- [ ] Make IN/OUT, each talk type, answered/unanswered/completed state, query, date, and outcome
+  composable filters.
+- [ ] Default order: unanswered IN, active IN, then answered/completed history; expose
+  newest/oldest/type/status sort choices without hiding records.
+- [ ] Test browser behavior for answered-IN demotion-with-retention and filters/sorts in both histories.
+
+### T8 — Auto-chatbot room entry broadcast and incremental peer exchange `[Opus]`
+
+With chatbot auto-send enabled, entering a chatroom should automatically offer eligible OUT talks
+to newly reachable peers; manual Broadcast remains available. Peer pairs retain exchange history so
+only new or materially changed talks/answers are sent later.
+
+- [ ] Define eligibility, batching, and rate limits; never auto-send unchanged content twice to a peer.
+- [ ] Persist per-peer exchange cursors keyed by content-derived talk/answer versions and reconcile
+  them on reconnect, preserving ledger suppression.
+- [ ] Make auto-send state/activity visible and disableable in the UI.
+- [ ] Test join/rejoin: initial delivery, no duplicate replay, then exactly one changed/new delivery.
+
 ---
 
 ## Public Gun Bootstrap — Shared knowledge graph `[Sonnet]`

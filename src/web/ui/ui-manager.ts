@@ -1081,6 +1081,17 @@ export class UIManager extends EventEmitter {
                   <input type="checkbox" class="me-tag-state-checkbox" value="indeterminate" checked>
                   <span class="me-tag-state-label">Indeterminate</span>
                 </label>
+                <select class="form-input" id="me-outcome-filter" aria-label="Filter answers by outcome" style="flex:0 0 145px;">
+                  <option value="all">All outcomes</option>
+                  <option value="match">Liked / matched</option>
+                  <option value="mismatch">Disliked / unmatched</option>
+                </select>
+                <select class="form-input" id="me-answer-sort" aria-label="Sort answered questions" style="flex:0 0 165px;">
+                  <option value="answered-desc">Newest answers</option>
+                  <option value="answered-asc">Oldest answers</option>
+                  <option value="chatbot-recent">Recent chatbot use</option>
+                  <option value="chatbot-count">Most chatbot use</option>
+                </select>
               </div>
               <div class="answers-section">
                 <div id="answers-content">
@@ -1214,6 +1225,9 @@ export class UIManager extends EventEmitter {
     });
     document.querySelectorAll('.me-tag-state-checkbox').forEach((checkbox) => {
       checkbox.addEventListener('change', () => this.applyMeAnswerFilter());
+    });
+    ['me-outcome-filter', 'me-answer-sort'].forEach((id) => {
+      document.getElementById(id)?.addEventListener('change', () => this.applyMeAnswerFilter());
     });
 
     // Back to contacts list button
@@ -2136,6 +2150,7 @@ export class UIManager extends EventEmitter {
     const inEntries = allIncomingEntries
       .filter((entry) => matchesTalkFilter(entry, true))
       .sort((a: any, b: any) => {
+        if (a.isAnswered !== b.isAnswered) return a.isAnswered ? 1 : -1;
         if (this.talksOutSortMode === 'title') return String(a.title || '').localeCompare(String(b.title || ''));
         if (this.talksOutSortMode === 'oldest') return new Date(a.updatedAt || 0).getTime() - new Date(b.updatedAt || 0).getTime();
         return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
@@ -2711,6 +2726,8 @@ export class UIManager extends EventEmitter {
     const allowedTagStates = Array.from(document.querySelectorAll<HTMLInputElement>('.me-tag-state-checkbox:checked'))
       .map((checkbox) => checkbox.value);
     const query = ((document.getElementById('answers-search-input') as HTMLInputElement | null)?.value || '').trim().toLowerCase();
+    const outcome = (document.getElementById('me-outcome-filter') as HTMLSelectElement | null)?.value || 'all';
+    const sort = (document.getElementById('me-answer-sort') as HTMLSelectElement | null)?.value || 'answered-desc';
     let visibleCount = 0;
 
     document.querySelectorAll<HTMLElement>('#answers-content .answer-talk-item').forEach((item) => {
@@ -2719,7 +2736,7 @@ export class UIManager extends EventEmitter {
       const matchesType = activeTypes.length === 0 ? false : activeTypes.includes(talkType);
       const matchesTagState = talkType !== 'tag' || allowedTagStates.includes(tagState);
       const matchesQuery = !query || String(item.dataset.searchText || '').toLowerCase().includes(query);
-      const visible = matchesType && matchesTagState && matchesQuery;
+      const visible = matchesType && matchesTagState && matchesQuery && (outcome === 'all' || item.dataset.outcome === outcome);
       item.style.display = visible ? 'flex' : 'none';
       if (visible) visibleCount += 1;
     });
@@ -2732,6 +2749,17 @@ export class UIManager extends EventEmitter {
       empty.style.cssText = 'display:none;padding:20px;text-align:center;color:#64748b;border:1px dashed #cbd5e1;border-radius:8px;background:#f8fafc;';
       empty.textContent = this.t('meNoMatchingAnswers');
       list.appendChild(empty);
+    }
+    if (list) {
+      const rank = (item: HTMLElement): number => {
+        if (sort === 'answered-asc') return Number(item.dataset.answeredAt || 0);
+        if (sort === 'chatbot-recent') return -Number(item.dataset.chatbotLastUsedAt || 0);
+        if (sort === 'chatbot-count') return -Number(item.dataset.chatbotUseCount || 0);
+        return -Number(item.dataset.answeredAt || 0);
+      };
+      Array.from(list.querySelectorAll<HTMLElement>('.answer-talk-item'))
+        .sort((a, b) => rank(a) - rank(b))
+        .forEach((row) => list.insertBefore(row, empty));
     }
     if (empty) empty.style.display = visibleCount === 0 && document.querySelector('#answers-content .answer-talk-item') ? 'block' : 'none';
   }
