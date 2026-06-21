@@ -431,6 +431,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       item.dataset.answeredAt = String(answeredAt.getTime());
       item.dataset.chatbotUseCount = String(answerItems.reduce((total, answer) => total + answer.autoUseCount, 0));
       item.dataset.chatbotLastUsedAt = String(Math.max(0, ...answerItems.map((answer) => answer.latestAutoUseAt || 0)));
+      item.dataset.answerText = answerItems.map((answer) => answer.choice).join(' ').toLowerCase();
       item.dataset.searchText = searchText;
       item.style.cssText = `display:flex; flex-direction:column; gap:12px; padding:14px 16px; border-radius:12px; cursor:pointer; background:${outcome === 'match' ? '#e8f5e9' : '#fff7ed'}; border:1px solid ${outcome === 'match' ? '#c8e6c9' : '#fed7aa'};`;
       item.innerHTML = `
@@ -491,6 +492,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       item.dataset.answeredAt = String(answeredAt.getTime());
       item.dataset.chatbotUseCount = String(answerItems.reduce((total, answer) => total + answer.autoUseCount, 0));
       item.dataset.chatbotLastUsedAt = String(Math.max(0, ...answerItems.map((answer) => answer.latestAutoUseAt || 0)));
+      item.dataset.answerText = answerItems.map((answer) => answer.choice).join(' ').toLowerCase();
       item.dataset.searchText = searchText;
       item.style.cssText = `display:flex; flex-direction:column; gap:12px; padding:14px 16px; border-radius:12px; cursor:pointer; background:${outcome === 'match' ? '#e8f5e9' : '#fff7ed'}; border:1px solid ${outcome === 'match' ? '#c8e6c9' : '#fed7aa'};`;
       item.innerHTML = `

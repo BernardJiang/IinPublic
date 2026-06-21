@@ -909,18 +909,19 @@ test.describe('UI navigation and settings shell', () => {
       localStorage.setItem('myAnswerHistory', JSON.stringify({
         oldMismatch: {
           id: 'oldMismatch', talkId: 'answered-old', title: 'Older mismatch', type: 'flow', language: 'en',
-          outcome: 'mismatch', answeredAt: '2026-01-01T00:00:00.000Z', senderIds: ['sender-a'],
+          outcome: 'mismatch', answeredAt: '2026-01-02T12:00:00.000Z', senderIds: ['sender-a'],
           items: [{ questionId: 'q1', answerId: 'a1', prompt: 'Old question?', choice: 'No', kind: 'question', contextPath: [] }],
         },
         newMatch: {
           id: 'newMatch', talkId: 'answered-new', title: 'Newest match', type: 'tag', language: 'en',
-          outcome: 'match', answeredAt: '2026-02-01T00:00:00.000Z', senderIds: ['sender-b'],
+          outcome: 'match', answeredAt: '2026-02-02T12:00:00.000Z', senderIds: ['sender-b'],
           items: [{ questionId: 'q2', answerId: 'a2', prompt: 'New question?', choice: 'Yes', kind: 'question', contextPath: [] }],
         },
       }));
       localStorage.setItem('myTalks', JSON.stringify({
         'answered-old': {
           talkId: 'answered-old', title: 'Older mismatch', type: 'flow', role: 'answered',
+          outcome: 'mismatch',
           lastInteraction: '2026-02-02T00:00:00.000Z',
           fullTalk: { id: 'answered-old', title: 'Older mismatch', type: 'flow', questions: [] },
         },
@@ -941,6 +942,17 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('#me-outcome-filter').selectOption('all');
     await p.locator('#me-answer-sort').selectOption('answered-asc');
     await expect(p.locator('#answers-list .answer-talk-item').first()).toContainText('Older mismatch');
+    await p.locator('#me-answer-filter').fill('yes');
+    await expect(p.locator('#answers-list .answer-talk-item:visible')).toHaveCount(1);
+    await expect(p.locator('#answers-list .answer-talk-item:visible')).toContainText('Newest match');
+    await p.locator('#me-answer-filter').fill('');
+    await p.locator('#me-answer-date-from').fill('2026-01-01');
+    await p.locator('#me-answer-date-to').fill('2026-01-31');
+    await expect(p.locator('#answers-list .answer-talk-item:visible')).toHaveCount(1);
+    await expect(p.locator('#answers-list .answer-talk-item:visible')).toContainText('Older mismatch');
+    await p.locator('#me-clear-filters').click();
+    await expect(p.locator('#answers-list .answer-talk-item:visible')).toHaveCount(2);
+    await expect(p.locator('#me-answer-sort')).toHaveValue('answered-desc');
 
     await p.locator('.nav-btn[data-view="talks"]').click();
     await afterNav();
@@ -949,6 +961,13 @@ test.describe('UI navigation and settings shell', () => {
     await expect(incoming.first()).toContainText('Fresh incoming');
     await expect(incoming.nth(1)).toContainText('Older mismatch');
     await expect(incoming.nth(1)).toHaveClass(/talk-incoming-answered/);
+    await p.locator('#talks-filter-outcome').selectOption('mismatch');
+    await expect(p.locator('.talk-list-item[data-role="incoming"]:visible')).toHaveCount(1);
+    await expect(p.locator('.talk-list-item[data-role="incoming"]:visible')).toContainText('Older mismatch');
+    await p.locator('#talks-filter-outcome').selectOption('all');
+    await p.locator('#talks-filter-date-from').fill('2026-02-01');
+    await expect(p.locator('.talk-list-item[data-role="incoming"]:visible')).toHaveCount(1);
+    await expect(p.locator('.talk-list-item[data-role="incoming"]:visible')).toContainText('Older mismatch');
   });
 
   test('chatbot room-entry auto-send emits only pending talks and does not replay recorded delivery', async () => {

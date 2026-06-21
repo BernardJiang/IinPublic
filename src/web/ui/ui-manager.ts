@@ -247,6 +247,9 @@ export class UIManager extends EventEmitter {
   private talksQuery = '';
   private talksTypeFilter = 'all';
   private talksCompletionFilter: 'all' | 'unanswered' | 'answered' = 'all';
+  private talksOutcomeFilter: 'all' | 'match' | 'mismatch' = 'all';
+  private talksDateFrom = '';
+  private talksDateTo = '';
   private contactsSortId: string = 'matched-tags'; // Sort strategy for contacts view
   private apiBase: string = '';
   private currentUserId: string = '';
@@ -734,19 +737,21 @@ export class UIManager extends EventEmitter {
   }
 
   private getUnsentBroadcastTalkIds(chatroomId: string, receiverIds: string[]): string[] {
-    const sortedReceivers = [...new Set(receiverIds)].sort();
-    const receiverKey = sortedReceivers.join(',');
-    const history = this.getBroadcastHistory();
+    return this.getBroadcastableTalkIds().filter((talkId) => receiverIds.some((receiverId) => {
+      const talk = this.getMyTalks()[talkId];
+      return !this.getBroadcastHistory()[`${chatroomId}|${receiverId}|${this.getBroadcastRevisionKey(talkId, talk)}`];
+    }));
+  }
+
+  private getUnsentBroadcastTalkIdsForReceiver(chatroomId: string, receiverId: string): string[] {
     return this.getBroadcastableTalkIds().filter((talkId) => {
       const talk = this.getMyTalks()[talkId];
-      const key = `${chatroomId}|${receiverKey}|${this.getBroadcastRevisionKey(talkId, talk)}`;
-      return !history[key];
+      return !this.getBroadcastHistory()[`${chatroomId}|${receiverId}|${this.getBroadcastRevisionKey(talkId, talk)}`];
     });
   }
 
   recordBroadcastConversation(chatroomId: string, talkIds: string[], receivers: Array<{ userId: string }>): void {
     const receiverIds = receivers.map((r) => String(r.userId || '').trim()).filter(Boolean).sort();
-    const receiverKey = receiverIds.join(',');
     const location = this.currentLocation
       ? `${this.currentLocation.latitude.toFixed(3)},${this.currentLocation.longitude.toFixed(3)}`
       : undefined;
@@ -755,13 +760,10 @@ export class UIManager extends EventEmitter {
     for (const talkId of talkIds) {
       const talk = this.getMyTalks()[talkId];
       if (!talk) continue;
-      const key = `${chatroomId}|${receiverKey}|${this.getBroadcastRevisionKey(talkId, talk)}`;
-      history[key] = {
-        sentAt,
-        chatroomId,
-        receiverIds,
-        ...(location ? { location } : {}),
-      };
+      for (const receiverId of receiverIds) {
+        const key = `${chatroomId}|${receiverId}|${this.getBroadcastRevisionKey(talkId, talk)}`;
+        history[key] = { sentAt, chatroomId, receiverIds: [receiverId], ...(location ? { location } : {}) };
+      }
     }
     localStorage.setItem('broadcastConversationHistory', JSON.stringify(history));
   }
@@ -921,6 +923,13 @@ export class UIManager extends EventEmitter {
                   <option value="unanswered">Unanswered</option>
                   <option value="answered">Answered</option>
                 </select>
+                <select class="form-input" id="talks-filter-outcome" aria-label="Filter talks by outcome" style="flex:0 0 130px;">
+                  <option value="all">Any outcome</option>
+                  <option value="match">Matched</option>
+                  <option value="mismatch">Unmatched</option>
+                </select>
+                <input class="form-input" id="talks-filter-date-from" aria-label="Talks from date" type="date" style="flex:0 0 140px;">
+                <input class="form-input" id="talks-filter-date-to" aria-label="Talks through date" type="date" style="flex:0 0 140px;">
               </div>
               <div class="embedded-stats-strip" id="talks-stats-strip" style="padding:8px 12px;color:#64748b;font-size:0.88em;"></div>
               <section id="creator-replies-panel" style="padding:12px;border-bottom:1px solid #e5e7eb;background:#fff;">
@@ -1092,6 +1101,10 @@ export class UIManager extends EventEmitter {
                   <option value="chatbot-recent">Recent chatbot use</option>
                   <option value="chatbot-count">Most chatbot use</option>
                 </select>
+                <input class="form-input" id="me-answer-filter" aria-label="Filter by selected answer" type="search" placeholder="Selected answer" style="flex:1 1 130px;min-width:0;">
+                <input class="form-input" id="me-answer-date-from" aria-label="Answers from date" type="date" style="flex:0 0 142px;">
+                <input class="form-input" id="me-answer-date-to" aria-label="Answers through date" type="date" style="flex:0 0 142px;">
+                <button class="btn" id="me-clear-filters" type="button">Clear</button>
               </div>
               <div class="answers-section">
                 <div id="answers-content">
@@ -1226,8 +1239,26 @@ export class UIManager extends EventEmitter {
     document.querySelectorAll('.me-tag-state-checkbox').forEach((checkbox) => {
       checkbox.addEventListener('change', () => this.applyMeAnswerFilter());
     });
-    ['me-outcome-filter', 'me-answer-sort'].forEach((id) => {
+    ['me-outcome-filter', 'me-answer-sort', 'me-answer-date-from', 'me-answer-date-to'].forEach((id) => {
       document.getElementById(id)?.addEventListener('change', () => this.applyMeAnswerFilter());
+    });
+    document.getElementById('me-answer-filter')?.addEventListener('input', () => this.applyMeAnswerFilter());
+    document.getElementById('me-clear-filters')?.addEventListener('click', () => {
+      document.querySelectorAll('.me-talk-type-filter').forEach((button) => button.classList.add('active'));
+      document.querySelectorAll<HTMLInputElement>('.me-tag-state-checkbox').forEach((checkbox) => { checkbox.checked = true; });
+      const outcome = document.getElementById('me-outcome-filter') as HTMLSelectElement | null;
+      const sort = document.getElementById('me-answer-sort') as HTMLSelectElement | null;
+      const answer = document.getElementById('me-answer-filter') as HTMLInputElement | null;
+      const from = document.getElementById('me-answer-date-from') as HTMLInputElement | null;
+      const to = document.getElementById('me-answer-date-to') as HTMLInputElement | null;
+      const search = document.getElementById('answers-search-input') as HTMLInputElement | null;
+      if (outcome) outcome.value = 'all';
+      if (sort) sort.value = 'answered-desc';
+      if (answer) answer.value = '';
+      if (from) from.value = '';
+      if (to) to.value = '';
+      if (search) search.value = '';
+      this.applyMeAnswerFilter();
     });
 
     // Back to contacts list button
@@ -1267,6 +1298,17 @@ export class UIManager extends EventEmitter {
       this.talksCompletionFilter = (event.currentTarget as HTMLSelectElement).value as typeof this.talksCompletionFilter;
       this.displayTalksList();
     });
+    document.getElementById('talks-filter-outcome')?.addEventListener('change', (event) => {
+      this.talksOutcomeFilter = (event.currentTarget as HTMLSelectElement).value as typeof this.talksOutcomeFilter;
+      this.displayTalksList();
+    });
+    ['talks-filter-date-from', 'talks-filter-date-to'].forEach((id) => {
+      document.getElementById(id)?.addEventListener('change', (event) => {
+        if (id.endsWith('from')) this.talksDateFrom = (event.currentTarget as HTMLInputElement).value;
+        else this.talksDateTo = (event.currentTarget as HTMLInputElement).value;
+        this.displayTalksList();
+      });
+    });
     this.restoreCreatorReplyFilterState();
     ['reply-filter-query', 'reply-filter-outcome', 'reply-filter-relationship', 'reply-filter-type', 'reply-filter-language', 'reply-filter-from', 'reply-filter-to', 'reply-sort-order', 'reply-group-order'].forEach((id) => {
       document.getElementById(id)?.addEventListener(id === 'reply-filter-query' ? 'input' : 'change', () => {
@@ -1305,16 +1347,15 @@ export class UIManager extends EventEmitter {
     void this.runBroadcastFromCurrentRoom();
   }
 
-  /** Auto-send only the OUT talks not yet recorded for this room/member set. */
+  /** Auto-send only the OUT talk revisions not yet delivered to each individual peer. */
   public broadcastPendingTalksOnRoomEntry(): void {
-    const talkIds = this.getPendingBroadcastTalkIds();
-    if (talkIds.length === 0 || !this.currentChatroom) return;
-    this.emit('broadcastTalk', {
-      chatroomId: this.currentChatroom,
-      members: this.getCurrentChatroomMembers(),
-      talkIds,
-      automatic: true,
-    });
+    if (!this.currentChatroom) return;
+    for (const peer of this.getCurrentChatroomMembers()) {
+      const talkIds = this.getUnsentBroadcastTalkIdsForReceiver(this.currentChatroom, peer.userId);
+      if (talkIds.length > 0) {
+        this.emit('broadcastTalk', { chatroomId: this.currentChatroom, members: [peer], talkIds, automatic: true });
+      }
+    }
   }
 
   private async runBroadcastFromCurrentRoom(): Promise<void> {
@@ -2138,6 +2179,7 @@ export class UIManager extends EventEmitter {
           latestTalk: fullTalk,
           senders: { [talkId]: { senderName: primaryName } },
           isAnswered: true,
+          outcome: talk?.outcome,
           questionCount: Array.isArray(fullTalk?.questions) ? fullTalk.questions.length : 0,
           updatedAt: talk?.lastInteraction || talk?.timestamp || Date.now(),
           expiresAt: fullTalk?.expiresAt ?? talk?.expiresAt,
@@ -2152,8 +2194,14 @@ export class UIManager extends EventEmitter {
       const title = String(talk?.title || talk?.fullTalk?.title || talk?.latestTalk?.title || '').toLowerCase();
       const query = this.talksQuery.trim().toLowerCase();
       const answered = isIncoming ? !!talk?.isAnswered : false;
+      const outcome = String(talk?.outcome || talk?.latestTalk?.outcome || '').toLowerCase();
+      const timestamp = new Date(talk?.updatedAt || talk?.lastInteraction || talk?.timestamp || 0).getTime();
+      const from = this.talksDateFrom ? new Date(`${this.talksDateFrom}T00:00:00`).getTime() : Number.NEGATIVE_INFINITY;
+      const to = this.talksDateTo ? new Date(`${this.talksDateTo}T23:59:59.999`).getTime() : Number.POSITIVE_INFINITY;
       return (!query || title.includes(query))
         && (this.talksTypeFilter === 'all' || type === this.talksTypeFilter)
+        && (this.talksOutcomeFilter === 'all' || outcome === this.talksOutcomeFilter)
+        && timestamp >= from && timestamp <= to
         && (this.talksCompletionFilter === 'all'
           || (this.talksCompletionFilter === 'answered' && answered)
           || (this.talksCompletionFilter === 'unanswered' && !answered));
@@ -2195,6 +2243,12 @@ export class UIManager extends EventEmitter {
     if (talksTypeFilter) talksTypeFilter.value = this.talksTypeFilter;
     const talksCompletionFilter = document.getElementById('talks-filter-completion') as HTMLSelectElement | null;
     if (talksCompletionFilter) talksCompletionFilter.value = this.talksCompletionFilter;
+    const talksOutcomeFilter = document.getElementById('talks-filter-outcome') as HTMLSelectElement | null;
+    if (talksOutcomeFilter) talksOutcomeFilter.value = this.talksOutcomeFilter;
+    const talksDateFrom = document.getElementById('talks-filter-date-from') as HTMLInputElement | null;
+    const talksDateTo = document.getElementById('talks-filter-date-to') as HTMLInputElement | null;
+    if (talksDateFrom) talksDateFrom.value = this.talksDateFrom;
+    if (talksDateTo) talksDateTo.value = this.talksDateTo;
 
     document.querySelectorAll('.talks-nav-btn').forEach((button) => {
       button.classList.toggle('active', (button as HTMLElement).dataset.talksMode === activeMode);
@@ -2740,6 +2794,11 @@ export class UIManager extends EventEmitter {
     const query = ((document.getElementById('answers-search-input') as HTMLInputElement | null)?.value || '').trim().toLowerCase();
     const outcome = (document.getElementById('me-outcome-filter') as HTMLSelectElement | null)?.value || 'all';
     const sort = (document.getElementById('me-answer-sort') as HTMLSelectElement | null)?.value || 'answered-desc';
+    const answerQuery = ((document.getElementById('me-answer-filter') as HTMLInputElement | null)?.value || '').trim().toLowerCase();
+    const fromDate = (document.getElementById('me-answer-date-from') as HTMLInputElement | null)?.value || '';
+    const toDate = (document.getElementById('me-answer-date-to') as HTMLInputElement | null)?.value || '';
+    const fromMs = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : Number.NEGATIVE_INFINITY;
+    const toMs = toDate ? new Date(`${toDate}T23:59:59.999`).getTime() : Number.POSITIVE_INFINITY;
     let visibleCount = 0;
 
     document.querySelectorAll<HTMLElement>('#answers-content .answer-talk-item').forEach((item) => {
@@ -2748,7 +2807,11 @@ export class UIManager extends EventEmitter {
       const matchesType = activeTypes.length === 0 ? false : activeTypes.includes(talkType);
       const matchesTagState = talkType !== 'tag' || allowedTagStates.includes(tagState);
       const matchesQuery = !query || String(item.dataset.searchText || '').toLowerCase().includes(query);
-      const visible = matchesType && matchesTagState && matchesQuery && (outcome === 'all' || item.dataset.outcome === outcome);
+      const answeredAt = Number(item.dataset.answeredAt || 0);
+      const matchesAnswer = !answerQuery || String(item.dataset.answerText || '').includes(answerQuery);
+      const matchesDate = answeredAt >= fromMs && answeredAt <= toMs;
+      const visible = matchesType && matchesTagState && matchesQuery && matchesAnswer && matchesDate
+        && (outcome === 'all' || item.dataset.outcome === outcome);
       item.style.display = visible ? 'flex' : 'none';
       if (visible) visibleCount += 1;
     });
