@@ -3999,6 +3999,7 @@ export class IinPublicApp {
         talkIds?: string[];
         broadcastTargetTags?: string[];
         broadcastMaxDistanceMiles?: number;
+        automatic?: boolean;
       }) => {
         try {
           const chatroomId = data.chatroomId || this.chatroomService.getCurrentChatroomId();
@@ -4051,7 +4052,7 @@ export class IinPublicApp {
             .getSenderOmittedBroadcastPreviews()
             .filter((preview) => !previewTalkIds.has(preview.talkId));
           const audiencePreviews = [...previews, ...senderOmittedPreviews];
-          if (!(await this.uiManager.confirmBroadcastAudience(audiencePreviews))) {
+          if (!data.automatic && !(await this.uiManager.confirmBroadcastAudience(audiencePreviews))) {
             this.uiManager.showNotification(this.uiManager.formatBroadcastCancelled(), 'info');
             return;
           }
@@ -4666,6 +4667,7 @@ export class IinPublicApp {
       if (!this.currentUser) {
         return;
       }
+      const previousChatroomId = this.currentChatroomId;
       this.uiManager.setCurrentChatroomId(chatroomId);
 
       // In travel mode, every room switch becomes “the” travel destination (single remote room at a time).
@@ -4687,7 +4689,7 @@ export class IinPublicApp {
         this.persistTravelModeStateToStorage();
       }
 
-      const isSameRoom = this.currentChatroomId === chatroomId;
+      const isSameRoom = previousChatroomId === chatroomId;
 
       if (!isSameRoom) {
         if (this.currentChatroomId) {
@@ -4721,6 +4723,9 @@ export class IinPublicApp {
 
         this.subscribeToMessages(chatroomId);
             console.log(`✅ Switched to ${chatroomId}`);
+        if (this.uiManager.getChatbotEnabled()) {
+          setTimeout(() => this.uiManager.broadcastPendingTalksOnRoomEntry(), 350);
+        }
       } else {
         // Same room: ensure app id matches (e.g. first time opening detail after join)
         this.currentChatroomId = chatroomId;

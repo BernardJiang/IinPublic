@@ -901,6 +901,89 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('.talk-list-item[data-role="copied"]').filter({ hasText: 'History Only Incoming Talk' })).toHaveCount(0);
   });
 
+  test('Me filters outcome and sorts answer history; Talks keeps unanswered IN above answered history', async () => {
+    const p = page!;
+    await p.evaluate(() => {
+      const app = (window as any).__iinpublic_app.getApp();
+      const ui = app.uiManager as any;
+      localStorage.setItem('myAnswerHistory', JSON.stringify({
+        oldMismatch: {
+          id: 'oldMismatch', talkId: 'answered-old', title: 'Older mismatch', type: 'flow', language: 'en',
+          outcome: 'mismatch', answeredAt: '2026-01-01T00:00:00.000Z', senderIds: ['sender-a'],
+          items: [{ questionId: 'q1', answerId: 'a1', prompt: 'Old question?', choice: 'No', kind: 'question', contextPath: [] }],
+        },
+        newMatch: {
+          id: 'newMatch', talkId: 'answered-new', title: 'Newest match', type: 'tag', language: 'en',
+          outcome: 'match', answeredAt: '2026-02-01T00:00:00.000Z', senderIds: ['sender-b'],
+          items: [{ questionId: 'q2', answerId: 'a2', prompt: 'New question?', choice: 'Yes', kind: 'question', contextPath: [] }],
+        },
+      }));
+      localStorage.setItem('myTalks', JSON.stringify({
+        'answered-old': {
+          talkId: 'answered-old', title: 'Older mismatch', type: 'flow', role: 'answered',
+          lastInteraction: '2026-02-02T00:00:00.000Z',
+          fullTalk: { id: 'answered-old', title: 'Older mismatch', type: 'flow', questions: [] },
+        },
+      }));
+      ui.setIncomingTalkClusters([{
+        identityKey: 'fresh-incoming', title: 'Fresh incoming', type: 'flow', isAnswered: false,
+        latestTalkId: 'fresh-incoming', updatedAt: '2026-01-15T00:00:00.000Z', senders: { sender: { senderName: 'Sender' } },
+        latestTalk: { id: 'fresh-incoming', title: 'Fresh incoming', type: 'flow', authorId: 'sender', questions: [] },
+      }]);
+    });
+
+    await p.locator('.nav-btn[data-view="me"]').click();
+    await afterNav();
+    await expect(p.locator('#answers-list .answer-talk-item')).toHaveCount(2);
+    await p.locator('#me-outcome-filter').selectOption('match');
+    await expect(p.locator('#answers-list .answer-talk-item:visible')).toHaveCount(1);
+    await expect(p.locator('#answers-list .answer-talk-item:visible')).toContainText('Newest match');
+    await p.locator('#me-outcome-filter').selectOption('all');
+    await p.locator('#me-answer-sort').selectOption('answered-asc');
+    await expect(p.locator('#answers-list .answer-talk-item').first()).toContainText('Older mismatch');
+
+    await p.locator('.nav-btn[data-view="talks"]').click();
+    await afterNav();
+    const incoming = p.locator('.talk-list-item[data-role="incoming"]');
+    await expect(incoming).toHaveCount(2);
+    await expect(incoming.first()).toContainText('Fresh incoming');
+    await expect(incoming.nth(1)).toContainText('Older mismatch');
+    await expect(incoming.nth(1)).toHaveClass(/talk-incoming-answered/);
+  });
+
+  test('chatbot room-entry auto-send emits only pending talks and does not replay recorded delivery', async () => {
+    const p = page!;
+    const result = await p.evaluate(() => {
+      const app = (window as any).__iinpublic_app.getApp();
+      const ui = app.uiManager as any;
+      const userId = app.getCurrentUser().id;
+      localStorage.removeItem('broadcastConversationHistory');
+      localStorage.setItem('myTalks', JSON.stringify({
+        autoOut: {
+          talkId: 'autoOut', title: 'Automatic room entry talk', type: 'flow', role: 'created',
+          lastInteraction: '2026-06-20T00:00:00.000Z',
+          fullTalk: { id: 'autoOut', title: 'Automatic room entry talk', type: 'flow', questions: [{ id: 'q', text: 'Ready?', answers: [] }] },
+        },
+      }));
+      ui.setCurrentChatroomId('global');
+      ui.updateChatroomMembers([{ userId: 'peer-auto', stageName: 'Auto Peer' }], userId);
+      const emitted: any[] = [];
+      ui.on('broadcastTalk', (event: any) => emitted.push(event));
+      ui.broadcastPendingTalksOnRoomEntry();
+      const first = emitted.map((event) => ({ automatic: event.automatic, talkIds: event.talkIds, memberIds: event.members.map((m: any) => m.userId) }));
+      ui.recordBroadcastConversation('global', ['autoOut'], [{ userId: 'peer-auto' }]);
+      ui.broadcastPendingTalksOnRoomEntry();
+      return { first, emittedCount: emitted.length };
+    });
+
+    expect(result.first).toEqual([{
+      automatic: true,
+      talkIds: ['autoOut'],
+      memberIds: ['peer-auto'],
+    }]);
+    expect(result.emittedCount).toBe(1);
+  });
+
   test('settings tolerates legacy string-valued profile and filter fields', async () => {
     const p = page!;
     await p.evaluate(() => {

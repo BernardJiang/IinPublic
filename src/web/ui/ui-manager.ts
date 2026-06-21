@@ -1305,6 +1305,18 @@ export class UIManager extends EventEmitter {
     void this.runBroadcastFromCurrentRoom();
   }
 
+  /** Auto-send only the OUT talks not yet recorded for this room/member set. */
+  public broadcastPendingTalksOnRoomEntry(): void {
+    const talkIds = this.getPendingBroadcastTalkIds();
+    if (talkIds.length === 0 || !this.currentChatroom) return;
+    this.emit('broadcastTalk', {
+      chatroomId: this.currentChatroom,
+      members: this.getCurrentChatroomMembers(),
+      talkIds,
+      automatic: true,
+    });
+  }
+
   private async runBroadcastFromCurrentRoom(): Promise<void> {
     let chatroomId = this.currentChatroom;
     if (!chatroomId) {
