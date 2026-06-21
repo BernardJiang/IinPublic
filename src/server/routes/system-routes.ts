@@ -84,7 +84,8 @@ type RegisterSystemRoutesDeps = {
   gunService?: GunService;
   /** P0 step 7: clear broadcastTagPopularityStore + mailboxStore for testing. */
   clearForTesting?: () => void;
-  onClearDatabase?: () => void;
+  /** Recreate public bootstrap data after the test-only graph reset. */
+  onClearDatabase?: () => void | Promise<void>;
   nodeEnv: string | undefined;
   /** P2P-V: optional override for abuse defense config (useful in integration tests). */
   abuseDefenseConfig?: import('../../shared/p2p-abuse-defense').AbuseDefenseConfig;
@@ -549,7 +550,7 @@ export function registerSystemRoutes(
       res.json({ events: transportDiagnostics });
     });
 
-    app.post('/api/test/clear-database', (_req, res) => {
+    app.post('/api/test/clear-database', async (_req, res) => {
       try {
         // Clear Gun.js in-memory graph
         if (gun && gun._ && gun._.graph) {
@@ -557,7 +558,7 @@ export function registerSystemRoutes(
           gun._.graph = {};
           if (gunService) clearExactChatbotMemoryCacheForTesting(gunService);
           clearForTesting?.();
-          onClearDatabase?.();
+          await onClearDatabase?.();
           const radiskDirs = clearRadiskOnDisk();
           logger.info({ radiskDirs }, 'Gun.js in-memory database cleared');
           res.json({

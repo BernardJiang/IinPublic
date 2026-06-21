@@ -2061,3 +2061,26 @@ Moved from `docs/TODO.md`: Settings/Me information architecture, talk-card taxon
 Already implemented and now verified: server startup publishes the hierarchy at `public/chatroom-hierarchy`; relay-only persistence explicitly preserves this public path; the browser subscribes on boot and safely merges valid remote additions with the bundled fallback. Unit coverage verifies persistence policy and merge/runtime behavior.
 
 Verification: `npm test -- --runInBand src/test/unit/community-ownership.test.ts src/test/unit/p2p-runtime.test.ts` — 41 tests passed.
+
+## 2026-06-20 — P3 Location hints and P4 system announcements
+
+P3 is complete: blurred location selects the most specific hierarchy room, publishes only the
+privacy-safe affinity, suggests that room once with a join action, and subscribes to public
+server-maintained member counts.
+
+P4 is complete: signed TechSupport announcements are append-only public Gun records, authenticated
+admin posts create them, and browsers render only verified, unexpired records as dismissible banners.
+Public bootstrap records are preserved by the relay-only persistence policy.
+
+Evidence:
+
+- Location/UI: `src/shared/location.ts`, `src/web/app/app.ts`, `src/web/ui/ui-manager.ts`
+- Announcements: `src/server/services/techsupport-announcement-service.ts`, `src/shared/system-announcements.ts`
+- Tests: `src/test/unit/system-announcements.test.ts`, `src/test/unit/p2p-runtime.test.ts`
+
+## 2026-06-20 — P0 test determinism live gate
+
+The full browser suite passed with `PW_WORKERS=4 npm run test:e2e -- --retries=0` (110 specs).
+`playwright.config.ts` has a global zero-retry budget, and the two remaining historical inline
+retry allowlist entries (`00-p2p-neighbor-memory` and `00-p2p-cross-platform-protocol`) were
+removed after the same strict run.

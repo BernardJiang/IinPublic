@@ -70,13 +70,20 @@ class IinPublicServer {
     this.talkService = new TalkService(this.gunService, this.reputationService);
     this.techSupportAnnouncements = new TechSupportAnnouncementService(this.gunService);
     this.logStartupSchemaDiagnostics();
+    void this.publishPublicBootstrap();
+  }
+
+  /** Public, signed network metadata must exist after boot and after an E2E graph reset. */
+  private async publishPublicBootstrap(): Promise<void> {
     this.gun.get('public').get('chatroom-hierarchy').put(JSON.stringify(CHATROOM_HIERARCHY));
-    if (this.techSupportAnnouncements.isConfigured()) {
-      void this.techSupportAnnouncements.publishIdentity().catch((error) => {
-        logger.error({ error }, 'Could not publish TechSupport identity');
-      });
-    } else {
+    if (!this.techSupportAnnouncements.isConfigured()) {
       logger.warn('TechSupport SEA identity is not configured; bootstrap identity and announcements are disabled');
+      return;
+    }
+    try {
+      await this.techSupportAnnouncements.publishIdentity();
+    } catch (error) {
+      logger.error({ error }, 'Could not publish TechSupport identity');
     }
   }
 
@@ -154,8 +161,9 @@ class IinPublicServer {
       gun: this.gun,
       gunService: this.gunService,
       clearForTesting: this.clearForTesting.bind(this),
-      onClearDatabase: () => {
+      onClearDatabase: async () => {
         this.userService.resetBlockMutationsForTesting();
+        await this.publishPublicBootstrap();
       },
       nodeEnv: process.env.NODE_ENV,
     });

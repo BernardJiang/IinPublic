@@ -42,12 +42,10 @@ All P1 (libp2p/IPFS), P2 (Find Similar), and P2.5 (sort pipeline) **completed** 
 
 Phase 5 peer↔peer Gun reconciliation **promoted to `docs/completed.md` 2026-06-16** (core DONE; browser CI verification still pending).
 
-### P0 — Test determinism `[Opus]` — CI VERIFICATION PENDING
+### P0 — Test determinism `[Opus]` — **COMPLETED 2026-06-20**
 
-**Context (2026-06-15).** `playwright.config.ts` global `retries` dropped to `0`; 9 specs pinned with `test.describe.configure({ retries: 0 })`; `ResilientConversationTransport` and its fallback spec deleted — fallback chain gone by design. Remaining open: live `--retries=0` full-suite run in browser-capable CI, and two specs still at `retries:1` allowlist (`00-p2p-neighbor-memory`, `00-p2p-cross-platform-protocol`) pending the connectedNeighborCount gate (G-fix class).
-
-T1 retry-dependence inventory **promoted to `docs/completed.md` 2026-06-16** (static analysis DONE; G-fix gate + live retries=0 CI run still pending).
-- [ ] **Test/verify:** `[Haiku]` `PW_WORKERS=4 npm run test:e2e` green with `retries: 0`; `npm run health` clean.
+Moved to `docs/completed.md`. The suite now runs with global and per-spec retries set to zero;
+the last two historical allowlist entries were verified deterministic without retry overrides.
 
 **Next phase:** Appendix C (P2P spec-gap audits `[Haiku]`). Appendix B (Statistics expansion) completed 2026-06-13 — see `docs/completed.md`.
 
@@ -75,24 +73,13 @@ The TechSupport root user ID and public key (`TECHSUPPORT_ROOT_USER_ID`, `TECHSU
 - [x] Browser: on boot, read `public/techsupport-identity`, verify signature, and cross-check against the compiled constant — mismatch triggers a visible security warning.
 - [ ] E2E: assert that a fresh browser without the compiled constant can discover TechSupport identity solely from the Gun path.
 
-### P3 — Location-based chatroom auto-join hints
+### P3 — Location-based chatroom auto-join hints — **COMPLETED 2026-06-20**
 
-When a user grants location access, the app should suggest or auto-join the most specific matching chatroom from the hierarchy.
+Moved to `docs/completed.md`.
 
-- [x] `getCurrentLocation()` (`src/shared/location.ts`) → `LocationPrivacy.blurLocation()` → walk `CHATROOM_HIERARCHY` to find the best-match city/region room.
-- [x] Write the user's blurred chatroom affinity to `gun.get('user-public-profile/<userId>').get('chatroomAffinity')` so peers in the same room can discover them.
-- [x] UI: on first location grant, show "Suggested room: [City]" banner with one-click join.
-- [x] Gun path `public/room-member-counts/<roomId>` maintained by server presence heartbeat — browser reads it to show live member counts in the room list without a separate HTTP call.
+### P4 — System announcements channel — **COMPLETED 2026-06-20**
 
-### P4 — System announcements channel
-
-TechSupport needs a broadcast channel for maintenance notices, rule changes, and safety alerts that every peer sees without a DM conversation.
-
-- [x] Gun path `public/announcements` — append-only list of `{ id, authorPub, text, createdAt, expiresAt, signature }`.
-- [x] Server-side: `POST /api/admin/announcements` (TechSupport-auth only) writes + signs a new entry.
-- [x] Browser: on boot subscribe to `gun.get('public/announcements').map().on(...)`, render unexpired entries as a dismissible banner above the chatroom list.
-- [x] `shouldSkipServerGunPersist` exemption so announcements ARE hub-persisted (public, not user-private).
-- [x] Unit test: announcement with expired `expiresAt` not rendered; invalid signature rejected.
+Moved to `docs/completed.md`.
 
 ---
 
