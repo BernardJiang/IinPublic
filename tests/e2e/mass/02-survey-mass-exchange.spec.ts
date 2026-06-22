@@ -7,8 +7,8 @@ test.describe('M2 survey mass exchange', () => {
       responseId: `m2-${responder}`, talkId: 'm2-survey', talkType: 'survey', responderId: `user-${responder}`,
       outcome: 'mismatch', createdAt: Date.now(), region: 'global',
       answers: Array.from({ length: 5 }, (_, question) => ({
-        questionId: `q${question}`, answerId: `a${(responder * 7 + question) % 4}`,
-        answerText: `Option ${(responder * 7 + question) % 4}`,
+        questionId: `surveyq${question + 1}`, answerId: `surveya${question + 1}${(responder * 7 + question) % 4 + 1}`,
+        answerText: `surveya${question + 1}${(responder * 7 + question) % 4 + 1}`,
       })),
     }));
     const summary = summarize('m2-survey', 'survey', responses);
@@ -17,7 +17,7 @@ test.describe('M2 survey mass exchange', () => {
       expect(question.skipCount + question.answers.reduce((n, answer) => n + answer.count, 0)).toBe(14);
       expect(question.completionRate).toBe(100);
     }
-    const cross = aggregateCrossQuestion('m2-survey', responses, 'q0', 'q1');
+    const cross = aggregateCrossQuestion('m2-survey', responses, 'surveyq1', 'surveyq2');
     expect(cross.totalPairs).toBe(14);
   });
 });

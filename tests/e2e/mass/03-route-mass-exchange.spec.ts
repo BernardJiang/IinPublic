@@ -3,11 +3,11 @@ import { computeTalkIdFromTalkData } from '../../../src/shared/talk-content-id';
 
 function routeTalk() {
   return {
-    type: 'route', title: 'M3 binary route', language: 'en', authorId: 'm3-author',
+    type: 'route', title: 'M3 route', language: 'en', authorId: 'm3-author',
     questions: Array.from({ length: 3 }, (_, depth) => ({
-      id: `q${depth}`, text: `Depth ${depth}`,
+      id: `routeq${depth + 1}`, text: `routeq${depth + 1}`,
       answers: ['L', 'R'].map((branch) => ({
-        id: `${branch}${depth}`, text: branch,
+        id: `routea${depth + 1}${branch === 'L' ? 1 : 2}`, text: `routea${depth + 1}${branch === 'L' ? 1 : 2}`,
         isMatch: depth === 2 && branch === 'L', isIgnore: depth === 2 && branch === 'R',
         isTerminal: depth === 2,
       })),
