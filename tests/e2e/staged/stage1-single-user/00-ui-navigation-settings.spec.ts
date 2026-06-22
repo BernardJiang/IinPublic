@@ -992,7 +992,12 @@ test.describe('UI navigation and settings shell', () => {
       const first = emitted.map((event) => ({ automatic: event.automatic, talkIds: event.talkIds, memberIds: event.members.map((m: any) => m.userId) }));
       ui.recordBroadcastConversation('global', ['autoOut'], [{ userId: 'peer-auto' }]);
       ui.broadcastPendingTalksOnRoomEntry();
-      return { first, emittedCount: emitted.length };
+      const emittedCountAfterNoReplay = emitted.length;
+      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      talks.autoOut.lastInteraction = '2026-06-21T00:00:00.000Z';
+      localStorage.setItem('myTalks', JSON.stringify(talks));
+      ui.broadcastPendingTalksOnRoomEntry();
+      return { first, emittedCountAfterNoReplay, emittedCountAfterRevision: emitted.length, revised: emitted[1]?.talkIds || [] };
     });
 
     expect(result.first).toEqual([{
@@ -1000,7 +1005,9 @@ test.describe('UI navigation and settings shell', () => {
       talkIds: ['autoOut'],
       memberIds: ['peer-auto'],
     }]);
-    expect(result.emittedCount).toBe(1);
+    expect(result.emittedCountAfterNoReplay).toBe(1);
+    expect(result.emittedCountAfterRevision).toBe(2);
+    expect(result.revised).toEqual(['autoOut']);
   });
 
   test('settings tolerates legacy string-valued profile and filter fields', async () => {

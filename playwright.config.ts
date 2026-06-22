@@ -72,11 +72,14 @@ const E2E_P2P_NODE_ENABLED =
  * oversubscribed — so they pass within a small budget, no retries / inflated timeouts.
  */
 const HEAVY_SPEC_PATTERNS = [
+  /mass\//,
   /staged\/stage4-four-user\//,
   /staged\/stage5-multi-user\//,
   /talks-matching\//,
 ];
 const SKIP_HEAVY = process.env.E2E_SKIP_HEAVY === '1';
+const SKIP_FIND_SIMILAR = process.env.E2E_SKIP_FIND_SIMILAR === '1';
+const SKIP_MESH_PING = process.env.E2E_SKIP_MESH_PING === '1';
 
 const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
   const gunPort = 8080 + i;
@@ -187,6 +190,8 @@ export default defineConfig({
             /00i-survey-analytics-dashboard\.spec\.ts/,
             // Heavy multi-browser specs run in their own low-worker shard (E2E_SKIP_HEAVY=1).
             ...(SKIP_HEAVY ? HEAVY_SPEC_PATTERNS : []),
+            ...(SKIP_FIND_SIMILAR ? [/staged\/stage5-multi-user\/find-similar-people\.spec\.ts/] : []),
+            ...(SKIP_MESH_PING ? [/talks-matching\/01-mesh-ping-overlay\.spec\.ts/] : []),
           ],
         },
       ],

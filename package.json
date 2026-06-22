@@ -31,7 +31,7 @@
     "test:unit+e2e": "npm run test:unit && npm run test:e2e",
     "test:e2e": "set -a; [ -f .env.local ] && . ./.env.local; set +a; npm run build:server && E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true playwright test",
     "test:e2e:parallel": "set -a; [ -f .env.local ] && . ./.env.local; set +a; npm run build:server && E2E_GUN_MEMORY_ONLY=1 E2E_SKIP_HEAVY=1 PW_WORKERS=${PW_WORKERS:-6} DISABLE_HMR=true playwright test",
-    "test:e2e:heavy": "set -a; [ -f .env.local ] && . ./.env.local; set +a; npm run build:server && E2E_GUN_MEMORY_ONLY=1 PW_WORKERS=${PW_HEAVY_WORKERS:-2} DISABLE_HMR=true playwright test tests/e2e/staged/stage4-four-user tests/e2e/staged/stage5-multi-user tests/e2e/talks-matching",
+    "test:e2e:heavy": "set -a; [ -f .env.local ] && . ./.env.local; set +a; npm run build:server && E2E_GUN_MEMORY_ONLY=1 E2E_SKIP_FIND_SIMILAR=1 E2E_SKIP_MESH_PING=1 PW_WORKERS=${PW_HEAVY_WORKERS:-2} DISABLE_HMR=true playwright test tests/e2e/mass tests/e2e/staged/stage4-four-user tests/e2e/staged/stage5-multi-user tests/e2e/talks-matching && E2E_GUN_MEMORY_ONLY=1 PW_WORKERS=1 DISABLE_HMR=true playwright test tests/e2e/talks-matching/01-mesh-ping-overlay.spec.ts && E2E_GUN_MEMORY_ONLY=1 PW_WORKERS=1 DISABLE_HMR=true playwright test tests/e2e/staged/stage5-multi-user/find-similar-people.spec.ts",
     "test:e2e:p0-talks": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 playwright test tests/e2e/staged/stage2-two-user/00i-p0-direct-talk-delivery.spec.ts",
     "test:e2e:staged": "npm run build:server && E2E_STAGE_PIPELINE=1 PW_WORKERS=1 DISABLE_HMR=true playwright test",
     "test:e2e:talks-matching": "npm run build:server && DISABLE_HMR=true playwright test tests/e2e/talks-matching",

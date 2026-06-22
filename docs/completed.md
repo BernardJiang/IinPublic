@@ -2084,3 +2084,19 @@ The full browser suite passed with `PW_WORKERS=4 npm run test:e2e -- --retries=0
 `playwright.config.ts` has a global zero-retry budget, and the two remaining historical inline
 retry allowlist entries (`00-p2p-neighbor-memory` and `00-p2p-cross-platform-protocol`) were
 removed after the same strict run.
+
+## 2026-06-20 — T6–T8 answer, talk, and auto-send lifecycle
+
+T6: Me renders one durable row per answered question and supports type/tag state, selected-answer,
+outcome, answer-date, and chatbot-use filters/sorts, including reset-to-default.
+
+T7: Talks retains IN and OUT history with composable type/status/query/outcome/date controls;
+unanswered incoming talks sort ahead of answered retained history by default.
+
+T8: chatbot-enabled room entry automatically sends only pending OUT talk revisions. Delivery state is
+keyed by room, peer, and talk revision, so re-entry does not replay unchanged talks while a changed
+revision is delivered once. Manual broadcast remains available.
+
+Verification: focused browser E2E in
+`tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts` proves filters/order and
+initial delivery → no replay → changed revision delivery; `npx tsc --noEmit` clean.
