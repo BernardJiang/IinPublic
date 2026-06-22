@@ -80,6 +80,10 @@ const HEAVY_SPEC_PATTERNS = [
 const SKIP_HEAVY = process.env.E2E_SKIP_HEAVY === '1';
 const SKIP_FIND_SIMILAR = process.env.E2E_SKIP_FIND_SIMILAR === '1';
 const SKIP_MESH_PING = process.env.E2E_SKIP_MESH_PING === '1';
+const SKIP_MESH_BROADCAST = process.env.E2E_SKIP_MESH_BROADCAST === '1';
+const SKIP_MESH_RESPONSE = process.env.E2E_SKIP_MESH_RESPONSE === '1';
+const SKIP_MESH_CONTACTS = process.env.E2E_SKIP_MESH_CONTACTS === '1';
+const SKIP_ALL_MESH = process.env.E2E_SKIP_ALL_MESH === '1';
 
 const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
   const gunPort = 8080 + i;
@@ -192,6 +196,10 @@ export default defineConfig({
             ...(SKIP_HEAVY ? HEAVY_SPEC_PATTERNS : []),
             ...(SKIP_FIND_SIMILAR ? [/staged\/stage5-multi-user\/find-similar-people\.spec\.ts/] : []),
             ...(SKIP_MESH_PING ? [/talks-matching\/01-mesh-ping-overlay\.spec\.ts/] : []),
+            ...(SKIP_MESH_BROADCAST ? [/talks-matching\/02-mesh-broadcast-announce\.spec\.ts/] : []),
+            ...(SKIP_MESH_RESPONSE ? [/talks-matching\/03-mesh-response-match\.spec\.ts/] : []),
+            ...(SKIP_MESH_CONTACTS ? [/talks-matching\/04-local-contacts\.spec\.ts/] : []),
+            ...(SKIP_ALL_MESH ? [/talks-matching\//] : []),
           ],
         },
       ],
