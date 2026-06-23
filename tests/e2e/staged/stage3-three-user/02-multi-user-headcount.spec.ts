@@ -9,6 +9,13 @@ import { webBaseURL, e2eTestScreenshotsDir, e2eTestStorageDir } from '../../help
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 
+/**
+ * Keep this test independent from the shared E2E server capacity. FIFO remains
+ * disabled because this scenario verifies headcount through TechSupport plus
+ * three regular users, rather than eviction behavior.
+ */
+const E2E_URL = '/?e2e_capacity=3&e2e_fifo=false';
+
 test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () => {
   let browser1: Browser;
   let browser2: Browser;
@@ -79,7 +86,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     page1 = await context1.newPage();
     attachFilteredConsoleLog(page1, 'User1');
     await injectIdbClear(page1);
-    await page1.goto(webBaseURL());
+    await page1.goto(webBaseURL() + E2E_URL);
     await page1.waitForLoadState('load');
     await ensureWindowFitsViewport(page1, 640, 800);
     await afterLoad();
@@ -90,7 +97,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     page2 = await context2.newPage();
     attachFilteredConsoleLog(page2, 'User2');
     await injectIdbClear(page2);
-    await page2.goto(webBaseURL());
+    await page2.goto(webBaseURL() + E2E_URL);
     await page2.waitForLoadState('load');
     await ensureWindowFitsViewport(page2, 640, 800);
     await afterLoad();
@@ -102,7 +109,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     page3 = await context3.newPage();
     attachFilteredConsoleLog(page3, 'User3');
     await injectIdbClear(page3);
-    await page3.goto(webBaseURL());
+    await page3.goto(webBaseURL() + E2E_URL);
     await page3.waitForLoadState('load');
     await ensureWindowFitsViewport(page3, 640, 800);
     await afterLoad();
@@ -140,7 +147,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     });
     page2 = await context2.newPage();
     attachFilteredConsoleLog(page2, 'User2');
-    await page2.goto(webBaseURL());
+    await page2.goto(webBaseURL() + E2E_URL);
     await page2.waitForLoadState('load');
     await afterNav();
     await afterLoad();
@@ -154,7 +161,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     });
     page3 = await context3.newPage();
     attachFilteredConsoleLog(page3, 'User3');
-    await page3.goto(webBaseURL());
+    await page3.goto(webBaseURL() + E2E_URL);
     await page3.waitForLoadState('load');
     await afterNav();
     await afterLoad();
@@ -169,7 +176,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     });
     page1 = await context1.newPage();
     attachFilteredConsoleLog(page1, 'User1');
-    await page1.goto(webBaseURL());
+    await page1.goto(webBaseURL() + E2E_URL);
     await page1.waitForLoadState('load');
     await afterNav();
     await afterLoad();
