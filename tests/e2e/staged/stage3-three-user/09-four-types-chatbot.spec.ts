@@ -37,7 +37,7 @@ function answerIdsFor(kind: TalkKind): string[] {
 }
 
 test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sam', () => {
-  test.setTimeout(180_000);
+  test.setTimeout(30_000);
 
   let browsers: Browser[] = [];
   const sessions: Session[] = [];

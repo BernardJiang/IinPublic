@@ -35,6 +35,11 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
   }
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
+    // A preceding spec's closed Gun peers can still flush a final write for a few
+    // seconds. Drain those writes, then reseed immediately before this spec opens
+    // its three fresh browser contexts; otherwise stale members inflate Global.
+    await maybeClearGunDatabases();
+    await wait(3500, 3500);
     await maybeClearGunDatabases();
     browser1 = await chromium.launch({
       headless,
