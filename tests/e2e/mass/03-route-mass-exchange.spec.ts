@@ -21,6 +21,20 @@ test.describe('M3 real route mass exchange', () => {
       expect(delivery.receivers).toBe(7);
       for(let i=0;i<7;i+=1){await waitForTabActive(pages[i+1],'talks');await completeTalksInAppByAnswerIds(pages[i+1],[{talkId:created.talkId,talkData:created.talkData,answerIds:GOLDEN[i],outcome:GOLDEN[i].at(-1)==='routea31'?'match':'mismatch'}]);}
       expect(new Set(GOLDEN.map(x=>x.join(','))).size).toBe(7); expect(await computeTalkIdFromTalkData(talk)).toBe(cid);
+      // M3-A: content-hash dedup — creator's stored talkId and every responder-stored myTalks key must equal the Node.js-computed cid
+      expect(created.talkId).toBe(cid);
+      const responderStoredIds = await Promise.all(pages.slice(1).map((p) => p.evaluate((tid) => { const m = JSON.parse(localStorage.getItem('myTalks') || '{}'); return (Object.keys(m).find((k) => k === tid) ?? null); }, cid)));
+      for (const sid of responderStoredIds) { expect(sid).toBe(cid); }
+      // M3-B: distinct terminal nodes — each responder traversed exactly 3 questions (depth-3 DAG, no cycle) and landed on a unique leaf
+      const completedPaths: string[] = [];
+      for (let i = 0; i < 7; i += 1) {
+        const ca = await pages[i + 1].evaluate((tid) => { const m = JSON.parse(localStorage.getItem('myTalks') || '{}') as Record<string, any>; return (m[tid]?.completedAnswers as Array<{ answerId: string }> | undefined) ?? null; }, cid);
+        expect(ca).not.toBeNull(); // timeout guard: entry must exist — talk reached a terminal (no infinite cycle or undefined next)
+        expect(ca!.length).toBe(3); // binary DAG depth 3: exactly 3 questions traversed, proves no stuck/cycle
+        expect(['routea31', 'routea32']).toContain(ca![ca!.length - 1].answerId); // terminal node is isMatch or isIgnore
+        completedPaths.push(ca!.map((a) => a.answerId).join(','));
+      }
+      expect(new Set(completedPaths).size).toBe(7); // each of the 7 responders reached a distinct leaf — no two share the same terminal
     } finally {await Promise.all(pages.map(p=>p.evaluate(()=> (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(()=>{})));await Promise.all(contexts.map(c=>c.close().catch(()=>{})));await Promise.all(browsers.map(b=>b.close().catch(()=>{})));await maybeClearGunDatabases();}
   });
 });

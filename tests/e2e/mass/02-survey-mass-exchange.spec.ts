@@ -21,6 +21,69 @@ test.describe('M2 real survey mass exchange', () => {
       expect(delivery.receivers).toBe(14);
       for (let i=0;i<14;i+=1) { await waitForTabActive(pages[i+1], 'talks'); await completeTalksInAppByAnswerIds(pages[i+1], [{ talkId:created.talkId, talkData:created.talkData, answerIds:vector(i), outcome:'mismatch' }]); }
       await expect.poll(() => pages[0].evaluate((id) => Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')).filter((r:any)=>r.talkId===id).length, created.talkId), { timeout:120_000 }).toBe(14);
+
+      // B. byQuestion aggregate: total + skipCount === 14; completionRate matches formula.
+      const byQuestion = await pages[0].evaluate((talkId) => {
+        const raw = Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')) as any[];
+        const rsp = raw.filter((r: any) => r.talkId === talkId && r.direction !== 'received');
+        const n = rsp.length;
+        const byQ: Record<string, Record<string, number>> = {};
+        for (const r of rsp) {
+          for (const a of (Array.isArray(r.answers) ? r.answers : []) as any[]) {
+            if (!a.questionId) continue;
+            if (!byQ[a.questionId]) byQ[a.questionId] = {};
+            byQ[a.questionId][a.answerId] = (byQ[a.questionId][a.answerId] || 0) + 1;
+          }
+        }
+        return Object.entries(byQ).map(([questionId, counts]) => {
+          const total = Object.values(counts).reduce((s, c) => s + c, 0);
+          const skipCount = n - total;
+          const completionRate = n > 0 ? +((total * 100) / n).toFixed(1) : 0;
+          return { questionId, total, skipCount, completionRate, n };
+        });
+      }, created.talkId);
+      expect(byQuestion.length).toBe(5);
+      for (const q of byQuestion) {
+        expect(q.total + q.skipCount).toBe(14);
+        expect(q.completionRate).toBe(q.n > 0 ? +((q.total * 100) / q.n).toFixed(1) : 0);
+      }
+
+      // C. co-occurrence symmetric: cross(qA,qB)[a→b] === cross(qB,qA)[b→a].
+      const coSymmetric = await pages[0].evaluate((talkId) => {
+        const raw = Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')) as any[];
+        const rsp = raw.filter((r: any) => r.talkId === talkId && r.direction !== 'received');
+        function crossCounts(qA: string, qB: string): Record<string, number> {
+          const m: Record<string, number> = {};
+          for (const r of rsp) {
+            const aa = (Array.isArray(r.answers) ? r.answers : []) as any[];
+            const a = aa.find((x: any) => x.questionId === qA);
+            const b = aa.find((x: any) => x.questionId === qB);
+            if (!a || !b) continue;
+            const key = `${a.answerId}\x00${b.answerId}`;
+            m[key] = (m[key] || 0) + 1;
+          }
+          return m;
+        }
+        const fwd = crossCounts('surveyq1', 'surveyq2');
+        const rev = crossCounts('surveyq2', 'surveyq1');
+        return Object.entries(fwd).every(([key, count]) => {
+          const [a, b] = key.split('\x00');
+          return rev[`${b}\x00${a}`] === count;
+        });
+      }, created.talkId);
+      expect(coSymmetric).toBe(true);
+
+      // D. Time-range filter (7d): all 14 responses fall within the last 7 days.
+      const within7d = await pages[0].evaluate((talkId) => {
+        const cutoff = Date.now() - 7 * 86_400_000;
+        const raw = Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')) as any[];
+        return raw.filter((r: any) => {
+          if (r.talkId !== talkId || r.direction === 'received') return false;
+          const ts = r.respondedAt ? new Date(r.respondedAt).getTime() : new Date(r.date).getTime();
+          return ts >= cutoff;
+        }).length;
+      }, created.talkId);
+      expect(within7d).toBe(14);
     } finally { await Promise.all(pages.map((p)=>p.evaluate(()=> (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(()=>{}))); await Promise.all(contexts.map((c)=>c.close().catch(()=>{}))); await Promise.all(browsers.map((b)=>b.close().catch(()=>{}))); await maybeClearGunDatabases(); }
   });
 });

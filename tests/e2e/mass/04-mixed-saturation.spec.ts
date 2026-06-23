@@ -42,6 +42,49 @@ test.describe('M4 real mixed saturation', () => {
       }
       const golden = ['flow','tag','survey','route'].flatMap((type)=>users.slice(1).map((recipient:any)=>`${recipient.userId}:${type}q1:${type}a11`));
       expect(golden).toHaveLength(76); expect(new Set(golden).size).toBe(76);
+      // A — cross-talk contamination: every cluster holds talkIds only from the created set and
+      // no talkId bleeds across clusters (each content-addressed cluster owns exactly one talk).
+      const clusterSnapshots = await Promise.all(pages.slice(1).map((page) =>
+        page.evaluate(async () => {
+          const clusters = await (window as any).__iinpublic_app.getApp().getLocalIncomingClustersForE2e();
+          return clusters.map((c: any) => Object.keys(c.talkIds || {}));
+        }),
+      ));
+      const createdTalkIdSet = new Set(created.map((t: any) => t.talkId));
+      for (const clusterIdLists of clusterSnapshots) {
+        const seen = new Set<string>();
+        for (const clusterIds of clusterIdLists) {
+          for (const id of clusterIds) {
+            expect(createdTalkIdSet.has(id)).toBe(true);
+            expect(seen.has(id)).toBe(false);
+            seen.add(id as string);
+          }
+          expect(clusterIds.length).toBeLessThanOrEqual(1);
+        }
+      }
+      // B — PeerMeshService neighbor count: each of 20 nodes should reach ≥12 neighbors
+      // (default maxNeighbors cap). peerMeshService is exposed via (this as any) cast inside
+      // ensurePeerMeshService() once a chatroom join triggers mesh init.
+      const neighborCounts = await Promise.all(pages.map((page) =>
+        page.evaluate(() => {
+          const mesh = ((window as any).__iinpublic_app.getApp() as any).peerMeshService;
+          return mesh ? (mesh.getDiagnostics() as { neighborCount: number }).neighborCount : 0;
+        }),
+      ));
+      for (const count of neighborCounts) {
+        expect(count).toBeGreaterThanOrEqual(12);
+      }
+      // C — memory sanity: Gun 'talks' key count stays bounded after delivery.
+      // Hub runs E2E_GUN_MEMORY_ONLY=1 (radata always absent). Talk bodies route through
+      // PeerMeshService cache not Gun talks/* (R-f step 7), so the relay graph stays small.
+      const gunTalksKeyCount = await pages[0].evaluate(() => new Promise<number>((resolve) => {
+        const gun = ((window as any).__iinpublic_app.getApp() as any).gunService?.getGun?.();
+        if (!gun) { resolve(-1); return; }
+        let n = 0;
+        gun.get('talks').map().once(() => { n += 1; });
+        setTimeout(() => resolve(n), 500);
+      }));
+      if (gunTalksKeyCount !== -1) { expect(gunTalksKeyCount).toBeLessThanOrEqual(created.length * 2); }
       expect(created).toHaveLength(4);
     } finally { await Promise.all(browsers.map((b)=>b.close().catch(()=>{}))); await maybeClearGunDatabases(); }
   });

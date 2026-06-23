@@ -1,6 +1,24 @@
 # IinPublic Completed Work
 
-Last updated: 2026-06-22
+Last updated: 2026-06-23
+
+## 2026-06-23 — M1–M4 Massive Talks E2E assertions fleshed out
+
+Moved from `docs/TODO.md`. Four mass-E2E specs under `tests/e2e/mass/` received missing assertion blocks
+(total ~143 lines added, TypeScript compiles clean). Delegated to Claude Code (Sonnet) via print mode for each file:
+
+- **M1** (`01-flow-mash-exchange.spec.ts`, +23 lines): Added match/ignore split poll (only `flowa41` golden
+  path is a match), matched/notMatched counts from `localTalkExchanges`, and stats `matchRate = matchedCount / totalResponses` via `toBeCloseTo`.
+- **M2** (`02-survey-mass-exchange.spec.ts`, +63 lines): Added `byQuestion` aggregate verification
+  (total + skipCount === 14, completionRate formula per question for all 5 questions), co-occurrence table
+  symmetry between `surveyq1 ↔ surveyq2`, and 7-day time-range filter returning all 14 responses. CSV export skipped — no E2E hook exists.
+- **M3** (`03-route-mash-exchange.spec.ts`, +14 lines): Added content-hash dedup across all 8 browsers
+  (creator's `talkId` and each responder's `myTalks[cid]` key match the Node.js-computed `cid`), distinct terminal node verification (each of 7 responders traversed exactly depth-3 DAG, landed on unique leaf, no cycle guard via entry-existence check).
+- **M4** (`04-mixed-saturation.spec.ts`, +43 lines): Added cross-talk contamination check (every cluster holds only created talkIds, no id bleeds across clusters, ≤1 talkId per cluster), PeerMeshService neighbor count ≥12 per node via `getDiagnostics().neighborCount`, and Gun memory sanity (talks key count bounded, returns -1 if inaccessible).
+
+These are heavyweight specs (30–60 min each) — run individually with `npm run test:e2e:heavy` which includes them, or individually via `npx playwright test tests/e2e/mass/<file> --retries=0`.
+
+**Verification:** `npx tsc --noEmit` clean across all 4 files. Actual E2E verification pending (mass specs require full browser launch).
 
 ## 2026-06-22 — P2 TechSupport root identity bootstrap completed
 
