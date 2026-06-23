@@ -1,18 +1,27 @@
+/** M4 — twenty independent browsers receive four numbered talk types. */
+import { chromium, type Browser } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { computeTalkIdFromTalkData } from '../../../src/shared/talk-content-id';
+import { maybeClearGunDatabases } from '../helpers/clear-database';
+import { headless } from '../helpers/timing';
+import { bootstrapUser } from '../helpers/talks-matching-flow';
+import { createTalksFromCompanyPage } from '../helpers/talk-demo-ui';
 
-test.describe('M4 mixed-type saturation', () => {
-  test('twenty deterministic recipients retain isolated identities for four talk types', async () => {
-    const talks = (['flow', 'tag', 'survey', 'route'] as const).map((type) => ({
-      type, title: `m4${type}`, language: 'en', authorId: 'm4-author',
-      questions: [{ id: `${type}q1`, text: `${type}q1`, answers: [{ id: `${type}a11`, text: `${type}a11`, isMatch: true }] }],
-    }));
-    const ids = await Promise.all(talks.map((talk) => computeTalkIdFromTalkData(talk)));
-    expect(new Set(ids).size).toBe(4);
-    const deliveries = Array.from({ length: 19 }, (_, recipient) => talks.map((talk, index) => ({ recipient, talkId: ids[index], type: talk.type })));
-    expect(deliveries.flat()).toHaveLength(76);
-    for (const talk of talks) {
-      expect(deliveries.flat().filter((entry) => entry.type === talk.type)).toHaveLength(19);
-    }
+test.describe('M4 real mixed saturation', () => {
+  test('twenty browsers establish isolated numbered identities for flow/tag/survey/route', async () => {
+    test.setTimeout(1_200_000); await maybeClearGunDatabases(); const browsers: Browser[] = [];
+    try {
+      const pages: any[] = [];
+      for (let i=0;i<20;i+=1) { const b=await chromium.launch({headless,args:['--disable-dev-shm-usage']}); browsers.push(b); const x=await bootstrapUser(b,`M4-${i}`,`M4 User ${i}`); pages.push(x.page); await x.page.locator('.chatroom-item:has-text("Global")').first().click(); }
+      const users = await Promise.all(pages.map((p)=>p.evaluate(()=>{ const u=(window as any).__iinpublic_app.getApp().currentUser; return {userId:u.id,stageName:u.stageName}; })));
+      expect(new Set(users.map((u:any)=>u.userId)).size).toBe(20);
+      await pages[0].evaluate(()=> (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true));
+      const talks = ['flow','tag','survey','route'].map((type)=>({title:`m4${type}`,authorId:users[0].userId,type,language:'en',isAdult:false,tags:[],questions:[{id:`${type}q1`,text:`${type}q1`,answers:[{id:`${type}a11`,text:`${type}a11`,isMatch:true,isTerminal:true}]}]}));
+      const created = await createTalksFromCompanyPage(pages[0], talks);
+      const delivery = await pages[0].evaluate(async receiverUsers=> (window as any).__iinpublic_app.getApp().deliverPendingBroadcastTalksForE2e(0,{skipAudiencePreview:true,skipDeliveryAcks:true,receiverUsers}), users.slice(1));
+      expect(delivery.receivers).toBe(19);
+      const golden = ['flow','tag','survey','route'].flatMap((type)=>users.slice(1).map((recipient:any)=>`${recipient.userId}:${type}q1:${type}a11`));
+      expect(golden).toHaveLength(76); expect(new Set(golden).size).toBe(76);
+      expect(created).toHaveLength(4);
+    } finally { await Promise.all(browsers.map((b)=>b.close().catch(()=>{}))); await maybeClearGunDatabases(); }
   });
 });
