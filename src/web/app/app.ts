@@ -1258,7 +1258,9 @@ export class IinPublicApp {
       apiBase: this.getBackendApiBase(),
       localUserId: this.currentUser.id,
       localStageName: this.currentUser.stageName || this.currentUser.id,
-      ...(process.env.DISABLE_HMR === 'true' ? { maxNeighbors: 3 } : {}),
+      // Keep the E2E mesh dense enough for the 20-peer saturation scenario while
+      // still using the production default cap (12) outside that harness.
+      ...(process.env.DISABLE_HMR === 'true' ? { maxNeighbors: 12 } : {}),
       ...(this.p2pRuntimeFlags.p2pNodeEnabled
         ? {
             getDiscoveryUserIds: async () => this.getDiscoveryFallbackUserIdsForActiveRoom(),

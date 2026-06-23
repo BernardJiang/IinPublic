@@ -17,8 +17,29 @@ test.describe('M4 real mixed saturation', () => {
       await pages[0].evaluate(()=> (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true));
       const talks = ['flow','tag','survey','route'].map((type)=>({title:`m4${type}`,authorId:users[0].userId,type,language:'en',isAdult:false,tags:[],questions:[{id:`${type}q1`,text:`${type}q1`,answers:[{id:`${type}a11`,text:`${type}a11`,isMatch:true,isTerminal:true}]}]}));
       const created = await createTalksFromCompanyPage(pages[0], talks);
-      const delivery = await pages[0].evaluate(async receiverUsers=> (window as any).__iinpublic_app.getApp().deliverPendingBroadcastTalksForE2e(0,{skipAudiencePreview:true,skipDeliveryAcks:true,receiverUsers}), users.slice(1));
-      expect(delivery.receivers).toBe(19);
+      const startedAt = Date.now();
+      const deliveries = await pages[0].evaluate(async ({ receiverUsers, count }) => {
+        const app = (window as any).__iinpublic_app.getApp();
+        return Promise.all(Array.from({ length: count }, (_, index) =>
+          app.deliverPendingBroadcastTalksForE2e(index, {
+            skipAudiencePreview: true,
+            skipDeliveryAcks: true,
+            receiverUsers,
+          }),
+        ));
+      }, { receiverUsers: users.slice(1), count: created.length });
+      expect(deliveries).toHaveLength(4);
+      expect(deliveries.every((delivery: any) => delivery.receivers === 19)).toBe(true);
+      expect(deliveries.reduce((total: number, delivery: any) => total + delivery.receivers, 0)).toBe(76);
+      expect(Date.now() - startedAt).toBeLessThanOrEqual(30_000);
+      const receivedTalkIds = await Promise.all(pages.slice(1).map((page) => page.evaluate(async () => {
+        const app = (window as any).__iinpublic_app.getApp();
+        const clusters = await app.getLocalIncomingClustersForE2e();
+        return clusters.flatMap((cluster: any) => Object.keys(cluster.talkIds || {}));
+      })));
+      for (const ids of receivedTalkIds) {
+        expect([...new Set(ids)]).toEqual(expect.arrayContaining(created.map((talk: any) => talk.talkId)));
+      }
       const golden = ['flow','tag','survey','route'].flatMap((type)=>users.slice(1).map((recipient:any)=>`${recipient.userId}:${type}q1:${type}a11`));
       expect(golden).toHaveLength(76); expect(new Set(golden).size).toBe(76);
       expect(created).toHaveLength(4);
