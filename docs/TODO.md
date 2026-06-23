@@ -71,13 +71,9 @@ Moved to `docs/completed.md`.
 
 Certain data is logically global and should be replicated to every peer's local Gun graph on first connection, rather than fetched on demand. This makes the app functional with a degraded or offline hub.
 
-### P2 — TechSupport root identity bootstrap
+### P2 — TechSupport root identity bootstrap — **COMPLETED 2026-06-22**
 
-The TechSupport root user ID and public key (`TECHSUPPORT_ROOT_USER_ID`, `TECHSUPPORT_PUB`) are currently constants in `src/shared/techsupport.ts`. They should also be announced in Gun so a new peer can verify them without trusting the bundle.
-
-- [x] Write `{ userId, pub, epub, role: 'techsupport' }` to `gun.get('public/techsupport-identity')` signed with the TechSupport SEA key on server startup. Development keypair is local-only in `.env.local`; rotate it before production.
-- [x] Browser: on boot, read `public/techsupport-identity`, verify signature, and cross-check against the compiled constant — mismatch triggers a visible security warning.
-- [ ] E2E: assert that a fresh browser without the compiled constant can discover TechSupport identity solely from the Gun path.
+Moved to `docs/completed.md`.
 
 ### P3 — Location-based chatroom auto-join hints — **COMPLETED 2026-06-20**
 

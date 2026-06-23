@@ -1,6 +1,24 @@
 # IinPublic Completed Work
 
-Last updated: 2026-06-18
+Last updated: 2026-06-22
+
+## 2026-06-22 — P2 TechSupport root identity bootstrap completed
+
+Moved from `docs/TODO.md`.
+
+- The server publishes a signed `{ userId, pub, epub, role }` identity record at
+  `public/techsupport-identity`; normal browser startup verifies it against the compiled public-key pin
+  and displays a warning on a mismatch.
+- Added `readVerifiedTechSupportIdentity()` and
+  `IinPublicApp.discoverTechSupportIdentityFromGun()` for discovery from the public Gun path. This
+  validates the record's self-signature but deliberately does not replace the normal pinned-key trust
+  check.
+- E2E snapshot imports now re-publish server-owned public bootstrap records after replacing the graph.
+  This prevents the test baseline reset from erasing the signed identity.
+- Added a fresh-context, empty-IndexedDB Playwright test proving that a browser discovers the valid
+  identity from local Gun without supplying the compiled public key to the discovery API.
+- Verification: `npm run test:type -- --pretty false`; `npm run lint`; focused Jest system-announcement
+  suite; focused Chromium bootstrap E2E.
 
 ## 2026-06-18 — S2 Gun pub/sub signaling completed; HTTP signaling route removed
 

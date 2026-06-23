@@ -10,7 +10,12 @@ import { UIManager, type BroadcastAudiencePreview } from '../ui/ui-manager';
 import { LocationPrivacy } from '../../shared/location';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { applyPublicChatroomHierarchy, getAllChatroomIds, getFlatChatroomList } from '../../shared/chatroom-hierarchy';
-import { isRenderableSystemAnnouncement, isVerifiedTechSupportIdentity } from '../../shared/system-announcements';
+import {
+  isRenderableSystemAnnouncement,
+  isVerifiedTechSupportIdentity,
+  readVerifiedTechSupportIdentity,
+  type TechSupportIdentity,
+} from '../../shared/system-announcements';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, computeCIDv1 } from '../../shared/cid';
 import { isDevStageZero } from '../dev-stage-env';
@@ -677,6 +682,19 @@ export class IinPublicApp {
         }
       });
     });
+  }
+
+  /**
+   * Read the self-signed TechSupport identity advertised through local Gun.
+   * This deliberately does not use the compiled public-key pin: callers can
+   * discover an offline/bootstrap peer's advertised identity, while normal app
+   * startup continues to enforce the pin in `subscribeToPublicAnnouncements`.
+   */
+  public async discoverTechSupportIdentityFromGun(): Promise<TechSupportIdentity | null> {
+    const raw = await new Promise<unknown>((resolve) => {
+      this.gunService.getGun().get('public').get('techsupport-identity').once((value: unknown) => resolve(value));
+    });
+    return readVerifiedTechSupportIdentity(raw);
   }
 
   /** Show once per user/device after location has selected a more specific hierarchy room. */

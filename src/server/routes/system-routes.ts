@@ -592,7 +592,7 @@ export function registerSystemRoutes(
       }
     });
 
-    app.post('/api/test/import-snapshot', (req, res) => {
+    app.post('/api/test/import-snapshot', async (req, res) => {
       try {
         const body = req.body as E2eServerSnapshot;
         if (!body || body.version !== 1 || !body.gunGraph) {
@@ -605,6 +605,10 @@ export function registerSystemRoutes(
         }
         gun._.graph = { ...body.gunGraph };
         if (gunService) clearExactChatbotMemoryCacheForTesting(gunService);
+        // Snapshot imports replace the whole graph, so restore server-owned public
+        // bootstrap records (hierarchy and signed TechSupport identity) afterward.
+        // Without this, the usual E2E root-baseline seed silently erased them.
+        await onClearDatabase?.();
         logger.info('E2E snapshot imported');
         res.json({ success: true });
       } catch (error) {

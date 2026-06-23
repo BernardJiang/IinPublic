@@ -21,11 +21,23 @@ export type TechSupportIdentity = {
   signature: string;
 };
 
-export async function isVerifiedTechSupportIdentity(value: unknown, expectedPub: string): Promise<boolean> {
-  if (!value || typeof value !== 'object') return false;
+/**
+ * Verify the identity record carried by the public Gun graph.
+ *
+ * With `expectedPub`, callers also enforce the compiled trust anchor. Without it,
+ * this establishes only that the record is internally consistent and signed by
+ * the public key it advertises; that is useful for peer discovery, but must not
+ * be treated as an authority upgrade.
+ */
+export async function readVerifiedTechSupportIdentity(
+  value: unknown,
+  expectedPub?: string,
+): Promise<TechSupportIdentity | null> {
+  if (!value || typeof value !== 'object') return null;
   const identity = value as Partial<TechSupportIdentity>;
-  if (!identity.pub || !identity.epub || !identity.signature) return false;
-  if (identity.userId !== TECHSUPPORT_ROOT_USER_ID || identity.role !== TECHSUPPORT_NETWORK_ROLE || identity.pub !== expectedPub) return false;
+  if (!identity.pub || !identity.epub || !identity.signature) return null;
+  if (identity.userId !== TECHSUPPORT_ROOT_USER_ID || identity.role !== TECHSUPPORT_NETWORK_ROLE) return null;
+  if (expectedPub && identity.pub !== expectedPub) return null;
   const payload = canonicalSerialize({
     userId: identity.userId,
     pub: identity.pub,
@@ -33,7 +45,18 @@ export async function isVerifiedTechSupportIdentity(value: unknown, expectedPub:
     role: identity.role,
   });
   const verified = await SEA.verify(identity.signature, identity.pub);
-  return (typeof verified === 'string' ? verified : canonicalSerialize(verified)) === payload;
+  if ((typeof verified === 'string' ? verified : canonicalSerialize(verified)) !== payload) return null;
+  return {
+    userId: identity.userId,
+    pub: identity.pub,
+    epub: identity.epub,
+    role: identity.role,
+    signature: identity.signature,
+  };
+}
+
+export async function isVerifiedTechSupportIdentity(value: unknown, expectedPub: string): Promise<boolean> {
+  return (await readVerifiedTechSupportIdentity(value, expectedPub)) !== null;
 }
 
 export function announcementSigningPayload(announcement: UnsignedSystemAnnouncement): string {

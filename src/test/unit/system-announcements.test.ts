@@ -6,6 +6,7 @@ import {
   createSystemAnnouncement,
   isVerifiedTechSupportIdentity,
   isRenderableSystemAnnouncement,
+  readVerifiedTechSupportIdentity,
 } from '../../shared/system-announcements';
 import { TECHSUPPORT_NETWORK_ROLE, TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { TechSupportAnnouncementService } from '../../server/services/techsupport-announcement-service';
@@ -43,6 +44,7 @@ describe('system announcements', () => {
 
     await expect(isVerifiedTechSupportIdentity({ ...identity, signature }, pair.pub)).resolves.toBe(true);
     await expect(isVerifiedTechSupportIdentity({ ...identity, pub: 'wrong-key', signature }, pair.pub)).resolves.toBe(false);
+    await expect(readVerifiedTechSupportIdentity({ ...identity, signature })).resolves.toEqual({ ...identity, signature });
   });
 
   it('renders a valid unexpired announcement', async () => {
