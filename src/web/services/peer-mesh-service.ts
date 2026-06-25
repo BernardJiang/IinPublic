@@ -538,21 +538,26 @@ export class PeerMeshService {
       // every non-neighbor defeats gossip and overloads the encrypted fallback at scale.
       const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
       await this.rememberAndFanout(announceFrame);
-      // For an explicit recipient list (directed room broadcast — the sender knows exactly
-      // which members to reach), every requested recipient must stay in the ack/fallback
-      // safety net. Filtering these through activeExpectedRecipients drops recipients whose
-      // presence-pub has not yet replicated under load (and who are not direct neighbors);
-      // such recipients then get neither ack-tracking nor mailbox fallback and depend solely
-      // on lossy flood gossip — the saturation-delivery gap. The presence filter is only
-      // appropriate for the implicit whole-room case (recipients derived from
-      // currentRoomMemberIds), where it guards against mailboxing ghost members.
-      const expectedRecipients = recipients.length > 0
+      // Two distinct recipient sets, deliberately decoupled:
+      //
+      //  • ackTargets — the peers we BLOCK the flood loop on, waiting for ACKs. This stays
+      //    the presence/neighbor-filtered set (activeExpectedRecipients) so a freshly-joined
+      //    or presence-lagged recipient does NOT stall the broadcast for the full ack budget
+      //    (3 × ackTimeout). Blocking on not-yet-reachable peers needlessly slowed small/fresh
+      //    rooms (e.g. a sender looping announceTalkToRoom over several talks would exceed its
+      //    test budget). Such peers are still guaranteed delivery by the mailbox fallback below.
+      //
+      //  • guaranteedRecipients — everyone delivery must reach. For an EXPLICIT recipient list
+      //    this is the full list, so a recipient whose presence-pub has not yet replicated (and
+      //    who is not a direct neighbor) is covered by the non-blocking mailbox fallback rather
+      //    than dropped to depend on lossy flood gossip — the saturation-delivery gap. The
+      //    implicit whole-room case stays presence-filtered (guards against mailboxing ghosts).
+      const ackTargets = await this.activeExpectedRecipients(recipients.length > 0
+        ? recipients
+        : [...this.currentRoomMemberIds]);
+      const guaranteedRecipients = recipients.length > 0
         ? [...new Set(recipients.filter((userId) => userId && userId !== this.opts.localUserId))]
-        : await this.activeExpectedRecipients([...this.currentRoomMemberIds]);
-      if (expectedRecipients.length === 0) {
-        await this.rememberAndFanout(bodyFrame);
-        return;
-      }
+        : ackTargets;
       // A single flood is lossy when a neighbor link flaps at send time (the frame is
       // dropped and seen-set dedup means nothing re-delivers it). Re-flood the SAME
       // announce+body frames for un-ACKed recipients before mailbox fallback:
@@ -562,24 +567,42 @@ export class PeerMeshService {
       this.rememberSeen(bodyFrame.msgId);
       const ackTimeoutMs = this.opts.ackTimeoutMs ?? DEFAULT_MESH_ACK_TIMEOUT_MS;
       let acknowledged = new Set<string>();
-      for (let attempt = 0; attempt < MESH_BROADCAST_FLOOD_ATTEMPTS; attempt += 1) {
-        if (attempt > 0) {
-          await this.forwardFrame(announceFrame);
-        }
+      if (ackTargets.length === 0) {
+        // No prompt-ack peers (e.g. presence not yet replicated): flood once, give any
+        // already-connected neighbor a brief grace to ACK (so we don't redundantly mailbox
+        // a recipient the flood just reached), then let the fallback guarantee the rest.
         this.acknowledgements.set(bodyFrame.msgId, acknowledged);
         const forwarded = await this.forwardFrame(bodyFrame);
-        if (forwarded === 0) {
-          // No neighbor accepted the frame — waiting for ACKs is pointless; clean up
-          // and let the mailbox fallback cover every missing recipient immediately.
+        if (forwarded > 0) {
+          acknowledged = await this.waitForAcks(
+            bodyFrame.msgId,
+            guaranteedRecipients,
+            Math.min(ackTimeoutMs, 1_000),
+          );
+        } else {
           this.acknowledgements.delete(bodyFrame.msgId);
           this.acknowledgementWaiters.delete(bodyFrame.msgId);
-          break;
         }
-        acknowledged = await this.waitForAcks(bodyFrame.msgId, expectedRecipients, ackTimeoutMs);
-        if (expectedRecipients.every((userId) => acknowledged.has(userId))) break;
+      } else {
+        for (let attempt = 0; attempt < MESH_BROADCAST_FLOOD_ATTEMPTS; attempt += 1) {
+          if (attempt > 0) {
+            await this.forwardFrame(announceFrame);
+          }
+          this.acknowledgements.set(bodyFrame.msgId, acknowledged);
+          const forwarded = await this.forwardFrame(bodyFrame);
+          if (forwarded === 0) {
+            // No neighbor accepted the frame — waiting for ACKs is pointless; clean up
+            // and let the mailbox fallback cover every missing recipient immediately.
+            this.acknowledgements.delete(bodyFrame.msgId);
+            this.acknowledgementWaiters.delete(bodyFrame.msgId);
+            break;
+          }
+          acknowledged = await this.waitForAcks(bodyFrame.msgId, ackTargets, ackTimeoutMs);
+          if (ackTargets.every((userId) => acknowledged.has(userId))) break;
+        }
       }
       if (this.opts.onMailboxFallback) {
-        const missingRecipients = expectedRecipients.filter((userId) => !acknowledged.has(userId));
+        const missingRecipients = guaranteedRecipients.filter((userId) => !acknowledged.has(userId));
         if (missingRecipients.length > 0) {
           void Promise.resolve(this.opts.onMailboxFallback(bodyPayload, missingRecipients)).catch(
             (err) => console.warn('[Mesh] mailbox fallback failed:', err),
