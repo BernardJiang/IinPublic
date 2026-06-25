@@ -58,8 +58,19 @@ export { E2E_INTERVAL, isLong };
  */
 export const E2E_ASSERT_TIMEOUT_MS = resolveE2EAssertTimeoutMs();
 
-/** Wait until Gun auth + user bootstrap finished (settings shell needs currentUser). */
-export async function waitForAppReady(page: import('@playwright/test').Page): Promise<void> {
+/**
+ * Wait until Gun auth + user bootstrap finished (settings shell needs currentUser).
+ *
+ * `timeoutMs` defaults to the global fail-fast budget. Heavy single-worker specs that
+ * bring up many simultaneous browser contexts (e.g. mass/ and staged/stage5 capacity)
+ * pass a larger value: by the ~20th cold bootstrap the idle Gun/WebRTC peers already
+ * running in the same worker starve a fresh app's bootstrap past 10s. This is a local
+ * override for those oversubscribed specs only — it does not loosen the global budget.
+ */
+export async function waitForAppReady(
+  page: import('@playwright/test').Page,
+  timeoutMs: number = E2E_ASSERT_TIMEOUT_MS,
+): Promise<void> {
   const { expect } = await import('@playwright/test');
   await expect
     .poll(
@@ -71,16 +82,20 @@ export async function waitForAppReady(page: import('@playwright/test').Page): Pr
           const hasNav = Boolean(document.querySelector('.bottom-nav .nav-btn[data-view="chatrooms"]'));
           return hasUser && hasNav;
         }),
-      { timeout: E2E_ASSERT_TIMEOUT_MS, intervals: [200, 400, 800, 1200] },
+      { timeout: timeoutMs, intervals: [200, 400, 800, 1200] },
     )
     .toBe(true);
 }
 
 /** goto + load + app bootstrap — use from specs that do not use the fixtures `page` wrapper. */
-export async function gotoAppReady(page: import('@playwright/test').Page, url: string): Promise<void> {
+export async function gotoAppReady(
+  page: import('@playwright/test').Page,
+  url: string,
+  timeoutMs?: number,
+): Promise<void> {
   await page.goto(url);
   await page.waitForLoadState('load');
-  await waitForAppReady(page);
+  await waitForAppReady(page, timeoutMs);
 }
 
 /** Reload and wait for app bootstrap + stored UI language labels (if set). */

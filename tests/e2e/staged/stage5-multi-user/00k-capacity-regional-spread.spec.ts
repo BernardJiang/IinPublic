@@ -49,7 +49,9 @@ test.describe('Capacity regional spread', () => {
         (window as any).__test_location = { ...location, accuracy: 25 };
         localStorage.setItem('iinpublic_last_chatroom', room);
       }, TARGETS[i]);
-      await gotoWebApp(page, webBaseURL() + E2E_URL);
+      // 25 browser contexts boot in one worker; later cold bootstraps contend with the
+      // already-running idle peers, so give app-ready a larger budget than the 10s default.
+      await gotoWebApp(page, webBaseURL() + E2E_URL, 30_000);
       await afterLoad();
       await page.evaluate((index) => {
         const app = (window as any).__iinpublic_app?.getApp?.();
@@ -73,11 +75,20 @@ test.describe('Capacity regional spread', () => {
         ];
         const counts: Record<string, number> = {};
         for (const room of rooms) {
-          const res = await request.get(`${gunBaseURL()}/api/chatrooms/${encodeURIComponent(room)}/members`, {
-            headers: { 'Cache-Control': 'no-cache' },
-          });
-          const rows = res.ok() ? ((await res.json()) as Array<{ userId?: string }>) : [];
-          counts[room] = rows.filter((row) => row.userId && row.userId !== TECHSUPPORT_ROOT_USER_ID).length;
+          // Under 25 live browsers the Gun server can briefly stall past the default 10s
+          // request deadline. A single slow/failed read must NOT throw out of the poll
+          // (that aborts all remaining 180s of budget); treat it as "not ready yet" so the
+          // poll retries once the server catches up. Give the request itself more headroom.
+          try {
+            const res = await request.get(`${gunBaseURL()}/api/chatrooms/${encodeURIComponent(room)}/members`, {
+              headers: { 'Cache-Control': 'no-cache' },
+              timeout: 30_000,
+            });
+            const rows = res.ok() ? ((await res.json()) as Array<{ userId?: string }>) : [];
+            counts[room] = rows.filter((row) => row.userId && row.userId !== TECHSUPPORT_ROOT_USER_ID).length;
+          } catch {
+            counts[room] = 0; // transient timeout/overload — let the next poll tick retry
+          }
         }
         return {
           global: counts.global >= 3,

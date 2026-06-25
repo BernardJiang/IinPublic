@@ -5,7 +5,8 @@ import * as path from 'path';
 import { maybeClearGunDatabases, injectIdbClear } from '../../helpers/clear-database';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { wait, afterLoad, afterSync, afterNav, delay, headless } from '../../helpers/timing';
-import { webBaseURL, e2eTestScreenshotsDir, e2eTestStorageDir } from '../../helpers/ports';
+import { webBaseURL, gunBaseURL, e2eTestScreenshotsDir, e2eTestStorageDir } from '../../helpers/ports';
+import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 
@@ -34,6 +35,43 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     console.log(`✅ ${userName} cleanup called`);
   }
 
+  /**
+   * Drain ghost members from Global before the test launches browsers.
+   *
+   * The preceding 3-user spec's closed Gun peers can flush a final membership write
+   * several seconds after teardown — landing mid-test and inflating Global (e.g. 3 → 6).
+   * Those entries have no live peer, so they never decrement. A single pre-test clear
+   * cannot catch a write that has not happened yet, so instead we poll the members
+   * endpoint until Global is *stably* clean (no non-TechSupport member across several
+   * consecutive reads), re-clearing whenever a stray appears. This only clears/waits
+   * before any browser launches, so it cannot perturb the test's own headcount logic.
+   */
+  async function drainGlobalGhosts(): Promise<void> {
+    const url = `${gunBaseURL()}/api/chatrooms/global/members`;
+    const requiredCleanReads = 4;
+    const maxReads = 20;
+    let cleanStreak = 0;
+    for (let i = 0; i < maxReads && cleanStreak < requiredCleanReads; i++) {
+      let strays = -1;
+      try {
+        const res = await fetch(url, { headers: { 'Cache-Control': 'no-cache' } });
+        if (res.ok) {
+          const rows = (await res.json()) as Array<{ userId?: string }>;
+          strays = rows.filter((row) => row.userId && row.userId !== TECHSUPPORT_ROOT_USER_ID).length;
+        }
+      } catch {
+        strays = -1; // endpoint not ready yet — treat as not-clean and retry
+      }
+      if (strays === 0) {
+        cleanStreak += 1;
+      } else {
+        cleanStreak = 0;
+        if (strays > 0) await maybeClearGunDatabases();
+      }
+      await wait(1500, 1500);
+    }
+  }
+
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     // A preceding spec's closed Gun peers can still flush a final write for a few
     // seconds. Drain those writes, then reseed immediately before this spec opens
@@ -41,6 +79,8 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await maybeClearGunDatabases();
     await wait(3500, 3500);
     await maybeClearGunDatabases();
+    // Absorb any late membership flush from the previous spec's closed peers before launching.
+    await drainGlobalGhosts();
     browser1 = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 150),

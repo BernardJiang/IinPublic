@@ -538,9 +538,17 @@ export class PeerMeshService {
       // every non-neighbor defeats gossip and overloads the encrypted fallback at scale.
       const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
       await this.rememberAndFanout(announceFrame);
-      const expectedRecipients = await this.activeExpectedRecipients(recipients.length > 0
-        ? recipients
-        : [...this.currentRoomMemberIds]);
+      // For an explicit recipient list (directed room broadcast — the sender knows exactly
+      // which members to reach), every requested recipient must stay in the ack/fallback
+      // safety net. Filtering these through activeExpectedRecipients drops recipients whose
+      // presence-pub has not yet replicated under load (and who are not direct neighbors);
+      // such recipients then get neither ack-tracking nor mailbox fallback and depend solely
+      // on lossy flood gossip — the saturation-delivery gap. The presence filter is only
+      // appropriate for the implicit whole-room case (recipients derived from
+      // currentRoomMemberIds), where it guards against mailboxing ghost members.
+      const expectedRecipients = recipients.length > 0
+        ? [...new Set(recipients.filter((userId) => userId && userId !== this.opts.localUserId))]
+        : await this.activeExpectedRecipients([...this.currentRoomMemberIds]);
       if (expectedRecipients.length === 0) {
         await this.rememberAndFanout(bodyFrame);
         return;

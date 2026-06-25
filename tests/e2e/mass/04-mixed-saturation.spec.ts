@@ -1,5 +1,5 @@
 /** M4 — twenty independent browsers receive four numbered talk types. */
-import { chromium, type Browser } from '@playwright/test';
+import { chromium } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { maybeClearGunDatabases } from '../helpers/clear-database';
 import { headless } from '../helpers/timing';
@@ -7,11 +7,11 @@ import { bootstrapUser } from '../helpers/talks-matching-flow';
 import { createTalksFromCompanyPage } from '../helpers/talk-demo-ui';
 
 test.describe('M4 real mixed saturation', () => {
-  test('twenty browsers establish isolated numbered identities for flow/tag/survey/route', async () => {
-    test.setTimeout(1_200_000); await maybeClearGunDatabases(); const browsers: Browser[] = [];
+  test('twenty isolated browser profiles establish numbered identities for flow/tag/survey/route', async () => {
+    test.setTimeout(1_200_000); await maybeClearGunDatabases(); const browser = await chromium.launch({headless,args:['--disable-dev-shm-usage']});
     try {
       const pages: any[] = [];
-      for (let i=0;i<20;i+=1) { const b=await chromium.launch({headless,args:['--disable-dev-shm-usage']}); browsers.push(b); const x=await bootstrapUser(b,`M4-${i}`,`M4 User ${i}`); pages.push(x.page); await x.page.locator('.chatroom-item:has-text("Global")').first().click(); }
+      for (let i=0;i<20;i+=1) { const x=await bootstrapUser(browser,`M4-${i}`,`M4 User ${i}`); pages.push(x.page); await x.page.locator('.chatroom-item:has-text("Global")').first().click(); }
       const users = await Promise.all(pages.map((p)=>p.evaluate(()=>{ const u=(window as any).__iinpublic_app.getApp().currentUser; return {userId:u.id,stageName:u.stageName}; })));
       expect(new Set(users.map((u:any)=>u.userId)).size).toBe(20);
       await pages[0].evaluate(()=> (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true));
@@ -23,7 +23,6 @@ test.describe('M4 real mixed saturation', () => {
         return Promise.all(Array.from({ length: count }, (_, index) =>
           app.deliverPendingBroadcastTalksForE2e(index, {
             skipAudiencePreview: true,
-            skipDeliveryAcks: true,
             receiverUsers,
           }),
         ));
@@ -31,12 +30,28 @@ test.describe('M4 real mixed saturation', () => {
       expect(deliveries).toHaveLength(4);
       expect(deliveries.every((delivery: any) => delivery.receivers === 19)).toBe(true);
       expect(deliveries.reduce((total: number, delivery: any) => total + delivery.receivers, 0)).toBe(76);
-      expect(Date.now() - startedAt).toBeLessThanOrEqual(30_000);
-      const receivedTalkIds = await Promise.all(pages.slice(1).map((page) => page.evaluate(async () => {
+      // A reliable 19-recipient send waits for encrypted mesh acknowledgements and
+      // falls back to the mailbox when a direct channel is still forming.  This is
+      // intentionally slower than the old fire-and-forget assertion, but bounded.
+      expect(Date.now() - startedAt).toBeLessThanOrEqual(90_000);
+      const readReceivedTalkIds = () => Promise.all(pages.slice(1).map((page) => page.evaluate(async () => {
         const app = (window as any).__iinpublic_app.getApp();
+        // Mailbox fallback posts asynchronously after an unacknowledged mesh send;
+        // drain it here rather than waiting for the background three-second poll.
+        await app.drainMailbox?.();
         const clusters = await app.getLocalIncomingClustersForE2e();
         return clusters.flatMap((cluster: any) => Object.keys(cluster.talkIds || {}));
       })));
+      await expect
+        .poll(
+          async () => {
+            const received = await readReceivedTalkIds();
+            return received.every((ids) => created.every((talk: any) => ids.includes(talk.talkId)));
+          },
+          { timeout: 45_000, intervals: [300, 600, 1200, 2000] },
+        )
+        .toBe(true);
+      const receivedTalkIds = await readReceivedTalkIds();
       for (const ids of receivedTalkIds) {
         expect([...new Set(ids)]).toEqual(expect.arrayContaining(created.map((talk: any) => talk.talkId)));
       }
@@ -86,6 +101,6 @@ test.describe('M4 real mixed saturation', () => {
       }));
       if (gunTalksKeyCount !== -1) { expect(gunTalksKeyCount).toBeLessThanOrEqual(created.length * 2); }
       expect(created).toHaveLength(4);
-    } finally { await Promise.all(browsers.map((b)=>b.close().catch(()=>{}))); await maybeClearGunDatabases(); }
+    } finally { await browser.close().catch(()=>{}); await maybeClearGunDatabases(); }
   });
 });
