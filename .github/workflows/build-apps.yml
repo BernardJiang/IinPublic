@@ -1,0 +1,145 @@
+name: Build apps
+
+# Produces the three desktop installers (macOS .dmg, Windows .exe, Linux
+# AppImage/.deb) from one push by fanning out across three runner OSes, because
+# electron-builder must build each installer on its own platform. Mobile jobs
+# are opt-in (workflow_dispatch input) since they need extra signing/wiring.
+#
+# Trigger:
+#   - push a tag like v1.2.3  → builds all three desktop installers
+#   - run manually (Actions ▸ Build apps ▸ Run workflow) with "mobile" checked
+#     to also build the Android APK and an unsigned iOS simulator build.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      mobile:
+        description: 'Also build Android + iOS'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    name: Desktop · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      # Reused web + server bundles (dist/web, dist/server) — built once per OS.
+      - name: Install root deps
+        run: npm ci
+      - name: Build embedded bundles
+        run: npm run build:embedded
+
+      # Electron shell has its own package.json with no lockfile → npm install.
+      - name: Install desktop shell deps
+        working-directory: platforms/desktop
+        run: npm install
+
+      - name: Build installer for ${{ runner.os }}
+        working-directory: platforms/desktop
+        run: npx electron-builder --publish never
+        env:
+          # No signing certs in CI: disable macOS auto-discovery so dmg builds
+          # unsigned instead of failing. Add CSC_LINK/CSC_KEY_PASSWORD secrets
+          # later to ship signed/notarized builds.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: iinpublic-desktop-${{ runner.os }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            platforms/desktop/dist/*.dmg
+            platforms/desktop/dist/*.exe
+            platforms/desktop/dist/*.AppImage
+            platforms/desktop/dist/*.deb
+
+  android:
+    name: Android APK
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mobile }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages (incl. NDK for nodejs-mobile)
+        run: |
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" \
+                     "ndk;26.1.10909125" "cmake;3.22.1"
+
+      - run: npm ci
+      - run: npm run build:embedded
+      - name: Stage nodejs-project + dist into the app
+        run: npm run mobile:stage
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.4'
+
+      - name: Assemble debug APK
+        working-directory: android
+        run: gradle assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: iinpublic-android-debug
+          if-no-files-found: ignore
+          path: android/app/build/outputs/apk/debug/*.apk
+
+  ios:
+    name: iOS · unsigned simulator build
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mobile }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+      - run: npm ci
+      - run: npm run build:embedded
+      - run: npm run mobile:stage
+
+      # Requires platforms/ios/IinPublic.xcodeproj (+ NodeMobile pod enabled).
+      # Until that project file exists this step reports what's missing instead
+      # of hard-failing the manually triggered run.
+      - name: CocoaPods install
+        working-directory: platforms/ios
+        run: pod install || echo "Enable the NodeMobile pod + create the Xcode project first (platforms/mobile/README.md)"
+
+      - name: Build for simulator (no signing)
+        working-directory: platforms/ios
+        run: |
+          if [ -e IinPublic.xcworkspace ]; then
+            xcodebuild -workspace IinPublic.xcworkspace -scheme IinPublic \
+              -sdk iphonesimulator -configuration Debug \
+              CODE_SIGNING_ALLOWED=NO build
+          else
+            echo "::warning::IinPublic.xcworkspace not found — create the Xcode project to enable iOS CI."
+          fi

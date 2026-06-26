@@ -6,6 +6,16 @@ dist/
 coverage/
 *.tsbuildinfo
 
+# Android build artifacts (Gradle)
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/assets/nodejs-project/
+
+# Electron desktop build output
+platforms/desktop/dist/
+
 # Test artifacts
 playwright-report/
 test-results/

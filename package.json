@@ -56,9 +56,10 @@
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write src/**/*.ts",
-    "android:clean": "cd android && ./gradlew clean",
-    "android:build": "cd android && ./gradlew assembleDebug",
-    "android:install": "cd android && ./gradlew installDebug",
+    "android:wrapper": "cd android && gradle wrapper --gradle-version 8.4",
+    "android:clean": "cd android && { [ -x ./gradlew ] && ./gradlew clean || gradle clean; }",
+    "android:build": "npm run mobile:stage && cd android && { [ -x ./gradlew ] && ./gradlew assembleDebug || gradle assembleDebug; }",
+    "android:install": "cd android && { [ -x ./gradlew ] && ./gradlew installDebug || gradle installDebug; }",
     "android:run": "npm run android:build && npm run android:install"
   },
   "keywords": [
