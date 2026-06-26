@@ -9,6 +9,7 @@ import Gun from 'gun';
 import { logger } from '../logger';
 import { requestLogger } from '../middleware/request-logger';
 import { resolveP2PRuntimeFlags } from '../../shared/p2p-runtime';
+import { resolveEmbeddedNodeConfig } from '../../shared/embedded-node-config';
 
 function buildAllowedOrigin(): string[] | RegExp {
   return process.env.NODE_ENV === 'production'
@@ -56,6 +57,16 @@ export function configureHttpMiddleware(app: express.Application): void {
   app.use(express.static('public'));
   app.use(express.static('.'));
   app.use((Gun as any).serve);
+
+  // S3 embedded-node: serve the prebuilt web SPA so the WebView/renderer can
+  // reuse 100% of the browser UI from this local node (loopback origin).
+  const embedded = resolveEmbeddedNodeConfig(process.env);
+  if (embedded.enabled) {
+    const webRoot = path.resolve(embedded.webRoot);
+    app.use(express.static(webRoot));
+    app.get('/', (_req, res) => res.sendFile(path.join(webRoot, 'index.html')));
+    logger.info({ webRoot }, 'S3 embedded-node: serving web SPA from local node');
+  }
 }
 
 /**
@@ -92,21 +103,34 @@ export function attachGun(server: HttpServer): any {
     warnIfStaleRadataExists();
   }
 
+  // S3 embedded-node mode: the native shells (Electron / nodejs-mobile) run
+  // this same server as a *local* Gun peer that dials the public hub upstream
+  // for discovery/signaling only, while persisting app data on-device.
+  const embedded = resolveEmbeddedNodeConfig(process.env);
+  const upstreamHubPeers = embedded.enabled && !isolatedGun ? embedded.hubGunPeers : [];
+
   const gun = Gun({
     web: server,
     localStorage: false,
-    radisk: !isolatedGun,
+    // Embedded nodes always persist on-device (Gun-on-device is source of truth).
+    radisk: embedded.enabled ? true : !isolatedGun,
     ...(isolatedGun ? { peers: [], axe: false, multicast: false } : {}),
+    ...(upstreamHubPeers.length > 0
+      ? { peers: upstreamHubPeers, axe: false, multicast: false }
+      : {}),
   });
   logger.info(
     {
-      radisk: !isolatedGun,
+      radisk: embedded.enabled ? true : !isolatedGun,
       devGunFresh,
       starServerPersistence: p2pFlags.starServerPersistence,
       relayOnlyHub: p2pFlags.relayOnlyHub,
       p2pNodeEnabled: p2pFlags.p2pNodeEnabled,
+      embeddedNode: embedded.enabled,
+      embeddedPlatform: embedded.enabled ? embedded.platform : undefined,
+      upstreamHubPeers: upstreamHubPeers.length > 0 ? upstreamHubPeers : undefined,
     },
-    '🔫 Gun.js attached to HTTP server',
+    embedded.enabled ? '🔫 Gun.js attached (embedded local node)' : '🔫 Gun.js attached to HTTP server',
   );
   if (devGunFresh) {
     configureDevFreshGunIsolation(gun);

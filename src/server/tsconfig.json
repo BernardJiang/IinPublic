@@ -29,7 +29,8 @@
   },
   "include": [
     "**/*",
-    "../shared/**/*"
+    "../shared/**/*",
+    "../node-app/**/*"
   ],
   "exclude": [
     "node_modules",

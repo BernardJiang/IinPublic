@@ -1,0 +1,47 @@
+{
+  "name": "iinpublic-desktop",
+  "productName": "IinPublic",
+  "version": "1.0.0",
+  "description": "IinPublic desktop app — Electron shell hosting the embedded P2P node",
+  "main": "main.js",
+  "author": "IinPublic Team",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux",
+    "dist:mac": "electron-builder --mac"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.iinpublic.desktop",
+    "productName": "IinPublic",
+    "files": [
+      "main.js",
+      "preload.js",
+      "resources/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../../dist/server",
+        "to": "app/dist/server"
+      },
+      {
+        "from": "../../dist/web",
+        "to": "app/dist/web"
+      },
+      {
+        "from": "../../node_modules",
+        "to": "app/node_modules",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": { "target": ["nsis"], "icon": "resources/icon.ico" },
+    "linux": { "target": ["AppImage", "deb"], "category": "Network", "icon": "resources/icon.png" },
+    "mac": { "target": ["dmg"], "category": "public.app-category.social-networking", "icon": "resources/icon.icns" }
+  }
+}

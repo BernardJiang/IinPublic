@@ -1,0 +1,90 @@
+package com.iinpublic.app
+
+import android.content.Intent
+import android.os.Build
+import android.os.Bundle
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.appcompat.app.AppCompatActivity
+import java.net.HttpURLConnection
+import java.net.URL
+
+/**
+ * Hosts the reused web SPA in a system WebView.
+ *
+ * Flow:
+ *   1. Start NodeForegroundService → boots the embedded Gun P2P node on
+ *      127.0.0.1:LOCAL_PORT (discovery via hub, on-device persistence).
+ *   2. Poll the local port until the node is listening.
+ *   3. Load http://127.0.0.1:LOCAL_PORT/ — the SAME web UI as the browser.
+ *
+ * Because the WebView is UI-only and the Node process is the actual peer, the
+ * limited WebRTC support in some WebViews does not block P2P: the node owns the
+ * Gun mesh / direct transport.
+ */
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var webView: WebView
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        webView = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.databaseEnabled = true
+            settings.mediaPlaybackRequiresUserGesture = false
+            webViewClient = WebViewClient()
+        }
+        setContentView(webView)
+
+        startNodeService()
+        waitForNodeThenLoad()
+    }
+
+    private fun startNodeService() {
+        val intent = Intent(this, NodeForegroundService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+    }
+
+    private fun waitForNodeThenLoad() {
+        val port = NodeForegroundService.LOCAL_PORT
+        Thread {
+            val deadline = System.currentTimeMillis() + 20_000
+            while (System.currentTimeMillis() < deadline) {
+                if (portOpen(port)) {
+                    runOnUiThread { webView.loadUrl("http://127.0.0.1:$port/") }
+                    return@Thread
+                }
+                Thread.sleep(300)
+            }
+            runOnUiThread {
+                webView.loadData(
+                    "<h2>IinPublic node did not start</h2>",
+                    "text/html", "utf-8"
+                )
+            }
+        }.start()
+    }
+
+    private fun portOpen(port: Int): Boolean = try {
+        val conn = URL("http://127.0.0.1:$port/health").openConnection() as HttpURLConnection
+        conn.connectTimeout = 500
+        conn.readTimeout = 500
+        conn.requestMethod = "GET"
+        val code = conn.responseCode
+        conn.disconnect()
+        code in 200..499
+    } catch (_: Exception) {
+        false
+    }
+
+    override fun onDestroy() {
+        webView.destroy()
+        super.onDestroy()
+    }
+}

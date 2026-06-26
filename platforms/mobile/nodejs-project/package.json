@@ -1,0 +1,8 @@
+{
+  "name": "iinpublic-nodejs-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Embedded node project run by nodejs-mobile on Android/iOS",
+  "main": "main.js",
+  "dependencies": {}
+}

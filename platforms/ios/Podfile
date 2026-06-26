@@ -1,0 +1,9 @@
+platform :ios, '14.0'
+
+target 'IinPublic' do
+  use_frameworks!
+
+  # Embedded Node runtime (Gun P2P node) for iOS.
+  # See https://github.com/nodejs-mobile/nodejs-mobile
+  # pod 'NodeMobile', :path => '../../node_modules/nodejs-mobile-cocoapods'
+end

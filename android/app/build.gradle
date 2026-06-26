@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace 'com.iinpublic'
+    namespace 'com.iinpublic.app'
     compileSdk 34
 
     defaultConfig {
@@ -49,8 +49,27 @@ dependencies {
     // JSON handling
     implementation 'com.squareup.moshi:moshi:1.15.0'
     implementation 'com.squareup.moshi:moshi-kotlin:1.15.0'
-    
+
+    // Embedded Node runtime (Gun P2P node). Pin to the current published AAR.
+    // See https://github.com/nodejs-mobile/nodejs-mobile
+    // implementation 'com.janeasystems:nodejs-mobile:0.3.3'
+
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
+
+// Stage the embedded Node project into the APK assets:
+//   - platforms/mobile/nodejs-project (main.js + package.json)
+//   - repo dist/server + dist/web (compiled, reused from the web/server build)
+// Run `npm run build:web && npm run build:server` at the repo root first.
+def repoRoot = "${rootProject.projectDir}/.."
+task stageNodeProject(type: Copy) {
+    from("${repoRoot}/platforms/mobile/nodejs-project")
+    into("${projectDir}/src/main/assets/nodejs-project")
+}
+task stageNodeDist(type: Copy) {
+    from("${repoRoot}/dist") { include 'server/**', 'web/**' }
+    into("${projectDir}/src/main/assets/nodejs-project/dist")
+}
+preBuild.dependsOn stageNodeProject, stageNodeDist

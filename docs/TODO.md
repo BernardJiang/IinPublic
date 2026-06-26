@@ -19,29 +19,81 @@ Token-saving rules: for `[Opus]` items, have Opus write a short design note firs
 
 ## Open items
 
-### S3 — Cross-platform native clients `[Opus]`
+### S3 — Cross-platform native clients (embedded-node model) `[Opus]`
 
-Add native builds that run a real libp2p node (TCP/QUIC), eliminating WebRTC signaling overhead for native↔native and exposing a Circuit Relay so browser peers can connect.
+**Design:** `docs/design/S3-embedded-node-shell.md`. Supersedes the earlier
+libp2p-native-module plan (kept as `docs/design/S3-native-libp2p-shell.md` for
+reference). The libp2p Circuit-Relay items are deferred behind this model.
 
-**Target platforms:** Windows, Linux, macOS desktop (Electron or Tauri); Android (WebView + Kotlin native module); iOS (WKWebView + Swift native module).
+**Core idea:** every native build bundles a real **Node.js process** that runs
+the *existing* `src/server` code as a **local Gun peer**. That local node:
+- persists application data **on-device** via radisk (satisfies the
+  "Gun-on-device is the source of truth" invariant — strictly better than
+  browser storage),
+- dials the public hub as an **upstream Gun peer for discovery only**
+  (`relayOnlyDataClasses`: discovery / signaling / presence / room-membership),
+- **serves the prebuilt web SPA** (`dist/web`) on `127.0.0.1:<port>`, so the
+  WebView/renderer reuses **100% of the browser UI** unchanged. Because the UI
+  loads from the local node, `WebGunService.deriveGunHubUrl()` already resolves
+  Gun to the local node — no web code fork.
 
-**Browser ↔ native-node connection design (chosen: hybrid):**
-- Native↔native: libp2p direct TCP/QUIC via published multiaddrs in `Libp2pBindingRecord` (Gun path `p2p-peer-bindings/<userId>`, already spec'd).
-- Browser↔native: native node runs `circuitRelayServer()` and includes the relay multiaddr in its `Libp2pBindingRecord`. Browser reads the record from Gun and dials via `@libp2p/webrtc` through that relay — no HTTP signaling needed.
-- Browser↔browser: unchanged — Gun WebSocket + WebRTC with HTTP or Gun-pubsub signaling (see S2).
+**Why this over Tauri/libp2p-module:** Electron runs the Gun *Node* code
+unmodified and its Chromium renderer guarantees the WebRTC the direct-P2P
+conversation transport relies on. On mobile, the **Node process is the peer** so
+WKWebView's limited WebRTC never blocks P2P — the mesh lives in Node.
 
-**Pieces to build:**
-- [ ] Electron/Tauri shell (Windows/Linux/macOS): bundled libp2p node with `@libp2p/tcp`, `@libp2p/quic`, Circuit Relay v2 server, Kademlia DHT. Shares the same Gun hub WebSocket as the browser build.
-- [ ] `Libp2pBindingRecord` extended with Circuit Relay multiaddr; published to Gun on startup; refreshed on address change.
-- [ ] Browser-side dial upgrade: in `P2PRoomDiscoveryService.findRoomProviderPeerIds()`, if a peer has a `Libp2pBindingRecord` with a Circuit Relay addr, attempt `node.dialProtocol(peerId, '/iinpublic/mesh/1.0.0')` via the relay before falling back to Gun-WebRTC signaling.
-- [ ] Native-node shortcut: for peers with a `Libp2pBindingRecord` in Gun at `p2p-peer-bindings/<userId>`, skip Gun-WebRTC signaling entirely and dial their multiaddrs via `node.dialProtocol(peerId, '/iinpublic/mesh/1.0.0')`.
-- [ ] Android: WebView shell + Kotlin `Libp2pBridgeService` exposing a local WebSocket; same libp2p node logic as desktop.
-- [ ] iOS: WKWebView shell + Swift `Libp2pBridgeService` over WKScriptMessageHandler; same circuit-relay logic.
-- [ ] E2E spec: one browser peer + one native node in the same chatroom; exchange a talk and open a conversation; assert DataChannel opens through the Circuit Relay multiaddr from `Libp2pBindingRecord`.
+**Reuse map:** `src/server` (P2P/Gun node) 100% · `src/web`→`dist/web` (UI) 100%
+· `src/shared` (domain/match) 100% · only the native shells are new code.
 
-**Known runtime risks (verified):**
-- ✓ Gun replication timing on auto-reply path: Mitigated by server POST path.
-- ✓ `talkCompleted` handler fallback: Verified, preserves data safely.
+**Target platforms / hosting:**
+- Windows / Linux / macOS → **Electron** (`platforms/desktop`): main process boots
+  the embedded node in-process; renderer loads the SPA from loopback.
+- Android → WebView + **nodejs-mobile** foreground service (`android/`,
+  `platforms/mobile/nodejs-project`).
+- iOS → WKWebView + **nodejs-mobile** (`platforms/ios`,
+  `platforms/mobile/nodejs-project`).
+
+**Done in this change:**
+- [x] `src/shared/embedded-node-config.ts` — config resolver (enabled, platform,
+      port, hub peers, webRoot, dataDir, loopbackOnly) + unit test (10 cases).
+- [x] `attachGun` / `configureHttpMiddleware` embedded mode (env-gated, additive):
+      dials hub peers upstream, forces on-device radisk, serves `dist/web`.
+- [x] `src/node-app/embedded-node.ts` — single entry every shell boots; reuses
+      `IinPublicServer`. Smoke-tested: boots, persists on-device, serves SPA,
+      `/health` 200 on loopback.
+- [x] Electron shell: `platforms/desktop/{main.js,preload.js,package.json}` +
+      electron-builder targets (nsis / AppImage+deb / dmg).
+- [x] Android shell: `MainActivity.kt` (WebView), `NodeForegroundService.kt`,
+      `NodeBridge.kt`, manifest, gradle staging of `nodejs-project` + `dist`.
+- [x] iOS shell: `AppDelegate/ViewController/NodeRunner.swift`, `Info.plist`
+      (ATS loopback), `Podfile`.
+- [x] Root scripts: `dev:embedded-node`, `build:embedded`, `desktop:dev`,
+      `desktop:dist`, `mobile:stage`.
+
+**Remaining (needs device toolchains — not buildable in CI here):**
+- [ ] Pin & link `nodejs-mobile` AAR (Android) + `NodeMobile` pod (iOS); replace
+      the `NodeBridge`/`NodeRunner` stubs with real engine start calls.
+- [ ] Android: implement `unpackIfNeeded` asset→filesDir copy (or rely on the
+      nodejs-mobile-gradle plugin); request POST_NOTIFICATIONS at runtime.
+- [ ] iOS: add Xcode "copy nodejs-project + dist into bundle" build phase; create
+      the `.xcodeproj` (sources are ready under `platforms/ios/IinPublic`).
+- [ ] Hub hardening: confirm the public hub only relays `relayOnlyDataClasses`
+      for embedded peers (it is already `relayOnlyHub` in prod — verify no app
+      subgraphs sync upstream from a local node).
+- [ ] Desktop autoupdate: ship UI + node together (electron-updater); never let
+      `dist/web` and `dist/server` drift across an update.
+- [ ] E2E spec: one browser peer + one embedded-node desktop peer in the same
+      chatroom; exchange a talk, open a conversation, assert the direct-P2P
+      DataChannel opens. (Reuse `tests/e2e/helpers/p2p-transport-e2e.ts`.)
+- [ ] CI: add a headless smoke job that boots `embedded-node.js` and asserts
+      `/health` + `/` serve (the manual check this change ran).
+
+**Known runtime risks:**
+- ✓ Gun replication timing on auto-reply path: mitigated by server POST path.
+- ✓ `talkCompleted` handler fallback: verified, preserves data safely.
+- ⚠ Gun has no native per-subgraph peer scoping — "discovery-only" is enforced at
+  the app/relay layer (`relayOnlyHub` + local-first data classes), not by Gun.
+  The embedded-node E2E must assert no private app data lands on the hub.
 
 ---
 
