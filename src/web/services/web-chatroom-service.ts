@@ -5,9 +5,13 @@ import { findAppropriateChildChatroom, getLocationChatroomPath } from '../../sha
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import type { ChallengeGateConfig } from '../../shared/challenge-plugins';
 import { getChallengePlugin } from '../../shared/challenge-plugins';
+import { isMemberRecordLive, MEMBER_HEARTBEAT_MS } from '../../shared/chatroom-presence';
 
 export class WebChatroomService {
   private currentChatroomId?: string;
+  /** Periodic `lastSeen` refresh so live members stay counted and departed peers' ghosts age out. */
+  private heartbeatTimer: ReturnType<typeof setInterval> | undefined = undefined;
+  private heartbeatUserId: string | undefined = undefined;
   private activeMembersUnsubscribe?: () => void;
   private evictionWatcherUnsubscribe?: () => void; // Unsubscribe from eviction watcher
   private memberCountSubscriptions: Map<string, () => void> = new Map(); // Track subscriptions for cleanup
@@ -20,6 +24,45 @@ export class WebChatroomService {
   private membersListenerRoomId: string | undefined = undefined;
 
   constructor(private gunService: WebGunService) {}
+
+  /**
+   * Refresh this user's `lastSeen` heartbeat for the current room every MEMBER_HEARTBEAT_MS, so
+   * live members stay within the liveness window and a departed peer's ghost membership ages out
+   * of the headcount (see shared/chatroom-presence.ts). Writes only the `lastSeen` field, so it
+   * never resurrects an `isActive:false` record. Stops on leave/move-away/destroy or when the page
+   * unloads (the interval dies with the page, which is exactly what makes the ghost go stale).
+   */
+  private startMembershipHeartbeat(userId: string): void {
+    this.heartbeatUserId = userId;
+    if (this.heartbeatTimer) return; // single timer follows currentChatroomId
+    const beat = () => {
+      const roomId = this.currentChatroomId;
+      const uid = this.heartbeatUserId;
+      if (!roomId || !uid) return;
+      try {
+        this.gunService
+          .getGun()
+          .get('chatrooms')
+          .get(roomId)
+          .get('users')
+          .get(uid)
+          .get('lastSeen')
+          .put(new Date().toISOString());
+      } catch {
+        /* best-effort liveness beat */
+      }
+    };
+    this.heartbeatTimer = setInterval(beat, MEMBER_HEARTBEAT_MS);
+    this.heartbeatTimer.unref?.();
+  }
+
+  private stopMembershipHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = undefined;
+    }
+    this.heartbeatUserId = undefined;
+  }
 
   private resolveApiBase(): string {
     if (typeof window === 'undefined') return 'http://127.0.0.1:8080';
@@ -138,6 +181,7 @@ export class WebChatroomService {
     });
     if (alreadyActive) {
       this.watchForEviction(userId, chatroomId, onMoved);
+      this.startMembershipHeartbeat(userId);
       await this.syncJoinWithServer(chatroomId, userId, userData.stageName);
       console.log(`✅ Already active in chatroom, preserving existing visit: ${chatroomId}`);
       return;
@@ -191,6 +235,7 @@ export class WebChatroomService {
     };
 
     await writeUserWithRetry();
+    this.startMembershipHeartbeat(userId);
     await this.syncJoinWithServer(chatroomId, userId, userData.stageName);
     await this.recordRoomVisit(chatroomId, userId);
 
@@ -395,6 +440,8 @@ export class WebChatroomService {
 
   async leaveChatroom(chatroomId: string, userId: string): Promise<void> {
     console.log(`🚪 Leaving chatroom: ${chatroomId} as user: ${userId}`);
+    // Stop beating for the room we're leaving; switchChatroom's subsequent join restarts it.
+    this.stopMembershipHeartbeat();
 
     const gun = this.gunService.getGun();
     await new Promise<void>((resolve) => {
@@ -665,8 +712,11 @@ export class WebChatroomService {
 
     const emitCount = () => {
       let count = 0;
+      const now = Date.now();
       for (const [, data] of activeMembers) {
-        if (data && data.isActive === true) {
+        // Count active members whose heartbeat is fresh; a departed peer's ghost (stale lastSeen)
+        // ages out here. Seed entries without a lastSeen are kept (isMemberRecordLive guard).
+        if (isMemberRecordLive(data, now)) {
           count++;
         }
       }
@@ -763,6 +813,7 @@ export class WebChatroomService {
    * Unsubscribe from all member count subscriptions
    */
   unsubscribeAllMemberCounts(): void {
+    this.stopMembershipHeartbeat();
     this.memberCountSubscriptions.forEach((unsubscribe) => unsubscribe());
     this.memberCountSubscriptions.clear();
     this.visitCountSubscriptions.forEach((unsubscribe) => unsubscribe());
