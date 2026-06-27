@@ -18,6 +18,8 @@ platforms/desktop/dist/
 
 # Test artifacts
 playwright-report/
+blob-report/
+blob-merged/
 test-results/
 test-screenshots/
 test-storage/

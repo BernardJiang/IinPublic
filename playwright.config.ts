@@ -139,7 +139,22 @@ export default defineConfig({
   /** Global retries: 0 — specs pin their own retries only when documented (see retry-dependence-inventory.md). */
   retries: 0,
   workers: NUM_WORKERS,
-  reporter: 'html',
+  // E2E_BLOB=1 makes every invocation emit a uniquely-named blob report (one process = one
+  // file) into blob-report/ instead of overwriting playwright-report/. test:all sets it so the
+  // many phase invocations (parallel light run + serial heavy/mesh runs) can be merged into a
+  // single combined HTML report via `playwright merge-reports`. Without it, the normal single
+  // 'html' report is used.
+  // Each invocation writes to its OWN blob-report subdir — the blob reporter wipes its outputDir
+  // on start, so a shared dir would let later phase runs clobber earlier ones. test:all then
+  // flattens blob-report/*/*.zip into one dir and runs `merge-reports` to produce a single
+  // combined HTML report covering every phase.
+  reporter:
+    process.env.E2E_BLOB === '1' || process.env.E2E_BLOB === 'true'
+      ? [['blob', {
+          outputDir: `blob-report/p${process.pid}-${Date.now()}`,
+          fileName: `report-${process.pid}-${Date.now()}-${Math.round(Math.random() * 1e6)}.zip`,
+        }]]
+      : 'html',
   timeout: E2E_TEST_TIMEOUT_MS,
   expect: {
     timeout: E2E_ASSERT_TIMEOUT_MS,
