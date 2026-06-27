@@ -76,6 +76,15 @@ const HEAVY_SPEC_PATTERNS = [
   /staged\/stage4-four-user\//,
   /staged\/stage5-multi-user\//,
   /talks-matching\//,
+  // Multi-browser staged specs that race only under the high-worker light shard, not at
+  // PW_WORKERS=2 (Gun peer-teardown ghost membership inflating headcount, mesh talk-delivery
+  // timing, and server read-after-write on the members API). They pass deterministically at
+  // low concurrency, so they ride the same low-worker heavy shard as the rest — keeping the
+  // 20-worker light run fast and green. See docs/testing/retry-dependence-inventory.md.
+  /staged\/stage1-single-user\/17-chatroom-custom-business-api\.spec\.ts/,
+  /staged\/stage2-two-user\/01-login-two-users-headcount\.spec\.ts/,
+  /staged\/stage3-three-user\/02-multi-user-headcount\.spec\.ts/,
+  /staged\/stage3-three-user\/09-four-types-chatbot\.spec\.ts/,
 ];
 const SKIP_HEAVY = process.env.E2E_SKIP_HEAVY === '1';
 const SKIP_FIND_SIMILAR = process.env.E2E_SKIP_FIND_SIMILAR === '1';
