@@ -1,7 +1,6 @@
 import type { GPSCoordinate, CommunityRole, CommunityRoleRecord } from '../../shared/types';
 import { GunService } from './gun-service';
 import { canAssignRole, chatroomRolePath, deriveCommunityId } from '../../shared/chatroom-hierarchy';
-import { isMemberRecordLive } from '../../shared/chatroom-presence';
 
 export class ChatroomManager {
   constructor(
@@ -185,10 +184,9 @@ export class ChatroomManager {
     const users = await this.getPathWithRetry(['chatroomMembers', chatroomId], 4, 100);
     if (!users || typeof users !== 'object') return [];
     const members: Array<{ userId: string; stageName: string }> = [];
-    const now = Date.now();
     for (const [userId, data] of Object.entries(users as Record<string, any>)) {
       if (!userId || userId.startsWith('_')) continue;
-      if (!data || typeof data !== 'object' || !isMemberRecordLive(data, now)) continue;
+      if (!data || typeof data !== 'object' || (data as any).isActive !== true) continue;
       members.push({
         userId,
         stageName: String((data as any).stageName || userId),
@@ -206,10 +204,9 @@ export class ChatroomManager {
     const users = await this.getPathWithRetry(['chatrooms', chatroomId, 'users'], 2, 80);
     if (!users || typeof users !== 'object') return [];
     const members: Array<{ userId: string; stageName: string }> = [];
-    const now = Date.now();
     for (const [userId, data] of Object.entries(users as Record<string, any>)) {
       if (!userId || userId.startsWith('_')) continue;
-      if (!data || typeof data !== 'object' || !isMemberRecordLive(data, now)) continue;
+      if (!data || typeof data !== 'object' || (data as any).isActive !== true) continue;
       members.push({
         userId,
         stageName: String((data as any).stageName || userId),
@@ -243,7 +240,7 @@ export class ChatroomManager {
       const timer = setTimeout(finish, observeMs);
       mapRef.on((data: unknown, key: string) => {
         if (!key || key.startsWith('_')) return;
-        if (!data || typeof data !== 'object' || !isMemberRecordLive(data as Record<string, unknown>)) return;
+        if (!data || typeof data !== 'object' || (data as { isActive?: boolean }).isActive !== true) return;
         if (seen.has(key)) return;
         seen.add(key);
         members.push({
