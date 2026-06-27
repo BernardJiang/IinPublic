@@ -570,35 +570,8 @@ export async function openIncomingTalkModal(
     }
   }
   await expect(row.first()).toBeVisible({ timeout: INCOMING_ROW_FINAL_MS });
-  // The incoming-talk list re-renders on every cluster update (mesh flood re-attempts,
-  // mailbox drains), so a Playwright actionability click can lose the button to a DOM
-  // re-render mid-action ("element is not stable / detached from the DOM") and never land
-  // within the action timeout. Click in-DOM via evaluate (no stability wait) and confirm by
-  // the modal appearing, retrying across refreshes — same resilient pattern as
-  // openIncomingTalkResponseModal above.
-  const modal = page.locator('#talk-response-modal .modal-content');
-  const openDeadline = Date.now() + RESPONSE_MODAL_CONTENT_MS;
-  while (Date.now() < openDeadline) {
-    const clicked = await page.evaluate((title) => {
-      const rows = Array.from(document.querySelectorAll<HTMLElement>('.talk-list-item[data-role="incoming"]'));
-      const current = rows.find((candidate) => candidate.textContent?.includes(title));
-      const button = current?.querySelector<HTMLButtonElement>('button.view-talk-btn');
-      if (!button) return false;
-      button.click();
-      return true;
-    }, titleSubstring);
-    if (clicked) {
-      try {
-        await modal.waitFor({ state: 'visible', timeout: 2_000 });
-        return;
-      } catch {
-        // The incoming list refreshed between lookup and handler completion.
-      }
-    }
-    await syncIncomingFromServer(page);
-    await page.waitForTimeout(200);
-  }
-  await expect(modal).toBeVisible({ timeout: 1_000 });
+  await row.first().locator('button.view-talk-btn').click();
+  await page.waitForSelector('#talk-response-modal .modal-content', { timeout: RESPONSE_MODAL_CONTENT_MS });
 }
 
 /**
