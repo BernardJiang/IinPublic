@@ -1635,34 +1635,48 @@ export class IinPublicApp {
     const recipients = [...new Set(recipientUserIds)].filter(
       (recipientId) => recipientId && recipientId !== this.currentUser?.id,
     );
+    // The body mailbox post is the delivery backstop when the mesh overlay can't reach a
+    // recipient. Under saturation (20-browser M4) a single epub read or POST can transiently
+    // fail; unlike talk *responses* there was no retry, so that recipient was permanently
+    // skipped and never received the talk. Retry per recipient with backoff. The envelope id is
+    // deterministic, so re-posting is idempotent (server dedupes; receiver dedupes on drain).
+    // This whole method is invoked fire-and-forget from the mesh fallback, so the retries never
+    // delay the broadcast's own completion.
+    const MAX_POST_ATTEMPTS = 6;
     const concurrency = 5;
     for (let i = 0; i < recipients.length; i += concurrency) {
       await Promise.all(recipients.slice(i, i + concurrency).map(async (recipientId) => {
-        try {
-          const recipientEpub = await this.resolvePeerEpub(recipientId);
-          if (!recipientEpub) {
-            console.warn('[Mesh/Mailbox] Cannot post talk body — epub not found for', recipientId);
-            return;
+        for (let attempt = 0; attempt < MAX_POST_ATTEMPTS; attempt += 1) {
+          try {
+            const recipientEpub = await this.resolvePeerEpub(recipientId);
+            if (recipientEpub) {
+              const ciphertext = await mailbox.encryptForRecipient(
+                recipientEpub,
+                pair as import('../sea-gun').GunPair,
+                payload,
+              );
+              const envelopeId = `mbx_body_${payload.talkId}_${this.currentUser?.id}_${recipientId}`;
+              const result = await mailbox.postEnvelope({
+                id: envelopeId,
+                recipientId,
+                ciphertext,
+              });
+              if (result.stored) {
+                console.log('[Mesh/Mailbox] Posted talk-body envelope for', recipientId);
+                return;
+              }
+              console.warn('[Mesh/Mailbox] Server rejected talk-body envelope for', recipientId, ':', result.error);
+            } else {
+              console.warn('[Mesh/Mailbox] epub not found for', recipientId, `(attempt ${attempt + 1})`);
+            }
+          } catch (err) {
+            console.warn('[Mesh/Mailbox] post talk-body failed for', recipientId, `(attempt ${attempt + 1}):`, err);
           }
-          const ciphertext = await mailbox.encryptForRecipient(
-            recipientEpub,
-            pair as import('../sea-gun').GunPair,
-            payload,
-          );
-          const envelopeId = `mbx_body_${payload.talkId}_${this.currentUser?.id}_${recipientId}`;
-          const result = await mailbox.postEnvelope({
-            id: envelopeId,
-            recipientId,
-            ciphertext,
-          });
-          if (result.stored) {
-            console.log('[Mesh/Mailbox] Posted talk-body envelope for', recipientId);
-          } else {
-            console.warn('[Mesh/Mailbox] Server rejected talk-body envelope for', recipientId, ':', result.error);
+          if (attempt < MAX_POST_ATTEMPTS - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 400 + attempt * 600));
           }
-        } catch (err) {
-          console.warn('[Mesh/Mailbox] postTalkBodyToMailboxForRecipients failed for', recipientId, ':', err);
         }
+        console.warn('[Mesh/Mailbox] gave up posting talk-body for', recipientId, `after ${MAX_POST_ATTEMPTS} attempts`);
       }));
     }
   }
