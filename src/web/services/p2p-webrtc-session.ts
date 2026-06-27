@@ -316,6 +316,9 @@ export class P2PConversationSession {
       const timer = setTimeout(() => {
         if (this._state !== 'connected') {
           this.setState('failed');
+          // Free the leaked RTCPeerConnection now; otherwise failed attempts pile up against
+          // Chromium's per-renderer connection cap (see closeTransport).
+          this.closeTransport();
           reject(new Error('WebRTC connection timeout'));
         }
       }, timeoutMs);
@@ -336,6 +339,7 @@ export class P2PConversationSession {
               } else if (this._state === 'failed') {
                 clearInterval(check);
                 clearTimeout(timer);
+                this.closeTransport();
                 reject(new Error('WebRTC connection failed'));
               }
             }, 200);
@@ -354,16 +358,27 @@ export class P2PConversationSession {
     return attempt;
   }
 
-  private resetTransport(): void {
+  /**
+   * Close and release the RTCPeerConnection/DataChannel without changing state. A failed or
+   * timed-out attempt MUST call this: a leaked RTCPeerConnection is never garbage-collected
+   * while open, and Chromium caps concurrent connections (~500/renderer). In a many-peer mesh
+   * (find-similar: 10 browsers × 9 peers, with retries) failed sessions that don't close their
+   * pc accumulate until "Cannot create so many PeerConnections", which then freezes the page.
+   */
+  private closeTransport(): void {
     this.stopPolling?.();
     this.stopPolling = null;
-    this.dc?.close();
-    this.pc?.close();
+    try { this.dc?.close(); } catch { /* already closed */ }
+    try { this.pc?.close(); } catch { /* already closed */ }
     this.dc = null;
     this.pc = null;
     this.remoteDescriptionSet = false;
     this.makingOffer = false;
     this.currentOfferId = null;
+  }
+
+  private resetTransport(): void {
+    this.closeTransport();
     this.setState('idle');
   }
 
