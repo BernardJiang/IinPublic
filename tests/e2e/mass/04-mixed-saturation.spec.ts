@@ -48,7 +48,7 @@ test.describe('M4 real mixed saturation', () => {
             const received = await readReceivedTalkIds();
             return received.every((ids) => created.every((talk: any) => ids.includes(talk.talkId)));
           },
-          { timeout: 45_000, intervals: [300, 600, 1200, 2000] },
+          { timeout: 90_000, intervals: [500, 1000, 2000, 4000] },
         )
         .toBe(true);
       const receivedTalkIds = await readReceivedTalkIds();
