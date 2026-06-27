@@ -283,7 +283,13 @@ export class ChatroomManager {
       this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], memberData),
       this.gunService.putPath(['chatroomMembers', chatroomId, userId], memberData),
     ]);
-    await this.publishRoomMemberCount(chatroomId);
+    // Publishing the public member count re-reads the whole room. On a cold isolated Gun the
+    // read can race the writes we just issued and stall on the per-read timeout budget
+    // (several seconds), which made the members API hang past its request deadline. The count
+    // is an eventually-consistent badge, so fan it out without blocking the caller's response.
+    void this.publishRoomMemberCount(chatroomId).catch(() => {
+      /* best-effort public badge; never blocks membership writes */
+    });
   }
 
   private async recordVisit(chatroomId: string, userId: string): Promise<void> {
@@ -316,7 +322,10 @@ export class ChatroomManager {
     const current = await this.gunService.getPath(['chatrooms', chatroomId, 'headcount']);
     const headcount = Number(current) || 0;
     await this.gunService.putPath(['chatrooms', chatroomId, 'headcount'], Math.max(0, headcount - 1));
-    await this.publishRoomMemberCount(chatroomId);
+    // Eventually-consistent public badge; never block the leave response on its racy re-read.
+    void this.publishRoomMemberCount(chatroomId).catch(() => {
+      /* best-effort public badge */
+    });
   }
 
   /**
