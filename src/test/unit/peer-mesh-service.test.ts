@@ -1168,6 +1168,55 @@ describe('PeerMeshService', () => {
   });
 
   /**
+   * Saturation gap (M4): a connected receiver that rejects a body (onTalkBody → false, e.g. a
+   * filter/membership read that timed out under load) must NOT acknowledge it. An ACK would tell
+   * the sender delivery succeeded and suppress the mailbox fallback, permanently dropping the body
+   * even though the receiver never stored it. With the fix, the rejected recipient stays un-ACKed,
+   * so the sender's mailbox fallback covers them and the talk can still be delivered (via drain).
+   */
+  it('does not ACK a rejected body, so the sender mailbox-fallbacks the rejecting recipient', async () => {
+    const [alicePair, bobPair] = (await Promise.all([SEA.pair(), SEA.pair()])) as SeaSigningPair[];
+    const users = { alice: { pub: alicePair.pub }, bob: { pub: bobPair.pub } };
+    const network = createFakeNetwork();
+
+    const mailboxCalls: Array<{ recipientUserIds: string[] }> = [];
+    const alice = new PeerMeshService(mockGunService(alicePair, users), {
+      apiBase: 'http://127.0.0.1:8080', localUserId: 'alice', localStageName: 'Alice',
+      ackTimeoutMs: 20,
+      createSession: network.createSession,
+      onMailboxFallback: async (_payload, recipientUserIds) => {
+        mailboxCalls.push({ recipientUserIds });
+      },
+    });
+    const bob = new PeerMeshService(mockGunService(bobPair, users), {
+      apiBase: 'http://127.0.0.1:8080', localUserId: 'bob', localStageName: 'Bob',
+      createSession: network.createSession,
+      onTalkBody: () => false, // bob rejects (e.g. transient intake failure under saturation)
+    });
+
+    const members = [{ userId: 'alice', stageName: 'Alice' }, { userId: 'bob', stageName: 'Bob' }];
+    await alice.joinRoom('global', members);
+    await bob.joinRoom('global', members);
+
+    // Prime the connected neighbor flag so bob is a real ack target (not just a mailbox target).
+    await alice.broadcastTalk(
+      { id: 'prime', authorId: 'alice', title: 'p', type: 'tag', questions: [] },
+      { recipientUserIds: ['bob'], roomBroadcast: true },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    mailboxCalls.length = 0;
+    await alice.broadcastTalk(
+      { id: 'm4-reject', authorId: 'alice', title: 'r', type: 'tag', questions: [] },
+      { recipientUserIds: ['bob'], roomBroadcast: true },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    // Bob received the frame and rejected it; because he did not ACK, alice must mailbox him.
+    expect(mailboxCalls.flatMap((c) => c.recipientUserIds)).toContain('bob');
+  });
+
+  /**
    * P0 step 3 — author-qualified delivery key: two talks with different authorIds but the
    * same talkId are gated independently. Alice accepted, Carol rejected → only Carol's copy
    * is eligible for re-delivery.

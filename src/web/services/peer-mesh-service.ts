@@ -999,7 +999,18 @@ export class PeerMeshService {
         return;
       }
       const accepted = await this.opts.onTalkBody?.(frame.payload);
-      if (talkId && accepted !== false) {
+      if (accepted === false) {
+        // Receiver did NOT accept this body — e.g. a filter/membership read that timed out under
+        // saturation, or a receiver not yet fully bootstrapped. Do not acknowledge: an ACK tells
+        // the sender delivery succeeded and suppresses its flood-retry + mailbox fallback, which
+        // permanently drops the body (the sender reports "delivered to N" while the receiver never
+        // got it — the M4 saturation gap). Staying silent lets the sender re-deliver: bounded flood
+        // re-attempts, then a mailbox post the receiver drains. A transient reject thus gets another
+        // chance; a permanent reject (genuine filter) is simply re-offered a bounded number of times
+        // and still never stored, so filtered talks stay filtered.
+        return;
+      }
+      if (talkId) {
         this.deliveredTalkBodyIds.add(deliveryKey);
         this.cacheTalkBody(talkId, {
           ...frame.payload.talkData,
