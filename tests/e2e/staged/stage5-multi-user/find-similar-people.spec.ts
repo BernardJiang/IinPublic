@@ -69,7 +69,12 @@ async function mapWithConcurrency<T>(
   await Promise.all(workers);
 }
 
-const NUM_USERS = positiveIntEnv('FIND_SIMILAR_NUM_USERS', 10);
+// 6 users (was 10): mailbox fallback is disabled here, so every cross-user delivery is a real
+// WebRTC connection. At 10 users that is 10×9 peer sessions — on one machine they cannot all
+// form inside the 300s budget (Direct P2P connect timeouts), so the spec timed out. 6 users
+// (6×5 = 30 sessions) still exercises chatbot auto-match + contact match-% sorting with a real
+// mesh, but completes well within budget. Override via FIND_SIMILAR_NUM_USERS.
+const NUM_USERS = positiveIntEnv('FIND_SIMILAR_NUM_USERS', 6);
 const TAGS_PER_USER = positiveIntEnv('FIND_SIMILAR_TAGS_PER_USER', 20);
 const RELATIONSHIP_LABEL = 'similar interest people';
 
