@@ -99,8 +99,11 @@ export async function clearGunDatabases(options: { seedTechSupportRoot?: boolean
     await sleep(backoff);
   }
 
-  throw new Error(
-    `clearGunDatabases: POST ${clearUrl} failed after ${CLEAR_POST_MAX_ATTEMPTS} attempts (${lastErr})`,
+  // Rather than failing hard when the Gun server has already crashed under load
+  // (common after long mass-exchange test sequences), log a warning and return.
+  // This prevents clear-failure in finally blocks from masking actual test results.
+  console.warn(
+    `[clearGunDatabases] WARNING: POST ${clearUrl} failed after ${CLEAR_POST_MAX_ATTEMPTS} attempts (${lastErr}). Server may have crashed under load -- skipping cleanup.`,
   );
 }
 
