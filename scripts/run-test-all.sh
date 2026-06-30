@@ -239,20 +239,29 @@ RC_HA=$(cat "$LOG_DIR/heavy-staged.rc")
 # ─────────────────────────────────────────────────────────────────────────────
 blob_count=$(ls blob-report/*/*.zip 2>/dev/null | wc -l | tr -d ' ')
 cp blob-report/*/*.zip blob-merged/ 2>/dev/null
-npx playwright merge-reports --reporter html blob-merged
+if npx playwright merge-reports --reporter html blob-merged; then
+  MERGE_RC=0
+  echo "[test:all] HTML report: $ROOT/playwright-report/index.html (open with: npx playwright show-report)"
+else
+  MERGE_RC=$?
+  echo "[test:all] WARNING: merge-reports failed (rc=$MERGE_RC) — no playwright-report/ was generated."
+  echo "[test:all]   The raw per-phase blobs are still at $ROOT/blob-merged/*.zip — retry manually with:"
+  echo "[test:all]   npx playwright merge-reports --reporter html blob-merged"
+fi
 
 end=$(date +%s); dur=$((end - start))
 E2E_RC=$(( RC_LIGHT || RC_MASS || RC_S5 || RC_MESH || RC_MESHISO || RC_FS || RC_HA ))
 PREFIX_RC=$(( RC_TYPE || RC_LINT || RC_JEST ))
 
 phase_time() { cat "$LOG_DIR/$1.time" 2>/dev/null || echo '?'; }
+wave_label() { [ "$CONCURRENT_WAVES" = "1" ] && echo "concurrent" || echo "sequential"; }
 echo ""
 echo "[test:all] ───────────── per-phase wall time ─────────────"
 printf '  %-26s %5ss  %s\n' "phase0 (build/lint/jest)" "$p0_dur" "type=$RC_TYPE lint=$RC_LINT jest=$RC_JEST"
-printf '  %-26s %5ss  rc=%s   ┐ wave 1 (concurrent)\n' "light"  "$(phase_time light)"  "$RC_LIGHT"
+printf '  %-26s %5ss  rc=%s   ┐ wave 1 (%s)\n' "light"  "$(phase_time light)"  "$RC_LIGHT" "$(wave_label)"
 printf '  %-26s %5ss  rc=%s   │\n'                      "mass"   "$(phase_time mass)"   "$RC_MASS"
 printf '  %-26s %5ss  rc=%s   ┘\n'                      "stage5" "$(phase_time stage5)" "$RC_S5"
-printf '  %-26s %5ss  rc=%s   ┐ wave 2 (concurrent)\n' "mesh-batch"    "$(phase_time mesh-batch)"    "$RC_MESH"
+printf '  %-26s %5ss  rc=%s   ┐ wave 2 (%s)\n' "mesh-batch"    "$(phase_time mesh-batch)"    "$RC_MESH" "$(wave_label)"
 printf '  %-26s %5ss  rc=%s   │\n'                      "mesh-isolated" "$(phase_time mesh-isolated)" "$RC_MESHISO"
 printf '  %-26s %5ss  rc=%s   ┘\n'                      "find-similar"  "$(phase_time find-similar)"  "$RC_FS"
 printf '  %-26s %5ss  rc=%s   ─ wave 3 (solo)\n'        "heavy-staged"  "$(phase_time heavy-staged)"  "$RC_HA"
