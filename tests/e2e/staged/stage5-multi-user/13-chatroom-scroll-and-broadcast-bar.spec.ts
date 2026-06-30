@@ -24,7 +24,10 @@ async function bootstrapCompactUser(
   await afterLoad();
   await page.click('.nav-btn[data-view="settings"]');
   await afterNav();
-  await page.waitForSelector('#settings-stage-name-input');
+  await page.waitForSelector(
+    '#settings-stage-name-input',
+    appReadyTimeoutMs ? { timeout: appReadyTimeoutMs } : undefined,
+  );
   await page.fill('#settings-stage-name-input', stageName);
   await page.locator('#settings-stage-name-input').blur();
   await afterNav();

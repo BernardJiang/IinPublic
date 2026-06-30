@@ -73,14 +73,20 @@ export async function bootstrapSuperUser(
   if (stageName !== TECHSUPPORT_STAGE_NAME) {
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
-    await page.waitForSelector('#settings-stage-name-input');
+    await page.waitForSelector(
+      '#settings-stage-name-input',
+      appReadyTimeoutMs ? { timeout: appReadyTimeoutMs } : undefined,
+    );
     await page.fill('#settings-stage-name-input', stageName);
     await page.locator('#settings-stage-name-input').blur();
     await afterNav();
   }
 
   const headerStageName = page.locator('[data-testid="user-stage-name"]');
-  await expect(headerStageName).toContainText(stageName);
+  await expect(headerStageName).toContainText(
+    stageName,
+    appReadyTimeoutMs ? { timeout: appReadyTimeoutMs } : undefined,
+  );
 
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();

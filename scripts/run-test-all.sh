@@ -33,14 +33,10 @@ cd "$ROOT"
 set -a; [ -f .env.local ] && . ./.env.local; set +a
 
 # Defaults below (14/4/3/4/2) were tuned on a ~10-core box. Wave 1 runs light+mass+stage5
-# fully concurrently, and the mass/stage5 specs themselves each launch several of their own
-# Chromium processes inside a loop (independent of PW_WORKERS) — so on a smaller machine,
-# the *real* peak concurrent-browser count in wave 1 is far higher than the worker numbers
-# suggest. When that exceeds the machine's CPU budget, Gun sync doesn't just get slower, it
-# can starve completely (observed: 0 of N exchanges synced even with 120s+ poll budgets) —
-# a resource-contention failure, not a logic bug. Auto-scale the defaults to the detected
-# core count so the suite self-tunes; explicit env vars (PW_WORKERS, MASS_WORKERS, etc.)
-# still always win.
+# fully concurrently. On a smaller machine the real peak concurrent-browser count in wave 1
+# is far higher than the worker numbers suggest (mass/stage5 specs each launch several of
+# their own Chromium processes inside a loop, independent of PW_WORKERS), so scale worker
+# counts down on weaker boxes; explicit env vars (PW_WORKERS, MASS_WORKERS, etc.) always win.
 detect_cores() {
   if command -v sysctl >/dev/null 2>&1 && sysctl -n hw.ncpu >/dev/null 2>&1; then
     sysctl -n hw.ncpu
@@ -57,10 +53,20 @@ scale() {
   [ "$v" -lt 1 ] && v=1
   echo "$v"
 }
+# scale_down_only: like scale(), but never exceeds the tuned baseline. Use for phases whose
+# per-worker cost is already heavy and roughly fixed (mass/stage5 each launch up to ~12 of
+# their own Chromium processes inside ONE worker's test) — more cores let the *machine* do
+# more, but they don't make any single one of those heavy tests cheaper, and running MORE of
+# them concurrently just stacks additional simultaneous WebRTC/mesh-formation load instead of
+# adding real throughput. So these phases only ever scale down (weaker box) never up.
+scale_down_only() {
+  local scaled; scaled="$(scale "$1")"
+  if [ "$scaled" -lt "$1" ]; then echo "$scaled"; else echo "$1"; fi
+}
 
 LIGHT_WORKERS="${PW_WORKERS:-$(scale 14)}"
-MASS_WORKERS="${MASS_WORKERS:-$(scale 4)}"
-STAGE5_WORKERS="${STAGE5_WORKERS:-$(scale 3)}"
+MASS_WORKERS="${MASS_WORKERS:-$(scale_down_only 4)}"
+STAGE5_WORKERS="${STAGE5_WORKERS:-$(scale_down_only 3)}"
 MESH_WORKERS="${PW_MESH_WORKERS:-$(scale 4)}"
 HEAVY_WORKERS="${PW_HEAVY_WORKERS:-$(scale 2)}"
 

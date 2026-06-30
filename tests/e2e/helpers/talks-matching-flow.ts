@@ -356,7 +356,7 @@ export async function bootstrapUser(
   await afterLoad();
   await page.click('.nav-btn[data-view="settings"]');
   await afterNav();
-  await page.waitForSelector('#settings-stage-name-input');
+  await page.waitForSelector('#settings-stage-name-input', { timeout: appReadyTimeoutMs ?? E2E_ASSERT_TIMEOUT_MS });
   await page.fill('#settings-stage-name-input', stageName);
   await page.locator('#settings-stage-name-input').blur();
   await afterNav();
