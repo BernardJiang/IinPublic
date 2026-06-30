@@ -19,19 +19,60 @@
 #                       spec) runs alone.
 #
 # Tunables (env): PW_WORKERS(light,14) MASS_WORKERS(4) STAGE5_WORKERS(3) PW_MESH_WORKERS(4)
-#                 PW_HEAVY_WORKERS(2). If you hit memory pressure or flakiness, lower light
-#                 and mass first. Per-phase wall times are printed at the end.
+#                 PW_HEAVY_WORKERS(2) — all auto-scaled down from these 10-core-tuned
+#                 defaults to the detected core count when unset. CONCURRENT_WAVES(1/0) forces
+#                 whether phases within wave 1 / wave 2 run together or one-at-a-time; default
+#                 is 1 at >=10 detected cores, else 0 (a smaller machine showed Gun sync and
+#                 WebRTC mesh handshakes fail outright, not just slow, under full concurrency).
+#                 If you hit memory pressure or flakiness, lower light and mass first, or set
+#                 CONCURRENT_WAVES=0. Per-phase wall times are printed at the end.
 #
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 set -a; [ -f .env.local ] && . ./.env.local; set +a
 
-LIGHT_WORKERS="${PW_WORKERS:-14}"
-MASS_WORKERS="${MASS_WORKERS:-4}"
-STAGE5_WORKERS="${STAGE5_WORKERS:-3}"
-MESH_WORKERS="${PW_MESH_WORKERS:-4}"
-HEAVY_WORKERS="${PW_HEAVY_WORKERS:-2}"
+# Defaults below (14/4/3/4/2) were tuned on a ~10-core box. Wave 1 runs light+mass+stage5
+# fully concurrently, and the mass/stage5 specs themselves each launch several of their own
+# Chromium processes inside a loop (independent of PW_WORKERS) — so on a smaller machine,
+# the *real* peak concurrent-browser count in wave 1 is far higher than the worker numbers
+# suggest. When that exceeds the machine's CPU budget, Gun sync doesn't just get slower, it
+# can starve completely (observed: 0 of N exchanges synced even with 120s+ poll budgets) —
+# a resource-contention failure, not a logic bug. Auto-scale the defaults to the detected
+# core count so the suite self-tunes; explicit env vars (PW_WORKERS, MASS_WORKERS, etc.)
+# still always win.
+detect_cores() {
+  if command -v sysctl >/dev/null 2>&1 && sysctl -n hw.ncpu >/dev/null 2>&1; then
+    sysctl -n hw.ncpu
+  elif command -v nproc >/dev/null 2>&1; then
+    nproc
+  else
+    echo 8
+  fi
+}
+CORES="$(detect_cores)"
+# scale <value-tuned-for-10-cores> -> ceil(value * CORES / 10), floor 1. Identity at 10 cores.
+scale() {
+  local v=$(( ($1 * CORES + 9) / 10 ))
+  [ "$v" -lt 1 ] && v=1
+  echo "$v"
+}
+
+LIGHT_WORKERS="${PW_WORKERS:-$(scale 14)}"
+MASS_WORKERS="${MASS_WORKERS:-$(scale 4)}"
+STAGE5_WORKERS="${STAGE5_WORKERS:-$(scale 3)}"
+MESH_WORKERS="${PW_MESH_WORKERS:-$(scale 4)}"
+HEAVY_WORKERS="${PW_HEAVY_WORKERS:-$(scale 2)}"
+
+# Below ~10 cores, even scaled-down worker counts weren't enough — wave 1 (light+mass+stage5
+# together) and wave 2 (mesh-batch+mesh-isolated+find-similar together) still starved hard
+# enough that Gun sync and WebRTC handshakes failed outright rather than just ran slower
+# (observed directly: 0/9 exchanges synced, "no connected mesh neighbors after 90000ms").
+# Default to running each wave's phases one at a time below that threshold — correctness
+# over wall-clock time. Force either way with CONCURRENT_WAVES=1 / =0.
+if [ -z "${CONCURRENT_WAVES:-}" ]; then
+  if [ "$CORES" -ge 10 ]; then CONCURRENT_WAVES=1; else CONCURRENT_WAVES=0; fi
+fi
 
 export E2E_BLOB=1
 export E2E_STATIC_WEB=1
@@ -41,6 +82,7 @@ export PLAYWRIGHT_HTML_OPEN=never
 
 LOG_DIR="$(mktemp -d)"
 echo "[test:all] phase logs: $LOG_DIR"
+echo "[test:all] detected cores: $CORES (defaults scale from a 10-core tuning baseline; concurrent waves=$CONCURRENT_WAVES)"
 echo "[test:all] workers: light=$LIGHT_WORKERS mass=$MASS_WORKERS stage5=$STAGE5_WORKERS mesh=$MESH_WORKERS heavy=$HEAVY_WORKERS"
 rm -rf blob-report blob-merged playwright-report
 mkdir -p blob-merged
@@ -83,6 +125,13 @@ wait_wave() {
   WAVE_PIDS=(); PHASE_ORDER=()
 }
 
+# Call between start_phase invocations within a wave: waits for the just-started phase
+# immediately when CONCURRENT_WAVES=0 (so phases in that wave run one at a time instead of
+# together), otherwise a no-op (phase stays queued for the wave's normal concurrent wait_wave).
+maybe_wait() {
+  [ "$CONCURRENT_WAVES" = "1" ] || wait_wave "$1"
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase 0: static checks + builds, in parallel.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -113,8 +162,10 @@ echo "[test:all] phase 0 done in ${p0_dur}s (type=$RC_TYPE lint=$RC_LINT jest=$R
 # ─────────────────────────────────────────────────────────────────────────────
 start_phase light 0 \
   env E2E_SKIP_HEAVY=1 PW_WORKERS="$LIGHT_WORKERS" npx playwright test
+maybe_wait 1
 start_phase mass 100 \
   env E2E_SKIP_ALL_MESH=1 PW_WORKERS="$MASS_WORKERS" npx playwright test tests/e2e/mass
+maybe_wait 1
 start_phase stage5 200 \
   env E2E_SKIP_FIND_SIMILAR=1 E2E_SKIP_ALL_MESH=1 PW_WORKERS="$STAGE5_WORKERS" \
     npx playwright test tests/e2e/staged/stage5-multi-user
@@ -136,6 +187,7 @@ start_phase mesh-batch 0 \
     tests/e2e/talks-matching/08-retraction.spec.ts \
     tests/e2e/talks-matching/09-exchange-suppression.spec.ts \
     tests/e2e/talks-matching/09-ipfs-auto-share.spec.ts
+maybe_wait 2
 start_phase mesh-isolated 200 \
   bash -c '
     set -e
@@ -145,6 +197,7 @@ start_phase mesh-isolated 200 \
     PW_WORKERS=1 npx playwright test "$base/02-mesh-broadcast-announce.spec.ts" --grep "find-similar broadcast"
     PW_WORKERS=1 npx playwright test "$base/02-mesh-broadcast-announce.spec.ts" --grep "ipfs attachment"
   '
+maybe_wait 2
 start_phase find-similar 300 \
   env PW_WORKERS=1 npx playwright test tests/e2e/staged/stage5-multi-user/find-similar-people.spec.ts
 wait_wave 2
