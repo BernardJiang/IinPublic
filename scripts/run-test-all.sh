@@ -1,31 +1,36 @@
 #!/usr/bin/env bash
 #
-# Unified `test:all` runner — single merged Playwright report, minimal overhead, and
-# CONCURRENT phases so the wall clock approaches the (mostly idle) machine's real limit.
+# Unified `test:all` runner — single merged Playwright report, minimal overhead. Phases run
+# SEQUENTIALLY by default (correctness first); set CONCURRENT_WAVES=1 on a machine you've
+# verified can sustain it to let independent phases share the wall clock instead.
 #
-# Background (measured): the suite is ~83% idle (≈168% CPU on 10 cores) — it waits on Gun
-# sync and timeouts, it does not compute. Run sequentially, the two big phases dominated:
-# light=454s and mass=338s, back to back. The fix is to run independent phases AT THE SAME
-# TIME on disjoint port bands (E2E_PORT_OFFSET) and to raise worker counts on the wait-bound
-# phases. The fragile multi-browser specs are kept in their own low-contention wave.
+# Background (measured on one box): the suite is ~83% idle — it waits on Gun sync and
+# timeouts, it does not compute — so running phases concurrently on disjoint port bands
+# (E2E_PORT_OFFSET) can in principle approach the machine's real limit instead of running
+# light=454s and mass=338s back to back. But "in principle" turned out to be machine-specific:
+# on a real 14-core Mac mini, full concurrency caused flaky failures (Gun sync timeouts in
+# mass/stage5, a single-page settings-render assertion in light, even the unrelated phase-0
+# jest run) that all disappeared the moment waves ran sequentially. Detected core count alone
+# doesn't predict whether a given machine can sustain this many concurrent Chromium + Node +
+# WebRTC processes — so this defaults to sequential and treats concurrency as an explicit,
+# per-machine opt-in (see CONCURRENT_WAVES below) rather than a default to guess at.
 #
 # What it does:
 #   - PARALLEL PREFIX : type-check, lint, jest and both builds run at once.
 #   - BUILD ONCE      : server (tsc) + web (webpack dev mode) built one time up front.
 #   - STATIC WEB      : each phase serves prebuilt dist/web (E2E_STATIC_WEB=1), no webpack reboot.
-#   - CONCURRENT WAVES: phases in a wave run together on offsets 0/100/200/300 (own port band,
-#                       own fresh Playwright-managed servers). Waves are sequenced so the
-#                       timing-sensitive heavy-staged shard (it holds a 30s-budget chatbot
-#                       spec) runs alone.
+#   - WAVES           : phases in a wave run on offsets 0/100/200/300 (own port band, own fresh
+#                       Playwright-managed servers) — together if CONCURRENT_WAVES=1, one at a
+#                       time otherwise. Waves are sequenced so the timing-sensitive heavy-staged
+#                       shard (it holds a 30s-budget chatbot spec) always runs alone.
 #
 # Tunables (env): PW_WORKERS(light,14) MASS_WORKERS(4) STAGE5_WORKERS(3) PW_MESH_WORKERS(4)
-#                 PW_HEAVY_WORKERS(2) — all auto-scaled down from these 10-core-tuned
-#                 defaults to the detected core count when unset. CONCURRENT_WAVES(1/0) forces
-#                 whether phases within wave 1 / wave 2 run together or one-at-a-time; default
-#                 is 1 at >=10 detected cores, else 0 (a smaller machine showed Gun sync and
-#                 WebRTC mesh handshakes fail outright, not just slow, under full concurrency).
-#                 If you hit memory pressure or flakiness, lower light and mass first, or set
-#                 CONCURRENT_WAVES=0. Per-phase wall times are printed at the end.
+#                 PW_HEAVY_WORKERS(2) — auto-scaled to the detected core count when unset
+#                 (mass/stage5 only ever scale down, never above their tuned baseline — see
+#                 scale_down_only() below). CONCURRENT_WAVES(1/0, default 0) forces whether
+#                 phases within wave 1 / wave 2 run together or one-at-a-time. If you hit
+#                 memory pressure or flakiness with CONCURRENT_WAVES=1, drop back to 0 before
+#                 lowering worker counts. Per-phase wall times are printed at the end.
 #
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -70,14 +75,20 @@ STAGE5_WORKERS="${STAGE5_WORKERS:-$(scale_down_only 3)}"
 MESH_WORKERS="${PW_MESH_WORKERS:-$(scale 4)}"
 HEAVY_WORKERS="${PW_HEAVY_WORKERS:-$(scale 2)}"
 
-# Below ~10 cores, even scaled-down worker counts weren't enough — wave 1 (light+mass+stage5
-# together) and wave 2 (mesh-batch+mesh-isolated+find-similar together) still starved hard
-# enough that Gun sync and WebRTC handshakes failed outright rather than just ran slower
-# (observed directly: 0/9 exchanges synced, "no connected mesh neighbors after 90000ms").
-# Default to running each wave's phases one at a time below that threshold — correctness
-# over wall-clock time. Force either way with CONCURRENT_WAVES=1 / =0.
+# Default to running each wave's phases one at a time — correctness over wall-clock time.
+# An earlier version of this script tried to auto-enable full wave concurrency above a
+# detected-core-count threshold (originally 10, the box this design was tuned/measured on).
+# That guess was wrong: on a real 14-core Mac mini, full concurrency produced flaky failures
+# across wave 1 AND wave 2 (Gun sync timeouts, a single-page settings-render assertion, even
+# the unrelated phase-0 jest run) that all disappeared together the moment waves ran
+# sequentially instead — i.e. genuine CPU contention, not a fixed core-count cliff. Detected
+# core count is not a reliable predictor of whether this many concurrent Chromium + Node +
+# WebRTC processes will actually get enough scheduler time on a given machine (performance/
+# efficiency core splits, thermal limits, other running apps, etc. all matter and none of
+# them show up in `nproc`/`sysctl -n hw.ncpu`). Treat concurrent waves as an explicit,
+# verified-per-machine opt-in via CONCURRENT_WAVES=1, not a default to guess at.
 if [ -z "${CONCURRENT_WAVES:-}" ]; then
-  if [ "$CORES" -ge 10 ]; then CONCURRENT_WAVES=1; else CONCURRENT_WAVES=0; fi
+  CONCURRENT_WAVES=0
 fi
 
 export E2E_BLOB=1
