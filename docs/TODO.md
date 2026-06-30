@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-06-24
+Last updated: 2026-06-30
 
 This file tracks only open work. Completed items are archived in `docs/completed.md`.
 - **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specifications.md` (§19.13, §19.14, REQ-P2P-09–29; mesh talk delivery design §23; libp2p/IPFS §25 — supersedes Phase D §24; find-similar §22)
@@ -70,30 +70,48 @@ WKWebView's limited WebRTC never blocks P2P — the mesh lives in Node.
 - [x] Root scripts: `dev:embedded-node`, `build:embedded`, `desktop:dev`,
       `desktop:dist`, `mobile:stage`.
 
+**Done 2026-06-30 (see `docs/completed.md`):** hub-dial verification (+ a real
+bug found and fixed — embedded nodes were never actually dialing the hub);
+Android `unpackIfNeeded` + POST_NOTIFICATIONS; desktop autoupdate
+(electron-updater) + build-id drift safety net; E2E spec (browser peer +
+embedded-node peer, direct-P2P DataChannel); CI embedded-node smoke job;
+mobile-toolchain doc/comment corrections (the previous AAR/pod coordinates
+referenced packages that don't exist).
+
 **Remaining (needs device toolchains — not buildable in CI here):**
-- [ ] Pin & link `nodejs-mobile` AAR (Android) + `NodeMobile` pod (iOS); replace
-      the `NodeBridge`/`NodeRunner` stubs with real engine start calls.
-- [ ] Android: implement `unpackIfNeeded` asset→filesDir copy (or rely on the
-      nodejs-mobile-gradle plugin); request POST_NOTIFICATIONS at runtime.
-- [ ] iOS: add Xcode "copy nodejs-project + dist into bundle" build phase; create
-      the `.xcodeproj` (sources are ready under `platforms/ios/IinPublic`).
-- [ ] Hub hardening: confirm the public hub only relays `relayOnlyDataClasses`
-      for embedded peers (it is already `relayOnlyHub` in prod — verify no app
-      subgraphs sync upstream from a local node).
-- [ ] Desktop autoupdate: ship UI + node together (electron-updater); never let
-      `dist/web` and `dist/server` drift across an update.
-- [ ] E2E spec: one browser peer + one embedded-node desktop peer in the same
-      chatroom; exchange a talk, open a conversation, assert the direct-P2P
-      DataChannel opens. (Reuse `tests/e2e/helpers/p2p-transport-e2e.ts`.)
-- [ ] CI: add a headless smoke job that boots `embedded-node.js` and asserts
-      `/health` + `/` serve (the manual check this change ran).
+- [ ] Android: wire the real libnode JNI/CMake integration (no Gradle
+      dependency coordinate exists for this — see the corrected, detailed
+      steps in `android/app/build.gradle` and `platforms/mobile/README.md`);
+      replace `NodeBridge.startProject`'s log-stub with the native call.
+- [ ] iOS: vendor `NodeMobile.podspec` (or embed `NodeMobile.framework`
+      manually) per the corrected `platforms/ios/Podfile` comment; add the
+      Xcode "copy nodejs-project + dist into bundle" build phase; create the
+      `.xcodeproj` (sources are ready under `platforms/ios/IinPublic`).
+- [ ] **Hub hardening fix `[Opus]`:** Gun's wire protocol (`mesh.say`,
+      `node_modules/gun/gun.js` ~line 1502) broadcasts every local `.put()` to
+      **all** connected peers unconditionally — now that the hub-dial bug is
+      fixed and embedded nodes actually peer to the hub, app-private graph
+      writes (`talks/*`, `conversations/*`, `pairConversations/*`, etc.) ARE
+      sent over that wire to the hub's in-memory graph, even though
+      `radisk:false` keeps them off disk there. Needs either (a) a
+      soul-classification-tracking outbound filter scoped to just the hub
+      peer connection (nontrivial: nested `.get().get()` chains use
+      auto-generated souls for child nodes, so a single-message filter can't
+      classify them without tracking the relational graph as observed), or
+      (b) replacing the generic Gun peer link to the hub with a narrower,
+      explicit REST-only discovery channel (loses live `.on()` sync, a real
+      product tradeoff). Write a design note first, then hand to Sonnet.
+      `scripts/relay-only-verification/` has a real-process verification
+      harness to validate the fix against (its runtime results were
+      unreliable in a sandboxed CI-like environment — see the note at the top
+      of `run.js` — so validate on a machine/CI where Gun's WS handshake
+      completes reliably).
 
 **Known runtime risks:**
 - ✓ Gun replication timing on auto-reply path: mitigated by server POST path.
 - ✓ `talkCompleted` handler fallback: verified, preserves data safely.
-- ⚠ Gun has no native per-subgraph peer scoping — "discovery-only" is enforced at
-  the app/relay layer (`relayOnlyHub` + local-first data classes), not by Gun.
-  The embedded-node E2E must assert no private app data lands on the hub.
+- ⚠ Gun has no native per-subgraph peer scoping — see "Hub hardening fix" above;
+  this is now a concrete, code-cited finding rather than a hypothetical.
 
 ---
 

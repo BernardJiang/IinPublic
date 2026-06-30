@@ -10,10 +10,11 @@
 //
 // The local node dials the public hub upstream for discovery only.
 
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
+const { autoUpdater } = require('electron-updater');
 
 const LOCAL_PORT = parseInt(process.env.IINPUBLIC_LOCAL_PORT || '8088', 10);
 const HUB_GUN_URL = process.env.IINPUBLIC_HUB_GUN_URL || 'https://www.iinpublic.com/gun';
@@ -112,12 +113,79 @@ async function createWindow() {
 
   await waitForPort(LOCAL_PORT);
   await win.loadURL(`http://127.0.0.1:${LOCAL_PORT}/`);
+  return win;
+}
+
+// electron-updater autoupdate.
+//
+// "Ship UI + node together; never let dist/web and dist/server drift across
+// an update" (docs/TODO.md S3). The Electron app bundles dist/web AND
+// dist/server as extraResources of the SAME packaged installer (see the
+// `build.extraResources` block in package.json) — there is no separate
+// channel that could update one without the other, so a normal autoupdate
+// already replaces both atomically as one unit by construction.
+//
+// `nsis.differentialPackage` is explicitly disabled (full-package updates
+// only) rather than relying on delta-patch updates: differential updates
+// patch the installed files in place, which is a more complex code path to
+// fully trust for correctness across the whole extraResources tree (node_modules
+// included). Forcing a full-package download on every update is simpler to
+// reason about and guarantees dist/web and dist/server always come from the
+// exact same release artifact — worth the extra download size for this app.
+//
+// `scripts/stamp-build-id.js` + `warnIfBuildIdsDrifted()` (src/server/bootstrap/
+// http-bootstrap.ts) are the runtime safety net in case packaging assumptions
+// above are ever violated (corrupted artifact, manual tinkering, etc).
+function setupAutoUpdater(win) {
+  if (!app.isPackaged) {
+    // electron-updater requires a packaged app (reads app-update.yml from the
+    // installed resources dir); it's a no-op / would just error in `npm start`.
+    return;
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  const log = (...args) => {
+    // eslint-disable-next-line no-console
+    console.log('[desktop:autoupdate]', ...args);
+  };
+
+  autoUpdater.on('checking-for-update', () => log('checking for update...'));
+  autoUpdater.on('update-not-available', () => log('no update available'));
+  autoUpdater.on('error', (err) => log('error', err == null ? err : err.message || err));
+  autoUpdater.on('update-available', (info) => log('update available', info && info.version));
+  autoUpdater.on('download-progress', (p) => log(`downloading: ${Math.round(p.percent || 0)}%`));
+
+  autoUpdater.on('update-downloaded', async (info) => {
+    log('update downloaded', info && info.version);
+    const result = await dialog.showMessageBox(win, {
+      type: 'info',
+      title: 'IinPublic update ready',
+      message: `Version ${info && info.version ? info.version : ''} has been downloaded.`,
+      detail: 'Restart now to apply the update (the local peer node restarts with it).',
+      buttons: ['Restart now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (result.response === 0) {
+      autoUpdater.quitAndInstall();
+    }
+  });
+
+  // Check on launch, then periodically — desktop sessions can stay open for
+  // a long time, and the embedded node should not run a stale build forever.
+  autoUpdater.checkForUpdates().catch((err) => log('initial check failed', err));
+  setInterval(() => {
+    autoUpdater.checkForUpdates().catch((err) => log('periodic check failed', err));
+  }, 4 * 60 * 60 * 1000); // every 4 hours
 }
 
 app.whenReady().then(async () => {
   try {
     await startEmbeddedNode();
-    await createWindow();
+    const win = await createWindow();
+    setupAutoUpdater(win);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[desktop] startup failed', err);

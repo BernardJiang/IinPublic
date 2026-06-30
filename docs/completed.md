@@ -1,6 +1,120 @@
 # IinPublic Completed Work
 
-Last updated: 2026-06-23
+Last updated: 2026-06-30
+
+## 2026-06-30 — S3 embedded-node: remaining items closed out (+ a real hub-dial bug found and fixed)
+
+Moved from `docs/TODO.md`. Worked through the S3 "Remaining" checklist end to end.
+
+- **Hub hardening — verified, and a real bug found + fixed.** Set out to confirm
+  no app-private Gun subgraphs (`talks/*`, `conversations/*`, `pairConversations/*`,
+  etc.) sync upstream from an embedded local node to the public hub. Runtime
+  verification in this environment was unreliable at first (short-lived Gun
+  client test processes didn't reliably complete the WS handshake), so the
+  investigation moved to reading Gun's wire-fanout code directly
+  (`node_modules/gun/gun.js` `mesh.say`, ~line 1502): every local `.put()`
+  triggers an unconditional broadcast to **all** connected peers — there is no
+  subscription/interest filtering. That confirms the risk `docs/TODO.md`
+  already flagged with ⚠ is real, not hypothetical, once an embedded node is
+  actually peered to the hub.
+  But checking whether the embedded node was *actually* peered to the hub at
+  all surfaced a separate, more fundamental bug: `attachGun()` in
+  `src/server/bootstrap/http-bootstrap.ts` gated the embedded node's upstream
+  hub dial (`upstreamHubPeers`) on `!isolatedGun`, where `isolatedGun` folds in
+  `ephemeralStarServer` (`resolveP2PRuntimeFlags().starServerPersistence ===
+  'ephemeral'`) — which is **hardcoded `true` for every boot** since mesh talk
+  delivery shipped (star delivery was removed). That made `isolatedGun`
+  unconditionally `true`, so `upstreamHubPeers` always resolved to `[]` —
+  **embedded nodes never actually dialed the hub**, despite logging "embedded
+  local node" and the configured hub URL. Fixed by extracting
+  `resolveUpstreamHubPeers()` (pure, unit-tested in
+  `src/test/unit/embedded-node-hub-dial.test.ts`) that only gates on the
+  explicit test/dev isolation flags (`E2E_GUN_MEMORY_ONLY`, `DEV_GUN_FRESH`),
+  not the always-on mesh-delivery flag. Verified via real separate-process
+  hub + embedded-node boots that `upstreamHubPeers` is now populated
+  correctly.
+  The original ⚠ risk (Gun blindly gossiping app data to the hub once peered)
+  remains real and is **not** fixed in this change — filtering it safely
+  needs either a soul-classification-tracking outbound filter (nested Gun
+  `.get().get()` chains use auto-generated souls for child nodes, so a
+  single-message content filter can't classify them without tracking the
+  relational graph as observed) or a narrower REST-only discovery channel,
+  both nontrivial. Left as a new, precisely-scoped follow-up in
+  `docs/TODO.md` rather than attempted blind.
+- **Android: `unpackIfNeeded` + POST_NOTIFICATIONS runtime request.**
+  `NodeBridge.kt` now recursively copies `assets/nodejs-project/**` into
+  `filesDir/nodejs-project` (idempotent, resumable). `MainActivity.kt` now
+  requests `POST_NOTIFICATIONS` at runtime on API 33+ before starting the
+  foreground service (falls through to starting the node either way — the
+  permission only affects whether the "peer running" notification shows).
+- **Desktop autoupdate (electron-updater).** `platforms/desktop/main.js`
+  wires `electron-updater`: checks on launch + every 4h, downloads, prompts
+  to restart via `dialog.showMessageBox`. `nsis.differentialPackage: false`
+  forces full-package updates (not delta patches) so `dist/web` and
+  `dist/server` always come from the exact same release artifact. Added a
+  runtime safety net for the "never let dist/web and dist/server drift"
+  requirement: `scripts/stamp-build-id.js` (wired into `npm run
+  build:embedded`) stamps the same build-id into both `dist/web/build-id.json`
+  and `dist/server/server/build-id.json`; `warnIfBuildIdsDrifted()` in
+  `http-bootstrap.ts` compares them at embedded-node boot and logs a loud
+  error (non-fatal) on mismatch. Verified end-to-end (real process boot) for
+  both the matching and intentionally-mismatched cases.
+- **E2E spec: browser peer + embedded-node desktop peer.**
+  `tests/e2e/embedded-node/01-browser-and-embedded-node-peer.spec.ts` boots a
+  real `dist/server/node-app/embedded-node.js` process peered to the worker's
+  Gun server, drives one browser against the normal dev server and a second
+  against the embedded node's own served origin, and asserts they match on a
+  talk and open a direct-P2P WebRTC DataChannel (reusing
+  `tests/e2e/helpers/p2p-transport-e2e.ts`). Runs under its own
+  `tests/e2e/embedded-node/playwright.config.ts` (excluded from the root
+  config's `chromium` project via `testIgnore` so it can't perturb the
+  existing light/heavy/mesh sharding) — `npm run test:e2e:embedded-node`.
+  Writing this spec is what surfaced the hub-dial bug above: a same-origin Gun
+  URL derivation bug (`WebGunService.deriveGunHubUrl`) was fixed alongside it
+  — see below. The spec itself parses/lists correctly under Playwright and
+  was unit/type-checked, but could not be run end-to-end in this environment
+  (no working Chromium — missing system libraries, no root to install them);
+  it needs a real CI run for the actual pass/fail signal.
+- **Bug fix: `WebGunService.deriveGunHubUrl()` broke same-origin Gun for any
+  localhost port ≥3001 that wasn't a dev/e2e worker port** (including every
+  embedded-node default port: 8080, 8088, or any custom port). The offset
+  heuristic (`webPort - 3001 + 8080`) only checked `webPort >= 3001` with no
+  upper bound, so an embedded node serving its SPA on, say, 8088 computed Gun
+  URL `ws://127.0.0.1:13167/gun` instead of same-origin `:8088`. Fixed by
+  bounding the dev/e2e offset to a generous port range (3001–3100, far beyond
+  any observed worker count) and falling back to same-origin for any other
+  localhost port. Extracted to a pure, exported `deriveGunHubUrlFromLocation()`
+  for direct unit testing (`src/test/unit/web-gun-service-hub-url.test.ts`, 8
+  cases covering dev/e2e, embedded-node, and prod paths).
+- **CI: headless smoke job for `embedded-node.js`.** `scripts/smoke-embedded-node.js`
+  boots the real compiled entry and asserts `GET /health` and `GET /` (SPA)
+  both serve correctly; wired into `.github/workflows/ci-cd.yml` as the
+  `embedded-node-smoke` job and `npm run smoke:embedded-node`. Verified
+  passing locally against a real boot.
+- **Mobile toolchain pinning — assessed, corrected, not implemented.** The
+  existing `NodeBridge.kt`/`Podfile`/build.gradle comments referenced a
+  nonexistent Maven coordinate (`com.janeasystems:nodejs-mobile`) and a
+  nonexistent npm/CocoaPods package (`nodejs-mobile-cocoapods`) — verified
+  against the real upstream docs
+  ([Android](https://nodejs-mobile.github.io/docs/guide/guide-android/getting-started/),
+  [iOS](https://nodejs-mobile.github.io/docs/guide/guide-ios/getting-started/)):
+  nodejs-mobile ships libnode as a release ZIP wired in via CMake+JNI
+  (Android) or a framework embedded directly / its own in-repo podspec (iOS),
+  not a simple dependency coordinate. Corrected the comments in
+  `android/app/build.gradle`, `NodeBridge.kt`, `platforms/ios/Podfile`, and
+  `platforms/mobile/README.md` to document the real integration path with
+  citations, rather than leave subtly-wrong instructions in place. Did not
+  attempt the actual JNI/CMake glue or Xcode project (needs a real Android
+  Studio/Xcode toolchain to write and verify correctly) — left as a precisely
+  re-scoped remaining item.
+
+**Verification:** `npx tsc --noEmit` clean (root + `src/server/tsconfig.json`);
+`npm run lint` clean on touched files; full unit+integration Jest suite green
+(64 suites / 828 passed, 1 pre-existing skip) including the two new
+regression suites; `npx eslint` clean; real separate-process boots verified
+for the hub-dial fix, build-id drift check (both match and mismatch), and the
+CI smoke script. E2E spec itself not run live here (no working Chromium in
+this environment) — needs a CI/real-machine run for final sign-off.
 
 ## 2026-06-23 — M1–M4 Massive Talks E2E assertions fleshed out
 

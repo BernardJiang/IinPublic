@@ -11,12 +11,15 @@ async function bootstrapCompactUser(
   browser: Browser,
   label: string,
   stageName: string,
+  // See bootstrapUser() in talks-matching-flow.ts — same oversubscribed-worker rationale
+  // (this spec boots 8 contexts in one worker, sequentially).
+  appReadyTimeoutMs?: number,
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({ viewport: { width: 640, height: 540 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
   attachFilteredConsoleLog(page, label);
   await injectIdbClear(page);
-  await gotoWebApp(page, webAppURLStableChatroom());
+  await gotoWebApp(page, webAppURLStableChatroom(), appReadyTimeoutMs);
   await ensureWindowFitsViewport(page, 640, 540);
   await afterLoad();
   await page.click('.nav-btn[data-view="settings"]');
@@ -80,12 +83,13 @@ test.describe('Chatroom UX: member list scroll and unified broadcast bar', () =>
   });
 
   test('chatroom detail keeps one broadcast action and the member list can scroll', async () => {
-    const owner = await bootstrapCompactUser(browser, 'Owner', 'Owner');
+    test.setTimeout(420_000);
+    const owner = await bootstrapCompactUser(browser, 'Owner', 'Owner', 30_000);
     contexts.push(owner.context);
     pages.push(owner.page);
 
     for (let i = 1; i <= 7; i += 1) {
-      const user = await bootstrapCompactUser(browser, `Peer${i}`, `Peer${i}`);
+      const user = await bootstrapCompactUser(browser, `Peer${i}`, `Peer${i}`, 30_000);
       contexts.push(user.context);
       pages.push(user.page);
     }

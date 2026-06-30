@@ -35,6 +35,8 @@ android {
 dependencies {
     implementation 'androidx.core:core-ktx:1.12.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
+    // registerForActivityResult / ActivityResultContracts (POST_NOTIFICATIONS runtime request)
+    implementation 'androidx.activity:activity-ktx:1.8.2'
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
@@ -50,9 +52,28 @@ dependencies {
     implementation 'com.squareup.moshi:moshi:1.15.0'
     implementation 'com.squareup.moshi:moshi-kotlin:1.15.0'
 
-    // Embedded Node runtime (Gun P2P node). Pin to the current published AAR.
-    // See https://github.com/nodejs-mobile/nodejs-mobile
-    // implementation 'com.janeasystems:nodejs-mobile:0.3.3'
+    // Embedded Node runtime (Gun P2P node).
+    //
+    // CORRECTION (verified against https://nodejs-mobile.github.io/docs/guide/guide-android/getting-started/,
+    // 2026-06): there is no `com.janeasystems:nodejs-mobile` (or similar) Maven
+    // artifact to `implementation` here — that coordinate doesn't exist. The
+    // upstream project (https://github.com/nodejs-mobile/nodejs-mobile) ships
+    // libnode as a prebuilt native library ZIP per release
+    // (https://github.com/nodejs-mobile/nodejs-mobile/releases), wired in via
+    // CMake + JNI, not a Gradle dependency coordinate:
+    //   1. Download the release ZIP; copy include/ -> app/libnode/include,
+    //      bin/{arm64-v8a,armeabi-v7a,x86_64}/libnode.so -> app/libnode/bin/<abi>/.
+    //   2. app/CMakeLists.txt: include_directories(libnode/include/node/),
+    //      add an IMPORTED SHARED `libnode` target pointed at
+    //      libnode/bin/${ANDROID_ABI}/libnode.so, and link it into native-lib.
+    //   3. defaultConfig: ndk { abiFilters "armeabi-v7a","arm64-v8a","x86_64" }
+    //      and externalNativeBuild.cmake.arguments "-DANDROID_STL=c++_shared".
+    //   4. android.sourceSets.main.jniLibs.srcDirs 'libnode/bin/'.
+    //   5. A JNI C++ shim (app/src/main/cpp/, none exists yet in this project)
+    //      exposing `startNodeWithArguments(String[])` -> `node::Start(argc, argv)`,
+    //      called from NodeBridge.kt instead of the placeholder log line there.
+    // This needs Android Studio + NDK r24+ + CMake to write and verify the JNI/
+    // CMake glue correctly — not attempted blind here. See platforms/mobile/README.md.
 
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'

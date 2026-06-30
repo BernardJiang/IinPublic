@@ -35,7 +35,7 @@ test.describe('M1 real flow mass exchange', () => {
       for (let i = 0; i < 10; i += 1) {
         const browser = await chromium.launch({ headless, args: ['--disable-dev-shm-usage'] });
         browsers.push(browser);
-        const boot = await bootstrapUser(browser, `M1-${i}`, `M1 User ${i}`);
+        const boot = await bootstrapUser(browser, `M1-${i}`, `M1 User ${i}`, 30_000);
         contexts.push(boot.context); pages.push(boot.page);
         await boot.page.locator('.chatroom-item:has-text("Global")').first().click();
         await boot.page.evaluate(() => (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true));

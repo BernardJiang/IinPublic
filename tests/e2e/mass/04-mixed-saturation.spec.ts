@@ -11,7 +11,7 @@ test.describe('M4 real mixed saturation', () => {
     test.setTimeout(1_200_000); await maybeClearGunDatabases(); const browser = await chromium.launch({headless,args:['--disable-dev-shm-usage']});
     try {
       const pages: any[] = [];
-      for (let i=0;i<12;i+=1) { const x=await bootstrapUser(browser,`M4-${i}`,`M4 User ${i}`); pages.push(x.page); await x.page.locator('.chatroom-item:has-text("Global")').first().click(); }
+      for (let i=0;i<12;i+=1) { const x=await bootstrapUser(browser,`M4-${i}`,`M4 User ${i}`,30_000); pages.push(x.page); await x.page.locator('.chatroom-item:has-text("Global")').first().click(); }
       const users = await Promise.all(pages.map((p)=>p.evaluate(()=>{ const u=(window as any).__iinpublic_app.getApp().currentUser; return {userId:u.id,stageName:u.stageName}; })));
       expect(new Set(users.map((u:any)=>u.userId)).size).toBe(12);
       await pages[0].evaluate(()=> (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true));

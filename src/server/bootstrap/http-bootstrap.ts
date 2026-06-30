@@ -66,6 +66,48 @@ export function configureHttpMiddleware(app: express.Application): void {
     app.use(express.static(webRoot));
     app.get('/', (_req, res) => res.sendFile(path.join(webRoot, 'index.html')));
     logger.info({ webRoot }, 'S3 embedded-node: serving web SPA from local node');
+    warnIfBuildIdsDrifted(webRoot);
+  }
+}
+
+/**
+ * Desktop autoupdate must ship dist/web and dist/server as one atomic unit
+ * (see scripts/stamp-build-id.js). electron-builder packaging already makes
+ * that true in the normal case, but this is the runtime safety net: if the
+ * two build outputs ever disagree (partial copy, broken release artifact,
+ * manual tinkering with an install dir), surface it loudly instead of
+ * silently serving a UI that may not match this node's API/Gun-graph shape.
+ * Intentionally non-fatal — a stale/missing stamp should not block the node
+ * from starting, since older builds predate this check entirely.
+ */
+export function warnIfBuildIdsDrifted(webRoot: string): void {
+  type BuildStamp = { buildId?: string; builtAt?: string };
+  const readStamp = (p: string): BuildStamp | null => {
+    try {
+      return JSON.parse(fs.readFileSync(p, 'utf8'));
+    } catch {
+      return null;
+    }
+  };
+  const webStamp = readStamp(path.join(webRoot, 'build-id.json'));
+  // This file (compiled) lives at dist/server/server/bootstrap/http-bootstrap.js;
+  // its build-id.json sibling is written to dist/server/server/build-id.json.
+  const serverStamp = readStamp(path.join(__dirname, '..', 'build-id.json'));
+
+  if (!webStamp || !serverStamp) {
+    logger.warn(
+      { hasWebStamp: !!webStamp, hasServerStamp: !!serverStamp },
+      'S3 embedded-node: build-id stamp missing on one or both sides — cannot verify dist/web and dist/server were built together (run scripts/stamp-build-id.js, or rebuild with a version that includes it)',
+    );
+    return;
+  }
+  if (webStamp.buildId !== serverStamp.buildId) {
+    logger.error(
+      { webBuildId: webStamp.buildId, serverBuildId: serverStamp.buildId, webBuiltAt: webStamp.builtAt, serverBuiltAt: serverStamp.builtAt },
+      'S3 embedded-node: dist/web and dist/server build-ids DO NOT MATCH — this install is serving a UI build that was not packaged with this node build. An autoupdate or release artifact may be corrupted/partial.',
+    );
+  } else {
+    logger.info({ buildId: webStamp.buildId }, 'S3 embedded-node: dist/web and dist/server build-ids match');
   }
 }
 
@@ -90,6 +132,33 @@ export function warnIfStaleRadataExists(cwd = process.cwd()): void {
   }
 }
 
+/**
+ * Decide which upstream Gun peers an embedded local node should dial.
+ *
+ * Pulled out of `attachGun` so the decision is unit-testable without
+ * constructing a real Gun instance (Gun() has heavy module-level/global side
+ * effects — timers, websocket setup — that are awkward and flaky to exercise
+ * directly in Jest; see src/test/unit/embedded-node-hub-dial.test.ts).
+ *
+ * BUG FIX (S3 embedded-node): this used to be gated on a generic
+ * `isolatedGun` flag that also folded in `ephemeralStarServer`
+ * (`resolveP2PRuntimeFlags().starServerPersistence === 'ephemeral'`, which is
+ * hardcoded `true` for every boot since mesh talk delivery shipped — see
+ * p2p-runtime.ts). That made `isolatedGun` unconditionally true, so embedded
+ * nodes never actually dialed the hub at all, despite logging "embedded local
+ * node" and the configured hub URL. The only flags that should suppress an
+ * embedded node's hub dial are the EXPLICIT test/dev isolation switches
+ * (E2E_GUN_MEMORY_ONLY, DEV_GUN_FRESH) — they exist so local dev/e2e runs
+ * don't accidentally dial a real hub — not the always-on mesh-delivery flag.
+ */
+export function resolveUpstreamHubPeers(
+  embedded: Pick<ReturnType<typeof resolveEmbeddedNodeConfig>, 'enabled' | 'hubGunPeers'>,
+  isolation: { e2eMemoryOnly: boolean; devGunFresh: boolean },
+): string[] {
+  const skipEmbeddedHubDial = isolation.e2eMemoryOnly || isolation.devGunFresh;
+  return embedded.enabled && !skipEmbeddedHubDial ? embedded.hubGunPeers : [];
+}
+
 export function attachGun(server: HttpServer): any {
   const e2eMemoryOnly =
     process.env.E2E_GUN_MEMORY_ONLY === '1' || process.env.E2E_GUN_MEMORY_ONLY === 'true';
@@ -107,7 +176,7 @@ export function attachGun(server: HttpServer): any {
   // this same server as a *local* Gun peer that dials the public hub upstream
   // for discovery/signaling only, while persisting app data on-device.
   const embedded = resolveEmbeddedNodeConfig(process.env);
-  const upstreamHubPeers = embedded.enabled && !isolatedGun ? embedded.hubGunPeers : [];
+  const upstreamHubPeers = resolveUpstreamHubPeers(embedded, { e2eMemoryOnly, devGunFresh });
 
   const gun = Gun({
     web: server,

@@ -1,11 +1,15 @@
 package com.iinpublic.app
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -26,6 +30,22 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
 
+    // Android 13+ (API 33, TIRAMISU) requires POST_NOTIFICATIONS to be granted
+    // at runtime — declaring it in the manifest alone is not enough. Without
+    // it, NodeForegroundService.startForeground() still runs the service (the
+    // peer node keeps working), but the "peer node running" notification is
+    // silently suppressed, which makes the long-running service look like it
+    // could be killed by the OS sooner since the user has no visible cue it's
+    // active. We ask once, before starting the service, and proceed either way
+    // (the foreground service must start regardless of the answer).
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
+            // Granted or denied — either way, start the node now so the app
+            // doesn't block its core function on a notification preference.
+            startNodeService()
+            waitForNodeThenLoad()
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -38,8 +58,27 @@ class MainActivity : AppCompatActivity() {
         }
         setContentView(webView)
 
-        startNodeService()
-        waitForNodeThenLoad()
+        ensureNotificationPermissionThenStart()
+    }
+
+    private fun ensureNotificationPermissionThenStart() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            // Pre-Android 13: POST_NOTIFICATIONS is a normal (install-time)
+            // permission, nothing to request at runtime.
+            startNodeService()
+            waitForNodeThenLoad()
+            return
+        }
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            startNodeService()
+            waitForNodeThenLoad()
+        } else {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     private fun startNodeService() {

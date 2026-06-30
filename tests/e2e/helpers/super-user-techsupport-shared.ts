@@ -46,6 +46,8 @@ export async function bootstrapSuperUser(
   browser: Browser,
   label: string,
   stageName: string,
+  // See bootstrapUser() in talks-matching-flow.ts — same oversubscribed-worker rationale.
+  appReadyTimeoutMs?: number,
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
     viewport: { width: 640, height: 1000 },
@@ -60,10 +62,10 @@ export async function bootstrapSuperUser(
     }, TECHSUPPORT_ROOT_USER_ID);
   }
   try {
-    await gotoWebApp(page, webAppURLStableChatroom());
+    await gotoWebApp(page, webAppURLStableChatroom(), appReadyTimeoutMs);
   } catch {
     await wait(1500, 2000);
-    await gotoWebApp(page, webAppURLStableChatroom());
+    await gotoWebApp(page, webAppURLStableChatroom(), appReadyTimeoutMs);
   }
   await ensureWindowFitsViewport(page, 640, 1000);
   await afterLoad();

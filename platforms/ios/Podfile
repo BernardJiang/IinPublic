@@ -4,6 +4,20 @@ target 'IinPublic' do
   use_frameworks!
 
   # Embedded Node runtime (Gun P2P node) for iOS.
-  # See https://github.com/nodejs-mobile/nodejs-mobile
-  # pod 'NodeMobile', :path => '../../node_modules/nodejs-mobile-cocoapods'
+  #
+  # CORRECTION (verified against https://nodejs-mobile.github.io/docs/guide/guide-ios/getting-started/
+  # and https://github.com/JaneaSystems/nodejs-mobile/blob/mobile-master/NodeMobile.podspec,
+  # 2026-06): there is no published `nodejs-mobile-cocoapods` pod in
+  # node_modules to reference — that path doesn't exist for a plain native
+  # (non-React-Native) app. The upstream project ships NodeMobile.framework as
+  # a prebuilt binary per release (https://github.com/nodejs-mobile/nodejs-mobile/releases),
+  # plus a podspec IN ITS OWN REPO (NodeMobile.podspec, mobile-master branch)
+  # that can be referenced directly from a local clone or git source, e.g.:
+  #   pod 'NodeMobile', :podspec => '../../third_party/nodejs-mobile/NodeMobile.podspec'
+  # (vendor the nodejs-mobile repo, or just the .podspec + framework it
+  # publishes, under third_party/ first — it is not an npm package).
+  # Manual (non-CocoaPods) integration is also documented and may be simpler:
+  # copy NodeMobile.framework from the release ZIP's Release-universal/ path
+  # into an Xcode "Embedded Binaries" entry directly. Needs Xcode to wire up
+  # and verify — not attempted blind here. See platforms/mobile/README.md.
 end

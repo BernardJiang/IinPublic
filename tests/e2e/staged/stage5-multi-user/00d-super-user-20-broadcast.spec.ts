@@ -100,7 +100,7 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     test.setTimeout(360_000);
 
     console.log('\n📍 STEP 1: TechSupport enters Global');
-    const techSupport = await bootstrapSuperUser(browserTechSupport, 'TechSupport', TECH_SUPPORT_NAME);
+    const techSupport = await bootstrapSuperUser(browserTechSupport, 'TechSupport', TECH_SUPPORT_NAME, 30_000);
     contextTechSupport = techSupport.context;
     pageTechSupport = techSupport.page;
     await pageTechSupport.click('.chatroom-item:has-text("Global")');
@@ -156,7 +156,7 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     console.log('\n📍 STEP 5: Tom joins Global');
     // Brief pause after heavy TechSupport session + prior spec teardown reduces flaky net::ERR_ABORTED on Tom's first goto.
     await new Promise((r) => setTimeout(r, 2000));
-    const tom = await bootstrapSuperUser(browserTom, 'Tom', TOM_NAME);
+    const tom = await bootstrapSuperUser(browserTom, 'Tom', TOM_NAME, 30_000);
     contextTom = tom.context;
     pageTom = tom.page;
     await pageTom.click('.chatroom-item:has-text("Global")');

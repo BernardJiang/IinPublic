@@ -167,7 +167,7 @@ test.describe('Find similar people', () => {
           ],
         });
         browsers.push(browser);
-        const { context, page } = await bootstrapUser(browser, `Sim${idx}`, `Sim User ${idx}`);
+        const { context, page } = await bootstrapUser(browser, `Sim${idx}`, `Sim User ${idx}`, 30_000);
         contexts.push(context);
         pages.push(page);
         await page.locator('.chatroom-item:has-text("Global")').first().click();

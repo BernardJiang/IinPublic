@@ -226,6 +226,13 @@ export default defineConfig({
             /08-route-job-seeking\.spec\.ts/,
             /10-stats-four-types\.spec\.ts/,
             /00i-survey-analytics-dashboard\.spec\.ts/,
+            // S3 embedded-node: spawns its own extra dist/server/node-app/embedded-node.js
+            // process and needs a prebuilt dist/web, so it runs under its own dedicated
+            // Playwright config (tests/e2e/embedded-node/playwright.config.ts) instead of
+            // this one's per-worker port-pair webServer array. Excluded here so the default
+            // `chromium` project (and testIgnore-based explicit-path runs) never try to pick
+            // it up — run it via `npm run test:e2e:embedded-node`.
+            /embedded-node\//,
             // Heavy multi-browser specs run in their own low-worker shard (E2E_SKIP_HEAVY=1).
             ...(SKIP_HEAVY ? HEAVY_SPEC_PATTERNS : []),
             ...(SKIP_FIND_SIMILAR ? [/staged\/stage5-multi-user\/find-similar-people\.spec\.ts/] : []),

@@ -84,9 +84,9 @@ test.describe('Mesh-ping with hub API down mid-session', () => {
     test.setTimeout(180_000);
 
     const [tomResult, jerryResult, bobResult] = await Promise.all([
-      bootstrapUser(browsers.tom, 'Tom', 'Tom Mesh HubDown'),
-      bootstrapUser(browsers.jerry, 'Jerry', 'Jerry Mesh HubDown'),
-      bootstrapUser(browsers.bob, 'Bob', 'Bob Mesh HubDown'),
+      bootstrapUser(browsers.tom, 'Tom', 'Tom Mesh HubDown', 30_000),
+      bootstrapUser(browsers.jerry, 'Jerry', 'Jerry Mesh HubDown', 30_000),
+      bootstrapUser(browsers.bob, 'Bob', 'Bob Mesh HubDown', 30_000),
     ]);
 
     contextTom = tomResult.context;

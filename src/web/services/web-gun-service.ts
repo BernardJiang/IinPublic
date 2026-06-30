@@ -18,6 +18,47 @@ import {
 
 const KEYPAIR_STORAGE = 'iinpublic_keypair';
 export const KEY_CUSTODY_STORAGE = 'iinpublic_key_custody_v1';
+
+/**
+ * Pure form of WebGunService's page-origin → Gun-hub-URL derivation, factored
+ * out so it's directly unit-testable (the class method only has `window` to
+ * read from, which isn't convenient to fake in every test).
+ *
+ * Convention (dev + e2e parallel workers):
+ *   web 3001 ↔ gun 8080   (single-worker default)
+ *   web 3002 ↔ gun 8081   (parallel worker 1)
+ *   web 3001+N ↔ gun 8080+N, for N in [0, DEV_E2E_WEB_PORT_RANGE_END-3001).
+ *
+ * S3 embedded-node (Electron/Android/iOS): the local node serves BOTH the SPA
+ * and Gun on the SAME port (e.g. 8088 — see embedded-node-config.ts /
+ * platforms/desktop/main.js / NodeForegroundService.kt), so Gun must be
+ * derived as same-origin there, NOT via the dev/e2e offset. The range check
+ * below (rather than a bare `webPort >= 3001`) is what tells the two apart:
+ * dev/e2e web ports only ever live in a small band starting at 3001 (one port
+ * per Playwright worker), while embedded-node ports (8080, 8088, or any
+ * operator-chosen port) fall outside it.
+ */
+export function deriveGunHubUrlFromLocation(protocol: string, hostname: string, port: string): string {
+  const webPort = Number(port);
+  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1';
+  // Upper bound generously covers every parallel-worker count this repo's e2e scripts
+  // actually use (observed max ~25); pick a port far above this if you ever need more.
+  const DEV_E2E_WEB_PORT_RANGE_END = 3001 + 100;
+  const isDevE2EWebPort = Number.isFinite(webPort) && webPort >= 3001 && webPort < DEV_E2E_WEB_PORT_RANGE_END;
+  if (isLocalHost && isDevE2EWebPort) {
+    const gunPort = webPort - 3001 + 8080;
+    return `${protocol}//${hostname}:${gunPort}/gun`;
+  }
+  if (isLocalHost && Number.isFinite(webPort) && webPort > 0) {
+    // Embedded-node (or any other localhost port outside the dev/e2e band): Gun is
+    // mounted on the SAME http server that serves this page — same-origin, no offset.
+    return `${protocol}//${hostname}:${webPort}/gun`;
+  }
+  if (isLocalHost) {
+    return `${protocol}//${hostname}:8080/gun`;
+  }
+  return `${protocol}//${hostname}/gun`;
+}
 export const KEY_CUSTODY_DEVICE_SECRET_STORAGE = 'iinpublic_key_custody_device_secret_v1';
 const KEY_CUSTODY_ITERATIONS = 150_000;
 
@@ -53,11 +94,6 @@ export class WebGunService extends EventEmitter {
   /**
    * Compute the Gun hub URL from the current page origin.
    *
-   * Convention (dev + e2e parallel workers):
-   *   web 3001 ↔ gun 8080   (single-worker default)
-   *   web 3002 ↔ gun 8081   (parallel worker 1)
-   *   web 3001+N ↔ gun 8080+N
-   *
    * When running outside a browser (SSR / unit test) falls back to the legacy default so
    * existing callers that construct this class in Node don't break.
    */
@@ -71,17 +107,7 @@ export class WebGunService extends EventEmitter {
       return `http://localhost:${Number.isFinite(envPort) ? envPort : 8080}/gun`;
     }
     const { protocol, hostname, port } = window.location;
-    const webPort = Number(port);
-    // Only apply the +8080-3001 offset for localhost dev/e2e; in prod the hub is on the same
-    // origin without an explicit port and we preserve that behaviour.
-    if ((hostname === 'localhost' || hostname === '127.0.0.1') && Number.isFinite(webPort) && webPort >= 3001) {
-      const gunPort = webPort - 3001 + 8080;
-      return `${protocol}//${hostname}:${gunPort}/gun`;
-    }
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return `${protocol}//${hostname}:8080/gun`;
-    }
-    return `${protocol}//${hostname}/gun`;
+    return deriveGunHubUrlFromLocation(protocol, hostname, port);
   }
 
   async initialize(): Promise<void> {

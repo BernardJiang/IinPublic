@@ -39,6 +39,10 @@ test.describe('Capacity regional spread', () => {
   });
 
   test('fills global, north-america, USA, and cascades into a blurred regional room', async ({ browser, request }) => {
+    // 10 contexts at up to 30s app-ready budget each (worst case 300s) plus the 180s
+    // member-count poll below can exceed the global default test timeout (300s at
+    // STAGE5_WORKERS<4) under heavy concurrent-wave load. Give this spec its own headroom.
+    test.setTimeout(600_000);
     await maybeClearGunDatabases();
 
     for (let i = 0; i < TARGETS.length; i++) {

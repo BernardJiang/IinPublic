@@ -338,6 +338,10 @@ export async function bootstrapUser(
   browser: Browser,
   label: string,
   stageName: string,
+  // Heavy specs that bring up many simultaneous browser contexts in one worker (mass/,
+  // staged/stage5 capacity, find-similar) starve later cold bootstraps past the 10s default
+  // (see timing.ts waitForAppReady doc) — those callers pass a larger budget here.
+  appReadyTimeoutMs?: number,
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
     viewport: { width: 640, height: 1000 },
@@ -347,7 +351,7 @@ export async function bootstrapUser(
   attachFilteredConsoleLog(page, label);
   // Clear the Web Worker's IndexedDB so each user starts with a fresh local Gun graph.
   await injectIdbClear(page);
-  await gotoWebApp(page, webAppURLStableChatroom());
+  await gotoWebApp(page, webAppURLStableChatroom(), appReadyTimeoutMs);
   await ensureWindowFitsViewport(page, 640, 1000);
   await afterLoad();
   await page.click('.nav-btn[data-view="settings"]');
@@ -359,7 +363,7 @@ export async function bootstrapUser(
   await expect
     .poll(
       () => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.stageName ?? ''),
-      { timeout: E2E_ASSERT_TIMEOUT_MS },
+      { timeout: appReadyTimeoutMs ?? E2E_ASSERT_TIMEOUT_MS },
     )
     .toBe(stageName);
   await page.click('.nav-btn[data-view="chatrooms"]');
