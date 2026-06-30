@@ -34,16 +34,24 @@ export const KEY_CUSTODY_STORAGE = 'iinpublic_key_custody_v1';
  * platforms/desktop/main.js / NodeForegroundService.kt), so Gun must be
  * derived as same-origin there, NOT via the dev/e2e offset. The range check
  * below (rather than a bare `webPort >= 3001`) is what tells the two apart:
- * dev/e2e web ports only ever live in a small band starting at 3001 (one port
- * per Playwright worker), while embedded-node ports (8080, 8088, or any
- * operator-chosen port) fall outside it.
+ * dev/e2e web ports only ever live in a band starting at 3001, while
+ * embedded-node ports (8080, 8088, or any operator-chosen port) fall outside it.
+ *
+ * The band's upper bound MUST cover `scripts/run-test-all.sh`'s concurrent-wave port
+ * scheme: web = 3001 + E2E_PORT_OFFSET + workerIndex, where E2E_PORT_OFFSET is 0/100/200/300
+ * across phases (see tests/e2e/helpers/ports.ts) and workerIndex can itself run past 20 on a
+ * many-core machine — so real e2e web ports legitimately reach ~3300+. An earlier, tighter
+ * bound (3001-3100) cut that off mid-band: every phase using offset >=100 (mass, stage5,
+ * find-similar, mesh-isolated) got routed into the same-origin branch below and silently
+ * pointed at a Gun endpoint that doesn't exist on that port (web and Gun are always separate
+ * processes/ports in dev/e2e — see playwright.config.ts webServers — never same-origin there),
+ * which broke cross-page sync outright rather than just slowing it down. 4001 leaves ~10x
+ * headroom over current usage while still excluding realistic embedded-node ports.
  */
 export function deriveGunHubUrlFromLocation(protocol: string, hostname: string, port: string): string {
   const webPort = Number(port);
   const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1';
-  // Upper bound generously covers every parallel-worker count this repo's e2e scripts
-  // actually use (observed max ~25); pick a port far above this if you ever need more.
-  const DEV_E2E_WEB_PORT_RANGE_END = 3001 + 100;
+  const DEV_E2E_WEB_PORT_RANGE_END = 3001 + 1000;
   const isDevE2EWebPort = Number.isFinite(webPort) && webPort >= 3001 && webPort < DEV_E2E_WEB_PORT_RANGE_END;
   if (isLocalHost && isDevE2EWebPort) {
     const gunPort = webPort - 3001 + 8080;
