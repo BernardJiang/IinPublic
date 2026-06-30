@@ -29,6 +29,19 @@ export function setE2eParallelSlotFromWorker(n: number): void {
   parallelSlotOverride = n;
 }
 
+/**
+ * Optional port-range offset so multiple `playwright test` processes can run CONCURRENTLY
+ * without colliding on ports. Each concurrent phase sets a distinct E2E_PORT_OFFSET (e.g. 0,
+ * 100, 200) and thereby gets its own web/gun port band: web = 3001+offset+slot, gun =
+ * 8080+offset+slot. The browser derives its Gun hub from window.location.port
+ * (gun = web - 3001 + 8080), so the same offset is preserved automatically — see
+ * web-gun-service.deriveGunHubUrl. Default 0 keeps single-run behaviour unchanged.
+ */
+function portOffset(): number {
+  const n = Number(process.env.E2E_PORT_OFFSET);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
 /** Stable 0..workers−1 slot for ports and filesystem artifacts (maps to spawned servers). */
 export function parallelSlot(): number {
   if (parallelSlotOverride != null) return parallelSlotOverride;
@@ -37,14 +50,14 @@ export function parallelSlot(): number {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
-/** Webpack dev-server port for this worker (3001 + index). */
+/** Web dev/static-server port for this worker (3001 + offset + index). */
 export function webPort(idx: number = parallelSlot()): number {
-  return 3001 + idx;
+  return 3001 + portOffset() + idx;
 }
 
-/** Gun/API server port for this worker (8080 + index). */
+/** Gun/API server port for this worker (8080 + offset + index). */
 export function gunPort(idx: number = parallelSlot()): number {
-  return 8080 + idx;
+  return 8080 + portOffset() + idx;
 }
 
 /**

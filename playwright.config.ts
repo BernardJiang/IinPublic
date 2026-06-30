@@ -93,9 +93,18 @@ const SKIP_MESH_RESPONSE = process.env.E2E_SKIP_MESH_RESPONSE === '1';
 const SKIP_MESH_CONTACTS = process.env.E2E_SKIP_MESH_CONTACTS === '1';
 const SKIP_ALL_MESH = process.env.E2E_SKIP_ALL_MESH === '1';
 
+// Optional port-range offset so concurrent `playwright test` runs don't collide. Matches
+// E2E_PORT_OFFSET in tests/e2e/helpers/ports.ts (default 0). web = 3001+offset+i, gun =
+// 8080+offset+i; the browser derives its gun port from window.location.port so the offset
+// carries through automatically (see web-gun-service.deriveGunHubUrl).
+const PORT_OFFSET = (() => {
+  const n = Number(process.env.E2E_PORT_OFFSET);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+})();
+
 const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
-  const gunPort = 8080 + i;
-  const webPort = 3001 + i;
+  const gunPort = 8080 + PORT_OFFSET + i;
+  const webPort = 3001 + PORT_OFFSET + i;
   return [
     {
       // Mesh-talk default: server bootstraps discovery/signaling, then browsers exchange talks over WebRTC.
@@ -111,9 +120,11 @@ const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
       reuseExistingServer: process.env.E2E_REUSE_SERVERS === '1',
     },
     {
-      // E2E_STATIC_WEB=1: serve pre-built dist/web/ with npx serve (no webpack recompile) for CI sandbox.
+      // E2E_STATIC_WEB=1: serve the pre-built dist/web/ bundle with a tiny dependency-free
+      // static server (no webpack recompile on boot). Used by scripts/run-test-all.sh, which
+      // builds dist/web once up front; far faster than re-running `webpack serve` per boot.
       command: process.env.E2E_STATIC_WEB === '1'
-        ? `npx serve dist/web -l ${webPort} --no-clipboard`
+        ? `node scripts/e2e-static-web.mjs ${webPort}`
         : `CHATROOM_MAX_CAPACITY=50 CHATROOM_ENABLE_FIFO=false P2P_NODE_ENABLED=${E2E_P2P_NODE_ENABLED} PORT=${webPort} npm run dev:web:e2e -- --port ${webPort}`,
       port: webPort,
       timeout: 120 * 1000,
