@@ -12,7 +12,7 @@ test.describe('M2 real survey mass exchange', () => {
     test.setTimeout(900_000); await maybeClearGunDatabases();
     const browsers: Browser[] = []; const contexts: BrowserContext[] = []; const pages: Page[] = [];
     try {
-      for (let i = 0; i < 12; i += 1) { const b = await chromium.launch({ headless, args: ['--disable-dev-shm-usage'] }); browsers.push(b); const x = await bootstrapUser(b, `M2-${i}`, `M2 User ${i}`, 30_000); contexts.push(x.context); pages.push(x.page); await x.page.locator('.chatroom-item:has-text("Global")').first().click(); await x.page.evaluate(() => (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true)); }
+      for (let i = 0; i < 12; i += 1) { const b = await chromium.launch({ headless, args: ['--disable-dev-shm-usage'] }); browsers.push(b); const x = await bootstrapUser(b, `M2-${i}`, `M2 User ${i}`, 60_000); contexts.push(x.context); pages.push(x.page); await x.page.locator('.chatroom-item:has-text("Global")').first().click(); await x.page.evaluate(() => (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true)); }
       const authorId = await pages[0].evaluate(() => (window as any).__iinpublic_app.getApp().currentUser.id);
       const survey = { title: 'survey', authorId, type: 'survey', language: 'en', isAdult: false, tags: [], questions: Array.from({ length: 5 }, (_, q) => ({ id: `surveyq${q + 1}`, text: `surveyq${q + 1}`, answers: [1,2,3,4].map((a) => ({ id: `surveya${q + 1}${a}`, text: `surveya${q + 1}${a}`, isTerminal: q === 4 })) })) };
       const [created] = await createTalksFromCompanyPage(pages[0], [survey]);

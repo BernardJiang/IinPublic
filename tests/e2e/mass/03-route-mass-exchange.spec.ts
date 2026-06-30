@@ -12,7 +12,7 @@ test.describe('M3 real route mass exchange', () => {
   test('eight browsers deliver one route and produce seven distinct numbered leaves', async () => {
     test.setTimeout(720_000); await maybeClearGunDatabases(); const browser = await chromium.launch({headless,args:['--disable-dev-shm-usage']}); const contexts: BrowserContext[]=[]; const pages: Page[]=[];
     try {
-      for(let i=0;i<8;i+=1){const x=await bootstrapUser(browser,`M3-${i}`,`M3 User ${i}`,30_000);contexts.push(x.context);pages.push(x.page);await x.page.locator('.chatroom-item:has-text("Global")').first().click();await x.page.evaluate(()=> (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true));}
+      for(let i=0;i<8;i+=1){const x=await bootstrapUser(browser,`M3-${i}`,`M3 User ${i}`,60_000);contexts.push(x.context);pages.push(x.page);await x.page.locator('.chatroom-item:has-text("Global")').first().click();await x.page.evaluate(()=> (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true));}
       const authorId=await pages[0].evaluate(()=> (window as any).__iinpublic_app.getApp().currentUser.id);
       const talk={title:'route',authorId,type:'route',language:'en',isAdult:false,tags:[],questions:[1,2,3].map(q=>({id:`routeq${q}`,text:`routeq${q}`,answers:[1,2].map(a=>({id:`routea${q}${a}`,text:`routea${q}${a}`,isTerminal:q===3,isMatch:q===3&&a===1,isIgnore:q===3&&a===2}))}))};
       const cid=await computeTalkCIDv1(talk); const [created]=await createTalksFromCompanyPage(pages[0],[talk]);

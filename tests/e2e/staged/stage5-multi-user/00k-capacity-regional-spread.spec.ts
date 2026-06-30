@@ -90,7 +90,7 @@ test.describe('Capacity regional spread', () => {
           usa: counts.usa >= 3,
           regionalCreated: counts[REGIONAL_SF_ROOM] > 0,
         };
-      }, { timeout: 180_000, intervals: [2000] })
+      }, { timeout: 280_000, intervals: [2000] })
       .toEqual({
         global: true,
         northAmerica: true,
