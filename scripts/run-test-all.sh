@@ -240,6 +240,9 @@ RC_HA=$(cat "$LOG_DIR/heavy-staged.rc")
 blob_count=$(ls blob-report/*/*.zip 2>/dev/null | wc -l | tr -d ' ')
 cp blob-report/*/*.zip blob-merged/ 2>/dev/null
 merged_zip_count=$(ls blob-merged/*.zip 2>/dev/null | wc -l | tr -d ' ')
+# Compute the real wall-clock total now (before merging) so it's available to patch into the
+# report below — see the merge-reports "Total time" note there for why that's needed.
+end=$(date +%s); dur=$((end - start))
 # Call the local binary directly rather than `npx playwright` — npx adds a package-resolution
 # step on every invocation (registry/version lookup) that plain node_modules/.bin does not,
 # and running this right after an 11+ minute run with many just-exited Chromium processes is
@@ -250,6 +253,14 @@ echo "[test:all] merging $merged_zip_count blob(s) with: $PLAYWRIGHT_BIN ($($PLA
 if $PLAYWRIGHT_BIN merge-reports --reporter html blob-merged; then
   MERGE_RC=0
   echo "[test:all] HTML report: $ROOT/playwright-report/index.html (open with: npx playwright show-report)"
+  # `merge-reports` computes "Total time" as max(per-phase duration) — correct for true
+  # parallel shards, meaningless for test:all's sequential heterogeneous phases (it just shows
+  # the single longest phase). No CLI/config override exists for this (hardcoded in
+  # node_modules/playwright/lib/reporters/merge.js, mergeEndEvents). Patch the report's
+  # embedded stats with the real total this script already knows authoritatively; failure here
+  # is cosmetic-only and must never fail the run.
+  node "$ROOT/scripts/patch-report-total-time.js" "$ROOT/playwright-report/index.html" "${start}000" "$((dur * 1000))" \
+    || echo "[test:all]   (cosmetic: could not patch the report's Total time field — pass/fail counts are unaffected)"
 else
   MERGE_RC=$?
   echo "[test:all] WARNING: merge-reports failed (rc=$MERGE_RC) — no playwright-report/ was generated."
@@ -257,7 +268,6 @@ else
   echo "[test:all]   $ROOT/node_modules/.bin/playwright merge-reports --reporter html blob-merged"
 fi
 
-end=$(date +%s); dur=$((end - start))
 E2E_RC=$(( RC_LIGHT || RC_MASS || RC_S5 || RC_MESH || RC_MESHISO || RC_FS || RC_HA ))
 PREFIX_RC=$(( RC_TYPE || RC_LINT || RC_JEST ))
 
