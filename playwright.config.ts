@@ -56,7 +56,10 @@ process.env.PW_WORKERS = String(NUM_WORKERS);
  */
 const E2E_TEST_TIMEOUT_MS = NUM_WORKERS >= 4 ? 120_000 : 300_000;
 const FORCE_HEADLESS = !!process.env.CI || NUM_WORKERS >= 4;
-const VIDEO_MODE: 'off' | 'retain-on-failure' = NUM_WORKERS >= 16 ? 'off' : 'retain-on-failure';
+// E2E_VIDEO=off disables failure videos explicitly (e.g. CPU-constrained sandboxes where
+// recording overhead pushes specs past their runtime budget).
+const VIDEO_MODE: 'off' | 'retain-on-failure' =
+  process.env.E2E_VIDEO === 'off' || NUM_WORKERS >= 16 ? 'off' : 'retain-on-failure';
 const E2E_P2P_NODE_ENABLED =
   process.env.E2E_P2P_NODE_ENABLED === '1' ||
   process.env.E2E_P2P_NODE_ENABLED === 'true'

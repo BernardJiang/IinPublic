@@ -92,6 +92,17 @@ type SignedChannelWirePayload = {
 export const P2P_WEBRTC_CONNECT_TIMEOUT_MS = 10_000;
 
 /**
+ * After a connect attempt fails, don't retry a fresh full-length ICE/DTLS cycle for every
+ * subsequent send within this window — go straight back to "failed" so the caller's
+ * offline-mailbox fallback (Phase 4, spec §19.4) kicks in immediately instead of the sender
+ * blocking another P2P_WEBRTC_CONNECT_TIMEOUT_MS on each message. Without this, a peer that's
+ * genuinely unreachable (offline, blocked UDP, NAT that never resolves) turns "send message"
+ * into a repeated 10s hang per call — a real latency bug, not just an E2E environment quirk.
+ * A fresh signal (new remote ICE/answer arriving) still clears this via setState('connecting').
+ */
+export const P2P_WEBRTC_RETRY_COOLDOWN_MS = 15_000;
+
+/**
  * Returns the ICE server list for `RTCPeerConnection`.
  *
  * Connection priority order (§4.4):
@@ -189,6 +200,8 @@ export class P2PConversationSession {
   private handshakeDiagnostics: HandshakeDiagnostics | null = null;
   // Stash remote payload if it arrives before localHandshakePayload is ready
   private pendingRemoteHandshake: P2PHandshakePayload | null = null;
+  /** Epoch ms of the most recent transition into 'failed'; null when never failed. */
+  private lastFailedAt: number | null = null;
 
   constructor(private config: P2PSessionConfig) {
     this.signaling = new GunPubSubSignaler(config.gun, config.localPub, config.otherPub, config.conversationId);
@@ -237,6 +250,8 @@ export class P2PConversationSession {
 
   private setState(state: P2PConnectionState): void {
     this._state = state;
+    if (state === 'failed') this.lastFailedAt = Date.now();
+    else if (state === 'connected') this.lastFailedAt = null;
   }
 
   private markLedgerReady(): void {
@@ -307,6 +322,19 @@ export class P2PConversationSession {
   ensureConnected(timeoutMs = P2P_WEBRTC_CONNECT_TIMEOUT_MS): Promise<void> {
     if (this._state === 'connected') return Promise.resolve();
     if (this.connectPromise) return this.connectPromise;
+
+    // Fail fast while still inside the post-failure cooldown: a peer that was
+    // unreachable a moment ago is very unlikely to have become reachable in the
+    // last few seconds, and the caller's offline-mailbox fallback already covers
+    // this message. Retrying a fresh full-length ICE/DTLS cycle on every send would
+    // otherwise turn "send while peer unreachable" into a repeated multi-second hang.
+    if (
+      this._state === 'failed' &&
+      this.lastFailedAt !== null &&
+      Date.now() - this.lastFailedAt < P2P_WEBRTC_RETRY_COOLDOWN_MS
+    ) {
+      return Promise.reject(new Error('WebRTC connection timeout (cooldown after recent failure)'));
+    }
 
     if (this._state === 'failed') {
       this.resetTransport();

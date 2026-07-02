@@ -64,23 +64,58 @@ export class GunMessageStore {
   }
 
   private async getUserEpub(userId: string): Promise<string | undefined> {
-    const user = await this.gunService.getPublicUser(userId);
-    return user.epub;
+    // WebGunService.getPublicUser()/get() rejects when the *first* `.once()` callback fires
+    // with `data === undefined` — a normal transient state for a peer record that hasn't
+    // synced to this device's local Gun yet (freshly-matched conversation, cold page). That
+    // is not a decrypt failure; treat it the same as "no epub yet" so callers fall back to
+    // ciphertext instead of the whole decrypt batch being lost to an unhandled rejection.
+    try {
+      const user = await this.gunService.getPublicUser(userId);
+      return user.epub;
+    } catch {
+      return undefined;
+    }
   }
 
   private pairIdForUsers(userA: string, userB: string): string {
     return [String(userA || '').trim(), String(userB || '').trim()].sort().join('__');
   }
 
-  private async getPairMessageRoot(conversationId: string, myId: string, otherUserId?: string): Promise<any | null> {
-    const otherId = otherUserId || (await this.getOtherParticipantId(conversationId, myId));
-    if (!otherId) return null;
+  /**
+   * Builds the `pairConversations/<pairId>/<conversationId>/messages` Gun chain synchronously.
+   * Gun chain objects implement `.then()` (sugar for `.get(...).then(cb)`), which means a bare
+   * chain returned from an `async` function gets treated as a thenable and silently unwrapped
+   * by the Promise machinery on `await`/`.then()` at the call site — the caller ends up with
+   * Gun's *data snapshot* instead of the chain, and `root.map` is undefined. Keeping this
+   * builder synchronous (never `async`, never itself awaited) avoids that trap; only the
+   * `otherId` lookup above it is async.
+   */
+  private buildPairMessageRoot(conversationId: string, myId: string, otherId: string): any {
     return this.gunService
       .getGun()
       .get('pairConversations')
       .get(this.pairIdForUsers(myId, otherId))
       .get(conversationId)
       .get('messages');
+  }
+
+  /**
+   * Resolves the pair-message-root Gun chain. Returns it wrapped in `{ root }` rather than
+   * bare: a bare Gun chain is a thenable (see `buildPairMessageRoot` comment above), so
+   * `return chain` from this `async` method would get silently unwrapped by the caller's
+   * `await`/`.then()` into Gun's data snapshot instead of the chain — `root.map` would then
+   * be `undefined` and every caller's `.catch(() => undefined)` swallows the resulting
+   * TypeError, permanently breaking the `pairConversations` subscription branch. Wrapping in
+   * a plain (non-thenable) object sidesteps the trap.
+   */
+  private async getPairMessageRoot(
+    conversationId: string,
+    myId: string,
+    otherUserId?: string,
+  ): Promise<{ root: any } | null> {
+    const otherId = otherUserId || (await this.getOtherParticipantId(conversationId, myId));
+    if (!otherId) return null;
+    return { root: this.buildPairMessageRoot(conversationId, myId, otherId) };
   }
 
   private async getPairMessageSecret(conversationId: string, myId: string, peerUserId?: string): Promise<string> {
@@ -204,8 +239,8 @@ export class GunMessageStore {
     return new Promise((resolve) => {
       gun.get(`conversations/${conversationId}`).get('messages').map().once(collect);
       void this.getPairMessageRoot(conversationId, myUserId, otherUserId)
-        .then((root) => {
-          if (root) root.map().once(collect);
+        .then((resolved) => {
+          if (resolved) resolved.root.map().once(collect);
         })
         .catch(() => undefined);
       setTimeout(() => resolve(boundRecentWires([...byId.values()], limit)), 500);
@@ -237,9 +272,10 @@ export class GunMessageStore {
 
     subscribeRoot(gun);
     if (myUserId) {
-      void this.getPairMessageRoot(conversationId, myUserId, otherUserId).then((root) => {
-        if (!root) return;
-        root.map().on((_messageData: any, messageId: string) => {
+      void this.getPairMessageRoot(conversationId, myUserId, otherUserId).then((resolved) => {
+        if (!resolved) return;
+        const root = resolved.root;
+        const onChild = (_messageData: any, messageId: string) => {
           if (!messageId || messageId.startsWith('_')) return;
           if (processedMessages.has(messageId)) return;
 
@@ -247,7 +283,18 @@ export class GunMessageStore {
           setTimeout(() => {
             void this.collectAndDecryptMessages(conversationId, processedMessages, callback, myUserId, otherUserId);
           }, 300);
-        });
+        };
+        root.map().on(onChild);
+        // Bootstrap read: `.map().on()` is expected to replay already-present children on
+        // subscribe, but a subscription raced against a peer's write to a graph-linked path
+        // (`pairConversations/<pairId>/<conversationId>/messages`, reached via a Gun soul
+        // reference rather than a plain top-level key) can miss that replay — the listener
+        // attaches to a node the local graph still considers empty and the live "put" event
+        // from the relay arrives on a socket frame the listener wasn't registered in time
+        // for. A one-shot `.map().once()` right after `.on()` is a cheap, idempotent
+        // (dedup via `processedMessages`) safety net that guarantees any message already
+        // durable in Gun gets rendered even if the live event was missed.
+        root.map().once(onChild);
       }).catch(() => undefined);
     }
 
@@ -268,7 +315,8 @@ export class GunMessageStore {
     const ids = Array.from(processedMessages);
     const messagesArray: Message[] = [];
     const otherId = myUserId ? otherUserId || await this.getOtherParticipantId(conversationId, myUserId) : undefined;
-    const pairRoot = myUserId ? await this.getPairMessageRoot(conversationId, myUserId, otherId) : null;
+    const resolvedPairRoot = myUserId ? await this.getPairMessageRoot(conversationId, myUserId, otherId) : null;
+    const pairRoot = resolvedPairRoot ? resolvedPairRoot.root : null;
 
     for (const msgId of ids) {
       const msg = await new Promise<any>((resolve) => {
@@ -297,21 +345,29 @@ export class GunMessageStore {
       let text = String(msg.text);
       const ch = (msg.channel as Message['channel']) || 'public';
 
-      if ((ch !== 'public' || msg.encryption === 'sea-ecdh-v1') && pair) {
-        const SEA = getSEA();
-        const peerForSecret = myUserId && String(msg.senderId) === myUserId ? otherId : String(msg.senderId);
-        const peerEpub = peerForSecret ? await this.getUserEpub(peerForSecret) : undefined;
-        if (peerEpub) {
-          try {
-            const secret = await SEA.secret(peerEpub, pair as GunPair);
-            const dec = await SEA.decrypt(text, secret);
-            if (dec) {
-              text = typeof dec === 'string' ? dec : String(dec);
+      // Never let a single message's decrypt-path failure (epub lookup, SEA secret/decrypt,
+      // participant resolution) abort the whole batch — that would drop `callback(messagesArray)`
+      // entirely via an unhandled rejection and leave the UI stuck on the empty state even
+      // though every other message (and this one, as ciphertext) is legitimately available.
+      try {
+        if ((ch !== 'public' || msg.encryption === 'sea-ecdh-v1') && pair) {
+          const SEA = getSEA();
+          const peerForSecret = myUserId && String(msg.senderId) === myUserId ? otherId : String(msg.senderId);
+          const peerEpub = peerForSecret ? await this.getUserEpub(peerForSecret) : undefined;
+          if (peerEpub) {
+            try {
+              const secret = await SEA.secret(peerEpub, pair as GunPair);
+              const dec = await SEA.decrypt(text, secret);
+              if (dec) {
+                text = typeof dec === 'string' ? dec : String(dec);
+              }
+            } catch {
+              /* leave ciphertext */
             }
-          } catch {
-            /* leave ciphertext */
           }
         }
+      } catch {
+        /* leave ciphertext — see comment above */
       }
 
       messagesArray.push({
@@ -328,7 +384,19 @@ export class GunMessageStore {
       });
     }
 
-    messagesArray.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    // Tie-break on message id when timestamps collide (two peers sending within the same
+    // millisecond — realistic for concurrent DMs, not just a test artifact). Without a
+    // deterministic tie-breaker, `sort()`'s stability preserves *pre-sort* array order, which
+    // is derived from `Array.from(processedMessages)` — a peer-local Gun `.on()`/`.once()`
+    // arrival order that is **not** guaranteed to match between the two participants. That let
+    // A and B converge on different orderings for same-millisecond messages. Message ids are
+    // identical, durable strings on both sides, so sorting by id after timestamp is
+    // reproducible everywhere.
+    messagesArray.sort((a, b) => {
+      const byTime = a.timestamp.getTime() - b.timestamp.getTime();
+      if (byTime !== 0) return byTime;
+      return String(a.id).localeCompare(String(b.id));
+    });
 
     if (myUserId) {
       for (const m of messagesArray) {

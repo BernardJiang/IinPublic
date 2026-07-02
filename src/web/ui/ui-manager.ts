@@ -7154,7 +7154,11 @@ export class UIManager extends EventEmitter {
     const isSupportChannel = this.getMyConversations()[conversationId]?.supportChannel === true;
     messagesContainer.innerHTML = messages
       .map((msg) => {
-        const isOwn = msg.isOwnMessage;
+        // `Message` objects from GunMessageStore never carry `isOwnMessage` (that field
+        // is only set by the unrelated chatroom-message path in app.ts); derive ownership
+        // from senderId here so a user's own DMs render with the "message-own" style
+        // instead of always falling through to "message-other".
+        const isOwn = !!this.currentUserId && String(msg.senderId || '') === this.currentUserId;
         return `
           <div class="message ${isOwn ? 'message-own' : 'message-other'}">
             <div class="message-content">
