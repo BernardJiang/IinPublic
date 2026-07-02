@@ -3613,6 +3613,41 @@ export class IinPublicApp {
     this.mergeIncomingClusterIntoUi([cluster]);
   }
 
+  /**
+   * Generic incoming-talk seed for E2E specs that need a real IN row + real response-modal
+   * UI without waiting on a live mesh/WebRTC round trip (e.g. mobile-viewport specs where the
+   * point under test is the response dialog, not delivery). Mirrors {@link seedIncomingTagTalkForE2e}
+   * but accepts any talk type/shape as-is (flow/route/survey/tag) instead of hardcoding a tag talk.
+   * Also caches the talk body on the local mesh service so {@link resolveMeshTalkData} (used by the
+   * "View" button's demandFullTalk handler) resolves it without a network round trip.
+   */
+  public async seedIncomingTalkForE2e(params: {
+    talkData: Record<string, unknown>;
+    senderId: string;
+    senderName: string;
+  }): Promise<void> {
+    if (!this.currentUser?.id) return;
+    const senderId = String(params.senderId || '').trim();
+    const talkId = String(params.talkData?.id || '').trim();
+    if (!talkId || !senderId || senderId === this.currentUser.id) return;
+    const talkData = { ...params.talkData, authorId: senderId, authorName: params.senderName || senderId };
+    this.ensurePeerMeshService()?.cacheTalkBody?.(talkId, talkData);
+    const cluster = upsertLocalIncomingTalkCluster(
+      this.gunService,
+      this.currentUser.id,
+      {
+        talkId,
+        talkData,
+        senderId,
+        senderName: params.senderName || senderId,
+      },
+      this.p2pRuntimeFlags,
+    );
+    this.e2eSeededIncomingClusters.push(cluster);
+    await this.refreshIncomingTalkClustersFromLocalGun();
+    this.mergeIncomingClusterIntoUi([cluster]);
+  }
+
   public openSeededTagResponseForE2e(keyword: string): boolean {
     const talk = this.e2eSeededTagTalks.get(String(keyword || '').trim().toLowerCase());
     if (!talk) return false;
