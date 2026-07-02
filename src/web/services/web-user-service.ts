@@ -301,6 +301,24 @@ export class WebUserService {
     });
   }
 
+  /**
+   * Serializes read-modify-write cycles on the private user record. Every mutator
+   * reads the whole record (getUser → mergePrivateUserData) and writes the whole
+   * record back (putPrivateUserData); without this lock two concurrent mutations
+   * (e.g. blockUser racing the boot-time addKnownPerson for TechSupport) silently
+   * lose one of the updates.
+   */
+  private privateDataLock: Promise<unknown> = Promise.resolve();
+
+  private async withPrivateDataLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.privateDataLock.then(fn, fn);
+    this.privateDataLock = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
   private async putPrivateUserData(user: User): Promise<void> {
     const pair = this.gunService.getStoredPair();
     if (!pair || !user.pub || pair.pub !== user.pub) {
@@ -695,9 +713,11 @@ export class WebUserService {
       addedAt: new Date(),
     };
     try {
-      const u = await this.getUser(userId);
-      const list = [...(u.knownPeople || []).filter((k) => k.userId !== targetId), entry];
-      await this.putPrivateUserData({ ...u, knownPeople: list });
+      await this.withPrivateDataLock(async () => {
+        const u = await this.getUser(userId);
+        const list = [...(u.knownPeople || []).filter((k) => k.userId !== targetId), entry];
+        await this.putPrivateUserData({ ...u, knownPeople: list });
+      });
     } catch {
       /* graph may lag */
     }
@@ -705,9 +725,11 @@ export class WebUserService {
 
   async removeKnownPerson(userId: string, targetId: string): Promise<void> {
     try {
-      const u = await this.getUser(userId);
-      const list = (u.knownPeople || []).filter((k) => k.userId !== targetId);
-      await this.putPrivateUserData({ ...u, knownPeople: list });
+      await this.withPrivateDataLock(async () => {
+        const u = await this.getUser(userId);
+        const list = (u.knownPeople || []).filter((k) => k.userId !== targetId);
+        await this.putPrivateUserData({ ...u, knownPeople: list });
+      });
     } catch {
       /* ignore */
     }
@@ -740,49 +762,83 @@ export class WebUserService {
     if (!userId || !targetId) throw new Error('userId and targetId required');
     if (userId === targetId) throw new Error('Cannot block yourself');
     const apiBlockedUserIds = await this.updateBlockAtApi(userId, targetId, true);
-    if (apiBlockedUserIds) return apiBlockedUserIds;
-    const user = await this.getUser(userId);
-    const blockedUserIds = Array.from(new Set([...(user.blockedUserIds || []), targetId]));
-    if (!user.blockedUserIds?.includes(targetId)) {
-      const targetUser = await this.getUser(targetId);
-      await this.gunService.put(`users/${targetId}/reputation`, {
-        ...targetUser.reputation,
-        blockCount: Math.max(0, Number(targetUser.reputation?.blockCount || 0) + 1),
+    if (apiBlockedUserIds) {
+      // The server block graph is updated, but the client's SEA-encrypted private
+      // blockedUserIds is the on-device source of truth (the server cannot read it).
+      // Without this write the block list is lost on browser restart.
+      return await this.withPrivateDataLock(async () => {
+        try {
+          const user = await this.getUser(userId);
+          const merged = Array.from(new Set([...(user.blockedUserIds || []), ...apiBlockedUserIds]));
+          await this.putPrivateUserData({ ...user, blockedUserIds: merged });
+          return merged;
+        } catch {
+          return apiBlockedUserIds;
+        }
       });
     }
-    await this.putNested([USER_BLOCKS_KEY, userId, targetId], {
-      blockedAt: new Date().toISOString(),
+    return await this.withPrivateDataLock(async () => {
+      const user = await this.getUser(userId);
+      const blockedUserIds = Array.from(new Set([...(user.blockedUserIds || []), targetId]));
+      if (!user.blockedUserIds?.includes(targetId)) {
+        const targetUser = await this.getUser(targetId);
+        await this.gunService.put(`users/${targetId}/reputation`, {
+          ...targetUser.reputation,
+          blockCount: Math.max(0, Number(targetUser.reputation?.blockCount || 0) + 1),
+        });
+      }
+      await this.putNested([USER_BLOCKS_KEY, userId, targetId], {
+        blockedAt: new Date().toISOString(),
+      });
+      await this.putNested([USER_BLOCKED_BY_KEY, targetId, userId], {
+        blockedAt: new Date().toISOString(),
+      });
+      await this.putPrivateUserData({ ...user, blockedUserIds });
+      return blockedUserIds;
     });
-    await this.putNested([USER_BLOCKED_BY_KEY, targetId, userId], {
-      blockedAt: new Date().toISOString(),
-    });
-    await this.putPrivateUserData({ ...user, blockedUserIds });
-    return blockedUserIds;
   }
 
   async unblockUser(userId: string, targetId: string): Promise<string[]> {
     if (!userId || !targetId) throw new Error('userId and targetId required');
     const apiBlockedUserIds = await this.updateBlockAtApi(userId, targetId, false);
-    if (apiBlockedUserIds) return apiBlockedUserIds;
-    const user = await this.getUser(userId);
-    const blockedUserIds = (user.blockedUserIds || []).filter((candidate) => candidate !== targetId);
-    if (user.blockedUserIds?.includes(targetId)) {
-      const targetUser = await this.getUser(targetId);
-      await this.gunService.put(`users/${targetId}/reputation`, {
-        ...targetUser.reputation,
-        blockCount: Math.max(0, Number(targetUser.reputation?.blockCount || 0) - 1),
+    if (apiBlockedUserIds) {
+      // Mirror the unblock into private data too (see blockUser).
+      return await this.withPrivateDataLock(async () => {
+        try {
+          const user = await this.getUser(userId);
+          const merged = Array.from(
+            new Set([...(user.blockedUserIds || []), ...apiBlockedUserIds]),
+          ).filter((candidate) => candidate !== targetId);
+          await this.putPrivateUserData({ ...user, blockedUserIds: merged });
+          return merged;
+        } catch {
+          return apiBlockedUserIds;
+        }
       });
     }
-    await this.putNested([USER_BLOCKS_KEY, userId, targetId], null);
-    await this.putNested([USER_BLOCKED_BY_KEY, targetId, userId], null);
-    await this.putPrivateUserData({ ...user, blockedUserIds });
-    return blockedUserIds;
+    return await this.withPrivateDataLock(async () => {
+      const user = await this.getUser(userId);
+      const blockedUserIds = (user.blockedUserIds || []).filter((candidate) => candidate !== targetId);
+      if (user.blockedUserIds?.includes(targetId)) {
+        const targetUser = await this.getUser(targetId);
+        await this.gunService.put(`users/${targetId}/reputation`, {
+          ...targetUser.reputation,
+          blockCount: Math.max(0, Number(targetUser.reputation?.blockCount || 0) - 1),
+        });
+      }
+      await this.putNested([USER_BLOCKS_KEY, userId, targetId], null);
+      await this.putNested([USER_BLOCKED_BY_KEY, targetId, userId], null);
+      await this.putPrivateUserData({ ...user, blockedUserIds });
+      return blockedUserIds;
+    });
   }
 
   async updateTalkFilters(userId: string, talkFilters: TalkIntakeFilters): Promise<void> {
-    const user = await this.getUser(userId);
-    await this.putPublicTalkFilters(userId, talkFilters);
-    await this.putPrivateUserData({ ...user, talkFilters });
+    await this.withPrivateDataLock(async () => {
+      const user = await this.getUser(userId);
+      await this.putPublicTalkFilters(userId, talkFilters);
+      await this.putPrivateUserData({ ...user, talkFilters });
+    });
   }
 
   async updateReputationVisibility(userId: string, isHidden: boolean): Promise<void> {
