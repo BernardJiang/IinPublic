@@ -119,6 +119,7 @@ import {
 import {
   filterIncomingTalkClusters,
   getTalkIntakeFilters,
+  hasStoredTalkIntakeFilters,
   setTalkIntakeFilters,
 } from './talk-intake-filters';
 import { normalizeCustomBlockedTerms } from '../../shared/talk-intake-filters';
@@ -2844,7 +2845,13 @@ export class UIManager extends EventEmitter {
     if (!container) return;
     const profileLanguages = normalizeStringList(user.languages, ['en']).map((lang) => lang.toLowerCase());
     user.languages = profileLanguages;
-    const talkFilters = normalizeTalkFilterShape(user.talkFilters, profileLanguages);
+    // Intake filters are persisted synchronously to localStorage on every settings change,
+    // while user.talkFilters may still hold the default shape until private Gun data loads.
+    // Render from localStorage when it exists (device source of truth); otherwise seed it
+    // from the user object. Never clobber stored filters with unloaded defaults on render.
+    const talkFilters = hasStoredTalkIntakeFilters()
+      ? getTalkIntakeFilters()
+      : normalizeTalkFilterShape(user.talkFilters, profileLanguages);
     user.talkFilters = talkFilters;
     setTalkIntakeFilters(talkFilters);
     const reputation = user.reputation || ({} as typeof user.reputation);

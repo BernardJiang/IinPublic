@@ -33,3 +33,12 @@ export function getTalkIntakeFilters(): TalkIntakeFilters {
 export function setTalkIntakeFilters(filters: TalkIntakeFilters): void {
   localStorage.setItem(TALK_FILTERS_KEY, JSON.stringify(filters));
 }
+
+/** Whether this device has persisted intake filters (i.e. getTalkIntakeFilters() would not just return defaults). */
+export function hasStoredTalkIntakeFilters(): boolean {
+  try {
+    return localStorage.getItem(TALK_FILTERS_KEY) != null;
+  } catch {
+    return false;
+  }
+}
