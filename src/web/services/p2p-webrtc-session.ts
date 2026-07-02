@@ -99,6 +99,11 @@ export const P2P_WEBRTC_CONNECT_TIMEOUT_MS = 10_000;
  * genuinely unreachable (offline, blocked UDP, NAT that never resolves) turns "send message"
  * into a repeated 10s hang per call — a real latency bug, not just an E2E environment quirk.
  * A fresh signal (new remote ICE/answer arriving) still clears this via setState('connecting').
+ *
+ * OPT-IN ONLY (config.failFastAfterFailure): the DM send path enables it; the peer-mesh
+ * service must NOT — mesh neighbor re-formation (e.g. after hub API loss) deliberately
+ * retries ensureConnected() in tight loops, and a fail-fast window starves those retries
+ * so neighbors never re-form.
  */
 export const P2P_WEBRTC_RETRY_COOLDOWN_MS = 15_000;
 
@@ -143,6 +148,8 @@ export function defaultIceServers(): RTCIceServer[] {
 
 export type P2PSessionConfig = {
   apiBase: string;
+  /** Enable the post-failure fail-fast window (see P2P_WEBRTC_RETRY_COOLDOWN_MS). DM send path only. */
+  failFastAfterFailure?: boolean;
   conversationId: string;
   localUserId: string;
   localPub: string;
@@ -329,6 +336,7 @@ export class P2PConversationSession {
     // this message. Retrying a fresh full-length ICE/DTLS cycle on every send would
     // otherwise turn "send while peer unreachable" into a repeated multi-second hang.
     if (
+      this.config.failFastAfterFailure === true &&
       this._state === 'failed' &&
       this.lastFailedAt !== null &&
       Date.now() - this.lastFailedAt < P2P_WEBRTC_RETRY_COOLDOWN_MS

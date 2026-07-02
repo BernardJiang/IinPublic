@@ -2854,12 +2854,31 @@ export class UIManager extends EventEmitter {
     const profileLanguages = normalizeStringList(user.languages, ['en']).map((lang) => lang.toLowerCase());
     user.languages = profileLanguages;
     // Intake filters are persisted synchronously to localStorage on every settings change,
-    // while user.talkFilters may still hold the default shape until private Gun data loads.
-    // Render from localStorage when it exists (device source of truth); otherwise seed it
-    // from the user object. Never clobber stored filters with unloaded defaults on render.
-    const talkFilters = hasStoredTalkIntakeFilters()
-      ? getTalkIntakeFilters()
-      : normalizeTalkFilterShape(user.talkFilters, profileLanguages);
+    // while user.talkFilters may still hold the *unloaded default shape* (the fallback
+    // WebUserService substitutes until private Gun data arrives). Rule:
+    //   - real (non-default) user filters win — they may carry legacy string-valued fields
+    //     that this render is responsible for normalizing, or fresher private data;
+    //   - the unloaded default shape must NOT clobber persisted localStorage filters on
+    //     render (that loses the user's settings across reload).
+    const hasUserFilters =
+      user.talkFilters && typeof user.talkFilters === 'object' && Object.keys(user.talkFilters).length > 0;
+    const normalizedUserFilters = hasUserFilters
+      ? normalizeTalkFilterShape(user.talkFilters, profileLanguages)
+      : null;
+    const isUnloadedDefaultShape =
+      !normalizedUserFilters ||
+      ((normalizedUserFilters.minDistanceMiles ?? 0) === 0 &&
+        (normalizedUserFilters.maxDistanceMiles ?? 50) === 50 &&
+        normalizedUserFilters.requireGoodGrammar === true &&
+        normalizedUserFilters.blockDirtyWords === true &&
+        normalizedUserFilters.allowedTalkTypes.length === 4 &&
+        (normalizedUserFilters.customBlockedTerms || []).length === 0 &&
+        normalizedUserFilters.allowedLanguages.join(',') === profileLanguages.join(','));
+    const talkFilters = !isUnloadedDefaultShape
+      ? normalizedUserFilters!
+      : hasStoredTalkIntakeFilters()
+        ? getTalkIntakeFilters()
+        : normalizedUserFilters ?? normalizeTalkFilterShape(undefined, profileLanguages);
     user.talkFilters = talkFilters;
     setTalkIntakeFilters(talkFilters);
     const reputation = user.reputation || ({} as typeof user.reputation);

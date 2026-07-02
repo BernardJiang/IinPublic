@@ -156,7 +156,13 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     const bucket = this.liveMessagesByConversation.get(conversationId) || [];
     if (!bucket.some((existing) => existing.id === message.id)) {
       bucket.push(message);
-      bucket.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      // Same (timestamp, id) ordering as GunMessageStore's decrypt path: without the id
+      // tie-break, two peers sending within the same millisecond sort in peer-local
+      // ARRIVAL order (stable sort keeps insertion order on ties), so the two sides'
+      // live views can converge to different message orders.
+      bucket.sort(
+        (a, b) => a.timestamp.getTime() - b.timestamp.getTime() || String(a.id).localeCompare(String(b.id)),
+      );
       this.liveMessagesByConversation.set(conversationId, bucket);
     }
     const snapshot = [...(this.liveMessagesByConversation.get(conversationId) || [])];
@@ -185,6 +191,10 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       otherUserId: otherId,
       otherPub,
       isInitiator,
+      // DM send path: fail fast for a window after a failed connect instead of paying the
+      // full connect timeout on every send to an unreachable peer (Gun + mailbox cover
+      // delivery). Mesh sessions must NOT set this — see P2P_WEBRTC_RETRY_COOLDOWN_MS.
+      failFastAfterFailure: true,
       // S2: default to Gun pub/sub signaling (the Gun WebSocket is already open for presence).
       gun: this.gunService.getGun(),
       ...this.ledgerHooks,
