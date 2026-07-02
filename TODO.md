@@ -40,31 +40,31 @@ Source: `docs/e2e-test-analysis.md` § Coverage Gaps. Goal: a test for **every u
 - [x] ~~`32-messaging-delete-edit.spec.ts`~~ — feature does not exist; recorded under Feature gaps
 
 ### Gap 2: Step 7 deletion (mesh path)
-- [ ] `33-mesh-only-delivery-no-server.spec.ts` `[opus]` — broadcast + answer + match with server talk routes absent; verify delivery is pure mesh, conversation still created, no fallback requests (assert via network log).
+- [x] `33-mesh-only-delivery-no-server.spec.ts` `[opus]` — broadcast + answer + match with server talk routes absent; verify delivery is pure mesh, conversation still created, no fallback requests (assert via network log).
 
 ### Gap 3: Search/filter inputs needing peer data
 - [x] `34-contacts-filter-name.spec.ts` `[haiku]` — with Adam as contact, type into `contacts-filter-name`; verify filter by stage name, clear-restores, no-match empty state.
 - [x] `35-reply-filter-query.spec.ts` `[haiku]` — filter logic tested against injected local reply data (full P2P reply flow covered by 00v triage specs) — with Adam's response present, type into `reply-filter-query`; verify replies filter by responder/talk.
 
 ### Gap 4: Long-term offline recovery
-- [ ] `36-offline-beyond-mailbox-ttl.spec.ts` `[opus]` — Adam offline > mailbox TTL (clock/TTL override); talk announced during window; verify defined behavior on reconnect (delivered late or cleanly expired — assert whichever spec §6 defines; fix code if neither happens).
-- [ ] `37-hard-crash-recovery.spec.ts` `[opus]` — kill Adam's browser process mid-session (no graceful close); relaunch with same storage; verify Gun replication recovers and pending incoming talks sync.
+- [x] `36-offline-beyond-mailbox-ttl.spec.ts` `[opus]` — expiry is handled (prune-on-read); no bug — Adam offline > mailbox TTL (clock/TTL override); talk announced during window; verify defined behavior on reconnect (delivered late or cleanly expired — assert whichever spec §6 defines; fix code if neither happens).
+- [x] `37-hard-crash-recovery.spec.ts` `[opus]` — real SIGKILL via persistent profile relaunch — kill Adam's browser process mid-session (no graceful close); relaunch with same storage; verify Gun replication recovers and pending incoming talks sync.
 
 ### Gap 5: Mobile multi-user
-- [ ] `38-mobile-talk-answer-flow.spec.ts` `[sonnet]` — TechSupport broadcasts; Adam on 390x844 opens incoming talk, completes answer dialog for each talk type's answer control (buttons, checkboxes); verify no overflow and match completes.
-- [ ] `39-mobile-conversation-messages.spec.ts` `[sonnet]` — DM exchange with one side at 390x844; verify composer, bubbles, and scroll usable at narrow width.
+- [x] `38-mobile-talk-answer-flow.spec.ts` `[sonnet]` — TechSupport broadcasts; Adam on 390x844 opens incoming talk, completes answer dialog for each talk type's answer control (buttons, checkboxes); verify no overflow and match completes.
+- [x] `39-mobile-conversation-messages.spec.ts` `[sonnet]` — DM exchange with one side at 390x844; verify composer, bubbles, and scroll usable at narrow width.
 
 ### Gap 6: Settings persistence needing a peer
 - [x] `40-blocklist-persist-restart.spec.ts` `[haiku]` — DONE; found+fixed 2 real bugs: API-path block never persisted private blockedUserIds (lost on restart), and unserialized private-data read-modify-write lost concurrent updates — block Adam; full browser restart (new context, same storage); verify block list intact and delivery still suppressed.
 
 ### Gap 8: Stats aggregation
-- [ ] `41-stats-aggregation-four-types.spec.ts` `[opus]` — Adam answers one talk of each type (flow/tag/survey/route) with distinct outcomes (match/ignore/neutral); verify per-type aggregation and per-responder outcomes on the stats dashboard match the engine's expected counts.
+- [x] `41-stats-aggregation-four-types.spec.ts` `[opus]` — tests the local stats surface (server /api/stats aggregates were removed) — Adam answers one talk of each type (flow/tag/survey/route) with distinct outcomes (match/ignore/neutral); verify per-type aggregation and per-responder outcomes on the stats dashboard match the engine's expected counts.
 
 ---
 
 ## Stage 3 — three users (only where two users can't verify)
 
-- [ ] `29-conversation-list-sorting.spec.ts` `[sonnet]` — TechSupport has conversations with Adam and Eve; interleave new messages; verify conversation list re-sorts most-recent-first after each message and after reload. (Gap 1 — multi-partner sorting requires ≥3 users.)
+- [x] `29-conversation-list-sorting.spec.ts` `[sonnet]` — DONE (hub user + 2 spokes; Contacts-tab recency sort, which is the real rendered list — `#conversations-list` is dead code). Found+fixed real bug: opening Contacts before the user record loads rendered a permanent "Could not load contacts." with no retry.
 
 ---
 

@@ -1539,9 +1539,17 @@ export class UIManager extends EventEmitter {
   showMainInterface(user: User): void {
     user.languages = normalizeStringList(user.languages, ['en']).map((lang) => lang.toLowerCase());
     user.talkFilters = normalizeTalkFilterShape(user.talkFilters, user.languages);
+    const hadUserId = !!this.currentUserId;
     this.currentUser = user;
     this.currentUserId = user.id;
     this.applyShellTranslations();
+    // If the Contacts tab was opened before the user record finished loading (fast tab
+    // click right after a reload), displayContactsList hit its `!currentUserId` guard and
+    // rendered a permanent "Could not load contacts." with no retry. Now that the user is
+    // known, re-render the list once if that tab is showing.
+    if (!hadUserId && document.getElementById('contacts-view')?.classList.contains('active')) {
+      this.displayContactsList();
+    }
     // Update the persistent header identity without duplicating the generated stage name.
     const headerStatus = document.getElementById('header-status');
     const headerUserInfo = document.getElementById('header-user-info');
