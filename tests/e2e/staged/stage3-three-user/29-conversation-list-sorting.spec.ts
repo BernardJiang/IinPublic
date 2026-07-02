@@ -174,7 +174,7 @@ test.describe('Contacts tab recency sort with two independent matches sharing a 
   let pageB: Page | undefined;
   let pageC: Page | undefined;
 
-  test.beforeAll(async ({ browser: fixtureBrowser }) => {
+  test.beforeAll(async ({ browser: fixtureBrowser, e2eWorkerSlot: _ws }) => {
     await maybeClearGunDatabases();
     browser = fixtureBrowser;
   });
