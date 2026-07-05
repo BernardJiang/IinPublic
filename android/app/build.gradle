@@ -101,7 +101,7 @@ dependencies {
 
 // Stage the embedded Node project into the APK assets:
 //   - platforms/mobile/nodejs-project (main.js + package.json)
-//   - repo dist/server + dist/web (compiled, reused from the web/server build)
+//   - repo dist/server + dist/web + public assets (compiled/reused by embedded server)
 // Run `npm run build:web && npm run build:server` at the repo root first.
 def repoRoot = "${rootProject.projectDir}/.."
 task stageNodeProject(type: Copy) {
@@ -112,4 +112,8 @@ task stageNodeDist(type: Copy) {
     from("${repoRoot}/dist") { include 'server/**', 'web/**' }
     into("${projectDir}/src/main/assets/nodejs-project/dist")
 }
-preBuild.dependsOn stageNodeProject, stageNodeDist
+task stageNodePublic(type: Copy) {
+    from("${repoRoot}/public")
+    into("${projectDir}/src/main/assets/nodejs-project/public")
+}
+preBuild.dependsOn stageNodeProject, stageNodeDist, stageNodePublic

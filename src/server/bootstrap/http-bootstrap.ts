@@ -63,7 +63,25 @@ export function configureHttpMiddleware(app: express.Application): void {
   const embedded = resolveEmbeddedNodeConfig(process.env);
   if (embedded.enabled) {
     const webRoot = path.resolve(embedded.webRoot);
+    const publicRoot = process.env.IINPUBLIC_PUBLIC_ROOT
+      ? path.resolve(process.env.IINPUBLIC_PUBLIC_ROOT)
+      : path.resolve(webRoot, '..', '..', 'public');
+    const gunRoot = process.env.IINPUBLIC_NODE_MODULES_ROOT
+      ? path.resolve(process.env.IINPUBLIC_NODE_MODULES_ROOT, 'gun')
+      : path.resolve(webRoot, '..', '..', 'node_modules', 'gun');
     app.use(express.static(webRoot));
+    if (fs.existsSync(publicRoot)) {
+      app.use(express.static(publicRoot));
+      logger.info({ publicRoot }, 'S3 embedded-node: serving public assets from local node');
+    } else {
+      logger.warn({ publicRoot }, 'S3 embedded-node: public asset root missing; /worker.js may not load');
+    }
+    if (fs.existsSync(gunRoot)) {
+      app.use('/node_modules/gun', express.static(gunRoot));
+      logger.info({ gunRoot }, 'S3 embedded-node: serving Gun worker dependencies from local node');
+    } else {
+      logger.warn({ gunRoot }, 'S3 embedded-node: Gun worker dependency root missing');
+    }
     app.get('/', (_req, res) => res.sendFile(path.join(webRoot, 'index.html')));
     logger.info({ webRoot }, 'S3 embedded-node: serving web SPA from local node');
     warnIfBuildIdsDrifted(webRoot);

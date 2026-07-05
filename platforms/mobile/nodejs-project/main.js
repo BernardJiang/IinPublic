@@ -50,6 +50,7 @@ async function boot(opts) {
   const distRoot = path.join(__dirname, 'dist');
   const embeddedEntry = path.join(distRoot, 'server', 'node-app', 'embedded-node.js');
   const webRoot = path.join(distRoot, 'web');
+  const publicRoot = path.join(__dirname, 'public');
 
   process.env.IINPUBLIC_EMBEDDED_NODE = '1';
   process.env.IINPUBLIC_PLATFORM = platform;
@@ -57,6 +58,7 @@ async function boot(opts) {
   process.env.PORT = String(localPort);
   process.env.IINPUBLIC_HUB_GUN_URL = hub;
   process.env.IINPUBLIC_WEB_ROOT = webRoot;
+  process.env.IINPUBLIC_PUBLIC_ROOT = publicRoot;
   process.env.IINPUBLIC_DATA_DIR = dataDir;
   process.env.IINPUBLIC_LOOPBACK_ONLY = '1';
 

@@ -1,5 +1,10 @@
 import { User, GPSCoordinate, Talk, type Tag, type IpfsAttachment, InteractionKind } from '../../shared/types';
-import { KEY_CUSTODY_DEVICE_SECRET_STORAGE, KEY_CUSTODY_STORAGE, WebGunService } from '../services/web-gun-service';
+import {
+  deriveBackendApiBaseFromLocation,
+  KEY_CUSTODY_DEVICE_SECRET_STORAGE,
+  KEY_CUSTODY_STORAGE,
+  WebGunService,
+} from '../services/web-gun-service';
 import { WebUserService } from '../services/web-user-service';
 import { WebChatroomService } from '../services/web-chatroom-service';
 import { WebTalkService } from '../services/web-talk-service';
@@ -2677,15 +2682,7 @@ export class IinPublicApp {
       return `http://localhost:${Number.isFinite(envPort) ? envPort : 8080}`;
     }
     const { hostname, protocol, port } = window.location;
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      const webPort = Number(port);
-      if (Number.isFinite(webPort) && webPort >= 3001) {
-        const gunPort = webPort - 3001 + 8080;
-        return `${protocol}//${hostname}:${gunPort}`;
-      }
-      return `${protocol}//${hostname}:8080`;
-    }
-    return `${protocol}//${hostname}`;
+    return deriveBackendApiBaseFromLocation(protocol, hostname, port);
   }
 
   private async syncConversationTransportFromServer(): Promise<void> {

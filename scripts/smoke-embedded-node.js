@@ -28,6 +28,7 @@ const http = require('http');
 const repoRoot = path.resolve(__dirname, '..');
 const nodeEntry = path.join(repoRoot, 'dist', 'server', 'node-app', 'embedded-node.js');
 const webRoot = path.join(repoRoot, 'dist', 'web');
+const publicRoot = path.join(repoRoot, 'public');
 const PORT = parseInt(process.env.SMOKE_PORT || '18099', 10);
 
 function fail(message) {
@@ -73,6 +74,10 @@ async function main() {
     fail(`missing build artifact: ${webRoot} — run "npm run build:web" first`);
     return;
   }
+  if (!fs.existsSync(path.join(publicRoot, 'worker.js'))) {
+    fail(`missing public asset: ${path.join(publicRoot, 'worker.js')}`);
+    return;
+  }
 
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-embedded-smoke-'));
 
@@ -84,6 +89,7 @@ async function main() {
       IINPUBLIC_LOCAL_PORT: String(PORT),
       PORT: String(PORT),
       IINPUBLIC_WEB_ROOT: webRoot,
+      IINPUBLIC_PUBLIC_ROOT: publicRoot,
       IINPUBLIC_DATA_DIR: dataDir,
       IINPUBLIC_LOOPBACK_ONLY: '1',
       // No hub peer configured: this smoke test only needs the local node to
@@ -130,6 +136,24 @@ async function main() {
       fail('GET / did not return HTML (SPA index.html not served)');
     } else {
       console.log(`[smoke] GET / -> ${root.statusCode} OK (serves SPA)`);
+    }
+
+    const worker = await httpGet('/worker.js');
+    if (!worker.statusCode || worker.statusCode >= 300) {
+      fail(`GET /worker.js returned ${worker.statusCode}`);
+    } else if (!/Gun\.js Web Worker/.test(worker.body)) {
+      fail('GET /worker.js did not return the app worker');
+    } else {
+      console.log(`[smoke] GET /worker.js -> ${worker.statusCode} OK`);
+    }
+
+    const gun = await httpGet('/node_modules/gun/gun.js');
+    if (!gun.statusCode || gun.statusCode >= 300) {
+      fail(`GET /node_modules/gun/gun.js returned ${gun.statusCode}`);
+    } else if (!/function Gun/.test(gun.body)) {
+      fail('GET /node_modules/gun/gun.js did not return Gun.js');
+    } else {
+      console.log(`[smoke] GET /node_modules/gun/gun.js -> ${gun.statusCode} OK`);
     }
   } catch (err) {
     fail(`request error: ${err.message}`);

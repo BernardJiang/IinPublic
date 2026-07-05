@@ -10,7 +10,7 @@ import {
 } from '../../shared/types';
 import { LocationPrivacy } from '../../shared/location';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
-import { WebGunService } from './web-gun-service';
+import { deriveBackendApiBaseFromLocation, WebGunService } from './web-gun-service';
 import { v4 as uuidv4 } from 'uuid';
 import { generateRandomStageName, normalizeQuestionKey } from '../../shared/user-utils';
 import { getSEA } from '../sea-gun';
@@ -130,11 +130,7 @@ export class WebUserService {
     if (typeof window === 'undefined' || !window.location) return '';
     const { protocol, hostname, port } = window.location;
     if ((protocol !== 'http:' && protocol !== 'https:') || !hostname) return '';
-    const webPort = Number(port);
-    if ((hostname === 'localhost' || hostname === '127.0.0.1') && Number.isFinite(webPort) && webPort >= 3001) {
-      return `${protocol}//${hostname}:${webPort - 3001 + 8080}`;
-    }
-    return `${protocol}//${hostname}${port ? `:${port}` : ''}`;
+    return deriveBackendApiBaseFromLocation(protocol, hostname, port);
   }
 
   private async putNested(path: string[], data: any): Promise<void> {

@@ -1,4 +1,7 @@
-import { deriveGunHubUrlFromLocation } from '../../web/services/web-gun-service';
+import {
+  deriveBackendApiBaseFromLocation,
+  deriveGunHubUrlFromLocation,
+} from '../../web/services/web-gun-service';
 
 describe('deriveGunHubUrlFromLocation', () => {
   it('applies the dev/e2e offset for web port 3001 (slot 0)', () => {
@@ -52,5 +55,23 @@ describe('deriveGunHubUrlFromLocation', () => {
 
   it('non-localhost (prod) hostname resolves same-origin with no explicit port', () => {
     expect(deriveGunHubUrlFromLocation('https:', 'www.iinpublic.com', '')).toBe('https://www.iinpublic.com/gun');
+  });
+});
+
+describe('deriveBackendApiBaseFromLocation', () => {
+  it('applies the dev/e2e offset for web port 3001', () => {
+    expect(deriveBackendApiBaseFromLocation('http:', '127.0.0.1', '3001')).toBe('http://127.0.0.1:8080');
+  });
+
+  it('keeps embedded desktop port 8088 same-origin for REST and Socket.IO', () => {
+    expect(deriveBackendApiBaseFromLocation('http:', '127.0.0.1', '8088')).toBe('http://127.0.0.1:8088');
+  });
+
+  it('keeps arbitrary high localhost ports same-origin', () => {
+    expect(deriveBackendApiBaseFromLocation('http:', 'localhost', '19932')).toBe('http://localhost:19932');
+  });
+
+  it('preserves explicit non-localhost ports', () => {
+    expect(deriveBackendApiBaseFromLocation('https:', 'dev.example.test', '8443')).toBe('https://dev.example.test:8443');
   });
 });

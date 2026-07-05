@@ -28,6 +28,7 @@ const appRoot = isPackaged
 
 const embeddedEntry = path.join(appRoot, 'dist', 'server', 'node-app', 'embedded-node.js');
 const webRoot = path.join(appRoot, 'dist', 'web');
+const publicRoot = path.join(appRoot, 'public');
 const dataDir = path.join(app.getPath('userData'), 'node-data');
 
 function platformId() {
@@ -49,6 +50,7 @@ async function startEmbeddedNode() {
   process.env.PORT = String(LOCAL_PORT);
   process.env.IINPUBLIC_HUB_GUN_URL = HUB_GUN_URL;
   process.env.IINPUBLIC_WEB_ROOT = webRoot;
+  process.env.IINPUBLIC_PUBLIC_ROOT = publicRoot;
   process.env.IINPUBLIC_DATA_DIR = dataDir;
   process.env.IINPUBLIC_LOOPBACK_ONLY = '1';
 

@@ -2,7 +2,7 @@ import type { Message } from '../../shared/types';
 import type { LedgerState } from '../../shared/types';
 import type { ConversationTransport, SendMessageOptions } from './web-conversation-service';
 import type { ConversationTransportMode } from '../../shared/p2p-runtime';
-import { WebGunService } from './web-gun-service';
+import { deriveBackendApiBaseFromLocation, WebGunService } from './web-gun-service';
 import { getOrCreateP2PSession, getP2PSession } from './p2p-webrtc-session';
 import type { P2PConnectionState } from './p2p-webrtc-session';
 import { GunMessageStore, type ConversationMessageWire } from './gun-message-store';
@@ -52,15 +52,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       return `http://127.0.0.1:${Number.isFinite(envPort) ? envPort : 8080}`;
     }
     const { hostname, protocol, port } = window.location;
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      const webPort = Number(port);
-      if (Number.isFinite(webPort) && webPort >= 3001) {
-        const gunPort = webPort - 3001 + 8080;
-        return `${protocol}//${hostname}:${gunPort}`;
-      }
-      return `${protocol}//${hostname}:8080`;
-    }
-    return `${protocol}//${hostname}`;
+    return deriveBackendApiBaseFromLocation(protocol, hostname, port);
   }
 
   getConnectionState(conversationId: string, localUserId: string): P2PConnectionState {

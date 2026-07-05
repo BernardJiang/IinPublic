@@ -1,5 +1,5 @@
 import { GPSCoordinate } from '../../shared/types';
-import { WebGunService } from './web-gun-service';
+import { deriveBackendApiBaseFromLocation, WebGunService } from './web-gun-service';
 import { CONFIG } from '../../shared/config';
 import { findAppropriateChildChatroom, getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
@@ -24,15 +24,7 @@ export class WebChatroomService {
   private resolveApiBase(): string {
     if (typeof window === 'undefined') return 'http://127.0.0.1:8080';
     const { hostname, protocol, port } = window.location;
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      const webPort = Number(port);
-      if (Number.isFinite(webPort) && webPort >= 3001) {
-        const gunPort = webPort - 3001 + 8080;
-        return `${protocol}//${hostname}:${gunPort}`;
-      }
-      return `${protocol}//${hostname}:8080`;
-    }
-    return `${protocol}//${hostname}`;
+    return deriveBackendApiBaseFromLocation(protocol, hostname, port);
   }
 
   /** Fast member snapshot from server Gun (reads chatrooms/<id>/users). */

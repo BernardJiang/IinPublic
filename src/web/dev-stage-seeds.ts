@@ -1,5 +1,6 @@
 import { computeTalkIdFromTalkData } from '../shared/cid';
 import { setMyTalks, type MyTalkMap } from './ui/my-talks-storage';
+import { deriveBackendApiBaseFromLocation } from './services/web-gun-service';
 
 type StageUser = {
   id: string;
@@ -27,11 +28,7 @@ type StageSeedName = 'stage-zero' | 'empty' | 'user1' | 'user2-match' | 'user3-n
 
 function buildApiBase(): string {
   const { hostname, protocol, port } = window.location;
-  const webPort = Number(port);
-  if (Number.isFinite(webPort) && webPort >= 3001) {
-    return `${protocol}//${hostname}:${webPort - 3001 + 8080}`;
-  }
-  return `${protocol}//${hostname}:8080`;
+  return deriveBackendApiBaseFromLocation(protocol, hostname, port);
 }
 
 async function clearServerGunGraph(base: string): Promise<boolean> {

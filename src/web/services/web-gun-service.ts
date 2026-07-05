@@ -48,24 +48,54 @@ export const KEY_CUSTODY_STORAGE = 'iinpublic_key_custody_v1';
  * which broke cross-page sync outright rather than just slowing it down. 4001 leaves ~10x
  * headroom over current usage while still excluding realistic embedded-node ports.
  */
+const DEV_E2E_WEB_PORT_RANGE_START = 3001;
+const DEV_E2E_WEB_PORT_RANGE_END = DEV_E2E_WEB_PORT_RANGE_START + 1000;
+const DEV_E2E_GUN_PORT_RANGE_START = 8080;
+
+function isDevE2EWebPort(webPort: number): boolean {
+  return (
+    Number.isFinite(webPort) &&
+    webPort >= DEV_E2E_WEB_PORT_RANGE_START &&
+    webPort < DEV_E2E_WEB_PORT_RANGE_END
+  );
+}
+
+function isLocalHost(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1';
+}
+
+export function deriveBackendApiBaseFromLocation(protocol: string, hostname: string, port: string): string {
+  const webPort = Number(port);
+  if (isLocalHost(hostname) && isDevE2EWebPort(webPort)) {
+    const gunPort = webPort - DEV_E2E_WEB_PORT_RANGE_START + DEV_E2E_GUN_PORT_RANGE_START;
+    return `${protocol}//${hostname}:${gunPort}`;
+  }
+  if (isLocalHost(hostname) && Number.isFinite(webPort) && webPort > 0) {
+    // Embedded-node (or any other localhost port outside the dev/e2e band): HTTP APIs
+    // are mounted on the SAME server that serves this page.
+    return `${protocol}//${hostname}:${webPort}`;
+  }
+  if (isLocalHost(hostname)) {
+    return `${protocol}//${hostname}:${DEV_E2E_GUN_PORT_RANGE_START}`;
+  }
+  return `${protocol}//${hostname}${port ? `:${port}` : ''}`;
+}
+
 export function deriveGunHubUrlFromLocation(protocol: string, hostname: string, port: string): string {
   const webPort = Number(port);
-  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1';
-  const DEV_E2E_WEB_PORT_RANGE_END = 3001 + 1000;
-  const isDevE2EWebPort = Number.isFinite(webPort) && webPort >= 3001 && webPort < DEV_E2E_WEB_PORT_RANGE_END;
-  if (isLocalHost && isDevE2EWebPort) {
-    const gunPort = webPort - 3001 + 8080;
+  if (isLocalHost(hostname) && isDevE2EWebPort(webPort)) {
+    const gunPort = webPort - DEV_E2E_WEB_PORT_RANGE_START + DEV_E2E_GUN_PORT_RANGE_START;
     return `${protocol}//${hostname}:${gunPort}/gun`;
   }
-  if (isLocalHost && Number.isFinite(webPort) && webPort > 0) {
+  if (isLocalHost(hostname) && Number.isFinite(webPort) && webPort > 0) {
     // Embedded-node (or any other localhost port outside the dev/e2e band): Gun is
     // mounted on the SAME http server that serves this page — same-origin, no offset.
     return `${protocol}//${hostname}:${webPort}/gun`;
   }
-  if (isLocalHost) {
-    return `${protocol}//${hostname}:8080/gun`;
+  if (isLocalHost(hostname)) {
+    return `${protocol}//${hostname}:${DEV_E2E_GUN_PORT_RANGE_START}/gun`;
   }
-  return `${protocol}//${hostname}/gun`;
+  return `${deriveBackendApiBaseFromLocation(protocol, hostname, port)}/gun`;
 }
 export const KEY_CUSTODY_DEVICE_SECRET_STORAGE = 'iinpublic_key_custody_device_secret_v1';
 const KEY_CUSTODY_ITERATIONS = 150_000;
@@ -84,6 +114,7 @@ const KEY_CUSTODY_ITERATIONS = 150_000;
 export class WebGunService extends EventEmitter {
   private gun: any;
   private bridge: GunBridge;
+  private bridgeReady: boolean = false;
   private peers: string[];
   private connected: boolean = false;
   /** In-memory copy of the SEA pair after `ensureKeypairAndAuth()`. */
@@ -97,6 +128,13 @@ export class WebGunService extends EventEmitter {
 
   private isE2ERelaxedMode(): boolean {
     return process.env.DISABLE_HMR === 'true';
+  }
+
+  private isEmbeddedLocalOrigin(): boolean {
+    if (typeof window === 'undefined' || !window.location) return false;
+    const { hostname, port } = window.location;
+    const webPort = Number(port);
+    return isLocalHost(hostname) && Number.isFinite(webPort) && webPort > 0 && !isDevE2EWebPort(webPort);
   }
 
   /**
@@ -150,8 +188,10 @@ export class WebGunService extends EventEmitter {
       // continues using the direct Gun instance for all existing functionality.
       try {
         await this.bridge.init({ hubUrl: this.peers[0] });
+        this.bridgeReady = true;
         console.log('🔗 Gun.js worker bridge ready (IndexedDB-backed via worker)');
       } catch (bridgeErr) {
+        this.bridgeReady = false;
         console.warn('⚠️ Gun worker bridge unavailable — SEA/IndexedDB features disabled:', bridgeErr);
       }
 
@@ -569,6 +609,7 @@ export class WebGunService extends EventEmitter {
    * Call after `initialize()`.
    */
   async ensureKeypairAndAuth(): Promise<GunPair> {
+    console.log('🔐 Ensuring local SEA identity');
     const SEA = getSEA();
     if (!SEA?.pair) {
       throw new Error('Gun SEA not loaded');
@@ -591,6 +632,7 @@ export class WebGunService extends EventEmitter {
     const custodyPair = existingCustody ? await this.unwrapKeypairFromStorage(existingCustody) : null;
     if (custodyPair) {
       pair = custodyPair;
+      console.log('🔐 Loaded SEA identity from encrypted custody');
     } else if (legacyRaw) {
       try {
         pair = JSON.parse(legacyRaw) as GunPair;
@@ -600,11 +642,14 @@ export class WebGunService extends EventEmitter {
       } catch {
         pair = await SEA.pair();
       }
+      console.log('🔐 Migrated legacy SEA identity');
     } else {
       pair = await SEA.pair();
+      console.log('🔐 Created new local SEA identity');
     }
     try {
       await this.persistCustodyRecord(pair, existingCustody);
+      console.log('🔐 SEA identity custody stored');
     } catch (error) {
       console.warn('⚠️ Encrypted SEA key custody unavailable — keeping pair in memory only:', error);
       try {
@@ -615,24 +660,46 @@ export class WebGunService extends EventEmitter {
       /* ignore quota / private mode */
     }
 
-    const gun = this.gun;
-    await new Promise<void>((resolve, reject) => {
-      gun.user().auth(pair, (ack: any) => {
-        if (ack && ack.err) {
-          reject(new Error(String(ack.err)));
-        } else {
-          resolve();
-        }
+    if (this.isEmbeddedLocalOrigin()) {
+      console.warn('⚠️ Skipping blocking Gun user auth during embedded-node startup; using local SEA pair');
+    } else {
+      const gun = this.gun;
+      console.log('🔐 Authenticating local SEA identity');
+      await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const finish = (error?: Error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          if (error) reject(error);
+          else resolve();
+        };
+        const timeout = setTimeout(() => {
+          console.warn('⚠️ Gun SEA auth ack timed out — continuing with in-memory SEA pair');
+          finish();
+        }, 5000);
+        gun.user().auth(pair, (ack: any) => {
+          if (ack && ack.err) {
+            finish(new Error(String(ack.err)));
+          } else {
+            finish();
+          }
+        });
       });
-    });
+    }
 
-    try {
-      await this.bridge.login(pair);
-    } catch (error) {
-      console.warn('⚠️ Gun worker bridge login unavailable — private SEA helpers disabled:', error);
+    if (this.bridgeReady) {
+      try {
+        await this.bridge.login(pair);
+      } catch (error) {
+        console.warn('⚠️ Gun worker bridge login unavailable — private SEA helpers disabled:', error);
+      }
+    } else {
+      console.warn('⚠️ Skipping Gun worker bridge login because worker bridge is unavailable');
     }
 
     this.seaPair = pair;
+    console.log('🔐 Local SEA identity ready');
     return pair;
   }
 

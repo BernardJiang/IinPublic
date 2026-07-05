@@ -40,6 +40,10 @@
         "to": "app/dist/web"
       },
       {
+        "from": "../../public",
+        "to": "app/public"
+      },
+      {
         "from": "../../node_modules",
         "to": "app/node_modules",
         "filter": ["**/*"]
