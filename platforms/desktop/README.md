@@ -22,10 +22,16 @@ npm start
 
 ```bash
 cd platforms/desktop
-npm run dist:win     # NSIS .exe
+npm run dist:win       # Windows x64 / Intel NSIS .exe + zip
+npm run dist:win:arm64 # Windows ARM64 NSIS .exe + zip
+npm run dist:win:all   # Windows x64 + ARM64
 npm run dist:linux   # AppImage + .deb
 npm run dist:mac     # .dmg
 ```
+
+Use `dist:win` for ordinary Intel/AMD Windows notebooks. ARM64 is opt-in so a
+build from an Apple Silicon Mac does not accidentally produce a Windows package
+that will not run on x64 PCs.
 
 `electron-builder` bundles `dist/server`, `dist/web`, and `node_modules` as
 `extraResources` so the packaged app is self-contained.

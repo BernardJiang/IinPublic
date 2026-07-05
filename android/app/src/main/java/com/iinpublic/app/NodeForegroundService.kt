@@ -49,21 +49,11 @@ class NodeForegroundService : Service() {
         val dataDir = filesDir.absolutePath + "/node-data"
         java.io.File(dataDir).mkdirs()
 
-        // Pass host config to the Node project via env-style argument JSON.
-        // The nodejs-mobile bridge channel delivers this as the {type:'start'}
-        // message handled in nodejs-project/main.js.
-        val startPayload = JSONObject().apply {
-            put("type", "start")
-            put("dataDir", dataDir)
-            put("platform", "android")
-            put("localPort", LOCAL_PORT)
-            put("hub", HUB_GUN_URL)
-        }
-
         Thread {
-            // The nodejs-mobile project is unpacked from assets to filesDir on
-            // first run by NodeJsMobile.getInstance()... (see README).
-            NodeBridge.startProject(this, "main.js", startPayload.toString())
+            // NodeBridge.startProject unpacks assets then calls the JNI shim.
+            // The native side sets IINPUBLIC_* env vars and spawns a pthread
+            // that runs node::Start().
+            NodeBridge.startProject(this, "main.js", LOCAL_PORT, dataDir, HUB_GUN_URL)
         }.start()
     }
 

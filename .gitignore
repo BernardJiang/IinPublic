@@ -7,14 +7,26 @@ coverage/
 *.tsbuildinfo
 
 # Android build artifacts (Gradle)
+android/.idea/
 android/.gradle/
 android/build/
 android/app/build/
+android/app/.cxx/
 android/local.properties
 android/app/src/main/assets/nodejs-project/
+android/app/libnode/
 
 # Electron desktop build output
 platforms/desktop/dist/
+
+# Native mobile vendor payloads and generated bundles
+third_party/
+platforms/ios/Frameworks/
+platforms/ios/assets/
+platforms/ios/build/
+platforms/ios/build-*/
+platforms/ios/*.log
+platforms/ios/*.bak
 
 # Test artifacts
 playwright-report/
@@ -43,4 +55,4 @@ data.json
 .DS_Store
 *.tmp
 *.log
-
+*.bak

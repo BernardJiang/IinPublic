@@ -1,0 +1,55 @@
+name: IinPublic
+options:
+  bundleIdPrefix: com.iinpublic
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: ""
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+targets:
+  IinPublic:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: IinPublic
+      - path: NodeMobile-Bridging-Header.h
+      - path: Assets.xcassets
+    dependencies:
+      - framework: Frameworks/NodeMobile.xcframework
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.iinpublic.app
+        PRODUCT_NAME: IinPublic
+        INFOPLIST_FILE: Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: YES
+        FRAMEWORK_SEARCH_PATHS: ['$(inherited)', '$(PROJECT_DIR)/Frameworks']
+        SUPPORTS_MACCATALYST: YES
+        MACOSX_DEPLOYMENT_TARGET: "$(IPHONEOS_DEPLOYMENT_TARGET)"
+    preBuildScripts:
+      - shellPath: /bin/sh
+        showEnvVariablesInLog: false
+        script: |
+          # Copy the shared nodejs-mobile entry and compiled app bundles into
+          # the app resources. Run `npm run build:embedded` from repo root first.
+          NODE_PROJECT="${PROJECT_DIR}/../mobile/nodejs-project"
+          DIST_DIR="${PROJECT_DIR}/../../dist"
+          DEST="${CONFIGURATION_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          mkdir -p "${DEST}"
+          if [ -f "${NODE_PROJECT}/main.js" ] && [ -d "${DIST_DIR}/server" ] && [ -d "${DIST_DIR}/web" ]; then
+            cp -R "${NODE_PROJECT}/main.js" "${DEST}/"
+            cp -R "${NODE_PROJECT}/package.json" "${DEST}/"
+            rm -rf "${DEST}/dist"
+            mkdir -p "${DEST}/dist"
+            cp -R "${DIST_DIR}/server" "${DEST}/dist/"
+            cp -R "${DIST_DIR}/web" "${DEST}/dist/"
+            echo "[pre-build] nodejs-mobile assets copied to ${DEST}"
+          else
+            echo "[pre-build] ERROR: missing ${NODE_PROJECT} or built ${DIST_DIR}; run npm run build:embedded" >&2
+            exit 1
+          fi

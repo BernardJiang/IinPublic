@@ -46,19 +46,18 @@ Native sources live in `android/` (extended in this change):
 - `MainActivity.kt` — WKWebView equivalent; waits for the node port, loads UI.
 - `NodeForegroundService.kt` — foreground service hosting the embedded node.
 - `NodeBridge.kt` — libnode JNI wrapper.
+- `android/app/src/main/CMakeLists.txt` + `cpp/native-lib.cpp` — CMake/JNI
+  shim that calls `node::Start()`.
 
 **Wire-up (corrected 2026-06 against the upstream docs — there is no Gradle
 dependency coordinate for nodejs-mobile):**
 1. Download the release ZIP from
    [nodejs-mobile/nodejs-mobile/releases](https://github.com/nodejs-mobile/nodejs-mobile/releases).
 2. Copy `include/` → `android/app/libnode/include`, and
-   `bin/{arm64-v8a,armeabi-v7a,x86_64}/libnode.so` → `android/app/libnode/bin/<abi>/`.
-3. Add a `CMakeLists.txt` + minimal JNI shim (`android/app/src/main/cpp/`, none
-   exists yet) exposing `startNodeWithArguments(String[])` → `node::Start()`,
-   per [the official Android getting-started guide](https://nodejs-mobile.github.io/docs/guide/guide-android/getting-started/).
-4. Wire `externalNativeBuild`/`ndk.abiFilters`/`sourceSets.jniLibs` in
-   `android/app/build.gradle` (see the detailed comment there) and call the
-   native method from `NodeBridge.startProject` instead of its current log stub.
+   `lib/{arm64-v8a,armeabi-v7a,x86_64}/libnode.so` →
+   `android/app/libnode/lib/<abi>/`.
+3. Keep `android/app/libnode/` local: it is ignored by git because it is a
+   large third-party binary payload.
 
 ```bash
 npm run build:web && npm run build:server
@@ -69,7 +68,10 @@ npm run android:build   # gradle stages nodejs-project + dist into assets
 
 Xcode target sources live in `platforms/ios/IinPublic/`:
 - `AppDelegate.swift`, `ViewController.swift` (WKWebView), `NodeRunner.swift`
-  (nodejs-mobile bootstrap), `Info.plist` (ATS loopback exception).
+  (nodejs-mobile bootstrap).
+- `platforms/ios/Info.plist` contains the ATS loopback exception.
+- `platforms/ios/IinPublic.xcodeproj`, `project.yml`, and
+  `NodeMobile-Bridging-Header.h` define the app target.
 
 **Wire-up (corrected 2026-06 — there is no `nodejs-mobile-cocoapods` npm
 package; see the detailed comment in `platforms/ios/Podfile`):** either vendor
@@ -78,9 +80,23 @@ from the nodejs-mobile repo and reference it via `:podspec =>`, or skip
 CocoaPods and manually embed `NodeMobile.framework` (from the release ZIP's
 `Release-universal/` path) as an Xcode "Embedded Binaries" entry, per
 [the official iOS getting-started guide](https://nodejs-mobile.github.io/docs/guide/guide-ios/getting-started/).
-Then add a "Copy nodejs-project + dist into bundle" build phase and build in
-Xcode (the `.xcodeproj`/`.xcworkspace` itself doesn't exist yet either — only
-the Swift sources under `platforms/ios/IinPublic/` are checked in).
+The checked-in Xcode project expects
+`platforms/ios/Frameworks/NodeMobile.xcframework`; that directory is ignored by
+git because it is a large third-party binary. If you keep the nodejs-mobile
+release under `third_party/nodejs-mobile-v18.20.4/`, run:
+
+```bash
+cd platforms/ios
+./scripts/copy-xcframework.sh
+```
+
+Build the shared bundles first, then build in Xcode or with `xcodebuild`:
+
+```bash
+npm run build:embedded
+xcodebuild -project platforms/ios/IinPublic.xcodeproj -scheme IinPublic \
+  -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build
+```
 
 ## Why this can't be compiled in CI here
 
