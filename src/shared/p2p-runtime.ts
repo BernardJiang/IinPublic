@@ -111,11 +111,17 @@ export type P2PDiscoveryMessage = RelayEnvelope & {
   endpointHints: string[];
 };
 
+function positiveIntegerEnv(key: string, fallback: number): number {
+  const raw = readEnv(key);
+  const parsed = raw == null ? NaN : Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export const SIGNALING_TTL_SECONDS = 120;
 export const DISCOVERY_TTL_SECONDS = 60;
 export const NEIGHBOR_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60;
-export const PRESENCE_TTL_SECONDS = 45;
-export const ROOM_MEMBERSHIP_TTL_SECONDS = 180;
+export const PRESENCE_TTL_SECONDS = positiveIntegerEnv('IINPUBLIC_PRESENCE_TTL_SECONDS', 45);
+export const ROOM_MEMBERSHIP_TTL_SECONDS = positiveIntegerEnv('IINPUBLIC_ROOM_MEMBERSHIP_TTL_SECONDS', 180);
 
 export type SeaPublicIdentity = {
   pub: string;

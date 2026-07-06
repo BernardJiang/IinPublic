@@ -27,6 +27,8 @@ import {
   resetTalksMatchingSession,
   pinStableE2eLocation,
 } from '../../helpers/talks-matching-flow';
+import { openConversationViaServer } from '../../helpers/conversation-e2e';
+import { waitForMessageVisible } from '../../helpers/fast-dm-setup';
 
 test.describe('Chatroom peer detail views', () => {
   let browserTom: Browser;
@@ -169,6 +171,35 @@ test.describe('Chatroom peer detail views', () => {
       // Back button closes it
       await pageTom.click('#back-from-peer-detail');
       await expect(pageTom.locator('#peer-detail-overlay')).not.toBeVisible({ timeout: 5_000 });
+    } finally {
+      await teardown(ctxTom, ctxJerry, pageTom, pageJerry);
+    }
+  });
+
+  test('peer detail direct message creates a pair conversation and receiver sees it', async () => {
+    const { ctxTom, pageTom, ctxJerry, pageJerry } = await setup('TomDM', 'JerryDM');
+    try {
+      await enterGlobalChatroom(pageTom);
+      await enterGlobalChatroom(pageJerry);
+
+      await pageTom.waitForSelector('.chatroom-member-item', { timeout: 20_000 });
+      const jerryItem = pageTom.locator('.chatroom-member-item').filter({ hasText: 'JerryDM' });
+      await expect(jerryItem).toBeVisible({ timeout: 15_000 });
+      await jerryItem.click();
+      await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
+
+      const message = `Manual direct hello ${Date.now()}`;
+      await pageTom.locator('#peer-dm-input').fill(message);
+      await pageTom.locator('#peer-dm-send-btn').click();
+      await expect(pageTom.locator('#peer-dm-send-btn')).toContainText('Sent', { timeout: 30_000 });
+
+      const tomId = await pageTom.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
+      const jerryId = await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
+      expect(tomId).toBeTruthy();
+      expect(jerryId).toBeTruthy();
+
+      await openConversationViaServer(pageJerry, jerryId, 'TomDM', tomId);
+      await waitForMessageVisible(pageJerry, message, 45_000);
     } finally {
       await teardown(ctxTom, ctxJerry, pageTom, pageJerry);
     }

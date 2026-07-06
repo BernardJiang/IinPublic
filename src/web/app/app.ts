@@ -23,7 +23,7 @@ import {
 } from '../../shared/system-announcements';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, computeCIDv1 } from '../../shared/cid';
-import { isDevStageZero } from '../dev-stage-env';
+import { getDevStageZeroMaxGlobalMembers, isDevStageZero } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
 import {
   isTechSupportUser,
@@ -4379,6 +4379,8 @@ export class IinPublicApp {
     this.uiManager.on('loadConversation', async (data: { conversationId: string }) => {
       try {
         console.log('📖 Loading conversation:', data.conversationId);
+        const conversation = this.uiManager.getMyConversations()[data.conversationId] as any;
+        const otherUserId = conversation?.otherUserId ? String(conversation.otherUserId) : undefined;
 
         // Subscribe to messages for this conversation (pass myUserId for prevSeen DAG tracking)
         this.conversationService.subscribeToMessages(data.conversationId, (messages) => {
@@ -4402,7 +4404,7 @@ export class IinPublicApp {
               String(last.timestamp ?? Date.now()),
             );
           }
-        }, this.currentUser?.id);
+        }, this.currentUser?.id, otherUserId);
       } catch (error) {
         console.error('Failed to load conversation:', error);
         this.uiManager.showNotification(
@@ -4423,6 +4425,9 @@ export class IinPublicApp {
             data.conversationId,
             this.currentUser!.id,
             data.message,
+            this.uiManager.getMyConversations()[data.conversationId]?.otherUserId
+              ? { otherUserId: String(this.uiManager.getMyConversations()[data.conversationId].otherUserId) }
+              : undefined,
           );
 
           console.log('✅ Conversation message sent');
@@ -4472,7 +4477,9 @@ export class IinPublicApp {
               createdAt: new Date().toISOString(),
             }]);
           }
-          await this.conversationService.sendMessage(conversationId, this.currentUser.id, data.text);
+          await this.conversationService.sendMessage(conversationId, this.currentUser.id, data.text, {
+            otherUserId: data.peerId,
+          });
           data.resolve();
         } catch (error) {
           console.error('Failed to send direct message:', error);
@@ -4958,11 +4965,12 @@ export class IinPublicApp {
       const prev = this.stageZeroLastMemberCounts.get(chatroomId) ?? 0;
       this.stageZeroLastMemberCounts.set(chatroomId, count);
       const pastBootGrace = Date.now() - this.stageZeroBootedAt > 30_000;
+      const maxGlobalMembers = getDevStageZeroMaxGlobalMembers();
       if (
         pastBootGrace
         && !this.stageZeroRepairInFlight
         && prev <= 1
-        && count > 3
+        && count > maxGlobalMembers
         && (chatroomId === 'global' || count > 8)
       ) {
         void this.repairStageZeroGunGraph(`headcount:${chatroomId}:${prev}->${count}`);
@@ -4999,7 +5007,8 @@ export class IinPublicApp {
     this.stageZeroWatchdogTimer = setInterval(() => {
       ticks += 1;
       const globalN = this.uiManager.getChatroomMemberCount('global');
-      if (globalN > 3) {
+      const maxGlobalMembers = getDevStageZeroMaxGlobalMembers();
+      if (globalN > maxGlobalMembers) {
         void this.repairStageZeroGunGraph(`watchdog:global=${globalN}`);
       }
       if (ticks >= 12) {

@@ -1,6 +1,7 @@
 import type { GPSCoordinate, CommunityRole, CommunityRoleRecord } from '../../shared/types';
 import { GunService } from './gun-service';
 import { canAssignRole, chatroomRolePath, deriveCommunityId } from '../../shared/chatroom-hierarchy';
+import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 
 export class ChatroomManager {
   constructor(
@@ -179,10 +180,17 @@ export class ChatroomManager {
   }
 
   async getActiveMembersWithStageName(chatroomId: string): Promise<Array<{ userId: string; stageName: string }>> {
+    const pruned = await this.pruneStaleRoomMemberships(chatroomId);
     const fromRoomUsers = await this.collectActiveMembersFromUsersNode(chatroomId);
-    if (fromRoomUsers.length > 0) return fromRoomUsers;
+    if (fromRoomUsers.length > 0) {
+      if (pruned) void this.publishRoomMemberCountValue(chatroomId, fromRoomUsers.length);
+      return fromRoomUsers;
+    }
     const users = await this.getPathWithRetry(['chatroomMembers', chatroomId], 4, 100);
-    if (!users || typeof users !== 'object') return [];
+    if (!users || typeof users !== 'object') {
+      if (pruned) void this.publishRoomMemberCountValue(chatroomId, 0);
+      return [];
+    }
     const members: Array<{ userId: string; stageName: string }> = [];
     for (const [userId, data] of Object.entries(users as Record<string, any>)) {
       if (!userId || userId.startsWith('_')) continue;
@@ -192,7 +200,93 @@ export class ChatroomManager {
         stageName: String((data as any).stageName || userId),
       });
     }
+    if (pruned) void this.publishRoomMemberCountValue(chatroomId, members.length);
     return members;
+  }
+
+  private roomMembershipIsStale(data: unknown, now = new Date()): boolean {
+    if (!data || typeof data !== 'object' || (data as { isActive?: boolean }).isActive !== true) {
+      return false;
+    }
+    const raw = String(
+      (data as { lastSeen?: unknown; joinedAt?: unknown }).lastSeen ||
+        (data as { joinedAt?: unknown }).joinedAt ||
+        '',
+    );
+    if (!raw) return false;
+    const lastSeen = new Date(raw).getTime();
+    if (!Number.isFinite(lastSeen)) return false;
+    return now.getTime() - lastSeen > ROOM_MEMBERSHIP_TTL_SECONDS * 1000;
+  }
+
+  private async collectRoomMemberRecordsFromGunMap(
+    path: string[],
+    observeMs: number,
+  ): Promise<Array<{ userId: string; data: any }>> {
+    return new Promise((resolve) => {
+      const gun = this.gunService.getGun();
+      let ref: any = gun;
+      for (const seg of path) {
+        ref = ref.get(seg);
+      }
+      const records: Array<{ userId: string; data: any }> = [];
+      const seen = new Set<string>();
+      const mapRef = ref.map();
+      const finish = () => {
+        try {
+          mapRef.off();
+        } catch {
+          /* ignore */
+        }
+        resolve(records);
+      };
+      const timer = setTimeout(finish, observeMs);
+      mapRef.on((data: unknown, key: string) => {
+        if (!key || key.startsWith('_') || seen.has(key)) return;
+        if (!data || typeof data !== 'object') return;
+        seen.add(key);
+        records.push({ userId: key, data });
+      });
+      timer.unref?.();
+    });
+  }
+
+  private async collectRoomMemberRecords(
+    path: string[],
+  ): Promise<Array<{ userId: string; data: any }>> {
+    const fromMap = await this.collectRoomMemberRecordsFromGunMap(path, 500);
+    if (fromMap.length > 0) return fromMap;
+    const users = await this.getPathWithRetry(path, 2, 80);
+    if (!users || typeof users !== 'object') return [];
+    return Object.entries(users as Record<string, any>)
+      .filter(([userId, data]) => !!userId && !userId.startsWith('_') && !!data && typeof data === 'object')
+      .map(([userId, data]) => ({ userId, data }));
+  }
+
+  private async pruneStaleRoomMemberships(chatroomId: string, now = new Date()): Promise<boolean> {
+    const stale = new Set<string>();
+    const recordGroups = await Promise.all([
+      this.collectRoomMemberRecords(['chatrooms', chatroomId, 'users']),
+      this.collectRoomMemberRecords(['chatroomMembers', chatroomId]),
+    ]);
+    for (const records of recordGroups) {
+      for (const record of records) {
+        if (this.roomMembershipIsStale(record.data, now)) stale.add(record.userId);
+      }
+    }
+    if (stale.size === 0) return false;
+    const leftData = {
+      leftAt: now.toISOString(),
+      isActive: false,
+      stalePresenceExpired: true,
+    };
+    await Promise.all(
+      [...stale].flatMap((userId) => [
+        this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], leftData),
+        this.gunService.putPath(['chatroomMembers', chatroomId, userId], leftData),
+      ]),
+    );
+    return true;
   }
 
   /** Browser clients write `chatrooms/<id>/users`; API joins use `chatroomMembers`. Read both. */
@@ -292,6 +386,31 @@ export class ChatroomManager {
     });
   }
 
+  async touchMemberFast(
+    chatroomId: string,
+    userId: string,
+    options: { stageName?: string; lastSeen?: string } = {},
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    const existing =
+      (await this.gunService.getPath(['chatrooms', chatroomId, 'users', userId]).catch(() => null)) ||
+      (await this.gunService.getPath(['chatroomMembers', chatroomId, userId]).catch(() => null)) ||
+      {};
+    const memberData = {
+      joinedAt: existing?.joinedAt || now,
+      isActive: true,
+      lastSeen: options.lastSeen || now,
+      ...(options.stageName || existing?.stageName
+        ? { stageName: String(options.stageName || existing.stageName) }
+        : {}),
+      userId,
+    };
+    await Promise.all([
+      this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], memberData),
+      this.gunService.putPath(['chatroomMembers', chatroomId, userId], memberData),
+    ]);
+  }
+
   private async recordVisit(chatroomId: string, userId: string): Promise<void> {
     const now = new Date().toISOString();
     const visitCount = Number(await this.gunService.getPath(['chatrooms', chatroomId, 'visitCount']).catch(() => 0)) || 0;
@@ -334,6 +453,10 @@ export class ChatroomManager {
    */
   private async publishRoomMemberCount(chatroomId: string): Promise<void> {
     const count = (await this.getActiveMembersWithStageName(chatroomId)).length;
+    await this.publishRoomMemberCountValue(chatroomId, count);
+  }
+
+  private async publishRoomMemberCountValue(chatroomId: string, count: number): Promise<void> {
     await this.gunService.putPath(['public', 'room-member-counts', chatroomId], {
       count,
       updatedAt: new Date().toISOString(),

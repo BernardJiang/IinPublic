@@ -74,6 +74,15 @@ module.exports = {
             'process.env.IINPUBLIC_STAGE_SEED': JSON.stringify(
               process.env.IINPUBLIC_STAGE_SEED || '',
             ),
+            'process.env.IINPUBLIC_STAGE_ZERO_MAX_GLOBAL': JSON.stringify(
+              process.env.IINPUBLIC_STAGE_ZERO_MAX_GLOBAL || '',
+            ),
+            'process.env.IINPUBLIC_PRESENCE_TTL_SECONDS': JSON.stringify(
+              process.env.IINPUBLIC_PRESENCE_TTL_SECONDS || '',
+            ),
+            'process.env.IINPUBLIC_ROOM_MEMBERSHIP_TTL_SECONDS': JSON.stringify(
+              process.env.IINPUBLIC_ROOM_MEMBERSHIP_TTL_SECONDS || '',
+            ),
             'process.env.P2P_NODE_ENABLED': JSON.stringify(
               process.env.P2P_NODE_ENABLED || '0',
             ),
@@ -90,6 +99,9 @@ module.exports = {
             // so the bundle does not reference bare `process` in the browser (webpack 5).
             DISABLE_HMR: process.env.DISABLE_HMR || 'false',
             IINPUBLIC_STAGE_SEED: process.env.IINPUBLIC_STAGE_SEED || '',
+            IINPUBLIC_STAGE_ZERO_MAX_GLOBAL: process.env.IINPUBLIC_STAGE_ZERO_MAX_GLOBAL || '',
+            IINPUBLIC_PRESENCE_TTL_SECONDS: process.env.IINPUBLIC_PRESENCE_TTL_SECONDS || '',
+            IINPUBLIC_ROOM_MEMBERSHIP_TTL_SECONDS: process.env.IINPUBLIC_ROOM_MEMBERSHIP_TTL_SECONDS || '',
             P2P_NODE_ENABLED: process.env.P2P_NODE_ENABLED || '0',
             RELAY_ONLY_HUB: process.env.RELAY_ONLY_HUB || '0',
           }),

@@ -1,5 +1,6 @@
 import { ChatroomManager } from '../../server/services/chatroom-manager';
 import type { GunService } from '../../server/services/gun-service';
+import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 
 class MemoryGunService {
   private state: Record<string, any> = {};
@@ -61,6 +62,44 @@ describe('ChatroomManager visit accounting', () => {
 
     await manager.joinChatroom('room_1', 'user_1', 'Tom');
     expect(await manager.getChatroom('room_1')).toMatchObject({ visitCount: 2, uniqueVisitorCount: 1 });
+  });
+
+  it('expires stale active room memberships and republishes the public count', async () => {
+    const manager = buildManager();
+    const gunService = (manager as any).gunService as MemoryGunService;
+    const old = new Date(Date.now() - (ROOM_MEMBERSHIP_TTL_SECONDS + 5) * 1000).toISOString();
+    const fresh = new Date().toISOString();
+
+    await gunService.putPath(['chatrooms', 'room_ttl', 'users', 'stale_user'], {
+      userId: 'stale_user',
+      stageName: 'Stale',
+      isActive: true,
+      joinedAt: old,
+      lastSeen: old,
+    });
+    await gunService.putPath(['chatroomMembers', 'room_ttl', 'stale_user'], {
+      stageName: 'Stale',
+      isActive: true,
+      joinedAt: old,
+      lastSeen: old,
+    });
+    await gunService.putPath(['chatrooms', 'room_ttl', 'users', 'fresh_user'], {
+      userId: 'fresh_user',
+      stageName: 'Fresh',
+      isActive: true,
+      joinedAt: fresh,
+      lastSeen: fresh,
+    });
+
+    expect(await manager.getActiveMembersWithStageName('room_ttl')).toEqual([
+      { userId: 'fresh_user', stageName: 'Fresh' },
+    ]);
+    expect(await gunService.getPath(['chatrooms', 'room_ttl', 'users', 'stale_user']))
+      .toMatchObject({ isActive: false, stalePresenceExpired: true });
+    expect(await gunService.getPath(['chatroomMembers', 'room_ttl', 'stale_user']))
+      .toMatchObject({ isActive: false, stalePresenceExpired: true });
+    expect(await gunService.getPath(['public', 'room-member-counts', 'room_ttl']))
+      .toMatchObject({ count: 1 });
   });
 
   it('retains visitor history when a custom room is soft deleted', async () => {

@@ -184,6 +184,19 @@ export function registerChatroomRoutes(
     }
   });
 
+  app.patch('/api/chatrooms/:id/members/:userId', async (req, res) => {
+    try {
+      const { stageName, lastSeen } = req.body as { stageName?: string; lastSeen?: string };
+      const options: { stageName?: string; lastSeen?: string } = {};
+      if (stageName !== undefined) options.stageName = stageName;
+      if (lastSeen !== undefined) options.lastSeen = lastSeen;
+      await chatroomManager.touchMemberFast(req.params.id, req.params.userId, options);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
   app.delete('/api/chatrooms/:id/members/:userId', async (req, res) => {
     try {
       await chatroomManager.leaveChatroom(req.params.id, req.params.userId);

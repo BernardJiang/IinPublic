@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-06-30
+Last updated: 2026-07-06
 
 This file tracks only open work. Completed items are archived in `docs/completed.md`.
 - **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specifications.md` (§19.13, §19.14, REQ-P2P-09–29; mesh talk delivery design §23; libp2p/IPFS §25 — supersedes Phase D §24; find-similar §22)
@@ -18,6 +18,79 @@ Token-saving rules: for `[Opus]` items, have Opus write a short design note firs
 ---
 
 ## Open items
+
+### P0 — Conversation inbox, TechSupport bootstrap, and dev presence correctness `[Opus]`
+
+**Why now:** the native-app + `dev:multi` topology is exposing product seams that
+must be stable before expanding E2E coverage to app instances and production-like
+LAN users.
+
+- [ ] **Pairwise person-to-person conversations `[Opus]`:** design and repair a
+      canonical one-to-one message box for every user pair. The peer-detail
+      direct-message receive bug is fixed, but the broader product model still
+      needs one durable pair history independent of matched talks. Acceptance
+      criteria: both users see the same ordered history after reload/reconnect;
+      read receipts/order are deterministic when both sides send concurrently;
+      conversation list sorting uses most-recent activity across multiple
+      partners; direct/manual threads are clearly distinguished from support
+      channels.
+- [ ] **Matched-talk manual continuation `[Opus]`:** every matched talk should be
+      able to open or attach to a person-to-person conversation without chatbot
+      mediation. Acceptance criteria: a matched talk shows the related manual
+      thread for both users, manual messages remain available after the talk UI
+      is closed, and chatbot/support-channel messages stay distinct from normal
+      pair conversations.
+- [ ] **Conversation E2E depth `[Sonnet]`:** backfill UI tests for direct-message
+      history depth: large history pagination/scroll performance (>50 messages),
+      conversation deletion/editing behavior or an explicit unsupported-state
+      assertion, and reload/reconnect checks for the canonical manual pair
+      conversation once that product model is finalized.
+
+### P0 — TechSupport is bootstrap, not an ordinary user `[Opus]`
+
+- [ ] **Define the TechSupport root contract `[Opus]`:** TechSupport must be the
+      first/root identity of an empty network and part of bootstrap, not a normal
+      end-user account. Room counts and user lists must either explicitly label
+      TechSupport as bootstrap/system presence or exclude it from ordinary-user
+      assertions.
+- [ ] **First-user support flow `[Sonnet]`:** every first-time non-TechSupport
+      login should see TechSupport once and receive exactly one greeting from the
+      TechSupport bot. A single-user test means "TechSupport bootstrap + first
+      user interaction", not "one isolated ordinary user with no support peer".
+- [ ] **Audit E2E helper semantics `[Sonnet]`:** review all scripts that seed,
+      count, or interact with TechSupport, especially
+      `tests/e2e/helpers/clear-database.ts`,
+      `tests/e2e/helpers/bootstrap-canonical.ts`,
+      `tests/e2e/helpers/talks-matching-flow.ts`,
+      `tests/e2e/helpers/mobile-bootstrap.ts`,
+      `tests/e2e/helpers/e2e-stage-pipeline.ts`, and
+      `tests/e2e/helpers/stage-talk-exchange.ts`. Update tests so TechSupport is
+      always bootstrap/root first, never an interchangeable user fixture.
+- [ ] **Multilingual TechSupport `[Sonnet]`:** TechSupport should understand all
+      supported languages. Existing tests cover UI localization, default-talk
+      language, profile language, and incoming-talk language filters; the gap is
+      the actual TechSupport bot path. Acceptance criteria: support greetings
+      and support-channel replies are generated/rendered in the user's preferred
+      UI/profile language, fallback to English is explicit for unsupported
+      languages, and the support bot can respond to non-English user messages
+      without corrupting the support-channel history.
+
+### P1 — E2E coverage gaps to backfill `[Sonnet]`
+
+- [ ] **Native app as E2E participant `[Opus]`:** execute the plan in
+      `docs/testing/native-app-e2e-strategy.md`: run one and then two desktop app
+      users alongside browser users through the shared hub, then extend the same
+      pattern to Windows and mobile once device toolchains are ready.
+- [ ] **LAN browser participant smoke `[Sonnet]`:** add a development-topology
+      smoke for an ordinary browser user on a different PC on the same intranet:
+      it must load the web app from the host dev server, connect to the shared
+      Gun hub, appear in Global with TechSupport and local browser users, and
+      exchange at least one direct/manual conversation message.
+- [ ] **Production compatibility smoke `[Opus]`:** prove the production topology
+      (`www.iinpublic.com` + public hub) remains compatible with the development
+      topology assumptions: no app path may hard-code localhost-only peers unless
+      it is explicitly native-loopback mode, and browser/native clients must use
+      configured hub URLs consistently across dev, LAN, and production stages.
 
 ### S3 — Cross-platform native clients (embedded-node model) `[Opus]`
 

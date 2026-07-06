@@ -3,6 +3,7 @@ import { deriveBackendApiBaseFromLocation, WebGunService } from './web-gun-servi
 import { CONFIG } from '../../shared/config';
 import { findAppropriateChildChatroom, getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 import type { ChallengeGateConfig } from '../../shared/challenge-plugins';
 import { getChallengePlugin } from '../../shared/challenge-plugins';
 
@@ -18,6 +19,8 @@ export class WebChatroomService {
   private membersListDebounce: ReturnType<typeof setTimeout> | null = null;
   private membersListCallback?: (members: Array<{ userId: string; stageName: string }>) => void;
   private membersListenerRoomId: string | undefined = undefined;
+  private membershipHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private membershipHeartbeatKey: string | null = null;
 
   constructor(private gunService: WebGunService) {}
 
@@ -131,6 +134,7 @@ export class WebChatroomService {
     if (alreadyActive) {
       this.watchForEviction(userId, chatroomId, onMoved);
       await this.syncJoinWithServer(chatroomId, userId, userData.stageName);
+      this.startMembershipHeartbeat(chatroomId, userId, userData.stageName);
       console.log(`✅ Already active in chatroom, preserving existing visit: ${chatroomId}`);
       return;
     }
@@ -268,8 +272,64 @@ export class WebChatroomService {
 
     // Watch for FIFO eviction - if this user gets moved by another user joining
     this.watchForEviction(userId, chatroomId, onMoved);
+    this.startMembershipHeartbeat(chatroomId, userId, userData.stageName);
 
     console.log(`✅ Successfully joined chatroom: ${chatroomId}`);
+  }
+
+  private startMembershipHeartbeat(chatroomId: string, userId: string, stageName: string): void {
+    const key = `${chatroomId}:${userId}`;
+    if (this.membershipHeartbeatKey === key && this.membershipHeartbeatTimer) return;
+    this.stopMembershipHeartbeat();
+    this.membershipHeartbeatKey = key;
+    const beat = () => {
+      const now = new Date().toISOString();
+      this.gunService
+        .getGun()
+        .get('chatrooms')
+        .get(chatroomId)
+        .get('users')
+        .get(userId)
+        .put({
+          isActive: true,
+          lastSeen: now,
+          userId,
+          stageName,
+        });
+      void this.syncMembershipHeartbeatWithServer(chatroomId, userId, stageName, now);
+    };
+    beat();
+    const heartbeatMs = Math.max(1000, Math.min(30_000, Math.floor((ROOM_MEMBERSHIP_TTL_SECONDS * 1000) / 3)));
+    this.membershipHeartbeatTimer = setInterval(beat, heartbeatMs);
+  }
+
+  private async syncMembershipHeartbeatWithServer(
+    chatroomId: string,
+    userId: string,
+    stageName: string,
+    lastSeen: string,
+  ): Promise<void> {
+    try {
+      await fetch(
+        `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members/${encodeURIComponent(userId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stageName, lastSeen }),
+        },
+      );
+    } catch (error) {
+      console.warn('syncMembershipHeartbeatWithServer failed (non-fatal):', error);
+    }
+  }
+
+  private stopMembershipHeartbeat(chatroomId?: string, userId?: string): void {
+    if (chatroomId && userId && this.membershipHeartbeatKey !== `${chatroomId}:${userId}`) return;
+    if (this.membershipHeartbeatTimer) {
+      clearInterval(this.membershipHeartbeatTimer);
+      this.membershipHeartbeatTimer = null;
+    }
+    this.membershipHeartbeatKey = null;
   }
 
   /** Register join on server index so GET /members is immediate (not Gun-map lag). */
@@ -387,6 +447,7 @@ export class WebChatroomService {
 
   async leaveChatroom(chatroomId: string, userId: string): Promise<void> {
     console.log(`🚪 Leaving chatroom: ${chatroomId} as user: ${userId}`);
+    this.stopMembershipHeartbeat(chatroomId, userId);
 
     const gun = this.gunService.getGun();
     await new Promise<void>((resolve) => {

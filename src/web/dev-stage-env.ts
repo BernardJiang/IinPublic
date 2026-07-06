@@ -12,6 +12,12 @@ export function isDevStageZero(): boolean {
   return seed === 'stage-zero' || seed === 'empty';
 }
 
+export function getDevStageZeroMaxGlobalMembers(): number {
+  const raw = process.env.IINPUBLIC_STAGE_ZERO_MAX_GLOBAL || '';
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 3;
+}
+
 /** Optional runtime fallback from index.html meta (set by webpack template). */
 export function getDevStageSeedFromDom(): string {
   if (typeof document === 'undefined') return '';

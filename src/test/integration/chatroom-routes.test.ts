@@ -9,6 +9,7 @@ function buildApp() {
     getAllChatrooms: jest.fn().mockResolvedValue([]),
     joinChatroom: jest.fn().mockResolvedValue(undefined),
     addMemberFast: jest.fn().mockResolvedValue(undefined),
+    touchMemberFast: jest.fn().mockResolvedValue(undefined),
     leaveChatroom: jest.fn().mockResolvedValue(undefined),
     getChatroom: jest.fn().mockResolvedValue(null),
     createChatroom: jest.fn().mockResolvedValue({ id: 'room_1', name: 'Room 1', type: 'custom' }),
@@ -67,6 +68,16 @@ describe('chatroom routes', () => {
     });
     expect(addRes.status).toBe(200);
     expect(manager.addMemberFast).toHaveBeenCalledWith('room_1', 'u2', 'Jerry');
+
+    const touchRes = await request(app).patch('/api/chatrooms/room_1/members/u2').send({
+      stageName: 'Jerry',
+      lastSeen: '2026-07-06T00:00:00.000Z',
+    });
+    expect(touchRes.status).toBe(200);
+    expect(manager.touchMemberFast).toHaveBeenCalledWith('room_1', 'u2', {
+      stageName: 'Jerry',
+      lastSeen: '2026-07-06T00:00:00.000Z',
+    });
 
     const removeRes = await request(app).delete('/api/chatrooms/room_1/members/u2');
     expect(removeRes.status).toBe(200);

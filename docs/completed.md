@@ -1,6 +1,102 @@
 # IinPublic Completed Work
 
-Last updated: 2026-06-30
+Last updated: 2026-07-06
+
+## 2026-07-06 — `dev:multi` presence reset and E2E coverage housekeeping
+
+Moved from `docs/TODO.md`.
+
+- **Peer-detail direct-message receive bug fixed.** The direct-message compose box
+  on a peer detail already created a synthetic `talkId: "direct"` conversation,
+  but message load/send paths did not pass the known peer id as a hint, forcing
+  pair-private reads/writes through a slower global-conversation lookup. The
+  conversation load path, normal message send path, and peer-detail direct-message
+  send path now pass `otherUserId` when it is already known. Added a regression
+  to `tests/e2e/staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts` proving
+  Tom can open Jerry from Global, send a direct message without a matched talk,
+  and Jerry can open the created pair conversation and see it.
+- **`npm run dev:multi` stale Global headcount fix.** `dev:multi` now runs
+  `scripts/reset-dev-data.js`, starts the app with `IINPUBLIC_STAGE_SEED=stage-zero`
+  and `DEV_GUN_FRESH=1`, wipes the persistent `user_data/` browser profiles via
+  `DEV_MULTI_RESET_PROFILES=1`, and sets
+  `IINPUBLIC_STAGE_ZERO_MAX_GLOBAL=4` so the stage-zero watchdog permits the
+  expected TechSupport bootstrap plus three browser users while still scrubbing
+  larger ghost rosters. Added `getDevStageZeroMaxGlobalMembers()` and a focused
+  unit test for default/override/invalid values.
+- **`dev:multi` topology smoke added.** `scripts/dev-techsupport-bootstrap.js`
+  seeds TechSupport as bootstrap before ordinary dev users navigate, using the
+  existing non-production snapshot import path only when the clean reset flow
+  explicitly allows it. `launch-browsers.js` now performs that bootstrap during
+  `npm run dev:multi`, and `scripts/smoke-dev-multi.js` starts an isolated hub,
+  starts the E2E web dev server, launches three persistent browser profiles, and
+  asserts Global contains exactly TechSupport plus those three users. The smoke
+  keeps child server logs quiet by default and prints the observed member IDs so
+  ghost memberships are easy to diagnose.
+- **Search/filter interactivity coverage already exists.** Evidence:
+  `tests/e2e/staged/stage1-single-user/29-me-answers-search.spec.ts`,
+  `tests/e2e/staged/stage2-two-user/34-contacts-filter-name.spec.ts`,
+  `tests/e2e/staged/stage1-single-user/30-talks-filter-query.spec.ts`, and
+  `tests/e2e/staged/stage2-two-user/35-reply-filter-query.spec.ts`.
+- **Retired talk-delivery route proof already exists.** Evidence:
+  `tests/e2e/staged/stage1-single-user/34-deleted-talk-routes-404.spec.ts`
+  checks removed endpoints return 404, and
+  `tests/e2e/staged/stage2-two-user/33-mesh-only-delivery-no-server.spec.ts`
+  verifies mesh-only delivery/conversation creation with zero removed server
+  talk-delivery traffic.
+- **Mobile multi-user flow coverage already exists.** Evidence:
+  `tests/e2e/staged/stage2-two-user/38-mobile-talk-answer-flow.spec.ts`
+  covers phone-width talk answering, `39-mobile-conversation-messages.spec.ts`
+  covers mobile DM overlay and message exchange, and
+  `tests/e2e/staged/stage1-single-user/33-mobile-chatroom-hierarchy.spec.ts`
+  covers phone-width chatroom hierarchy navigation with the bottom nav visible.
+- **Offline mailbox TTL and hard-crash recovery coverage already exists.**
+  Evidence: `tests/e2e/staged/stage2-two-user/36-offline-beyond-mailbox-ttl.spec.ts`
+  proves expired encrypted mailbox envelopes are pruned and never delivered
+  while a fresh control envelope still drains after reconnect;
+  `tests/e2e/staged/stage2-two-user/37-hard-crash-recovery.spec.ts` launches a
+  persistent browser profile, SIGKILLs the browser process, relaunches the same
+  profile, and verifies the same identity, same conversation id, clean shell,
+  and two offline messages recovered through Gun/mailbox state. Presence TTL
+  pruning itself is covered by `src/test/unit/p2p-presence.test.ts`; only the
+  user-visible stale-count cleanup proof remains open.
+- **Language settings, localization, and incoming-language filter coverage
+  already exists.** Evidence:
+  `tests/e2e/staged/stage1-single-user/00y-chinese-ui-traversal.spec.ts`,
+  `tests/e2e/staged/stage1-single-user/00z-chinese-edge-notifications.spec.ts`,
+  `tests/e2e/staged/stage1-single-user/31-intake-filters-persist.spec.ts`,
+  `tests/e2e/staged/stage1-single-user/32-language-setting-persist.spec.ts`,
+  and `tests/e2e/staged/stage3-three-user/00m-language-intake-filter.spec.ts`
+  cover UI-language switching, default-talk language behavior, persisted
+  profile/filter language settings, and incoming English/Chinese/Spanish intake
+  behavior. The remaining TechSupport gap is actual multilingual bot
+  greeting/reply behavior, not the generic language-filter stack.
+- **Room-membership TTL pruning and visible stale-count cleanup.** The shared
+  TTL constants now support env overrides while preserving production defaults.
+  `ChatroomManager` prunes active room members whose `lastSeen`/`joinedAt` is
+  older than `ROOM_MEMBERSHIP_TTL_SECONDS`, marks both `chatrooms/<room>/users`
+  and `chatroomMembers/<room>` inactive, and republishes
+  `public/room-member-counts/<room>`. The browser keeps live room membership
+  fresh with a room-membership heartbeat and server-visible touch route
+  (`PATCH /api/chatrooms/:id/members/:userId`). Added
+  `tests/e2e/staged/stage2-two-user/42-stale-room-membership-prune.spec.ts`:
+  two browser users enter Global, Bob disappears without app-level cleanup, his
+  server-visible membership is aged past TTL, `/members` prunes it, and Alice's
+  visible Global headcount drops back to TechSupport + Alice.
+- **OS-level crash room-count proof.**
+  `tests/e2e/staged/stage2-two-user/43-crash-room-membership-prune.spec.ts`
+  reuses the same hard-crash helper style as spec 37: Bob runs in a persistent
+  Chromium profile and is killed with `pkill -9` against that profile directory.
+  After Bob's server-visible room-membership timestamp is expired, `/members`
+  prunes the killed browser from Global and Alice's visible headcount drops back
+  to TechSupport + Alice.
+
+**Verification:** `npx jest src/test/unit/dev-stage-env.test.ts --runInBand`;
+`npx jest src/test/unit/chatroom-manager.test.ts src/test/integration/chatroom-routes.test.ts --runInBand`;
+`npm run test:type`;
+`DEV_MULTI_SMOKE_WEB_PORT=3361 npm run smoke:dev:multi`;
+`E2E_PORT_OFFSET=100 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts --grep "peer detail direct message"`;
+`E2E_PORT_OFFSET=200 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/42-stale-room-membership-prune.spec.ts`;
+`E2E_PORT_OFFSET=240 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/43-crash-room-membership-prune.spec.ts`.
 
 ## 2026-06-30 — S3 embedded-node: remaining items closed out (+ a real hub-dial bug found and fixed)
 

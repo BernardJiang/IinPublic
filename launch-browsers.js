@@ -1,13 +1,19 @@
 const { chromium } = require('playwright');
+const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const { ensureTechSupportBootstrap } = require('./scripts/dev-techsupport-bootstrap');
 
 const APP_URL = `http://localhost:${process.env.PORT || 3001}`;
+const API_BASE = process.env.DEV_MULTI_API_BASE || 'http://localhost:8080';
 const SERVER_WAIT_MS = 60_000;
 const USER_COUNT = Math.max(1, parseInt(process.env.DEV_MULTI_USERS || '3', 10) || 3);
 const WINDOW_WIDTH = 620;
 const WINDOW_HEIGHT = 900;
 const WINDOW_GAP = 10;
+const USER_DATA_ROOT = path.join(__dirname, 'user_data');
+const RESET_PROFILES = process.env.DEV_MULTI_RESET_PROFILES === '1'
+  || process.env.DEV_MULTI_RESET_PROFILES === 'true';
 
 function waitForServer(url, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -30,13 +36,17 @@ function waitForServer(url, timeoutMs) {
 
 (async () => {
   console.log(`🚀 Launching ${USER_COUNT} isolated browser instances...`);
+  if (RESET_PROFILES) {
+    fs.rmSync(USER_DATA_ROOT, { recursive: true, force: true });
+    console.log('🧹 Removed dev:multi browser profiles for a clean three-user run.');
+  }
 
   // Launch browsers first — before the server is ready — so windows open immediately.
   const contexts = await Promise.all(
     Array.from({ length: USER_COUNT }, (_, index) => {
       const userName = `user_${String.fromCharCode(97 + index)}`;
       const x = index * (WINDOW_WIDTH + WINDOW_GAP);
-      return chromium.launchPersistentContext(path.join(__dirname, 'user_data', userName), {
+      return chromium.launchPersistentContext(path.join(USER_DATA_ROOT, userName), {
         headless: false,
         viewport: { width: WINDOW_WIDTH, height: WINDOW_HEIGHT },
         args: [
@@ -62,7 +72,11 @@ function waitForServer(url, timeoutMs) {
 
   console.log(`⏳ Waiting for dev server at ${APP_URL}...`);
   await waitForServer(APP_URL, SERVER_WAIT_MS);
-  console.log(`✅ Server ready — navigating ${USER_COUNT} browsers.`);
+  await ensureTechSupportBootstrap(API_BASE, {
+    preferSnapshotImport: process.env.DEV_MULTI_BOOTSTRAP_IMPORT === '1',
+    allowSnapshotImport: process.env.DEV_MULTI_BOOTSTRAP_IMPORT === '1',
+  });
+  console.log(`✅ Server ready with TechSupport bootstrap — navigating ${USER_COUNT} browsers.`);
 
   await Promise.all(
     contexts.map(async (context) => {
