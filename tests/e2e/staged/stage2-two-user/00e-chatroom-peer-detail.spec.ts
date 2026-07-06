@@ -27,7 +27,7 @@ import {
   resetTalksMatchingSession,
   pinStableE2eLocation,
 } from '../../helpers/talks-matching-flow';
-import { openConversationViaServer } from '../../helpers/conversation-e2e';
+import { getConversationIdBetween, openConversationViaServer } from '../../helpers/conversation-e2e';
 import { waitForMessageVisible } from '../../helpers/fast-dm-setup';
 
 test.describe('Chatroom peer detail views', () => {
@@ -182,8 +182,13 @@ test.describe('Chatroom peer detail views', () => {
       await enterGlobalChatroom(pageTom);
       await enterGlobalChatroom(pageJerry);
 
+      const tomId = await pageTom.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
+      const jerryId = await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
+      expect(tomId).toBeTruthy();
+      expect(jerryId).toBeTruthy();
+
       await pageTom.waitForSelector('.chatroom-member-item', { timeout: 20_000 });
-      const jerryItem = pageTom.locator('.chatroom-member-item').filter({ hasText: 'JerryDM' });
+      const jerryItem = pageTom.locator(`.chatroom-member-item[data-user-id="${jerryId}"]`);
       await expect(jerryItem).toBeVisible({ timeout: 15_000 });
       await jerryItem.click();
       await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
@@ -193,10 +198,11 @@ test.describe('Chatroom peer detail views', () => {
       await pageTom.locator('#peer-dm-send-btn').click();
       await expect(pageTom.locator('#peer-dm-send-btn')).toContainText('Sent', { timeout: 30_000 });
 
-      const tomId = await pageTom.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
-      const jerryId = await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
-      expect(tomId).toBeTruthy();
-      expect(jerryId).toBeTruthy();
+      const tomConversationId = await getConversationIdBetween(pageTom, tomId, jerryId);
+      const jerryConversationId = await getConversationIdBetween(pageJerry, jerryId, tomId);
+      expect(tomConversationId).toBe(jerryConversationId);
+      expect(tomConversationId).toMatch(/^conv_pair_/);
+      expect(tomConversationId).not.toContain('_direct');
 
       await openConversationViaServer(pageJerry, jerryId, 'TomDM', tomId);
       await waitForMessageVisible(pageJerry, message, 45_000);
@@ -247,11 +253,13 @@ test.describe('Chatroom peer detail views', () => {
       const tomId = await pageTom.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
       const jerryId = await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id || '');
       await waitForPeerHistoryTitle(pageTom, tomId, jerryId, 'Tennis Peer Test');
+      const matchedConversationId = await getConversationIdBetween(pageTom, tomId, jerryId);
+      expect(matchedConversationId).toMatch(/^conv_pair_/);
 
       // Tom goes to chatroom detail and clicks on Jerry
       await enterGlobalChatroom(pageTom);
       await pageTom.waitForSelector('.chatroom-member-item', { timeout: 20_000 });
-      const jerryItem = pageTom.locator('.chatroom-member-item').filter({ hasText: 'JerryTH' });
+      const jerryItem = pageTom.locator(`.chatroom-member-item[data-user-id="${jerryId}"]`);
       await expect(jerryItem).toBeVisible({ timeout: 15_000 });
       await jerryItem.click();
 
@@ -276,6 +284,15 @@ test.describe('Chatroom peer detail views', () => {
         const sentCount = await pageTom.locator('.peer-history-item').count();
         expect(sentCount).toBeGreaterThanOrEqual(1);
       }
+
+      const manualContinuation = `Matched talk manual continuation ${Date.now()}`;
+      await pageTom.locator('#peer-dm-input').fill(manualContinuation);
+      await pageTom.locator('#peer-dm-send-btn').click();
+      await expect(pageTom.locator('#peer-dm-send-btn')).toContainText('Sent', { timeout: 30_000 });
+      const afterDirectConversationId = await getConversationIdBetween(pageTom, tomId, jerryId);
+      expect(afterDirectConversationId).toBe(matchedConversationId);
+      await openConversationViaServer(pageJerry, jerryId, 'TomTH', tomId);
+      await waitForMessageVisible(pageJerry, manualContinuation, 45_000);
 
       await pageTom.click('#back-from-peer-detail');
     } finally {

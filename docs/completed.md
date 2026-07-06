@@ -2366,6 +2366,27 @@ Evidence:
 - Announcements: `src/server/services/techsupport-announcement-service.ts`, `src/shared/system-announcements.ts`
 - Tests: `src/test/unit/system-announcements.test.ts`, `src/test/unit/p2p-runtime.test.ts`
 
+## 2026-07-06 — Canonical pair conversations and matched-talk manual continuation
+
+Implemented the first durable slice of the conversation-inbox repair:
+
+- `WebConversationService.createConversation()` now uses one canonical ordinary-pair id,
+  `conv_pair_<sorted user ids>`, instead of creating a separate conversation per `talkId`.
+- Conversation records carry related talk provenance as `relatedTalkIdsJson` (string-only for
+  Gun compatibility), while browser-local state exposes `relatedTalkIds` for lifecycle checks.
+- Peer-detail direct messages reuse the existing pair conversation by localStorage key instead of
+  looking for a `conversationId` property inside the stored value.
+- Talk retraction/withdrawal paths now match either the primary `talkId` or related talk ids, so a
+  canonical pair thread can still be associated with the matched talk that created it.
+- E2E coverage now proves:
+  - a peer-detail direct message creates the same `conv_pair_...` id for both sender and receiver;
+  - after a matched talk, a manual peer-detail message reuses that same pair conversation and is
+    visible from the receiver's conversation view.
+
+Verification:
+
+`npm run test:type && E2E_PORT_OFFSET=400 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts --grep "peer detail direct message|peer detail shows talk history"` — 2 passed.
+
 ## 2026-06-20 — P0 test determinism live gate
 
 The full browser suite passed with `PW_WORKERS=4 npm run test:e2e -- --retries=0` (110 specs).

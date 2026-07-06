@@ -25,21 +25,14 @@ Token-saving rules: for `[Opus]` items, have Opus write a short design note firs
 must be stable before expanding E2E coverage to app instances and production-like
 LAN users.
 
-- [ ] **Pairwise person-to-person conversations `[Opus]`:** design and repair a
-      canonical one-to-one message box for every user pair. The peer-detail
-      direct-message receive bug is fixed, but the broader product model still
-      needs one durable pair history independent of matched talks. Acceptance
-      criteria: both users see the same ordered history after reload/reconnect;
-      read receipts/order are deterministic when both sides send concurrently;
-      conversation list sorting uses most-recent activity across multiple
-      partners; direct/manual threads are clearly distinguished from support
-      channels.
-- [ ] **Matched-talk manual continuation `[Opus]`:** every matched talk should be
-      able to open or attach to a person-to-person conversation without chatbot
-      mediation. Acceptance criteria: a matched talk shows the related manual
-      thread for both users, manual messages remain available after the talk UI
-      is closed, and chatbot/support-channel messages stay distinct from normal
-      pair conversations.
+- [ ] **Pairwise conversation hardening `[Opus]`:** the canonical pair thread
+      model is now implemented (`conv_pair_<sorted users>`) and direct/manual
+      messages reuse it across direct peer-detail sends and matched-talk
+      continuations. Remaining acceptance criteria: both users see the same
+      ordered history after reload/reconnect; read receipts/order are
+      deterministic when both sides send concurrently; conversation list sorting
+      uses most-recent activity across multiple partners; direct/manual threads
+      remain clearly distinguished from support channels.
 - [ ] **Conversation E2E depth `[Sonnet]`:** backfill UI tests for direct-message
       history depth: large history pagination/scroll performance (>50 messages),
       conversation deletion/editing behavior or an explicit unsupported-state

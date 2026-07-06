@@ -7239,6 +7239,8 @@ export class UIManager extends EventEmitter {
     otherUserId: string;
     otherUserName: string;
     talkId?: string;
+    relatedTalkIds?: string[];
+    relatedTalkIdsJson?: string;
     respondedByBot?: boolean;
     supportChannel?: boolean;
     transportMode?: string;
@@ -7266,11 +7268,57 @@ export class UIManager extends EventEmitter {
     );
 
     const isSupportChannel = !!existing?.supportChannel || conversationData.supportChannel === true;
+    const relatedTalkIds = new Set<string>();
+    const addRelatedTalkId = (talkId: unknown) => {
+      const value = String(talkId ?? '').trim();
+      if (!value || value === 'direct') return;
+      relatedTalkIds.add(value);
+    };
+    if (Array.isArray(existing?.relatedTalkIds)) {
+      for (const talkId of existing.relatedTalkIds) addRelatedTalkId(talkId);
+    }
+    if (typeof existing?.relatedTalkIdsJson === 'string') {
+      try {
+        const parsed = JSON.parse(existing.relatedTalkIdsJson);
+        if (Array.isArray(parsed)) {
+          for (const talkId of parsed) addRelatedTalkId(talkId);
+        }
+      } catch {
+        /* keep existing valid metadata only */
+      }
+    }
+    if (Array.isArray(conversationData.relatedTalkIds)) {
+      for (const talkId of conversationData.relatedTalkIds) addRelatedTalkId(talkId);
+    }
+    if (typeof conversationData.relatedTalkIdsJson === 'string') {
+      try {
+        const parsed = JSON.parse(conversationData.relatedTalkIdsJson);
+        if (Array.isArray(parsed)) {
+          for (const talkId of parsed) addRelatedTalkId(talkId);
+        }
+      } catch {
+        /* ignore malformed incoming metadata */
+      }
+    }
+    addRelatedTalkId(existing?.talkId);
+    addRelatedTalkId(conversationData.talkId);
+    const relatedTalkIdList = Array.from(relatedTalkIds);
+    const displayTalkId =
+      conversationData.talkId && conversationData.talkId !== 'direct'
+        ? conversationData.talkId
+        : existing?.talkId || conversationData.talkId;
 
     conversations[conversationData.conversationId] = {
+      conversationId: conversationData.conversationId,
       otherUserId: conversationData.otherUserId,
       otherUserName: resolvedOtherUserName,
-      ...(isSupportChannel ? {} : { talkId: conversationData.talkId }),
+      ...(isSupportChannel ? {} : { talkId: displayTalkId }),
+      ...(isSupportChannel || relatedTalkIdList.length === 0
+        ? {}
+        : {
+            relatedTalkIds: relatedTalkIdList,
+            relatedTalkIdsJson: JSON.stringify(relatedTalkIdList),
+          }),
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       lastMessage: existing?.lastMessage ?? null,
       lastMessageTime: existing?.lastMessageTime ?? null,

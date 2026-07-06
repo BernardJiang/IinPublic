@@ -76,6 +76,11 @@ export class WebConversationService {
     this.transport = transport ?? this.createOrdinaryTransport();
   }
 
+  static buildPairConversationId(userId1: string, userId2: string): string {
+    const sortedIds = [userId1, userId2].sort();
+    return `conv_pair_${sortedIds[0]}_${sortedIds[1]}`;
+  }
+
   setTransportFallbackHandler(
     _handler: (info: {
       conversationId: string;
@@ -153,7 +158,65 @@ export class WebConversationService {
   /**
    * Create a new conversation between two users after a match
    */
-  createConversation(params: {
+  private parseConversationData(raw: any): any | null {
+    if (!raw) return null;
+    const candidate = raw.data ?? raw;
+    if (typeof candidate === 'string') {
+      try {
+        return JSON.parse(candidate);
+      } catch {
+        return null;
+      }
+    }
+    return typeof candidate === 'object' ? candidate : null;
+  }
+
+  private readConversationData(conversationId: string): Promise<any | null> {
+    const gun = this.gunService.getGun();
+    return new Promise((resolve) => {
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout>;
+      const done = (value: any | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve(value);
+      };
+      timeout = setTimeout(() => done(null), 250);
+      gun.get(`conversations/${conversationId}`).once((raw: any) => {
+        done(this.parseConversationData(raw));
+      });
+    });
+  }
+
+  private relatedTalkIds(existing: any | null, talkId: string): string[] {
+    const ids = new Set<string>();
+    const add = (id: unknown) => {
+      const value = String(id ?? '').trim();
+      if (!value || value === 'direct') return;
+      ids.add(value);
+    };
+
+    if (Array.isArray(existing?.relatedTalkIds)) {
+      for (const id of existing.relatedTalkIds) add(id);
+    }
+    if (typeof existing?.relatedTalkIdsJson === 'string') {
+      try {
+        const parsed = JSON.parse(existing.relatedTalkIdsJson);
+        if (Array.isArray(parsed)) {
+          for (const id of parsed) add(id);
+        }
+      } catch {
+        /* ignore malformed legacy metadata */
+      }
+    }
+
+    add(existing?.talkId);
+    add(talkId);
+    return Array.from(ids);
+  }
+
+  async createConversation(params: {
     userId1: string;
     userName1: string;
     userId2: string;
@@ -164,8 +227,14 @@ export class WebConversationService {
   }): Promise<string> {
     const gun = this.gunService.getGun();
 
-    const sortedIds = [params.userId1, params.userId2].sort();
-    const conversationId = `conv_${sortedIds[0]}_${sortedIds[1]}_${params.talkId}`;
+    const conversationId = WebConversationService.buildPairConversationId(params.userId1, params.userId2);
+    const existing = await this.readConversationData(conversationId);
+    const relatedTalkIds = this.relatedTalkIds(existing, params.talkId);
+    const createdAt = existing?.createdAt || new Date().toISOString();
+    const displayTalkId =
+      params.talkId && params.talkId !== 'direct'
+        ? params.talkId
+        : existing?.talkId || params.talkId;
 
     console.log(`💬 Creating conversation: ${conversationId}`);
 
@@ -175,8 +244,9 @@ export class WebConversationService {
     const conversationData = {
       id: conversationId,
       participants: [params.userId1, params.userId2],
-      talkId: params.talkId,
-      createdAt: new Date().toISOString(),
+      talkId: displayTalkId,
+      relatedTalkIdsJson: JSON.stringify(relatedTalkIds),
+      createdAt,
       status: 'active',
       transportMode: this.transport.mode,
     };
@@ -189,8 +259,9 @@ export class WebConversationService {
       conversationId,
       otherUserId: params.userId2,
       otherUserName: params.userName2,
-      talkId: params.talkId,
-      createdAt: new Date().toISOString(),
+      talkId: displayTalkId,
+      relatedTalkIdsJson: JSON.stringify(relatedTalkIds),
+      createdAt,
       respondedByBot: !!params.respondedByBotForUser1,
       transportMode: this.transport.mode,
     });
@@ -199,14 +270,15 @@ export class WebConversationService {
       conversationId,
       otherUserId: params.userId1,
       otherUserName: params.userName1,
-      talkId: params.talkId,
-      createdAt: new Date().toISOString(),
+      talkId: displayTalkId,
+      relatedTalkIdsJson: JSON.stringify(relatedTalkIds),
+      createdAt,
       respondedByBot: !!params.respondedByBotForUser2,
       transportMode: this.transport.mode,
     });
 
     console.log(`✅ Conversation created: ${conversationId}`);
-    return Promise.resolve(conversationId);
+    return conversationId;
   }
 
   /**
@@ -321,6 +393,7 @@ export class WebConversationService {
           otherUserId: normalized.otherUserId,
           otherUserName: normalized.otherUserName || '',
           talkId: normalized.talkId || '',
+          relatedTalkIdsJson: normalized.relatedTalkIdsJson || '',
           createdAt: normalized.createdAt || '',
           respondedByBot: !!normalized.respondedByBot,
           transportMode: normalized.transportMode || '',

@@ -2080,10 +2080,9 @@ export class IinPublicApp {
 
     // 5. Author side: tear down any conversations derived from this talkId.
     const allConversations = this.uiManager.getMyConversations() as Record<string, any>;
-    for (const [, conv] of Object.entries(allConversations)) {
-      if ((conv as any).talkId === talkId) {
+    for (const [conversationId, conv] of Object.entries(allConversations)) {
+      if (this.conversationReferencesTalk(conv, talkId)) {
         const otherUserId = String((conv as any).otherUserId || '');
-        const conversationId = String((conv as any).conversationId || '');
         this.uiManager.markConversationWithdrawn(
           otherUserId,
           talkId,
@@ -2132,7 +2131,7 @@ export class IinPublicApp {
     // 3. Mark any conversation involving this talkId as withdrawn.
     const allConversations = this.uiManager.getMyConversations() as Record<string, any>;
     for (const [, conv] of Object.entries(allConversations)) {
-      if ((conv as any).talkId === payload.talkId && (conv as any).otherUserId === payload.authorId) {
+      if (this.conversationReferencesTalk(conv, payload.talkId) && (conv as any).otherUserId === payload.authorId) {
         this.uiManager.markConversationWithdrawn(
           payload.authorId,
           payload.talkId,
@@ -2163,7 +2162,7 @@ export class IinPublicApp {
     const responderIds = new Set<string>();
     for (const [, conv] of Object.entries(allConversations)) {
       const otherId = String((conv as any).otherUserId || '');
-      if ((conv as any).talkId === talkId && otherId && otherId !== authorId) {
+      if (this.conversationReferencesTalk(conv, talkId) && otherId && otherId !== authorId) {
         responderIds.add(otherId);
       }
     }
@@ -2186,6 +2185,23 @@ export class IinPublicApp {
         console.warn('[Retraction] Failed to post mailbox envelope for', responderId, ':', err);
       }
     }
+  }
+
+  private conversationReferencesTalk(conversation: any, talkId: string): boolean {
+    if (!conversation || !talkId) return false;
+    if (String(conversation.talkId || '') === talkId) return true;
+    if (Array.isArray(conversation.relatedTalkIds)) {
+      if (conversation.relatedTalkIds.some((id: unknown) => String(id || '') === talkId)) return true;
+    }
+    if (typeof conversation.relatedTalkIdsJson === 'string') {
+      try {
+        const parsed = JSON.parse(conversation.relatedTalkIdsJson);
+        return Array.isArray(parsed) && parsed.some((id) => String(id || '') === talkId);
+      } catch {
+        return false;
+      }
+    }
+    return false;
   }
 
   private async ensureSupportBootstrapForCurrentUser(): Promise<void> {
@@ -3827,6 +3843,8 @@ export class IinPublicApp {
         otherUserId,
         otherUserName: resolvedOtherUserName,
         talkId: conversationData.talkId,
+        relatedTalkIds: conversationData.relatedTalkIds,
+        relatedTalkIdsJson: conversationData.relatedTalkIdsJson,
         respondedByBot: conversationData.respondedByBot,
         supportChannel: conversationData.supportChannel,
         transportMode:
@@ -4546,12 +4564,12 @@ export class IinPublicApp {
         try {
           if (!this.currentUser) throw new Error('Not logged in');
           const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
-          const existing = Object.values(conversations).find(
-            (conv: any) => conv.otherUserId === data.peerId,
-          ) as any;
+          const existingEntry = Object.entries(conversations).find(
+            ([, conv]: [string, any]) => conv?.otherUserId === data.peerId && conv?.supportChannel !== true,
+          );
           let conversationId: string;
-          if (existing?.conversationId) {
-            conversationId = existing.conversationId;
+          if (existingEntry) {
+            conversationId = existingEntry[0];
           } else {
             conversationId = await this.conversationService.createConversation({
               userId1: this.currentUser.id,

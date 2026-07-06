@@ -6,6 +6,9 @@ type ConversationRecord = {
   unread?: boolean;
   respondedByBot?: boolean;
   supportChannel?: boolean;
+  talkId?: string;
+  relatedTalkIds?: string[];
+  relatedTalkIdsJson?: string;
   lastMessageTime?: string;
   createdAt?: string;
   lastMessage?: string;
