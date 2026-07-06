@@ -2387,6 +2387,24 @@ Verification:
 
 `npm run test:type && E2E_PORT_OFFSET=400 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts --grep "peer detail direct message|peer detail shows talk history"` — 2 passed.
 
+## 2026-07-06 — Canonical pair message history survives reload
+
+Closed the reload-history gap for ordinary pair conversations. The message store now:
+
+- mirrors direct-P2P encrypted wires into the legacy conversation message root as a reload-friendly
+  index while keeping the canonical `pairConversations/<pairId>/...` path;
+- retries collections when Gun reports a message id before the full node is readable;
+- prevents older async collection batches from overwriting the UI with a shorter append-only history;
+- falls back from a missing pair node to the legacy conversation root with a bounded read timeout;
+- writes mailbox-drained DMs under the sender/receiver pair instead of a self-pair.
+
+The E2E readiness helper now waits for `IinPublicApp.initialized === true`, so tests cannot open a
+conversation overlay before the post-reload `loadConversation` handler is bound.
+
+Verification:
+
+`npm run test:type && E2E_PORT_OFFSET=417 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/31-messaging-history-order.spec.ts` — 1 passed.
+
 ## 2026-06-20 — P0 test determinism live gate
 
 The full browser suite passed with `PW_WORKERS=4 npm run test:e2e -- --retries=0` (110 specs).

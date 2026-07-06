@@ -2,29 +2,20 @@
  * Long-history ordering: several messages alternating A/B (sent sequentially, not
  * concurrently, so there is one unambiguous expected order) must render identically and
  * completely on both sides, with the oldest message reachable by scrolling up and the newest
- * reachable at the default (bottom) scroll position.
- *
- * NOTE on scope: an earlier version of this spec also reloaded B and asserted the same
- * ordered history reappeared post-reload. That assertion was dropped — see the companion .md
- * "Known issue" section: a fresh post-reload `subscribeToMessages` call on a direct-p2p
- * conversation with existing history did not render *any* message (not even one) within the
- * budget available here (confirmed via a direct, UI-bypassing store probe run with a 22s
- * window — count stayed at 0 throughout). That looks like a real, previously-unexercised
- * latency/bug in the post-reload resync path, not a test-harness artifact, but pinning down
- * the exact cause needs more investigation time than fits this spec's budget. Read-cursor
- * persistence across reload (the more critical reload-related behaviour) is covered by
- * 30-messaging-read-state.spec.ts, which does pass with a reload in the loop.
+ * reachable at the default (bottom) scroll position. The same ordered history must also
+ * reappear after B reloads and re-opens the canonical pair conversation.
  */
 import { chromium, Browser } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
-import { headless } from '../../helpers/timing';
+import { headless, reloadAppReady } from '../../helpers/timing';
 import {
   setupFastMatchedDm,
   teardownFastDmPair,
   FastDmPair,
   sendConversationMessage,
 } from '../../helpers/fast-dm-setup';
+import { openConversationViaServer } from '../../helpers/conversation-e2e';
 
 const MESSAGE_COUNT = 12;
 
@@ -93,5 +84,10 @@ test.describe('Messaging: long alternating history renders in full and in identi
     // Oldest reachable by scrolling to top.
     await messagesA.evaluate((el) => { el.scrollTop = 0; });
     await expect(messagesA.locator('.message-text').filter({ hasText: texts[0] })).toBeVisible();
+
+    await reloadAppReady(pageB);
+    await openConversationViaServer(pageB, userIdB, pair.nameA, userIdA);
+    await expect.poll(async () => (await readHistoryOrder(pageB)).length, { timeout: 25_000 }).toBe(MESSAGE_COUNT);
+    expect(await readHistoryOrder(pageB)).toEqual(texts);
   });
 });

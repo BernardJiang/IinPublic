@@ -76,11 +76,12 @@ export async function waitForAppReady(
     .poll(
       () =>
         page.evaluate(() => {
-          const app = (window as unknown as { __iinpublic_app?: { getApp: () => { currentUser?: { id?: string } } } })
+          const app = (window as unknown as { __iinpublic_app?: { getApp: () => { currentUser?: { id?: string }; initialized?: boolean } } })
             .__iinpublic_app?.getApp?.();
           const hasUser = Boolean(app?.currentUser?.id);
+          const initialized = app?.initialized === true;
           const hasNav = Boolean(document.querySelector('.bottom-nav .nav-btn[data-view="chatrooms"]'));
-          return hasUser && hasNav;
+          return hasUser && initialized && hasNav;
         }),
       { timeout: timeoutMs, intervals: [200, 400, 800, 1200] },
     )

@@ -41,6 +41,8 @@ export class GunMessageStore {
    * myUserId is provided; read by buildAndPersistMessage to populate prevSeen.
    */
   private lastSeenFromOther = new Map<string, string>();
+  private collectRetryCounts = new Map<string, number>();
+  private collectRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(protected gunService: WebGunService) {}
 
@@ -134,6 +136,20 @@ export class GunMessageStore {
     return getSEA().secret(epub, pair);
   }
 
+  private readMessageNode(root: any, messageId: string, timeoutMs = 150): Promise<any | null> {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value: any | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      };
+      const timer = setTimeout(() => finish(null), timeoutMs);
+      root.get(messageId).once((data: any) => finish(data || null));
+    });
+  }
+
   /**
    * Build outbound wire + Gun record, persist locally, return wire for P2P notify (P2P-H).
    */
@@ -199,7 +215,8 @@ export class GunMessageStore {
         .get('messages')
         .get(wire.id)
         .put(record);
-      return;
+      // Keep an encrypted mirror under the legacy conversation root so a fresh page
+      // reload can enumerate history before the pair graph catches up.
     }
     gun.get(`conversations/${conversationId}`).get('messages').get(wire.id).put(record);
   }
@@ -255,19 +272,30 @@ export class GunMessageStore {
   ): () => void {
     const gun = this.gunService.getGun();
     const processedMessages = new Set<string>();
+    let lastEmittedCount = 0;
+    const emitAppendOnly = (messages: Message[]) => {
+      if (messages.length < lastEmittedCount) return;
+      lastEmittedCount = messages.length;
+      callback(messages);
+    };
+    const collectSoon = () => {
+      setTimeout(() => {
+        void this.collectAndDecryptMessages(conversationId, processedMessages, emitAppendOnly, myUserId, otherUserId);
+      }, 300);
+    };
+    const ingestMessageId = (messageId: string): void => {
+      if (!messageId || messageId.startsWith('_')) return;
+      if (processedMessages.has(messageId)) return;
+      processedMessages.add(messageId);
+      collectSoon();
+    };
 
     const subscribeRoot = (root: any) => root
       .get(`conversations/${conversationId}`)
       .get('messages')
       .map()
       .on((_messageData: any, messageId: string) => {
-        if (!messageId || messageId.startsWith('_')) return;
-        if (processedMessages.has(messageId)) return;
-
-        processedMessages.add(messageId);
-        setTimeout(() => {
-          void this.collectAndDecryptMessages(conversationId, processedMessages, callback, myUserId, otherUserId);
-        }, 300);
+        ingestMessageId(messageId);
       });
 
     subscribeRoot(gun);
@@ -276,13 +304,7 @@ export class GunMessageStore {
         if (!resolved) return;
         const root = resolved.root;
         const onChild = (_messageData: any, messageId: string) => {
-          if (!messageId || messageId.startsWith('_')) return;
-          if (processedMessages.has(messageId)) return;
-
-          processedMessages.add(messageId);
-          setTimeout(() => {
-            void this.collectAndDecryptMessages(conversationId, processedMessages, callback, myUserId, otherUserId);
-          }, 300);
+          ingestMessageId(messageId);
         };
         root.map().on(onChild);
         // Bootstrap read: `.map().on()` is expected to replay already-present children on
@@ -296,6 +318,21 @@ export class GunMessageStore {
         // durable in Gun gets rendered even if the live event was missed.
         root.map().once(onChild);
       }).catch(() => undefined);
+    }
+
+    if (myUserId) {
+      void this.listLocalWires(conversationId, myUserId, otherUserId)
+        .then((wires) => {
+          let added = false;
+          for (const wire of wires) {
+            const messageId = String(wire.id || '').trim();
+            if (!messageId || processedMessages.has(messageId)) continue;
+            processedMessages.add(messageId);
+            added = true;
+          }
+          if (added) collectSoon();
+        })
+        .catch(() => undefined);
     }
 
     return () => {
@@ -319,27 +356,13 @@ export class GunMessageStore {
     const pairRoot = resolvedPairRoot ? resolvedPairRoot.root : null;
 
     for (const msgId of ids) {
-      const msg = await new Promise<any>((resolve) => {
-        if (pairRoot) {
-          pairRoot.get(msgId).once((pairData: any) => {
-            if (pairData?.text) {
-              resolve(pairData);
-              return;
-            }
-            gun
-              .get(`conversations/${conversationId}`)
-              .get('messages')
-              .get(msgId)
-              .once((data: any) => resolve(data));
-          });
-          return;
-        }
-        gun
-          .get(`conversations/${conversationId}`)
-          .get('messages')
-          .get(msgId)
-          .once((data: any) => resolve(data));
-      });
+      const pairMsg = pairRoot ? await this.readMessageNode(pairRoot, msgId) : null;
+      const msg = pairMsg?.text
+        ? pairMsg
+        : await this.readMessageNode(
+          gun.get(`conversations/${conversationId}`).get('messages'),
+          msgId,
+        );
       if (!msg || !msg.text) continue;
 
       let text = String(msg.text);
@@ -407,5 +430,24 @@ export class GunMessageStore {
     }
 
     callback(messagesArray);
+
+    const missingCount = ids.length - messagesArray.length;
+    const retryKey = `${conversationId}:${myUserId || ''}:${otherUserId || ''}`;
+    if (missingCount > 0) {
+      const nextRetryCount = (this.collectRetryCounts.get(retryKey) || 0) + 1;
+      this.collectRetryCounts.set(retryKey, nextRetryCount);
+      if (nextRetryCount <= 20 && !this.collectRetryTimers.has(retryKey)) {
+        const timer = setTimeout(() => {
+          this.collectRetryTimers.delete(retryKey);
+          void this.collectAndDecryptMessages(conversationId, processedMessages, callback, myUserId, otherUserId);
+        }, 500);
+        this.collectRetryTimers.set(retryKey, timer);
+      }
+    } else {
+      this.collectRetryCounts.delete(retryKey);
+      const timer = this.collectRetryTimers.get(retryKey);
+      if (timer) clearTimeout(timer);
+      this.collectRetryTimers.delete(retryKey);
+    }
   }
 }

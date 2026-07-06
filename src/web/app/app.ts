@@ -154,6 +154,7 @@ export class IinPublicApp {
   private attachmentShareSentIds = new Set<string>();
   private fetchedAttachmentBytesByCid = new Map<string, Uint8Array>();
   private static readonly ATTACHMENT_SHARE_SENT_KEY = 'iinpublic_ipfs_share_sent_ids';
+  public initialized = false;
   /**
    * Durable mesh-ping diagnostics record updated by onPing/onPong callbacks.
    * Exposed via getApp() for E2E assertion (design §6, R5).
@@ -601,6 +602,7 @@ export class IinPublicApp {
   }
 
   async initialize(location: GPSCoordinate): Promise<void> {
+    this.initialized = false;
     this.currentLocation = location;
 
     // Initialize services (stage-zero server wipe happens in index.ts before init; do not purge
@@ -670,6 +672,7 @@ export class IinPublicApp {
       this.stageZeroBootedAt = Date.now();
       this.startStageZeroHeadcountWatchdog();
     }
+    this.initialized = true;
   }
 
   private subscribeToPublicAnnouncements(): void {
@@ -1675,7 +1678,7 @@ export class IinPublicApp {
     this.conversationService.upsertMessageRecord(
       payload.conversationId,
       payload.wire,
-      { otherUserId: this.currentUser.id },
+      { otherUserId: payload.senderId },
     );
     console.log('[Mailbox] Ingested offline DM', payload.wire.id, 'in', payload.conversationId);
   }

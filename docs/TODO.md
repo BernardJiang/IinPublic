@@ -28,16 +28,17 @@ LAN users.
 - [ ] **Pairwise conversation hardening `[Opus]`:** the canonical pair thread
       model is now implemented (`conv_pair_<sorted users>`) and direct/manual
       messages reuse it across direct peer-detail sends and matched-talk
-      continuations. Remaining acceptance criteria: both users see the same
-      ordered history after reload/reconnect; read receipts/order are
+      continuations. Reload now restores the same ordered message history for
+      the canonical pair thread. Remaining acceptance criteria: reconnect
+      resync after a true transport interruption; read receipts/order are
       deterministic when both sides send concurrently; conversation list sorting
       uses most-recent activity across multiple partners; direct/manual threads
       remain clearly distinguished from support channels.
 - [ ] **Conversation E2E depth `[Sonnet]`:** backfill UI tests for direct-message
       history depth: large history pagination/scroll performance (>50 messages),
       conversation deletion/editing behavior or an explicit unsupported-state
-      assertion, and reload/reconnect checks for the canonical manual pair
-      conversation once that product model is finalized.
+      assertion, and reconnect checks for the canonical manual pair conversation
+      once that product model is finalized.
 
 ### P1 — E2E coverage gaps to backfill `[Sonnet]`
 
