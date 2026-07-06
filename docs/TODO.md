@@ -101,7 +101,8 @@ referenced packages that don't exist).
       manually) per the corrected `platforms/ios/Podfile` comment; add the
       Xcode "copy nodejs-project + dist into bundle" build phase; create the
       `.xcodeproj` (sources are ready under `platforms/ios/IinPublic`).
-- [ ] **Hub hardening fix `[Opus]`:** Gun's wire protocol (`mesh.say`,
+- [ ] **Hub hardening fix `[Opus]`:** design note:
+      `docs/design/hub-hardening-explicit-relay-channel.md`. Gun's wire protocol (`mesh.say`,
       `node_modules/gun/gun.js` ~line 1502) broadcasts every local `.put()` to
       **all** connected peers unconditionally — now that the hub-dial bug is
       fixed and embedded nodes actually peer to the hub, app-private graph
@@ -114,7 +115,8 @@ referenced packages that don't exist).
       classify them without tracking the relational graph as observed), or
       (b) replacing the generic Gun peer link to the hub with a narrower,
       explicit REST-only discovery channel (loses live `.on()` sync, a real
-      product tradeoff). Write a design note first, then hand to Sonnet.
+      product tradeoff). Recommendation from the design note: choose (b), then
+      hand to Sonnet for implementation.
       `scripts/relay-only-verification/` has a real-process verification
       harness to validate the fix against (its runtime results were
       unreliable in a sandboxed CI-like environment — see the note at the top

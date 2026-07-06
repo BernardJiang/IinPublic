@@ -69,6 +69,23 @@ Partial LAN-browser prerequisite from `docs/TODO.md`.
 **Verification:** `npx jest src/test/unit/web-gun-service-hub-url.test.ts --runInBand`;
 `npm run test:type`.
 
+## 2026-07-06 — Hub hardening design note
+
+Partial S3 Hub hardening milestone from `docs/TODO.md`.
+
+- Added `docs/design/hub-hardening-explicit-relay-channel.md`.
+- The note anchors the privacy issue in current code:
+  `src/node-app/embedded-node.ts`, `src/server/bootstrap/http-bootstrap.ts`,
+  `scripts/relay-only-verification/run.js`, and Gun's `mesh.say` fanout.
+- It recommends replacing the embedded-node generic Gun peer link to the public
+  hub with an explicit relay-only HTTP channel for discovery, signaling,
+  presence, and room membership.
+- It defines acceptance tests for the implementation: no generic upstream Gun
+  peer in embedded explicit-relay mode, relay client rejection of app/private
+  graph classes, membership mirroring to the hub, native app E2E remaining
+  green, and relay-only verification proving `talks/*` does not leak to the
+  hub.
+
 ## 2026-07-06 — `dev:multi` presence reset and E2E coverage housekeeping
 
 Moved from `docs/TODO.md`.
