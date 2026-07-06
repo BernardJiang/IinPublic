@@ -53,10 +53,6 @@ LAN users.
       end-user account. Room counts and user lists must either explicitly label
       TechSupport as bootstrap/system presence or exclude it from ordinary-user
       assertions.
-- [ ] **First-user support flow `[Sonnet]`:** every first-time non-TechSupport
-      login should see TechSupport once and receive exactly one greeting from the
-      TechSupport bot. A single-user test means "TechSupport bootstrap + first
-      user interaction", not "one isolated ordinary user with no support peer".
 - [ ] **Audit E2E helper semantics `[Sonnet]`:** review all scripts that seed,
       count, or interact with TechSupport, especially
       `tests/e2e/helpers/clear-database.ts`,

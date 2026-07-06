@@ -809,8 +809,8 @@ export class IinPublicApp {
         isNewUser = true;
       }
     } else {
-      const firstNetworkUser = !(await this.userService.hasAnyUser());
-      this.currentUser = await this.createNewUser({ rootTechSupport: firstNetworkUser });
+      await this.bootstrapTechSupportRootIfMissing();
+      this.currentUser = await this.createNewUser();
       isNewUser = true;
     }
 
@@ -865,6 +865,65 @@ export class IinPublicApp {
 
     console.log('✨ New user created:', user.stageName);
     return user;
+  }
+
+  private async bootstrapTechSupportRootIfMissing(): Promise<void> {
+    if (await this.userService.hasTechSupportRoot()) return;
+
+    const rootLocation = this.currentLocation
+      ? LocationPrivacy.blurLocation(this.currentLocation)
+      : { region: '', chatrooms: ['global'] };
+    await this.userService.createTechSupportRoot({
+      location: {
+        ...rootLocation,
+        chatrooms: ['global'],
+      },
+      languages: ['en'],
+      interests: [],
+      profile: [],
+    });
+    await this.seedTechSupportGlobalMembership();
+    console.log('✨ TechSupport root bootstrapped before first ordinary user');
+  }
+
+  private async seedTechSupportGlobalMembership(): Promise<void> {
+    const now = new Date().toISOString();
+    const memberData = {
+      userId: TECHSUPPORT_ROOT_USER_ID,
+      stageName: TECHSUPPORT_STAGE_NAME,
+      joinedAt: now,
+      lastSeen: now,
+      isActive: true,
+    };
+    const gun = this.gunService.getGun();
+    gun.get('chatrooms').get('global').get('users').get(TECHSUPPORT_ROOT_USER_ID).put(memberData);
+    gun.get('chatroomMembers').get('global').get(TECHSUPPORT_ROOT_USER_ID).put(memberData);
+    gun.get('chatrooms').get('global').get('visits').get(TECHSUPPORT_ROOT_USER_ID).put({
+      userId: TECHSUPPORT_ROOT_USER_ID,
+      stageName: TECHSUPPORT_STAGE_NAME,
+      enteredAt: now,
+    });
+    gun.get('chatrooms').get('global').get('uniqueVisitors').get(TECHSUPPORT_ROOT_USER_ID).put(true);
+
+    const apiBase = this.getBackendApiBase();
+    if (!apiBase) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1500);
+    try {
+      await fetch(`${apiBase}/api/chatrooms/global/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: TECHSUPPORT_ROOT_USER_ID,
+          stageName: TECHSUPPORT_STAGE_NAME,
+        }),
+        signal: controller.signal,
+      });
+    } catch {
+      // Local Gun bootstrap is already written; server membership sync is best-effort here.
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private async initializeChatrooms(): Promise<void> {
@@ -2163,9 +2222,16 @@ export class IinPublicApp {
         supportChannel: true,
       }),
     });
-    await this.conversationService.sendMessage(conversationId, TECHSUPPORT_ROOT_USER_ID, welcome, {
-      otherUserId: userId,
-    });
+    await this.conversationService.sendMessage(
+      conversationId,
+      TECHSUPPORT_ROOT_USER_ID,
+      welcome,
+      {
+        otherUserId: userId,
+        messageId: `support_welcome_${userId}`,
+        isFromChatbot: true,
+      },
+    );
     gun.get(`users/${userId}`).get('conversations').get(conversationId).put({
       conversationId,
       otherUserId: TECHSUPPORT_ROOT_USER_ID,

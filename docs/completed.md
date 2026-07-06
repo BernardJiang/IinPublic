@@ -32,6 +32,16 @@ Moved from `docs/TODO.md`.
   asserts Global contains exactly TechSupport plus those three users. The smoke
   keeps child server logs quiet by default and prints the observed member IDs so
   ghost memberships are easy to diagnose.
+- **First-user support flow now treats TechSupport as bootstrap.** On an empty
+  network, the app no longer turns the first unseeded browser user into the
+  TechSupport root. Startup silently ensures the canonical TechSupport root
+  exists first, then creates the human as an ordinary user. The support welcome
+  now uses deterministic `support_welcome_<userId>` message IDs, making "exactly
+  one greeting" enforceable after reloads. Extended
+  `tests/e2e/staged/stage1-single-user/01-login-single-user-headcount.spec.ts`
+  to assert the first user's id is not `iinpublic-root-techsupport`, the Global
+  headcount is TechSupport + one user, the support conversation appears exactly
+  once, and the Gun graph contains one welcome message after reload.
 - **Search/filter interactivity coverage already exists.** Evidence:
   `tests/e2e/staged/stage1-single-user/29-me-answers-search.spec.ts`,
   `tests/e2e/staged/stage2-two-user/34-contacts-filter-name.spec.ts`,
@@ -93,7 +103,9 @@ Moved from `docs/TODO.md`.
 **Verification:** `npx jest src/test/unit/dev-stage-env.test.ts --runInBand`;
 `npx jest src/test/unit/chatroom-manager.test.ts src/test/integration/chatroom-routes.test.ts --runInBand`;
 `npm run test:type`;
+`npx jest src/test/unit/techsupport.test.ts --runInBand`;
 `DEV_MULTI_SMOKE_WEB_PORT=3361 npm run smoke:dev:multi`;
+`E2E_PORT_OFFSET=320 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage1-single-user/01-login-single-user-headcount.spec.ts`;
 `E2E_PORT_OFFSET=100 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts --grep "peer detail direct message"`;
 `E2E_PORT_OFFSET=200 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/42-stale-room-membership-prune.spec.ts`;
 `E2E_PORT_OFFSET=240 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/43-crash-room-membership-prune.spec.ts`.
