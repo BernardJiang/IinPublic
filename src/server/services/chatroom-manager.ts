@@ -4,9 +4,43 @@ import { canAssignRole, chatroomRolePath, deriveCommunityId } from '../../shared
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 
 export class ChatroomManager {
+  private fastActiveMembers = new Map<string, Map<string, { userId: string; stageName: string; lastSeen: string }>>();
+
   constructor(
     private gunService: GunService
   ) {}
+
+  private upsertFastMember(chatroomId: string, userId: string, stageName?: string, lastSeen?: string): void {
+    const room = this.fastActiveMembers.get(chatroomId) ?? new Map<string, { userId: string; stageName: string; lastSeen: string }>();
+    room.set(userId, {
+      userId,
+      stageName: stageName || userId,
+      lastSeen: lastSeen || new Date().toISOString(),
+    });
+    this.fastActiveMembers.set(chatroomId, room);
+  }
+
+  private removeFastMember(chatroomId: string, userId: string): void {
+    const room = this.fastActiveMembers.get(chatroomId);
+    if (!room) return;
+    room.delete(userId);
+    if (room.size === 0) this.fastActiveMembers.delete(chatroomId);
+  }
+
+  private getFastActiveMembers(chatroomId: string, now = new Date()): Array<{ userId: string; stageName: string }> {
+    const room = this.fastActiveMembers.get(chatroomId);
+    if (!room) return [];
+    const members: Array<{ userId: string; stageName: string }> = [];
+    for (const [userId, member] of room) {
+      if (this.roomMembershipIsStale({ isActive: true, lastSeen: member.lastSeen }, now)) {
+        room.delete(userId);
+        continue;
+      }
+      members.push({ userId, stageName: member.stageName });
+    }
+    if (room.size === 0) this.fastActiveMembers.delete(chatroomId);
+    return members;
+  }
 
   private async getPathWithRetry(path: string[], maxAttempts: number = 6, delayMs: number = 150): Promise<any> {
     for (let i = 0; i < maxAttempts; i++) {
@@ -180,6 +214,8 @@ export class ChatroomManager {
   }
 
   async getActiveMembersWithStageName(chatroomId: string): Promise<Array<{ userId: string; stageName: string }>> {
+    const fastMembers = this.getFastActiveMembers(chatroomId);
+    if (fastMembers.length > 0) return fastMembers;
     const pruned = await this.pruneStaleRoomMemberships(chatroomId);
     const fromRoomUsers = await this.collectActiveMembersFromUsersNode(chatroomId);
     if (fromRoomUsers.length > 0) {
@@ -354,6 +390,7 @@ export class ChatroomManager {
       isActive: true,
       ...(stageName ? { stageName } : {}),
     };
+    this.upsertFastMember(chatroomId, userId, stageName);
     await this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], {
       ...memberData,
     });
@@ -373,6 +410,7 @@ export class ChatroomManager {
       isActive: true,
       ...(stageName ? { stageName } : {}),
     };
+    this.upsertFastMember(chatroomId, userId, stageName);
     await Promise.all([
       this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], memberData),
       this.gunService.putPath(['chatroomMembers', chatroomId, userId], memberData),
@@ -405,6 +443,12 @@ export class ChatroomManager {
         : {}),
       userId,
     };
+    this.upsertFastMember(
+      chatroomId,
+      userId,
+      typeof memberData.stageName === 'string' ? memberData.stageName : userId,
+      memberData.lastSeen,
+    );
     await Promise.all([
       this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], memberData),
       this.gunService.putPath(['chatroomMembers', chatroomId, userId], memberData),
@@ -435,6 +479,7 @@ export class ChatroomManager {
     await this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], {
       ...leftData,
     });
+    this.removeFastMember(chatroomId, userId);
     await this.gunService.putPath(['chatroomMembers', chatroomId, userId], {
       ...leftData,
     });

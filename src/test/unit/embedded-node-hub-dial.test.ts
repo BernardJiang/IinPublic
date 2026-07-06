@@ -3,9 +3,17 @@ import { resolveUpstreamHubPeers } from '../../server/bootstrap/http-bootstrap';
 describe('resolveUpstreamHubPeers (S3 embedded-node hub dial)', () => {
   const HUB_PEERS = ['https://www.iinpublic.com/gun'];
 
-  it('dials the configured hub peers when embedded mode is enabled and no isolation flags are set', () => {
+  it('does NOT dial generic Gun peers in default explicit HTTP relay mode', () => {
     const peers = resolveUpstreamHubPeers(
-      { enabled: true, hubGunPeers: HUB_PEERS },
+      { enabled: true, hubGunPeers: HUB_PEERS, hubRelayMode: 'explicit-http' },
+      { e2eMemoryOnly: false, devGunFresh: false },
+    );
+    expect(peers).toEqual([]);
+  });
+
+  it('dials the configured hub peers in legacy gun-peer mode when no isolation flags are set', () => {
+    const peers = resolveUpstreamHubPeers(
+      { enabled: true, hubGunPeers: HUB_PEERS, hubRelayMode: 'gun-peer' },
       { e2eMemoryOnly: false, devGunFresh: false },
     );
     expect(peers).toEqual(HUB_PEERS);
@@ -13,7 +21,7 @@ describe('resolveUpstreamHubPeers (S3 embedded-node hub dial)', () => {
 
   it('does NOT dial when embedded mode is disabled (regular hub/dev server)', () => {
     const peers = resolveUpstreamHubPeers(
-      { enabled: false, hubGunPeers: HUB_PEERS },
+      { enabled: false, hubGunPeers: HUB_PEERS, hubRelayMode: 'gun-peer' },
       { e2eMemoryOnly: false, devGunFresh: false },
     );
     expect(peers).toEqual([]);
@@ -21,7 +29,7 @@ describe('resolveUpstreamHubPeers (S3 embedded-node hub dial)', () => {
 
   it('skips the dial under E2E_GUN_MEMORY_ONLY (explicit test isolation)', () => {
     const peers = resolveUpstreamHubPeers(
-      { enabled: true, hubGunPeers: HUB_PEERS },
+      { enabled: true, hubGunPeers: HUB_PEERS, hubRelayMode: 'gun-peer' },
       { e2eMemoryOnly: true, devGunFresh: false },
     );
     expect(peers).toEqual([]);
@@ -29,7 +37,7 @@ describe('resolveUpstreamHubPeers (S3 embedded-node hub dial)', () => {
 
   it('skips the dial under DEV_GUN_FRESH (explicit dev isolation)', () => {
     const peers = resolveUpstreamHubPeers(
-      { enabled: true, hubGunPeers: HUB_PEERS },
+      { enabled: true, hubGunPeers: HUB_PEERS, hubRelayMode: 'gun-peer' },
       { e2eMemoryOnly: false, devGunFresh: true },
     );
     expect(peers).toEqual([]);
@@ -42,9 +50,9 @@ describe('resolveUpstreamHubPeers (S3 embedded-node hub dial)', () => {
   // That made the embedded node's hub dial unconditionally suppressed. This
   // function must NOT take starServerPersistence/relayOnlyHub into account at
   // all — only the two explicit isolation flags below.
-  it('dials the hub even though mesh talk delivery (always-ephemeral star persistence) is on', () => {
+  it('legacy gun-peer mode still dials the hub even though mesh talk delivery is on', () => {
     const peers = resolveUpstreamHubPeers(
-      { enabled: true, hubGunPeers: HUB_PEERS },
+      { enabled: true, hubGunPeers: HUB_PEERS, hubRelayMode: 'gun-peer' },
       { e2eMemoryOnly: false, devGunFresh: false },
     );
     expect(peers.length).toBeGreaterThan(0);
@@ -52,7 +60,7 @@ describe('resolveUpstreamHubPeers (S3 embedded-node hub dial)', () => {
 
   it('returns an empty array (not the configured peers) when embedded.hubGunPeers itself is empty', () => {
     const peers = resolveUpstreamHubPeers(
-      { enabled: true, hubGunPeers: [] },
+      { enabled: true, hubGunPeers: [], hubRelayMode: 'gun-peer' },
       { e2eMemoryOnly: false, devGunFresh: false },
     );
     expect(peers).toEqual([]);

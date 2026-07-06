@@ -1,6 +1,10 @@
 import type express from 'express';
 import { ChatroomManager } from '../services/chatroom-manager';
 import type { CommunityRole } from '../../shared/types';
+import type {
+  EmbeddedHubRelayClientLike,
+  RelayRoomMember,
+} from '../../node-app/embedded-hub-relay-client';
 import {
   runChallengeGate,
   type ChallengeGateConfig,
@@ -12,6 +16,11 @@ const VALID_ROLES: CommunityRole[] = ['owner', 'moderator', 'member', 'guest'];
 
 type RegisterChatroomRoutesDeps = {
   chatroomManager: ChatroomManager;
+  /**
+   * S3 native explicit relay mode: embedded local nodes keep app graph local,
+   * but mirror room-membership metadata to the configured upstream hub.
+   */
+  hubRelayClient?: EmbeddedHubRelayClientLike;
   /**
    * FR-CPF-01: Optional gate resolver.  When provided, called for each
    * gated action before the action is executed.  If it returns a config the
@@ -25,8 +34,95 @@ type RegisterChatroomRoutesDeps = {
 
 export function registerChatroomRoutes(
   app: express.Application,
-  { chatroomManager, resolveChallengeGate }: RegisterChatroomRoutesDeps,
+  { chatroomManager, hubRelayClient, resolveChallengeGate }: RegisterChatroomRoutesDeps,
 ): void {
+  const relayPollTimers = new Map<string, ReturnType<typeof setInterval>>();
+
+  const mergeMembers = (
+    localMembers: RelayRoomMember[],
+    remoteMembers: RelayRoomMember[],
+  ): RelayRoomMember[] => {
+    const byUser = new Map<string, RelayRoomMember>();
+    for (const member of [...localMembers, ...remoteMembers]) {
+      if (!member.userId) continue;
+      byUser.set(member.userId, {
+        userId: member.userId,
+        stageName: member.stageName || member.userId,
+      });
+    }
+    return Array.from(byUser.values());
+  };
+
+  const syncMembersFromRelay = async (chatroomId: string): Promise<RelayRoomMember[]> => {
+    if (!hubRelayClient) return [];
+    const remoteMembers = await hubRelayClient.listMembers(chatroomId);
+    await Promise.all(
+      remoteMembers.map((member) =>
+        chatroomManager.touchMemberFast(chatroomId, member.userId, {
+          stageName: member.stageName,
+          lastSeen: new Date().toISOString(),
+        }),
+      ),
+    );
+    return remoteMembers;
+  };
+
+  const syncMembersFromRelayBestEffort = async (chatroomId: string): Promise<RelayRoomMember[]> => {
+    try {
+      return await syncMembersFromRelay(chatroomId);
+    } catch {
+      return [];
+    }
+  };
+
+  const observeRelayRoom = (chatroomId: string): void => {
+    if (!hubRelayClient || relayPollTimers.has(chatroomId)) return;
+    const timer = setInterval(() => {
+      void syncMembersFromRelayBestEffort(chatroomId);
+    }, 5_000);
+    timer.unref?.();
+    relayPollTimers.set(chatroomId, timer);
+  };
+
+  const mirrorRelayJoin = async (
+    chatroomId: string,
+    userId: string,
+    stageName?: string,
+  ): Promise<void> => {
+    if (!hubRelayClient) return;
+    try {
+      await hubRelayClient.addMember(chatroomId, userId, stageName);
+      observeRelayRoom(chatroomId);
+      await syncMembersFromRelayBestEffort(chatroomId);
+    } catch {
+      // The local embedded node remains usable offline; relay sync is best-effort metadata.
+    }
+  };
+
+  const mirrorRelayTouch = async (
+    chatroomId: string,
+    userId: string,
+    options: { stageName?: string; lastSeen?: string },
+  ): Promise<void> => {
+    if (!hubRelayClient) return;
+    try {
+      await hubRelayClient.touchMember(chatroomId, userId, options);
+      observeRelayRoom(chatroomId);
+      await syncMembersFromRelayBestEffort(chatroomId);
+    } catch {
+      // Best-effort metadata relay.
+    }
+  };
+
+  const mirrorRelayLeave = async (chatroomId: string, userId: string): Promise<void> => {
+    if (!hubRelayClient) return;
+    try {
+      await hubRelayClient.removeMember(chatroomId, userId);
+    } catch {
+      // Best-effort metadata relay.
+    }
+  };
+
   /** Runs the challenge gate for `action` in `chatroomId` for `userId`.
    *  Returns a 403-ready error string, or null if the action is allowed. */
   async function checkGate(
@@ -163,8 +259,10 @@ export function registerChatroomRoutes(
 
   app.get('/api/chatrooms/:id/members', async (req, res) => {
     try {
+      observeRelayRoom(req.params.id);
+      const remoteMembers = await syncMembersFromRelayBestEffort(req.params.id);
       const members = await chatroomManager.getActiveMembersWithStageName(req.params.id);
-      res.json(members);
+      res.json(mergeMembers(members, remoteMembers));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -178,6 +276,7 @@ export function registerChatroomRoutes(
         return;
       }
       await chatroomManager.addMemberFast(req.params.id, userId, stageName);
+      await mirrorRelayJoin(req.params.id, userId, stageName);
       res.json({ success: true });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -191,6 +290,7 @@ export function registerChatroomRoutes(
       if (stageName !== undefined) options.stageName = stageName;
       if (lastSeen !== undefined) options.lastSeen = lastSeen;
       await chatroomManager.touchMemberFast(req.params.id, req.params.userId, options);
+      await mirrorRelayTouch(req.params.id, req.params.userId, options);
       res.json({ success: true });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -200,6 +300,7 @@ export function registerChatroomRoutes(
   app.delete('/api/chatrooms/:id/members/:userId', async (req, res) => {
     try {
       await chatroomManager.leaveChatroom(req.params.id, req.params.userId);
+      await mirrorRelayLeave(req.params.id, req.params.userId);
       res.json({ success: true });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });

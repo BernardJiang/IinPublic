@@ -24,6 +24,8 @@ import {
   type SchemaKind,
 } from '../shared/p2p-schema-migrations';
 import { CHATROOM_HIERARCHY } from '../shared/chatroom-hierarchy';
+import { resolveEmbeddedNodeConfig } from '../shared/embedded-node-config';
+import { EmbeddedHubRelayClient } from '../node-app/embedded-hub-relay-client';
 
 class IinPublicServer {
   private app: express.Application;
@@ -36,6 +38,7 @@ class IinPublicServer {
   private userService!: UserService;
   private reputationService!: ReputationService;
   private techSupportAnnouncements!: TechSupportAnnouncementService;
+  private hubRelayClient?: EmbeddedHubRelayClient;
 
   private mailboxStore = new MailboxStore();
   private mailboxSweepTimer: ReturnType<typeof setInterval> | undefined;
@@ -69,6 +72,16 @@ class IinPublicServer {
     this.chatroomManager = new ChatroomManager(this.gunService);
     this.talkService = new TalkService(this.gunService, this.reputationService);
     this.techSupportAnnouncements = new TechSupportAnnouncementService(this.gunService);
+    const embedded = resolveEmbeddedNodeConfig(process.env);
+    if (
+      embedded.enabled &&
+      embedded.hubRelayMode === 'explicit-http' &&
+      embedded.upstreamHubBaseUrl
+    ) {
+      this.hubRelayClient = new EmbeddedHubRelayClient({
+        upstreamHubBaseUrl: embedded.upstreamHubBaseUrl,
+      });
+    }
     this.logStartupSchemaDiagnostics();
     void this.publishPublicBootstrap();
   }
@@ -175,7 +188,10 @@ class IinPublicServer {
       loadTalkDataFromGraphOrBody: this.loadTalkDataFromGraphOrBody.bind(this),
     });
 
-    registerChatroomRoutes(this.app, { chatroomManager: this.chatroomManager });
+    registerChatroomRoutes(this.app, {
+      chatroomManager: this.chatroomManager,
+      ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
+    });
     registerAdminRoutes(this.app, this.techSupportAnnouncements);
 
     registerStatsRoutes(this.app, {

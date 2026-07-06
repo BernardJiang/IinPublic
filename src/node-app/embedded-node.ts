@@ -16,6 +16,7 @@
  *   IINPUBLIC_EMBEDDED_NODE=1      (forced on here)
  *   IINPUBLIC_PLATFORM=windows|ubuntu|macos|android|ios
  *   IINPUBLIC_HUB_GUN_URL=https://www.iinpublic.com/gun[,...]
+ *   IINPUBLIC_EMBEDDED_HUB_MODE=explicit-http|gun-peer
  *   IINPUBLIC_LOCAL_PORT=8080
  *   IINPUBLIC_WEB_ROOT=/abs/path/to/dist/web
  *   IINPUBLIC_DATA_DIR=/abs/path/to/writable/app-data
@@ -53,6 +54,7 @@ function applyEnv(config: EmbeddedNodeConfig): void {
   process.env.IINPUBLIC_WEB_ROOT = config.webRoot;
   process.env.IINPUBLIC_DATA_DIR = config.dataDir;
   process.env.IINPUBLIC_LOOPBACK_ONLY = config.loopbackOnly ? '1' : '0';
+  process.env.IINPUBLIC_EMBEDDED_HUB_MODE = config.hubRelayMode;
   if (config.hubGunPeers.length > 0) {
     process.env.IINPUBLIC_HUB_GUN_URL = config.hubGunPeers.join(',');
   }
@@ -106,6 +108,7 @@ export async function startEmbeddedNode(
   console.log(
     `[embedded-node] starting on 127.0.0.1:${config.localPort} ` +
       `(platform=${config.platform}, hub=${config.hubGunPeers.join(',') || 'none'}, ` +
+      `hubMode=${config.hubRelayMode}, ` +
       `dataDir=${config.dataDir})`,
   );
   if (typeof server.start === 'function') {

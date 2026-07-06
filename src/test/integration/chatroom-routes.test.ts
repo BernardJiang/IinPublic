@@ -1,8 +1,9 @@
 import express from 'express';
 import request from 'supertest';
 import { registerChatroomRoutes } from '../../server/routes/chatroom-routes';
+import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-relay-client';
 
-function buildApp() {
+function buildApp(options: { hubRelayClient?: EmbeddedHubRelayClientLike } = {}) {
   const app = express();
   app.use(express.json());
   const manager = {
@@ -17,7 +18,10 @@ function buildApp() {
     deleteChatroom: jest.fn().mockResolvedValue(undefined),
     getActiveMembersWithStageName: jest.fn().mockResolvedValue([]),
   } as any;
-  registerChatroomRoutes(app, { chatroomManager: manager });
+  registerChatroomRoutes(app, {
+    chatroomManager: manager,
+    ...(options.hubRelayClient ? { hubRelayClient: options.hubRelayClient } : {}),
+  });
   return { app, manager };
 }
 
@@ -82,5 +86,54 @@ describe('chatroom routes', () => {
     const removeRes = await request(app).delete('/api/chatrooms/room_1/members/u2');
     expect(removeRes.status).toBe(200);
     expect(manager.leaveChatroom).toHaveBeenCalledWith('room_1', 'u2');
+  });
+
+  it('mirrors local membership writes to the explicit hub relay', async () => {
+    const hubRelayClient: EmbeddedHubRelayClientLike = {
+      listMembers: jest.fn().mockResolvedValue([{ userId: 'remote_1', stageName: 'Remote' }]),
+      addMember: jest.fn().mockResolvedValue(undefined),
+      touchMember: jest.fn().mockResolvedValue(undefined),
+      removeMember: jest.fn().mockResolvedValue(undefined),
+    };
+    const { app, manager } = buildApp({ hubRelayClient });
+
+    const addRes = await request(app).post('/api/chatrooms/global/members').send({
+      userId: 'local_1',
+      stageName: 'Local',
+    });
+
+    expect(addRes.status).toBe(200);
+    expect(hubRelayClient.addMember).toHaveBeenCalledWith('global', 'local_1', 'Local');
+    expect(hubRelayClient.listMembers).toHaveBeenCalledWith('global');
+    expect(manager.touchMemberFast).toHaveBeenCalledWith('global', 'remote_1', {
+      stageName: 'Remote',
+      lastSeen: expect.any(String),
+    });
+  });
+
+  it('merges explicit hub relay members into the local members endpoint', async () => {
+    const hubRelayClient: EmbeddedHubRelayClientLike = {
+      listMembers: jest.fn().mockResolvedValue([
+        { userId: 'remote_1', stageName: 'Remote' },
+        { userId: 'local_1', stageName: 'Local From Hub' },
+      ]),
+      addMember: jest.fn().mockResolvedValue(undefined),
+      touchMember: jest.fn().mockResolvedValue(undefined),
+      removeMember: jest.fn().mockResolvedValue(undefined),
+    };
+    const { app, manager } = buildApp({ hubRelayClient });
+    manager.getActiveMembersWithStageName.mockResolvedValue([{ userId: 'local_1', stageName: 'Local' }]);
+
+    const res = await request(app).get('/api/chatrooms/global/members');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      { userId: 'local_1', stageName: 'Local From Hub' },
+      { userId: 'remote_1', stageName: 'Remote' },
+    ]);
+    expect(manager.touchMemberFast).toHaveBeenCalledWith('global', 'remote_1', {
+      stageName: 'Remote',
+      lastSeen: expect.any(String),
+    });
   });
 });

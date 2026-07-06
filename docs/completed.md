@@ -2543,3 +2543,33 @@ revision is delivered once. Manual broadcast remains available.
 Verification: focused browser E2E in
 `tests/e2e/staged/stage1-single-user/00-ui-navigation-settings.spec.ts` proves filters/order and
 initial delivery → no replay → changed revision delivery; `npx tsc --noEmit` clean.
+
+## 2026-07-06 — Embedded hub hardening: explicit HTTP relay replaces generic Gun peer
+
+Closed the S3 hub-hardening privacy risk for native embedded nodes:
+
+- Embedded config now defaults to `hubRelayMode=explicit-http`.
+- `resolveUpstreamHubPeers()` returns `[]` in explicit relay mode, so native
+  embedded nodes no longer connect to the public hub as generic Gun peers.
+- `EmbeddedHubRelayClient` provides the narrow upstream channel and rejects
+  private/app graph classes such as `talks/*`, `conversations/*`,
+  `pairConversations/*`, `pairTalkResponses/*`, `incomingTalksByUser/*`, and
+  `ownerIncomingTalkIndex/*`.
+- Chatroom membership routes mirror only room-membership metadata to the
+  upstream hub and import hub membership snapshots back into the local node.
+- `ChatroomManager` now maintains a fast in-process active-member index for
+  API joins/touches/leaves, avoiding slow or empty parent-node Gun reads in
+  `/api/chatrooms/:id/members`.
+- A legacy `IINPUBLIC_EMBEDDED_HUB_MODE=gun-peer` escape hatch remains for one
+  migration window, but the default shipped/native topology is explicit HTTP.
+
+Verification:
+
+`npx jest src/test/unit/embedded-node-config.test.ts src/test/unit/embedded-node-hub-dial.test.ts src/test/unit/embedded-hub-relay-client.test.ts src/test/integration/chatroom-routes.test.ts --runInBand` — 31 passed.
+
+`npm run test:type` — clean.
+
+`npm run test:e2e:native-app` — 3 passed.
+
+`node scripts/relay-only-verification/run.js` — passed: a `talks/*` write on
+embedded node A was not observable from the hub or independent embedded node B.

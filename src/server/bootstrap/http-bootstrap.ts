@@ -170,11 +170,13 @@ export function warnIfStaleRadataExists(cwd = process.cwd()): void {
  * don't accidentally dial a real hub — not the always-on mesh-delivery flag.
  */
 export function resolveUpstreamHubPeers(
-  embedded: Pick<ReturnType<typeof resolveEmbeddedNodeConfig>, 'enabled' | 'hubGunPeers'>,
+  embedded: Pick<ReturnType<typeof resolveEmbeddedNodeConfig>, 'enabled' | 'hubGunPeers' | 'hubRelayMode'>,
   isolation: { e2eMemoryOnly: boolean; devGunFresh: boolean },
 ): string[] {
   const skipEmbeddedHubDial = isolation.e2eMemoryOnly || isolation.devGunFresh;
-  return embedded.enabled && !skipEmbeddedHubDial ? embedded.hubGunPeers : [];
+  if (!embedded.enabled || skipEmbeddedHubDial) return [];
+  if (embedded.hubRelayMode === 'explicit-http') return [];
+  return embedded.hubGunPeers;
 }
 
 export function attachGun(server: HttpServer): any {

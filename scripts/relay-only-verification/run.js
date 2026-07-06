@@ -1,35 +1,28 @@
 #!/usr/bin/env node
 /**
- * NOTE (2026-06-30): runtime results from this script were unreliable in the
- * sandboxed CI-like environment this was authored in (short-lived Gun client
+ * NOTE (2026-07-06): this is now the regression harness for the embedded-node
+ * explicit HTTP relay topology. It previously helped document the generic Gun
+ * upstream-peer risk. Runtime results from the original 2026-06-30 version were
+ * unreliable in a sandboxed CI-like environment (short-lived Gun client
  * processes did not reliably complete the WS handshake within the observation
  * window, producing false "not found" results even for same-server sanity
- * checks). The DEFINITIVE finding for this investigation came from reading
- * Gun's wire-fanout code directly, not from this script:
+ * checks), so the definitive original finding came from reading Gun's
+ * wire-fanout code directly:
  *
  *   node_modules/gun/gun.js, `mesh.say` (~line 1502): every local `.put()`
  *   triggers `root.on('out', msg)` with NO specific peer, which falls into
  *   the unconditional broadcast branch (~line 1524-1536: `ps = opt.peers`,
  *   loop calls `mesh.say(msg, p)` for every connected peer). There is no
  *   subscription/interest check — ANY local put is sent to ALL peers,
- *   including the upstream hub peer added via `attachGun()`'s
- *   `upstreamHubPeers`. The hub's `radisk:false` (relay-only mode) prevents
- *   that data from reaching disk, but the in-memory graph on the hub process
- *   still receives and merges it. This confirms the risk docs/TODO.md already
- *   flagged with ⚠ is real, not hypothetical, and pins the exact code path.
+ *   including the upstream hub peer added via the old `attachGun()` peer path.
+ *   The hub's `radisk:false` (relay-only mode) prevented durable disk writes,
+ *   but the in-memory graph on the hub process still received and merged data.
  *
- * Fixing this requires either (a) a soul-classification-tracking outbound
- * filter scoped to just the hub peer connection (non-trivial: nested Gun
- * `.get().get()` chains use auto-generated souls for child nodes, so a
- * single-message content filter can't classify them without tracking the
- * relational graph as it's observed), or (b) replacing the generic Gun peer
- * link to the hub with a narrow, explicit REST-based discovery channel. Both
- * are real implementation work, intentionally NOT attempted blind in this
- * pass — see docs/TODO.md S3 "Hub hardening fix" for the follow-up item.
- *
- * This script remains useful as a real, separate-process verification
- * harness (hub + 2 independent embedded-node peers) on a machine/CI where
- * Gun's websocket handshake completes reliably within a few seconds.
+ * The fix was replacing the generic Gun peer link with a narrow explicit HTTP
+ * relay channel. `resolveUpstreamHubPeers()` now returns no generic peers in
+ * default explicit relay mode. This script should pass by proving
+ * app-classified writes stay local to nodeA and are not visible from the hub or
+ * nodeB.
  *
  * S3 hub-hardening verification (docs/TODO.md):
  *
@@ -39,10 +32,10 @@
  *
  * This boots three REAL, separate processes (matching production topology):
  *   - hub:    RELAY_ONLY_HUB=1, E2E_GUN_MEMORY_ONLY=1 (mirrors www.iinpublic.com)
- *   - nodeA:  embedded local node, peers upstream to hub (mirrors a desktop/
- *             mobile shell's bundled node)
- *   - nodeB:  a second, independent embedded local node also peered to the
- *             same hub (mirrors a different user's device)
+ *   - nodeA:  embedded local node, explicit HTTP relay to hub (mirrors a
+ *             desktop/mobile shell's bundled node)
+ *   - nodeB:  a second, independent embedded local node using the same explicit
+ *             relay hub (mirrors a different user's device)
  *
  * It then writes an app-classified Gun path (`talks/<id>`, which
  * `shouldSkipServerGunPersist`/`classifyServerConnectorPath` both mark as
@@ -54,9 +47,7 @@
  *      data? (cross-peer leak via the hub acting as a relay)
  *
  * Exit code 0 = no leak observed (hub never produced app-private data to an
- * independent reader). Exit code 1 = leak observed — the embedded node's
- * generic upstream Gun peer connection is gossiping app data, not just the
- * relayOnlyDataClasses (discovery/signaling/presence/room-membership).
+ * independent reader). Exit code 1 = leak observed.
  *
  * Usage: node scripts/relay-only-verification/run.js
  */

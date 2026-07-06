@@ -44,8 +44,9 @@ the *existing* `src/server` code as a **local Gun peer**. That local node:
 - persists application data **on-device** via radisk (satisfies the
   "Gun-on-device is the source of truth" invariant — strictly better than
   browser storage),
-- dials the public hub as an **upstream Gun peer for discovery only**
-  (`relayOnlyDataClasses`: discovery / signaling / presence / room-membership),
+- syncs relay-only metadata with the public hub over an **explicit HTTP channel**
+  instead of a generic Gun peer (`relayOnlyDataClasses`: discovery / signaling /
+  presence / room-membership),
 - **serves the prebuilt web SPA** (`dist/web`) on `127.0.0.1:<port>`, so the
   WebView/renderer reuses **100% of the browser UI** unchanged. Because the UI
   loads from the local node, `WebGunService.deriveGunHubUrl()` already resolves
@@ -71,7 +72,8 @@ WKWebView's limited WebRTC never blocks P2P — the mesh lives in Node.
 - [x] `src/shared/embedded-node-config.ts` — config resolver (enabled, platform,
       port, hub peers, webRoot, dataDir, loopbackOnly) + unit test (10 cases).
 - [x] `attachGun` / `configureHttpMiddleware` embedded mode (env-gated, additive):
-      dials hub peers upstream, forces on-device radisk, serves `dist/web`.
+      keeps generic hub peers disabled in explicit relay mode, forces on-device
+      radisk, serves `dist/web`.
 - [x] `src/node-app/embedded-node.ts` — single entry every shell boots; reuses
       `IinPublicServer`. Smoke-tested: boots, persists on-device, serves SPA,
       `/health` 200 on loopback.
@@ -101,33 +103,17 @@ referenced packages that don't exist).
       manually) per the corrected `platforms/ios/Podfile` comment; add the
       Xcode "copy nodejs-project + dist into bundle" build phase; create the
       `.xcodeproj` (sources are ready under `platforms/ios/IinPublic`).
-- [ ] **Hub hardening fix `[Opus]`:** design note:
-      `docs/design/hub-hardening-explicit-relay-channel.md`. Gun's wire protocol (`mesh.say`,
-      `node_modules/gun/gun.js` ~line 1502) broadcasts every local `.put()` to
-      **all** connected peers unconditionally — now that the hub-dial bug is
-      fixed and embedded nodes actually peer to the hub, app-private graph
-      writes (`talks/*`, `conversations/*`, `pairConversations/*`, etc.) ARE
-      sent over that wire to the hub's in-memory graph, even though
-      `radisk:false` keeps them off disk there. Needs either (a) a
-      soul-classification-tracking outbound filter scoped to just the hub
-      peer connection (nontrivial: nested `.get().get()` chains use
-      auto-generated souls for child nodes, so a single-message filter can't
-      classify them without tracking the relational graph as observed), or
-      (b) replacing the generic Gun peer link to the hub with a narrower,
-      explicit REST-only discovery channel (loses live `.on()` sync, a real
-      product tradeoff). Recommendation from the design note: choose (b), then
-      hand to Sonnet for implementation.
-      `scripts/relay-only-verification/` has a real-process verification
-      harness to validate the fix against (its runtime results were
-      unreliable in a sandboxed CI-like environment — see the note at the top
-      of `run.js` — so validate on a machine/CI where Gun's WS handshake
-      completes reliably).
+- [ ] **Explicit relay direct-message smoke `[Sonnet]`:** after the hub-hardening
+      fix, add a browser + native-app E2E that sends a direct/manual
+      conversation message through the explicit relay topology. The current
+      native coverage proves room membership discovery; this should prove the
+      conversation/signaling path with no generic embedded Gun peer.
 
 **Known runtime risks:**
 - ✓ Gun replication timing on auto-reply path: mitigated by server POST path.
 - ✓ `talkCompleted` handler fallback: verified, preserves data safely.
-- ⚠ Gun has no native per-subgraph peer scoping — see "Hub hardening fix" above;
-  this is now a concrete, code-cited finding rather than a hypothetical.
+- ✓ Embedded nodes no longer use a generic Gun peer link to the public hub by
+  default; relay-only membership now goes through an explicit HTTP channel.
 
 ---
 

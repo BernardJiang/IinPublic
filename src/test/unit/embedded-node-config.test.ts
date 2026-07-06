@@ -1,6 +1,8 @@
 import {
   resolveEmbeddedNodeConfig,
   parseHubPeers,
+  deriveUpstreamHubBaseUrl,
+  normalizeEmbeddedHubRelayMode,
   EMBEDDED_NODE_DEFAULT_HUB,
   EMBEDDED_NODE_DEFAULT_PORT,
 } from '../../shared/embedded-node-config';
@@ -24,6 +26,33 @@ describe('embedded-node-config', () => {
     });
   });
 
+  describe('deriveUpstreamHubBaseUrl', () => {
+    it('derives the HTTP relay base from the configured /gun URL', () => {
+      expect(deriveUpstreamHubBaseUrl('http://192.168.10.48:8080/gun')).toBe(
+        'http://192.168.10.48:8080',
+      );
+      expect(deriveUpstreamHubBaseUrl('https://www.iinpublic.com/gun/')).toBe(
+        'https://www.iinpublic.com',
+      );
+    });
+
+    it('accepts an already-base URL', () => {
+      expect(deriveUpstreamHubBaseUrl('http://127.0.0.1:8080')).toBe('http://127.0.0.1:8080');
+    });
+  });
+
+  describe('normalizeEmbeddedHubRelayMode', () => {
+    it('defaults to explicit HTTP relay mode', () => {
+      expect(normalizeEmbeddedHubRelayMode(undefined)).toBe('explicit-http');
+      expect(normalizeEmbeddedHubRelayMode('wat')).toBe('explicit-http');
+    });
+
+    it('keeps a legacy generic Gun-peer escape hatch', () => {
+      expect(normalizeEmbeddedHubRelayMode('gun-peer')).toBe('gun-peer');
+      expect(normalizeEmbeddedHubRelayMode('legacy-gun-peer')).toBe('gun-peer');
+    });
+  });
+
   describe('resolveEmbeddedNodeConfig', () => {
     it('is disabled by default with no env', () => {
       const cfg = resolveEmbeddedNodeConfig({});
@@ -37,6 +66,8 @@ describe('embedded-node-config', () => {
       const cfg = resolveEmbeddedNodeConfig({ IINPUBLIC_EMBEDDED_NODE: '1' });
       expect(cfg.enabled).toBe(true);
       expect(cfg.hubGunPeers).toEqual([EMBEDDED_NODE_DEFAULT_HUB]);
+      expect(cfg.upstreamHubBaseUrl).toBe('https://www.iinpublic.com');
+      expect(cfg.hubRelayMode).toBe('explicit-http');
       expect(cfg.loopbackOnly).toBe(true);
     });
 
@@ -54,6 +85,15 @@ describe('embedded-node-config', () => {
         'https://hub.example/gun',
         'https://hub2.example/gun',
       ]);
+      expect(cfg.upstreamHubBaseUrl).toBe('https://hub.example');
+    });
+
+    it('allows legacy generic Gun-peer mode during migration', () => {
+      const cfg = resolveEmbeddedNodeConfig({
+        IINPUBLIC_EMBEDDED_NODE: 'true',
+        IINPUBLIC_EMBEDDED_HUB_MODE: 'gun-peer',
+      });
+      expect(cfg.hubRelayMode).toBe('gun-peer');
     });
 
     it('parses port from IINPUBLIC_LOCAL_PORT then PORT', () => {
