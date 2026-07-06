@@ -29,16 +29,12 @@ LAN users.
       model is now implemented (`conv_pair_<sorted users>`) and direct/manual
       messages reuse it across direct peer-detail sends and matched-talk
       continuations. Reload now restores the same ordered message history for
-      the canonical pair thread. Remaining acceptance criteria: reconnect
-      resync after a true transport interruption; read receipts/order are
-      deterministic when both sides send concurrently; conversation list sorting
-      uses most-recent activity across multiple partners; direct/manual threads
-      remain clearly distinguished from support channels.
-- [ ] **Conversation E2E depth `[Sonnet]`:** backfill reconnect checks for the
-      canonical manual pair conversation once that product model is finalized.
-      Large-history rendering/scroll coverage (>50 messages) and the explicit
-      unsupported-state assertion for conversation message edit/delete are now
-      covered.
+      the canonical pair thread, and hard-crash recovery now proves the recovered
+      pair can continue messaging. Remaining acceptance criteria: read
+      receipts/order are deterministic when both sides send concurrently;
+      conversation list sorting uses most-recent activity across multiple
+      partners; direct/manual threads remain clearly distinguished from support
+      channels.
 
 ### P1 — E2E coverage gaps to backfill `[Sonnet]`
 

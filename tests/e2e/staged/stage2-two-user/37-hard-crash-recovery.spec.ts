@@ -22,7 +22,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { chromium, Browser, expect } from '@playwright/test';
+import { chromium, Browser, expect, type Page } from '@playwright/test';
 import { test } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless, gotoAppReady } from '../../helpers/timing';
@@ -38,6 +38,7 @@ import { launchPersistentUser, bootstrapOnPage } from '../../helpers/crash-recov
 
 const MSG_1 = 'CRASH-recovery-msg-1';
 const MSG_2 = 'CRASH-recovery-msg-2';
+const MSG_3 = 'CRASH-recovery-post-reconnect-reply';
 
 test.describe('Hard crash recovery: SIGKILL B, A sends offline, B relaunches from same profile and recovers', () => {
   let browserA: Browser;
@@ -198,8 +199,8 @@ test.describe('Hard crash recovery: SIGKILL B, A sends offline, B relaunches fro
     expect(convIdAfter, 'B recovered the SAME A↔B conversation id after the crash').toBe(conversationId);
 
     // ── 8. Both offline messages arrive (mailbox drains ≤3s poll) ─────────────
-    const readTexts = () =>
-      pageBReborn.evaluate(
+    const readTextsFor = (page: Page, myId: string, otherId: string) =>
+      page.evaluate(
         ({ cid, otherId, myId }) =>
           new Promise<string[]>((resolve) => {
             const app = (window as any).__iinpublic_app?.getApp?.();
@@ -218,14 +219,14 @@ test.describe('Hard crash recovery: SIGKILL B, A sends offline, B relaunches fro
               resolve(Array.from(new Set(texts)));
             }, 900);
           }),
-        { cid: conversationId, otherId: userIdA, myId: userIdB },
+        { cid: conversationId, otherId, myId },
       );
 
     let seen: string[] = [];
     await expect
       .poll(
         async () => {
-          seen = await readTexts();
+          seen = await readTextsFor(pageBReborn, userIdB, userIdA);
           return seen.includes(MSG_1) && seen.includes(MSG_2);
         },
         { timeout: 25_000, intervals: [1000, 1500, 2000], message: 'both offline messages must arrive after B recovers' },
@@ -233,7 +234,23 @@ test.describe('Hard crash recovery: SIGKILL B, A sends offline, B relaunches fro
       .toBe(true);
     mark('both offline messages delivered');
 
-    // ── 9. App booted cleanly (not stuck on an empty state) ───────────────────
+    // ── 9. Recovered B can continue the SAME canonical pair conversation ──────
+    await pageBReborn.evaluate(
+      async ({ cid, sid, body, otherId }) => {
+        const app = (window as any).__iinpublic_app?.getApp?.();
+        await app.conversationService.sendMessage(cid, sid, body, { otherUserId: otherId });
+      },
+      { cid: conversationId, sid: userIdB, body: MSG_3, otherId: userIdA },
+    );
+    await expect
+      .poll(
+        async () => (await readTextsFor(pageA, userIdA, userIdB)).includes(MSG_3),
+        { timeout: 25_000, intervals: [1000, 1500, 2000], message: 'A must receive B reply after B reconnects' },
+      )
+      .toBe(true);
+    mark('post-reconnect reply delivered');
+
+    // ── 10. App booted cleanly (not stuck on an empty state) ──────────────────
     const chatroomsVisible = await pageBReborn.locator('.nav-btn[data-view="chatrooms"]').isVisible();
     expect(chatroomsVisible, 'B app rendered its shell (clean boot)').toBe(true);
   });

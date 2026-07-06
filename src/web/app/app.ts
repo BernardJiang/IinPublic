@@ -1544,6 +1544,13 @@ export class IinPublicApp {
     console.log(`[Mailbox] Draining ${envelopes.length} envelope(s) for user ${this.currentUser.id}`);
     for (const envelope of envelopes) {
       try {
+        let senderEpubHint = '';
+        try {
+          const wrapper = JSON.parse(envelope.ciphertext) as { senderEpub?: unknown };
+          senderEpubHint = typeof wrapper.senderEpub === 'string' ? wrapper.senderEpub.trim() : '';
+        } catch {
+          /* malformed wrappers are handled by decryptEnvelope below */
+        }
         const payload = await mailbox.decryptEnvelope<
           | P2PMeshTalkResponsePayload
           | import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload
@@ -1560,6 +1567,9 @@ export class IinPublicApp {
         //   - has `retractedAt` (number) → step-10 retraction envelope
         //   - has `responseId` → talk-response payload from step 6
         if ((payload as any).kind === 'conversation-message-v1') {
+          if (senderEpubHint && typeof (payload as MailboxConversationMessagePayload).senderId === 'string') {
+            this.peerEpubByUserId.set((payload as MailboxConversationMessagePayload).senderId, senderEpubHint);
+          }
           await this.ingestConversationMessageFromMailbox(payload as MailboxConversationMessagePayload);
         } else if ((payload as any).kind === 'ipfs-conversation-share-v1') {
           await this.ingestAttachmentShareFromMailbox(payload as MailboxAttachmentSharePayload);

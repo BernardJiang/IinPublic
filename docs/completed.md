@@ -2421,6 +2421,22 @@ Verification:
 
 `npm run test:type && E2E_PORT_OFFSET=433 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/31-messaging-history-order.spec.ts` — 1 passed.
 
+## 2026-07-06 — Hard-crash reconnect can continue the canonical pair conversation
+
+Extended `37-hard-crash-recovery.spec.ts` so the recovered user B not only receives A's two
+offline mailbox messages after SIGKILL/relaunch, but also sends a new reply back to A through the
+same canonical `conv_pair_...` conversation.
+
+This found and fixed a real reconnect bug: mailbox envelopes include the sender's epub as a
+ciphertext-wrapper hint, and B could use that hint to decrypt A's offline messages, but the app did
+not cache it against `payload.senderId`. B therefore could not always resolve A's epub when
+encrypting a reply after recovery. `drainMailboxOnce()` now caches that sender epub for
+`conversation-message-v1` payloads before ingesting the DM.
+
+Verification:
+
+`npm run test:type && E2E_PORT_OFFSET=442 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/37-hard-crash-recovery.spec.ts` — 1 passed.
+
 ## 2026-06-20 — P0 test determinism live gate
 
 The full browser suite passed with `PW_WORKERS=4 npm run test:e2e -- --retries=0` (110 specs).

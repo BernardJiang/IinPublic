@@ -4,8 +4,9 @@
 
 A matched user B whose browser is **hard-killed** (SIGKILL, not a graceful close) recovers
 fully on relaunch: same identity, same conversation, and any messages A sent while B was dead
-are delivered from the encrypted offline mailbox once B comes back. B boots cleanly (no stuck
-empty state).
+are delivered from the encrypted offline mailbox once B comes back. The recovered B can then
+send a fresh reply back to A through the same canonical pair conversation. B boots cleanly (no
+stuck empty state).
 
 ## Kill mechanism used (documented per task requirement)
 
@@ -49,7 +50,16 @@ which is what makes B "the same user" after the crash.
      the list from it.
    - Both offline messages arrive after B's mailbox drain (≤3s poll loop), read from the durable
      message store via `subscribeToMessages`.
+   - B sends a post-reconnect reply in the same conversation, and A receives it.
    - The chatrooms nav shell is rendered → clean boot, no wedged empty state.
+
+## Bug found/fixed
+
+The post-reconnect reply initially failed. B could decrypt A's offline mailbox messages because the
+mailbox ciphertext wrapper includes A's sender epub, but the app did not cache that epub against
+`payload.senderId` while draining `conversation-message-v1`. After recovery, B could not reliably
+resolve A's epub to encrypt a reply. `IinPublicApp.drainMailboxOnce()` now caches the sender epub
+hint before ingesting the offline DM.
 
 ## Compromises
 
@@ -62,5 +72,4 @@ which is what makes B "the same user" after the crash.
 
 ## Result
 
-`1 passed` (~34s). No product bug found — crash recovery, identity persistence, and mailbox
-drain all behave as designed.
+`npm run test:type && E2E_PORT_OFFSET=442 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/37-hard-crash-recovery.spec.ts` — 1 passed.
