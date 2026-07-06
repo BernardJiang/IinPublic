@@ -11,6 +11,8 @@ these four; their sources live in [Archive](archive/consolidated-2026-06-08/READ
 - [TODO](TODO.md) — **all future tasks**: execution queue plus detailed backlog inventory and statistics/spec-gap follow-ups (Appendices A–C).
 - [Completed Work](completed.md) — **all completed tasks**: durable ledger for finished features.
 - [How To Run](guides/HOW_TO_RUN.md) — local setup, validation commands, and dev workflows.
+- [Port Usage Scenarios](design/port-usage-scenarios.md) — shared-dev, E2E, native app, LAN, mobile, and production port model.
+- [Native App E2E Strategy](testing/native-app-e2e-strategy.md) — plan for testing Electron/native app instances alongside browser E2E.
 
 ## Spec-Aligned Map
 
@@ -21,6 +23,7 @@ these four; their sources live in [Archive](archive/consolidated-2026-06-08/READ
 | Current work queue | [TODO](TODO.md) | Forward-looking only (incl. backlog inventory + statistics backlog in Appendices). Move completed work into [Completed Work](completed.md). |
 | Completed feature ledger | [Completed Work](completed.md) | Shipped feature history + retired status/audit facts. |
 | Build, test, and operation | [How To Run](guides/HOW_TO_RUN.md), [Debug Guide](guides/DEBUG_GUIDE.md) | Keep commands aligned with `package.json`. |
+| Port and native topology | [Port Usage Scenarios](design/port-usage-scenarios.md), [Native App E2E Strategy](testing/native-app-e2e-strategy.md) | Shared-dev versus isolated E2E ports, native embedded-node app testing. |
 | Testing plans & flake history | [Test Plan](testing/testplan.md), [Manual Verification Guide](guides/manual-verification-guide.md) | Automated catalog + flake/benchmark appendices. |
 | Historical/imported source docs | [Archive](archive/README.md) | Not authoritative. 2026-06-08 consolidation sources: [here](archive/consolidated-2026-06-08/README.md). |
 
