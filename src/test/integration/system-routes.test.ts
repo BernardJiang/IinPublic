@@ -4,6 +4,7 @@ import SEA from 'gun/sea';
 import { registerSystemRoutes } from '../../server/routes/system-routes';
 import {
   createSignedP2PEnvelopeProof,
+  p2pSignalingSigningPayload,
   p2pRelaySigningPayload,
   type SeaSigningPair,
 } from '../../shared/p2p-runtime';
@@ -224,6 +225,37 @@ describe('system routes', () => {
     const { app } = buildApp();
     expect((await request(app).get('/api/p2p/signaling/conv_1')).status).toBe(404);
     expect((await request(app).post('/api/p2p/signaling/conv_1').send({})).status).toBe(404);
+  });
+
+  it('stores encrypted short-lived signaling relay frames for explicit embedded relay mode', async () => {
+    const { app } = buildApp();
+    const pair = await SEA.pair();
+    const body = {
+      conversationId: 'conv_signal',
+      kind: 'offer' as const,
+      senderPub: pair.pub,
+      recipientPub: 'pub_b',
+      signalCiphertext: 'SEA{"type":"offer","sdp":{"type":"offer","sdp":"v=0"}}',
+    };
+
+    const posted = await request(app).post('/api/p2p/signaling-relay/conv_signal').send({
+      ...body,
+      ...(await signedProofFields(pair, p2pSignalingSigningPayload(body), 'nonce_signal_1')),
+    });
+    expect(posted.status).toBe(200);
+    expect(posted.body.frame).toEqual(
+      expect.objectContaining({
+        conversationId: 'conv_signal',
+        kind: 'offer',
+        senderPub: pair.pub,
+        recipientPub: 'pub_b',
+      }),
+    );
+
+    const listed = await request(app).get('/api/p2p/signaling-relay/conv_signal?recipientPub=pub_b');
+    expect(listed.status).toBe(200);
+    expect(listed.body.frames).toHaveLength(1);
+    expect(listed.body.frames[0]).toEqual(expect.objectContaining({ nonce: 'nonce_signal_1' }));
   });
 
   it('stores encrypted short-lived conversation relay envelopes for two peers', async () => {

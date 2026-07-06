@@ -20,11 +20,13 @@ import type { P2PMeshFrame } from '../../shared/p2p-mesh-protocol';
 import { messageIntroducesGap } from '../../shared/conversation-reconcile';
 import { BoundedNonceCache } from '../../shared/p2p-abuse-defense';
 import {
+  CompositeSignalingTransport,
   encodeSignalingPayload,
   type PostSignalingBody,
   type SignalingTransport,
 } from './signaling-transport';
 import { GunPubSubSignaler } from './gun-pubsub-signaler';
+import { HttpRelaySignaler } from './http-relay-signaler';
 
 export type P2PConnectionState = 'idle' | 'connecting' | 'connected' | 'failed';
 
@@ -211,7 +213,10 @@ export class P2PConversationSession {
   private lastFailedAt: number | null = null;
 
   constructor(private config: P2PSessionConfig) {
-    this.signaling = new GunPubSubSignaler(config.gun, config.localPub, config.otherPub, config.conversationId);
+    this.signaling = new CompositeSignalingTransport([
+      new GunPubSubSignaler(config.gun, config.localPub, config.otherPub, config.conversationId),
+      new HttpRelaySignaler(config.apiBase),
+    ]);
   }
 
   getState(): P2PConnectionState {

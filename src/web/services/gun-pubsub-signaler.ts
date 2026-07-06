@@ -48,6 +48,71 @@ type SignalFrameRecord = {
   nonce: string;
 };
 
+export async function handleSignalingFrame(
+  data: unknown,
+  localPub: string,
+  nonces: BoundedNonceCache,
+  onEnvelope: (envelope: P2PSignalingEnvelope, payload: unknown) => void | Promise<void>,
+): Promise<void> {
+  if (!data || typeof data !== 'object') return;
+  const frame = data as Record<string, unknown>;
+  const senderPub = String(frame.senderPub ?? '');
+  const senderPeerId = String(frame.senderPeerId ?? '');
+  const signature = String(frame.signature ?? '');
+  const payloadHash = String(frame.payloadHash ?? '');
+  const nonce = String(frame.nonce ?? '');
+  const timestamp = String(frame.timestamp ?? '');
+  const signalCiphertext = String(frame.signalCiphertext ?? '');
+  const kind = frame.kind as P2PSignalingEnvelope['kind'];
+  const conversationId = String(frame.conversationId ?? '');
+
+  // Skip our own echoed frames and any not addressed to us.
+  if (!senderPub || senderPub === localPub) return;
+  const recipientPub = String(frame.recipientPub ?? '');
+  if (recipientPub && recipientPub !== localPub) return;
+  // Skip incompletely-synced nodes (a later emission fires once all fields replicate).
+  if (!senderPeerId || !signature || !payloadHash || !nonce || !timestamp || !signalCiphertext || !kind) {
+    return;
+  }
+  const nonceKey = `${senderPeerId}:${nonce}`;
+  if (nonces.has(nonceKey)) return;
+
+  const envelope: P2PSignalingEnvelope = {
+    version: 1,
+    conversationId,
+    kind,
+    senderPeerId,
+    senderPub,
+    recipientPub,
+    signalCiphertext,
+    timestamp,
+    payloadHash,
+    signature,
+    nonce,
+    createdAt: timestamp,
+    expiresAt: '',
+  };
+  const verification = await verifySignedP2PEnvelopeProof({
+    proof: { peerId: senderPeerId, pub: senderPub, timestamp, nonce, payloadHash, signature },
+    payload: p2pSignalingSigningPayload({
+      conversationId,
+      kind,
+      senderPub,
+      recipientPub,
+      signalCiphertext,
+    }),
+    nonceCache: nonces,
+  });
+  if (!verification.ok) return;
+  let decoded: unknown;
+  try {
+    decoded = decodeSignalingPayload(signalCiphertext);
+  } catch {
+    return;
+  }
+  await onEnvelope(envelope, decoded);
+}
+
 /**
  * Gun pub/sub replacement for HTTP signaling polling.
  *
@@ -140,62 +205,6 @@ export class GunPubSubSignaler implements SignalingTransport {
     localPub: string,
     onEnvelope: (envelope: P2PSignalingEnvelope, payload: unknown) => void | Promise<void>,
   ): Promise<void> {
-    if (!data || typeof data !== 'object') return;
-    const frame = data as Record<string, unknown>;
-    const senderPub = String(frame.senderPub ?? '');
-    const senderPeerId = String(frame.senderPeerId ?? '');
-    const signature = String(frame.signature ?? '');
-    const payloadHash = String(frame.payloadHash ?? '');
-    const nonce = String(frame.nonce ?? '');
-    const timestamp = String(frame.timestamp ?? '');
-    const signalCiphertext = String(frame.signalCiphertext ?? '');
-    const kind = frame.kind as P2PSignalingEnvelope['kind'];
-    const conversationId = String(frame.conversationId ?? '');
-
-    // Skip our own echoed frames and any not addressed to us.
-    if (!senderPub || senderPub === localPub) return;
-    const recipientPub = String(frame.recipientPub ?? '');
-    if (recipientPub && recipientPub !== localPub) return;
-    // Skip incompletely-synced nodes (a later emission fires once all fields replicate).
-    if (!senderPeerId || !signature || !payloadHash || !nonce || !timestamp || !signalCiphertext || !kind) {
-      return;
-    }
-    const nonceKey = `${senderPeerId}:${nonce}`;
-    if (this.nonces.has(nonceKey)) return;
-
-    const envelope: P2PSignalingEnvelope = {
-      version: 1,
-      conversationId,
-      kind,
-      senderPeerId,
-      senderPub,
-      recipientPub,
-      signalCiphertext,
-      timestamp,
-      payloadHash,
-      signature,
-      nonce,
-      createdAt: timestamp,
-      expiresAt: '',
-    };
-    const verification = await verifySignedP2PEnvelopeProof({
-      proof: { peerId: senderPeerId, pub: senderPub, timestamp, nonce, payloadHash, signature },
-      payload: p2pSignalingSigningPayload({
-        conversationId,
-        kind,
-        senderPub,
-        recipientPub,
-        signalCiphertext,
-      }),
-      nonceCache: this.nonces,
-    });
-    if (!verification.ok) return;
-    let decoded: unknown;
-    try {
-      decoded = decodeSignalingPayload(signalCiphertext);
-    } catch {
-      return;
-    }
-    await onEnvelope(envelope, decoded);
+    await handleSignalingFrame(data, localPub, this.nonces, onEnvelope);
   }
 }

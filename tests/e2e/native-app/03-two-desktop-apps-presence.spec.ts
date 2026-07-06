@@ -68,17 +68,44 @@ test.describe('Native app: two Electron desktop apps on one machine', () => {
     await expect
       .poll(
         async () => {
-          const names = (await readGlobalMembersFromHub(HUB_GUN_PORT)).map((member) => member.stageName);
+          const userIds = (await readGlobalMembersFromHub(HUB_GUN_PORT)).map((member) => member.userId);
           return {
-            appA: names.includes('NativeDesktopA'),
-            appB: names.includes('NativeDesktopB'),
+            appA: userIds.includes(userIdA),
+            appB: userIds.includes(userIdB),
           };
         },
         { timeout: 30_000, intervals: [1000, 1500, 2000] },
       )
       .toEqual({ appA: true, appB: true });
 
-    await expect(nativeA.window.locator('body')).toContainText('NativeDesktopB', { timeout: 30_000 });
-    await expect(nativeB.window.locator('body')).toContainText('NativeDesktopA', { timeout: 30_000 });
+    await expect
+      .poll(
+        () =>
+          nativeA!.window.evaluate(
+            (uid) =>
+              (window as any).__iinpublic_app
+                ?.getApp?.()
+                ?.uiManager?.getCurrentChatroomMembers?.()
+                ?.some((member: { userId?: string }) => member.userId === uid) === true,
+            userIdB,
+          ),
+        { timeout: 30_000, intervals: [1000, 1500, 2000] },
+      )
+      .toBe(true);
+
+    await expect
+      .poll(
+        () =>
+          nativeB!.window.evaluate(
+            (uid) =>
+              (window as any).__iinpublic_app
+                ?.getApp?.()
+                ?.uiManager?.getCurrentChatroomMembers?.()
+                ?.some((member: { userId?: string }) => member.userId === uid) === true,
+            userIdA,
+          ),
+        { timeout: 30_000, intervals: [1000, 1500, 2000] },
+      )
+      .toBe(true);
   });
 });

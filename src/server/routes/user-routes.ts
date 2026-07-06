@@ -1,18 +1,23 @@
 import type express from 'express';
 import type { QuestionAnswer, RelationshipLabel, Tag } from '../../shared/types';
 import { UserService } from '../services/user-service';
+import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-relay-client';
 
 type RegisterUserRoutesDeps = {
   userService: UserService;
+  hubRelayClient?: EmbeddedHubRelayClientLike;
 };
 
 export function registerUserRoutes(
   app: express.Application,
-  { userService }: RegisterUserRoutesDeps,
+  { userService, hubRelayClient }: RegisterUserRoutesDeps,
 ): void {
   app.post('/api/users', async (req, res) => {
     try {
-      const user = await userService.createUser(req.body);
+      const user = await userService.upsertPublicUser(req.body);
+      if (hubRelayClient) {
+        void hubRelayClient.upsertPublicUser(user).catch(() => undefined);
+      }
       res.json(user);
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -35,6 +40,17 @@ export function registerUserRoutes(
       const user = await userService.getUser(req.params.id, { viewerId: profileViewer });
       res.json(user);
     } catch (error) {
+      if (hubRelayClient) {
+        try {
+          const remoteUser = await hubRelayClient.getPublicUser(req.params.id);
+          if (remoteUser?.id) {
+            res.json(remoteUser);
+            return;
+          }
+        } catch {
+          // Fall through to local 404.
+        }
+      }
       res.status(404).json({ error: (error as Error).message });
     }
   });

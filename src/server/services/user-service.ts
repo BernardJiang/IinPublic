@@ -24,6 +24,7 @@ export class UserService {
     fullProfileJson?: string;
     interestsJson?: string;
   }>();
+  private readonly recentPublicUsers = new Map<string, User>();
   private readonly recentReputationWrites = new Map<string, Reputation>();
 
   constructor(private gunService: GunService) {}
@@ -33,6 +34,7 @@ export class UserService {
     this.recentBlockMutations.clear();
     this.recentKnownPersonMutations.clear();
     this.recentPublicProfileFoundations.clear();
+    this.recentPublicUsers.clear();
     this.recentReputationWrites.clear();
   }
 
@@ -188,6 +190,48 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     return user;
   }
 
+  async upsertPublicUser(userData: Partial<User>): Promise<User> {
+    const id = userData.id || uuidv4();
+    const stageName = userData.stageName || generateRandomStageName();
+    assertStageNameAllowed(stageName, {
+      allowTechSupportRoot: id === TECHSUPPORT_ROOT_USER_ID,
+    });
+    const user: User = {
+      id,
+      stageName,
+      ...(userData.headshot ? { headshot: userData.headshot } : {}),
+      profile: userData.profile || [],
+      reputation: userData.reputation || {
+        questionsAnswered: 0,
+        talksSent: 0,
+        matchesFound: 0,
+        friendsCount: 0,
+        mutualFriendsCount: 0,
+        likedCount: 0,
+        dislikedCount: 0,
+        starRating: 3.0,
+        reviewCount: 0,
+        ageVerified: false,
+        ageVerificationVotes: 0,
+        blockCount: 0,
+        isHidden: false,
+      },
+      location: userData.location || { region: '', chatrooms: [] },
+      languages: userData.languages || ['en'],
+      interests: userData.interests || [],
+      createdAt: userData.createdAt || new Date(),
+      lastActive: new Date(),
+      knownPeople: userData.knownPeople ?? [],
+      ...(userData.pub ? { pub: userData.pub } : {}),
+      ...(userData.epub ? { epub: userData.epub } : {}),
+      ...(userData.networkRole ? { networkRole: userData.networkRole } : {}),
+      ...(userData.supportMuted ? { supportMuted: userData.supportMuted } : {}),
+    };
+    this.recentPublicUsers.set(user.id, user);
+    this.gunService.putFast(`users/${user.id}`, user);
+    return user;
+  }
+
   async addKnownPerson(
     userId: string,
     targetId: string,
@@ -240,7 +284,10 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
    * From HTTP pass `{ viewerId }`: use `null` when the query is absent (stranger); same id as `userId` returns full profile rows.
   */
   async getUser(userId: string, view?: { viewerId: string | null }): Promise<User> {
-    const user = await this.gunService.getOptional(`users/${userId}`, 1200) as User | null;
+    const user = (
+      this.recentPublicUsers.get(userId) ??
+      await this.gunService.getOptional(`users/${userId}`, 1200)
+    ) as User | null;
     if (!user) {
       throw new Error(`No data found for key: users/${userId}`);
     }

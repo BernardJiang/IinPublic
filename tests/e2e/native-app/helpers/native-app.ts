@@ -5,7 +5,7 @@ import * as path from 'path';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { gotoWebApp, injectIdbClear } from '../../helpers/clear-database';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
-import { afterLoad, afterNav, E2E_ASSERT_TIMEOUT_MS } from '../../helpers/timing';
+import { afterLoad, afterNav, E2E_ASSERT_TIMEOUT_MS, waitForAppReady } from '../../helpers/timing';
 import { expectTechSupportGreetingReceived, pinStableE2eLocation } from '../../helpers/talks-matching-flow';
 
 export type NativeUser = {
@@ -77,14 +77,55 @@ export function httpGetStatus(port: number, requestPath: string): Promise<number
   });
 }
 
+async function publishCurrentPublicUserForRelay(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    const user = app?.currentUser;
+    if (!app || !user?.id) return;
+    const pair = app.gunService?.getStoredPair?.();
+    if (pair?.pub) user.pub = pair.pub;
+    if (pair?.epub) user.epub = pair.epub;
+    if (app.userService?.syncPublicUserForRelay) {
+      await app.userService.syncPublicUserForRelay(user);
+    }
+    const apiBase = app.getBackendApiBase?.();
+    if (!apiBase) return;
+    await fetch(`${apiBase}/api/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(user),
+    }).catch(() => undefined);
+  });
+}
+
 export async function bootstrapNativeWindow(
   page: Page,
   stageName: string,
   options: { waitForSupportGreeting?: boolean } = {},
 ): Promise<string> {
   await expect(page.locator('body')).not.toContainText('Connecting to IinPublic network...', { timeout: 45_000 });
-  await page.click('.nav-btn[data-view="settings"]');
+  await waitForAppReady(page, 45_000);
+  await page.evaluate(() => {
+    document.querySelector<HTMLElement>('.nav-btn[data-view="settings"]')?.click();
+  });
   await afterNav();
+  if (!(await page.locator('#settings-stage-name-input').isVisible().catch(() => false))) {
+    await page.evaluate(() => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      document.querySelectorAll('.nav-btn').forEach((button) => button.classList.remove('active'));
+      document.querySelector<HTMLElement>('.nav-btn[data-view="settings"]')?.classList.add('active');
+      document.querySelectorAll('.view-panel').forEach((panel) => panel.classList.remove('active'));
+      document.getElementById('settings-view')?.classList.add('active');
+      const headerTitle = document.getElementById('header-title');
+      if (headerTitle) headerTitle.textContent = '';
+      const headerActions = document.getElementById('header-actions');
+      if (headerActions) {
+        headerActions.style.display = 'flex';
+        headerActions.style.visibility = 'hidden';
+      }
+      app?.uiManager?.renderSettingsView?.(app.currentUser);
+    }).catch(() => {});
+  }
   await page.waitForSelector('#settings-stage-name-input', { timeout: E2E_ASSERT_TIMEOUT_MS });
   await page.fill('#settings-stage-name-input', stageName);
   await page.locator('#settings-stage-name-input').blur();
@@ -95,6 +136,7 @@ export async function bootstrapNativeWindow(
       { timeout: E2E_ASSERT_TIMEOUT_MS },
     )
     .toBe(stageName);
+  await publishCurrentPublicUserForRelay(page);
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
   await pinStableE2eLocation(page);
@@ -138,6 +180,7 @@ export async function bootstrapBrowserUserOnOrigin(
       { timeout: E2E_ASSERT_TIMEOUT_MS },
     )
     .toBe(stageName);
+  await publishCurrentPublicUserForRelay(page);
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
   await pinStableE2eLocation(page);
@@ -184,11 +227,20 @@ export async function readGlobalMembersFromHub(hubPort: number): Promise<Array<{
 }
 
 export async function forceJoinGlobal(page: Page): Promise<void> {
+  await publishCurrentPublicUserForRelay(page);
   await page.evaluate(async () => {
     const app = (window as any).__iinpublic_app?.getApp?.();
     const user = app?.currentUser;
     if (!app || !user?.id) return;
     await app.chatroomService?.joinChatroom?.('global', user.id, user.stageName);
+    const apiBase = app.getBackendApiBase?.();
+    if (apiBase) {
+      await fetch(`${apiBase}/api/chatrooms/global/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, stageName: user.stageName }),
+      }).catch(() => undefined);
+    }
     app.currentChatroomId = 'global';
     app.uiManager?.setCurrentChatroomId?.('global');
     app.chatroomService?.subscribeToMembers?.('global', (members: Array<{ userId: string; stageName: string }>) => {

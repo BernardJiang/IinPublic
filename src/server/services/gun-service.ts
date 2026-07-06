@@ -125,6 +125,14 @@ export class GunService {
     });
   }
 
+  public putFast(key: string, data: any): void {
+    const path = key.split('/').filter((seg) => seg.length > 0);
+    if (shouldSkipServerGunPersist(path, resolveP2PRuntimeFlags(process.env))) {
+      return;
+    }
+    this.gun.get(key).put(this.serializeDates(data));
+  }
+
   /**
    * Retrieve data by key
    */

@@ -18,11 +18,13 @@ import {
   createTransportDiagnosticEvent,
   createDirectP2PMessageEnvelope,
   createLocalNodeSupervisorSnapshot,
+  p2pSignalingSigningPayload,
   p2pRelaySigningPayload,
   verifySignedP2PEnvelopeProof,
   getP2PBootstrapCandidates,
   upsertP2PNeighbor,
   resolveP2PRuntimeFlags,
+  SIGNALING_TTL_SECONDS,
   scanRelayStorageForSeaLeaks,
   SEA_IDENTITY_POLICY,
   STAR_GUN_PATH_CLASSIFICATIONS,
@@ -40,6 +42,10 @@ import {
   type LocalNodeSupervisorSnapshot,
   type DirectP2PMessageEnvelope,
 } from '../../shared/p2p-runtime';
+import type {
+  EmbeddedHubRelayClientLike,
+  SignalingRelayFrame,
+} from '../../node-app/embedded-hub-relay-client';
 import {
   createPeerAckMessage,
   createPresenceRecord,
@@ -89,6 +95,8 @@ type RegisterSystemRoutesDeps = {
   nodeEnv: string | undefined;
   /** P2P-V: optional override for abuse defense config (useful in integration tests). */
   abuseDefenseConfig?: import('../../shared/p2p-abuse-defense').AbuseDefenseConfig;
+  /** S3 explicit relay mode: embedded local nodes mirror relay-only metadata upstream. */
+  hubRelayClient?: EmbeddedHubRelayClientLike;
 };
 
 export function registerSystemRoutes(
@@ -100,6 +108,7 @@ export function registerSystemRoutes(
     onClearDatabase,
     nodeEnv,
     abuseDefenseConfig,
+    hubRelayClient,
   }: RegisterSystemRoutesDeps,
 ): void {
   let localNodeSupervisor: LocalNodeSupervisorSnapshot = createLocalNodeSupervisorSnapshot();
@@ -112,10 +121,12 @@ export function registerSystemRoutes(
   const dataOwnershipRequests: DataOwnershipRequest[] = [];
   const transportDiagnostics: TransportDiagnosticEvent[] = [];
   const relayByConversation = new Map<string, DirectP2PMessageEnvelope[]>();
+  const signalingByConversation = new Map<string, SignalingRelayFrame[]>();
   const presenceByUserId = new Map<string, PresenceRecord>();
   const peerAckInbox = new Map<string, PeerAckMessage[]>();
   const peerAckNonces = new BoundedNonceCache();
   const relayNonces = new BoundedNonceCache();
+  const signalingNonces = new BoundedNonceCache();
   // P2P-V: shared abuse-defense context for all relay POST routes.
   // When no explicit config is injected, allow env overrides so parallel E2E runs
   // (many browsers × ICE/signaling POSTs per minute sharing one per-peer budget)
@@ -148,6 +159,17 @@ export function registerSystemRoutes(
       const fresh = envelopes.filter((envelope) => new Date(envelope.expiresAt).getTime() > now.getTime());
       if (fresh.length === 0) relayByConversation.delete(conversationId);
       else relayByConversation.set(conversationId, fresh);
+    }
+  };
+
+  const pruneSignalingRelay = (now = new Date()): void => {
+    for (const [conversationId, frames] of signalingByConversation) {
+      const fresh = frames.filter((frame) => {
+        const expiresAt = new Date(String(frame.expiresAt || '')).getTime();
+        return Number.isFinite(expiresAt) && expiresAt > now.getTime();
+      });
+      if (fresh.length === 0) signalingByConversation.delete(conversationId);
+      else signalingByConversation.set(conversationId, fresh);
     }
   };
 
@@ -298,6 +320,96 @@ export function registerSystemRoutes(
       (envelope) => !recipientPub || envelope.recipientPub === recipientPub,
     );
     res.json({ conversationId, envelopes });
+  });
+
+  app.get('/api/p2p/signaling-relay/:conversationId', async (req, res) => {
+    pruneSignalingRelay();
+    const conversationId = String(req.params.conversationId || '');
+    const recipientPub = String(req.query.recipientPub || '');
+    let frames = (signalingByConversation.get(conversationId) || []).filter(
+      (frame) => !recipientPub || frame.recipientPub === recipientPub,
+    );
+    if (hubRelayClient) {
+      try {
+        const remoteFrames = await hubRelayClient.listSignalingFrames(
+          conversationId,
+          recipientPub || undefined,
+        );
+        const byNonce = new Map<string, SignalingRelayFrame>();
+        for (const frame of [...frames, ...remoteFrames]) {
+          if (!frame.nonce) continue;
+          byNonce.set(frame.nonce, frame);
+        }
+        frames = Array.from(byNonce.values());
+      } catch {
+        // Embedded nodes remain usable offline; local relay frames still return.
+      }
+    }
+    res.json({ conversationId, frames });
+  });
+
+  app.post('/api/p2p/signaling-relay/:conversationId', async (req, res) => {
+    try {
+      pruneSignalingRelay();
+      const conversationId = String(req.params.conversationId || '');
+      const body = req.body || {};
+      const senderPub = String(body.senderPub || '');
+      const recipientPub = String(body.recipientPub || '');
+      const signalCiphertext = String(body.signalCiphertext || '');
+      const kind = body.kind as SignalingRelayFrame['kind'];
+      const relayPeerId = String(body.senderPeerId || body.peerId || '');
+      const relayAbuseCheck = abuseCtx.checkInbound(relayPeerId || senderPub, senderPub);
+      if (!relayAbuseCheck.allowed) {
+        res.status(429).json({ error: relayAbuseCheck.reason });
+        return;
+      }
+      const verification = await verifySignedP2PEnvelopeProof({
+        proof: {
+          peerId: relayPeerId,
+          pub: senderPub,
+          timestamp: String(body.timestamp || ''),
+          nonce: String(body.nonce || ''),
+          payloadHash: String(body.payloadHash || ''),
+          signature: String(body.signature || ''),
+        },
+        payload: p2pSignalingSigningPayload({
+          conversationId,
+          kind: kind as Parameters<typeof p2pSignalingSigningPayload>[0]['kind'],
+          senderPub,
+          recipientPub,
+          signalCiphertext,
+        }),
+        nonceCache: signalingNonces,
+      });
+      if (!verification.ok) {
+        res.status(400).json({ error: verification.reason });
+        return;
+      }
+      const now = new Date();
+      const frame: SignalingRelayFrame = {
+        conversationId,
+        kind,
+        senderPeerId: relayPeerId,
+        senderPub,
+        recipientPub,
+        signalCiphertext,
+        timestamp: String(body.timestamp || now.toISOString()),
+        payloadHash: String(body.payloadHash || ''),
+        signature: String(body.signature || ''),
+        nonce: String(body.nonce || ''),
+        createdAt: now.toISOString(),
+        expiresAt: new Date(now.getTime() + SIGNALING_TTL_SECONDS * 1000).toISOString(),
+      };
+      const current = signalingByConversation.get(conversationId) || [];
+      const withoutDuplicate = current.filter((candidate) => candidate.nonce !== frame.nonce);
+      signalingByConversation.set(conversationId, [...withoutDuplicate, frame]);
+      if (hubRelayClient) {
+        await hubRelayClient.postSignalingFrame(conversationId, frame).catch(() => undefined);
+      }
+      res.json({ stored: true, frame });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
   });
 
   app.post('/api/p2p/conversation-relay/:conversationId', async (req, res) => {

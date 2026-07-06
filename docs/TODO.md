@@ -106,8 +106,9 @@ referenced packages that don't exist).
 - [ ] **Explicit relay direct-message smoke `[Sonnet]`:** after the hub-hardening
       fix, add a browser + native-app E2E that sends a direct/manual
       conversation message through the explicit relay topology. The current
-      native coverage proves room membership discovery; this should prove the
-      conversation/signaling path with no generic embedded Gun peer.
+      native coverage proves room membership discovery and public identity
+      lookup through the explicit relay; this should prove the conversation
+      message receive path with no generic embedded Gun peer.
 
 **Known runtime risks:**
 - ✓ Gun replication timing on auto-reply path: mitigated by server POST path.

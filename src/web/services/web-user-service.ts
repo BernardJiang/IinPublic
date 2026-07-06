@@ -240,6 +240,37 @@ export class WebUserService {
     void this.syncPublicProfileFoundationToApi(user).catch(() => {});
   }
 
+  private async syncPublicUserToApi(user: User): Promise<void> {
+    const apiBase = this.getApiBase();
+    if (!apiBase) return;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
+      try {
+        const response = await fetch(`${apiBase}/api/users`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.buildPublicUserRecord(user)),
+          signal: controller.signal,
+        });
+        if (response.ok) return;
+      } catch {
+        // Retry below; local Gun remains source of truth if the API path is unavailable.
+      } finally {
+        clearTimeout(timeout);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+
+  private syncPublicUserToApiBestEffort(user: User): void {
+    void this.syncPublicUserToApi(user).catch(() => {});
+  }
+
+  async syncPublicUserForRelay(user: User): Promise<void> {
+    await this.syncPublicUserToApi(user);
+  }
+
   private async putPublicTalkFilters(userId: string, talkFilters: TalkIntakeFilters): Promise<void> {
     await this.gunService.put(`${PUBLIC_TALK_FILTERS_KEY}/${userId}`, {
       filtersJson: JSON.stringify(talkFilters),
@@ -411,6 +442,12 @@ export class WebUserService {
       pub: pair.pub,
       epub: pair.epub,
     });
+    try {
+      const user = await this.getUser(userId);
+      this.syncPublicUserToApiBestEffort({ ...user, pub: pair.pub, epub: pair.epub });
+    } catch {
+      // Identity was already written to local Gun; API sync remains best-effort.
+    }
   }
 
   async hasAnyUser(): Promise<boolean> {
@@ -548,6 +585,7 @@ export class WebUserService {
       blockDirtyWords: true,
       allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
     });
+    this.syncPublicUserToApiBestEffort(user);
     this.putUserTagsBestEffort(user, now);
     await this.putPrivateUserData(user);
     if (user.id === TECHSUPPORT_ROOT_USER_ID) {

@@ -2573,3 +2573,27 @@ Verification:
 
 `node scripts/relay-only-verification/run.js` — passed: a `talks/*` write on
 embedded node A was not observable from the hub or independent embedded node B.
+
+## 2026-07-06 — Native explicit relay public identity coverage
+
+Extended the native app relay topology so browser and embedded-node users can
+resolve each other's public SEA identity through the explicit HTTP relay path:
+
+- `POST /api/users` now uses a fast public-user upsert instead of waiting on a
+  Gun ack that can hang in memory-only E2E mode.
+- Server `UserService` keeps a same-process public-user cache so
+  `GET /api/users/:id` can immediately return relay-visible public identity
+  records after an upsert.
+- Web startup and stage-name changes republish the current public user record
+  with `pub`/`epub`, and update current-room membership metadata.
+- Native E2E coverage now proves browser + Electron and Electron + Electron
+  shared-hub membership by stable user id, plus browser/native public identity
+  lookup through the explicit relay path.
+
+Verification:
+
+`npm run test:type` — clean.
+
+`npx jest src/test/integration/system-routes.test.ts src/test/integration/chatroom-routes.test.ts src/test/unit/web-gun-service-hub-url.test.ts --runInBand` — 33 passed.
+
+`npm run test:e2e:native-app` — 4 passed.

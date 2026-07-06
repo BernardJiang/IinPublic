@@ -489,7 +489,32 @@ export class WebGunService extends EventEmitter {
 
   /** Read the public user graph record stored at `users/<id>`. */
   async getPublicUser(userId: string): Promise<Partial<User>> {
-    return this.get(`users/${userId}`) as Promise<Partial<User>>;
+    let fromGun: Partial<User> | null = null;
+    try {
+      fromGun = await this.get(`users/${userId}`) as Partial<User>;
+      if (fromGun?.pub && fromGun?.epub) return fromGun;
+    } catch {
+      fromGun = null;
+    }
+
+    if (typeof window !== 'undefined' && window.location) {
+      try {
+        const { protocol, hostname, port } = window.location;
+        const apiBase = deriveBackendApiBaseFromLocation(protocol, hostname, port);
+        const response = await fetch(`${apiBase}/api/users/${encodeURIComponent(userId)}`, {
+          cache: 'no-store',
+        });
+        if (response.ok) {
+          const fromApi = (await response.json()) as Partial<User>;
+          if (fromApi?.id) return { ...(fromGun || {}), ...fromApi };
+        }
+      } catch {
+        // Fall through to whatever Gun had, or the original no-data behavior below.
+      }
+    }
+
+    if (fromGun) return fromGun;
+    throw new Error(`No data found for key: users/${userId}`);
   }
 
   subscribe(key: string, callback: (data: any) => void): () => void {

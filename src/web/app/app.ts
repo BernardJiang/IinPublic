@@ -827,6 +827,12 @@ export class IinPublicApp {
     if (this.currentLocation) {
       await this.userService.updateUserLocation(this.currentUser.id, this.currentLocation);
     }
+    const pair = this.gunService.getStoredPair();
+    await this.userService.syncPublicUserForRelay({
+      ...this.currentUser,
+      ...(pair?.pub ? { pub: pair.pub } : {}),
+      ...(pair?.epub ? { epub: pair.epub } : {}),
+    });
   }
 
   private async createNewUser(options: { rootTechSupport?: boolean } = {}): Promise<User> {
@@ -4012,6 +4018,12 @@ export class IinPublicApp {
         // Update current user object
         if (this.currentUser && this.currentUser.id === userId) {
           this.currentUser.stageName = newStageName;
+          const pair = this.gunService.getStoredPair();
+          await this.userService.syncPublicUserForRelay({
+            ...this.currentUser,
+            ...(pair?.pub ? { pub: pair.pub } : {}),
+            ...(pair?.epub ? { epub: pair.epub } : {}),
+          });
           // Refresh the UI to show the new name
           this.uiManager.showMainInterface(this.currentUser);
 
@@ -4021,6 +4033,14 @@ export class IinPublicApp {
             gun.get('chatrooms').get(this.currentChatroomId).get('users').get(userId).put({
               stageName: newStageName,
             });
+            await fetch(
+              `${this.getBackendApiBase()}/api/chatrooms/${encodeURIComponent(this.currentChatroomId)}/members/${encodeURIComponent(userId)}`,
+              {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ stageName: newStageName, lastSeen: new Date().toISOString() }),
+              },
+            ).catch(() => undefined);
 
             // Force status bar update with new name
             this.refreshStatusBar();

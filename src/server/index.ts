@@ -179,9 +179,13 @@ class IinPublicServer {
         await this.publishPublicBootstrap();
       },
       nodeEnv: process.env.NODE_ENV,
+      ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
     });
 
-    registerUserRoutes(this.app, { userService: this.userService });
+    registerUserRoutes(this.app, {
+      userService: this.userService,
+      ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
+    });
 
     registerTalkRoutes(this.app, {
       talkService: this.talkService,
