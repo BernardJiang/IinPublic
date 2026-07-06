@@ -11,6 +11,10 @@ import { TECHSUPPORT, ADAM, EVE } from './canonical-users';
 import { assertStatusChecks } from './e2e-status-checks';
 import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../../src/shared/techsupport';
 import { attachFilteredConsoleLog } from './e2e-console';
+import {
+  expectCurrentUserIsOrdinaryUser,
+  expectCurrentUserIsTechSupportRoot,
+} from './techsupport-contract';
 
 export type BootstrapOptions = {
   /** Skip IndexedDB clear (restoring storage state). */
@@ -98,7 +102,10 @@ export async function bootstrapCanonicalUser(
     { kind: 'navActive', view: 'chatrooms' },
   ]);
 
-  if (stageName !== TECHSUPPORT_STAGE_NAME) {
+  if (stageName === TECHSUPPORT_STAGE_NAME) {
+    await expectCurrentUserIsTechSupportRoot(page);
+  } else {
+    await expectCurrentUserIsOrdinaryUser(page, stageName);
     await expectTechSupportGreetingReceived(page);
   }
 

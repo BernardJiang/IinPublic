@@ -9,6 +9,10 @@ import { syncIncomingFromServer, waitForIncomingTalkClusterOnServer } from './ta
 import { attachE2eBrowserTabLabel } from './e2e-tab-title';
 import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../../src/shared/techsupport';
 import { attachFilteredConsoleLog } from './e2e-console';
+import {
+  expectCurrentUserIsOrdinaryUser,
+  expectCurrentUserIsTechSupportRoot,
+} from './techsupport-contract';
 
 export const TECH_SUPPORT_NAME = 'TechSupport';
 export const TOM_NAME = 'Tom';
@@ -87,6 +91,11 @@ export async function bootstrapSuperUser(
     stageName,
     appReadyTimeoutMs ? { timeout: appReadyTimeoutMs } : undefined,
   );
+  if (stageName === TECHSUPPORT_STAGE_NAME) {
+    await expectCurrentUserIsTechSupportRoot(page);
+  } else {
+    await expectCurrentUserIsOrdinaryUser(page, stageName);
+  }
 
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();

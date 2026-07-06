@@ -42,6 +42,15 @@ Moved from `docs/TODO.md`.
   to assert the first user's id is not `iinpublic-root-techsupport`, the Global
   headcount is TechSupport + one user, the support conversation appears exactly
   once, and the Gun graph contains one welcome message after reload.
+- **E2E helper semantics now guard TechSupport root vs ordinary users.** Added
+  `tests/e2e/helpers/techsupport-contract.ts` with executable assertions for
+  "current user is the canonical TechSupport root" and "current user is an
+  ordinary non-root user." Wired those assertions into the canonical bootstrap,
+  talks-matching bootstrap, mobile bootstrap, and super-user bootstrap helpers.
+  The existing database/stage helpers already seed and validate the canonical
+  root baseline (`clear-database.ts`, `e2e-stage-pipeline.ts`), and the staged
+  docs now distinguish stage0 TechSupport bootstrap from ordinary-user stage1+
+  flows.
 - **Search/filter interactivity coverage already exists.** Evidence:
   `tests/e2e/staged/stage1-single-user/29-me-answers-search.spec.ts`,
   `tests/e2e/staged/stage2-two-user/34-contacts-filter-name.spec.ts`,
@@ -106,6 +115,7 @@ Moved from `docs/TODO.md`.
 `npx jest src/test/unit/techsupport.test.ts --runInBand`;
 `DEV_MULTI_SMOKE_WEB_PORT=3361 npm run smoke:dev:multi`;
 `E2E_PORT_OFFSET=320 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage1-single-user/01-login-single-user-headcount.spec.ts`;
+`E2E_PORT_OFFSET=340 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/34-contacts-filter-name.spec.ts`;
 `E2E_PORT_OFFSET=100 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts --grep "peer detail direct message"`;
 `E2E_PORT_OFFSET=200 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/42-stale-room-membership-prune.spec.ts`;
 `E2E_PORT_OFFSET=240 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/43-crash-room-membership-prune.spec.ts`.

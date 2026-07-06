@@ -53,15 +53,6 @@ LAN users.
       end-user account. Room counts and user lists must either explicitly label
       TechSupport as bootstrap/system presence or exclude it from ordinary-user
       assertions.
-- [ ] **Audit E2E helper semantics `[Sonnet]`:** review all scripts that seed,
-      count, or interact with TechSupport, especially
-      `tests/e2e/helpers/clear-database.ts`,
-      `tests/e2e/helpers/bootstrap-canonical.ts`,
-      `tests/e2e/helpers/talks-matching-flow.ts`,
-      `tests/e2e/helpers/mobile-bootstrap.ts`,
-      `tests/e2e/helpers/e2e-stage-pipeline.ts`, and
-      `tests/e2e/helpers/stage-talk-exchange.ts`. Update tests so TechSupport is
-      always bootstrap/root first, never an interchangeable user fixture.
 - [ ] **Multilingual TechSupport `[Sonnet]`:** TechSupport should understand all
       supported languages. Existing tests cover UI localization, default-talk
       language, profile language, and incoming-talk language filters; the gap is

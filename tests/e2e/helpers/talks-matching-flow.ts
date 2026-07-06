@@ -11,6 +11,7 @@ import {
   TECHSUPPORT_ROOT_USER_ID,
   TECHSUPPORT_STAGE_NAME,
 } from '../../../src/shared/techsupport';
+import { expectCurrentUserIsOrdinaryUser } from './techsupport-contract';
 
 /** Count distinct talk ids across incoming clusters (one merged cluster may hold many `qa_*` keys). */
 export function countIncomingTalkSlots(clusters: unknown): number {
@@ -366,6 +367,7 @@ export async function bootstrapUser(
       { timeout: appReadyTimeoutMs ?? E2E_ASSERT_TIMEOUT_MS },
     )
     .toBe(stageName);
+  await expectCurrentUserIsOrdinaryUser(page, stageName);
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
   await pinStableE2eLocation(page);

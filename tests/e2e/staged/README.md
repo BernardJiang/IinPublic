@@ -1,15 +1,15 @@
 # Staged E2E pipeline
 
-Sequential network stages build on each other. **TechSupport** is always the first user on an empty database.
+Sequential network stages build on each other. **TechSupport** is always the bootstrap root presence on an empty database; ordinary-user stages run alongside that root instead of treating it as an interchangeable user fixture.
 
-| Stage | After | Users in network | Folder |
-|-------|--------|------------------|--------|
-| **stage0** | Empty DB + TechSupport login | 1 | `stage0-bootstrap/` |
-| **stage1** | All single-user tests | 1 (TechSupport) | `stage1-single-user/` |
-| **stage2** | Adam joins + 2-user tests | 2 | `stage2-two-user/` |
-| **stage3** | Eve joins + 3-user tests | 3 | `stage3-three-user/` |
-| **stage4** | Four-user tests | 4 | `stage4-four-user/` |
-| **stage5** | Multi-user (5+) tests | 5+ | `stage5-multi-user/` |
+| Stage | After | Network shape | Folder |
+|-------|--------|---------------|--------|
+| **stage0** | Empty DB + TechSupport bootstrap login | TechSupport root only | `stage0-bootstrap/` |
+| **stage1** | Ordinary single-user tests | TechSupport root + one ordinary user per isolated spec | `stage1-single-user/` |
+| **stage2** | Adam joins + 2-user tests | TechSupport root + two ordinary users | `stage2-two-user/` |
+| **stage3** | Eve joins + 3-user tests | TechSupport root + three ordinary users | `stage3-three-user/` |
+| **stage4** | Four-user tests | TechSupport root + four ordinary users | `stage4-four-user/` |
+| **stage5** | Multi-user (5+) tests | TechSupport root + 5+ ordinary users | `stage5-multi-user/` |
 
 ## Commands
 

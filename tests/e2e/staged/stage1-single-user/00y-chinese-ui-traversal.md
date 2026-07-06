@@ -9,7 +9,7 @@
 
 Switches app UI from English to Chinese, then walks every tab verifying all localized labels are correct. Reloads the page to confirm persistence. Finally restores English.
 
-1. **Setup:** Single browser logged in as TechSupport.
+1. **Setup:** Single ordinary browser user with the TechSupport root baseline present.
 2. **Switch to Chinese:** Settings → UI language → `zh`. Verifies nav labels change to `['聊天室', '联系人', '话题', '我的', '设置']` and localStorage key updates to `'zh'`.
 3. **Chatrooms tab in zh:** Action bar shows 新建房间, 返回主页, 广播.
 4. **Contacts tab in zh:** Filter option shows "全部关系", sort shows "最近".

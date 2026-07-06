@@ -18,6 +18,7 @@ import {
   pinStableE2eLocation,
 } from './talks-matching-flow';
 import { getConversationIdBetween, openConversationViaServer, waitForServerConversationBetween } from './conversation-e2e';
+import { expectCurrentUserIsOrdinaryUser } from './techsupport-contract';
 
 export const MOBILE_VIEWPORT = { width: 390, height: 844 };
 
@@ -51,6 +52,7 @@ export async function bootstrapMobileUser(
       { timeout: appReadyTimeoutMs ?? E2E_ASSERT_TIMEOUT_MS },
     )
     .toBe(stageName);
+  await expectCurrentUserIsOrdinaryUser(page, stageName);
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
   await pinStableE2eLocation(page);
