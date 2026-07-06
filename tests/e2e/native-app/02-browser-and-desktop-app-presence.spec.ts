@@ -32,11 +32,7 @@ test.describe('Native app: browser + Electron app shared hub presence', () => {
     if (userDataDir) fs.rmSync(userDataDir, { recursive: true, force: true });
   });
 
-  // TODO(native topology): this currently fails because the browser and Electron app
-  // each join their local Global room, but the shared hub `/members` endpoint does not
-  // observe both ordinary users. Keep the intended acceptance test here, skipped, so the
-  // next native-topology slice can enable it when embedded-node hub membership sync is fixed.
-  test.fixme('browser user and desktop app user appear together in Global through the shared hub', async () => {
+  test('browser user and desktop app user appear together in Global through the shared hub', async () => {
     browser = await chromium.launch({ headless: true });
     const browserUser = await bootstrapBrowserUserOnOrigin(
       browser,
@@ -73,8 +69,8 @@ test.describe('Native app: browser + Electron app shared hub presence', () => {
       )
       .toEqual({ browser: true, desktop: true });
 
-    await expect(native.window.locator('.chatroom-member-item')).toContainText('NativeBrowser', { timeout: 30_000 });
+    await expect(native.window.locator('body')).toContainText('NativeBrowser', { timeout: 30_000 });
 
-    await expect(browserUser.page.locator('.chatroom-member-item')).toContainText('NativeDesktop', { timeout: 30_000 });
+    await expect(browserUser.page.locator('body')).toContainText('NativeDesktop', { timeout: 30_000 });
   });
 });

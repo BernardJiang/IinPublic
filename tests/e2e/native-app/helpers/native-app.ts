@@ -45,6 +45,10 @@ export async function launchNativeUser(options: LaunchNativeUserOptions): Promis
     cwd: desktopRoot,
     env: {
       ...process.env,
+      // The shared hub webServer is memory-only, but the embedded app node must
+      // still dial it. Do not inherit the Playwright/hub isolation switches.
+      E2E_GUN_MEMORY_ONLY: '0',
+      DEV_GUN_FRESH: '0',
       IINPUBLIC_LOCAL_PORT: String(options.localPort),
       IINPUBLIC_HUB_GUN_URL: options.hubGunUrl,
       IINPUBLIC_USER_DATA_DIR: options.userDataDir,

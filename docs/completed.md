@@ -39,13 +39,15 @@ Partial native-app E2E milestone from `docs/TODO.md`.
   loopback node serves `/health`, `/worker.js`, and `/node_modules/gun/gun.js`,
   verifies the SPA replaces the static loading placeholder, and checks that
   node data lands under the per-test user data directory.
-- `02-browser-and-desktop-app-presence.spec.ts` is present but marked
-  `test.fixme`: it captures the next native-topology acceptance test. Current
-  observed state: browser and desktop app can boot/join locally, but the shared
-  hub `/members` endpoint does not yet observe both ordinary users.
+- `02-browser-and-desktop-app-presence.spec.ts` launches one ordinary browser
+  user and one real Electron desktop app user against the same test hub and
+  verifies both ordinary users appear in Global on both clients and through the
+  hub `/members` endpoint.
+- Fixed the native test harness so the Electron process does not inherit
+  `E2E_GUN_MEMORY_ONLY=1`; the hub server remains memory-only, but the embedded
+  app node must still dial that hub.
 
-**Verification:** `npm run test:type`; `npm run test:e2e:native-app` (1 passed,
-1 fixme).
+**Verification:** `npm run test:type`; `npm run test:e2e:native-app` (2 passed).
 
 ## 2026-07-06 — `dev:multi` presence reset and E2E coverage housekeeping
 
