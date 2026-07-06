@@ -236,6 +236,9 @@ export default defineConfig({
             // `chromium` project (and testIgnore-based explicit-path runs) never try to pick
             // it up — run it via `npm run test:e2e:embedded-node`.
             /embedded-node\//,
+            // Native app E2E launches Electron and owns its own app-local ports/profile
+            // directories; run it via `npm run test:e2e:native-app`.
+            /native-app\//,
             // Heavy multi-browser specs run in their own low-worker shard (E2E_SKIP_HEAVY=1).
             ...(SKIP_HEAVY ? HEAVY_SPEC_PATTERNS : []),
             ...(SKIP_FIND_SIMILAR ? [/staged\/stage5-multi-user\/find-similar-people\.spec\.ts/] : []),

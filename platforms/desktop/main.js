@@ -18,6 +18,11 @@ const { autoUpdater } = require('electron-updater');
 
 const LOCAL_PORT = parseInt(process.env.IINPUBLIC_LOCAL_PORT || '8088', 10);
 const HUB_GUN_URL = process.env.IINPUBLIC_HUB_GUN_URL || 'https://www.iinpublic.com/gun';
+const USER_DATA_DIR = String(process.env.IINPUBLIC_USER_DATA_DIR || '').trim();
+
+if (USER_DATA_DIR) {
+  app.setPath('userData', path.resolve(USER_DATA_DIR));
+}
 
 // In a packaged build extraResources land under process.resourcesPath/app.
 // In `npm start` (dev) we point at the repo's dist/ two levels up.

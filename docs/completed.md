@@ -25,6 +25,28 @@ Moved from `docs/TODO.md`.
 
 **Verification:** `npm run test:type && E2E_PORT_OFFSET=452 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/31-messaging-history-order.spec.ts`.
 
+## 2026-07-06 — Desktop native app boot E2E harness
+
+Partial native-app E2E milestone from `docs/TODO.md`.
+
+- `platforms/desktop/main.js` now honors `IINPUBLIC_USER_DATA_DIR` before
+  Electron reads `app.getPath('userData')`, so multiple local app instances can
+  run with isolated browser/native profile state.
+- Added `tests/e2e/native-app/` with a dedicated Playwright config and
+  `npm run test:e2e:native-app`.
+- `01-desktop-app-boots.spec.ts` launches the real Electron desktop shell from
+  `platforms/desktop`, points it at the test hub, verifies the app-owned
+  loopback node serves `/health`, `/worker.js`, and `/node_modules/gun/gun.js`,
+  verifies the SPA replaces the static loading placeholder, and checks that
+  node data lands under the per-test user data directory.
+- `02-browser-and-desktop-app-presence.spec.ts` is present but marked
+  `test.fixme`: it captures the next native-topology acceptance test. Current
+  observed state: browser and desktop app can boot/join locally, but the shared
+  hub `/members` endpoint does not yet observe both ordinary users.
+
+**Verification:** `npm run test:type`; `npm run test:e2e:native-app` (1 passed,
+1 fixme).
+
 ## 2026-07-06 — `dev:multi` presence reset and E2E coverage housekeeping
 
 Moved from `docs/TODO.md`.

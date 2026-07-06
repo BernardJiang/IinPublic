@@ -21,10 +21,15 @@ Token-saving rules: for `[Opus]` items, have Opus write a short design note firs
 
 ### P1 — E2E coverage gaps to backfill `[Sonnet]`
 
-- [ ] **Native app as E2E participant `[Opus]`:** execute the plan in
-      `docs/testing/native-app-e2e-strategy.md`: run one and then two desktop app
-      users alongside browser users through the shared hub, then extend the same
-      pattern to Windows and mobile once device toolchains are ready.
+- [ ] **Native app as E2E participant `[Opus]`:** desktop boot coverage now
+      exists in `tests/e2e/native-app/01-desktop-app-boots.spec.ts`, proving the
+      real Electron shell starts an embedded node, serves the SPA, and honors
+      isolated `IINPUBLIC_USER_DATA_DIR`. Remaining: enable the skipped mixed
+      browser + desktop-app shared-hub presence spec
+      (`tests/e2e/native-app/02-browser-and-desktop-app-presence.spec.ts`) by
+      fixing embedded-node hub membership sync, then add the two-desktop-app
+      same-machine spec and extend the pattern to Windows/mobile once device
+      toolchains are ready.
 - [ ] **LAN browser participant smoke `[Sonnet]`:** add a development-topology
       smoke for an ordinary browser user on a different PC on the same intranet:
       it must load the web app from the host dev server, connect to the shared
