@@ -1,5 +1,6 @@
 import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
 import type { PeerRelationshipStats } from '../../shared/peer-summary-types';
+import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import type { UiTranslationKey } from './ui-translations';
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
 
@@ -313,14 +314,17 @@ function renderMemberList(
 
   container.innerHTML = sorted
     .map((member) => {
+      const isSupport = member.userId === TECHSUPPORT_ROOT_USER_ID;
       const isMatched = deps.matchedUserIds.has(member.userId);
       const stats = statsMap?.get(member.userId);
-      const statusText = buildMemberStatusText(isMatched, stats, deps);
+      const statusText = isSupport
+        ? deps.text('contactsSupportBuiltIn')
+        : buildMemberStatusText(isMatched, stats, deps);
       const relationClass = stats
         ? (stats.sent.talks + stats.received.talks === 0 ? 'member-stranger' : 'member-known')
         : '';
       return `
-        <div class="chatroom-member-item ${isMatched ? 'member-matched' : ''} ${relationClass}" data-user-id="${deps.escapeHtml(member.userId)}" data-stage-name="${deps.escapeHtml(member.stageName)}"${isMatched ? ' data-matched="true"' : ''}>
+        <div class="chatroom-member-item ${isSupport ? 'member-support' : ''} ${isMatched ? 'member-matched' : ''} ${relationClass}" data-user-id="${deps.escapeHtml(member.userId)}" data-stage-name="${deps.escapeHtml(member.stageName)}"${isSupport ? ' data-support-contact="true"' : ''}${isMatched ? ' data-matched="true"' : ''}>
           <div class="chatroom-member-avatar">${member.stageName.charAt(0).toUpperCase()}</div>
           <div class="chatroom-member-info">
             <div class="chatroom-member-name">${deps.escapeHtml(member.stageName)}</div>

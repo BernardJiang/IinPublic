@@ -46,13 +46,6 @@ LAN users.
       assertion, and reload/reconnect checks for the canonical manual pair
       conversation once that product model is finalized.
 
-### P0 — TechSupport is bootstrap, not an ordinary user `[Opus]`
-
-- [ ] **Define the TechSupport root contract `[Opus]`:** TechSupport must be the
-      first/root identity of an empty network and part of bootstrap, not a normal
-      end-user account. Room counts and user lists must either explicitly label
-      TechSupport as bootstrap/system presence or exclude it from ordinary-user
-      assertions.
 ### P1 — E2E coverage gaps to backfill `[Sonnet]`
 
 - [ ] **Native app as E2E participant `[Opus]`:** execute the plan in

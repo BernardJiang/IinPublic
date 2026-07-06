@@ -82,7 +82,10 @@ test.describe('TechSupport built-in contact controls', () => {
     await afterNav();
     await page.click('.chatroom-item[data-chatroom-id="global"]');
     await afterSync();
-    await page.locator(`.chatroom-member-item[data-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`).click();
+    const supportMember = page.locator(`.chatroom-member-item[data-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`);
+    await expect(supportMember).toHaveAttribute('data-support-contact', 'true');
+    await expect(supportMember).toContainText('Built-in support contact');
+    await supportMember.click();
     await expect(page.locator('#peer-block-user-btn')).toContainText('Unmute Support');
     await expect(page.locator('#peer-detail-overlay')).not.toContainText('Block User');
   });

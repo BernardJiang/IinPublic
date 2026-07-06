@@ -60,6 +60,14 @@ Moved from `docs/TODO.md`.
   `tests/e2e/staged/stage2-two-user/00k-techsupport-contact-mute.spec.ts` now
   switches Tom to Chinese, sends `你好，TechSupport`, and verifies the Chinese
   support reply appears without corrupting the support conversation history.
+- **TechSupport root/bootstrap contract defined and enforced.**
+  `docs/design/techsupport-bootstrap-contract.md` now records the root identity,
+  first-login, greeting, support-channel, and count/list-labeling invariants.
+  Chatroom member rows now mark TechSupport with `data-support-contact="true"`
+  and built-in support copy, matching the existing Contacts support row. The
+  ordinary status-bar count already excludes TechSupport via
+  `countOrdinaryRoomMembers()`, while total room presence can still include the
+  bootstrap root when explicitly shown as total members.
 - **Search/filter interactivity coverage already exists.** Evidence:
   `tests/e2e/staged/stage1-single-user/29-me-answers-search.spec.ts`,
   `tests/e2e/staged/stage2-two-user/34-contacts-filter-name.spec.ts`,
@@ -127,6 +135,7 @@ Moved from `docs/TODO.md`.
 `E2E_PORT_OFFSET=340 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/34-contacts-filter-name.spec.ts`;
 `npx jest src/test/unit/ui-translations.test.ts --runInBand`;
 `E2E_PORT_OFFSET=360 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/00k-techsupport-contact-mute.spec.ts`;
+`npx jest src/test/unit/techsupport.test.ts --runInBand`;
 `E2E_PORT_OFFSET=100 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts --grep "peer detail direct message"`;
 `E2E_PORT_OFFSET=200 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/42-stale-room-membership-prune.spec.ts`;
 `E2E_PORT_OFFSET=240 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/43-crash-room-membership-prune.spec.ts`.
