@@ -33,6 +33,7 @@ describe('UI translations', () => {
     expect(uiText('zh', 'contactAgeVoteSubmitted')).toContain('年龄');
     expect(uiText('zh', 'contactBlockedNotice')).toContain('话题投递');
     expect(uiText('zh', 'contactsSupportBuiltIn')).toContain('内置支持');
+    expect(uiText('zh', 'supportReply')).toContain('收到你的消息');
     expect(uiText('zh', 'contactMuteSupport')).toContain('静音');
     expect(uiText('zh', 'contactSupportNotificationsMuted')).toContain('本地');
     expect(uiText('zh', 'contactMatchToChat')).toContain('开始对话');

@@ -31,6 +31,29 @@ test.describe('TechSupport built-in contact controls', () => {
     context = tom.context;
     page = tom.page;
     const currentUserId = await page.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''));
+    const readSupportConversationId = () =>
+      page!.evaluate((techSupportId) => {
+        const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+        const support = Object.entries(conversations).find(
+          ([, conversation]: [string, any]) =>
+            conversation?.supportChannel === true &&
+            conversation?.otherUserId === techSupportId,
+        ) as [string, any] | undefined;
+        return String(support?.[0] || '');
+      }, TECHSUPPORT_ROOT_USER_ID);
+    await expect.poll(readSupportConversationId, { timeout: 15_000 }).not.toBe('');
+    const supportConversationId = await readSupportConversationId();
+
+    await page.evaluate((conversationId) => {
+      localStorage.setItem('iinpublic_ui_language', 'zh');
+      (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showConversationDetail?.(conversationId);
+    }, supportConversationId);
+    await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 10_000 });
+    await page.locator('#conversation-message-input').fill('你好，TechSupport');
+    await page.locator('#send-conversation-message').click();
+    await expect(page.locator('#conversation-messages')).toContainText('收到你的消息，Tom', { timeout: 20_000 });
+    await page.locator('#back-from-conversation').click();
+    await page.evaluate(() => localStorage.setItem('iinpublic_ui_language', 'en'));
 
     await page.click('.nav-btn[data-view="contacts"]');
     await afterNav();

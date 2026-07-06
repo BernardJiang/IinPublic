@@ -2260,6 +2260,23 @@ export class IinPublicApp {
     }
   }
 
+  private async sendTechSupportAutoReply(conversationId: string, userMessageId: string): Promise<void> {
+    if (!this.currentUser || isTechSupportUser(this.currentUser)) return;
+    const reply = this.uiManager.formatSupportReply(this.currentUser.stageName);
+    const now = new Date().toISOString();
+    await this.conversationService.sendMessage(
+      conversationId,
+      TECHSUPPORT_ROOT_USER_ID,
+      reply,
+      {
+        otherUserId: this.currentUser.id,
+        messageId: `support_reply_${userMessageId}`,
+        isFromChatbot: true,
+      },
+    );
+    this.uiManager.updateConversationMessage(conversationId, reply, now);
+  }
+
   private loadTravelModeStateFromStorage(): void {
     const active = localStorage.getItem('iinpublic_travel_mode') === '1';
     const home = localStorage.getItem('iinpublic_travel_home') || undefined;
@@ -4486,22 +4503,30 @@ export class IinPublicApp {
       async (data: { conversationId: string; message: string }) => {
         try {
           console.log('📤 Sending conversation message:', data.message);
+          const conversation = this.uiManager.getMyConversations()[data.conversationId];
+          const otherUserId = conversation?.otherUserId
+            ? String(conversation.otherUserId)
+            : undefined;
+          const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
           await this.conversationService.sendMessage(
             data.conversationId,
             this.currentUser!.id,
             data.message,
-            this.uiManager.getMyConversations()[data.conversationId]?.otherUserId
-              ? { otherUserId: String(this.uiManager.getMyConversations()[data.conversationId].otherUserId) }
-              : undefined,
+            otherUserId
+              ? { otherUserId, messageId }
+              : { messageId },
           );
 
           console.log('✅ Conversation message sent');
+          if (conversation?.supportChannel === true || otherUserId === TECHSUPPORT_ROOT_USER_ID) {
+            await this.sendTechSupportAutoReply(data.conversationId, messageId);
+          }
 
           // Phase E: ledger hook — CONVERSATION_MSG
           this.ledgerEmit(InteractionKind.CONVERSATION_MSG, {
             conversationId: data.conversationId,
-            messageId: `msg_${Date.now()}`,
+            messageId,
             seq: Date.now(),
           });
         } catch (error) {

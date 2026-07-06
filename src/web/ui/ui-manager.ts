@@ -4216,6 +4216,10 @@ export class UIManager extends EventEmitter {
     return this.tf('supportWelcome', { name: stageName });
   }
 
+  public formatSupportReply(stageName: string): string {
+    return this.tf('supportReply', { name: stageName });
+  }
+
   public formatStageNameUpdated(): string {
     return this.t('stageNameUpdated');
   }

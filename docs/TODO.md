@@ -53,15 +53,6 @@ LAN users.
       end-user account. Room counts and user lists must either explicitly label
       TechSupport as bootstrap/system presence or exclude it from ordinary-user
       assertions.
-- [ ] **Multilingual TechSupport `[Sonnet]`:** TechSupport should understand all
-      supported languages. Existing tests cover UI localization, default-talk
-      language, profile language, and incoming-talk language filters; the gap is
-      the actual TechSupport bot path. Acceptance criteria: support greetings
-      and support-channel replies are generated/rendered in the user's preferred
-      UI/profile language, fallback to English is explicit for unsupported
-      languages, and the support bot can respond to non-English user messages
-      without corrupting the support-channel history.
-
 ### P1 — E2E coverage gaps to backfill `[Sonnet]`
 
 - [ ] **Native app as E2E participant `[Opus]`:** execute the plan in

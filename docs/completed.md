@@ -51,6 +51,15 @@ Moved from `docs/TODO.md`.
   root baseline (`clear-database.ts`, `e2e-stage-pipeline.ts`), and the staged
   docs now distinguish stage0 TechSupport bootstrap from ordinary-user stage1+
   flows.
+- **Multilingual TechSupport bot path covered for supported UI languages.**
+  Added a localized `supportReply` translation and a TechSupport auto-reply for
+  support-channel user messages. Replies use the user's current UI/profile
+  language preference through the existing UI translation resolver; unsupported
+  profile languages still fall back to English. The existing conversation
+  renderer already localizes stored English support welcomes, and
+  `tests/e2e/staged/stage2-two-user/00k-techsupport-contact-mute.spec.ts` now
+  switches Tom to Chinese, sends `你好，TechSupport`, and verifies the Chinese
+  support reply appears without corrupting the support conversation history.
 - **Search/filter interactivity coverage already exists.** Evidence:
   `tests/e2e/staged/stage1-single-user/29-me-answers-search.spec.ts`,
   `tests/e2e/staged/stage2-two-user/34-contacts-filter-name.spec.ts`,
@@ -116,6 +125,8 @@ Moved from `docs/TODO.md`.
 `DEV_MULTI_SMOKE_WEB_PORT=3361 npm run smoke:dev:multi`;
 `E2E_PORT_OFFSET=320 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage1-single-user/01-login-single-user-headcount.spec.ts`;
 `E2E_PORT_OFFSET=340 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/34-contacts-filter-name.spec.ts`;
+`npx jest src/test/unit/ui-translations.test.ts --runInBand`;
+`E2E_PORT_OFFSET=360 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/00k-techsupport-contact-mute.spec.ts`;
 `E2E_PORT_OFFSET=100 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts --grep "peer detail direct message"`;
 `E2E_PORT_OFFSET=200 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/42-stale-room-membership-prune.spec.ts`;
 `E2E_PORT_OFFSET=240 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/43-crash-room-membership-prune.spec.ts`.
