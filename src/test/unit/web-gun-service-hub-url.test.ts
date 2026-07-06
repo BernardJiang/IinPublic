@@ -16,6 +16,11 @@ describe('deriveGunHubUrlFromLocation', () => {
     expect(deriveGunHubUrlFromLocation('http:', 'localhost', '3002')).toBe('http://localhost:8081/gun');
   });
 
+  it('applies the dev/e2e offset for LAN dev hosts', () => {
+    expect(deriveGunHubUrlFromLocation('http:', '192.168.10.48', '3001')).toBe('http://192.168.10.48:8080/gun');
+    expect(deriveGunHubUrlFromLocation('http:', 'devbox.local', '3003')).toBe('http://devbox.local:8082/gun');
+  });
+
   // S3 embedded-node regression: before this fix, any localhost port >= 3001
   // (including embedded-node's own default ports) fell into the dev/e2e
   // offset branch and computed a Gun URL on a port nothing is listening on.
@@ -61,6 +66,11 @@ describe('deriveGunHubUrlFromLocation', () => {
 describe('deriveBackendApiBaseFromLocation', () => {
   it('applies the dev/e2e offset for web port 3001', () => {
     expect(deriveBackendApiBaseFromLocation('http:', '127.0.0.1', '3001')).toBe('http://127.0.0.1:8080');
+  });
+
+  it('applies the dev/e2e offset for LAN dev-host web ports', () => {
+    expect(deriveBackendApiBaseFromLocation('http:', '192.168.10.48', '3001')).toBe('http://192.168.10.48:8080');
+    expect(deriveBackendApiBaseFromLocation('http:', 'devbox.local', '3003')).toBe('http://devbox.local:8082');
   });
 
   it('keeps embedded desktop port 8088 same-origin for REST and Socket.IO', () => {

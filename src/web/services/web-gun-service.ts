@@ -29,13 +29,18 @@ export const KEY_CUSTODY_STORAGE = 'iinpublic_key_custody_v1';
  *   web 3002 ↔ gun 8081   (parallel worker 1)
  *   web 3001+N ↔ gun 8080+N, for N in [0, DEV_E2E_WEB_PORT_RANGE_END-3001).
  *
+ * LAN dev follows the same mapping when another machine loads the webpack dev
+ * server from `http://<dev-host>:3001`: the web origin is on the dev host, but
+ * the Gun/API server is still on `http://<dev-host>:8080`. Therefore the
+ * dev/e2e port-band check must apply to any hostname, not just localhost.
+ *
  * S3 embedded-node (Electron/Android/iOS): the local node serves BOTH the SPA
  * and Gun on the SAME port (e.g. 8088 — see embedded-node-config.ts /
  * platforms/desktop/main.js / NodeForegroundService.kt), so Gun must be
- * derived as same-origin there, NOT via the dev/e2e offset. The range check
- * below (rather than a bare `webPort >= 3001`) is what tells the two apart:
- * dev/e2e web ports only ever live in a band starting at 3001, while
- * embedded-node ports (8080, 8088, or any operator-chosen port) fall outside it.
+ * derived as same-origin there, NOT via the dev/e2e offset. The port range
+ * below is what tells the two apart: dev/e2e/LAN-dev web ports live in a band
+ * starting at 3001, while embedded-node ports (8080, 8088, or any operator-
+ * chosen port outside that band) fall outside it.
  *
  * The band's upper bound MUST cover `scripts/run-test-all.sh`'s concurrent-wave port
  * scheme: web = 3001 + E2E_PORT_OFFSET + workerIndex, where E2E_PORT_OFFSET is 0/100/200/300
@@ -66,7 +71,7 @@ function isLocalHost(hostname: string): boolean {
 
 export function deriveBackendApiBaseFromLocation(protocol: string, hostname: string, port: string): string {
   const webPort = Number(port);
-  if (isLocalHost(hostname) && isDevE2EWebPort(webPort)) {
+  if (isDevE2EWebPort(webPort)) {
     const gunPort = webPort - DEV_E2E_WEB_PORT_RANGE_START + DEV_E2E_GUN_PORT_RANGE_START;
     return `${protocol}//${hostname}:${gunPort}`;
   }
@@ -83,7 +88,7 @@ export function deriveBackendApiBaseFromLocation(protocol: string, hostname: str
 
 export function deriveGunHubUrlFromLocation(protocol: string, hostname: string, port: string): string {
   const webPort = Number(port);
-  if (isLocalHost(hostname) && isDevE2EWebPort(webPort)) {
+  if (isDevE2EWebPort(webPort)) {
     const gunPort = webPort - DEV_E2E_WEB_PORT_RANGE_START + DEV_E2E_GUN_PORT_RANGE_START;
     return `${protocol}//${hostname}:${gunPort}/gun`;
   }

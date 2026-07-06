@@ -24,8 +24,9 @@ Token-saving rules: for `[Opus]` items, have Opus write a short design note firs
 - [ ] **LAN browser participant smoke `[Sonnet]`:** add a development-topology
       smoke for an ordinary browser user on a different PC on the same intranet:
       it must load the web app from the host dev server, connect to the shared
-      Gun hub, appear in Global with TechSupport and local browser users, and
-      exchange at least one direct/manual conversation message.
+      Gun hub (the LAN dev-host port mapping is now unit-covered), appear in
+      Global with TechSupport and local browser users, and exchange at least
+      one direct/manual conversation message.
 - [ ] **Production compatibility smoke `[Opus]`:** prove the production topology
       (`www.iinpublic.com` + public hub) remains compatible with the development
       topology assumptions: no app path may hard-code localhost-only peers unless

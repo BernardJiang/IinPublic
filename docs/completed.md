@@ -53,6 +53,22 @@ Partial native-app E2E milestone from `docs/TODO.md`.
 
 **Verification:** `npm run test:type`; `npm run test:e2e:native-app` (3 passed).
 
+## 2026-07-06 — LAN dev-host URL derivation
+
+Partial LAN-browser prerequisite from `docs/TODO.md`.
+
+- `deriveBackendApiBaseFromLocation()` and `deriveGunHubUrlFromLocation()` now
+  apply the dev/e2e web-port-to-Gun-port mapping for any hostname, not only
+  `localhost`/`127.0.0.1`.
+- A browser on another LAN machine loading `http://<dev-host>:3001` now derives
+  the backend API as `http://<dev-host>:8080` and Gun as
+  `http://<dev-host>:8080/gun`, matching the development topology.
+- Same-origin production (`https://www.iinpublic.com/gun`) and embedded-node
+  loopback ports (`127.0.0.1:<appPort>/gun`) remain covered.
+
+**Verification:** `npx jest src/test/unit/web-gun-service-hub-url.test.ts --runInBand`;
+`npm run test:type`.
+
 ## 2026-07-06 — `dev:multi` presence reset and E2E coverage housekeeping
 
 Moved from `docs/TODO.md`.
