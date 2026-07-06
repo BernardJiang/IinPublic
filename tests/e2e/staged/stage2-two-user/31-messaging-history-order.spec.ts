@@ -5,7 +5,7 @@
  * prove the scroll surface handles a real history depth. The same ordered core history must
  * also reappear after B reloads and re-opens the canonical pair conversation.
  */
-import { chromium, Browser } from '@playwright/test';
+import { chromium, Browser, type Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless, reloadAppReady } from '../../helpers/timing';
@@ -16,9 +16,31 @@ import {
   sendConversationMessage,
 } from '../../helpers/fast-dm-setup';
 import { openConversationViaServer } from '../../helpers/conversation-e2e';
+import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
 
 const MESSAGE_COUNT = 12;
 const BULK_MESSAGE_COUNT = 40;
+
+async function readConversationClassification(page: Page, conversationId: string) {
+  return page.evaluate(
+    ({ cid, techSupportId }) => {
+      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const pairConversation = conversations[cid] || null;
+      const supportConversations = Object.values(conversations).filter(
+        (conversation: any) =>
+          conversation?.supportChannel === true &&
+          conversation?.otherUserId === techSupportId,
+      ) as any[];
+      return {
+        pairExists: !!pairConversation,
+        pairOtherUserId: String(pairConversation?.otherUserId || ''),
+        pairSupportChannel: pairConversation?.supportChannel === true,
+        supportConversationCount: supportConversations.length,
+      };
+    },
+    { cid: conversationId, techSupportId: TECHSUPPORT_ROOT_USER_ID },
+  );
+}
 
 test.describe('Messaging: long alternating history renders in full and in identical order on both sides', () => {
   let browserA: Browser;
@@ -41,6 +63,19 @@ test.describe('Messaging: long alternating history renders in full and in identi
   test('alternating messages render in full and in order on both sides', async () => {
     pair = await setupFastMatchedDm(browserA, browserB, 'HistA', 'HistB');
     const { pageA, pageB, conversationId, userIdA, userIdB } = pair;
+
+    await expect.poll(async () => readConversationClassification(pageA, conversationId)).toEqual({
+      pairExists: true,
+      pairOtherUserId: userIdB,
+      pairSupportChannel: false,
+      supportConversationCount: 1,
+    });
+    await expect.poll(async () => readConversationClassification(pageB, conversationId)).toEqual({
+      pairExists: true,
+      pairOtherUserId: userIdA,
+      pairSupportChannel: false,
+      supportConversationCount: 1,
+    });
 
     const texts: string[] = [];
     for (let i = 0; i < MESSAGE_COUNT; i++) texts.push(`hist-${i}-${i % 2 === 0 ? 'A' : 'B'}`);

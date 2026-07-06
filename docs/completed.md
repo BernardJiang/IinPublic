@@ -2,6 +2,29 @@
 
 Last updated: 2026-07-06
 
+## 2026-07-06 — Pairwise conversation hardening complete
+
+Moved from `docs/TODO.md`.
+
+- The canonical pair thread model (`conv_pair_<sorted users>`) is implemented
+  and reused by direct peer-detail sends, matched-talk continuations, and
+  reopened conversation views.
+- Direct peer-detail delivery without a matched talk is covered by
+  `tests/e2e/staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts`.
+- Concurrent sends converge to one deterministic rendered order on both sides in
+  `tests/e2e/staged/stage2-two-user/29-messaging-concurrent-order.spec.ts`.
+- Unread/read cursor behavior is covered by
+  `tests/e2e/staged/stage2-two-user/30-messaging-read-state.spec.ts`.
+- Large ordered history, reload recovery, support-channel vs non-support pair
+  classification, and explicit unsupported edit/delete state are covered by
+  `tests/e2e/staged/stage2-two-user/31-messaging-history-order.spec.ts`.
+- Hard-crash mailbox recovery can continue the same canonical pair thread, as
+  covered by `tests/e2e/staged/stage2-two-user/37-hard-crash-recovery.spec.ts`.
+- Multi-partner conversation recency sorting is covered by
+  `tests/e2e/staged/stage3-three-user/29-conversation-list-sorting.spec.ts`.
+
+**Verification:** `npm run test:type && E2E_PORT_OFFSET=452 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/31-messaging-history-order.spec.ts`.
+
 ## 2026-07-06 — `dev:multi` presence reset and E2E coverage housekeeping
 
 Moved from `docs/TODO.md`.

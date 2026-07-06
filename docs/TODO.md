@@ -19,23 +19,6 @@ Token-saving rules: for `[Opus]` items, have Opus write a short design note firs
 
 ## Open items
 
-### P0 — Conversation inbox, TechSupport bootstrap, and dev presence correctness `[Opus]`
-
-**Why now:** the native-app + `dev:multi` topology is exposing product seams that
-must be stable before expanding E2E coverage to app instances and production-like
-LAN users.
-
-- [ ] **Pairwise conversation hardening `[Opus]`:** the canonical pair thread
-      model is now implemented (`conv_pair_<sorted users>`) and direct/manual
-      messages reuse it across direct peer-detail sends and matched-talk
-      continuations. Reload now restores the same ordered message history for
-      the canonical pair thread, and hard-crash recovery now proves the recovered
-      pair can continue messaging. Remaining acceptance criteria: read
-      receipts/order are deterministic when both sides send concurrently;
-      conversation list sorting uses most-recent activity across multiple
-      partners; direct/manual threads remain clearly distinguished from support
-      channels.
-
 ### P1 — E2E coverage gaps to backfill `[Sonnet]`
 
 - [ ] **Native app as E2E participant `[Opus]`:** execute the plan in
