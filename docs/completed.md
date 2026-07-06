@@ -43,11 +43,15 @@ Partial native-app E2E milestone from `docs/TODO.md`.
   user and one real Electron desktop app user against the same test hub and
   verifies both ordinary users appear in Global on both clients and through the
   hub `/members` endpoint.
+- `03-two-desktop-apps-presence.spec.ts` launches two real Electron desktop app
+  users on one Mac with distinct `IINPUBLIC_LOCAL_PORT` values and distinct
+  `IINPUBLIC_USER_DATA_DIR` directories, then verifies both users appear
+  together in Global through the shared hub and in each app UI.
 - Fixed the native test harness so the Electron process does not inherit
   `E2E_GUN_MEMORY_ONLY=1`; the hub server remains memory-only, but the embedded
   app node must still dial that hub.
 
-**Verification:** `npm run test:type`; `npm run test:e2e:native-app` (2 passed).
+**Verification:** `npm run test:type`; `npm run test:e2e:native-app` (3 passed).
 
 ## 2026-07-06 — `dev:multi` presence reset and E2E coverage housekeeping
 
