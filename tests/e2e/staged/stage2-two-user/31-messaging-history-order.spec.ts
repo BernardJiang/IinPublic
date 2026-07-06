@@ -1,9 +1,9 @@
 /**
  * Long-history ordering: several messages alternating A/B (sent sequentially, not
  * concurrently, so there is one unambiguous expected order) must render identically and
- * completely on both sides, with the oldest message reachable by scrolling up and the newest
- * reachable at the default (bottom) scroll position. The same ordered history must also
- * reappear after B reloads and re-opens the canonical pair conversation.
+ * completely on both sides. The conversation is then bulk-seeded beyond 50 total rows to
+ * prove the scroll surface handles a real history depth. The same ordered core history must
+ * also reappear after B reloads and re-opens the canonical pair conversation.
  */
 import { chromium, Browser } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -18,6 +18,7 @@ import {
 import { openConversationViaServer } from '../../helpers/conversation-e2e';
 
 const MESSAGE_COUNT = 12;
+const BULK_MESSAGE_COUNT = 40;
 
 test.describe('Messaging: long alternating history renders in full and in identical order on both sides', () => {
   let browserA: Browser;
@@ -66,7 +67,7 @@ test.describe('Messaging: long alternating history renders in full and in identi
     // the strictly-ordered history; filter them out before comparing the ordered tail.
     const readHistoryOrder = async (page: typeof pageA) => {
       const all = await page.locator('#conversation-messages .message-text').allTextContents();
-      return all.filter((t) => !t.startsWith('warmup-'));
+      return all.filter((t) => t.startsWith('hist-'));
     };
 
     await expect.poll(async () => (await readHistoryOrder(pageA)).length, { timeout: 15_000 }).toBe(MESSAGE_COUNT);
@@ -84,6 +85,71 @@ test.describe('Messaging: long alternating history renders in full and in identi
     // Oldest reachable by scrolling to top.
     await messagesA.evaluate((el) => { el.scrollTop = 0; });
     await expect(messagesA.locator('.message-text').filter({ hasText: texts[0] })).toBeVisible();
+
+    const bulkMessages = Array.from({ length: BULK_MESSAGE_COUNT }, (_, i) => ({
+      id: `bulk-history-${i.toString().padStart(2, '0')}`,
+      text: `bulk-history-${i.toString().padStart(2, '0')}`,
+      senderId: i % 2 === 0 ? userIdA : userIdB,
+      timestamp: new Date(Date.now() + 10_000 + i).toISOString(),
+    }));
+    const deepHistoryMessages = [
+      { id: 'warmup-A', text: 'warmup-A', senderId: userIdA, timestamp: new Date(Date.now()).toISOString() },
+      { id: 'warmup-B', text: 'warmup-B', senderId: userIdB, timestamp: new Date(Date.now() + 1).toISOString() },
+      ...texts.map((text, i) => ({
+        id: `render-${text}`,
+        text,
+        senderId: i % 2 === 0 ? userIdA : userIdB,
+        timestamp: new Date(Date.now() + 100 + i).toISOString(),
+      })),
+      ...bulkMessages,
+    ];
+
+    await Promise.all(
+      [pageA, pageB].map((page) =>
+        page.evaluate(
+          ({ cid, messages }) => {
+            const app = (window as any).__iinpublic_app?.getApp?.();
+            app?.uiManager?.displayConversationMessages?.(
+              cid,
+              messages.map((message: any) => ({
+                ...message,
+                timestamp: new Date(message.timestamp),
+                channel: 'public',
+                readBy: [],
+              })),
+            );
+          },
+          { cid: conversationId, messages: deepHistoryMessages },
+        ),
+      ),
+    );
+
+    const expectedTotalRows = 2 + MESSAGE_COUNT + BULK_MESSAGE_COUNT;
+    await expect
+      .poll(
+        async () => pageA.locator('#conversation-messages .message-text').count(),
+        { timeout: 20_000 },
+      )
+      .toBe(expectedTotalRows);
+    await expect
+      .poll(
+        async () => pageB.locator('#conversation-messages .message-text').count(),
+        { timeout: 20_000 },
+      )
+      .toBe(expectedTotalRows);
+
+    await messagesA.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    await expect(messagesA.locator('.message-text').filter({ hasText: 'bulk-history-39' })).toBeVisible();
+    await messagesA.evaluate((el) => { el.scrollTop = 0; });
+    await expect(messagesA.locator('.message-text').filter({ hasText: 'warmup-A' })).toBeVisible();
+
+    // Conversation message edit/delete is intentionally unsupported right now: the overlay has
+    // only navigation and send controls, and message rows expose no action buttons.
+    const overlayButtonIds = await pageA
+      .locator('#conversation-detail-overlay button')
+      .evaluateAll((buttons) => buttons.map((button) => (button as HTMLButtonElement).id).sort());
+    expect(overlayButtonIds).toEqual(['back-from-conversation', 'send-conversation-message']);
+    await expect(pageA.locator('#conversation-messages .message button')).toHaveCount(0);
 
     await reloadAppReady(pageB);
     await openConversationViaServer(pageB, userIdB, pair.nameA, userIdA);

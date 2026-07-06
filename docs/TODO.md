@@ -34,11 +34,11 @@ LAN users.
       deterministic when both sides send concurrently; conversation list sorting
       uses most-recent activity across multiple partners; direct/manual threads
       remain clearly distinguished from support channels.
-- [ ] **Conversation E2E depth `[Sonnet]`:** backfill UI tests for direct-message
-      history depth: large history pagination/scroll performance (>50 messages),
-      conversation deletion/editing behavior or an explicit unsupported-state
-      assertion, and reconnect checks for the canonical manual pair conversation
-      once that product model is finalized.
+- [ ] **Conversation E2E depth `[Sonnet]`:** backfill reconnect checks for the
+      canonical manual pair conversation once that product model is finalized.
+      Large-history rendering/scroll coverage (>50 messages) and the explicit
+      unsupported-state assertion for conversation message edit/delete are now
+      covered.
 
 ### P1 — E2E coverage gaps to backfill `[Sonnet]`
 

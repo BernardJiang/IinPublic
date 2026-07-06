@@ -2405,6 +2405,22 @@ Verification:
 
 `npm run test:type && E2E_PORT_OFFSET=417 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/31-messaging-history-order.spec.ts` — 1 passed.
 
+## 2026-07-06 — Conversation history depth and unsupported edit/delete state
+
+Extended `31-messaging-history-order.spec.ts` beyond delivery ordering and reload recovery:
+
+- After the real Gun-backed 12-message ordered exchange, the test renders a 54-row conversation
+  snapshot on both participants to cover the current non-paginated large-history scroll surface
+  (>50 messages).
+- The spec asserts the top and bottom of the conversation remain reachable.
+- The spec pins the current product state for message editing/deletion: the conversation overlay
+  exposes only Back and Send controls, and message rows expose no edit/delete buttons.
+- The companion `.md` was updated to remove the stale reload-known-issue note.
+
+Verification:
+
+`npm run test:type && E2E_PORT_OFFSET=433 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/31-messaging-history-order.spec.ts` — 1 passed.
+
 ## 2026-06-20 — P0 test determinism live gate
 
 The full browser suite passed with `PW_WORKERS=4 npm run test:e2e -- --retries=0` (110 specs).

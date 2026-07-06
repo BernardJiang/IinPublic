@@ -1,7 +1,7 @@
 # Test: Messaging — Long Alternating History Renders in Full, Identical Order on Both Sides
 
 **File:** 31-messaging-history-order.spec.ts
-**Features tested:** Full message-history rendering for a direct-p2p conversation with many messages, ordering consistency between the two participants, scroll reachability (oldest via scroll-to-top, newest at default scroll position)
+**Features tested:** Gun-backed ordered delivery for a direct-p2p conversation, reload recovery of the canonical pair history, >50-row conversation rendering, scroll reachability, and explicit unsupported-state coverage for message edit/delete controls.
 
 ---
 
@@ -13,22 +13,26 @@
 
 3. **12 alternating messages**, strictly sequential (A, then B, then A, ...) — since sends are awaited one at a time there is exactly one unambiguous expected order.
 
-4. **Assertions:**
+4. **Real-delivery assertions:**
    - All 12 messages (the 2 warmups excluded) are visible on both A's and B's conversation view.
    - Both sides' rendered order exactly matches the expected alternating sequence.
    - The newest message is visible at the default (bottom) scroll position.
    - Scrolling `#conversation-messages` to `scrollTop = 0` reveals the oldest message.
 
-> **Why this matters:** A conversation with real history (not just one or two messages) must render completely and in the correct order for both participants — a UI that drops messages, mis-orders them, or can't be scrolled to see the full history would be a serious usability regression.
+5. **Large-history renderer:** The UI is then given a 54-message snapshot (2 warmups + 12 real-history rows + 40 bulk rows) on both pages. The test asserts all 54 message rows render and that both top and bottom scroll positions remain reachable.
+
+6. **Unsupported edit/delete state:** The conversation overlay currently exposes only the back and send buttons, and message rows expose no action buttons. This pins edit/delete as explicitly unsupported instead of half-present.
+
+7. **Reload recovery:** B reloads, reopens the same canonical `conv_pair_...` conversation, and the 12-message ordered Gun-backed core history reappears in the same order.
+
+> **Why this matters:** A conversation with real history (not just one or two messages) must render completely and in the correct order for both participants. The UI also has to remain usable once a thread grows past a compact smoke-test size, and unsupported destructive actions should stay visibly absent until real product behavior exists.
 
 ---
 
-## Known issue found during development (not fixed — needs follow-up)
+## Verification
 
-An earlier version of this spec also reloaded B's page after the 12-message exchange and asserted the same ordered history reappeared. That assertion had to be dropped: a fresh `subscribeToMessages` call on B's conversation, issued immediately after a real page reload, rendered **zero** messages for over 10 seconds — confirmed with a direct, UI-bypassing probe that called `GunMessageStore.subscribeToMessages` straight from the page context (no UI, no emit/listener chain) and still saw no messages after a 20+ second window. This was not caused by the store's `getPairMessageRoot`/`getOtherParticipantId`/epub-lookup logic — those all resolved correctly and quickly when called directly and independently at the same point in time. The delay is somewhere in the `subscribeToMessages`/`collectAndDecryptMessages` pipeline specifically in the cold-post-reload state, and reproducing/fixing it needs more investigation time than fit this pass.
-
-Read-cursor persistence across reload (arguably the more important reload-related behavior for messaging) **is** covered and passing — see `30-messaging-read-state.spec.ts`, which reloads B mid-test and confirms the unread badge stays cleared.
+`npm run test:type && E2E_PORT_OFFSET=433 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/staged/stage2-two-user/31-messaging-history-order.spec.ts` — 1 passed.
 
 ---
 
-**Helpers used:** `setupFastMatchedDm`, `sendConversationMessage`, `teardownFastDmPair` (`tests/e2e/helpers/fast-dm-setup.ts`)
+**Helpers used:** `setupFastMatchedDm`, `sendConversationMessage`, `teardownFastDmPair` (`tests/e2e/helpers/fast-dm-setup.ts`), `reloadAppReady`, `openConversationViaServer`.
