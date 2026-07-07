@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-07-06
+Last updated: 2026-07-07
 
 This file tracks only open work. Completed items are archived in `docs/completed.md`.
 - **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specifications.md` (§19.13, §19.14, REQ-P2P-09–29; mesh talk delivery design §23; libp2p/IPFS §25 — supersedes Phase D §24; find-similar §22)
@@ -18,20 +18,6 @@ Token-saving rules: for `[Opus]` items, have Opus write a short design note firs
 ---
 
 ## Open items
-
-### P1 — E2E coverage gaps to backfill `[Sonnet]`
-
-- [ ] **LAN browser participant smoke `[Sonnet]`:** add a development-topology
-      smoke for an ordinary browser user on a different PC on the same intranet:
-      it must load the web app from the host dev server, connect to the shared
-      Gun hub (the LAN dev-host port mapping is now unit-covered), appear in
-      Global with TechSupport and local browser users, and exchange at least
-      one direct/manual conversation message.
-- [ ] **Production compatibility smoke `[Opus]`:** prove the production topology
-      (`www.iinpublic.com` + public hub) remains compatible with the development
-      topology assumptions: no app path may hard-code localhost-only peers unless
-      it is explicitly native-loopback mode, and browser/native clients must use
-      configured hub URLs consistently across dev, LAN, and production stages.
 
 ### S3 — Cross-platform native clients (embedded-node model) `[Opus]`
 
@@ -103,12 +89,6 @@ referenced packages that don't exist).
       manually) per the corrected `platforms/ios/Podfile` comment; add the
       Xcode "copy nodejs-project + dist into bundle" build phase; create the
       `.xcodeproj` (sources are ready under `platforms/ios/IinPublic`).
-- [ ] **Explicit relay direct-message smoke `[Sonnet]`:** after the hub-hardening
-      fix, add a browser + native-app E2E that sends a direct/manual
-      conversation message through the explicit relay topology. The current
-      native coverage proves room membership discovery and public identity
-      lookup through the explicit relay; this should prove the conversation
-      message receive path with no generic embedded Gun peer.
 
 **Known runtime risks:**
 - ✓ Gun replication timing on auto-reply path: mitigated by server POST path.

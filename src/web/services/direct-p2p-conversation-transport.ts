@@ -81,9 +81,14 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     this.onUndeliverable = handler;
   }
 
-  async ensureSessionConnected(conversationId: string, localUserId: string): Promise<void> {
-    const session = await this.sessionFor(conversationId, localUserId);
-    await session.ensureConnected();
+  async ensureSessionConnected(
+    conversationId: string,
+    localUserId: string,
+    timeoutMs?: number,
+    otherUserId?: string,
+  ): Promise<void> {
+    const session = await this.sessionFor(conversationId, localUserId, otherUserId);
+    await session.ensureConnected(timeoutMs);
   }
 
   private async getLocalPub(): Promise<string> {
@@ -298,7 +303,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     this.listenersByConversation.set(conversationId, listeners);
     callback([...(this.liveMessagesByConversation.get(conversationId) || [])]);
 
-    void this.sessionFor(conversationId, myUserId)
+    void this.sessionFor(conversationId, myUserId, otherUserIdHint)
       .then((session) => {
         if (disposed) return;
         void session.ensureConnected().catch((err) => {

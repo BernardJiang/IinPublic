@@ -141,6 +141,9 @@ module.exports = {
     // Port defaults to 3001; overridable via PORT env var or `-- --port NNNN` CLI flag so
     // parallel Playwright workers can each run their own dev-server on 3001+N.
     port: Number(process.env.PORT) || 3001,
+    // LAN development smoke tests and real phones/notebooks may load the dev UI
+    // through http://<dev-host>:3001 rather than localhost.
+    allowedHosts: 'all',
     hot: process.env.DISABLE_HMR !== 'true',
     liveReload: process.env.DISABLE_HMR !== 'true',
     watchFiles: process.env.DISABLE_HMR === 'true' ? [] : undefined,

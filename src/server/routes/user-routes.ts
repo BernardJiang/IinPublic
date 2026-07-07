@@ -12,6 +12,16 @@ export function registerUserRoutes(
   app: express.Application,
   { userService, hubRelayClient }: RegisterUserRoutesDeps,
 ): void {
+  const getRemotePublicUser = async (userId: string) => {
+    if (!hubRelayClient) return null;
+    try {
+      const remoteUser = await hubRelayClient.getPublicUser(userId);
+      return remoteUser?.id ? remoteUser : null;
+    } catch {
+      return null;
+    }
+  };
+
   app.post('/api/users', async (req, res) => {
     try {
       const user = await userService.upsertPublicUser(req.body);
@@ -38,18 +48,19 @@ export function registerUserRoutes(
       }
       const profileViewer = qViewer.length > 0 ? qViewer : null;
       const user = await userService.getUser(req.params.id, { viewerId: profileViewer });
+      if ((!user.id || !user.pub || !user.epub) && hubRelayClient) {
+        const remoteUser = await getRemotePublicUser(req.params.id);
+        if (remoteUser?.id) {
+          res.json(remoteUser);
+          return;
+        }
+      }
       res.json(user);
     } catch (error) {
-      if (hubRelayClient) {
-        try {
-          const remoteUser = await hubRelayClient.getPublicUser(req.params.id);
-          if (remoteUser?.id) {
-            res.json(remoteUser);
-            return;
-          }
-        } catch {
-          // Fall through to local 404.
-        }
+      const remoteUser = await getRemotePublicUser(req.params.id);
+      if (remoteUser?.id) {
+        res.json(remoteUser);
+        return;
       }
       res.status(404).json({ error: (error as Error).message });
     }

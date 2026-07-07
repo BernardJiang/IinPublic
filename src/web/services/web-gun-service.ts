@@ -487,16 +487,7 @@ export class WebGunService extends EventEmitter {
     });
   }
 
-  /** Read the public user graph record stored at `users/<id>`. */
-  async getPublicUser(userId: string): Promise<Partial<User>> {
-    let fromGun: Partial<User> | null = null;
-    try {
-      fromGun = await this.get(`users/${userId}`) as Partial<User>;
-      if (fromGun?.pub && fromGun?.epub) return fromGun;
-    } catch {
-      fromGun = null;
-    }
-
+  private async getPublicUserFromApi(userId: string): Promise<Partial<User> | null> {
     if (typeof window !== 'undefined' && window.location) {
       try {
         const { protocol, hostname, port } = window.location;
@@ -506,13 +497,29 @@ export class WebGunService extends EventEmitter {
         });
         if (response.ok) {
           const fromApi = (await response.json()) as Partial<User>;
-          if (fromApi?.id) return { ...(fromGun || {}), ...fromApi };
+          if (fromApi?.id) return fromApi;
         }
       } catch {
-        // Fall through to whatever Gun had, or the original no-data behavior below.
+        // Fall through to the Gun graph.
       }
     }
+    return null;
+  }
 
+  /** Read the public user graph record stored at `users/<id>`. */
+  async getPublicUser(userId: string): Promise<Partial<User>> {
+    const fromApi = await this.getPublicUserFromApi(userId);
+    if (fromApi?.pub && fromApi?.epub) return fromApi;
+
+    let fromGun: Partial<User> | null = null;
+    try {
+      fromGun = await this.get(`users/${userId}`) as Partial<User>;
+      if (fromGun?.pub && fromGun?.epub) return { ...(fromApi || {}), ...fromGun };
+    } catch {
+      fromGun = null;
+    }
+
+    if (fromApi) return { ...(fromGun || {}), ...fromApi };
     if (fromGun) return fromGun;
     throw new Error(`No data found for key: users/${userId}`);
   }

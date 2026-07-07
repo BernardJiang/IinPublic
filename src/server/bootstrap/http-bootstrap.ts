@@ -11,10 +11,10 @@ import { requestLogger } from '../middleware/request-logger';
 import { resolveP2PRuntimeFlags } from '../../shared/p2p-runtime';
 import { resolveEmbeddedNodeConfig } from '../../shared/embedded-node-config';
 
-function buildAllowedOrigin(): string[] | RegExp {
+export function buildAllowedOrigin(): string[] | RegExp {
   return process.env.NODE_ENV === 'production'
     ? ['https://iinpublic.com']
-    : /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+    : /^https?:\/\/[^/]+(:\d+)?$/;
 }
 
 export function createSocketServer(server: HttpServer): SocketIOServer {

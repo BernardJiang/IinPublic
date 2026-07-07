@@ -23,6 +23,7 @@ export type LaunchNativeUserOptions = {
 
 const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
 const desktopRoot = path.join(repoRoot, 'platforms', 'desktop');
+const webrtcLaunchArgs = ['--disable-features=WebRtcHideLocalIpsWithMdns'];
 
 function resolveElectronExecutable(): string {
   const electronDist = path.join(desktopRoot, 'node_modules', 'electron', 'dist');
@@ -41,7 +42,7 @@ export async function launchNativeUser(options: LaunchNativeUserOptions): Promis
 
   const app = await electron.launch({
     executablePath: resolveElectronExecutable(),
-    args: ['.'],
+    args: [...webrtcLaunchArgs, '.'],
     cwd: desktopRoot,
     env: {
       ...process.env,

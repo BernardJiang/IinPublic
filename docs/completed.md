@@ -1,6 +1,6 @@
 # IinPublic Completed Work
 
-Last updated: 2026-07-06
+Last updated: 2026-07-07
 
 ## 2026-07-06 — Pairwise conversation hardening complete
 
@@ -2597,3 +2597,79 @@ Verification:
 `npx jest src/test/integration/system-routes.test.ts src/test/integration/chatroom-routes.test.ts src/test/unit/web-gun-service-hub-url.test.ts --runInBand` — 33 passed.
 
 `npm run test:e2e:native-app` — 4 passed.
+
+## 2026-07-07 — Explicit relay native direct-message receive proof
+
+Closed the S3 explicit-relay direct-message smoke item. The browser + Electron
+native-app E2E now creates the same canonical direct pair conversation on both
+peers, connects the direct P2P DataChannel through explicit HTTP signaling, sends
+a browser direct/manual conversation message, and asserts that the native app UI
+receives and renders it.
+
+This found and fixed two relay-topology bugs:
+
+- Direct P2P subscription setup now passes the known `otherUserId` into session
+  creation instead of requiring the local Gun conversation root to be readable
+  first. This matters for embedded nodes because local Gun is device-local and
+  relay metadata arrives over HTTP, not generic Gun replication.
+- Embedded `/api/users/:id` now falls through to the upstream hub when a local
+  Gun stub lacks `id`, `pub`, or `epub`, so a partial `users/<id>/conversations`
+  node cannot mask the public identity record required for signaling.
+
+Verification:
+
+`npm run test:type` — clean.
+
+`npx jest src/test/integration/user-routes.test.ts src/test/integration/system-routes.test.ts src/test/integration/chatroom-routes.test.ts src/test/unit/web-gun-service-hub-url.test.ts src/test/unit/direct-p2p-conversation-transport.test.ts --runInBand` — 39 passed.
+
+`npm run test:e2e:native-app` — 4 passed.
+
+## 2026-07-07 — LAN browser participant topology smoke
+
+Closed the LAN browser participant smoke item. Added
+`tests/e2e/topology/lan-browser-participant.spec.ts`, which launches two local
+browser users and one LAN-hostname browser user against the same dev server/hub,
+proves the LAN page derives and reaches the host API, verifies Global contains
+TechSupport plus all three ordinary users, then sends a direct/manual
+conversation message from the LAN user to a local browser user.
+
+The deterministic CI default uses `iinpublic-lan.localhost` so Chromium keeps
+the page on HTTP while the app still sees a non-`localhost` hostname and follows
+the LAN dev-port mapping. The spec also accepts `E2E_LAN_HOST=<host-or-ip>` for
+manual runs against a real LAN-reachable address.
+
+This found and fixed two LAN-dev blockers:
+
+- webpack-dev-server now allows LAN host headers in development, so
+  `http://<dev-host>:3001` is not rejected before the SPA loads.
+- non-production API and Socket.IO CORS now allow HTTP origins on dev/LAN
+  hostnames, while production remains restricted to `https://iinpublic.com`.
+
+Verification:
+
+`npm run test:type` — clean.
+
+`npm run build:server && E2E_PORT_OFFSET=520 E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 npx playwright test tests/e2e/topology/lan-browser-participant.spec.ts` — 1 passed.
+
+## 2026-07-07 — Production compatibility topology contract
+
+Closed the production compatibility smoke item. Added a unit topology contract
+that locks down the URL/port rules shared by production, LAN development, and
+native loopback clients:
+
+- `https://www.iinpublic.com` resolves browser API and Gun traffic to the same
+  production origin.
+- LAN development pages such as `http://192.168.10.48:3001` derive the matching
+  hub/API port instead of falling back to localhost-only assumptions.
+- Native embedded nodes still default to the production hub for explicit HTTP
+  relay metadata, while generic upstream Gun peering remains disabled.
+- Production CORS remains restricted to `https://iinpublic.com`; test/dev CORS
+  admits local and LAN HTTP origins.
+- Source-owned app paths are scanned so hard-coded loopback URLs stay limited
+  to explicit native-loopback and dev-local code.
+
+Verification:
+
+`npm run test:type` — clean.
+
+`npx jest src/test/unit/production-topology-contract.test.ts src/test/unit/web-gun-service-hub-url.test.ts src/test/unit/embedded-node-config.test.ts src/test/unit/embedded-node-hub-dial.test.ts --runInBand` — 43 passed.
