@@ -172,6 +172,7 @@ export class PeerMeshService {
   private currentRoomMemberIds = new Set<string>();
   private currentRoomMembers = new Map<string, RoomMember>();
   private readonly neighbors = new Map<string, Neighbor>();
+  private readonly knownPeerPubs = new Map<string, string>();
   private reconcileTimer: ReturnType<typeof setTimeout> | null = null;
   private reconcileInFlight: Promise<void> | null = null;
   private reconcileRequested = false;
@@ -241,6 +242,7 @@ export class PeerMeshService {
   }
 
   async joinRoom(roomId: string, members: RoomMember[]): Promise<void> {
+    const wasInactive = this.currentRoomId === null;
     const roomChanged = this.currentRoomId !== null && this.currentRoomId !== roomId;
     if (roomChanged) {
       for (const neighbor of this.neighbors.values()) neighbor.session.dispose?.();
@@ -254,7 +256,7 @@ export class PeerMeshService {
         member.userId !== this.opts.localUserId &&
         member.userId !== TECHSUPPORT_ROOT_USER_ID,
     );
-    let rosterChanged = roomChanged || this.currentRoomId === null;
+    let rosterChanged = wasInactive || roomChanged;
     // Gun room membership arrives as a stream of partial snapshots. Replacing the
     // roster on every callback tears down healthy links whenever a callback contains
     // only the newest member. Keep the discovered same-room set until leave/room
@@ -327,7 +329,7 @@ export class PeerMeshService {
     const resolvedByUserId = new Map<string, string>();
     for (const member of rankedCandidates) {
       const existing = this.neighbors.get(member.userId);
-      const pub = existing?.pub || presencePubs.get(member.userId);
+      const pub = existing?.pub || presencePubs.get(member.userId) || this.knownPeerPubs.get(member.userId);
       if (pub) resolvedByUserId.set(member.userId, pub);
     }
     if (resolvedByUserId.size < maxNeighbors) {
@@ -341,6 +343,9 @@ export class PeerMeshService {
       for (const { member, pub } of fallbackPubs) {
         if (pub) resolvedByUserId.set(member.userId, pub);
       }
+    }
+    for (const [userId, pub] of resolvedByUserId) {
+      this.knownPeerPubs.set(userId, pub);
     }
     const candidates = rankedCandidates
       .map((member) => ({ member, pub: resolvedByUserId.get(member.userId) || '' }))

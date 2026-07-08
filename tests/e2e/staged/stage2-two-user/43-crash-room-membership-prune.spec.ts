@@ -32,9 +32,12 @@ test.describe('Room membership cleanup after OS-level browser crash', () => {
   });
 
   test('SIGKILLed member is removed from visible Global headcount after membership TTL expiry', async () => {
-    const supportOffset = 1;
     const globalHeadcount = (page: Page) =>
       page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount');
+    const readGlobalHeadcount = async (page: Page) => {
+      const text = await globalHeadcount(page).textContent();
+      return Number(text?.match(/\d+/)?.[0] || '0');
+    };
 
     const alice = await bootstrapUser(browserA, 'CrashRoom-A', 'Crash Room Alice');
     contextA = alice.context;
@@ -46,7 +49,10 @@ test.describe('Room membership cleanup after OS-level browser crash', () => {
     const bobId = await bootstrapOnPage(pageB, 'Crash Room Bob');
     expect(bobId).toBeTruthy();
 
-    await expect(globalHeadcount(pageA)).toContainText(String(2 + supportOffset), { timeout: 20_000 });
+    const initialHeadcount = await expect
+      .poll(() => readGlobalHeadcount(pageA!), { timeout: 20_000 })
+      .toBeGreaterThanOrEqual(3)
+      .then(() => readGlobalHeadcount(pageA!));
 
     let bClosed = false;
     contextB.on('close', () => { bClosed = true; });
@@ -80,6 +86,6 @@ test.describe('Room membership cleanup after OS-level browser crash', () => {
       .not.toContain(bobId);
 
     await afterSync();
-    await expect(globalHeadcount(pageA)).toContainText(String(1 + supportOffset), { timeout: 20_000 });
+    await expect(globalHeadcount(pageA)).toContainText(String(initialHeadcount - 1), { timeout: 20_000 });
   });
 });

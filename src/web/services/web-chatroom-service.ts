@@ -21,6 +21,7 @@ export class WebChatroomService {
   private membersListenerRoomId: string | undefined = undefined;
   private membershipHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private membershipHeartbeatKey: string | null = null;
+  private membershipHeartbeatStageName: string | null = null;
 
   constructor(private gunService: WebGunService) {}
 
@@ -28,6 +29,15 @@ export class WebChatroomService {
     if (typeof window === 'undefined') return 'http://127.0.0.1:8080';
     const { hostname, protocol, port } = window.location;
     return deriveBackendApiBaseFromLocation(protocol, hostname, port);
+  }
+
+  private isFreshActiveMember(memberData: any): boolean {
+    if (!memberData || memberData.isActive !== true) return false;
+    const rawSeen = memberData.lastSeen || memberData.joinedAt;
+    if (!rawSeen) return true;
+    const seenAt = Date.parse(String(rawSeen));
+    if (!Number.isFinite(seenAt)) return true;
+    return Date.now() - seenAt <= (ROOM_MEMBERSHIP_TTL_SECONDS + 5) * 1000;
   }
 
   /** Fast member snapshot from server Gun (reads chatrooms/<id>/users). */
@@ -279,9 +289,16 @@ export class WebChatroomService {
 
   private startMembershipHeartbeat(chatroomId: string, userId: string, stageName: string): void {
     const key = `${chatroomId}:${userId}`;
-    if (this.membershipHeartbeatKey === key && this.membershipHeartbeatTimer) return;
+    if (
+      this.membershipHeartbeatKey === key &&
+      this.membershipHeartbeatTimer &&
+      this.membershipHeartbeatStageName === stageName
+    ) {
+      return;
+    }
     this.stopMembershipHeartbeat();
     this.membershipHeartbeatKey = key;
+    this.membershipHeartbeatStageName = stageName;
     const beat = () => {
       const now = new Date().toISOString();
       this.gunService
@@ -330,6 +347,7 @@ export class WebChatroomService {
       this.membershipHeartbeatTimer = null;
     }
     this.membershipHeartbeatKey = null;
+    this.membershipHeartbeatStageName = null;
   }
 
   /** Register join on server index so GET /members is immediate (not Gun-map lag). */
@@ -517,7 +535,7 @@ export class WebChatroomService {
           .map()
           .on((memberData: any, userId: string) => {
             if (userId.startsWith('_') || (!options.includeTechSupport && userId === TECHSUPPORT_ROOT_USER_ID)) return;
-            if (memberData && memberData.isActive === true) {
+            if (this.isFreshActiveMember(memberData)) {
               activeYes.add(userId);
             } else {
               activeYes.delete(userId);
@@ -582,7 +600,7 @@ export class WebChatroomService {
       .on((memberData: any, userId: string) => {
         if (userId.startsWith('_')) return;
 
-        if (memberData && memberData.isActive === true) {
+        if (this.isFreshActiveMember(memberData)) {
           this.activeMembersForList.set(userId, {
             userId,
             stageName: memberData.stageName || userId,
@@ -719,7 +737,7 @@ export class WebChatroomService {
     const emitCount = () => {
       let count = 0;
       for (const [, data] of activeMembers) {
-        if (data && data.isActive === true) {
+        if (this.isFreshActiveMember(data)) {
           count++;
         }
       }
@@ -757,7 +775,7 @@ export class WebChatroomService {
         if (userId.startsWith('_')) return;
 
         // Update our tracking map
-        if (memberData == null || memberData.isActive === false) {
+        if (!this.isFreshActiveMember(memberData)) {
           activeMembers.delete(userId);
         } else {
           activeMembers.set(userId, memberData);

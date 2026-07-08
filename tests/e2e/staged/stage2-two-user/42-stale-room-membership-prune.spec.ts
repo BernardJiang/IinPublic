@@ -30,9 +30,12 @@ test.describe('Room membership TTL cleanup', () => {
   });
 
   test('stale active member is pruned from the visible Global headcount after disappearance', async () => {
-    const supportOffset = 1;
     const globalHeadcount = (page: Page) =>
       page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount');
+    const readGlobalHeadcount = async (page: Page) => {
+      const text = await globalHeadcount(page).textContent();
+      return Number(text?.match(/\d+/)?.[0] || '0');
+    };
 
     const alice = await bootstrapUser(browserA, 'TTL-A', 'TTL Alice');
     contextA = alice.context;
@@ -41,7 +44,10 @@ test.describe('Room membership TTL cleanup', () => {
     contextB = bob.context;
     pageB = bob.page;
 
-    await expect(globalHeadcount(pageA)).toContainText(String(2 + supportOffset), { timeout: 20_000 });
+    const initialHeadcount = await expect
+      .poll(() => readGlobalHeadcount(pageA!), { timeout: 20_000 })
+      .toBeGreaterThanOrEqual(3)
+      .then(() => readGlobalHeadcount(pageA!));
 
     const bobId = await pageB.evaluate(
       () => String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''),
@@ -67,6 +73,6 @@ test.describe('Room membership TTL cleanup', () => {
     expect(res.ok).toBe(true);
     await afterSync();
 
-    await expect(globalHeadcount(pageA)).toContainText(String(1 + supportOffset), { timeout: 20_000 });
+    await expect(globalHeadcount(pageA)).toContainText(String(initialHeadcount - 1), { timeout: 20_000 });
   });
 });

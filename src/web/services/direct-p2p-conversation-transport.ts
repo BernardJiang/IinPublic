@@ -263,26 +263,28 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
     });
 
-    try {
-      const session = await this.sessionFor(conversationId, senderId, opts?.otherUserId);
-      await session.sendDm(senderId, text, channel, wire);
-    } catch (err) {
-      console.warn(
-        `Direct P2P WebRTC notify failed for ${conversationId}; Gun record is authoritative, queueing to mailbox:`,
-        err,
-      );
-      // Phase 4: peer unreachable over WebRTC → queue the (already-encrypted) wire to
-      // the recipient's offline mailbox so it survives even without a hub archive.
-      if (this.onUndeliverable) {
-        try {
-          const recipientUserId = opts?.otherUserId ?? (await this.resolveOtherUserId(conversationId, senderId));
-          if (recipientUserId) this.onUndeliverable(wire, conversationId, recipientUserId);
-        } catch (resolveErr) {
-          console.warn(`Direct P2P mailbox fallback skipped (no recipient) for ${conversationId}:`, resolveErr);
+    console.log(`📤 Message sent in conversation ${conversationId} (${channel}, ${this.mode})`);
+    void (async () => {
+      try {
+        const session = await this.sessionFor(conversationId, senderId, opts?.otherUserId);
+        await session.sendDm(senderId, text, channel, wire);
+      } catch (err) {
+        console.warn(
+          `Direct P2P WebRTC notify failed for ${conversationId}; Gun record is authoritative, queueing to mailbox:`,
+          err,
+        );
+        // Phase 4: peer unreachable over WebRTC → queue the (already-encrypted) wire to
+        // the recipient's offline mailbox so it survives even without a hub archive.
+        if (this.onUndeliverable) {
+          try {
+            const recipientUserId = opts?.otherUserId ?? (await this.resolveOtherUserId(conversationId, senderId));
+            if (recipientUserId) this.onUndeliverable(wire, conversationId, recipientUserId);
+          } catch (resolveErr) {
+            console.warn(`Direct P2P mailbox fallback skipped (no recipient) for ${conversationId}:`, resolveErr);
+          }
         }
       }
-    }
-    console.log(`📤 Message sent in conversation ${conversationId} (${channel}, ${this.mode})`);
+    })();
   }
 
   subscribeToMessages(

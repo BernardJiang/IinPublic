@@ -1566,6 +1566,15 @@ export class IinPublicApp {
           envelope.ciphertext,
           pair as import('../sea-gun').GunPair,
         );
+        if (senderEpubHint) {
+          const senderId = String(
+            (payload as MailboxConversationMessagePayload).senderId
+              || (payload as P2PMeshTalkResponsePayload).responderId
+              || (payload as import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload).authorId
+              || '',
+          ).trim();
+          if (senderId) this.peerEpubByUserId.set(senderId, senderEpubHint);
+        }
         // Dispatch based on payload kind:
         //   - kind 'conversation-message-v1' → offline DM (Phase 4)
         //   - kind 'ipfs-conversation-share-v1' → attachment share link
@@ -1573,9 +1582,6 @@ export class IinPublicApp {
         //   - has `retractedAt` (number) → step-10 retraction envelope
         //   - has `responseId` → talk-response payload from step 6
         if ((payload as any).kind === 'conversation-message-v1') {
-          if (senderEpubHint && typeof (payload as MailboxConversationMessagePayload).senderId === 'string') {
-            this.peerEpubByUserId.set((payload as MailboxConversationMessagePayload).senderId, senderEpubHint);
-          }
           await this.ingestConversationMessageFromMailbox(payload as MailboxConversationMessagePayload);
         } else if ((payload as any).kind === 'ipfs-conversation-share-v1') {
           await this.ingestAttachmentShareFromMailbox(payload as MailboxAttachmentSharePayload);
@@ -1694,7 +1700,7 @@ export class IinPublicApp {
     this.conversationService.upsertMessageRecord(
       payload.conversationId,
       payload.wire,
-      { otherUserId: payload.senderId },
+      { otherUserId: payload.recipientUserId || this.currentUser.id },
     );
     console.log('[Mailbox] Ingested offline DM', payload.wire.id, 'in', payload.conversationId);
   }

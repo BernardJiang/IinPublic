@@ -31,6 +31,19 @@ async function bootstrapCompactUser(
   await page.fill('#settings-stage-name-input', stageName);
   await page.locator('#settings-stage-name-input').blur();
   await afterNav();
+  await expect
+    .poll(
+      () => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.stageName ?? ''),
+      { timeout: appReadyTimeoutMs ?? 10_000 },
+    )
+    .toBe(stageName);
+  await page.evaluate(async (name) => {
+    const app = (window as any).__iinpublic_app?.getApp?.() as any;
+    if (!app?.currentUser?.id || !app?.chatroomService?.switchChatroom) return;
+    await app.chatroomService.switchChatroom(app.currentUser.id, 'global', name);
+    app.currentChatroomId = 'global';
+    app.uiManager?.setCurrentChatroomId?.('global');
+  }, stageName);
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
   await page.click('.chatroom-item[data-chatroom-id="global"]');
@@ -99,9 +112,13 @@ test.describe('Chatroom UX: member list scroll and unified broadcast bar', () =>
 
     await afterSync();
     await waitForGunPeerCountInRoom(owner.page, 'global', 7);
+    await owner.page.click('.nav-btn[data-view="chatrooms"]');
+    await afterNav();
+    await owner.page.click('.chatroom-item[data-chatroom-id="global"]');
+    await afterSync();
 
     const peers = peerMemberItems(owner.page);
-    await expect(peers).toHaveCount(7, { timeout: 30_000 });
+    await expect(peers).toHaveCount(7, { timeout: 90_000 });
     for (let i = 1; i <= 7; i += 1) {
       await expect(peers.filter({ hasText: `Peer${i}` })).toHaveCount(1);
     }

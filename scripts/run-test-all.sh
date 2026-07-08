@@ -24,7 +24,7 @@
 #                       time otherwise. Waves are sequenced so the timing-sensitive heavy-staged
 #                       shard (it holds a 30s-budget chatbot spec) always runs alone.
 #
-# Tunables (env): PW_WORKERS(light,14) MASS_WORKERS(4) STAGE5_WORKERS(3) PW_MESH_WORKERS(4)
+# Tunables (env): PW_WORKERS(light,1) MASS_WORKERS(4) STAGE5_WORKERS(3) PW_MESH_WORKERS(4)
 #                 PW_HEAVY_WORKERS(2) — auto-scaled to the detected core count when unset
 #                 (mass/stage5 only ever scale down, never above their tuned baseline — see
 #                 scale_down_only() below). CONCURRENT_WAVES(1/0, default 0) forces whether
@@ -37,11 +37,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 set -a; [ -f .env.local ] && . ./.env.local; set +a
 
-# Defaults below (14/4/3/4/2) were tuned on a ~10-core box. Wave 1 runs light+mass+stage5
-# fully concurrently. On a smaller machine the real peak concurrent-browser count in wave 1
-# is far higher than the worker numbers suggest (mass/stage5 specs each launch several of
-# their own Chromium processes inside a loop, independent of PW_WORKERS), so scale worker
-# counts down on weaker boxes; explicit env vars (PW_WORKERS, MASS_WORKERS, etc.) always win.
+# Defaults below (1/4/3/4/2) were tuned for correctness on the current staged E2E suite.
+# The broad "light" shard contains many stateful staged specs and is not worker-safe: at 8+
+# workers it can fail on shared-room headcounts, contact replication, and timing-sensitive
+# direct-P2P waits even when the same specs pass in isolation. Keep that shard serial by
+# default; explicit env vars (PW_WORKERS, MASS_WORKERS, etc.) always win.
 detect_cores() {
   if command -v sysctl >/dev/null 2>&1 && sysctl -n hw.ncpu >/dev/null 2>&1; then
     sysctl -n hw.ncpu
@@ -69,11 +69,11 @@ scale_down_only() {
   if [ "$scaled" -lt "$1" ]; then echo "$scaled"; else echo "$1"; fi
 }
 
-LIGHT_WORKERS="${PW_WORKERS:-$(scale 14)}"
+LIGHT_WORKERS="${PW_WORKERS:-1}"
 MASS_WORKERS="${MASS_WORKERS:-$(scale_down_only 4)}"
 STAGE5_WORKERS="${STAGE5_WORKERS:-$(scale_down_only 3)}"
-MESH_WORKERS="${PW_MESH_WORKERS:-$(scale 4)}"
-HEAVY_WORKERS="${PW_HEAVY_WORKERS:-$(scale 2)}"
+MESH_WORKERS="${PW_MESH_WORKERS:-$(scale_down_only 4)}"
+HEAVY_WORKERS="${PW_HEAVY_WORKERS:-$(scale_down_only 2)}"
 
 # Default to running each wave's phases one at a time — correctness over wall-clock time.
 # An earlier version of this script tried to auto-enable full wave concurrency above a
@@ -111,7 +111,7 @@ cleanup() {
   for pid in "${WAVE_PIDS[@]:-}"; do kill "$pid" 2>/dev/null; done
   wait 2>/dev/null
 }
-trap cleanup INT TERM
+trap 'cleanup; exit 130' INT TERM
 
 # Launch one phase in the background on its own port band. Records time + rc to $LOG_DIR.
 #   start_phase <name> <port_offset> <env-and-command...>

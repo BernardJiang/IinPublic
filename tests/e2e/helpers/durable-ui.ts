@@ -55,11 +55,40 @@ export async function waitForPeerHistoryTitle(
   await expect
     .poll(
       () => page.evaluate((pid) => {
+        const titles = new Set<string>();
         const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
-        return Object.values(exchanges)
+        Object.values(exchanges)
           .filter((entry: any) => String(entry?.peerId || '') === pid)
           .map((entry: any) => String(entry?.title || ''))
-          .filter(Boolean);
+          .filter(Boolean)
+          .forEach((entryTitle) => titles.add(entryTitle));
+
+        const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const addTalkTitle = (talkId: unknown) => {
+          const id = String(talkId || '').trim();
+          if (!id || id === 'direct') return;
+          const talk = myTalks[id];
+          const talkTitle = String(talk?.title || talk?.fullTalk?.title || '').trim();
+          if (talkTitle) titles.add(talkTitle);
+        };
+        Object.values(conversations)
+          .filter((conversation: any) => String(conversation?.otherUserId || '') === pid)
+          .forEach((conversation: any) => {
+            addTalkTitle(conversation?.talkId);
+            if (Array.isArray(conversation?.relatedTalkIds)) {
+              conversation.relatedTalkIds.forEach(addTalkTitle);
+            }
+            if (typeof conversation?.relatedTalkIdsJson === 'string') {
+              try {
+                const parsed = JSON.parse(conversation.relatedTalkIdsJson);
+                if (Array.isArray(parsed)) parsed.forEach(addTalkTitle);
+              } catch {
+                /* ignore malformed legacy metadata */
+              }
+            }
+          });
+        return Array.from(titles);
       }, peerId).catch(() => []),
       { message: `${title} should be in peer talk history`, timeout, intervals: [200, 500, 1000] },
     )

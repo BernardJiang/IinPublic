@@ -256,7 +256,7 @@ test.describe('L5 matched-talk IPFS auto-share', () => {
     const ignoreAnswers = [
       { questionId: 'q1', answerId: 'a-ignore', answerText: 'No', mode: 'manual', isIgnore: true },
     ];
-    const expectedConversationId = `conv_${[tomId, jerryId].sort().join('_')}_${talkId}`;
+    const expectedConversationId = `conv_pair_${[tomId, jerryId].sort().join('_')}`;
     await Promise.all([
       subscribeToShareMessages(pageTom, expectedConversationId, jerryId),
       subscribeToShareMessages(pageJerry, expectedConversationId, tomId),

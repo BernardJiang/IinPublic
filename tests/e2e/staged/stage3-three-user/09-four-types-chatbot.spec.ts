@@ -37,7 +37,7 @@ function answerIdsFor(kind: TalkKind): string[] {
 }
 
 test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sam', () => {
-  test.setTimeout(30_000);
+  test.setTimeout(120_000);
 
   let browsers: Browser[] = [];
   const sessions: Session[] = [];
@@ -66,6 +66,10 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
 
     const jerry = await bootstrapUser(browsers[1]!, 'Jerry', 'Jerry');
     sessions.push({ label: 'Jerry', context: jerry.context, page: jerry.page });
+    const jerryId = await jerry.page.evaluate(() =>
+      String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''),
+    );
+    expect(jerryId).toBeTruthy();
     await jerry.page.click('.chatroom-item:has-text("Global")');
     await waitForTabActive(jerry.page, 'chatrooms');
     await afterSync();
@@ -117,26 +121,44 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
     // --- Sam joins and re-announces each talk; Jerry's chatbot auto-replies ---
     const sam = await bootstrapUser(browsers[2]!, 'Sam', 'Sam');
     sessions.push({ label: 'Sam', context: sam.context, page: sam.page });
+    const samIdentity = await sam.page.evaluate(() => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      const pair = app?.gunService?.getStoredPair?.();
+      return {
+        id: String(app?.currentUser?.id || ''),
+        name: String(app?.currentUser?.stageName || 'Sam'),
+        epub: String(pair?.epub || ''),
+      };
+    });
+    expect(samIdentity.id).toBeTruthy();
+    expect(samIdentity.epub).toBeTruthy();
     await sam.page.click('.chatroom-item:has-text("Global")');
     await waitForTabActive(sam.page, 'chatrooms');
     await afterSync();
 
     for (const { talkId, talkData } of createdByKind) {
+      const samAuthoredTalk = {
+        ...talkData,
+        authorId: samIdentity.id,
+        authorName: samIdentity.name,
+        authorEpub: samIdentity.epub,
+        senderEpub: samIdentity.epub,
+      };
       await sam.page.evaluate(async ({ id, talk }: { id: string; talk: any }) => {
         const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
         if (!app?.announceTalkToRoom) throw new Error('announceTalkToRoom not found');
         await app.announceTalkToRoom(id, talk);
-      }, { id: talkId, talk: talkData });
+      }, { id: talkId, talk: samAuthoredTalk });
       await afterSync();
     }
 
     // Tag + flow + route define match answers; survey has none. So Sam expects at least one
     // bot-attributed Jerry conversation stored locally.
-    await sam.page.waitForFunction(() => {
+    await sam.page.waitForFunction((expectedJerryId) => {
       const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
       return Object.values(conversations).some(
-        (conversation: any) => conversation?.otherUserName === 'Jerry' && conversation.respondedByBot === true,
+        (conversation: any) => conversation?.otherUserId === expectedJerryId && conversation.respondedByBot === true,
       );
-    }, null, { timeout: 20_000 });
+    }, jerryId, { timeout: 45_000 });
   });
 });

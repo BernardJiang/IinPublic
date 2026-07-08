@@ -161,6 +161,7 @@ test.describe('Mailbox: an envelope announced while the recipient is offline pas
     pageBReconnect = await contextBReconnect.newPage();
     mark('reconnect boot start');
     await gotoAppReady(pageBReconnect, webAppURLStableChatroom());
+    await pageBReconnect.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.drainMailbox?.());
     mark('reconnect app ready');
 
     const bIdReconnect = await pageBReconnect.evaluate(

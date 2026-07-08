@@ -215,8 +215,7 @@ export class GunMessageStore {
         .get('messages')
         .get(wire.id)
         .put(record);
-      // Keep an encrypted mirror under the legacy conversation root so a fresh page
-      // reload can enumerate history before the pair graph catches up.
+      return;
     }
     gun.get(`conversations/${conversationId}`).get('messages').get(wire.id).put(record);
   }

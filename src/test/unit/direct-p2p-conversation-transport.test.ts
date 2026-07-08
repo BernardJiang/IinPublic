@@ -2,6 +2,13 @@ import { DirectP2PConversationTransport } from '../../web/services/direct-p2p-co
 import { GunMessageStore } from '../../web/services/gun-message-store';
 import type { WebGunService } from '../../web/services/web-gun-service';
 
+async function waitForMockCall(mockFn: jest.Mock, timeoutMs = 1000): Promise<void> {
+  const start = Date.now();
+  while (mockFn.mock.calls.length === 0 && Date.now() - start < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 describe('DirectP2PConversationTransport (P2P-H)', () => {
   const wire = {
     id: 'msg_test_1',
@@ -39,6 +46,7 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     });
 
     await transport.sendMessage('conv1', 'alice', 'hello', { otherUserId: 'bob' });
+    await waitForMockCall(sendDm);
 
     expect(buildSpy).toHaveBeenCalledWith(
       'conv1',
@@ -103,6 +111,8 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
 
     await transport.sendMessage('conv1', 'alice', 'hello', { otherUserId: 'bob' });
 
+    await waitForMockCall(sendDm);
+    await waitForMockCall(onUndeliverable);
     expect(sendDm).toHaveBeenCalled();
     expect(onUndeliverable).toHaveBeenCalledWith(wire, 'conv1', 'bob');
     buildSpy.mockRestore();

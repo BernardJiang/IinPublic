@@ -215,16 +215,14 @@ This is a starting point. Add your own conventions, style, and rules as you figu
 <claude-mem-context>
 # Memory Context
 
-# [IinPublic] recent context, 2026-06-20 12:06pm PDT
+# [IinPublic] recent context, 2026-07-07 2:59pm PDT
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (20,001t read) | 580,379t work | 97% savings
+Stats: 50 obs (17,996t read) | 173,677t work | 90% savings
 
-### May 14, 2026
-S16 Full E2E suite now 65/65 passing — previous failure confirmed intermittent flake (May 14 at 11:45 PM)
 ### May 15, 2026
 S17 Double-check current status against deleted P0 section of TODO.md from git history; create new plan and insert at beginning of TODO.md if differences found (May 15 at 12:10 AM)
 S18 Pre-commit State: Major UI Refactor Pending in /IinPublic (May 15 at 12:10 AM)
@@ -236,59 +234,60 @@ S22 Distance Sort Branch Implemented in contacts-view.ts Sort Comparator (Jun 14
 S23 Verify Phase 5 follow-up items (steps 3 and 4): re-digest on reconnect and listLocalWires bounding (Jun 14 at 2:42 PM)
 S24 Green CI Commit dbf22108 Landed with scripts/ci-local.sh Created (Jun 14 at 2:51 PM)
 S25 Use local PC as CI — run ./scripts/ci-local.sh, fix failures, commit on green (Jun 14 at 3:52 PM)
-### Jun 15, 2026
-716 11:17p 🔵 WebGunService Holds GunBridge Instance and SEA Keypair — Integration Point for GunPubSubSignaler
-717 11:18p 🔵 P2PConversationSession Created via getOrCreateP2PSession() Factory — Single Injection Point for GunBridge
-718 11:19p 🔵 Three Call Sites for getOrCreateP2PSession() Require GunBridge Threading
-719 11:22p 🔵 P2PConversationSession.dispose() Is the Cleanup Hook for Gun Subscription Unsubscribe
-720 11:23p 🟣 GunPubSubSignaler Implemented — Gun pub/sub Replaces HTTP Polling for WebRTC Signaling
-721 11:33p 🔵 Pre-existing Unit Test Failures in peer-mesh-service Before S2 Implementation
-722 11:34p 🔵 Confirmed: 2 peer-mesh-service Unit Test Failures Are Pre-existing, Not Caused by S2 Changes
-723 " 🟣 S2 Gun Pub/Sub Signaling Implementation — Files Modified and New File Created
-724 " 🟣 S2 Implementation Passes TypeScript Type Check Clean
-725 11:35p 🔵 Integration Tests Pass and E2E Playwright Suite Confirmed Active
-726 " 🟣 S2 Implementation: All Integration Tests Pass (82/83)
-### Jun 16, 2026
-727 12:26a 🟣 GunPubSubSignaler — Gun Pub/Sub WebRTC Signaling Implementation (Phase 1 of S2)
-728 " 🔵 gun-pubsub-signaler.ts exists at 143 lines — within spec constraint
-729 " 🟣 GunPubSubSignaler: Full Implementation Details
-730 " 🔵 TypeScript type-check passes clean; E2E test path not found
-731 12:27a 🔵 No direct-p2p E2E spec exists — referenced test file was never created
-732 " 🔵 Existing E2E suite passes clean after GunPubSubSignaler addition
-733 3:13p ✅ TODO Housekeeping: Phase 5 P2P and T1 Retry Items Promoted to Completed
-734 " 🔵 docs/TODO.md and docs/completed.md State Snapshot (2026-06-16)
-735 3:14p 🔵 docs/completed.md Tail Content: T3/T4/T5/P0-Phase Entries from 2026-06-14/15
-736 3:15p ✅ docs/completed.md Appended with 2026-06-16 Promoted TODO Section
-737 3:19p 🟣 S1: Signaling Server Background Pruning with setInterval
-738 " 🔵 system-routes.ts: pruneSignaling() is lazy — only fires on HTTP requests
-739 3:20p 🔵 Server has no shutdown/cleanup lifecycle hook for interval management
-740 " 🔵 P2PSignalingEnvelope TTL: expiresAt set by SIGNALING_TTL_SECONDS constant in createP2PSignalingEnvelope()
-741 " 🟣 Extracted pruneSignalingMap() and startSignalingPruning() as exported functions in system-routes.ts
-742 " 🔄 Internal pruneSignaling closure simplified to one-liner; startSignalingPruning() wired into registerSystemRoutes()
-743 3:21p 🟣 Unit test file created for signaling pruning; TypeScript types clean
-### Jun 19, 2026
-744 11:18p 🔵 IinPublic Project Structure: Talk/Flow/Survey/Route E2E Test Infrastructure
-745 " 🔵 Talks Tab Architecture: All/IN/OUT Mode + Multi-Dimensional Sort/Filter System
-746 " 🔵 Me Tab Architecture: Flat Question List with Type/State Filters and Search
-747 " 🔵 Talk Lifecycle Fixture Helpers: buildFlowTalkPayload, buildTagTalkPayload and Answer ID Builders
-748 11:19p 🟣 Talks Tab: Added Search Query, Type Filter, and Completion Status Filter Controls
-749 11:20p 🟣 Talks Tab: Answered Talks Restored to IN Section + Universal Filter Applied to Both OUT and IN
-750 " 🔵 TypeScript Type Check Passes After Talks Tab Filter Patch
-751 11:21p 🔵 answers-view.ts Patch Failed: File Content Mismatch in Deduplication Block
-752 " 🔵 answers-view.ts Exact Current State: Dual-Path Deduplication Blocks at Lines 356-529
-753 " 🔄 answers-view.ts: Removed Deduplication Logic, Empty State Now Uses Raw Entry Counts
-754 " 🔵 answers-view.ts Post-Patch State: dedupedFlat/deduped forEach Still Present, Need Replacement
-755 11:22p 🟣 Me Tab: Questions Now Flattened to Individual Rows via flattenedHistory
-756 11:23p 🟣 New E2E Test: Three-User Complete Talk Matrix (15-three-user-talk-matrix.spec.ts)
-757 " 🔴 Answered Cluster Objects Must Use latestTalkId Not talkId for pickIncomingRowTalkId Compatibility
-758 " 🔵 E2E Test Blocked by Talk Ledger daily_talk_send_rate_limit on Broadcast
-759 11:24p 🔵 Talk Ledger Rate Limit Root Cause: TALK_SEND_DAILY=10 Cap With 12-Talk Broadcast Per User
-760 " 🔴 E2E Test Now Disables Talk Ledger Rate Limit via setTalkLedgerQuotaUnlimitedForE2e(true)
-761 " 🔵 Stale Node Processes on Ports 8080 and 3001 Blocking E2E Re-run
-762 11:25p 🔵 Rate Limit Fix Working: No daily_talk_send_rate_limit Errors in New Test Run
-763 11:26p 🟣 E2E Test 15-three-user-talk-matrix PASSED in 111.6 Seconds
-764 " 🔴 Me Tab Expected Question Count Corrected from 81 to 54 (Per-User Received Talks Only)
-765 11:27p ✅ Session Complete: Memory File Created, All Changes Confirmed Clean
+### Jun 25, 2026
+817 5:29p 🔵 IinPublic E2E Test Suite — Git State and Recent Helper Changes
+818 " 🟣 timing.ts: waitForAppReady and gotoAppReady Accept Optional timeoutMs
+819 5:30p 🔵 talks-matching-flow.ts in Contradictory Staged/Unstaged State
+820 " 🔵 playwright.config.ts — Full E2E Infrastructure Architecture
+821 " 🟣 S3 Embedded-Node Platform Support Added to Server and package.json
+822 5:31p 🔵 Stage1 Single-User Spec Passes When Run in Isolation (1 Worker)
+823 5:32p 🔵 Stage2 Two-User Spec Passes in Isolation — Confirms Parallel Execution Root Cause
+824 5:43p 🔵 Critical Mismatch: Single webpack-dev-server vs Multi-Worker Port Mapping
+825 5:44p 🔵 `window.__gunReady` Never Set in Source Code — afterSync Always Times Out
+826 5:45p 🔵 App.tsx Missing window.__gunReady Signal and Missing Test-Required UI Elements
+827 " 🔵 Window Globals Declared in TypeScript but Never Assigned at Runtime
+828 " 🔴 playwright.config.ts: Reduced Workers to 1 and Added baseURL
+829 " 🔴 fixtures.ts: Hardcoded Port 3001 Replacing Dynamic Worker Port Mapping
+830 " 🔴 timing.ts and talks-matching-flow.ts: Graceful Fallback When __gunReady Not Set
+831 " 🟣 App.tsx: Full UI Implementation with All Test-Required data-testid Elements
+832 " ✅ TypeScript Compilation Passes Clean After All Code Changes
+833 " 🔴 First E2E Test Passing: "auto-copy keeps clipboard in sync" Passes in 4.2s
+834 " 🔴 Stage2 Profile Edit Tests Both Pass: Stage Name Edit and Two-User Visibility
+835 " 🔴 All 7 Stage1 Single-User E2E Tests Pass After Infrastructure and App Fixes
+836 " 🔴 All 5 Stage2 Two-User E2E Tests Pass — Full Suite Now Green
+### Jul 2, 2026
+837 11:26p 🟣 IinPublic Desktop App Build Task Initiated for macOS and Windows
+838 11:27p 🔵 IinPublic Desktop Build Environment State Confirmed
+839 " 🔵 macOS sips Can Generate All Required Icon Formats Natively
+840 " 🟣 1024×1024 App Icon Generated with Pure Python + NumPy (No PIL)
+841 11:28p 🟣 All Three Platform Icons Generated and Verified in platforms/desktop/resources/
+842 " ✅ Embedded Artifacts Rebuilt — buildId 55019cd2 Stamped to dist/web and dist/server
+843 " 🔵 Desktop npm Install Complete — Electron 31.7.7 Binary Present, 6 High Severity Vulns
+844 " 🔵 Electron Install Incomplete — path.txt Missing, Binary Present But Unregistered
+845 11:29p 🔵 Electron dist/ Confirms Incomplete Install — No version File, Only Electron.app Present
+846 " 🔵 Electron Artifact Cache Missing — Fresh Download Required for electron-builder
+847 " 🔵 electron-builder Packaging Started — Unsigned macOS arm64 Build, No Developer ID Cert
+848 " 🟣 IinPublic.app macOS arm64 Bundle Built Successfully — 949MB Total
+849 " ✅ macOS DMG Build Phase Started (Task 4)
+850 11:30p 🟣 macOS DMG Built Successfully — IinPublic-1.0.0-arm64.dmg with APFS Format
+851 11:31p 🔵 DMG Confirmed at 247MB — Wine Not Installed, brew install wine-stable Started as Background Task
+S26 DMG Confirmed at 247MB — Wine Not Installed, brew install wine-stable Started as Background Task (Jul 2 at 11:31 PM)
+### Jul 3, 2026
+852 8:32p 🔵 IinPublic Project Structure Contains Multi-Platform Build Directories
+853 " 🔵 Windows Desktop App Built and Present; iOS Shell Incomplete
+854 8:33p 🔵 Desktop Electron Install Instructions and Build Config Confirmed
+855 8:39p 🔵 IinPublic Desktop (Windows/macOS/Linux) Build & Install System
+856 " 🟣 Windows Build Scripts Split into x64, arm64, and Universal Targets
+857 " ✅ Desktop README Updated with Windows Architecture Build Guidance
+858 " ✅ Windows Build Now Produces zip Artifact and electron-builder Bumped to v25
+859 8:40p 🔵 Windows x64 Build Successfully Compiles and Packages IinPublic Desktop
+860 " 🔵 NSIS Installer Build Confirmed: `IinPublic Setup 1.0.0.exe` Produced
+861 8:42p 🔵 Windows x64 Build Completed Successfully (Exit Code 0)
+862 " 🔵 Both Windows x64 and ARM64 Installer Artifacts Present in dist/
+863 8:43p ✅ Session Memory Entry Created for 2026-07-04
+864 " 🔵 iOS NodeRunner.swift: NodeMobile Bridge Stubbed, Not Yet Linked
+865 " 🔵 iOS App Architecture: WKWebView over Loopback with Health-Check Boot Sequencing
+866 " 🔵 Shared nodejs-mobile Entry Point Used by Both Android and iOS
 
-Access 580k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 174k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

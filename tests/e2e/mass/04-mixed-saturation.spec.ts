@@ -80,15 +80,26 @@ test.describe('M4 real mixed saturation', () => {
       // B — PeerMeshService neighbor count: with 12 nodes each has 11 reachable peers, below the
       // default maxNeighbors cap (12), so a healthy mesh connects all 11. peerMeshService is
       // exposed via (this as any) cast inside ensurePeerMeshService() once a join triggers init.
-      const neighborCounts = await Promise.all(pages.map((page) =>
-        page.evaluate(() => {
-          const mesh = ((window as any).__iinpublic_app.getApp() as any).peerMeshService;
-          return mesh ? (mesh.getDiagnostics() as { neighborCount: number }).neighborCount : 0;
-        }),
+      await Promise.all(pages.map((page) =>
+        page.evaluate(async (members) => {
+          const app = (window as any).__iinpublic_app.getApp() as any;
+          await app.peerMeshService?.joinRoom?.('global', members);
+        }, users),
       ));
-      for (const count of neighborCounts) {
-        expect(count).toBeGreaterThanOrEqual(11);
-      }
+      await expect
+        .poll(
+          async () => {
+            const neighborCounts = await Promise.all(pages.map((page) =>
+              page.evaluate(() => {
+                const mesh = ((window as any).__iinpublic_app.getApp() as any).peerMeshService;
+                return mesh ? (mesh.getDiagnostics() as { neighborCount: number }).neighborCount : 0;
+              }),
+            ));
+            return neighborCounts.every((count) => count >= 11);
+          },
+          { timeout: 90_000, intervals: [500, 1000, 2000, 4000] },
+        )
+        .toBe(true);
       // C — memory sanity: Gun 'talks' key count stays bounded after delivery.
       // Hub runs E2E_GUN_MEMORY_ONLY=1 (radata always absent). Talk bodies route through
       // PeerMeshService cache not Gun talks/* (R-f step 7), so the relay graph stays small.
