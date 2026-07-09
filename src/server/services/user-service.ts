@@ -468,10 +468,18 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
       throw new Error('Cannot block yourself');
     }
     const alreadyBlocked = await this.readEffectiveBlockState(blockerId, targetId);
+    const blockedAt = new Date().toISOString();
     if (alreadyBlocked) {
+      // Heal partial state instead of bailing: a client-side Gun write can create the
+      // forward user-blocks edge without the reverse user-blocked-by edge reaching this
+      // server yet. Returning early here left getBlockCountForUser (which counts the
+      // REVERSE edge + mutations) permanently at 0 for a user everyone agrees is blocked.
+      // The writes below are idempotent, and recording the mutation makes the count
+      // correct immediately regardless of which side originally wrote the block.
+      await this.gunService.putPath([USER_BLOCKED_BY_KEY, targetId, blockerId], { blockedAt });
+      this.recentBlockMutations.set(this.blockMutationKey(blockerId, targetId), true);
       return { changed: false, blockedUserIds: await this.getBlockedUserIds(blockerId) };
     }
-    const blockedAt = new Date().toISOString();
     await this.gunService.putPath([USER_BLOCKS_KEY, blockerId, targetId], { blockedAt });
     await this.gunService.putPath([USER_BLOCKED_BY_KEY, targetId, blockerId], { blockedAt });
     // Gun propagation can lag the subsequent API request; reflect confirmed writes immediately.

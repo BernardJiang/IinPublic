@@ -1645,6 +1645,7 @@ export class UIManager extends EventEmitter {
       getKnownPerson: this.getKnownPerson.bind(this),
       isBlockedByMe: this.isBlockedByMe.bind(this),
       getPeerName: this.getPeerName.bind(this),
+      resolvePeerStageName: this.resolvePeerStageNameLive.bind(this),
       openPeerDetail: this.openPeerDetailForUser.bind(this),
       getMyConversations: this.getMyConversations.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
@@ -1682,6 +1683,7 @@ export class UIManager extends EventEmitter {
       getKnownPerson: this.getKnownPerson.bind(this),
       isBlockedByMe: this.isBlockedByMe.bind(this),
       getPeerName: this.getPeerName.bind(this),
+      resolvePeerStageName: this.resolvePeerStageNameLive.bind(this),
       openPeerDetail: this.openPeerDetailForUser.bind(this),
       getMyConversations: this.getMyConversations.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
@@ -1720,6 +1722,7 @@ export class UIManager extends EventEmitter {
         getKnownPerson: this.getKnownPerson.bind(this),
         isBlockedByMe: this.isBlockedByMe.bind(this),
         getPeerName: this.getPeerName.bind(this),
+      resolvePeerStageName: this.resolvePeerStageNameLive.bind(this),
         openPeerDetail: this.openPeerDetailForUser.bind(this),
         getMyConversations: this.getMyConversations.bind(this),
         getMyTalks: this.getMyTalks.bind(this),
@@ -7103,6 +7106,25 @@ export class UIManager extends EventEmitter {
     const resolved = currentMember?.stageName || conversationMatch?.otherUserName || incomingSenderName || cachedName || fallbackName || 'Unknown';
     if (resolved && resolved !== 'Unknown') this.rememberPeerName(userId, resolved);
     return resolved;
+  }
+
+  /**
+   * Live stage-name lookup for render-time self-healing: recorded exchange/conversation
+   * names can be stale (captured before a peer renamed). The public-user read is
+   * rename-fresh (server cache overlay + Gun graph). Successful lookups flow through
+   * rememberPeerName so cached names and stored conversation records converge too.
+   */
+  private async resolvePeerStageNameLive(userId: string): Promise<string | null> {
+    try {
+      const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+      const user = await app?.gunService?.getPublicUser?.(userId);
+      const name = String(user?.stageName || '').trim();
+      if (!name) return null;
+      this.rememberPeerName(userId, name);
+      return name;
+    } catch {
+      return null;
+    }
   }
 
   private getPeerNameCache(): Record<string, string> {

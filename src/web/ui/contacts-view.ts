@@ -16,6 +16,9 @@ type ContactsViewDeps = {
   getKnownPerson: (userId: string) => KnownPerson | undefined;
   isBlockedByMe: (userId: string) => boolean;
   getPeerName: (userId: string, fallbackName?: string) => string;
+  /** Optional async lookup of the peer's CURRENT stage name (rename-fresh); used to patch
+   *  rendered rows/detail whose recorded names were captured before a rename. */
+  resolvePeerStageName?: (userId: string) => Promise<string | null>;
   openPeerDetail: (userId: string, stageName: string) => void;
   getMyConversations: () => Record<string, any>;
   getMyTalks: () => Record<string, any>;
@@ -762,6 +765,36 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
         }
       });
     });
+
+    // Render-time self-heal: rows carry the best locally-known name, which can be stale if
+    // it was captured (exchange/conversation record) before the peer renamed. Look up each
+    // peer's CURRENT stage name and patch the row in place — the resolver also refreshes the
+    // peer-name cache and stored conversation records, so the next render starts correct.
+    if (deps.resolvePeerStageName) {
+      for (const peer of peers) {
+        if (peer.peerId === TECHSUPPORT_ROOT_USER_ID) continue;
+        void deps.resolvePeerStageName(peer.peerId).then((liveName) => {
+          if (!liveName || liveName === peer.stageName) return;
+          const row = listEl.querySelector(
+            `.contact-item[data-contact-user-id="${(window.CSS?.escape ?? ((v: string) => v))(peer.peerId)}"]`,
+          ) as HTMLElement | null;
+          if (!row) return;
+          row.dataset.contactName = liveName;
+          const nameEl = row.querySelector('.contact-item-name');
+          if (nameEl) {
+            const known = deps.getKnownPerson(peer.peerId);
+            const display = buildDisplayName(liveName, known);
+            for (const child of Array.from(nameEl.childNodes)) {
+              if (child.nodeType === Node.TEXT_NODE) {
+                child.nodeValue = display;
+                return;
+              }
+            }
+            nameEl.insertBefore(document.createTextNode(display), nameEl.firstChild);
+          }
+        });
+      }
+    }
     window.setTimeout(() => {
       if (typeof savedState.scrollTop === 'number') listEl.scrollTop = savedState.scrollTop;
     }, 0);
@@ -789,6 +822,13 @@ export async function showContactDetail(
   const backBtn = document.getElementById('back-to-contacts-list') as HTMLElement | null;
   if (backBtn) backBtn.style.display = 'inline-flex';
   detailName.textContent = otherUserName;
+  // Same render-time self-heal as the list rows: replace a stale recorded name with the
+  // peer's current stage name as soon as the live lookup resolves.
+  if (deps.resolvePeerStageName) {
+    void deps.resolvePeerStageName(otherUserId).then((liveName) => {
+      if (liveName && detailName.isConnected) detailName.textContent = liveName;
+    });
+  }
   detailMatches.textContent = deps.text('loading');
   talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #999;">${deps.text('loading')}</p>`;
   const detailInfo = document.getElementById('contact-detail-info');
