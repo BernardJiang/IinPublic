@@ -284,10 +284,29 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
    * From HTTP pass `{ viewerId }`: use `null` when the query is absent (stranger); same id as `userId` returns full profile rows.
   */
   async getUser(userId: string, view?: { viewerId: string | null }): Promise<User> {
-    const user = (
-      this.recentPublicUsers.get(userId) ??
-      await this.gunService.getOptional(`users/${userId}`, 1200)
-    ) as User | null;
+    // recentPublicUsers makes a freshly-created user readable before its Gun write settles,
+    // but it is only written at creation time — served as-is it masks every later
+    // browser-side update to `users/<id>` (stage-name edits especially: peers resolve names
+    // through this endpoint via getPublicUser's HTTP fast path, so a stale cache here made
+    // renamed users show their original generated name everywhere, forever). Overlay fresh
+    // primitive fields from the live graph on top of the cached record; nested fields keep
+    // the cached shape (Gun returns soul refs for children, which must not clobber them).
+    const cached = this.recentPublicUsers.get(userId) as User | undefined;
+    const fromGun = (await this.gunService.getOptional(`users/${userId}`, 1200)) as
+      | Record<string, unknown>
+      | null;
+    let user: User | null = cached ?? (fromGun as User | null);
+    if (cached && fromGun && typeof fromGun === 'object') {
+      const overlay: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(fromGun)) {
+        if (key === '_' || key === 'id') continue;
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+          overlay[key] = value;
+        }
+      }
+      user = { ...cached, ...overlay } as User;
+      this.recentPublicUsers.set(userId, user);
+    }
     if (!user) {
       throw new Error(`No data found for key: users/${userId}`);
     }
