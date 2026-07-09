@@ -7087,15 +7087,20 @@ export class UIManager extends EventEmitter {
   }
 
   private getPeerName(userId: string, fallbackName?: string): string {
+    // LIVE source first: the chatroom roster tracks the peer's CURRENT stage name via Gun
+    // member updates. Names embedded in conversation/exchange records were captured at
+    // match/broadcast time and go permanently stale when a rename raced the exchange (the
+    // e2e bootstraps rename immediately before broadcasting — real users rename too).
+    // Recorded names remain as fallbacks for peers who are no longer in the room.
+    const currentMember = this.currentChatroomMembers.find((member) => member.userId === userId);
     const conversationMatch = Object.values(this.getMyConversations()).find(
       (conversation: any) => conversation.otherUserId === userId && conversation.otherUserName,
     ) as { otherUserName?: string } | undefined;
-    const currentMember = this.currentChatroomMembers.find((member) => member.userId === userId);
     const incomingSenderName = this.incomingTalkClusters
       .flatMap((cluster: any) => Object.values(cluster?.senders || {}) as Array<{ senderId?: string; senderName?: string }>)
       .find((sender) => sender?.senderId === userId && sender?.senderName)?.senderName;
     const cachedName = this.getPeerNameCache()[userId];
-    const resolved = conversationMatch?.otherUserName || currentMember?.stageName || incomingSenderName || cachedName || fallbackName || 'Unknown';
+    const resolved = currentMember?.stageName || conversationMatch?.otherUserName || incomingSenderName || cachedName || fallbackName || 'Unknown';
     if (resolved && resolved !== 'Unknown') this.rememberPeerName(userId, resolved);
     return resolved;
   }
@@ -7117,6 +7122,28 @@ export class UIManager extends EventEmitter {
     if (cache[trimmedId] === trimmedName) return;
     cache[trimmedId] = trimmedName;
     localStorage.setItem('peerNameCache', JSON.stringify(cache));
+    // Self-heal recorded names: conversation records embed the peer name captured at match
+    // time; when a fresher name resolves (rename observed via the live roster), sync it into
+    // stored conversations so the conversation list, contact derivation, and anything that
+    // reads `myConversations` from localStorage all converge on the current name.
+    try {
+      const conversations = this.getMyConversations() as Record<string, any>;
+      let changed = false;
+      for (const conversation of Object.values(conversations)) {
+        if (
+          conversation &&
+          conversation.otherUserId === trimmedId &&
+          conversation.supportChannel !== true &&
+          conversation.otherUserName !== trimmedName
+        ) {
+          conversation.otherUserName = trimmedName;
+          changed = true;
+        }
+      }
+      if (changed) localStorage.setItem('myConversations', JSON.stringify(conversations));
+    } catch {
+      /* name sync is best-effort — never break the caller's render */
+    }
   }
 
   private async registerTalkForPeer(talkId: string, talkData: any, peerId: string, peerName: string): Promise<void> {

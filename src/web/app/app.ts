@@ -592,6 +592,9 @@ export class IinPublicApp {
     this.gunService = new WebGunService();
     this.userService = new WebUserService(this.gunService);
     this.chatroomService = new WebChatroomService(this.gunService);
+    // Membership heartbeats must always carry the CURRENT stage name — a captured snapshot
+    // clobbers renames back to the old name on every beat (see startMembershipHeartbeat).
+    this.chatroomService.setMembershipStageNameResolver(() => this.currentUser?.stageName || '');
     this.talkService = new WebTalkService(this.gunService, this.getBackendApiBase(), {
       meshLocalFirst: usesMeshTalkDelivery(this.p2pRuntimeFlags),
     });
@@ -4039,6 +4042,10 @@ export class IinPublicApp {
             gun.get('chatrooms').get(this.currentChatroomId).get('users').get(userId).put({
               stageName: newStageName,
             });
+            // Restart the membership heartbeat with the new name — its ~30s beats re-put the
+            // member record with the name captured at heartbeat start and would otherwise
+            // clobber this write back to the old name (peers' rosters then stay stale forever).
+            this.chatroomService.refreshMembershipStageName(this.currentChatroomId, userId, newStageName);
             await fetch(
               `${this.getBackendApiBase()}/api/chatrooms/${encodeURIComponent(this.currentChatroomId)}/members/${encodeURIComponent(userId)}`,
               {

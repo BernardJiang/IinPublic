@@ -22,8 +22,14 @@ export class WebChatroomService {
   private membershipHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private membershipHeartbeatKey: string | null = null;
   private membershipHeartbeatStageName: string | null = null;
+  /** Set by the app to expose the CURRENT user's stage name to heartbeat beats (see beat()). */
+  private membershipStageNameResolver: (() => string) | null = null;
 
   constructor(private gunService: WebGunService) {}
+
+  setMembershipStageNameResolver(resolver: () => string): void {
+    this.membershipStageNameResolver = resolver;
+  }
 
   private resolveApiBase(): string {
     if (typeof window === 'undefined') return 'http://127.0.0.1:8080';
@@ -287,6 +293,17 @@ export class WebChatroomService {
     console.log(`✅ Successfully joined chatroom: ${chatroomId}`);
   }
 
+  /**
+   * Rename support: the membership heartbeat re-puts the member record every ~30s with the
+   * stage name captured when the heartbeat started — without this restart, a rename's
+   * one-time member write gets clobbered back to the OLD name on the next beat, so peers'
+   * rosters (and everything that resolves peer names from them) stay permanently stale.
+   * startMembershipHeartbeat is a no-op when the name is unchanged and restarts otherwise.
+   */
+  refreshMembershipStageName(chatroomId: string, userId: string, stageName: string): void {
+    this.startMembershipHeartbeat(chatroomId, userId, stageName);
+  }
+
   private startMembershipHeartbeat(chatroomId: string, userId: string, stageName: string): void {
     const key = `${chatroomId}:${userId}`;
     if (
@@ -300,6 +317,11 @@ export class WebChatroomService {
     this.membershipHeartbeatKey = key;
     this.membershipHeartbeatStageName = stageName;
     const beat = () => {
+      // Read the LIVE stage name on every beat. A snapshot captured at heartbeat start goes
+      // stale when a rename races the room join (join completes after the rename and starts
+      // the heartbeat with the pre-rename name) — the beats then clobber the renamed member
+      // record back to the old name every ~30s, and peers' rosters never see the new name.
+      const liveName = this.membershipStageNameResolver?.() || stageName;
       const now = new Date().toISOString();
       this.gunService
         .getGun()
@@ -311,9 +333,9 @@ export class WebChatroomService {
           isActive: true,
           lastSeen: now,
           userId,
-          stageName,
+          stageName: liveName,
         });
-      void this.syncMembershipHeartbeatWithServer(chatroomId, userId, stageName, now);
+      void this.syncMembershipHeartbeatWithServer(chatroomId, userId, liveName, now);
     };
     beat();
     const heartbeatMs = Math.max(1000, Math.min(30_000, Math.floor((ROOM_MEMBERSHIP_TTL_SECONDS * 1000) / 3)));

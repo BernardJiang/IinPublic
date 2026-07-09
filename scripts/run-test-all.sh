@@ -24,10 +24,10 @@
 #                       time otherwise. Waves are sequenced so the timing-sensitive heavy-staged
 #                       shard (it holds a 30s-budget chatbot spec) always runs alone.
 #
-# Tunables (env): PW_WORKERS(light,1) MASS_WORKERS(4) STAGE5_WORKERS(3) PW_MESH_WORKERS(4)
-#                 PW_HEAVY_WORKERS(2) — auto-scaled to the detected core count when unset
-#                 (mass/stage5 only ever scale down, never above their tuned baseline — see
-#                 scale_down_only() below). CONCURRENT_WAVES(1/0, default 0) forces whether
+# Tunables (env): PW_WORKERS(light,8) MASS_WORKERS(4) STAGE5_WORKERS(3) PW_MESH_WORKERS(4)
+#                 PW_HEAVY_WORKERS(1) — auto-scaled to the detected core count when unset
+#                 (they only ever scale down, never above their tuned baseline — see
+#                 scale_down_only() below). CONCURRENT_WAVES(1/0, default 1) forces whether
 #                 phases within wave 1 / wave 2 run together or one-at-a-time. If you hit
 #                 memory pressure or flakiness with CONCURRENT_WAVES=1, drop back to 0 before
 #                 lowering worker counts. Per-phase wall times are printed at the end.
@@ -70,35 +70,34 @@ scale_down_only() {
   if [ "$scaled" -lt "$1" ]; then echo "$scaled"; else echo "$1"; fi
 }
 
-# Light shard default: 6 workers (same tuned default as `npm run test:e2e:parallel`). Each
-# worker gets fully isolated servers on its own port pair, so moderate parallelism is safe;
-# the documented flakiness (shared-room headcounts, contact replication, direct-P2P waits)
-# appears at 8+ workers. Serial (PW_WORKERS=1) took ~1 min/test — an hour-plus for the light
-# shard alone at <10% CPU. Set PW_WORKERS=1 explicitly when debugging order-sensitive flakes.
-LIGHT_WORKERS="${PW_WORKERS:-$(scale_down_only 6)}"
+# Light shard default: 8 workers. Each worker gets fully isolated servers on its own port
+# pair, so parallelism is safe; historical flakiness reports start around 8+ workers, so 8
+# is the ceiling — measured on a 14-core machine, 6 workers ran the shard in ~12 min at low
+# CPU (the suite is mostly sync-waits, not compute). Set PW_WORKERS=1 explicitly when
+# debugging order-sensitive flakes, or lower it if shared-room headcount specs start flaking.
+LIGHT_WORKERS="${PW_WORKERS:-$(scale_down_only 8)}"
 MASS_WORKERS="${MASS_WORKERS:-$(scale_down_only 4)}"
 STAGE5_WORKERS="${STAGE5_WORKERS:-$(scale_down_only 3)}"
-# Mesh + heavy multi-browser phases stay SINGLE-worker by default: each of their tests
-# already launches several Chromium processes and real WebRTC meshes, and any parallelism
-# there reintroduces the ghost-membership / mesh-formation flakes. Only the light shard runs
-# parallel. Override with PW_MESH_WORKERS / PW_HEAVY_WORKERS if you must.
-MESH_WORKERS="${PW_MESH_WORKERS:-1}"
+# mesh-batch: back to its tuned baseline of 4 workers. Measured evidence from two full runs
+# at 1 worker: the phase took ~13 min instead of ~3 and failed the SAME specs it fails at 4
+# workers (04-local-contacts, 09-ipfs-auto-share are real bugs, not parallelism flakes) —
+# single-worker bought no reliability, only wall-clock. heavy-staged stays single-worker:
+# it holds the timing-budgeted chatbot spec and the stage4 ghost-membership headcounts that
+# demonstrably do flake under any concurrency.
+MESH_WORKERS="${PW_MESH_WORKERS:-$(scale_down_only 4)}"
 HEAVY_WORKERS="${PW_HEAVY_WORKERS:-1}"
 
-# Default to running each wave's phases one at a time — correctness over wall-clock time.
-# An earlier version of this script tried to auto-enable full wave concurrency above a
-# detected-core-count threshold (originally 10, the box this design was tuned/measured on).
-# That guess was wrong: on a real 14-core Mac mini, full concurrency produced flaky failures
-# across wave 1 AND wave 2 (Gun sync timeouts, a single-page settings-render assertion, even
-# the unrelated phase-0 jest run) that all disappeared together the moment waves ran
-# sequentially instead — i.e. genuine CPU contention, not a fixed core-count cliff. Detected
-# core count is not a reliable predictor of whether this many concurrent Chromium + Node +
-# WebRTC processes will actually get enough scheduler time on a given machine (performance/
-# efficiency core splits, thermal limits, other running apps, etc. all matter and none of
-# them show up in `nproc`/`sysctl -n hw.ncpu`). Treat concurrent waves as an explicit,
-# verified-per-machine opt-in via CONCURRENT_WAVES=1, not a default to guess at.
+# Waves run their phases CONCURRENTLY by default (each phase on its own port band with its
+# own servers): sequential phases measured 36+ minutes wall clock on a 14-core machine while
+# CPU sat under 10% — the suite is dominated by sync-waits, not compute. The earlier
+# sequential-only default came from a flaky full-concurrency experiment, but that experiment
+# ran with much higher per-phase worker counts (light=20, mesh=6, heavy=3) AND phase-0
+# jest/builds in parallel with e2e; today's tuned counts (light≤8 + mass 4 + stage5 3 in
+# wave 1; mesh 4 + two single-worker phases in wave 2; heavy alone in wave 3) are a far
+# lighter simultaneous load. If Gun-sync flakes reappear on a weaker machine, set
+# CONCURRENT_WAVES=0 to restore strictly sequential phases before touching worker counts.
 if [ -z "${CONCURRENT_WAVES:-}" ]; then
-  CONCURRENT_WAVES=0
+  CONCURRENT_WAVES=1
 fi
 
 export E2E_BLOB=1
@@ -373,9 +372,11 @@ PLAYWRIGHT_BIN="$ROOT/node_modules/.bin/playwright"
 # merge-reports silently dies under Node majors newer than Playwright's support matrix
 # (observed on Node 26.4 with Playwright 1.57: prints one "extracting:" line, exits without
 # writing playwright-report/, sometimes with rc=0). Tests themselves run fine — only the
-# merge is affected. If the default node is too new and a supported major (18–24) is
-# installed via Homebrew or nvm, run the merge with that instead.
-find_compat_node() {
+# merge is affected. Resolution order when the default node is too new: a supported major
+# (18–24) from Homebrew/nvm, else a portable Node 22 downloaded ONCE into .cache/node-merge/
+# and reused for every future merge — so the combined report works with zero manual setup.
+NODE_COMPAT_VERSION="v22.22.3"
+ensure_compat_node() {
   local m c
   for m in 24 22 20 18; do
     for c in "/opt/homebrew/opt/node@$m/bin/node" "/usr/local/opt/node@$m/bin/node"; do
@@ -384,17 +385,32 @@ find_compat_node() {
     c="$(ls -d "$HOME/.nvm/versions/node/v$m."*/bin/node 2>/dev/null | tail -1)"
     [ -n "$c" ] && [ -x "$c" ] && { echo "$c"; return 0; }
   done
-  return 1
+  local cache="$ROOT/.cache/node-merge/$NODE_COMPAT_VERSION"
+  local bin="$cache/bin/node"
+  if [ ! -x "$bin" ]; then
+    local os arch
+    case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) return 1 ;; esac
+    case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; x86_64) arch=x64 ;; *) return 1 ;; esac
+    echo "[test:all] downloading portable Node $NODE_COMPAT_VERSION ($os-$arch) for merge-reports (one-time, ~50MB)…" >&2
+    mkdir -p "$cache"
+    if ! curl -fsSL "https://nodejs.org/dist/$NODE_COMPAT_VERSION/node-$NODE_COMPAT_VERSION-$os-$arch.tar.gz" \
+      | tar -xz -C "$cache" --strip-components=1; then
+      rm -rf "$cache"
+      return 1
+    fi
+  fi
+  [ -x "$bin" ] && "$bin" --version >/dev/null 2>&1 && echo "$bin"
 }
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
 if [ "$NODE_MAJOR" -gt 24 ] 2>/dev/null; then
-  COMPAT_NODE="$(find_compat_node || true)"
+  COMPAT_NODE="$(ensure_compat_node || true)"
   if [ -n "${COMPAT_NODE:-}" ]; then
-    echo "[test:all] node $NODE_MAJOR is newer than Playwright's supported range for merge-reports — merging with $COMPAT_NODE"
+    echo "[test:all] node $NODE_MAJOR breaks 'playwright merge-reports' (supported: 18-24) — merging with $COMPAT_NODE"
     PLAYWRIGHT_BIN="$COMPAT_NODE $ROOT/node_modules/playwright/cli.js"
   else
-    echo "[test:all] WARNING: node $NODE_MAJOR may silently break 'playwright merge-reports' (supported: 18-24)."
-    echo "[test:all]   If the merge fails below, install a supported node (e.g. 'brew install node@22') and re-run:"
+    echo "[test:all] WARNING: node $NODE_MAJOR may silently break 'playwright merge-reports' (supported: 18-24)"
+    echo "[test:all]   and no compatible node could be found or downloaded. If the merge fails below,"
+    echo "[test:all]   install one (e.g. 'brew install node@22') and re-run:"
     echo "[test:all]   /opt/homebrew/opt/node@22/bin/node $ROOT/node_modules/playwright/cli.js merge-reports --reporter html blob-merged"
   fi
 fi
