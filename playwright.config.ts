@@ -89,6 +89,15 @@ const HEAVY_SPEC_PATTERNS = [
   /staged\/stage3-three-user\/09-four-types-chatbot\.spec\.ts/,
 ];
 const SKIP_HEAVY = process.env.E2E_SKIP_HEAVY === '1';
+
+// E2E_RUN_ID (exported by scripts/run-test-all.sh) namespaces this invocation's blob reports
+// under blob-report/<runId>/. A hung playwright process from an EARLIER run writes its blob
+// only when it finally exits — without the namespace it would drop a stale zip into a later
+// run's blob-report/ mid-merge (observed: a light phase that hung ~10h wrote its blob the
+// moment the next day's run started, corrupting that run's merged report). Ad-hoc runs
+// without E2E_RUN_ID keep the flat p<pid>-<ts> layout.
+const E2E_RUN_ID = (process.env.E2E_RUN_ID || '').replace(/[^A-Za-z0-9._-]/g, '');
+const BLOB_OUTPUT_DIR = `blob-report/${E2E_RUN_ID ? `${E2E_RUN_ID}/` : ''}p${process.pid}-${Date.now()}`;
 const SKIP_FIND_SIMILAR = process.env.E2E_SKIP_FIND_SIMILAR === '1';
 const SKIP_MESH_PING = process.env.E2E_SKIP_MESH_PING === '1';
 const SKIP_MESH_BROADCAST = process.env.E2E_SKIP_MESH_BROADCAST === '1';
@@ -164,10 +173,12 @@ export default defineConfig({
   // combined HTML report covering every phase.
   reporter:
     process.env.E2E_BLOB === '1' || process.env.E2E_BLOB === 'true'
+      // 'list' rides along so redirected phase logs (scripts/run-test-all.sh) carry one line
+      // per finished test — the blob reporter alone is silent, which made long phases look hung.
       ? [['blob', {
-          outputDir: `blob-report/p${process.pid}-${Date.now()}`,
+          outputDir: BLOB_OUTPUT_DIR,
           fileName: `report-${process.pid}-${Date.now()}-${Math.round(Math.random() * 1e6)}.zip`,
-        }]]
+        }], ['list']]
       : 'html',
   timeout: E2E_TEST_TIMEOUT_MS,
   expect: {

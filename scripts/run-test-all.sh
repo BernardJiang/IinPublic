@@ -37,11 +37,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 set -a; [ -f .env.local ] && . ./.env.local; set +a
 
-# Defaults below (1/4/3/4/2) were tuned for correctness on the current staged E2E suite.
-# The broad "light" shard contains many stateful staged specs and is not worker-safe: at 8+
-# workers it can fail on shared-room headcounts, contact replication, and timing-sensitive
-# direct-P2P waits even when the same specs pass in isolation. Keep that shard serial by
-# default; explicit env vars (PW_WORKERS, MASS_WORKERS, etc.) always win.
+# Defaults below (6/4/3/4/2) were tuned for correctness on the current staged E2E suite.
+# The broad "light" shard contains many stateful staged specs and is not safe at HIGH worker
+# counts: at 8+ workers it can fail on shared-room headcounts, contact replication, and
+# timing-sensitive direct-P2P waits even when the same specs pass in isolation. It runs at 6
+# workers by default (the same tuned default as test:e2e:parallel); explicit env vars
+# (PW_WORKERS, MASS_WORKERS, etc.) always win.
 detect_cores() {
   if command -v sysctl >/dev/null 2>&1 && sysctl -n hw.ncpu >/dev/null 2>&1; then
     sysctl -n hw.ncpu
@@ -69,11 +70,20 @@ scale_down_only() {
   if [ "$scaled" -lt "$1" ]; then echo "$scaled"; else echo "$1"; fi
 }
 
-LIGHT_WORKERS="${PW_WORKERS:-1}"
+# Light shard default: 6 workers (same tuned default as `npm run test:e2e:parallel`). Each
+# worker gets fully isolated servers on its own port pair, so moderate parallelism is safe;
+# the documented flakiness (shared-room headcounts, contact replication, direct-P2P waits)
+# appears at 8+ workers. Serial (PW_WORKERS=1) took ~1 min/test — an hour-plus for the light
+# shard alone at <10% CPU. Set PW_WORKERS=1 explicitly when debugging order-sensitive flakes.
+LIGHT_WORKERS="${PW_WORKERS:-$(scale_down_only 6)}"
 MASS_WORKERS="${MASS_WORKERS:-$(scale_down_only 4)}"
 STAGE5_WORKERS="${STAGE5_WORKERS:-$(scale_down_only 3)}"
-MESH_WORKERS="${PW_MESH_WORKERS:-$(scale_down_only 4)}"
-HEAVY_WORKERS="${PW_HEAVY_WORKERS:-$(scale_down_only 2)}"
+# Mesh + heavy multi-browser phases stay SINGLE-worker by default: each of their tests
+# already launches several Chromium processes and real WebRTC meshes, and any parallelism
+# there reintroduces the ghost-membership / mesh-formation flakes. Only the light shard runs
+# parallel. Override with PW_MESH_WORKERS / PW_HEAVY_WORKERS if you must.
+MESH_WORKERS="${PW_MESH_WORKERS:-1}"
+HEAVY_WORKERS="${PW_HEAVY_WORKERS:-1}"
 
 # Default to running each wave's phases one at a time — correctness over wall-clock time.
 # An earlier version of this script tried to auto-enable full wave concurrency above a
@@ -97,21 +107,108 @@ export E2E_GUN_MEMORY_ONLY=1
 export DISABLE_HMR=true
 export PLAYWRIGHT_HTML_OPEN=never
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Run identity. Every playwright invocation this script spawns writes its blob under
+# blob-report/$E2E_RUN_ID/ (see playwright.config.ts), and ONLY that directory is merged at
+# the end. A hung playwright process from a previous run writes its blob when it finally
+# exits — outside this run's namespace, so it can never contaminate this run's merge.
+# ─────────────────────────────────────────────────────────────────────────────
+E2E_RUN_ID="run-$(date +%Y%m%d-%H%M%S)-$$"
+export E2E_RUN_ID
+RUN_BLOB_DIR="blob-report/$E2E_RUN_ID"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Concurrency guard. Two test:all invocations running at once clobber each other's
+# blob-report/, blob-merged/ and playwright-report/ (each starts with rm -rf) and fight for
+# the same ports — observed to produce phases that fail with "port already used", a merged
+# report built from another run's stale blobs, and a deleted playwright-report/ at the end.
+# ─────────────────────────────────────────────────────────────────────────────
+LOCK_DIR="$ROOT/.test-all.lock"
+acquire_lock() {
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    echo "$$" >"$LOCK_DIR/pid"
+    return 0
+  fi
+  local other; other="$(cat "$LOCK_DIR/pid" 2>/dev/null || echo '')"
+  if [ -n "$other" ] && kill -0 "$other" 2>/dev/null; then
+    echo "[test:all] ABORT: another test:all is already running (pid $other)."
+    echo "[test:all]   Concurrent invocations destroy each other's reports and servers."
+    echo "[test:all]   Wait for it to finish, or stop it with: kill $other"
+    exit 1
+  fi
+  echo "[test:all] removing stale lock ($LOCK_DIR, pid ${other:-?} no longer running)"
+  rm -rf "$LOCK_DIR"
+  mkdir "$LOCK_DIR" 2>/dev/null && echo "$$" >"$LOCK_DIR/pid"
+}
+acquire_lock
+release_lock() { rm -rf "$LOCK_DIR"; }
+trap 'release_lock' EXIT
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Port preflight. Playwright refuses to start a webServer whose port is taken
+# (reuseExistingServer=false, deliberately — a reused dev server has the wrong env vars).
+# A leftover dev server (npm run dev / dev:multi) or a previous run's stray servers make
+# entire phases fail with 0 tests. Fail fast here, naming the offenders, instead of letting
+# 7 phases each discover it the slow way.
+# ─────────────────────────────────────────────────────────────────────────────
+preflight_ports() {
+  command -v lsof >/dev/null 2>&1 || return 0
+  local band0=$LIGHT_WORKERS
+  [ "$MESH_WORKERS"  -gt "$band0" ] && band0=$MESH_WORKERS
+  [ "$HEAVY_WORKERS" -gt "$band0" ] && band0=$HEAVY_WORKERS
+  local ports=() spec off n i
+  for spec in "0:$band0" "100:$MASS_WORKERS" "200:$STAGE5_WORKERS" "300:1"; do
+    off="${spec%%:*}"; n="${spec##*:}"
+    for (( i=0; i<n; i++ )); do ports+=( $((8080+off+i)) $((3001+off+i)) ); done
+  done
+  local listeners busy=""
+  listeners="$(lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null || true)"
+  local p
+  for p in "${ports[@]}"; do
+    if printf '%s\n' "$listeners" | grep -q ":$p (LISTEN)"; then busy="$busy $p"; fi
+  done
+  [ -z "$busy" ] && return 0
+  echo "[test:all] ABORT: E2E ports already in use:$busy"
+  printf '%s\n' "$listeners" | while IFS= read -r line; do
+    for p in $busy; do
+      case "$line" in *":$p (LISTEN)"*) echo "  $line";; esac
+    done
+  done | sort -u
+  echo "[test:all]   Likely a running dev server (npm run dev / dev:multi) or leftovers from a"
+  echo "[test:all]   previous/hung test run. Stop them and re-run, e.g.:"
+  echo "[test:all]     kill \$(lsof -tnP -iTCP:8080 -sTCP:LISTEN)"
+  exit 1
+}
+preflight_ports
+
 LOG_DIR="$(mktemp -d)"
+echo "[test:all] run id: $E2E_RUN_ID"
 echo "[test:all] phase logs: $LOG_DIR"
 echo "[test:all] detected cores: $CORES (defaults scale from a 10-core tuning baseline; concurrent waves=$CONCURRENT_WAVES)"
 echo "[test:all] workers: light=$LIGHT_WORKERS mass=$MASS_WORKERS stage5=$STAGE5_WORKERS mesh=$MESH_WORKERS heavy=$HEAVY_WORKERS"
+# Old completed runs' blobs are dead weight; this run reads only $RUN_BLOB_DIR.
 rm -rf blob-report blob-merged playwright-report
-mkdir -p blob-merged
+mkdir -p blob-merged "$RUN_BLOB_DIR"
 start=$(date +%s)
 
 WAVE_PIDS=()
 PHASE_ORDER=()
 cleanup() {
+  [ -n "${HB_PID:-}" ] && kill "$HB_PID" 2>/dev/null
   for pid in "${WAVE_PIDS[@]:-}"; do kill "$pid" 2>/dev/null; done
   wait 2>/dev/null
 }
-trap 'cleanup; exit 130' INT TERM
+on_interrupt() {
+  cleanup
+  local zips; zips=$(ls "$RUN_BLOB_DIR"/*/*.zip 2>/dev/null | wc -l | tr -d ' ')
+  if [ "${zips:-0}" -gt 0 ]; then
+    echo "[test:all] interrupted — $zips completed-phase blob(s) kept at $RUN_BLOB_DIR"
+    echo "[test:all]   merge them manually with:"
+    echo "[test:all]   cp $RUN_BLOB_DIR/*/*.zip blob-merged/ && node_modules/.bin/playwright merge-reports --reporter html blob-merged"
+  fi
+  exit 130
+}
+trap 'on_interrupt' INT TERM
 
 # Launch one phase in the background on its own port band. Records time + rc to $LOG_DIR.
 #   start_phase <name> <port_offset> <env-and-command...>
@@ -121,6 +218,7 @@ start_phase() {
   echo "[test:all]   ▶ $name (offset $offset)"
   (
     local s; s=$(date +%s)
+    echo "$s" >"$LOG_DIR/$name.start"
     E2E_PORT_OFFSET="$offset" "$@" >"$LOG_DIR/$name.log" 2>&1
     local rc=$?
     echo "$rc" >"$LOG_DIR/$name.rc"
@@ -129,10 +227,27 @@ start_phase() {
   WAVE_PIDS+=($!)
 }
 
+HB_PID=""
 wait_wave() {
   local label="$1"
   echo "[test:all] wave '$label' running (${#WAVE_PIDS[@]} phases)…"
+  # Heartbeat: phases write only to their log files, so without this the terminal is silent
+  # for many minutes and a long serial phase looks hung. Every 60s print, per still-running
+  # phase, its elapsed time and the most recent log line (the config adds a 'list' reporter
+  # next to the blob reporter under E2E_BLOB so logs carry per-test progress lines).
+  (
+    while sleep 60; do
+      for name in "${PHASE_ORDER[@]}"; do
+        [ -f "$LOG_DIR/$name.rc" ] && continue
+        ps=$(cat "$LOG_DIR/$name.start" 2>/dev/null || echo 0)
+        last="$(tail -c 4000 "$LOG_DIR/$name.log" 2>/dev/null | grep -E '\S' | tail -1 | tr -d '\r' | cut -c1-110)"
+        echo "[test:all]     … $name ($(( $(date +%s) - ps ))s): ${last:-starting servers}"
+      done
+    done
+  ) &
+  HB_PID=$!
   for pid in "${WAVE_PIDS[@]}"; do wait "$pid"; done
+  kill "$HB_PID" 2>/dev/null; wait "$HB_PID" 2>/dev/null; HB_PID=""
   for name in "${PHASE_ORDER[@]}"; do
     local d rc b
     d=$(cat "$LOG_DIR/$name.time" 2>/dev/null || echo '?')
@@ -237,9 +352,14 @@ RC_HA=$(cat "$LOG_DIR/heavy-staged.rc")
 # ─────────────────────────────────────────────────────────────────────────────
 # Merge every phase's blob report into one combined HTML report.
 # ─────────────────────────────────────────────────────────────────────────────
-blob_count=$(ls blob-report/*/*.zip 2>/dev/null | wc -l | tr -d ' ')
-cp blob-report/*/*.zip blob-merged/ 2>/dev/null
+# Merge ONLY this run's blobs ($RUN_BLOB_DIR) — never whatever else may have accumulated in
+# blob-report/ (stale runs, late-writing hung processes). cp errors are deliberately visible.
+blob_count=$(ls "$RUN_BLOB_DIR"/*/*.zip 2>/dev/null | wc -l | tr -d ' ')
+cp "$RUN_BLOB_DIR"/*/*.zip blob-merged/
 merged_zip_count=$(ls blob-merged/*.zip 2>/dev/null | wc -l | tr -d ' ')
+if [ "$merged_zip_count" != "$blob_count" ]; then
+  echo "[test:all] WARNING: $blob_count blob(s) produced but $merged_zip_count copied to blob-merged/ — report may be incomplete."
+fi
 # Compute the real wall-clock total now (before merging) so it's available to patch into the
 # report below — see the merge-reports "Total time" note there for why that's needed.
 end=$(date +%s); dur=$((end - start))
@@ -250,7 +370,12 @@ end=$(date +%s); dur=$((end - start))
 PLAYWRIGHT_BIN="$ROOT/node_modules/.bin/playwright"
 [ -x "$PLAYWRIGHT_BIN" ] || PLAYWRIGHT_BIN="npx playwright"
 echo "[test:all] merging $merged_zip_count blob(s) with: $PLAYWRIGHT_BIN ($($PLAYWRIGHT_BIN --version 2>/dev/null))"
-if $PLAYWRIGHT_BIN merge-reports --reporter html blob-merged; then
+# Success requires BOTH a zero exit code AND an actual index.html on disk — merge-reports has
+# been observed to exit 0 without producing a report (e.g. when fed a stale/foreign blob),
+# which previously made this script print a success message for a report that didn't exist.
+if [ "$merged_zip_count" -gt 0 ] \
+  && $PLAYWRIGHT_BIN merge-reports --reporter html blob-merged \
+  && [ -s "$ROOT/playwright-report/index.html" ]; then
   MERGE_RC=0
   echo "[test:all] HTML report: $ROOT/playwright-report/index.html (open with: npx playwright show-report)"
   # `merge-reports` computes "Total time" as max(per-phase duration) — correct for true
@@ -262,10 +387,20 @@ if $PLAYWRIGHT_BIN merge-reports --reporter html blob-merged; then
   node "$ROOT/scripts/patch-report-total-time.js" "$ROOT/playwright-report/index.html" "${start}000" "$((dur * 1000))" \
     || echo "[test:all]   (cosmetic: could not patch the report's Total time field — pass/fail counts are unaffected)"
 else
-  MERGE_RC=$?
-  echo "[test:all] WARNING: merge-reports failed (rc=$MERGE_RC) — no playwright-report/ was generated."
-  echo "[test:all]   The raw per-phase blobs are still at $ROOT/blob-merged/*.zip — retry manually with:"
-  echo "[test:all]   $ROOT/node_modules/.bin/playwright merge-reports --reporter html blob-merged"
+  MERGE_RC=1
+  if [ "$merged_zip_count" -eq 0 ]; then
+    echo "[test:all] ERROR: no blob reports were produced by any phase — nothing to merge."
+    echo "[test:all]   Check the per-phase logs in $LOG_DIR (phases that can't bind their ports"
+    echo "[test:all]   or crash before running tests write no blob)."
+  elif [ ! -s "$ROOT/playwright-report/index.html" ]; then
+    echo "[test:all] ERROR: merge-reports did not produce $ROOT/playwright-report/index.html."
+    echo "[test:all]   The raw per-phase blobs are still at $ROOT/blob-merged/*.zip — retry manually with:"
+    echo "[test:all]   $ROOT/node_modules/.bin/playwright merge-reports --reporter html blob-merged"
+  else
+    echo "[test:all] ERROR: merge-reports failed — no usable playwright-report/ was generated."
+    echo "[test:all]   Retry manually with:"
+    echo "[test:all]   $ROOT/node_modules/.bin/playwright merge-reports --reporter html blob-merged"
+  fi
 fi
 
 E2E_RC=$(( RC_LIGHT || RC_MASS || RC_S5 || RC_MESH || RC_MESHISO || RC_FS || RC_HA ))
@@ -288,5 +423,6 @@ printf "  blobs: %s  |  TOTAL %dm%ds  |  report: npx playwright show-report\n" \
   "$blob_count" $((dur / 60)) $((dur % 60))
 [ "$PREFIX_RC" -ne 0 ] && echo "  (lint/type/jest failed — see $LOG_DIR/*.log)"
 [ "$E2E_RC" -ne 0 ] && echo "  (an e2e phase failed — see $LOG_DIR/<phase>.log and the report)"
+[ "$MERGE_RC" -ne 0 ] && echo "  (REPORT MERGE FAILED — npx playwright show-report will not work; see errors above)"
 
-exit $(( PREFIX_RC || E2E_RC ))
+exit $(( PREFIX_RC || E2E_RC || MERGE_RC ))

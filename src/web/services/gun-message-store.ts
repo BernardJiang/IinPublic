@@ -46,7 +46,26 @@ export class GunMessageStore {
 
   constructor(protected gunService: WebGunService) {}
 
+  /**
+   * Canonical ordinary pair conversations embed both participant ids in the id itself
+   * (`conv_pair_<idLow>_<idHigh>`, ids sorted; see WebConversationService.createConversation).
+   * Parsing the id is synchronous and cannot race Gun record replication, so it is the
+   * preferred way to resolve the peer id. User ids are UUIDs (no underscores), so the two
+   * ids split cleanly on '_'.
+   */
+  private otherIdFromCanonicalConversationId(conversationId: string, myId: string): string | undefined {
+    const PREFIX = 'conv_pair_';
+    if (!conversationId.startsWith(PREFIX)) return undefined;
+    const parts = conversationId.slice(PREFIX.length).split('_');
+    if (parts.length !== 2 || !parts[0] || !parts[1]) return undefined;
+    if (parts[0] === myId) return parts[1];
+    if (parts[1] === myId) return parts[0];
+    return undefined;
+  }
+
   private async getOtherParticipantId(conversationId: string, myId: string): Promise<string | undefined> {
+    const fromCanonicalId = this.otherIdFromCanonicalConversationId(conversationId, myId);
+    if (fromCanonicalId) return fromCanonicalId;
     const gun = this.gunService.getGun();
     return new Promise((resolve) => {
       gun.get(`conversations/${conversationId}`).once((d: any) => {
@@ -215,7 +234,11 @@ export class GunMessageStore {
         .get('messages')
         .get(wire.id)
         .put(record);
-      return;
+      // Also keep an encrypted mirror under the legacy conversation root. The always-attached
+      // legacy subscription renders from it even when the pair-root branch could not attach
+      // yet (peer id unresolved at subscribe time), and a fresh page reload can enumerate
+      // history before the pair graph catches up. Same ciphertext, no extra exposure: hubs
+      // that refuse to persist pair DM bodies refuse this path too (see p2p-runtime).
     }
     gun.get(`conversations/${conversationId}`).get('messages').get(wire.id).put(record);
   }
@@ -299,8 +322,14 @@ export class GunMessageStore {
 
     subscribeRoot(gun);
     if (myUserId) {
-      void this.getPairMessageRoot(conversationId, myUserId, otherUserId).then((resolved) => {
-        if (!resolved) return;
+      // The pair-root branch must not be one-shot: at overlay-open time the conversation
+      // record (and the caller's otherUserId) can lag replication. A failed attach here used
+      // to silently kill peer-message rendering for the whole subscription lifetime — the
+      // legacy-mirror write masked that until it was removed. Retry until the peer id
+      // resolves (canonical `conv_pair_` ids resolve synchronously and never retry).
+      const attachPairRoot = async (): Promise<boolean> => {
+        const resolved = await this.getPairMessageRoot(conversationId, myUserId, otherUserId).catch(() => null);
+        if (!resolved) return false;
         const root = resolved.root;
         const onChild = (_messageData: any, messageId: string) => {
           ingestMessageId(messageId);
@@ -316,7 +345,14 @@ export class GunMessageStore {
         // (dedup via `processedMessages`) safety net that guarantees any message already
         // durable in Gun gets rendered even if the live event was missed.
         root.map().once(onChild);
-      }).catch(() => undefined);
+        return true;
+      };
+      const tryAttachPairRoot = (attempt: number): void => {
+        void attachPairRoot().then((attached) => {
+          if (!attached && attempt < 15) setTimeout(() => tryAttachPairRoot(attempt + 1), 1000);
+        });
+      };
+      tryAttachPairRoot(0);
     }
 
     if (myUserId) {
