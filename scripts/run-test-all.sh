@@ -369,6 +369,35 @@ end=$(date +%s); dur=$((end - start))
 # exactly the kind of moment where that extra step is most likely to misbehave.
 PLAYWRIGHT_BIN="$ROOT/node_modules/.bin/playwright"
 [ -x "$PLAYWRIGHT_BIN" ] || PLAYWRIGHT_BIN="npx playwright"
+
+# merge-reports silently dies under Node majors newer than Playwright's support matrix
+# (observed on Node 26.4 with Playwright 1.57: prints one "extracting:" line, exits without
+# writing playwright-report/, sometimes with rc=0). Tests themselves run fine — only the
+# merge is affected. If the default node is too new and a supported major (18–24) is
+# installed via Homebrew or nvm, run the merge with that instead.
+find_compat_node() {
+  local m c
+  for m in 24 22 20 18; do
+    for c in "/opt/homebrew/opt/node@$m/bin/node" "/usr/local/opt/node@$m/bin/node"; do
+      [ -x "$c" ] && { echo "$c"; return 0; }
+    done
+    c="$(ls -d "$HOME/.nvm/versions/node/v$m."*/bin/node 2>/dev/null | tail -1)"
+    [ -n "$c" ] && [ -x "$c" ] && { echo "$c"; return 0; }
+  done
+  return 1
+}
+NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+if [ "$NODE_MAJOR" -gt 24 ] 2>/dev/null; then
+  COMPAT_NODE="$(find_compat_node || true)"
+  if [ -n "${COMPAT_NODE:-}" ]; then
+    echo "[test:all] node $NODE_MAJOR is newer than Playwright's supported range for merge-reports — merging with $COMPAT_NODE"
+    PLAYWRIGHT_BIN="$COMPAT_NODE $ROOT/node_modules/playwright/cli.js"
+  else
+    echo "[test:all] WARNING: node $NODE_MAJOR may silently break 'playwright merge-reports' (supported: 18-24)."
+    echo "[test:all]   If the merge fails below, install a supported node (e.g. 'brew install node@22') and re-run:"
+    echo "[test:all]   /opt/homebrew/opt/node@22/bin/node $ROOT/node_modules/playwright/cli.js merge-reports --reporter html blob-merged"
+  fi
+fi
 echo "[test:all] merging $merged_zip_count blob(s) with: $PLAYWRIGHT_BIN ($($PLAYWRIGHT_BIN --version 2>/dev/null))"
 # Success requires BOTH a zero exit code AND an actual index.html on disk — merge-reports has
 # been observed to exit 0 without producing a report (e.g. when fed a stale/foreign blob),
