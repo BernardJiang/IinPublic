@@ -822,17 +822,26 @@ export async function showContactDetail(
   const backBtn = document.getElementById('back-to-contacts-list') as HTMLElement | null;
   if (backBtn) backBtn.style.display = 'inline-flex';
   // Roster-first sync resolve (getPeerName) so a live room member's current name wins
-  // immediately; the async public-record lookup then refines it, but must never DOWNGRADE a
-  // name the roster already refreshed (the API record can lag the member heartbeat under
-  // load), so it only applies when the sync path had nothing fresher than the caller's value.
+  // immediately. Then keep polling the public record for a few seconds: under parallel-worker
+  // load every individual lookup (API overlay, gun replication, roster heartbeat) can be
+  // transiently stale, and a single-shot refresh froze whichever stale answer it happened to
+  // get. The poll stops as soon as a lookup returns something different from the initially
+  // recorded name (a rename that propagated), or after the budget expires.
   const syncResolved = deps.getPeerName(otherUserId, otherUserName);
   detailName.textContent = syncResolved;
-  if (deps.resolvePeerStageName && syncResolved === otherUserName) {
-    void deps.resolvePeerStageName(otherUserId).then((liveName) => {
-      if (liveName && detailName.isConnected && detailName.textContent === otherUserName) {
-        detailName.textContent = liveName;
+  if (deps.resolvePeerStageName) {
+    const resolveLive = deps.resolvePeerStageName;
+    void (async () => {
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const liveName = await resolveLive(otherUserId).catch(() => null);
+        if (!detailName.isConnected) return;
+        if (liveName && detailName.textContent !== liveName) {
+          detailName.textContent = liveName;
+        }
+        if (liveName && liveName !== syncResolved) return; // rename observed — done
+        await new Promise((resolveDelay) => window.setTimeout(resolveDelay, 1_000));
       }
-    });
+    })();
   }
   detailMatches.textContent = deps.text('loading');
   talksList.innerHTML = `<p style="text-align: center; padding: 20px; color: #999;">${deps.text('loading')}</p>`;
