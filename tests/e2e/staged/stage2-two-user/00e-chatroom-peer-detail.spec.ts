@@ -334,6 +334,11 @@ test.describe('Chatroom peer detail views', () => {
       await expiredQuestion.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
       await expiredQuestion.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
       await expiredQuestion.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
+      // Keep the to-be-expired talk undelivered: creation sends to the current room by
+      // default, and at creation time this talk is still valid (the clock fake comes after),
+      // so it would legitimately reach Jerry and the expired-exclusion assertions below
+      // could never hold.
+      await pageTom.uncheck('#talk-send-to-chatroom');
       await pageTom.click('#talk-editor-form button[type="submit"]');
       await afterSync();
       await pageTom.evaluate(() => {

@@ -18,7 +18,11 @@ import {
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
 
-async function createExpiringFlowTalk(page: Page, title: string): Promise<void> {
+async function createExpiringFlowTalk(
+  page: Page,
+  title: string,
+  opts: { sendToChatroom?: boolean } = {},
+): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterSync();
   await page.click('#create-talk-btn');
@@ -32,6 +36,13 @@ async function createExpiringFlowTalk(page: Page, title: string): Promise<void> 
   await question.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
   await question.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
   await question.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
+  if (opts.sendToChatroom === false) {
+    // Talk creation delivers to the current room over mesh by default. The to-be-expired
+    // talk must stay undelivered: it is VALID at creation time (the clock fake comes after),
+    // so a creation-time delivery legitimately reaches the receiver and the final
+    // "receiver must not have it" assertion can never hold.
+    await page.uncheck('#talk-send-to-chatroom');
+  }
   await page.click('#talk-editor-form button[type="submit"]');
   await afterSync();
 }
@@ -105,7 +116,7 @@ test.describe('Talk expiration broadcast behavior', () => {
     await waitForIncomingTalkClusterOnServer(pageJerry, liveTitle);
 
     const expiredTitle = 'Expiration Blocked Delivery';
-    await createExpiringFlowTalk(pageTom, expiredTitle);
+    await createExpiringFlowTalk(pageTom, expiredTitle, { sendToChatroom: false });
     await pageTom.evaluate(() => {
       const realNow = Date.now.bind(Date);
       Date.now = () => realNow() + 2 * 24 * 60 * 60 * 1000;
