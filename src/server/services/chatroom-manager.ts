@@ -45,11 +45,17 @@ export class ChatroomManager {
     return !Number.isFinite(stamp) || stamp < this.membersResetAt;
   }
 
-  private upsertFastMember(chatroomId: string, userId: string, stageName?: string, lastSeen?: string): void {
-    // E2E reset fence: the server's own Gun subscriptions replay cached member nodes after a
-    // clear (a peer syncing ANY member re-fires the whole map), which would re-insert a
-    // previous spec's ghost here. Records stamped before the reset never re-enter.
-    if (lastSeen && this.predatesReset({ lastSeen })) return;
+  private upsertFastMember(
+    chatroomId: string,
+    userId: string,
+    stageName?: string,
+    lastSeen?: string,
+    opts: { bypassResetFence?: boolean } = {},
+  ): void {
+    // E2E reset fence: replayed member records from before a clear-database must never
+    // re-enter the map. Exception: an explicit PATCH that deliberately backdates lastSeen
+    // (the stale-membership prune specs inject staleness that way) bypasses the fence.
+    if (!opts.bypassResetFence && lastSeen && this.predatesReset({ lastSeen })) return;
     const room = this.fastActiveMembers.get(chatroomId) ?? new Map<string, { userId: string; stageName: string; lastSeen: string }>();
     room.set(userId, {
       userId,
@@ -490,6 +496,9 @@ export class ChatroomManager {
       userId,
       typeof memberData.stageName === 'string' ? memberData.stageName : userId,
       memberData.lastSeen,
+      // A caller-provided lastSeen is a deliberate update (prune specs backdate it to force
+      // staleness); only auto-stamped heartbeats stay subject to the reset fence.
+      { bypassResetFence: Boolean(options.lastSeen) },
     );
     await Promise.all([
       this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], memberData),

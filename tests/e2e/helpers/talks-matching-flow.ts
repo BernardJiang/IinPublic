@@ -367,6 +367,30 @@ export async function bootstrapUser(
       { timeout: appReadyTimeoutMs ?? E2E_ASSERT_TIMEOUT_MS },
     )
     .toBe(stageName);
+  // Rename barrier: peers resolve this user's name through the hub's public user record
+  // (getPublicUser prefers the HTTP fast path). Anything captured downstream — broadcast
+  // exchange ledgers, match conversations, contact rows/detail — inherits whatever the
+  // server serves at capture time, so don't proceed until the rename has landed there.
+  // Without this, specs raced the propagation and intermittently froze the generated
+  // User<random> name into records that never re-resolve.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async () => {
+          const app = (window as any).__iinpublic_app?.getApp?.();
+          const base = app?.getBackendApiBase?.();
+          const id = app?.currentUser?.id;
+          if (!base || !id) return '';
+          try {
+            const res = await fetch(`${base}/api/users/${encodeURIComponent(id)}`, { cache: 'no-store' });
+            return res.ok ? String(((await res.json()) as { stageName?: string }).stageName || '') : '';
+          } catch {
+            return '';
+          }
+        }),
+      { timeout: appReadyTimeoutMs ?? E2E_ASSERT_TIMEOUT_MS },
+    )
+    .toBe(stageName);
   await expectCurrentUserIsOrdinaryUser(page, stageName);
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
