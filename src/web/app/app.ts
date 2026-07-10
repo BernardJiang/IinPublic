@@ -1899,6 +1899,7 @@ export class IinPublicApp {
 
   private async handleMeshTalkResponse(payload: P2PMeshTalkResponsePayload): Promise<void> {
     if (!this.currentUser?.id || payload.authorId !== this.currentUser.id) return;
+    console.log(`[RESP-INGEST] talk=${String(payload.talkId).slice(-8)} from=${String(payload.responderId).slice(0, 8)} v=${payload.version ?? 1}`);
     const dedupeKey = `mesh-response::${payload.talkId}::${payload.responseId}::v${payload.version ?? 1}`;
     if (this.processedTalkResponseKeys.has(dedupeKey)) return;
     const talkData = await this.resolveMeshTalkData(payload.talkId);
@@ -2482,6 +2483,7 @@ export class IinPublicApp {
     },
   ): void {
     if (!this.currentUser?.id || !peerId || peerId === this.currentUser.id || !talkId) return;
+    console.log(`[RESP-RECORD] talk=${talkId.slice(-8)} peer=${peerId.slice(0, 8)} outcome=${outcome} dir=${meta?.direction || 'sent'}`);
     try {
       const raw = localStorage.getItem('localTalkExchanges');
       const exchanges = raw ? JSON.parse(raw) : {};
@@ -3323,12 +3325,18 @@ export class IinPublicApp {
       }
       // Step 6: when unicast cannot be delivered (author offline or send failed),
       // post a ciphertext envelope to the server mailbox.
+      let mailboxPosted: boolean | null = null;
+      let queued = false;
       if (!sent) {
-        const posted = await this.postToMailbox(meshPayload);
-        if (!posted) {
+        mailboxPosted = await this.postToMailbox(meshPayload);
+        if (!mailboxPosted) {
           this.enqueueFailedMailboxPost(meshPayload);
+          queued = true;
         }
       }
+      // Delivery-matrix diagnostic: exactly one line per response send with every stage's
+      // outcome — the silent-success pipeline made every saturation post-mortem archaeology.
+      console.log(`[RESP-SEND] talk=${targetTalkId.slice(-8)} to=${targetAuthorId.slice(0, 8)} v=${targetVersion} mesh=${sent} mailbox=${mailboxPosted} queued=${queued}`);
       sentResponseByAuthor.set(targetAuthorId, {
         talkId: targetTalkId,
         responseId: targetResponseId,
