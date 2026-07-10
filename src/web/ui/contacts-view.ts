@@ -821,12 +821,17 @@ export async function showContactDetail(
   detailContainer.style.display = 'block';
   const backBtn = document.getElementById('back-to-contacts-list') as HTMLElement | null;
   if (backBtn) backBtn.style.display = 'inline-flex';
-  detailName.textContent = otherUserName;
-  // Same render-time self-heal as the list rows: replace a stale recorded name with the
-  // peer's current stage name as soon as the live lookup resolves.
-  if (deps.resolvePeerStageName) {
+  // Roster-first sync resolve (getPeerName) so a live room member's current name wins
+  // immediately; the async public-record lookup then refines it, but must never DOWNGRADE a
+  // name the roster already refreshed (the API record can lag the member heartbeat under
+  // load), so it only applies when the sync path had nothing fresher than the caller's value.
+  const syncResolved = deps.getPeerName(otherUserId, otherUserName);
+  detailName.textContent = syncResolved;
+  if (deps.resolvePeerStageName && syncResolved === otherUserName) {
     void deps.resolvePeerStageName(otherUserId).then((liveName) => {
-      if (liveName && detailName.isConnected) detailName.textContent = liveName;
+      if (liveName && detailName.isConnected && detailName.textContent === otherUserName) {
+        detailName.textContent = liveName;
+      }
     });
   }
   detailMatches.textContent = deps.text('loading');

@@ -176,6 +176,9 @@ class IinPublicServer {
       clearForTesting: this.clearForTesting.bind(this),
       onClearDatabase: async () => {
         this.userService.resetBlockMutationsForTesting();
+        // Ghost-membership source: the in-memory member map keeps previous-spec users
+        // "active" for the room-membership TTL even after the Gun graph is wiped.
+        this.chatroomManager.resetForTesting();
         await this.publishPublicBootstrap();
       },
       nodeEnv: process.env.NODE_ENV,

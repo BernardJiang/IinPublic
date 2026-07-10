@@ -5,12 +5,51 @@ import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 
 export class ChatroomManager {
   private fastActiveMembers = new Map<string, Map<string, { userId: string; stageName: string; lastSeen: string }>>();
+  /** E2E reset fence — see resetForTesting()/predatesReset(). 0 in production (no filtering). */
+  private membersResetAt = 0;
 
   constructor(
     private gunService: GunService
   ) {}
 
+  /**
+   * E2E only (`POST /api/test/clear-database`): purge every membership trace of the previous
+   * spec. Two ghost sources survive a plain `gun._.graph = {}` wipe: (1) this in-memory map,
+   * which keeps members "active" for ROOM_MEMBERSHIP_TTL_SECONDS (~3min) after their last
+   * heartbeat; (2) Gun chain caches — the server's long-lived `chatrooms/<id>/users`
+   * subscriptions hold each member node's last data, and `.once` reads re-materialize it
+   * after the graph object is replaced. Explicitly nulling the member nodes we know about
+   * overrides those caches. Without both steps, a finished spec's user inflates every
+   * subsequent spec's headcount by one ("expected 2, got 3" ghost-membership failures).
+   */
+  resetForTesting(): void {
+    // Gun chain caches can resurrect member nodes even after explicit null puts, so the
+    // authoritative guard is a time fence: any member record whose lastSeen predates this
+    // reset is a ghost from a previous spec and is ignored by every collector below. Live
+    // users re-stamp lastSeen on join and every ~30s heartbeat, so they pass immediately.
+    this.membersResetAt = Date.now();
+    for (const [chatroomId, room] of this.fastActiveMembers.entries()) {
+      for (const userId of room.keys()) {
+        void this.gunService.putPath(['chatrooms', chatroomId, 'users', userId], null);
+        void this.gunService.putPath(['chatroomMembers', chatroomId, userId], null);
+      }
+    }
+    this.fastActiveMembers.clear();
+  }
+
+  /** True when the record's lastSeen (or joinedAt) predates the last E2E reset — a ghost. */
+  private predatesReset(data: unknown): boolean {
+    if (!this.membersResetAt) return false;
+    const raw = (data as { lastSeen?: unknown; joinedAt?: unknown } | null | undefined);
+    const stamp = Date.parse(String(raw?.lastSeen ?? raw?.joinedAt ?? ''));
+    return !Number.isFinite(stamp) || stamp < this.membersResetAt;
+  }
+
   private upsertFastMember(chatroomId: string, userId: string, stageName?: string, lastSeen?: string): void {
+    // E2E reset fence: the server's own Gun subscriptions replay cached member nodes after a
+    // clear (a peer syncing ANY member re-fires the whole map), which would re-insert a
+    // previous spec's ghost here. Records stamped before the reset never re-enter.
+    if (lastSeen && this.predatesReset({ lastSeen })) return;
     const room = this.fastActiveMembers.get(chatroomId) ?? new Map<string, { userId: string; stageName: string; lastSeen: string }>();
     room.set(userId, {
       userId,
@@ -231,6 +270,7 @@ export class ChatroomManager {
     for (const [userId, data] of Object.entries(users as Record<string, any>)) {
       if (!userId || userId.startsWith('_')) continue;
       if (!data || typeof data !== 'object' || (data as any).isActive !== true) continue;
+      if (this.predatesReset(data)) continue;
       members.push({
         userId,
         stageName: String((data as any).stageName || userId),
@@ -337,6 +377,7 @@ export class ChatroomManager {
     for (const [userId, data] of Object.entries(users as Record<string, any>)) {
       if (!userId || userId.startsWith('_')) continue;
       if (!data || typeof data !== 'object' || (data as any).isActive !== true) continue;
+      if (this.predatesReset(data)) continue;
       members.push({
         userId,
         stageName: String((data as any).stageName || userId),
@@ -371,6 +412,7 @@ export class ChatroomManager {
       mapRef.on((data: unknown, key: string) => {
         if (!key || key.startsWith('_')) return;
         if (!data || typeof data !== 'object' || (data as { isActive?: boolean }).isActive !== true) return;
+        if (this.predatesReset(data)) return;
         if (seen.has(key)) return;
         seen.add(key);
         members.push({
