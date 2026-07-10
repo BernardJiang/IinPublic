@@ -215,6 +215,15 @@ export interface Talk {
   locationRadiusMiles?: number | null;
   /** Author's location when talk was created (for distance filtering). */
   authorLocation?: { latitude: number; longitude: number };
+  /**
+   * The author's public encryption key (SEA epub), attached at creation AFTER the
+   * content-hash id is computed (must never perturb content-addressed identity/dedup).
+   * Responders pair-encrypt their responses with it; carrying it inside the talk means
+   * every delivery path (mesh body, server IN-index, direct send) hands the responder
+   * the key material it needs WITHOUT a network lookup — lookups under simultaneous-boot
+   * load failed and permanently dropped responses (mass/02's stable 8/11).
+   */
+  authorEpub?: string;
 }
 
 export interface Question {

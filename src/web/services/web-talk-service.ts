@@ -177,6 +177,14 @@ export class WebTalkService {
 
     talk.id = talkData.id || await computeTalkCIDv1(talk);
 
+    // AFTER the content hash: attach the author's public encryption key so every delivery
+    // path hands responders the key material to pair-encrypt their responses without a
+    // network lookup. Resolving the author's epub at respond time failed under
+    // simultaneous-boot load and permanently dropped responses ([Step9] Failed to encrypt);
+    // attaching it post-hash keeps content-addressed talk identity/dedup unchanged.
+    const authorPair = this.gunService.getStoredPair?.();
+    if (authorPair?.epub && !talk.authorEpub) talk.authorEpub = authorPair.epub;
+
     // Store talk in local authored-talks store (R-f: replaces Gun talks/* write).
     saveAuthoredTalk(talk.id, talk);
     console.log('Talk stored in local authored-talks store:', talk.id);
