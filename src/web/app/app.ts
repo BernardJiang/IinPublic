@@ -1733,8 +1733,11 @@ export class IinPublicApp {
     // skipped and never received the talk. Retry per recipient with backoff. The envelope id is
     // deterministic, so re-posting is idempotent (server dedupes; receiver dedupes on drain).
     // This whole method is invoked fire-and-forget from the mesh fallback, so the retries never
-    // delay the broadcast's own completion.
-    const MAX_POST_ATTEMPTS = 6;
+    // delay the broadcast's own completion. The budget must survive a saturation boot storm:
+    // with ~12 browsers starting at once (mass/ specs, busy real deployments), a receiver can
+    // take 20-30s to publish its SEA keys, and the old ~8s budget (6 attempts) gave up forever
+    // — receivers permanently missed the talk. ~45s of capped backoff rides out the storm.
+    const MAX_POST_ATTEMPTS = 12;
     const concurrency = 5;
     for (let i = 0; i < recipients.length; i += concurrency) {
       await Promise.all(recipients.slice(i, i + concurrency).map(async (recipientId) => {
@@ -1765,7 +1768,7 @@ export class IinPublicApp {
             console.warn('[Mesh/Mailbox] post talk-body failed for', recipientId, `(attempt ${attempt + 1}):`, err);
           }
           if (attempt < MAX_POST_ATTEMPTS - 1) {
-            await new Promise((resolve) => setTimeout(resolve, 400 + attempt * 600));
+            await new Promise((resolve) => setTimeout(resolve, Math.min(5_000, 400 + attempt * 600)));
           }
         }
         console.warn('[Mesh/Mailbox] gave up posting talk-body for', recipientId, `after ${MAX_POST_ATTEMPTS} attempts`);
