@@ -456,6 +456,18 @@ else
   fi
 fi
 
+# Preserve failing phases' logs inside the repo (the mktemp dir is easy to lose and gets
+# cleaned by the OS): test-logs/<phase>.log survives for post-mortem, including the full
+# browser console when E2E_VERBOSE_CONSOLE=1 is exported for the run.
+mkdir -p "$ROOT/test-logs"
+for name in light mass stage5 mesh-batch mesh-isolated find-similar heavy-staged; do
+  rc="$(cat "$LOG_DIR/$name.rc" 2>/dev/null || echo '')"
+  if [ -n "$rc" ] && [ "$rc" != "0" ] && [ -f "$LOG_DIR/$name.log" ]; then
+    cp "$LOG_DIR/$name.log" "$ROOT/test-logs/$name.log"
+    echo "[test:all] preserved failing phase log: test-logs/$name.log"
+  fi
+done
+
 E2E_RC=$(( RC_LIGHT || RC_MASS || RC_S5 || RC_MESH || RC_MESHISO || RC_FS || RC_HA ))
 PREFIX_RC=$(( RC_TYPE || RC_LINT || RC_JEST ))
 
