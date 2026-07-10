@@ -7,8 +7,15 @@ import {
 import { gunBaseURL } from './ports';
 import type { HandshakeDiagnostics } from '../../../src/shared/p2p-handshake';
 
-/** Direct P2P should connect quickly on one machine; >10s usually means a setup bug. */
-export const P2P_E2E_TIMEOUT_MS = 10_000;
+/**
+ * Direct P2P usually connects in a couple of seconds on one machine — but the budget must
+ * survive one failed first attempt under parallel-worker load: connect timeout (10s,
+ * P2P_WEBRTC_CONNECT_TIMEOUT_MS) + the DM path's fail-fast cooldown (15s,
+ * P2P_WEBRTC_RETRY_COOLDOWN_MS, during which the session reports 'idle') + the retry.
+ * A 10s budget sat entirely inside that cooldown, so a single slow first connect failed
+ * the assert deterministically even though the very next attempt would have succeeded.
+ */
+export const P2P_E2E_TIMEOUT_MS = 30_000;
 
 type AppHandle = {
   getApp: () => {

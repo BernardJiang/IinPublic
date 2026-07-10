@@ -234,11 +234,12 @@ export class GunMessageStore {
         .get('messages')
         .get(wire.id)
         .put(record);
-      // Also keep an encrypted mirror under the legacy conversation root. The always-attached
-      // legacy subscription renders from it even when the pair-root branch could not attach
-      // yet (peer id unresolved at subscribe time), and a fresh page reload can enumerate
-      // history before the pair graph catches up. Same ciphertext, no extra exposure: hubs
-      // that refuse to persist pair DM bodies refuse this path too (see p2p-runtime).
+      // No legacy-root mirror: direct-p2p DM bodies live ONLY in the pair-private path
+      // (spec §19.4; 09-messaging asserts the legacy root stays empty). The subscription
+      // races this used to paper over are handled by the retrying pair-root attach in
+      // subscribeToMessages and the canonical conv_pair_ id fallback in
+      // getOtherParticipantId.
+      return;
     }
     gun.get(`conversations/${conversationId}`).get('messages').get(wire.id).put(record);
   }
