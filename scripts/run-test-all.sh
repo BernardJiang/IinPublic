@@ -76,7 +76,11 @@ scale_down_only() {
 # CPU (the suite is mostly sync-waits, not compute). Set PW_WORKERS=1 explicitly when
 # debugging order-sensitive flakes, or lower it if shared-room headcount specs start flaking.
 LIGHT_WORKERS="${PW_WORKERS:-$(scale_down_only 8)}"
-MASS_WORKERS="${MASS_WORKERS:-$(scale_down_only 4)}"
+# mass at 2 workers: each mass spec spawns 8-12 Chromium profiles INSIDE one worker's test,
+# so 4 workers means 40+ simultaneous browsers from this phase alone — mass/02 delivered
+# exactly 8/11 exchanges in two consecutive runs at two different wave placements, i.e. the
+# phase saturates itself no matter what runs beside it. Two specs at a time halves the peak.
+MASS_WORKERS="${MASS_WORKERS:-$(scale_down_only 2)}"
 STAGE5_WORKERS="${STAGE5_WORKERS:-$(scale_down_only 3)}"
 # mesh-batch: back to its tuned baseline of 4 workers. Measured evidence from two full runs
 # at 1 worker: the phase took ~13 min instead of ~3 and failed the SAME specs it fails at 4
