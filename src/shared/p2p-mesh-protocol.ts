@@ -43,6 +43,15 @@ export type P2PMeshTalkResponsePayload = {
   encryption: 'sea-ecdh-v1';
   payloadCiphertext: string;   // pair ciphertext: { responderName, answers, isChatbotResponse, ... }
   transportMode: 'mesh-p2p';
+  /**
+   * The responder's public encryption key (SEA epub — public material, safe on the wire).
+   * The author needs it to derive the pair secret and decrypt payloadCiphertext; without it
+   * the author must network-resolve the responder's key at ingest time, which fails under
+   * simultaneous-boot load and silently dropped ACKed responses (the fire-and-forget ingest
+   * swallowed the decrypt throw). Mirror of Talk.authorEpub on the request direction. The
+   * mailbox path already carries the equivalent wrapper senderEpub.
+   */
+  responderEpub?: string;
 };
 
 export type P2PMeshPingPayload = {

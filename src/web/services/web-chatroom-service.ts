@@ -323,6 +323,11 @@ export class WebChatroomService {
       // record back to the old name every ~30s, and peers' rosters never see the new name.
       const liveName = this.membershipStageNameResolver?.() || stageName;
       const now = new Date().toISOString();
+      // Carry this member's public encryption key in the roster record: peers who need to
+      // encrypt FOR us (talk-body mailbox posting, pair offers) then have the key inline
+      // and never depend on a presence/public-record lookup, which fails under
+      // simultaneous-boot load. epub is public material.
+      const epub = this.gunService.getStoredPair?.()?.epub;
       this.gunService
         .getGun()
         .get('chatrooms')
@@ -334,6 +339,7 @@ export class WebChatroomService {
           lastSeen: now,
           userId,
           stageName: liveName,
+          ...(epub ? { epub } : {}),
         });
       void this.syncMembershipHeartbeatWithServer(chatroomId, userId, liveName, now);
     };
@@ -586,7 +592,7 @@ export class WebChatroomService {
 
   subscribeToMembers(
     chatroomId: string,
-    callback: (members: Array<{ userId: string; stageName: string; joinedAt?: string | Date }>) => void,
+    callback: (members: Array<{ userId: string; stageName: string; joinedAt?: string | Date; epub?: string }>) => void,
   ): void {
     this.membersListCallback = callback;
 
@@ -627,6 +633,7 @@ export class WebChatroomService {
             userId,
             stageName: memberData.stageName || userId,
             ...(memberData.joinedAt ? { joinedAt: memberData.joinedAt } : {}),
+            ...(typeof memberData.epub === 'string' && memberData.epub ? { epub: memberData.epub } : {}),
           });
         } else {
           this.activeMembersForList.delete(userId);

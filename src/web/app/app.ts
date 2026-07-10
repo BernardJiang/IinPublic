@@ -969,6 +969,7 @@ export class IinPublicApp {
       // Re-subscribe to new chatroom (this will unsubscribe from old one automatically)
       this.chatroomService.subscribeToMembers(toChatroomId, (members) => {
         console.log('👥 Chatroom members updated:', members);
+        this.harvestRosterEpubs(members);
         this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
         this.syncPeerMeshRoom(toChatroomId, members);
 
@@ -1030,6 +1031,7 @@ export class IinPublicApp {
 
     // Subscribe to chatroom members and update UI
     this.chatroomService.subscribeToMembers(chatroomId, (members) => {
+      this.harvestRosterEpubs(members);
       console.log('👥 Chatroom members updated:', members);
       this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
       this.syncPeerMeshRoom(chatroomId, members);
@@ -1072,6 +1074,7 @@ export class IinPublicApp {
       this.subscribeToMessages(this.currentChatroomId);
       this.uiManager.setCurrentChatroomId(this.currentChatroomId);
       this.chatroomService.subscribeToMembers(this.currentChatroomId, (members) => {
+        this.harvestRosterEpubs(members);
         this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
         this.syncPeerMeshRoom(this.currentChatroomId!, members);
         const chatroomName = this.getChatroomDisplayName(this.currentChatroomId!);
@@ -1375,7 +1378,12 @@ export class IinPublicApp {
           }
         : {}),
       onTalkBody: (payload) => this.handleMeshTalkBody(payload),
-      onTalkResponse: (payload) => this.handleMeshTalkResponse(payload),
+      onTalkResponse: (payload) => void this.handleMeshTalkResponse(payload).catch((err) => {
+        // The mesh layer has already ACKed the frame by the time this runs — a swallowed
+        // throw here is a silently lost response (observed: author-side decrypt failures
+        // were invisible in every log). Never let ingest failures vanish.
+        console.warn('[MeshResponse] ingest failed for', payload?.responderId, err);
+      }),
       onPing: (fromUserId, _frame) => {
         const diag = this.meshPingDiagnostics;
         diag.lastPingFrom = fromUserId;
@@ -2653,6 +2661,19 @@ export class IinPublicApp {
     return undefined;
   }
 
+  /**
+   * Roster records now carry each member's public encryption key (see the membership
+   * heartbeat) — harvest them into the epub cache on every roster update so encrypting FOR
+   * any room member (talk-body mailbox posting, pair offers) needs no network lookup.
+   */
+  private harvestRosterEpubs(members: Array<{ userId?: string; epub?: string }>): void {
+    for (const member of members || []) {
+      const id = String(member?.userId || '').trim();
+      const epub = typeof member?.epub === 'string' ? member.epub.trim() : '';
+      if (id && epub && !this.peerEpubByUserId.has(id)) this.peerEpubByUserId.set(id, epub);
+    }
+  }
+
   private async resolvePeerEpub(peerUserId: string, hint?: string): Promise<string> {
     const hinted = this.pairTalkPeerEpubHint(hint);
     if (hinted) {
@@ -2729,7 +2750,13 @@ export class IinPublicApp {
   }> {
     if (responseData?.payloadCiphertext) {
       const peerId = String(responseData.responderId || responseData.authorId || '');
-      const secret = await this.getPairTalkResponseSecret(peerId);
+      // Inline key material first: a response that carries the responder's epub decrypts
+      // with zero lookups (and seeds the cache for everything else about this peer).
+      const inlineEpub = typeof responseData.responderEpub === 'string' ? responseData.responderEpub.trim() : '';
+      if (inlineEpub && peerId === String(responseData.responderId || '')) {
+        this.peerEpubByUserId.set(peerId, inlineEpub);
+      }
+      const secret = await this.getPairTalkResponseSecret(peerId, inlineEpub || undefined);
       const decrypted = await getSEA().decrypt(String(responseData.payloadCiphertext), secret);
       if (!decrypted) {
         throw new Error('Pair talk response payload could not be decrypted');
@@ -3269,6 +3296,7 @@ export class IinPublicApp {
         : targetPriorResponseId === targetResponseId
           ? targetPriorVersion
           : targetPriorVersion + 1;
+      const responderEpub = this.gunService.getStoredPair()?.epub;
       const meshPayload: P2PMeshTalkResponsePayload = {
         responseId: targetResponseId,
         talkId: targetTalkId,
@@ -3280,6 +3308,9 @@ export class IinPublicApp {
         encryption: 'sea-ecdh-v1',
         payloadCiphertext,
         transportMode: 'mesh-p2p',
+        // The author decrypts with the pair secret derived from OUR epub — carry it inline
+        // so the author never has to network-resolve it at ingest (see type comment).
+        ...(responderEpub ? { responderEpub } : {}),
       };
       const mesh = this.ensurePeerMeshService();
       let sent = false;
@@ -4686,6 +4717,7 @@ export class IinPublicApp {
           this.subscribeToMessages(home);
           this.uiManager.setCurrentChatroomId(home);
         this.chatroomService.subscribeToMembers(home, (members) => {
+          this.harvestRosterEpubs(members);
           this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
           const chatroomName = this.getChatroomDisplayName(home);
           this.uiManager.updateStatusBar(
@@ -4720,6 +4752,7 @@ export class IinPublicApp {
         this.subscribeToMessages(home);
         this.uiManager.setCurrentChatroomId(home);
         this.chatroomService.subscribeToMembers(home, (members) => {
+          this.harvestRosterEpubs(members);
           this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
           const chatroomName = this.getChatroomDisplayName(home);
           this.uiManager.updateStatusBar(
@@ -4964,6 +4997,7 @@ export class IinPublicApp {
 
       // subscribeToMembers reuses the Gun listener when chatroomId is unchanged (see WebChatroomService)
       this.chatroomService.subscribeToMembers(chatroomId, (members) => {
+        this.harvestRosterEpubs(members);
         this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
         this.syncPeerMeshRoom(chatroomId, members);
         const chatroomName = this.getChatroomDisplayName(chatroomId);
