@@ -834,9 +834,12 @@ export async function showContactDetail(
     void (async () => {
       for (let attempt = 0; attempt < 8; attempt += 1) {
         const liveName = await resolveLive(otherUserId).catch(() => null);
-        if (!detailName.isConnected) return;
-        if (liveName && detailName.textContent !== liveName) {
-          detailName.textContent = liveName;
+        // Re-query each pass: roster updates re-render the contacts pane, replacing the
+        // node captured above — a stale reference would silently end the poll early.
+        const nameEl = document.getElementById('contact-detail-name');
+        if (!nameEl) return;
+        if (liveName && nameEl.textContent !== liveName) {
+          nameEl.textContent = liveName;
         }
         if (liveName && liveName !== syncResolved) return; // rename observed — done
         await new Promise((resolveDelay) => window.setTimeout(resolveDelay, 1_000));
