@@ -7547,6 +7547,11 @@ export class UIManager extends EventEmitter {
     this.updateMatchBadge();
     const meTab = document.querySelector('.nav-btn[data-view="me"]');
     if (meTab?.classList.contains('active')) this.displayConversationsList();
+    // Contacts sort by recency reads the same lastMessageTime this method just updated —
+    // without a re-render here the visible order freezes at whatever it was when the tab
+    // opened (messages arriving while the user watches never reorder the rows).
+    const contactsTab = document.querySelector('.nav-btn[data-view="contacts"]');
+    if (contactsTab?.classList.contains('active')) this.displayContactsList();
   }
 
   public setConversationOnlineStatus(otherUserIds: Set<string>): void {
