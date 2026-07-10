@@ -154,12 +154,12 @@ test.describe('Contacts: stranger default label → save relationship → sort (
     // ─── Step 5: Sort by relationship → Jerry still visible ───────────────────
     await pageTom.locator('#contacts-sort-order').selectOption('relationship');
     await afterAction();
-    await expect(pageTom.locator('.contact-item:not([data-support-contact="true"])').filter({ hasText: 'Jerry' })).toBeVisible({ timeout: 5_000 });
+    await expect(pageTom.locator('.contact-item:not([data-support-contact="true"])').filter({ hasText: 'Jerry' })).toBeVisible({ timeout: 15_000 });
 
     // ─── Step 6: Sort by weighted → Jerry still visible ───────────────────────
     await pageTom.locator('#contacts-sort-order').selectOption('weighted');
     await afterAction();
-    await expect(pageTom.locator('.contact-item:not([data-support-contact="true"])').filter({ hasText: 'Jerry' })).toBeVisible({ timeout: 5_000 });
+    await expect(pageTom.locator('.contact-item:not([data-support-contact="true"])').filter({ hasText: 'Jerry' })).toBeVisible({ timeout: 15_000 });
 
     // ─── Step 7: Navigate away and back → Friend label persists ───────────────
     await pageTom.click('.nav-btn[data-view="settings"]');

@@ -294,19 +294,23 @@ echo "[test:all] phase 0 done in ${p0_dur}s (type=$RC_TYPE lint=$RC_LINT jest=$R
 start_phase light 0 \
   env E2E_SKIP_HEAVY=1 PW_WORKERS="$LIGHT_WORKERS" npx playwright test
 maybe_wait 1
-start_phase mass 100 \
-  env E2E_SKIP_ALL_MESH=1 PW_WORKERS="$MASS_WORKERS" npx playwright test tests/e2e/mass
-maybe_wait 1
 start_phase stage5 200 \
   env E2E_SKIP_FIND_SIMILAR=1 E2E_SKIP_ALL_MESH=1 PW_WORKERS="$STAGE5_WORKERS" \
     npx playwright test tests/e2e/staged/stage5-multi-user
 wait_wave 1
-RC_LIGHT=$(cat "$LOG_DIR/light.rc"); RC_MASS=$(cat "$LOG_DIR/mass.rc"); RC_S5=$(cat "$LOG_DIR/stage5.rc")
+RC_LIGHT=$(cat "$LOG_DIR/light.rc"); RC_S5=$(cat "$LOG_DIR/stage5.rc")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Wave 2: mesh phases + find-similar (lighter, multi-browser). Mesh-isolated specs
 # manipulate the hub and must stay serial among themselves → one subshell at 1 worker.
 # ─────────────────────────────────────────────────────────────────────────────
+# mass/ runs here instead of wave 1: its specs launch up to 12 Chromium profiles per test
+# and measurably starve (8/11 exchange deliveries, saturation timeouts) when they compete
+# with the 8-worker light shard. The mesh trio is a far lighter co-tenant (~6 workers total,
+# short-lived), so mass keeps most of the machine without adding a solo wave.
+start_phase mass 100 \
+  env E2E_SKIP_ALL_MESH=1 PW_WORKERS="$MASS_WORKERS" npx playwright test tests/e2e/mass
+maybe_wait 2
 start_phase mesh-batch 0 \
   env PW_WORKERS="$MESH_WORKERS" npx playwright test \
     tests/e2e/talks-matching/01-mesh-ping-overlay.spec.ts \
@@ -332,7 +336,7 @@ maybe_wait 2
 start_phase find-similar 300 \
   env PW_WORKERS=1 npx playwright test tests/e2e/staged/stage5-multi-user/find-similar-people.spec.ts
 wait_wave 2
-RC_MESH=$(cat "$LOG_DIR/mesh-batch.rc"); RC_MESHISO=$(cat "$LOG_DIR/mesh-isolated.rc"); RC_FS=$(cat "$LOG_DIR/find-similar.rc")
+RC_MASS=$(cat "$LOG_DIR/mass.rc"); RC_MESH=$(cat "$LOG_DIR/mesh-batch.rc"); RC_MESHISO=$(cat "$LOG_DIR/mesh-isolated.rc"); RC_FS=$(cat "$LOG_DIR/find-similar.rc")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Wave 3: heavy-staged ALONE. It contains 09-four-types-chatbot (test.setTimeout(30_000)),
@@ -457,9 +461,9 @@ echo ""
 echo "[test:all] ───────────── per-phase wall time ─────────────"
 printf '  %-26s %5ss  %s\n' "phase0 (build/lint/jest)" "$p0_dur" "type=$RC_TYPE lint=$RC_LINT jest=$RC_JEST"
 printf '  %-26s %5ss  rc=%s   ┐ wave 1 (%s)\n' "light"  "$(phase_time light)"  "$RC_LIGHT" "$(wave_label)"
-printf '  %-26s %5ss  rc=%s   │\n'                      "mass"   "$(phase_time mass)"   "$RC_MASS"
 printf '  %-26s %5ss  rc=%s   ┘\n'                      "stage5" "$(phase_time stage5)" "$RC_S5"
-printf '  %-26s %5ss  rc=%s   ┐ wave 2 (%s)\n' "mesh-batch"    "$(phase_time mesh-batch)"    "$RC_MESH" "$(wave_label)"
+printf '  %-26s %5ss  rc=%s   ┐ wave 2 (%s)\n' "mass"          "$(phase_time mass)"          "$RC_MASS" "$(wave_label)"
+printf '  %-26s %5ss  rc=%s   │\n'                      "mesh-batch"    "$(phase_time mesh-batch)"    "$RC_MESH"
 printf '  %-26s %5ss  rc=%s   │\n'                      "mesh-isolated" "$(phase_time mesh-isolated)" "$RC_MESHISO"
 printf '  %-26s %5ss  rc=%s   ┘\n'                      "find-similar"  "$(phase_time find-similar)"  "$RC_FS"
 printf '  %-26s %5ss  rc=%s   ─ wave 3 (solo)\n'        "heavy-staged"  "$(phase_time heavy-staged)"  "$RC_HA"
