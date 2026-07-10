@@ -84,7 +84,14 @@ export class GunMessageStore {
     });
   }
 
+  /** Epub keys are immutable per user; one HTTP lookup per peer is enough. Without this
+   *  cache, collectAndDecryptMessages paid a network round-trip PER MESSAGE (same peer!),
+   *  turning a 12-message history render into ~10s+ and blowing e2e budgets after reload. */
+  private readonly epubByUserId = new Map<string, string>();
+
   private async getUserEpub(userId: string): Promise<string | undefined> {
+    const cached = this.epubByUserId.get(userId);
+    if (cached) return cached;
     // WebGunService.getPublicUser()/get() rejects when the *first* `.once()` callback fires
     // with `data === undefined` — a normal transient state for a peer record that hasn't
     // synced to this device's local Gun yet (freshly-matched conversation, cold page). That
@@ -92,6 +99,7 @@ export class GunMessageStore {
     // ciphertext instead of the whole decrypt batch being lost to an unhandled rejection.
     try {
       const user = await this.gunService.getPublicUser(userId);
+      if (user.epub) this.epubByUserId.set(userId, user.epub);
       return user.epub;
     } catch {
       return undefined;
@@ -346,6 +354,19 @@ export class GunMessageStore {
         // (dedup via `processedMessages`) safety net that guarantees any message already
         // durable in Gun gets rendered even if the live event was missed.
         root.map().once(onChild);
+        // Cold-start pull: after a reload the local graph is empty and history must be
+        // resolved from the hub through the 4-hop pair chain. A single `.once` can sit on
+        // Gun's slow resolution path for 10s+ (measured), starving the UI. Re-issuing the
+        // bootstrap read forces fresh asks and cuts the cold pull to a couple of seconds;
+        // it stops as soon as any message id lands (live `.on` covers the rest).
+        let bootstrapAttempts = 0;
+        const rebootstrap = () => {
+          if (processedMessages.size > 0 || bootstrapAttempts >= 12) return;
+          bootstrapAttempts += 1;
+          root.map().once(onChild);
+          setTimeout(rebootstrap, 1_000);
+        };
+        setTimeout(rebootstrap, 1_000);
         return true;
       };
       const tryAttachPairRoot = (attempt: number): void => {
