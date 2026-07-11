@@ -26,7 +26,13 @@ export class HttpRelaySignaler implements SignalingTransport {
       },
     );
     if (!response.ok) {
-      throw new Error(`HTTP signaling relay POST failed: ${response.status}`);
+      // Surface the server's rejection reason (e.g. 'invalid signature', 'duplicate
+      // nonce', 'stale timestamp'): a bare status made recurring 400 loops undiagnosable.
+      let reason = '';
+      try {
+        reason = String(((await response.json()) as { error?: string }).error || '');
+      } catch { /* body not JSON */ }
+      throw new Error(`HTTP signaling relay POST failed: ${response.status}${reason ? ` (${reason})` : ''}`);
     }
   }
 

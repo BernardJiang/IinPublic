@@ -308,13 +308,6 @@ RC_LIGHT=$(cat "$LOG_DIR/light.rc"); RC_S5=$(cat "$LOG_DIR/stage5.rc")
 # Wave 2: mesh phases + find-similar (lighter, multi-browser). Mesh-isolated specs
 # manipulate the hub and must stay serial among themselves → one subshell at 1 worker.
 # ─────────────────────────────────────────────────────────────────────────────
-# mass/ runs here instead of wave 1: its specs launch up to 12 Chromium profiles per test
-# and measurably starve (8/11 exchange deliveries, saturation timeouts) when they compete
-# with the 8-worker light shard. The mesh trio is a far lighter co-tenant (~6 workers total,
-# short-lived), so mass keeps most of the machine without adding a solo wave.
-start_phase mass 100 \
-  env E2E_SKIP_ALL_MESH=1 PW_WORKERS="$MASS_WORKERS" npx playwright test tests/e2e/mass
-maybe_wait 2
 start_phase mesh-batch 0 \
   env PW_WORKERS="$MESH_WORKERS" npx playwright test \
     tests/e2e/talks-matching/01-mesh-ping-overlay.spec.ts \
@@ -340,10 +333,22 @@ maybe_wait 2
 start_phase find-similar 300 \
   env PW_WORKERS=1 npx playwright test tests/e2e/staged/stage5-multi-user/find-similar-people.spec.ts
 wait_wave 2
-RC_MASS=$(cat "$LOG_DIR/mass.rc"); RC_MESH=$(cat "$LOG_DIR/mesh-batch.rc"); RC_MESHISO=$(cat "$LOG_DIR/mesh-isolated.rc"); RC_FS=$(cat "$LOG_DIR/find-similar.rc")
+RC_MESH=$(cat "$LOG_DIR/mesh-batch.rc"); RC_MESHISO=$(cat "$LOG_DIR/mesh-isolated.rc"); RC_FS=$(cat "$LOG_DIR/find-similar.rc")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Wave 3: heavy-staged ALONE. It contains 09-four-types-chatbot (test.setTimeout(30_000)),
+# Wave 3: mass ALONE. Its specs each launch 8-12 Chromium profiles; every failure mode
+# observed across ten full runs (lost exchanges, mesh signaling 400 loops, key-publication
+# lag) was latency-class and vanished whenever the phase had the machine to itself —
+# measured twice passing solo at the exact same settings that failed in shared waves. This
+# is a hardware ceiling, not a code path: fit the workload to the machine.
+# ─────────────────────────────────────────────────────────────────────────────
+start_phase mass 100 \
+  env E2E_SKIP_ALL_MESH=1 PW_WORKERS="$MASS_WORKERS" npx playwright test tests/e2e/mass
+wait_wave 3
+RC_MASS=$(cat "$LOG_DIR/mass.rc")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Wave 4: heavy-staged ALONE. It contains 09-four-types-chatbot (test.setTimeout(30_000)),
 # a 3-browser flow that flakes under contention — give it the machine to itself.
 # ─────────────────────────────────────────────────────────────────────────────
 start_phase heavy-staged 0 \
@@ -478,11 +483,11 @@ echo "[test:all] ───────────── per-phase wall time ─
 printf '  %-26s %5ss  %s\n' "phase0 (build/lint/jest)" "$p0_dur" "type=$RC_TYPE lint=$RC_LINT jest=$RC_JEST"
 printf '  %-26s %5ss  rc=%s   ┐ wave 1 (%s)\n' "light"  "$(phase_time light)"  "$RC_LIGHT" "$(wave_label)"
 printf '  %-26s %5ss  rc=%s   ┘\n'                      "stage5" "$(phase_time stage5)" "$RC_S5"
-printf '  %-26s %5ss  rc=%s   ┐ wave 2 (%s)\n' "mass"          "$(phase_time mass)"          "$RC_MASS" "$(wave_label)"
-printf '  %-26s %5ss  rc=%s   │\n'                      "mesh-batch"    "$(phase_time mesh-batch)"    "$RC_MESH"
+printf '  %-26s %5ss  rc=%s   ┐ wave 2 (%s)\n' "mesh-batch"    "$(phase_time mesh-batch)"    "$RC_MESH" "$(wave_label)"
 printf '  %-26s %5ss  rc=%s   │\n'                      "mesh-isolated" "$(phase_time mesh-isolated)" "$RC_MESHISO"
 printf '  %-26s %5ss  rc=%s   ┘\n'                      "find-similar"  "$(phase_time find-similar)"  "$RC_FS"
-printf '  %-26s %5ss  rc=%s   ─ wave 3 (solo)\n'        "heavy-staged"  "$(phase_time heavy-staged)"  "$RC_HA"
+printf '  %-26s %5ss  rc=%s   ─ wave 3 (mass solo)\n'   "mass"          "$(phase_time mass)"          "$RC_MASS"
+printf '  %-26s %5ss  rc=%s   ─ wave 4 (solo)\n'        "heavy-staged"  "$(phase_time heavy-staged)"  "$RC_HA"
 echo "[test:all] ───────────────────────────────────────────────"
 printf "  blobs: %s  |  TOTAL %dm%ds  |  report: npx playwright show-report\n" \
   "$blob_count" $((dur / 60)) $((dur % 60))

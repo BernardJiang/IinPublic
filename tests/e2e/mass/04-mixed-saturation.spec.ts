@@ -42,18 +42,15 @@ test.describe('M4 real mixed saturation', () => {
         const clusters = await app.getLocalIncomingClustersForE2e();
         return clusters.flatMap((cluster: any) => Object.keys(cluster.talkIds || {}));
       })));
-      // The talk-body mailbox fallback retries per-recipient with capped backoff (~45s) in
-      // batches of 5 concurrent recipients (see app.ts postTalkBodyToMailboxForRecipients) —
-      // with 11 receivers that is up to 3 sequential batches, i.e. a legitimate worst case
-      // north of 90s once concurrent-wave CPU contention slows key-publication further.
-      // Widen the timeout so the poll doesn't fail before that budget is exhausted.
+      // The phase runs SOLO in test:all (hardware-fitted workload); solo-measured delivery
+      // completes in seconds. Per policy no poll exceeds one minute.
       await expect
         .poll(
           async () => {
             const received = await readReceivedTalkIds();
             return received.every((ids) => created.every((talk: any) => ids.includes(talk.talkId)));
           },
-          { timeout: 180_000, intervals: [500, 1000, 2000, 4000, 8000] },
+          { timeout: 60_000, intervals: [500, 1000, 2000, 4000] },
         )
         .toBe(true);
       const receivedTalkIds = await readReceivedTalkIds();
@@ -91,11 +88,8 @@ test.describe('M4 real mixed saturation', () => {
           await app.peerMeshService?.joinRoom?.('global', members);
         }, users),
       ));
-      // joinRoom self-schedules a reconcile retry every ~1s, but under concurrent-wave CPU
-      // contention SEA-key/presence publication (and WebRTC negotiation itself) can lag well
-      // past a lone 90s window across 12 nodes. Re-issue joinRoom on every poll tick (cheap,
-      // idempotent — see PeerMeshService.joinRoom) as a resilience nudge, and give the mesh
-      // more real time to settle before failing.
+      // Re-issue idempotent joinRoom nudges on every poll tick; with the phase running solo
+      // the mesh settles quickly, and per policy no poll exceeds one minute.
       await expect
         .poll(
           async () => {
@@ -113,7 +107,7 @@ test.describe('M4 real mixed saturation', () => {
             ));
             return neighborCounts.every((count) => count >= 11);
           },
-          { timeout: 180_000, intervals: [500, 1000, 2000, 4000, 8000] },
+          { timeout: 60_000, intervals: [500, 1000, 2000, 4000] },
         )
         .toBe(true);
       // C — memory sanity: Gun 'talks' key count stays bounded after delivery.
