@@ -528,6 +528,7 @@ export class PeerMeshService {
         });
         await this.rememberAndFanout(announceFrame);
         const acknowledged = await this.sendAndWaitForAcks(bodyFrame, [recipientUserId]);
+        console.log(`[BODY-SEND] talk=${String(payload.talkId).slice(-8)} to=${recipientUserId.slice(0, 8)} acked=${acknowledged.has(recipientUserId)}`);
         if (!acknowledged.has(recipientUserId) && this.opts.onMailboxFallback) {
           void Promise.resolve(this.opts.onMailboxFallback(bodyPayload, [recipientUserId])).catch(
             (err) => console.warn('[Mesh] mailbox fallback failed:', err),
@@ -1000,10 +1001,12 @@ export class PeerMeshService {
         }
       }
       if (talkId && this.deliveredTalkBodyIds.has(deliveryKey)) {
+        console.log(`[BODY-RECV] talk=${talkId.slice(-8)} dup-ack (already delivered)`);
         await this.acknowledge(frame);
         return;
       }
       const accepted = await this.opts.onTalkBody?.(frame.payload);
+      console.log(`[BODY-RECV] talk=${talkId.slice(-8)} accepted=${accepted !== false}`);
       if (accepted === false) {
         // Receiver did NOT accept this body — e.g. a filter/membership read that timed out under
         // saturation, or a receiver not yet fully bootstrapped. Do not acknowledge: an ACK tells

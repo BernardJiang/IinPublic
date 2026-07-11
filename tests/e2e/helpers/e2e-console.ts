@@ -20,7 +20,13 @@ const NOISY_BROWSER_LOG_PATTERNS = [
 
 export function attachFilteredConsoleLog(page: { on(event: 'console', handler: (message: ConsoleMessage) => void): void }, label: string): void {
   page.on('console', (message) => {
-    const text = message.text();
+    let text = message.text();
+    // Network failures ('Failed to load resource: ... 400') carry the URL only in the
+    // message location, not the text — without it, recurring 4xx spam is undiagnosable.
+    if (text.startsWith('Failed to load resource')) {
+      const url = message.location()?.url;
+      if (url) text += ` [${url}]`;
+    }
     if (process.env.E2E_VERBOSE_CONSOLE !== '1') {
       if (message.type() === 'log') return;
       if (NOISY_BROWSER_LOG_PATTERNS.some((pattern) => text.includes(pattern))) return;
