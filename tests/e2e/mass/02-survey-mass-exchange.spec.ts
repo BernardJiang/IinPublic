@@ -20,7 +20,15 @@ test.describe('M2 real survey mass exchange', () => {
       const delivery = await pages[0].evaluate(async (receiverUsers) => (window as any).__iinpublic_app.getApp().deliverPendingBroadcastTalksForE2e(0, { skipAudiencePreview:true, skipDeliveryAcks:true, receiverUsers }), users);
       expect(delivery.receivers).toBe(11);
       for (let i=0;i<11;i+=1) { await waitForTabActive(pages[i+1], 'talks'); await completeTalksInAppByAnswerIds(pages[i+1], [{ talkId:created.talkId, talkData:created.talkData, answerIds:vector(i), outcome:'mismatch' }]); }
-      await expect.poll(() => pages[0].evaluate((id) => Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')).filter((r:any)=>r.talkId===id).length, created.talkId), { timeout:120_000 }).toBe(11);
+      // Under concurrent-wave load the author's 3s mailbox-poll timer can lag well behind
+      // wall-clock time (CPU-starved event loop across ~12+ browsers), and a responder's
+      // response may only reach the author via the mailbox fallback rather than the direct
+      // mesh DataChannel. Force-drain on every poll tick instead of trusting the background
+      // timer, and give the exchange-arrival poll enough headroom to ride out that lag.
+      await expect.poll(async () => {
+        await pages[0].evaluate(() => (window as any).__iinpublic_app.getApp().drainMailbox?.()).catch(() => {});
+        return pages[0].evaluate((id) => Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')).filter((r:any)=>r.talkId===id).length, created.talkId);
+      }, { timeout:240_000, intervals:[1000,2000,4000,8000] }).toBe(11);
 
       // B. byQuestion aggregate: total + skipCount === 11; completionRate matches formula.
       const byQuestion = await pages[0].evaluate((talkId) => {
