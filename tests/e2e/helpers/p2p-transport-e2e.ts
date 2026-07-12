@@ -47,7 +47,35 @@ export async function expectActiveTransportMode(
     .toBe(mode);
 }
 
-/** Match-created row in `myConversations` should record the active transport mode. */
+/**
+ * Match-created row in `myConversations` should record the active transport mode.
+ * Matches by otherUserId: the previous name-based lookup made a TRANSPORT assertion fail
+ * whenever the peer's display name hadn't propagated yet (returned '' both when the record
+ * was missing AND when only the name was stale) — name propagation has its own dedicated
+ * specs and must not gate this one.
+ */
+export async function expectConversationTransportModeForPeerId(
+  page: Page,
+  otherUserId: string,
+  mode: 'direct-p2p' | 'star-gun',
+  timeoutMs = P2P_E2E_TIMEOUT_MS,
+): Promise<void> {
+  await expect
+    .poll(
+      async () =>
+        page.evaluate((peerId) => {
+          const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+          const hit = Object.values(conversations).find(
+            (c: any) => c?.otherUserId === peerId && c?.supportChannel !== true,
+          ) as { transportMode?: string } | undefined;
+          return hit?.transportMode ?? '';
+        }, otherUserId),
+      { timeout: timeoutMs, message: `myConversations transport for peer ${otherUserId}` },
+    )
+    .toBe(mode);
+}
+
+/** @deprecated name-based variant — kept for callers that only know the display name. */
 export async function expectConversationTransportModeForPeer(
   page: Page,
   otherUserName: string,

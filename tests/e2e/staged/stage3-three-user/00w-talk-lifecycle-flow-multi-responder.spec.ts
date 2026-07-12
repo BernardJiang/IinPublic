@@ -14,7 +14,7 @@ import {
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
 import {
   expectActiveTransportMode,
-  expectConversationTransportModeForPeer,
+  expectConversationTransportModeForPeerId,
 } from '../../helpers/p2p-transport-e2e';
 import { waitForServerConversations } from '../../helpers/talk-lifecycle-e2e';
 import {
@@ -128,7 +128,8 @@ test.describe('Talk lifecycle — flow multi-responder matrix (D4)', () => {
     await waitForServerConversations(pageJerry, 1);
     await expectActiveTransportMode(pageTom, 'direct-p2p');
     await expectActiveTransportMode(pageJerry, 'direct-p2p');
-    await expectConversationTransportModeForPeer(pageTom, 'Jerry Matrix', 'direct-p2p');
+    const jerryMatrixId = await pageJerry.evaluate(() => (window as any).__iinpublic_app.getApp().currentUser.id);
+    await expectConversationTransportModeForPeerId(pageTom, jerryMatrixId, 'direct-p2p');
 
     await expect
       .poll(

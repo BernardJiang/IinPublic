@@ -14,7 +14,7 @@ import { waitForServerConversations } from '../helpers/talk-lifecycle-e2e';
 
 import {
   expectActiveTransportMode,
-  expectConversationTransportModeForPeer,
+  expectConversationTransportModeForPeerId,
 } from '../helpers/p2p-transport-e2e';
 import {
   bootstrapUser,
@@ -127,8 +127,10 @@ test.describe('Talks matching — one match one mismatch from two responders', (
     await waitForServerConversations(pageJerry, 1);
     await expectActiveTransportMode(pageTom, 'direct-p2p');
     await expectActiveTransportMode(pageJerry, 'direct-p2p');
-    await expectConversationTransportModeForPeer(pageTom, 'Jerry', 'direct-p2p');
-    await expectConversationTransportModeForPeer(pageJerry, 'Tom', 'direct-p2p');
+    const tomId = await pageTom.evaluate(() => (window as any).__iinpublic_app.getApp().currentUser.id);
+    const jerryId = await pageJerry.evaluate(() => (window as any).__iinpublic_app.getApp().currentUser.id);
+    await expectConversationTransportModeForPeerId(pageTom, jerryId, 'direct-p2p');
+    await expectConversationTransportModeForPeerId(pageJerry, tomId, 'direct-p2p');
     await expect(pageTom.locator('.nav-btn[data-view="me"] .notification-badge')).toHaveText('1', { timeout: 5_000 });
     await expect
       .poll(
