@@ -4,18 +4,18 @@
  * Bob does NOT appear in Tom's conversation list.
  */
 import { Browser, BrowserContext, Page } from '@playwright/test';
-import { test, expect } from '../../helpers/fixtures';
-import { maybeClearGunDatabases } from '../../helpers/clear-database';
-import { afterSync, afterAction } from '../../helpers/timing';
-import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../../helpers/talks-matching-browsers';
-import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
-import { broadcastFromGlobalChatroom, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
-import { waitForServerConversations } from '../../helpers/talk-lifecycle-e2e';
+import { test, expect } from '../helpers/fixtures';
+import { maybeClearGunDatabases } from '../helpers/clear-database';
+import { afterSync, afterAction } from '../helpers/timing';
+import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../helpers/talks-matching-browsers';
+import { confirmBroadcastTagPreambleIfVisible } from '../helpers/broadcast-preamble';
+import { broadcastFromGlobalChatroom, submitTalkEditorAndWaitForOut } from '../helpers/talk-demo-ui';
+import { waitForServerConversations } from '../helpers/talk-lifecycle-e2e';
 
 import {
   expectActiveTransportMode,
   expectConversationTransportModeForPeer,
-} from '../../helpers/p2p-transport-e2e';
+} from '../helpers/p2p-transport-e2e';
 import {
   bootstrapUser,
   waitForTabActive,
@@ -23,7 +23,7 @@ import {
   openIncomingTalkModal,
   resetTalksMatchingSession,
   finalCleanupPages,
-} from '../../helpers/talks-matching-flow';
+} from '../helpers/talks-matching-flow';
 
 const TALK_TITLE = 'E2E Partial Match Tennis';
 

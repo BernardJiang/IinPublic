@@ -350,6 +350,15 @@ wait_wave 3
 RC_MASS=$(cat "$LOG_DIR/mass.rc")
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Isolated wave: the two machine-sensitive specs, quarantined into tests/e2e/isolated/,
+# run strictly one at a time on a single worker with nothing else on the machine.
+# ─────────────────────────────────────────────────────────────────────────────
+start_phase isolated 100 \
+  env E2E_RUN_ISOLATED=1 E2E_SKIP_ALL_MESH=1 PW_WORKERS=1 npx playwright test tests/e2e/isolated
+wait_wave 3
+RC_ISO=$(cat "$LOG_DIR/isolated.rc")
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Wave 4: heavy-staged ALONE. It contains 09-four-types-chatbot (test.setTimeout(30_000)),
 # a 3-browser flow that flakes under contention — give it the machine to itself.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -467,7 +476,7 @@ fi
 # cleaned by the OS): test-logs/<phase>.log survives for post-mortem, including the full
 # browser console when E2E_VERBOSE_CONSOLE=1 is exported for the run.
 mkdir -p "$ROOT/test-logs"
-for name in light mass stage5 mesh-batch mesh-isolated find-similar heavy-staged; do
+for name in light mass isolated stage5 mesh-batch mesh-isolated find-similar heavy-staged; do
   rc="$(cat "$LOG_DIR/$name.rc" 2>/dev/null || echo '')"
   if [ -n "$rc" ] && [ "$rc" != "0" ] && [ -f "$LOG_DIR/$name.log" ]; then
     cp "$LOG_DIR/$name.log" "$ROOT/test-logs/$name.log"
@@ -475,7 +484,7 @@ for name in light mass stage5 mesh-batch mesh-isolated find-similar heavy-staged
   fi
 done
 
-E2E_RC=$(( RC_LIGHT || RC_MASS || RC_S5 || RC_MESH || RC_MESHISO || RC_FS || RC_HA ))
+E2E_RC=$(( RC_LIGHT || RC_MASS || RC_ISO || RC_S5 || RC_MESH || RC_MESHISO || RC_FS || RC_HA ))
 PREFIX_RC=$(( RC_TYPE || RC_LINT || RC_JEST ))
 
 phase_time() { cat "$LOG_DIR/$1.time" 2>/dev/null || echo '?'; }
@@ -489,6 +498,7 @@ printf '  %-26s %5ss  rc=%s   ┐ wave 2 (%s)\n' "mesh-batch"    "$(phase_time m
 printf '  %-26s %5ss  rc=%s   │\n'                      "mesh-isolated" "$(phase_time mesh-isolated)" "$RC_MESHISO"
 printf '  %-26s %5ss  rc=%s   ┘\n'                      "find-similar"  "$(phase_time find-similar)"  "$RC_FS"
 printf '  %-26s %5ss  rc=%s   ─ wave 3 (mass solo)\n'   "mass"          "$(phase_time mass)"          "$RC_MASS"
+printf '  %-26s %5ss  rc=%s   ─ isolated (serial, 1 worker)\n' "isolated"  "$(phase_time isolated)"      "$RC_ISO"
 printf '  %-26s %5ss  rc=%s   ─ wave 4 (solo)\n'        "heavy-staged"  "$(phase_time heavy-staged)"  "$RC_HA"
 echo "[test:all] ───────────────────────────────────────────────"
 printf "  blobs: %s  |  TOTAL %dm%ds  |  report: npx playwright show-report\n" \
