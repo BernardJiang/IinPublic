@@ -1463,7 +1463,7 @@ export class IinPublicApp {
 
   private syncPeerMeshRoom(
     chatroomId: string,
-    members: Array<{ userId: string; stageName?: string }>,
+    members: Array<{ userId: string; stageName?: string; pub?: string }>,
   ): void {
     const mesh = this.ensurePeerMeshService();
     if (!mesh || !this.currentUser?.id || !chatroomId) return;

@@ -132,16 +132,19 @@ test.describe('Talks matching — one match one mismatch from two responders', (
     await expectConversationTransportModeForPeerId(pageTom, jerryId, 'direct-p2p');
     await expectConversationTransportModeForPeerId(pageJerry, tomId, 'direct-p2p');
     await expect(pageTom.locator('.nav-btn[data-view="me"] .notification-badge')).toHaveText('1', { timeout: 5_000 });
+    const bobId = await pageBob.evaluate(() => (window as any).__iinpublic_app.getApp().currentUser.id);
+    // Census by user id: display names have their own propagation pipeline (and specs);
+    // this assertion is about WHICH conversations exist, not what they are labeled.
     await expect
       .poll(
         async () =>
-          pageTom.evaluate(() => {
+          pageTom.evaluate(({ jid, bid }) => {
             const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
-            const names = Object.values(conversations)
+            const ids = Object.values(conversations)
               .filter((conversation: any) => conversation?.supportChannel !== true)
-              .map((conversation: any) => conversation?.otherUserName);
-            return { count: names.length, hasJerry: names.includes('Jerry'), hasBob: names.includes('Bob') };
-          }),
+              .map((conversation: any) => conversation?.otherUserId);
+            return { count: ids.length, hasJerry: ids.includes(jid), hasBob: ids.includes(bid) };
+          }, { jid: jerryId, bid: bobId }),
         { timeout: 5_000 },
       )
       .toEqual({ count: 1, hasJerry: true, hasBob: false });
@@ -151,10 +154,10 @@ test.describe('Talks matching — one match one mismatch from two responders', (
     await expect
       .poll(
         async () =>
-          pageJerry.evaluate(() => {
+          pageJerry.evaluate((tid) => {
             const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
-            return Object.values(conversations).some((conversation: any) => conversation?.otherUserName === 'Tom');
-          }),
+            return Object.values(conversations).some((conversation: any) => conversation?.otherUserId === tid);
+          }, tomId),
         { timeout: 5_000 },
       )
       .toBe(true);

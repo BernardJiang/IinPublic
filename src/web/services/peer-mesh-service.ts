@@ -24,6 +24,9 @@ import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 type RoomMember = {
   userId: string;
   stageName?: string;
+  /** Signing pub carried in the room roster record — lets neighbor formation skip the
+   *  presence/public-record lookups that fail under simultaneous-boot load. */
+  pub?: string;
 };
 
 type MeshSession = {
@@ -329,7 +332,9 @@ export class PeerMeshService {
     const resolvedByUserId = new Map<string, string>();
     for (const member of rankedCandidates) {
       const existing = this.neighbors.get(member.userId);
-      const pub = existing?.pub || presencePubs.get(member.userId) || this.knownPeerPubs.get(member.userId);
+      // Roster-carried pub first: zero-lookup, present as soon as the member record
+      // replicates. Network-derived sources remain as fallbacks for older records.
+      const pub = member.pub || existing?.pub || presencePubs.get(member.userId) || this.knownPeerPubs.get(member.userId);
       if (pub) resolvedByUserId.set(member.userId, pub);
     }
     if (resolvedByUserId.size < maxNeighbors) {

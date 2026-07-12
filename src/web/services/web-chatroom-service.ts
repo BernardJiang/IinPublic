@@ -323,11 +323,14 @@ export class WebChatroomService {
       // record back to the old name every ~30s, and peers' rosters never see the new name.
       const liveName = this.membershipStageNameResolver?.() || stageName;
       const now = new Date().toISOString();
-      // Carry this member's public encryption key in the roster record: peers who need to
-      // encrypt FOR us (talk-body mailbox posting, pair offers) then have the key inline
+      // Carry this member's public keys in the roster record: peers who need to encrypt
+      // FOR us (epub — talk-body mailbox posting, pair offers) or open a signed mesh
+      // session TO us (pub — WebRTC neighbor formation) then have the key material inline
       // and never depend on a presence/public-record lookup, which fails under
-      // simultaneous-boot load. epub is public material.
-      const epub = this.gunService.getStoredPair?.()?.epub;
+      // simultaneous-boot load. Both are public material.
+      const pair = this.gunService.getStoredPair?.();
+      const epub = pair?.epub;
+      const pub = pair?.pub;
       this.gunService
         .getGun()
         .get('chatrooms')
@@ -340,6 +343,7 @@ export class WebChatroomService {
           userId,
           stageName: liveName,
           ...(epub ? { epub } : {}),
+          ...(pub ? { pub } : {}),
         });
       void this.syncMembershipHeartbeatWithServer(chatroomId, userId, liveName, now);
     };
@@ -592,7 +596,7 @@ export class WebChatroomService {
 
   subscribeToMembers(
     chatroomId: string,
-    callback: (members: Array<{ userId: string; stageName: string; joinedAt?: string | Date; epub?: string }>) => void,
+    callback: (members: Array<{ userId: string; stageName: string; joinedAt?: string | Date; epub?: string; pub?: string }>) => void,
   ): void {
     this.membersListCallback = callback;
 
@@ -634,6 +638,7 @@ export class WebChatroomService {
             stageName: memberData.stageName || userId,
             ...(memberData.joinedAt ? { joinedAt: memberData.joinedAt } : {}),
             ...(typeof memberData.epub === 'string' && memberData.epub ? { epub: memberData.epub } : {}),
+            ...(typeof memberData.pub === 'string' && memberData.pub ? { pub: memberData.pub } : {}),
           });
         } else {
           this.activeMembersForList.delete(userId);
