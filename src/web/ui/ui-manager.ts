@@ -265,6 +265,10 @@ export class UIManager extends EventEmitter {
     return [...this.currentChatroomMembers];
   }
   private currentConversationId: string | undefined = undefined;
+  // Last message id we've already surfaced a "new message" toast for, per conversation. Seeded
+  // (without notifying) on a conversation's first summary sync so boot/history loads stay quiet;
+  // subsequent deltas from the peer raise a toast when that conversation isn't the one on screen.
+  private lastNotifiedMessageIdByConversation: Map<string, string> = new Map();
   private chatroomMemberCounts: Map<string, number> = new Map(); // Track member count per chatroom
   private chatroomVisitCounts: Map<string, { visitCount: number; uniqueVisitorCount: number }> = new Map();
   private expandedChatrooms: Set<string> = new Set([
@@ -4424,9 +4428,25 @@ export class UIManager extends EventEmitter {
 
     this.currentConversationId = conversationId;
 
-    // Update header with user name
+    // Update header with user name. The name embedded in the conversation record was
+    // captured at match time and goes stale when the peer renames. Resolve the live name
+    // (roster-first, synchronous) and then self-heal asynchronously from the public-user
+    // read so the header matches the chatroom's current stage name after a rename.
     const userName = document.getElementById('conversation-user-name');
-    if (userName) userName.textContent = conversation.otherUserName || this.t('conversationUnknown');
+    if (userName) {
+      const liveName = conversation.otherUserId
+        ? this.getPeerName(conversation.otherUserId, conversation.otherUserName)
+        : conversation.otherUserName;
+      userName.textContent = liveName || this.t('conversationUnknown');
+      if (conversation.otherUserId) {
+        void this.resolvePeerStageNameLive(conversation.otherUserId).then((resolved) => {
+          // Only apply if this conversation is still the one on screen.
+          if (resolved && this.currentConversationId === conversationId) {
+            userName.textContent = resolved;
+          }
+        });
+      }
+    }
     const status = document.getElementById('conversation-status');
     if (status) status.textContent = this.t('online');
     const transportStatus = document.getElementById('conversation-transport-status');
@@ -6187,17 +6207,25 @@ export class UIManager extends EventEmitter {
     }
   }
 
-  showNotification(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info'): void {
+  showNotification(
+    message: string,
+    type: 'success' | 'error' | 'info' | 'warning' = 'info',
+    options?: { persistent?: boolean },
+  ): void {
     if (this.notificationsSuppressedForE2e) return;
 
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
     notification.textContent = message;
 
+    // Durable talk-match notices intentionally stay until dismissed. Callers can override the
+    // content-based detection via `options.persistent` — e.g. the "can now chat" conversation
+    // banner also starts with the "Match!" prefix but should auto-dismiss like any other toast.
     const isMatchNotification =
-      message.startsWith(this.t('talksMatchNoticePrefix')) ||
-      message === this.t('responseMatch') ||
-      message === this.t('responseMatchAuto');
+      options?.persistent ??
+      (message.startsWith(this.t('talksMatchNoticePrefix')) ||
+        message === this.t('responseMatch') ||
+        message === this.t('responseMatchAuto'));
     if (isMatchNotification) {
       notification.dataset.matchNotification = 'true';
     }
@@ -7402,7 +7430,9 @@ export class UIManager extends EventEmitter {
         this.showNotification(this.tf('supportChannelReady', { name }), 'info');
       } else {
         if (!conversationData.supportChannel) {
-          this.showNotification(this.tf('matchChatReady', { name }), 'success');
+          // Auto-dismiss: this "can now chat" banner starts with "Match!" but is a transient
+          // toast, not a durable talk-match notice that should linger until clicked.
+          this.showNotification(this.tf('matchChatReady', { name }), 'success', { persistent: false });
         }
       }
     }
@@ -7545,8 +7575,31 @@ export class UIManager extends EventEmitter {
     localStorage.setItem(cursorKey, JSON.stringify(cursors));
     localStorage.setItem('myConversations', JSON.stringify(conversations));
     this.updateMatchBadge();
-    const meTab = document.querySelector('.nav-btn[data-view="me"]');
-    if (meTab?.classList.contains('active')) this.displayConversationsList();
+
+    // Surface a toast when a fresh message arrives from the peer for a conversation the user
+    // isn't currently viewing. Without this the only signal is the nav badge, which is easy to
+    // miss — the reported bug was that an incoming message produced no visible change until the
+    // user manually reopened the chat. Seed the last-notified id on first sight so history/boot
+    // loads don't fire a burst of toasts; only genuine deltas notify.
+    const latestId = String(latest.id || '');
+    const isIncoming = String(latest.senderId || '') !== currentUserId;
+    const alreadySeen = this.lastNotifiedMessageIdByConversation.has(conversationId);
+    const isDelta = this.lastNotifiedMessageIdByConversation.get(conversationId) !== latestId;
+    this.lastNotifiedMessageIdByConversation.set(conversationId, latestId);
+    if (
+      alreadySeen &&
+      isDelta &&
+      isIncoming &&
+      this.currentConversationId !== conversationId &&
+      !conversation.supportChannel
+    ) {
+      const name = this.getPeerName(conversation.otherUserId, conversation.otherUserName);
+      this.showNotification(this.tf('conversationNewMessage', { name }), 'info');
+    }
+
+    // Re-render the conversation list whenever it exists in the DOM (not only when the Me tab is
+    // the active nav item) so an arriving message updates the preview/unread row immediately.
+    if (document.getElementById('conversations-list')) this.displayConversationsList();
     // Contacts sort by recency reads the same lastMessageTime this method just updated —
     // without a re-render here the visible order freezes at whatever it was when the tab
     // opened (messages arriving while the user watches never reorder the rows).
