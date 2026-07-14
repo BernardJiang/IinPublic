@@ -85,7 +85,7 @@ Source: `docs/e2e-test-analysis.md` § Coverage Gaps. Goal: a test for **every u
 
 # TODO — GUI Redesign + Conversation-First/Threads + Platform Matrix
 
-Source: `docs/gui-redesign-plan.md` (§1–§8) and `docs/gui-layout-catalog-and-e2e-plan.md` (Parts 3–6). Execution rules at the top of this file apply (companion `.md` per spec, hard-signal assertions, fix product bugs — never weaken assertions). Land order: **A → B → C → D → E → F → G** (matches the T1→T2→T4→T5→T8→T3→T6→T7 priority in Part 3).
+Source: `docs/gui-redesign-plan.md` (§1–§8) and `docs/gui-layout-catalog-and-e2e-plan.md` (Parts 3–6). Execution rules at the top of this file apply (companion `.md` per spec, hard-signal assertions, fix product bugs — never weaken assertions). Land order: **A → B → C → D → H → E → F → G** (matches the T1→T2→T4→T5→T8→T9→T3→T6→T7 priority in Part 3; H after C because message filtering hooks the same composers the thread work touches).
 
 ## A. Shared AppBar + responsive overflow (redesign §1–§3, §6)
 
@@ -156,6 +156,21 @@ Source: `docs/gui-redesign-plan.md` (§1–§8) and `docs/gui-layout-catalog-and
 - [ ] `[opus]` **X4** mobile-profile ↔ desktop-app matching + threads; narrow overlay live (nightly).
 - [ ] `[opus]` **X5** three-platform stage-3 network incl. thread isolation (nightly).
 - [ ] `[opus]` **X6** offline/mailbox across platforms, both directions (nightly).
+
+## H. Message content filters — dirty words + grammar (redesign §9, catalog T9)
+
+Today `ContentFilter` (`src/shared/reputation.ts`) only gates incoming **talks**; its word list is hardcoded; DMs/threads are never filtered. Make both filters work on messages, both directions.
+
+- [ ] `[sonnet]` Add user-editable dirty-word list: new `dirtyWords: string[]` field on `TalkIntakeFilters` (SEA-private, same persistence path as the other intake filters), seeded with defaults **fuck, cunt, bitch, cock**; `ContentFilter` merges it with the built-in latin/CJK terms at match time; validation via `normalizeCustomBlockedTerms` rules (2–48 chars, lowercase, dedupe, cap 50). Unit tests: merge, whole-word tokenizer ("cocktail" passes), NFKC casefold.
+- [ ] `[sonnet]` Word-list editor UI on the Dirty-word filter Settings page: chips with remove ✕ (`dirty-word-chip`), add input + button (`dirty-word-add-input`, `dirty-word-add-btn`), **Reset to defaults** (`dirty-word-reset-btn`), inline validation errors; keep the `settings-dirty-words-filter` toggle.
+- [ ] `[sonnet]` Shared message-filter helpers in `src/shared/` (`filterOutgoingMessage` / `filterIncomingMessage`) covering dirty words + grammar (`assessGrammar` vs `CONFIG.GRAMMAR_THRESHOLD`) — single implementation, used by every composer (key invariant: never duplicated per call site).
+- [ ] `[sonnet]` Wire **send path**: DM conversation composer, per-talk thread composer, and peer DM composer all run the helper before send; on hit: message not sent, composer text preserved, warning toast with `data-content-filter-notification="send"` / `"grammar-send"`.
+- [ ] `[opus]` Wire **receive path**: receiver-side check before render (message stays in the pair's Gun graph, only suppressed at display); collapsed "hidden by your filters" placeholder row; one toast per hidden message (`"receive"` / `"grammar-receive"`); toggling the filter off reveals previously hidden messages.
+- [ ] `[haiku]` Grammar filter Settings page: enable/disable + explanation + read-only strictness (from `CONFIG`); talk-path behavior unchanged.
+- [ ] `[haiku]` **New** `stage1/70-dirty-word-list-editor.spec.ts` — defaults present; add/remove/reset; reject <2 chars, duplicate, 51st entry; persistence across reload (T9).
+- [ ] `[sonnet]` **New** `stage2/70-dirty-word-message-blocking.spec.ts` — send-block (toast, text preserved, peer gets nothing), clean message passes, receive-hide (placeholder + toast, content never rendered), filter-off reveal; repeated once inside a matched-talk thread; "cocktail" passes (T9).
+- [ ] `[sonnet]` **New** `stage2/71-grammar-message-blocking.spec.ts` — same shape for a below-threshold message (T9).
+- [ ] `[haiku]` Regression: stage3 intake specs still pass — talk-path filtering unchanged by the message-path work.
 
 ## Open questions (blocking the marked items)
 

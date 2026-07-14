@@ -122,8 +122,11 @@ Main App  ── persistent bottom nav: 5 tabs ───────────
     │   ├─ Profile languages
     │   ├─ Incoming language filter
     │   ├─ Distance filter (min / max)
-    │   ├─ Grammar filter          (own page, explicit open/close)
-    │   ├─ Dirty-word filter       (own page, explicit open/close)
+    │   ├─ Grammar filter          (own page, open/close; blocks sending AND hides
+    │   │                           receiving failing messages — redesign §9.2)
+    │   ├─ Dirty-word filter       (own page, open/close + word-list editor: defaults
+    │   │                           fuck/cunt/bitch/cock, add/remove chips, reset;
+    │   │                           blocks sending AND hides receiving — redesign §9.1)
     │   ├─ Sent-after / cutoff
     │   ├─ Location  (refresh / auto-assign)
     │   ├─ Travel mode
@@ -238,11 +241,17 @@ Add focused specs so shell refactors don't silently break single-spec screens:
 - **New** `stage3/71-thread-isolation-multi.spec.ts` (P1): with 3 users, A↔B threads are invisible to C (pair-private isolation extended to per-talk threads); unread badges count per-thread.
 - **Update** `stage2/62-peer-messaging-merged.spec.ts` (P0): the merged messaging area is now the thread list + DM entry; re-point assertions.
 
+### T9 — Message content filters: dirty words + grammar (redesign §9)
+- **New** `stage1/70-dirty-word-list-editor.spec.ts` (P0): the Dirty-word filter page shows the default list (fuck/cunt/bitch/cock) as chips; add a word (appears, lowercased); reject <2 chars, duplicates, >50 entries; remove a word; Reset restores defaults; list + toggle persist across reload (SEA-private `dirtyWords` field).
+- **New** `stage2/70-dirty-word-message-blocking.spec.ts` (P0): with the filter **on**, Adam sends "…fuck…" in the DM → not sent, warning toast (`data-content-filter-notification="send"`), composer text preserved, peer receives nothing; a clean message still sends. Receiver side: Adam disables his filter, sends a dirty word; TechSupport (filter on) sees the hidden-message placeholder + `receive` toast, never the content; toggling TechSupport's filter **off** reveals the message. Repeat one send-block + one receive-hide inside a **matched-talk Thread** (T8 surface). Whole-word check: "cocktail" passes.
+- **New** `stage2/71-grammar-message-blocking.spec.ts` (P1): same shape driven by a below-`GRAMMAR_THRESHOLD` message — send blocked with `grammar-send` toast; receive hidden with placeholder + `grammar-receive` toast; filter off ⇒ both directions pass.
+- **Update** `stage3` intake specs: assert the talk-path behavior is unchanged by the message-path work (regression guard).
+
 ### Execution & gates
 - Path shorthand: `stageN/…` in this doc means `tests/e2e/staged/stageN-<suffix>/…` (`stage0-bootstrap`, `stage1-single-user`, `stage2-two-user`, `stage3-three-user`, `stage4-four-user`, `stage5-multi-user`).
 - Run per-stage during development; full gate before merge: `npm run health` (type-check + lint + unit + integration + both builds) then the affected E2E subsets, then `npm run test:e2e:parallel` for the full suite.
 - Keep every migrated control's existing `data-testid` to minimize churn; where a control moves into the `⋯` menu, the menu item must reuse the same testid.
-- Priority order to land: **T1 → T2 → T4 → T5 → T8 → T3 → T6 → T7** (shared component and its brand-new overflow behavior first, then notifications, then the peer/contact unification and the conversation-first/thread model, then the tail).
+- Priority order to land: **T1 → T2 → T4 → T5 → T8 → T9 → T3 → T6 → T7** (shared component and its brand-new overflow behavior first, then notifications, then the peer/contact unification, the conversation-first/thread model, and the message content filters, then the tail).
 
 ### New-coverage scorecard (target)
 | Redesign area | Coverage today | After plan |
@@ -254,6 +263,7 @@ Add focused specs so shell refactors don't silently break single-spec screens:
 | Chatroom icon actions | text-button only | T3 |
 | Thin-tail dialogs | 1 spec each | T6 |
 | Conversation-first entry + talk threads | **none** (new behavior) | T8 |
+| Message dirty-word/grammar filtering + word-list editor | **none** (feature doesn't exist yet) | T9 |
 | Platform / cross-platform coverage | native-app only (3 specs) | Part 6 |
 
 ---
@@ -322,6 +332,8 @@ TechSupport must click through **every** reachable item and establish the empty-
 | Me Q&A mirror + create from Me | ✓ | | | | | |
 | Full Settings page walk | ✓ | | | | | |
 | Grammar / dirty-word filter pages | ✓ | | | ✓ | | |
+| Dirty-word list editor (defaults/CRUD/reset) | ✓ | | | | | |
+| Message content filters (send-block / receive-hide) | | | ✓ | ✓ | | |
 | Credit/Reputation read-only | ✓ | | ✓ | | | |
 | Answer talks + outcomes (varied) | | ✓ | ✓ | ✓ | | |
 | Creator reply triage | | ✓ | ✓ | ✓ | | |
@@ -455,8 +467,9 @@ Parts 3–4 say *which screens* get specs; this part pins **every user-facing co
 | `settings-min/max-distance` | valid pair; min > max (R4 toast + revert); empty | delivery honors bounds | `stage1/66` · stage3 intake | 1, 3 |
 | `settings-home-room` | default room; custom room | return-home targets it | `stage1/66` | 1 |
 | `settings-sent-after` | set / clear | older talks filtered | `stage1/66` · stage3 cutoff | 1, 3 |
-| `settings-grammar-filter` | on ↔ off (own page open/close in target IA) | bad-grammar talk excluded only when on | `stage1/66` · stage3 content | 1, 3 |
-| `settings-dirty-words-filter` | on ↔ off (own page open/close) | — | `stage1/66` · stage3 content | 1, 3 |
+| `settings-grammar-filter` | on ↔ off (own page open/close in target IA) | bad-grammar talk excluded only when on; **message send blocked / receive hidden** (redesign §9.2) | `stage1/66` · stage3 content · T9 `stage2/71` | 1, 2, 3 |
+| `settings-dirty-words-filter` | on ↔ off (own page open/close) | dirty talk excluded; **message send blocked / receive hidden** (§9.1) | `stage1/66` · stage3 content · T9 `stage2/70` | 1, 2, 3 |
+| Dirty-word list editor (`dirty-word-chip`, `-add-input`, `-add-btn`, `-reset-btn`) | defaults fuck/cunt/bitch/cock; add valid; add <2 chars / duplicate / 51st (R4); remove; reset; persist (R2) | list drives both talk and message filtering | T9 `stage1/70` | 1 |
 | Allowed-type checkboxes ×4 | subsets; zero ⇒ fallback all-4 (R4) | type-filtered delivery | `stage1/66` · stage3 | 1, 3 |
 | `settings-custom-blocked` | comma and newline separated terms; clear | matching talks hidden; hidden-count summary updates (`settings-filtered-incoming-summary`) | `stage1/66` · stage3 | 1, 3 |
 | `settings-refresh-location-btn` | click | location text updates; pending-location note when unknown | `stage1/66` | 1 |
@@ -468,13 +481,14 @@ Parts 3–4 say *which screens* get specs; this part pins **every user-facing co
 | Control | Values / states | Assert | Spec | Stage |
 |---|---|---|---|---|
 | `conversation-message-input` + Send | click send; Enter sends; Shift+Enter newline; empty no-op | ordered history both sides | existing E2 (10 specs) | 2 |
+| Content-filter enforcement (DM + thread composers) | dirty word send-block / receive-hide / filter-off reveal; grammar same; whole-word ("cocktail" passes) | `data-content-filter-notification` toasts; placeholder row; composer text preserved | T9 `stage2/70`, `stage2/71` | 2 |
 | Toasts | info / success / warning / error / Match! | auto-dismiss 3s (match 8s); match click navigates to ⟨Conv⟩; `data-match-notification` kept | T4 `stage1/54` | 1–2 |
 | Location-room banner | Join / dismiss | Join pushes Room detail | existing A5 + T7 | 1 |
 | System announcement | show / dismiss | renders + dismisses | **New** `stage1/68-system-announcement` (closes the only "None" gap) | 1 |
 
 ### 5.7 New specs introduced by this matrix
 
-`stage1/60-chatroom-hierarchy-walk`, `stage1/64-talks-filter-sort-options`, `stage1/65-me-filter-options`, `stage1/66-settings-option-matrix`, `stage1/67-talk-editor-option-matrix`, `stage1/68-system-announcement`, `stage2/64-contacts-filter-sort-options`, `stage2/65-reply-triage-option-matrix`, `stage2/66-talk-response-option-paths`, `stage2/67-peer-history-controls`, `stage2/68-conversation-first-entry`, `stage2/69-matched-talk-threads`, `stage3/70-reply-triage-grouping-multi`, `stage3/71-thread-isolation-multi` — each with its companion `.md`, using the option-sweep pattern: build the fixture once per spec, then iterate the enumeration with per-value assertions (R1), ending with the clear/reset check (R3) and one 320px-width pass (R5).
+`stage1/60-chatroom-hierarchy-walk`, `stage1/64-talks-filter-sort-options`, `stage1/65-me-filter-options`, `stage1/66-settings-option-matrix`, `stage1/67-talk-editor-option-matrix`, `stage1/68-system-announcement`, `stage2/64-contacts-filter-sort-options`, `stage2/65-reply-triage-option-matrix`, `stage2/66-talk-response-option-paths`, `stage2/67-peer-history-controls`, `stage2/68-conversation-first-entry`, `stage2/69-matched-talk-threads`, `stage1/70-dirty-word-list-editor`, `stage2/70-dirty-word-message-blocking`, `stage2/71-grammar-message-blocking`, `stage3/70-reply-triage-grouping-multi`, `stage3/71-thread-isolation-multi` — each with its companion `.md`, using the option-sweep pattern: build the fixture once per spec, then iterate the enumeration with per-value assertions (R1), ending with the clear/reset check (R3) and one 320px-width pass (R5).
 
 ---
 
