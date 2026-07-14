@@ -85,7 +85,7 @@ Source: `docs/e2e-test-analysis.md` § Coverage Gaps. Goal: a test for **every u
 
 # TODO — GUI Redesign + Conversation-First/Threads + Platform Matrix
 
-Source: `docs/gui-redesign-plan.md` (§1–§8) and `docs/gui-layout-catalog-and-e2e-plan.md` (Parts 3–6). Execution rules at the top of this file apply (companion `.md` per spec, hard-signal assertions, fix product bugs — never weaken assertions). Land order: **A → B → C → D → H → E → F → G** (matches the T1→T2→T4→T5→T8→T9→T3→T6→T7 priority in Part 3; H after C because message filtering hooks the same composers the thread work touches).
+Source: `docs/gui-redesign-plan.md` (§1–§8) and `docs/gui-layout-catalog-and-e2e-plan.md` (Parts 3–6). Execution rules at the top of this file apply (companion `.md` per spec, hard-signal assertions, fix product bugs — never weaken assertions). Land order: **A → B → C → D → H → E → F → G → I → J** (matches the T1→T2→T4→T5→T8→T9→T3→T6→T7 priority in Part 3; H after C because message filtering hooks the same composers the thread work touches; I after G because its X-specs need the cross-platform harness; J last — sync-then-erase builds on I's linking + archive).
 
 ## A. Shared AppBar + responsive overflow (redesign §1–§3, §6)
 
@@ -152,7 +152,7 @@ Source: `docs/gui-redesign-plan.md` (§1–§8) and `docs/gui-layout-catalog-and
 - [ ] **New** `tests/e2e/cross-platform/` harness (browser + Electron in one fixture, shared hub) extending `native-app/02`.
 - [ ] `[opus]` **X1** website + webapp simultaneous presence/headcount (P0, merge gate).
 - [ ] `[opus]` **X2** cross-platform talk lifecycle both directions + cross-platform thread replies (P0, merge gate).
-- [ ] `[opus]` **X3** same SEA identity on website + webapp concurrently — define intended behavior first (open question), then assert (nightly).
+- [ ] `[opus]` **X3** identity linking website ↔ webapp (decided: per-device identities, never shared keys) — `cross-platform/x3-identity-linking.spec.ts`; see section I (nightly).
 - [ ] `[opus]` **X4** mobile-profile ↔ desktop-app matching + threads; narrow overlay live (nightly).
 - [ ] `[opus]` **X5** three-platform stage-3 network incl. thread isolation (nightly).
 - [ ] `[opus]` **X6** offline/mailbox across platforms, both directions (nightly).
@@ -172,8 +172,42 @@ Today `ContentFilter` (`src/shared/reputation.ts`) only gates incoming **talks**
 - [ ] `[sonnet]` **New** `stage2/71-grammar-message-blocking.spec.ts` — same shape for a below-threshold message (T9).
 - [ ] `[haiku]` Regression: stage3 intake specs still pass — talk-path filtering unchanged by the message-path work.
 
+## I. Multi-device identity linking (redesign §10, catalog T10 — user decision 2026-07-13)
+
+One person, multiple devices ⇒ **different SEA identity per device** (keys never leave a device). Build the linking mechanism instead of identity sharing.
+
+- [ ] `[opus]` Link protocol in `src/shared/`: short-lived pairing payload (pub + one-time secret + ~5 min expiry), **mutual signed attestations** at `identity-links/<pubA>/<pubB>` (link valid only when both sides present and verified), signed revocation for unlink; reject expired/reused/malformed codes. Unit tests: one-sided claim ⇒ no link; revocation supersedes; forgery fails verification.
+- [ ] `[sonnet]` Linked devices Settings page: linked-identity list (stage name, platform glyph, linked date, per-row Unlink), **Link a device** → code+QR dialog (`link-device-code-modal`, countdown, copy), **Enter link code** dialog (`enter-link-code-input`, inline errors), **Unlink confirm** (`unlink-device-confirm`).
+- [ ] `[sonnet]` Cluster rendering for peers: Contacts merges linked identities into one row ("also on N other devices", expandable); User layout header shows the cluster line; primary stage name = most recently updated.
+- [ ] `[sonnet]` Block interplay: blocking one linked identity warns and offers cluster-wide block (redesign §10.2).
+- [ ] `[haiku]` **New** `stage1/71-linked-devices-page.spec.ts` — page open/close, empty state, code lifecycle incl. expiry, error paths (T10).
+- [ ] `[opus]` **New** `cross-platform/x3-identity-linking.spec.ts` — website↔webapp link, mutual attestations (one-sided ⇒ no link), third-user merged contact row, unlink/revoke, cluster-block offer; key-custody regression stays green (T10).
+- [ ] `[sonnet]` Same-device linking shortcuts (redesign §10.3): URL-fragment payload (`#link=…`, single-use, one-tap confirm) for app→browser; universal/app link for browser→app on iPhone/Android; loopback (`IINPUBLIC_LOCAL_PORT`) auto-detect + one-click link on desktop; clipboard copy fallback; per-link "Copy my data to ⟨other side⟩" local archive transfer.
+- [ ] `[opus]` **New** `cross-platform/x8-same-device-link.spec.ts` — loopback one-click link, fragment payload single-use (second open fails as reused), local data copy (T10).
+- [ ] Explicitly out of v1 (flagged): merging message history, aggregating reputation across a cluster.
+
+## J. Public-device exit — sync-then-erase (redesign §11, catalog T11 — user decision 2026-07-13)
+
+No server login/logout exists; a public-PC session leaves an identity behind. Build a verifiable local wipe with an optional encrypted handoff to a linked personal device first.
+
+- [ ] `[opus]` Wipe engine: destroy SEA keypair, clear localStorage + IndexedDB/Gun radata + caches + session state, write best-effort link revocations + retired marker while online, reload to fresh boot (auto-created new identity). Must be verifiable post-reload (empty storage, new pub).
+- [ ] `[sonnet]` "Erase this device" Settings row (danger zone, last) + **Erase confirm dialog** (`erase-device-modal`, type-`ERASE` gate `erase-confirm-input`, `erase-device-btn`, `erase-sync-first-btn`); never in the `⋯` overflow; disabled while sync in flight; lost-forever warning when unlinked/offline, link-now offer when unlinked.
+- [ ] `[opus]` Encrypted handoff archive (shared with §10.3 local copy): package profile, contacts/known people, talk filters + dirty-word list, answer preferences, my-talks, device-local conversation/thread history; encrypt to the personal device's pub; transfer over P2P; require receiving-device acknowledgment before enabling erase; **Sync progress dialog** (`erase-sync-progress-modal`, per-category progress).
+- [ ] `[sonnet]` Archive import on the personal device (Linked devices page): per-category merge — contacts and talks/answers merge into the local identity; conversation history imports as read-only archive.
+- [ ] `[haiku]` **New** `stage1/72-erase-this-device.spec.ts` — typed-confirm gate, cancel intact, wipe verified, fresh identity, no prior data reachable (T11).
+- [ ] `[sonnet]` **New** `stage2/72-sync-before-erase.spec.ts` — linked pair: sync → ack → erase; receiver archive + merge; revocation visible (T11).
+- [ ] `[opus]` **New** `cross-platform/x7-sync-then-erase.spec.ts` — website→webapp handoff; abort-mid-sync leaves the device intact (T11).
+
+## Future / low priority (explicitly deferred — do not pick up without re-prioritization)
+
+- Multiple identities on one device (profile switching for one person). Decided low priority 2026-07-13; v1 stays one identity per device install (redesign §10 non-goal note). When picked up: switcher UI, per-identity storage namespaces, and interplay with linking/erase.
+
 ## Open questions (blocking the marked items)
 
-- X3: mirror the same identity across devices, or reject a second concurrent session? (Key-custody decision.)
-- Part 4 stage labels count peers while `tests/e2e/staged/` dirs count users (off-by-one); standardize labels?
+- Identity linking v2 scope: should reputation aggregate across a linked cluster, and should contacts/conversations sync between linked devices? (v1: display-merge only.)
 - iPhone/Android native shells (`platforms/ios`, `platforms/mobile`): browser-profile testing is the stand-in until they ship — confirm.
+
+## Resolved
+
+- ~~X3: mirror the same identity across devices, or reject a second concurrent session?~~ → Neither: per-device identities + linking (section I, redesign §10). 2026-07-13.
+- ~~Part 4 stage labels off-by-one vs. `staged/` dirs~~ → Relabeled: stage number = total concurrent users = directory number; former Stages 2/3 merged into Stage 3. 2026-07-13.

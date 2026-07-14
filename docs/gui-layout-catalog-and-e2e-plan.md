@@ -131,7 +131,12 @@ Main App  ── persistent bottom nav: 5 tabs ───────────
     │   ├─ Location  (refresh / auto-assign)
     │   ├─ Travel mode
     │   ├─ Age verification
-    │   └─ Feature toggles / preferences
+    │   ├─ Linked devices  (per-device identities linked into one person cluster —
+    │   │                   link code / QR, enter code, unlink; redesign §10)
+    │   ├─ Feature toggles / preferences
+    │   └─ Erase this device  (danger zone: public-PC exit — optional encrypted sync
+    │                          to a linked device, then full local wipe + fresh
+    │                          identity for the next person; redesign §11)
     ├─ Credit / Reputation   (read-only submenu)
     └─ Development settings   (at end)
 
@@ -155,15 +160,15 @@ Counting **distinct page/layout types** (shared nodes counted once):
 | Shared editor | Talk Editor (Talks + Me) | 1 |
 | Me | Q&A detail | 1 |
 | Settings · profile | Edit Stage Name, Headshot, Camera capture, Photo preview | 4 |
-| Settings · itemized | languages, incoming-language, distance, grammar, dirty-word, cutoff, location, travel, age-verify, feature toggles | 10 |
+| Settings · itemized | languages, incoming-language, distance, grammar, dirty-word, cutoff, location, travel, age-verify, linked devices, feature toggles, erase this device | 12 |
 | Settings · read-only | Credit / Reputation | 1 |
 | Settings · dev | Development settings | 1 |
-| **Primary pages subtotal** | | **33** |
+| **Primary pages subtotal** | | **35** |
 | Auxiliary overlays | notifications, send-talks picker, My Talks dialog, location-suggestion banner, system-announcement banner | 5 |
 | App shell | bottom-nav frame | 1 |
-| **Grand total** | | **≈ 39** |
+| **Grand total** | | **≈ 41** |
 
-So: **33 distinct primary pages**, plus the shell and ~5 floating overlays ≈ **39 navigable layouts**. (Instance counts are unbounded — one Room/User/Conversation/Thread/Talk page type renders per room, per user, per thread, per matched talk.)
+So: **35 distinct primary pages**, plus the shell and ~5 floating overlays ≈ **41 navigable layouts**. (Instance counts are unbounded — one Room/User/Conversation/Thread/Talk page type renders per room, per user, per thread, per matched talk.)
 
 ### Navigation graph — pages travel to and from one another
 
@@ -247,6 +252,18 @@ Add focused specs so shell refactors don't silently break single-spec screens:
 - **New** `stage2/71-grammar-message-blocking.spec.ts` (P1): same shape driven by a below-`GRAMMAR_THRESHOLD` message — send blocked with `grammar-send` toast; receive hidden with placeholder + `grammar-receive` toast; filter off ⇒ both directions pass.
 - **Update** `stage3` intake specs: assert the talk-path behavior is unchanged by the message-path work (regression guard).
 
+### T10 — Multi-device identity linking (redesign §10)
+- **New** `stage1/71-linked-devices-page.spec.ts` (P1): Settings → Linked devices page opens/closes; empty state; **Link a device** shows code + QR + countdown; code expires (clock override) and the dialog auto-closes; **Enter link code** rejects expired/invalid/reused codes with inline errors.
+- **New** `cross-platform/x3-identity-linking.spec.ts` (P0, replaces the old X3): website identity + webapp identity (different SEA keypairs) link via code; both sides show the other in Linked devices; **mutual signed attestations** exist in Gun (one-sided claim asserted to NOT create a link); a third user's Contacts merges the two identities into one row with "also on 1 other device"; **Unlink** from either side revokes and un-merges; blocking one linked identity triggers the cluster-wide-block offer.
+- **New** `cross-platform/x8-same-device-link.spec.ts` (P1): same-device shortcuts (redesign §10.3) — browser session + Electron app on one machine link via the **loopback one-click** path (no code typed); the URL-fragment path (`#link=…`) completes with one confirmation and the payload is single-use (opening the link twice fails with the reused-code error); after linking, **Copy my data to ⟨other side⟩** transfers the handoff archive locally.
+- Regression: key custody unchanged — no private key ever leaves its device (`stage1/00-p2p-sea-key-custody` still passes).
+
+### T11 — Public-device exit: sync-then-erase (redesign §11)
+- **New** `stage1/72-erase-this-device.spec.ts` (P0): Erase row → confirm dialog; erase button stays disabled until `ERASE` typed; cancel leaves everything intact; confirm with no linked device shows the lost-forever warning; after erase + reload: localStorage/IndexedDB empty of prior keys, **new identity pub differs**, fresh auto-created user, no prior talk/contact/conversation reachable, chatroom headcount reflects only the new identity.
+- **New** `stage2/72-sync-before-erase.spec.ts` (P0): two linked browser identities; Erase on device A offers "Save to ⟨B⟩ first"; sync transfers the encrypted archive (per-category progress; erase disabled until B acknowledges); B's Linked devices page shows the importable archive; B merges contacts + talks/answers (conversation history imports read-only); A erases; B retains everything; A's link shows revoked on B.
+- **New** `cross-platform/x7-sync-then-erase.spec.ts` (P1): same flow website (public PC) → desktop webapp (personal device); abort-mid-sync leaves A intact and un-erased.
+- Guard checks inside both: erase never appears in the `⋯` overflow; sync-in-flight disables erase.
+
 ### Execution & gates
 - Path shorthand: `stageN/…` in this doc means `tests/e2e/staged/stageN-<suffix>/…` (`stage0-bootstrap`, `stage1-single-user`, `stage2-two-user`, `stage3-three-user`, `stage4-four-user`, `stage5-multi-user`).
 - Run per-stage during development; full gate before merge: `npm run health` (type-check + lint + unit + integration + both builds) then the affected E2E subsets, then `npm run test:e2e:parallel` for the full suite.
@@ -270,9 +287,9 @@ Add focused specs so shell refactors don't silently break single-spec screens:
 
 ## Part 4 — Stage-based functional e2e plan (organized by number of users)
 
-Part 3 (T1–T7) covers the *redesign mechanics*. Part 4 is the *functional* suite, organized by how many users are present. Each stage builds on the saved state of the prior one (matching the repo's `zzz-save-stageN` pattern). The rule for every stage: **use the Traversal contract from Part 1B** — visit every tree page reachable with the users present, and exercise every function that becomes possible at that user count. The redesign overlay (T1–T7, especially the narrow-viewport `⋯` overflow) is asserted on the relevant screens within each stage rather than only in isolation.
+Part 3 (T1–T10) covers the *redesign mechanics*. Part 4 is the *functional* suite, organized by how many users are present. **Stage number = total concurrent users**, matching the `tests/e2e/staged/stageN-*` directories one-to-one (labels previously counted peers and were off by one; corrected 2026-07-13 — former Stages 2 and 3 were both three-user stages and are merged into the new Stage 3). Each stage builds on the saved state of the prior one (matching the repo's `zzz-save-stageN` pattern). The rule for every stage: **use the Traversal contract from Part 1B** — visit every tree page reachable with the users present, and exercise every function that becomes possible at that user count. The redesign overlay (T1–T10, especially the narrow-viewport `⋯` overflow) is asserted on the relevant screens within each stage rather than only in isolation.
 
-### Stage 0 — TechSupport only (0 peers): exhaustive single-user clickability + baseline
+### Stage 1 — TechSupport only (1 user): exhaustive single-user clickability + baseline
 
 TechSupport must click through **every** reachable item and establish the empty-world baseline.
 
@@ -284,7 +301,7 @@ TechSupport must click through **every** reachable item and establish the empty-
 - **Settings — walk every page:** Profile shows stage name `TechSupport` + headshot control; open **Edit Stage Name** (open→close), **Headshot** → Camera capture + Photo preview (open→close). Then open each itemized page and back out: profile languages, incoming-language filter, distance min/max, **Grammar filter page (toggle open→close)**, **Dirty-word filter page (toggle open→close)**, cutoff/sent-after, location refresh, travel mode, age verification, feature toggles. Open **Credit/Reputation** and assert it is **read-only**. Open **Development settings**. Assert each page opens, its control responds, and back returns to the Settings root.
 - **Notifications:** any toast raised during the run auto-dismisses (T4).
 
-### Stage 1 — + Adam (1 peer): full two-party talk lifecycle, all types, varied answers
+### Stage 2 — + Adam (2 users): full two-party talk lifecycle, all types, varied answers
 
 - **Onboard:** Adam boots, sets stage name + profile, lands in Global; **headcount = 2**.
 - **Adam answers all of TechSupport's talks.** For each **same-type triple**, Adam gives **three different answers** (e.g. match / mismatch / ignore, or three distinct branch paths), across all four types.
@@ -292,21 +309,20 @@ TechSupport must click through **every** reachable item and establish the empty-
 - **Verify on TechSupport's side:** the Creator "Replies To My Talks" triage shows Adam's reply per talk with the correct outcome; matched talks create the conversation.
 - **Messaging + shared destinations (conversation-first):** Adam clicks TechSupport **in the room** and lands **directly on the Conversation**; sends a message; TechSupport gets the new-message toast + badge **without** opening it, then opens and replies; both sides show ordered history. Adam presses back → **User layout** (thread list visible), opens a **matched-talk Thread**, replies in it, back → User layout, back → room detail. Then click TechSupport **from Contacts** (now a contact) and assert it lands on the **same Conversation/thread** (shared-edge + N2a back-chain check).
 
-### Stage 2 — 2 real peers (Adam + Eve) [+ TechSupport]: peer↔peer core
+### Stage 3 — + Eve (3 users: TechSupport + Adam + Eve): peer↔peer core + network effects
 
-- **Matching:** both create/broadcast talks; cross-answer; verify matches/mismatches on both sides for all types.
+Merged from the former Stages 2 and 3 (both were three-user stages). Where a function already has a two-user variant in `stage2-two-user` (blocking 15b, reputation 21a–c, messaging 29–31), Stage 3 extends it across the Adam↔Eve pair rather than re-testing it.
+
+- **Matching:** both peers create/broadcast talks; cross-answer; verify matches/mismatches on both sides for all types.
 - **Messaging depth:** concurrent-send ordering; unread badge; read-state cursor persistence; history order after reload; offline delivery via mailbox; new-message toast when not viewing the thread.
 - **Layout parity (T5):** open Eve from a **room** and from **Contacts** → identical shared User layout; Block and Send-My-Talks work from the top bar.
 - **Blocking:** Adam blocks Eve → delivery stops + peer hidden; unblock resumes; blocklist persists across restart.
 - **Contacts:** relationship editor (friend/relative/nickname); contact detail talk history; filter by name.
 - **Reputation:** block count, peer star rating, vouch threshold; age-verify vouch flips 18+.
 - **Rename propagation:** Eve renames → the new name shows in the chatroom, the User-layout header, **and** the Conversation header (the recently-fixed stale-name bug).
-
-### Stage 3 — 3 users: multi-responder talks + network effects
-
-- **Multi-responder lifecycles:** one creator, multiple responders per talk for tag / flow / survey / route.
-- **Triage matrix:** Creator reply triage grouped by date and filtered by outcome / stage name across 3 responders.
-- **Intake filters end-to-end** with a distinct third user: language, distance, content (dirty-word/grammar), custom cutoff, talk-type — each filter produces the correct include/exclude; **pair-private isolation** (A↔B messages invisible to C).
+- **Multi-responder lifecycles:** one creator, the other two respond per talk for tag / flow / survey / route.
+- **Triage matrix:** Creator reply triage grouped by date and filtered by outcome / stage name across the responders present.
+- **Intake filters end-to-end** with Eve as the distinct third user: language, distance, content (dirty-word/grammar), custom cutoff, talk-type — each filter produces the correct include/exclude; **pair-private isolation** (A↔B messages and talk threads invisible to C).
 - **Network:** contacts network + relationship credit across 3 users; find-similar-people; profile privacy/visibility; chatbot auto-reply + bot badge; ignore-then-change-answer; mismatch paths.
 
 ### Stage 4 — 4 users: capacity + membership integrity
@@ -319,37 +335,39 @@ TechSupport must click through **every** reachable item and establish the empty-
 - **Broadcast at scale:** super-user broadcasts to 20; every recipient receives; bulk ack; broadcast-bar behavior under scroll.
 - **Spread + mass exchange:** regional capacity spread; mass exchange of each talk type (flow / survey / route) at scale; mesh-only delivery with the server down; presence at scale.
 
-### Stage coverage matrix (function → first stage it is exercised)
+### Stage coverage matrix (function → stages that exercise it; SN = N concurrent users = `staged/stageN-*`)
 
-| Function area | S0 | S1 | S2 | S3 | S4 | S5 |
-|---|:--:|:--:|:--:|:--:|:--:|:--:|
-| Every-page clickability sweep | ✓ | | | | | |
-| Chatroom hierarchy + headcount | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Create/rename room | ✓ | | | | | |
-| Empty contacts state | ✓ | | | | | |
-| Create talks (all 4 types) | ✓ | ✓ | ✓ | ✓ | | ✓ |
-| Talk sort/filter controls | ✓ | | | | | |
-| Me Q&A mirror + create from Me | ✓ | | | | | |
-| Full Settings page walk | ✓ | | | | | |
-| Grammar / dirty-word filter pages | ✓ | | | ✓ | | |
-| Dirty-word list editor (defaults/CRUD/reset) | ✓ | | | | | |
-| Message content filters (send-block / receive-hide) | | | ✓ | ✓ | | |
-| Credit/Reputation read-only | ✓ | | ✓ | | | |
-| Answer talks + outcomes (varied) | | ✓ | ✓ | ✓ | | |
-| Creator reply triage | | ✓ | ✓ | ✓ | | |
-| User layout from room + contacts | | ✓ | ✓ | | | |
-| Conversation (both entry paths) | | ✓ | ✓ | | | |
-| Messaging (order/unread/offline) | | ✓ | ✓ | | | |
-| Blocking / unblock / persist | | | ✓ | ✓ | | |
-| Reputation (rating/vouch/age) | | | ✓ | ✓ | | |
-| Rename propagation everywhere | | | ✓ | | | |
-| Intake filters (lang/dist/content/type) | | | | ✓ | | |
-| Pair-private isolation | | | | ✓ | | |
-| Multi-responder lifecycles | | | | ✓ | | |
-| Capacity eviction / pruning | | | | | ✓ | ✓ |
-| Broadcast fan-out at scale | | | | | | ✓ |
-| Mesh-only / server-down delivery | | | | | | ✓ |
-| Redesign overlay (T1–T7, `⋯` overflow) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Function area | S1 | S2 | S3 | S4 | S5 |
+|---|:--:|:--:|:--:|:--:|:--:|
+| Every-page clickability sweep | ✓ | | | | |
+| Chatroom hierarchy + headcount | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Create/rename room | ✓ | | | | |
+| Empty contacts state | ✓ | | | | |
+| Create talks (all 4 types) | ✓ | ✓ | ✓ | | ✓ |
+| Talk sort/filter controls | ✓ | | | | |
+| Me Q&A mirror + create from Me | ✓ | | | | |
+| Full Settings page walk | ✓ | | | | |
+| Grammar / dirty-word filter pages | ✓ | | ✓ | | |
+| Dirty-word list editor (defaults/CRUD/reset) | ✓ | | | | |
+| Message content filters (send-block / receive-hide) | | ✓ | ✓ | | |
+| Linked devices page (linking flow: cross-platform X3) | ✓ | | | | |
+| Erase this device / sync-then-erase (X7) | ✓ | ✓ | | | |
+| Credit/Reputation read-only | ✓ | ✓ | | | |
+| Answer talks + outcomes (varied) | | ✓ | ✓ | | |
+| Creator reply triage | | ✓ | ✓ | | |
+| User layout from room + contacts | | ✓ | ✓ | | |
+| Conversation (both entry paths) | | ✓ | ✓ | | |
+| Messaging (order/unread/offline) | | ✓ | ✓ | | |
+| Blocking / unblock / persist | | ✓ | ✓ | | |
+| Reputation (rating/vouch/age) | | ✓ | ✓ | | |
+| Rename propagation everywhere | | ✓ | ✓ | | |
+| Intake filters (lang/dist/content/type) | | | ✓ | | |
+| Pair-private isolation (messages + threads) | | | ✓ | | |
+| Multi-responder lifecycles | | | ✓ | | |
+| Capacity eviction / pruning | | | | ✓ | ✓ |
+| Broadcast fan-out at scale | | | | | ✓ |
+| Mesh-only / server-down delivery | | | | | ✓ |
+| Redesign overlay (T1–T10, `⋯` overflow) | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ---
 
@@ -388,7 +406,7 @@ Parts 3–4 say *which screens* get specs; this part pins **every user-facing co
 | `contacts-filter-name` | hit / miss / clear (R3) | rows filtered; empty state | existing `stage2/34` + **New** `stage2/64-contacts-filter-sort-options` | 2 |
 | `contacts-filter-relation` | **all 7**: all, friend, relative, coworker, acquaintance, partner, custom | only matching relations listed | `stage2/64` | 2 |
 | `contacts-sort-order` | **all 7**: recent, talks, matches, match-rate, weighted, name, relationship | first row changes per known fixture ordering | `stage2/64` | 2 |
-| Empty-list state | every filter+sort on zero contacts | no error, empty message | Part 4 Stage 0 sweep | 1 |
+| Empty-list state | every filter+sort on zero contacts | no error, empty message | Part 4 Stage 1 sweep | 1 |
 | Relationship editor | each label incl. custom + custom text; `✕` / Close / scrim | label shown on row; persists after reload (R2) | existing C3 specs + `stage2/64` | 2 |
 | ⟨User⟩ `peer-sort-btn` | date · outcome | history reorders | **New** `stage2/67-peer-history-controls` | 2 |
 | ⟨User⟩ `peer-filter-tab` | all · sent · received | rows filtered by direction | `stage2/67` | 2 |
@@ -430,7 +448,7 @@ Parts 3–4 say *which screens* get specs; this part pins **every user-facing co
 | Editor `talk-is-adult` 🔞 | on ↔ off | delivered only to age-verified (threshold 3 vouches) | `stage1/67` + existing H1 specs | 1, 2 |
 | Editor Cancel / scrim | with dirty form | closes without creating | `stage1/67` | 1 |
 | Response — tag | checked ⇒ match toast+conversation; unchecked ⇒ ignore toast, no conversation | both paths | existing talks-matching + **New** `stage2/66-talk-response-option-paths` | 2 |
-| Response — flow/route | 3 distinct branch paths per talk (Part 4 Stage 1 rule); `back-question-btn` | outcome per leaf flag | `stage2/66` | 2 |
+| Response — flow/route | 3 distinct branch paths per talk (Part 4 Stage 2 rule); `back-question-btn` | outcome per leaf flag | `stage2/66` | 2 |
 | Response — survey | full completion | stats recorded, no match | `stage2/66` + existing D4 | 2 |
 | Response — review screen | pre-filled radios; change a radio; `review-edit-btn` (manual mode); confirm; superseded banner (talk updated) | no silent auto-submit; "(pre-filled)" tags | `stage2/66` + existing chatbot specs | 2, 3 |
 | `close-response-btn` / scrim | mid-answer | no answer recorded | `stage2/66` | 2 |
@@ -447,7 +465,7 @@ Parts 3–4 say *which screens* get specs; this part pins **every user-facing co
 | `me-answer-sort` | **all 4**: answered-desc, answered-asc, chatbot-recent, chatbot-count | order changes (chatbot sorts asserted at stage 3 where bot answers exist) | `stage1/65` · stage3 | 1, 3 |
 | `me-answer-filter`, `answers-search-input`, date from/to | R3 each | — | `stage1/65` + existing F2 | 1 |
 | `me-clear-filters` | after setting everything | all controls back to defaults; full list | `stage1/65` | 1 |
-| Q&A detail + create-from-Me | open detail; ⟨Editor⟩ seeded from Q&A; created talk appears in Me **and** Talks | shared-editor edge | Part 4 Stage 0 sweep | 1 |
+| Q&A detail + create-from-Me | open detail; ⟨Editor⟩ seeded from Q&A; created talk appears in Me **and** Talks | shared-editor edge | Part 4 Stage 1 sweep | 1 |
 
 ### 5.5 Settings (every control)
 
@@ -473,8 +491,10 @@ Parts 3–4 say *which screens* get specs; this part pins **every user-facing co
 | Allowed-type checkboxes ×4 | subsets; zero ⇒ fallback all-4 (R4) | type-filtered delivery | `stage1/66` · stage3 | 1, 3 |
 | `settings-custom-blocked` | comma and newline separated terms; clear | matching talks hidden; hidden-count summary updates (`settings-filtered-incoming-summary`) | `stage1/66` · stage3 | 1, 3 |
 | `settings-refresh-location-btn` | click | location text updates; pending-location note when unknown | `stage1/66` | 1 |
-| Storage inspector + `settings-refresh-storage-btn` | open dev page; refresh | body populates, read-only | Part 4 Stage 0 sweep | 1 |
+| Storage inspector + `settings-refresh-storage-btn` | open dev page; refresh | body populates, read-only | Part 4 Stage 1 sweep | 1 |
 | Age verification | vouch ×1, ×2 (still off), ×3 (flips 18+) | threshold = 3 | existing H1 | 2–3 |
+| Linked devices page (`link-device-code-modal`, `enter-link-code-input`, `unlink-device-confirm`) | empty state; link code + QR + expiry; enter valid / expired / invalid / reused code; unlink from either side; cluster-wide block offer | mutual attestations only; merged contact row for third users; key custody intact | T10 `stage1/71` · `cross-platform/x3` | 1, X |
+| Erase this device (`erase-device-modal`, `erase-confirm-input`, `erase-device-btn`, `erase-sync-first-btn`) | cancel; wrong/empty confirm text (button disabled, R4); erase unlinked (lost-forever warning); erase after sync; abort mid-sync | full wipe verified (storage empty, new pub, fresh user); archive + per-category merge on the linked device; revocation written | T11 `stage1/72` · `stage2/72` · `cross-platform/x7` | 1, 2, X |
 
 ### 5.6 Conversation & notifications
 
@@ -529,10 +549,12 @@ Mixed topologies — different platforms **online simultaneously** against the s
 
 - **X1 — Website + webapp presence (P0):** one user on P1, one on P2, same room; both see headcount 2 and each other's member rows; extends `native-app/02`. |
 - **X2 — Cross-platform talk lifecycle (P0):** broadcast website→webapp and webapp→website; answer on the receiving side; match; conversation-first click and DM reply cross the boundary; per-talk **thread reply round-trips** website↔webapp.
-- **X3 — Same identity on two platforms (P1):** the same user's SEA keypair active on website and webapp simultaneously (key custody per `stage1/00-p2p-sea-key-custody`); messages and read-state converge on both; define+assert the intended behavior (mirror vs. reject second session — decision needed, see open questions).
+- **X3 — Identity linking across devices (P0, decided 2026-07-13):** the same person on website and webapp has **two distinct identities** (per-device SEA keypairs — never shared); X3 tests the **linking flow** (redesign §10): link code generated on one platform, entered on the other, mutual attestations, merged contact row seen by a third user, unlink/revoke. Spec: `cross-platform/x3-identity-linking` (T10).
 - **X4 — Mobile ↔ desktop (P1):** P5/P6 device profile user matches and threads with a P2 desktop-app user; narrow-width overlay (T2) asserted live on the mobile side during the exchange.
 - **X5 — Three-platform network (P1):** stage-3 functions (multi-responder talks, intake filters, pair-private thread isolation) with one user each on P1, P2, and P5/P6 profile.
 - **X6 — Offline/mailbox across platforms (P2):** webapp goes offline (app quit), website user sends DM + thread reply + new talk; webapp relaunch receives all via mailbox; then the reverse direction.
+- **X7 — Public-PC sync-then-erase (P1):** website session (the "library PC") linked to a desktop-webapp personal device; encrypted handoff archive syncs, public PC erases to a fresh identity, personal device imports the archive (redesign §11). Spec: `cross-platform/x7-sync-then-erase` (T11).
+- **X8 — Same-device app ↔ browser linking (P1):** browser and native app on one machine link via loopback one-click / URL-fragment payload (no typed code) and share data locally (redesign §10.3); on mobile profiles, assert the universal-link/"open in app" affordances render. Spec: `cross-platform/x8-same-device-link` (T10).
 
 Gate: X1–X2 join the merge gate alongside `npm run test:e2e:parallel`; X3–X6 run nightly on the platform runners.
 
