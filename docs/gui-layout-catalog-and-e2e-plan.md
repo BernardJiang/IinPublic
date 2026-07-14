@@ -1,6 +1,6 @@
 # GUI Layout Catalog, E2E Coverage & Test Plan
 
-Companion to `docs/gui-redesign-plan.md`. Five parts: (1) a catalog of every existing screen/layout grouped by function (with the full layout tree and navigation graph in 1B), (2) how well each is covered by the current 139-spec Playwright suite, (3) the e2e test plan the redesign must ship with, (4) the stage-based functional plan organized by user count, and (5) the exhaustive per-control option matrix that pins every user-facing option to a covering spec.
+Companion to `docs/gui-redesign-plan.md`. Six parts: (1) a catalog of every existing screen/layout grouped by function (with the full layout tree and navigation graph in 1B), (2) how well each is covered by the current 139-spec Playwright suite, (3) the e2e test plan the redesign must ship with, (4) the stage-based functional plan organized by user count, (5) the exhaustive per-control option matrix that pins every user-facing option to a covering spec, and (6) the platform × screen-size × cross-platform matrix.
 
 Coverage was measured by counting `tests/e2e/**/*.spec.ts` files that reference each screen's identifying selector/testid. Counts are "how many spec files touch this surface," not assertion depth. Legend: **Strong** ≥8 · **Good** 4–7 · **Thin** 1–3 · **None** 0.
 
@@ -91,14 +91,16 @@ Main App  ── persistent bottom nav: 5 tabs ───────────
 │       ├─ Create Room            (page)
 │       ├─ Rename Room            (page)
 │       └─ Room detail            (members + headcount + metadata)  e.g. "Global"
-│           └─ User layout ⟨SHARED⟩         (tap a member)
-│               └─ Conversation ⟨SHARED⟩    (open chat)
+│           └─ (tap a member → Conversation ⟨SHARED⟩ opens DIRECTLY; back lands on User layout)
+│               User layout ⟨SHARED⟩  (matched-talk thread list, email-style)
+│               ├─ Conversation ⟨SHARED⟩      (default DM thread)
+│               └─ Talk thread ⟨SHARED⟩ ×N    (one reply-able thread per matched talk)
 │
 ├─ 2. CONTACTS
 │   └─ Contacts list  (filter by name/relation, sort)
 │       ├─ Relationship editor    (set relation / nickname)
-│       └─ User layout ⟨SHARED⟩             (tap a contact)
-│           └─ Conversation ⟨SHARED⟩        (open chat)
+│       └─ (tap a contact → Conversation ⟨SHARED⟩ opens DIRECTLY; back lands on User layout)
+│           User layout ⟨SHARED⟩  (same screen + threads as via Chatrooms)
 │
 ├─ 3. TALKS
 │   └─ Talks list  (All / IN / OUT · sort · filter bar)
@@ -145,7 +147,7 @@ Counting **distinct page/layout types** (shared nodes counted once):
 | Tab roots | Chatrooms list, Contacts list, Talks list, Me (Q&A) list, Settings root | 5 |
 | Chatrooms | Room detail, Create Room, Rename Room | 3 |
 | Contacts | Relationship editor | 1 |
-| Shared people/messaging | User layout, Conversation | 2 |
+| Shared people/messaging | User layout, Conversation, Talk thread (per matched talk) | 3 |
 | Talks | Creator replies triage, Talk detail/responses, Talk Response | 3 |
 | Shared editor | Talk Editor (Talks + Me) | 1 |
 | Me | Q&A detail | 1 |
@@ -153,24 +155,25 @@ Counting **distinct page/layout types** (shared nodes counted once):
 | Settings · itemized | languages, incoming-language, distance, grammar, dirty-word, cutoff, location, travel, age-verify, feature toggles | 10 |
 | Settings · read-only | Credit / Reputation | 1 |
 | Settings · dev | Development settings | 1 |
-| **Primary pages subtotal** | | **32** |
+| **Primary pages subtotal** | | **33** |
 | Auxiliary overlays | notifications, send-talks picker, My Talks dialog, location-suggestion banner, system-announcement banner | 5 |
 | App shell | bottom-nav frame | 1 |
-| **Grand total** | | **≈ 38** |
+| **Grand total** | | **≈ 39** |
 
-So: **32 distinct primary pages**, plus the shell and ~5 floating overlays ≈ **38 navigable layouts**. (Instance counts are unbounded — one Room/User/Conversation/Talk page type renders per room, per user, per thread, per talk.)
+So: **33 distinct primary pages**, plus the shell and ~5 floating overlays ≈ **39 navigable layouts**. (Instance counts are unbounded — one Room/User/Conversation/Thread/Talk page type renders per room, per user, per thread, per matched talk.)
 
 ### Navigation graph — pages travel to and from one another
 
 The tree is a hierarchy, but several nodes are **shared destinations reachable from multiple parents**, and each stacks a back-path to wherever it was entered from:
 
-- **User layout ⟨SHARED⟩** is one component reachable from **(a) a Chatroom room's member list** and **(b) the Contacts list**. Both entry points must render the identical screen (redesign §5). Back returns to whichever parent opened it.
-- **Conversation ⟨SHARED⟩** is reachable from the **User layout via either path above** (chatroom-member → user → chat, or contact → user → chat). The same underlying thread must resolve to the same Conversation regardless of entry point. (Conversations are reached *through people*; the Me tab no longer hosts a standalone conversation list — that relocates under the user layout.)
+- **Conversation-first entry (redesign §5, rule N2a).** Clicking a user from **(a) a Chatroom room's member list** or **(b) the Contacts list** opens the **default DM Conversation directly**; the User layout is pushed underneath it, so back goes Conversation → User layout → opener. The same underlying thread must resolve to the same Conversation regardless of entry point.
+- **User layout ⟨SHARED⟩** is one component, identical from both entry points (redesign §5). Its body is the **matched-talk thread list** (email-style: talk title as subject, latest reply snippet, timestamp, unread badge) plus the relationship/stats header and the DM entry.
+- **Talk thread ⟨SHARED⟩ ×N** — each matched talk expands from the User layout into its own reply-able Conversation page scoped to that talk; back returns to the User layout. Threads use the same Conversation component as the DM, keyed by `conversationId + talkId`. (Conversations are reached *through people*; the Me tab no longer hosts a standalone conversation list — that relocates under the user layout.)
 - **Talk Editor ⟨SHARED⟩** is reachable from **Talks** (create/edit a talk) and from **Me** (create/edit a Q&A, which is a talk) — same editor, **context differs**: Talks opens it in talk-authoring context, Me opens it seeded from the answer/Q&A context.
 - **Talk Response** is reached from an **incoming-talk entry point** (Talks ▸ IN, or a talk-received notification).
 - **Settings itemized pages** each open from the Settings root and close back to it; **Grammar filter** and **Dirty-word filter** are their own pages with an explicit **open/close (enable/disable)** control plus their configuration, not inline toggles.
 
-**Traversal contract (used by the e2e plan below):** every stage must visit every tree page reachable given the users present, and must exercise the shared-destination edges — reach a User layout from *both* Chatrooms and Contacts, reach a Conversation from *both* those paths, and open the Talk Editor from *both* Talks and Me.
+**Traversal contract (used by the e2e plan below):** every stage must visit every tree page reachable given the users present, and must exercise the shared-destination edges — click a user from *both* Chatrooms and Contacts and land directly on the same Conversation, back out to the same User layout from both, open at least one per-talk Thread from the User layout and reply in it, and open the Talk Editor from *both* Talks and Me.
 
 ---
 
@@ -229,11 +232,17 @@ Add focused specs so shell refactors don't silently break single-spec screens:
 ### T7 — Cross-cutting responsive sweep
 - **New** `stage1/59-responsive-tab-sweep.spec.ts` (P1): extend the existing `00x-tab-sweep-smoke` idea across the width matrix — visit every tab at wide + narrow, assert no horizontal overflow/clipping and that each tab's primary action is reachable (inline or via `⋯`). Add the Chinese-locale variant to mirror `00y`/`00z` so icon+overflow works with longer localized menu labels.
 
+### T8 — Conversation-first entry + matched-talk threads (redesign §5, rule N2a)
+- **New** `stage2/68-conversation-first-entry.spec.ts` (P0): clicking a user from a room member row and from a Contacts row both land **directly on the Conversation page**; back from the Conversation lands on the User layout; back again returns to the correct opener (room detail vs. Contacts list); both entry paths resolve to the same thread.
+- **New** `stage2/69-matched-talk-threads.spec.ts` (P0): after ≥2 matched talks, the User layout shows one email-style row per matched talk (title, latest-reply snippet, timestamp, unread badge); opening a row shows only that talk's history; sending a reply delivers to the peer's same thread (and only that thread); back returns to the User layout; DM messages never leak into talk threads and vice versa.
+- **New** `stage3/71-thread-isolation-multi.spec.ts` (P1): with 3 users, A↔B threads are invisible to C (pair-private isolation extended to per-talk threads); unread badges count per-thread.
+- **Update** `stage2/62-peer-messaging-merged.spec.ts` (P0): the merged messaging area is now the thread list + DM entry; re-point assertions.
+
 ### Execution & gates
 - Path shorthand: `stageN/…` in this doc means `tests/e2e/staged/stageN-<suffix>/…` (`stage0-bootstrap`, `stage1-single-user`, `stage2-two-user`, `stage3-three-user`, `stage4-four-user`, `stage5-multi-user`).
 - Run per-stage during development; full gate before merge: `npm run health` (type-check + lint + unit + integration + both builds) then the affected E2E subsets, then `npm run test:e2e:parallel` for the full suite.
 - Keep every migrated control's existing `data-testid` to minimize churn; where a control moves into the `⋯` menu, the menu item must reuse the same testid.
-- Priority order to land: **T1 → T2 → T4 → T5 → T3 → T6 → T7** (shared component and its brand-new overflow behavior first, then notifications, then the peer/contact unification, then the tail).
+- Priority order to land: **T1 → T2 → T4 → T5 → T8 → T3 → T6 → T7** (shared component and its brand-new overflow behavior first, then notifications, then the peer/contact unification and the conversation-first/thread model, then the tail).
 
 ### New-coverage scorecard (target)
 | Redesign area | Coverage today | After plan |
@@ -244,6 +253,8 @@ Add focused specs so shell refactors don't silently break single-spec screens:
 | Peer↔contact layout parity | none | T5 |
 | Chatroom icon actions | text-button only | T3 |
 | Thin-tail dialogs | 1 spec each | T6 |
+| Conversation-first entry + talk threads | **none** (new behavior) | T8 |
+| Platform / cross-platform coverage | native-app only (3 specs) | Part 6 |
 
 ---
 
@@ -269,7 +280,7 @@ TechSupport must click through **every** reachable item and establish the empty-
 - **Adam answers all of TechSupport's talks.** For each **same-type triple**, Adam gives **three different answers** (e.g. match / mismatch / ignore, or three distinct branch paths), across all four types.
 - **Verify on Adam's side:** each talk's outcome is recorded (match vs mismatch/ignore); a conversation is created on match and **not** on mismatch/ignore.
 - **Verify on TechSupport's side:** the Creator "Replies To My Talks" triage shows Adam's reply per talk with the correct outcome; matched talks create the conversation.
-- **Messaging + shared destinations:** Adam opens TechSupport's **User layout from the room**, opens the **Conversation**, sends a message; TechSupport gets the new-message toast + badge **without** opening it, then opens and replies; both sides show ordered history. Then reach the **same conversation from Contacts** (TechSupport is now a contact) and assert it is the same thread (shared-edge check).
+- **Messaging + shared destinations (conversation-first):** Adam clicks TechSupport **in the room** and lands **directly on the Conversation**; sends a message; TechSupport gets the new-message toast + badge **without** opening it, then opens and replies; both sides show ordered history. Adam presses back → **User layout** (thread list visible), opens a **matched-talk Thread**, replies in it, back → User layout, back → room detail. Then click TechSupport **from Contacts** (now a contact) and assert it lands on the **same Conversation/thread** (shared-edge + N2a back-chain check).
 
 ### Stage 2 — 2 real peers (Adam + Eve) [+ TechSupport]: peer↔peer core
 
@@ -372,6 +383,9 @@ Parts 3–4 say *which screens* get specs; this part pins **every user-facing co
 | `peer-auto-mode-checkbox` | on ↔ off (R2, persisted) | new talks auto-sent only when on | `stage2/67` | 2 |
 | `peer-send-talks-btn` → picker | all checked (default); deselect subset; deselect all (confirm disabled); omitted reasons rendered; confirm / cancel / `✕` / scrim | only selected talks delivered; omitted never sent | T6 `stage2/63` (extend) | 2 |
 | `peer-dm-input` + `peer-dm-send-btn` | send; empty input (no-op) | message in ⟨Conv⟩ both sides | existing `stage2/09` + T5 `stage2/62` | 2 |
+| User click (member row / contact row) | from room; from Contacts | lands directly on ⟨Conv⟩; back → ⟨User⟩ → opener (N2a) | T8 `stage2/68` | 2 |
+| Matched-talk thread rows | 0 matches (empty state); ≥2 threads; open each; unread badge | email-style row fields; per-thread history isolation | T8 `stage2/69` | 2 |
+| Thread reply composer | send; empty no-op; reply visible to peer in same thread only | no DM↔thread leakage | T8 `stage2/69` · `stage3/71` | 2, 3 |
 | `peer-block-user-btn` | block → confirm; unblock; persists (R2) | delivery stops; hidden; blocklist survives restart | existing `stage2/15b`, `21a` | 2 |
 
 ### 5.3 Talks list, triage, editor, response
@@ -460,4 +474,60 @@ Parts 3–4 say *which screens* get specs; this part pins **every user-facing co
 
 ### 5.7 New specs introduced by this matrix
 
-`stage1/60-chatroom-hierarchy-walk`, `stage1/64-talks-filter-sort-options`, `stage1/65-me-filter-options`, `stage1/66-settings-option-matrix`, `stage1/67-talk-editor-option-matrix`, `stage1/68-system-announcement`, `stage2/64-contacts-filter-sort-options`, `stage2/65-reply-triage-option-matrix`, `stage2/66-talk-response-option-paths`, `stage2/67-peer-history-controls`, `stage3/70-reply-triage-grouping-multi` — each with its companion `.md`, using the option-sweep pattern: build the fixture once per spec, then iterate the enumeration with per-value assertions (R1), ending with the clear/reset check (R3) and one 320px-width pass (R5).
+`stage1/60-chatroom-hierarchy-walk`, `stage1/64-talks-filter-sort-options`, `stage1/65-me-filter-options`, `stage1/66-settings-option-matrix`, `stage1/67-talk-editor-option-matrix`, `stage1/68-system-announcement`, `stage2/64-contacts-filter-sort-options`, `stage2/65-reply-triage-option-matrix`, `stage2/66-talk-response-option-paths`, `stage2/67-peer-history-controls`, `stage2/68-conversation-first-entry`, `stage2/69-matched-talk-threads`, `stage3/70-reply-triage-grouping-multi`, `stage3/71-thread-isolation-multi` — each with its companion `.md`, using the option-sweep pattern: build the fixture once per spec, then iterate the enumeration with per-value assertions (R1), ending with the clear/reset check (R3) and one 320px-width pass (R5).
+
+---
+
+## Part 6 — Platform × screen-size × cross-platform matrix
+
+Parts 3–5 define **what** to test; this part defines **where**. Three added dimensions: platform, screen size, and mixed-platform topology. The user-count stages (Part 4) stay the primary axis; platform and size multiply it.
+
+### 6.1 Platform targets
+
+| # | Platform | Runtime | Harness | Role |
+|---|---|---|---|---|
+| P1 | **Website** — browser SPA | Chromium (primary), WebKit, Firefox | existing Playwright suite (`tests/e2e/staged`, `talks-matching`, …) | **Broad layer**: full functional + redesign suite runs here |
+| P2 | **Webapp macOS** — Electron shell (`platforms/desktop`) with embedded node, on the Mac mini | `npm run desktop:dist` / `test:e2e:native-app` | `tests/e2e/native-app` (Electron launch, per-test `IINPUBLIC_USER_DATA_DIR`) | packaging, embedded-node startup, profile isolation + per-stage smoke |
+| P3 | **Webapp Windows** — Electron (`desktop:dist:win`) | same shell, Windows CI runner | native-app config on Windows | same narrow scope as P2 |
+| P4 | **Webapp Linux** — Electron | same shell, Linux CI runner | native-app config on Linux | same narrow scope as P2 |
+| P5 | **iPhone** — mobile Safari (and the `platforms/ios` shell when it ships) | Playwright WebKit + iPhone device profile; real device manual pass per release | staged suite with device profile | mobile layout + touch |
+| P6 | **Android** — mobile Chrome (and the `platforms/mobile` shell when it ships) | Playwright Chromium + Pixel device profile; real device manual pass per release | staged suite with device profile | mobile layout + touch |
+
+Policy: the **full** suite (Parts 3–5, all stages) runs on P1/Chromium only. Every other platform runs the **platform smoke set**: tab sweep (`00x`), redesign overlay (T1/T2 AppBar + `⋯`), conversation-first + one thread reply (T8 core), one talk create→broadcast→answer→match round-trip, settings persistence across app restart. P2 additionally keeps its packaging/embedded-node specs.
+
+### 6.2 Screen-size matrix
+
+Reference device sizes (≥3 required; these 5 are the targets — the widths align with the redesign §8 breakpoints 320/390/768/1024):
+
+| Size | Viewport | Represents | What must hold |
+|---|---|---|---|
+| SZ1 | **1920×1080** | desktop monitor (Mac mini / Windows / Linux) | all AppBar icons inline, no `⋯`; L/XL dialogs centered cards |
+| SZ2 | **1366×768** | common laptop | same as SZ1; XL dialog still fits at 90vh |
+| SZ3 | **768×1024** | tablet portrait / narrow window | L/XL dialogs clamp; filters still inline (boundary width) |
+| SZ4 | **390×844** | iPhone 14 class | bottom sheets + full-screen takeovers; filters collapse to "Filters ▾"; overflow `⋯` active |
+| SZ5 | **360×800** | mainstream Android | same as SZ4 with 30px less width (near the 320 floor) |
+
+Execution: T2/T7 (overflow + responsive sweep) run at **all five** sizes on P1. Every other platform runs its smoke set at its native default (P2–P4: SZ1; P5: SZ4; P6: SZ5) plus one narrow pass (P2–P4 at SZ3 window size). The 320px floor from Part 5 R5 stays as the hard minimum asserted in option-sweep specs.
+
+### 6.3 Cross-platform scenarios (X-specs, `tests/e2e/native-app/` + new `tests/e2e/cross-platform/`)
+
+Mixed topologies — different platforms **online simultaneously** against the same hub, extending the existing `native-app/02-browser-and-desktop-app-presence`:
+
+- **X1 — Website + webapp presence (P0):** one user on P1, one on P2, same room; both see headcount 2 and each other's member rows; extends `native-app/02`. |
+- **X2 — Cross-platform talk lifecycle (P0):** broadcast website→webapp and webapp→website; answer on the receiving side; match; conversation-first click and DM reply cross the boundary; per-talk **thread reply round-trips** website↔webapp.
+- **X3 — Same identity on two platforms (P1):** the same user's SEA keypair active on website and webapp simultaneously (key custody per `stage1/00-p2p-sea-key-custody`); messages and read-state converge on both; define+assert the intended behavior (mirror vs. reject second session — decision needed, see open questions).
+- **X4 — Mobile ↔ desktop (P1):** P5/P6 device profile user matches and threads with a P2 desktop-app user; narrow-width overlay (T2) asserted live on the mobile side during the exchange.
+- **X5 — Three-platform network (P1):** stage-3 functions (multi-responder talks, intake filters, pair-private thread isolation) with one user each on P1, P2, and P5/P6 profile.
+- **X6 — Offline/mailbox across platforms (P2):** webapp goes offline (app quit), website user sends DM + thread reply + new talk; webapp relaunch receives all via mailbox; then the reverse direction.
+
+Gate: X1–X2 join the merge gate alongside `npm run test:e2e:parallel`; X3–X6 run nightly on the platform runners.
+
+### 6.4 Stage × platform coverage
+
+| | P1 website | P2 macOS app | P3 Win app | P4 Linux app | P5 iPhone | P6 Android |
+|---|:--:|:--:|:--:|:--:|:--:|:--:|
+| Stages 0–5 full (Parts 3–5) | ✓ | | | | | |
+| Platform smoke set | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Packaging / embedded node | | ✓ | ✓ | ✓ | | |
+| Screen-size sweep (5 sizes) | ✓ | SZ1+SZ3 | SZ1+SZ3 | SZ1+SZ3 | SZ4 | SZ5 |
+| X-specs | X1–X6 (as the browser side) | X1–X6 | X2 nightly | X2 nightly | X4, X5 | X4, X5 |

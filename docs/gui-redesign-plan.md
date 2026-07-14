@@ -70,6 +70,8 @@ The peer overlay (`#peer-detail-overlay` + `user-detail-view.ts`) is the messy s
 - **All actions move to the top bar as icons**: `Block User` (e.g. 🚫), `Send My Talks` (📤), plus the back icon on the left. Low-frequency / destructive actions (Block) can live under `⋯`.
 - **Merge messaging into one place.** Today the "Conversations / Open Chat" list (`#peer-conversations-section`) and the "Send Message" composer (`#peer-dm-*`) are separated by the talk-history block. Combine them into a single messaging area: the conversation(s) with this peer and the message composer together, so "see the chat" and "send a message" are one unit.
 - **Adopt the Contact detail layout.** The peer overlay and the Contact detail view (`#contact-detail-container`) should render from **one shared layout/component**: same header (avatar/name/subtitle), same body order (relationship/stats → messaging → talk history). Clicking a user from a chatroom member list and clicking a user from the Contacts tab should land on the **identical screen**.
+- **Conversation-first entry.** Clicking a user anywhere (chatroom member row, contact row) opens the **direct Conversation page immediately** — not the User layout. The click pushes two levels in one action (User layout, then the default DM Conversation on top — rule N2a in §7), so the AppBar back icon from the Conversation lands on the **User layout**, and a second back returns to wherever the user was clicked (room detail or Contacts list).
+- **Matched-talk threads (email model).** The User layout's talk history becomes a **thread list**: one row per matched talk between the two people, rendered like an email inbox — subject = talk title, snippet = latest reply, timestamp, unread badge. Each row expands into its **own per-talk Thread page** (a Conversation page scoped to that talk): full reply history for that talk plus a composer, so every matched talk **can be replied to** in its own thread. Back from a Thread returns to the User layout. The talk-independent DM thread (the page a user-click opens directly) and per-talk Threads share the same Conversation component, differing only in scope (`conversationId` vs. `conversationId + talkId`).
 
 ### 6. Shared component & consistency pass
 
@@ -88,6 +90,7 @@ App state = **(activeTab, per-tab sub-view stack, modal stack)**.
 
 - **N1 — Tabs.** The bottom nav switches `activeTab`. Switching tabs closes any open modal, pops the leaving tab's sub-view stack to its root, and shows the target tab's root list. Tapping the already-active tab scrolls its root list to top. The bottom nav stays visible on every page; modals overlay it.
 - **N2 — Push/pop.** Entering a sub-view (room detail, User layout, Conversation, Q&A detail, Settings item page) pushes one level. The AppBar back icon (left zone) pops exactly one level — always to the parent that opened the view, never to a fixed tab root (this matters for the shared destinations, §5).
+- **N2a — Conversation-first user click.** Clicking a user pushes **two levels in one action**: the User layout, then the default DM Conversation on top of it. Back then pops normally: Conversation → User layout → opener (room detail or Contacts list). Per-talk Threads opened from the User layout push a single level as usual.
 - **N3 — Modals.** Modals stack above pages and never change the page stack. Three uniform close paths: Cancel/`✕` button, scrim (click on `.modal-overlay` outside `.modal-content`), and `Esc` (to be added uniformly in `app-bar.ts`-era work — today only some dialogs honor scrim). Submit resolves the dialog's promise and closes it. Closing a modal restores focus to its trigger.
 - **N4 — Chained modals** replace, not stack: Camera capture → Photo preview is one chain; cancel at any link returns to the page (Settings), not to the previous link, and discards the capture.
 - **N5 — Guards.** A transition with a guard listed below must be disabled/hidden when the guard fails (not fail after click). Existing logic carries over: `#return-home-btn` disabled at home, `syncStatusBroadcastButtonVisibility` for broadcast.
@@ -95,7 +98,7 @@ App state = **(activeTab, per-tab sub-view stack, modal stack)**.
 
 ### 7.2 Transition tables
 
-Legend: **From → To** with trigger (selector) and back target. `⟨User⟩` = shared User layout, `⟨Conv⟩` = shared Conversation, `⟨Editor⟩` = shared Talk Editor.
+Legend: **From → To** with trigger (selector) and back target. `⟨User⟩` = shared User layout, `⟨Conv⟩` = shared default DM Conversation, `⟨Thread⟩` = per-matched-talk Conversation page (same component as ⟨Conv⟩, scoped to one talk), `⟨Editor⟩` = shared Talk Editor.
 
 **Chatrooms tab**
 
@@ -103,8 +106,9 @@ Legend: **From → To** with trigger (selector) and back target. `⟨User⟩` = 
 |---|---|---|---|---|
 | C1 | Chatroom list | click room row in `#chatroom-list` (leaf or custom room) | Room detail (`#chatroom-detail-container`) | Chatroom list |
 | C2 | Chatroom list | click hierarchy node caret | same page (expand/collapse only, no push) | — |
-| C3 | Room detail | click member row in `#chatroom-members-list` | ⟨User⟩ | Room detail |
-| C4 | ⟨User⟩ | open chat in merged messaging area | ⟨Conv⟩ | ⟨User⟩ |
+| C3 | Room detail | click member row in `#chatroom-members-list` | **⟨Conv⟩ directly** (pushes ⟨User⟩ + ⟨Conv⟩, rule N2a) | ⟨User⟩, then Room detail |
+| C4 | ⟨User⟩ | click a matched-talk row in the thread list | ⟨Thread⟩ for that talk (reply composer included) | ⟨User⟩ |
+| C4b | ⟨User⟩ | open DM in merged messaging area | ⟨Conv⟩ | ⟨User⟩ |
 | C5 | Chatroom list | `create-custom-chatroom-btn` (icon/⋯) | **Create Room dialog** | on cancel: list · on create: Room detail of new room (`showChatroomDetail(createdId)`) |
 | C6 | Room detail (owner) | `chatroom-rename-btn` | **Rename Room dialog** | Room detail |
 | C7 | Room detail (owner) | `chatroom-delete-btn` | confirm → Chatroom list | — |
@@ -116,9 +120,10 @@ Legend: **From → To** with trigger (selector) and back target. `⟨User⟩` = 
 
 | # | From | Trigger | To | Back returns to |
 |---|---|---|---|---|
-| K1 | Contacts list | click contact row | ⟨User⟩ (identical to C3's screen — §5) | Contacts list |
+| K1 | Contacts list | click contact row | **⟨Conv⟩ directly** (pushes ⟨User⟩ + ⟨Conv⟩, rule N2a — identical screens to C3's) | ⟨User⟩, then Contacts list |
 | K2 | Contacts list | relationship chip / edit control on a row | **Relationship editor dialog** (`#contact-relationship-modal`) | Contacts list |
-| K3 | ⟨User⟩ | open chat | ⟨Conv⟩ — same thread object as C4 for the same peer | ⟨User⟩ |
+| K3 | ⟨User⟩ | click a matched-talk row | ⟨Thread⟩ — same thread object as C4 for the same peer + talk | ⟨User⟩ |
+| K4 | ⟨User⟩ | open DM | ⟨Conv⟩ — same thread object as C3/K1 for the same peer | ⟨User⟩ |
 
 **Talks tab**
 
@@ -170,9 +175,11 @@ graph LR
     CH[Chatrooms list]; CO[Contacts list]; TA[Talks list]; ME[Me Q&A list]; SE[Settings root]
   end
   CH -->|room row| RD[Room detail]
-  RD -->|member| U[User layout SHARED]
-  CO -->|contact row| U
-  U -->|open chat| CV[Conversation SHARED]
+  RD -->|member click N2a| CV[Conversation SHARED]
+  CO -->|contact click N2a| CV
+  CV -->|back| U[User layout SHARED]
+  U -->|matched-talk row| TH[Talk thread ×N]
+  U -->|open DM| CV
   TA -->|talk row| TD[Talk detail]
   TA -->|IN item| TR{{Talk Response}}
   TA -->|create/edit| ED{{Talk Editor SHARED}}
@@ -188,7 +195,7 @@ graph LR
   CO --> RE{{Relationship editor}}
 ```
 
-Braces `{{ }}` are modals (no page-stack change); rectangles are pages (push/pop). The two shared nodes `U`/`CV` and the shared editor `ED` implement the traversal contract in the companion doc.
+Braces `{{ }}` are modals (no page-stack change); rectangles are pages (push/pop). A user click lands on `CV` directly (rule N2a); `U` sits underneath it on the stack and hosts the per-talk `TH` threads. The shared nodes `U`/`CV`/`TH` and the shared editor `ED` implement the traversal contract in the companion doc.
 
 ## 8. Popup window (modal/dialog) specification — all screen sizes
 

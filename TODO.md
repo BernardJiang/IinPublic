@@ -80,3 +80,85 @@ Source: `docs/e2e-test-analysis.md` § Coverage Gaps. Goal: a test for **every u
 
 - Post-reload DM history resync: a fresh `subscribeToMessages` right after page reload rendered zero messages for >10s in the sandbox (store probe confirmed it's not a harness artifact). Needs isolation on a fast host; read-cursor persistence across reload is covered by spec 30.
 - 15a/15b blocking regression specs + 09-messaging exceed the sandbox's 45s run window; re-run on host after the blockUser/gun-message-store changes.
+
+---
+
+# TODO — GUI Redesign + Conversation-First/Threads + Platform Matrix
+
+Source: `docs/gui-redesign-plan.md` (§1–§8) and `docs/gui-layout-catalog-and-e2e-plan.md` (Parts 3–6). Execution rules at the top of this file apply (companion `.md` per spec, hard-signal assertions, fix product bugs — never weaken assertions). Land order: **A → B → C → D → E → F → G** (matches the T1→T2→T4→T5→T8→T3→T6→T7 priority in Part 3).
+
+## A. Shared AppBar + responsive overflow (redesign §1–§3, §6)
+
+- [ ] Build `src/web/ui/app-bar.ts`: `renderAppBar({title, statusText, backAction?, actions[]})` — layout, emoji icons, narrow-width measurement, `⋯` overflow menu; unit tests for the collapse logic.
+- [ ] Migrate Chatrooms (list + room detail) to the AppBar; convert New Room/Return Home/Broadcast to icons (🆕/🏠/📣) keeping `data-testid`s; carry over `return-home` enable and `syncStatusBroadcastButtonVisibility` logic.
+- [ ] Migrate Contacts, Talks, Me, Settings to the AppBar; collapse filter bars into "Filters ▾" below 768px (redesign §8 resolved decision); remove `.tab-action-bar` styles.
+- [ ] `[sonnet]` **New** `stage1/50-appbar-layout.spec.ts` — one bar everywhere, old double-row gone, back icon in sub-views (T1).
+- [ ] `[sonnet]` **New** `stage1/51-appbar-actions.spec.ts` — every icon fires old handler, testids preserved, back pops correctly (T1).
+- [ ] `[sonnet]` **New** `stage1/52-appbar-overflow-responsive.spec.ts` — width matrix 320/390/768/1024; priority order ➕ → 📣 → 🏠 → 🆕; menu items invocable (T2).
+- [ ] `[haiku]` **New** `stage1/53-chatroom-back-icon.spec.ts` — back icon swap in room detail; return-home state per context (T3).
+- [ ] Update `stage1/00-ui-navigation-settings.spec.ts` + `stage5/13-chatroom-scroll-and-broadcast-bar.spec.ts` to icon buttons (T3).
+
+## B. Notification auto-dismiss (redesign §4)
+
+- [ ] `showNotification()`: timeout for every toast; Match! = 8s (resolved), others 3s; keep `data-match-notification`; Match! click navigates to its conversation (rule N6).
+- [ ] `[haiku]` **New** `stage1/54-notification-autodismiss.spec.ts` — all types dismiss on time; match click-to-dismiss + navigate (T4).
+- [ ] Update `stage1/00-ui-navigation-settings` + `stage2/30-messaging-read-state` for no-persistent-banner (T4).
+
+## C. Conversation-first entry + matched-talk threads (redesign §5, §7 N2a — user decision 2026-07-13)
+
+- [ ] Implement two-level push: user click (member row / contact row) → open default DM Conversation directly with User layout underneath; back = Conv → User layout → opener.
+- [ ] Build the matched-talk **thread list** in the shared User layout: one email-style row per matched talk (title, latest-reply snippet, timestamp, unread badge).
+- [ ] Build per-talk **Thread page**: Conversation component scoped by `conversationId + talkId`, with reply composer; Gun path design for per-talk messages (extend `conversations/<id>` — keep P2P transport rules, spec §19.4).
+- [ ] Per-thread unread badges + read cursors; no DM↔thread leakage.
+- [ ] `[sonnet]` **New** `stage2/68-conversation-first-entry.spec.ts` — direct-to-conversation from both entry points; N2a back chain; same thread both paths (T8).
+- [ ] `[sonnet]` **New** `stage2/69-matched-talk-threads.spec.ts` — thread rows per matched talk; open/reply/back; isolation from DM (T8).
+- [ ] `[opus]` **New** `stage3/71-thread-isolation-multi.spec.ts` — pair-private threads with 3 users; per-thread badges (T8).
+- [ ] Update `stage2/62-peer-messaging-merged.spec.ts` — messaging area = thread list + DM entry (T8).
+
+## D. Unified peer/contact detail (redesign §5)
+
+- [ ] Shared detail renderer for peer overlay + contact detail (one component, both entry points identical); actions to AppBar (📤 inline, 🚫 under ⋯); retire `#contact-detail-container` as a separate page (its talk list becomes the thread list from C).
+- [ ] `[sonnet]` **New** `stage2/60-peer-contact-layout-parity.spec.ts` (T5).
+- [ ] `[sonnet]` **New** `stage2/61-peer-actions-in-appbar.spec.ts` — block/send-talks from bar; testids kept; cross-check 15b (T5).
+- [ ] Update `stage2/00e-chatroom-peer-detail.spec.ts` selectors (T5).
+
+## E. Popup responsive behavior (redesign §8)
+
+- [ ] Implement size-class CSS: bottom sheets ≤480px (stacked full-width actions, 44px touch targets), full-screen takeover for L/XL dialogs at ≤390px (AppBar with ✕, scrim-close off), toast placement per width.
+- [ ] `[sonnet]` **New** `stage1/59-responsive-tab-sweep.spec.ts` — every tab at all widths, no clipping, primary action reachable; zh variant (T7).
+- [ ] Extend `stage1/25` + `stage1/33` mobile specs for `⋯` reachability (T2).
+
+## F. Option-matrix specs (catalog Part 5 — every control, every value)
+
+- [ ] `[haiku]` `stage1/60-chatroom-hierarchy-walk` — expand/collapse every node; headcounts; per-level room entry.
+- [ ] `[haiku]` `stage1/64-talks-filter-sort-options` — all 8 sorts × 5 types × 3 completion × 3 outcome × dates × query (R1–R3); stage-2 semantic pass for reply-dependent values.
+- [ ] `[haiku]` `stage1/65-me-filter-options` — 4 type toggles, 3 tag states, outcome, 4 sorts, dates, clear.
+- [ ] `[sonnet]` `stage1/66-settings-option-matrix` — every Settings control incl. guards (stage name <3, min>max distance, zero-language/zero-type fallbacks) + persistence (R2, R4).
+- [ ] `[sonnet]` `stage1/67-talk-editor-option-matrix` — 4 types × 5 expirations × 4 radii × adult × send-to-chatroom × validation/autofix.
+- [ ] `[haiku]` `stage1/68-system-announcement` — closes the last "None" coverage gap.
+- [ ] `[haiku]` `stage2/64-contacts-filter-sort-options` — 7 relations × 7 sorts × name query.
+- [ ] `[sonnet]` `stage2/65-reply-triage-option-matrix` — 5 outcomes × 8 relations × 5 types × languages × 9 sorts × 5 groupings × chips/clear.
+- [ ] `[sonnet]` `stage2/66-talk-response-option-paths` — tag both states; 3 branch paths for flow/route; survey; review screen paths; superseded banner.
+- [ ] `[haiku]` `stage2/67-peer-history-controls` — sort date/outcome, filter all/sent/received, auto-mode persistence.
+- [ ] `[sonnet]` `stage3/70-reply-triage-grouping-multi` — grouping semantics across 3 responders.
+- [ ] T6 tail: `stage1/55-create-and-rename-room` (full option grid + delete + broadcast guard), `stage1/56-my-talks-dialog` (+ broadcast toggle), `stage1/57-preferences-dialog`, `stage1/58-answer-history`, `stage2/63-send-talks-picker`.
+
+## G. Platform × screen-size × cross-platform (catalog Part 6)
+
+- [ ] Define the **platform smoke set** as a tagged Playwright project (tab sweep, T1/T2 overlay, T8 core, one match round-trip, settings persistence across restart).
+- [ ] CI runners: Mac mini (P2 Electron), Windows (P3, `desktop:dist:win`), Linux (P4); wire `test:e2e:native-app` per OS.
+- [ ] Playwright device-profile projects for iPhone (WebKit, 390×844) and Android (Chromium, 360×800); document the per-release real-device manual pass.
+- [ ] Screen-size sweep: run T2/T7 at 1920×1080, 1366×768, 768×1024, 390×844, 360×800 on P1; SZ1+SZ3 window sizes on desktop apps.
+- [ ] **New** `tests/e2e/cross-platform/` harness (browser + Electron in one fixture, shared hub) extending `native-app/02`.
+- [ ] `[opus]` **X1** website + webapp simultaneous presence/headcount (P0, merge gate).
+- [ ] `[opus]` **X2** cross-platform talk lifecycle both directions + cross-platform thread replies (P0, merge gate).
+- [ ] `[opus]` **X3** same SEA identity on website + webapp concurrently — define intended behavior first (open question), then assert (nightly).
+- [ ] `[opus]` **X4** mobile-profile ↔ desktop-app matching + threads; narrow overlay live (nightly).
+- [ ] `[opus]` **X5** three-platform stage-3 network incl. thread isolation (nightly).
+- [ ] `[opus]` **X6** offline/mailbox across platforms, both directions (nightly).
+
+## Open questions (blocking the marked items)
+
+- X3: mirror the same identity across devices, or reject a second concurrent session? (Key-custody decision.)
+- Part 4 stage labels count peers while `tests/e2e/staged/` dirs count users (off-by-one); standardize labels?
+- iPhone/Android native shells (`platforms/ios`, `platforms/mobile`): browser-profile testing is the stand-in until they ship — confirm.
