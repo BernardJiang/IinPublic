@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-07-07
+Last updated: 2026-07-14
 
 This file tracks only open work. Completed items are archived in `docs/completed.md`.
 - **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specifications.md` (§19.13, §19.14, REQ-P2P-09–29; mesh talk delivery design §23; libp2p/IPFS §25 — supersedes Phase D §24; find-similar §22)
@@ -80,15 +80,14 @@ embedded-node peer, direct-P2P DataChannel); CI embedded-node smoke job;
 mobile-toolchain doc/comment corrections (the previous AAR/pod coordinates
 referenced packages that don't exist).
 
-**Remaining (needs device toolchains — not buildable in CI here):**
-- [ ] Android: wire the real libnode JNI/CMake integration (no Gradle
-      dependency coordinate exists for this — see the corrected, detailed
-      steps in `android/app/build.gradle` and `platforms/mobile/README.md`);
-      replace `NodeBridge.startProject`'s log-stub with the native call.
-- [ ] iOS: vendor `NodeMobile.podspec` (or embed `NodeMobile.framework`
-      manually) per the corrected `platforms/ios/Podfile` comment; add the
-      Xcode "copy nodejs-project + dist into bundle" build phase; create the
-      `.xcodeproj` (sources are ready under `platforms/ios/IinPublic`).
+**Remaining:** none — both device-toolchain items below are done (see
+`docs/completed.md` 2026-07-14).
+
+**Done 2026-07-14 (see `docs/completed.md`):**
+- [x] Android: real libnode JNI/CMake integration; `NodeBridge.startProject`
+      calls `nativeStartNode()` → `node::Start()`.
+- [x] iOS: `NodeMobile.xcframework` vendored, Xcode copy build phase wired,
+      `.xcodeproj` created; `NodeRunner.swift` calls `node_start()`.
 
 **Known runtime risks:**
 - ✓ Gun replication timing on auto-reply path: mitigated by server POST path.

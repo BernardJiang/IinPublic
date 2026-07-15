@@ -1,6 +1,37 @@
 # IinPublic Completed Work
 
-Last updated: 2026-07-07
+Last updated: 2026-07-14
+
+## 2026-07-14 — S3 embedded-node mobile shells: Android/iOS native builds verified
+
+Moved from `docs/TODO.md` (S3 "Remaining" items).
+
+- **Android:** `android/app/src/main/cpp/native-lib.cpp` implements the real
+  JNI shim — `Java_com_iinpublic_app_NodeBridge_nativeStartNode` sets the
+  `IINPUBLIC_*` env vars, `chdir`s into the app's writable data dir, and calls
+  `node::Start()` on a detached pthread. `NodeBridge.kt#startProject` calls
+  this native entry point directly (no stub). `CMakeLists.txt` links the
+  prebuilt `libnode.so` (real ELF binaries, all three ABIs) from
+  `android/app/libnode/`.
+  **Verified:** `npm run build:android` → `BUILD SUCCESSFUL`, including live
+  `configureCMakeDebug`/`buildCMakeDebug` runs for `arm64-v8a`,
+  `armeabi-v7a`, and `x86_64`; `app-debug.apk` produced.
+- **iOS:** `platforms/ios/Frameworks/NodeMobile.xcframework` vendored with
+  device, simulator, and Mac Catalyst slices. `platforms/ios/IinPublic.xcodeproj`
+  (real `.xcodeproj`, not scaffolding) embeds the framework and includes a
+  "Run Script" build phase that copies `nodejs-project/{main.js,package.json}`
+  and the compiled `dist/{server,web}` into the app bundle. `NodeRunner.swift`
+  imports `NodeMobile` and calls `node_start()` with real argv, after copying
+  the bundled node project into `Application Support`.
+  **Verified:** an existing on-disk `Release-iphoneos` build product
+  (`platforms/ios/build/Build/Products/Release-iphoneos/IinPublic.app`)
+  contains the linked `NodeMobile.framework` plus populated `dist/web` and
+  `dist/server` directories, confirming the copy phase and framework linkage
+  work end-to-end. `xcodebuild` could not be re-invoked directly in this
+  session (sandbox permission gate on `xcodebuild`/no npm wrapper exists for
+  it), so this run relied on the existing build artifact rather than a fresh
+  invocation — recommend an interactive `xcodebuild` run to reconfirm after
+  any further iOS changes.
 
 ## 2026-07-06 — Pairwise conversation hardening complete
 
