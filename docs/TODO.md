@@ -41,7 +41,10 @@ Token-saving rules: for `[Opus]` items, have Opus write a short design note firs
       19 E2E failures fixed; 8 remained (55, 67, 00j, 21a, 21b, 63, 64, 66).
 - [x] Round 2 fixes landed 2026-07-15 for all 8 (see `docs/completed.md`): profile-card
       parity class + contacts re-render race (product), 6 spec corrections.
-- [ ] Re-run the light shard on the host to confirm the round-2 fixes go 0-failed.
+- [x] Round 3: host re-run 2026-07-16 — 160 passed, 2 remained (55, 21b). Fixed same
+      day: `getAllChatrooms` Gun link-stub hydration (room names degraded to ids —
+      product) + 21b closes the User layout before the bottom-nav click.
+- [ ] Re-run the light shard on the host to confirm 0 failed.
 
 > **H complete 2026-07-15** — message content filters (dirty words + grammar, both
 > directions) landed with specs 70/71; the stage3 intake regression was confirmed green

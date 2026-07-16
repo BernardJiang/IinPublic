@@ -102,8 +102,15 @@ export class ChatroomManager {
     const raw = await this.getPathWithRetry(['chatroomMeta'], 6, 150);
     if (!raw || typeof raw !== 'object') return [];
     const list: any[] = [];
-    for (const [id, meta] of Object.entries(raw as Record<string, any>)) {
+    for (const [id, rawMeta] of Object.entries(raw as Record<string, any>)) {
       if (!id || id.startsWith('_')) continue;
+      // A `.once` on the root node returns children as Gun link stubs ({'#': soul}),
+      // not hydrated objects — without a per-id read every room's name degrades to
+      // its id. Hydrate whenever the child looks like a stub or lacks a name.
+      let meta = rawMeta;
+      if (!meta || typeof meta !== 'object' || meta['#'] != null || meta.name == null) {
+        meta = await this.getPathWithRetry(['chatroomMeta', id], 2, 100);
+      }
       if (!meta || typeof meta !== 'object') continue;
       if (meta?.isActive === false) continue;
       list.push({

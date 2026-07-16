@@ -86,6 +86,9 @@ test.describe('Reputation system — peer star rating', () => {
     await pageTom.click('#contact-relationship-save-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toHaveCount(0, { timeout: 10000 });
     await afterSync();
+    // Close the User layout — it covers the bottom nav.
+    await pageTom.click('#back-from-peer-detail');
+    await afterSync();
 
     // Re-open and assert persisted relationship rating (durable, avoids delayed reputation fanout races).
     await pageTom.click('.nav-btn[data-view="contacts"]');

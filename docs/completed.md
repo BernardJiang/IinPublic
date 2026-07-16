@@ -2845,3 +2845,22 @@ Spec fixes:
 Verification (sandbox): `tsc` clean · eslint clean · jest 72/72 suites, 903 passed ·
 all six touched specs enumerate under `playwright test --list`. Host light-shard
 re-run pending.
+
+## 2026-07-16 (round 3) — last 2 E2E failures fixed
+
+Host `test:all` after round 2: 160 passed, 2 remained.
+
+- **55 (create + rename room)** — real server bug: `ChatroomManager.getAllChatrooms`
+  read the `chatroomMeta` root node once; Gun returns children of a root `.once` as
+  link stubs (`{'#': soul}`), so every room's `name` degraded to its id (`meta?.name
+  || id`). The room list, status bar, and rename flow all displayed CIDs instead of
+  names, and the renamed name never appeared. Fixed by hydrating each child with a
+  per-id read whenever the entry looks like a stub or lacks a `name`.
+- **21b (peer star rating)** — after saving the relationship rating the User layout
+  still covered the bottom nav; the spec now closes it (`#back-from-peer-detail`)
+  before re-opening Contacts (same pattern as the 00j round-2 fix; 21a is unaffected
+  because its follow-up steps are API polls, not nav clicks).
+
+Verification (sandbox): `tsc` clean · eslint clean · jest 72/72 suites (903 passed) ·
+both specs enumerate under `playwright test --list`. Host light-shard re-run pending
+to confirm 0 failed.
