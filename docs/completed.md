@@ -2864,3 +2864,34 @@ Host `test:all` after round 2: 160 passed, 2 remained.
 Verification (sandbox): `tsc` clean · eslint clean · jest 72/72 suites (903 passed) ·
 both specs enumerate under `playwright test --list`. Host light-shard re-run pending
 to confirm 0 failed.
+
+## 2026-07-16 (round 4) — spec 55 root cause: server room-metadata reads
+
+Host run: 161 passed, 1 failed (55 — rename never appeared; room names now rendered
+correctly after round 3's hydration fix, so the remaining failure was the rename
+itself).
+
+Reproduced outside Playwright with a plain HTTP sequence against a fresh
+`E2E_GUN_MEMORY_ONLY=1` server: `POST /api/chatrooms` → 201 in 5ms, then
+`PATCH /api/chatrooms/:id` → **400 after 18.8s**. `updateChatroom → getChatroom →
+getPathWithRetry(['chatroomMeta', id], 6, 150)` timed out on all six attempts —
+Gun `.once` reads of `chatroomMeta/<id>` can hang on the ephemeral in-memory hub
+even for data the same process just wrote — so the rename died with "chatroom not
+found" long after the spec's 10s assertion window.
+
+Fix (matches the existing server invariant that in-process state is authoritative
+and Gun paths are mirrors — incomingTalksMap, fastActiveMembers):
+- `ChatroomManager.roomMetaCache` — in-process Map, written on create/update,
+  cleared (with Gun tombstones) in `resetForTesting`.
+- `getChatroom` reads the cache first; Gun remains the restart fallback (cache is
+  hydrated on successful Gun reads).
+- `getAllChatrooms` merges the Gun mirror scan (with round 3's stub hydration,
+  now needed only for rooms not in the cache) and the cache, cache wins.
+- `getChatroom` visit-count reads parallelized (two sequential 3s Gun timeouts
+  → one).
+
+Repro after fix: create → rename → list round-trips in ~3s with the renamed name
+in both the PATCH response and the list.
+
+Verification (sandbox): `tsc` clean · eslint clean · jest 72/72 suites (903
+passed) · HTTP repro green. Host light-shard re-run pending to confirm 0 failed.

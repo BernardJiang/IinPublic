@@ -44,6 +44,13 @@ Token-saving rules: for `[Opus]` items, have Opus write a short design note firs
 - [x] Round 3: host re-run 2026-07-16 — 160 passed, 2 remained (55, 21b). Fixed same
       day: `getAllChatrooms` Gun link-stub hydration (room names degraded to ids —
       product) + 21b closes the User layout before the bottom-nav click.
+- [x] Round 4: host re-run 2026-07-16 — 161 passed, only 55 left. Root cause found by
+      HTTP repro in the sandbox: `.once` reads of `chatroomMeta/<id>` time out on the
+      ephemeral in-memory hub even for data the process just wrote, so the rename PATCH
+      died in `getChatroom` with 400 "chatroom not found" after ~19s. Fixed with an
+      authoritative in-process `roomMetaCache` (same invariant as `incomingTalksMap` /
+      `fastActiveMembers`); Gun stays the restart mirror. Repro now: create → rename →
+      list round-trips in ~3s.
 - [ ] Re-run the light shard on the host to confirm 0 failed.
 
 > **H complete 2026-07-15** — message content filters (dirty words + grammar, both

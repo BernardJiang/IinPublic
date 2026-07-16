@@ -5,6 +5,14 @@ import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 
 export class ChatroomManager {
   private fastActiveMembers = new Map<string, Map<string, { userId: string; stageName: string; lastSeen: string }>>();
+  /**
+   * Authoritative in-process room metadata (same pattern as fastActiveMembers /
+   * the server's incomingTalksMap): Gun paths are a mirror. `.once` reads of
+   * `chatroomMeta/<id>` can time out on an ephemeral in-memory hub even for data
+   * this process just wrote, which made create→rename fail with "chatroom not
+   * found" and degraded listed room names to ids.
+   */
+  private roomMetaCache = new Map<string, any>();
   /** E2E reset fence — see resetForTesting()/predatesReset(). 0 in production (no filtering). */
   private membersResetAt = 0;
 
@@ -35,6 +43,10 @@ export class ChatroomManager {
       }
     }
     this.fastActiveMembers.clear();
+    for (const id of this.roomMetaCache.keys()) {
+      void this.gunService.putPath(['chatroomMeta', id], null);
+    }
+    this.roomMetaCache.clear();
   }
 
   /** True when the record's lastSeen (or joinedAt) predates the last E2E reset — a ghost. */
@@ -99,19 +111,33 @@ export class ChatroomManager {
   }
 
   async getAllChatrooms(): Promise<any[]> {
-    const raw = await this.getPathWithRetry(['chatroomMeta'], 6, 150);
-    if (!raw || typeof raw !== 'object') return [];
-    const list: any[] = [];
-    for (const [id, rawMeta] of Object.entries(raw as Record<string, any>)) {
-      if (!id || id.startsWith('_')) continue;
-      // A `.once` on the root node returns children as Gun link stubs ({'#': soul}),
-      // not hydrated objects — without a per-id read every room's name degrades to
-      // its id. Hydrate whenever the child looks like a stub or lacks a name.
-      let meta = rawMeta;
-      if (!meta || typeof meta !== 'object' || meta['#'] != null || meta.name == null) {
-        meta = await this.getPathWithRetry(['chatroomMeta', id], 2, 100);
+    const metaById = new Map<string, any>();
+    // Gun mirror first (survives restarts) …
+    const raw = await this.getPathWithRetry(['chatroomMeta'], 2, 100);
+    if (raw && typeof raw === 'object') {
+      for (const [id, rawMeta] of Object.entries(raw as Record<string, any>)) {
+        if (!id || id.startsWith('_')) continue;
+        // A `.once` on the root node returns children as Gun link stubs
+        // ({'#': soul}), not hydrated objects — without a per-id read every
+        // room's name degrades to its id. Hydrate stubs unless the in-process
+        // cache (checked below) already has the room.
+        let meta = rawMeta;
+        if (
+          (!meta || typeof meta !== 'object' || meta['#'] != null || meta.name == null) &&
+          !this.roomMetaCache.has(id)
+        ) {
+          meta = await this.getPathWithRetry(['chatroomMeta', id], 1, 50);
+        }
+        if (!meta || typeof meta !== 'object' || meta['#'] != null) continue;
+        metaById.set(id, meta);
       }
-      if (!meta || typeof meta !== 'object') continue;
+    }
+    // … then the authoritative in-process cache overrides the mirror.
+    for (const [id, meta] of this.roomMetaCache.entries()) {
+      metaById.set(id, meta);
+    }
+    const list: any[] = [];
+    for (const [id, meta] of metaById.entries()) {
       if (meta?.isActive === false) continue;
       list.push({
         id,
@@ -129,10 +155,17 @@ export class ChatroomManager {
   }
 
   async getChatroom(chatroomId: string): Promise<any | null> {
-    const meta = await this.getPathWithRetry(['chatroomMeta', chatroomId], 6, 150);
+    // In-process cache is authoritative; the Gun mirror covers restarts.
+    const meta = this.roomMetaCache.get(chatroomId)
+      ?? await this.getPathWithRetry(['chatroomMeta', chatroomId], 6, 150);
     if (!meta || typeof meta !== 'object') return null;
-    const visitCount = Number(await this.gunService.getPath(['chatrooms', chatroomId, 'visitCount']).catch(() => 0)) || 0;
-    const uniqueVisitorCount = Number(await this.gunService.getPath(['chatrooms', chatroomId, 'uniqueVisitorCount']).catch(() => 0)) || 0;
+    if (!this.roomMetaCache.has(chatroomId)) this.roomMetaCache.set(chatroomId, meta);
+    const [visitCountRaw, uniqueVisitorCountRaw] = await Promise.all([
+      this.gunService.getPath(['chatrooms', chatroomId, 'visitCount']).catch(() => 0),
+      this.gunService.getPath(['chatrooms', chatroomId, 'uniqueVisitorCount']).catch(() => 0),
+    ]);
+    const visitCount = Number(visitCountRaw) || 0;
+    const uniqueVisitorCount = Number(uniqueVisitorCountRaw) || 0;
     return {
       id: chatroomId,
       ...meta,
@@ -172,6 +205,7 @@ export class ChatroomManager {
     if (!room.name) {
       throw new Error('chatroom name is required');
     }
+    this.roomMetaCache.set(id, room);
     await this.gunService.putPath(['chatrooms', id, 'meta'], room);
     await this.gunService.putPath(['chatroomMeta', id], room);
 
@@ -256,6 +290,7 @@ export class ChatroomManager {
       updatedAt: new Date().toISOString(),
     };
     if (!next.name) throw new Error('chatroom name is required');
+    this.roomMetaCache.set(chatroomId, next);
     await this.gunService.putPath(['chatrooms', chatroomId, 'meta'], next);
     await this.gunService.putPath(['chatroomMeta', chatroomId], next);
     return next;
