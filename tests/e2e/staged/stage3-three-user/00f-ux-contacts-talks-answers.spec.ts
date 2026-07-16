@@ -113,10 +113,13 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
       })
       .toMatch(/(?:1 talk|2 talks)[\s\S]*Sent 1 · Received [01]/);
     await contactItem.click();
+    // Rule N2a: dismiss the auto-opened DM conversation to use the User layout.
+    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await pageTom.click('#back-from-conversation');
     await afterSync();
-    await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
-    await expect(pageTom.locator('.contact-talk-item').filter({ hasText: 'Tom Out Talk' }).first()).toBeVisible({ timeout: 30000 });
-    await pageTom.click('#back-to-contacts-list');
+    await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry', { timeout: 10000 });
+    await expect(pageTom.locator('.peer-history-item').filter({ hasText: 'Tom Out Talk' }).first()).toBeVisible({ timeout: 30000 });
+    await pageTom.click('#back-from-peer-detail');
     await afterAction();
 
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
@@ -126,6 +129,8 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
     const jerryMember = pageTom.locator('.chatroom-member-item').filter({ hasText: 'Jerry' }).first();
     await expect(jerryMember).toBeVisible({ timeout: 15000 });
     await jerryMember.click();
+    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await pageTom.click('#back-from-conversation');
     await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10000 });
     await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry');
     await pageTom.click('#back-from-peer-detail');

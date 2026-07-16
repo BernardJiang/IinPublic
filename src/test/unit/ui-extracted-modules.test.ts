@@ -250,6 +250,7 @@ describe('extracted UI helpers', () => {
         isSupportNotificationsMuted: () => false,
         setSupportNotificationsMuted: jest.fn().mockResolvedValue(undefined),
         sendDirectMessage: jest.fn().mockResolvedValue(undefined),
+        openDirectConversation: jest.fn(),
         getTransportStatus: () => ({
           mode: 'server-relay',
           fallbackReason: 'direct peer unavailable',
@@ -281,7 +282,8 @@ describe('extracted UI helpers', () => {
       expect(overlayText).toContain('刚刚');
       expect(overlayText).toContain('↳ 4');
       expect(overlayText).toContain('✓ 2');
-      expect(overlayText).toContain('对话（1）');
+      expect(overlayText).toContain('匹配的话题（1）');
+      expect(overlayText).toContain('私信');
       expect(document.getElementById('peer-dm-input')?.getAttribute('placeholder')).toBe('输入消息...');
 
       (document.getElementById('peer-auto-mode-checkbox') as HTMLInputElement).checked = false;

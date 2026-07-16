@@ -222,6 +222,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
         ...(wire.encryption ? { encryption: wire.encryption as 'sea-ecdh-v1' } : {}),
         ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
         ...(wire.isFromChatbot ? { isFromChatbot: true } : {}),
+        ...(wire.talkId ? { talkId: wire.talkId } : {}),
       }, { otherUserId: otherId });
       void this.decryptWireText(wire, wire.senderId).then((text) => {
         this.pushLiveMessage(conversationId, {
@@ -233,6 +234,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
           readBy: [],
           isFromChatbot: !!wire.isFromChatbot,
           ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
+          ...(wire.talkId ? { talkId: wire.talkId } : {}),
         });
       });
     });
@@ -261,6 +263,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       readBy: [],
       isFromChatbot: !!wire.isFromChatbot,
       ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
+      ...(wire.talkId ? { talkId: wire.talkId } : {}),
     });
 
     console.log(`📤 Message sent in conversation ${conversationId} (${channel}, ${this.mode})`);

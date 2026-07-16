@@ -96,16 +96,24 @@ export async function waitForPeerHistoryTitle(
 }
 
 /** Wait until contact detail finished loading (not Loading/Could not load). */
+/**
+ * After a contact/member row click (rule N2a): the DM conversation opens on top of
+ * the shared ⟨User⟩ layout. Dismiss the conversation and wait for the User layout
+ * (the old contact-detail page is retired — redesign §5).
+ */
 export async function waitForContactDetailReady(page: Page, timeout = E2E_ASSERT_TIMEOUT_MS): Promise<void> {
+  await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout });
+  await page.click('#back-from-conversation');
+  await expect(page.locator('#peer-detail-overlay')).toBeVisible({ timeout });
   await expect
     .poll(
       async () => {
-        const matchesText = (await page.locator('#contact-detail-matches').textContent()) || '';
-        if (/loading/i.test(matchesText) || /could not load/i.test(matchesText)) return matchesText;
-        const hasTalkRow = await page.locator('.contact-talk-item').first().isVisible().catch(() => false);
-        const talksText = (await page.locator('#contact-talks-list').textContent()) || '';
-        if (hasTalkRow || /no talks/i.test(talksText) || /talk/i.test(matchesText)) return 'ready';
-        return matchesText || 'pending';
+        const subtitle = (await page.locator('#peer-detail-subtitle').textContent()) || '';
+        if (/loading|加载/i.test(subtitle)) return subtitle;
+        const hasHistoryRow = await page.locator('.peer-history-item').first().isVisible().catch(() => false);
+        const historyText = (await page.locator('#peer-talk-history-list').textContent()) || '';
+        if (hasHistoryRow || historyText.trim().length > 0) return 'ready';
+        return 'pending';
       },
       { timeout, intervals: [200, 400, 800] },
     )

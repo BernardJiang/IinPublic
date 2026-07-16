@@ -69,7 +69,7 @@ body {
   border: 0;
 }
 
-/* Top Header */
+/* Single AppBar (top header) — redesign §1 */
 .top-header {
   background: #fff;
   height: 50px;
@@ -80,20 +80,185 @@ body {
   border-bottom: 1px solid #e0e0e0;
   flex-shrink: 0;
   z-index: 10;
+  gap: 8px;
+  position: relative;
+}
+
+.app-bar-left {
+  display: flex;
+  align-items: center;
+  min-width: 36px;
+  flex-shrink: 0;
+}
+
+.app-bar-back-btn {
+  width: 36px;
+  height: 36px;
+  background: none;
+  border: none;
+  font-size: 1.4em;
+  cursor: pointer;
+  color: #000;
+  border-radius: 6px;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-bar-back-btn:hover {
+  background: #f3f4f6;
+}
+
+.app-bar-center {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  overflow: hidden;
 }
 
 .header-title {
   font-size: 1.1em;
   font-weight: 600;
   color: #000;
-  min-width: 44px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-title:empty {
+  display: none;
 }
 
 .header-actions {
   display: flex;
-  gap: 10px;
+  gap: 2px;
   min-width: 44px;
   justify-content: flex-end;
+  align-items: center;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.app-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.app-bar-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 6px;
+}
+
+.app-bar-action-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Icon-only inline; the label shows when the button lives in the ⋯ panel */
+.app-bar-actions .app-bar-btn-label {
+  display: none;
+}
+
+.app-bar-overflow-menu {
+  display: none;
+  align-items: center;
+  position: relative;
+}
+
+.app-bar-overflow-btn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+}
+
+.app-bar-overflow-panel {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 999;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  min-width: 190px;
+  overflow: hidden;
+  flex-direction: column;
+}
+
+.app-bar-overflow-panel.open {
+  display: flex;
+}
+
+.app-bar-overflow-panel .app-bar-action-btn {
+  width: 100%;
+  justify-content: flex-start;
+  padding: 10px 14px;
+  font-size: 1em;
+  border-radius: 0;
+}
+
+.app-bar-overflow-panel .app-bar-btn-label {
+  display: inline;
+  font-size: 0.9em;
+}
+
+.appbar-view-hidden {
+  display: none !important;
+}
+
+/* Mobile "Filters ▾" disclosure — redesign §6 */
+.filter-bar {
+  padding: 8px 12px;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.filter-bar-toggle {
+  display: none;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 0.9em;
+  align-items: center;
+  gap: 4px;
+}
+
+.filter-bar-content {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (max-width: 767px) {
+  .filter-bar-toggle {
+    display: inline-flex;
+  }
+
+  .filter-bar-content {
+    display: none;
+  }
+
+  .filter-bar-content.open {
+    display: flex;
+    flex-basis: 100%;
+  }
 }
 
 .header-btn {
@@ -1486,29 +1651,6 @@ body {
   transform: none;
 }
 
-.chatroom-action-bar .btn,
-.chatroom-action-bar .back-btn {
-  width: auto;
-  min-width: 0;
-  padding: 8px 16px;
-  border-radius: 6px;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
-.chatroom-action-bar .back-btn {
-  background: #f8fafc;
-  color: #334155;
-  border: 1px solid #cbd5e1;
-  cursor: pointer;
-  font-size: 1em;
-}
-
-.chatroom-action-bar .status-broadcast-btn {
-  width: auto;
-  flex: 0 0 auto;
-}
-
 .btn-secondary {
   background: #6c757d;
 }
@@ -1573,6 +1715,17 @@ body {
   color: white;
   z-index: 10000;
   animation: slideIn 0.3s ease;
+}
+
+/* Toast placement per width (GUI redesign §8): < 768px they render full-width
+   at the top, one at a time, instead of stacking top-right. */
+@media (max-width: 767px) {
+  .notification {
+    top: 8px;
+    left: 12px;
+    right: 12px;
+    text-align: center;
+  }
 }
 
 .notification.success {
@@ -1641,6 +1794,68 @@ body {
   gap: 10px;
   justify-content: flex-end;
   margin-top: 20px;
+}
+
+/* ==========================================================================
+   Popup responsive size classes (GUI redesign §8)
+   Reference width matrix: 320 · 390 · 768 · 1024.
+   Size classes are set per-dialog via `.modal-content.size-{s,m,l,xl}`;
+   L/XL dialogs additionally carry `.modal-fullscreen` so they take over the
+   screen (not a bottom sheet) on narrow viewports.
+   ========================================================================== */
+.modal-content {
+  /* Never allow horizontal scrolling inside a dialog (e2e-asserted). */
+  overflow-x: hidden;
+}
+.modal-content.size-s { max-width: 440px; }
+.modal-content.size-m { max-width: 560px; }
+.modal-content.size-l { max-width: 800px; }
+.modal-content.size-xl { max-width: 1000px; max-height: 90vh; }
+
+/* 768px: L/XL clamp to the viewport with a small gutter. */
+@media (max-width: 768px) {
+  .modal-content.size-l,
+  .modal-content.size-xl {
+    max-width: calc(100vw - 40px);
+  }
+}
+
+/* ≤480px (covers 320/390): bottom sheets + stacked full-width actions. */
+@media (max-width: 480px) {
+  .modal-overlay {
+    align-items: flex-end;
+  }
+  .modal-content {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+    max-height: 92dvh;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    padding: 20px;
+  }
+  .modal-actions {
+    flex-direction: column-reverse; /* primary action (last in DOM) ends up at the bottom */
+    align-items: stretch;
+  }
+  .modal-actions > button,
+  .modal-actions > .btn {
+    width: 100%;
+    min-height: 44px;
+  }
+  /* Inputs/selects keep a 44px touch target. */
+  .modal-content input,
+  .modal-content select,
+  .modal-content textarea {
+    min-height: 44px;
+  }
+  /* L/XL dialogs become full-screen takeovers (no visible scrim to click). */
+  .modal-content.modal-fullscreen {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
 }
 
 /* My Answers list – single row per item, wider layout */
@@ -2341,9 +2556,91 @@ body {
   right: 0;
   bottom: 0;
   background: white;
-  z-index: 1000;
+  /* Above the peer/User layout (1000): rule N2a stacks ⟨Conv⟩ on top of ⟨User⟩. */
+  z-index: 1001;
   display: none; /* Hidden by default */
   flex-direction: column;
+}
+
+/* Email-style thread list in the shared User layout (redesign §5) */
+.peer-thread-list {
+  padding: 4px 16px 8px;
+}
+
+.peer-thread-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.peer-thread-item:hover {
+  background: #f8fafc;
+}
+
+.peer-thread-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.peer-thread-title {
+  font-weight: 600;
+  color: #111827;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.peer-thread-snippet {
+  font-size: 0.85em;
+  color: #64748b;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.peer-thread-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.peer-thread-time {
+  font-size: 0.75em;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.thread-unread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.72em;
+  font-weight: 700;
+}
+
+.peer-thread-group-label {
+  font-size: 0.78em;
+  font-weight: 700;
+  color: #64748b;
+  padding: 8px 2px 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .conversation-detail-overlay .conversation-detail-container {

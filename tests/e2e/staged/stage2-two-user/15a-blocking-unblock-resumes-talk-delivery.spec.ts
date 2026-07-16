@@ -27,8 +27,12 @@ async function openContactsList(page: Page): Promise<void> {
   });
   await page.click('.nav-btn[data-view="contacts"]');
   await afterSync();
-  if (await page.locator('#contact-detail-container').isVisible().catch(() => false)) {
-    await page.click('#back-to-contacts-list');
+  if (await page.locator('#conversation-detail-overlay').isVisible().catch(() => false)) {
+    await page.click('#back-from-conversation');
+    await afterAction();
+  }
+  if (await page.locator('#peer-detail-overlay').isVisible().catch(() => false)) {
+    await page.click('#back-from-peer-detail');
     await afterAction();
   }
 }
@@ -117,7 +121,7 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     await expect(jerryContact).toBeVisible({ timeout: 15000 });
     await clickContactRow(pageTom, jerryContact);
     await waitForContactDetailReady(pageTom);
-    await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
+    await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry', { timeout: 10000 });
     await pageTom.click('#contact-edit-relationship-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10000 });
     await pageTom.click('#contact-block-toggle-btn'); // Block
@@ -134,7 +138,7 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
       )
       .toContain(jerryUserId);
 
-    await pageTom.click('#back-to-contacts-list');
+    await pageTom.click('#back-from-peer-detail');
     await afterAction();
     await enterGlobalChatroom(pageTom);
     await createMatchTalk(pageTom, 'Blocked Talk');
@@ -154,7 +158,7 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
     await expect(jerryContactBlocked).toBeVisible({ timeout: 10000 });
     await clickContactRow(pageTom, jerryContactBlocked);
     await waitForContactDetailReady(pageTom);
-    await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
+    await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry', { timeout: 10000 });
     await pageTom.click('#contact-edit-relationship-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10000 });
     const blockToggleText = ((await pageTom.locator('#contact-block-toggle-btn').textContent({ timeout: 10000 })) || '').trim();
@@ -177,7 +181,7 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
       )
       .not.toContain(jerryUserId);
 
-    await pageTom.click('#back-to-contacts-list');
+    await pageTom.click('#back-from-peer-detail');
     await afterAction();
     await enterGlobalChatroom(pageTom);
     await expect

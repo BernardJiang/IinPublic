@@ -35,6 +35,8 @@ export type SendMessageOptions = {
   messageId?: string;
   /** Preserve chatbot marker when caller emits synthetic/system messages. */
   isFromChatbot?: boolean;
+  /** Per-matched-talk thread scope (redesign §5); omit for the pair DM thread. */
+  talkId?: string;
 };
 
 export type ConversationTransport = {

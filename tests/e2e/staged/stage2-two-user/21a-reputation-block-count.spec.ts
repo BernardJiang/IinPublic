@@ -93,8 +93,8 @@ test.describe('Reputation system — block count propagation', () => {
     await jerryContact.click();
 
     await waitForContactDetailReady(pageTom);
-    await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
-    await expect(pageTom.locator('#contact-detail-matches')).toContainText('talk', { timeout: 15000 });
+    await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry', { timeout: 10000 });
+    await expect(pageTom.locator('#peer-detail-subtitle')).toContainText('talk', { timeout: 15000 });
     await expect(pageTom.locator('.contact-public-profile-summary')).toBeVisible({ timeout: 15000 });
 
     await pageTom.click('#contact-edit-relationship-btn');

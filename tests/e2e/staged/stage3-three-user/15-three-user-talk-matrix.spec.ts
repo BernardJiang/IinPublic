@@ -19,6 +19,7 @@ import {
   resetTalksMatchingSession,
   waitForTabActive,
 } from '../../helpers/talks-matching-flow';
+import { openCollapsedFilters } from '../../helpers/filter-bar';
 import {
   launchThreeBrowsers,
   shutdownThreeBrowsers,
@@ -116,12 +117,14 @@ test.describe('Three-user complete talk matrix', () => {
       await page.locator('#talks-nav-out').click();
       await expect.poll(() => page.locator('#talks-list .talk-list-item').count(), { timeout: 30_000 }).toBe(12);
       await page.locator('#talks-nav-all').click();
+      await openCollapsedFilters(page, 'talks-filter-toggle');
       await page.locator('#talks-filter-type').selectOption('route');
       await expect.poll(() => page.locator('#talks-list .talk-list-item').count(), { timeout: 30_000 }).toBe(9);
       await page.locator('#talks-filter-type').selectOption('all');
 
       await page.click('.nav-btn[data-view="me"]');
       await waitForTabActive(page, 'me');
+      await openCollapsedFilters(page, 'me-filter-toggle');
       await expect.poll(() => page.locator('#answers-list .answer-question-item').count(), { timeout: 60_000 }).toBe(54);
       for (const [type, count] of [['tag', 6], ['flow', 12], ['survey', 12], ['route', 24]] as const) {
         await page.locator(`.me-talk-type-filter[data-me-talk-type="${type}"]`).click();

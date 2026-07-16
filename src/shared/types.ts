@@ -10,6 +10,13 @@ export interface TalkIntakeFilters {
   allowedTalkTypes: Array<'flow' | 'survey' | 'tag' | 'route'>;
   /** Receiver-defined substrings (normalized server-side) that reject matching talk text. */
   customBlockedTerms?: string[];
+  /**
+   * Receiver-editable dirty-word list (SEA-private). Merged with ContentFilter's
+   * built-in terms when `blockDirtyWords` is enabled. Whole-word matching on
+   * NFKC-lowercased text, so "cocktail" does not match "cock". Seeded with
+   * DEFAULT_DIRTY_WORDS on first use; empty list + enabled = built-ins only.
+   */
+  dirtyWords?: string[];
 }
 
 export interface KnownPerson {
@@ -324,6 +331,13 @@ export interface Message {
   isFromChatbot: boolean;
   questionId?: string; // if part of a talk flow
   answerId?: string;
+  /**
+   * Per-matched-talk thread scope (redesign §5): messages carrying a talkId belong
+   * to that talk's thread; messages without one (or 'direct') are the pair's DM
+   * thread. Same Gun path (`conversations/<id>/messages`) — scoping is a field, so
+   * the P2P transport rules (spec §19.4) are untouched.
+   */
+  talkId?: string;
   timestamp: Date;
   readBy: string[];
   /** Default `public` — other values use SEA with recipient/sender epub */

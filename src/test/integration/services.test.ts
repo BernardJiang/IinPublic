@@ -311,6 +311,7 @@ describe('Service Integration Tests', () => {
         blockDirtyWords: true,
         allowedTalkTypes: ['tag'],
         customBlockedTerms: [],
+        dirtyWords: ['fuck', 'cunt', 'bitch', 'cock'],
       });
       expect(mockGetOptional).toHaveBeenCalledWith('user-talk-filters/user123', 800);
     });

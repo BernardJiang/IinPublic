@@ -28,6 +28,9 @@ export type ReceiverIntakeContext = {
 const MAX_CUSTOM_BLOCKED_TERMS = 50;
 const MAX_CUSTOM_TERM_LEN = 48;
 
+/** Default dirty-word list seeded into every user's editable filter (redesign §9.1). */
+export const DEFAULT_DIRTY_WORDS: readonly string[] = ['fuck', 'cunt', 'bitch', 'cock'];
+
 /** Normalize per-user custom blocked phrases from JSON or UI (lowercase, deduped, capped). */
 export function normalizeCustomBlockedTerms(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
@@ -47,6 +50,15 @@ export function normalizeCustomBlockedTerms(raw: unknown): string[] {
   return out;
 }
 
+/**
+ * Normalize a dirty-word list from UI/persistence. Same rules as custom blocked
+ * terms (2–48 chars, lowercase, deduped, cap 50). Returned list is safe to feed
+ * to ContentFilter as the merged custom word set.
+ */
+export function normalizeDirtyWords(raw: unknown): string[] {
+  return normalizeCustomBlockedTerms(raw);
+}
+
 export function getDefaultTalkIntakeFilters(seedLanguages?: string[]): TalkIntakeFilters {
   return {
     allowedLanguages: Array.isArray(seedLanguages) && seedLanguages.length > 0 ? seedLanguages : ['en'],
@@ -56,6 +68,7 @@ export function getDefaultTalkIntakeFilters(seedLanguages?: string[]): TalkIntak
     blockDirtyWords: true,
     allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
     customBlockedTerms: [],
+    dirtyWords: [...DEFAULT_DIRTY_WORDS],
   };
 }
 
@@ -240,6 +253,7 @@ export function intakeFilterRejectReasons(
         age: { enabled: false, minAge: 0, maxAge: 0 },
       },
       filters.allowedLanguages,
+      normalizeDirtyWords(filters.dirtyWords),
     );
     if (!result.passed) return ['intake_dirty_words'];
   }

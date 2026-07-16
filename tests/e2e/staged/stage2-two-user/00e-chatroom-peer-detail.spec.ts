@@ -162,13 +162,18 @@ test.describe('Chatroom peer detail views', () => {
       await expect(jerryItem).toBeVisible({ timeout: 15_000 });
       await jerryItem.click();
 
-      // Peer detail overlay opens
+      // Rule N2a: the click lands on the DM Conversation directly, with the shared
+      // User layout underneath; the first back pops to the User layout.
+      await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+      await pageTom.click('#back-from-conversation');
+
+      // Peer detail (User layout) underneath
       await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
       await expect(pageTom.locator('#peer-detail-name')).not.toBeEmpty();
       await expect(pageTom.locator('#peer-stats-section')).toBeVisible();
       await expect(pageTom.locator('#peer-send-talks-btn')).toBeVisible();
 
-      // Back button closes it
+      // Second back returns to the opener (room detail)
       await pageTom.click('#back-from-peer-detail');
       await expect(pageTom.locator('#peer-detail-overlay')).not.toBeVisible({ timeout: 5_000 });
     } finally {
@@ -191,6 +196,9 @@ test.describe('Chatroom peer detail views', () => {
       const jerryItem = pageTom.locator(`.chatroom-member-item[data-user-id="${jerryId}"]`);
       await expect(jerryItem).toBeVisible({ timeout: 15_000 });
       await jerryItem.click();
+      // N2a: dismiss the auto-opened DM conversation to use the User layout composer.
+      await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+      await pageTom.click('#back-from-conversation');
       await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
 
       const message = `Manual direct hello ${Date.now()}`;
@@ -263,6 +271,9 @@ test.describe('Chatroom peer detail views', () => {
       await expect(jerryItem).toBeVisible({ timeout: 15_000 });
       await jerryItem.click();
 
+      // N2a: dismiss the auto-opened DM conversation first.
+      await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+      await pageTom.click('#back-from-conversation');
       await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
       const hasHistory = await pageTom
         .locator('.peer-history-item')
@@ -356,6 +367,9 @@ test.describe('Chatroom peer detail views', () => {
       await expect(jerryItem).toBeVisible({ timeout: 15_000 });
       await jerryItem.click();
 
+      // N2a: dismiss the auto-opened DM conversation to use the User layout.
+      await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+      await pageTom.click('#back-from-conversation');
       await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
 
       // Auto mode should be checked by default
@@ -435,11 +449,33 @@ test.describe('Chatroom peer detail views', () => {
 
       await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
 
+      // Toasts from the auto-send/match would intercept AppBar clicks below.
+      await pageTom.evaluate(() => {
+        (window as any).__iinpublic_app?.getApp?.()?.uiManager?.setNotificationsSuppressedForE2e?.(true);
+      });
+
+      // Rule N2a: the member click may land on the DM conversation (it opens as
+      // soon as the DM channel resolves — including after the auto-send match).
+      // Pop back to the User layout before using its controls.
+      const convOverlay = pageTom.locator('#conversation-detail-overlay');
+      await convOverlay.waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
+      if (await convOverlay.isVisible()) {
+        await pageTom.click('#back-from-conversation');
+        await afterAction();
+      }
+
       // Switch to manual mode
       const autoCheckbox = pageTom.locator('#peer-auto-mode-checkbox');
       await expect(autoCheckbox).toBeChecked();
       await autoCheckbox.click();
       await expect(autoCheckbox).not.toBeChecked();
+
+      // The match can resolve the DM channel late and re-open the conversation;
+      // dismiss it again if it re-appeared before clicking the AppBar action.
+      if (await convOverlay.isVisible()) {
+        await pageTom.click('#back-from-conversation');
+        await afterAction();
+      }
 
       // Click Send My Talks → picker modal opens
       await pageTom.locator('#peer-send-talks-btn').click();

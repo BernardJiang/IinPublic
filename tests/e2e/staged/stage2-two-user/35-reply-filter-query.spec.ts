@@ -10,6 +10,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterLoad, afterSync, afterNav, afterAction, headless, E2E_ASSERT_TIMEOUT_MS } from '../../helpers/timing';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
+import { openCollapsedFilters } from '../../helpers/filter-bar';
 
 test.describe('Talks tab: replies filter by query', () => {
   let browserAlice: Browser;
@@ -81,7 +82,8 @@ test.describe('Talks tab: replies filter by query', () => {
     await afterNav();
     await afterLoad();
 
-    // Wait for the reply section to appear
+    // Wait for the reply section to appear (filters are collapsed at 640px — redesign §6)
+    await openCollapsedFilters(pageAlice, 'replies-filter-toggle');
     const replyFilterInput = pageAlice.locator('#reply-filter-query');
     await replyFilterInput.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });
 

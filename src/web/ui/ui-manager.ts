@@ -44,8 +44,10 @@ import {
 } from './chatrooms-view';
 import {
   displayContactsList as renderContactsList,
-  showContactDetail as openContactDetail,
+  openRelationshipDialog,
+  renderContactContextSummaryInto,
   showContactsList as openContactsList,
+  type ContactsViewDeps,
 } from './contacts-view';
 import { displayConversationsList as renderConversationsList } from './conversations-view';
 import {
@@ -107,7 +109,7 @@ import {
   updateAllAnswerDropdowns as updateTalkEditorAnswerDropdowns,
 } from './talk-editor-form-helpers';
 import { showTalkEditorDialog as openTalkEditorDialog } from './talk-editor-dialog';
-import { openPeerDetailView } from './user-detail-view';
+import { openPeerDetailView, refreshPeerThreadList } from './user-detail-view';
 import { avatarInnerHtml } from './profile-avatar';
 import { languageOptionLabel, uiLanguageFromProfile, uiText, type UiTranslationKey } from './ui-translations';
 import {
@@ -122,7 +124,13 @@ import {
   hasStoredTalkIntakeFilters,
   setTalkIntakeFilters,
 } from './talk-intake-filters';
-import { normalizeCustomBlockedTerms } from '../../shared/talk-intake-filters';
+import { normalizeCustomBlockedTerms, normalizeDirtyWords, DEFAULT_DIRTY_WORDS } from '../../shared/talk-intake-filters';
+import { filterOutgoingMessage, filterIncomingMessage, type MessageFilterResult } from '../../shared/message-content-filter';
+import { CONFIG } from '../../shared/config';
+import { showLinkedDevicesDialog, type LinkedDeviceRow } from './linked-devices-dialog';
+import { decodePairingCode, isPairingExpired } from '../../shared/identity-linking';
+import { showEraseDeviceDialog } from './erase-device-dialog';
+import { eraseDevice } from '../services/device-wipe';
 
 function resolveExpiresAtMs(value: unknown): number {
   if (typeof value === 'number') return value;
@@ -227,6 +235,9 @@ function normalizeTalkFilterShape(
     allowedLanguages: normalizeStringList(stored.allowedLanguages, fallbackLanguages).map((lang) => lang.toLowerCase()),
     allowedTalkTypes: allowedTalkTypes.length > 0 ? allowedTalkTypes : TALK_TYPE_VALUES,
     customBlockedTerms: normalizeCustomBlockedTerms(normalizeStringList(stored.customBlockedTerms, [])),
+    dirtyWords: stored.dirtyWords === undefined
+      ? [...DEFAULT_DIRTY_WORDS]
+      : normalizeDirtyWords(stored.dirtyWords),
   };
 }
 
@@ -259,12 +270,18 @@ export class UIManager extends EventEmitter {
   private contactPreRenderSync: ContactPreRenderSync | undefined;
   private peerLocationReader: PeerLocationReader | undefined;
   private peerLocationCache = new Map<string, GPSCoordinate | null>();
+  /** Incoming messages already surfaced via a "hidden by your filters" toast (dedupe, §9). */
+  private hiddenMessageToastIds = new Set<string>();
+  /** Last message set rendered into the open conversation, for filter-toggle re-render (§9). */
+  private lastConversationMessages: any[] = [];
 
   /** Other users in the current chatroom detail view (excludes self); used for broadcast delivery. */
   getCurrentChatroomMembers(): Array<{ userId: string; stageName: string }> {
     return [...this.currentChatroomMembers];
   }
   private currentConversationId: string | undefined = undefined;
+  /** Per-talk Thread scope of the open conversation view (redesign §5); undefined = DM. */
+  private currentThreadTalkId: string | undefined = undefined;
   // Last message id we've already surfaced a "new message" toast for, per conversation. Seeded
   // (without notifying) on a conversation's first summary sync so boot/history loads stay quiet;
   // subsequent deltas from the peer raise a toast when that conversation isn't the one on screen.
@@ -483,15 +500,12 @@ export class UIManager extends EventEmitter {
       ['#talks-status-text', 'statusTalks'],
       ['#me-status-text', 'statusMe'],
       ['#settings-status-text', 'statusSettings'],
-      ['#create-custom-chatroom-btn', 'newRoom'],
-      ['#return-home-btn', 'returnHome'],
-      ['#broadcast-talk-btn', 'broadcast'],
-      ['#back-to-chatrooms', 'back'],
+      ['#create-custom-chatroom-btn .app-bar-btn-label', 'newRoom'],
+      ['#return-home-btn .app-bar-btn-label', 'returnHome'],
+      ['#broadcast-talk-btn .app-bar-btn-label', 'broadcast'],
       ['#creator-replies-panel strong', 'repliesTitle'],
       ['#reply-clear-filters', 'clear'],
-      ['#settings-refresh-location-btn', 'refreshLocation'],
-      ['#back-to-contacts-list', 'back'],
-      ['#talks-nav-back', 'back'],
+      ['#settings-refresh-location-btn .app-bar-btn-label', 'refreshLocation'],
       ['#talks-nav-all', 'talksAll'],
       ['#me-talk-type-filter-label', 'meTalkTypeFilters'],
       ['.me-talk-type-filter[data-me-talk-type="tag"]', 'talkTypeTag'],
@@ -507,6 +521,20 @@ export class UIManager extends EventEmitter {
       const element = document.querySelector<HTMLElement>(selector);
       if (element) element.textContent = this.t(key);
     }
+    // AppBar icon buttons: translated label doubles as the tooltip.
+    for (const id of ['create-custom-chatroom-btn', 'return-home-btn', 'broadcast-talk-btn', 'settings-refresh-location-btn']) {
+      const btn = document.getElementById(id);
+      const label = btn?.querySelector<HTMLElement>('.app-bar-btn-label');
+      if (btn && label && id !== 'return-home-btn') btn.title = label.textContent || '';
+    }
+    for (const id of ['back-to-chatrooms', 'back-to-contacts-list', 'talks-nav-back']) {
+      const btn = document.getElementById(id);
+      if (btn) btn.title = this.t('back');
+    }
+    document.querySelectorAll<HTMLElement>('.filter-bar-toggle').forEach((toggle) => {
+      const open = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.textContent = open ? `${this.t('filters')} ▴` : `${this.t('filters')} ▾`;
+    });
     const contactsFilter = document.getElementById('contacts-filter-name') as HTMLInputElement | null;
     if (contactsFilter) contactsFilter.placeholder = this.t('filterByName');
     const replyFilter = document.getElementById('reply-filter-query') as HTMLInputElement | null;
@@ -788,36 +816,45 @@ export class UIManager extends EventEmitter {
 
     this.appContainer.innerHTML = `
       <div class="app-container">
-        <!-- Top Header -->
-        <div class="top-header" id="top-header">
-          <div class="header-title" id="header-title"></div>
-          <div class="header-status" id="header-status" style="display: none;">
-            <div class="header-user-info" id="header-user-info"></div>
-            <span class="header-status-text" id="status-bar-text" data-header-status-view="chatrooms">Connecting...</span>
-            <span class="header-status-text" id="contacts-status-text" data-header-status-view="contacts" hidden>Contacts from exchanged talks</span>
-            <span class="header-status-text" id="talks-status-text" data-header-status-view="talks" hidden>Incoming talks are consolidated by content.</span>
-            <span class="header-status-text" id="me-status-text" data-header-status-view="me" hidden>Answered question history</span>
-            <span class="header-status-text" id="settings-status-text" data-header-status-view="settings" hidden>Feature and filter controls</span>
-            <span id="broadcast-bulk-ack" data-testid="broadcast-bulk-ack" hidden></span>
+        <!-- Single AppBar (replaces the old top-header + per-view tab-action-bar double row) -->
+        <div class="app-bar top-header" id="top-header">
+          <div class="app-bar-left" id="app-bar-left">
+            <button class="app-bar-back-btn" id="back-to-chatrooms" data-testid="back-to-chatrooms" data-appbar-view="chatrooms" title="Back" style="display:none;">‹</button>
+            <button class="app-bar-back-btn" id="back-to-contacts-list" data-testid="back-to-contacts-list" data-appbar-view="contacts" title="Back" style="display:none;">‹</button>
+            <button class="app-bar-back-btn talks-nav-back" id="talks-nav-back" data-testid="talks-nav-back" data-appbar-view="talks" type="button" title="Back" style="display: none;">‹</button>
           </div>
-          <div class="header-actions" id="header-actions">
-            <button class="header-btn" id="create-talk-btn">➕</button>
+          <div class="app-bar-center" id="app-bar-center">
+            <div class="header-title" id="header-title"></div>
+            <div class="header-status" id="header-status" style="display: none;">
+              <div class="header-user-info" id="header-user-info"></div>
+              <span class="header-status-text" id="status-bar-text" data-header-status-view="chatrooms">Connecting...</span>
+              <span class="header-status-text" id="contacts-status-text" data-header-status-view="contacts" hidden>Contacts from exchanged talks</span>
+              <span class="header-status-text" id="talks-status-text" data-header-status-view="talks" hidden>Incoming talks are consolidated by content.</span>
+              <span class="header-status-text" id="me-status-text" data-header-status-view="me" hidden>Answered question history</span>
+              <span class="header-status-text" id="settings-status-text" data-header-status-view="settings" hidden>Feature and filter controls</span>
+              <span id="broadcast-bulk-ack" data-testid="broadcast-bulk-ack" hidden></span>
+            </div>
+          </div>
+          <div class="header-actions app-bar-right" id="header-actions">
+            <span class="app-bar-actions" id="app-bar-actions">
+              <button class="header-btn app-bar-action-btn" id="create-talk-btn" data-testid="create-talk-btn" data-appbar-view="chatrooms talks" data-appbar-priority="0" title="Create talk"><span class="app-bar-btn-icon">➕</span><span class="app-bar-btn-label">Create talk</span></button>
+              <button type="button" class="header-btn app-bar-action-btn status-broadcast-btn" id="broadcast-talk-btn" data-testid="broadcast-talk-btn" data-appbar-view="chatrooms" data-appbar-priority="1" title="Send every talk in your OUT list to everyone in this chatroom"><span class="app-bar-btn-icon">📣</span><span class="app-bar-btn-label">Broadcast</span></button>
+              <button type="button" class="header-btn app-bar-action-btn" id="return-home-btn" data-testid="return-home-btn" data-appbar-view="chatrooms" data-appbar-priority="2" disabled title="Return Home"><span class="app-bar-btn-icon">🏠</span><span class="app-bar-btn-label">Return Home</span></button>
+              <button type="button" class="header-btn app-bar-action-btn" id="create-custom-chatroom-btn" data-testid="create-custom-chatroom-btn" data-appbar-view="chatrooms" data-appbar-priority="3" title="New Room"><span class="app-bar-btn-icon">🆕</span><span class="app-bar-btn-label">New Room</span></button>
+              <button type="button" class="header-btn app-bar-action-btn" id="settings-refresh-location-btn" data-testid="settings-refresh-location-btn" data-appbar-view="settings" data-appbar-priority="4" title="Refresh Location"><span class="app-bar-btn-icon">📍</span><span class="app-bar-btn-label">Refresh Location</span></button>
+            </span>
+            <div class="app-bar-overflow-menu" id="app-bar-overflow-menu" style="display:none;">
+              <button type="button" class="header-btn app-bar-overflow-btn" id="app-bar-overflow-btn" data-testid="app-bar-overflow-btn" title="More">⋯</button>
+              <div class="app-bar-overflow-panel" id="app-bar-overflow-panel"></div>
+            </div>
           </div>
         </div>
 
         <!-- Main View Container -->
         <div class="view-container">
-          
+
           <!-- Chatrooms View (Default) -->
           <div class="view-panel active" id="chatrooms-view">
-            <div class="tab-action-bar chatroom-action-bar" id="chatroom-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-              <button class="back-btn" id="back-to-chatrooms" style="display:none;">‹ Back</button>
-              <button type="button" class="btn" id="create-custom-chatroom-btn" data-testid="create-custom-chatroom-btn">New Room</button>
-              <button type="button" class="btn" id="return-home-btn" data-testid="return-home-btn" disabled>Return Home</button>
-              <button type="button" class="btn status-broadcast-btn" id="broadcast-talk-btn" title="Send every talk in your OUT list to everyone in this chatroom">
-                Broadcast
-              </button>
-            </div>
             <!-- Chatroom List -->
             <div class="chatroom-list-container" id="chatroom-list-container">
               <div class="chatroom-list" id="chatroom-list">
@@ -844,8 +881,9 @@ export class UIManager extends EventEmitter {
           <!-- Contacts View (users who have matches with current user) -->
           <div class="view-panel" id="contacts-view">
             <div class="view-content">
-              <div class="tab-action-bar contacts-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                <button class="back-btn" id="back-to-contacts-list" style="display:none;">‹ Back</button>
+              <div class="filter-bar contacts-action-bar">
+                <button type="button" class="filter-bar-toggle" data-testid="contacts-filter-toggle" aria-expanded="false">Filters ▾</button>
+                <div class="filter-bar-content">
                 <input class="form-input" id="contacts-filter-name" type="search" placeholder="Filter by name" style="flex:1 1 160px; min-width:0;">
                 <select class="form-input" id="contacts-filter-relation" style="flex:0 0 150px;">
                   <option value="all">All relations</option>
@@ -865,6 +903,7 @@ export class UIManager extends EventEmitter {
                   <option value="name">Name</option>
                   <option value="relationship">Relationship</option>
                 </select>
+                </div>
               </div>
               <div class="embedded-stats-strip" id="contacts-stats-strip" style="padding:8px 12px;color:#64748b;font-size:0.88em;"></div>
               <div class="contacts-list-container" id="contacts-list-container">
@@ -872,28 +911,15 @@ export class UIManager extends EventEmitter {
                   <p style="text-align: center; padding: 40px 20px; color: #999;">No contacts yet. Match with others via Talks to see them here.</p>
                 </div>
               </div>
-              <!-- Contact detail: list of talks with this user (hidden by default) -->
-              <div class="contact-detail-container" id="contact-detail-container" style="display: none;">
-                <div class="contact-detail-header">
-                  <div class="contact-detail-info" id="contact-detail-info">
-                    <div class="contact-detail-name" id="contact-detail-name">Contact</div>
-                    <div class="contact-detail-matches" id="contact-detail-matches">0 matches</div>
-                  </div>
-                </div>
-                <div class="contact-talks-list" id="contact-talks-list">
-                  <p style="text-align: center; padding: 20px; color: #999;">Loading...</p>
-                </div>
-              </div>
+              <!-- The old contact-detail page is retired (redesign §5): contact rows land
+                   on the shared ⟨User⟩ layout (#peer-detail-overlay) via rule N2a. -->
             </div>
           </div>
 
           <!-- Talks View -->
           <div class="view-panel" id="talks-view">
             <div class="view-content">
-              <div class="tab-action-bar talks-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                <button class="btn talks-nav-back" id="talks-nav-back" type="button" style="display: none;">
-                  ‹ Back
-                </button>
+              <div class="filter-bar talks-action-bar">
                 <div class="talks-nav-tabs">
                   <button class="btn talks-nav-btn active" id="talks-nav-all" data-talks-mode="all" type="button">
                     All
@@ -905,6 +931,8 @@ export class UIManager extends EventEmitter {
                     OUT
                   </button>
                 </div>
+                <button type="button" class="filter-bar-toggle" data-testid="talks-filter-toggle" aria-expanded="false">Filters ▾</button>
+                <div class="filter-bar-content">
                 <select class="form-input" id="talks-out-sort-order" aria-label="Sort outgoing talks" style="flex:0 0 180px;">
                   <option value="recent">Latest activity</option>
                   <option value="oldest">Oldest creation</option>
@@ -935,6 +963,7 @@ export class UIManager extends EventEmitter {
                 </select>
                 <input class="form-input" id="talks-filter-date-from" aria-label="Talks from date" type="date" style="flex:0 0 140px;">
                 <input class="form-input" id="talks-filter-date-to" aria-label="Talks through date" type="date" style="flex:0 0 140px;">
+                </div>
               </div>
               <div class="embedded-stats-strip" id="talks-stats-strip" style="padding:8px 12px;color:#64748b;font-size:0.88em;"></div>
               <section id="creator-replies-panel" style="padding:12px;border-bottom:1px solid #e5e7eb;background:#fff;">
@@ -942,7 +971,8 @@ export class UIManager extends EventEmitter {
                   <strong>Replies To My Talks</strong>
                   <span id="creator-replies-summary" style="font-size:0.85em;color:#64748b;">Loading...</span>
                 </div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                <button type="button" class="filter-bar-toggle" data-testid="replies-filter-toggle" aria-expanded="false" style="margin-bottom:8px;">Filters ▾</button>
+                <div class="filter-bar-content" style="margin-bottom:8px;">
                   <input class="form-input" id="reply-filter-query" type="search" placeholder="Stage name or talk" style="flex:1 1 170px;">
                   <select class="form-input" id="reply-filter-outcome" style="flex:0 0 125px;">
                     <option value="all">All outcomes</option>
@@ -1010,6 +1040,7 @@ export class UIManager extends EventEmitter {
                 <button class="back-btn" id="back-from-conversation">‹ Back</button>
                 <div class="conversation-detail-info" id="conversation-detail-info">
                   <div class="conversation-detail-name" id="conversation-user-name">User</div>
+                  <div class="conversation-thread-scope" id="conversation-thread-scope" style="display:none;font-size:0.82em;color:#2563eb;font-weight:600;"></div>
                   <div class="conversation-detail-status" id="conversation-status">Online</div>
                   <div class="conversation-transport-status" id="conversation-transport-status"></div>
                   <div class="conversation-fallback-status" id="conversation-fallback-status"></div>
@@ -1026,19 +1057,42 @@ export class UIManager extends EventEmitter {
             </div>
           </div>
 
-          <!-- Peer Detail Overlay -->
+          <!-- Shared ⟨User⟩ layout (peer + contact detail — redesign §5): AppBar header,
+               relationship context, stats, merged messaging (threads + DM), talk history -->
           <div class="peer-detail-overlay" id="peer-detail-overlay" style="display: none;">
             <div class="peer-detail-container">
-              <div class="peer-detail-header">
-                <button class="back-btn" id="back-from-peer-detail">‹ Back</button>
-                <div class="peer-detail-info">
+              <div class="app-bar peer-detail-header">
+                <div class="app-bar-left">
+                  <button class="app-bar-back-btn" id="back-from-peer-detail" data-testid="back-from-peer-detail" title="Back">‹</button>
+                </div>
+                <div class="app-bar-center peer-detail-info">
                   <div class="peer-detail-name" id="peer-detail-name">User</div>
                   <div class="peer-detail-subtitle" id="peer-detail-subtitle">Loading...</div>
                 </div>
+                <div class="app-bar-right">
+                  <span class="app-bar-actions">
+                    <button class="header-btn app-bar-action-btn" id="peer-send-talks-btn" data-testid="peer-send-talks-btn" title="Send My Talks"><span class="app-bar-btn-icon">📤</span><span class="app-bar-btn-label">Send My Talks</span></button>
+                  </span>
+                  <div class="app-bar-overflow-menu" style="display:flex;">
+                    <button class="header-btn app-bar-overflow-btn" id="peer-overflow-btn" data-testid="peer-overflow-btn" title="More">⋯</button>
+                    <div class="app-bar-overflow-panel" id="peer-overflow-panel">
+                      <button class="app-bar-action-btn" id="peer-block-user-btn" data-testid="peer-block-user-btn"><span class="app-bar-btn-icon">🚫</span><span class="app-bar-btn-label">Block User</span></button>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div class="peer-detail-body">
+                <div id="peer-context-section"></div>
                 <div id="peer-stats-section"></div>
-                <div id="peer-conversations-section"></div>
+                <div class="peer-messaging-section" id="peer-messaging-section">
+                  <div class="peer-section-title" id="peer-messaging-title" style="font-weight:700;padding:12px 16px 4px;">Messages</div>
+                  <div id="peer-conversations-section"></div>
+                  <div class="peer-dm-compose" style="padding:8px 16px 12px;">
+                    <div id="peer-dm-label" style="font-size:0.85em;color:#64748b;margin-bottom:4px;">Send a direct message</div>
+                    <textarea id="peer-dm-input" rows="2" placeholder="Type a message…" data-testid="peer-dm-input" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.9em;resize:none;"></textarea>
+                    <button class="btn primary-btn" id="peer-dm-send-btn" data-testid="peer-dm-send-btn" style="width:100%;margin-top:6px;">💬 Send Message</button>
+                  </div>
+                </div>
                 <div class="peer-section-header">
                   <div class="peer-section-title" id="peer-talk-history-title" style="font-weight:700;padding:12px 16px 4px;">Talk History</div>
                   <div id="peer-history-controls" style="display:none;padding:8px 16px;gap:8px;flex-wrap:wrap;">
@@ -1055,19 +1109,10 @@ export class UIManager extends EventEmitter {
                 </div>
                 <div id="peer-talk-history-list"></div>
                 <div class="peer-send-section">
-                  <label class="peer-auto-mode-label" style="display:flex;align-items:center;gap:8px;padding:12px 16px 4px;font-size:0.9em;cursor:pointer;">
+                  <label class="peer-auto-mode-label" style="display:flex;align-items:center;gap:8px;padding:12px 16px 16px;font-size:0.9em;cursor:pointer;">
                     <input type="checkbox" id="peer-auto-mode-checkbox" checked>
                     <span id="peer-auto-mode-text">Auto mode - send all new talks automatically</span>
                   </label>
-                  <div style="padding:8px 16px 16px;">
-                    <button class="btn primary-btn" id="peer-send-talks-btn" style="width:100%;">📤 Send My Talks</button>
-                    <div style="margin-top:12px;">
-                      <div id="peer-dm-label" style="font-size:0.85em;color:#64748b;margin-bottom:4px;">Send a direct message</div>
-                      <textarea id="peer-dm-input" rows="2" placeholder="Type a message…" data-testid="peer-dm-input" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.9em;resize:none;"></textarea>
-                      <button class="btn primary-btn" id="peer-dm-send-btn" data-testid="peer-dm-send-btn" style="width:100%;margin-top:6px;">💬 Send Message</button>
-                    </div>
-                    <button class="btn" id="peer-block-user-btn" style="width:100%;margin-top:8px;">Block User</button>
-                  </div>
                 </div>
               </div>
             </div>
@@ -1076,7 +1121,9 @@ export class UIManager extends EventEmitter {
           <!-- Me View -->
           <div class="view-panel" id="me-view">
             <div class="view-content">
-              <div class="tab-action-bar me-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+              <div class="filter-bar me-action-bar" style="gap:12px;">
+                <button type="button" class="filter-bar-toggle" data-testid="me-filter-toggle" aria-expanded="false">Filters ▾</button>
+                <div class="filter-bar-content" style="gap:12px;">
                 <span id="me-talk-type-filter-label" style="font-size:0.82em;color:#64748b;font-weight:700;">Talk types</span>
                 <button class="btn me-talk-type-filter active" data-me-talk-type="tag" type="button">Tag</button>
                 <button class="btn me-talk-type-filter active" data-me-talk-type="flow" type="button">Flow</button>
@@ -1110,6 +1157,7 @@ export class UIManager extends EventEmitter {
                 <input class="form-input" id="me-answer-date-from" aria-label="Answers from date" type="date" style="flex:0 0 142px;">
                 <input class="form-input" id="me-answer-date-to" aria-label="Answers through date" type="date" style="flex:0 0 142px;">
                 <button class="btn" id="me-clear-filters" type="button">Clear</button>
+                </div>
               </div>
               <div class="answers-section">
                 <div id="answers-content">
@@ -1124,9 +1172,6 @@ export class UIManager extends EventEmitter {
           <!-- Settings View -->
           <div class="view-panel" id="settings-view">
             <div class="view-content">
-              <div class="tab-action-bar settings-action-bar" style="padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                <button class="btn" id="settings-refresh-location-btn" type="button">Refresh Location</button>
-              </div>
               <div id="settings-content" style="padding:16px;max-width:min(980px,96%);margin:0 auto;"></div>
             </div>
           </div>
@@ -1161,6 +1206,110 @@ export class UIManager extends EventEmitter {
 
     this.setupEventListeners();
     this.setupBottomNavigation();
+    this.setupAppBarChrome();
+    this.syncAppBarActionsForView('chatrooms');
+  }
+
+  /**
+   * Wires the single AppBar chrome: the `⋯` overflow menu, the responsive width
+   * measurement, and the mobile "Filters ▾" disclosure toggles (redesign §1–§3, §6).
+   */
+  private setupAppBarChrome(): void {
+    const overflowBtn = document.getElementById('app-bar-overflow-btn');
+    const panel = document.getElementById('app-bar-overflow-panel');
+    if (overflowBtn && panel) {
+      overflowBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        panel.classList.toggle('open');
+      });
+      document.addEventListener('click', (event) => {
+        if (!panel.classList.contains('open')) return;
+        const target = event.target;
+        if (target instanceof Node && (panel.contains(target) || overflowBtn.contains(target))) return;
+        panel.classList.remove('open');
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') panel.classList.remove('open');
+      });
+      // Action buttons keep working from inside the panel (same elements, same
+      // listeners); close the panel on any action click. Capture phase, because
+      // some button handlers stopPropagation.
+      panel.addEventListener(
+        'click',
+        (event) => {
+          const target = event.target;
+          if (target instanceof Element && target.closest('.app-bar-action-btn')) {
+            panel.classList.remove('open');
+          }
+        },
+        true,
+      );
+    }
+    window.addEventListener('resize', () => this.syncAppBarOverflow());
+    // Mobile filter disclosure: every .filter-bar-toggle opens its sibling content panel.
+    document.querySelectorAll<HTMLButtonElement>('.filter-bar-toggle').forEach((toggle) => {
+      toggle.addEventListener('click', () => {
+        const content = toggle.parentElement?.querySelector<HTMLElement>('.filter-bar-content');
+        if (!content) return;
+        const open = content.classList.toggle('open');
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        toggle.textContent = open ? `${this.t('filters')} ▴` : `${this.t('filters')} ▾`;
+      });
+    });
+    this.syncAppBarOverflow();
+  }
+
+  /**
+   * Shows only the AppBar controls scoped to the active tab (`data-appbar-view`),
+   * then re-measures the overflow. View scoping uses a dedicated class so it never
+   * fights the per-feature `style.display` toggles (travel mode, sub-view backs).
+   */
+  private syncAppBarActionsForView(viewName: string): void {
+    document.querySelectorAll<HTMLElement>('#top-header [data-appbar-view]').forEach((el) => {
+      const views = (el.dataset.appbarView || '').split(/\s+/);
+      el.classList.toggle('appbar-view-hidden', !views.includes(viewName));
+    });
+    this.syncAppBarOverflow();
+  }
+
+  /**
+   * Responsive overflow for the AppBar right zone. Buttons that do not fit move
+   * (as the same live elements, ids/testids/handlers intact) into the `⋯` panel,
+   * lowest priority first (➕ stays inline longest, then 📣, 🏠, 🆕).
+   */
+  private syncAppBarOverflow(): void {
+    const bar = document.getElementById('top-header');
+    const inlineZone = document.getElementById('app-bar-actions');
+    const menu = document.getElementById('app-bar-overflow-menu');
+    const panel = document.getElementById('app-bar-overflow-panel');
+    if (!bar || !inlineZone || !menu || !panel) return;
+    const all = [
+      ...Array.from(inlineZone.querySelectorAll<HTMLElement>('.app-bar-action-btn')),
+      ...Array.from(panel.querySelectorAll<HTMLElement>('.app-bar-action-btn')),
+    ].sort((a, b) => Number(a.dataset.appbarPriority || 0) - Number(b.dataset.appbarPriority || 0));
+    for (const btn of all) inlineZone.appendChild(btn);
+    const active = all.filter((btn) => !btn.classList.contains('appbar-view-hidden') && btn.style.display !== 'none');
+    const BTN_W = 40;
+    const CENTER_MIN = 150;
+    const LEFT_W = 40;
+    const PADDING = 30;
+    const barWidth = bar.clientWidth;
+    if (!barWidth) {
+      menu.style.display = 'none';
+      return;
+    }
+    const available = barWidth - LEFT_W - CENTER_MIN - PADDING - BTN_W;
+    const overflowing: HTMLElement[] = [];
+    let used = 0;
+    for (const btn of active) {
+      used += BTN_W;
+      if (used > available) overflowing.push(btn);
+    }
+    // If everything fits once the ⋯ slot is reclaimed, keep it all inline.
+    if (overflowing.length > 0 && active.length * BTN_W <= available + BTN_W) overflowing.length = 0;
+    for (const btn of overflowing) panel.appendChild(btn);
+    menu.style.display = overflowing.length > 0 ? 'flex' : 'none';
+    if (overflowing.length === 0) panel.classList.remove('open');
   }
 
   private setupEventListeners(): void {
@@ -1172,6 +1321,7 @@ export class UIManager extends EventEmitter {
       sendButton.addEventListener('click', () => {
         const message = messageInput.value.trim();
         if (message) {
+          if (!this.allowOutgoingMessage(message)) return;
           this.emit('sendMessage', { conversationId: 'default', message });
           messageInput.value = '';
         }
@@ -1478,15 +1628,9 @@ export class UIManager extends EventEmitter {
         }
         this.syncHeaderStatusView(targetView);
 
-        // Show/hide create talk button based on view
-        if (headerActions) {
-          headerActions.style.display = 'flex';
-          if (targetView === 'chatrooms' || targetView === 'talks') {
-            headerActions.style.visibility = 'visible';
-          } else {
-            headerActions.style.visibility = 'hidden';
-          }
-        }
+        // Show only the AppBar controls scoped to this view (redesign §1–§3).
+        if (headerActions) headerActions.style.display = 'flex';
+        this.syncAppBarActionsForView(targetView);
 
         // Special handling for chatrooms view
         if (targetView === 'chatrooms') {
@@ -1630,6 +1774,7 @@ export class UIManager extends EventEmitter {
       homeBtn.style.display = 'inline-flex';
     }
     this.syncReturnHomeButton();
+    this.syncAppBarOverflow();
   }
 
   isTravelModeActive(): boolean {
@@ -1640,8 +1785,12 @@ export class UIManager extends EventEmitter {
     return this.travelHomeChatroomId;
   }
 
-  showContactsList(): void {
-    openContactsList({
+  /**
+   * The single ContactsViewDeps builder — every contacts-view entry point uses this
+   * object (key invariant: the deps object must stay complete at every call site).
+   */
+  private contactsViewDeps(onSortRerender?: () => void): ContactsViewDeps {
+    return {
       apiBase: this.apiBase,
       currentUserId: this.currentUserId,
       escapeHtml: escapeHtml,
@@ -1650,7 +1799,9 @@ export class UIManager extends EventEmitter {
       isBlockedByMe: this.isBlockedByMe.bind(this),
       getPeerName: this.getPeerName.bind(this),
       resolvePeerStageName: this.resolvePeerStageNameLive.bind(this),
-      openPeerDetail: this.openPeerDetailForUser.bind(this),
+      // Rule N2a (redesign §5): a contact click lands on the DM Conversation directly,
+      // with the shared User layout underneath — identical to a chatroom member click.
+      openPeerDetail: this.openUserConversationFirst.bind(this),
       getMyConversations: this.getMyConversations.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
       saveKnownPerson: this.saveKnownPerson.bind(this),
@@ -1667,7 +1818,7 @@ export class UIManager extends EventEmitter {
       activeSortId: this.contactsSortId,
       onSortChange: (sortId: string) => {
         this.contactsSortId = sortId;
-        this.showContactsList();
+        onSortRerender?.();
       },
       beforeRender: async () => {
         if (this.contactPreRenderSync) await this.contactPreRenderSync();
@@ -1675,81 +1826,20 @@ export class UIManager extends EventEmitter {
       },
       distanceMiles: (userId: string) => this.distanceMilesFromCache(userId),
       ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
-    });
+    };
+  }
+
+  showContactsList(): void {
+    openContactsList(this.contactsViewDeps(() => this.showContactsList()));
   }
 
   displayContactsList(): void {
-    renderContactsList({
-      apiBase: this.apiBase,
-      currentUserId: this.currentUserId,
-      escapeHtml: escapeHtml,
-      getKnownPeople: this.getKnownPeople.bind(this),
-      getKnownPerson: this.getKnownPerson.bind(this),
-      isBlockedByMe: this.isBlockedByMe.bind(this),
-      getPeerName: this.getPeerName.bind(this),
-      resolvePeerStageName: this.resolvePeerStageNameLive.bind(this),
-      openPeerDetail: this.openPeerDetailForUser.bind(this),
-      getMyConversations: this.getMyConversations.bind(this),
-      getMyTalks: this.getMyTalks.bind(this),
-      saveKnownPerson: this.saveKnownPerson.bind(this),
-      submitPeerReview: this.submitPeerReview.bind(this),
-      vouchAgeVerified: this.vouchAgeVerified.bind(this),
-      setBlocked: this.setBlocked.bind(this),
-      hasSupportContact: this.hasSupportContact.bind(this),
-      isSupportNotificationsMuted: this.isSupportNotificationsMuted.bind(this),
-      setSupportNotificationsMuted: this.setSupportNotificationsMuted.bind(this),
-      text: this.t.bind(this),
-      formatLanguage: this.formatTalkLanguage.bind(this),
-      getProfileLanguages: () => this.currentUser?.languages || ['en'],
-      sortStrategies: SORT_STRATEGIES,
-      activeSortId: this.contactsSortId,
-      onSortChange: (sortId: string) => {
-        this.contactsSortId = sortId;
-        this.displayContactsList();
-      },
-      beforeRender: async () => {
-        if (this.contactPreRenderSync) await this.contactPreRenderSync();
-        await this.prefetchPeerLocations(this.getKnownPeople().map((p) => p.userId));
-      },
-      distanceMiles: (userId: string) => this.distanceMilesFromCache(userId),
-      ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
-    });
+    renderContactsList(this.contactsViewDeps(() => this.displayContactsList()));
   }
 
+  /** Legacy contact-detail entry — now lands on the shared ⟨User⟩ layout (redesign §5). */
   showContactDetail(otherUserId: string, otherUserName: string): void {
-    void openContactDetail(
-      {
-        apiBase: this.apiBase,
-        currentUserId: this.currentUserId,
-        escapeHtml: escapeHtml,
-        getKnownPeople: this.getKnownPeople.bind(this),
-        getKnownPerson: this.getKnownPerson.bind(this),
-        isBlockedByMe: this.isBlockedByMe.bind(this),
-        getPeerName: this.getPeerName.bind(this),
-      resolvePeerStageName: this.resolvePeerStageNameLive.bind(this),
-        openPeerDetail: this.openPeerDetailForUser.bind(this),
-        getMyConversations: this.getMyConversations.bind(this),
-        getMyTalks: this.getMyTalks.bind(this),
-        saveKnownPerson: this.saveKnownPerson.bind(this),
-        submitPeerReview: this.submitPeerReview.bind(this),
-        vouchAgeVerified: this.vouchAgeVerified.bind(this),
-        setBlocked: this.setBlocked.bind(this),
-        hasSupportContact: this.hasSupportContact.bind(this),
-        isSupportNotificationsMuted: this.isSupportNotificationsMuted.bind(this),
-        setSupportNotificationsMuted: this.setSupportNotificationsMuted.bind(this),
-        text: this.t.bind(this),
-        formatLanguage: this.formatTalkLanguage.bind(this),
-        getProfileLanguages: () => this.currentUser?.languages || ['en'],
-        sortStrategies: SORT_STRATEGIES,
-        activeSortId: this.contactsSortId,
-        onSortChange: (sortId: string) => {
-          this.contactsSortId = sortId;
-        },
-        ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
-      },
-      otherUserId,
-      otherUserName,
-    );
+    this.openUserConversationFirst(otherUserId, otherUserName);
   }
 
   private chatroomsDeps(): Parameters<typeof renderChatrooms>[0] {
@@ -1767,7 +1857,9 @@ export class UIManager extends EventEmitter {
       setCurrentChatroomMembers: (members) => { this.currentChatroomMembers = members; },
       escapeHtml: escapeHtml,
       renderChatroomList: this.renderChatroomList.bind(this),
-      openPeerDetail: this.openPeerDetailForUser.bind(this),
+      // Rule N2a (redesign §5): a member click lands on the DM Conversation directly,
+      // with the User layout underneath.
+      openPeerDetail: this.openUserConversationFirst.bind(this),
       emit: (eventName, payload) => this.emit(eventName, payload),
       currentUserId: this.currentUserId,
       apiBase: this.apiBase,
@@ -2933,6 +3025,9 @@ export class UIManager extends EventEmitter {
       this.currentLocation,
     );
     const hiddenIncomingText = this.formatReasonCounts(filteredIncoming.hiddenByReason);
+    const dirtyWordList = talkFilters.dirtyWords === undefined
+      ? [...DEFAULT_DIRTY_WORDS]
+      : normalizeDirtyWords(talkFilters.dirtyWords);
     const homeOptions = [
       ...getFlatChatroomList().map((room) => ({
         id: room.id,
@@ -3106,8 +3201,28 @@ export class UIManager extends EventEmitter {
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-grammar-filter" ${talkFilters.requireGoodGrammar ? 'checked' : ''}> ${this.t('settingsGrammar')}</label>
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-dirty-words-filter" ${talkFilters.blockDirtyWords ? 'checked' : ''}> ${this.t('settingsDirtyWords')}</label>
           </div>
-          <div style="font-size:0.8em;color:#64748b;margin-top:8px;">${this.t('settingsGrammarHelp')}</div>
+          <div style="font-size:0.8em;color:#64748b;margin-top:8px;">${this.t('settingsGrammarHelp')} ${this.tf('settingsGrammarStrictness', { threshold: String(CONFIG.GRAMMAR_THRESHOLD) })}</div>
           <div style="font-size:0.8em;color:#64748b;margin-top:4px;">${this.t('settingsDirtyWordsHelp')}</div>
+          <div id="settings-dirty-words-editor" style="margin-top:10px;">
+            <div style="font-size:0.9em;font-weight:600;margin-bottom:6px;">${this.t('settingsDirtyWordsListLabel')}</div>
+            <div id="dirty-word-chips" data-testid="dirty-word-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
+              ${dirtyWordList
+                .map((word) => `
+                  <span class="dirty-word-chip" data-testid="dirty-word-chip" data-word="${escapeHtml(word)}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid #d1d5db;border-radius:999px;background:#f8fafc;font-size:0.85em;">
+                    <span>${escapeHtml(word)}</span>
+                    <button type="button" class="dirty-word-chip-remove" data-testid="dirty-word-chip-remove" data-word="${escapeHtml(word)}" aria-label="remove ${escapeHtml(word)}" style="border:none;background:none;cursor:pointer;color:#64748b;font-size:1em;line-height:1;padding:0;">✕</button>
+                  </span>
+                `)
+                .join('')}
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <input type="text" class="form-input" id="dirty-word-add-input" data-testid="dirty-word-add-input" placeholder="${this.t('settingsDirtyWordAddPlaceholder')}" maxlength="48" style="flex:1;min-width:140px;">
+              <button type="button" class="btn" id="dirty-word-add-btn" data-testid="dirty-word-add-btn">${this.t('settingsDirtyWordAdd')}</button>
+              <button type="button" class="btn" id="dirty-word-reset-btn" data-testid="dirty-word-reset-btn">${this.t('settingsDirtyWordReset')}</button>
+            </div>
+            <div id="dirty-word-error" data-testid="dirty-word-error" style="font-size:0.8em;color:#dc2626;margin-top:4px;min-height:1em;"></div>
+            <div style="font-size:0.8em;color:#64748b;margin-top:2px;">${this.t('settingsDirtyWordsListHelp')}</div>
+          </div>
           <div style="margin-top:12px;">
             <div style="font-size:0.9em;margin-bottom:6px;">${this.t('settingsAllowedTypes')}</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px;">
@@ -3131,6 +3246,24 @@ export class UIManager extends EventEmitter {
             ${!this.currentLocation && (this.incomingTalkClusters || []).some((c: any) => c?.latestTalk?.locationRadiusMiles != null || c?.locationRadiusMiles != null) ? `<div style="color:#b45309;font-style:italic;margin-top:4px;">${escapeHtml(this.t('filterLocationPending'))}</div>` : ''}
           </div>
         </section>
+        <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+            <div>
+              <div style="font-weight:700;color:#111827;">${this.t('settingsLinkedDevices')}</div>
+              <div style="font-size:0.82em;color:#64748b;">${this.t('settingsLinkedDevicesHelp')}</div>
+            </div>
+            <button type="button" class="btn" id="settings-linked-devices-btn" data-testid="settings-linked-devices-btn">${this.t('settingsManage')}</button>
+          </div>
+        </section>
+        <section style="padding:16px;background:#fff;border:1px solid #fecaca;border-radius:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+            <div>
+              <div style="font-weight:700;color:#b91c1c;">${this.t('settingsEraseDevice')}</div>
+              <div style="font-size:0.82em;color:#64748b;">${this.t('settingsEraseDeviceHelp')}</div>
+            </div>
+            <button type="button" class="btn" id="settings-erase-device-btn" data-testid="settings-erase-device-btn" style="background:#dc2626;color:#fff;">${this.t('settingsEraseDevice')}</button>
+          </div>
+        </section>
         <section id="settings-storage-inspector" style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
             <div style="font-weight:700;color:#111827;">${this.t('settingsStorage')}</div>
@@ -3142,6 +3275,232 @@ export class UIManager extends EventEmitter {
     `;
     this.bindSettingsControls();
     void this.refreshStorageInspector();
+  }
+
+  /**
+   * The message filters currently in effect for this device (dirty-word list +
+   * grammar). Falls back to persisted intake filters when the user record is not
+   * loaded, so the same rules apply everywhere. (redesign §9.3)
+   */
+  private messageFilters(): Pick<TalkIntakeFilters, 'blockDirtyWords' | 'requireGoodGrammar' | 'dirtyWords'> {
+    return this.currentUser?.talkFilters ?? getTalkIntakeFilters();
+  }
+
+  /**
+   * Send-path guard (redesign §9.1/§9.2). Runs the shared outgoing filter; on a
+   * hit it fires a warning toast (with `data-content-filter-notification`) and
+   * returns false so the caller leaves the composer text intact and sends nothing.
+   */
+  private allowOutgoingMessage(message: string): boolean {
+    const result = filterOutgoingMessage(message, this.messageFilters());
+    if (result.passed) return true;
+    this.showContentFilterToast(result, 'send');
+    return false;
+  }
+
+  /**
+   * Receive-path check (redesign §9.1/§9.2). Returns true when an incoming message
+   * should be hidden at render (it stays in the Gun graph). Fires one toast per
+   * hidden message.
+   */
+  public shouldHideIncomingMessage(message: string): MessageFilterResult {
+    return filterIncomingMessage(message, this.messageFilters());
+  }
+
+  private showContentFilterToast(result: MessageFilterResult, direction: 'send' | 'receive'): void {
+    const dirty = result.reason === 'dirty_words';
+    let text: string;
+    let attr: string;
+    if (direction === 'send') {
+      text = dirty
+        ? `${this.t('messageBlockedDirtyWord')}${result.word ? ` ('${result.word}')` : ''}`
+        : this.t('messageBlockedGrammar');
+      attr = dirty ? 'send' : 'grammar-send';
+    } else {
+      text = dirty ? this.t('messageHiddenDirtyWord') : this.t('messageHiddenGrammar');
+      attr = dirty ? 'receive' : 'grammar-receive';
+    }
+    this.showNotification(text, 'error', { contentFilter: attr });
+  }
+
+  /**
+   * Wire the dirty-word list editor (chips + add/remove/reset). `onChange` is the
+   * settings `sync()` closure — every mutation re-reads the chips and persists.
+   */
+  private bindDirtyWordEditor(onChange: () => void): void {
+    const chips = document.getElementById('dirty-word-chips');
+    const input = document.getElementById('dirty-word-add-input') as HTMLInputElement | null;
+    const addBtn = document.getElementById('dirty-word-add-btn');
+    const resetBtn = document.getElementById('dirty-word-reset-btn');
+    const errorEl = document.getElementById('dirty-word-error');
+    if (!chips) return;
+
+    const showError = (message: string): void => {
+      if (errorEl) errorEl.textContent = message;
+    };
+    const currentWords = (): string[] =>
+      Array.from(chips.querySelectorAll<HTMLElement>('.dirty-word-chip'))
+        .map((el) => el.getAttribute('data-word') || '')
+        .filter(Boolean);
+    const renderChips = (words: string[]): void => {
+      chips.innerHTML = words
+        .map((word) => {
+          const safe = escapeHtml(word);
+          return `<span class="dirty-word-chip" data-testid="dirty-word-chip" data-word="${safe}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid #d1d5db;border-radius:999px;background:#f8fafc;font-size:0.85em;"><span>${safe}</span><button type="button" class="dirty-word-chip-remove" data-testid="dirty-word-chip-remove" data-word="${safe}" aria-label="remove ${safe}" style="border:none;background:none;cursor:pointer;color:#64748b;font-size:1em;line-height:1;padding:0;">✕</button></span>`;
+        })
+        .join('');
+    };
+
+    const addWord = (): void => {
+      if (!input) return;
+      const raw = input.value.trim().toLowerCase();
+      showError('');
+      if (raw.length < 2) {
+        showError(this.t('settingsDirtyWordTooShort'));
+        return;
+      }
+      const existing = currentWords();
+      if (existing.length >= 50) {
+        showError(this.t('settingsDirtyWordLimit'));
+        return;
+      }
+      const [normalized] = normalizeDirtyWords([raw]);
+      if (!normalized) {
+        showError(this.t('settingsDirtyWordTooShort'));
+        return;
+      }
+      if (existing.includes(normalized)) {
+        showError(this.t('settingsDirtyWordDuplicate'));
+        return;
+      }
+      renderChips([...existing, normalized]);
+      input.value = '';
+      onChange();
+    };
+
+    addBtn?.addEventListener('click', addWord);
+    input?.addEventListener('keydown', (event) => {
+      if ((event as KeyboardEvent).key === 'Enter') {
+        event.preventDefault();
+        addWord();
+      }
+    });
+    chips.addEventListener('click', (event) => {
+      const target = (event.target as HTMLElement)?.closest('.dirty-word-chip-remove') as HTMLElement | null;
+      if (!target) return;
+      const word = target.getAttribute('data-word');
+      if (!word) return;
+      showError('');
+      renderChips(currentWords().filter((w) => w !== word));
+      onChange();
+    });
+    resetBtn?.addEventListener('click', () => {
+      showError('');
+      renderChips([...DEFAULT_DIRTY_WORDS]);
+      onChange();
+    });
+  }
+
+  /**
+   * Open the Linked devices page (§10 / item I). Uses the local display model for
+   * the list and the shared pairing protocol for code validation; signed-attestation
+   * publishing is delegated to the identity-link service when the app wires one
+   * (via `setIdentityLinkCompleter`), else a local record is recorded so the
+   * single-device page flows (stage1/71) are exercised.
+   */
+  private openLinkedDevicesDialog(): void {
+    const LOCAL_KEY = 'iinpublic_linked_devices';
+    const listRecords = (): LinkedDeviceRow[] => {
+      try {
+        const arr = JSON.parse(localStorage.getItem(LOCAL_KEY) || '[]');
+        return Array.isArray(arr) ? arr : [];
+      } catch {
+        return [];
+      }
+    };
+    const saveRecords = (rows: LinkedDeviceRow[]): void => localStorage.setItem(LOCAL_KEY, JSON.stringify(rows));
+    showLinkedDevicesDialog({
+      text: (key: string, fallback?: string) => {
+        const value = this.t(key as any);
+        return value && value !== key ? value : (fallback ?? key);
+      },
+      listRecords,
+      selfPub: () => this.currentUserId || '',
+      randomSecret: () => {
+        const bytes = new Uint8Array(18);
+        (globalThis.crypto || (window as any).crypto).getRandomValues(bytes);
+        return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+      },
+      completeFromCode: async (code: string) => {
+        const decoded = decodePairingCode(code);
+        if (!decoded) return 'invalid';
+        if (decoded.pub === (this.currentUserId || '')) return 'self';
+        if (isPairingExpired(decoded)) return 'expired';
+        const rows = listRecords();
+        if (rows.some((r) => r.pub === decoded.pub)) return 'reused';
+        if (this.identityLinkCompleter) {
+          const err = await this.identityLinkCompleter(code);
+          if (err) return err;
+        }
+        rows.push({ pub: decoded.pub, stageName: this.t('linkedDeviceDefaultName'), platform: 'web', linkedAt: Date.now() });
+        saveRecords(rows);
+        return null;
+      },
+      unlink: async (pub: string) => {
+        if (this.identityLinkUnlinker) await this.identityLinkUnlinker(pub);
+        saveRecords(listRecords().filter((r) => r.pub !== pub));
+      },
+    });
+  }
+
+  /**
+   * Open the Erase-this-device flow (§11 / item J). Offers a handoff sync when a
+   * linked personal device is recorded; otherwise a plain type-`ERASE` wipe. The
+   * wipe clears all device storage and reloads to a fresh boot.
+   */
+  private openEraseDeviceDialog(): void {
+    let linked: LinkedDeviceRow[] = [];
+    try {
+      const arr = JSON.parse(localStorage.getItem('iinpublic_linked_devices') || '[]');
+      linked = Array.isArray(arr) ? arr : [];
+    } catch {
+      linked = [];
+    }
+    showEraseDeviceDialog({
+      text: (key: string, fallback?: string) => {
+        const value = this.t(key as any);
+        return value && value !== key ? value : (fallback ?? key);
+      },
+      hasLinkedDevice: linked.length > 0,
+      ...(linked[0]?.stageName ? { linkedDeviceName: linked[0].stageName } : {}),
+      onErase: async () => {
+        await eraseDevice({
+          revokeLinks: async () => {
+            if (this.identityLinkUnlinker) {
+              for (const r of linked) await this.identityLinkUnlinker(r.pub).catch(() => {});
+            }
+          },
+        });
+      },
+      ...(this.deviceHandoffSync ? { onSyncFirst: this.deviceHandoffSync } : {}),
+    });
+  }
+
+  /** Optional handoff-sync hook the app wires for §11.2 (encrypted archive transfer). */
+  private deviceHandoffSync?: (progress: (category: import('../../shared/device-handoff').HandoffCategory) => void) => Promise<void>;
+  setDeviceHandoffSync(fn: (progress: (category: import('../../shared/device-handoff').HandoffCategory) => void) => Promise<void>): void {
+    this.deviceHandoffSync = fn;
+  }
+
+  /** Optional hooks the app wires to publish real signed attestations/revocations (§10). */
+  private identityLinkCompleter?: (code: string) => Promise<'invalid' | 'expired' | 'reused' | 'self' | null>;
+  private identityLinkUnlinker?: (pub: string) => Promise<void>;
+  setIdentityLinkHooks(hooks: {
+    completeFromCode?: (code: string) => Promise<'invalid' | 'expired' | 'reused' | 'self' | null>;
+    unlink?: (pub: string) => Promise<void>;
+  }): void {
+    if (hooks.completeFromCode) this.identityLinkCompleter = hooks.completeFromCode;
+    if (hooks.unlink) this.identityLinkUnlinker = hooks.unlink;
   }
 
   private bindSettingsControls(): void {
@@ -3168,12 +3527,14 @@ export class UIManager extends EventEmitter {
       const sentAfterEl = document.getElementById('settings-sent-after') as HTMLInputElement | null;
       const customBlockedEl = document.getElementById('settings-custom-blocked') as HTMLTextAreaElement | null;
       const typeEls = Array.from(document.querySelectorAll('.settings-talk-filter-type')) as HTMLInputElement[];
+      const dirtyWordEls = Array.from(document.querySelectorAll<HTMLElement>('#dirty-word-chips .dirty-word-chip'));
       const nextFilters: TalkIntakeFilters = {
         allowedLanguages: filterLanguages,
         requireGoodGrammar: !!(document.getElementById('settings-grammar-filter') as HTMLInputElement | null)?.checked,
         blockDirtyWords: !!(document.getElementById('settings-dirty-words-filter') as HTMLInputElement | null)?.checked,
         allowedTalkTypes: typeEls.filter((el) => el.checked).map((el) => el.value as any),
         customBlockedTerms: normalizeCustomBlockedTerms((customBlockedEl?.value || '').split(/[\n,]+/).map((part) => part.trim()).filter(Boolean)),
+        dirtyWords: normalizeDirtyWords(dirtyWordEls.map((el) => el.getAttribute('data-word') || '')),
       };
       if (nextFilters.allowedLanguages.length === 0) nextFilters.allowedLanguages = ['en'];
       if (nextFilters.allowedTalkTypes.length === 0) nextFilters.allowedTalkTypes = ['flow', 'survey', 'tag', 'route'];
@@ -3193,6 +3554,12 @@ export class UIManager extends EventEmitter {
         return;
       }
       setTalkIntakeFilters(nextFilters);
+      // Message filters changed: re-render any open conversation so toggling a
+      // filter off reveals previously hidden messages (and on reveals fresh
+      // toasts can fire if re-enabled later). (redesign §9.1)
+      if (this.currentUser) this.currentUser.talkFilters = nextFilters;
+      this.hiddenMessageToastIds.clear();
+      this.rerenderOpenConversation();
       const langCount = document.getElementById('settings-filter-languages-count');
       if (langCount) langCount.textContent = `${nextFilters.allowedLanguages.length} ${this.t('settingsActive')}`;
       const filteredIncomingSummary = document.getElementById('settings-filtered-incoming-summary');
@@ -3244,6 +3611,9 @@ export class UIManager extends EventEmitter {
       setDefaultTalkLanguagePreference(value);
     });
     document.getElementById('settings-custom-blocked')?.addEventListener('input', sync);
+    this.bindDirtyWordEditor(sync);
+    document.getElementById('settings-linked-devices-btn')?.addEventListener('click', () => this.openLinkedDevicesDialog());
+    document.getElementById('settings-erase-device-btn')?.addEventListener('click', () => this.openEraseDeviceDialog());
     document.getElementById('settings-home-room')?.addEventListener('change', (event) => {
       this.emit('setHomeChatroom', {
         chatroomId: (event.currentTarget as HTMLSelectElement).value,
@@ -4414,7 +4784,7 @@ export class UIManager extends EventEmitter {
     });
   }
 
-  showConversationDetail(conversationId: string): void {
+  showConversationDetail(conversationId: string, threadTalkId?: string): void {
     const conversations = this.getMyConversations();
     const conversation = conversations[conversationId];
 
@@ -4427,6 +4797,9 @@ export class UIManager extends EventEmitter {
     if (overlay) overlay.style.display = 'flex';
 
     this.currentConversationId = conversationId;
+    // Per-talk Thread scope (redesign §5): messages and the composer are bound to one
+    // matched talk; without a talkId this is the pair's talk-independent DM thread.
+    this.currentThreadTalkId = threadTalkId && threadTalkId !== 'direct' ? threadTalkId : undefined;
 
     // Update header with user name. The name embedded in the conversation record was
     // captured at match time and goes stale when the peer renames. Resolve the live name
@@ -4449,6 +4822,23 @@ export class UIManager extends EventEmitter {
     }
     const status = document.getElementById('conversation-status');
     if (status) status.textContent = this.t('online');
+    // Per-talk Thread pages (redesign §5) share this component; show the talk scope line
+    // when this view is bound to a matched talk.
+    const threadScope = document.getElementById('conversation-thread-scope');
+    if (threadScope) {
+      const talkId = this.currentThreadTalkId || '';
+      if (talkId && conversation.supportChannel !== true) {
+        const talk = this.getMyTalks()[talkId] as any;
+        const talkTitle = talk?.title || talk?.fullTalk?.title || `${this.t('peerTalkFallback')} ${talkId.slice(0, 8)}`;
+        threadScope.textContent = `🧵 ${talkTitle}`;
+        threadScope.style.display = 'block';
+        threadScope.dataset.talkId = talkId;
+      } else {
+        threadScope.textContent = '';
+        threadScope.style.display = 'none';
+        delete threadScope.dataset.talkId;
+      }
+    }
     const transportStatus = document.getElementById('conversation-transport-status');
     if (transportStatus) {
       const mode = String(conversation.transportMode || 'star-gun');
@@ -4468,9 +4858,28 @@ export class UIManager extends EventEmitter {
       messagesContainer.innerHTML = `<p style="text-align: center; padding: 20px; color: #999;">${escapeHtml(this.t('conversationStart'))}</p>`;
     }
 
-    // The message subscription records a durable read cursor once it has the latest message.
-    conversation.unread = false;
-    conversation.unreadCount = 0;
+    // Record the read cursor for the OPENED scope only (per-thread read state,
+    // redesign §5); other threads of the pair keep their unread counts.
+    const openKey = this.currentThreadTalkId || 'direct';
+    const summaries = (conversation.threadSummaries && typeof conversation.threadSummaries === 'object'
+      ? conversation.threadSummaries
+      : {}) as Record<string, { lastMessage?: string; lastMessageTime?: string; unreadCount?: number }>;
+    if (summaries[openKey]) {
+      summaries[openKey].unreadCount = 0;
+      const cursorKey = 'iinpublic:conversation-read-cursors';
+      let cursors: Record<string, { timestamp: string; id?: string }> = {};
+      try { cursors = JSON.parse(localStorage.getItem(cursorKey) || '{}'); } catch { /* ignore malformed local data */ }
+      cursors[openKey === 'direct' ? conversationId : `${conversationId}#${openKey}`] = {
+        timestamp: summaries[openKey].lastMessageTime || new Date().toISOString(),
+      };
+      localStorage.setItem(cursorKey, JSON.stringify(cursors));
+    }
+    const remainingUnread = Object.values(summaries).reduce(
+      (total, summary) => total + (Number(summary?.unreadCount) || 0),
+      0,
+    );
+    conversation.unreadCount = remainingUnread;
+    conversation.unread = remainingUnread > 0;
     localStorage.setItem('myConversations', JSON.stringify(conversations));
     this.updateMatchBadge();
 
@@ -4486,6 +4895,10 @@ export class UIManager extends EventEmitter {
       newBackBtn?.addEventListener('click', () => {
         if (overlay) overlay.style.display = 'none';
         this.currentConversationId = undefined;
+        this.currentThreadTalkId = undefined;
+        // If the shared ⟨User⟩ layout is open underneath (rule N2a), refresh its
+        // thread rows so snippets/unread badges reflect this visit.
+        this.refreshOpenPeerThreadList();
       });
     }
 
@@ -4504,7 +4917,14 @@ export class UIManager extends EventEmitter {
       const sendMessage = () => {
         const message = messageInput.value.trim();
         if (message) {
-          this.emit('sendConversationMessage', { conversationId, message });
+          // Send-path content filter (redesign §9): a blocked message is not sent
+          // and the composer text is preserved for editing.
+          if (!this.allowOutgoingMessage(message)) return;
+          this.emit('sendConversationMessage', {
+            conversationId,
+            message,
+            ...(this.currentThreadTalkId ? { talkId: this.currentThreadTalkId } : {}),
+          });
           messageInput.value = '';
         }
       };
@@ -4661,7 +5081,7 @@ export class UIManager extends EventEmitter {
         `;
       const headshotChoices = ['🙂', '😎', '🤠', '🎾', '☕', '🌟', '🐱', '🦊'];
       modal.innerHTML = `
-        <div class="modal-content" style="max-width:760px;">
+        <div class="modal-content size-l modal-fullscreen" style="max-width:760px;">
           <div class="modal-header">
             <h2 class="modal-title">${this.t('editProfile')}</h2>
             <p>${escapeHtml(this.t('profileDialogDescription'))}</p>
@@ -4822,7 +5242,7 @@ export class UIManager extends EventEmitter {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.innerHTML = `
-      <div class="modal-content" style="max-width:860px;">
+      <div class="modal-content size-l modal-fullscreen" style="max-width:860px;">
         <div class="modal-header">
           <h2 class="modal-title">${this.t('surveyAnalyticsTitle')}</h2>
           <p style="margin:0;color:#64748b;font-size:0.92em;">${escapeHtml(title)}</p>
@@ -6210,17 +6630,24 @@ export class UIManager extends EventEmitter {
   showNotification(
     message: string,
     type: 'success' | 'error' | 'info' | 'warning' = 'info',
-    options?: { persistent?: boolean },
+    options?: { persistent?: boolean; conversationId?: string; contentFilter?: string },
   ): void {
     if (this.notificationsSuppressedForE2e) return;
 
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
     notification.textContent = message;
+    // Content-filter toasts (redesign §9) carry a marker so E2E can assert the
+    // send/receive block without matching on translated text.
+    if (options?.contentFilter) {
+      notification.dataset.contentFilterNotification = options.contentFilter;
+    }
 
-    // Durable talk-match notices intentionally stay until dismissed. Callers can override the
-    // content-based detection via `options.persistent` — e.g. the "can now chat" conversation
-    // banner also starts with the "Match!" prefix but should auto-dismiss like any other toast.
+    // Match! notices keep their marker attribute (E2E asserts on it) but are no longer
+    // durable: every toast auto-dismisses — Match! after 8s, everything else after 3s
+    // (redesign §4, rule G1). `options.persistent` stays as a caller override for the
+    // marker only — e.g. the "can now chat" banner starts with the Match! prefix but is
+    // an ordinary toast.
     const isMatchNotification =
       options?.persistent ??
       (message.startsWith(this.t('talksMatchNoticePrefix')) ||
@@ -6229,22 +6656,28 @@ export class UIManager extends EventEmitter {
     if (isMatchNotification) {
       notification.dataset.matchNotification = 'true';
     }
-    // All toasts stay dismissible while sitting below the fixed header.
+    // All toasts are click-to-dismiss; a Match! toast with a conversation navigates to it
+    // on click (rule N6).
     notification.style.cursor = 'pointer';
     notification.addEventListener('click', () => {
       if (document.body.contains(notification)) document.body.removeChild(notification);
+      if (isMatchNotification && options?.conversationId) {
+        this.showConversationDetail(options.conversationId);
+      }
     });
 
     document.body.appendChild(notification);
 
-    if (!isMatchNotification) {
-      const hideAfter = message === this.t('chatroomNoTalksToBroadcast') ? 10000 : 3000;
-      setTimeout(() => {
-        if (document.body.contains(notification)) {
-          document.body.removeChild(notification);
-        }
-      }, hideAfter);
-    }
+    const hideAfter = isMatchNotification
+      ? 8000
+      : message === this.t('chatroomNoTalksToBroadcast')
+        ? 10000
+        : 3000;
+    setTimeout(() => {
+      if (document.body.contains(notification)) {
+        document.body.removeChild(notification);
+      }
+    }, hideAfter);
   }
 
   /** Offer the most specific privacy-safe location room without moving the user implicitly. */
@@ -6982,6 +7415,27 @@ export class UIManager extends EventEmitter {
     }
   }
 
+  /**
+   * Rule N2a (redesign §5/§7): clicking a user anywhere pushes two levels in one
+   * action — the shared ⟨User⟩ layout, then the default DM ⟨Conv⟩ on top. Back then
+   * pops normally: Conversation → User layout → opener.
+   */
+  public openUserConversationFirst(userId: string, stageName: string): void {
+    this.openPeerDetailForUser(userId, stageName);
+    void this.openDirectConversationWithPeer(userId, stageName);
+  }
+
+  private async openDirectConversationWithPeer(peerId: string, peerName: string): Promise<void> {
+    try {
+      const conversationId = await new Promise<string>((resolve, reject) => {
+        this.emit('openDirectConversation', { peerId, peerName, resolve, reject });
+      });
+      if (conversationId) this.showConversationDetail(conversationId);
+    } catch {
+      // The ⟨User⟩ layout stays on screen when the DM channel cannot be opened.
+    }
+  }
+
   private openPeerDetailForUser(userId: string, stageName: string): void {
     const knownPerson = this.getKnownPerson(userId);
     const deps = {
@@ -6990,6 +7444,7 @@ export class UIManager extends EventEmitter {
       getMyConversations: this.getMyConversations.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
       getCurrentInterests: () => Array.isArray(this.currentUser?.interests) ? this.currentUser!.interests : [],
+      getProfileLanguages: () => this.currentUser?.languages || ['en'],
       showConversationDetail: this.showConversationDetail.bind(this),
       registerTalkForPeer: this.registerTalkForPeer.bind(this),
       isBlockedByMe: this.isBlockedByMe.bind(this),
@@ -7017,12 +7472,48 @@ export class UIManager extends EventEmitter {
       ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
       sendDirectMessage: (peerId: string, peerName: string, text: string) => {
         return new Promise<void>((resolve, reject) => {
+          // Send-path content filter (redesign §9): block before emitting so no
+          // message leaves the device; the composer keeps its text.
+          if (!this.allowOutgoingMessage(text)) {
+            reject(new Error('content_filter_blocked'));
+            return;
+          }
           this.emit('sendDirectMessage', { peerId, peerName, text, resolve, reject });
         });
       },
+      openDirectConversation: (peerId: string, peerName: string) => {
+        void this.openDirectConversationWithPeer(peerId, peerName);
+      },
+      renderPeerContext: (container: HTMLElement, peerId: string, peerName: string) => {
+        this.renderPeerContextSection(container, peerId, peerName);
+      },
+      resolvePeerStageName: this.resolvePeerStageNameLive.bind(this),
       ...(knownPerson ? { knownPerson } : {}),
     };
     openPeerDetailView(userId, stageName, deps);
+  }
+
+  /**
+   * Relationship/credit context + editor entry for the shared ⟨User⟩ layout —
+   * the same renderer the old contact-detail page used (redesign §5 parity).
+   */
+  private renderPeerContextSection(container: HTMLElement, peerId: string, peerName: string): void {
+    container.innerHTML = '';
+    const deps = this.contactsViewDeps(() => this.displayContactsList());
+    const button = document.createElement('button');
+    button.id = 'contact-edit-relationship-btn';
+    button.className = 'btn';
+    button.type = 'button';
+    button.setAttribute('data-testid', 'contact-edit-relationship-btn');
+    button.textContent = this.t(
+      peerId === TECHSUPPORT_ROOT_USER_ID ? 'contactSupportControls' : 'contactRelationshipCredit',
+    );
+    button.style.cssText = 'margin:12px 16px 0;padding:6px 12px;font-size:0.85em;';
+    button.addEventListener('click', () => {
+      void openRelationshipDialog(deps, peerId, peerName);
+    });
+    container.appendChild(button);
+    renderContactContextSummaryInto(container, deps, peerId, null, this.isBlockedByMe(peerId), false);
   }
 
   private getKnownPeople(): KnownPerson[] {
@@ -7244,11 +7735,38 @@ export class UIManager extends EventEmitter {
     }
   }
 
+  /** True when a message belongs to the currently open thread scope (DM vs per-talk). */
+  private messageInCurrentThread(msg: { talkId?: string }): boolean {
+    const msgTalkId = String(msg?.talkId || '');
+    if (this.currentThreadTalkId) return msgTalkId === this.currentThreadTalkId;
+    // DM scope: legacy messages (no talkId) and explicit direct messages.
+    return !msgTalkId || msgTalkId === 'direct';
+  }
+
+  /** Re-render the thread rows of an open ⟨User⟩ layout (unread badges, snippets). */
+  private refreshOpenPeerThreadList(): void {
+    const overlay = document.getElementById('peer-detail-overlay');
+    if (!overlay || overlay.style.display === 'none') return;
+    refreshPeerThreadList();
+  }
+
+  /** Re-render the open conversation from the last synced messages (filter toggle, §9). */
+  private rerenderOpenConversation(): void {
+    if (!this.currentConversationId) return;
+    this.displayConversationMessages(this.currentConversationId, this.lastConversationMessages);
+  }
+
   displayConversationMessages(conversationId: string, messages: any[]): void {
     if (this.currentConversationId !== conversationId) return;
 
     const messagesContainer = document.getElementById('conversation-messages');
     if (!messagesContainer) return;
+
+    // Thread isolation (redesign §5): only the open scope's messages render here.
+    messages = messages.filter((msg) => this.messageInCurrentThread(msg));
+    // Cache for filter-toggle re-render (§9): toggling a filter off must reveal
+    // previously hidden messages without waiting for a new sync event.
+    this.lastConversationMessages = messages;
 
     if (messages.length === 0) {
       messagesContainer.innerHTML = `
@@ -7260,6 +7778,7 @@ export class UIManager extends EventEmitter {
     }
 
     const isSupportChannel = this.getMyConversations()[conversationId]?.supportChannel === true;
+    const toastQueue: MessageFilterResult[] = [];
     messagesContainer.innerHTML = messages
       .map((msg) => {
         // `Message` objects from GunMessageStore never carry `isOwnMessage` (that field
@@ -7267,16 +7786,39 @@ export class UIManager extends EventEmitter {
         // from senderId here so a user's own DMs render with the "message-own" style
         // instead of always falling through to "message-other".
         const isOwn = !!this.currentUserId && String(msg.senderId || '') === this.currentUserId;
+        const text = String(msg.text || '');
+        // Receive-path content filter (redesign §9): a receiver's own filters hide
+        // incoming messages at render (they stay in the Gun graph). Never hide your
+        // own outgoing messages.
+        if (!isOwn) {
+          const verdict = this.shouldHideIncomingMessage(text);
+          if (!verdict.passed) {
+            const msgKey = String(msg.id || `${msg.senderId || ''}:${msg.timestamp || ''}`);
+            if (!this.hiddenMessageToastIds.has(msgKey)) {
+              this.hiddenMessageToastIds.add(msgKey);
+              toastQueue.push(verdict);
+            }
+            return `
+              <div class="message message-other message-hidden" data-testid="hidden-message-placeholder">
+                <div class="message-content">
+                  <div class="message-text" style="font-style:italic;color:#94a3b8;">${escapeHtml(`1 ${this.t('messageHiddenPlaceholder')}`)}</div>
+                </div>
+              </div>
+            `;
+          }
+        }
         return `
           <div class="message ${isOwn ? 'message-own' : 'message-other'}">
             <div class="message-content">
-              <div class="message-text">${escapeHtml(this.formatConversationMessage(String(msg.text || ''), isSupportChannel))}</div>
+              <div class="message-text">${escapeHtml(this.formatConversationMessage(text, isSupportChannel))}</div>
               <div class="message-time">${this.formatTalkRelativeTime(new Date(msg.timestamp))}</div>
             </div>
           </div>
         `;
       })
       .join('');
+    // Fire one toast per newly-hidden message (rule §9.1).
+    for (const verdict of toastQueue) this.showContentFilterToast(verdict, 'receive');
 
     // Scroll to bottom
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -7560,21 +8102,59 @@ export class UIManager extends EventEmitter {
     const cursorKey = 'iinpublic:conversation-read-cursors';
     let cursors: Record<string, { timestamp: string; id?: string }> = {};
     try { cursors = JSON.parse(localStorage.getItem(cursorKey) || '{}'); } catch { /* ignore malformed local data */ }
-    if (this.currentConversationId === conversationId) {
-      cursors[conversationId] = { timestamp: conversation.lastMessageTime, id: String(latest.id || '') };
-      conversation.unread = false;
-      conversation.unreadCount = 0;
-    } else {
-      const readAt = new Date(cursors[conversationId]?.timestamp || 0).getTime();
-      const unreadCount = ordered.filter((message) =>
-        String(message.senderId || '') !== currentUserId && new Date(message.timestamp || 0).getTime() > readAt,
-      ).length;
-      conversation.unreadCount = unreadCount;
-      conversation.unread = unreadCount > 0;
+
+    // Per-thread read state (redesign §5): messages group into the pair DM thread
+    // ('direct' / legacy no-talkId) and one thread per matched talk. Cursors are per
+    // thread — the DM cursor keeps the legacy `${conversationId}` key, per-talk
+    // cursors use `${conversationId}#${talkId}` — so DM and threads never leak reads
+    // into each other.
+    const threadKeyOf = (message: any): string => {
+      const talkId = String(message?.talkId || '');
+      return talkId && talkId !== 'direct' ? talkId : 'direct';
+    };
+    const cursorIdFor = (threadKey: string): string =>
+      threadKey === 'direct' ? conversationId : `${conversationId}#${threadKey}`;
+    const openThreadKey = this.currentConversationId === conversationId
+      ? (this.currentThreadTalkId || 'direct')
+      : null;
+
+    const byThread = new Map<string, any[]>();
+    for (const message of ordered) {
+      const key = threadKeyOf(message);
+      const bucket = byThread.get(key) || [];
+      bucket.push(message);
+      byThread.set(key, bucket);
     }
+
+    const threadSummaries: Record<string, { lastMessage: string; lastMessageTime: string; unreadCount: number }> = {};
+    let totalUnread = 0;
+    for (const [threadKey, bucket] of byThread) {
+      const last = bucket[bucket.length - 1];
+      const lastTime = new Date(last.timestamp || Date.now()).toISOString();
+      let unreadCount = 0;
+      if (openThreadKey === threadKey) {
+        cursors[cursorIdFor(threadKey)] = { timestamp: lastTime, id: String(last.id || '') };
+      } else {
+        const readAt = new Date(cursors[cursorIdFor(threadKey)]?.timestamp || 0).getTime();
+        unreadCount = bucket.filter((message) =>
+          String(message.senderId || '') !== currentUserId && new Date(message.timestamp || 0).getTime() > readAt,
+        ).length;
+      }
+      totalUnread += unreadCount;
+      threadSummaries[threadKey] = {
+        lastMessage: String(last.text || ''),
+        lastMessageTime: lastTime,
+        unreadCount,
+      };
+    }
+    conversation.threadSummaries = threadSummaries;
+    conversation.unreadCount = totalUnread;
+    conversation.unread = totalUnread > 0;
+
     localStorage.setItem(cursorKey, JSON.stringify(cursors));
     localStorage.setItem('myConversations', JSON.stringify(conversations));
     this.updateMatchBadge();
+    this.refreshOpenPeerThreadList();
 
     // Surface a toast when a fresh message arrives from the peer for a conversation the user
     // isn't currently viewing. Without this the only signal is the nav badge, which is easy to

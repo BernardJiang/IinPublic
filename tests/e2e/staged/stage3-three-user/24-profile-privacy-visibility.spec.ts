@@ -115,6 +115,9 @@ test.describe('Profile privacy visibility', () => {
     await member.click();
     await afterNav();
 
+    // Rule N2a: dismiss the auto-opened DM conversation to inspect the User layout.
+    await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await page.click('#back-from-conversation');
     await expect(page.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('#peer-stats-section')).toContainText('Public Profile', { timeout: 60_000 });
   }

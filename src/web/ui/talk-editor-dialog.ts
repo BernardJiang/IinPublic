@@ -44,7 +44,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
     ];
     const selectedLanguage = String(existingTalk?.language || options.defaultLanguage || 'en').toLowerCase();
     modal.innerHTML = `
-      <div class="modal-content" style="max-width: 1000px; max-height: 90vh; overflow-y: auto;">
+      <div class="modal-content size-xl modal-fullscreen" style="max-width: 1000px; max-height: 90vh; overflow-y: auto;">
         <div class="modal-header">
           <h2 class="modal-title">${isEdit ? text('editorEditTitle', 'Edit Talk') : text('editorCreateTitle', 'Create a Talk')}</h2>
           <p class="talk-editor-description">${text('editorDescription', 'Build a branching conversation flow - each answer can lead to a different question')}</p>

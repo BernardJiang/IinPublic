@@ -373,12 +373,18 @@ test.describe('Messaging edge cases', () => {
     const jerryContact = pageTom.locator(`.contact-item[data-contact-user-id="${jerryUserId}"]`).first();
     await expect(jerryContact).toBeVisible({ timeout: 15000 });
     await jerryContact.click();
-    await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
+    // Rule N2a: dismiss the auto-opened DM conversation to use the User layout.
+    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await pageTom.click('#back-from-conversation');
+    await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry', { timeout: 10000 });
     await pageTom.click('#contact-edit-relationship-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10000 });
     await pageTom.click('#contact-block-toggle-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toHaveCount(0, { timeout: 10000 });
     await afterSync();
+    // Close the User layout — it covers the bottom nav.
+    await pageTom.click('#back-from-peer-detail');
+    await afterAction();
 
     // Tom unblocks Jerry again.
     await pageTom.click('.nav-btn[data-view="contacts"]');
@@ -386,6 +392,8 @@ test.describe('Messaging edge cases', () => {
     const jerryContact2 = pageTom.locator(`.contact-item[data-contact-user-id="${jerryUserId}"]`).first();
     await expect(jerryContact2).toBeVisible({ timeout: 15000 });
     await jerryContact2.click();
+    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await pageTom.click('#back-from-conversation');
     await pageTom.click('#contact-edit-relationship-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10000 });
     await expect(pageTom.locator('#contact-block-toggle-btn')).toContainText('Unblock User', { timeout: 10000 });

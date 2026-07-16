@@ -8,7 +8,7 @@ import {
   localTalkHistoryForPeer,
 } from '../services/local-peer-derivation';
 
-type ContactsViewDeps = {
+export type ContactsViewDeps = {
   apiBase: string;
   currentUserId: string;
   escapeHtml: (text: string) => string;
@@ -325,7 +325,7 @@ function renderContactContextSummary(
   `;
 }
 
-function renderContactContextSummaryInto(
+export function renderContactContextSummaryInto(
   detailInfo: HTMLElement | null,
   deps: ContactsViewDeps,
   otherUserId: string,
@@ -417,7 +417,7 @@ async function fetchContactBlockStatus(
   return { blocked: deps.isBlockedByMe(userId), blockedBy: false };
 }
 
-async function openRelationshipDialog(
+export async function openRelationshipDialog(
   deps: ContactsViewDeps,
   userId: string,
   stageName: string,
@@ -583,7 +583,11 @@ export function showContactsList(deps: ContactsViewDeps): void {
   void displayContactsList(deps);
 }
 
+/** Monotonic render token: a re-render started later always wins over an older in-flight one. */
+let contactsRenderSeq = 0;
+
 export async function displayContactsList(deps: ContactsViewDeps): Promise<void> {
+  const renderSeq = ++contactsRenderSeq;
   const listEl = document.getElementById('contacts-list');
   if (!listEl) return;
 
@@ -596,6 +600,8 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
 
   try {
     await runBeforeRender(deps);
+    // A newer render started while we awaited — let it win (its control values are fresher).
+    if (renderSeq !== contactsRenderSeq) return;
     // P0 step 5: peers derived from local stores only — no server call.
     const rawPeers = deriveLocalPeers({
       currentUserId: deps.currentUserId,
@@ -627,9 +633,12 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
         return {};
       }
     })();
+    // Restore saved tab state only while a control still shows its markup default —
+    // never clobber a live user selection (a slow in-flight render racing a fresh
+    // change used to revert the select).
     if (controls.name && controls.name.value === '' && savedState.name) controls.name.value = savedState.name;
-    if (controls.relation && savedState.relation) controls.relation.value = savedState.relation;
-    if (controls.sort && savedState.sort) controls.sort.value = savedState.sort;
+    if (controls.relation && controls.relation.value === 'all' && savedState.relation) controls.relation.value = savedState.relation;
+    if (controls.sort && controls.sort.value === 'recent' && savedState.sort) controls.sort.value = savedState.sort;
     const persistControls = () => {
       localStorage.setItem('iinpublic_contacts_tab_state', JSON.stringify({
         name: controls.name?.value || '',
@@ -638,20 +647,18 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
         scrollTop: listEl.scrollTop || 0,
       }));
     };
-    ['input', 'change'].forEach((eventName) => {
-      controls.name?.addEventListener(eventName, () => {
-        persistControls();
-        void displayContactsList(deps);
-      }, { once: true });
-      controls.relation?.addEventListener(eventName, () => {
-        persistControls();
-        void displayContactsList(deps);
-      }, { once: true });
-      controls.sort?.addEventListener(eventName, () => {
-        persistControls();
-        void displayContactsList(deps);
-      }, { once: true });
-    });
+    // Bind persistent listeners exactly once per control element ({ once: true }
+    // re-arming dropped change events that fired while a render was in flight).
+    for (const control of [controls.name, controls.relation, controls.sort]) {
+      if (!control || control.dataset.contactsControlBound === '1') continue;
+      control.dataset.contactsControlBound = '1';
+      for (const eventName of ['input', 'change']) {
+        control.addEventListener(eventName, () => {
+          persistControls();
+          void displayContactsList(deps);
+        });
+      }
+    }
 
     const nameFilter = (controls.name?.value || '').trim().toLowerCase();
     const relationFilter = controls.relation?.value || 'all';
@@ -761,7 +768,9 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
         const userId = (el as HTMLElement).dataset.contactUserId;
         const stageName = (el as HTMLElement).dataset.contactName;
         if (userId && stageName) {
-          void showContactDetail(deps, userId, stageName);
+          // Rule N2a: contact click lands on the DM Conversation with the shared
+          // User layout underneath (same destination as a chatroom member click).
+          deps.openPeerDetail(userId, stageName);
         }
       });
     });

@@ -68,6 +68,8 @@ test.describe('Creator reply triage at scale', () => {
     await page.click('.nav-btn[data-view="talks"]');
     await waitForTabActive(page, 'talks');
     await afterSync();
+    // 640px viewport: triage filters live behind the "Filters ▾" disclosure (redesign §6).
+    await page.click('[data-testid="replies-filter-toggle"]');
 
     const summaryNeedle = `(${MATRIX_REPLY_COUNT} total)`;
     await expect

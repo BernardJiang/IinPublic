@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-07-14
+Last updated: 2026-07-15
 
 This file tracks only open work. Completed items are archived in `docs/completed.md`.
 - **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specifications.md` (§19.13, §19.14, REQ-P2P-09–29; mesh talk delivery design §23; libp2p/IPFS §25 — supersedes Phase D §24; find-similar §22)
@@ -17,83 +17,118 @@ Token-saving rules: for `[Opus]` items, have Opus write a short design note firs
 
 ---
 
-## Open items
+## Execution rules (apply to all E2E specs)
 
-### S3 — Cross-platform native clients (embedded-node model) `[Opus]`
+1. Place spec in the **lowest stage whose user count can verify the choice** (1 user → `tests/e2e/staged/stage1-single-user/`, 2 users → `stage2-two-user/`, 3 users → `stage3-three-user/`).
+2. Each spec gets a companion `.md` describing it in plain English.
+3. Use existing helpers: `timing.ts` (`afterSync`/`afterAction`/`afterLoad`), `e2e-status-checks.ts`; assert via hard signals (`#status-bar-text`, local Gun IN index, `.conversation-list-item`), not toasts.
+4. Run single spec: `npm run build:server && npx playwright test <spec>` (staged specs via `npm run test:e2e:staged` pipeline order).
+5. **If a test exposes a real bug: fix the product code (never weaken the assertion), re-run until green.** If the feature doesn't exist at all, stop and log it under "Feature gaps" instead of inventing behavior.
 
-**Design:** `docs/design/S3-embedded-node-shell.md`. Supersedes the earlier
-libp2p-native-module plan (kept as `docs/design/S3-native-libp2p-shell.md` for
-reference). The libp2p Circuit-Relay items are deferred behind this model.
+---
 
-**Core idea:** every native build bundles a real **Node.js process** that runs
-the *existing* `src/server` code as a **local Gun peer**. That local node:
-- persists application data **on-device** via radisk (satisfies the
-  "Gun-on-device is the source of truth" invariant — strictly better than
-  browser storage),
-- syncs relay-only metadata with the public hub over an **explicit HTTP channel**
-  instead of a generic Gun peer (`relayOnlyDataClasses`: discovery / signaling /
-  presence / room-membership),
-- **serves the prebuilt web SPA** (`dist/web`) on `127.0.0.1:<port>`, so the
-  WebView/renderer reuses **100% of the browser UI** unchanged. Because the UI
-  loads from the local node, `WebGunService.deriveGunHubUrl()` already resolves
-  Gun to the local node — no web code fork.
+## Land order: A → B → C → D → H → E → F → G → I → J
 
-**Why this over Tauri/libp2p-module:** Electron runs the Gun *Node* code
-unmodified and its Chromium renderer guarantees the WebRTC the direct-P2P
-conversation transport relies on. On mobile, the **Node process is the peer** so
-WKWebView's limited WebRTC never blocks P2P — the mesh lives in Node.
+> **A–D complete 2026-07-15** — see `docs/completed.md`. AppBar + overflow, notification
+> auto-dismiss, conversation-first entry + matched-talk threads, and the unified
+> peer/contact detail are all landed with their specs (50–54, 60–61, 68–69, stage3/71).
+> The planned `stage2/62-peer-messaging-merged` update was superseded: that spec never
+> existed; the merged messaging area is covered by 60/61/69.
 
-**Reuse map:** `src/server` (P2P/Gun node) 100% · `src/web`→`dist/web` (UI) 100%
-· `src/shared` (domain/match) 100% · only the native shells are new code.
+### Host E2E re-run (verification of 2026-07-15 fixes) `[Haiku]`
 
-**Target platforms / hosting:**
-- Windows / Linux / macOS → **Electron** (`platforms/desktop`): main process boots
-  the embedded node in-process; renderer loads the SPA from loopback.
-- Android → WebView + **nodejs-mobile** foreground service (`android/`,
-  `platforms/mobile/nodejs-project`).
-- iOS → WKWebView + **nodejs-mobile** (`platforms/ios`,
-  `platforms/mobile/nodejs-project`).
+- [x] Round 1: host `test:all` re-run 2026-07-15 — jest green (phase0 clean), 11 of the
+      19 E2E failures fixed; 8 remained (55, 67, 00j, 21a, 21b, 63, 64, 66).
+- [x] Round 2 fixes landed 2026-07-15 for all 8 (see `docs/completed.md`): profile-card
+      parity class + contacts re-render race (product), 6 spec corrections.
+- [ ] Re-run the light shard on the host to confirm the round-2 fixes go 0-failed.
 
-**Done in this change:**
-- [x] `src/shared/embedded-node-config.ts` — config resolver (enabled, platform,
-      port, hub peers, webRoot, dataDir, loopbackOnly) + unit test (10 cases).
-- [x] `attachGun` / `configureHttpMiddleware` embedded mode (env-gated, additive):
-      keeps generic hub peers disabled in explicit relay mode, forces on-device
-      radisk, serves `dist/web`.
-- [x] `src/node-app/embedded-node.ts` — single entry every shell boots; reuses
-      `IinPublicServer`. Smoke-tested: boots, persists on-device, serves SPA,
-      `/health` 200 on loopback.
-- [x] Electron shell: `platforms/desktop/{main.js,preload.js,package.json}` +
-      electron-builder targets (nsis / AppImage+deb / dmg).
-- [x] Android shell: `MainActivity.kt` (WebView), `NodeForegroundService.kt`,
-      `NodeBridge.kt`, manifest, gradle staging of `nodejs-project` + `dist`.
-- [x] iOS shell: `AppDelegate/ViewController/NodeRunner.swift`, `Info.plist`
-      (ATS loopback), `Podfile`.
-- [x] Root scripts: `dev:embedded-node`, `build:embedded`, `desktop:dev`,
-      `desktop:dist`, `mobile:stage`.
+> **H complete 2026-07-15** — message content filters (dirty words + grammar, both
+> directions) landed with specs 70/71; the stage3 intake regression was confirmed green
+> in the 2026-07-15 host run. Details archived in `docs/completed.md`.
 
-**Done 2026-06-30 (see `docs/completed.md`):** hub-dial verification (+ a real
-bug found and fixed — embedded nodes were never actually dialing the hub);
-Android `unpackIfNeeded` + POST_NOTIFICATIONS; desktop autoupdate
-(electron-updater) + build-id drift safety net; E2E spec (browser peer +
-embedded-node peer, direct-P2P DataChannel); CI embedded-node smoke job;
-mobile-toolchain doc/comment corrections (the previous AAR/pod coordinates
-referenced packages that don't exist).
+> **E + F complete 2026-07-15** — popup responsive size classes + all 16 option-matrix
+> specs landed. Two host-run fix rounds the same day (19 → 8 → 0 expected) resolved
+> selector/UX-drift and two real product bugs; see `docs/completed.md`. Pending one
+> green host re-run (tracked above).
 
-**Remaining:** none — both device-toolchain items below are done (see
-`docs/completed.md` 2026-07-14).
+### G. Platform × screen-size × cross-platform (catalog Part 6) `[Opus]`
 
-**Done 2026-07-14 (see `docs/completed.md`):**
-- [x] Android: real libnode JNI/CMake integration; `NodeBridge.startProject`
-      calls `nativeStartNode()` → `node::Start()`.
-- [x] iOS: `NodeMobile.xcframework` vendored, Xcode copy build phase wired,
-      `.xcodeproj` created; `NodeRunner.swift` calls `node_start()`.
+Source: `docs/gui-layout-catalog-and-e2e-plan.md` Part 6
 
-**Known runtime risks:**
-- ✓ Gun replication timing on auto-reply path: mitigated by server POST path.
-- ✓ `talkCompleted` handler fallback: verified, preserves data safely.
-- ✓ Embedded nodes no longer use a generic Gun peer link to the public hub by
-  default; relay-only membership now goes through an explicit HTTP channel.
+- [x] Define the **platform smoke set** as a tagged Playwright project — `@smoke` in `tests/e2e/platform-smoke/` (tab sweep, ⋯ overflow, full-screen dialog takeover, settings persistence). Match round-trip lives in X2/native.
+- [~] CI runners: Mac mini (P2 Electron), Windows (P3), Linux (P4) — added `test:e2e:native-app:win` / `:linux` scripts; wiring these into the actual CI system is left to the CI config (needs the runner infra).
+- [x] Playwright device-profile projects for iPhone (WebKit, 390×844) and Android (Chromium, 360×800) — `iphone-webkit`/`android-chromium` projects, opt-in via `E2E_DEVICE_PROFILES=1`; real-device manual pass documented in `tests/e2e/cross-platform/README.md`.
+- [x] Screen-size sweep — spec 59 sweeps 320/390/768/1024; device profiles add 390×844 (WebKit) and 360×800 (Chromium). (Add 1920×1080/1366×768 rows to 59 if the host wants the full 5.)
+- [x] **New** `tests/e2e/cross-platform/` harness (two clients on the shared hub) + README; `test:e2e:cross-platform` script; excluded from the light shard via HEAVY pattern.
+- [x] **X1** website + webapp simultaneous presence/headcount (P0, merge gate).
+- [x] **X2** cross-platform talk lifecycle both directions + cross-platform thread replies (P0, merge gate).
+- [~] **X3** identity linking website ↔ webapp — scaffolded skipped spec (needs I's protocol + real website/webapp on CI). `(nightly)`
+- [~] **X4** mobile-profile ↔ desktop-app matching + threads — scaffolded skipped spec. `(nightly)`
+- [~] **X5** three-platform stage-3 network incl. thread isolation — scaffolded skipped spec. `(nightly)`
+- [~] **X6** offline/mailbox across platforms, both directions — scaffolded skipped spec. `(nightly)`
+
+> **G verification:** config parses; `platform-smoke` runs on `chromium` + (with `E2E_DEVICE_PROFILES=1`) `iphone-webkit`/`android-chromium`; `cross-platform` X1/X2 enumerate. X3–X6 are `test.skip` scaffolds awaiting the native/website build + item I on the CI runners.
+
+### I. Multi-device identity linking (redesign §10, catalog T10) `[Opus]`
+
+Source: `docs/gui-redesign-plan.md` §10 — user decision 2026-07-13
+
+One person, multiple devices ⇒ **different SEA identity per device** (keys never leave a device). Build the linking mechanism instead of identity sharing.
+
+- [x] Link protocol in `src/shared/`: short-lived pairing payload (pub + one-time secret + ~5 min expiry), **mutual signed attestations** (link valid only when both sides present and verified), signed revocation for unlink. Unit tests: one-sided claim ⇒ no link; revocation supersedes; forgery fails verification. — `src/shared/identity-linking.ts` + 12 unit tests (pluggable `LinkCrypto`). `[Opus]`
+- [x] Linked devices Settings page: linked-identity list (stage name, platform glyph, linked date, per-row Unlink), **Link a device** → code+QR dialog, **Enter link code** dialog, **Unlink confirm**. — `src/web/ui/linked-devices-dialog.ts` + Settings row. `[Sonnet]`
+- [~] Cluster rendering for peers: Contacts merged row + User-layout cluster line. — `WebIdentityLinkService.isLinked` provides the resolver; the Contacts/User-layout merge is scaffolded but not yet wired into the row renderers (needs the real service on the graph — X3). `[Sonnet]`
+- [~] Block interplay: cluster-wide block offer. — deferred to the block flow; needs the cluster resolver wired (X3). `[Sonnet]`
+- [x] **New** `stage1/71-linked-devices-page.spec.ts` — page open/close, empty state, code lifecycle incl. expiry, error paths (T10).
+- [~] **New** `cross-platform/x3-identity-linking.spec.ts` — scaffolded skipped spec (needs website↔webapp on the shared graph + `WebIdentityLinkService` wired in app.ts). `[Opus]`
+- [~] Same-device linking shortcuts (§10.3): URL-fragment / loopback / clipboard. — `encodePairingCode`/`decodePairingCode` support the `#link=` fragment; the fragment auto-detect + loopback handshake are not yet wired.
+- [~] **New** `cross-platform/x8-same-device-link.spec.ts` — pending the same-device shortcuts. `[Opus]`
+
+> **I verification:** protocol has 12 passing unit tests; `stage1/71` compiles and drives the full page/dialog/validation/unlink flow single-device; `tsc`/`lint` clean. The service (`web-identity-link-service.ts`) is ready for app.ts to wire real signed attestations for X3.
+
+### J. Public-device exit — sync-then-erase (redesign §11, catalog T11) `[Opus]`
+
+Source: `docs/gui-redesign-plan.md` §11 — user decision 2026-07-13
+
+No server login/logout exists; a public-PC session leaves an identity behind. Build a verifiable local wipe with optional encrypted handoff to a linked personal device first.
+
+- [x] Wipe engine: clear localStorage (destroys the SEA custody record) + IndexedDB/Gun radata + caches + session state, best-effort link revocations, reload to fresh boot. Verifiable post-reload. — `src/web/services/device-wipe.ts`. `[Opus]`
+- [x] "Erase this device" Settings row (danger zone) + **Erase confirm dialog** (type-`ERASE` gate); never in `⋯`; disabled while sync in flight. — `src/web/ui/erase-device-dialog.ts` + Settings row. `[Sonnet]`
+- [x] Encrypted handoff archive: package profile/contacts/filters+dirtyWords/answer prefs/my-talks/conversations; **Sync progress dialog**; erase gated until done. — archive schema + build/merge in `src/shared/device-handoff.ts` (7 unit tests) + Sync-progress dialog. 2026-07-15: `setDeviceHandoffSync` is now wired in app.ts — it builds the archive from local sources with per-category progress and stages it (`iinpublic_pending_handoff_archive`); the encrypt-to-pub P2P transfer to the linked device remains X7. `[Opus]`
+- [x] Archive import per-category merge — contacts + talks/answers merge into local identity; conversation history read-only. — `mergeHandoffArchive` (unit-tested); Linked-devices import UI to be wired with the transfer (X7). `[Sonnet]`
+- [x] **New** `stage1/72-erase-this-device.spec.ts` — typed-confirm gate, cancel intact, wipe verified, fresh identity, no prior data reachable.
+- [x] **New** `stage2/72-sync-before-erase.spec.ts` — sync offer → progress → done enables erase; erase gated by typed confirm (seeded linked device; cross-device receiver-merge in X7).
+- [~] **New** `cross-platform/x7-sync-then-erase.spec.ts` — scaffolded skipped spec (needs the P2P handoff transfer + receiver import wired). `[Opus]`
+
+> **J verification:** handoff build/merge has 7 passing unit tests; `stage1/72` (wipe + fresh boot) and `stage2/72` (sync-progress + gating) compile and drive the full UI; `tsc`/`lint` clean. The wipe engine and dialogs are wired into Settings; the encrypt-to-pub P2P transfer + receiver import are the remaining app.ts wiring, tracked by X7.
+
+---
+
+## Future / low priority (explicitly deferred)
+
+- Multiple identities on one device (profile switching). Decided low priority 2026-07-13; v1 stays one identity per device install.
+- Merging message history across linked devices; aggregating reputation across a cluster (`flagged` in I).
+
+---
+
+## Open questions
+
+- Identity linking v2 scope: should reputation aggregate across a linked cluster, and should contacts/conversations sync between linked devices? (v1: display-merge only.)
+- iPhone/Android native shells: browser-profile testing is the stand-in until they ship — confirm.
+
+---
+
+## S3 — Cross-platform native clients ✅ COMPLETE
+
+All done — see `docs/completed.md` 2026-07-14 for details. Electron, Android, and iOS shells verified with real builds. Desktop DMG built (236 MB), Android APK assembled all 3 ABIs via CMake + JNI.
+
+---
+
+## Resolved decisions
+
+- ~~Mirror identity across devices or reject second session?~~ → Neither: per-device identities + linking (section I). 2026-07-13.
+- ~~X3 identity strategy~~ → Per-device SEA, linking protocol, never shared keys.
 
 ---
 

@@ -396,12 +396,15 @@ test.describe('Local-only contacts — zero server peer/history/replies calls', 
 
     // ── 11. Tom opens Jerry's peer detail ────────────────────────────────────
     await jerryContact.click();
+    // Rule N2a: dismiss the auto-opened DM conversation to inspect the User layout.
+    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await pageTom.click('#back-from-conversation');
     await afterAction();
-    await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry Local', { timeout: 10_000 });
+    await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry Local', { timeout: 10_000 });
 
     // The exchanged talk should appear in history
     const talkItem = pageTom
-      .locator('.contact-talk-item')
+      .locator('.peer-history-item')
       .filter({ hasText: TEST_TALK_TITLE })
       .first();
     await expect(talkItem).toBeVisible({ timeout: MESH_E2E_TIMEOUT_MS });

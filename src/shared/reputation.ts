@@ -119,7 +119,8 @@ export class ContentFilter {
   static applyFilters(
     content: string,
     filters: Filter,
-    userLanguages: string[] = ['en']
+    userLanguages: string[] = ['en'],
+    customDirtyWords: readonly string[] = []
   ): FilterResult {
     const result: FilterResult = {
       passed: true,
@@ -147,13 +148,48 @@ export class ContentFilter {
     
     // Dirty words filter
     if (filters.dirtyWords) {
-      if (this.containsDirtyWords(content)) {
+      if (this.containsDirtyWords(content, customDirtyWords)) {
         result.passed = false;
         result.rejectedBy.push('dirty_words');
       }
     }
-    
+
     return result;
+  }
+
+  /**
+   * Grammar score in [0,1] for a message (public accessor over the internal
+   * heuristic). Used by the shared message-content filter.
+   */
+  static grammarScore(content: string): number {
+    return this.assessGrammar(content);
+  }
+
+  /**
+   * Return the first dirty word found in `content`, or null if clean. Merges the
+   * built-in blocked words with the caller's custom list. Matching is whole-word
+   * on NFKC-lowercased text, so "cocktail" never matches "cock".
+   */
+  static findDirtyWord(content: string, customWords: readonly string[] = []): string | null {
+    const normalized = content.normalize('NFKC').toLowerCase();
+    const words = normalized.match(/[\p{L}\p{N}']+/gu) || [];
+    const merged = new Set<string>(this.latinBlockedWords);
+    for (const w of customWords) {
+      const t = String(w ?? '').normalize('NFKC').trim().toLowerCase();
+      if (t) merged.add(t);
+    }
+    for (const word of words) {
+      if (merged.has(word)) return word;
+    }
+    for (const term of this.cjkBlockedTerms) {
+      if (normalized.includes(term)) return term;
+    }
+    for (const w of customWords) {
+      const t = String(w ?? '').normalize('NFKC').trim().toLowerCase();
+      // Multi-token custom terms (with spaces) fall back to substring matching.
+      if (t.includes(' ') && normalized.includes(t)) return t;
+    }
+    return null;
   }
   
   private static detectLanguage(content: string): string {
@@ -213,11 +249,8 @@ export class ContentFilter {
     return Math.max(0, Math.min(1, score));
   }
   
-  private static containsDirtyWords(content: string): boolean {
-    const normalized = content.normalize('NFKC').toLowerCase();
-    const words = normalized.match(/[\p{L}\p{N}']+/gu) || [];
-    return words.some(word => this.latinBlockedWords.has(word)) ||
-      this.cjkBlockedTerms.some(term => normalized.includes(term));
+  static containsDirtyWords(content: string, customWords: readonly string[] = []): boolean {
+    return this.findDirtyWord(content, customWords) !== null;
   }
 }
 

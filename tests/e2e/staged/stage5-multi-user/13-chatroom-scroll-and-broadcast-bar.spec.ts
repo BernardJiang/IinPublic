@@ -124,7 +124,8 @@ test.describe('Chatroom UX: member list scroll and unified broadcast bar', () =>
     }
 
     await expect(owner.page.locator('#broadcast-talk-btn')).toHaveCount(1);
-    await expect(owner.page.locator('#chatroom-action-bar')).toContainText('Broadcast');
+    await expect(owner.page.locator('#top-header #broadcast-talk-btn')).toBeVisible();
+    await expect(owner.page.locator('#broadcast-talk-btn')).toHaveAttribute('title', /Broadcast|OUT list/);
     await expect(owner.page.getByText('Broadcast talk to everyone here')).toHaveCount(0);
 
     const membersList = owner.page.locator('#chatroom-members-list');

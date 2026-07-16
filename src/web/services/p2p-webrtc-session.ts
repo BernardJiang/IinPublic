@@ -52,6 +52,8 @@ type DmWirePayload = {
     encryption?: 'sea-ecdh-v1';
     prevSeen?: string;
     isFromChatbot?: boolean;
+    /** Per-matched-talk thread scope (redesign §5); absent = pair DM thread. */
+    talkId?: string;
   };
 };
 

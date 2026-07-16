@@ -186,15 +186,15 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await pageTom.locator('.contact-item').filter({ hasText: 'Jerry' }).first().click();
     await afterNav();
     await waitForContactDetailReady(pageTom);
-    await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
-    await expect(pageTom.locator('.contact-talk-item').filter({ hasText: TALK_TENNIS })).toBeVisible({ timeout: 10000 });
-    await pageTom.click('#back-to-contacts-list');
+    await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry', { timeout: 10000 });
+    await expect(pageTom.locator('.peer-history-item').filter({ hasText: TALK_TENNIS })).toBeVisible({ timeout: 10000 });
+    await pageTom.click('#back-from-peer-detail');
     await afterAction();
     await pageTom.locator('.contact-item').filter({ hasText: 'Bob' }).first().click();
     await afterNav();
     await waitForContactDetailReady(pageTom);
-    await expect(pageTom.locator('#contact-detail-name')).toContainText('Bob', { timeout: 10000 });
-    await expect(pageTom.locator('.contact-talk-item').filter({ hasText: TALK_COFFEE })).toBeVisible({ timeout: 10000 });
+    await expect(pageTom.locator('#peer-detail-name')).toContainText('Bob', { timeout: 10000 });
+    await expect(pageTom.locator('.peer-history-item').filter({ hasText: TALK_COFFEE })).toBeVisible({ timeout: 10000 });
 
     await pageJerry.click('.nav-btn[data-view="contacts"]');
     await afterSync();
@@ -202,7 +202,7 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await pageJerry.locator('.contact-item').filter({ hasText: 'Tom' }).first().click();
     await afterNav();
     await waitForContactDetailReady(pageJerry);
-    await expect(pageJerry.locator('.contact-talk-item').filter({ hasText: TALK_TENNIS })).toBeVisible({ timeout: 10000 });
+    await expect(pageJerry.locator('.peer-history-item').filter({ hasText: TALK_TENNIS })).toBeVisible({ timeout: 10000 });
 
     await pageBob.click('.nav-btn[data-view="contacts"]');
     await afterSync();
@@ -210,6 +210,6 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     await pageBob.locator('.contact-item').filter({ hasText: 'Tom' }).first().click();
     await afterNav();
     await waitForContactDetailReady(pageBob);
-    await expect(pageBob.locator('.contact-talk-item').filter({ hasText: TALK_COFFEE })).toBeVisible({ timeout: 10000 });
+    await expect(pageBob.locator('.peer-history-item').filter({ hasText: TALK_COFFEE })).toBeVisible({ timeout: 10000 });
   });
 });

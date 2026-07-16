@@ -125,8 +125,11 @@ test.describe('Contacts: stranger default label → save relationship → sort (
 
     // ─── Step 2: Open Jerry's detail → verify "Stranger" in detail view ───────
     await jerryContactItem.click();
+    // Rule N2a: dismiss the auto-opened DM conversation to use the User layout.
+    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await pageTom.click('#back-from-conversation');
     await afterNav();
-    await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10_000 });
+    await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry', { timeout: 10_000 });
 
     // ─── Step 3: Save "Friend" relationship label ──────────────────────────────
     const editBtn = pageTom.locator('#contact-edit-relationship-btn');
@@ -141,7 +144,7 @@ test.describe('Contacts: stranger default label → save relationship → sort (
     await expect(pageTom.locator('#contact-relationship-modal')).not.toBeVisible({ timeout: 10_000 });
 
     // ─── Step 4: Back to list → Jerry now shows "Friend" ─────────────────────
-    await pageTom.locator('#back-to-contacts-list').click();
+    await pageTom.locator('#back-from-peer-detail').click();
     await afterAction();
 
     const jerryAfterSave = pageTom.locator('.contact-item:not([data-support-contact="true"])').filter({ hasText: 'Jerry' }).first();
@@ -152,6 +155,8 @@ test.describe('Contacts: stranger default label → save relationship → sort (
     expect(metaAfter.toLowerCase()).not.toContain('stranger');
 
     // ─── Step 5: Sort by relationship → Jerry still visible ───────────────────
+    // 640px viewport: contacts filters live behind the "Filters ▾" disclosure (redesign §6).
+    await pageTom.click('[data-testid="contacts-filter-toggle"]');
     await pageTom.locator('#contacts-sort-order').selectOption('relationship');
     await afterAction();
     await expect(pageTom.locator('.contact-item:not([data-support-contact="true"])').filter({ hasText: 'Jerry' })).toBeVisible({ timeout: 15_000 });

@@ -62,6 +62,9 @@ test.describe('TechSupport built-in contact controls', () => {
     await expect(supportRow).toContainText('Built-in support contact');
 
     await supportRow.click();
+    // Rule N2a: the row click opens the support conversation on top of the User layout.
+    await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await page.click('#back-from-conversation');
     await expect(page.locator('#contact-edit-relationship-btn')).toContainText('Support Notifications');
     await page.click('#contact-edit-relationship-btn');
     await expect(page.locator('#contact-relationship-modal')).toContainText('Support Notifications');
@@ -69,7 +72,7 @@ test.describe('TechSupport built-in contact controls', () => {
     await page.click('#contact-support-mute-btn');
     await expect(page.locator('.notification').filter({ hasText: 'TechSupport notifications muted' })).toBeVisible();
 
-    await page.click('#back-to-contacts-list');
+    await page.click('#back-from-peer-detail');
     await afterSync();
     await expect(supportRow).toContainText('Support notifications are muted locally.');
     await expect

@@ -17,6 +17,8 @@ export type ConversationMessageWire = {
   encryption?: 'sea-ecdh-v1';
   prevSeen?: string;
   isFromChatbot?: boolean;
+  /** Per-matched-talk thread scope (redesign §5); absent/'direct' = the pair DM thread. */
+  talkId?: string;
 };
 
 /**
@@ -203,6 +205,7 @@ export class GunMessageStore {
       transport,
       ...(opts?.isFromChatbot ? { isFromChatbot: true } : {}),
       ...(prevSeen !== undefined ? { prevSeen } : {}),
+      ...(opts?.talkId && opts.talkId !== 'direct' ? { talkId: opts.talkId } : {}),
     };
 
     if (shouldEncrypt) {
@@ -233,6 +236,7 @@ export class GunMessageStore {
       ...(wire.encryption ? { encryption: wire.encryption } : {}),
       ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
       ...(wire.isFromChatbot ? { isFromChatbot: true } : {}),
+      ...(wire.talkId ? { talkId: wire.talkId } : {}),
     };
     if (wire.transport === 'direct-p2p' && opts.otherUserId) {
       gun
@@ -282,6 +286,7 @@ export class GunMessageStore {
         ...(record.encryption === 'sea-ecdh-v1' ? { encryption: 'sea-ecdh-v1' as const } : {}),
         ...(record.prevSeen !== undefined ? { prevSeen: String(record.prevSeen) } : {}),
         ...(record.isFromChatbot ? { isFromChatbot: true } : {}),
+        ...(record.talkId ? { talkId: String(record.talkId) } : {}),
       });
     };
     return new Promise((resolve) => {
@@ -461,6 +466,7 @@ export class GunMessageStore {
         readBy: msg.readBy || [],
         channel: ch,
         prevSeen: msg.prevSeen ?? undefined,
+        ...(msg.talkId ? { talkId: String(msg.talkId) } : {}),
       });
     }
 

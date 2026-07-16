@@ -9,6 +9,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterLoad, afterSync, afterNav, afterAction, headless } from '../../helpers/timing';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
+import { openCollapsedFilters } from '../../helpers/filter-bar';
 
 test.describe('Contacts tab: filter by name', () => {
   let browserAlice: Browser;
@@ -60,6 +61,9 @@ test.describe('Contacts tab: filter by name', () => {
     await pageAlice.click('.nav-btn[data-view="contacts"]');
     await afterNav();
     await afterLoad();
+
+    // At 640px wide the filter bar collapses behind "Filters ▾" (redesign §6).
+    await openCollapsedFilters(pageAlice, 'contacts-filter-toggle');
 
     // Get the contacts list
     const contactsFilter = pageAlice.locator('#contacts-filter-name');

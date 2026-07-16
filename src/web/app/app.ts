@@ -641,6 +641,58 @@ export class IinPublicApp {
     this.uiManager.setContactPreRenderSync(async () => {
       await this.syncDirectPairTalkExchangesForContacts();
     });
+    // Sync-before-erase (redesign §11.2, item J): build the handoff archive from
+    // local sources, reporting per-category progress. The encrypt-to-pub P2P
+    // transfer to the linked device is the remaining X7 wiring; the archive is
+    // staged locally so the receiver import can pick it up.
+    this.uiManager.setDeviceHandoffSync(async (progress) => {
+      const { buildHandoffArchive } = await import('../../shared/device-handoff');
+      const read = (key: string): any => {
+        try {
+          return JSON.parse(localStorage.getItem(key) || 'null') ?? undefined;
+        } catch {
+          return undefined;
+        }
+      };
+      const pair = this.gunService.getStoredPair?.();
+      const sources: Parameters<typeof buildHandoffArchive>[0] = { fromPub: String(pair?.pub || '') };
+      const collect: Array<[import('../../shared/device-handoff').HandoffCategory, () => void]> = [
+        ['profile', () => {
+          if (this.currentUser) {
+            sources.profile = {
+              stageName: this.currentUser.stageName,
+              languages: this.currentUser.languages,
+              profile: this.currentUser.profile,
+              interests: this.currentUser.interests,
+            } as any;
+          }
+        }],
+        ['contacts', () => {
+          const people = this.currentUser?.knownPeople;
+          if (Array.isArray(people)) {
+            sources.contacts = people.map((p: any) => ({ ...p, id: String(p.userId || p.id || '') }));
+          }
+        }],
+        ['talkFilters', () => { sources.talkFilters = this.currentUser?.talkFilters as any; }],
+        ['answerPreferences', () => { sources.answerPreferences = read('exactChatbotMemory'); }],
+        ['myTalks', () => { sources.myTalks = read('myTalks'); }],
+        ['conversations', () => { sources.conversations = read('myConversations'); }],
+      ];
+      for (const [category, fill] of collect) {
+        try {
+          fill();
+        } catch {
+          /* category unavailable locally — still counts as collected */
+        }
+        progress(category);
+      }
+      const archive = buildHandoffArchive(sources);
+      try {
+        sessionStorage.setItem('iinpublic_pending_handoff_archive', JSON.stringify(archive));
+      } catch {
+        /* best effort staging */
+      }
+    });
     this.uiManager.setPeerLocationReader(async (peerId: string) => {
       const data = await new Promise<unknown>((resolve) => {
         this.gunService.getGun()
@@ -2043,10 +2095,6 @@ export class IinPublicApp {
       },
     );
     if (!isMatch) return;
-    this.uiManager.showNotification(
-      this.uiManager.formatTalkMatched(decrypted.responderName, talkData.title),
-      'success',
-    );
     const conversationId = await this.conversationService.createConversation({
       userId1: this.currentUser.id,
       userName1: this.currentUser.stageName,
@@ -2064,6 +2112,12 @@ export class IinPublicApp {
       respondedByBot: !!decrypted.isChatbotResponse,
       transportMode: this.conversationService.getTransportMode(),
     });
+    // Match! toast after the conversation exists so clicking it navigates there (rule N6).
+    this.uiManager.showNotification(
+      this.uiManager.formatTalkMatched(decrypted.responderName, talkData.title),
+      'success',
+      { conversationId },
+    );
     await this.autoShareMatchedTalkAttachments({
       conversationId,
       talkId: payload.talkId,
@@ -3855,6 +3909,37 @@ export class IinPublicApp {
     this.uiManager.displayTalksList();
   }
 
+  /**
+   * The talk-independent DM thread with a peer (redesign §5): one conversation per
+   * pair with `talkId: 'direct'`, kept separate from per-matched-talk threads so DM
+   * and thread messages never leak into each other. The TechSupport pair reuses its
+   * dedicated support channel.
+   */
+  private async findOrCreateDirectConversation(peerId: string, peerName: string): Promise<string> {
+    if (!this.currentUser) throw new Error('Not logged in');
+    const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}') as Record<string, any>;
+    const existing = Object.entries(conversations).find(
+      ([, conv]: [string, any]) =>
+        conv?.otherUserId === peerId && (conv?.supportChannel === true || conv?.talkId === 'direct'),
+    );
+    if (existing) return existing[0];
+    const conversationId = await this.conversationService.createConversation({
+      userId1: this.currentUser.id,
+      userName1: this.currentUser.stageName,
+      userId2: peerId,
+      userName2: peerName,
+      talkId: 'direct',
+    });
+    await this.ingestConversationRecords([{
+      conversationId,
+      otherUserId: peerId,
+      otherUserName: peerName,
+      talkId: 'direct',
+      createdAt: new Date().toISOString(),
+    }]);
+    return conversationId;
+  }
+
   private async ingestConversationRecords(conversations: any[]): Promise<void> {
     if (!this.currentUser) return;
 
@@ -4606,7 +4691,7 @@ export class IinPublicApp {
     // Handle sending conversation messages
     this.uiManager.on(
       'sendConversationMessage',
-      async (data: { conversationId: string; message: string }) => {
+      async (data: { conversationId: string; message: string; talkId?: string }) => {
         try {
           console.log('📤 Sending conversation message:', data.message);
           const conversation = this.uiManager.getMyConversations()[data.conversationId];
@@ -4619,9 +4704,12 @@ export class IinPublicApp {
             data.conversationId,
             this.currentUser!.id,
             data.message,
-            otherUserId
-              ? { otherUserId, messageId }
-              : { messageId },
+            {
+              messageId,
+              ...(otherUserId ? { otherUserId } : {}),
+              // Per-talk thread scope (redesign §5) — omitted for the DM thread.
+              ...(data.talkId ? { talkId: data.talkId } : {}),
+            },
           );
 
           console.log('✅ Conversation message sent');
@@ -4651,29 +4739,7 @@ export class IinPublicApp {
       async (data: { peerId: string; peerName: string; text: string; resolve: () => void; reject: (e: unknown) => void }) => {
         try {
           if (!this.currentUser) throw new Error('Not logged in');
-          const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
-          const existingEntry = Object.entries(conversations).find(
-            ([, conv]: [string, any]) => conv?.otherUserId === data.peerId && conv?.supportChannel !== true,
-          );
-          let conversationId: string;
-          if (existingEntry) {
-            conversationId = existingEntry[0];
-          } else {
-            conversationId = await this.conversationService.createConversation({
-              userId1: this.currentUser.id,
-              userName1: this.currentUser.stageName,
-              userId2: data.peerId,
-              userName2: data.peerName,
-              talkId: 'direct',
-            });
-            await this.ingestConversationRecords([{
-              conversationId,
-              otherUserId: data.peerId,
-              otherUserName: data.peerName,
-              talkId: 'direct',
-              createdAt: new Date().toISOString(),
-            }]);
-          }
+          const conversationId = await this.findOrCreateDirectConversation(data.peerId, data.peerName);
           await this.conversationService.sendMessage(conversationId, this.currentUser.id, data.text, {
             otherUserId: data.peerId,
           });
@@ -4681,6 +4747,21 @@ export class IinPublicApp {
         } catch (error) {
           console.error('Failed to send direct message:', error);
           this.uiManager.showNotification(this.uiManager.formatMessageSendFailed((error as Error).message), 'error');
+          data.reject(error);
+        }
+      },
+    );
+
+    // Conversation-first user click (rule N2a): resolve the peer's default DM
+    // conversation, creating it on first contact.
+    this.uiManager.on(
+      'openDirectConversation',
+      async (data: { peerId: string; peerName: string; resolve: (id: string) => void; reject: (e: unknown) => void }) => {
+        try {
+          if (!this.currentUser) throw new Error('Not logged in');
+          data.resolve(await this.findOrCreateDirectConversation(data.peerId, data.peerName));
+        } catch (error) {
+          console.warn('openDirectConversation failed:', error);
           data.reject(error);
         }
       },

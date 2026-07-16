@@ -81,6 +81,8 @@ test.describe('Reply triage group-by and date-range filter (D6)', () => {
     await page.click('.nav-btn[data-view="talks"]');
     await waitForTabActive(page, 'talks');
     await afterSync();
+    // 640px viewport: triage filters live behind the "Filters ▾" disclosure (redesign §6).
+    await page.click('[data-testid="replies-filter-toggle"]');
 
     const totalReplies = MATRIX_SIZE * MATRIX_SIZE;
     const summaryNeedle = `(${totalReplies} total)`;

@@ -224,6 +224,9 @@ test.describe('Profile foundation', () => {
     await expect(tomMember).toBeVisible({ timeout: 15000 });
     await tomMember.click();
     await afterNav();
+    // Rule N2a: dismiss the auto-opened DM conversation to interact with the User layout.
+    await expect(peerPage.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await peerPage.click('#back-from-conversation');
     await expect(peerPage.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10000 });
     await expect
       .poll(async () => peerPage.locator('#peer-stats-section').innerText(), { timeout: 10_000, intervals: [200, 400, 800] })
@@ -233,6 +236,8 @@ test.describe('Profile foundation', () => {
       await afterNav();
       await tomMember.click();
       await afterNav();
+      await expect(peerPage.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+      await peerPage.click('#back-from-conversation');
     }
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Public Profile');
     await expect(peerPage.locator('#peer-stats-section')).toContainText('Languages: English');
@@ -251,8 +256,10 @@ test.describe('Profile foundation', () => {
     const ownerContact = peerPage.locator(`.contact-item[data-contact-user-id="${ownerId}"]`).first();
     await expect(ownerContact).toBeVisible({ timeout: 15000 });
     await ownerContact.click();
-    await expect(peerPage.locator('#contact-detail-matches')).toContainText('talk', { timeout: 45000 });
-    await expect(peerPage.locator('.contact-public-profile-summary .profile-avatar-image').first()).toBeVisible({ timeout: 45000 });
+    await expect(peerPage.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await peerPage.click('#back-from-conversation');
+    await expect(peerPage.locator('#peer-detail-subtitle')).toContainText('talk', { timeout: 45000 });
+    await expect(peerPage.locator('#peer-stats-section .profile-avatar-image').first()).toBeVisible({ timeout: 45000 });
 
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();

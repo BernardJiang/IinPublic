@@ -46,9 +46,13 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#header-status')).toBeVisible();
     await expect(p.locator('#status-bar-text')).not.toContainText(/User.* in /);
     await expect(p.locator('#chatrooms-view > #status-bar')).toHaveCount(0);
-    await expect(p.locator('#chatroom-action-bar')).toContainText('New Room');
-    await expect(p.locator('#chatroom-action-bar')).toContainText('Return Home');
-    await expect(p.locator('#chatroom-action-bar')).toContainText('Broadcast');
+    // AppBar icon buttons (redesign §2): the old #chatroom-action-bar row is gone.
+    await expect(p.locator('#chatroom-action-bar')).toHaveCount(0);
+    await expect(p.locator('#top-header #create-custom-chatroom-btn')).toBeVisible();
+    await expect(p.locator('#create-custom-chatroom-btn')).toHaveAttribute('title', 'New Room');
+    await expect(p.locator('#top-header #return-home-btn')).toBeVisible();
+    await expect(p.locator('#top-header #broadcast-talk-btn')).toBeVisible();
+    await expect(p.locator('#broadcast-talk-btn .app-bar-btn-icon')).toHaveText('📣');
     await expect(p.locator('body')).not.toContainText('Uses talks from Talks OUT');
     await expect(p.locator('#return-home-btn')).toBeEnabled();
     await expect(p.locator('#chatrooms-stats-strip')).toHaveCount(0);
@@ -69,11 +73,11 @@ test.describe('UI navigation and settings shell', () => {
     await expect
       .poll(async () => {
         return p.locator('#broadcast-talk-btn').evaluate((button) => {
-          const bar = document.getElementById('chatroom-action-bar')?.getBoundingClientRect();
+          const bar = document.getElementById('top-header')?.getBoundingClientRect();
           const rect = button.getBoundingClientRect();
           return {
             compact: rect.width < 180,
-            sameRow: bar ? Math.abs(rect.top - bar.top) < 16 : false,
+            sameRow: bar ? rect.top >= bar.top && rect.bottom <= bar.bottom + 1 : false,
           };
         });
       })
@@ -195,7 +199,8 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#settings-status-text')).toBeVisible();
     await expect(p.locator('#settings-status-text')).toContainText('Feature and filter controls');
     await expect(p.locator('#settings-view .status-bar')).toHaveCount(0);
-    await expect(p.locator('.settings-action-bar')).toBeVisible();
+    // Settings actions live in the AppBar now (redesign §1): 📍 refresh-location icon.
+    await expect(p.locator('#top-header #settings-refresh-location-btn')).toBeVisible();
     await expect(p.locator('#settings-view')).toBeVisible();
     await expect(p.locator('#settings-content')).toContainText('Languages');
     await expect(p.locator('#settings-stage-name-input')).toBeVisible();
@@ -279,7 +284,8 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('.chatroom-item.current-room').click();
     await afterNav();
     await expect(p.locator('#current-chatroom-status')).toContainText('位成员');
-    await expect(p.locator('#back-to-chatrooms')).toHaveText('返回');
+    // Back is an icon now; the translation lives on its tooltip.
+    await expect(p.locator('#back-to-chatrooms')).toHaveAttribute('title', '返回');
     await p.locator('#back-to-chatrooms').click();
     await afterNav();
     await p.locator('#create-custom-chatroom-btn').click();

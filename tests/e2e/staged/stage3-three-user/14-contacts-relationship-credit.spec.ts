@@ -13,6 +13,7 @@ import {
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
 import { broadcastFromGlobalChatroom, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 
+import { openCollapsedFilters } from '../../helpers/filter-bar';
 import {
   launchThreeBrowsers,
   shutdownThreeBrowsers,
@@ -100,7 +101,10 @@ test.describe('Contacts relationship dialog', () => {
     const jerryContact = pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'Jerry' }).first();
     await expect(jerryContact).toBeVisible({ timeout: 15000 });
     await jerryContact.click();
-    await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
+    // Rule N2a: dismiss the auto-opened DM conversation to use the User layout.
+    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await pageTom.click('#back-from-conversation');
+    await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry', { timeout: 10000 });
     await expect(pageTom.locator('.contact-profile-languages')).toContainText('English (shared)');
 
     await pageTom.click('#contact-edit-relationship-btn');
@@ -113,12 +117,13 @@ test.describe('Contacts relationship dialog', () => {
     await pageTom.click('#contact-relationship-save-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toHaveCount(0, { timeout: 10000 });
 
-    await pageTom.click('#back-to-contacts-list');
+    await pageTom.click('#back-from-peer-detail');
     await afterAction();
     const updatedContact = pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'J (Jerry)' }).first();
     await expect(updatedContact).toBeVisible({ timeout: 10000 });
     await expect(updatedContact).toContainText('Coffee Circle');
     await expect(pageTom.locator('#contacts-sort-order option[value="relationship"]')).toHaveText('Relationship');
+    await openCollapsedFilters(pageTom, 'contacts-filter-toggle');
     await pageTom.selectOption('#contacts-sort-order', 'relationship');
     await pageTom.fill('#contacts-filter-name', 'Coffee Circle');
     await expect(pageTom.locator('#contacts-list .contact-item:not([data-support-contact="true"])')).toHaveCount(1);
@@ -130,8 +135,10 @@ test.describe('Contacts relationship dialog', () => {
     await expect(finalContact).toBeVisible({ timeout: 10000 });
     await finalContact.evaluate((row) => (row as HTMLElement).click());
     await afterSync();
-    await expect(pageTom.locator('#contact-detail-container')).toBeVisible({ timeout: 10000 });
-    await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry');
+    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await pageTom.click('#back-from-conversation');
+    await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10000 });
+    await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry');
     await expect(pageTom.locator('.contact-context-relationship')).toContainText('Coffee Circle');
     await expect(pageTom.locator('.contact-context-notes')).toContainText('coffee buddy');
     await expect(pageTom.locator('.contact-context-credit')).toContainText('Public credit');

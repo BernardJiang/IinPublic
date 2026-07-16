@@ -44,15 +44,19 @@ test.describe('Tab sweep smoke (D6)', () => {
     await expect(page.locator('#creator-replies-panel')).toBeVisible();
     await expect(page.locator('#reply-sort-order option[value="matches"]')).toHaveText('Matches');
     await expect(page.locator('#talks-out-sort-order option[value="weighted"]')).toHaveText('Weighted performance');
+    // Below 768px the triage filters live behind the "Filters ▾" disclosure (redesign §6).
+    await page.click('[data-testid="replies-filter-toggle"]');
     await expect(page.locator('#reply-group-order')).toBeVisible();
 
     await page.click('.nav-btn[data-view="contacts"]');
     await afterNav();
+    await page.click('[data-testid="contacts-filter-toggle"]');
     await expect(page.locator('#contacts-filter-relation')).toBeVisible();
     await expect(page.locator('#contacts-sort-order option[value="weighted"]')).toHaveText(/Relevance score|Weighted/i);
 
     await page.click('.nav-btn[data-view="me"]');
     await afterNav();
+    await page.click('[data-testid="me-filter-toggle"]');
     await expect(page.locator('.me-talk-type-filter[data-me-talk-type="tag"]')).toBeVisible();
     await expect(page.locator('.me-talk-type-filter[data-me-talk-type="route"]')).toBeVisible();
     await expect(page.locator('.me-tag-state-checkbox[value="indeterminate"]')).toBeVisible();

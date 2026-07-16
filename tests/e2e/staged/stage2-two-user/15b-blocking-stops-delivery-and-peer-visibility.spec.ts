@@ -84,7 +84,7 @@ test.describe('Blocking system — block stops delivery', () => {
     await expect(jerryContact).toBeVisible({ timeout: 15000 });
     await jerryContact.click();
     await waitForContactDetailReady(pageTom);
-    await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
+    await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry', { timeout: 10000 });
     await pageTom.click('#contact-edit-relationship-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10000 });
     await pageTom.click('#contact-block-toggle-btn');
@@ -101,7 +101,7 @@ test.describe('Blocking system — block stops delivery', () => {
       )
       .toContain(jerryUserId);
 
-    await pageTom.click('#back-to-contacts-list');
+    await pageTom.click('#back-from-peer-detail');
     await afterAction();
     await expect(pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'Blocked' }).first()).toBeVisible({ timeout: 10000 });
 
@@ -109,6 +109,9 @@ test.describe('Blocking system — block stops delivery', () => {
     const jerryMember = pageTom.locator('.chatroom-member-item').filter({ hasText: 'Jerry' }).first();
     await expect(jerryMember).toBeVisible({ timeout: 15000 });
     await jerryMember.click();
+    // N2a: dismiss the auto-opened DM conversation first.
+    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await pageTom.click('#back-from-conversation');
     await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10000 });
     await expect(pageTom.locator('#peer-send-talks-btn')).toBeDisabled({ timeout: 10000 });
     await expect(pageTom.locator('#peer-block-user-btn')).toContainText('Unblock User');

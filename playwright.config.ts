@@ -79,6 +79,10 @@ const HEAVY_SPEC_PATTERNS = [
   /staged\/stage4-four-user\//,
   /staged\/stage5-multi-user\//,
   /talks-matching\//,
+  // Cross-platform harness (item G): two browser clients on the shared hub. Multi-browser,
+  // so it rides the low-worker heavy shard and is skipped from the high-worker light run;
+  // `npm run test:e2e:cross-platform` targets the path directly.
+  /cross-platform\//,
   // Multi-browser staged specs that race only under the high-worker light shard, not at
   // PW_WORKERS=2 (Gun peer-teardown ghost membership inflating headcount, and mesh
   // talk-delivery timing). They pass deterministically at low concurrency, so they ride the
@@ -104,6 +108,17 @@ const SKIP_MESH_BROADCAST = process.env.E2E_SKIP_MESH_BROADCAST === '1';
 const SKIP_MESH_RESPONSE = process.env.E2E_SKIP_MESH_RESPONSE === '1';
 const SKIP_MESH_CONTACTS = process.env.E2E_SKIP_MESH_CONTACTS === '1';
 const SKIP_ALL_MESH = process.env.E2E_SKIP_ALL_MESH === '1';
+
+/**
+ * Platform × screen-size matrix (GUI redesign / catalog Part 6, TODO item G).
+ *
+ * The "platform smoke set" is the `@smoke`-tagged specs under tests/e2e/platform-smoke/.
+ * By default only the desktop `chromium` project runs them. Opt into the mobile
+ * device-profile projects (iPhone WebKit 390×844, Android Chromium 360×800) with
+ * `E2E_DEVICE_PROFILES=1` — they run the same tagged smoke set on emulated devices
+ * as a stand-in for the per-release real-device manual pass.
+ */
+const DEVICE_PROFILES = process.env.E2E_DEVICE_PROFILES === '1' || process.env.E2E_DEVICE_PROFILES === 'true';
 
 // Optional port-range offset so concurrent `playwright test` runs don't collide. Matches
 // E2E_PORT_OFFSET in tests/e2e/helpers/ports.ts (default 0). web = 3001+offset+i, gun =
@@ -264,6 +279,25 @@ export default defineConfig({
             ...(SKIP_ALL_MESH ? [/talks-matching\//] : []),
           ],
         },
+        // Mobile device-profile projects (item G): iPhone (WebKit) and Android (Chromium)
+        // running the @smoke-tagged platform smoke set at their native viewports. Opt-in via
+        // E2E_DEVICE_PROFILES=1 so default runs stay desktop-only.
+        ...(DEVICE_PROFILES
+          ? [
+              {
+                name: 'iphone-webkit',
+                grep: /@smoke/,
+                testMatch: /platform-smoke\//,
+                use: { ...devices['iPhone 13'], viewport: { width: 390, height: 844 } },
+              },
+              {
+                name: 'android-chromium',
+                grep: /@smoke/,
+                testMatch: /platform-smoke\//,
+                use: { ...devices['Pixel 5'], viewport: { width: 360, height: 800 } },
+              },
+            ]
+          : []),
       ],
 
   webServer: webServers,

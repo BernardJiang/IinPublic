@@ -23,7 +23,8 @@ export type UserDetailViewDeps = {
   getMyConversations: () => Record<string, any>;
   getMyTalks: () => Record<string, any>;
   getCurrentInterests?: () => Array<{ name?: string; weight?: number; popularity?: number } | string>;
-  showConversationDetail: (conversationId: string) => void;
+  getProfileLanguages?: () => string[];
+  showConversationDetail: (conversationId: string, threadTalkId?: string) => void;
   registerTalkForPeer: (talkId: string, talkData: any, peerId: string, peerName: string) => Promise<void>;
   isBlockedByMe: (userId: string) => boolean;
   setBlocked: (userId: string, blocked: boolean) => Promise<void>;
@@ -31,6 +32,10 @@ export type UserDetailViewDeps = {
   isSupportNotificationsMuted: () => boolean;
   setSupportNotificationsMuted: (muted: boolean) => Promise<void>;
   sendDirectMessage: (peerId: string, peerName: string, text: string) => Promise<void>;
+  /** Opens (creating on demand) the pair's talk-independent DM conversation (C4b). */
+  openDirectConversation: (peerId: string, peerName: string) => void;
+  /** Renders the relationship/credit context block + edit button into a container (shared with Contacts). */
+  renderPeerContext?: (container: HTMLElement, peerId: string, peerName: string) => void;
   getTransportStatus: () => {
     mode: string;
     fallbackReason?: string | null;
@@ -41,6 +46,8 @@ export type UserDetailViewDeps = {
   formatType: (type: string) => string;
   formatLanguage: (code: string) => string;
   getPublicProfileFoundation?: (userId: string) => Promise<PublicProfileFoundation | null>;
+  /** Resolves the peer's CURRENT stage name from the live graph (self-heals stale records). */
+  resolvePeerStageName?: (userId: string) => Promise<string | null>;
   knownPerson?: KnownPerson;
 };
 
@@ -120,15 +127,22 @@ function renderPeerShellCopy(deps: UserDetailViewDeps): void {
     ['.peer-filter-tab[data-filter="received"]', 'received'],
     ['#peer-auto-mode-text', 'peerAutoMode'],
     ['#peer-dm-label', 'peerSendDirectMessage'],
+    ['#peer-messaging-title', 'peerMessages'],
   ];
   for (const [selector, key] of textBySelector) {
     const element = document.querySelector<HTMLElement>(selector);
     if (element) element.textContent = deps.text(key);
   }
   const back = document.getElementById('back-from-peer-detail');
-  if (back) back.textContent = `‹ ${deps.text('back')}`;
+  if (back) {
+    back.textContent = '‹';
+    back.title = deps.text('back');
+  }
   const sendTalks = document.getElementById('peer-send-talks-btn');
-  if (sendTalks) sendTalks.textContent = `📤 ${deps.text('peerSendMyTalks')}`;
+  if (sendTalks) {
+    sendTalks.innerHTML = `<span class="app-bar-btn-icon">📤</span><span class="app-bar-btn-label">${escapeHtml(deps.text('peerSendMyTalks'))}</span>`;
+    sendTalks.setAttribute('title', deps.text('peerSendMyTalks'));
+  }
   const sendMessage = document.getElementById('peer-dm-send-btn');
   if (sendMessage) sendMessage.textContent = `💬 ${deps.text('peerSendMessage')}`;
   const dmInput = document.getElementById('peer-dm-input') as HTMLTextAreaElement | null;
@@ -152,6 +166,19 @@ export function openPeerDetailView(
   const subtitleEl = document.getElementById('peer-detail-subtitle');
   if (subtitleEl) subtitleEl.textContent = buildLoadingSubtitle(peerName, deps);
 
+  // Self-heal a stale header name: the opener passes the best locally-known name,
+  // which can be a placeholder (User<id>) captured before the peer's profile synced.
+  // Resolve the live stage name and patch the header in place.
+  if (deps.resolvePeerStageName) {
+    void deps.resolvePeerStageName(peerId).then((liveName) => {
+      if (!liveName || liveName === peerName) return;
+      if (!currentState || currentState.peerId !== peerId) return;
+      currentState.peerName = liveName;
+      const liveNameEl = document.getElementById('peer-detail-name');
+      if (liveNameEl) liveNameEl.textContent = getPrimaryDisplayName(liveName, deps.knownPerson);
+    });
+  }
+
   // Reset sections
   const statsEl = document.getElementById('peer-stats-section');
   if (statsEl) statsEl.innerHTML = `<div style="padding:12px;color:#999;text-align:center;">${deps.text('peerLoadingStats')}</div>`;
@@ -159,6 +186,11 @@ export function openPeerDetailView(
   if (historyEl) historyEl.innerHTML = `<div style="padding:12px;color:#999;text-align:center;">${deps.text('peerLoadingHistory')}</div>`;
   const historyControls = document.getElementById('peer-history-controls');
   if (historyControls) historyControls.style.display = 'none';
+  const contextEl = document.getElementById('peer-context-section');
+  if (contextEl) {
+    contextEl.innerHTML = '';
+    deps.renderPeerContext?.(contextEl, peerId, peerName);
+  }
 
   overlay.style.display = 'flex';
 
@@ -168,6 +200,19 @@ export function openPeerDetailView(
     const fresh = backBtn.cloneNode(true) as HTMLElement;
     backBtn.replaceWith(fresh);
     fresh.addEventListener('click', () => closePeerDetailView());
+  }
+
+  // ⋯ overflow menu (destructive actions live here — redesign §5)
+  const overflowBtn = document.getElementById('peer-overflow-btn');
+  const overflowPanel = document.getElementById('peer-overflow-panel');
+  if (overflowBtn && overflowPanel) {
+    const fresh = overflowBtn.cloneNode(true) as HTMLElement;
+    overflowBtn.replaceWith(fresh);
+    overflowPanel.classList.remove('open');
+    fresh.addEventListener('click', (event) => {
+      event.stopPropagation();
+      overflowPanel.classList.toggle('open');
+    });
   }
 
   // Sort/filter controls
@@ -212,12 +257,14 @@ export function openPeerDetailView(
     blockBtn.replaceWith(fresh);
     const supportContact = deps.isSupportContact(peerId);
     const supportMuted = supportContact && deps.isSupportNotificationsMuted();
-    fresh.textContent = deps.text(
+    const blockLabel = deps.text(
       supportContact
         ? (supportMuted ? 'contactUnmuteSupport' : 'contactMuteSupport')
         : (deps.isBlockedByMe(peerId) ? 'contactUnblockUser' : 'contactBlockUser'),
     );
+    fresh.innerHTML = `<span class="app-bar-btn-icon">${supportContact ? '🔕' : '🚫'}</span><span class="app-bar-btn-label">${escapeHtml(blockLabel)}</span>`;
     fresh.addEventListener('click', async () => {
+      document.getElementById('peer-overflow-panel')?.classList.remove('open');
       if (supportContact) {
         await deps.setSupportNotificationsMuted(!supportMuted);
       } else {
@@ -420,6 +467,15 @@ async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserD
 function renderProfileHtml(publicUser: any, deps: UserDetailViewDeps): string {
   const headshot = String(publicUser?.headshot || '').trim();
   const languages = Array.isArray(publicUser?.languages) ? publicUser.languages.filter(Boolean) : [];
+  const ownLanguages = new Set(
+    (deps.getProfileLanguages?.() || []).map((code) => String(code).trim().toLowerCase()).filter(Boolean),
+  );
+  const languageLabels = languages.map((code: string) => {
+    const language = deps.formatLanguage(code);
+    return ownLanguages.has(String(code).trim().toLowerCase())
+      ? format(deps, 'contactSharedLanguage', { language })
+      : language;
+  });
   const interests = Array.isArray(publicUser?.interests)
     ? publicUser.interests.map((t: { name?: string }) => String(t?.name || '').trim()).filter(Boolean)
     : [];
@@ -440,7 +496,7 @@ function renderProfileHtml(publicUser: any, deps: UserDetailViewDeps): string {
       </div>`
     : '';
   return `
-    <div class="peer-stat-card" style="margin-bottom:12px;">
+    <div class="peer-stat-card contact-public-profile-summary" style="margin-bottom:12px;">
       <div style="display:flex; gap:12px; align-items:flex-start;">
         <div class="user-avatar" style="width:56px; height:56px; font-size:1.5em; flex-shrink:0;">${avatarInnerHtml(headshot, '?', escapeHtml)}</div>
         <div style="min-width:0; flex:1;">
@@ -449,7 +505,7 @@ function renderProfileHtml(publicUser: any, deps: UserDetailViewDeps): string {
             <div class="peer-compatibility-label"><span>Compatibility</span><strong>${compatibility}%</strong></div>
             <div class="peer-compatibility-track"><span style="width:${compatibility}%"></span></div>
           </div>
-          <div style="font-size:0.85em; color:#475569; margin-top:4px;">${deps.text('languagesLabel')}: ${escapeHtml(languages.length > 0 ? languages.map((code: string) => deps.formatLanguage(code)).join(', ') : deps.text('notListed'))}</div>
+          <div class="contact-profile-languages" style="font-size:0.85em; color:#475569; margin-top:4px;">${deps.text('languagesLabel')}: ${escapeHtml(languageLabels.length > 0 ? languageLabels.join(', ') : deps.text('notListed'))}</div>
           ${interests.length > 0 ? `<div style="font-size:0.85em; color:#475569; margin-top:4px;">${deps.text('interestsLabel')}: ${escapeHtml(interests.join(', '))}</div>` : ''}
           ${sharedInterests.length > 0 ? `<div class="peer-shared-tags"><strong>Shared tags</strong><span>${escapeHtml(sharedInterests.join(', '))}</span></div>` : ''}
           ${reputationHtml}
@@ -565,7 +621,9 @@ function getPrimaryDisplayName(stageName: string, knownPerson?: KnownPerson): st
   const nickname = String(knownPerson?.nickname || '').trim();
   const baseStageName = String(stageName || 'Unknown').trim() || 'Unknown';
   if (!nickname) return baseStageName;
-  return nickname;
+  // Same convention as the Contacts list: "nickname (stage name)" when they differ.
+  if (nickname.toLowerCase() === baseStageName.toLowerCase()) return nickname;
+  return `${nickname} (${baseStageName})`;
 }
 
 function formatRelationshipLabel(label: string | undefined, deps: UserDetailViewDeps): string {
@@ -606,48 +664,119 @@ function buildStatsSubtitle(stageName: string, stats: PeerRelationshipStats, dep
   return parts.join(' · ');
 }
 
-function renderMatchedConversations(peerId: string, deps: UserDetailViewDeps): void {
-  const conversations = deps.getMyConversations();
-  const matched = Object.entries(conversations).filter(
-    ([, c]: [string, any]) => c.otherUserId === peerId,
-  );
+/** Re-render the messaging area of an open ⟨User⟩ layout (badges/snippets refresh). */
+export function refreshPeerThreadList(): void {
+  if (!currentState) return;
+  renderMatchedConversations(currentState.peerId, currentState.deps);
+}
 
+/**
+ * The messaging area of the shared ⟨User⟩ layout (redesign §5): an email-style
+ * thread list — the pair's DM thread first, then one row per matched talk — each
+ * row showing title, latest-reply snippet, timestamp, and an unread badge.
+ * Conversations are one-per-pair (`conv_pair_…`); per-talk threads are scoped by
+ * `conversationId + talkId` (message `talkId` field). Opening a row pushes the
+ * ⟨Thread⟩/⟨Conv⟩ page on top of the User layout (rule N2); the layout stays open
+ * underneath so back returns here.
+ */
+function renderMatchedConversations(peerId: string, deps: UserDetailViewDeps): void {
   const section = document.getElementById('peer-conversations-section');
   if (!section) return;
 
-  if (matched.length === 0) {
-    section.innerHTML = '';
-    return;
-  }
+  const conversations = deps.getMyConversations();
+  const pairEntry = Object.entries(conversations).find(
+    ([, c]: [string, any]) => c.otherUserId === peerId,
+  );
+  const convId = pairEntry?.[0] || '';
+  const conv: any = pairEntry?.[1] || null;
+  const summaries: Record<string, { lastMessage?: string; lastMessageTime?: string; unreadCount?: number }> =
+    conv?.threadSummaries && typeof conv.threadSummaries === 'object' ? conv.threadSummaries : {};
+
+  const relatedTalkIds: string[] = Array.isArray(conv?.relatedTalkIds)
+    ? conv.relatedTalkIds.filter((id: unknown) => id && id !== 'direct')
+    : (conv?.talkId && conv.talkId !== 'direct' ? [String(conv.talkId)] : []);
 
   const myTalks = deps.getMyTalks();
+  const peerName = currentState?.peerName || '';
+
+  const threadRow = (
+    talkKey: string,
+    title: string,
+    testid: string,
+    summary: { lastMessage?: string; lastMessageTime?: string; unreadCount?: number },
+  ): string => {
+    const lastMsg = summary?.lastMessage
+      ? escapeHtml(String(summary.lastMessage).slice(0, 60))
+      : deps.text('peerStartChatting');
+    const timeLabel = summary?.lastMessageTime
+      ? deps.formatRelativeTime(new Date(summary.lastMessageTime))
+      : '';
+    const unread = Number(summary?.unreadCount || 0) || 0;
+    const unreadBadge = unread > 0
+      ? `<span class="thread-unread-badge" data-unread-count="${unread}">${unread > 99 ? '99+' : unread}</span>`
+      : '';
+    return `
+      <div class="peer-thread-item" data-testid="${testid}" data-conv-id="${escapeHtml(convId)}" data-talk-id="${escapeHtml(talkKey)}" role="button" tabindex="0">
+        <div class="peer-thread-main">
+          <div class="peer-thread-title">${escapeHtml(title)}</div>
+          <div class="peer-thread-snippet">${lastMsg}</div>
+        </div>
+        <div class="peer-thread-side">
+          <span class="peer-thread-time">${escapeHtml(timeLabel)}</span>
+          ${unreadBadge}
+        </div>
+      </div>
+    `;
+  };
+
+  const dmSummary = summaries['direct'] || {
+    lastMessage: conv?.lastMessage || '',
+    lastMessageTime: conv?.lastMessageTime || '',
+    unreadCount: 0,
+  };
+  const dmRow = conv
+    ? threadRow('direct', deps.text('peerDirectMessages'), 'dm-thread-entry', dmSummary)
+    : `
+      <div class="peer-thread-item peer-thread-new-dm" data-testid="dm-thread-entry" data-talk-id="direct" role="button" tabindex="0">
+        <div class="peer-thread-main">
+          <div class="peer-thread-title">${escapeHtml(deps.text('peerDirectMessages'))}</div>
+          <div class="peer-thread-snippet">${deps.text('peerStartChatting')}</div>
+        </div>
+        <div class="peer-thread-side"><span style="color:#999;">›</span></div>
+      </div>
+    `;
+
+  const sortedTalkIds = [...relatedTalkIds].sort((a, b) => {
+    const at = new Date(summaries[a]?.lastMessageTime || 0).getTime();
+    const bt = new Date(summaries[b]?.lastMessageTime || 0).getTime();
+    return bt - at;
+  });
+  const threadRows = sortedTalkIds
+    .map((talkId) => {
+      const talk = myTalks[talkId] as any;
+      const talkTitle = talk?.title || talk?.fullTalk?.title
+        || `${deps.text('peerTalkFallback')} ${String(talkId).slice(0, 8)}`;
+      return threadRow(talkId, String(talkTitle), 'matched-talk-thread', summaries[talkId] || {});
+    })
+    .join('');
+
   section.innerHTML = `
-    <div class="peer-section-title">💬 ${format(deps, 'peerConversations', { count: matched.length })}</div>
-    <div class="peer-conv-list" id="peer-conv-list">
-      ${matched
-        .map(([convId, c]: [string, any]) => {
-          const talk = c.talkId ? myTalks[c.talkId] : null;
-          const talkTitle = talk?.title || talk?.fullTalk?.title || (c.talkId ? `${deps.text('peerTalkFallback')} ${c.talkId.slice(0, 8)}` : deps.text('peerTalkFallback'));
-          const lastMsg = c.lastMessage ? escapeHtml(String(c.lastMessage).slice(0, 60)) : deps.text('peerStartChatting');
-          const botBadge = c.respondedByBot ? `<span class="conversation-bot-badge" title="${deps.text('peerAutoReplied')}">🤖</span>` : '';
-          return `
-            <div class="peer-conv-item" data-conv-id="${escapeHtml(convId)}" data-talk-id="${escapeHtml(c.talkId || '')}">
-              <div class="peer-conv-talk-title">${escapeHtml(talkTitle)} ${botBadge}</div>
-              <div class="peer-conv-preview">${lastMsg}</div>
-              <button class="btn peer-open-chat-btn" data-conv-id="${escapeHtml(convId)}">${deps.text('peerOpenChat')} ›</button>
-            </div>
-          `;
-        })
-        .join('')}
+    <div class="peer-thread-list" id="peer-conv-list">
+      ${dmRow}
+      ${sortedTalkIds.length > 0 ? `<div class="peer-thread-group-label">${format(deps, 'peerConversations', { count: sortedTalkIds.length })}</div>` : ''}
+      ${threadRows}
     </div>
   `;
 
-  section.querySelectorAll('.peer-open-chat-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const convId = (btn as HTMLElement).dataset.convId;
-      if (convId) {
-        closePeerDetailView();
-        deps.showConversationDetail(convId);
+  section.querySelectorAll<HTMLElement>('.peer-thread-item').forEach((row) => {
+    row.addEventListener('click', () => {
+      const rowConvId = row.dataset.convId;
+      const talkKey = row.dataset.talkId || 'direct';
+      if (rowConvId) {
+        // Keep the User layout open underneath — back from the thread lands here (N2).
+        deps.showConversationDetail(rowConvId, talkKey === 'direct' ? undefined : talkKey);
+      } else {
+        deps.openDirectConversation(peerId, peerName);
       }
     });
   });

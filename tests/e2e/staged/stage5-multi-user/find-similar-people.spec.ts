@@ -31,6 +31,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from '@playwri
 import { test, expect } from '../../helpers/fixtures';
 import { maybeClearGunDatabases } from '../../helpers/clear-database';
 import { afterSync, afterAction, afterNav, delay, headless } from '../../helpers/timing';
+import { openCollapsedFilters } from '../../helpers/filter-bar';
 import {
   bootstrapUser,
   waitForTabActive,
@@ -406,6 +407,7 @@ test.describe('Find similar people', () => {
     await Promise.all(
       setups.map(async ({ page, idx }) => {
         await waitForTabActive(page, 'contacts');
+        await openCollapsedFilters(page, 'contacts-filter-toggle');
         await page.waitForSelector('#contacts-sort-order', { timeout: 20_000 });
         await page.evaluate(() => localStorage.removeItem('iinpublic_contacts_tab_state'));
         await page.fill('#contacts-filter-name', '');
@@ -431,6 +433,9 @@ test.describe('Find similar people', () => {
 
         // Tag the most-similar stranger (top of the list) as "similar interest people".
         await realContacts.first().click();
+        // Rule N2a: dismiss the auto-opened DM conversation to use the User layout.
+        await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+        await page.click('#back-from-conversation');
         await afterNav();
         await page.locator('#contact-edit-relationship-btn').click();
         await expect(page.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10_000 });
@@ -440,7 +445,7 @@ test.describe('Find similar people', () => {
         await expect(page.locator('#contact-relationship-modal')).not.toBeVisible({ timeout: 10_000 });
 
         // Back in the list the saved relationship label shows on that contact.
-        await page.locator('#back-to-contacts-list').click();
+        await page.locator('#back-from-peer-detail').click();
         await afterAction();
         await expect(
           page.locator('.contact-item:not([data-support-contact="true"])').filter({ hasText: RELATIONSHIP_LABEL }).first(),

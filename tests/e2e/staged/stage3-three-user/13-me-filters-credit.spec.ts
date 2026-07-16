@@ -158,7 +158,10 @@ test.describe('Me tab filters and credit visibility', () => {
     await pageTom.click('.nav-btn[data-view="contacts"]');
     await afterSync();
     await pageTom.locator('#contacts-list .contact-item').filter({ hasText: 'Jerry' }).first().click();
-    await expect(pageTom.locator('#contact-detail-name')).toContainText('Jerry', { timeout: 10000 });
+    // Rule N2a: dismiss the auto-opened DM conversation to use the User layout.
+    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await pageTom.click('#back-from-conversation');
+    await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry', { timeout: 10000 });
     await pageTom.click('#contact-edit-relationship-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10000 });
     await expect(pageTom.locator('#contact-relationship-modal')).toContainText('Public credit');

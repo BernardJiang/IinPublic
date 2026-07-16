@@ -64,7 +64,7 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
     const preferenceEntries = Object.entries(preferences);
 
     modal.innerHTML = `
-      <div class="modal-content" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
+      <div class="modal-content size-l modal-fullscreen" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
         <div class="modal-header">
           <h2 class="modal-title">${text('preferencesAnswersTitle', 'My Answers')}</h2>
           <button class="close-button" id="close-preferences-modal" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">&times;</button>
