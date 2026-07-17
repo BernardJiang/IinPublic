@@ -20,6 +20,7 @@ import {
   incomingClustersIncludeTitleForUser,
 } from '../../helpers/talks-matching-flow';
 import { createMatchTalk, enterGlobalChatroom, ensureNoBlockBetween } from '../../helpers/blocking-e2e-helpers';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 async function openContactsList(page: Page): Promise<void> {
   await page.evaluate(() => {
@@ -65,8 +66,8 @@ test.describe('Blocking system — unblock resumes talk delivery', () => {
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunForStage2Spec();
-    browserTom = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
-    browserJerry = await chromium.launch({ headless, args: ['--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
+    browserTom = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
+    browserJerry = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
   });
 
   test.beforeEach(async () => {

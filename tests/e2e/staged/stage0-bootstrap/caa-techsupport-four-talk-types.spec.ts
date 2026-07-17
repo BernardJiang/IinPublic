@@ -5,6 +5,7 @@ import { bootstrapTechSupport } from '../../helpers/bootstrap-canonical';
 import { createTalkFromCompanyPage } from '../../helpers/talk-demo-ui';
 import { afterNav, afterSync, headless } from '../../helpers/timing';
 import type { Talk } from '../../../../src/shared/types';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 type TechSupportTalk = Talk & {
   selfAnswers: Array<{ questionId: string; answerId: string }>;
@@ -124,7 +125,7 @@ test.describe('Stage 0 — TechSupport creates four talk types', () => {
   test.skip(!isStagePipeline(), 'only for E2E_STAGE_PIPELINE=1');
 
   test('TechSupport creates tag, flow, survey, and route talks and verifies Me answers', async () => {
-    const browser = await chromium.launch({ headless, args: ['--window-position=0,0'] });
+    const browser = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0'] });
     const { context, page } = await bootstrapTechSupport(browser, 'TechSupport Four Talks');
     const talks = techSupportFourTalks(Date.now());
 

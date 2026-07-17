@@ -7,6 +7,7 @@ import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { wait, afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
 import { webBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Login — two users headcount', () => {
   let browser: Browser;
@@ -21,12 +22,12 @@ test.describe('Login — two users headcount', () => {
     browser = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 150),
-      args: ['--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });
     browser2 = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 150),
-      args: ['--window-position=960,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=960,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });
   });
 

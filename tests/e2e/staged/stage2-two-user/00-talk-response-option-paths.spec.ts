@@ -24,6 +24,7 @@ import {
 } from '../../helpers/talks-matching-flow';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 // Two full boots + broadcast + 90s cluster-delivery budget exceed the 120s default
 // under the high-worker light shard.
@@ -39,8 +40,8 @@ test.describe('Talk Response: option paths', () => {
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunForStage2Spec();
-    browserAlice = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=640,1200'] });
-    browserTom = await chromium.launch({ headless, args: ['--window-position=640,0', '--window-size=640,1200'] });
+    browserAlice = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1200'] });
+    browserTom = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1200'] });
   });
 
   test.afterAll(async () => {

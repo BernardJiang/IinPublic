@@ -12,6 +12,7 @@ import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterNav, afterSync, afterAction } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Settings: intake filters persist across reload', () => {
   let browser: Browser;
@@ -22,7 +23,7 @@ test.describe('Settings: intake filters persist across reload', () => {
     await clearGunForStage1Spec();
     browser = await chromium.launch({
       headless: true,
-      args: ['--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });
   });
 

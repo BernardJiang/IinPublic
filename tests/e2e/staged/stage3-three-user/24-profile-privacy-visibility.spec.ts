@@ -14,6 +14,7 @@ import { afterAction, afterNav, afterSync, headless } from '../../helpers/timing
 import { gunBaseURL, webAppURLStableChatroom } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Profile privacy visibility', () => {
   let browser: Browser;
@@ -29,7 +30,7 @@ test.describe('Profile privacy visibility', () => {
     await maybeClearGunDatabases();
     browser = await chromium.launch({
       headless,
-      args: ['--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });
   });
 

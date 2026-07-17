@@ -12,6 +12,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless, afterNav, afterSync } from '../../helpers/timing';
 import { setupFastMatchedDm, teardownFastDmPair, FastDmPair } from '../../helpers/fast-dm-setup';
 import { openCollapsedFilters } from '../../helpers/filter-bar';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 const OUTCOMES = ['all', 'match', 'mismatch', 'ignore', 'auto'];
 const RELATIONS = ['all', 'stranger', 'friend', 'relative', 'coworker', 'acquaintance', 'partner', 'custom'];
@@ -26,8 +27,8 @@ test.describe('Reply-triage option matrix', () => {
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunForStage2Spec();
-    browserA = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=1100,1100'] });
-    browserB = await chromium.launch({ headless, args: ['--window-position=1100,0', '--window-size=700,1100'] });
+    browserA = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=1100,1100'] });
+    browserB = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=1100,0', '--window-size=700,1100'] });
   });
 
   test.afterAll(async () => {

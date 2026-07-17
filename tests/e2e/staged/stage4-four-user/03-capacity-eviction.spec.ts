@@ -8,6 +8,7 @@ import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '..
 import { webBaseURL, e2eTestStorageDir } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 /**
  * Navigate to the app with e2e_capacity=3 and e2e_fifo=true URL params so the
@@ -85,7 +86,7 @@ test.describe('Capacity and eviction', () => {
       chromium.launch({
         headless,
         slowMo: headless ? 0 : delay(50, 150),
-        args: [`--window-position=${x},${y}`, '--window-size=640,800', '--force-device-scale-factor=1'],
+        args: [...WEBRTC_CHROMIUM_ARGS, `--window-position=${x},${y}`, '--window-size=640,800', '--force-device-scale-factor=1'],
       });
     browser1 = await launch(0, 0);
     browser2 = await launch(640, 0);

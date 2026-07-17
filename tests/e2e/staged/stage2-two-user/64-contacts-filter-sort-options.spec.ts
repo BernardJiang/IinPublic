@@ -11,6 +11,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless, afterNav, afterSync } from '../../helpers/timing';
 import { setupFastMatchedDm, teardownFastDmPair, FastDmPair } from '../../helpers/fast-dm-setup';
 import { openCollapsedFilters } from '../../helpers/filter-bar';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 const RELATIONS = ['all', 'friend', 'relative', 'coworker', 'acquaintance', 'partner', 'custom'];
 const SORTS = ['recent', 'talks', 'matches', 'match-rate', 'weighted', 'name', 'relationship'];
@@ -22,8 +23,8 @@ test.describe('Contacts: filter/sort option matrix', () => {
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunForStage2Spec();
-    browserA = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=1000,1100'] });
-    browserB = await chromium.launch({ headless, args: ['--window-position=1000,0', '--window-size=800,1100'] });
+    browserA = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=1000,1100'] });
+    browserB = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=1000,0', '--window-size=800,1100'] });
   });
 
   test.afterAll(async () => {

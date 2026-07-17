@@ -6,6 +6,7 @@ import { afterLoad, afterNav, afterAction, afterSync, headless } from '../../hel
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 async function bootstrapCompactUser(
   browser: Browser,
@@ -87,7 +88,7 @@ test.describe('Chatroom UX: member list scroll and unified broadcast bar', () =>
     await maybeClearGunDatabases();
     browser = await chromium.launch({
       headless,
-      args: ['--window-position=0,0', '--window-size=640,900', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,900', '--force-device-scale-factor=1'],
     });
   });
 

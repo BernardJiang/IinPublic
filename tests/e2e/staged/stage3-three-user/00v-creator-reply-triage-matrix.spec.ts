@@ -12,6 +12,7 @@ import {
   importChampionReplyMatrixSnapshot,
   type MatrixResponder,
 } from '../../helpers/creator-reply-matrix';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 /** D5 high-volume browser proof: 10 talks × 10 responders = 100 replies. */
 const MATRIX_SIZE = 10;
@@ -29,7 +30,7 @@ test.describe('Creator reply triage at scale', () => {
 
   test.beforeAll(async () => {
     await maybeClearGunDatabases();
-    browser = await chromium.launch();
+    browser = await chromium.launch({ args: WEBRTC_CHROMIUM_ARGS });
   });
 
   test.afterAll(async () => {

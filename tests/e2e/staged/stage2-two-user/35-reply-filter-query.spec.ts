@@ -11,6 +11,7 @@ import { afterLoad, afterSync, afterNav, afterAction, headless, E2E_ASSERT_TIMEO
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { openCollapsedFilters } from '../../helpers/filter-bar';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Talks tab: replies filter by query', () => {
   let browserAlice: Browser;
@@ -21,7 +22,7 @@ test.describe('Talks tab: replies filter by query', () => {
     await clearGunForStage2Spec();
     browserAlice = await chromium.launch({
       headless,
-      args: ['--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
   });
 

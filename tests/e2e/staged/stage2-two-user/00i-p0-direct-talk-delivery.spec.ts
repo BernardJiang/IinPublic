@@ -14,6 +14,7 @@ import {
   findIncomingTalkIdByTitle,
 } from '../../helpers/talk-demo-ui';
 import { isMeshTalkDeliveryE2e } from '../../helpers/ports';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Pair-direct talk delivery over Gun mesh', () => {
   let browserTom: Browser;
@@ -21,8 +22,8 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
 
   test.beforeAll(async () => {
     test.setTimeout(120_000);
-    browserTom = await chromium.launch({ headless: process.env.CI ? true : false });
-    browserJerry = await chromium.launch({ headless: process.env.CI ? true : false });
+    browserTom = await chromium.launch({ headless: process.env.CI ? true : false, args: WEBRTC_CHROMIUM_ARGS });
+    browserJerry = await chromium.launch({ headless: process.env.CI ? true : false, args: WEBRTC_CHROMIUM_ARGS });
     await clearGunForStage2Spec();
   });
 

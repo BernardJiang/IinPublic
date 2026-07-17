@@ -5,6 +5,7 @@ import { maybeClearGunDatabases } from '../helpers/clear-database';
 import { headless } from '../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../helpers/talks-matching-flow';
 import { createTalksFromCompanyPage, completeTalksInAppByAnswerIds } from '../helpers/talk-demo-ui';
+import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 
 const GOLDEN = [
   ['flowa11', 'flowa22', 'flowa33', 'flowa41'], ['flowa11', 'flowa22', 'flowa33', 'flowa42'],
@@ -33,7 +34,7 @@ test.describe('M1 real flow mass exchange', () => {
     const browsers: Browser[] = []; const contexts: BrowserContext[] = []; const pages: Page[] = [];
     try {
       for (let i = 0; i < 10; i += 1) {
-        const browser = await chromium.launch({ headless, args: ['--disable-dev-shm-usage'] });
+        const browser = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--disable-dev-shm-usage'] });
         browsers.push(browser);
         const boot = await bootstrapUser(browser, `M1-${i}`, `M1 User ${i}`, 60_000);
         contexts.push(boot.context); pages.push(boot.page);

@@ -10,6 +10,7 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless, afterNav, afterSync } from '../../helpers/timing';
 import { setupFastMatchedDm, teardownFastDmPair, FastDmPair } from '../../helpers/fast-dm-setup';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Peer history controls', () => {
   let browserA: Browser;
@@ -18,8 +19,8 @@ test.describe('Peer history controls', () => {
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunForStage2Spec();
-    browserA = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=1000,1100'] });
-    browserB = await chromium.launch({ headless, args: ['--window-position=1000,0', '--window-size=800,1100'] });
+    browserA = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=1000,1100'] });
+    browserB = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=1000,0', '--window-size=800,1100'] });
   });
 
   test.afterAll(async () => {

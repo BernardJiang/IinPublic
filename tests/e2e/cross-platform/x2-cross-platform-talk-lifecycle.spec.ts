@@ -16,6 +16,7 @@ import {
   sendConversationMessage,
   waitForMessageVisible,
 } from '../helpers/fast-dm-setup';
+import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 
 test.describe('X2: cross-platform talk lifecycle + thread replies', () => {
   let browserA: Browser;
@@ -24,8 +25,8 @@ test.describe('X2: cross-platform talk lifecycle + thread replies', () => {
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunForStage2Spec();
-    browserA = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=900,1100'] });
-    browserB = await chromium.launch({ headless, args: ['--window-position=900,0', '--window-size=900,1100'] });
+    browserA = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=900,1100'] });
+    browserB = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=900,0', '--window-size=900,1100'] });
   });
 
   test.afterAll(async () => {

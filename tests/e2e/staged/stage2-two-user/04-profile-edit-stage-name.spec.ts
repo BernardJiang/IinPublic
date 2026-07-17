@@ -8,6 +8,7 @@ import { afterLoad, afterNav, delay, gotoAppReady, headless } from '../../helper
 import { webAppURLStableChatroom, gunBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { establishContactsTomJerry, getCurrentUserId } from '../../helpers/reputation-e2e-helpers';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Profile foundation', () => {
   test.setTimeout(180_000);
@@ -23,12 +24,12 @@ test.describe('Profile foundation', () => {
     browser = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 150),
-      args: ['--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });
     browserPeer = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 150),
-      args: ['--window-position=960,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=960,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });
   });
 

@@ -4,12 +4,13 @@ import { isStagePipeline } from '../../helpers/e2e-stage-pipeline';
 import { bootstrapTechSupport } from '../../helpers/bootstrap-canonical';
 import { assertStatusChecks } from '../../helpers/e2e-status-checks';
 import { afterNav, afterSync, headless } from '../../helpers/timing';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Stage 0 — TechSupport single-user traversal', () => {
   test.skip(!isStagePipeline(), 'only for E2E_STAGE_PIPELINE=1');
 
   test('TechSupport traverses all single-user tabs before stage0 is saved', async () => {
-    const browser = await chromium.launch({ headless, args: ['--window-position=0,0'] });
+    const browser = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0'] });
     const { context, page } = await bootstrapTechSupport(browser, 'TechSupport Stage0');
 
     await assertStatusChecks(page, [

@@ -16,6 +16,7 @@ import {
   goToChatrooms,
   waitForBroadcastBulkAckMinSent,
 } from '../../helpers/broadcast-cancellation-helpers';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 test.describe('Broadcast cancellation — talk deletion mid-flight', () => {
   let browserTom: Browser;
   let browserJerry: Browser;
@@ -24,11 +25,11 @@ test.describe('Broadcast cancellation — talk deletion mid-flight', () => {
     await clearGunForStage2Spec();
     browserTom = await chromium.launch({
       headless,
-      args: ['--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
     browserJerry = await chromium.launch({
       headless,
-      args: ['--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
   });
 

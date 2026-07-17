@@ -15,6 +15,7 @@ import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { afterAction, afterLoad, afterSync } from '../../helpers/timing';
 import { waitForTabActive } from '../../helpers/talks-matching-flow';
 import { buildMatrixTalks, type MatrixResponder } from '../../helpers/creator-reply-matrix';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 const SIZE = 3;
 const RESPONDERS: MatrixResponder[] = Array.from({ length: SIZE }, (_, i) => ({
@@ -30,7 +31,7 @@ test.describe('Reply triage grouping across 3 responders', () => {
 
   test.beforeAll(async () => {
     await maybeClearGunDatabases();
-    browser = await chromium.launch();
+    browser = await chromium.launch({ args: WEBRTC_CHROMIUM_ARGS });
   });
 
   test.afterAll(async () => {

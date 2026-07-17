@@ -9,6 +9,7 @@ import { webBaseURL, gunBaseURL, e2eTestScreenshotsDir, e2eTestStorageDir } from
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () => {
   let browser1: Browser;
@@ -84,17 +85,17 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     browser1 = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 150),
-      args: ['--window-position=0,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
     });
     browser2 = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 150),
-      args: ['--window-position=640,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
     });
     browser3 = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 150),
-      args: ['--window-position=1280,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=1280,0', '--window-size=640,1000', '--force-device-scale-factor=1'],
     });
   });
 

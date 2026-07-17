@@ -18,6 +18,7 @@ import {
   bootstrapSuperUser,
   waitForTabActive,
 } from '../../helpers/super-user-techsupport-shared';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 function matchingAnswerIds(talkData: any): string[] {
   if (talkData?.type === 'tag') {
@@ -52,12 +53,12 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     browserTechSupport = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 120),
-      args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     browserTom = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 120),
-      args: ['--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     console.log('🚀 Launched 2 Chrome browsers: TechSupport, Tom');
   });

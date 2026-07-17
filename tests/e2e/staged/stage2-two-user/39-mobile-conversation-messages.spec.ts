@@ -16,6 +16,7 @@ import {
   MOBILE_VIEWPORT,
 } from '../../helpers/mobile-bootstrap';
 import { sendConversationMessage, waitForMessageVisible } from '../../helpers/fast-dm-setup';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Mobile conversation messaging: B on 390x844', () => {
   let browserA: Browser;
@@ -24,8 +25,8 @@ test.describe('Mobile conversation messaging: B on 390x844', () => {
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunForStage2Spec();
-    browserA = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=640,1100'] });
-    browserB = await chromium.launch({ headless, args: ['--window-position=640,0', '--window-size=420,900'] });
+    browserA = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1100'] });
+    browserB = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=420,900'] });
   });
 
   test.afterAll(async () => {

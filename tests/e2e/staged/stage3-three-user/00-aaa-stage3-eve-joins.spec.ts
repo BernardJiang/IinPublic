@@ -4,13 +4,14 @@ import { isStagePipeline, loadStageSnapshot, saveStageSnapshot } from '../../hel
 import { bootstrapTechSupport, bootstrapAdam, bootstrapEve, saveUserStorageState } from '../../helpers/bootstrap-canonical';
 import { afterSync } from '../../helpers/timing';
 import { headless } from '../../helpers/timing';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Stage 3 — Eve joins TechSupport and Adam', () => {
   test.skip(!isStagePipeline(), 'only for E2E_STAGE_PIPELINE=1');
 
   test('load stage2, Eve enters Global, headcount reflects three users', async () => {
     await loadStageSnapshot('stage2');
-    const browser = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=1600,800'] });
+    const browser = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=1600,800'] });
     const contexts = [];
     try {
       const tech = await bootstrapTechSupport(browser, 'TechSupport');

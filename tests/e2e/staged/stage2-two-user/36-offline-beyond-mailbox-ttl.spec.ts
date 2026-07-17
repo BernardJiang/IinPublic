@@ -51,8 +51,8 @@ test.describe('Mailbox: an envelope announced while the recipient is offline pas
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunForStage2Spec();
     const args = ['--window-size=640,1100', ...WEBRTC_CHROMIUM_ARGS];
-    browserA = await chromium.launch({ headless, args: ['--window-position=0,0', ...args] });
-    browserB = await chromium.launch({ headless, args: ['--window-position=640,0', ...args] });
+    browserA = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', ...args] });
+    browserB = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', ...args] });
   });
 
   test.afterAll(async () => {

@@ -7,6 +7,7 @@ import { bootstrapUser, incomingClustersIncludeTitleForUser, waitForTabActive } 
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { waitForBroadcastBulkAck } from '../../helpers/broadcast-ack';
 import { gunBaseURL } from '../../helpers/ports';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 /** Expand parent only when collapsed (▶). Default UI already expands NA/Europe — blind toggle hides children. */
 async function ensureHierarchyParentExpanded(page: Page, parentId: string): Promise<void> {
@@ -86,12 +87,12 @@ test.describe('Chatroom hierarchy navigation and regional broadcast', () => {
     browserTom = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 120),
-      args: ['--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
     browserJerry = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 120),
-      args: ['--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
   });
 

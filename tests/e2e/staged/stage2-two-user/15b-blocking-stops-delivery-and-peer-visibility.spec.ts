@@ -16,6 +16,7 @@ import {
   incomingClustersIncludeTitleForUser,
 } from '../../helpers/talks-matching-flow';
 import { createMatchTalk, enterGlobalChatroom } from '../../helpers/blocking-e2e-helpers';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Blocking system — block stops delivery', () => {
   let browserTom: Browser;
@@ -27,8 +28,8 @@ test.describe('Blocking system — block stops delivery', () => {
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunForStage2Spec();
-    browserTom = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
-    browserJerry = await chromium.launch({ headless, args: ['--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
+    browserTom = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
+    browserJerry = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
   });
 
   test.beforeEach(async () => {

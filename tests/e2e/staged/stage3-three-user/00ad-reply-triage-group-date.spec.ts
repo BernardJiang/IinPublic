@@ -25,6 +25,7 @@ import {
   importChampionReplyMatrixSnapshot,
   type MatrixResponder,
 } from '../../helpers/creator-reply-matrix';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 const MATRIX_SIZE = 4; // small enough to load quickly
 const MATRIX_RESPONDERS: MatrixResponder[] = Array.from({ length: MATRIX_SIZE }, (_, i) => ({
@@ -40,7 +41,7 @@ test.describe('Reply triage group-by and date-range filter (D6)', () => {
 
   test.beforeAll(async () => {
     await maybeClearGunDatabases();
-    browser = await chromium.launch();
+    browser = await chromium.launch({ args: WEBRTC_CHROMIUM_ARGS });
   });
 
   test.afterAll(async () => {

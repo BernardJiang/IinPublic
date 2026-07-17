@@ -14,6 +14,7 @@ import {
 } from '../../helpers/reputation-e2e-helpers';
 import { waitForContactDetailReady } from '../../helpers/durable-ui';
 import { gunBaseURL } from '../../helpers/ports';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 async function setBlockViaApi(page: Page, blockerId: string, targetId: string, blocked: boolean): Promise<void> {
   const base = gunBaseURL();
@@ -45,11 +46,11 @@ test.describe('Reputation system — block count propagation', () => {
     await clearGunForStage2Spec();
     browserTom = await chromium.launch({
       headless,
-      args: ['--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
     browserJerry = await chromium.launch({
       headless,
-      args: ['--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
   });
 

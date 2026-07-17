@@ -21,6 +21,7 @@ import { waitForServerConversationBetween } from '../../helpers/conversation-e2e
 import { headless } from '../../helpers/timing';
 import fs from 'fs';
 import { stageStoragePath } from '../../helpers/e2e-stage-pipeline';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 const STAGE2_TALK_TITLE = 'Stage2 Adam Hello';
 
@@ -33,7 +34,7 @@ test.describe('Stage 2 — Adam joins TechSupport', () => {
       const p = stageStoragePath('stage2', key);
       if (fs.existsSync(p)) fs.unlinkSync(p);
     }
-    const browser = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=1280,800'] });
+    const browser = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=1280,800'] });
     const tech = await bootstrapTechSupport(browser, 'TechSupport');
     // Fresh Adam (do not restore stage2 storage — stale files break match with stage1 graph).
     const adam = await bootstrapCanonicalUser(browser, 'Adam', ADAM);

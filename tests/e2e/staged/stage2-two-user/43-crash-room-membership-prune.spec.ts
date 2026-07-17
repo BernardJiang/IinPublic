@@ -8,6 +8,7 @@ import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { afterSync, headless } from '../../helpers/timing';
 import { gunBaseURL } from '../../helpers/ports';
 import { bootstrapOnPage, launchPersistentUser } from '../../helpers/crash-recovery';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Room membership cleanup after OS-level browser crash', () => {
   let browserA: Browser;
@@ -18,7 +19,7 @@ test.describe('Room membership cleanup after OS-level browser crash', () => {
 
   test.beforeAll(async () => {
     await clearGunForStage2Spec();
-    browserA = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=640,1000'] });
+    browserA = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1000'] });
     userDataDirB = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpub-room-crashB-'));
   });
 

@@ -16,6 +16,7 @@ import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 const DEFAULTS = ['fuck', 'cunt', 'bitch', 'cock'];
 
@@ -28,7 +29,7 @@ test.describe('Settings: dirty-word list editor', () => {
     await clearGunForStage1Spec();
     browser = await chromium.launch({
       headless: true,
-      args: ['--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });
   });
 

@@ -17,6 +17,7 @@ import { headless } from '../../helpers/timing';
 import { bootstrapUser, waitForResponseModalClosed, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { bootstrapMobileUser, MOBILE_VIEWPORT } from '../../helpers/mobile-bootstrap';
 import { waitForServerConversationBetween, getConversationIdBetween } from '../../helpers/conversation-e2e';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Mobile talk answer flow: B on 390x844 answers through the real response modal', () => {
   let browserA: Browser;
@@ -28,8 +29,8 @@ test.describe('Mobile talk answer flow: B on 390x844 answers through the real re
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunForStage2Spec();
-    browserA = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=640,1100'] });
-    browserB = await chromium.launch({ headless, args: ['--window-position=640,0', '--window-size=420,900'] });
+    browserA = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1100'] });
+    browserB = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=420,900'] });
   });
 
   test.afterAll(async () => {

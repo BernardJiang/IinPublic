@@ -4,6 +4,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync, headless } from '../../helpers/timing';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('TechSupport built-in contact controls', () => {
   test.describe.configure({ retries: 0 });
@@ -15,7 +16,7 @@ test.describe('TechSupport built-in contact controls', () => {
     await clearGunForStage2Spec();
     browser = await chromium.launch({
       headless,
-      args: ['--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
   });
 

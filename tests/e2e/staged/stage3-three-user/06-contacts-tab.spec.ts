@@ -11,6 +11,7 @@ import {
 import { waitForStatusBarMatchCountAtLeast, waitForPeerHistoryTitle, waitForContactDetailReady } from '../../helpers/durable-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Contacts tab: list of users with matches, click to see matching talks', () => {
   let browserTom: Browser;
@@ -39,17 +40,17 @@ test.describe('Contacts tab: list of users with matches, click to see matching t
     browserTom = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 120),
-      args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     browserJerry = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 120),
-      args: ['--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     browserBob = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 120),
-      args: ['--window-position=1280,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=1280,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
   });
 

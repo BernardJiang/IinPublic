@@ -11,6 +11,7 @@ import {
   bootstrapSuperUser,
   waitForTabActive,
 } from '../../helpers/super-user-techsupport-shared';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Super user: copy talk broadcast toggle + delete', () => {
   let browserTechSupport: Browser;
@@ -25,12 +26,12 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     browserTechSupport = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 120),
-      args: ['--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
     browserTom = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 120),
-      args: ['--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1200', '--force-device-scale-factor=1'],
     });
   });
 

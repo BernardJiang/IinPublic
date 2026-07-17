@@ -11,6 +11,7 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterLoad, afterNav, afterSync, delay, headless } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 const VIEWPORT = { width: 390, height: 844 };
 
@@ -24,7 +25,7 @@ test.describe('Mobile chatroom hierarchy navigation', () => {
     browser = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 150),
-      args: ['--window-position=0,0', `--window-size=${VIEWPORT.width},${VIEWPORT.height}`, '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', `--window-size=${VIEWPORT.width},${VIEWPORT.height}`, '--force-device-scale-factor=1'],
     });
   });
 

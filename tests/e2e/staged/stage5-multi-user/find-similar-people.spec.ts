@@ -38,6 +38,7 @@ import {
   waitForResponseModalClosed,
   openIncomingTalkModal,
 } from '../../helpers/talks-matching-flow';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 // ─── Test data (not app logic) ──────────────────────────────────────────────────
 
@@ -161,6 +162,7 @@ test.describe('Find similar people', () => {
           headless,
           slowMo: headless ? 0 : delay(50, 120),
           args: [
+        ...WEBRTC_CHROMIUM_ARGS,
             `--window-position=${(idx % 5) * 360},${idx < 5 ? 40 : 700}`,
             '--window-size=360,640',
             '--force-device-scale-factor=1',

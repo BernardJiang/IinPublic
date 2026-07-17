@@ -24,6 +24,7 @@ import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 import { afterLoad, afterSync, afterNav, afterAction } from '../../helpers/timing';
 import { completeTalkInAppByAnswerIds, createTalksFromCompanyPage } from '../../helpers/talk-demo-ui';
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe.configure({ timeout: 180_000 });
 
@@ -37,8 +38,8 @@ test.describe('Contacts: stranger default label → save relationship → sort (
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await maybeClearGunDatabases();
-    browserTom = await chromium.launch();
-    browserJerry = await chromium.launch();
+    browserTom = await chromium.launch({ args: WEBRTC_CHROMIUM_ARGS });
+    browserJerry = await chromium.launch({ args: WEBRTC_CHROMIUM_ARGS });
   });
 
   test.afterAll(async () => {

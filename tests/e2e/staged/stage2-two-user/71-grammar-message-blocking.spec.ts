@@ -20,6 +20,7 @@ import {
   sendConversationMessage,
   waitForMessageVisible,
 } from '../../helpers/fast-dm-setup';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 type MsgFilters = { blockDirtyWords: boolean; requireGoodGrammar: boolean; dirtyWords: string[] };
 
@@ -58,8 +59,8 @@ test.describe('Messaging: grammar filter blocks on send and hides on receive', (
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunForStage2Spec();
-    browserA = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=640,1100'] });
-    browserB = await chromium.launch({ headless, args: ['--window-position=640,0', '--window-size=640,1100'] });
+    browserA = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1100'] });
+    browserB = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1100'] });
   });
 
   test.afterAll(async () => {

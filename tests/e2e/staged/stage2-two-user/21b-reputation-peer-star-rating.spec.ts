@@ -12,6 +12,7 @@ import {
   getCurrentUserId,
 } from '../../helpers/reputation-e2e-helpers';
 import { waitForContactDetailReady } from '../../helpers/durable-ui';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Reputation system — peer star rating', () => {
   let browserTom: Browser;
@@ -25,11 +26,11 @@ test.describe('Reputation system — peer star rating', () => {
     await clearGunForStage2Spec();
     browserTom = await chromium.launch({
       headless,
-      args: ['--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
     browserJerry = await chromium.launch({
       headless,
-      args: ['--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
   });
 

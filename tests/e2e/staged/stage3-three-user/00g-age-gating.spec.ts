@@ -17,6 +17,7 @@ import {
   incomingClustersIncludeTitleForUser,
 } from '../../helpers/talks-matching-flow';
 import { dismissNotificationOverlays } from '../../helpers/durable-ui';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 const ADULT_TALK_TITLE = 'E2E Adult Content Tennis';
 
@@ -63,9 +64,9 @@ test.describe('Age-gating — adult talk blocked for unverified user', () => {
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await maybeClearGunDatabases();
-    browserTom = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
-    browserJerry = await chromium.launch({ headless, args: ['--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
-    browserBob = await chromium.launch({ headless, args: ['--window-position=1280,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
+    browserTom = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
+    browserJerry = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
+    browserBob = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=1280,0', '--window-size=640,1100', '--force-device-scale-factor=1'] });
   });
 
   test.beforeEach(async () => {

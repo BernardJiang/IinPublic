@@ -50,7 +50,7 @@ test.describe('Hard crash recovery: SIGKILL B, A sends offline, B relaunches fro
     await clearGunForStage2Spec();
     browserA = await chromium.launch({
       headless,
-      args: ['--window-position=0,0', '--window-size=640,1100', ...WEBRTC_CHROMIUM_ARGS],
+      args: [ '--window-position=0,0', '--window-size=640,1100', ...WEBRTC_CHROMIUM_ARGS],
     });
     userDataDirB = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpub-crashB-'));
   });

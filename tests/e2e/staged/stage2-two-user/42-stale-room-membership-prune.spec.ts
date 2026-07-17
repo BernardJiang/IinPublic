@@ -4,6 +4,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { afterSync, headless } from '../../helpers/timing';
 import { gunBaseURL } from '../../helpers/ports';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Room membership TTL cleanup', () => {
   let browserA: Browser;
@@ -15,8 +16,8 @@ test.describe('Room membership TTL cleanup', () => {
 
   test.beforeAll(async () => {
     await clearGunForStage2Spec();
-    browserA = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=640,1000'] });
-    browserB = await chromium.launch({ headless, args: ['--window-position=640,0', '--window-size=640,1000'] });
+    browserA = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1000'] });
+    browserB = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1000'] });
   });
 
   test.afterAll(async () => {

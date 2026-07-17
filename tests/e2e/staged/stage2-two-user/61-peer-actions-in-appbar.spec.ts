@@ -8,6 +8,7 @@ import { test, expect } from '../../helpers/fixtures';
 import { maybeClearGunDatabases, injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { webAppURLStableChatroom, gunBaseURL } from '../../helpers/ports';
 import { afterLoad, afterSync, afterNav } from '../../helpers/timing';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -21,8 +22,8 @@ test.describe('Peer actions in AppBar', () => {
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await maybeClearGunDatabases();
-    browserTom = await chromium.launch();
-    browserJerry = await chromium.launch();
+    browserTom = await chromium.launch({ args: WEBRTC_CHROMIUM_ARGS });
+    browserJerry = await chromium.launch({ args: WEBRTC_CHROMIUM_ARGS });
   });
 
   test.afterAll(async () => {

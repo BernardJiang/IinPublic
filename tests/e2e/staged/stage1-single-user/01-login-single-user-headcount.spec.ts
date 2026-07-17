@@ -9,6 +9,7 @@ import { afterLoad, afterSync, afterNav, delay, headless } from '../../helpers/t
 import { webBaseURL, e2eTestScreenshotsDir, gunBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../../../src/shared/techsupport';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 async function readFirstUserSupportState(page: Page): Promise<{
   currentUserId: string;
@@ -51,7 +52,7 @@ test.describe('Login — single user headcount', () => {
     browser = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 150),
-      args: ['--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });
   });
 

@@ -22,6 +22,7 @@ import {
 } from '../../helpers/fast-dm-setup';
 import { openConversationViaServer } from '../../helpers/conversation-e2e';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 const MESSAGE_COUNT = 12;
 const BULK_MESSAGE_COUNT = 40;
@@ -54,8 +55,8 @@ test.describe('Messaging semantics — concurrent order, read state, history ord
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunForStage2Spec();
-    browserA = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=640,1100'] });
-    browserB = await chromium.launch({ headless, args: ['--window-position=640,0', '--window-size=640,1100'] });
+    browserA = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1100'] });
+    browserB = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1100'] });
   });
 
   // Each test builds its own pair; tear it down between tests so overlays/pages

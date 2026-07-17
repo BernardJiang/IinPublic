@@ -9,6 +9,7 @@ import { test, expect } from '../../helpers/fixtures';
 import { maybeClearGunDatabases, injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import { afterLoad, afterSync, afterNav } from '../../helpers/timing';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe.configure({ timeout: 150_000 });
 
@@ -34,7 +35,7 @@ test.describe('Thread isolation across three users', () => {
   });
 
   async function bootstrap(stageName: string): Promise<Page> {
-    const browser = await chromium.launch();
+    const browser = await chromium.launch({ args: WEBRTC_CHROMIUM_ARGS });
     browsers.push(browser);
     const context = await browser.newContext();
     contexts.push(context);

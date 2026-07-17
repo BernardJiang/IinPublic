@@ -1,6 +1,7 @@
 import { chromium, Browser } from '@playwright/test';
 import { clearGunDatabases } from './clear-database';
 import { delay, headless } from './timing';
+import { WEBRTC_CHROMIUM_ARGS } from './webrtc-chromium';
 
 export type ThreeBrowsers = { tom: Browser; jerry: Browser; bob: Browser };
 
@@ -13,7 +14,7 @@ export async function launchThreeBrowsers(): Promise<ThreeBrowsers> {
   const mk = (x: number) => ({
     headless,
     slowMo: headless ? 0 : delay(50, 120),
-    args: [`--window-position=${x},40`, '--window-size=640,1200', '--force-device-scale-factor=1'],
+    args: [...WEBRTC_CHROMIUM_ARGS, `--window-position=${x},40`, '--window-size=640,1200', '--force-device-scale-factor=1'],
   });
   const [tom, jerry, bob] = await Promise.all([
     chromium.launch(mk(0)),

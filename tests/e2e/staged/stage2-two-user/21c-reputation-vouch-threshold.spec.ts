@@ -16,6 +16,7 @@ import {
   serverVouchAgeVerified,
 } from '../../helpers/reputation-e2e-helpers';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Reputation system — vouch threshold', () => {
   let browserTom: Browser;
@@ -29,11 +30,11 @@ test.describe('Reputation system — vouch threshold', () => {
     await clearGunForStage2Spec();
     browserTom = await chromium.launch({
       headless,
-      args: ['--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
     browserJerry = await chromium.launch({
       headless,
-      args: ['--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
   });
 

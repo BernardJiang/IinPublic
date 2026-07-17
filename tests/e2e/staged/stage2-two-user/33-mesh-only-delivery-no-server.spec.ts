@@ -29,6 +29,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless } from '../../helpers/timing';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { gunBaseURL } from '../../helpers/ports';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 const FLOW_TIMEOUT_MS = 30_000;
 
@@ -51,8 +52,8 @@ test.describe('Mesh-only delivery: talk delivery + match + conversation without 
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunForStage2Spec();
-    browserA = await chromium.launch({ headless, args: ['--window-position=0,0', '--window-size=640,1100'] });
-    browserB = await chromium.launch({ headless, args: ['--window-position=640,0', '--window-size=640,1100'] });
+    browserA = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1100'] });
+    browserB = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1100'] });
   });
 
   test.afterAll(async () => {

@@ -3,6 +3,7 @@
  */
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { delay, headless } from './timing';
+import { WEBRTC_CHROMIUM_ARGS } from './webrtc-chromium';
 
 const COLS = 4;
 const SLOT_WIDTH = 520;
@@ -23,6 +24,7 @@ export async function launchBrowserGrid(count: number): Promise<Browser[]> {
       headless,
       slowMo: headless ? 0 : delay(35, 90),
       args: [
+        ...WEBRTC_CHROMIUM_ARGS,
         `--window-position=${x},${y}`,
         `--window-size=${SLOT_WIDTH},${SLOT_HEIGHT}`,
         '--force-device-scale-factor=1',

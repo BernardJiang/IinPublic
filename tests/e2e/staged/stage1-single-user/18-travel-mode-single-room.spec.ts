@@ -6,6 +6,7 @@ import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, delay, headless } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Chatrooms — hierarchy travel and return home', () => {
   let browser: Browser;
@@ -17,7 +18,7 @@ test.describe('Chatrooms — hierarchy travel and return home', () => {
     browser = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(50, 150),
-      args: ['--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=960,1400', '--force-device-scale-factor=1'],
     });
   });
 

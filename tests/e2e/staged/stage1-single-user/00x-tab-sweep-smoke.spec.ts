@@ -6,6 +6,7 @@ import { afterLoad, afterNav } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Tab sweep smoke (D6)', () => {
   let browser: Browser;
@@ -13,7 +14,7 @@ test.describe('Tab sweep smoke (D6)', () => {
 
   test.beforeAll(async () => {
     await maybeClearGunDatabases();
-    browser = await chromium.launch();
+    browser = await chromium.launch({ args: WEBRTC_CHROMIUM_ARGS });
   });
 
   test.afterAll(async () => {

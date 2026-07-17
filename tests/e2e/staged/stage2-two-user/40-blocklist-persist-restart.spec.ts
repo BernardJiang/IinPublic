@@ -10,6 +10,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterLoad, afterSync, headless, E2E_ASSERT_TIMEOUT_MS } from '../../helpers/timing';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { gunBaseURL } from '../../helpers/ports';
+import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('Blocklist persists after browser restart', () => {
   let browserAlice: Browser;
@@ -23,11 +24,11 @@ test.describe('Blocklist persists after browser restart', () => {
     await clearGunForStage2Spec();
     browserAlice = await chromium.launch({
       headless,
-      args: ['--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=0,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
     browserBob = await chromium.launch({
       headless,
-      args: ['--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
+      args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=640,0', '--window-size=640,1100', '--force-device-scale-factor=1'],
     });
   });
 
