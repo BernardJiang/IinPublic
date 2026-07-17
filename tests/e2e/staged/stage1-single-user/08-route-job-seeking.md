@@ -1,5 +1,7 @@
 # Test: Job-Seeker Route — DAG Flow with 11 Users
 
+covers: SPEC-3.6  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Route-type talks (DAG/decision-tree flows), multi-step branching paths, large-scale completion tracking, aggregate response stats
 
 ---

@@ -1,6 +1,12 @@
 # Test Plan for IinPublic
 ## Location-Based Chatbot Matching & Talk System
 
+> **Inventory counts in this document are stale** (suite has grown well past the 70 tests
+> described below). For the current, generated requirement-coverage view, see
+> [`coverage-matrix.md`](./coverage-matrix.md) (regenerate with `npm run coverage:matrix`;
+> ratchet with `npm run coverage:check`). This document remains useful for strategy prose
+> and the SRS-style case descriptions.
+
 **Last E2E verification:** 2026-05-16 — **70 / 70 passed** (`PW_WORKERS=15`, wall clock **~5.1 min**)
 
 This document maps the **implemented Playwright E2E regression suite** (70 tests, 54 spec files) to product areas. Section 4 is the living catalog: durations, run order, steps, and extension notes. SRS-style cases in later sections remain for requirements not yet automated.

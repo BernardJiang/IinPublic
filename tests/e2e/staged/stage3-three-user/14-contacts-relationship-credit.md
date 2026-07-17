@@ -1,5 +1,7 @@
 # Test: Contacts Relationship Dialog — Nickname, Label, Rating, Notes Persistence
 
+covers: SPEC-3.8, SPEC-7.9  <!-- auto-seeded; refine by hand -->
+
 **File:** 14-contacts-relationship-credit.spec.ts
 **Features tested:** Contact relationship editing, nickname persistence, label/relationship type, rating, notes, contact list display update
 

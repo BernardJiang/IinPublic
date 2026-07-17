@@ -70,12 +70,14 @@ scale_down_only() {
   if [ "$scaled" -lt "$1" ]; then echo "$scaled"; else echo "$1"; fi
 }
 
-# Light shard default: 8 workers. Each worker gets fully isolated servers on its own port
-# pair, so parallelism is safe; historical flakiness reports start around 8+ workers, so 8
-# is the ceiling — measured on a 14-core machine, 6 workers ran the shard in ~12 min at low
-# CPU (the suite is mostly sync-waits, not compute). Set PW_WORKERS=1 explicitly when
-# debugging order-sensitive flakes, or lower it if shared-room headcount specs start flaking.
-LIGHT_WORKERS="${PW_WORKERS:-$(scale_down_only 8)}"
+# Light shard default: 10 workers (speed plan Part 4 step 2). Each worker gets fully
+# isolated servers on its own port pair, so parallelism is safe. The historical 8-worker
+# ceiling was set by an unstable-click flake class in the incoming-talk helpers (clicks
+# lost to Gun-sync re-renders) that is fixed as of 2026-07-16 — the helpers now trigger
+# the delegated mousedown handler directly. If light starts flaking on shared-room
+# headcounts or contact replication, drop back with PW_WORKERS=8 (light sum is ~58 min
+# of test-time; wall ≈ sum/workers, so 10 workers ≈ 6.4 min vs 8 workers ≈ 8 min).
+LIGHT_WORKERS="${PW_WORKERS:-$(scale_down_only 10)}"
 # mass at 1 worker: each mass spec spawns 8-12 Chromium profiles INSIDE one worker's test —
 # even 2 workers means 22 simultaneous browsers (M2's 12 beside M1's 10), and with polls
 # capped at 60s (policy: no timeout over one minute, no retries) M2 measured 10/11 exchanges
@@ -307,9 +309,17 @@ wait_wave 1
 RC_LIGHT=$(cat "$LOG_DIR/light.rc"); RC_S5=$(cat "$LOG_DIR/stage5.rc")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Wave 2: mesh phases + find-similar (lighter, multi-browser). Mesh-isolated specs
-# manipulate the hub and must stay serial among themselves → one subshell at 1 worker.
+# Wave 2: mesh phases + find-similar (lighter, multi-browser), PLUS the two
+# single-worker tail phases (isolated, heavy-staged) folded in on their own port
+# bands (speed plan Part 4 step 3). Rationale: the mesh phases finish in ~60-80s,
+# after which isolated/heavy-staged have the machine essentially to themselves for
+# their remaining runtime — approximating their old solo condition while removing
+# ~340s of serial tail. heavy-staged runs its specs at 1 worker in file order, so
+# its contention-sensitive chatbot spec lands well after the mesh phases are done.
+# Set TEST_ALL_SEQUENTIAL_TAIL=1 to restore the old strictly-serial tail if this
+# machine flakes under the overlap.
 # ─────────────────────────────────────────────────────────────────────────────
+SEQUENTIAL_TAIL="${TEST_ALL_SEQUENTIAL_TAIL:-0}"
 start_phase mesh-batch 0 \
   env PW_WORKERS="$MESH_WORKERS" npx playwright test \
     tests/e2e/talks-matching/01-mesh-ping-overlay.spec.ts \
@@ -334,8 +344,23 @@ start_phase mesh-isolated 200 \
 maybe_wait 2
 start_phase find-similar 300 \
   env PW_WORKERS=1 npx playwright test tests/e2e/staged/stage5-multi-user/find-similar-people.spec.ts
+if [ "$SEQUENTIAL_TAIL" != "1" ]; then
+  maybe_wait 2
+  start_phase isolated 100 \
+    env E2E_RUN_ISOLATED=1 E2E_SKIP_ALL_MESH=1 PW_WORKERS=1 npx playwright test tests/e2e/isolated
+  maybe_wait 2
+  start_phase heavy-staged 400 \
+    env E2E_SKIP_FIND_SIMILAR=1 E2E_SKIP_ALL_MESH=1 PW_WORKERS="$HEAVY_WORKERS" npx playwright test \
+      tests/e2e/staged/stage4-four-user \
+      tests/e2e/staged/stage2-two-user/01-login-two-users-headcount.spec.ts \
+      tests/e2e/staged/stage3-three-user/02-multi-user-headcount.spec.ts \
+      tests/e2e/staged/stage3-three-user/09-four-types-chatbot.spec.ts
+fi
 wait_wave 2
 RC_MESH=$(cat "$LOG_DIR/mesh-batch.rc"); RC_MESHISO=$(cat "$LOG_DIR/mesh-isolated.rc"); RC_FS=$(cat "$LOG_DIR/find-similar.rc")
+if [ "$SEQUENTIAL_TAIL" != "1" ]; then
+  RC_ISO=$(cat "$LOG_DIR/isolated.rc"); RC_HA=$(cat "$LOG_DIR/heavy-staged.rc")
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Wave 3: mass ALONE. Its specs each launch 8-12 Chromium profiles; every failure mode
@@ -350,27 +375,25 @@ wait_wave 3
 RC_MASS=$(cat "$LOG_DIR/mass.rc")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Isolated wave: the two machine-sensitive specs, quarantined into tests/e2e/isolated/,
-# run strictly one at a time on a single worker with nothing else on the machine.
+# Sequential tail (TEST_ALL_SEQUENTIAL_TAIL=1 only): the pre-Part-4 behavior — the
+# two machine-sensitive isolated specs, then heavy-staged, each with the machine to
+# itself. Default runs fold both into wave 2 above.
 # ─────────────────────────────────────────────────────────────────────────────
-start_phase isolated 100 \
-  env E2E_RUN_ISOLATED=1 E2E_SKIP_ALL_MESH=1 PW_WORKERS=1 npx playwright test tests/e2e/isolated
-wait_wave 3
-RC_ISO=$(cat "$LOG_DIR/isolated.rc")
+if [ "$SEQUENTIAL_TAIL" = "1" ]; then
+  start_phase isolated 100 \
+    env E2E_RUN_ISOLATED=1 E2E_SKIP_ALL_MESH=1 PW_WORKERS=1 npx playwright test tests/e2e/isolated
+  wait_wave 3
+  RC_ISO=$(cat "$LOG_DIR/isolated.rc")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Wave 4: heavy-staged ALONE. It contains 09-four-types-chatbot (test.setTimeout(30_000)),
-# a 3-browser flow that flakes under contention — give it the machine to itself.
-# ─────────────────────────────────────────────────────────────────────────────
-start_phase heavy-staged 0 \
-  env E2E_SKIP_FIND_SIMILAR=1 E2E_SKIP_ALL_MESH=1 PW_WORKERS="$HEAVY_WORKERS" npx playwright test \
-    tests/e2e/staged/stage4-four-user \
-    tests/e2e/talks-matching \
-    tests/e2e/staged/stage2-two-user/01-login-two-users-headcount.spec.ts \
-    tests/e2e/staged/stage3-three-user/02-multi-user-headcount.spec.ts \
-    tests/e2e/staged/stage3-three-user/09-four-types-chatbot.spec.ts
-wait_wave 3
-RC_HA=$(cat "$LOG_DIR/heavy-staged.rc")
+  start_phase heavy-staged 0 \
+    env E2E_SKIP_FIND_SIMILAR=1 E2E_SKIP_ALL_MESH=1 PW_WORKERS="$HEAVY_WORKERS" npx playwright test \
+      tests/e2e/staged/stage4-four-user \
+      tests/e2e/staged/stage2-two-user/01-login-two-users-headcount.spec.ts \
+      tests/e2e/staged/stage3-three-user/02-multi-user-headcount.spec.ts \
+      tests/e2e/staged/stage3-three-user/09-four-types-chatbot.spec.ts
+  wait_wave 3
+  RC_HA=$(cat "$LOG_DIR/heavy-staged.rc")
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Merge every phase's blob report into one combined HTML report.
@@ -494,12 +517,21 @@ echo "[test:all] ───────────── per-phase wall time ─
 printf '  %-26s %5ss  %s\n' "phase0 (build/lint/jest)" "$p0_dur" "type=$RC_TYPE lint=$RC_LINT jest=$RC_JEST"
 printf '  %-26s %5ss  rc=%s   ┐ wave 1 (%s)\n' "light"  "$(phase_time light)"  "$RC_LIGHT" "$(wave_label)"
 printf '  %-26s %5ss  rc=%s   ┘\n'                      "stage5" "$(phase_time stage5)" "$RC_S5"
-printf '  %-26s %5ss  rc=%s   ┐ wave 2 (%s)\n' "mesh-batch"    "$(phase_time mesh-batch)"    "$RC_MESH" "$(wave_label)"
-printf '  %-26s %5ss  rc=%s   │\n'                      "mesh-isolated" "$(phase_time mesh-isolated)" "$RC_MESHISO"
-printf '  %-26s %5ss  rc=%s   ┘\n'                      "find-similar"  "$(phase_time find-similar)"  "$RC_FS"
-printf '  %-26s %5ss  rc=%s   ─ wave 3 (mass solo)\n'   "mass"          "$(phase_time mass)"          "$RC_MASS"
-printf '  %-26s %5ss  rc=%s   ─ isolated (serial, 1 worker)\n' "isolated"  "$(phase_time isolated)"      "$RC_ISO"
-printf '  %-26s %5ss  rc=%s   ─ wave 4 (solo)\n'        "heavy-staged"  "$(phase_time heavy-staged)"  "$RC_HA"
+if [ "$SEQUENTIAL_TAIL" != "1" ]; then
+  printf '  %-26s %5ss  rc=%s   ┐ wave 2 (%s, tail folded)\n' "mesh-batch" "$(phase_time mesh-batch)" "$RC_MESH" "$(wave_label)"
+  printf '  %-26s %5ss  rc=%s   │\n'                      "mesh-isolated" "$(phase_time mesh-isolated)" "$RC_MESHISO"
+  printf '  %-26s %5ss  rc=%s   │\n'                      "find-similar"  "$(phase_time find-similar)"  "$RC_FS"
+  printf '  %-26s %5ss  rc=%s   │\n'                      "isolated"      "$(phase_time isolated)"      "$RC_ISO"
+  printf '  %-26s %5ss  rc=%s   ┘\n'                      "heavy-staged"  "$(phase_time heavy-staged)"  "$RC_HA"
+  printf '  %-26s %5ss  rc=%s   ─ wave 3 (mass solo)\n'   "mass"          "$(phase_time mass)"          "$RC_MASS"
+else
+  printf '  %-26s %5ss  rc=%s   ┐ wave 2 (%s)\n' "mesh-batch"    "$(phase_time mesh-batch)"    "$RC_MESH" "$(wave_label)"
+  printf '  %-26s %5ss  rc=%s   │\n'                      "mesh-isolated" "$(phase_time mesh-isolated)" "$RC_MESHISO"
+  printf '  %-26s %5ss  rc=%s   ┘\n'                      "find-similar"  "$(phase_time find-similar)"  "$RC_FS"
+  printf '  %-26s %5ss  rc=%s   ─ wave 3 (mass solo)\n'   "mass"          "$(phase_time mass)"          "$RC_MASS"
+  printf '  %-26s %5ss  rc=%s   ─ isolated (serial, 1 worker)\n' "isolated"  "$(phase_time isolated)"      "$RC_ISO"
+  printf '  %-26s %5ss  rc=%s   ─ wave 4 (solo)\n'        "heavy-staged"  "$(phase_time heavy-staged)"  "$RC_HA"
+fi
 echo "[test:all] ───────────────────────────────────────────────"
 printf "  blobs: %s  |  TOTAL %dm%ds  |  report: npx playwright show-report\n" \
   "$blob_count" $((dur / 60)) $((dur % 60))

@@ -1,5 +1,7 @@
 # 08-retraction — P0 step 10: Talk retraction (three browsers)
 
+covers: SPEC-8.2  <!-- auto-seeded; refine by hand -->
+
 ## Scenario
 
 Tom creates and broadcasts a tag talk ("Tennis?") to Jerry and Bob.

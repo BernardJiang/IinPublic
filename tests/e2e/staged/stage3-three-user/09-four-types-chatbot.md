@@ -1,5 +1,7 @@
 # Test: Four Talk Types with Chatbot Auto-Reply
 
+covers: SPEC-12.3  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** All four talk types (tag, flow, survey, route), chatbot auto-reply mode, chatbot badge on auto-generated conversations, cross-user bot relay
 
 ---

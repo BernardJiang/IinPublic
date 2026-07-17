@@ -1,5 +1,7 @@
 # Test: Talk Lifecycle — Survey Multi-Responder Matrix (D4)
 
+covers: SPEC-3.9, SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
+
 **File:** 00aa-talk-lifecycle-survey-multi-responder.spec.ts
 **Features tested:** Survey talk with two responders, aggregate stats for creator, no match notifications, Me/Answers entries per responder
 

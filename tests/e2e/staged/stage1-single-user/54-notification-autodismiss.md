@@ -1,5 +1,7 @@
 # 54 — Notification auto-dismiss
 
+covers: SPEC-13.1  <!-- auto-seeded; refine by hand -->
+
 Toast contract after redesign §4 (rule G1/N6):
 
 1. Every ordinary toast type (success / error / info / warning) auto-dismisses after ~3s.

@@ -1,5 +1,7 @@
 # 61 — Peer actions in the AppBar
 
+covers: SPEC-7.9, SPEC-13.1  <!-- auto-seeded; refine by hand -->
+
 User-layout actions after the redesign (§5, T5):
 
 1. **📤 Send My Talks** renders inline in the layout's AppBar right zone, keeping

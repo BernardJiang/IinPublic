@@ -1,5 +1,7 @@
 # Test: Stage 3 — Eve Joins TechSupport and Adam
 
+covers: SPEC-3.5, SPEC-3.2  <!-- auto-seeded; refine by hand -->
+
 **File:** 00-aaa-stage3-eve-joins.spec.ts  
 **Features tested:** Third user (Eve) joins the Global chatroom alongside existing TechSupport and Adam users. Verifies headcount correctly reflects three concurrent users, then saves all three storage states for stage 3 downstream tests.
 

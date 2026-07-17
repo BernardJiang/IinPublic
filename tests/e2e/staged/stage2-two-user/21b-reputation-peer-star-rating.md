@@ -1,5 +1,7 @@
 # Test: Reputation System - Peer Star Rating
 
+covers: SPEC-3.8, SPEC-7.9  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Contact relationship rating persistence and reputation star aggregation
 
 ---

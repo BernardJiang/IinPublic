@@ -1,5 +1,7 @@
 # Test: UX Polish — Contacts Include Mismatched Peers, IN/OUT Split, Answers Detail
 
+covers: SPEC-3.6, SPEC-3.4, SPEC-7.9  <!-- auto-seeded; refine by hand -->
+
 **File:** 00f-ux-contacts-talks-answers.spec.ts
 **Features tested:** Contacts tab showing mismatched peers, peer detail from both contacts and chatroom, Talks tab IN/OUT navigation, Answers tab detail display, three-browser
 

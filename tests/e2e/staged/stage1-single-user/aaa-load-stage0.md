@@ -1,5 +1,7 @@
 # Stage 1 Load — Import stage0 Snapshot
 
+covers: SPEC-3.5, SPEC-3.2  <!-- auto-seeded; refine by hand -->
+
 **File:** aaa-load-stage0.spec.ts  
 **Features tested:** Pipeline bootstrap — load the stage0 server snapshot before running single-user tests.
 

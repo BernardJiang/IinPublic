@@ -1,5 +1,7 @@
 # 50 — AppBar layout
 
+covers: SPEC-13.1  <!-- auto-seeded; refine by hand -->
+
 Single-user check of the redesigned shell (gui-redesign-plan §1–§3, test plan T1):
 
 1. **One bar everywhere** — every tab shows exactly one `.app-bar` (`#top-header`); the old

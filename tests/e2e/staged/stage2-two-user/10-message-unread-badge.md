@@ -1,5 +1,7 @@
 # Test: Unread Badge on Me Tab — Appears After Match, Clears on Open, Reappears After New Message
 
+covers: SPEC-3.2, SPEC-7.6, SPEC-19.4  <!-- auto-seeded; refine by hand -->
+
 **File:** 10-message-unread-badge.spec.ts  
 **Features tested:** Unread conversation badge lifecycle, notification badge on Me nav button, badge clear on conversation open, badge reappear on new message, multi-browser
 

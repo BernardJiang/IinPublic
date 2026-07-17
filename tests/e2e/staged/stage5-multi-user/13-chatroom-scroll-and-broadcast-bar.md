@@ -1,5 +1,7 @@
 # Test: Chatroom UX — Member List Scroll and Unified Broadcast Bar
 
+covers: SPEC-3.3, SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
+
 **File:** 13-chatroom-scroll-and-broadcast-bar.spec.ts
 **Features tested:** Chatroom member list scrolling, unified broadcast button, status bar broadcast text, viewport overflow
 

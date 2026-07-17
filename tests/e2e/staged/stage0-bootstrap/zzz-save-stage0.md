@@ -1,5 +1,7 @@
 # Test: Stage 0 — Save Verified TechSupport Baseline
 
+covers: SPEC-3.5, SPEC-3.2  <!-- auto-seeded; refine by hand -->
+
 **File:** zzz-save-stage0.spec.ts  
 **Features tested:** Persists the server Gun graph snapshot after TechSupport bootstrap, tab traversal, and four-talk-type creation. Used by downstream stages to restore this baseline.
 

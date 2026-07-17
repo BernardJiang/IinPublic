@@ -1,5 +1,7 @@
 # 36 — Offline beyond the mailbox TTL
 
+covers: SPEC-19.4, SPEC-9.1  <!-- auto-seeded; refine by hand -->
+
 ## What this proves
 
 The encrypted offline mailbox (`src/server/services/mailbox-store.ts`) is a TTL store.

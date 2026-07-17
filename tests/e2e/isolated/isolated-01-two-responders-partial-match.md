@@ -1,5 +1,7 @@
 # Test: Two Responders — One Match, One Mismatch → Exactly 1 Match
 
+covers: SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Match counting with multiple responders, conversation creation only for matches (not mismatches), conversation badge count
 
 ---

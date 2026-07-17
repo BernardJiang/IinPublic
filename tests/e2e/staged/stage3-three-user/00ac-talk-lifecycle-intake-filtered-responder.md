@@ -1,5 +1,7 @@
 # Test: Intake-Filtered Responder — Flow Talk Blocked for Bob
 
+covers: SPEC-3.6, SPEC-3.4, SPEC-3.2  <!-- auto-seeded; refine by hand -->
+
 **File:** 00ac-talk-lifecycle-intake-filtered-responder.spec.ts  
 **Features tested:** Phase D4 multi-responder matrix — when Bob has flow talk type filtered out in intake settings, Tom's broadcast reaches Jerry (who matches) but Bob never receives the talk. Creator sees exactly 1 match from Jerry.
 

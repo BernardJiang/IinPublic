@@ -1,5 +1,7 @@
 # Test: Tennis Partner — First Match (Basic Flow)
 
+covers: SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** First talk broadcast and match in the talk-matching system (basic Happy Path)
 
 ---

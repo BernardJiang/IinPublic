@@ -1,5 +1,7 @@
 # 03 — Mesh response, match, and conversation (P0 step 4)
 
+covers: SPEC-19.4, SPEC-3.12, SPEC-3.6  <!-- auto-seeded; refine by hand -->
+
 ## What this test proves
 
 Three browser peers (Tom / Jerry / Bob) all in the same chatroom. Tom is the talk **author**;

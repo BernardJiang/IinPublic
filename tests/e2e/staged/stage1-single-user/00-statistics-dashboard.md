@@ -1,5 +1,7 @@
 # 00-statistics-dashboard
 
+covers: SPEC-3.6  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Contextual statistics without a bottom Stats tab, aggregate response totals, and match-rate copy.
 
 ## Flow

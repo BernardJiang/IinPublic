@@ -1,5 +1,7 @@
 # Test: Chatbot — Bot Badge Visibility
 
+covers: SPEC-12.3  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Chatbot auto-reply mode, bot badge display on matched conversations
 
 ---

@@ -1,5 +1,7 @@
 # Stage 2 — Adam Joins TechSupport
 
+covers: SPEC-3.5, SPEC-3.2  <!-- auto-seeded; refine by hand -->
+
 **File:** 00-aaa-stage2-adam-joins.spec.ts  
 **Features tested:** Pipeline bootstrap — load stage1, join second user (Adam) to the network, exchange a talk match, save snapshots.
 

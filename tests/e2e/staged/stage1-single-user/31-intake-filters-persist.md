@@ -1,5 +1,7 @@
 # 31: Intake filter settings persist across page reload
 
+covers: SPEC-3.2  <!-- auto-seeded; refine by hand -->
+
 Verify that all intake filter settings in the Settings tab persist after `page.reload()`.
 Changes are made to: allowed incoming languages, min/max distance, grammar/dirty words toggles,
 talk type filters (flow/survey/tag/route), and custom blocked terms.

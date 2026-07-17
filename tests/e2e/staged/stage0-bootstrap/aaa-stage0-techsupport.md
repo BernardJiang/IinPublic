@@ -1,5 +1,7 @@
 # Test: Stage 0 — Empty Database, TechSupport Bootstrap Root
 
+covers: SPEC-3.5, SPEC-3.2, SPEC-12.4  <!-- auto-seeded; refine by hand -->
+
 **File:** aaa-stage0-techsupport.spec.ts  
 **Features tested:** E2E stage-pipeline bootstrap — resets all Gun databases to empty state, logs in the canonical TechSupport root on the Global chatroom, then saves persisted storage state for downstream stages.
 

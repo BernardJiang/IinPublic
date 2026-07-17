@@ -1,5 +1,7 @@
 # Mobile Talk Answer Flow
 
+covers: SPEC-3.6, SPEC-3.4, SPEC-6.5  <!-- auto-seeded; refine by hand -->
+
 User A (desktop) authors a flow talk via the same lower-level mesh-cache trick the fast-DM
 setup helper uses (no talk-editor UI, since the point of this spec is B's mobile answer
 dialog). User B (390x844 mobile viewport) receives it as a real incoming-talk cluster, seeded

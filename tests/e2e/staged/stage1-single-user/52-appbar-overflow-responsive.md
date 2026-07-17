@@ -1,5 +1,7 @@
 # 52 — AppBar overflow responsive
 
+covers: SPEC-3.6, SPEC-3.4, SPEC-6.5  <!-- auto-seeded; refine by hand -->
+
 Width-matrix check of the `⋯` overflow (gui-redesign-plan §1/§6, test plan T2):
 
 1. At 1024 and 768 all four chatroom icons (➕ 📣 🏠 🆕) render inline; no `⋯` button.

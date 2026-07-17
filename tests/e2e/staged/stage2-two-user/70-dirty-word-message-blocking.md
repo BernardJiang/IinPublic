@@ -1,5 +1,7 @@
 # stage2/70 — Dirty-word message filtering (send + receive)
 
+covers: SPEC-3.8, SPEC-3.2, SPEC-7.6  <!-- auto-seeded; refine by hand -->
+
 Covers TODO item **H** (redesign §9.1, catalog T9): the dirty-word filter applied
 to direct messages in both directions.
 

@@ -1,5 +1,7 @@
 # Test: Chinese UI Edge Surface Localization (D2)
 
+covers: SPEC-5.4, SPEC-13.1  <!-- auto-seeded; refine by hand -->
+
 **File:** 00z-chinese-edge-notifications.spec.ts  
 **Features tested:** Status bar, broadcast preamble modal, talk response dialog, and chatroom create modal labels in Chinese. Complements 00y which covers main tabs; this spec hits surfaces not exercised there.
 

@@ -1,5 +1,7 @@
 # Test: Broadcast Cancellation — Talk Deletion by Creator Mid-Flight
 
+covers: SPEC-3.6, SPEC-3.4, SPEC-8.2  <!-- auto-seeded; refine by hand -->
+
 **File:** 00-broadcast-deletion-mid-broadcast.spec.ts  
 **Features tested:** Talk deletion around broadcast, pair-direct delivery stability, multi-browser
 

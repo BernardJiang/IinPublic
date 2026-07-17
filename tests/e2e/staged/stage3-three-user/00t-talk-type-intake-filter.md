@@ -1,5 +1,7 @@
 # Test: Talk Type Intake Filtering
 
+covers: SPEC-3.6, SPEC-3.4, SPEC-3.2  <!-- auto-seeded; refine by hand -->
+
 **File:** 00t-talk-type-intake-filter.spec.ts  
 **Features tested:** Talk type-based intake gating — Jerry configures allowed talk types to `["flow"]` only (survey, tag, route all unchecked). Tom broadcasts a tag talk → it is rejected at delivery time with `talksSent: 0` and never appears in Jerry's incoming list.
 

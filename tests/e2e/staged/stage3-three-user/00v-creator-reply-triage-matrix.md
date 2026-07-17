@@ -1,5 +1,7 @@
 # Test: Creator Reply Triage at Scale — 100-Reply Matrix
 
+covers: SPEC-3.2, SPEC-13.1  <!-- auto-seeded; refine by hand -->
+
 **File:** 00v-creator-reply-triage-matrix.spec.ts  
 **Features tested:** D5 creator reply triage under high volume — a seeded dataset of 10 talks × 10 responders = 100 replies exercises pagination (page size 25), text search, outcome filter, relationship filter, and all four sorting modes. Validates the champion responder ranks #1 in match-rate and weighted-score sorts.
 

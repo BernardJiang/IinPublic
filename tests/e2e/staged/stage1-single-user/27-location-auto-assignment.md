@@ -1,5 +1,7 @@
 # Test: Location Auto Assignment
 
+covers: SPEC-6.3  <!-- auto-seeded; refine by hand -->
+
 **File:** `27-location-auto-assignment.spec.ts`
 
 **Features tested:** GPS mock support, explicit location refresh, blurred regional chatroom assignment

@@ -1,5 +1,7 @@
 # Test: Language Intake Filtering
 
+covers: SPEC-3.2, SPEC-5.4  <!-- auto-seeded; refine by hand -->
+
 **File:** 00m-language-intake-filter.spec.ts  
 **Features tested:** Language-based talk delivery filtering — Jerry can toggle which languages he accepts (en, zh, es). Verifies that filter state persists across settings navigation and syncs to the Gun graph as `allowedLanguages`.
 

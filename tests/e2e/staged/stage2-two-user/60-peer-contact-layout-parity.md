@@ -1,5 +1,7 @@
 # 60 — Peer/contact layout parity
 
+covers: SPEC-7.9  <!-- auto-seeded; refine by hand -->
+
 Unified detail (gui-redesign-plan §5, T5): the chatroom-member entry and the
 contact-row entry land on the identical shared ⟨User⟩ layout.
 

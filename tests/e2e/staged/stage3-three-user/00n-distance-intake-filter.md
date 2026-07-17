@@ -1,5 +1,7 @@
 # Test: Distance Intake Filtering
 
+covers: SPEC-3.2  <!-- auto-seeded; refine by hand -->
+
 **File:** 00n-distance-intake-filter.spec.ts  
 **Features tested:** Geographic distance filtering for talk delivery — Jerry configures min/max distance bounds (1-3 miles), then resets to [0, 0] (any distance). Verifies both the localStorage persistence and the Gun graph sync of `minDistanceMiles` / `maxDistanceMiles`.
 

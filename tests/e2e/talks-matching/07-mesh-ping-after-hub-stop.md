@@ -1,5 +1,7 @@
 # Mesh-ping after process-level hub stop
 
+covers: SPEC-19.4, SPEC-3.12  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** L3 strict acceptance path. Three peers establish mesh neighbors, the hub process is terminated via test-only endpoint, peers re-sync room membership from explicit IDs without hub APIs, and mesh ping/pong remains reachable with hub offline.
 
 **Run:** `npm run test:e2e:l3:hub-stop`

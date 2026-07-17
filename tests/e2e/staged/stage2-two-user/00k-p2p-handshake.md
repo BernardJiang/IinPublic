@@ -1,5 +1,7 @@
 # Test: P2P-Q Signed Handshake (Two Users)
 
+covers: SPEC-19.4, SPEC-3.12  <!-- auto-seeded; refine by hand -->
+
 **File:** 00k-p2p-handshake.spec.ts  
 **Features tested:** WebRTC DataChannel handshake between two peers after talk match — protocol negotiation, state machine, and diagnostics. Exercises both success and failure paths.
 

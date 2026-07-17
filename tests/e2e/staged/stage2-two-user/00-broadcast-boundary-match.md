@@ -1,5 +1,7 @@
 # Test: Broadcast — Talk Matching Across Chatroom Boundaries After Switching Rooms
 
+covers: SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
+
 **File:** 00-broadcast-boundary-match.spec.ts  
 **Features tested:** Talk matching across chatroom boundaries, chatroom switching, incoming talk delivery
 

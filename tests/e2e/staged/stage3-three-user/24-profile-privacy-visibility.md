@@ -1,5 +1,7 @@
 # Test: Profile Privacy Visibility by Viewer Relationship
 
+covers: SPEC-3.1, SPEC-7.5  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Profile Q&A visibility controls (`public`, `contacts_only`, `private`) and viewer-scoped rendering
 
 ---

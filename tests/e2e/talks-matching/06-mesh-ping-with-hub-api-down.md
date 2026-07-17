@@ -1,5 +1,7 @@
 # Mesh-ping reachability with hub API down mid-session
 
+covers: SPEC-19.4, SPEC-3.12  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** L3 hub-loss re-form increment. Three peers form mesh neighbors first, then browser-level routing aborts hub API endpoints (`/api/presence/*`, `/api/chatrooms/*/members`) to simulate hub loss. Each peer tears down its overlay and rejoins either with explicit peer IDs (default mode) or self-only roster (when `P2P_NODE_ENABLED=1`), and mesh ping/pong still works.
 
 **Run:** `npx playwright test tests/e2e/talks-matching/06-mesh-ping-with-hub-api-down.spec.ts`

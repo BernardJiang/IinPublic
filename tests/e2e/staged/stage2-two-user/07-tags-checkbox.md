@@ -1,5 +1,7 @@
 # Test: Tag Type — Create Tags, Checkbox Answers (Match/Ignore)
 
+covers: SPEC-3.5  <!-- auto-seeded; refine by hand -->
+
 **File:** 07-tags-checkbox.spec.ts  
 **Features tested:** Tag-type talks, checkbox-based matching, broadcast of tags, match/mismatch outcomes, multi-browser
 

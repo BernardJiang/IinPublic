@@ -1,5 +1,7 @@
 # 09 — Exchange Suppression (Step 11: Mutual Exchange Suppression)
 
+covers: SPEC-8.2  <!-- auto-seeded; refine by hand -->
+
 ## Plain-English Description
 
 **Three browsers: Tom, Jerry, Bob.**

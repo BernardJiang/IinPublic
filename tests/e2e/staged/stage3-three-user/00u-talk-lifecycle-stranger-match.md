@@ -1,5 +1,7 @@
 # Test: Talk Lifecycle — Stranger Auto-Added to Contacts After Match
 
+covers: SPEC-3.6, SPEC-3.4, SPEC-7.9  <!-- auto-seeded; refine by hand -->
+
 **File:** 00u-talk-lifecycle-stranger-match.spec.ts  
 **Features tested:** When two users who have never interacted match on a flow talk, the responder is automatically added to the creator's Contacts tab with "Stranger" relationship label and no saved relationship metadata.
 

@@ -1,5 +1,7 @@
 # Test: Talk Lifecycle — Route Multi-Responder Matrix (D4)
 
+covers: SPEC-3.6, SPEC-3.4, SPEC-3.7  <!-- auto-seeded; refine by hand -->
+
 **File:** 00ab-talk-lifecycle-route-multi-responder.spec.ts
 **Features tested:** Route talk with two responders taking different DAG branches, one match + one mismatch, Me/Answers outcome labels
 

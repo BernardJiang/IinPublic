@@ -1,5 +1,7 @@
 # Test: Blocking System - Unblock Resumes Delivery
 
+covers: SPEC-3.6, SPEC-3.4, SPEC-3.8  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Block/unblock relationship toggle, blocked delivery suppression, delivery restoration after unblock
 
 ---

@@ -1,5 +1,7 @@
 # 41 — Stats aggregation across all four talk types
 
+covers: SPEC-3.9  <!-- auto-seeded; refine by hand -->
+
 **What it proves:** The LOCAL talk-stats surface (per-talk `.talk-item-stats` line on the Talks tab
 plus the aggregate status-bar match count) aggregates author-side response outcomes correctly for
 all four talk types. The server `/api/stats` talk aggregates were removed; this replaces that

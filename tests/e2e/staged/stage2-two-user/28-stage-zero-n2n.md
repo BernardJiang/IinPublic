@@ -1,5 +1,7 @@
 # Test: Stage Zero N2N Smoke
 
+covers: SPEC-3.5, SPEC-3.2  <!-- auto-seeded; refine by hand -->
+
 **File:** 28-stage-zero-n2n.spec.ts  
 **Features tested:** Node-to-node data flow end-to-end — single user creates a talk, stores it locally, broadcasts to empty room, validates server-side persistence contract. Regression against node connectivity issues introduced after refactoring.
 

@@ -1,5 +1,7 @@
 # 09 — Matched-talk IPFS attachment auto-share (L5)
 
+covers: SPEC-20.3  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** L5 — encrypted IPFS attachment published alongside a talk is automatically shared via a single deterministic `IPFS_SHARE:` message once a match occurs. The matched responder can fetch and decrypt the bytes; non-matching peers never see the link. A mailbox drain re-materializes the same share idempotently.
 
 **Run:** `npx playwright test tests/e2e/talks-matching/09-ipfs-auto-share.spec.ts`

@@ -1,5 +1,7 @@
 # Find Similar People — UI-driven E2E
 
+covers: SPEC-3.7  <!-- auto-seeded; refine by hand -->
+
 **File:** `tests/e2e/staged/stage5-multi-user/find-similar-people.spec.ts`
 
 ## Scenario

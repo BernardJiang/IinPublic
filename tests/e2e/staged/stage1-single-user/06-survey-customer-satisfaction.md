@@ -1,5 +1,7 @@
 # Test: Customer Satisfaction Survey (11 Users)
 
+covers: SPEC-3.9  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Survey-type talks, large-scale multi-user survey responses, aggregate response count display
 
 ---

@@ -1,5 +1,7 @@
 # Test: Blocking System - Block Stops Delivery and Limits Peer View
 
+covers: SPEC-3.8, SPEC-7.9, SPEC-7.5  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Blocking workflow, blocked contact UI state, peer detail restrictions, blocked talk suppression
 
 ---

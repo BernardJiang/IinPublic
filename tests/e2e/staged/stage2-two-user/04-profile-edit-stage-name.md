@@ -1,5 +1,7 @@
 # Test: Profile — Edit Stage Name and Public Profile, Peer Visibility
 
+covers: SPEC-3.5, SPEC-3.2, SPEC-3.1  <!-- auto-seeded; refine by hand -->
+
 **File:** 04-profile-edit-stage-name.spec.ts  
 **Features tested:** Stage name editing, public profile Q&A editing, profile persistence, server-side propagation, peer visibility of profile data, avatar setting, multi-browser
 

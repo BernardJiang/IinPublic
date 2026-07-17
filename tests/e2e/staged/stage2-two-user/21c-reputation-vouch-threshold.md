@@ -1,5 +1,7 @@
 # Test: Reputation System - Age-Verify Vouch Threshold
 
+covers: SPEC-3.8  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Vouch accumulation threshold, age-verified state transition, gated adult-talk delivery
 
 ---

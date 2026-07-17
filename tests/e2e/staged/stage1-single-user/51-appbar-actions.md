@@ -1,5 +1,7 @@
 # 51 — AppBar actions
 
+covers: SPEC-13.1  <!-- auto-seeded; refine by hand -->
+
 Verifies the icon migration kept behavior identical (gui-redesign-plan §2, T1):
 
 1. **Testids preserved** — `create-custom-chatroom-btn`, `return-home-btn`,

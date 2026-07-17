@@ -1,5 +1,7 @@
 # 06 — Sender-side suppression (P0 step 8)
 
+covers: SPEC-8.2  <!-- auto-seeded; refine by hand -->
+
 Three browsers: **Tom** (talk author), **Jerry** (ignores), **Bob** (matches).
 
 1. Tom creates a tag talk with two tags: "Tennis" and "Chess".

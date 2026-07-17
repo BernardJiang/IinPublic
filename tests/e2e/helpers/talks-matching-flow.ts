@@ -553,12 +553,13 @@ export async function openIncomingTalkModalByTalkId(
       const current = rows.find((candidate) => candidate.textContent?.includes(title));
       const button = current?.querySelector<HTMLButtonElement>('button.view-talk-btn');
       if (!button) return false;
-      button.click();
+      // The talks-list delegation listens on MOUSEDOWN (not click) — see ui-manager.
+      button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
       return true;
     }, titleSubstring);
     if (clicked) {
       try {
-        await modal.waitFor({ state: 'visible', timeout: 2_000 });
+        await modal.waitFor({ state: 'visible', timeout: RESPONSE_MODAL_CONTENT_MS });
         return;
       } catch {
         // The incoming list refreshed between lookup and handler completion.
@@ -600,8 +601,38 @@ export async function openIncomingTalkModal(
     }
   }
   await expect(row.first()).toBeVisible({ timeout: INCOMING_ROW_FINAL_MS });
-  await row.first().locator('button.view-talk-btn').click();
-  await page.waitForSelector('#talk-response-modal .modal-content', { timeout: RESPONSE_MODAL_CONTENT_MS });
+  // The incoming list re-renders on every Gun sync tick, so a Playwright click can spend
+  // its whole actionTimeout in "element is not stable / detached" retries under load
+  // (observed in 00l-chatroom-talks-ui-regressions on the 8-worker light shard). Trigger
+  // the CURRENT button via the DOM instead. IMPORTANT: the talks-list delegation listens
+  // on MOUSEDOWN (see ui-manager displayTalksList: "use mousedown so we run before any
+  // re-render can replace the DOM") — `button.click()` fires only a `click` event and is
+  // a no-op there, so dispatch a real mousedown. Then wait the FULL modal budget: opening
+  // the dialog fetches the talk from the server and can take many seconds under load, so
+  // re-triggering on a short poll would keep restarting that load.
+  const viewModal = page.locator('#talk-response-modal .modal-content');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const clicked = await page.evaluate((title) => {
+      const rows = Array.from(document.querySelectorAll<HTMLElement>('.talk-list-item[data-role="incoming"]'));
+      const current = rows.find((candidate) => candidate.textContent?.includes(title));
+      const button = current?.querySelector<HTMLButtonElement>('button.view-talk-btn');
+      if (!button) return false;
+      button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+      return true;
+    }, titleSubstring);
+    if (!clicked) {
+      // Row list mid-render — let it settle and look again.
+      await page.waitForTimeout(200);
+      continue;
+    }
+    try {
+      await viewModal.waitFor({ state: 'visible', timeout: RESPONSE_MODAL_CONTENT_MS });
+      return;
+    } catch {
+      // Click was swallowed by a re-render or the load stalled — one more attempt.
+    }
+  }
+  await expect(viewModal).toBeVisible({ timeout: 1_000 });
 }
 
 /**

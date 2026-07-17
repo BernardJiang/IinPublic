@@ -1,5 +1,7 @@
 # Stage 1 Save — Persist Server Graph Snapshot
 
+covers: SPEC-3.5, SPEC-3.2  <!-- auto-seeded; refine by hand -->
+
 **File:** zzz-save-stage1.spec.ts  
 **Features tested:** Pipeline checkpoint — save server Gun graph after single-user tests.
 

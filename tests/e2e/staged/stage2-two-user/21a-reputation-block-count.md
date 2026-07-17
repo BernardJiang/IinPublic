@@ -1,5 +1,7 @@
 # Test: Reputation System - Block Count Propagation
 
+covers: SPEC-3.8  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Reputation block-count updates from block/unblock relationship actions
 
 ---

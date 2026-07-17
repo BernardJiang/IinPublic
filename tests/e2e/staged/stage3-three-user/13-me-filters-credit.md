@@ -1,5 +1,7 @@
 # Test: Me Tab Filters and Credit Visibility Toggle
 
+covers: SPEC-3.8, SPEC-3.2  <!-- auto-seeded; refine by hand -->
+
 **File:** 13-me-filters-credit.spec.ts
 **Features tested:** Talk type filters (survey/flow), credit visibility toggle, filtered broadcast delivery, peer relationship modal
 

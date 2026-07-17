@@ -1,5 +1,7 @@
 # Test: TechSupport Single-User Tab Traversal
 
+covers: SPEC-3.1, SPEC-13.1, SPEC-12.4  <!-- auto-seeded; refine by hand -->
+
 **File:** baa-techsupport-single-user-tabs.spec.ts  
 **Features tested:** Full UI tab traversal for a single logged-in user — verifies every navigation panel (Chatrooms, Contacts, Talks, Me, Settings) renders correctly with expected elements.
 

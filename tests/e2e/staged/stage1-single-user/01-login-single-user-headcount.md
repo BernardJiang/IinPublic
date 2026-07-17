@@ -1,5 +1,7 @@
 # Test: Single User — Login, Headcount, Exit, and Re-Login Persistence
 
+covers: SPEC-3.3, SPEC-3.1  <!-- auto-seeded; refine by hand -->
+
 **File:** 01-login-single-user-headcount.spec.ts  
 **Features tested:** User login, headcount display, session persistence, browser tab labels, screenshots
 

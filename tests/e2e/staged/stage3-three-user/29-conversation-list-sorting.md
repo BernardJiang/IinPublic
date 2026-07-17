@@ -1,5 +1,7 @@
 # Test: Multi-Partner Conversation List Sorting
 
+covers: SPEC-7.6, SPEC-19.4, SPEC-13.1  <!-- auto-seeded; refine by hand -->
+
 **File:** 29-conversation-list-sorting.spec.ts
 **Features tested:** Contacts tab default "recent" sort (`src/web/ui/contacts-view.ts` line 697) ranks matched peers by `lastInteractionAt` descending, which is derived from `conversation.lastMessageTime` (`src/web/services/local-peer-derivation.ts` line 159) and updated on every message via `UIManager#syncConversationMessageSummary` (`src/web/ui/ui-manager.ts` lines 7399-7400).
 

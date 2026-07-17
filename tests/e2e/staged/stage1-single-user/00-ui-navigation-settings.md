@@ -1,5 +1,7 @@
 # Test: UI Navigation and Settings Shell
 
+covers: SPEC-13.1  <!-- auto-seeded; refine by hand -->
+
 **File:** 00-ui-navigation-settings.spec.ts  
 **Features tested:** Bottom navigation tab contract, per-tab status bar/headers, Settings controls (languages, filters, UI toggle), Chinese localization of nav labels, talk autosave toggling, legacy profile tolerance, broadcast repeat suppression
 

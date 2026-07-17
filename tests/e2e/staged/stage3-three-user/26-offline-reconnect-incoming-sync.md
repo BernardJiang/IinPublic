@@ -1,5 +1,7 @@
 # Test: Offline Reconnect Incoming Sync
 
+covers: SPEC-19.4, SPEC-9.1  <!-- auto-seeded; refine by hand -->
+
 **File:** `26-offline-reconnect-incoming-sync.spec.ts`
 
 **Features tested:** Browser offline/online transition, incoming-talk recovery, post-reconnect Talks refresh

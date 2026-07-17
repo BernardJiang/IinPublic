@@ -1,5 +1,7 @@
 # 68 — Conversation-first entry
 
+covers: SPEC-7.6, SPEC-19.4  <!-- auto-seeded; refine by hand -->
+
 Rule N2a (gui-redesign-plan §5/§7, T8) with two users:
 
 1. **Member entry (C3)** — clicking a chatroom member row opens the DM ⟨Conv⟩ directly,

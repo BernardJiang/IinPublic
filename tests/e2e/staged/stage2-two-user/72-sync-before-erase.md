@@ -1,5 +1,7 @@
 # stage2/72 — Sync before erase
 
+covers: SPEC-19.14  <!-- auto-seeded; refine by hand -->
+
 Covers TODO item **J** (redesign §11.2).
 
 With a linked personal device recorded, the Erase dialog offers "Save to ⟨device⟩

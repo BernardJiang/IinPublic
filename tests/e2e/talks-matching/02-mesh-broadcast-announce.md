@@ -1,5 +1,7 @@
 # Mesh broadcast announcements (three browsers, zero Gun writes)
 
+covers: SPEC-19.4, SPEC-3.12, SPEC-3.6  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** P0 step 2 — a find-similar broadcast reaches eligible receivers over the
 mesh DataChannel overlay with **zero delivery-path Gun writes** (`peerTalkOffers/*`,
 `p2pMeshTalkBodies/*`, and `talks/*` all strictly empty).  Ineligible peers (different chatroom,

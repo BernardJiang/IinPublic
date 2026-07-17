@@ -1,5 +1,7 @@
 # stage2/71 — Grammar message filtering (send + receive)
 
+covers: SPEC-3.8, SPEC-3.2, SPEC-7.6  <!-- auto-seeded; refine by hand -->
+
 Covers TODO item **H** (redesign §9.2, catalog T9): the grammar filter applied to
 direct messages in both directions, driven by `assessGrammar` vs
 `CONFIG.GRAMMAR_THRESHOLD` (0.7).

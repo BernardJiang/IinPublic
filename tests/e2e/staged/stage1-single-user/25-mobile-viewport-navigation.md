@@ -1,5 +1,7 @@
 # Test: Mobile Viewport Navigation
 
+covers: SPEC-6.5, SPEC-5.5, SPEC-13.1  <!-- auto-seeded; refine by hand -->
+
 **File:** `25-mobile-viewport-navigation.spec.ts`
 
 **Features tested:** Phone-sized viewport, bottom navigation, primary panel visibility, horizontal overflow guard

@@ -1,5 +1,7 @@
 # Test: Talk Editor — Create Talk, View in Talks Tab, Edit with Prefilled Data
 
+covers: SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
+
 **File:** 05-talks-edit.spec.ts  
 **Features tested:** Talk creation, talk listing in Talks tab, edit talk with prefilled data, title and language update, flow-type talks
 

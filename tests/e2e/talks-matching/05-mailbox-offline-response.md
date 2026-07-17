@@ -1,5 +1,7 @@
 # 05 — Encrypted offline mailbox (P0 step 6)
 
+covers: SPEC-19.4, SPEC-9.1, SPEC-3.6  <!-- auto-seeded; refine by hand -->
+
 ## What this test proves
 
 Two browser peers (Tom / Jerry). Tom is the talk **author**; Jerry is a **matching responder**.

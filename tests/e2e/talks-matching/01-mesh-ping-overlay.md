@@ -1,5 +1,7 @@
 # Mesh-ping overlay (three browsers, sparse DataChannel graph)
 
+covers: SPEC-19.4, SPEC-3.12  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** P0 step 1 — three browser peers form a sparse DataChannel overlay via
 `PeerMeshService.joinRoom` (seeded from Socket.IO room presence), and an originator's `mesh-ping`
 reaches every other peer via store-and-forward gossip **with zero `talks/*` or `peerTalkOffers/*`

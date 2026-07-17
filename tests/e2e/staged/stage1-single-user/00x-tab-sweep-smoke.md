@@ -1,5 +1,7 @@
 # Test: Tab Sweep Smoke (D6)
 
+covers: SPEC-13.1, SPEC-12.4  <!-- auto-seeded; refine by hand -->
+
 **File:** 00x-tab-sweep-smoke.spec.ts  
 **Features tested:** Quick smoke check that key UI surfaces exist on every main tab — reply triage controls, OUT sort order, contacts filters, Me answer filters, Settings filter diagnostics
 

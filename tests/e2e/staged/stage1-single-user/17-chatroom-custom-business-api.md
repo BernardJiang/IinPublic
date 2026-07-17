@@ -1,5 +1,7 @@
 # 17 — Chatroom Custom/Business API Flows
 
+covers: SPEC-3.3  <!-- auto-seeded; refine by hand -->
+
 This suite validates the newly added chatroom server APIs for user-defined and business rooms.
 
 ## Coverage

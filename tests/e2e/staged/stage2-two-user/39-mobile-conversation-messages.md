@@ -1,5 +1,7 @@
 # Mobile Conversation Messages
 
+covers: SPEC-3.2, SPEC-7.6, SPEC-19.4  <!-- auto-seeded; refine by hand -->
+
 Bootstrap two users (MobA on desktop, MobB on a 390x844 mobile viewport) already matched via
 the fast pair-direct setup, with both conversation overlays open. Verify B's conversation
 overlay, message input, and send button fit inside the 390px viewport with no horizontal

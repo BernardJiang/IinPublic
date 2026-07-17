@@ -1,5 +1,7 @@
 # Test: Save Stage 4 Snapshot — Pipeline-Only End-of-Suite Checkpoint
 
+covers: SPEC-3.5, SPEC-3.2  <!-- auto-seeded; refine by hand -->
+
 **File:** zzz-save-stage4.spec.ts  
 **Features tested:** E2E stage pipeline snapshot saving, stage persistence checkpoint after four-user test suite
 

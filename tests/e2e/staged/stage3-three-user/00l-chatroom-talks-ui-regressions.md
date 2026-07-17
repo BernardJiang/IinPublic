@@ -1,5 +1,7 @@
 # Test: Chatrooms and Talks UI Regressions
 
+covers: SPEC-3.3, SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
+
 **File:** 00l-chatroom-talks-ui-regressions.spec.ts  
 **Features tested:** Five regression tests protecting chatroom headcount updates on room switches/Return Home, first-screen hydration of existing headcounts, talks row states (new/copied/broadcast toggle), auto-copy toggle behavior, and ignored-talk non-copying.
 

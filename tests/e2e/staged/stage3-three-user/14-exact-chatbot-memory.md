@@ -1,5 +1,7 @@
 # Test: Talks Matching - Exact Chatbot Q/A Memory Reuse
 
+covers: SPEC-12.3  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Exact question/answer memory, option-compatibility checks, auto-reply fallback, memory-driven match auto-response
 
 ---

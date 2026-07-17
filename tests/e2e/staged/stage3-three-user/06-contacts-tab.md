@@ -1,5 +1,7 @@
 # Test: Contacts Tab — Users With Matches Listed, Click to See Matching Talks
 
+covers: SPEC-7.9, SPEC-13.1  <!-- auto-seeded; refine by hand -->
+
 **File:** 06-contacts-tab.spec.ts  
 **Features tested:** Contacts list, matching talk history, peer-to-peer contact visibility, multi-browser (Tom/Jerry/Bob), talk-matching cross-verification
 

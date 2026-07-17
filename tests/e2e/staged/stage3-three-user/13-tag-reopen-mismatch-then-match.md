@@ -1,5 +1,7 @@
 # Test: Tag — Reopen Mismatch and Change to Match
 
+covers: SPEC-3.5, SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Reopening already-answered tags, changing a mismatch to a match, updated sync between broadcaster and responder
 
 ---

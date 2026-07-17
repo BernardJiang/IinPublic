@@ -1,5 +1,7 @@
 # Test: Pair-Private Isolation — Answer and DM Ciphertext Hidden from Third Party
 
+covers: SPEC-7.5  <!-- auto-seeded; refine by hand -->
+
 **File:** 00j-pair-private-isolation.spec.ts  
 **Features tested:** P1 pair-private encryption isolation — when Bob broadcasts the same talk to both Alice and Tom, Alice's answer payload and Alice↔Bob DM ciphertext must remain unreadable by Tom even though Tom shares the same Gun graph.
 

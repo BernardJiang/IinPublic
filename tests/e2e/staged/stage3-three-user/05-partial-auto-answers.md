@@ -1,5 +1,7 @@
 # Test: Partial Auto-Answers — Flattened Context Memory
 
+covers: SPEC-3.6, SPEC-3.4, SPEC-12.3  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** User preference memory (flattened context hashes), auto-fill of previously answered questions, new hash triggers manual answer
 
 ---

@@ -1,5 +1,7 @@
 # Test: Chatroom Peer Detail — Stranger Status, Overlay, Talk History, Send My Talks (Auto + Manual)
 
+covers: SPEC-3.3, SPEC-7.9  <!-- auto-seeded; refine by hand -->
+
 **File:** 00e-chatroom-peer-detail.spec.ts
 **Features tested:** Chatroom member list, Stranger status, peer detail overlay, talk history with sort/filter, Send My Talks auto mode, Send My Talks manual mode picker, multi-browser
 

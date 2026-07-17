@@ -1,5 +1,7 @@
 # Test: Ignore-Then-Change — Multi-Question Flow
 
+covers: SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Multi-step question flows, initial mismatch then reopening to find a match, context hash behavior
 
 ---

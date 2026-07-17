@@ -1,5 +1,7 @@
 # Test: Chinese UI Localization Traversal (D2)
 
+covers: SPEC-5.4, SPEC-13.1  <!-- auto-seeded; refine by hand -->
+
 **File:** 00y-chinese-ui-traversal.spec.ts  
 **Features tested:** App-wide Chinese localization — nav labels, action bars, filters, modals. Persistence across reload. Switch back to English.
 

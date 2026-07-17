@@ -1,5 +1,7 @@
 # Test: Capacity Regional Spread — 25 Users Cascade Across Global, Continents, USA, and Regional Rooms
 
+covers: SPEC-3.3, SPEC-3.7  <!-- auto-seeded; refine by hand -->
+
 **File:** 00k-capacity-regional-spread.spec.ts  
 **Features tested:** Chatroom capacity enforcement (capacity=3, FIFO), geographic room cascade, multi-user multi-browser setup (25 users), cross-continental distribution, regional room auto-creation, server-side member count verification via API
 

@@ -1,5 +1,7 @@
 # Test: TechSupport Contact and Mute
 
+covers: SPEC-7.9, SPEC-12.4  <!-- auto-seeded; refine by hand -->
+
 **File:** 00k-techsupport-contact-mute.spec.ts  
 **Features tested:** TechSupport user appears in Contacts list with `data-support-contact="true"` attribute. Muting disables toasts from TechSupport without altering contact visibility.
 

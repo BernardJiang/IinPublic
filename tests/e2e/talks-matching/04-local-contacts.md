@@ -1,5 +1,7 @@
 # P0 Step 5 — Local-only contacts and history
 
+covers: SPEC-7.9  <!-- auto-seeded; refine by hand -->
+
 ## What this spec tests
 
 Three browsers (Tom, Jerry, Bob) join the same chatroom overlay.

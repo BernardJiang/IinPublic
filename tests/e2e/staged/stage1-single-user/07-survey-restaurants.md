@@ -1,5 +1,7 @@
 # Test: Restaurant Preferences Survey (11 Users)
 
+covers: SPEC-3.9  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Survey-type talks for restaurant preference collection, multi-question surveys with many options, aggregate response counts
 
 ---

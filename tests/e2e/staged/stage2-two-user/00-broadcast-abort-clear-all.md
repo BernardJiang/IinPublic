@@ -1,5 +1,7 @@
 # Test: Broadcast Cancellation — Creator Clears All Talks Mid-Flight
 
+covers: SPEC-3.6, SPEC-3.4, SPEC-8.2  <!-- auto-seeded; refine by hand -->
+
 **File:** 00-broadcast-abort-clear-all.spec.ts  
 **Features tested:** Broadcast cancellation, clear-all-talks, pair-direct delivery stability, multi-browser
 

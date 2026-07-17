@@ -1,5 +1,7 @@
 # 19 — Chatroom hierarchy navigation & regional broadcast
 
+covers: SPEC-3.3, SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
+
 Covers **`docs/TODO.md` P1** item: multi-chatroom / hierarchy behaviours beyond Global-only flows.
 
 ## Coverage

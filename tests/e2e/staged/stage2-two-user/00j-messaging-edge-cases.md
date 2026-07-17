@@ -1,5 +1,7 @@
 # Messaging Edge Cases E2E
 
+covers: SPEC-7.6, SPEC-19.4  <!-- auto-seeded; refine by hand -->
+
 This file documents the intent and coverage for `tests/e2e/00j-messaging-edge-cases.spec.ts`.
 
 ## Covered

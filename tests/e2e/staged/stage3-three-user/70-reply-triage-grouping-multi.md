@@ -1,5 +1,7 @@
 # 70-reply-triage-grouping-multi
 
+covers: SPEC-3.2, SPEC-13.1, SPEC-3.7  <!-- auto-seeded; refine by hand -->
+
 Covers TODO item **F** (catalog Part 5 option matrix).
 
 3-responder reply matrix: none/responder/talk grouping partitions the same 9 replies.

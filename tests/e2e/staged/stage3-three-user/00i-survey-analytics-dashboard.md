@@ -1,5 +1,7 @@
 # Test: Survey Analytics Dashboard
 
+covers: SPEC-3.9  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Survey response aggregation, analytics dashboard rendering, anonymity toggle, CSV exports, follow-up survey creation
 
 ---

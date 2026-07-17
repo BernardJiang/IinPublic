@@ -1,5 +1,7 @@
 # Test: Talk Lifecycle — Tag Multi-Responder Matrix
 
+covers: SPEC-3.5, SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
+
 **File:** 00z-talk-lifecycle-tag-multi-responder.spec.ts  
 **Features tested:** Phase D4 tag talk lifecycle with multiple responders — Tom broadcasts a tag talk, Jerry checks the box (match), Bob leaves it unchecked (mismatch). Creator sees exactly 1 match in status bar. Me/Answers tab for each responder shows the correct outcome.
 

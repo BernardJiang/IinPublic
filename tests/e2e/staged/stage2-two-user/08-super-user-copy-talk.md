@@ -1,5 +1,7 @@
 # Test: Super User — Copy Talk: Receive, Disable Broadcast, Re-enable, Delete
 
+covers: SPEC-3.6, SPEC-3.4, SPEC-3.1  <!-- auto-seeded; refine by hand -->
+
 **File:** 08-super-user-copy-talk.spec.ts  
 **Features tested:** Copy talk feature, disable/enable broadcast toggle for copied talks, broadcast filtering, delete copied talk, multi-browser
 

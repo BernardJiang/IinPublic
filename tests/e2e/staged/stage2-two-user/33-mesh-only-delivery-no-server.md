@@ -1,5 +1,7 @@
 # 33 — Mesh-only delivery, no server talk-delivery path
 
+covers: SPEC-19.4, SPEC-3.12  <!-- auto-seeded; refine by hand -->
+
 **What it proves:** After the P0 step-7 migration, talk delivery, matching, and conversation
 creation are entirely peer-to-peer (mesh / pair-direct over Gun). The server no longer has a
 talk inbox or an incoming-talks fetch endpoint, and the client never calls one.

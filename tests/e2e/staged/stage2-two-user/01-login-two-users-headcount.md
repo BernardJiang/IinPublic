@@ -1,5 +1,7 @@
 # Test: Two Users — Headcount 1→2→1→2 With Chatroom Navigation
 
+covers: SPEC-3.3, SPEC-3.1  <!-- auto-seeded; refine by hand -->
+
 **File:** 01-login-two-users-headcount.spec.ts  
 **Features tested:** Multi-user headcount, chatroom switching, headcount updates on join/leave, persistence across re-login, screenshots
 

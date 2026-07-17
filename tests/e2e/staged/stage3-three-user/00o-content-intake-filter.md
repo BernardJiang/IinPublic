@@ -1,5 +1,7 @@
 # Test: Content Intake Filtering — Grammar and Dirty-Words Moderation
 
+covers: SPEC-3.2  <!-- auto-seeded; refine by hand -->
+
 **File:** 00o-content-intake-filter.spec.ts  
 **Features tested:** Grammar check and profanity (dirty words) filter toggles in Settings → verifies default state is enabled, disabling persists to localStorage AND syncs to Gun graph at `user-talk-filters/{userId}`.
 

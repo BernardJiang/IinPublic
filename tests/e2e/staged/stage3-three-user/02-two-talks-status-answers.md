@@ -1,5 +1,7 @@
 # Test: Two Talks, Two Responders — Status Bar & Answers Tab
 
+covers: SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Multiple talks broadcast to multiple responders, mixed match/mismatch patterns, status bar match count, Answers tab listing
 
 ---

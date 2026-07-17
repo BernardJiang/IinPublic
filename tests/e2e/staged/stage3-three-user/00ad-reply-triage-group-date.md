@@ -1,5 +1,7 @@
 # Test: Reply Triage — Group-By Options and Date Range Filter
 
+covers: SPEC-3.2, SPEC-13.1  <!-- auto-seeded; refine by hand -->
+
 **File:** 00ad-reply-triage-group-date.spec.ts  
 **Features tested:** D6 creator reply triage UI — group-by (responder, talk, day), date range filtering (from/to), sort persistence across navigation, and clear-filters reset. Seeds a small 4×4 = 16-reply matrix for fast verification.
 

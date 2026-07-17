@@ -1,5 +1,7 @@
 # 69 — Matched-talk threads
 
+covers: SPEC-3.6, SPEC-3.4, SPEC-7.6  <!-- auto-seeded; refine by hand -->
+
 Per-talk Thread pages (gui-redesign-plan §5, T8) with two users. The matched
 conversation is seeded through the app's own conversation service (the same records a
 real match produces — the full match round-trip is covered by 00e and the

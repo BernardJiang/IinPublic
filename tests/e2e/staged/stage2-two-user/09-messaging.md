@@ -1,5 +1,7 @@
 # Test: Direct Messaging — Tom and Jerry Match on Talk, Then Exchange Messages
 
+covers: SPEC-7.6, SPEC-19.4  <!-- auto-seeded; refine by hand -->
+
 **File:** 09-messaging.spec.ts  
 **Features tested:** Talk matching triggering conversation creation, direct messaging between matched users, bidirectional message delivery, conversation overlay, multi-browser
 

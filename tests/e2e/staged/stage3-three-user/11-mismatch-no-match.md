@@ -1,5 +1,7 @@
 # Test: Mismatch — No Match Notification, Zero Match Count
 
+covers: SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** When ALL responders pick the ignore branch, no match occurs, no toast appears, status shows 0 matches, Answers tab shows Mismatch
 
 ---

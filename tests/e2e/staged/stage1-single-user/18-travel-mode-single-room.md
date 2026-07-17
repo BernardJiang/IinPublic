@@ -1,5 +1,7 @@
 # Test: Chatrooms - Travel Mode Single-Room Presence
 
+covers: SPEC-3.3  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Travel mode toggle, current-room switching, home-room memory and return-home behavior
 
 ---

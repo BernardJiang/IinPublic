@@ -1,5 +1,7 @@
 # 71 — Thread isolation across three users
 
+covers: SPEC-7.6, SPEC-19.4, SPEC-7.5  <!-- auto-seeded; refine by hand -->
+
 Pair-private per-talk threads (gui-redesign-plan §5, T8) with three users sharing the
 SAME matched talk id in two pairs (Tom↔Jerry and Tom↔Bob):
 

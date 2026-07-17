@@ -1,5 +1,7 @@
 # stage1/71 — Linked devices page
 
+covers: SPEC-19.14, SPEC-3.2  <!-- auto-seeded; refine by hand -->
+
 Covers TODO item **I** (redesign §10.4, catalog T10).
 
 Single device: Settings › Linked devices opens with an empty state; the

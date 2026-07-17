@@ -1,5 +1,7 @@
 # Test: Age Gating - Adult Talk Delivery by Verification State
 
+covers: SPEC-3.2  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Adult talk flag, age-verification threshold behavior, server-side delivery filtering
 
 ---

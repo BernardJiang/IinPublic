@@ -1,5 +1,7 @@
 # Test: Stats API — All Four Talk Types (11 Users)
 
+covers: SPEC-3.9  <!-- auto-seeded; refine by hand -->
+
 **Features tested:** Server-side statistics aggregation across all talk types (summary, by-day, by-region, by-answer), multi-user response data integrity
 
 ---

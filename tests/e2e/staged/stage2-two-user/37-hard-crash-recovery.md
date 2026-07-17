@@ -1,5 +1,7 @@
 # 37 — Hard browser-process crash + recovery
 
+covers: SPEC-8.2  <!-- auto-seeded; refine by hand -->
+
 ## What this proves
 
 A matched user B whose browser is **hard-killed** (SIGKILL, not a graceful close) recovers

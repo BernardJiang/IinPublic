@@ -1,5 +1,7 @@
 # Test: Contacts — Stranger Default → Save Relationship → Sort (D6)
 
+covers: SPEC-7.9  <!-- auto-seeded; refine by hand -->
+
 **File:** 00ae-contacts-stranger-relationship.spec.ts  
 **Features tested:** New match starts as "Stranger" in Contacts tab, relationship can be saved as Friend/Following/Blocked etc., relationships sort/filter/persist correctly across reload.
 

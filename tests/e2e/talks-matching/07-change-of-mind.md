@@ -1,5 +1,7 @@
 # 07 — Change-of-mind (step 9)
 
+covers: SPEC-8.2  <!-- auto-seeded; refine by hand -->
+
 Tom AND Bob each broadcast a tag talk with the same tennis question (identical content
 = same identityKey, different talkIds and authorIds).
 

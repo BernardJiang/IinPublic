@@ -1,5 +1,7 @@
 # Test: Multi-User — Three Users Enter Sequentially, Exit FIFO, Re-Enter Random Order
 
+covers: SPEC-3.3, SPEC-3.1, SPEC-3.7  <!-- auto-seeded; refine by hand -->
+
 **File:** 02-multi-user-headcount.spec.ts  
 **Features tested:** Multi-user headcount (3 users), FIFO exit, storage state persistence, random re-entry order, real-time sync
 

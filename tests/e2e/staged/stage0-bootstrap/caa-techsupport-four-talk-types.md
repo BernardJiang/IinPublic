@@ -1,5 +1,7 @@
 # Test: TechSupport Creates Four Talk Types
 
+covers: SPEC-3.6, SPEC-3.4, SPEC-12.4  <!-- auto-seeded; refine by hand -->
+
 **File:** caa-techsupport-four-talk-types.spec.ts  
 **Features tested:** Creating all four talk types — tag, flow, survey, and route — via the company page JSON API. Verifies each appears in the Me/Answers tab with correct answers including context paths for route talks.
 

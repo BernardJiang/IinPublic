@@ -1,5 +1,7 @@
 # Test: Talk Expiration Broadcast Behavior
 
+covers: SPEC-3.6, SPEC-3.4, SPEC-8.2  <!-- auto-seeded; refine by hand -->
+
 **File:** 00q-expiration-broadcast.spec.ts  
 **Features tested:** Time-to-live (TTL) on talk broadcasts — a flow talk with 1-day expiration is delivered while active, then the same TTL setting causes zero delivery after the clock advances past expiry. Verifies broadcast UI rejects expired talks with "You have no talks to broadcast" notification.
 

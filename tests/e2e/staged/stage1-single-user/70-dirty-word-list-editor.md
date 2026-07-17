@@ -1,5 +1,7 @@
 # stage1/70 — Dirty-word filter list editor
 
+covers: SPEC-3.8, SPEC-13.1  <!-- auto-seeded; refine by hand -->
+
 Covers TODO item **H** (redesign §9.1, catalog T9): the user-editable dirty-word
 list on the Settings content-filters page.
 

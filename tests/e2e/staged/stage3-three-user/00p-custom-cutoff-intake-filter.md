@@ -1,5 +1,7 @@
 # Test: Custom Phrase and Cutoff Intake Filtering
 
+covers: SPEC-3.2  <!-- auto-seeded; refine by hand -->
+
 **File:** 00p-custom-cutoff-intake-filter.spec.ts  
 **Features tested:** Two intake filter mechanisms with granular controls (1) custom blocked phrases gate delivery until cleared and (2) "sent-after" temporal cutoff blocks talks created before a threshold date. Verifies broadcast rejection via `talksSent: 0` ack count.
 

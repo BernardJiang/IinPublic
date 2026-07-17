@@ -1,5 +1,7 @@
 # Test: Talk Lifecycle — Flow Multi-Responder Matrix
 
+covers: SPEC-3.6, SPEC-3.4, SPEC-3.7  <!-- auto-seeded; refine by hand -->
+
 **File:** 00w-talk-lifecycle-flow-multi-responder.spec.ts  
 **Features tested:** Phase D4 multi-responder matrix — Tom broadcasts a flow talk, Jerry matches and Bob mismatches. Verifies conversation isolation (only Jerry gets P2P chat), contacts list includes both, transport mode defaults to direct-p2p for match pair, and Me/Answers tab accurately reflects each user's outcome.
 

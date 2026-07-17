@@ -1,5 +1,7 @@
 # stage1/59 — Responsive tab sweep
 
+covers: SPEC-6.5, SPEC-5.5, SPEC-13.1  <!-- auto-seeded; refine by hand -->
+
 Covers TODO item **E** (redesign §8, catalog T7).
 
 Sweeps every tab (Chatrooms, Contacts, Talks, Me, Settings) at each reference

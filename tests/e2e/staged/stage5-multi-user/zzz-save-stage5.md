@@ -1,5 +1,7 @@
 # Test: Stage 5 — Save Multi-User Snapshot
 
+covers: SPEC-3.5, SPEC-3.2  <!-- auto-seeded; refine by hand -->
+
 **File:** zzz-save-stage5.spec.ts  
 **Features tested:** Persists the stage 5 server graph snapshot after the multi-user test suite completes. Used by downstream stages to restore this baseline with multiple users active.
 

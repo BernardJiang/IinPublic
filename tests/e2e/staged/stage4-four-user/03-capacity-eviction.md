@@ -1,5 +1,7 @@
 # Test: Capacity and FIFO Eviction — Four Users Fill-to-3, Fourth Bumps First
 
+covers: SPEC-3.3  <!-- auto-seeded; refine by hand -->
+
 **File:** 03-capacity-eviction.spec.ts  
 **Features tested:** Chatroom capacity limit, FIFO eviction, room reassignment persistence, multi-browser (4 browsers), storage state restore
 
