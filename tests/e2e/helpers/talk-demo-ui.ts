@@ -149,6 +149,15 @@ export async function clickBroadcastUntilBulkAck(
   page: Page,
   opts?: { minGunPeers?: number; minSent?: number },
 ): Promise<void> {
+  // E2E_PERF_LOG=1 prints per-step durations — used to hunt silently-exhausted
+  // budgets in the broadcast path (speed plan §4.4).
+  const perf = process.env.E2E_PERF_LOG === '1';
+  let stepStart = Date.now();
+  const perfMark = (name: string) => {
+    if (!perf) return;
+    console.log(`[PERF broadcast] ${name}: ${((Date.now() - stepStart) / 1000).toFixed(1)}s`);
+    stepStart = Date.now();
+  };
   const { waitForTabActive } = await import('./talks-matching-flow');
   await page.click('.nav-btn[data-view="chatrooms"]');
   await waitForTabActive(page, 'chatrooms');
@@ -157,22 +166,27 @@ export async function clickBroadcastUntilBulkAck(
     await page.locator('.chatroom-item:has-text("Global")').first().click();
     await afterSync();
   }
+  perfMark('nav-to-room');
   const loc = page.locator('[data-testid="broadcast-bulk-ack"]');
   const genBefore = Number(await loc.getAttribute('data-broadcast-bulk-gen'));
   const start = Number.isFinite(genBefore) ? genBefore : 0;
   await waitForGunApiReady(E2E_ASSERT_TIMEOUT_MS).catch(() => {});
+  perfMark('gun-api-ready');
   const requestedMinSent = opts?.minSent;
   const minPeers = opts?.minGunPeers ?? (requestedMinSent === 0 ? 0 : 1);
   const minSent = requestedMinSent ?? (isDirectTalkDeliveryE2e() && minPeers > 0 ? 1 : 0);
   if (isDirectTalkDeliveryE2e() && minPeers > 0) {
     await waitForChatroomMemberCountViaApi(page, minPeers, E2E_ASSERT_TIMEOUT_MS);
   }
+  perfMark('member-count');
   await waitForBroadcastableTalkIds(page, E2E_ASSERT_TIMEOUT_MS);
+  perfMark('broadcastable-ids');
   if (isDirectTalkDeliveryE2e() && minPeers > 0) {
     const result = await deliverBroadcastViaAppPath(page, { minReceivers: minPeers }).catch(() => ({
       talksSent: 0,
       receivers: 0,
     }));
+    perfMark(`deliver-app-path (sent=${result.talksSent})`);
     if (result.talksSent >= minSent) {
       await dismissBroadcastPreambleIfOpen(page);
       return;

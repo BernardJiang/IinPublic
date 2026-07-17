@@ -27,8 +27,11 @@ import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 // Two full boots + broadcast + 90s cluster-delivery budget exceed the 120s default
-// under the high-worker light shard.
-test.describe.configure({ timeout: 180_000 });
+// under the high-worker light shard. Raised 180s → 240s on 2026-07-17 after the spec
+// (constant ~165s in every run) crossed 180s at 12 light workers — TEMPORARY headroom
+// while the stage-timing instrumentation below identifies which budget dominates
+// (speed plan §4.4); the aim is to shrink the spec, not keep the ceiling.
+test.describe.configure({ timeout: 240_000 });
 
 test.describe('Talk Response: option paths', () => {
   let browserAlice: Browser;
@@ -81,17 +84,34 @@ test.describe('Talk Response: option paths', () => {
   }
 
   test('tag match + close, flow answer buttons + back', async () => {
+    // Stage-timing instrumentation: this spec has run at a suspiciously CONSTANT
+    // ~165s in every full-suite run (see speed plan §4.4 — stacked fixed budgets
+    // suspected) and blew its 180s ceiling at 12 light workers. Timings are appended
+    // to test-logs/perf-00-talk-response.jsonl on every run (pass or fail) so the
+    // dominant stage can be identified from any machine's run.
+    const t0 = Date.now();
+    const stages: Record<string, number> = {};
+    let lastMark = t0;
+    const mark = (name: string) => {
+      const now = Date.now();
+      stages[name] = Math.round((now - lastMark) / 100) / 10;
+      lastMark = now;
+      console.log(`[PERF] 00-talk-response +${Math.round((now - t0) / 1000)}s after ${name}`);
+    };
+
     const a = await boot(browserAlice, 'Alice');
     ctxA = a.context;
     pageAlice = a.page;
     await pageAlice.click('.chatroom-item:has-text("Global")');
     await afterSync();
+    mark('bootAlice');
 
     const t = await boot(browserTom, 'Tom');
     ctxT = t.context;
     pageTom = t.page;
     await pageTom.click('.chatroom-item:has-text("Global")');
     await afterSync();
+    mark('bootTom');
 
     // Alice creates a tag talk (she already entered Global above — the room
     // list is hidden inside the room detail, so no second room click).
@@ -102,13 +122,30 @@ test.describe('Talk Response: option paths', () => {
     await pageAlice.fill('#talk-title', 'Hiking');
     await pageAlice.click('#talk-editor-form button[type="submit"]');
     await afterSync();
+    mark('createTalk');
 
     await clickBroadcastUntilBulkAck(pageAlice);
     await afterAction();
+    mark('broadcast');
     await waitForIncomingTalkCluster(pageTom, 'Hiking', { timeout: 90_000 });
+    mark('clusterWait');
+
+    const persistStages = async () => {
+      stages.total = Math.round((Date.now() - t0) / 100) / 10;
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const dir = path.resolve(__dirname, '../../../../test-logs');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.appendFileSync(
+        path.join(dir, 'perf-00-talk-response.jsonl'),
+        JSON.stringify({ at: new Date().toISOString(), workers: process.env.PW_WORKERS || '?', ...stages }) + '\n',
+      );
+    };
 
     // Tag path: open, check match, submit.
     await openIncomingTalkModal(pageTom, 'Hiking');
+    mark('openModal');
+    await persistStages().catch(() => {});
     await expect(pageTom.locator('#talk-response-modal')).toBeVisible();
     await expect(pageTom.locator('.tag-match-checkbox')).toBeVisible();
     await pageTom.locator('#tag-match-checkbox').click({ noWaitAfter: true });
