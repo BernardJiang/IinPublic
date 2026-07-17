@@ -353,10 +353,6 @@ test.describe('Chatroom peer detail views', () => {
       await pageTom.uncheck('#talk-send-to-chatroom');
       await pageTom.click('#talk-editor-form button[type="submit"]');
       await afterSync();
-      await pageTom.evaluate(() => {
-        const realNow = Date.now.bind(Date);
-        Date.now = () => realNow() + 2 * 24 * 60 * 60 * 1000;
-      });
 
       // Both enter Global chatroom
       await enterGlobalChatroom(pageTom);
@@ -375,6 +371,16 @@ test.describe('Chatroom peer detail views', () => {
 
       // Auto mode should be checked by default
       await expect(pageTom.locator('#peer-auto-mode-checkbox')).toBeChecked();
+
+      // Advance Tom's clock past the 1d expiry ONLY NOW, immediately before the send
+      // action evaluates talk expiry. Faking Date.now before entering the chatroom
+      // (the previous placement) made Jerry's presence/membership records look two
+      // days stale on Tom's page, so the member list could prune his row and the
+      // "JerrySend" item never appeared (flaked in test:all run-20260717-110420).
+      await pageTom.evaluate(() => {
+        const realNow = Date.now.bind(Date);
+        Date.now = () => realNow() + 2 * 24 * 60 * 60 * 1000;
+      });
 
       // Click Send My Talks
       const sendBtn = pageTom.locator('#peer-send-talks-btn');
