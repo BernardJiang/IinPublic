@@ -27,7 +27,7 @@ async function dismissBroadcastPreambleIfOpen(page: Page): Promise<void> {
   });
 }
 
-export { waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
+// (waitForChatroomMemberCountViaApi is re-exported once at the bottom of this file.)
 
 async function clickChatroomBroadcastButton(page: Page, opts?: { minGunPeers?: number }): Promise<void> {
   const preamble = page.locator('[data-testid="broadcast-preamble-modal"]');
