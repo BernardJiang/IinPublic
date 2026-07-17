@@ -19,6 +19,7 @@ import { webAppURLStableChatroom } from '../../helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
+import { waitForBlockedState } from '../../helpers/blocking-e2e-helpers';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { computeTalkIdFromTalkData } from '../../../../src/shared/talk-content-id';
 import { getConversationIdBetween } from '../../helpers/conversation-e2e';
@@ -381,6 +382,9 @@ test.describe('Messaging edge cases', () => {
     await expect(pageTom.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10000 });
     await pageTom.click('#contact-block-toggle-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toHaveCount(0, { timeout: 10000 });
+    // The modal closes optimistically; wait until the server actually registers the
+    // block before re-reading block state anywhere (races otherwise — see helper doc).
+    await waitForBlockedState(pageTom, tomUserId, jerryUserId, true);
     await afterSync();
     // Close the User layout — it covers the bottom nav.
     await pageTom.click('#back-from-peer-detail');
@@ -399,6 +403,8 @@ test.describe('Messaging edge cases', () => {
     await expect(pageTom.locator('#contact-block-toggle-btn')).toContainText('Unblock User', { timeout: 10000 });
     await pageTom.click('#contact-block-toggle-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toHaveCount(0, { timeout: 10000 });
+    // Same race on the way back: confirm the unblock landed server-side before messaging.
+    await waitForBlockedState(pageTom, tomUserId, jerryUserId, false);
     await afterSync();
 
     await openConversation(pageTom, 'Jerry', jerryUserId);

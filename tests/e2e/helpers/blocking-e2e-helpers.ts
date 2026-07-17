@@ -33,6 +33,39 @@ export async function unblockSenderFromReceivers(
   );
 }
 
+/**
+ * Poll the server's block-status until it reports the expected `blocked` value for
+ * viewer→peer. Use right after clicking the block/unblock toggle: the modal closes
+ * optimistically while the underlying Gun write + server mirror land asynchronously,
+ * so a UI step that re-reads block state (the relationship modal fetches
+ * /api/users/:id/block-status/:peer on open) can otherwise race a stale value
+ * (observed: 00j "messaging works after unblock" reopened the modal before the block
+ * registered and saw "Block User" instead of "Unblock User").
+ */
+export async function waitForBlockedState(
+  page: Page,
+  viewerId: string,
+  peerId: string,
+  blocked: boolean,
+  timeout = 30_000,
+): Promise<void> {
+  const base = gunBaseURL();
+  const { expect } = await import('./fixtures');
+  await expect
+    .poll(
+      async () => {
+        const res = await page.request.get(
+          `${base}/api/users/${encodeURIComponent(viewerId)}/block-status/${encodeURIComponent(peerId)}`,
+        );
+        if (!res.ok()) return 'http-error';
+        const body = (await res.json()) as { blocked?: boolean };
+        return !!body.blocked;
+      },
+      { timeout, intervals: [100, 200, 400] },
+    )
+    .toBe(blocked);
+}
+
 export async function ensureNoBlockBetween(
   pageA: Page,
   userIdA: string,
