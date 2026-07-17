@@ -223,10 +223,21 @@ env-gated, abandon on first latency-class failure.
 | After | Wall |
 |---|---|
 | before Part 4 | ~20 min |
-| Steps 0+2+3 (implemented 2026-07-16) | **~16–16.5 min expected**: light ~6.4 + wave2 ~4 + mass ~5 + overhead |
-| Step 1 (helper polls, after clean run) | ~14.5 min |
-| light @12w (after two clean runs at 10) | ~13.5 min |
-| Step 4 (mass @2w, if it holds) | ~11.5 min |
+| Steps 0+2+3 (2026-07-16) | **15.5 min measured** (three clean-ish runs; three distinct test bugs root-caused and fixed along the way) |
+| light 10→12w + heavy 1→2w (2026-07-17) | **~13–13.5 min expected**: light ~5.5 + wave2 ~max(isolated 106s, heavy ~110s) + mass ~5 + overhead. Rollback: `PW_WORKERS=10` / `PW_HEAVY_WORKERS=1` |
+| Step 4 (mass @2w, opt-in experiment) | ~11.5–12 min — try `MASS_WORKERS=2 npm run test:all` once the 12w/heavy-2w config has a clean run |
+
+### 4.4 Next investigation: the constant 165s spec
+
+`stage2/00-talk-response-option-paths` has taken 164.9–165.2s in EVERY run regardless of
+machine load — before and after the WebRTC fix. That constancy across variable conditions
+points to stacked FIXED budgets, not real sync latency: the broadcast path
+(`clickBroadcastUntilBulkAck` → `waitForGunApiReady` / `waitForChatroomMemberCountViaApi` /
+`waitForBroadcastableTalkIds`) runs several sequential `E2E_ASSERT_TIMEOUT_MS` (20s) waits,
+some with swallowed `.catch(() => {})` timeouts, before the 90s cluster budget. Instrument
+one run (timestamps around each wait) to find which budgets are being exhausted silently;
+fixing the underlying signal could cut 60–90s from this spec and likely trim every
+broadcast-path spec.
 
 ## Suggested sequencing
 

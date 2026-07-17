@@ -70,14 +70,14 @@ scale_down_only() {
   if [ "$scaled" -lt "$1" ]; then echo "$scaled"; else echo "$1"; fi
 }
 
-# Light shard default: 10 workers (speed plan Part 4 step 2). Each worker gets fully
-# isolated servers on its own port pair, so parallelism is safe. The historical 8-worker
-# ceiling was set by an unstable-click flake class in the incoming-talk helpers (clicks
-# lost to Gun-sync re-renders) that is fixed as of 2026-07-16 — the helpers now trigger
-# the delegated mousedown handler directly. If light starts flaking on shared-room
-# headcounts or contact replication, drop back with PW_WORKERS=8 (light sum is ~58 min
-# of test-time; wall ≈ sum/workers, so 10 workers ≈ 6.4 min vs 8 workers ≈ 8 min).
-LIGHT_WORKERS="${PW_WORKERS:-$(scale_down_only 10)}"
+# Light shard default: 12 workers (speed plan Part 4 step 2, bumped 10→12 on 2026-07-17
+# after the 10-worker soak: multiple runs whose only failures were three distinct
+# root-caused test bugs, each fixed — mousedown delegation, block-state race, clock-fake
+# member pruning — plus one fully clean run). Each worker gets fully isolated servers on
+# its own port pair, so parallelism is safe; light sum is ~59 min of test-time and
+# wall ≈ sum/workers (12w ≈ 5.5 min vs 10w ≈ 6.5 min). If light starts flaking on
+# shared-room headcounts or contact replication, drop back with PW_WORKERS=10.
+LIGHT_WORKERS="${PW_WORKERS:-$(scale_down_only 12)}"
 # mass at 1 worker: each mass spec spawns 8-12 Chromium profiles INSIDE one worker's test —
 # even 2 workers means 22 simultaneous browsers (M2's 12 beside M1's 10), and with polls
 # capped at 60s (policy: no timeout over one minute, no retries) M2 measured 10/11 exchanges
@@ -89,11 +89,15 @@ STAGE5_WORKERS="${STAGE5_WORKERS:-$(scale_down_only 3)}"
 # mesh-batch: back to its tuned baseline of 4 workers. Measured evidence from two full runs
 # at 1 worker: the phase took ~13 min instead of ~3 and failed the SAME specs it fails at 4
 # workers (04-local-contacts, 09-ipfs-auto-share are real bugs, not parallelism flakes) —
-# single-worker bought no reliability, only wall-clock. heavy-staged stays single-worker:
-# it holds the timing-budgeted chatbot spec and the stage4 ghost-membership headcounts that
-# demonstrably do flake under any concurrency.
+# single-worker bought no reliability, only wall-clock.
 MESH_WORKERS="${PW_MESH_WORKERS:-$(scale_down_only 4)}"
-HEAVY_WORKERS="${PW_HEAVY_WORKERS:-1}"
+# heavy-staged at 2 workers (2026-07-17): its four specs sum to ~135s of tests but took
+# ~242s wall at 1 worker. Each worker gets its OWN server/port pair, so the specs never
+# share room state; the old "flakes under any concurrency" observation was machine-level
+# CPU contention whose main drivers (mDNS-blocked WebRTC timeouts, unstable-click helper
+# stalls) are fixed. Rollback per-run with PW_HEAVY_WORKERS=1 if the chatbot spec's 30s
+# budget or the stage4 headcounts start flaking again.
+HEAVY_WORKERS="${PW_HEAVY_WORKERS:-$(scale_down_only 2)}"
 
 # Waves run their phases CONCURRENTLY by default (each phase on its own port band with its
 # own servers): sequential phases measured 36+ minutes wall clock on a 14-core machine while
