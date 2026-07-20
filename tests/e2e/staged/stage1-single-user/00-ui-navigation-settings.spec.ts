@@ -932,11 +932,6 @@ test.describe('UI navigation and settings shell', () => {
           fullTalk: { id: 'answered-old', title: 'Older mismatch', type: 'flow', questions: [] },
         },
       }));
-      ui.setIncomingTalkClusters([{
-        identityKey: 'fresh-incoming', title: 'Fresh incoming', type: 'flow', isAnswered: false,
-        latestTalkId: 'fresh-incoming', updatedAt: '2026-01-15T00:00:00.000Z', senders: { sender: { senderName: 'Sender' } },
-        latestTalk: { id: 'fresh-incoming', title: 'Fresh incoming', type: 'flow', authorId: 'sender', questions: [] },
-      }]);
     });
 
     await p.locator('.nav-btn[data-view="me"]').click();
@@ -962,6 +957,20 @@ test.describe('UI navigation and settings shell', () => {
 
     await p.locator('.nav-btn[data-view="talks"]').click();
     await afterNav();
+    // The Talks tab click emits `needIncomingTalkClusters`, whose async local-Gun refresh
+    // REPLACES the UI cluster snapshot (applyIncomingTalkClusters). Inject the UI-only
+    // cluster only after that refresh settles so it cannot be clobbered (flaky under load).
+    await p.evaluate(async () => {
+      const app = (window as any).__iinpublic_app.getApp();
+      await app.syncIncomingClustersFromServer();
+      const ui = app.uiManager as any;
+      ui.setIncomingTalkClusters([{
+        identityKey: 'fresh-incoming', title: 'Fresh incoming', type: 'flow', isAnswered: false,
+        latestTalkId: 'fresh-incoming', updatedAt: '2026-01-15T00:00:00.000Z', senders: { sender: { senderName: 'Sender' } },
+        latestTalk: { id: 'fresh-incoming', title: 'Fresh incoming', type: 'flow', authorId: 'sender', questions: [] },
+      }]);
+      ui.displayTalksList();
+    });
     const incoming = p.locator('.talk-list-item[data-role="incoming"]');
     await expect(incoming).toHaveCount(2);
     await expect(incoming.first()).toContainText('Fresh incoming');

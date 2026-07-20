@@ -135,8 +135,10 @@ test.describe('Settings: intake filters persist across reload', () => {
     await page.click('.nav-btn[data-view="settings"]');
     await afterNav();
 
-    // Wait for settings content to load
-    await page.waitForSelector('#settings-content', { timeout: 10000 });
+    // Wait for the settings view to actually render. `#settings-content` is part of the
+    // static shell and exists before the app boots; the grammar checkbox only appears once
+    // `renderSettingsView(user)` has run after the user record loads (slow under parallel load).
+    await page.waitForSelector('#settings-grammar-filter', { timeout: 20000 });
     await afterLoad();
 
     // Re-query selectors after reload
