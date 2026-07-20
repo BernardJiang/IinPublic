@@ -1,6 +1,15 @@
 const path = require('path');
+const fs = require('fs');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const webpack = require('webpack');
+
+// LAN HTTPS: if a self-signed dev cert exists (certs/dev-*.pem, from
+// scripts/gen-dev-cert.sh), serve the dev UI over https so other devices load
+// in a secure context (required by Gun.js SEA / WebCrypto). Falls back to http.
+// Override paths with TLS_KEY_PATH / TLS_CERT_PATH.
+const devKeyPath = process.env.TLS_KEY_PATH || path.resolve(__dirname, 'certs/dev-key.pem');
+const devCertPath = process.env.TLS_CERT_PATH || path.resolve(__dirname, 'certs/dev-cert.pem');
+const devTlsEnabled = fs.existsSync(devKeyPath) && fs.existsSync(devCertPath);
 
 module.exports = {
   entry: './src/web/index.ts',
@@ -142,8 +151,18 @@ module.exports = {
     // parallel Playwright workers can each run their own dev-server on 3001+N.
     port: Number(process.env.PORT) || 3001,
     // LAN development smoke tests and real phones/notebooks may load the dev UI
-    // through http://<dev-host>:3001 rather than localhost.
+    // through http(s)://<dev-host>:3001 rather than localhost.
     allowedHosts: 'all',
+    // Serve over HTTPS when a self-signed dev cert is present (see top of file).
+    ...(devTlsEnabled && {
+      server: {
+        type: 'https',
+        options: {
+          key: fs.readFileSync(devKeyPath),
+          cert: fs.readFileSync(devCertPath),
+        },
+      },
+    }),
     hot: process.env.DISABLE_HMR !== 'true',
     liveReload: process.env.DISABLE_HMR !== 'true',
     watchFiles: process.env.DISABLE_HMR === 'true' ? [] : undefined,

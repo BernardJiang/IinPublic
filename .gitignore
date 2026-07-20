@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Local dev TLS certs (self-signed, per-machine — never commit)
+certs/
+
 # Build outputs
 dist/
 coverage/
