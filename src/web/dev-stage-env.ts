@@ -9,7 +9,7 @@ export function getDevStageSeed(): string {
 
 export function isDevStageZero(): boolean {
   const seed = getDevStageSeed();
-  return seed === 'stage-zero' || seed === 'empty';
+  return seed === 'stage-zero' || seed === 'empty' || seed === 'multi';
 }
 
 export function getDevStageZeroMaxGlobalMembers(): number {
@@ -30,6 +30,17 @@ export function resolveDevStageSeed(): string {
 }
 
 export function isDevStageZeroResolved(): boolean {
+  const seed = resolveDevStageSeed();
+  return seed === 'stage-zero' || seed === 'empty' || seed === 'multi';
+}
+
+/**
+ * `stage-zero`/`empty` boot the browser logged in as the built-in TechSupport root
+ * (TechSupport is the first user of an empty network and counts as 1 in every headcount).
+ * `multi` keeps ordinary browser users — TechSupport is seeded server-side by
+ * `scripts/dev-techsupport-bootstrap` before the browsers navigate.
+ */
+export function isDevStageTechSupportLoginResolved(): boolean {
   const seed = resolveDevStageSeed();
   return seed === 'stage-zero' || seed === 'empty';
 }

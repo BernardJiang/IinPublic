@@ -24,7 +24,7 @@ type StageTalk = {
   }>;
 };
 
-type StageSeedName = 'stage-zero' | 'empty' | 'user1' | 'user2-match' | 'user3-network';
+type StageSeedName = 'stage-zero' | 'empty' | 'multi' | 'user1' | 'user2-match' | 'user3-network';
 
 function buildApiBase(): string {
   const { hostname, protocol, port } = window.location;
@@ -342,17 +342,21 @@ export async function applyDevStageSeed(app: any, stageName: string): Promise<vo
   const stage = (stageName || '').trim() as StageSeedName;
   if (!stage) return;
 
-  const supported = new Set<StageSeedName>(['stage-zero', 'empty', 'user1', 'user2-match', 'user3-network']);
+  const supported = new Set<StageSeedName>(['stage-zero', 'empty', 'multi', 'user1', 'user2-match', 'user3-network']);
   if (!supported.has(stage)) return;
 
   clearStageLocalState();
   const base = buildApiBase();
 
-  if (stage === 'stage-zero' || stage === 'empty') {
+  if (stage === 'stage-zero' || stage === 'empty' || stage === 'multi') {
     clearClientGunChatrooms(app.gunService?.getGun?.());
-    setCurrentUserDecorations(app, { stageName: 'Adam', knownPeople: [] });
-    if (app.currentUser?.id && app.userService?.updateStageName) {
-      await app.userService.updateStageName(app.currentUser.id, 'Adam');
+    // stage-zero/empty boot logged in as the built-in TechSupport root (see index.ts) —
+    // never rename it. Only `multi` browsers are ordinary users that get the Adam stage name.
+    if (stage === 'multi') {
+      setCurrentUserDecorations(app, { stageName: 'Adam', knownPeople: [] });
+      if (app.currentUser?.id && app.userService?.updateStageName) {
+        await app.userService.updateStageName(app.currentUser.id, 'Adam');
+      }
     }
     try {
       if (typeof app.reloadChatroomMemberCountsAfterStageClear === 'function') {

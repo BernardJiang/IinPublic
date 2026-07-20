@@ -1,7 +1,8 @@
 import './styles/main.css';
 import { IinPublicApp } from './app/app';
 import { applyDevStageSeed } from './dev-stage-seeds';
-import { isDevStageZeroResolved, resolveDevStageSeed } from './dev-stage-env';
+import { isDevStageTechSupportLoginResolved, isDevStageZeroResolved, resolveDevStageSeed } from './dev-stage-env';
+import { TECHSUPPORT_ROOT_USER_ID } from '../shared/techsupport';
 import { LocationPrivacy } from '../shared/location';
 import { GPSCoordinate } from '../shared/types';
 
@@ -43,6 +44,11 @@ class WebApp {
           return;
         }
         sessionStorage.removeItem(STAGE_ZERO_BOOT_KEY);
+        if (isDevStageTechSupportLoginResolved()) {
+          // TechSupport is the built-in first user: a clean dev boot logs in as the root so an
+          // empty database shows exactly one member (TechSupport counts as 1 in every headcount).
+          localStorage.setItem('iinpublic_user_id', TECHSUPPORT_ROOT_USER_ID);
+        }
         // Server was just restarted by dev:stage-zero (empty graph). Skip clear-database here —
         // wiping gun._.graph immediately before the browser connects causes Gun puts to hang
         // without ack ("Gun.js put operation timed out").

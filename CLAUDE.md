@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Development
-npm run dev                    # web (webpack, port 3001) + server (tsx watch, port 8080) together
+npm run dev                    # clean DB, browser logs in as built-in TechSupport (headcount 1); web (webpack, port 3001) + server (tsx watch, port 8080)
+npm run dev:run                # web + server WITHOUT reset (internal base for dev/dev:multi)
+npm run dev:stage-empty        # alias of dev (clean DB + TechSupport only)
 npm run dev:stage-user1        # dev with a pre-seeded single user (IINPUBLIC_STAGE_SEED=user1)
 npm run dev:stage-user2-match  # two users with a pre-existing match
 npm run dev:stage-user3-network # three-user network scenario
@@ -174,7 +176,8 @@ Tests live in `tests/e2e/`. Each spec has a companion `.md` with a plain-English
 ### Dev stage seeds
 
 `src/web/dev-stage-seeds.ts` contains seed functions keyed by `IINPUBLIC_STAGE_SEED`:
-- `empty` — blank slate
+- `stage-zero` / `empty` — clean DB; browser boots logged in as the built-in TechSupport root (headcount 1)
+- `multi` — dev:multi only: clean DB, ordinary browser users; TechSupport seeded server-side
 - `user1` — one user with profile
 - `user2-match` — two users with a pre-existing match conversation
 - `user3-network` — three-user social graph
@@ -182,6 +185,7 @@ Tests live in `tests/e2e/`. Each spec has a companion `.md` with a plain-English
 ## Key invariants
 
 - **Match logic is in `src/shared/talk-engine.ts`** — never duplicate it in routes or UI.
+- **TechSupport is the built-in first user and counts as exactly 1 in every headcount** (status bar, room badges) — see `docs/design/techsupport-bootstrap-contract.md`.
 - **Server `incomingTalksMap` is authoritative** — Gun writes for `incomingTalksByUser` are skipped in the delivery path; the browser fetches via HTTP.
 - **Private user data is SEA-encrypted** — `WebUserService.putPrivateUserData` writes `blockedUserIds`, `knownPeople`, `talkFilters` under the Gun user keypair. The server cannot read these; server-side user ops use Gun public paths only.
 - **`ContactsViewDeps`** must include every function deps object passed to contacts-view rendering; there are three call sites in `ui-manager.ts` (~lines 873, 890, 908).

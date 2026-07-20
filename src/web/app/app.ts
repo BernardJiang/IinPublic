@@ -294,8 +294,13 @@ export class IinPublicApp {
     });
   }
 
-  private countOrdinaryRoomMembers(members: Array<{ userId: string }>): number {
-    return members.filter((member) => member.userId !== TECHSUPPORT_ROOT_USER_ID).length;
+  /**
+   * Room headcount for the status bar and any user-facing totals. TechSupport is the
+   * built-in first user and counts as exactly 1, like any other member — never 0,
+   * never more (see docs/design/techsupport-bootstrap-contract.md).
+   */
+  private countRoomMembers(members: Array<{ userId: string }>): number {
+    return new Set(members.map((member) => member.userId)).size;
   }
 
   private loadAttachmentShareSentIds(): void {
@@ -1030,7 +1035,7 @@ export class IinPublicApp {
         this.uiManager.updateStatusBar(
           this.currentUser!.stageName,
           chatroomName,
-          this.countOrdinaryRoomMembers(members),
+          this.countRoomMembers(members),
           this.uiManager.getTotalMatches(),
         );
       });
@@ -1093,7 +1098,7 @@ export class IinPublicApp {
       this.uiManager.updateStatusBar(
         this.currentUser!.stageName,
         chatroomName,
-        this.countOrdinaryRoomMembers(members),
+        this.countRoomMembers(members),
         this.uiManager.getTotalMatches(),
       );
     });
@@ -1133,7 +1138,7 @@ export class IinPublicApp {
         this.uiManager.updateStatusBar(
           this.currentUser!.stageName,
           chatroomName,
-          this.countOrdinaryRoomMembers(members),
+          this.countRoomMembers(members),
           this.uiManager.getTotalMatches(),
         );
       });
@@ -4812,7 +4817,7 @@ export class IinPublicApp {
           this.uiManager.updateStatusBar(
             this.currentUser!.stageName,
             chatroomName,
-            this.countOrdinaryRoomMembers(members),
+            this.countRoomMembers(members),
             this.uiManager.getTotalMatches(),
           );
         });
@@ -4847,7 +4852,7 @@ export class IinPublicApp {
           this.uiManager.updateStatusBar(
             this.currentUser!.stageName,
             chatroomName,
-            this.countOrdinaryRoomMembers(members),
+            this.countRoomMembers(members),
             this.uiManager.getTotalMatches(),
           );
         });
@@ -5093,7 +5098,7 @@ export class IinPublicApp {
         this.uiManager.updateStatusBar(
           this.currentUser!.stageName,
           chatroomName,
-          this.countOrdinaryRoomMembers(members),
+          this.countRoomMembers(members),
           this.uiManager.getTotalMatches(),
         );
       });

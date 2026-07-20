@@ -149,7 +149,7 @@ async function main() {
   spawnChild('web', 'npm', ['run', 'dev:web:e2e', '--', '--port', String(webPort)], {
     PORT: String(webPort),
     DISABLE_HMR: 'true',
-    IINPUBLIC_STAGE_SEED: 'stage-zero',
+    IINPUBLIC_STAGE_SEED: 'multi',
     IINPUBLIC_STAGE_ZERO_MAX_GLOBAL: String(expectedGlobal),
     DEV_GUN_FRESH: '1',
     CHATROOM_MAX_CAPACITY: '50',
