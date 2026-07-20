@@ -39,12 +39,21 @@ import { EmbeddedHubRelayClient } from '../node-app/embedded-hub-relay-client';
  * load in a secure context — required by Gun.js SEA / WebCrypto, and it stops
  * SEA from force-redirecting http→https to a port that isn't listening.
  * Override paths with TLS_KEY_PATH / TLS_CERT_PATH. Falls back to plain HTTP.
+ *
+ * E2E servers must stay plain HTTP: every Playwright-spawned server runs with
+ * E2E_GUN_MEMORY_ONLY=1 and the harness health-checks/clears over http://127.0.0.1
+ * (helpers/clear-database.ts). With certs/ present on the dev machine, TLS here
+ * turned every one of those requests into a handshake failure and failed the whole
+ * suite ("waitForGunApiReady ... fetch failed"). TLS_DISABLE=1 is a manual escape hatch.
  */
 function createAppServer(app: express.Application) {
   const keyPath = process.env.TLS_KEY_PATH || path.resolve(process.cwd(), 'certs/dev-key.pem');
   const certPath = process.env.TLS_CERT_PATH || path.resolve(process.cwd(), 'certs/dev-cert.pem');
   const tlsEnabled =
-    process.env.NODE_ENV !== 'production' && fs.existsSync(keyPath) && fs.existsSync(certPath);
+    process.env.NODE_ENV !== 'production' &&
+    process.env.E2E_GUN_MEMORY_ONLY !== '1' &&
+    process.env.TLS_DISABLE !== '1' &&
+    fs.existsSync(keyPath) && fs.existsSync(certPath);
 
   if (tlsEnabled) {
     logger.info({ keyPath, certPath }, '🔒 HTTPS enabled for LAN (self-signed dev cert found)');
