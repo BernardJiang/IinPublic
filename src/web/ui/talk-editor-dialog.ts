@@ -103,7 +103,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
             <label class="form-label" id="questions-form-label">${text('editorQuestions', 'Questions & Branching')}</label>
             <p class="talk-editor-type-hint" id="talk-editor-type-hint" style="margin: 0 0 10px 0; font-size: 0.9em; color: #666;"></p>
             <div id="questions-container"></div>
-            <button type="button" id="add-question-btn" class="btn" style="margin-top: 10px; background: #667eea; color: white;">${text('editorAddQuestion', '+ Add Question')}</button>
+            <button type="button" id="add-question-btn" class="btn" style="margin-top: 10px; background: var(--accent); color: white;">${text('editorAddQuestion', '+ Add Question')}</button>
           </div>
 
           <div class="form-group" id="route-form-group" style="display: none;">
@@ -112,11 +112,11 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
               ${text('editorRouteHelp', 'Build a branching tree. Each answer can lead to a follow-up question. On any path from root to leaf, the same question cannot appear twice; it may appear in separate branches with separate context ids.')}
             </p>
             <div id="route-editor"></div>
-            <div id="talk-validation-errors" class="talk-validation-errors" style="display: none; margin-top: 10px; padding: 10px; border: 1px solid #f44336; background: #fdecea; color: #b71c1c; border-radius: 6px; font-size: 0.9em;"></div>
+            <div id="talk-validation-errors" class="talk-validation-errors" style="display: none; margin-top: 10px; padding: 10px; border: 1px solid var(--danger); background: var(--danger-soft); color: var(--danger-hover); border-radius: 6px; font-size: 0.9em;"></div>
           </div>
 
           <div class="form-group" id="talk-validation-group" style="display: none;">
-            <div id="talk-autofix-banner" class="talk-autofix-banner" style="display: none; margin-top: 10px; padding: 10px; border: 1px solid #4CAF50; background: #e8f5e9; color: #1b5e20; border-radius: 6px; font-size: 0.9em;"></div>
+            <div id="talk-autofix-banner" class="talk-autofix-banner" style="display: none; margin-top: 10px; padding: 10px; border: 1px solid var(--success); background: var(--success-soft); color: var(--success-text); border-radius: 6px; font-size: 0.9em;"></div>
           </div>
 
           <div class="form-group" id="talk-options-group">

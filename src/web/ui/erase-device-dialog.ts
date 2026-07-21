@@ -34,14 +34,14 @@ export function showEraseDeviceDialog(deps: EraseDeviceDeps): void {
         'eraseSyncFirst',
         'Save to',
       )} ${escapeHtml(deps.linkedDeviceName || deps.text('eraseLinkedDevice', 'your other device'))} ${deps.text('eraseFirst', 'first')}</button>`
-    : `<div style="font-size:0.82em;color:#b45309;">${deps.text(
+    : `<div style="font-size:0.82em;color:var(--warning-text);">${deps.text(
         'eraseNoLinkedDevice',
         'No linked device is online — erasing without saving is permanent.',
       )}</div>`;
 
   modal.innerHTML = `
     <div class="modal-content size-m">
-      <div class="modal-header"><h3 class="modal-title" style="color:#b91c1c;">${deps.text('eraseTitle', 'Erase this device')}</h3></div>
+      <div class="modal-header"><h3 class="modal-title" style="color:var(--danger-hover);">${deps.text('eraseTitle', 'Erase this device')}</h3></div>
       <p>${deps.text(
         'eraseWarning',
         'This removes your identity and all data from this computer. Without a sync it is gone forever.',
@@ -51,7 +51,7 @@ export function showEraseDeviceDialog(deps: EraseDeviceDeps): void {
       <div class="modal-actions" style="flex-direction:column;gap:8px;margin-top:14px;">
         ${syncOffer}
         <button type="button" class="btn" id="erase-cancel-btn">${deps.text('cancel', 'Cancel')}</button>
-        <button type="button" class="btn" id="erase-device-btn" data-testid="erase-device-btn" disabled style="width:100%;background:#dc2626;color:#fff;opacity:0.5;">${deps.text('eraseConfirmBtn', 'Erase this device')}</button>
+        <button type="button" class="btn" id="erase-device-btn" data-testid="erase-device-btn" disabled style="width:100%;background:var(--danger);color:#fff;opacity:0.5;">${deps.text('eraseConfirmBtn', 'Erase this device')}</button>
       </div>
     </div>`;
   document.body.appendChild(modal);

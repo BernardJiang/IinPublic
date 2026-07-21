@@ -292,7 +292,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         allAutoAnswers ?? [];
 
       const supersededBanner = isTalkSuperseded
-        ? `<div class="chatbot-review-banner" style="background:#fffbe6;border:1px solid #ffe58f;border-radius:6px;padding:12px 16px;margin-bottom:16px;font-size:0.95em;">
+        ? `<div class="chatbot-review-banner" style="background:var(--warning-soft);border:1px solid var(--warning-border);border-radius:6px;padding:12px 16px;margin-bottom:16px;font-size:0.95em;">
             ${senderName
               ? `<strong>${options.escapeHtml(senderName)}</strong> updated this talk.`
               : 'This talk was updated.'}
@@ -307,12 +307,12 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           const answersHtml = (q.answers || [])
             .map((a: any) => {
               const isSelected = filled?.answerId === a.id;
-              return `<label class="review-answer-option${isSelected ? ' review-answer-selected' : ''}" style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:6px 8px;border-radius:4px;${isSelected ? 'background:#e6f4ff;font-weight:600;' : ''}">
+              return `<label class="review-answer-option${isSelected ? ' review-answer-selected' : ''}" style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:6px 8px;border-radius:4px;${isSelected ? 'background:var(--accent-soft);font-weight:600;' : ''}">
                 <input type="radio" name="review-${q.id}" value="${a.id}"
                   data-question-id="${q.id}"
                   data-answer-id="${a.id}"
                   data-answer-text="${options.escapeHtml(a.text)}"
-                  ${isSelected ? 'checked' : ''} style="accent-color:#1890ff;">
+                  ${isSelected ? 'checked' : ''} style="accent-color:var(--accent);">
                 ${options.escapeHtml(a.text)}
                 ${isSelected && filled?.mode === 'auto' ? '<span style="font-size:0.8em;color:#888;margin-left:4px;">(pre-filled)</span>' : ''}
               </label>`;

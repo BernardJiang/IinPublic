@@ -246,29 +246,29 @@ function renderAnswerItemsHtml(
       : item.choice === 'Ignored' ? deps.text('responseIgnore') : item.choice;
     const tone =
       modeGroup === 'auto'
-        ? 'background:#ecfdf5;border-color:#bbf7d0;'
+        ? 'background:var(--success-soft);border-color:var(--success-border);'
         : modeGroup === 'conditional'
-          ? 'background:#fef9c3;border-color:#fde68a;'
-          : 'background:#fef2f2;border-color:#fecaca;';
+          ? 'background:var(--warning-soft);border-color:var(--warning-border);'
+          : 'background:var(--danger-soft);border-color:var(--danger-border);';
     const contextLabel = (item.contextLabel || item.contextPath.join(' · ')).replace(/→/g, ' -> ');
     return `
       <div class="answer-outcome-item answer-mode-${modeGroup}" data-answer-mode="${modeGroup}" style="padding: 12px; border-radius: 10px; ${tone} border-width: 1px; border-style: solid;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
-          <div style="font-size:0.8em; color:#64748b;">${item.kind === 'tag' ? deps.text('meTag') : format('meQuestion', { count: index + 1 })}</div>
-          <div style="font-size:0.78em; color:#64748b;">
+          <div style="font-size:0.8em; color:var(--text-tertiary);">${item.kind === 'tag' ? deps.text('meTag') : format('meQuestion', { count: index + 1 })}</div>
+          <div style="font-size:0.78em; color:var(--text-tertiary);">
             ${answeredLabel}${typeof item.answerCounter === 'number' ? ` · ${format('meChoiceCount', { count: item.answerCounter })}` : ''}
           </div>
         </div>
-        ${showPrompt ? `<div style="font-weight: 600; color: #1f2937; margin-top: 4px;">${deps.escapeHtml(item.prompt)}</div>` : ''}
-        <div style="margin-top: 6px; color: ${item.kind === 'tag' ? '#7c3aed' : '#0f766e'}; font-weight: 600;">${deps.escapeHtml(choice)}</div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; font-size:0.78em; color:#475569;">
-          ${item.mode ? `<span style="padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3730a3;">${deps.escapeHtml(deps.text(item.mode === 'auto' ? 'meChatbotGenerated' : item.mode === 'permanent' ? 'mePermanent' : 'meManual'))}</span>` : ''}
-          ${item.autoUseCount > 0 ? `<span style="padding:2px 8px; border-radius:999px; background:#ecfdf5; color:#047857;">${format(item.autoUseCount === 1 ? 'meAutoUsedCount' : 'meAutoUsedCounts', { count: item.autoUseCount })}</span>` : ''}
+        ${showPrompt ? `<div style="font-weight: 600; color: var(--text-primary); margin-top: 4px;">${deps.escapeHtml(item.prompt)}</div>` : ''}
+        <div style="margin-top: 6px; color: ${item.kind === 'tag' ? '#7c3aed' : 'var(--accent)'}; font-weight: 600;">${deps.escapeHtml(choice)}</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; font-size:0.78em; color:var(--text-secondary);">
+          ${item.mode ? `<span style="padding:2px 8px; border-radius:999px; background:var(--accent-soft); color:var(--accent-text);">${deps.escapeHtml(deps.text(item.mode === 'auto' ? 'meChatbotGenerated' : item.mode === 'permanent' ? 'mePermanent' : 'meManual'))}</span>` : ''}
+          ${item.autoUseCount > 0 ? `<span style="padding:2px 8px; border-radius:999px; background:var(--success-soft); color:var(--success-hover);">${format(item.autoUseCount === 1 ? 'meAutoUsedCount' : 'meAutoUsedCounts', { count: item.autoUseCount })}</span>` : ''}
           ${item.latestAutoUseAt ? `<span>${format('meLatestAutoUse', { date: deps.escapeHtml(deps.formatDate(new Date(item.latestAutoUseAt))) })}</span>` : ''}
         </div>
         ${
           hasContext
-            ? `<div style="margin-top:8px; font-size:0.82em; color:#475569;">
+            ? `<div style="margin-top:8px; font-size:0.82em; color:var(--text-secondary);">
                  ${item.contextHash ? `<div>${deps.text('meContextHash')} <code>${deps.escapeHtml(item.contextHash)}</code></div>` : ''}
                  ${contextLabel ? `<div>${deps.text('meContextPath')} ${deps.escapeHtml(contextLabel)}</div>` : ''}
                </div>`
@@ -309,8 +309,8 @@ function renderAnswerItemsHtml(
         .join('');
 
       return `
-        <details class="answer-context-group" style="border:1px solid #d1d5db; border-radius:10px; background:#f8fafc;" open>
-          <summary style="cursor:pointer; padding:10px 12px; font-weight:600; color:#1f2937;">${deps.escapeHtml(prompt)} (${group.length} contexts)</summary>
+        <details class="answer-context-group" style="border:1px solid var(--border-strong); border-radius:10px; background:var(--bg-subtle);" open>
+          <summary style="cursor:pointer; padding:10px 12px; font-weight:600; color:var(--text-primary);">${deps.escapeHtml(prompt)} (${group.length} contexts)</summary>
           <div style="display:grid; gap:8px; padding: 0 10px 10px 10px;">
             ${nestedRows}
           </div>
@@ -433,13 +433,13 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       item.dataset.chatbotLastUsedAt = String(Math.max(0, ...answerItems.map((answer) => answer.latestAutoUseAt || 0)));
       item.dataset.answerText = answerItems.map((answer) => answer.choice).join(' ').toLowerCase();
       item.dataset.searchText = searchText;
-      item.style.cssText = `display:flex; flex-direction:column; gap:12px; padding:14px 16px; border-radius:12px; cursor:pointer; background:${outcome === 'match' ? '#e8f5e9' : '#fff7ed'}; border:1px solid ${outcome === 'match' ? '#c8e6c9' : '#fed7aa'};`;
+      item.style.cssText = `display:flex; flex-direction:column; gap:12px; padding:14px 16px; border-radius:12px; cursor:pointer; background:${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-soft)'}; border:1px solid ${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-border)'};`;
       item.innerHTML = `
         <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
           <div style="flex: 1; min-width: 0;">
             <div style="font-weight: 700;">${deps.escapeHtml(record.title)}</div>
             <div style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(metadata)}</div>
-            <div style="font-size: 0.82em; color: #64748b; margin-top: 4px;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · ${deps.escapeHtml(deps.formatType(record.type))} · <span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(language)}">${deps.escapeHtml(languageLabel)}</span></div>
+            <div style="font-size: 0.82em; color: var(--text-tertiary); margin-top: 4px;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · ${deps.escapeHtml(deps.formatType(record.type))} · <span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(language)}">${deps.escapeHtml(languageLabel)}</span></div>
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
             <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${deps.escapeHtml(record.talkId)}" style="padding: 6px 12px; font-size: 0.9em;">${deps.text('copy')}</button>
@@ -494,13 +494,13 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       item.dataset.chatbotLastUsedAt = String(Math.max(0, ...answerItems.map((answer) => answer.latestAutoUseAt || 0)));
       item.dataset.answerText = answerItems.map((answer) => answer.choice).join(' ').toLowerCase();
       item.dataset.searchText = searchText;
-      item.style.cssText = `display:flex; flex-direction:column; gap:12px; padding:14px 16px; border-radius:12px; cursor:pointer; background:${outcome === 'match' ? '#e8f5e9' : '#fff7ed'}; border:1px solid ${outcome === 'match' ? '#c8e6c9' : '#fed7aa'};`;
+      item.style.cssText = `display:flex; flex-direction:column; gap:12px; padding:14px 16px; border-radius:12px; cursor:pointer; background:${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-soft)'}; border:1px solid ${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-border)'};`;
       item.innerHTML = `
         <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
           <div style="flex: 1; min-width: 0;">
             <div style="font-weight: 700;">${deps.escapeHtml(talk.title)}</div>
             <div style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(metadata)}</div>
-            <div style="font-size: 0.82em; color: #64748b; margin-top: 4px;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · <span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(language)}">${deps.escapeHtml(languageLabel)}</span></div>
+            <div style="font-size: 0.82em; color: var(--text-tertiary); margin-top: 4px;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · <span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(language)}">${deps.escapeHtml(languageLabel)}</span></div>
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
             <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">${deps.text('copy')}</button>

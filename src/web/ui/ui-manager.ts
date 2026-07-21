@@ -905,7 +905,7 @@ export class UIManager extends EventEmitter {
                 </select>
                 </div>
               </div>
-              <div class="embedded-stats-strip" id="contacts-stats-strip" style="padding:8px 12px;color:#64748b;font-size:0.88em;"></div>
+              <div class="embedded-stats-strip" id="contacts-stats-strip" style="padding:8px 12px;color:var(--text-tertiary);font-size:0.88em;"></div>
               <div class="contacts-list-container" id="contacts-list-container">
                 <div class="contacts-list" id="contacts-list">
                   <p style="text-align: center; padding: 40px 20px; color: #999;">No contacts yet. Match with others via Talks to see them here.</p>
@@ -965,11 +965,11 @@ export class UIManager extends EventEmitter {
                 <input class="form-input" id="talks-filter-date-to" aria-label="Talks through date" type="date" style="flex:0 0 140px;">
                 </div>
               </div>
-              <div class="embedded-stats-strip" id="talks-stats-strip" style="padding:8px 12px;color:#64748b;font-size:0.88em;"></div>
-              <section id="creator-replies-panel" style="padding:12px;border-bottom:1px solid #e5e7eb;background:#fff;">
+              <div class="embedded-stats-strip" id="talks-stats-strip" style="padding:8px 12px;color:var(--text-tertiary);font-size:0.88em;"></div>
+              <section id="creator-replies-panel" style="padding:12px;border-bottom:1px solid var(--border);background:#fff;">
                 <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px;">
                   <strong>Replies To My Talks</strong>
-                  <span id="creator-replies-summary" style="font-size:0.85em;color:#64748b;">Loading...</span>
+                  <span id="creator-replies-summary" style="font-size:0.85em;color:var(--text-tertiary);">Loading...</span>
                 </div>
                 <button type="button" class="filter-bar-toggle" data-testid="replies-filter-toggle" aria-expanded="false" style="margin-bottom:8px;">Filters ▾</button>
                 <div class="filter-bar-content" style="margin-bottom:8px;">
@@ -1040,7 +1040,7 @@ export class UIManager extends EventEmitter {
                 <button class="back-btn" id="back-from-conversation">‹ Back</button>
                 <div class="conversation-detail-info" id="conversation-detail-info">
                   <div class="conversation-detail-name" id="conversation-user-name">User</div>
-                  <div class="conversation-thread-scope" id="conversation-thread-scope" style="display:none;font-size:0.82em;color:#2563eb;font-weight:600;"></div>
+                  <div class="conversation-thread-scope" id="conversation-thread-scope" style="display:none;font-size:0.82em;color:var(--accent);font-weight:600;"></div>
                   <div class="conversation-detail-status" id="conversation-status">Online</div>
                   <div class="conversation-transport-status" id="conversation-transport-status"></div>
                   <div class="conversation-fallback-status" id="conversation-fallback-status"></div>
@@ -1088,8 +1088,8 @@ export class UIManager extends EventEmitter {
                   <div class="peer-section-title" id="peer-messaging-title" style="font-weight:700;padding:12px 16px 4px;">Messages</div>
                   <div id="peer-conversations-section"></div>
                   <div class="peer-dm-compose" style="padding:8px 16px 12px;">
-                    <div id="peer-dm-label" style="font-size:0.85em;color:#64748b;margin-bottom:4px;">Send a direct message</div>
-                    <textarea id="peer-dm-input" rows="2" placeholder="Type a message…" data-testid="peer-dm-input" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.9em;resize:none;"></textarea>
+                    <div id="peer-dm-label" style="font-size:0.85em;color:var(--text-tertiary);margin-bottom:4px;">Send a direct message</div>
+                    <textarea id="peer-dm-input" rows="2" placeholder="Type a message…" data-testid="peer-dm-input" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--border-strong);border-radius:8px;font-size:0.9em;resize:none;"></textarea>
                     <button class="btn primary-btn" id="peer-dm-send-btn" data-testid="peer-dm-send-btn" style="width:100%;margin-top:6px;">💬 Send Message</button>
                   </div>
                 </div>
@@ -1124,12 +1124,12 @@ export class UIManager extends EventEmitter {
               <div class="filter-bar me-action-bar" style="gap:12px;">
                 <button type="button" class="filter-bar-toggle" data-testid="me-filter-toggle" aria-expanded="false">Filters ▾</button>
                 <div class="filter-bar-content" style="gap:12px;">
-                <span id="me-talk-type-filter-label" style="font-size:0.82em;color:#64748b;font-weight:700;">Talk types</span>
+                <span id="me-talk-type-filter-label" style="font-size:0.82em;color:var(--text-tertiary);font-weight:700;">Talk types</span>
                 <button class="btn me-talk-type-filter active" data-me-talk-type="tag" type="button">Tag</button>
                 <button class="btn me-talk-type-filter active" data-me-talk-type="flow" type="button">Flow</button>
                 <button class="btn me-talk-type-filter active" data-me-talk-type="survey" type="button">Survey</button>
                 <button class="btn me-talk-type-filter active" data-me-talk-type="route" type="button">Route</button>
-                <span id="me-tag-state-filter-label" style="font-size:0.82em;color:#64748b;font-weight:700;margin-left:6px;">Tag states</span>
+                <span id="me-tag-state-filter-label" style="font-size:0.82em;color:var(--text-tertiary);font-weight:700;margin-left:6px;">Tag states</span>
                 <label class="me-tag-state-filter" data-me-tag-state="checked" style="display:flex;align-items:center;gap:5px;font-size:0.86em;">
                   <input type="checkbox" class="me-tag-state-checkbox" value="checked" checked>
                   <span class="me-tag-state-label">Checked</span>
@@ -1181,23 +1181,23 @@ export class UIManager extends EventEmitter {
         <!-- Bottom Navigation Bar -->
         <div class="bottom-nav">
           <button class="nav-btn active" data-view="chatrooms" data-testid="bottom-navigation-button-chat">
-            <div class="nav-icon">🌍</div>
+            <div class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
             <div class="nav-label">Chatrooms</div>
           </button>
           <button class="nav-btn" data-view="contacts" data-testid="bottom-navigation-button-contacts">
-            <div class="nav-icon">👥</div>
+            <div class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
             <div class="nav-label">Contacts</div>
           </button>
           <button class="nav-btn" data-view="talks">
-            <div class="nav-icon">📢</div>
+            <div class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg></div>
             <div class="nav-label">Talks</div>
           </button>
           <button class="nav-btn" data-view="me" data-testid="bottom-navigation-button-me">
-            <div class="nav-icon">👤</div>
+            <div class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
             <div class="nav-label">Me</div>
           </button>
           <button class="nav-btn" data-view="settings" data-testid="bottom-navigation-button-settings">
-            <div class="nav-icon">⚙️</div>
+            <div class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></div>
             <div class="nav-label">Settings</div>
           </button>
         </div>
@@ -1968,7 +1968,7 @@ export class UIManager extends EventEmitter {
               <input type="number" class="form-input" id="custom-room-capacity" min="1" max="50000" placeholder="${escapeHtml(this.t('chatroomCapacityPlaceholder'))}" />
             </div>
             <div class="modal-actions">
-              <button type="button" class="btn" id="cancel-custom-room-btn" style="background:#6c757d;">${escapeHtml(this.t('chatroomCancel'))}</button>
+              <button type="button" class="btn" id="cancel-custom-room-btn" style="background:var(--text-tertiary);">${escapeHtml(this.t('chatroomCancel'))}</button>
               <button type="submit" class="btn primary-btn" data-testid="custom-room-submit-btn">${escapeHtml(this.t('chatroomCreate'))}</button>
             </div>
           </form>
@@ -2044,7 +2044,7 @@ export class UIManager extends EventEmitter {
               <input type="text" class="form-input" id="rename-custom-room-name" required minlength="2" maxlength="80" data-testid="rename-custom-room-input" />
             </div>
             <div class="modal-actions">
-              <button type="button" class="btn" id="cancel-rename-room-btn" style="background:#6c757d;">${escapeHtml(this.t('chatroomCancel'))}</button>
+              <button type="button" class="btn" id="cancel-rename-room-btn" style="background:var(--text-tertiary);">${escapeHtml(this.t('chatroomCancel'))}</button>
               <button type="submit" class="btn primary-btn">${escapeHtml(this.t('chatroomSave'))}</button>
             </div>
           </form>
@@ -2394,31 +2394,31 @@ export class UIManager extends EventEmitter {
                       })
                     : this.t('talksNoStats');
                   const rankLine = this.talksOutSortMode === 'weighted'
-                    ? `<div class="talk-weighted-score" style="font-size:0.82em;color:#64748b;margin-top:4px;">${this.tf('talksWeightedScore', { score: metrics.weighted })}</div>`
+                    ? `<div class="talk-weighted-score" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${this.tf('talksWeightedScore', { score: metrics.weighted })}</div>`
                     : this.talksOutSortMode === 'latest-reply' && metrics.latestResponseAt > 0
-                      ? `<div class="talk-weighted-score" style="font-size:0.82em;color:#64748b;margin-top:4px;">${this.tf('talksLatestReplyLabel', { date: escapeHtml(new Date(metrics.latestResponseAt).toLocaleString()) })}</div>`
+                      ? `<div class="talk-weighted-score" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${this.tf('talksLatestReplyLabel', { date: escapeHtml(new Date(metrics.latestResponseAt).toLocaleString()) })}</div>`
                       : '';
                   const matchedLine =
                     matchedNames.length > 0
-                      ? `<div class="talk-item-matched" style="font-size: 0.85em; color: #2e7d32; margin-top: 4px;">${this.tf('talksMatchedWith', { names: escapeHtml(matchedNames.join(', ')) })}</div>`
+                      ? `<div class="talk-item-matched" style="font-size: 0.85em; color: var(--success-text); margin-top: 4px;">${this.tf('talksMatchedWith', { names: escapeHtml(matchedNames.join(', ')) })}</div>`
                       : '';
                   const disabled = !!talk.disabled;
                   const expText = this.formatTalkExpiration(talk.expiresAt);
                   const locText = this.formatTalkLocation(talk.locationRadiusMiles);
                   const roleBadge = talk.role === 'copied'
-                    ? `<span class="talk-badge talk-badge-copied" style="background:#e0e7ff;color:#3730a3;">📋 ${this.t('talksCopied')}</span>`
-                    : `<span class="talk-badge talk-badge-created" style="background:#dbeafe;color:#1e40af;">📝 ${this.t('talksCreated')}</span>`;
+                    ? `<span class="talk-badge talk-badge-copied" style="background:var(--accent-soft);color:var(--accent-text);">📋 ${this.t('talksCopied')}</span>`
+                    : `<span class="talk-badge talk-badge-created" style="background:var(--accent-soft);color:var(--accent-text);">📝 ${this.t('talksCreated')}</span>`;
                   const talkTypeLower = String(talk.type || talk.fullTalk?.type || '').toLowerCase();
                   const talkLanguage = String(talk.language || talk.fullTalk?.language || 'en').toLowerCase();
                   const surveyStatsBtn =
                     talkTypeLower === 'survey'
-                      ? `<button type="button" class="btn survey-stats-btn" data-talk-id="${escapeHtml(talkId)}" data-testid="survey-stats-button" style="padding: 6px 12px; font-size: 0.9em; background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;">📊 ${this.t('talksResults')}</button>`
+                      ? `<button type="button" class="btn survey-stats-btn" data-talk-id="${escapeHtml(talkId)}" data-testid="survey-stats-button" style="padding: 6px 12px; font-size: 0.9em; background:var(--success-soft);color:var(--success-text);border:1px solid var(--success-border);">📊 ${this.t('talksResults')}</button>`
                       : '';
                   const typeAccent =
                     talkTypeLower === 'tag' ? '#7c3aed'
-                    : talkTypeLower === 'survey' ? '#059669'
+                    : talkTypeLower === 'survey' ? 'var(--success)'
                     : talkTypeLower === 'route' ? '#d97706'
-                    : '#2563eb';
+                    : 'var(--accent)';
                   if (talkTypeLower === 'tag') {
                     return `
         <div class="talk-list-item talk-tag-chip talk-tag-out ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-role="${talk.role || 'created'}" data-talk-type="tag">
@@ -2455,7 +2455,7 @@ export class UIManager extends EventEmitter {
             <button type="button" class="btn talk-broadcast-toggle-btn ${disabled ? 'talk-broadcast-toggle-off' : 'talk-broadcast-toggle-on'}" data-talk-id="${talkId}" data-broadcast-enabled="${disabled ? 'false' : 'true'}" style="padding: 6px 12px; font-size: 0.9em;">
               ${disabled ? this.t('talksBroadcastOff') : this.t('talksBroadcastOn')}
             </button>
-            <button type="button" class="btn remove-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em; background: #dc3545; color: white;">🗑️ ${this.t('talksRemove')}</button>
+            <button type="button" class="btn remove-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em; background: var(--danger); color: white;">🗑️ ${this.t('talksRemove')}</button>
           </div>
         </div>
       `;
@@ -2484,12 +2484,12 @@ export class UIManager extends EventEmitter {
                 const identityKey = String(cluster?.identityKey || '');
                 const isAnswered = !!cluster?.isAnswered;
                 const titleStyle = isAnswered
-                  ? 'font-weight: 500; color: #9ca3af;'
-                  : 'font-weight: 700; color: #1d4ed8;';
-                const metaStyle = isAnswered ? 'color: #9ca3af;' : 'color: #4b5563;';
+                  ? 'font-weight: 500; color: var(--text-muted);'
+                  : 'font-weight: 700; color: var(--accent-hover);';
+                const metaStyle = isAnswered ? 'color: var(--text-muted);' : 'color: var(--text-tertiary);';
                 const statusBadge = isAnswered
-                  ? `<span class="talk-badge" style="background:#f3f4f6;color:#6b7280;">✅ ${this.t('talksAnswered')}</span>`
-                  : `<span class="talk-badge" style="background:#dbeafe;color:#1d4ed8;font-weight:700;">🆕 ${this.t('talksNew')}</span>`;
+                  ? `<span class="talk-badge" style="background:var(--bg-muted);color:var(--text-tertiary);">✅ ${this.t('talksAnswered')}</span>`
+                  : `<span class="talk-badge" style="background:var(--accent-soft);color:var(--accent-hover);font-weight:700;">🆕 ${this.t('talksNew')}</span>`;
                 const incomingType = String(cluster?.type || 'flow').toLowerCase();
                 const incomingLanguage = String(cluster?.language || cluster?.latestTalk?.language || 'en').toLowerCase();
                 const questionCount = this.getIncomingQuestionCount(cluster);
@@ -2517,9 +2517,9 @@ export class UIManager extends EventEmitter {
                   : '';
                 const typeAccent =
                   incomingType === 'tag' ? '#7c3aed'
-                  : incomingType === 'survey' ? '#059669'
+                  : incomingType === 'survey' ? 'var(--success)'
                   : incomingType === 'route' ? '#d97706'
-                  : '#2563eb';
+                  : 'var(--accent)';
                 if (incomingType === 'tag') {
                   return `
         <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag">
@@ -2569,14 +2569,14 @@ export class UIManager extends EventEmitter {
 
       const sectionOut =
         filteredOutEntries.length > 0
-          ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: #374151; background: #f3f4f6; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
-               <span style="font-size: 1.2em;">📤</span> OUT <span style="font-size: 0.8em; font-weight: 400; color: #6b7280;">(${this.tf('talksOutSection', { count: this.formatTalkCount(filteredOutEntries.length) })})</span>
+          ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: var(--text-secondary); background: var(--bg-muted); border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
+               <span style="font-size: 1.2em;">📤</span> OUT <span style="font-size: 0.8em; font-weight: 400; color: var(--text-tertiary);">(${this.tf('talksOutSection', { count: this.formatTalkCount(filteredOutEntries.length) })})</span>
              </div>${outHtml}`
           : '';
       const sectionIn =
         inEntries.length > 0
-          ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: #374151; background: #f3f4f6; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
-               <span style="font-size: 1.2em;">📥</span> IN <span style="font-size: 0.8em; font-weight: 400; color: #6b7280;">(${this.tf('talksInSection', { count: this.formatTalkCount(inEntries.length), filtered: incomingFilterResult.hiddenCount > 0 ? this.tf('talksFilteredCount', { count: incomingFilterResult.hiddenCount }) : '' })})</span>
+          ? `<div class="talks-section-header" style="font-size: 1em; font-weight: 700; color: var(--text-secondary); background: var(--bg-muted); border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
+               <span style="font-size: 1.2em;">📥</span> IN <span style="font-size: 0.8em; font-weight: 400; color: var(--text-tertiary);">(${this.tf('talksInSection', { count: this.formatTalkCount(inEntries.length), filtered: incomingFilterResult.hiddenCount > 0 ? this.tf('talksFilteredCount', { count: incomingFilterResult.hiddenCount }) : '' })})</span>
              </div>${inHtml}`
           : '';
 
@@ -2585,7 +2585,7 @@ export class UIManager extends EventEmitter {
           <div class="empty-state" style="padding: 40px 20px; text-align: center; color: #999;">
             ${incomingFilterResult.hiddenCount > 0 ? this.tf('talksAllIncomingFiltered', { count: incomingFilterResult.hiddenCount }) : this.t('talksNoIncoming')}
             ${hiddenReasonsText ? `<div class="talk-filter-reasons" style="font-size:0.88em;margin-top:6px;">${escapeHtml(hiddenReasonsText)}</div>` : ''}
-            ${!this.currentLocation && rawIncomingEntries.some((c: any) => c?.latestTalk?.locationRadiusMiles != null || c?.locationRadiusMiles != null) ? `<div class="talk-filter-reasons" style="font-size:0.88em;margin-top:6px;color:#b45309;font-style:italic;">${escapeHtml(this.t('filterLocationPending'))}</div>` : ''}
+            ${!this.currentLocation && rawIncomingEntries.some((c: any) => c?.latestTalk?.locationRadiusMiles != null || c?.locationRadiusMiles != null) ? `<div class="talk-filter-reasons" style="font-size:0.88em;margin-top:6px;color:var(--warning-text);font-style:italic;">${escapeHtml(this.t('filterLocationPending'))}</div>` : ''}
           </div>
         `;
       } else if (activeMode === 'out') {
@@ -2819,11 +2819,11 @@ export class UIManager extends EventEmitter {
         state.to ? `${this.getUiLanguage() === 'zh' ? '结束日期' : 'To'}: ${state.to}` : '',
       ].filter(Boolean);
       activeFilters.innerHTML = chips.map((chip) =>
-        `<span class="reply-filter-chip" style="font-size:0.8em;background:#e2e8f0;border-radius:999px;padding:3px 8px;">${escapeHtml(chip)}</span>`,
+        `<span class="reply-filter-chip" style="font-size:0.8em;background:var(--border);border-radius:999px;padding:3px 8px;">${escapeHtml(chip)}</span>`,
       ).join('');
     }
     if (filtered.length === 0) {
-      list.innerHTML = `<div style="color:#94a3b8;padding:8px;">${this.t('repliesNoMatch')}</div>`;
+      list.innerHTML = `<div style="color:var(--text-muted);padding:8px;">${this.t('repliesNoMatch')}</div>`;
       return;
     }
     let previousGroup = '';
@@ -2850,17 +2850,17 @@ export class UIManager extends EventEmitter {
               ? new Date(row.date).toLocaleDateString()
               : '';
       const groupHeader = group && group !== previousGroup
-        ? `<div class="creator-reply-group" style="font-weight:700;color:#475569;margin-top:5px;">${escapeHtml(group)}</div>`
+        ? `<div class="creator-reply-group" style="font-weight:700;color:var(--text-secondary);margin-top:5px;">${escapeHtml(group)}</div>`
         : '';
       previousGroup = group;
       return `${groupHeader}
-        <div class="creator-reply-row" data-response-id="${escapeHtml(row.responseId)}" data-responder-id="${escapeHtml(row.responderId)}" data-talk-id="${escapeHtml(row.talkId)}" style="padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;">
+        <div class="creator-reply-row" data-response-id="${escapeHtml(row.responseId)}" data-responder-id="${escapeHtml(row.responderId)}" data-talk-id="${escapeHtml(row.talkId)}" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);">
           <div style="display:flex;justify-content:space-between;gap:10px;">
             <strong>${escapeHtml(row.responderName)}</strong>
-            <span style="color:${row.outcome === 'match' ? '#166534' : '#64748b'};">${escapeHtml(row.outcome === 'match' ? this.t('match') : row.outcome === 'mismatch' ? this.t('mismatch') : row.outcome)}</span>
+            <span style="color:${row.outcome === 'match' ? 'var(--success-text)' : 'var(--text-tertiary)'};">${escapeHtml(row.outcome === 'match' ? this.t('match') : row.outcome === 'mismatch' ? this.t('mismatch') : row.outcome)}</span>
           </div>
-          <div style="font-size:0.86em;color:#475569;">${escapeHtml(row.title)} · ${escapeHtml(row.type)} · ${escapeHtml(this.formatTalkLanguage(String(row.language || 'en').toLowerCase()))} · ${escapeHtml(row.answerMode || 'manual')} · ${escapeHtml(String(label))} · ${escapeHtml(new Date(row.date).toLocaleString())}${escapeHtml(score)}</div>
-          ${answerPreview ? `<div class="creator-reply-answers" style="font-size:0.84em;color:#334155;margin-top:4px;">${this.t('repliesAnswers')}: ${escapeHtml(answerPreview)}</div>` : ''}
+          <div style="font-size:0.86em;color:var(--text-secondary);">${escapeHtml(row.title)} · ${escapeHtml(row.type)} · ${escapeHtml(this.formatTalkLanguage(String(row.language || 'en').toLowerCase()))} · ${escapeHtml(row.answerMode || 'manual')} · ${escapeHtml(String(label))} · ${escapeHtml(new Date(row.date).toLocaleString())}${escapeHtml(score)}</div>
+          ${answerPreview ? `<div class="creator-reply-answers" style="font-size:0.84em;color:var(--text-primary);margin-top:4px;">${this.t('repliesAnswers')}: ${escapeHtml(answerPreview)}</div>` : ''}
         </div>
       `;
     }).join('');
@@ -2929,7 +2929,7 @@ export class UIManager extends EventEmitter {
     if (list && !empty) {
       empty = document.createElement('div');
       empty.id = 'answers-filter-empty';
-      empty.style.cssText = 'display:none;padding:20px;text-align:center;color:#64748b;border:1px dashed #cbd5e1;border-radius:8px;background:#f8fafc;';
+      empty.style.cssText = 'display:none;padding:20px;text-align:center;color:var(--text-tertiary);border:1px dashed var(--border-strong);border-radius:8px;background:var(--bg-subtle);';
       empty.textContent = this.t('meNoMatchingAnswers');
       list.appendChild(empty);
     }
@@ -3007,15 +3007,15 @@ export class UIManager extends EventEmitter {
             const visNote =
               vis === 'public'
                 ? ''
-                : `<div style="font-size:0.72em;color:#64748b;margin-top:2px;">${escapeHtml(
+                : `<div style="font-size:0.72em;color:var(--text-tertiary);margin-top:2px;">${escapeHtml(
                     vis === 'contacts_only' ? this.t('meVisibilityContacts') : this.t('meVisibilityPrivate'),
                   )}</div>`;
             const question = canonicalSupportRole ? this.t('meTechSupportRole') : qa.question;
             const answer = canonicalSupportRole ? this.t('meTechSupportRoleValue') : qa.answer;
-            return `<div style="padding:8px 10px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;"><div style="font-size:0.78em;color:#64748b;">${escapeHtml(question)}</div>${visNote}<div style="font-size:0.92em;font-weight:600;color:#111827;margin-top:2px;">${escapeHtml(answer)}</div></div>`;
+            return `<div style="padding:8px 10px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--border);"><div style="font-size:0.78em;color:var(--text-tertiary);">${escapeHtml(question)}</div>${visNote}<div style="font-size:0.92em;font-weight:600;color:var(--text-primary);margin-top:2px;">${escapeHtml(answer)}</div></div>`;
           })
           .join('')
-      : `<div style="font-size:0.88em;color:#6b7280;">${escapeHtml(this.t('meNoPublicProfile'))}</div>`;
+      : `<div style="font-size:0.88em;color:var(--text-tertiary);">${escapeHtml(this.t('meNoPublicProfile'))}</div>`;
     const locationText = this.currentLocation
       ? `${this.currentLocation.latitude.toFixed(3)}, ${this.currentLocation.longitude.toFixed(3)}`
       : this.t('settingsUnknown');
@@ -3047,15 +3047,15 @@ export class UIManager extends EventEmitter {
     const headshotChoices = ['🙂', '😎', '🤠', '🎾', '☕', '🌟', '🐱', '🦊'];
     container.innerHTML = `
       <div style="display:grid;gap:14px;">
-        <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
+        <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
           <div style="display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start;">
             <div style="display:grid;gap:8px;min-width:0;">
               <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
                 <span>${this.t('settingsStageName')}</span>
                 <input type="text" class="form-input" id="settings-stage-name-input" data-testid="settings-stage-name-input" value="${escapeHtml(user.stageName)}" minlength="3">
               </label>
-              <div id="settings-stage-name-error" role="alert" style="display:none;font-size:0.82em;color:#b91c1c;margin-top:5px;"></div>
-              ${interestNames.length > 0 ? `<div style="font-size:0.86em;color:#64748b;">${this.t('interestsLabel')}: ${escapeHtml(interestNames.join(', '))}</div>` : ''}
+              <div id="settings-stage-name-error" role="alert" style="display:none;font-size:0.82em;color:var(--danger-hover);margin-top:5px;"></div>
+              ${interestNames.length > 0 ? `<div style="font-size:0.86em;color:var(--text-tertiary);">${this.t('interestsLabel')}: ${escapeHtml(interestNames.join(', '))}</div>` : ''}
             </div>
             <div style="display:grid;gap:8px;font-size:0.9em;">
               <span>${this.t('settingsHeadshot')}</span>
@@ -3075,29 +3075,29 @@ export class UIManager extends EventEmitter {
               </div>
               <input class="visually-hidden" type="file" id="settings-photo-input" accept="image/png,image/jpeg,image/webp,image/gif">
               <input class="visually-hidden" type="file" id="settings-camera-input" accept="image/*" capture="user">
-              <div style="font-size:0.78em;color:#64748b;">${this.t('settingsPhotoHelp')}</div>
-              <div id="settings-camera-status" role="status" style="display:none;font-size:0.8em;color:#b91c1c;"></div>
+              <div style="font-size:0.78em;color:var(--text-tertiary);">${this.t('settingsPhotoHelp')}</div>
+              <div id="settings-camera-status" role="status" style="display:none;font-size:0.8em;color:var(--danger-hover);"></div>
             </div>
-            <div style="display:grid;gap:10px;border-top:1px solid #e5e7eb;padding-top:12px;">
+            <div style="display:grid;gap:10px;border-top:1px solid var(--border);padding-top:12px;">
               <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
                 <div>
-                  <div style="font-weight:700;color:#111827;">${this.t('profile')}</div>
-                  <div style="font-size:0.82em;color:#64748b;">${this.t('meProfileVisibilityHelp')}</div>
+                  <div style="font-weight:700;color:var(--text-primary);">${this.t('profile')}</div>
+                  <div style="font-size:0.82em;color:var(--text-tertiary);">${this.t('meProfileVisibilityHelp')}</div>
                 </div>
                 <button class="btn" type="button" id="settings-edit-profile-btn" data-testid="settings-edit-profile-button">${this.t('editProfile')}</button>
               </div>
-              <div style="font-size:0.88em;color:#374151;">
+              <div style="font-size:0.88em;color:var(--text-secondary);">
                 ${this.t('languagesLabel')}: ${escapeHtml(profileLanguages.map((code) => this.formatTalkLanguage(code)).join(', '))}
               </div>
               <div style="display:grid;gap:8px;">${profilePreview}</div>
             </div>
           </div>
         </section>
-        <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
+        <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
             <div>
-              <div style="font-weight:700;color:#111827;">${this.t('credit')}</div>
-              <div style="font-size:0.82em;color:#6b7280;">${this.t('meCreditHelp')}</div>
+              <div style="font-weight:700;color:var(--text-primary);">${this.t('credit')}</div>
+              <div style="font-size:0.82em;color:var(--text-tertiary);">${this.t('meCreditHelp')}</div>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;">
               <input type="checkbox" id="settings-credit-visible" ${isCreditVisible ? 'checked' : ''}>
@@ -3105,17 +3105,17 @@ export class UIManager extends EventEmitter {
             </label>
           </div>
           <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
-            <div style="padding:10px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meReviews')}</div><div style="font-size:1.15em;font-weight:700;">${reviewCount}</div></div>
-            <div style="padding:10px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meStarRating')}</div><div style="font-size:1.15em;font-weight:700;">${starRating.toFixed(1)}</div></div>
-            <div style="padding:10px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meFriends')}</div><div style="font-size:1.15em;font-weight:700;">${friendsCount}</div></div>
-            <div style="padding:10px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meLiked')}</div><div style="font-size:1.15em;font-weight:700;">${likedCount}</div></div>
-            <div style="padding:10px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meDisliked')}</div><div style="font-size:1.15em;font-weight:700;">${dislikedCount}</div></div>
-            <div style="padding:10px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meMatches')}</div><div style="font-size:1.15em;font-weight:700;">${matchesFound}</div></div>
-            <div style="padding:10px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;grid-column:span 2;"><div style="font-size:0.78em;color:#9a3412;">${this.t('meAgeVerified')}</div><div style="font-size:1.15em;font-weight:700;">${ageVerified ? '18+' : this.t('unavailable')}</div></div>
+            <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meReviews')}</div><div style="font-size:1.15em;font-weight:700;">${reviewCount}</div></div>
+            <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meStarRating')}</div><div style="font-size:1.15em;font-weight:700;">${starRating.toFixed(1)}</div></div>
+            <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meFriends')}</div><div style="font-size:1.15em;font-weight:700;">${friendsCount}</div></div>
+            <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meLiked')}</div><div style="font-size:1.15em;font-weight:700;">${likedCount}</div></div>
+            <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meDisliked')}</div><div style="font-size:1.15em;font-weight:700;">${dislikedCount}</div></div>
+            <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meMatches')}</div><div style="font-size:1.15em;font-weight:700;">${matchesFound}</div></div>
+            <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);grid-column:span 2;"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meAgeVerified')}</div><div style="font-size:1.15em;font-weight:700;">${ageVerified ? '18+' : this.t('unavailable')}</div></div>
           </div>
         </section>
-        <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
-          <div style="font-weight:700;color:#111827;margin-bottom:10px;">${this.t('settingsLanguages')}</div>
+        <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
+          <div style="font-weight:700;color:var(--text-primary);margin-bottom:10px;">${this.t('settingsLanguages')}</div>
           <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
             <span>${this.t('settingsUiLanguage')}</span>
             <select class="form-input" id="settings-ui-language" data-testid="settings-ui-language-select">
@@ -3146,18 +3146,18 @@ export class UIManager extends EventEmitter {
             <div id="settings-filter-languages" data-testid="settings-incoming-language-select" style="display:flex;flex-wrap:wrap;gap:8px;">
               ${languageOptions
                 .map((lang) => `
-                  <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid #d1d5db;border-radius:999px;background:white;">
+                  <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid var(--border-strong);border-radius:999px;background:white;">
                     <input type="checkbox" class="settings-filter-language-option" value="${lang.code}" ${talkFilters.allowedLanguages.includes(lang.code) ? 'checked' : ''}>
                     <span>${lang.label}</span>
                   </label>
                 `)
                 .join('')}
             </div>
-            <div id="settings-filter-languages-count" style="font-size:0.82em;color:#64748b;">${talkFilters.allowedLanguages.length} ${this.t('settingsActive')}</div>
+            <div id="settings-filter-languages-count" style="font-size:0.82em;color:var(--text-tertiary);">${talkFilters.allowedLanguages.length} ${this.t('settingsActive')}</div>
           </div>
         </section>
-        <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
-          <div style="font-weight:700;color:#111827;margin-bottom:10px;">${this.t('settingsTalkBehavior')}</div>
+        <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
+          <div style="font-weight:700;color:var(--text-primary);margin-bottom:10px;">${this.t('settingsTalkBehavior')}</div>
           <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;">
             <input type="checkbox" id="settings-copy-talk-autosave" ${getCopyTalkAutoSave() ? 'checked' : ''}>
             <span>${this.t('settingsCopyTalk')}</span>
@@ -3167,8 +3167,8 @@ export class UIManager extends EventEmitter {
             <span>${this.t('settingsChatbot')}</span>
           </label>
         </section>
-        <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
-          <div style="font-weight:700;color:#111827;margin-bottom:10px;">${this.t('settingsDistanceHome')}</div>
+        <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
+          <div style="font-weight:700;color:var(--text-primary);margin-bottom:10px;">${this.t('settingsDistanceHome')}</div>
           <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
             <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
               <span>${this.t('settingsMinDistance')}</span>
@@ -3189,28 +3189,28 @@ export class UIManager extends EventEmitter {
                 .join('')}
             </select>
           </label>
-          <div style="margin-top:4px;font-size:0.82em;color:#64748b;">${this.t('settingsLocation')}: ${escapeHtml(locationText)}</div>
+          <div style="margin-top:4px;font-size:0.82em;color:var(--text-tertiary);">${this.t('settingsLocation')}: ${escapeHtml(locationText)}</div>
           <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
             <span>${this.t('settingsSentAfter')}</span>
             <input type="datetime-local" class="form-input" id="settings-sent-after" value="${escapeHtml(datetimeLocalValue(talkFilters.sentAfter))}">
           </label>
         </section>
-        <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
-          <div style="font-weight:700;color:#111827;margin-bottom:10px;">${this.t('settingsContentFilters')}</div>
+        <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
+          <div style="font-weight:700;color:var(--text-primary);margin-bottom:10px;">${this.t('settingsContentFilters')}</div>
           <div style="display:flex;flex-wrap:wrap;gap:10px;">
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-grammar-filter" ${talkFilters.requireGoodGrammar ? 'checked' : ''}> ${this.t('settingsGrammar')}</label>
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-dirty-words-filter" ${talkFilters.blockDirtyWords ? 'checked' : ''}> ${this.t('settingsDirtyWords')}</label>
           </div>
-          <div style="font-size:0.8em;color:#64748b;margin-top:8px;">${this.t('settingsGrammarHelp')} ${this.tf('settingsGrammarStrictness', { threshold: String(CONFIG.GRAMMAR_THRESHOLD) })}</div>
-          <div style="font-size:0.8em;color:#64748b;margin-top:4px;">${this.t('settingsDirtyWordsHelp')}</div>
+          <div style="font-size:0.8em;color:var(--text-tertiary);margin-top:8px;">${this.t('settingsGrammarHelp')} ${this.tf('settingsGrammarStrictness', { threshold: String(CONFIG.GRAMMAR_THRESHOLD) })}</div>
+          <div style="font-size:0.8em;color:var(--text-tertiary);margin-top:4px;">${this.t('settingsDirtyWordsHelp')}</div>
           <div id="settings-dirty-words-editor" style="margin-top:10px;">
             <div style="font-size:0.9em;font-weight:600;margin-bottom:6px;">${this.t('settingsDirtyWordsListLabel')}</div>
             <div id="dirty-word-chips" data-testid="dirty-word-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
               ${dirtyWordList
                 .map((word) => `
-                  <span class="dirty-word-chip" data-testid="dirty-word-chip" data-word="${escapeHtml(word)}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid #d1d5db;border-radius:999px;background:#f8fafc;font-size:0.85em;">
+                  <span class="dirty-word-chip" data-testid="dirty-word-chip" data-word="${escapeHtml(word)}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--border-strong);border-radius:999px;background:var(--bg-subtle);font-size:0.85em;">
                     <span>${escapeHtml(word)}</span>
-                    <button type="button" class="dirty-word-chip-remove" data-testid="dirty-word-chip-remove" data-word="${escapeHtml(word)}" aria-label="remove ${escapeHtml(word)}" style="border:none;background:none;cursor:pointer;color:#64748b;font-size:1em;line-height:1;padding:0;">✕</button>
+                    <button type="button" class="dirty-word-chip-remove" data-testid="dirty-word-chip-remove" data-word="${escapeHtml(word)}" aria-label="remove ${escapeHtml(word)}" style="border:none;background:none;cursor:pointer;color:var(--text-tertiary);font-size:1em;line-height:1;padding:0;">✕</button>
                   </span>
                 `)
                 .join('')}
@@ -3220,15 +3220,15 @@ export class UIManager extends EventEmitter {
               <button type="button" class="btn" id="dirty-word-add-btn" data-testid="dirty-word-add-btn">${this.t('settingsDirtyWordAdd')}</button>
               <button type="button" class="btn" id="dirty-word-reset-btn" data-testid="dirty-word-reset-btn">${this.t('settingsDirtyWordReset')}</button>
             </div>
-            <div id="dirty-word-error" data-testid="dirty-word-error" style="font-size:0.8em;color:#dc2626;margin-top:4px;min-height:1em;"></div>
-            <div style="font-size:0.8em;color:#64748b;margin-top:2px;">${this.t('settingsDirtyWordsListHelp')}</div>
+            <div id="dirty-word-error" data-testid="dirty-word-error" style="font-size:0.8em;color:var(--danger);margin-top:4px;min-height:1em;"></div>
+            <div style="font-size:0.8em;color:var(--text-tertiary);margin-top:2px;">${this.t('settingsDirtyWordsListHelp')}</div>
           </div>
           <div style="margin-top:12px;">
             <div style="font-size:0.9em;margin-bottom:6px;">${this.t('settingsAllowedTypes')}</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px;">
               ${(['tag', 'flow', 'route', 'survey'] as const)
                 .map((type) => `
-                  <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid #d1d5db;border-radius:999px;background:white;">
+                  <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid var(--border-strong);border-radius:999px;background:white;">
                     <input type="checkbox" class="settings-talk-filter-type" value="${type}" ${talkFilters.allowedTalkTypes.includes(type) ? 'checked' : ''}>
                     <span>${type}</span>
                   </label>
@@ -3240,36 +3240,36 @@ export class UIManager extends EventEmitter {
             <span>${this.t('settingsBlockedPhrases')}</span>
             <textarea class="form-input" id="settings-custom-blocked" rows="3">${escapeHtml((talkFilters.customBlockedTerms || []).join(', '))}</textarea>
           </label>
-          <div id="settings-filtered-incoming-summary" style="font-size:0.84em;color:#64748b;margin-top:10px;">
+          <div id="settings-filtered-incoming-summary" style="font-size:0.84em;color:var(--text-tertiary);margin-top:10px;">
             ${this.t('settingsHiddenIncoming')}: ${filteredIncoming.hiddenCount}
             ${hiddenIncomingText ? `<div>${escapeHtml(hiddenIncomingText)}</div>` : ''}
-            ${!this.currentLocation && (this.incomingTalkClusters || []).some((c: any) => c?.latestTalk?.locationRadiusMiles != null || c?.locationRadiusMiles != null) ? `<div style="color:#b45309;font-style:italic;margin-top:4px;">${escapeHtml(this.t('filterLocationPending'))}</div>` : ''}
+            ${!this.currentLocation && (this.incomingTalkClusters || []).some((c: any) => c?.latestTalk?.locationRadiusMiles != null || c?.locationRadiusMiles != null) ? `<div style="color:var(--warning-text);font-style:italic;margin-top:4px;">${escapeHtml(this.t('filterLocationPending'))}</div>` : ''}
           </div>
         </section>
-        <section style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
+        <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
             <div>
-              <div style="font-weight:700;color:#111827;">${this.t('settingsLinkedDevices')}</div>
-              <div style="font-size:0.82em;color:#64748b;">${this.t('settingsLinkedDevicesHelp')}</div>
+              <div style="font-weight:700;color:var(--text-primary);">${this.t('settingsLinkedDevices')}</div>
+              <div style="font-size:0.82em;color:var(--text-tertiary);">${this.t('settingsLinkedDevicesHelp')}</div>
             </div>
             <button type="button" class="btn" id="settings-linked-devices-btn" data-testid="settings-linked-devices-btn">${this.t('settingsManage')}</button>
           </div>
         </section>
-        <section style="padding:16px;background:#fff;border:1px solid #fecaca;border-radius:8px;">
+        <section style="padding:16px;background:#fff;border:1px solid var(--danger-border);border-radius:8px;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
             <div>
-              <div style="font-weight:700;color:#b91c1c;">${this.t('settingsEraseDevice')}</div>
-              <div style="font-size:0.82em;color:#64748b;">${this.t('settingsEraseDeviceHelp')}</div>
+              <div style="font-weight:700;color:var(--danger-hover);">${this.t('settingsEraseDevice')}</div>
+              <div style="font-size:0.82em;color:var(--text-tertiary);">${this.t('settingsEraseDeviceHelp')}</div>
             </div>
-            <button type="button" class="btn" id="settings-erase-device-btn" data-testid="settings-erase-device-btn" style="background:#dc2626;color:#fff;">${this.t('settingsEraseDevice')}</button>
+            <button type="button" class="btn" id="settings-erase-device-btn" data-testid="settings-erase-device-btn" style="background:var(--danger);color:#fff;">${this.t('settingsEraseDevice')}</button>
           </div>
         </section>
-        <section id="settings-storage-inspector" style="padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
+        <section id="settings-storage-inspector" style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
-            <div style="font-weight:700;color:#111827;">${this.t('settingsStorage')}</div>
+            <div style="font-weight:700;color:var(--text-primary);">${this.t('settingsStorage')}</div>
             <button type="button" class="btn" id="settings-refresh-storage-btn">${this.t('settingsRefresh')}</button>
           </div>
-          <div id="settings-storage-inspector-body" style="font-size:0.9em;color:#64748b;">${this.t('settingsStorageLoading')}</div>
+          <div id="settings-storage-inspector-body" style="font-size:0.9em;color:var(--text-tertiary);">${this.t('settingsStorageLoading')}</div>
         </section>
       </div>
     `;
@@ -3346,7 +3346,7 @@ export class UIManager extends EventEmitter {
       chips.innerHTML = words
         .map((word) => {
           const safe = escapeHtml(word);
-          return `<span class="dirty-word-chip" data-testid="dirty-word-chip" data-word="${safe}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid #d1d5db;border-radius:999px;background:#f8fafc;font-size:0.85em;"><span>${safe}</span><button type="button" class="dirty-word-chip-remove" data-testid="dirty-word-chip-remove" data-word="${safe}" aria-label="remove ${safe}" style="border:none;background:none;cursor:pointer;color:#64748b;font-size:1em;line-height:1;padding:0;">✕</button></span>`;
+          return `<span class="dirty-word-chip" data-testid="dirty-word-chip" data-word="${safe}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--border-strong);border-radius:999px;background:var(--bg-subtle);font-size:0.85em;"><span>${safe}</span><button type="button" class="dirty-word-chip-remove" data-testid="dirty-word-chip-remove" data-word="${safe}" aria-label="remove ${safe}" style="border:none;background:none;cursor:pointer;color:var(--text-tertiary);font-size:1em;line-height:1;padding:0;">✕</button></span>`;
         })
         .join('');
     };
@@ -3759,7 +3759,7 @@ export class UIManager extends EventEmitter {
             <h2 class="modal-title">${this.t('settingsCameraCaptureTitle')}</h2>
             <p>${this.t('settingsCameraCaptureHelp')}</p>
           </div>
-          <video id="settings-camera-preview-video" autoplay muted playsinline style="display:block;width:100%;aspect-ratio:1;object-fit:cover;border-radius:14px;background:#0f172a;"></video>
+          <video id="settings-camera-preview-video" autoplay muted playsinline style="display:block;width:100%;aspect-ratio:1;object-fit:cover;border-radius:14px;background:var(--text-primary);"></video>
           <div class="modal-actions">
             <button type="button" class="btn" data-testid="settings-camera-cancel">${this.t('settingsPhotoPreviewCancel')}</button>
             <button type="button" class="btn primary-btn" data-testid="settings-camera-capture" disabled>${this.t('settingsCameraCapture')}</button>
@@ -3953,31 +3953,31 @@ export class UIManager extends EventEmitter {
         ${this.renderP2PNeighborMemoryInspector(serverStorage?.neighborMemory)}
         ${this.renderDataOwnershipInspector(serverStorage?.dataOwnership, serverStorage?.relayTtlPolicy, serverStorage?.transportDiagnostics)}
         <div>
-          <div style="font-weight:600;color:#334155;margin-bottom:6px;">${this.t('storageBrowserLocal')}</div>
+          <div style="font-weight:600;color:var(--text-primary);margin-bottom:6px;">${this.t('storageBrowserLocal')}</div>
           <div id="storage-inspector-local" style="display:flex;flex-wrap:wrap;gap:6px;">
             ${
               browserStorage.localStorageKeys.length === 0
-                ? `<span style="color:#94a3b8;">${this.t('storageNoLocalKeys')}</span>`
+                ? `<span style="color:var(--text-muted);">${this.t('storageNoLocalKeys')}</span>`
                 : browserStorage.localStorageKeys
                     .map((item) => this.renderStoragePill(item.key, `${item.bytes} B`))
                     .join('')
             }
           </div>
-          <div id="storage-inspector-indexeddb" style="margin-top:6px;color:#475569;">
+          <div id="storage-inspector-indexeddb" style="margin-top:6px;color:var(--text-secondary);">
             ${this.t('storageIndexedDb')}: ${browserStorage.indexedDBNames.length > 0 ? browserStorage.indexedDBNames.map(escapeHtml).join(', ') : this.t('storageNone')}
           </div>
         </div>
         <div>
-          <div style="font-weight:600;color:#334155;margin-bottom:6px;">${this.t('storageServerPaths')}</div>
+          <div style="font-weight:600;color:var(--text-primary);margin-bottom:6px;">${this.t('storageServerPaths')}</div>
           ${
             serverError
-              ? `<div id="storage-inspector-server-error" style="color:#b45309;">${escapeHtml(serverError)}</div>`
+              ? `<div id="storage-inspector-server-error" style="color:var(--warning-text);">${escapeHtml(serverError)}</div>`
               : `<div id="storage-inspector-server" style="display:grid;gap:6px;">
                   ${serverRows
                     .map((row: any) => `
-                      <div style="padding:8px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;">
-                        <div style="font-weight:600;color:#0f172a;">${escapeHtml(row.path)} <span style="font-weight:500;color:#64748b;">${escapeHtml(row.category)}</span></div>
-                        <div style="color:#64748b;">${escapeHtml(this.storagePathPurpose(row.path, row.purpose))}</div>
+                      <div style="padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);">
+                        <div style="font-weight:600;color:var(--text-primary);">${escapeHtml(row.path)} <span style="font-weight:500;color:var(--text-tertiary);">${escapeHtml(row.category)}</span></div>
+                        <div style="color:var(--text-tertiary);">${escapeHtml(this.storagePathPurpose(row.path, row.purpose))}</div>
                       </div>
                     `)
                     .join('')}
@@ -3989,7 +3989,7 @@ export class UIManager extends EventEmitter {
   }
 
   private renderStoragePill(label: string, value: string): string {
-    return `<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;color:#334155;"><span style="font-weight:600;">${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></span>`;
+    return `<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid var(--border-strong);border-radius:8px;background:var(--bg-subtle);color:var(--text-primary);"><span style="font-weight:600;">${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></span>`;
   }
 
   private renderAppStateInspector(): string {
@@ -4002,9 +4002,9 @@ export class UIManager extends EventEmitter {
       .filter(([, counts]) => counts.visitCount > 0 || counts.uniqueVisitorCount > 0)
       .sort(([left], [right]) => left.localeCompare(right));
     return `
-      <div id="storage-inspector-app-state" style="display:grid;gap:8px;padding:10px;border:1px solid #bae6fd;border-radius:8px;background:#f0f9ff;">
+      <div id="storage-inspector-app-state" style="display:grid;gap:8px;padding:10px;border:1px solid var(--accent-border);border-radius:8px;background:var(--accent-soft);">
         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-          <div style="font-weight:700;color:#0c4a6e;">${this.t('storageAppState')}</div>
+          <div style="font-weight:700;color:var(--accent-text);">${this.t('storageAppState')}</div>
           ${this.renderStoragePill(this.t('storageTechSupportRoot'), currentUserIsRoot ? this.t('storageCurrentIdentity') : TECHSUPPORT_ROOT_USER_ID)}
           ${this.renderStoragePill(this.t('storageSupportChannel'), this.storageValue(supportActive ? 'active' : 'not run'))}
           ${this.renderStoragePill(this.t('storageIncomingLanguages'), allowedLanguages || this.t('storageUnknown'))}
@@ -4030,9 +4030,9 @@ export class UIManager extends EventEmitter {
     const disclosures = Array.isArray(localNode.permissionDisclosures) ? localNode.permissionDisclosures : [];
     const controls = Array.isArray(localNode.persistenceControls) ? localNode.persistenceControls : [];
     return `
-      <div id="storage-inspector-local-node" style="display:grid;gap:8px;padding:10px;border:1px solid #dbeafe;border-radius:8px;background:#eff6ff;">
+      <div id="storage-inspector-local-node" style="display:grid;gap:8px;padding:10px;border:1px solid var(--accent-soft);border-radius:8px;background:var(--accent-soft);">
         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-          <div style="font-weight:700;color:#1e3a8a;">${this.t('storageLocalNodeSupervisor')}</div>
+          <div style="font-weight:700;color:var(--accent-text);">${this.t('storageLocalNodeSupervisor')}</div>
           ${this.renderStoragePill(this.t('storageStatus'), this.storageValue(localNode.status || 'unknown'))}
           ${this.renderStoragePill(this.t('storagePairing'), localNode.sessionPairing?.trustModel || this.t('storageUnknown'))}
           ${this.renderStoragePill(this.t('storageBridge'), localNode.sessionPairing?.bridgeUrl || this.t('storageUnconfigured'))}
@@ -4053,9 +4053,9 @@ export class UIManager extends EventEmitter {
     const publicKeys = Array.isArray(policy.publicKeys) ? policy.publicKeys : [];
     const forbidden = Array.isArray(policy.forbiddenPrivateKeys) ? policy.forbiddenPrivateKeys : [];
     return `
-      <div id="storage-inspector-sea-identity" style="display:grid;gap:8px;padding:10px;border:1px solid #ccfbf1;border-radius:8px;background:#f0fdfa;">
+      <div id="storage-inspector-sea-identity" style="display:grid;gap:8px;padding:10px;border:1px solid var(--success-soft);border-radius:8px;background:var(--success-soft);">
         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-          <div style="font-weight:700;color:#134e4a;">${this.t('storageSeaCustody')}</div>
+          <div style="font-weight:700;color:var(--success-text);">${this.t('storageSeaCustody')}</div>
           ${this.renderStoragePill(this.t('storageRelayScan'), this.storageValue(scan?.ok ? 'clean' : 'needs review'))}
           ${this.renderStoragePill(this.t('storagePublicKeys'), publicKeys.join(', ') || this.t('storageUnknown'))}
           ${this.renderStoragePill(this.t('storageForbidden'), forbidden.join(', ') || this.t('storageUnknown'))}
@@ -4063,7 +4063,7 @@ export class UIManager extends EventEmitter {
         <div id="storage-inspector-sea-custody" style="display:flex;flex-wrap:wrap;gap:6px;">
           ${custodyFormats.map((format: string) => this.renderStoragePill(format, this.t('storageSupported'))).join('')}
         </div>
-        <div id="storage-inspector-sea-rules" style="color:#475569;">
+        <div id="storage-inspector-sea-rules" style="color:var(--text-secondary);">
           ${this.t('storageRelayRule')}
         </div>
       </div>
@@ -4074,9 +4074,9 @@ export class UIManager extends EventEmitter {
     if (!transport) return '';
     const modes = Array.isArray(transport.availableModes) ? transport.availableModes : [];
     return `
-      <div id="storage-inspector-conversation-transport" style="display:grid;gap:8px;padding:10px;border:1px solid #fde68a;border-radius:8px;background:#fffbeb;">
+      <div id="storage-inspector-conversation-transport" style="display:grid;gap:8px;padding:10px;border:1px solid var(--warning-border);border-radius:8px;background:var(--warning-soft);">
         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-          <div style="font-weight:700;color:#78350f;">${this.t('storageConversationTransport')}</div>
+          <div style="font-weight:700;color:var(--warning-text);">${this.t('storageConversationTransport')}</div>
           ${this.renderStoragePill(this.t('storageActive'), transport.activeMode || this.t('storageUnknown'))}
           ${this.renderStoragePill(this.t('storageMessages'), transport.messageBodyStorage || this.t('storageUnknown'))}
           ${this.renderStoragePill(this.t('storageReceipts'), transport.receiptsStorage || this.t('storageUnknown'))}
@@ -4118,9 +4118,9 @@ export class UIManager extends EventEmitter {
     const candidates = Array.isArray(memory.bootstrapCandidates) ? memory.bootstrapCandidates : [];
     const blocked = Array.isArray(memory.blockedPeerIds) ? memory.blockedPeerIds : [];
     return `
-      <div id="storage-inspector-p2p-neighbor-memory" style="display:grid;gap:8px;padding:10px;border:1px solid #bbf7d0;border-radius:8px;background:#f0fdf4;">
+      <div id="storage-inspector-p2p-neighbor-memory" style="display:grid;gap:8px;padding:10px;border:1px solid var(--success-border);border-radius:8px;background:var(--success-soft);">
         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-          <div style="font-weight:700;color:#14532d;">${this.t('storageNeighborMemory')}</div>
+          <div style="font-weight:700;color:var(--success-text);">${this.t('storageNeighborMemory')}</div>
           ${this.renderStoragePill(this.t('storageStatus'), this.storageValue(memory.controls?.enabled ? 'enabled' : 'disabled'))}
           ${this.renderStoragePill(this.t('storageScope'), this.storageValue(memory.controls?.localOnly ? 'local-only' : 'shared'))}
           ${this.renderStoragePill(this.t('storageGraph'), this.storageValue(memory.controls?.privateGraphPublishedByDefault === false ? 'private' : 'published'))}
@@ -4155,9 +4155,9 @@ export class UIManager extends EventEmitter {
     const ttlEntries = ttlPolicy && typeof ttlPolicy === 'object' ? Object.entries(ttlPolicy) : [];
     const events = Array.isArray(diagnostics) ? diagnostics : [];
     return `
-      <div id="storage-inspector-data-ownership" style="display:grid;gap:8px;padding:10px;border:1px solid #fed7aa;border-radius:8px;background:#fff7ed;">
+      <div id="storage-inspector-data-ownership" style="display:grid;gap:8px;padding:10px;border:1px solid var(--warning-border);border-radius:8px;background:var(--warning-soft);">
         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-          <div style="font-weight:700;color:#7c2d12;">${this.t('storageDataOwnership')}</div>
+          <div style="font-weight:700;color:var(--warning-text);">${this.t('storageDataOwnership')}</div>
           ${this.renderStoragePill(this.t('storageDeviceLocalDelete'), this.storagePolicyLabel(policy.deviceLocalDelete?.label))}
           ${this.renderStoragePill(this.t('storageServerHeldData'), this.storagePolicyLabel(policy.serverHeldDataRequest?.label))}
           ${this.renderStoragePill(this.t('storageMigrationTarget'), policy.migration?.target || this.t('storageUnknown'))}
@@ -4220,7 +4220,7 @@ export class UIManager extends EventEmitter {
   private async displayStatisticsDashboard(): Promise<void> {
     const container = document.getElementById('statistics-content');
     if (!container) return;
-    container.innerHTML = '<div style="padding:20px;color:#64748b;">Building local statistics…</div>';
+    container.innerHTML = '<div style="padding:20px;color:var(--text-tertiary);">Building local statistics…</div>';
 
     // Build local dashboard from LocalTalkExchanges (all talk types).
     const exchanges = readLocalTalkExchanges();
@@ -4262,40 +4262,40 @@ export class UIManager extends EventEmitter {
     const typeRows = (dashboard.byTalkType || [])
       .map((row) => `
         <tr>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;">${escapeHtml(row.talkType)}</td>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.responses}</td>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.matches}</td>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.matchRate}%</td>
+          <td style="padding:8px;border-top:1px solid var(--border);">${escapeHtml(row.talkType)}</td>
+          <td style="padding:8px;border-top:1px solid var(--border);text-align:right;">${row.responses}</td>
+          <td style="padding:8px;border-top:1px solid var(--border);text-align:right;">${row.matches}</td>
+          <td style="padding:8px;border-top:1px solid var(--border);text-align:right;">${row.matchRate}%</td>
         </tr>`)
       .join('');
     const talkRows = (dashboard.topTalks || [])
       .map((row) => `
         <tr>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;max-width:220px;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(row.talkId)}</td>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;">${escapeHtml(row.talkType)}</td>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.responses}</td>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.matches}</td>
+          <td style="padding:8px;border-top:1px solid var(--border);max-width:220px;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(row.talkId)}</td>
+          <td style="padding:8px;border-top:1px solid var(--border);">${escapeHtml(row.talkType)}</td>
+          <td style="padding:8px;border-top:1px solid var(--border);text-align:right;">${row.responses}</td>
+          <td style="padding:8px;border-top:1px solid var(--border);text-align:right;">${row.matches}</td>
         </tr>`)
       .join('');
     const roomRows = (dashboard.chatrooms?.regions || [])
       .slice(0, 8)
       .map((row) => `
         <tr>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;">${row.masked ? 'Hidden region' : escapeHtml(row.region)}</td>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.masked ? '—' : row.count}</td>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.masked ? '—' : `${row.matchRate}%`}</td>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.masked ? '—' : `${row.localCount}/${row.travellerCount}`}</td>
+          <td style="padding:8px;border-top:1px solid var(--border);">${row.masked ? 'Hidden region' : escapeHtml(row.region)}</td>
+          <td style="padding:8px;border-top:1px solid var(--border);text-align:right;">${row.masked ? '—' : row.count}</td>
+          <td style="padding:8px;border-top:1px solid var(--border);text-align:right;">${row.masked ? '—' : `${row.matchRate}%`}</td>
+          <td style="padding:8px;border-top:1px solid var(--border);text-align:right;">${row.masked ? '—' : `${row.localCount}/${row.travellerCount}`}</td>
         </tr>`)
       .join('');
     const peerRows = (dashboard.peers?.peers || [])
       .slice(0, 8)
       .map((row) => `
         <tr>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;max-width:160px;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(row.peerId)}</td>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.responses}</td>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.matches}</td>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.ignores}</td>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.matchRate}%</td>
+          <td style="padding:8px;border-top:1px solid var(--border);max-width:160px;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(row.peerId)}</td>
+          <td style="padding:8px;border-top:1px solid var(--border);text-align:right;">${row.responses}</td>
+          <td style="padding:8px;border-top:1px solid var(--border);text-align:right;">${row.matches}</td>
+          <td style="padding:8px;border-top:1px solid var(--border);text-align:right;">${row.ignores}</td>
+          <td style="padding:8px;border-top:1px solid var(--border);text-align:right;">${row.matchRate}%</td>
         </tr>`)
       .join('');
     // Broadcast tag popularity + optional trend data from server.
@@ -4303,15 +4303,15 @@ export class UIManager extends EventEmitter {
       .slice(0, 8)
       .map((row) => `
         <tr>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;">${escapeHtml(row.id)}</td>
-          <td style="padding:8px;border-top:1px solid #e2e8f0;text-align:right;">${row.count}</td>
+          <td style="padding:8px;border-top:1px solid var(--border);">${escapeHtml(row.id)}</td>
+          <td style="padding:8px;border-top:1px solid var(--border);text-align:right;">${row.count}</td>
         </tr>`)
       .join('');
     const trendTags = (dashboard.broadcastTags?.trends?.tags || []).slice(0, 5);
     const trendDays = (dashboard.broadcastTags?.trends?.days || []).slice(-7);
     const tagTrendSection = trendTags.length > 0 ? `
       <div style="margin-top:12px;">
-        <div style="font-weight:600;font-size:0.88em;color:#475569;margin-bottom:6px;">${this.t('statsTimeTrendHeader')} (last ${trendDays.length} days)</div>
+        <div style="font-weight:600;font-size:0.88em;color:var(--text-secondary);margin-bottom:6px;">${this.t('statsTimeTrendHeader')} (last ${trendDays.length} days)</div>
         <table style="width:100%;border-collapse:collapse;font-size:0.82em;">
           <thead><tr>
             <th style="text-align:left;padding:4px 6px;">Tag</th>
@@ -4321,8 +4321,8 @@ export class UIManager extends EventEmitter {
             ${trendTags.map((tag) => {
               const recentByDay = tag.byDay.slice(-trendDays.length);
               return `<tr>
-                <td style="padding:4px 6px;border-top:1px solid #e2e8f0;">${escapeHtml(tag.id)}</td>
-                ${recentByDay.map((n) => `<td style="padding:4px 6px;border-top:1px solid #e2e8f0;text-align:right;">${n}</td>`).join('')}
+                <td style="padding:4px 6px;border-top:1px solid var(--border);">${escapeHtml(tag.id)}</td>
+                ${recentByDay.map((n) => `<td style="padding:4px 6px;border-top:1px solid var(--border);text-align:right;">${n}</td>`).join('')}
               </tr>`;
             }).join('')}
           </tbody>
@@ -4334,8 +4334,8 @@ export class UIManager extends EventEmitter {
     const tagFrequencyBars = this.renderStatsBarList((dashboard.broadcastTags?.popularity || []).slice(0, 8));
     const trendRows = recentDayBuckets
       .map((item) => `<tr>
-        <td style="padding:6px 8px;border-top:1px solid #e2e8f0;">${escapeHtml(item.bucket)}</td>
-        <td style="padding:6px 8px;border-top:1px solid #e2e8f0;text-align:right;">${item.count}</td>
+        <td style="padding:6px 8px;border-top:1px solid var(--border);">${escapeHtml(item.bucket)}</td>
+        <td style="padding:6px 8px;border-top:1px solid var(--border);text-align:right;">${item.count}</td>
       </tr>`)
       .join('');
     // Chatroom aggregate totals for local/traveller split.
@@ -4348,8 +4348,8 @@ export class UIManager extends EventEmitter {
       <div style="padding:16px;max-width:min(1040px,96%);margin:0 auto;">
         <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px;">
           <div>
-            <h2 style="margin:0 0 4px;font-size:1.25em;color:#0f172a;">${this.t('statsLocalDashboard')}</h2>
-            <p style="margin:0;color:#64748b;font-size:0.9em;">${this.t('statsLocalNote')} · ${escapeHtml(new Date(dashboard.generatedAt).toLocaleString())}</p>
+            <h2 style="margin:0 0 4px;font-size:1.25em;color:var(--text-primary);">${this.t('statsLocalDashboard')}</h2>
+            <p style="margin:0;color:var(--text-tertiary);font-size:0.9em;">${this.t('statsLocalNote')} · ${escapeHtml(new Date(dashboard.generatedAt).toLocaleString())}</p>
           </div>
           <button type="button" class="btn" id="statistics-refresh-btn" style="padding:6px 10px;">Refresh</button>
         </div>
@@ -4363,9 +4363,9 @@ export class UIManager extends EventEmitter {
         <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
           ${this.renderStatsTable(this.t('statsByTypeHeader'), ['Type', 'Responses', 'Matches', 'Match rate'], typeRows)}
           ${this.renderStatsTable(this.t('statsTopTalksHeader'), ['Talk', 'Type', 'Responses', 'Matches'], talkRows)}
-          <div style="padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:white;overflow:auto;">
-            <div style="font-weight:700;color:#0f172a;margin-bottom:4px;">${this.t('statsChatroomHeader')}</div>
-            <div style="font-size:0.8em;color:#64748b;margin-bottom:8px;">Local: ${chatroomTotals.local} · Traveller: ${chatroomTotals.traveller}</div>
+          <div style="padding:12px;border:1px solid var(--border);border-radius:8px;background:white;overflow:auto;">
+            <div style="font-weight:700;color:var(--text-primary);margin-bottom:4px;">${this.t('statsChatroomHeader')}</div>
+            <div style="font-size:0.8em;color:var(--text-tertiary);margin-bottom:8px;">Local: ${chatroomTotals.local} · Traveller: ${chatroomTotals.traveller}</div>
             <table style="width:100%;border-collapse:collapse;font-size:0.88em;">
               <thead><tr>
                 <th style="text-align:left;padding:6px 8px;">Region</th>
@@ -4373,31 +4373,31 @@ export class UIManager extends EventEmitter {
                 <th style="text-align:right;padding:6px 8px;">Match rate</th>
                 <th style="text-align:right;padding:6px 8px;">Local/Travel</th>
               </tr></thead>
-              <tbody>${roomRows || `<tr><td colspan="4" style="padding:8px;color:#64748b;">No data yet.</td></tr>`}</tbody>
+              <tbody>${roomRows || `<tr><td colspan="4" style="padding:8px;color:var(--text-tertiary);">No data yet.</td></tr>`}</tbody>
             </table>
           </div>
           ${this.renderStatsTable(this.t('statsPeerHeader'), ['Peer', 'Responses', 'Matches', 'Ignores', 'Match rate'], peerRows)}
-          <div style="padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:white;overflow:auto;">
-            <div style="font-weight:700;color:#0f172a;margin-bottom:8px;">${this.t('statsBroadcastTagsHeader')}</div>
+          <div style="padding:12px;border:1px solid var(--border);border-radius:8px;background:white;overflow:auto;">
+            <div style="font-weight:700;color:var(--text-primary);margin-bottom:8px;">${this.t('statsBroadcastTagsHeader')}</div>
             ${tagFrequencyBars}
             <table style="width:100%;border-collapse:collapse;font-size:0.88em;">
               <thead><tr><th style="text-align:left;padding:6px 8px;">Tag</th><th style="text-align:right;padding:6px 8px;">Uses</th></tr></thead>
-              <tbody>${tagRows || `<tr><td colspan="2" style="padding:8px;color:#64748b;">No data yet.</td></tr>`}</tbody>
+              <tbody>${tagRows || `<tr><td colspan="2" style="padding:8px;color:var(--text-tertiary);">No data yet.</td></tr>`}</tbody>
             </table>
             ${tagTrendSection}
           </div>
-          <div style="padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:white;overflow:auto;">
-            <div style="font-weight:700;color:#0f172a;margin-bottom:8px;">${this.t('statsTimeTrendHeader')}</div>
+          <div style="padding:12px;border:1px solid var(--border);border-radius:8px;background:white;overflow:auto;">
+            <div style="font-weight:700;color:var(--text-primary);margin-bottom:8px;">${this.t('statsTimeTrendHeader')}</div>
             ${responseSparkline}
             <table style="width:100%;border-collapse:collapse;font-size:0.88em;">
               <thead><tr><th style="text-align:left;padding:6px 8px;">Day</th><th style="text-align:right;padding:6px 8px;">Responses</th></tr></thead>
-              <tbody>${trendRows || `<tr><td colspan="2" style="padding:8px;color:#64748b;">No data yet.</td></tr>`}</tbody>
+              <tbody>${trendRows || `<tr><td colspan="2" style="padding:8px;color:var(--text-tertiary);">No data yet.</td></tr>`}</tbody>
             </table>
           </div>
-          <div style="padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;">
-            <div style="font-weight:700;color:#0f172a;margin-bottom:8px;">Privacy and source of truth</div>
-            <p style="margin:0 0 6px;color:#475569;font-size:0.88em;">Minimum cohort: ${dashboard.privacy?.minCohortSize ?? 3}; location: blurred regions only.</p>
-            <p style="margin:0;color:#475569;font-size:0.88em;">${this.t('statsLocalNote')}</p>
+          <div style="padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);">
+            <div style="font-weight:700;color:var(--text-primary);margin-bottom:8px;">Privacy and source of truth</div>
+            <p style="margin:0 0 6px;color:var(--text-secondary);font-size:0.88em;">Minimum cohort: ${dashboard.privacy?.minCohortSize ?? 3}; location: blurred regions only.</p>
+            <p style="margin:0;color:var(--text-secondary);font-size:0.88em;">${this.t('statsLocalNote')}</p>
           </div>
         </div>
       </div>`;
@@ -4408,11 +4408,11 @@ export class UIManager extends EventEmitter {
 
   private renderStatsTable(title: string, headers: string[], rows: string): string {
     return `
-      <div style="padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:white;overflow:auto;">
-        <div style="font-weight:700;color:#0f172a;margin-bottom:8px;">${escapeHtml(title)}</div>
+      <div style="padding:12px;border:1px solid var(--border);border-radius:8px;background:white;overflow:auto;">
+        <div style="font-weight:700;color:var(--text-primary);margin-bottom:8px;">${escapeHtml(title)}</div>
         <table style="width:100%;border-collapse:collapse;font-size:0.88em;">
           <thead><tr>${headers.map((header, index) => `<th style="text-align:${index === 0 ? 'left' : 'right'};padding:6px 8px;">${escapeHtml(header)}</th>`).join('')}</tr></thead>
-          <tbody>${rows || `<tr><td colspan="${headers.length}" style="padding:8px;color:#64748b;">No data yet.</td></tr>`}</tbody>
+          <tbody>${rows || `<tr><td colspan="${headers.length}" style="padding:8px;color:var(--text-tertiary);">No data yet.</td></tr>`}</tbody>
         </table>
       </div>`;
   }
@@ -4436,7 +4436,7 @@ export class UIManager extends EventEmitter {
       const y = height - 6 - ((row.count / max) * (height - 14));
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     }).join(' ');
-    return `<div class="stats-sparkline" aria-label="Response volume over the last ${rows.length} days"><svg viewBox="0 0 ${width} ${height}" role="img"><polyline points="${points}" fill="none" stroke="#0f766e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></polyline></svg><span>${rows.length} days · ${rows.reduce((sum, row) => sum + row.count, 0)} responses</span></div>`;
+    return `<div class="stats-sparkline" aria-label="Response volume over the last ${rows.length} days"><svg viewBox="0 0 ${width} ${height}" role="img"><polyline points="${points}" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></polyline></svg><span>${rows.length} days · ${rows.reduce((sum, row) => sum + row.count, 0)} responses</span></div>`;
   }
 
   private copyAnsweredTalkToTalks(talkId: string): void {
@@ -4969,7 +4969,7 @@ export class UIManager extends EventEmitter {
               <small style="color: #666; font-size: 0.85em;">${this.t('stageDialogLength')}</small>
             </div>
             <div class="modal-actions">
-              <button type="button" class="btn" id="cancel-edit-btn" style="background: #6c757d;">${this.t('stageDialogCancel')}</button>
+              <button type="button" class="btn" id="cancel-edit-btn" style="background: var(--text-tertiary);">${this.t('stageDialogCancel')}</button>
               <button type="submit" class="btn" data-testid="save-stage-name-button">${this.t('stageDialogSave')}</button>
             </div>
           </form>
@@ -5017,7 +5017,7 @@ export class UIManager extends EventEmitter {
     if (currentLanguages.length === 0) currentLanguages.push('en');
     const languageOptionsHtml = LANGUAGE_OPTIONS.map(
       (language) => `
-        <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid #d1d5db;border-radius:999px;background:white;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;padding:6px 10px;border:1px solid var(--border-strong);border-radius:999px;background:white;">
           <input type="checkbox" class="profile-language-option" value="${language.code}" ${currentLanguages.includes(language.code) ? 'checked' : ''}>
           <span>${escapeHtml(languageOptionLabel(this.getUiLanguage(), language.code, language.label))}</span>
         </label>
@@ -5066,7 +5066,7 @@ export class UIManager extends EventEmitter {
                   <input type="text" class="form-input profile-question-input" value="${escapeHtml(qa.question)}" placeholder="${escapeHtml(this.t('profileDialogQuestion'))}">
                   <input type="text" class="form-input profile-answer-input" value="${escapeHtml(qa.answer)}" placeholder="${escapeHtml(this.t('profileDialogAnswer'))}">
                   <select class="form-input profile-visibility-select" title="${escapeHtml(this.t('profileDialogVisibilityTitle'))}">${visibilityOptionsHtml(normalizeProfileAttributeVisibility(qa.visibility))}</select>
-                  <button type="button" class="btn remove-profile-qa-btn" style="background:#ef4444;">${this.t('profileDialogRemove')}</button>
+                  <button type="button" class="btn remove-profile-qa-btn" style="background:var(--danger);">${this.t('profileDialogRemove')}</button>
                 </div>
               `,
             )
@@ -5076,7 +5076,7 @@ export class UIManager extends EventEmitter {
             <input type="text" class="form-input profile-question-input" placeholder="${escapeHtml(this.t('profileDialogQuestion'))}">
             <input type="text" class="form-input profile-answer-input" placeholder="${escapeHtml(this.t('profileDialogAnswer'))}">
             <select class="form-input profile-visibility-select" title="${escapeHtml(this.t('profileDialogVisibilityTitle'))}">${visibilityOptionsHtml('public')}</select>
-            <button type="button" class="btn remove-profile-qa-btn" style="background:#ef4444;">${this.t('profileDialogRemove')}</button>
+            <button type="button" class="btn remove-profile-qa-btn" style="background:var(--danger);">${this.t('profileDialogRemove')}</button>
           </div>
         `;
       const headshotChoices = ['🙂', '😎', '🤠', '🎾', '☕', '🌟', '🐱', '🦊'];
@@ -5093,7 +5093,7 @@ export class UIManager extends EventEmitter {
                 ${headshotChoices
                   .map(
                     (choice) => `
-                      <label style="display:flex; align-items:center; justify-content:center; width:52px; height:52px; border:1px solid #d1d5db; border-radius:14px; cursor:pointer; font-size:1.5em; background:${choice === currentHeadshot ? '#e0f2fe' : 'white'};">
+                      <label style="display:flex; align-items:center; justify-content:center; width:52px; height:52px; border:1px solid var(--border-strong); border-radius:14px; cursor:pointer; font-size:1.5em; background:${choice === currentHeadshot ? 'var(--accent-soft)' : 'white'};">
                         <input type="radio" name="profile-headshot" value="${choice}" ${choice === currentHeadshot ? 'checked' : ''} style="display:none;">
                         <span>${choice}</span>
                       </label>
@@ -5121,7 +5121,7 @@ export class UIManager extends EventEmitter {
               <button type="button" class="btn" id="add-profile-qa-btn">${this.t('profileDialogAddAttribute')}</button>
             </div>
             <div class="modal-actions">
-              <button type="button" class="btn" id="cancel-profile-btn" style="background: #6c757d;">${this.t('stageDialogCancel')}</button>
+              <button type="button" class="btn" id="cancel-profile-btn" style="background: var(--text-tertiary);">${this.t('stageDialogCancel')}</button>
               <button type="submit" class="btn" id="save-profile-btn">${this.t('profileDialogSave')}</button>
             </div>
           </form>
@@ -5156,7 +5156,7 @@ export class UIManager extends EventEmitter {
           <input type="text" class="form-input profile-question-input" placeholder="${escapeHtml(this.t('profileDialogQuestion'))}">
           <input type="text" class="form-input profile-answer-input" placeholder="${escapeHtml(this.t('profileDialogAnswer'))}">
           <select class="form-input profile-visibility-select" title="${escapeHtml(this.t('profileDialogVisibilityTitle'))}">${visibilityOptionsHtml('public')}</select>
-          <button type="button" class="btn remove-profile-qa-btn" style="background:#ef4444;">${this.t('profileDialogRemove')}</button>
+          <button type="button" class="btn remove-profile-qa-btn" style="background:var(--danger);">${this.t('profileDialogRemove')}</button>
         `;
         list.appendChild(row);
         bindRemoveButtons();
@@ -5245,14 +5245,14 @@ export class UIManager extends EventEmitter {
       <div class="modal-content size-l modal-fullscreen" style="max-width:860px;">
         <div class="modal-header">
           <h2 class="modal-title">${this.t('surveyAnalyticsTitle')}</h2>
-          <p style="margin:0;color:#64748b;font-size:0.92em;">${escapeHtml(title)}</p>
+          <p style="margin:0;color:var(--text-tertiary);font-size:0.92em;">${escapeHtml(title)}</p>
         </div>
         <div id="survey-stats-body" style="padding:8px 0 16px;min-height:120px;">
-          <p style="text-align:center;color:#64748b;">${this.t('surveyLoading')}</p>
+          <p style="text-align:center;color:var(--text-tertiary);">${this.t('surveyLoading')}</p>
         </div>
         <div class="modal-actions">
-          <button type="button" class="btn" id="survey-stats-followup-btn" style="background:#2563eb;">${this.t('surveyCreateFollowUp')}</button>
-          <button type="button" class="btn" id="survey-stats-close-btn" style="background:#6c757d;">${this.t('surveyClose')}</button>
+          <button type="button" class="btn" id="survey-stats-followup-btn" style="background:var(--accent);">${this.t('surveyCreateFollowUp')}</button>
+          <button type="button" class="btn" id="survey-stats-close-btn" style="background:var(--text-tertiary);">${this.t('surveyClose')}</button>
         </div>
       </div>
     `;
@@ -5331,23 +5331,23 @@ export class UIManager extends EventEmitter {
         { value: '30', label: this.t('surveyFilterDays30') },
         { value: '90', label: this.t('surveyFilterDays90') },
       ];
-      const privacyLine = `<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;">
+      const privacyLine = `<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.9em;color:#334155;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.9em;color:var(--text-primary);">
             <input type="checkbox" id="survey-anon-toggle" ${maskSmallCounts ? 'checked' : ''}>
             <span>${this.tf('surveyAnonymizeCohorts', { count: UIManager.SURVEY_ANONYMITY_MIN_COUNT })}</span>
           </label>
-          <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;color:#334155;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;color:var(--text-primary);">
             <span>${this.t('surveyFilterLabel')}:</span>
-            <select id="survey-time-filter" style="padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.9em;">
+            <select id="survey-time-filter" style="padding:4px 6px;border:1px solid var(--border-strong);border-radius:6px;font-size:0.9em;">
               ${filterOptions.map((o) => `<option value="${o.value}" ${filterDays?.toString() === o.value || (!filterDays && o.value === '') ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}
             </select>
           </label>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button type="button" class="btn" id="survey-export-summary-btn" style="padding:6px 10px;background:#0f766e;">${this.t('surveyExportSummary')}</button>
-          <button type="button" class="btn" id="survey-export-day-btn" style="padding:6px 10px;background:#0f766e;">${this.t('surveyExportDay')}</button>
-          <button type="button" class="btn" id="survey-export-region-btn" style="padding:6px 10px;background:#0f766e;">${this.t('surveyExportRegion')}</button>
+          <button type="button" class="btn" id="survey-export-summary-btn" style="padding:6px 10px;background:var(--accent);">${this.t('surveyExportSummary')}</button>
+          <button type="button" class="btn" id="survey-export-day-btn" style="padding:6px 10px;background:var(--accent);">${this.t('surveyExportDay')}</button>
+          <button type="button" class="btn" id="survey-export-region-btn" style="padding:6px 10px;background:var(--accent);">${this.t('surveyExportRegion')}</button>
         </div>
       </div>`;
 
@@ -5359,16 +5359,16 @@ export class UIManager extends EventEmitter {
           }).join('')}</div>`
         : '';
       if (!filteredSummary.byQuestion || filteredSummary.byQuestion.length === 0) {
-        byQuestionParts.push(`<p style="color:#64748b;font-size:0.92em;">${this.t('surveyNoQuestionBreakdown')}</p>`);
+        byQuestionParts.push(`<p style="color:var(--text-tertiary);font-size:0.92em;">${this.t('surveyNoQuestionBreakdown')}</p>`);
       } else {
         for (const q of filteredSummary.byQuestion) {
           const hideQuestion = maskSmallCounts && q.total < UIManager.SURVEY_ANONYMITY_MIN_COUNT;
           const qTitle = escapeHtml(questionLabel(q.questionId));
           const skipLine = !hideQuestion && filteredSummary.total > 0
-            ? `<div style="font-size:0.78em;color:#94a3b8;margin-top:2px;">${this.t('surveyCompletionRateLabel')}: ${q.completionRate}% · ${this.t('surveySkipRate')}: ${q.skipCount > 0 ? q.skipCount : 0} skipped</div>`
+            ? `<div style="font-size:0.78em;color:var(--text-muted);margin-top:2px;">${this.t('surveyCompletionRateLabel')}: ${q.completionRate}% · ${this.t('surveySkipRate')}: ${q.skipCount > 0 ? q.skipCount : 0} skipped</div>`
             : '';
           const rows = hideQuestion
-            ? `<div style="margin-top:8px;padding:10px;border-radius:8px;border:1px dashed #cbd5e1;background:#f8fafc;color:#64748b;">${this.tf('surveyHiddenUntil', { count: UIManager.SURVEY_ANONYMITY_MIN_COUNT })}</div>`
+            ? `<div style="margin-top:8px;padding:10px;border-radius:8px;border:1px dashed var(--border-strong);background:var(--bg-subtle);color:var(--text-tertiary);">${this.tf('surveyHiddenUntil', { count: UIManager.SURVEY_ANONYMITY_MIN_COUNT })}</div>`
             : q.answers
                 .map(
                   (a) => `
@@ -5381,8 +5381,8 @@ export class UIManager extends EventEmitter {
                 .join('');
           byQuestionParts.push(`
             <div style="margin-top:16px;">
-              <div style="font-weight:700;font-size:0.95em;color:#0f172a;margin-bottom:2px;">${qTitle}</div>
-              <div style="font-size:0.8em;color:#64748b;">${this.tf(q.total === 1 ? 'surveyAnswersRecordedOne' : 'surveyAnswersRecorded', { count: q.total })}</div>
+              <div style="font-weight:700;font-size:0.95em;color:var(--text-primary);margin-bottom:2px;">${qTitle}</div>
+              <div style="font-size:0.8em;color:var(--text-tertiary);">${this.tf(q.total === 1 ? 'surveyAnswersRecordedOne' : 'surveyAnswersRecorded', { count: q.total })}</div>
               ${skipLine}
               ${rows}
             </div>`);
@@ -5406,16 +5406,16 @@ export class UIManager extends EventEmitter {
         );
         const crossRows = cross.cells
           .map((cell) => `<tr>
-            <td style="padding:6px 8px;border-top:1px solid #e2e8f0;">${cell.masked ? '—' : escapeHtml(cell.answerAText)}</td>
-            <td style="padding:6px 8px;border-top:1px solid #e2e8f0;">${cell.masked ? '—' : escapeHtml(cell.answerBText)}</td>
-            <td style="padding:6px 8px;border-top:1px solid #e2e8f0;text-align:right;background:rgba(15,118,110,${cell.masked ? 0 : Math.min(0.5, cell.percentage / 160)});">${cell.masked ? '—' : cell.count}</td>
-            <td style="padding:6px 8px;border-top:1px solid #e2e8f0;text-align:right;background:rgba(15,118,110,${cell.masked ? 0 : Math.min(0.5, cell.percentage / 160)});">${cell.masked ? '—' : `${cell.percentage}%`}</td>
+            <td style="padding:6px 8px;border-top:1px solid var(--border);">${cell.masked ? '—' : escapeHtml(cell.answerAText)}</td>
+            <td style="padding:6px 8px;border-top:1px solid var(--border);">${cell.masked ? '—' : escapeHtml(cell.answerBText)}</td>
+            <td style="padding:6px 8px;border-top:1px solid var(--border);text-align:right;background:rgba(15,118,110,${cell.masked ? 0 : Math.min(0.5, cell.percentage / 160)});">${cell.masked ? '—' : cell.count}</td>
+            <td style="padding:6px 8px;border-top:1px solid var(--border);text-align:right;background:rgba(15,118,110,${cell.masked ? 0 : Math.min(0.5, cell.percentage / 160)});">${cell.masked ? '—' : `${cell.percentage}%`}</td>
           </tr>`)
           .join('');
         crossQSection = `
-          <div style="margin-top:12px;padding:12px;border:1px solid #e2e8f0;border-radius:8px;">
-            <div style="font-weight:700;color:#0f172a;margin-bottom:4px;">${this.t('surveyCrossQuestion')}</div>
-            <div style="font-size:0.82em;color:#64748b;margin-bottom:8px;">${escapeHtml(questionLabel(qA.questionId))} × ${escapeHtml(questionLabel(qB.questionId))}</div>
+          <div style="margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:8px;">
+            <div style="font-weight:700;color:var(--text-primary);margin-bottom:4px;">${this.t('surveyCrossQuestion')}</div>
+            <div style="font-size:0.82em;color:var(--text-tertiary);margin-bottom:8px;">${escapeHtml(questionLabel(qA.questionId))} × ${escapeHtml(questionLabel(qB.questionId))}</div>
             <table class="survey-heatmap" style="width:100%;border-collapse:collapse;font-size:0.88em;">
               <thead><tr>
                 <th style="text-align:left;padding:6px 8px;">${escapeHtml(questionLabel(qA.questionId).slice(0, 20))}</th>
@@ -5423,23 +5423,23 @@ export class UIManager extends EventEmitter {
                 <th style="text-align:right;padding:6px 8px;">${this.t('surveyCount')}</th>
                 <th style="text-align:right;padding:6px 8px;">%</th>
               </tr></thead>
-              <tbody>${crossRows || `<tr><td colspan="4" style="padding:8px;color:#64748b;">${this.t('surveyNoResponses')}</td></tr>`}</tbody>
+              <tbody>${crossRows || `<tr><td colspan="4" style="padding:8px;color:var(--text-tertiary);">${this.t('surveyNoResponses')}</td></tr>`}</tbody>
             </table>
           </div>`;
       } else if ((filteredSummary.byQuestion || []).length >= 2) {
         crossQSection = `
-          <div style="margin-top:12px;padding:10px;border:1px dashed #cbd5e1;border-radius:8px;background:#f8fafc;font-size:0.88em;color:#64748b;">
+          <div style="margin-top:12px;padding:10px;border:1px dashed var(--border-strong);border-radius:8px;background:var(--bg-subtle);font-size:0.88em;color:var(--text-tertiary);">
             ${this.tf('surveyCrossQuestionEmpty', { count: UIManager.SURVEY_ANONYMITY_MIN_COUNT })}
           </div>`;
       }
 
       const dayRows = (filteredByDay.series || [])
-        .map((item) => `<tr><td style="padding:6px 8px;border-top:1px solid #e2e8f0;">${escapeHtml(item.bucket)}</td><td style="padding:6px 8px;border-top:1px solid #e2e8f0;text-align:right;">${item.count}</td></tr>`)
+        .map((item) => `<tr><td style="padding:6px 8px;border-top:1px solid var(--border);">${escapeHtml(item.bucket)}</td><td style="padding:6px 8px;border-top:1px solid var(--border);text-align:right;">${item.count}</td></tr>`)
         .join('');
       const regionRows = (filteredByRegion.series || [])
         .map((item) => {
           const hidden = maskSmallCounts && item.count < UIManager.SURVEY_ANONYMITY_MIN_COUNT;
-          return `<tr><td style="padding:6px 8px;border-top:1px solid #e2e8f0;">${hidden ? this.t('surveyHiddenRegion') : escapeHtml(item.region || this.t('surveyUnknownRegion'))}</td><td style="padding:6px 8px;border-top:1px solid #e2e8f0;text-align:right;">${hidden ? '—' : item.count}</td></tr>`;
+          return `<tr><td style="padding:6px 8px;border-top:1px solid var(--border);">${hidden ? this.t('surveyHiddenRegion') : escapeHtml(item.region || this.t('surveyUnknownRegion'))}</td><td style="padding:6px 8px;border-top:1px solid var(--border);text-align:right;">${hidden ? '—' : item.count}</td></tr>`;
         })
         .join('');
       const followUpCandidates = (filteredSummary.byQuestion || []).filter(
@@ -5447,42 +5447,42 @@ export class UIManager extends EventEmitter {
       );
       const followUpHint =
         followUpCandidates.length === 0
-          ? `<p style="margin:8px 0 0;color:#64748b;font-size:0.9em;">${this.t('surveyNoFollowUpGaps')}</p>`
-          : `<p style="margin:8px 0 0;color:#334155;font-size:0.9em;">${escapeHtml(this.tf('surveyFollowUpCandidates', {
+          ? `<p style="margin:8px 0 0;color:var(--text-tertiary);font-size:0.9em;">${this.t('surveyNoFollowUpGaps')}</p>`
+          : `<p style="margin:8px 0 0;color:var(--text-primary);font-size:0.9em;">${escapeHtml(this.tf('surveyFollowUpCandidates', {
               questions: followUpCandidates.map((q) => questionLabel(q.questionId)).join(', '),
             }))}</p>`;
 
       body.innerHTML = `
         ${cards}
         ${privacyLine}
-        <div style="margin-top:14px;padding:12px;border:1px solid #e2e8f0;border-radius:8px;">
-          <div style="font-weight:700;color:#0f172a;">${this.t('surveyQuestionDistribution')}</div>
+        <div style="margin-top:14px;padding:12px;border:1px solid var(--border);border-radius:8px;">
+          <div style="font-weight:700;color:var(--text-primary);">${this.t('surveyQuestionDistribution')}</div>
           ${completionFunnel}
           ${byQuestionParts.join('')}
         </div>
         ${crossQSection}
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
-          <div style="padding:12px;border:1px solid #e2e8f0;border-radius:8px;">
-            <div style="font-weight:700;color:#0f172a;">${this.t('surveyResponsesByDay')}</div>
+          <div style="padding:12px;border:1px solid var(--border);border-radius:8px;">
+            <div style="font-weight:700;color:var(--text-primary);">${this.t('surveyResponsesByDay')}</div>
             <table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:0.9em;">
               <thead><tr><th style="text-align:left;padding:6px 8px;">${this.t('surveyBucket')}</th><th style="text-align:right;padding:6px 8px;">${this.t('surveyCount')}</th></tr></thead>
-              <tbody>${dayRows || `<tr><td colspan="2" style="padding:8px;color:#64748b;">${this.t('surveyNoResponses')}</td></tr>`}</tbody>
+              <tbody>${dayRows || `<tr><td colspan="2" style="padding:8px;color:var(--text-tertiary);">${this.t('surveyNoResponses')}</td></tr>`}</tbody>
             </table>
           </div>
-          <div style="padding:12px;border:1px solid #e2e8f0;border-radius:8px;">
-            <div style="font-weight:700;color:#0f172a;">${this.t('surveyResponsesByRegion')}</div>
+          <div style="padding:12px;border:1px solid var(--border);border-radius:8px;">
+            <div style="font-weight:700;color:var(--text-primary);">${this.t('surveyResponsesByRegion')}</div>
             <table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:0.9em;">
               <thead><tr><th style="text-align:left;padding:6px 8px;">${this.t('surveyRegions')}</th><th style="text-align:right;padding:6px 8px;">${this.t('surveyCount')}</th></tr></thead>
-              <tbody>${regionRows || `<tr><td colspan="2" style="padding:8px;color:#64748b;">${this.t('surveyNoRegionData')}</td></tr>`}</tbody>
+              <tbody>${regionRows || `<tr><td colspan="2" style="padding:8px;color:var(--text-tertiary);">${this.t('surveyNoRegionData')}</td></tr>`}</tbody>
             </table>
           </div>
         </div>
-        <div style="margin-top:12px;padding:12px;border:1px dashed #cbd5e1;border-radius:8px;background:#f8fafc;">
-          <div style="font-weight:700;color:#0f172a;">${this.t('surveyFollowUpHandling')}</div>
-          <p style="margin:8px 0 0;color:#64748b;font-size:0.9em;">${escapeHtml(this.tf('surveyFollowUpHelp', { title }))}</p>
+        <div style="margin-top:12px;padding:12px;border:1px dashed var(--border-strong);border-radius:8px;background:var(--bg-subtle);">
+          <div style="font-weight:700;color:var(--text-primary);">${this.t('surveyFollowUpHandling')}</div>
+          <p style="margin:8px 0 0;color:var(--text-tertiary);font-size:0.9em;">${escapeHtml(this.tf('surveyFollowUpHelp', { title }))}</p>
           ${followUpHint}
         </div>
-        <p style="margin:10px 0 0;font-size:0.8em;color:#94a3b8;">${this.t('surveyLocalData')}</p>`;
+        <p style="margin:10px 0 0;font-size:0.8em;color:var(--text-muted);">${this.t('surveyLocalData')}</p>`;
 
       body.querySelector('#survey-anon-toggle')?.addEventListener('change', (event) => {
         const checked = !!(event.target as HTMLInputElement | null)?.checked;
@@ -5508,9 +5508,9 @@ export class UIManager extends EventEmitter {
   }
 
   private surveyMetricCard(label: string, value: string): string {
-    return `<div style="padding:10px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;">
-      <div style="font-size:0.78em;color:#64748b;">${escapeHtml(label)}</div>
-      <div style="font-size:1.2em;font-weight:700;color:#0f172a;">${escapeHtml(value)}</div>
+    return `<div style="padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);">
+      <div style="font-size:0.78em;color:var(--text-tertiary);">${escapeHtml(label)}</div>
+      <div style="font-size:1.2em;font-weight:700;color:var(--text-primary);">${escapeHtml(value)}</div>
     </div>`;
   }
 
@@ -5695,18 +5695,18 @@ export class UIManager extends EventEmitter {
           .map((reason) => this.deliveryReasonLabel(reason))
           .join(' · ');
         return `
-          <div class="broadcast-preview-row broadcast-preview-row-omitted" data-talk-id="${escapeHtml(preview.talkId)}" style="padding:10px;border:1px solid #fecaca;border-radius:10px;background:#fff7f7;">
+          <div class="broadcast-preview-row broadcast-preview-row-omitted" data-talk-id="${escapeHtml(preview.talkId)}" style="padding:10px;border:1px solid var(--danger-border);border-radius:10px;background:var(--danger-soft);">
             <div style="font-weight:600;">${escapeHtml(preview.title)}</div>
-            <div style="font-size:0.88em;color:#b91c1c;margin-top:4px;">0 ${this.t('broadcastPreviewEligible')} · ${this.t('broadcastPreviewSenderOmitted')}</div>
-            <div class="broadcast-preview-reasons" style="font-size:0.82em;color:#64748b;margin-top:4px;">${escapeHtml(reasonText)}</div>
+            <div style="font-size:0.88em;color:var(--danger-hover);margin-top:4px;">0 ${this.t('broadcastPreviewEligible')} · ${this.t('broadcastPreviewSenderOmitted')}</div>
+            <div class="broadcast-preview-reasons" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${escapeHtml(reasonText)}</div>
           </div>
         `;
       }
       if (preview.previewUnavailable) {
         return `
-          <div class="broadcast-preview-row" data-talk-id="${escapeHtml(preview.talkId)}" style="padding:10px;border:1px solid #e5e7eb;border-radius:10px;">
+          <div class="broadcast-preview-row" data-talk-id="${escapeHtml(preview.talkId)}" style="padding:10px;border:1px solid var(--border);border-radius:10px;">
             <div style="font-weight:600;">${escapeHtml(preview.title)}</div>
-            <div class="broadcast-preview-reasons" style="font-size:0.82em;color:#64748b;margin-top:4px;">${this.t('broadcastPreviewUnavailable')}</div>
+            <div class="broadcast-preview-reasons" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${this.t('broadcastPreviewUnavailable')}</div>
           </div>
         `;
       }
@@ -5721,25 +5721,25 @@ export class UIManager extends EventEmitter {
       const perTalkExcluded = Math.max(0, preview.totalCandidates - preview.eligibleReceivers)
         + (preview.supportExcludedCount || 0);
       return `
-        <div class="broadcast-preview-row" data-talk-id="${escapeHtml(preview.talkId)}" style="padding:10px;border:1px solid #e5e7eb;border-radius:10px;">
+        <div class="broadcast-preview-row" data-talk-id="${escapeHtml(preview.talkId)}" style="padding:10px;border:1px solid var(--border);border-radius:10px;">
           <div style="font-weight:600;">${escapeHtml(preview.title)}</div>
-          <div style="font-size:0.88em;color:#475569;margin-top:4px;">${preview.eligibleReceivers} ${this.t('broadcastPreviewEligible')} · ${perTalkExcluded} ${this.t('broadcastPreviewExcluded')}</div>
-          <div class="broadcast-preview-recipients" style="font-size:0.82em;color:#475569;margin-top:4px;">${escapeHtml(this.tf('broadcastPreviewRecipients', { names: recipientText }))}</div>
-          ${reasonText ? `<div class="broadcast-preview-reasons" style="font-size:0.82em;color:#64748b;margin-top:4px;">${escapeHtml(reasonText)}</div>` : ''}
-          ${rejectedDetailText ? `<div class="broadcast-preview-skipped" style="font-size:0.82em;color:#64748b;margin-top:4px;">${escapeHtml(this.tf('broadcastPreviewSkipped', { details: rejectedDetailText }))}</div>` : ''}
-          ${preview.supportExcludedCount ? `<div class="broadcast-preview-support" style="font-size:0.82em;color:#64748b;margin-top:4px;">${escapeHtml(this.tf('broadcastPreviewSupportExcluded', { count: preview.supportExcludedCount }))}</div>` : ''}
+          <div style="font-size:0.88em;color:var(--text-secondary);margin-top:4px;">${preview.eligibleReceivers} ${this.t('broadcastPreviewEligible')} · ${perTalkExcluded} ${this.t('broadcastPreviewExcluded')}</div>
+          <div class="broadcast-preview-recipients" style="font-size:0.82em;color:var(--text-secondary);margin-top:4px;">${escapeHtml(this.tf('broadcastPreviewRecipients', { names: recipientText }))}</div>
+          ${reasonText ? `<div class="broadcast-preview-reasons" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${escapeHtml(reasonText)}</div>` : ''}
+          ${rejectedDetailText ? `<div class="broadcast-preview-skipped" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${escapeHtml(this.tf('broadcastPreviewSkipped', { details: rejectedDetailText }))}</div>` : ''}
+          ${preview.supportExcludedCount ? `<div class="broadcast-preview-support" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${escapeHtml(this.tf('broadcastPreviewSupportExcluded', { count: preview.supportExcludedCount }))}</div>` : ''}
         </div>
       `;
     }).join('');
     modal.innerHTML = `
       <div style="width:min(620px,96vw);max-height:90vh;overflow:auto;background:#fff;border-radius:16px;box-shadow:0 18px 55px rgba(15,23,42,0.2);">
-        <div style="padding:18px;border-bottom:1px solid #e5e7eb;">
+        <div style="padding:18px;border-bottom:1px solid var(--border);">
           <div style="font-size:1.05em;font-weight:700;">${this.t('broadcastPreviewTitle')}</div>
-          <div style="font-size:0.88em;color:#64748b;margin-top:5px;">${this.t('broadcastPreviewHelp')}</div>
-          <span class="broadcast-chip" style="display:inline-flex;margin-top:10px;padding:4px 9px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:0.82em;">${this.tf(previews.length === 1 ? 'talksCountOne' : 'talksCount', { count: previews.length })} · ${deliveryCount} ${this.t('broadcastPreviewEligible')} · ${excludedCount} ${this.t('broadcastPreviewExcluded')}${hasUnavailable ? ` · ${this.t('broadcastPreviewFinalCheck')}` : ''}</span>
+          <div style="font-size:0.88em;color:var(--text-tertiary);margin-top:5px;">${this.t('broadcastPreviewHelp')}</div>
+          <span class="broadcast-chip" style="display:inline-flex;margin-top:10px;padding:4px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent-hover);font-size:0.82em;">${this.tf(previews.length === 1 ? 'talksCountOne' : 'talksCount', { count: previews.length })} · ${deliveryCount} ${this.t('broadcastPreviewEligible')} · ${excludedCount} ${this.t('broadcastPreviewExcluded')}${hasUnavailable ? ` · ${this.t('broadcastPreviewFinalCheck')}` : ''}</span>
         </div>
         <div style="display:grid;gap:8px;padding:14px;">${rows}</div>
-        <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 18px;border-top:1px solid #e5e7eb;">
+        <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 18px;border-top:1px solid var(--border);">
           <button class="btn" type="button" data-testid="broadcast-preamble-cancel">${this.t('broadcastPreviewCancel')}</button>
           <button class="btn primary-btn" type="button" data-testid="broadcast-preamble-send">${this.t('broadcastPreviewSend')}</button>
         </div>
@@ -6784,7 +6784,7 @@ export class UIManager extends EventEmitter {
     messageDiv.className = `message ${message.isOwnMessage ? 'sent' : ''}`;
     messageDiv.innerHTML = `
       <div class="message-bubble">
-        ${!message.isOwnMessage ? `<div style="font-weight: bold; font-size: 0.85em; margin-bottom: 4px; color: #667eea;">${escapeHtml(message.senderName)}</div>` : ''}
+        ${!message.isOwnMessage ? `<div style="font-weight: bold; font-size: 0.85em; margin-bottom: 4px; color: var(--accent);">${escapeHtml(message.senderName)}</div>` : ''}
         <div>${escapeHtml(message.text)}</div>
         <div class="message-time">${messageTime}</div>
       </div>
@@ -7156,20 +7156,20 @@ export class UIManager extends EventEmitter {
             <div class="route-answer" data-qid="${q.id}" data-aid="${a.id}" style="display:flex; align-items:center; gap:8px; margin:4px 0 4px 18px;">
               <span class="route-answer-kind" style="font-size:0.8em; padding:2px 6px; border-radius:10px; background:#eef; color:#334;">${kind}</span>
               <input type="text" class="form-input route-answer-text" value="${escapeHtml(a.text)}" placeholder="${this.t('editorRouteAnswerPlaceholder')}" data-qid="${q.id}" data-aid="${a.id}" style="flex:1;">
-              <button type="button" class="btn route-add-child-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:#667eea; color:white; padding:2px 6px;">${this.t('editorRouteAddChild')}</button>
-              <button type="button" class="btn route-remove-answer-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:#f44336; color:white; padding:2px 6px;">×</button>
+              <button type="button" class="btn route-add-child-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--accent); color:white; padding:2px 6px;">${this.t('editorRouteAddChild')}</button>
+              <button type="button" class="btn route-remove-answer-btn" data-qid="${q.id}" data-aid="${a.id}" style="font-size:0.8em; background:var(--danger); color:white; padding:2px 6px;">×</button>
             </div>
             ${childIds.map((c) => renderNode(c, depth + 1)).join('')}
           `;
         })
         .join('');
       return `
-        <div class="route-node" data-qid="${q.id}" style="border:1px solid #ddd; border-radius:6px; padding:8px; margin:6px 0; ${indent} background:#fafafa;">
+        <div class="route-node" data-qid="${q.id}" style="border:1px solid #ddd; border-radius:6px; padding:8px; margin:6px 0; ${indent} background:var(--bg-subtle);">
           <div style="display:flex; align-items:center; gap:8px;">
-            <strong style="color:#667eea;">${this.t('editorRouteQuestionPrefix')}</strong>
+            <strong style="color:var(--accent);">${this.t('editorRouteQuestionPrefix')}</strong>
             <input type="text" class="form-input route-question-text" value="${escapeHtml(q.text)}" placeholder="${this.t('editorRouteQuestionPlaceholder')}" data-qid="${q.id}" style="flex:1;">
-            <button type="button" class="btn route-add-answer-btn" data-qid="${q.id}" style="font-size:0.8em; background:#4CAF50; color:white; padding:2px 6px;">${this.t('editorAddAnswer')}</button>
-            ${q.parentAnswer ? `<button type="button" class="btn route-remove-question-btn" data-qid="${q.id}" style="font-size:0.8em; background:#f44336; color:white; padding:2px 6px;">${this.t('editorRouteRemoveQuestion')}</button>` : ''}
+            <button type="button" class="btn route-add-answer-btn" data-qid="${q.id}" style="font-size:0.8em; background:var(--success); color:white; padding:2px 6px;">${this.t('editorAddAnswer')}</button>
+            ${q.parentAnswer ? `<button type="button" class="btn route-remove-question-btn" data-qid="${q.id}" style="font-size:0.8em; background:var(--danger); color:white; padding:2px 6px;">${this.t('editorRouteRemoveQuestion')}</button>` : ''}
           </div>
           ${answersHtml}
         </div>
@@ -7801,7 +7801,7 @@ export class UIManager extends EventEmitter {
             return `
               <div class="message message-other message-hidden" data-testid="hidden-message-placeholder">
                 <div class="message-content">
-                  <div class="message-text" style="font-style:italic;color:#94a3b8;">${escapeHtml(`1 ${this.t('messageHiddenPlaceholder')}`)}</div>
+                  <div class="message-text" style="font-style:italic;color:var(--text-muted);">${escapeHtml(`1 ${this.t('messageHiddenPlaceholder')}`)}</div>
                 </div>
               </div>
             `;

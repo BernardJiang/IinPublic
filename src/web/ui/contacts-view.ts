@@ -160,24 +160,24 @@ async function openSupportControlsDialog(deps: ContactsViewDeps): Promise<void> 
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.45);display:flex;align-items:center;justify-content:center;z-index:6000;padding:20px;';
   modal.innerHTML = `
     <div style="width:min(520px, 96vw); background:white; border-radius:16px; box-shadow:0 20px 60px rgba(15,23,42,0.2);">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; border-bottom:1px solid #e5e7eb;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; border-bottom:1px solid var(--border);">
         <div>
           <div style="font-weight:700; font-size:1.05em;">${deps.text('contactSupportControls')}</div>
-          <div style="font-size:0.88em; color:#64748b;">${TECHSUPPORT_STAGE_NAME}</div>
+          <div style="font-size:0.88em; color:var(--text-tertiary);">${TECHSUPPORT_STAGE_NAME}</div>
         </div>
-        <button type="button" id="close-contact-relationship-modal" style="background:none;border:none;font-size:24px;cursor:pointer;color:#64748b;">&times;</button>
+        <button type="button" id="close-contact-relationship-modal" style="background:none;border:none;font-size:24px;cursor:pointer;color:var(--text-tertiary);">&times;</button>
       </div>
       <div style="padding:18px; display:grid; gap:14px;">
-        <div style="padding:12px;border-radius:12px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;">
+        <div style="padding:12px;border-radius:12px;background:var(--accent-soft);border:1px solid var(--accent-border);color:var(--accent-text);">
           <div style="font-weight:700;">${deps.text('contactsSupportBuiltIn')}</div>
           <div style="font-size:0.9em;margin-top:5px;">${deps.text('contactSupportDescription')}</div>
         </div>
-        <div id="contact-support-status-wrap" style="padding:12px;border-radius:12px;background:#f8fafc;border:1px solid #e5e7eb;">
+        <div id="contact-support-status-wrap" style="padding:12px;border-radius:12px;background:var(--bg-subtle);border:1px solid var(--border);">
           <div style="font-weight:700;">${deps.text('contactSupportNotificationStatus')}</div>
-          <div id="contact-support-status-text" style="font-size:0.9em;color:#475569;margin-top:5px;">${deps.text(muted ? 'contactSupportNotificationsMuted' : 'contactSupportNotificationsOn')}</div>
+          <div id="contact-support-status-text" style="font-size:0.9em;color:var(--text-secondary);margin-top:5px;">${deps.text(muted ? 'contactSupportNotificationsMuted' : 'contactSupportNotificationsOn')}</div>
         </div>
       </div>
-      <div style="display:flex; justify-content:flex-end; gap:10px; padding:16px 18px; border-top:1px solid #e5e7eb;">
+      <div style="display:flex; justify-content:flex-end; gap:10px; padding:16px 18px; border-top:1px solid var(--border);">
         <button type="button" class="btn" id="contact-relationship-close-btn">${deps.text('contactClose')}</button>
         <button type="button" class="btn primary-btn" id="contact-support-mute-btn">${deps.text(muted ? 'contactUnmuteSupport' : 'contactMuteSupport')}</button>
       </div>
@@ -245,13 +245,13 @@ function renderPublicProfileSummary(deps: ContactsViewDeps, publicUser: any): st
     : [];
   const profile = Array.isArray(publicUser?.profile) ? publicUser.profile.filter((qa: any) => qa?.question && qa?.answer) : [];
   return `
-    <div style="display:flex; gap:12px; align-items:flex-start; margin-top:10px; padding:12px; border-radius:12px; background:#f8fafc; border:1px solid #e2e8f0;">
+    <div style="display:flex; gap:12px; align-items:flex-start; margin-top:10px; padding:12px; border-radius:12px; background:var(--bg-subtle); border:1px solid var(--border);">
       <div class="user-avatar" style="width:52px; height:52px; font-size:1.4em; flex-shrink:0;">${avatarInnerHtml(headshot, '?', deps.escapeHtml)}</div>
       <div style="min-width:0; flex:1;">
-        <div style="font-size:0.82em; color:#64748b;">${deps.text('publicProfile')}</div>
-        <div class="contact-profile-languages" style="font-size:0.88em; color:#334155; margin-top:4px;">${deps.text('languagesLabel')}: ${deps.escapeHtml(languageLabels.length > 0 ? languageLabels.join(', ') : deps.text('notListed'))}</div>
-        ${languages.length > 0 && ownLanguages.size > 0 && sharedLanguages.length === 0 ? `<div class="contact-language-hint" style="font-size:0.82em; color:#b45309; margin-top:4px;">${deps.text('contactNoSharedLanguage')}</div>` : ''}
-        ${interests.length > 0 ? `<div style="font-size:0.88em; color:#334155; margin-top:4px;">${deps.text('interestsLabel')}: ${deps.escapeHtml(interests.join(', '))}</div>` : ''}
+        <div style="font-size:0.82em; color:var(--text-tertiary);">${deps.text('publicProfile')}</div>
+        <div class="contact-profile-languages" style="font-size:0.88em; color:var(--text-primary); margin-top:4px;">${deps.text('languagesLabel')}: ${deps.escapeHtml(languageLabels.length > 0 ? languageLabels.join(', ') : deps.text('notListed'))}</div>
+        ${languages.length > 0 && ownLanguages.size > 0 && sharedLanguages.length === 0 ? `<div class="contact-language-hint" style="font-size:0.82em; color:var(--warning-text); margin-top:4px;">${deps.text('contactNoSharedLanguage')}</div>` : ''}
+        ${interests.length > 0 ? `<div style="font-size:0.88em; color:var(--text-primary); margin-top:4px;">${deps.text('interestsLabel')}: ${deps.escapeHtml(interests.join(', '))}</div>` : ''}
         <div style="display:grid; gap:6px; margin-top:8px;">
           ${
             profile.length > 0
@@ -259,14 +259,14 @@ function renderPublicProfileSummary(deps: ContactsViewDeps, publicUser: any): st
                   .slice(0, 3)
                   .map(
                     (qa: any) => `
-                      <div style="padding:8px 10px; border-radius:10px; background:white; border:1px solid #e5e7eb;">
-                        <div style="font-size:0.75em; color:#64748b;">${deps.escapeHtml(String(qa.question))}</div>
-                        <div style="font-size:0.9em; font-weight:600; color:#111827; margin-top:2px;">${deps.escapeHtml(String(qa.answer))}</div>
+                      <div style="padding:8px 10px; border-radius:10px; background:white; border:1px solid var(--border);">
+                        <div style="font-size:0.75em; color:var(--text-tertiary);">${deps.escapeHtml(String(qa.question))}</div>
+                        <div style="font-size:0.9em; font-weight:600; color:var(--text-primary); margin-top:2px;">${deps.escapeHtml(String(qa.answer))}</div>
                       </div>
                     `,
                   )
                   .join('')
-              : `<div style="font-size:0.82em; color:#94a3b8;">${deps.text('noPublicProfile')}</div>`
+              : `<div style="font-size:0.82em; color:var(--text-muted);">${deps.text('noPublicProfile')}</div>`
           }
         </div>
       </div>
@@ -276,22 +276,22 @@ function renderPublicProfileSummary(deps: ContactsViewDeps, publicUser: any): st
 
 function relationshipModalCreditInnerHtml(deps: ContactsViewDeps, publicUser: any, blockedBy: boolean): string {
   if (blockedBy) {
-    return `<div style="margin-top:6px;color:#94a3b8;">${deps.text('contactProfileUnavailable')}</div>`;
+    return `<div style="margin-top:6px;color:var(--text-muted);">${deps.text('contactProfileUnavailable')}</div>`;
   }
   if (!publicUser) {
-    return `<div style="margin-top:6px;color:#94a3b8;">${deps.text('contactCreditUnavailable')}</div>`;
+    return `<div style="margin-top:6px;color:var(--text-muted);">${deps.text('contactCreditUnavailable')}</div>`;
   }
   const reputation = publicUser?.reputation || null;
   if (reputation && !reputation.isHidden) {
     return `<div style="margin-top:6px;font-weight:700;">${Number(reputation.starRating || 0).toFixed(1)} ★</div>
-            <div style="font-size:0.88em;color:#475569;margin-top:4px;">${formatText(deps, 'contactCreditSummary', {
+            <div style="font-size:0.88em;color:var(--text-secondary);margin-top:4px;">${formatText(deps, 'contactCreditSummary', {
               reviews: reputation.reviewCount || 0,
               friends: reputation.friendsCount || 0,
               liked: reputation.likedCount || 0,
               disliked: reputation.dislikedCount || 0,
             })}</div>`;
   }
-  return `<div style="margin-top:6px;color:#94a3b8;">${deps.text('contactCreditHidden')}</div>`;
+  return `<div style="margin-top:6px;color:var(--text-muted);">${deps.text('contactCreditHidden')}</div>`;
 }
 
 function renderContactContextSummary(
@@ -307,19 +307,19 @@ function renderContactContextSummary(
       ? deps.text('contactBlockedByMe')
       : deps.text('contactNoBlock');
   return `
-    <div class="contact-context-summary" style="display:grid; gap:10px; margin-top:10px; padding:12px; border-radius:12px; background:#f8fafc; border:1px solid #e2e8f0;">
-      <div style="font-size:0.82em; color:#64748b;">${deps.text('contactRelationshipCredit')}</div>
-      <div class="contact-context-relationship" style="font-size:0.88em;color:#334155;">
+    <div class="contact-context-summary" style="display:grid; gap:10px; margin-top:10px; padding:12px; border-radius:12px; background:var(--bg-subtle); border:1px solid var(--border);">
+      <div style="font-size:0.82em; color:var(--text-tertiary);">${deps.text('contactRelationshipCredit')}</div>
+      <div class="contact-context-relationship" style="font-size:0.88em;color:var(--text-primary);">
         ${deps.text('relationship')}: ${deps.escapeHtml(formatRelationshipLabel(known, deps))}
       </div>
-      ${known?.notes ? `<div class="contact-context-notes" style="font-size:0.88em;color:#334155;">${deps.text('contactNotes')}: ${deps.escapeHtml(known.notes)}</div>` : ''}
-      <div class="contact-context-credit" style="padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;background:white;">
-        <div style="font-size:0.8em;color:#64748b;">${deps.text('contactPublicCredit')}</div>
+      ${known?.notes ? `<div class="contact-context-notes" style="font-size:0.88em;color:var(--text-primary);">${deps.text('contactNotes')}: ${deps.escapeHtml(known.notes)}</div>` : ''}
+      <div class="contact-context-credit" style="padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:white;">
+        <div style="font-size:0.8em;color:var(--text-tertiary);">${deps.text('contactPublicCredit')}</div>
         ${relationshipModalCreditInnerHtml(deps, publicUser, blockedBy)}
       </div>
-      <div class="contact-context-block-status" style="padding:10px 12px;border:1px solid ${blockedBy || blockedByMe ? '#fde68a' : '#e5e7eb'};border-radius:10px;background:${blockedBy || blockedByMe ? '#fffbeb' : 'white'};">
-        <div style="font-size:0.8em;color:#64748b;">${deps.text('contactBlockStatus')}</div>
-        <div style="font-size:0.88em;color:#475569;margin-top:4px;">${blockStatus}</div>
+      <div class="contact-context-block-status" style="padding:10px 12px;border:1px solid ${blockedBy || blockedByMe ? 'var(--warning-border)' : 'var(--border)'};border-radius:10px;background:${blockedBy || blockedByMe ? 'var(--warning-soft)' : 'white'};">
+        <div style="font-size:0.8em;color:var(--text-tertiary);">${deps.text('contactBlockStatus')}</div>
+        <div style="font-size:0.88em;color:var(--text-secondary);margin-top:4px;">${blockStatus}</div>
       </div>
     </div>
   `;
@@ -355,22 +355,22 @@ function applyRelationshipModalProfileFetch(
 ): void {
   const creditPanel = document.getElementById('contact-relationship-credit-panel');
   if (creditPanel) {
-    creditPanel.innerHTML = `<div style="font-size:0.8em;color:#64748b;">${deps.text('contactPublicCredit')}</div>${relationshipModalCreditInnerHtml(deps, publicUser, blockedBy)}`;
+    creditPanel.innerHTML = `<div style="font-size:0.8em;color:var(--text-tertiary);">${deps.text('contactPublicCredit')}</div>${relationshipModalCreditInnerHtml(deps, publicUser, blockedBy)}`;
   }
   const wrap = document.getElementById('contact-block-status-wrap');
   const statusText = document.getElementById('contact-block-status-text');
   if (wrap && statusText) {
     if (blockedBy) {
-      wrap.style.borderColor = '#fecaca';
-      wrap.style.background = '#fef2f2';
+      wrap.style.borderColor = 'var(--danger-border)';
+      wrap.style.background = 'var(--danger-soft)';
       statusText.textContent = deps.text('contactBlockedBy');
     } else if (blockedByMe) {
-      wrap.style.borderColor = '#fde68a';
-      wrap.style.background = '#fffbeb';
+      wrap.style.borderColor = 'var(--warning-border)';
+      wrap.style.background = 'var(--warning-soft)';
       statusText.textContent = deps.text('contactBlockedByMe');
     } else {
-      wrap.style.borderColor = '#e5e7eb';
-      wrap.style.background = '#f8fafc';
+      wrap.style.borderColor = 'var(--border)';
+      wrap.style.background = 'var(--bg-subtle)';
       statusText.textContent = deps.text('contactNoBlock');
     }
   }
@@ -445,18 +445,18 @@ export async function openRelationshipDialog(
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.45);display:flex;align-items:center;justify-content:center;z-index:6000;padding:20px;';
   modal.innerHTML = `
     <div style="width:min(640px, 96vw); max-height:90vh; overflow:auto; background:white; border-radius:16px; box-shadow:0 20px 60px rgba(15,23,42,0.2);">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; border-bottom:1px solid #e5e7eb;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; border-bottom:1px solid var(--border);">
         <div>
           <div style="font-weight:700; font-size:1.05em;">${deps.text('contactRelationshipCredit')}</div>
-          <div style="font-size:0.88em; color:#64748b;">${deps.escapeHtml(stageName)}</div>
+          <div style="font-size:0.88em; color:var(--text-tertiary);">${deps.escapeHtml(stageName)}</div>
         </div>
-        <button type="button" id="close-contact-relationship-modal" style="background:none;border:none;font-size:24px;cursor:pointer;color:#64748b;">&times;</button>
+        <button type="button" id="close-contact-relationship-modal" style="background:none;border:none;font-size:24px;cursor:pointer;color:var(--text-tertiary);">&times;</button>
       </div>
       <div style="padding:18px; display:grid; gap:16px;">
         <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px;">
           <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
             <span>${deps.text('relationship')}</span>
-            <select id="contact-relationship-label" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">
+            <select id="contact-relationship-label" style="padding:10px;border:1px solid var(--border-strong);border-radius:10px;">
               ${['friend', 'relative', 'coworker', 'acquaintance', 'partner', 'custom']
                 .map((label) => `<option value="${label}" ${(known?.label || '') === label ? 'selected' : ''}>${formatRelationshipLabel(label, deps)}</option>`)
                 .join('')}
@@ -464,40 +464,40 @@ export async function openRelationshipDialog(
           </label>
           <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
             <span>${deps.text('contactNickname')}</span>
-            <input id="contact-relationship-nickname" type="text" value="${deps.escapeHtml(String(known?.nickname || ''))}" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">
+            <input id="contact-relationship-nickname" type="text" value="${deps.escapeHtml(String(known?.nickname || ''))}" style="padding:10px;border:1px solid var(--border-strong);border-radius:10px;">
           </label>
         </div>
         <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
           <span>${deps.text('contactCustomLabel')}</span>
-          <input id="contact-relationship-custom-label" type="text" value="${deps.escapeHtml(String(known?.customLabel || ''))}" placeholder="${deps.text('contactCustomLabelHelp')}" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">
+          <input id="contact-relationship-custom-label" type="text" value="${deps.escapeHtml(String(known?.customLabel || ''))}" placeholder="${deps.text('contactCustomLabelHelp')}" style="padding:10px;border:1px solid var(--border-strong);border-radius:10px;">
         </label>
         <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px;">
           <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
             <span>${deps.text('contactMyRating')}</span>
-            <select id="contact-relationship-rating" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">
+            <select id="contact-relationship-rating" style="padding:10px;border:1px solid var(--border-strong);border-radius:10px;">
               <option value="">${deps.text('contactNoRating')}</option>
               ${[1, 2, 3, 4, 5]
                 .map((rating) => `<option value="${rating}" ${known?.rating === rating ? 'selected' : ''}>${rating} ${deps.text(rating === 1 ? 'contactStar' : 'contactStars')}</option>`)
                 .join('')}
             </select>
           </label>
-          <div id="contact-relationship-credit-panel" style="padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;background:#f8fafc;">
-            <div style="font-size:0.8em;color:#64748b;">${deps.text('contactPublicCredit')}</div>
-            <div style="margin-top:6px;color:#94a3b8;">${deps.text('loading')}</div>
+          <div id="contact-relationship-credit-panel" style="padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--bg-subtle);">
+            <div style="font-size:0.8em;color:var(--text-tertiary);">${deps.text('contactPublicCredit')}</div>
+            <div style="margin-top:6px;color:var(--text-muted);">${deps.text('loading')}</div>
           </div>
         </div>
         <label style="display:flex; flex-direction:column; gap:6px; font-size:0.9em;">
           <span>${deps.text('contactNotes')}</span>
-          <textarea id="contact-relationship-notes" rows="4" style="padding:10px;border:1px solid #d1d5db;border-radius:10px;">${deps.escapeHtml(String(known?.notes || ''))}</textarea>
+          <textarea id="contact-relationship-notes" rows="4" style="padding:10px;border:1px solid var(--border-strong);border-radius:10px;">${deps.escapeHtml(String(known?.notes || ''))}</textarea>
         </label>
-        <div id="contact-block-status-wrap" style="padding:12px; border-radius:12px; border:1px solid ${blockedByMe ? '#fde68a' : '#e5e7eb'}; background:${blockedByMe ? '#fffbeb' : '#f8fafc'};">
-          <div style="font-weight:700; color:#111827;">${deps.text('contactBlockStatus')}</div>
-          <div id="contact-block-status-text" style="font-size:0.88em; color:#475569; margin-top:4px;">
+        <div id="contact-block-status-wrap" style="padding:12px; border-radius:12px; border:1px solid ${blockedByMe ? 'var(--warning-border)' : 'var(--border)'}; background:${blockedByMe ? 'var(--warning-soft)' : 'var(--bg-subtle)'};">
+          <div style="font-weight:700; color:var(--text-primary);">${deps.text('contactBlockStatus')}</div>
+          <div id="contact-block-status-text" style="font-size:0.88em; color:var(--text-secondary); margin-top:4px;">
             ${deps.text(blockedByMe ? 'contactBlockedByMe' : 'contactNoBlock')}
           </div>
         </div>
       </div>
-      <div style="display:flex; justify-content:space-between; gap:10px; padding:16px 18px; border-top:1px solid #e5e7eb;">
+      <div style="display:flex; justify-content:space-between; gap:10px; padding:16px 18px; border-top:1px solid var(--border);">
         <button type="button" class="btn" id="contact-age-vouch-btn" title="${deps.text('contactVouchAdult')}" style="${blockedByMe ? 'display:none;' : ''}">${deps.text('contactVouchAdult')}</button>
         <button type="button" class="btn" id="contact-block-toggle-btn">${deps.text(blockedByMe ? 'contactUnblockUser' : 'contactBlockUser')}</button>
         <div style="display:flex; gap:10px;">
@@ -726,13 +726,13 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
 
     const supportRow = showSupportContact
       ? `
-          <div class="contact-item contact-support-item" data-support-contact="true" data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}" data-contact-name="${TECHSUPPORT_STAGE_NAME}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 8px; background: #eff6ff; border-radius: 12px; border: 1px solid #bfdbfe; cursor: pointer;">
+          <div class="contact-item contact-support-item" data-support-contact="true" data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}" data-contact-name="${TECHSUPPORT_STAGE_NAME}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 8px; background: var(--accent-soft); border-radius: 12px; border: 1px solid var(--accent-border); cursor: pointer;">
             <div style="min-width:0;">
-              <div class="contact-item-name" style="font-weight:700;">${TECHSUPPORT_STAGE_NAME}<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:0.72em;font-weight:700;margin-left:8px;">${deps.text('contactsSupportPinned')}</span></div>
-              <div class="contact-item-meta" style="font-size:0.85em;color:#1e40af;margin-top:4px;">${deps.text('contactsSupportBuiltIn')}</div>
-              <div class="contact-item-meta" style="font-size:0.8em;color:#64748b;margin-top:4px;">${deps.text(deps.isSupportNotificationsMuted() ? 'contactSupportNotificationsMuted' : 'contactSupportNotificationsOn')}</div>
+              <div class="contact-item-name" style="font-weight:700;">${TECHSUPPORT_STAGE_NAME}<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent-hover);font-size:0.72em;font-weight:700;margin-left:8px;">${deps.text('contactsSupportPinned')}</span></div>
+              <div class="contact-item-meta" style="font-size:0.85em;color:var(--accent-text);margin-top:4px;">${deps.text('contactsSupportBuiltIn')}</div>
+              <div class="contact-item-meta" style="font-size:0.8em;color:var(--text-tertiary);margin-top:4px;">${deps.text(deps.isSupportNotificationsMuted() ? 'contactSupportNotificationsMuted' : 'contactSupportNotificationsOn')}</div>
             </div>
-            <span style="color:#3b82f6; flex-shrink:0;">›</span>
+            <span style="color:var(--accent); flex-shrink:0;">›</span>
           </div>
         `
       : '';
@@ -745,17 +745,17 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
         const metrics = rankingMetrics(peer, known, deps);
         const matchPercent = Math.round(metrics.matchRate * 100);
         const blockedBadge = deps.isBlockedByMe(peer.peerId)
-          ? `<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#fff7ed;color:#c2410c;font-size:0.72em;font-weight:700;margin-left:8px;">${deps.text('contactsBlocked')}</span>`
+          ? `<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:var(--warning-soft);color:var(--warning-text);font-size:0.72em;font-weight:700;margin-left:8px;">${deps.text('contactsBlocked')}</span>`
           : '';
-        const matchRateChip = `<div class="contact-item-match-rate" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}" data-total-talks="${peer.stats.totalTalks}" style="font-size:0.8em;color:#0f766e;font-weight:700;margin-top:4px;">${deps.text('matchRate')}: ${matchPercent}% · ${formatText(deps, 'contactsMatchRateDetail', { matched: metrics.matchedTalks, total: peer.stats.totalTalks })}</div>`;
+        const matchRateChip = `<div class="contact-item-match-rate" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}" data-total-talks="${peer.stats.totalTalks}" style="font-size:0.8em;color:var(--accent);font-weight:700;margin-top:4px;">${deps.text('matchRate')}: ${matchPercent}% · ${formatText(deps, 'contactsMatchRateDetail', { matched: metrics.matchedTalks, total: peer.stats.totalTalks })}</div>`;
         return `
-          <div class="contact-item" data-contact-user-id="${deps.escapeHtml(peer.peerId)}" data-contact-name="${deps.escapeHtml(resolvedStageName)}" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 8px; background: white; border-radius: 12px; border: 1px solid #e0e0e0; cursor: pointer;">
+          <div class="contact-item" data-contact-user-id="${deps.escapeHtml(peer.peerId)}" data-contact-name="${deps.escapeHtml(resolvedStageName)}" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 8px; background: white; border-radius: 12px; border: 1px solid var(--border); cursor: pointer;">
             <div style="min-width: 0;">
               <div class="contact-item-name" style="font-weight: 700;">${deps.escapeHtml(displayName)}${blockedBadge}</div>
               <div class="contact-item-meta" style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(buildMetaLine(peer, known, deps))}</div>
-              <div class="contact-item-meta" style="font-size: 0.8em; color: #94a3b8; margin-top: 4px;">${deps.text('sent')} ${peer.stats.sent.talks} · ${deps.text('received')} ${peer.stats.received.talks} · ${deps.text('relationship')}: ${deps.escapeHtml(relationship)}</div>
+              <div class="contact-item-meta" style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px;">${deps.text('sent')} ${peer.stats.sent.talks} · ${deps.text('received')} ${peer.stats.received.talks} · ${deps.text('relationship')}: ${deps.escapeHtml(relationship)}</div>
               ${sortOrder === 'match-rate' ? matchRateChip : ''}
-              ${sortOrder === 'weighted' ? `<div class="contact-item-rank" title="${deps.escapeHtml(metrics.explanation)}" style="font-size:0.8em;color:#475569;margin-top:4px;">${deps.text('relevanceScore')}: ${metrics.relevance} · ${deps.escapeHtml(metrics.explanation)}</div>` : ''}
+              ${sortOrder === 'weighted' ? `<div class="contact-item-rank" title="${deps.escapeHtml(metrics.explanation)}" style="font-size:0.8em;color:var(--text-secondary);margin-top:4px;">${deps.text('relevanceScore')}: ${metrics.relevance} · ${deps.escapeHtml(metrics.explanation)}</div>` : ''}
             </div>
             <span style="color: #999; flex-shrink: 0;">›</span>
           </div>
@@ -896,7 +896,7 @@ export async function showContactDetail(
         const localTalk = item.talkId ? myTalks[item.talkId] : null;
         const title = String(localTalk?.title || localTalk?.fullTalk?.title || item.title || deps.text('contactTalkFallback')).trim();
         return `
-          <div class="contact-talk-item" data-talk-id="${deps.escapeHtml(String(item.talkId || ''))}" style="padding: 14px 16px; margin-bottom: 8px; background: #f9f9f9; border-radius: 10px; border: 1px solid #e0e0e0;">
+          <div class="contact-talk-item" data-talk-id="${deps.escapeHtml(String(item.talkId || ''))}" style="padding: 14px 16px; margin-bottom: 8px; background: var(--bg-subtle); border-radius: 10px; border: 1px solid var(--border);">
             <div style="font-weight: 600;">${deps.escapeHtml(title)}</div>
             <div style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(String(item.direction || ''))} · ${deps.escapeHtml(String(item.outcome || 'pending'))}</div>
           </div>

@@ -279,7 +279,7 @@ export function registerAppBarStyles(): void {
     align-items: center;
     height: 48px;
     background: #fff;
-    border-bottom: 1px solid #e0e0e0;
+    border-bottom: 1px solid var(--border);
     padding: 0 16px;
     gap: 8px;
     position: relative;
@@ -305,7 +305,7 @@ export function registerAppBarStyles(): void {
     border-radius: 6px;
 }
 .app-bar-back-btn:hover {
-    background: #f3f4f6;
+    background: var(--bg-muted);
 }
 .app-bar-center {
     flex: 1;
@@ -328,7 +328,7 @@ export function registerAppBarStyles(): void {
 }
 .app-bar-status-text {
     font-size: 0.85em;
-    color: #6b7280;
+    color: var(--text-tertiary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -361,7 +361,7 @@ export function registerAppBarStyles(): void {
 }
 .app-bar-action-btn:hover,
 .app-bar-overflow-btn:hover {
-    background: #f3f4f6;
+    background: var(--bg-muted);
 }
 .app-bar-action-btn.disabled,
 .app-bar-overflow-item.disabled {
@@ -404,7 +404,7 @@ export function registerAppBarStyles(): void {
     color: #000;
 }
 .app-bar-overflow-item:hover {
-    background: #f3f4f6;
+    background: var(--bg-muted);
 }
 .app-bar-overflow-item-icon {
     font-size: 1.1em;

@@ -22,12 +22,12 @@ type MyTalksDialogOptions = {
 
 function roleBadge(talk: TalkEntry, text: (key: UiTranslationKey, fallback: string) => string): string {
   if (talk.role === 'created') {
-    return `<span style="display: inline-block; padding: 4px 12px; background: #dbeafe; color: #1e40af; border-radius: 12px; font-size: 0.8em; font-weight: 600;">📝 ${text('myTalksCreated', 'Created by me')}</span>`;
+    return `<span style="display: inline-block; padding: 4px 12px; background: var(--accent-soft); color: var(--accent-text); border-radius: 12px; font-size: 0.8em; font-weight: 600;">📝 ${text('myTalksCreated', 'Created by me')}</span>`;
   }
   if (talk.role === 'copied') {
-    return `<span style="display: inline-block; padding: 4px 12px; background: #e0e7ff; color: #3730a3; border-radius: 12px; font-size: 0.8em; font-weight: 600;">📥 ${text('myTalksCopied', 'Copied')}</span>`;
+    return `<span style="display: inline-block; padding: 4px 12px; background: var(--accent-soft); color: var(--accent-text); border-radius: 12px; font-size: 0.8em; font-weight: 600;">📥 ${text('myTalksCopied', 'Copied')}</span>`;
   }
-  return `<span style="display: inline-block; padding: 4px 12px; background: #dcfce7; color: #166534; border-radius: 12px; font-size: 0.8em; font-weight: 600;">✅ ${text('myTalksAnswered', 'Answered by me')}</span>`;
+  return `<span style="display: inline-block; padding: 4px 12px; background: var(--success-soft); color: var(--success-text); border-radius: 12px; font-size: 0.8em; font-weight: 600;">✅ ${text('myTalksAnswered', 'Answered by me')}</span>`;
 }
 
 export function showMyTalksDialog(options: MyTalksDialogOptions): void {
@@ -72,7 +72,7 @@ export function showMyTalksDialog(options: MyTalksDialogOptions): void {
               ${talkEntries
                 .map(
                   ([talkId, talk]) => `
-                  <div class="talk-history-item" data-talk-id="${talkId}" style="background: #f9f9f9; border: 2px solid #e0e0e0; border-radius: 12px; padding: 20px; margin-bottom: 15px; cursor: pointer;">
+                  <div class="talk-history-item" data-talk-id="${talkId}" style="background: var(--bg-subtle); border: 2px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 15px; cursor: pointer;">
                     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
                       <div style="flex: 1;">
                         <div style="font-weight: 600; font-size: 1.1em; color: #333; margin-bottom: 6px;">
@@ -80,7 +80,7 @@ export function showMyTalksDialog(options: MyTalksDialogOptions): void {
                         </div>
                         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                           ${roleBadge(talk, text)}
-                          <span style="display: inline-block; padding: 4px 12px; background: #f3f4f6; color: #6b7280; border-radius: 12px; font-size: 0.8em; font-weight: 600;">
+                          <span style="display: inline-block; padding: 4px 12px; background: var(--bg-muted); color: var(--text-tertiary); border-radius: 12px; font-size: 0.8em; font-weight: 600;">
                             ${formatType(talk.type || '')}
                           </span>
                         </div>
@@ -90,20 +90,20 @@ export function showMyTalksDialog(options: MyTalksDialogOptions): void {
                       ${format('myTalksLastInteraction', 'Last interaction: {date}', { date: formatDate(new Date(talk.lastInteraction || 0)) })}
                     </div>
                     <div style="font-size: 0.85em; color: #999;">
-                      ${text('myTalksId', 'Talk ID:')} <code style="background: #e5e7eb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em;">${talkId}</code>
+                      ${text('myTalksId', 'Talk ID:')} <code style="background: var(--border); padding: 2px 6px; border-radius: 4px; font-size: 0.9em;">${talkId}</code>
                     </div>
                     <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
                       <button
                         class="toggle-broadcast-my-talks-btn"
                         data-talk-id="${talkId}"
-                        style="background: ${talk.disabled ? '#e5e7eb' : '#16a34a'}; color: ${talk.disabled ? '#374151' : '#fff'}; border: 1px solid ${talk.disabled ? '#d1d5db' : '#15803d'}; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.85em; font-weight: 600;"
+                        style="background: ${talk.disabled ? 'var(--border)' : 'var(--success)'}; color: ${talk.disabled ? 'var(--text-secondary)' : '#fff'}; border: 1px solid ${talk.disabled ? 'var(--border-strong)' : 'var(--success-hover)'}; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.85em; font-weight: 600;"
                       >
                         ${talk.disabled ? text('talksBroadcastOff', 'Broadcast Off') : text('talksBroadcastOn', 'Broadcast On')}
                       </button>
                       <button
                         class="delete-talk-btn"
                         data-talk-id="${talkId}"
-                        style="background: #e53e3e; color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.85em; font-weight: 600;"
+                        style="background: var(--danger); color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.85em; font-weight: 600;"
                       >
                         🗑️ ${text('myTalksRemove', 'Remove from History')}
                       </button>
@@ -113,10 +113,10 @@ export function showMyTalksDialog(options: MyTalksDialogOptions): void {
                 )
                 .join('')}
             </div>
-            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
+            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border);">
               <button
                 id="clear-all-talks-btn"
-                style="background: #e53e3e; color: white; border: none; border-radius: 8px; padding: 12px 24px; cursor: pointer; font-weight: 600; font-size: 1em;"
+                style="background: var(--danger); color: white; border: none; border-radius: 8px; padding: 12px 24px; cursor: pointer; font-weight: 600; font-size: 1em;"
               >
                 🗑️ ${text('myTalksClear', 'Clear All History')}
               </button>

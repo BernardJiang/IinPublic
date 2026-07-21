@@ -44,10 +44,10 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
     return text(keys[mode], fallbacks[mode]);
   };
   const modeTone = (mode: AnswerPreferenceUiMode): string => {
-    if (mode === 'permanent') return 'background: #dbeafe; color: #1d4ed8;';
-    if (mode === 'temporary') return 'background: #d1fae5; color: #065f46;';
-    if (mode === 'suppressed') return 'background: #fef3c7; color: #92400e;';
-    return 'background: #fee2e2; color: #991b1b;';
+    if (mode === 'permanent') return 'background: var(--accent-soft); color: var(--accent-hover);';
+    if (mode === 'temporary') return 'background: var(--success-soft); color: var(--success-text);';
+    if (mode === 'suppressed') return 'background: var(--warning-soft); color: var(--warning-text);';
+    return 'background: var(--danger-border); color: var(--danger-hover);';
   };
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
@@ -80,7 +80,7 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
                 .map(([key, pref]) => {
                   const mode = normalizeMode(pref.mode);
                   return `
-                  <div class="preference-item" style="background: #f9f9f9; border: 2px solid #e0e0e0; border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                  <div class="preference-item" style="background: var(--bg-subtle); border: 2px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
                     <div style="margin-bottom: 15px;">
                       <div style="font-weight: 600; font-size: 1.1em; color: #333; margin-bottom: 8px;">
                         ${options.escapeHtml(pref.questionText || text('preferencesQuestionFallback', 'Question'))}
@@ -98,7 +98,7 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
                           ? `<select
                         class="answer-select"
                         data-pref-key="${key}"
-                        style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1em; background: white; cursor: pointer;"
+                        style="width: 100%; padding: 10px; border: 2px solid var(--border); border-radius: 8px; font-size: 1em; background: white; cursor: pointer;"
                       >
                         ${pref.allAnswers
                           .map(
@@ -110,7 +110,7 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
                           )
                           .join('')}
                       </select>`
-                          : `<div style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1em; background: #f5f5f5; color: #666;">
+                          : `<div style="width: 100%; padding: 10px; border: 2px solid var(--border); border-radius: 8px; font-size: 1em; background: var(--bg-muted); color: #666;">
                         ${options.escapeHtml(pref.answerText)}
                         <div style="font-size: 0.75em; margin-top: 4px; color: #999;">
                           ${text('preferencesOptionsUnavailable', '(Other options not available - answer this question again to enable editing)')}
@@ -127,7 +127,7 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
                           ${text('preferencesModeHelp', 'Choose whether to ask again, auto-answer once, always auto-answer, or skip the exact question.')}
                         </div>
                       </div>
-                      <select class="mode-select" data-pref-key="${key}" style="max-width: 220px; padding: 9px; border: 2px solid #e0e0e0; border-radius: 8px; background: white;">
+                      <select class="mode-select" data-pref-key="${key}" style="max-width: 220px; padding: 9px; border: 2px solid var(--border); border-radius: 8px; background: white;">
                         ${(['manual', 'temporary', 'permanent', 'suppressed'] as AnswerPreferenceUiMode[])
                           .map((choice) => `<option value="${choice}" ${choice === mode ? 'selected' : ''}>${modeLabel(choice)}</option>`)
                           .join('')}
@@ -140,7 +140,7 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
                       <button
                         class="delete-pref-btn"
                         data-pref-key="${key}"
-                        style="background: #e53e3e; color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.85em; font-weight: 600;"
+                        style="background: var(--danger); color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.85em; font-weight: 600;"
                       >
                         🗑️ ${text('preferencesDelete', 'Delete')}
                       </button>
@@ -150,10 +150,10 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
                 })
                 .join('')}
             </div>
-            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
+            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border);">
               <button
                 id="clear-all-prefs-btn"
-                style="background: #e53e3e; color: white; border: none; border-radius: 8px; padding: 12px 24px; cursor: pointer; font-weight: 600; font-size: 1em;"
+                style="background: var(--danger); color: white; border: none; border-radius: 8px; padding: 12px 24px; cursor: pointer; font-weight: 600; font-size: 1em;"
               >
                 🗑️ ${text('preferencesClearAll', 'Clear All Answers')}
               </button>

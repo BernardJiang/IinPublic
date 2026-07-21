@@ -431,7 +431,7 @@ async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserD
       const subtitleEl = document.getElementById('peer-detail-subtitle');
       if (subtitleEl) subtitleEl.textContent = `${peerName} · blocked`;
       if (statsEl) {
-        statsEl.innerHTML = `<div style="padding:12px;color:#64748b;">${deps.text('contactProfileUnavailable')} ${deps.text('peerBlockedDetail')}</div>`;
+        statsEl.innerHTML = `<div style="padding:12px;color:var(--text-tertiary);">${deps.text('contactProfileUnavailable')} ${deps.text('peerBlockedDetail')}</div>`;
       }
       await applySendButtonFromBlockStatus(peerId, deps, blockStatus);
       return;
@@ -500,13 +500,13 @@ function renderProfileHtml(publicUser: any, deps: UserDetailViewDeps): string {
       <div style="display:flex; gap:12px; align-items:flex-start;">
         <div class="user-avatar" style="width:56px; height:56px; font-size:1.5em; flex-shrink:0;">${avatarInnerHtml(headshot, '?', escapeHtml)}</div>
         <div style="min-width:0; flex:1;">
-          <div style="font-weight:700; color:#111827;">${deps.text('publicProfile')}</div>
+          <div style="font-weight:700; color:var(--text-primary);">${deps.text('publicProfile')}</div>
           <div class="peer-compatibility" aria-label="Compatibility ${compatibility}%">
             <div class="peer-compatibility-label"><span>Compatibility</span><strong>${compatibility}%</strong></div>
             <div class="peer-compatibility-track"><span style="width:${compatibility}%"></span></div>
           </div>
-          <div class="contact-profile-languages" style="font-size:0.85em; color:#475569; margin-top:4px;">${deps.text('languagesLabel')}: ${escapeHtml(languageLabels.length > 0 ? languageLabels.join(', ') : deps.text('notListed'))}</div>
-          ${interests.length > 0 ? `<div style="font-size:0.85em; color:#475569; margin-top:4px;">${deps.text('interestsLabel')}: ${escapeHtml(interests.join(', '))}</div>` : ''}
+          <div class="contact-profile-languages" style="font-size:0.85em; color:var(--text-secondary); margin-top:4px;">${deps.text('languagesLabel')}: ${escapeHtml(languageLabels.length > 0 ? languageLabels.join(', ') : deps.text('notListed'))}</div>
+          ${interests.length > 0 ? `<div style="font-size:0.85em; color:var(--text-secondary); margin-top:4px;">${deps.text('interestsLabel')}: ${escapeHtml(interests.join(', '))}</div>` : ''}
           ${sharedInterests.length > 0 ? `<div class="peer-shared-tags"><strong>Shared tags</strong><span>${escapeHtml(sharedInterests.join(', '))}</span></div>` : ''}
           ${reputationHtml}
           <div style="display:grid; gap:8px; margin-top:10px;">
@@ -516,14 +516,14 @@ function renderProfileHtml(publicUser: any, deps: UserDetailViewDeps): string {
                     .slice(0, 4)
                     .map(
                       (qa: any) => `
-                        <div style="padding:8px 10px; border-radius:10px; background:#f8fafc; border:1px solid #e2e8f0;">
-                          <div style="font-size:0.78em; color:#64748b;">${escapeHtml(String(qa.question))}</div>
-                          <div style="font-size:0.92em; font-weight:600; color:#111827; margin-top:2px;">${escapeHtml(String(qa.answer))}</div>
+                        <div style="padding:8px 10px; border-radius:10px; background:var(--bg-subtle); border:1px solid var(--border);">
+                          <div style="font-size:0.78em; color:var(--text-tertiary);">${escapeHtml(String(qa.question))}</div>
+                          <div style="font-size:0.92em; font-weight:600; color:var(--text-primary); margin-top:2px;">${escapeHtml(String(qa.answer))}</div>
                         </div>
                       `,
                     )
                     .join('')
-                : `<div style="font-size:0.85em; color:#94a3b8;">${deps.text('noPublicProfile')}</div>`
+                : `<div style="font-size:0.85em; color:var(--text-muted);">${deps.text('noPublicProfile')}</div>`
             }
           </div>
         </div>
@@ -549,11 +549,11 @@ function renderTransportHtml(deps: UserDetailViewDeps): string {
     ? format(deps, 'transportLastHealthyContact', { time: deps.formatRelativeTime(new Date(status.lastHealthyAt)) })
     : deps.text('transportNoHealthyContact');
   return `
-    <div class="peer-transport-status" data-transport-mode="${escapeHtml(status.mode)}" style="margin-bottom:12px;padding:10px 12px;border:1px solid #dbeafe;border-radius:10px;background:#eff6ff;color:#1e3a8a;font-size:0.86em;">
+    <div class="peer-transport-status" data-transport-mode="${escapeHtml(status.mode)}" style="margin-bottom:12px;padding:10px 12px;border:1px solid var(--accent-soft);border-radius:10px;background:var(--accent-soft);color:var(--accent-text);font-size:0.86em;">
       <span style="font-weight:700;">${deps.text('peerChannelStatus')}:</span>
       ${transportLabel(status.mode, deps)}
-      <div class="peer-transport-fallback" style="margin-top:4px;color:#475569;">${escapeHtml(fallbackText)}</div>
-      <div class="peer-transport-health" style="margin-top:2px;color:#475569;">${escapeHtml(lastHealthyText)}</div>
+      <div class="peer-transport-fallback" style="margin-top:4px;color:var(--text-secondary);">${escapeHtml(fallbackText)}</div>
+      <div class="peer-transport-health" style="margin-top:2px;color:var(--text-secondary);">${escapeHtml(lastHealthyText)}</div>
     </div>
   `;
 }
@@ -964,7 +964,7 @@ function showSendTalksPicker(
   modal.id = 'peer-send-picker-modal';
   modal.className = 'modal-overlay';
   const eligibleRows = eligible.map((entry) => `
-    <label class="peer-send-picker-eligible" style="display:flex;align-items:center;gap:8px;padding:8px;background:#f5f5f5;border-radius:8px;margin-bottom:6px;cursor:pointer;">
+    <label class="peer-send-picker-eligible" style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--bg-muted);border-radius:8px;margin-bottom:6px;cursor:pointer;">
       <input type="checkbox" class="send-picker-cb" data-talk-id="${escapeHtml(entry.talkId)}" checked>
       <span style="font-weight:600;">${escapeHtml(entry.talk?.title || entry.talk?.fullTalk?.title || entry.talkId)}</span>
     </label>
@@ -972,9 +972,9 @@ function showSendTalksPicker(
   const omittedRows = omitted.map((entry) => {
     const reasonText = entry.omitReasons.map((reason) => omitReasonLabel(deps, reason)).join(' · ');
     return `
-      <div class="peer-send-picker-omitted" data-talk-id="${escapeHtml(entry.talkId)}" style="display:flex;flex-direction:column;gap:4px;padding:8px;background:#fff7f7;border:1px solid #fecaca;border-radius:8px;margin-bottom:6px;opacity:0.92;">
-        <span style="font-weight:600;color:#7f1d1d;">${escapeHtml(entry.talk?.title || entry.talk?.fullTalk?.title || entry.talkId)}</span>
-        <span style="font-size:0.82em;color:#64748b;">${escapeHtml(reasonText)}</span>
+      <div class="peer-send-picker-omitted" data-talk-id="${escapeHtml(entry.talkId)}" style="display:flex;flex-direction:column;gap:4px;padding:8px;background:var(--danger-soft);border:1px solid var(--danger-border);border-radius:8px;margin-bottom:6px;opacity:0.92;">
+        <span style="font-weight:600;color:var(--danger-hover);">${escapeHtml(entry.talk?.title || entry.talk?.fullTalk?.title || entry.talkId)}</span>
+        <span style="font-size:0.82em;color:var(--text-tertiary);">${escapeHtml(reasonText)}</span>
       </div>
     `;
   }).join('');

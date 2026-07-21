@@ -62,7 +62,7 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
   const renderList = (): string => {
     const rows = deps.listRecords();
     if (rows.length === 0) {
-      return `<div data-testid="linked-devices-empty" style="padding:16px;color:#6b7280;text-align:center;">${deps.text(
+      return `<div data-testid="linked-devices-empty" style="padding:16px;color:var(--text-tertiary);text-align:center;">${deps.text(
         'linkedDevicesEmpty',
         'No linked devices yet.',
       )}</div>`;
@@ -70,12 +70,12 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
     return rows
       .map(
         (r) => `
-        <div class="linked-device-row" data-testid="linked-device-row" data-pub="${escapeAttr(r.pub)}" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;">
+        <div class="linked-device-row" data-testid="linked-device-row" data-pub="${escapeAttr(r.pub)}" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;">
           <div style="display:flex;align-items:center;gap:8px;">
             <span style="font-size:1.2em;">${glyphFor(r.platform)}</span>
             <div>
               <div style="font-weight:600;">${escapeHtml(r.stageName || 'Device')}</div>
-              <div style="font-size:0.8em;color:#6b7280;">${new Date(r.linkedAt).toLocaleDateString()}</div>
+              <div style="font-size:0.8em;color:var(--text-tertiary);">${new Date(r.linkedAt).toLocaleDateString()}</div>
             </div>
           </div>
           <button type="button" class="btn linked-device-unlink-btn" data-testid="linked-device-unlink-btn" data-pub="${escapeAttr(r.pub)}">${deps.text('unlink', 'Unlink')}</button>
@@ -122,10 +122,10 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
     modal.innerHTML = `
       <div class="modal-content size-s">
         <div class="modal-header"><h3 class="modal-title">${deps.text('linkADevice', 'Link a device')}</h3></div>
-        <p style="font-size:0.85em;color:#6b7280;">${deps.text('linkCodeHelp', 'Enter this code on your other device before it expires.')}</p>
-        <div data-testid="link-device-code" id="link-device-code" style="font-family:monospace;font-size:0.9em;word-break:break-all;padding:10px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;">${escapeHtml(code)}</div>
-        <div data-testid="link-device-qr" style="margin:10px auto;width:140px;height:140px;display:flex;align-items:center;justify-content:center;border:1px dashed #cbd5e1;border-radius:8px;color:#94a3b8;font-size:0.8em;">QR</div>
-        <div data-testid="link-device-countdown" id="link-device-countdown" style="text-align:center;font-size:0.85em;color:#475569;"></div>
+        <p style="font-size:0.85em;color:var(--text-tertiary);">${deps.text('linkCodeHelp', 'Enter this code on your other device before it expires.')}</p>
+        <div data-testid="link-device-code" id="link-device-code" style="font-family:monospace;font-size:0.9em;word-break:break-all;padding:10px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;">${escapeHtml(code)}</div>
+        <div data-testid="link-device-qr" style="margin:10px auto;width:140px;height:140px;display:flex;align-items:center;justify-content:center;border:1px dashed var(--border-strong);border-radius:8px;color:var(--text-muted);font-size:0.8em;">QR</div>
+        <div data-testid="link-device-countdown" id="link-device-countdown" style="text-align:center;font-size:0.85em;color:var(--text-secondary);"></div>
         <div class="modal-actions">
           <button type="button" class="btn" data-testid="link-device-copy" id="link-device-copy">${deps.text('copy', 'Copy')}</button>
           <button type="button" class="btn primary-btn" id="link-device-done">${deps.text('done', 'Done')}</button>
@@ -171,7 +171,7 @@ export function showLinkedDevicesDialog(deps: LinkedDevicesDeps): void {
       <div class="modal-content size-s">
         <div class="modal-header"><h3 class="modal-title">${deps.text('enterLinkCode', 'Enter link code')}</h3></div>
         <input type="text" class="form-input" id="enter-link-code-input" data-testid="enter-link-code-input" placeholder="${deps.text('linkCodePlaceholder', 'Paste link code')}" style="width:100%;">
-        <div id="enter-link-code-error" data-testid="enter-link-code-error" style="color:#dc2626;font-size:0.82em;min-height:1em;margin-top:6px;"></div>
+        <div id="enter-link-code-error" data-testid="enter-link-code-error" style="color:var(--danger);font-size:0.82em;min-height:1em;margin-top:6px;"></div>
         <div class="modal-actions">
           <button type="button" class="btn" id="enter-link-code-cancel">${deps.text('cancel', 'Cancel')}</button>
           <button type="button" class="btn primary-btn" id="enter-link-code-submit" data-testid="enter-link-code-submit">${deps.text('link', 'Link')}</button>

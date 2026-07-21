@@ -109,7 +109,7 @@ export function addAnswerToQuestion(container: HTMLElement, index: number, optio
       <option value="ignore">${text(options, 'editorIgnoreFilter', 'Ignore (filter out)')}</option>
       <option value="noticed">${text(options, 'editorNoticed', 'Noticed (match)')}</option>
     </select>
-    ${index > 1 ? '<button type="button" class="btn-remove-answer" style="background: #f44336; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">×</button>' : ''}
+    ${index > 1 ? '<button type="button" class="btn-remove-answer" style="background: var(--danger); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">×</button>' : ''}
   `;
 
   const ignoreRow = container.querySelector('.self-answer-ignore-row');
@@ -142,8 +142,8 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
   questionDiv.className = 'question-item';
   questionDiv.dataset.questionIndex = index.toString();
   questionDiv.style.cssText = `
-    background: #f9f9f9;
-    border: 2px solid #e0e0e0;
+    background: var(--bg-subtle);
+    border: 2px solid var(--border);
     border-radius: 8px;
     padding: 15px;
     margin-bottom: 15px;
@@ -151,8 +151,8 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
 
   questionDiv.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-      <strong style="color: #667eea;">${format(options, 'editorQuestionNumber', 'Question {count}', { count: index + 1 })}</strong>
-      ${index > 0 ? `<button type="button" class="btn-remove-question" style="background: #f44336; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">${text(options, 'editorRemove', 'Remove')}</button>` : ''}
+      <strong style="color: var(--accent);">${format(options, 'editorQuestionNumber', 'Question {count}', { count: index + 1 })}</strong>
+      ${index > 0 ? `<button type="button" class="btn-remove-question" style="background: var(--danger); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">${text(options, 'editorRemove', 'Remove')}</button>` : ''}
     </div>
     <input
       type="text"
@@ -162,7 +162,7 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
       style="margin-bottom: 10px;"
     >
     <div class="answers-container" style="margin-left: 15px;"></div>
-    <button type="button" class="btn-add-answer" style="margin-top: 8px; font-size: 0.9em; background: #4CAF50; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">${text(options, 'editorAddAnswer', '+ Add Answer')}</button>
+    <button type="button" class="btn-add-answer" style="margin-top: 8px; font-size: 0.9em; background: var(--success); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">${text(options, 'editorAddAnswer', '+ Add Answer')}</button>
   `;
 
   container.appendChild(questionDiv);
