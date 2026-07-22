@@ -98,6 +98,7 @@ button:focus:not(:focus-visible) {
   align-items: center;
   justify-content: center;
   height: 100vh;
+  height: 100dvh; /* mobile: exclude browser URL bar */
   background: var(--gradient-accent);
   color: white;
 }
@@ -126,6 +127,7 @@ button:focus:not(:focus-visible) {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh; /* mobile: exclude browser URL bar so bottom nav stays visible */
   overflow: hidden;
   background: var(--bg-muted);
 }
@@ -424,9 +426,10 @@ button:focus:not(:focus-visible) {
 
 /* Bottom Navigation */
 .bottom-nav {
-  height: 70px;
-  min-height: 70px;
-  max-height: 70px;
+  height: calc(70px + env(safe-area-inset-bottom, 0px));
+  min-height: calc(70px + env(safe-area-inset-bottom, 0px));
+  max-height: calc(70px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   background: var(--surface);
   border-top: 1px solid var(--border);
   display: flex;
@@ -2209,6 +2212,7 @@ button:focus:not(:focus-visible) {
   align-items: center;
   justify-content: center;
   height: 100vh;
+  height: 100dvh;
   text-align: center;
   padding: 20px;
 }
