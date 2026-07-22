@@ -15,6 +15,14 @@ const launchOptions = {
     ? { slowMo: slowMoMs }
     : {}),
 };
+// WebKit/Firefox must not inherit the chromium-only launch args
+// (--disable-features=… is a Chromium flag; other engines can refuse to start on
+// unknown flags). Non-chromium projects override use.launchOptions with this.
+const nonChromiumLaunchOptions = {
+  ...(typeof slowMoMs === 'number' && !Number.isNaN(slowMoMs) && slowMoMs >= 0
+    ? { slowMo: slowMoMs }
+    : {}),
+};
 
 /**
  * Parallel-worker configuration.
@@ -119,6 +127,17 @@ const SKIP_ALL_MESH = process.env.E2E_SKIP_ALL_MESH === '1';
  * as a stand-in for the per-release real-device manual pass.
  */
 const DEVICE_PROFILES = process.env.E2E_DEVICE_PROFILES === '1' || process.env.E2E_DEVICE_PROFILES === 'true';
+
+/**
+ * Cross-BROWSER desktop projects (Safari/WebKit + Firefox). Chromium is the everyday
+ * engine; "works in Chrome" has repeatedly not meant "works in Safari" (storage,
+ * WebRTC, layout). Opt-in via E2E_CROSS_BROWSER=1: runs the @smoke platform smoke
+ * set — the designated cross-platform-invariant surface — on desktop WebKit
+ * (closest Playwright proxy for Safari) and desktop Firefox.
+ * One-time browser download: `npx playwright install webkit firefox`.
+ * Run: `npm run test:e2e:cross-browser` (or `test:e2e:webkit` for WebKit only).
+ */
+const CROSS_BROWSER = process.env.E2E_CROSS_BROWSER === '1' || process.env.E2E_CROSS_BROWSER === 'true';
 
 // Optional port-range offset so concurrent `playwright test` runs don't collide. Matches
 // E2E_PORT_OFFSET in tests/e2e/helpers/ports.ts (default 0). web = 3001+offset+i, gun =
@@ -282,13 +301,36 @@ export default defineConfig({
         // Mobile device-profile projects (item G): iPhone (WebKit) and Android (Chromium)
         // running the @smoke-tagged platform smoke set at their native viewports. Opt-in via
         // E2E_DEVICE_PROFILES=1 so default runs stay desktop-only.
+        // Desktop cross-browser projects (opt-in via E2E_CROSS_BROWSER=1): the same
+        // @smoke set on WebKit (Safari engine) and Firefox at desktop viewports.
+        ...(CROSS_BROWSER
+          ? [
+              {
+                name: 'webkit',
+                grep: /@smoke/,
+                testMatch: /platform-smoke\//,
+                use: { ...devices['Desktop Safari'], launchOptions: nonChromiumLaunchOptions },
+              },
+              {
+                name: 'firefox',
+                grep: /@smoke/,
+                testMatch: /platform-smoke\//,
+                use: { ...devices['Desktop Firefox'], launchOptions: nonChromiumLaunchOptions },
+              },
+            ]
+          : []),
         ...(DEVICE_PROFILES
           ? [
               {
                 name: 'iphone-webkit',
                 grep: /@smoke/,
                 testMatch: /platform-smoke\//,
-                use: { ...devices['iPhone 13'], viewport: { width: 390, height: 844 } },
+                use: {
+                  ...devices['iPhone 13'],
+                  viewport: { width: 390, height: 844 },
+                  // WebKit: drop the global chromium-only launch args.
+                  launchOptions: nonChromiumLaunchOptions,
+                },
               },
               {
                 name: 'android-chromium',

@@ -2895,3 +2895,98 @@ in both the PATCH response and the list.
 
 Verification (sandbox): `tsc` clean · eslint clean · jest 72/72 suites (903
 passed) · HTTP repro green. Host light-shard re-run pending to confirm 0 failed.
+
+## 2026-07-19 — TODO archival: G/I/J shipped items + host re-run rounds
+
+Moved from `docs/TODO.md`. Open remainders ([~] scaffolds, X3–X8 wiring, host
+light-shard confirmation run) stay in TODO.
+
+### Host E2E re-run rounds 1–4 (checklist archived; details in the 2026-07-15/16 sections above)
+
+- Round 1 (2026-07-15): jest green, 11 of 19 E2E failures fixed; 8 remained.
+- Round 2 (2026-07-15): all 8 fixed — profile-card parity class + contacts
+  re-render race (product), 6 spec corrections.
+- Round 3 (2026-07-16): 160 passed, 2 remained (55, 21b) — `getAllChatrooms`
+  Gun link-stub hydration (product) + 21b nav-order spec fix.
+- Round 4 (2026-07-16): 161 passed, 1 remained (55) — authoritative
+  `roomMetaCache` on the server (see round-4 section above).
+
+### G. Platform × screen-size × cross-platform (shipped subset)
+
+- Platform smoke set as a tagged Playwright project — `@smoke` in
+  `tests/e2e/platform-smoke/` (tab sweep, ⋯ overflow, full-screen dialog
+  takeover, settings persistence).
+- Device-profile projects `iphone-webkit` (390×844) / `android-chromium`
+  (360×800), opt-in via `E2E_DEVICE_PROFILES=1`; real-device manual pass
+  documented in `tests/e2e/cross-platform/README.md`.
+- Screen-size sweep — spec 59 sweeps 320/390/768/1024.
+- `tests/e2e/cross-platform/` harness (two clients on shared hub) + README +
+  `test:e2e:cross-platform` script; excluded from the light shard (HEAVY pattern).
+- **X1** website + webapp simultaneous presence/headcount (P0, merge gate).
+- **X2** cross-platform talk lifecycle both directions + thread replies (P0, merge gate).
+
+### I. Multi-device identity linking (shipped subset)
+
+- Link protocol in `src/shared/identity-linking.ts` — pairing payload (pub +
+  one-time secret + ~5 min expiry), mutual signed attestations, signed
+  revocation; 12 unit tests (pluggable `LinkCrypto`).
+- Linked-devices Settings page — `src/web/ui/linked-devices-dialog.ts` +
+  Settings row (list, Link a device code+QR, Enter link code, Unlink confirm).
+- `stage1/71-linked-devices-page.spec.ts` — page open/close, empty state, code
+  lifecycle incl. expiry, error paths (T10).
+
+### J. Public-device exit — sync-then-erase (shipped subset)
+
+- Wipe engine `src/web/services/device-wipe.ts` — localStorage (SEA custody) +
+  IndexedDB/Gun radata + caches + session state, best-effort link revocations,
+  reload to fresh boot.
+- "Erase this device" Settings row + type-`ERASE` confirm dialog
+  (`src/web/ui/erase-device-dialog.ts`); disabled while sync in flight.
+- Encrypted handoff archive — schema + build/merge in
+  `src/shared/device-handoff.ts` (7 unit tests) + Sync-progress dialog;
+  `setDeviceHandoffSync` wired in app.ts (per-category progress, staged
+  archive). Encrypt-to-pub P2P transfer remains X7.
+- Archive import per-category merge — `mergeHandoffArchive` (unit-tested);
+  import UI ships with the X7 transfer.
+- `stage1/72-erase-this-device.spec.ts` — typed-confirm gate, cancel intact,
+  wipe verified, fresh identity, no prior data reachable.
+- `stage2/72-sync-before-erase.spec.ts` — sync offer → progress → done enables
+  erase; erase gated by typed confirm.
+
+## 2026-07-20 — Cross-browser E2E: WebKit green; e2e https bug found and fixed
+
+- Added desktop `webkit` (Desktop Safari engine) + `firefox` Playwright projects
+  running the `@smoke` platform-smoke set. Opt-in `E2E_CROSS_BROWSER=1`; scripts
+  `test:e2e:webkit` / `test:e2e:cross-browser`; opt-in `test:all` phase (port
+  band 500, force-disabled for all other phases so the flag can't leak into the
+  light shard). Non-Chromium projects (incl. the existing `iphone-webkit`) no
+  longer inherit the Chromium-only launch args.
+- **Real bug surfaced by the first WebKit run:** with `certs/dev-*.pem` present,
+  webpack-dev-server auto-served self-signed **https** on 3001 while every e2e
+  helper targets `http://127.0.0.1` — WebKit failed `page.goto` with "The network
+  connection was lost". This silently threatened every non-static e2e script on
+  any machine with a dev cert (test:all dodges it via `E2E_STATIC_WEB=1` http).
+  Fix: `webpack.config.js` never enables TLS when `DISABLE_HMR=true` (e2e mode);
+  LAN https dev is unchanged. This was also the answer to "works in Chrome, not
+  Safari": Safari rejects the self-signed cert with no bypass.
+- **Verified on host 2026-07-20:** `npm run test:e2e:webkit` → 1 passed (15.4s);
+  `npm run test:e2e:cross-browser` → 2 passed, webkit + firefox (32.0s).
+  (Playwright's browser-install extract step repeatedly hung on this machine;
+  workaround: wait it out, or manual curl -fL + unzip + touch
+  INSTALLATION_COMPLETE.)
+- **test:all phase default:** AUTO — runs when both webkit+firefox binaries are
+  installed, skips with a notice otherwise; `E2E_CROSS_BROWSER=1/0` forces.
+
+## 2026-07-19/20 — test:all speed: prefix overlap + webpack filesystem cache
+
+- `scripts/run-test-all.sh`: type-check/lint/jest no longer gate the e2e waves —
+  only the two builds do; the checks overlap the waves (jest capped at
+  `--maxWorkers=50%`) and are collected before the summary. Rollback:
+  `TEST_ALL_PREFIX_OVERLAP=0`. Port preflight now also covers the heavy-staged
+  band (400) and the opt-in cross-browser band (500).
+- `webpack.config.js`: persistent filesystem cache keyed on every bundle-baked
+  env var (`BUNDLED_ENV_KEYS`) + config file. Sandbox-measured: warm dev rebuild
+  604ms vs ~5.8s cold (1527 modules cached). Rollback: delete
+  `node_modules/.cache/webpack`. **Maintenance invariant:** any new env var read
+  by DefinePlugin/EnvironmentPlugin must be added to `BUNDLED_ENV_KEYS`.
+- Host timing verification still pending (tracked in TODO).

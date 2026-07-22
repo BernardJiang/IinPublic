@@ -9,10 +9,41 @@ const webpack = require('webpack');
 // Override paths with TLS_KEY_PATH / TLS_CERT_PATH.
 const devKeyPath = process.env.TLS_KEY_PATH || path.resolve(__dirname, 'certs/dev-key.pem');
 const devCertPath = process.env.TLS_CERT_PATH || path.resolve(__dirname, 'certs/dev-cert.pem');
-const devTlsEnabled = fs.existsSync(devKeyPath) && fs.existsSync(devCertPath);
+// E2E mode (DISABLE_HMR=true) always serves plain http: every Playwright helper
+// targets http://127.0.0.1:<port> (tests/e2e/helpers/ports.ts), and an https dev
+// server from a leftover certs/dev-*.pem makes WebKit fail page.goto with
+// "The network connection was lost" (Chromium-run suites dodge it only because
+// test:all serves the static bundle over http). TLS remains for LAN dev.
+const devTlsEnabled =
+  process.env.DISABLE_HMR !== 'true' && fs.existsSync(devKeyPath) && fs.existsSync(devCertPath);
+
+// Env vars baked into the bundle (DefinePlugin/EnvironmentPlugin/HtmlWebpackPlugin
+// below). The filesystem cache must be keyed on them: a cached build made under one
+// set of values would otherwise be served for another (e.g. an E2E DISABLE_HMR=true
+// bundle reused for a dev build).
+const BUNDLED_ENV_KEYS = [
+  'DISABLE_HMR',
+  'CHATROOM_MAX_CAPACITY',
+  'CHATROOM_ENABLE_FIFO',
+  'IINPUBLIC_STAGE_SEED',
+  'IINPUBLIC_STAGE_ZERO_MAX_GLOBAL',
+  'IINPUBLIC_PRESENCE_TTL_SECONDS',
+  'IINPUBLIC_ROOM_MEMBERSHIP_TTL_SECONDS',
+  'P2P_NODE_ENABLED',
+  'RELAY_ONLY_HUB',
+];
 
 module.exports = {
   entry: './src/web/index.ts',
+  // Persistent build cache: `test:all` rebuilds the dev bundle on every run; with the
+  // filesystem cache an unchanged (or lightly changed) tree rebuilds in seconds instead
+  // of a full ts-loader pass. Safe because `version` covers every env var whose value is
+  // compiled into the bundle, and buildDependencies invalidates on config edits.
+  cache: {
+    type: 'filesystem',
+    version: BUNDLED_ENV_KEYS.map((k) => `${k}=${process.env[k] || ''}`).join('&'),
+    buildDependencies: { config: [__filename] },
+  },
   output: {
     path: path.resolve(__dirname, 'dist/web'),
     filename: 'bundle.js',

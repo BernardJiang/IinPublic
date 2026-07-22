@@ -118,6 +118,23 @@ export E2E_GUN_MEMORY_ONLY=1
 export DISABLE_HMR=true
 export PLAYWRIGHT_HTML_OPEN=never
 
+# Cross-browser phase (WebKit/Safari + Firefox @smoke, playwright.config.ts
+# E2E_CROSS_BROWSER). Default AUTO (green on host since 2026-07-20): runs when both
+# browser binaries are installed, silently skips otherwise (fresh CI runner without
+# `npx playwright install webkit firefox` must not fail test:all). E2E_CROSS_BROWSER=1/0
+# forces. Captured here and force-disabled for every OTHER phase — if the flag leaked
+# into e.g. the light phase, its projectless invocation would re-run the smoke set on
+# webkit/firefox inside the 12-worker wave.
+if [ -n "${E2E_CROSS_BROWSER:-}" ]; then
+  CROSS_BROWSER_PHASE="$E2E_CROSS_BROWSER"
+elif node -e "const pw=require('playwright-core'),fs=require('fs');process.exit(fs.existsSync(pw.webkit.executablePath())&&fs.existsSync(pw.firefox.executablePath())?0:1)" 2>/dev/null; then
+  CROSS_BROWSER_PHASE=1
+else
+  CROSS_BROWSER_PHASE=0
+  echo "[test:all] cross-browser phase skipped: webkit/firefox not installed (npx playwright install webkit firefox)"
+fi
+export E2E_CROSS_BROWSER=0
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Run identity. Every playwright invocation this script spawns writes its blob under
 # blob-report/$E2E_RUN_ID/ (see playwright.config.ts), and ONLY that directory is merged at
@@ -168,7 +185,9 @@ preflight_ports() {
   [ "$MESH_WORKERS"  -gt "$band0" ] && band0=$MESH_WORKERS
   [ "$HEAVY_WORKERS" -gt "$band0" ] && band0=$HEAVY_WORKERS
   local ports=() spec off n i
-  for spec in "0:$band0" "100:$MASS_WORKERS" "200:$STAGE5_WORKERS" "300:1"; do
+  local bands=( "0:$band0" "100:$MASS_WORKERS" "200:$STAGE5_WORKERS" "300:1" "400:$HEAVY_WORKERS" )
+  [ "$CROSS_BROWSER_PHASE" = "1" ] && bands+=( "500:1" )
+  for spec in "${bands[@]}"; do
     off="${spec%%:*}"; n="${spec##*:}"
     for (( i=0; i<n; i++ )); do ports+=( $((8080+off+i)) $((3001+off+i)) ); done
   done
@@ -207,6 +226,10 @@ PHASE_ORDER=()
 cleanup() {
   [ -n "${HB_PID:-}" ] && kill "$HB_PID" 2>/dev/null
   for pid in "${WAVE_PIDS[@]:-}"; do kill "$pid" 2>/dev/null; done
+  # Overlapped static checks (TEST_ALL_PREFIX_OVERLAP=1) may still be running.
+  for pid in "${P_TYPE:-}" "${P_LINT:-}" "${P_JEST:-}"; do
+    [ -n "$pid" ] && kill "$pid" 2>/dev/null
+  done
   wait 2>/dev/null
 }
 on_interrupt() {
@@ -276,13 +299,22 @@ maybe_wait() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Phase 0: static checks + builds, in parallel.
+# Phase 0: static checks + builds, in parallel. Only the two BUILDS gate the e2e
+# waves — type-check, lint and jest have no data dependency on the e2e phases, so
+# by default they keep running in the background and are collected before the
+# summary (speed win: the old code held every wave hostage to the slowest of
+# jest/tsc even though the builds had long finished). Jest is capped at 50% of
+# cores while overlapped so it can't starve the wave-1 browsers.
+# TEST_ALL_PREFIX_OVERLAP=0 restores the old strictly-gated phase 0.
 # ─────────────────────────────────────────────────────────────────────────────
-echo "[test:all] phase 0: type-check + lint + jest + builds (parallel)"
+PREFIX_OVERLAP="${TEST_ALL_PREFIX_OVERLAP:-1}"
+echo "[test:all] phase 0: builds gate e2e; type/lint/jest overlap=$PREFIX_OVERLAP"
 p0_start=$(date +%s)
+JEST_WORKERS_ARG=""
+[ "$PREFIX_OVERLAP" = "1" ] && JEST_WORKERS_ARG="--maxWorkers=50%"
 npm run test:type    >"$LOG_DIR/type.log" 2>&1 & P_TYPE=$!
 npm run lint         >"$LOG_DIR/lint.log" 2>&1 & P_LINT=$!
-npx jest --forceExit >"$LOG_DIR/jest.log" 2>&1 & P_JEST=$!
+npx jest --forceExit $JEST_WORKERS_ARG >"$LOG_DIR/jest.log" 2>&1 & P_JEST=$!
 npm run build:server >"$LOG_DIR/build-server.log" 2>&1 & P_BSRV=$!
 DISABLE_HMR=true npx webpack --mode development --config webpack.config.js \
                      >"$LOG_DIR/build-web.log" 2>&1 & P_BWEB=$!
@@ -290,14 +322,21 @@ wait "$P_BSRV"; RC_BSRV=$?
 wait "$P_BWEB"; RC_BWEB=$?
 if [ "$RC_BSRV" -ne 0 ] || [ "$RC_BWEB" -ne 0 ]; then
   echo "[test:all] BUILD FAILED — cannot run E2E"
+  kill "$P_TYPE" "$P_LINT" "$P_JEST" 2>/dev/null
   echo "--- build-server.log ---"; cat "$LOG_DIR/build-server.log"
   echo "--- build-web.log ---";    cat "$LOG_DIR/build-web.log"; exit 1
 fi
-wait "$P_TYPE"; RC_TYPE=$?
-wait "$P_LINT"; RC_LINT=$?
-wait "$P_JEST"; RC_JEST=$?
+if [ "$PREFIX_OVERLAP" != "1" ]; then
+  wait "$P_TYPE"; RC_TYPE=$?
+  wait "$P_LINT"; RC_LINT=$?
+  wait "$P_JEST"; RC_JEST=$?
+fi
 p0_dur=$(( $(date +%s) - p0_start ))
-echo "[test:all] phase 0 done in ${p0_dur}s (type=$RC_TYPE lint=$RC_LINT jest=$RC_JEST)"
+if [ "$PREFIX_OVERLAP" = "1" ]; then
+  echo "[test:all] phase 0 builds done in ${p0_dur}s (type/lint/jest still running in background)"
+else
+  echo "[test:all] phase 0 done in ${p0_dur}s (type=$RC_TYPE lint=$RC_LINT jest=$RC_JEST)"
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Wave 1: the two heavyweights (light + mass) run together, plus stage5.
@@ -348,6 +387,12 @@ start_phase mesh-isolated 200 \
 maybe_wait 2
 start_phase find-similar 300 \
   env PW_WORKERS=1 npx playwright test tests/e2e/staged/stage5-multi-user/find-similar-people.spec.ts
+if [ "$CROSS_BROWSER_PHASE" = "1" ]; then
+  maybe_wait 2
+  start_phase cross-browser 500 \
+    env E2E_CROSS_BROWSER=1 PW_WORKERS=1 npx playwright test tests/e2e/platform-smoke \
+      --project=webkit --project=firefox
+fi
 if [ "$SEQUENTIAL_TAIL" != "1" ]; then
   maybe_wait 2
   start_phase isolated 100 \
@@ -362,6 +407,8 @@ if [ "$SEQUENTIAL_TAIL" != "1" ]; then
 fi
 wait_wave 2
 RC_MESH=$(cat "$LOG_DIR/mesh-batch.rc"); RC_MESHISO=$(cat "$LOG_DIR/mesh-isolated.rc"); RC_FS=$(cat "$LOG_DIR/find-similar.rc")
+RC_XB=0
+[ "$CROSS_BROWSER_PHASE" = "1" ] && RC_XB=$(cat "$LOG_DIR/cross-browser.rc")
 if [ "$SEQUENTIAL_TAIL" != "1" ]; then
   RC_ISO=$(cat "$LOG_DIR/isolated.rc"); RC_HA=$(cat "$LOG_DIR/heavy-staged.rc")
 fi
@@ -397,6 +444,16 @@ if [ "$SEQUENTIAL_TAIL" = "1" ]; then
       tests/e2e/staged/stage3-three-user/09-four-types-chatbot.spec.ts
   wait_wave 3
   RC_HA=$(cat "$LOG_DIR/heavy-staged.rc")
+fi
+
+# Collect the overlapped static checks (no-ops when TEST_ALL_PREFIX_OVERLAP=0 —
+# already collected in phase 0). By now they have almost certainly finished; if
+# jest is somehow still running the wait is real time we'd have spent anyway.
+if [ "$PREFIX_OVERLAP" = "1" ]; then
+  wait "$P_TYPE"; RC_TYPE=$?
+  wait "$P_LINT"; RC_LINT=$?
+  wait "$P_JEST"; RC_JEST=$?
+  echo "[test:all] static checks collected: type=$RC_TYPE lint=$RC_LINT jest=$RC_JEST"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -503,7 +560,7 @@ fi
 # cleaned by the OS): test-logs/<phase>.log survives for post-mortem, including the full
 # browser console when E2E_VERBOSE_CONSOLE=1 is exported for the run.
 mkdir -p "$ROOT/test-logs"
-for name in light mass isolated stage5 mesh-batch mesh-isolated find-similar heavy-staged; do
+for name in light mass isolated stage5 mesh-batch mesh-isolated find-similar heavy-staged cross-browser; do
   rc="$(cat "$LOG_DIR/$name.rc" 2>/dev/null || echo '')"
   if [ -n "$rc" ] && [ "$rc" != "0" ] && [ -f "$LOG_DIR/$name.log" ]; then
     cp "$LOG_DIR/$name.log" "$ROOT/test-logs/$name.log"
@@ -511,14 +568,14 @@ for name in light mass isolated stage5 mesh-batch mesh-isolated find-similar hea
   fi
 done
 
-E2E_RC=$(( RC_LIGHT || RC_MASS || RC_ISO || RC_S5 || RC_MESH || RC_MESHISO || RC_FS || RC_HA ))
+E2E_RC=$(( RC_LIGHT || RC_MASS || RC_ISO || RC_S5 || RC_MESH || RC_MESHISO || RC_FS || RC_HA || RC_XB ))
 PREFIX_RC=$(( RC_TYPE || RC_LINT || RC_JEST ))
 
 phase_time() { cat "$LOG_DIR/$1.time" 2>/dev/null || echo '?'; }
 wave_label() { [ "$CONCURRENT_WAVES" = "1" ] && echo "concurrent" || echo "sequential"; }
 echo ""
 echo "[test:all] ───────────── per-phase wall time ─────────────"
-printf '  %-26s %5ss  %s\n' "phase0 (build/lint/jest)" "$p0_dur" "type=$RC_TYPE lint=$RC_LINT jest=$RC_JEST"
+printf '  %-26s %5ss  %s\n' "phase0 (builds gate e2e)" "$p0_dur" "type=$RC_TYPE lint=$RC_LINT jest=$RC_JEST$([ "$PREFIX_OVERLAP" = "1" ] && echo ' (overlapped)')"
 printf '  %-26s %5ss  rc=%s   ┐ wave 1 (%s)\n' "light"  "$(phase_time light)"  "$RC_LIGHT" "$(wave_label)"
 printf '  %-26s %5ss  rc=%s   ┘\n'                      "stage5" "$(phase_time stage5)" "$RC_S5"
 if [ "$SEQUENTIAL_TAIL" != "1" ]; then
@@ -527,6 +584,8 @@ if [ "$SEQUENTIAL_TAIL" != "1" ]; then
   printf '  %-26s %5ss  rc=%s   │\n'                      "find-similar"  "$(phase_time find-similar)"  "$RC_FS"
   printf '  %-26s %5ss  rc=%s   │\n'                      "isolated"      "$(phase_time isolated)"      "$RC_ISO"
   printf '  %-26s %5ss  rc=%s   ┘\n'                      "heavy-staged"  "$(phase_time heavy-staged)"  "$RC_HA"
+  [ "$CROSS_BROWSER_PHASE" = "1" ] && \
+    printf '  %-26s %5ss  rc=%s   │ (webkit+firefox @smoke)\n' "cross-browser" "$(phase_time cross-browser)" "$RC_XB"
   printf '  %-26s %5ss  rc=%s   ─ wave 3 (mass solo)\n'   "mass"          "$(phase_time mass)"          "$RC_MASS"
 else
   printf '  %-26s %5ss  rc=%s   ┐ wave 2 (%s)\n' "mesh-batch"    "$(phase_time mesh-batch)"    "$RC_MESH" "$(wave_label)"

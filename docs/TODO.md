@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-07-15
+Last updated: 2026-07-19
 
 This file tracks only open work. Completed items are archived in `docs/completed.md`.
 - **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specifications.md` (§19.13, §19.14, REQ-P2P-09–29; mesh talk delivery design §23; libp2p/IPFS §25 — supersedes Phase D §24; find-similar §22)
@@ -35,23 +35,17 @@ Token-saving rules: for `[Opus]` items, have Opus write a short design note firs
 > The planned `stage2/62-peer-messaging-merged` update was superseded: that spec never
 > existed; the merged messaging area is covered by 60/61/69.
 
-### Host E2E re-run (verification of 2026-07-15 fixes) `[Haiku]`
+### Host E2E re-run (verification of 2026-07-15/16 fixes) `[Haiku]`
 
-- [x] Round 1: host `test:all` re-run 2026-07-15 — jest green (phase0 clean), 11 of the
-      19 E2E failures fixed; 8 remained (55, 67, 00j, 21a, 21b, 63, 64, 66).
-- [x] Round 2 fixes landed 2026-07-15 for all 8 (see `docs/completed.md`): profile-card
-      parity class + contacts re-render race (product), 6 spec corrections.
-- [x] Round 3: host re-run 2026-07-16 — 160 passed, 2 remained (55, 21b). Fixed same
-      day: `getAllChatrooms` Gun link-stub hydration (room names degraded to ids —
-      product) + 21b closes the User layout before the bottom-nav click.
-- [x] Round 4: host re-run 2026-07-16 — 161 passed, only 55 left. Root cause found by
-      HTTP repro in the sandbox: `.once` reads of `chatroomMeta/<id>` time out on the
-      ephemeral in-memory hub even for data the process just wrote, so the rename PATCH
-      died in `getChatroom` with 400 "chatroom not found" after ~19s. Fixed with an
-      authoritative in-process `roomMetaCache` (same invariant as `incomingTalksMap` /
-      `fastActiveMembers`); Gun stays the restart mirror. Repro now: create → rename →
-      list round-trips in ~3s.
+> Rounds 1–4 complete (2026-07-15/16) — archived in `docs/completed.md`.
+
 - [ ] Re-run the light shard on the host to confirm 0 failed.
+- [ ] Verify the 2026-07-19 `test:all` speed changes on the host: (a) type/lint/jest now
+      overlap the e2e waves instead of gating them (`TEST_ALL_PREFIX_OVERLAP=0` rolls back;
+      jest capped at `--maxWorkers=50%` while overlapped), (b) webpack filesystem cache
+      (`node_modules/.cache/webpack` — delete it to roll back; cache key covers all
+      bundle-baked env vars). Expected: phase 0 ≈ build-only on first run, seconds on
+      warm re-runs; watch wave 1 for any jest-contention flakes. `[Haiku]`
 
 > **H complete 2026-07-15** — message content filters (dirty words + grammar, both
 > directions) landed with specs 70/71; the stage3 intake regression was confirmed green
@@ -66,13 +60,14 @@ Token-saving rules: for `[Opus]` items, have Opus write a short design note firs
 
 Source: `docs/gui-layout-catalog-and-e2e-plan.md` Part 6
 
-- [x] Define the **platform smoke set** as a tagged Playwright project — `@smoke` in `tests/e2e/platform-smoke/` (tab sweep, ⋯ overflow, full-screen dialog takeover, settings persistence). Match round-trip lives in X2/native.
+> Shipped subset (smoke set, device profiles, size sweep, cross-platform harness,
+> X1/X2) archived in `docs/completed.md` 2026-07-19.
+
 - [~] CI runners: Mac mini (P2 Electron), Windows (P3), Linux (P4) — added `test:e2e:native-app:win` / `:linux` scripts; wiring these into the actual CI system is left to the CI config (needs the runner infra).
-- [x] Playwright device-profile projects for iPhone (WebKit, 390×844) and Android (Chromium, 360×800) — `iphone-webkit`/`android-chromium` projects, opt-in via `E2E_DEVICE_PROFILES=1`; real-device manual pass documented in `tests/e2e/cross-platform/README.md`.
-- [x] Screen-size sweep — spec 59 sweeps 320/390/768/1024; device profiles add 390×844 (WebKit) and 360×800 (Chromium). (Add 1920×1080/1366×768 rows to 59 if the host wants the full 5.)
-- [x] **New** `tests/e2e/cross-platform/` harness (two clients on the shared hub) + README; `test:e2e:cross-platform` script; excluded from the light shard via HEAVY pattern.
-- [x] **X1** website + webapp simultaneous presence/headcount (P0, merge gate).
-- [x] **X2** cross-platform talk lifecycle both directions + cross-platform thread replies (P0, merge gate).
+- [x] **Cross-browser desktop E2E (Safari/WebKit + Firefox)** — complete 2026-07-20,
+      both engines green on host (`test:e2e:cross-browser` 2 passed, 32s); test:all
+      phase now default-AUTO (runs when browsers installed). Archived in
+      `docs/completed.md`. Next test:all run confirms the phase fires. `[Haiku]`
 - [~] **X3** identity linking website ↔ webapp — scaffolded skipped spec (needs I's protocol + real website/webapp on CI). `(nightly)`
 - [~] **X4** mobile-profile ↔ desktop-app matching + threads — scaffolded skipped spec. `(nightly)`
 - [~] **X5** three-platform stage-3 network incl. thread isolation — scaffolded skipped spec. `(nightly)`
@@ -86,11 +81,11 @@ Source: `docs/gui-redesign-plan.md` §10 — user decision 2026-07-13
 
 One person, multiple devices ⇒ **different SEA identity per device** (keys never leave a device). Build the linking mechanism instead of identity sharing.
 
-- [x] Link protocol in `src/shared/`: short-lived pairing payload (pub + one-time secret + ~5 min expiry), **mutual signed attestations** (link valid only when both sides present and verified), signed revocation for unlink. Unit tests: one-sided claim ⇒ no link; revocation supersedes; forgery fails verification. — `src/shared/identity-linking.ts` + 12 unit tests (pluggable `LinkCrypto`). `[Opus]`
-- [x] Linked devices Settings page: linked-identity list (stage name, platform glyph, linked date, per-row Unlink), **Link a device** → code+QR dialog, **Enter link code** dialog, **Unlink confirm**. — `src/web/ui/linked-devices-dialog.ts` + Settings row. `[Sonnet]`
+> Shipped subset (link protocol + 12 unit tests, linked-devices Settings page,
+> stage1/71 spec) archived in `docs/completed.md` 2026-07-19.
+
 - [~] Cluster rendering for peers: Contacts merged row + User-layout cluster line. — `WebIdentityLinkService.isLinked` provides the resolver; the Contacts/User-layout merge is scaffolded but not yet wired into the row renderers (needs the real service on the graph — X3). `[Sonnet]`
 - [~] Block interplay: cluster-wide block offer. — deferred to the block flow; needs the cluster resolver wired (X3). `[Sonnet]`
-- [x] **New** `stage1/71-linked-devices-page.spec.ts` — page open/close, empty state, code lifecycle incl. expiry, error paths (T10).
 - [~] **New** `cross-platform/x3-identity-linking.spec.ts` — scaffolded skipped spec (needs website↔webapp on the shared graph + `WebIdentityLinkService` wired in app.ts). `[Opus]`
 - [~] Same-device linking shortcuts (§10.3): URL-fragment / loopback / clipboard. — `encodePairingCode`/`decodePairingCode` support the `#link=` fragment; the fragment auto-detect + loopback handshake are not yet wired.
 - [~] **New** `cross-platform/x8-same-device-link.spec.ts` — pending the same-device shortcuts. `[Opus]`
@@ -103,12 +98,9 @@ Source: `docs/gui-redesign-plan.md` §11 — user decision 2026-07-13
 
 No server login/logout exists; a public-PC session leaves an identity behind. Build a verifiable local wipe with optional encrypted handoff to a linked personal device first.
 
-- [x] Wipe engine: clear localStorage (destroys the SEA custody record) + IndexedDB/Gun radata + caches + session state, best-effort link revocations, reload to fresh boot. Verifiable post-reload. — `src/web/services/device-wipe.ts`. `[Opus]`
-- [x] "Erase this device" Settings row (danger zone) + **Erase confirm dialog** (type-`ERASE` gate); never in `⋯`; disabled while sync in flight. — `src/web/ui/erase-device-dialog.ts` + Settings row. `[Sonnet]`
-- [x] Encrypted handoff archive: package profile/contacts/filters+dirtyWords/answer prefs/my-talks/conversations; **Sync progress dialog**; erase gated until done. — archive schema + build/merge in `src/shared/device-handoff.ts` (7 unit tests) + Sync-progress dialog. 2026-07-15: `setDeviceHandoffSync` is now wired in app.ts — it builds the archive from local sources with per-category progress and stages it (`iinpublic_pending_handoff_archive`); the encrypt-to-pub P2P transfer to the linked device remains X7. `[Opus]`
-- [x] Archive import per-category merge — contacts + talks/answers merge into local identity; conversation history read-only. — `mergeHandoffArchive` (unit-tested); Linked-devices import UI to be wired with the transfer (X7). `[Sonnet]`
-- [x] **New** `stage1/72-erase-this-device.spec.ts` — typed-confirm gate, cancel intact, wipe verified, fresh identity, no prior data reachable.
-- [x] **New** `stage2/72-sync-before-erase.spec.ts` — sync offer → progress → done enables erase; erase gated by typed confirm (seeded linked device; cross-device receiver-merge in X7).
+> Shipped subset (wipe engine, erase dialog, handoff archive + merge, stage1/72,
+> stage2/72) archived in `docs/completed.md` 2026-07-19.
+
 - [~] **New** `cross-platform/x7-sync-then-erase.spec.ts` — scaffolded skipped spec (needs the P2P handoff transfer + receiver import wired). `[Opus]`
 
 > **J verification:** handoff build/merge has 7 passing unit tests; `stage1/72` (wipe + fresh boot) and `stage2/72` (sync-progress + gating) compile and drive the full UI; `tsc`/`lint` clean. The wipe engine and dialogs are wired into Settings; the encrypt-to-pub P2P transfer + receiver import are the remaining app.ts wiring, tracked by X7.
@@ -126,12 +118,6 @@ No server login/logout exists; a public-PC session leaves an identity behind. Bu
 
 - Identity linking v2 scope: should reputation aggregate across a linked cluster, and should contacts/conversations sync between linked devices? (v1: display-merge only.)
 - iPhone/Android native shells: browser-profile testing is the stand-in until they ship — confirm.
-
----
-
-## S3 — Cross-platform native clients ✅ COMPLETE
-
-All done — see `docs/completed.md` 2026-07-14 for details. Electron, Android, and iOS shells verified with real builds. Desktop DMG built (236 MB), Android APK assembled all 3 ABIs via CMake + JNI.
 
 ---
 

@@ -52,6 +52,8 @@
     "test:e2e:p0-talks": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 playwright test tests/e2e/staged/stage2-two-user/00i-p0-direct-talk-delivery.spec.ts",
     "test:e2e:smoke": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 playwright test tests/e2e/platform-smoke --grep @smoke",
     "test:e2e:device-profiles": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 E2E_DEVICE_PROFILES=1 DISABLE_HMR=true PW_WORKERS=1 playwright test tests/e2e/platform-smoke --project=iphone-webkit --project=android-chromium",
+    "test:e2e:webkit": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 E2E_CROSS_BROWSER=1 DISABLE_HMR=true PW_WORKERS=1 playwright test tests/e2e/platform-smoke --project=webkit",
+    "test:e2e:cross-browser": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 E2E_CROSS_BROWSER=1 DISABLE_HMR=true PW_WORKERS=1 playwright test tests/e2e/platform-smoke --project=webkit --project=firefox",
     "test:e2e:cross-platform": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 playwright test tests/e2e/cross-platform",
     "test:e2e:native-app:win": "npm run build:embedded && playwright test --config tests/e2e/native-app/playwright.config.ts",
     "test:e2e:native-app:linux": "npm run build:embedded && playwright test --config tests/e2e/native-app/playwright.config.ts",
