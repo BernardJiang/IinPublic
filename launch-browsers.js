@@ -133,14 +133,24 @@ let contexts = [];
       const url = `${APP_URL}/${spec.query}`;
       try {
         const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-        console.log(`[${spec.label}] goto -> name="${spec.stageName}" url=${page.url()} status=${resp ? resp.status() : 'null'}`);
+        // The app assigns its user id asynchronously during boot — poll localStorage for it.
+        let userId = null;
+        for (let attempt = 0; attempt < 40 && !userId; attempt += 1) {
+          userId = await page.evaluate(() => localStorage.getItem('iinpublic_user_id')).catch(() => null);
+          if (!userId) await page.waitForTimeout(500);
+        }
+        spec.userId = userId;
+        console.log(`[${spec.label}] name="${spec.stageName}" id=${userId || '(pending)'} status=${resp ? resp.status() : 'null'}`);
       } catch (err) {
         console.log(`[${spec.label}] goto FAILED: ${err.message}`);
       }
     }),
   );
 
-  console.log(`✅ Live and isolated: ${specs.map((s) => s.stageName).join(', ')}.`);
+  console.log('\n✅ Live users (name → id):');
+  for (const spec of specs) {
+    console.log(`   ${spec.stageName.padEnd(12)} ${spec.userId || '(unknown)'}`);
+  }
 
   // Keep the Node process alive so the browsers stay open
   await new Promise(() => {});

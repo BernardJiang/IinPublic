@@ -844,11 +844,16 @@ export class IinPublicApp {
 
   private async initializeUser(): Promise<void> {
     if (isDevStageZero()) {
-      localStorage.removeItem('iinpublic_user_id');
-      localStorage.removeItem('iinpublic_keypair');
-      localStorage.removeItem(KEY_CUSTODY_STORAGE);
-      localStorage.removeItem(KEY_CUSTODY_DEVICE_SECRET_STORAGE);
-      localStorage.removeItem('gun/');
+      // Preserve the TechSupport root id (set by index.ts for the stage-zero login and the
+      // dev:multi ?devRole=techsupport driver window) so this window stays logged in as root.
+      // Ordinary dev windows have no stored id here and get a fresh identity as before.
+      if (localStorage.getItem('iinpublic_user_id') !== TECHSUPPORT_ROOT_USER_ID) {
+        localStorage.removeItem('iinpublic_user_id');
+        localStorage.removeItem('iinpublic_keypair');
+        localStorage.removeItem(KEY_CUSTODY_STORAGE);
+        localStorage.removeItem(KEY_CUSTODY_DEVICE_SECRET_STORAGE);
+        localStorage.removeItem('gun/');
+      }
     }
     // Check for existing user in local storage
     const existingUserId = localStorage.getItem('iinpublic_user_id');
