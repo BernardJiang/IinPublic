@@ -16,6 +16,13 @@ const API_BASE = process.env.DEV_MULTI_API_BASE
   || `${devTlsEnabled ? 'https' : 'http'}://localhost:8080`;
 const SERVER_WAIT_MS = 60_000;
 const USER_COUNT = Math.max(1, parseInt(process.env.DEV_MULTI_USERS || '3', 10) || 3);
+// Distinct stage names per browser window so the users are tellable apart.
+// Overridable via DEV_MULTI_NAMES="Adam,Bob,Carol". Beyond the list we fall back to "User N".
+const USER_NAMES = (process.env.DEV_MULTI_NAMES || 'Adam,Bob,Carol,Dave,Erin,Frank')
+  .split(',')
+  .map((name) => name.trim())
+  .filter(Boolean);
+const nameForIndex = (index) => USER_NAMES[index] || `User ${index + 1}`;
 const WINDOW_WIDTH = 620;
 const WINDOW_HEIGHT = 900;
 const WINDOW_GAP = 10;
@@ -100,16 +107,18 @@ function waitForServer(url, timeoutMs) {
       page.on('console', (msg) => {
         if (msg.type() === 'error') console.log(`[${label}] console.error: ${msg.text()}`);
       });
+      const stageName = nameForIndex(index);
+      const url = `${APP_URL}/?devUser=${encodeURIComponent(stageName)}`;
       try {
-        const resp = await page.goto(APP_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-        console.log(`[${label}] goto -> url=${page.url()} status=${resp ? resp.status() : 'null'} title="${await page.title()}"`);
+        const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+        console.log(`[${label}] goto -> name="${stageName}" url=${page.url()} status=${resp ? resp.status() : 'null'}`);
       } catch (err) {
         console.log(`[${label}] goto FAILED: ${err.message}`);
       }
     }),
   );
 
-  console.log(`✅ Users ${Array.from({ length: USER_COUNT }, (_, i) => String.fromCharCode(65 + i)).join(', ')} are live and isolated.`);
+  console.log(`✅ Users ${Array.from({ length: USER_COUNT }, (_, i) => nameForIndex(i)).join(', ')} are live and isolated.`);
 
   // Keep the Node process alive so the browsers stay open
   await new Promise(() => {});

@@ -353,9 +353,18 @@ export async function applyDevStageSeed(app: any, stageName: string): Promise<vo
     // stage-zero/empty boot logged in as the built-in TechSupport root (see index.ts) —
     // never rename it. Only `multi` browsers are ordinary users that get the Adam stage name.
     if (stage === 'multi') {
-      setCurrentUserDecorations(app, { stageName: 'Adam', knownPeople: [] });
+      // Each dev:multi browser is launched with ?devUser=<name> so the windows are
+      // tellable apart; fall back to 'Adam' when launched without one.
+      const devUserName = (() => {
+        try {
+          return new URLSearchParams(window.location.search).get('devUser')?.trim() || 'Adam';
+        } catch {
+          return 'Adam';
+        }
+      })();
+      setCurrentUserDecorations(app, { stageName: devUserName, knownPeople: [] });
       if (app.currentUser?.id && app.userService?.updateStageName) {
-        await app.userService.updateStageName(app.currentUser.id, 'Adam');
+        await app.userService.updateStageName(app.currentUser.id, devUserName);
       }
     }
     try {
