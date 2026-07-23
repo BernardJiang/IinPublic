@@ -91,7 +91,7 @@ export class GunMessageStore {
    *  turning a 12-message history render into ~10s+ and blowing e2e budgets after reload. */
   private readonly epubByUserId = new Map<string, string>();
 
-  private async getUserEpub(userId: string): Promise<string | undefined> {
+  private async getUserEpub(userId: string, attempts = 8): Promise<string | undefined> {
     const cached = this.epubByUserId.get(userId);
     if (cached) return cached;
     // WebGunService.getPublicUser()/get() rejects when the *first* `.once()` callback fires
@@ -99,13 +99,23 @@ export class GunMessageStore {
     // synced to this device's local Gun yet (freshly-matched conversation, cold page). That
     // is not a decrypt failure; treat it the same as "no epub yet" so callers fall back to
     // ciphertext instead of the whole decrypt batch being lost to an unhandled rejection.
-    try {
-      const user = await this.gunService.getPublicUser(userId);
-      if (user.epub) this.epubByUserId.set(userId, user.epub);
-      return user.epub;
-    } catch {
-      return undefined;
+    //
+    // Retry a few times: a received message can beat the sender's epub sync to this device,
+    // and without a retry the message renders once as raw SEA ciphertext and never
+    // re-decrypts (the messages subscription doesn't re-fire when the peer's user node lands).
+    for (let i = 0; i < attempts; i += 1) {
+      try {
+        const user = await this.gunService.getPublicUser(userId);
+        if (user.epub) {
+          this.epubByUserId.set(userId, user.epub);
+          return user.epub;
+        }
+      } catch {
+        /* transient — retry below */
+      }
+      if (i < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 400));
     }
+    return undefined;
   }
 
   private pairIdForUsers(userA: string, userB: string): string {

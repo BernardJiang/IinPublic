@@ -138,15 +138,30 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     if (wire.encryption !== 'sea-ecdh-v1') return wire.text;
     const pair = this.gunService.getStoredPair();
     if (!pair) return wire.text;
-    const user = await this.gunService.getPublicUser(peerId);
-    if (!user.epub) return wire.text;
+    // Retry the epub read: a received message can arrive before the sender's epub has synced
+    // to this device, and without a retry the message stays as raw SEA ciphertext on screen.
+    const epub = await this.getUserEpub(peerId);
+    if (!epub) return wire.text;
     try {
-      const secret = await getSEA().secret(user.epub, pair as GunPair);
+      const secret = await getSEA().secret(epub, pair as GunPair);
       const decrypted = await getSEA().decrypt(wire.text, secret);
       return decrypted ? String(decrypted) : wire.text;
     } catch {
       return wire.text;
     }
+  }
+
+  private async getUserEpub(userId: string, attempts = 8): Promise<string | undefined> {
+    for (let i = 0; i < attempts; i += 1) {
+      try {
+        const user = await this.gunService.getPublicUser(userId);
+        if (user.epub) return String(user.epub);
+      } catch {
+        /* transient — retry below */
+      }
+      if (i < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+    return undefined;
   }
 
   private pushLiveMessage(conversationId: string, message: Message): void {
