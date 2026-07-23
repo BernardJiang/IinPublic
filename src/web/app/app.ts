@@ -1149,7 +1149,9 @@ export class IinPublicApp {
       });
     }
 
-    await this.ensureSupportBootstrapForCurrentUser();
+    await this.ensureSupportBootstrapForCurrentUser().catch((error) => {
+      console.warn('Support bootstrap failed:', error);
+    });
     await this.initP2PPresenceAndBridge();
     this.initDirectTalkDeliverySubscriptions();
     // Step 6: drain mailbox on app boot + retry any failed mailbox POSTs.
@@ -2305,7 +2307,6 @@ export class IinPublicApp {
 
   private async ensureSupportBootstrapForCurrentUser(): Promise<void> {
     if (!this.currentUser || this.supportBootstrapChecked || isTechSupportUser(this.currentUser)) return;
-    this.supportBootstrapChecked = true;
 
     const userId = this.currentUser.id;
     const supportStateKey = 'iinpublic_support_channels';
@@ -2320,14 +2321,22 @@ export class IinPublicApp {
         return {};
       }
     })();
-    if (supportState[userId]?.conversationId && supportState[userId]?.greetedAt) return;
+    if (supportState[userId]?.conversationId && supportState[userId]?.greetedAt) {
+      this.supportBootstrapChecked = true;
+      return;
+    }
 
     const conversationId = `conv_support_${TECHSUPPORT_ROOT_USER_ID}_${userId}`;
     const now = new Date().toISOString();
     const welcome =
       `Welcome to IinPublic, ${this.currentUser.stageName}. ${TECHSUPPORT_STAGE_NAME} is here if you need help.`;
+    const transportMode = this.conversationService.getTransportMode();
     const gun = this.gunService.getGun();
 
+    // Write the LOCAL contact record first, independent of the network send below.
+    // hasSupportContact()/Contacts read `myConversations` (via addNewConversation), so
+    // the support contact must appear even if the DM transport is slow or fails — a race
+    // that previously left some browsers without TechSupport in their Contacts list.
     gun.get(`conversations/${conversationId}`).put({
       data: JSON.stringify({
         id: conversationId,
@@ -2337,41 +2346,47 @@ export class IinPublicApp {
         supportChannel: true,
       }),
     });
-    await this.conversationService.sendMessage(
-      conversationId,
-      TECHSUPPORT_ROOT_USER_ID,
-      welcome,
-      {
-        otherUserId: userId,
-        messageId: `support_welcome_${userId}`,
-        isFromChatbot: true,
-      },
-    );
     gun.get(`users/${userId}`).get('conversations').get(conversationId).put({
       conversationId,
       otherUserId: TECHSUPPORT_ROOT_USER_ID,
       otherUserName: TECHSUPPORT_STAGE_NAME,
       createdAt: now,
       supportChannel: true,
-      transportMode: this.conversationService.getTransportMode(),
+      transportMode,
     });
-
-    supportState[userId] = {
-      greetedAt: now,
-      conversationId,
-      transportMode: this.conversationService.getTransportMode(),
-    };
-    localStorage.setItem(supportStateKey, JSON.stringify(supportState));
     this.uiManager.addNewConversation({
       conversationId,
       otherUserId: TECHSUPPORT_ROOT_USER_ID,
       otherUserName: TECHSUPPORT_STAGE_NAME,
       supportChannel: true,
-      transportMode: this.conversationService.getTransportMode(),
+      transportMode,
     });
     this.uiManager.updateConversationMessage(conversationId, welcome, now);
+
+    supportState[userId] = { greetedAt: now, conversationId, transportMode };
+    localStorage.setItem(supportStateKey, JSON.stringify(supportState));
+    // Local record is durable now — safe to mark done and never redo the local writes.
+    this.supportBootstrapChecked = true;
+
     if (!this.uiManager.isSupportNotificationsMuted()) {
       this.uiManager.showNotification(this.uiManager.formatSupportWelcome(this.currentUser.stageName), 'info');
+    }
+
+    // Best-effort welcome message delivery. A failure here must not abort boot or undo
+    // the local contact record above (previously it did both).
+    try {
+      await this.conversationService.sendMessage(
+        conversationId,
+        TECHSUPPORT_ROOT_USER_ID,
+        welcome,
+        {
+          otherUserId: userId,
+          messageId: `support_welcome_${userId}`,
+          isFromChatbot: true,
+        },
+      );
+    } catch (error) {
+      console.warn('Support welcome message send failed (contact still added):', error);
     }
   }
 
