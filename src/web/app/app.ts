@@ -23,7 +23,7 @@ import {
 } from '../../shared/system-announcements';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, computeCIDv1 } from '../../shared/cid';
-import { getDevStageZeroMaxGlobalMembers, isDevStageZero } from '../dev-stage-env';
+import { getDevStageZeroMaxGlobalMembers, isDevStageZero, isDevStageZeroSelfHeal } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
 import {
   isTechSupportUser,
@@ -728,7 +728,7 @@ export class IinPublicApp {
       // Custom rooms may introduce additional IDs not present at startup.
       this.subscribeToAllChatroomMemberCounts();
     });
-    if (isDevStageZero()) {
+    if (isDevStageZeroSelfHeal()) {
       this.stageZeroBootedAt = Date.now();
       this.startStageZeroHeadcountWatchdog();
     }
@@ -5273,7 +5273,7 @@ export class IinPublicApp {
   }
 
   private applyChatroomMemberCount(chatroomId: string, count: number): void {
-    if (isDevStageZero()) {
+    if (isDevStageZeroSelfHeal()) {
       const prev = this.stageZeroLastMemberCounts.get(chatroomId) ?? 0;
       this.stageZeroLastMemberCounts.set(chatroomId, count);
       const pastBootGrace = Date.now() - this.stageZeroBootedAt > 30_000;

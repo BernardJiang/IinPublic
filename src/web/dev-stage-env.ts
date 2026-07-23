@@ -18,6 +18,18 @@ export function getDevStageZeroMaxGlobalMembers(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 3;
 }
 
+/**
+ * The stage-zero headcount self-heal (purge Gun graph + re-auth) assumes a single-user
+ * empty network where a member count above the cap means a stray tab re-synced stale data.
+ * In `multi` there are intentionally several real users, so that repair must NOT run — it
+ * would wipe the shared graph and regenerate this window's SEA identity mid-session,
+ * desyncing the published epub from the in-memory pair and breaking DM decryption.
+ */
+export function isDevStageZeroSelfHeal(): boolean {
+  const seed = getDevStageSeed();
+  return seed === 'stage-zero' || seed === 'empty';
+}
+
 /** Optional runtime fallback from index.html meta (set by webpack template). */
 export function getDevStageSeedFromDom(): string {
   if (typeof document === 'undefined') return '';
