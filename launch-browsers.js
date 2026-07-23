@@ -23,6 +23,10 @@ const USER_NAMES = (process.env.DEV_MULTI_NAMES || 'Adam,Bob,Carol,Dave,Erin,Fra
   .map((name) => name.trim())
   .filter(Boolean);
 const nameForIndex = (index) => USER_NAMES[index] || `User ${index + 1}`;
+// Launch one extra window logged in as the TechSupport root so a human can answer
+// other users as TechSupport. On by default; disable with DEV_MULTI_TECHSUPPORT=0.
+const LAUNCH_TECHSUPPORT = process.env.DEV_MULTI_TECHSUPPORT !== '0'
+  && process.env.DEV_MULTI_TECHSUPPORT !== 'false';
 const WINDOW_WIDTH = 620;
 const WINDOW_HEIGHT = 900;
 const WINDOW_GAP = 10;
@@ -60,18 +64,32 @@ function waitForServer(url, timeoutMs) {
 let contexts = [];
 
 (async () => {
-  console.log(`🚀 Launching ${USER_COUNT} isolated browser instances...`);
+  // One window spec per browser: the TechSupport driver (optional) first, then the users.
+  const specs = [];
+  if (LAUNCH_TECHSUPPORT) {
+    specs.push({ profile: 'techsupport', label: 'techsupport', stageName: 'TechSupport', query: '?devRole=techsupport' });
+  }
+  for (let i = 0; i < USER_COUNT; i += 1) {
+    const stageName = nameForIndex(i);
+    specs.push({
+      profile: `user_${String.fromCharCode(97 + i)}`,
+      label: `user_${String.fromCharCode(97 + i)}`,
+      stageName,
+      query: `?devUser=${encodeURIComponent(stageName)}`,
+    });
+  }
+
+  console.log(`🚀 Launching ${specs.length} isolated browser instances (${specs.map((s) => s.stageName).join(', ')})...`);
   if (RESET_PROFILES) {
     fs.rmSync(USER_DATA_ROOT, { recursive: true, force: true });
-    console.log('🧹 Removed dev:multi browser profiles for a clean three-user run.');
+    console.log('🧹 Removed dev:multi browser profiles for a clean run.');
   }
 
   // Launch browsers first — before the server is ready — so windows open immediately.
   contexts = await Promise.all(
-    Array.from({ length: USER_COUNT }, (_, index) => {
-      const userName = `user_${String.fromCharCode(97 + index)}`;
+    specs.map((spec, index) => {
       const x = index * (WINDOW_WIDTH + WINDOW_GAP);
-      return chromium.launchPersistentContext(path.join(USER_DATA_ROOT, userName), {
+      return chromium.launchPersistentContext(path.join(USER_DATA_ROOT, spec.profile), {
         headless: false,
         ignoreHTTPSErrors: true, // self-signed dev cert
         viewport: { width: WINDOW_WIDTH, height: WINDOW_HEIGHT },
@@ -102,28 +120,27 @@ let contexts = [];
     preferSnapshotImport: process.env.DEV_MULTI_BOOTSTRAP_IMPORT === '1',
     allowSnapshotImport: process.env.DEV_MULTI_BOOTSTRAP_IMPORT === '1',
   });
-  console.log(`✅ Server ready with TechSupport bootstrap — navigating ${USER_COUNT} browsers.`);
+  console.log(`✅ Server ready with TechSupport bootstrap — navigating ${specs.length} browsers.`);
 
   await Promise.all(
     contexts.map(async (context, index) => {
-      const label = `user_${String.fromCharCode(97 + index)}`;
+      const spec = specs[index];
       const page = context.pages()[0] || await context.newPage();
-      page.on('pageerror', (err) => console.log(`[${label}] pageerror: ${err.message}`));
+      page.on('pageerror', (err) => console.log(`[${spec.label}] pageerror: ${err.message}`));
       page.on('console', (msg) => {
-        if (msg.type() === 'error') console.log(`[${label}] console.error: ${msg.text()}`);
+        if (msg.type() === 'error') console.log(`[${spec.label}] console.error: ${msg.text()}`);
       });
-      const stageName = nameForIndex(index);
-      const url = `${APP_URL}/?devUser=${encodeURIComponent(stageName)}`;
+      const url = `${APP_URL}/${spec.query}`;
       try {
         const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-        console.log(`[${label}] goto -> name="${stageName}" url=${page.url()} status=${resp ? resp.status() : 'null'}`);
+        console.log(`[${spec.label}] goto -> name="${spec.stageName}" url=${page.url()} status=${resp ? resp.status() : 'null'}`);
       } catch (err) {
-        console.log(`[${label}] goto FAILED: ${err.message}`);
+        console.log(`[${spec.label}] goto FAILED: ${err.message}`);
       }
     }),
   );
 
-  console.log(`✅ Users ${Array.from({ length: USER_COUNT }, (_, i) => nameForIndex(i)).join(', ')} are live and isolated.`);
+  console.log(`✅ Live and isolated: ${specs.map((s) => s.stageName).join(', ')}.`);
 
   // Keep the Node process alive so the browsers stay open
   await new Promise(() => {});

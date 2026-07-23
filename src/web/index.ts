@@ -1,7 +1,7 @@
 import './styles/main.css';
 import { IinPublicApp } from './app/app';
 import { applyDevStageSeed } from './dev-stage-seeds';
-import { isDevStageTechSupportLoginResolved, isDevStageZeroResolved, resolveDevStageSeed } from './dev-stage-env';
+import { isDevStageTechSupportLoginResolved, isDevStageZeroResolved, isDevTechSupportDriver, resolveDevStageSeed } from './dev-stage-env';
 import { TECHSUPPORT_ROOT_USER_ID } from '../shared/techsupport';
 import { LocationPrivacy } from '../shared/location';
 import { GPSCoordinate } from '../shared/types';
@@ -44,9 +44,11 @@ class WebApp {
           return;
         }
         sessionStorage.removeItem(STAGE_ZERO_BOOT_KEY);
-        if (isDevStageTechSupportLoginResolved()) {
+        if (isDevStageTechSupportLoginResolved() || isDevTechSupportDriver()) {
           // TechSupport is the built-in first user: a clean dev boot logs in as the root so an
           // empty database shows exactly one member (TechSupport counts as 1 in every headcount).
+          // In dev:multi, the ?devRole=techsupport window also logs in as root so a human can
+          // answer other users as TechSupport.
           localStorage.setItem('iinpublic_user_id', TECHSUPPORT_ROOT_USER_ID);
         }
         // Server was just restarted by dev:stage-zero (empty graph). Skip clear-database here —

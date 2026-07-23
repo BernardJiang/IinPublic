@@ -1,6 +1,7 @@
 import { computeTalkIdFromTalkData } from '../shared/cid';
 import { setMyTalks, type MyTalkMap } from './ui/my-talks-storage';
 import { deriveBackendApiBaseFromLocation } from './services/web-gun-service';
+import { TECHSUPPORT_ROOT_USER_ID } from '../shared/techsupport';
 
 type StageUser = {
   id: string;
@@ -352,7 +353,8 @@ export async function applyDevStageSeed(app: any, stageName: string): Promise<vo
     clearClientGunChatrooms(app.gunService?.getGun?.());
     // stage-zero/empty boot logged in as the built-in TechSupport root (see index.ts) —
     // never rename it. Only `multi` browsers are ordinary users that get the Adam stage name.
-    if (stage === 'multi') {
+    // The dev:multi TechSupport driver window logs in as the root user — never rename it.
+    if (stage === 'multi' && app.currentUser?.id !== TECHSUPPORT_ROOT_USER_ID) {
       // Each dev:multi browser is launched with ?devUser=<name> so the windows are
       // tellable apart; fall back to 'Adam' when launched without one.
       const devUserName = (() => {

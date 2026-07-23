@@ -44,3 +44,17 @@ export function isDevStageTechSupportLoginResolved(): boolean {
   const seed = resolveDevStageSeed();
   return seed === 'stage-zero' || seed === 'empty';
 }
+
+/**
+ * dev:multi can launch one window as a TechSupport driver via `?devRole=techsupport`,
+ * so a human can answer other users as TechSupport. That window logs in as the root
+ * user instead of creating an ordinary Adam/Bob/Carol.
+ */
+export function isDevTechSupportDriver(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return new URLSearchParams(window.location.search).get('devRole') === 'techsupport';
+  } catch {
+    return false;
+  }
+}

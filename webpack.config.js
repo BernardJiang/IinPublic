@@ -197,7 +197,10 @@ module.exports = {
     hot: process.env.DISABLE_HMR !== 'true',
     liveReload: process.env.DISABLE_HMR !== 'true',
     watchFiles: process.env.DISABLE_HMR === 'true' ? [] : undefined,
-    open: process.env.DISABLE_HMR !== 'true', // Don't auto-open browser during e2e tests
+    // Don't auto-open during e2e; and don't auto-open in dev:multi (launch-browsers.js
+    // opens the labelled windows itself — webpack's own tab would add a stray, unlabelled
+    // "Adam" user).
+    open: process.env.DISABLE_HMR !== 'true' && process.env.IINPUBLIC_STAGE_SEED !== 'multi',
     historyApiFallback: true,
     // Disable all watching for E2E tests. Omit the hardcoded webSocketURL: the default
     // (same origin as the page) is correct for every worker's port.
