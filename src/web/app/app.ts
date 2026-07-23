@@ -2751,7 +2751,13 @@ export class IinPublicApp {
     for (const member of members || []) {
       const id = String(member?.userId || '').trim();
       const epub = typeof member?.epub === 'string' ? member.epub.trim() : '';
-      if (id && epub && !this.peerEpubByUserId.has(id)) this.peerEpubByUserId.set(id, epub);
+      if (id && epub) {
+        if (!this.peerEpubByUserId.has(id)) this.peerEpubByUserId.set(id, epub);
+        // Also seed the Gun service's roster-epub cache so message decryption (which reads
+        // getPublicUser) can resolve a peer's epub from the reliable heartbeat roster instead
+        // of leaving received DMs as raw SEA ciphertext when the public-user lookup races.
+        this.gunService.rememberRosterEpub(id, epub);
+      }
     }
   }
 

@@ -506,8 +506,27 @@ export class WebGunService extends EventEmitter {
     return null;
   }
 
+  /**
+   * Chatroom-roster epub cache. The membership heartbeat writes each member's epub inline
+   * into `chatrooms/<id>/users/<uid>` (web-chatroom-service), which syncs reliably even when
+   * the `users/<id>` public record / presence lookup is racing on simultaneous boot. The app
+   * harvests those epubs here so getPublicUser can fill a missing epub from the roster instead
+   * of leaving received DMs stuck as raw SEA ciphertext.
+   */
+  private readonly rosterEpubByUserId = new Map<string, string>();
+
+  rememberRosterEpub(userId: string, epub: string): void {
+    const id = String(userId || '').trim();
+    const key = String(epub || '').trim();
+    if (id && key) this.rosterEpubByUserId.set(id, key);
+  }
+
   /** Read the public user graph record stored at `users/<id>`. */
   async getPublicUser(userId: string): Promise<Partial<User>> {
+    const rosterEpub = this.rosterEpubByUserId.get(userId);
+    const withRosterEpub = (record: Partial<User>): Partial<User> =>
+      !record.epub && rosterEpub ? { ...record, epub: rosterEpub } : record;
+
     const fromApi = await this.getPublicUserFromApi(userId);
     if (fromApi?.pub && fromApi?.epub) return fromApi;
 
@@ -519,8 +538,9 @@ export class WebGunService extends EventEmitter {
       fromGun = null;
     }
 
-    if (fromApi) return { ...(fromGun || {}), ...fromApi };
-    if (fromGun) return fromGun;
+    if (fromApi) return withRosterEpub({ ...(fromGun || {}), ...fromApi });
+    if (fromGun) return withRosterEpub(fromGun);
+    if (rosterEpub) return { id: userId, epub: rosterEpub };
     throw new Error(`No data found for key: users/${userId}`);
   }
 

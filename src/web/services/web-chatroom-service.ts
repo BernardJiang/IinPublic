@@ -46,6 +46,15 @@ export class WebChatroomService {
     return Date.now() - seenAt <= (ROOM_MEMBERSHIP_TTL_SECONDS + 5) * 1000;
   }
 
+  /** A member record with a parseable lastSeen that is genuinely past the TTL window. */
+  private isDefinitelyStale(memberData: any): boolean {
+    const rawSeen = memberData?.lastSeen || memberData?.joinedAt;
+    if (!rawSeen) return false;
+    const seenAt = Date.parse(String(rawSeen));
+    if (!Number.isFinite(seenAt)) return false;
+    return Date.now() - seenAt > (ROOM_MEMBERSHIP_TTL_SECONDS + 5) * 1000;
+  }
+
   /** Fast member snapshot from server Gun (reads chatrooms/<id>/users). */
   async fetchMemberIdsFromServer(chatroomId: string): Promise<string[]> {
     const controller = new AbortController();
@@ -640,7 +649,10 @@ export class WebChatroomService {
             ...(typeof memberData.epub === 'string' && memberData.epub ? { epub: memberData.epub } : {}),
             ...(typeof memberData.pub === 'string' && memberData.pub ? { pub: memberData.pub } : {}),
           });
-        } else {
+        } else if (memberData && (memberData.isActive === false || this.isDefinitelyStale(memberData))) {
+          // Only remove on a definite signal (explicitly inactive, or a genuinely old lastSeen).
+          // Gun's .map().on() transiently emits null/partial records mid-sync; deleting on those
+          // made the roster flicker ("comes and goes"). Keep the last-known-good entry instead.
           this.activeMembersForList.delete(userId);
         }
 
