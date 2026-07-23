@@ -12,7 +12,8 @@ const devCertPath = process.env.TLS_CERT_PATH || path.resolve(__dirname, 'certs/
 const devTlsEnabled =
   process.env.DISABLE_HMR !== 'true' && fs.existsSync(devKeyPath) && fs.existsSync(devCertPath);
 const APP_URL = `${devTlsEnabled ? 'https' : 'http'}://localhost:${process.env.PORT || 3001}`;
-const API_BASE = process.env.DEV_MULTI_API_BASE || 'http://localhost:8080';
+const API_BASE = process.env.DEV_MULTI_API_BASE
+  || `${devTlsEnabled ? 'https' : 'http'}://localhost:8080`;
 const SERVER_WAIT_MS = 60_000;
 const USER_COUNT = Math.max(1, parseInt(process.env.DEV_MULTI_USERS || '3', 10) || 3);
 const WINDOW_WIDTH = 620;

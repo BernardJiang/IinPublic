@@ -1,4 +1,11 @@
 const http = require('http');
+const https = require('https');
+
+// The dev server serves https on 8080 when certs/dev-*.pem exist (self-signed),
+// so requests must pick the right client and skip cert verification.
+function clientFor(url) {
+  return String(url).startsWith('https') ? https : http;
+}
 
 const TECHSUPPORT_STAGE_NAME = 'TechSupport';
 const TECHSUPPORT_ROOT_USER_ID = 'iinpublic-root-techsupport';
@@ -122,16 +129,17 @@ function createTechSupportSnapshotGraph() {
 }
 
 function waitForHttp(url, timeoutMs = 60_000) {
+  const client = clientFor(url);
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + timeoutMs;
     const poll = () => {
-      http
-        .get(url, (res) => {
-          res.resume();
-          if (res.statusCode && res.statusCode < 500) resolve();
-          else retry();
-        })
-        .on('error', retry);
+      const req = client.get(url, { rejectUnauthorized: false }, (res) => {
+        res.resume();
+        if (res.statusCode && res.statusCode < 500) resolve();
+        else retry();
+      });
+      req.on('error', retry);
+      req.setTimeout(5_000, () => req.destroy(new Error('probe timeout')));
     };
     const retry = () => {
       if (Date.now() >= deadline) reject(new Error(`${url} was not ready after ${timeoutMs}ms`));
@@ -141,19 +149,28 @@ function waitForHttp(url, timeoutMs = 60_000) {
   });
 }
 
-async function postJson(url, body, timeoutMs = 4_000) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: controller.signal,
-  }).finally(() => clearTimeout(timeoutId));
-  const text = await res.text();
-  if (!res.ok && !/already|reserved|exists/i.test(text)) {
-    throw new Error(`${url} failed: ${res.status} ${text}`);
-  }
+function postJson(url, body, timeoutMs = 4_000) {
+  // Uses http/https directly (not fetch) so the self-signed dev cert is accepted.
+  const client = clientFor(url);
+  const data = JSON.stringify(body);
+  return new Promise((resolve, reject) => {
+    const req = client.request(new URL(url), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+      rejectUnauthorized: false,
+    }, (res) => {
+      let text = '';
+      res.on('data', (chunk) => { text += chunk; });
+      res.on('end', () => {
+        const ok = res.statusCode && res.statusCode >= 200 && res.statusCode < 300;
+        if (ok || /already|reserved|exists/i.test(text)) resolve();
+        else reject(new Error(`${url} failed: ${res.statusCode} ${text}`));
+      });
+    });
+    req.setTimeout(timeoutMs, () => req.destroy(new Error(`${url} timed out after ${timeoutMs}ms`)));
+    req.on('error', reject);
+    req.end(data);
+  });
 }
 
 async function importTechSupportSnapshot(apiBase) {
