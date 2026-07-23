@@ -1,10 +1,17 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 const http = require('http');
+const https = require('https');
 const path = require('path');
 const { ensureTechSupportBootstrap } = require('./scripts/dev-techsupport-bootstrap');
 
-const APP_URL = `http://localhost:${process.env.PORT || 3001}`;
+// Mirror webpack.config.js dev TLS detection: with certs present the dev server
+// serves https on 3001, so the readiness probe and page URLs must use https too.
+const devKeyPath = process.env.TLS_KEY_PATH || path.resolve(__dirname, 'certs/dev-key.pem');
+const devCertPath = process.env.TLS_CERT_PATH || path.resolve(__dirname, 'certs/dev-cert.pem');
+const devTlsEnabled =
+  process.env.DISABLE_HMR !== 'true' && fs.existsSync(devKeyPath) && fs.existsSync(devCertPath);
+const APP_URL = `${devTlsEnabled ? 'https' : 'http'}://localhost:${process.env.PORT || 3001}`;
 const API_BASE = process.env.DEV_MULTI_API_BASE || 'http://localhost:8080';
 const SERVER_WAIT_MS = 60_000;
 const USER_COUNT = Math.max(1, parseInt(process.env.DEV_MULTI_USERS || '3', 10) || 3);
@@ -16,19 +23,24 @@ const RESET_PROFILES = process.env.DEV_MULTI_RESET_PROFILES === '1'
   || process.env.DEV_MULTI_RESET_PROFILES === 'true';
 
 function waitForServer(url, timeoutMs) {
+  const client = url.startsWith('https') ? https : http;
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + timeoutMs;
+    function retry() {
+      if (Date.now() >= deadline) {
+        reject(new Error(`Server not ready after ${timeoutMs}ms (${url})`));
+      } else {
+        setTimeout(poll, 500);
+      }
+    }
     function poll() {
-      http.get(url, (res) => {
+      const req = client.get(url, { rejectUnauthorized: false }, (res) => {
         res.resume();
         resolve();
-      }).on('error', () => {
-        if (Date.now() >= deadline) {
-          reject(new Error(`Server not ready after ${timeoutMs}ms`));
-        } else {
-          setTimeout(poll, 500);
-        }
       });
+      req.on('error', retry);
+      // Don't hang forever on a stalled connection (e.g. webpack mid-compile).
+      req.setTimeout(5000, () => req.destroy(new Error('probe timeout')));
     }
     poll();
   });
@@ -48,6 +60,7 @@ function waitForServer(url, timeoutMs) {
       const x = index * (WINDOW_WIDTH + WINDOW_GAP);
       return chromium.launchPersistentContext(path.join(USER_DATA_ROOT, userName), {
         headless: false,
+        ignoreHTTPSErrors: true, // self-signed dev cert
         viewport: { width: WINDOW_WIDTH, height: WINDOW_HEIGHT },
         args: [
           `--window-position=${x},0`,
