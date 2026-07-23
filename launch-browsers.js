@@ -92,9 +92,19 @@ function waitForServer(url, timeoutMs) {
   console.log(`✅ Server ready with TechSupport bootstrap — navigating ${USER_COUNT} browsers.`);
 
   await Promise.all(
-    contexts.map(async (context) => {
+    contexts.map(async (context, index) => {
+      const label = `user_${String.fromCharCode(97 + index)}`;
       const page = context.pages()[0] || await context.newPage();
-      return page.goto(APP_URL);
+      page.on('pageerror', (err) => console.log(`[${label}] pageerror: ${err.message}`));
+      page.on('console', (msg) => {
+        if (msg.type() === 'error') console.log(`[${label}] console.error: ${msg.text()}`);
+      });
+      try {
+        const resp = await page.goto(APP_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+        console.log(`[${label}] goto -> url=${page.url()} status=${resp ? resp.status() : 'null'} title="${await page.title()}"`);
+      } catch (err) {
+        console.log(`[${label}] goto FAILED: ${err.message}`);
+      }
     }),
   );
 
