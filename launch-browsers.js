@@ -54,6 +54,11 @@ function waitForServer(url, timeoutMs) {
   });
 }
 
+// Module-scoped so the top-level error handler can also close the windows —
+// otherwise a crash after launch (e.g. server-not-ready) orphaned the windows,
+// leaving stale extra browsers open on the next run.
+let contexts = [];
+
 (async () => {
   console.log(`🚀 Launching ${USER_COUNT} isolated browser instances...`);
   if (RESET_PROFILES) {
@@ -62,7 +67,7 @@ function waitForServer(url, timeoutMs) {
   }
 
   // Launch browsers first — before the server is ready — so windows open immediately.
-  const contexts = await Promise.all(
+  contexts = await Promise.all(
     Array.from({ length: USER_COUNT }, (_, index) => {
       const userName = `user_${String.fromCharCode(97 + index)}`;
       const x = index * (WINDOW_WIDTH + WINDOW_GAP);
@@ -122,7 +127,9 @@ function waitForServer(url, timeoutMs) {
 
   // Keep the Node process alive so the browsers stay open
   await new Promise(() => {});
-})().catch((err) => {
+})().catch(async (err) => {
   console.error('❌ launch-browsers error:', err.message);
+  // Close any windows we already opened so a crash doesn't orphan browsers.
+  await Promise.allSettled(contexts.map((context) => context.close()));
   process.exit(1);
 });
