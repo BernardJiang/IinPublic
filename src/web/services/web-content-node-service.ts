@@ -367,6 +367,24 @@ export class WebContentNodeService {
     return Uint8Array.from(bytes as number[]);
   }
 
+  /**
+   * Read a stored block's raw bytes from this device's local blockstore (no decryption).
+   * Used to serve a shared attachment to a peer over the DM DataChannel — for public
+   * (enc 'none') media these bytes are the file itself.
+   */
+  async readLocalBlock(cid: string): Promise<Uint8Array | null> {
+    const cidString = String(cid || '').trim();
+    if (!cidString) return null;
+    const node = await this.ensureNode();
+    if (!node.blockstore?.get) return null;
+    try {
+      const parsed = await this.cidParser(cidString);
+      return await normalizeBlockBytes(await node.blockstore.get(parsed));
+    } catch {
+      return null;
+    }
+  }
+
   getPublishedAttachmentBytesMetadata(params: {
     talkId: string;
     attachment: unknown;

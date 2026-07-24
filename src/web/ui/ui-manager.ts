@@ -7859,24 +7859,25 @@ export class UIManager extends EventEmitter {
     const isImage = share.mimeType.startsWith('image/');
     const icon = this.attachmentIconForMime(share.mimeType);
     const name = escapeHtml(share.name);
-    const link = escapeHtml(share.link);
     const size = escapeHtml(this.formatAttachmentSize(share.sizeBytes));
     const cid = escapeHtml(share.cid);
     const mime = escapeHtml(share.mimeType);
     const downloadLabel = escapeHtml(this.t('attachmentDownload'));
-    // Images preview inline once bytes decrypt; everything else shows a file card.
+    const loadingLabel = escapeHtml(this.t('attachmentLoading'));
+    const link = escapeHtml(share.link);
+    // Bytes are pulled P2P from the sender over the DM DataChannel (no server/gateway).
+    // Until they arrive the card shows a "loading" line; the hydrate pass swaps in the
+    // image preview + Download once this device has the bytes as a blob URL.
     const preview = isImage
       ? `<img class="ipfs-attachment-img" alt="${name}" hidden />`
       : '';
-    // The ipfs:// scheme can't open in a plain browser, so the card offers a Download that
-    // opens/saves the file from the bytes this device already has (hydrated below). The
-    // ipfs:// address stays visible as the canonical reference.
     return `
       <div class="message ${isOwn ? 'message-own' : 'message-other'}">
         <div class="message-content">
           <div class="ipfs-attachment" data-testid="ipfs-attachment" data-ipfs-cid="${cid}" data-ipfs-mime="${mime}" data-ipfs-name="${name}">
             <div class="ipfs-attachment-head"><span class="ipfs-attachment-icon">${icon}</span> <span class="ipfs-attachment-name">${name}</span>${size ? ` <span class="ipfs-attachment-size">${size}</span>` : ''}</div>
             ${preview}
+            <span class="ipfs-attachment-loading">${loadingLabel}</span>
             <a class="ipfs-attachment-download" download="${name}" hidden>⬇ ${downloadLabel}</a>
             <span class="ipfs-attachment-link" title="${link}">${link}</span>
           </div>
@@ -7897,24 +7898,39 @@ export class UIManager extends EventEmitter {
     const cards = container.querySelectorAll('.ipfs-attachment[data-ipfs-cid]');
     cards.forEach((cardEl) => {
       const card = cardEl as HTMLElement;
+      if (card.dataset.localReady === '1') return; // already using local bytes
       const cid = card.getAttribute('data-ipfs-cid') || '';
       const mime = card.getAttribute('data-ipfs-mime') || '';
+      const name = card.getAttribute('data-ipfs-name') || 'download';
       const img = card.querySelector('img.ipfs-attachment-img') as HTMLImageElement | null;
       const dl = card.querySelector('a.ipfs-attachment-download') as HTMLAnchorElement | null;
-      if (dl?.getAttribute('href')) return; // already hydrated
+      // The card already links to the HTTP gateway. If this device also holds the bytes
+      // locally, prefer them (works offline / instantly) by swapping in a blob URL.
       void this.sharedAttachmentResolver!(cid, mime).then((url) => {
-        if (!url) return;
-        if (dl) {
-          dl.href = url;
-          dl.hidden = false;
-        }
+        if (!url) return; // bytes not here yet — the P2P fetch will re-render when they arrive
+        card.dataset.localReady = '1';
+        const loading = card.querySelector('.ipfs-attachment-loading') as HTMLElement | null;
+        if (loading) loading.hidden = true;
         if (img) {
           img.src = url;
           img.hidden = false;
           img.style.cursor = 'zoom-in';
-          img.onclick = () => window.open(url, '_blank', 'noopener');
+          img.onclick = (e) => { e.stopPropagation(); window.open(url, '_blank'); };
         }
-      }).catch(() => { /* leave the card without a preview/download */ });
+        if (dl) {
+          dl.hidden = false;
+          dl.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+          };
+        }
+      }).catch(() => { /* leave the loading state; a later fetch/re-render can resolve it */ });
     });
   }
 

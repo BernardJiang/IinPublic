@@ -25,6 +25,11 @@ type DirectCapableTransport = ConversationTransport & {
   setUndeliverableHandler?(
     handler: (wire: ConversationMessageWire, conversationId: string, recipientUserId: string) => void,
   ): void;
+  setAttachmentHooks?(hooks: {
+    getAttachmentBytesForCid?: (cid: string) => Promise<Uint8Array | null>;
+    onAttachmentBytes?: (cid: string, bytes: Uint8Array) => void;
+  }): void;
+  requestAttachment?(conversationId: string, localUserId: string, otherUserId: string, cid: string): Promise<void>;
 };
 
 export type SendMessageOptions = {
@@ -99,6 +104,19 @@ export class WebConversationService {
   }): void {
     this.ledgerHooks = hooks;
     (this.transport as DirectCapableTransport).setLedgerHandshakeHooks?.(hooks);
+  }
+
+  /** Wire P2P media providers (serve/receive attachment bytes over the DM DataChannel). */
+  setAttachmentHooks(hooks: {
+    getAttachmentBytesForCid?: (cid: string) => Promise<Uint8Array | null>;
+    onAttachmentBytes?: (cid: string, bytes: Uint8Array) => void;
+  }): void {
+    (this.transport as DirectCapableTransport).setAttachmentHooks?.(hooks);
+  }
+
+  /** Pull a shared attachment's bytes from the peer over the DM DataChannel (no server). */
+  async requestAttachment(conversationId: string, localUserId: string, otherUserId: string, cid: string): Promise<void> {
+    await (this.transport as DirectCapableTransport).requestAttachment?.(conversationId, localUserId, otherUserId, cid);
   }
 
   /** Ordinary-peer transport: direct-p2p (WebRTC + Gun-on-device), no star fallback. */

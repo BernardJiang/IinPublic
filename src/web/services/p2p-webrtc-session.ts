@@ -35,6 +35,23 @@ type SignalPayload =
   | { type: 'answer'; sdp: RTCSessionDescriptionInit; offerId?: string }
   | { type: 'ice'; candidate: RTCIceCandidateInit | null; offerId?: string };
 
+/** Binary ↔ base64 helpers for streaming attachment chunks over the text DataChannel. */
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
 type HandshakeWirePayload = {
   type: 'handshake';
   payload: P2PHandshakePayload;
@@ -74,12 +91,29 @@ type SyncDigestWirePayload = {
   messageIds: string[];
 };
 
+/** Recipient asks the sender to stream a shared attachment's bytes over the DataChannel. */
+type AttachRequestWirePayload = {
+  type: 'attach-request';
+  cid: string;
+};
+
+/** One chunk of an attachment's bytes (base64), reassembled by seq up to `total`. */
+type AttachChunkWirePayload = {
+  type: 'attach-chunk';
+  cid: string;
+  seq: number;
+  total: number;
+  dataB64: string;
+};
+
 type ChannelFramePayload =
   | HandshakeWirePayload
   | DmWirePayload
   | LedgerStateWirePayload
   | MeshWirePayload
-  | SyncDigestWirePayload;
+  | SyncDigestWirePayload
+  | AttachRequestWirePayload
+  | AttachChunkWirePayload;
 
 type SignedChannelWirePayload = {
   type: 'signed-frame';
@@ -173,6 +207,14 @@ export type P2PSessionConfig = {
   getLocalMessageDigest?: () => Promise<string[]>;
   /** Phase 5: given the peer's digest ids, return the local wires the peer is missing. */
   getMessagesForBackfill?: (remoteMessageIds: string[]) => Promise<DmWirePayload['message'][]>;
+  /**
+   * P2P media (no server/gateway): the peer asked for a shared attachment's bytes by cid —
+   * return them if this device holds them (the sender reads from its own content node), or
+   * null to decline. Streamed back to the peer over the DataChannel in chunks.
+   */
+  getAttachmentBytesForCid?: (cid: string) => Promise<Uint8Array | null>;
+  /** P2P media: the peer streamed an attachment's bytes to us — hand them to the app. */
+  onAttachmentBytes?: (cid: string, bytes: Uint8Array) => void;
   /** SDP/ICE frames travel over Gun pub/sub (`gun.get('p2p-signal')`). */
   gun: unknown;
 };
@@ -206,6 +248,10 @@ export class P2PConversationSession {
   private reDigestTimer: ReturnType<typeof setTimeout> | null = null;
   // P2P-V: bounded nonce cache replaces unbounded Set to cap memory use
   private readonly dataChannelNonces = new BoundedNonceCache();
+  /** Reassembly buffers for inbound attachment chunk streams, keyed by cid. */
+  private readonly inboundAttachments = new Map<string, { total: number; chunks: Map<number, Uint8Array> }>();
+  /** cids we've already requested this session, so a re-render doesn't re-request. */
+  private readonly requestedAttachments = new Set<string>();
   // P2P-Q: handshake state
   private localHandshakePayload: P2PHandshakePayload | null = null;
   private handshakeDiagnostics: HandshakeDiagnostics | null = null;
@@ -252,6 +298,85 @@ export class P2PConversationSession {
     onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
   }): void {
     this.config = { ...this.config, ...hooks };
+  }
+
+  setAttachmentHooks(hooks: {
+    getAttachmentBytesForCid?: (cid: string) => Promise<Uint8Array | null>;
+    onAttachmentBytes?: (cid: string, bytes: Uint8Array) => void;
+  }): void {
+    this.config = { ...this.config, ...hooks };
+  }
+
+  /** Ask the peer to stream a shared attachment's bytes over the DataChannel (once per cid). */
+  async requestAttachment(cid: string): Promise<void> {
+    const key = String(cid || '').trim();
+    if (!key || this.requestedAttachments.has(key)) return;
+    this.requestedAttachments.add(key);
+    try {
+      await this.sendChannelFrame({ type: 'attach-request', cid: key });
+    } catch {
+      // Channel not open yet; allow a later retry.
+      this.requestedAttachments.delete(key);
+    }
+  }
+
+  /** Serve a requested attachment: read local bytes and stream them back in signed chunks. */
+  private async handleAttachRequest(cid: string): Promise<void> {
+    const key = String(cid || '').trim();
+    if (!key || !this.config.getAttachmentBytesForCid) return;
+    let bytes: Uint8Array | null = null;
+    try {
+      bytes = await this.config.getAttachmentBytesForCid(key);
+    } catch {
+      bytes = null;
+    }
+    if (!bytes || bytes.length === 0) return;
+    const CHUNK = 12 * 1024; // keep each signed DataChannel frame comfortably small
+    const total = Math.ceil(bytes.length / CHUNK);
+    for (let seq = 0; seq < total; seq += 1) {
+      const slice = bytes.subarray(seq * CHUNK, (seq + 1) * CHUNK);
+      const dataB64 = uint8ToBase64(slice);
+      try {
+        await this.sendChannelFrame({ type: 'attach-chunk', cid: key, seq, total, dataB64 });
+      } catch {
+        return; // channel closed mid-stream; recipient can re-request later
+      }
+    }
+  }
+
+  /** Accumulate an inbound attachment chunk; deliver the whole file once complete. */
+  private handleAttachChunk(frame: AttachChunkWirePayload): void {
+    const key = String(frame.cid || '').trim();
+    if (!key || !this.config.onAttachmentBytes) return;
+    const total = Number(frame.total) || 0;
+    if (total <= 0 || !Number.isFinite(frame.seq)) return;
+    let entry = this.inboundAttachments.get(key);
+    if (!entry) {
+      entry = { total, chunks: new Map() };
+      this.inboundAttachments.set(key, entry);
+    }
+    let bytes: Uint8Array;
+    try {
+      bytes = base64ToUint8(frame.dataB64);
+    } catch {
+      return;
+    }
+    entry.chunks.set(Number(frame.seq), bytes);
+    if (entry.chunks.size < entry.total) return;
+    // All chunks present — concatenate in order.
+    const ordered: Uint8Array[] = [];
+    let size = 0;
+    for (let i = 0; i < entry.total; i += 1) {
+      const c = entry.chunks.get(i);
+      if (!c) return; // missing a chunk; wait for it
+      ordered.push(c);
+      size += c.length;
+    }
+    const full = new Uint8Array(size);
+    let offset = 0;
+    for (const c of ordered) { full.set(c, offset); offset += c.length; }
+    this.inboundAttachments.delete(key);
+    this.config.onAttachmentBytes(key, full);
   }
 
   setOnRemoteDm(hook: (wire: DmWirePayload['message']) => void): void {
@@ -641,6 +766,14 @@ export class P2PConversationSession {
     }
     if (parsed.frame.type === 'sync-digest') {
       await this.handleSyncDigest(parsed.frame);
+      return;
+    }
+    if (parsed.frame.type === 'attach-request') {
+      await this.handleAttachRequest(parsed.frame.cid);
+      return;
+    }
+    if (parsed.frame.type === 'attach-chunk') {
+      this.handleAttachChunk(parsed.frame);
       return;
     }
     if (parsed.frame.type !== 'dm' || !('message' in parsed.frame) || !parsed.frame.message) return;

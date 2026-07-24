@@ -155,6 +155,8 @@ export class IinPublicApp {
   private fetchedAttachmentBytesByCid = new Map<string, Uint8Array>();
   /** Cached object URLs for decrypted shared attachments, keyed by cid (L5 image preview). */
   private attachmentObjectUrlByCid = new Map<string, string>();
+  /** cids with an in-flight fetch loop, so overlapping message-update callbacks don't stack. */
+  private attachmentFetchInFlight = new Set<string>();
   private static readonly ATTACHMENT_SHARE_SENT_KEY = 'iinpublic_ipfs_share_sent_ids';
   public initialized = false;
   /**
@@ -244,6 +246,22 @@ export class IinPublicApp {
     this.conversationService.setLedgerHandshakeHooks({
       getLedgerState: () => ledger.getState(),
       onRemoteLedgerState: (otherUserId, state) => ledger.syncWithPeer(otherUserId, state),
+    });
+    // P2P media (no server/gateway): serve our own shared-file bytes to a peer on request,
+    // and store bytes a peer streams to us so the conversation card can render them.
+    this.conversationService.setAttachmentHooks({
+      getAttachmentBytesForCid: async (cid: string) => {
+        try {
+          return await this.contentNodeService.readLocalBlock(cid);
+        } catch {
+          return null;
+        }
+      },
+      onAttachmentBytes: (cid: string, bytes: Uint8Array) => {
+        if (!cid || !bytes?.length) return;
+        this.fetchedAttachmentBytesByCid.set(String(cid).trim(), bytes);
+        this.uiManager.refreshOpenConversationForAttachment();
+      },
     });
   }
 
@@ -430,33 +448,64 @@ export class IinPublicApp {
   private async maybeFetchSharedAttachmentBytes(
     sharePayload: AttachmentShareMessagePayload,
     senderUserId: string,
+    attempts = 6,
   ): Promise<void> {
     const cid = String(sharePayload.cid || '').trim();
     if (!cid || this.fetchedAttachmentBytesByCid.has(cid)) return;
 
-    const pair = this.gunService.getStoredPair();
-    if (!pair?.priv) return;
-
-    const senderEpub = await this.resolvePeerEpub(senderUserId);
-    if (sharePayload.enc === 'sea-pair') {
-      const secret = await this.getPairTalkResponseSecret(senderUserId, senderEpub);
-      const keyPayloadRaw = await getSEA().decrypt(sharePayload.keyCiphertext, secret);
-      if (!keyPayloadRaw) {
-        throw new Error('Attachment share key decrypt failed');
-      }
+    // Primary retrieval (no server/gateway): pull the bytes from the sender directly over the
+    // DM WebRTC DataChannel. The content node's own libp2p peering is unreliable, but the DM
+    // channel that delivered this share message works — onAttachmentBytes stores the result.
+    if (this.currentUser?.id && senderUserId && sharePayload.conversationId) {
+      void this.conversationService
+        .requestAttachment(sharePayload.conversationId, this.currentUser.id, senderUserId, cid)
+        .catch(() => { /* peer unreachable; the content-node fallback below may still resolve */ });
     }
 
-    const bytes = await this.contentNodeService.fetchAttachmentBytes({
-      cid,
-      enc: sharePayload.enc,
-      senderEpub,
-      recipientPair: pair as GunPair,
-    });
-    if (bytes) {
-      this.fetchedAttachmentBytesByCid.set(cid, bytes);
-      // The share message likely already rendered as a card; re-render so the now-available
-      // decrypted bytes appear as an image preview in the open conversation.
-      this.uiManager.refreshOpenConversationForAttachment();
+    // De-dupe overlapping fetches: loadConversation re-fires per message update, so several
+    // callbacks race for the same cid; only run one fetch loop per cid at a time.
+    if (this.attachmentFetchInFlight.has(cid)) return;
+    this.attachmentFetchInFlight.add(cid);
+
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.priv) { this.attachmentFetchInFlight.delete(cid); return; }
+
+    try {
+      const senderEpub = await this.resolvePeerEpub(senderUserId);
+      if (sharePayload.enc === 'sea-pair') {
+        const secret = await this.getPairTalkResponseSecret(senderUserId, senderEpub);
+        const keyPayloadRaw = await getSEA().decrypt(sharePayload.keyCiphertext, secret);
+        if (!keyPayloadRaw) {
+          throw new Error('Attachment share key decrypt failed');
+        }
+      }
+
+      // The block becomes reachable only once this device's content node peers with the
+      // sender's; the first shares can arrive before that link is up. Retry with backoff so
+      // every card resolves instead of only whichever happened to land after peering.
+      for (let i = 0; i < attempts && !this.fetchedAttachmentBytesByCid.has(cid); i += 1) {
+        let bytes: Uint8Array | null = null;
+        try {
+          bytes = await this.contentNodeService.fetchAttachmentBytes({
+            cid,
+            enc: sharePayload.enc,
+            senderEpub,
+            recipientPair: pair as GunPair,
+          });
+        } catch {
+          /* unreachable yet — retry below */
+        }
+        if (bytes) {
+          this.fetchedAttachmentBytesByCid.set(cid, bytes);
+          // The share message likely already rendered as a card; re-render so the now-available
+          // bytes appear as an image preview / working Download in the open conversation.
+          this.uiManager.refreshOpenConversationForAttachment();
+          return;
+        }
+        if (i < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 1500 * (i + 1)));
+      }
+    } finally {
+      this.attachmentFetchInFlight.delete(cid);
     }
   }
 

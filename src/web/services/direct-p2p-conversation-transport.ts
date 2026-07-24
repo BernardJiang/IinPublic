@@ -34,6 +34,12 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
   } = {};
 
+  /** P2P media providers: serve local attachment bytes, and receive streamed bytes. */
+  private attachmentHooks: {
+    getAttachmentBytesForCid?: (cid: string) => Promise<Uint8Array | null>;
+    onAttachmentBytes?: (cid: string, bytes: Uint8Array) => void;
+  } = {};
+
   constructor(
     private gunService: WebGunService,
     apiBase?: string,
@@ -79,6 +85,26 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     handler: (wire: ConversationMessageWire, conversationId: string, recipientUserId: string) => void,
   ): void {
     this.onUndeliverable = handler;
+  }
+
+  /** Wire P2P media providers (serve/receive attachment bytes over the DataChannel). */
+  setAttachmentHooks(hooks: {
+    getAttachmentBytesForCid?: (cid: string) => Promise<Uint8Array | null>;
+    onAttachmentBytes?: (cid: string, bytes: Uint8Array) => void;
+  }): void {
+    this.attachmentHooks = hooks;
+  }
+
+  /** Pull a shared attachment's bytes from the peer over the DM DataChannel (no server). */
+  async requestAttachment(
+    conversationId: string,
+    localUserId: string,
+    otherUserId: string,
+    cid: string,
+  ): Promise<void> {
+    const session = await this.sessionFor(conversationId, localUserId, otherUserId);
+    await session.ensureConnected().catch(() => undefined);
+    await session.requestAttachment(cid);
   }
 
   async ensureSessionConnected(
@@ -225,6 +251,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
         ),
     });
     session.setLedgerHooks(this.ledgerHooks);
+    session.setAttachmentHooks(this.attachmentHooks);
     session.setOnRemoteDm((wire) => {
       if (wire.senderId === localUserId) return;
       this.gunStore.putMessageRecord(conversationId, {
