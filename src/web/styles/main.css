@@ -2863,17 +2863,25 @@ body.iinpublic-debug .conversation-health-status {
   display: block;
   width: 100%;
   max-height: 240px;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: var(--radius-md);
   background: var(--bg-muted);
 }
 
-.ipfs-attachment-link {
-  font-size: 0.72em;
-  opacity: 0.7;
-  word-break: break-all;
+.ipfs-attachment-download {
+  font-size: 0.82em;
+  font-weight: 600;
   color: inherit;
   text-decoration: underline;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.ipfs-attachment-link {
+  font-size: 0.72em;
+  opacity: 0.6;
+  word-break: break-all;
+  color: inherit;
 }
 
 .message-time {

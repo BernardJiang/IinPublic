@@ -7863,17 +7863,22 @@ export class UIManager extends EventEmitter {
     const size = escapeHtml(this.formatAttachmentSize(share.sizeBytes));
     const cid = escapeHtml(share.cid);
     const mime = escapeHtml(share.mimeType);
+    const downloadLabel = escapeHtml(this.t('attachmentDownload'));
     // Images preview inline once bytes decrypt; everything else shows a file card.
     const preview = isImage
-      ? `<img class="ipfs-attachment-img" data-ipfs-cid="${cid}" data-ipfs-mime="${mime}" alt="${name}" hidden />`
+      ? `<img class="ipfs-attachment-img" alt="${name}" hidden />`
       : '';
+    // The ipfs:// scheme can't open in a plain browser, so the card offers a Download that
+    // opens/saves the file from the bytes this device already has (hydrated below). The
+    // ipfs:// address stays visible as the canonical reference.
     return `
       <div class="message ${isOwn ? 'message-own' : 'message-other'}">
         <div class="message-content">
-          <div class="ipfs-attachment" data-testid="ipfs-attachment" data-ipfs-mime="${mime}">
+          <div class="ipfs-attachment" data-testid="ipfs-attachment" data-ipfs-cid="${cid}" data-ipfs-mime="${mime}" data-ipfs-name="${name}">
             <div class="ipfs-attachment-head"><span class="ipfs-attachment-icon">${icon}</span> <span class="ipfs-attachment-name">${name}</span>${size ? ` <span class="ipfs-attachment-size">${size}</span>` : ''}</div>
             ${preview}
-            <a class="ipfs-attachment-link" href="${link}" target="_blank" rel="noopener noreferrer">${link}</a>
+            <a class="ipfs-attachment-download" download="${name}" hidden>⬇ ${downloadLabel}</a>
+            <span class="ipfs-attachment-link" title="${link}">${link}</span>
           </div>
           <div class="message-time">${this.formatTalkRelativeTime(new Date(timestamp as any))}</div>
         </div>
@@ -7881,21 +7886,35 @@ export class UIManager extends EventEmitter {
     `;
   }
 
-  /** After rendering, swap decrypted bytes into any image attachment previews. */
+  /**
+   * After rendering, turn the bytes this device holds into a usable blob URL for each
+   * attachment: image previews get their src, and every card's Download link + (for images)
+   * click-to-open-full is wired so the recipient can retrieve the whole file — the ipfs://
+   * scheme itself isn't browser-openable.
+   */
   private hydrateAttachmentImages(container: HTMLElement): void {
     if (!this.sharedAttachmentResolver) return;
-    const imgs = container.querySelectorAll('img.ipfs-attachment-img[data-ipfs-cid]');
-    imgs.forEach((el) => {
-      const img = el as HTMLImageElement;
-      if (img.getAttribute('src')) return;
-      const cid = img.getAttribute('data-ipfs-cid') || '';
-      const mime = img.getAttribute('data-ipfs-mime') || '';
+    const cards = container.querySelectorAll('.ipfs-attachment[data-ipfs-cid]');
+    cards.forEach((cardEl) => {
+      const card = cardEl as HTMLElement;
+      const cid = card.getAttribute('data-ipfs-cid') || '';
+      const mime = card.getAttribute('data-ipfs-mime') || '';
+      const img = card.querySelector('img.ipfs-attachment-img') as HTMLImageElement | null;
+      const dl = card.querySelector('a.ipfs-attachment-download') as HTMLAnchorElement | null;
+      if (dl?.getAttribute('href')) return; // already hydrated
       void this.sharedAttachmentResolver!(cid, mime).then((url) => {
-        if (url) {
+        if (!url) return;
+        if (dl) {
+          dl.href = url;
+          dl.hidden = false;
+        }
+        if (img) {
           img.src = url;
           img.hidden = false;
+          img.style.cursor = 'zoom-in';
+          img.onclick = () => window.open(url, '_blank', 'noopener');
         }
-      }).catch(() => { /* leave the card without a preview */ });
+      }).catch(() => { /* leave the card without a preview/download */ });
     });
   }
 
