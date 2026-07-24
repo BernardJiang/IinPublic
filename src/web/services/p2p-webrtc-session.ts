@@ -314,7 +314,7 @@ export class P2PConversationSession {
     this.requestedAttachments.add(key);
     try {
       await this.sendChannelFrame({ type: 'attach-request', cid: key });
-    } catch {
+    } catch (e) {
       // Channel not open yet; allow a later retry.
       this.requestedAttachments.delete(key);
     }

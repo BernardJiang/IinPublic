@@ -453,15 +453,6 @@ export class IinPublicApp {
     const cid = String(sharePayload.cid || '').trim();
     if (!cid || this.fetchedAttachmentBytesByCid.has(cid)) return;
 
-    // Primary retrieval (no server/gateway): pull the bytes from the sender directly over the
-    // DM WebRTC DataChannel. The content node's own libp2p peering is unreliable, but the DM
-    // channel that delivered this share message works — onAttachmentBytes stores the result.
-    if (this.currentUser?.id && senderUserId && sharePayload.conversationId) {
-      void this.conversationService
-        .requestAttachment(sharePayload.conversationId, this.currentUser.id, senderUserId, cid)
-        .catch(() => { /* peer unreachable; the content-node fallback below may still resolve */ });
-    }
-
     // De-dupe overlapping fetches: loadConversation re-fires per message update, so several
     // callbacks race for the same cid; only run one fetch loop per cid at a time.
     if (this.attachmentFetchInFlight.has(cid)) return;
@@ -480,10 +471,18 @@ export class IinPublicApp {
         }
       }
 
-      // The block becomes reachable only once this device's content node peers with the
-      // sender's; the first shares can arrive before that link is up. Retry with backoff so
-      // every card resolves instead of only whichever happened to land after peering.
+      // Primary retrieval (no server/gateway): pull the bytes from the sender over the DM
+      // WebRTC DataChannel. The recipient's DM session can start cold (they never sent in this
+      // conversation), so retry each pass — the request connects the session, the sender serves
+      // its own block, and onAttachmentBytes stores the result. The content-node read is a
+      // secondary attempt for the same cid.
       for (let i = 0; i < attempts && !this.fetchedAttachmentBytesByCid.has(cid); i += 1) {
+        if (this.currentUser?.id && senderUserId && sharePayload.conversationId) {
+          await this.conversationService
+            .requestAttachment(sharePayload.conversationId, this.currentUser.id, senderUserId, cid)
+            .catch(() => { /* session not ready yet — the next pass retries */ });
+        }
+        if (this.fetchedAttachmentBytesByCid.has(cid)) break;
         let bytes: Uint8Array | null = null;
         try {
           bytes = await this.contentNodeService.fetchAttachmentBytes({

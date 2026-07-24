@@ -31,6 +31,9 @@ const BUNDLED_ENV_KEYS = [
   'IINPUBLIC_ROOM_MEMBERSHIP_TTL_SECONDS',
   'P2P_NODE_ENABLED',
   'RELAY_ONLY_HUB',
+  // Content-node (IPFS) libp2p bootstrap/relay multiaddr(s) — lets the browser node dial a
+  // reachable circuit relay so two browsers can peer for P2P media (dev:multi sets this).
+  'IINPUBLIC_P2P_BOOTSTRAP_PEERS',
 ];
 
 module.exports = {
@@ -129,6 +132,9 @@ module.exports = {
             'process.env.RELAY_ONLY_HUB': JSON.stringify(
               process.env.RELAY_ONLY_HUB || '0',
             ),
+            'process.env.IINPUBLIC_P2P_BOOTSTRAP_PEERS': JSON.stringify(
+              process.env.IINPUBLIC_P2P_BOOTSTRAP_PEERS || '',
+            ),
           }),
         ]
       : [
@@ -144,6 +150,7 @@ module.exports = {
             IINPUBLIC_ROOM_MEMBERSHIP_TTL_SECONDS: process.env.IINPUBLIC_ROOM_MEMBERSHIP_TTL_SECONDS || '',
             P2P_NODE_ENABLED: process.env.P2P_NODE_ENABLED || '0',
             RELAY_ONLY_HUB: process.env.RELAY_ONLY_HUB || '0',
+            IINPUBLIC_P2P_BOOTSTRAP_PEERS: process.env.IINPUBLIC_P2P_BOOTSTRAP_PEERS || '',
           }),
         ]),
     // Ignore Gun.js dynamic requires that are Node.js-only and must not be
