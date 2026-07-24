@@ -811,6 +811,19 @@ export class UIManager extends EventEmitter {
     this.appContainer = container;
     this.setupBaseUI();
     this.applyShellTranslations();
+    // Diagnostic conversation lines (transport / fallback / last-contact) are hidden by
+    // default; enable with ?debug=1 or localStorage iinpublic_debug=1.
+    document.body.classList.toggle('iinpublic-debug', this.isDebugModeEnabled());
+  }
+
+  /** Debug view flag: ?debug=1 in the URL, or localStorage iinpublic_debug=1. */
+  private isDebugModeEnabled(): boolean {
+    try {
+      if (new URLSearchParams(window.location.search).get('debug') === '1') return true;
+      return localStorage.getItem('iinpublic_debug') === '1';
+    } catch {
+      return false;
+    }
   }
 
   private setupBaseUI(): void {

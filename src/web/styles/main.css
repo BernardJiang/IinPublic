@@ -2768,6 +2768,22 @@ button:focus:not(:focus-visible) {
   color: var(--text-muted);
 }
 
+/* Diagnostic lines (transport mode / fallback reason / last-contact) — hidden unless
+   debug view is on (?debug=1 or localStorage iinpublic_debug=1). Text stays in the DOM. */
+.conversation-transport-status,
+.conversation-fallback-status,
+.conversation-health-status {
+  display: none;
+  font-size: 0.8em;
+  color: var(--text-muted);
+}
+
+body.iinpublic-debug .conversation-transport-status,
+body.iinpublic-debug .conversation-fallback-status,
+body.iinpublic-debug .conversation-health-status {
+  display: block;
+}
+
 .conversation-messages {
   flex: 1;
   overflow-y: auto;
