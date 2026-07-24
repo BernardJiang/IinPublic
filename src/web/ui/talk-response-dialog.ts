@@ -191,6 +191,12 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
   const skipAutoAnswer = options.skipAutoAnswer ?? false;
   const isTalkSuperseded = options.isTalkSuperseded ?? false;
   const senderName = options.senderName ?? '';
+  // Only one response modal at a time. Opening a second incoming talk while a previous
+  // response dialog is still in the DOM used to stack modals that share the fixed id
+  // `talk-response-modal` (and, in the tag branch, `tag-match-checkbox` / `tag-submit-response`).
+  // A stacked duplicate made a later tag talk's submit read the FIRST modal's unchecked box,
+  // recording a match as a mismatch. Remove any prior dialog before opening this one.
+  document.querySelectorAll('#talk-response-modal').forEach((el) => el.remove());
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.id = 'talk-response-modal';
@@ -237,8 +243,10 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       </div>
     `;
     document.body.appendChild(modal);
-    const checkbox = document.getElementById('tag-match-checkbox') as HTMLInputElement | null;
-    const submitButton = document.getElementById('tag-submit-response') as HTMLButtonElement | null;
+    // Scope to THIS modal so a second stacked dialog can't read the first modal's checkbox
+    // (fixed ids would otherwise resolve to the first-opened modal via document.getElementById).
+    const checkbox = modal.querySelector('#tag-match-checkbox') as HTMLInputElement | null;
+    const submitButton = modal.querySelector('#tag-submit-response') as HTMLButtonElement | null;
     const answers: { questionId: string; answerId: string; answerText: string }[] = [];
     const completeFromCheckbox = (checked: boolean) => {
       const answer = checked && matchAnswer ? matchAnswer : ignoreAnswer;
