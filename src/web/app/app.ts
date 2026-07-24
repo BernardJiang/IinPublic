@@ -153,6 +153,8 @@ export class IinPublicApp {
   private mailboxDrainPromise: Promise<void> | null = null;
   private attachmentShareSentIds = new Set<string>();
   private fetchedAttachmentBytesByCid = new Map<string, Uint8Array>();
+  /** Cached object URLs for decrypted shared attachments, keyed by cid (L5 image preview). */
+  private attachmentObjectUrlByCid = new Map<string, string>();
   private static readonly ATTACHMENT_SHARE_SENT_KEY = 'iinpublic_ipfs_share_sent_ids';
   public initialized = false;
   /**
@@ -429,6 +431,9 @@ export class IinPublicApp {
     });
     if (bytes) {
       this.fetchedAttachmentBytesByCid.set(cid, bytes);
+      // The share message likely already rendered as a card; re-render so the now-available
+      // decrypted bytes appear as an image preview in the open conversation.
+      this.uiManager.refreshOpenConversationForAttachment();
     }
   }
 
@@ -645,6 +650,21 @@ export class IinPublicApp {
     });
     this.uiManager.setContactPreRenderSync(async () => {
       await this.syncDirectPairTalkExchangesForContacts();
+    });
+    // L5: turn decrypted shared-attachment bytes into a viewable object URL so the
+    // conversation view can render the shared photo instead of the raw IPFS_SHARE payload.
+    this.uiManager.setSharedAttachmentResolver(async (cid: string, mimeType: string) => {
+      const bytes = this.fetchedAttachmentBytesByCid.get(String(cid || '').trim());
+      if (!bytes) return null;
+      const key = String(cid || '').trim();
+      let url = this.attachmentObjectUrlByCid.get(key);
+      if (!url) {
+        // Copy into a fresh ArrayBuffer-backed view so Blob's typing is satisfied.
+        const copy = new Uint8Array(bytes);
+        url = URL.createObjectURL(new Blob([copy.buffer], { type: mimeType || 'application/octet-stream' }));
+        this.attachmentObjectUrlByCid.set(key, url);
+      }
+      return url;
     });
     // Sync-before-erase (redesign §11.2, item J): build the handoff archive from
     // local sources, reporting per-category progress. The encrypt-to-pub P2P

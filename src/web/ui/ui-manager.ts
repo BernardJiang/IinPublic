@@ -282,6 +282,8 @@ export class UIManager extends EventEmitter {
   private currentConversationId: string | undefined = undefined;
   /** Per-talk Thread scope of the open conversation view (redesign §5); undefined = DM. */
   private currentThreadTalkId: string | undefined = undefined;
+  /** Resolver for a shared IPFS attachment's viewable object URL (set by app.ts). */
+  private sharedAttachmentResolver?: (cid: string, mimeType: string) => Promise<string | null>;
   // Last message id we've already surfaced a "new message" toast for, per conversation. Seeded
   // (without notifying) on a conversation's first summary sync so boot/history loads stay quiet;
   // subsequent deltas from the peer raise a toast when that conversation isn't the one on screen.
@@ -7756,6 +7758,89 @@ export class UIManager extends EventEmitter {
     this.displayConversationMessages(this.currentConversationId, this.lastConversationMessages);
   }
 
+  /** app.ts wires this so decrypted attachment bytes become a viewable blob URL. */
+  setSharedAttachmentResolver(fn: (cid: string, mimeType: string) => Promise<string | null>): void {
+    this.sharedAttachmentResolver = fn;
+  }
+
+  /** app.ts calls this once a shared attachment's bytes finish downloading, so the image appears. */
+  refreshOpenConversationForAttachment(): void {
+    this.rerenderOpenConversation();
+  }
+
+  /** Parse an `IPFS_SHARE:` auto-share message body into its attachment fields. */
+  private parseIpfsSharePayload(text: string): { cid: string; link: string; name: string; mimeType: string; sizeBytes: number } | null {
+    const raw = String(text || '');
+    if (!raw.startsWith('IPFS_SHARE:')) return null;
+    try {
+      const p = JSON.parse(raw.slice('IPFS_SHARE:'.length));
+      const cid = String(p?.cid || '').trim();
+      if (!cid || p?.kind !== 'ipfs-auto-share-v1') return null;
+      return {
+        cid,
+        link: String(p?.link || `ipfs://${cid}`),
+        name: String(p?.name || 'attachment'),
+        mimeType: String(p?.mimeType || ''),
+        sizeBytes: Number(p?.sizeBytes) || 0,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private formatAttachmentSize(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  private renderIpfsAttachmentMessage(
+    share: { cid: string; link: string; name: string; mimeType: string; sizeBytes: number },
+    isOwn: boolean,
+    timestamp: unknown,
+  ): string {
+    const isImage = share.mimeType.startsWith('image/');
+    const name = escapeHtml(share.name);
+    const link = escapeHtml(share.link);
+    const size = escapeHtml(this.formatAttachmentSize(share.sizeBytes));
+    const cid = escapeHtml(share.cid);
+    const mime = escapeHtml(share.mimeType);
+    const preview = isImage
+      ? `<img class="ipfs-attachment-img" data-ipfs-cid="${cid}" data-ipfs-mime="${mime}" alt="${name}" hidden />`
+      : '';
+    return `
+      <div class="message ${isOwn ? 'message-own' : 'message-other'}">
+        <div class="message-content">
+          <div class="ipfs-attachment" data-testid="ipfs-attachment">
+            <div class="ipfs-attachment-head">${isImage ? '🖼️' : '📎'} <span class="ipfs-attachment-name">${name}</span>${size ? ` <span class="ipfs-attachment-size">${size}</span>` : ''}</div>
+            ${preview}
+            <div class="ipfs-attachment-link">${link}</div>
+          </div>
+          <div class="message-time">${this.formatTalkRelativeTime(new Date(timestamp as any))}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  /** After rendering, swap decrypted bytes into any image attachment previews. */
+  private hydrateAttachmentImages(container: HTMLElement): void {
+    if (!this.sharedAttachmentResolver) return;
+    const imgs = container.querySelectorAll('img.ipfs-attachment-img[data-ipfs-cid]');
+    imgs.forEach((el) => {
+      const img = el as HTMLImageElement;
+      if (img.getAttribute('src')) return;
+      const cid = img.getAttribute('data-ipfs-cid') || '';
+      const mime = img.getAttribute('data-ipfs-mime') || '';
+      void this.sharedAttachmentResolver!(cid, mime).then((url) => {
+        if (url) {
+          img.src = url;
+          img.hidden = false;
+        }
+      }).catch(() => { /* leave the card without a preview */ });
+    });
+  }
+
   displayConversationMessages(conversationId: string, messages: any[]): void {
     if (this.currentConversationId !== conversationId) return;
 
@@ -7787,6 +7872,12 @@ export class UIManager extends EventEmitter {
         // instead of always falling through to "message-other".
         const isOwn = !!this.currentUserId && String(msg.senderId || '') === this.currentUserId;
         const text = String(msg.text || '');
+        // Matched-talk IPFS auto-share (L5): render the shared photo/file as an attachment
+        // card (with an image preview once the decrypted bytes arrive) instead of raw JSON.
+        const share = this.parseIpfsSharePayload(text);
+        if (share) {
+          return this.renderIpfsAttachmentMessage(share, isOwn, msg.timestamp);
+        }
         // Receive-path content filter (redesign §9): a receiver's own filters hide
         // incoming messages at render (they stay in the Gun graph). Never hide your
         // own outgoing messages.
@@ -7819,6 +7910,9 @@ export class UIManager extends EventEmitter {
       .join('');
     // Fire one toast per newly-hidden message (rule §9.1).
     for (const verdict of toastQueue) this.showContentFilterToast(verdict, 'receive');
+
+    // Swap decrypted bytes into image attachment previews (async, best-effort).
+    this.hydrateAttachmentImages(messagesContainer);
 
     // Scroll to bottom
     messagesContainer.scrollTop = messagesContainer.scrollHeight;

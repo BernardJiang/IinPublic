@@ -40,6 +40,34 @@ import { webAppURLStableChatroom } from '../../helpers/ports';
 /** WebRTC overlay + DM delivery budget under parallel-suite load. */
 const DM_E2E_TIMEOUT_MS = 30_000;
 
+/** Watch a conversation for IPFS_SHARE auto-share messages (L5). */
+async function subscribeToShareMessages(page: Page, conversationId: string, otherUserId: string): Promise<void> {
+  await page.evaluate(({ cid, peerId }) => {
+    const app = (window as any).__iinpublic_app.getApp();
+    (window as any).__shareMessages = [];
+    app.conversationService.subscribeToMessages(
+      cid,
+      (messages: any[]) => {
+        (window as any).__shareMessages = messages.filter((m) =>
+          String(m?.text || '').startsWith('IPFS_SHARE:'));
+      },
+      app.currentUser.id,
+      peerId,
+    );
+  }, { cid: conversationId, peerId: otherUserId });
+}
+
+/** Snapshot the IPFS_SHARE messages seen on a page. */
+async function getShareSnapshot(page: Page): Promise<Array<{ cid: string; link: string }>> {
+  return page.evaluate(() => {
+    const messages = Array.isArray((window as any).__shareMessages) ? (window as any).__shareMessages : [];
+    return messages.map((m: any) => {
+      const p = JSON.parse(String(m.text).slice('IPFS_SHARE:'.length));
+      return { cid: String(p.cid || ''), link: String(p.link || '') };
+    });
+  });
+}
+
 test.describe('Three-user dog talk + full DM mesh (both ends)', () => {
   let browsers: ThreeBrowsers;
   let contextAdam: BrowserContext | undefined;
@@ -303,5 +331,165 @@ test.describe('Three-user dog talk + full DM mesh (both ends)', () => {
     for (const leak of [MSG.adamToBob, MSG.bobToAdam, MSG.carolToAdam, MSG.adamToCarol]) {
       await expect(pageBob.locator('#conversation-messages')).not.toContainText(leak);
     }
+
+    // ── 10. German-Shepherd-gated photo: Adam auto-shares his dog photo (IPFS) ──
+    //        to the matcher only. Bob likes German Shepherds → MATCH → receives the
+    //        ipfs:// link in the Adam↔Bob thread. Carol answers No → IGNORE → her
+    //        Adam thread never gets the share.
+    const GS_TALK_ID = `gs-dog-photo-e2e-${Date.now()}`;
+    const dogPhotoBytes = `fake-dog-photo-bytes ${Date.now()}`;
+    const bobEpub = await pageBob.evaluate(() =>
+      String((window as any).__iinpublic_app.getApp().gunService.getStoredPair()?.epub || ''));
+    expect(bobEpub).toBeTruthy();
+
+    // Adam publishes the photo encrypted for Bob (the intended matcher), capturing the
+    // encrypted block so we can seed Bob's blockstore (the parallel suite has no relay).
+    const published = await pageAdam.evaluate(
+      async ({ talkId, text, recipientEpub }) => {
+        const service = (window as any).__iinpublic_app.getApp().contentNodeService;
+        const node = await service.ensureNode();
+        let storedBytes: number[] = [];
+        const originalPut = node.blockstore.put.bind(node.blockstore);
+        node.blockstore.put = async (cid: unknown, bytes: Uint8Array) => {
+          storedBytes = Array.from(bytes);
+          await originalPut(cid, bytes);
+        };
+        const attachment = await service.publishAttachmentBytes({
+          talkId,
+          attachment: { cid: 'pending', name: 'adam-dog.png', sizeBytes: new TextEncoder().encode(text).length, mimeType: 'image/png', enc: 'sea-pair' },
+          bytes: text,
+          senderPair: (window as any).__iinpublic_app.getApp().gunService.getStoredPair(),
+          recipientEpub,
+        });
+        node.blockstore.put = originalPut;
+        return { attachment, storedBytes };
+      },
+      { talkId: GS_TALK_ID, text: dogPhotoBytes, recipientEpub: bobEpub },
+    );
+    const photo = published.attachment;
+    expect(published.storedBytes.length).toBeGreaterThan(0);
+    await pageBob.evaluate(async ({ cid, bytes }) => {
+      const service = (window as any).__iinpublic_app.getApp().contentNodeService;
+      const node = await service.ensureNode();
+      await node.blockstore.put(await service.cidParser(cid), Uint8Array.from(bytes));
+    }, { cid: photo.cid, bytes: published.storedBytes });
+
+    // Adam builds the German-Shepherd talk carrying the photo, and broadcasts it.
+    const gsTalk = {
+      id: GS_TALK_ID,
+      type: 'tag',
+      title: 'German Shepherd fans',
+      authorId: adamId,
+      authorName: 'Adam',
+      authorEpub: adamEpub,
+      ipfsAttachments: [photo],
+      questions: [{
+        id: 'q1',
+        text: 'Do you like German Shepherds?',
+        answers: [
+          { id: 'a-match', text: 'Yes', isMatch: true },
+          { id: 'a-ignore', text: 'No', isMatch: false, isIgnore: true },
+        ],
+      }],
+    };
+    await pageAdam.evaluate(async ({ talk, recipients }) => {
+      const a = (window as any).__iinpublic_app.getApp();
+      a.peerMeshService.cacheTalkBody(talk.id, talk);
+      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      myTalks[talk.id] = { role: 'created', title: talk.title, fullTalk: talk };
+      localStorage.setItem('myTalks', JSON.stringify(myTalks));
+      await a.peerMeshService.broadcastTalk(talk, { recipientUserIds: recipients, roomBroadcast: true });
+    }, { talk: gsTalk, recipients: [bobId, carolId] });
+
+    for (const [label, page] of [['Bob', pageBob], ['Carol', pageCarol]] as const) {
+      await expect
+        .poll(
+          () => page.evaluate(({ id, authorId }) =>
+            !!(window as any).__iinpublic_app.getApp().peerMeshService?.getCachedTalkBody?.(id, authorId),
+          { id: GS_TALK_ID, authorId: adamId }),
+          { timeout: DM_E2E_TIMEOUT_MS, message: `${label}: German Shepherd talk body not received` },
+        )
+        .toBe(true);
+    }
+
+    // Watch the share stream in the Adam↔Bob thread (both ends) and Carol's Adam thread.
+    await subscribeToShareMessages(pageAdam, adamBob, bobId);
+    await subscribeToShareMessages(pageBob, bobAdam, adamId);
+    await subscribeToShareMessages(pageCarol, carolAdam, adamId);
+
+    // Bob likes German Shepherds (MATCH); Carol does not (IGNORE).
+    await pageBob.evaluate(async ({ talk }) => {
+      const a = (window as any).__iinpublic_app.getApp();
+      a.peerMeshService?.cacheTalkBody?.(talk.id, talk);
+      await a.submitTalkResponsePairDirect({
+        talkId: talk.id, talkData: talk,
+        answers: [{ questionId: 'q1', answerId: 'a-match', answerText: 'Yes', mode: 'manual', isMatch: true }],
+        isChatbotResponse: false, authorId: talk.authorId, authorName: 'Adam', isAutoResponse: false,
+      });
+    }, { talk: gsTalk });
+    await pageCarol.evaluate(async ({ talk }) => {
+      const a = (window as any).__iinpublic_app.getApp();
+      a.peerMeshService?.cacheTalkBody?.(talk.id, talk);
+      await a.submitTalkResponsePairDirect({
+        talkId: talk.id, talkData: talk,
+        answers: [{ questionId: 'q1', answerId: 'a-ignore', answerText: 'No', mode: 'manual', isIgnore: true }],
+        isChatbotResponse: false, authorId: talk.authorId, authorName: 'Adam', isAutoResponse: false,
+      });
+    }, { talk: gsTalk });
+    await afterAction();
+    await afterSync();
+
+    // Adam and Bob each see exactly one share carrying the photo cid + ipfs:// link.
+    for (const [label, page] of [['Adam', pageAdam], ['Bob', pageBob]] as const) {
+      await expect
+        .poll(async () => (await getShareSnapshot(page)).length,
+          { timeout: DM_E2E_TIMEOUT_MS, message: `${label}: expected the dog photo share` })
+        .toBe(1);
+      const snap = await getShareSnapshot(page);
+      expect(snap[0]).toMatchObject({ cid: photo.cid, link: `ipfs://${photo.cid}` });
+    }
+
+    // Bob can fetch + decrypt the photo bytes.
+    await pageBob.evaluate(async (senderId) => {
+      const a = (window as any).__iinpublic_app.getApp();
+      const message = ((window as any).__shareMessages || [])[0];
+      const payload = JSON.parse(String(message.text).slice('IPFS_SHARE:'.length));
+      await a.maybeFetchSharedAttachmentBytes(payload, senderId);
+    }, adamId);
+    await expect
+      .poll(() => pageBob.evaluate((cid) =>
+        (window as any).__iinpublic_app.getApp().getFetchedAttachmentBytesLengthForE2e?.(cid) || 0, photo.cid),
+        { timeout: DM_E2E_TIMEOUT_MS, message: 'Bob: dog photo bytes were not fetched/decrypted' })
+      .toBe(new TextEncoder().encode(dogPhotoBytes).length);
+
+    // ── 11. The shared photo is actually VISIBLE in the conversation UI ──────
+    // Bob's Adam thread renders the attachment card, and (once bytes are decrypted)
+    // an <img> preview with a blob: source — not the raw IPFS_SHARE JSON.
+    await openConversation(pageBob, bobAdam);
+    await expect(pageBob.locator('#conversation-messages [data-testid="ipfs-attachment"]'))
+      .toBeVisible({ timeout: DM_E2E_TIMEOUT_MS });
+    await expect(pageBob.locator('#conversation-messages .ipfs-attachment-name'))
+      .toContainText('adam-dog.png');
+    await expect
+      .poll(() => pageBob.evaluate(() => {
+        const img = document.querySelector('#conversation-messages img.ipfs-attachment-img') as HTMLImageElement | null;
+        return img?.getAttribute('src') || '';
+      }), { timeout: DM_E2E_TIMEOUT_MS, message: 'Bob: photo preview <img> never got a blob source' })
+      .toContain('blob:');
+    // The raw share payload must never be shown as plain text.
+    await expect(pageBob.locator('#conversation-messages')).not.toContainText('IPFS_SHARE:');
+
+    // Adam (author) sees the attachment card for what he shared.
+    await openConversation(pageAdam, adamBob);
+    await expect(pageAdam.locator('#conversation-messages [data-testid="ipfs-attachment"]'))
+      .toBeVisible({ timeout: DM_E2E_TIMEOUT_MS });
+
+    // ── 12. Carol ignored → her Adam thread never receives the photo share ──
+    await pageCarol.waitForTimeout(2_000);
+    expect((await getShareSnapshot(pageCarol)).length,
+      'Carol (ignore) must not receive the dog photo share').toBe(0);
+    await openConversation(pageCarol, carolAdam);
+    await expect(pageCarol.locator('#conversation-messages [data-testid="ipfs-attachment"]'))
+      .toHaveCount(0);
   });
 });
