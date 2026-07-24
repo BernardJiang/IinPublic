@@ -150,6 +150,11 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
               <span>🔞 ${text('editorAdult', 'Adult content (18+) - only delivered to age-verified users')}</span>
             </label>
           </div>
+          <div class="form-group" id="talk-attachment-group" style="display: ${isEdit ? 'none' : 'block'};">
+            <label class="form-label">${text('editorAttachment', 'Attach media (link shared automatically when someone matches)')}</label>
+            <input type="file" class="form-input" id="talk-attachment-input" aria-label="Attach media to share on match">
+            <div id="talk-attachment-name" style="margin-top: 6px; font-size: 0.85em; color: var(--text-tertiary);"></div>
+          </div>
           <div class="modal-actions">
             <button type="button" class="btn" id="cancel-talk-btn" style="background: #ccc; color: #333;">${text('editorCancel', 'Cancel')}</button>
             <button type="submit" class="btn" id="talk-submit-btn">${isEdit ? text('editorSave', 'Save changes') : text('editorCreate', 'Create')}</button>

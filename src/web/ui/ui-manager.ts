@@ -1053,6 +1053,8 @@ export class UIManager extends EventEmitter {
                 <p style="text-align: center; padding: 20px; color: #999;">Start your conversation!</p>
               </div>
               <div class="conversation-input-container">
+                <input class="visually-hidden" type="file" id="conversation-attach-input" aria-hidden="true">
+                <button class="conversation-attach-btn" id="conversation-attach-btn" type="button" title="Share media link" aria-label="Share media link">📎</button>
                 <textarea id="conversation-message-input" placeholder="Type a message..." rows="2"></textarea>
                 <button class="btn send-btn" id="send-conversation-message">Send</button>
               </div>
@@ -4756,6 +4758,10 @@ export class UIManager extends EventEmitter {
     return this.tf('conversationSendFailed', { reason });
   }
 
+  public formatMediaShareUploading(fileName: string): string {
+    return this.tf('mediaShareUploading', { name: fileName });
+  }
+
   public formatConversationLoadFailed(reason: string): string {
     return this.tf('conversationLoadFailed', { reason });
   }
@@ -4937,6 +4943,28 @@ export class UIManager extends EventEmitter {
           e.preventDefault();
           sendMessage();
         }
+      });
+    }
+
+    // Attach-media button (share a link to any file via IPFS — not the bytes inline).
+    // Clone to drop stale listeners; read this.currentConversationId at pick time so a
+    // media share always routes to the conversation currently on screen.
+    const attachBtn = document.getElementById('conversation-attach-btn');
+    const attachInput = document.getElementById('conversation-attach-input') as HTMLInputElement | null;
+    if (attachBtn && attachInput) {
+      attachBtn.replaceWith(attachBtn.cloneNode(true));
+      const newAttachBtn = document.getElementById('conversation-attach-btn');
+      const freshInput = attachInput.cloneNode(true) as HTMLInputElement;
+      attachInput.replaceWith(freshInput);
+      newAttachBtn?.addEventListener('click', () => freshInput.click());
+      freshInput.addEventListener('change', () => {
+        const file = freshInput.files?.[0];
+        if (!file) return;
+        const targetConversationId = this.currentConversationId;
+        if (targetConversationId) {
+          this.emit('shareConversationMedia', { conversationId: targetConversationId, file });
+        }
+        freshInput.value = '';
       });
     }
   }
@@ -7020,6 +7048,8 @@ export class UIManager extends EventEmitter {
         locationRadiusMiles,
       });
     } else {
+      const attachmentInput = document.getElementById('talk-attachment-input') as HTMLInputElement | null;
+      const mediaFile = attachmentInput?.files?.[0];
       this.emit('createTalk', {
         title,
         type,
@@ -7031,6 +7061,7 @@ export class UIManager extends EventEmitter {
         expiresAt,
         locationRadiusMiles,
         selfAnswers,
+        ...(mediaFile ? { mediaFile } : {}),
       });
     }
     return true;
@@ -7795,27 +7826,41 @@ export class UIManager extends EventEmitter {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  /** Emoji cue by media type — messenger-style icon for the attachment card. */
+  private attachmentIconForMime(mimeType: string): string {
+    const m = String(mimeType || '').toLowerCase();
+    if (m.startsWith('image/')) return '🖼️';
+    if (m.startsWith('video/')) return '🎬';
+    if (m.startsWith('audio/')) return '🎵';
+    if (m === 'application/pdf') return '📕';
+    if (m.startsWith('text/') || m.includes('word') || m.includes('document') || m.includes('sheet') || m.includes('presentation')) return '📄';
+    if (m.includes('zip') || m.includes('compressed') || m.includes('tar')) return '🗜️';
+    return '📎';
+  }
+
   private renderIpfsAttachmentMessage(
     share: { cid: string; link: string; name: string; mimeType: string; sizeBytes: number },
     isOwn: boolean,
     timestamp: unknown,
   ): string {
     const isImage = share.mimeType.startsWith('image/');
+    const icon = this.attachmentIconForMime(share.mimeType);
     const name = escapeHtml(share.name);
     const link = escapeHtml(share.link);
     const size = escapeHtml(this.formatAttachmentSize(share.sizeBytes));
     const cid = escapeHtml(share.cid);
     const mime = escapeHtml(share.mimeType);
+    // Images preview inline once bytes decrypt; everything else shows a file card.
     const preview = isImage
       ? `<img class="ipfs-attachment-img" data-ipfs-cid="${cid}" data-ipfs-mime="${mime}" alt="${name}" hidden />`
       : '';
     return `
       <div class="message ${isOwn ? 'message-own' : 'message-other'}">
         <div class="message-content">
-          <div class="ipfs-attachment" data-testid="ipfs-attachment">
-            <div class="ipfs-attachment-head">${isImage ? '🖼️' : '📎'} <span class="ipfs-attachment-name">${name}</span>${size ? ` <span class="ipfs-attachment-size">${size}</span>` : ''}</div>
+          <div class="ipfs-attachment" data-testid="ipfs-attachment" data-ipfs-mime="${mime}">
+            <div class="ipfs-attachment-head"><span class="ipfs-attachment-icon">${icon}</span> <span class="ipfs-attachment-name">${name}</span>${size ? ` <span class="ipfs-attachment-size">${size}</span>` : ''}</div>
             ${preview}
-            <div class="ipfs-attachment-link">${link}</div>
+            <a class="ipfs-attachment-link" href="${link}" target="_blank" rel="noopener noreferrer">${link}</a>
           </div>
           <div class="message-time">${this.formatTalkRelativeTime(new Date(timestamp as any))}</div>
         </div>

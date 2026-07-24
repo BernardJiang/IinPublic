@@ -336,6 +336,29 @@ export class IinPublicApp {
     return this.contentNodeService.normalizeIpfsAttachments((talkData as any)?.ipfsAttachments);
   }
 
+  /**
+   * Upload any file's bytes to IPFS and return its attachment descriptor. The bytes are
+   * stored public (enc 'none') so the shared link is openable by the recipient — we share
+   * the link, not the bytes, over the DM/talk channel. Accepts photos, docs, video, audio,
+   * or anything else.
+   */
+  private async publishMediaFileToIpfs(file: File, talkId: string): Promise<IpfsAttachment> {
+    await this.ensureContentNodeInitialized();
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    return this.contentNodeService.publishAttachmentBytes({
+      talkId,
+      attachment: {
+        cid: 'pending',
+        name: file.name || 'attachment',
+        mimeType: file.type || 'application/octet-stream',
+        sizeBytes: bytes.length,
+        enc: 'none',
+      },
+      bytes,
+      publicOptIn: true,
+    });
+  }
+
   private async buildAttachmentShareMessageId(
     conversationId: string,
     talkId: string,
@@ -4317,14 +4340,27 @@ export class IinPublicApp {
       async (
         talkData: Partial<Talk> & {
           selfAnswers?: Array<{ questionId: string; answerId: string }>;
+          mediaFile?: File;
         },
       ) => {
       try {
         console.log('📝 Creating talk:', talkData);
 
+        // Optional media: upload the file to IPFS and attach it so the link is auto-shared
+        // to each matcher. Bytes never ride the talk broadcast — only the link does.
+        const { mediaFile, ...talkFields } = talkData;
+        let ipfsAttachments = talkFields.ipfsAttachments;
+        if (mediaFile) {
+          this.uiManager.showNotification(this.uiManager.formatMediaShareUploading(mediaFile.name), 'info');
+          const pendingTalkId = `talk-media:${this.currentUser!.id}:${Date.now()}`;
+          const attachment = await this.publishMediaFileToIpfs(mediaFile, pendingTalkId);
+          ipfsAttachments = [...(ipfsAttachments ?? []), attachment];
+        }
+
         // Create the talk
         const talk = await this.talkService.createTalk({
-          ...talkData,
+          ...talkFields,
+          ...(ipfsAttachments ? { ipfsAttachments } : {}),
           authorId: this.currentUser!.id,
           ...(this.currentLocation
             ? {
@@ -4776,6 +4812,50 @@ export class IinPublicApp {
           });
         } catch (error) {
           console.error('Failed to send conversation message:', error);
+          this.uiManager.showNotification(
+            this.uiManager.formatMessageSendFailed((error as Error).message),
+            'error',
+          );
+        }
+      },
+    );
+
+    // Share a link to any media file in a DM: upload the bytes to IPFS and send only the
+    // link (an IPFS_SHARE card), never the raw bytes over the DM channel.
+    this.uiManager.on(
+      'shareConversationMedia',
+      async (data: { conversationId: string; file: File }) => {
+        try {
+          if (!this.currentUser) throw new Error('Not logged in');
+          const conversation = this.uiManager.getMyConversations()[data.conversationId];
+          const otherUserId = conversation?.otherUserId ? String(conversation.otherUserId) : undefined;
+          this.uiManager.showNotification(this.uiManager.formatMediaShareUploading(data.file.name), 'info');
+          const attachment = await this.publishMediaFileToIpfs(data.file, data.conversationId);
+          const payload: AttachmentShareMessagePayload = {
+            kind: 'ipfs-auto-share-v1',
+            conversationId: data.conversationId,
+            talkId: `dm-media:${data.conversationId}`,
+            authorId: this.currentUser.id,
+            cid: attachment.cid,
+            link: `ipfs://${attachment.cid}`,
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            sizeBytes: attachment.sizeBytes,
+            enc: attachment.enc,
+            keyCiphertext: 'public',
+            sharedAt: new Date().toISOString(),
+          };
+          await this.conversationService.sendMessage(
+            data.conversationId,
+            this.currentUser.id,
+            this.formatAttachmentShareMessageText(payload),
+            {
+              messageId: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+              ...(otherUserId ? { otherUserId } : {}),
+            },
+          );
+        } catch (error) {
+          console.error('Failed to share media link:', error);
           this.uiManager.showNotification(
             this.uiManager.formatMessageSendFailed((error as Error).message),
             'error',
