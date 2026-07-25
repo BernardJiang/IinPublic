@@ -811,6 +811,7 @@ export class UIManager extends EventEmitter {
     this.appContainer = container;
     this.setupBaseUI();
     this.setupMediaGallery();
+    this.setupLightbox();
     this.applyShellTranslations();
     // Diagnostic conversation lines (transport / fallback / last-contact) are hidden by
     // default; enable with ?debug=1 or localStorage iinpublic_debug=1.
@@ -1086,6 +1087,17 @@ export class UIManager extends EventEmitter {
                 <button class="btn send-btn" id="send-conversation-message">Send</button>
               </div>
             </div>
+          </div>
+
+          <!-- In-app full-size photo viewer (lightbox) -->
+          <div class="media-lightbox" id="media-lightbox" style="display:none;">
+            <div class="media-lightbox-backdrop" id="media-lightbox-backdrop"></div>
+            <div class="media-lightbox-bar">
+              <span class="media-lightbox-name" id="media-lightbox-name"></span>
+              <button class="media-lightbox-action" id="media-lightbox-download" type="button">⬇</button>
+              <button class="media-lightbox-action" id="media-lightbox-close" type="button" aria-label="Close">✕</button>
+            </div>
+            <img class="media-lightbox-img" id="media-lightbox-img" alt="" />
           </div>
 
           <!-- Shared ⟨User⟩ layout (peer + contact detail — redesign §5): AppBar header,
@@ -7891,34 +7903,75 @@ export class UIManager extends EventEmitter {
   }
 
   /**
-   * Inline attachment: a COMPACT chip (icon + name + size), not a big preview — the full
-   * photos/files live in the Shared-media gallery (🖼 in the header). The chip downloads on
-   * click once its bytes arrive.
+   * Inline attachment chip: a small preview thumbnail (images) or file icon, name + size, and
+   * a small Download link. Tapping an image thumbnail opens the full-size in-app viewer; the
+   * Shared-media gallery (🖼 in the header) collects everything.
    */
   private renderIpfsAttachmentMessage(
     share: { cid: string; link: string; name: string; mimeType: string; sizeBytes: number },
     isOwn: boolean,
     timestamp: unknown,
   ): string {
+    const isImage = share.mimeType.startsWith('image/');
     const icon = this.attachmentIconForMime(share.mimeType);
     const safeName = this.attachmentDownloadFilename(share.name, share.mimeType);
     const name = escapeHtml(safeName);
     const size = escapeHtml(this.formatAttachmentSize(share.sizeBytes));
     const cid = escapeHtml(share.cid);
     const mime = escapeHtml(share.mimeType);
+    const downloadLabel = escapeHtml(this.t('attachmentDownload'));
+    const lead = isImage
+      ? `<img class="ipfs-attachment-img ipfs-attachment-thumb" alt="${name}" hidden />`
+      : `<span class="ipfs-attachment-icon">${icon}</span>`;
     return `
       <div class="message ${isOwn ? 'message-own' : 'message-other'}">
         <div class="message-content">
-          <div class="ipfs-attachment ipfs-attachment-chip" data-testid="ipfs-attachment" data-ipfs-cid="${cid}" data-ipfs-mime="${mime}" data-ipfs-name="${name}" title="${name}">
-            <span class="ipfs-attachment-icon">${icon}</span>
-            <span class="ipfs-attachment-name">${name}</span>${size ? ` <span class="ipfs-attachment-size">${size}</span>` : ''}
-            <span class="ipfs-attachment-loading" aria-hidden="true">⏳</span>
-            <a class="ipfs-attachment-download" download="${name}" hidden>⬇</a>
+          <div class="ipfs-attachment ipfs-attachment-chip${isImage ? ' ipfs-attachment-chip-image' : ''}" data-testid="ipfs-attachment" data-ipfs-cid="${cid}" data-ipfs-mime="${mime}" data-ipfs-name="${name}" title="${name}">
+            ${lead}
+            <span class="ipfs-attachment-meta">
+              <span class="ipfs-attachment-name">${name}</span>
+              ${size ? `<span class="ipfs-attachment-size">${size}</span>` : ''}
+              <span class="ipfs-attachment-loading" aria-hidden="true">⏳</span>
+            </span>
+            <a class="ipfs-attachment-download" download="${name}" hidden>⬇ ${downloadLabel}</a>
           </div>
           <div class="message-time">${this.formatTalkRelativeTime(new Date(timestamp as any))}</div>
         </div>
       </div>
     `;
+  }
+
+  /** URL/name of the photo currently open in the lightbox (for its Download button). */
+  private lightboxTarget: { url: string; name: string; mime: string } | null = null;
+
+  private setupLightbox(): void {
+    const close = () => this.closeLightbox();
+    document.getElementById('media-lightbox-close')?.addEventListener('click', close);
+    document.getElementById('media-lightbox-backdrop')?.addEventListener('click', close);
+    document.getElementById('media-lightbox-download')?.addEventListener('click', () => {
+      if (this.lightboxTarget) void this.saveObjectUrlAs(this.lightboxTarget.url, this.lightboxTarget.name, this.lightboxTarget.mime);
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && document.getElementById('media-lightbox')?.style.display === 'flex') close();
+    });
+  }
+
+  /** Open a shared photo full-size inside the app. */
+  private openLightbox(url: string, name: string, mime: string): void {
+    const box = document.getElementById('media-lightbox');
+    const img = document.getElementById('media-lightbox-img') as HTMLImageElement | null;
+    const label = document.getElementById('media-lightbox-name');
+    if (!box || !img) return;
+    this.lightboxTarget = { url, name, mime };
+    img.src = url;
+    if (label) label.textContent = name;
+    box.style.display = 'flex';
+  }
+
+  private closeLightbox(): void {
+    const box = document.getElementById('media-lightbox');
+    if (box) box.style.display = 'none';
+    this.lightboxTarget = null;
   }
 
   /**
@@ -7972,19 +8025,23 @@ export class UIManager extends EventEmitter {
       const img = card.querySelector('img.ipfs-attachment-img') as HTMLImageElement | null;
       const dl = card.querySelector('a.ipfs-attachment-download') as HTMLAnchorElement | null;
       let objectUrl = '';
+      const isImage = mime.startsWith('image/');
       const save = (e: Event) => { e.preventDefault(); e.stopPropagation(); void this.saveObjectUrlAs(objectUrl, name, mime); };
+      const view = (e: Event) => { e.stopPropagation(); this.openLightbox(objectUrl, name, mime); };
       void this.sharedAttachmentResolver!(cid, mime).then((url) => {
         if (!url) return; // bytes not here yet — a later fetch/re-render resolves it
         objectUrl = url;
         card.dataset.localReady = '1';
         card.style.cursor = 'pointer';
-        card.onclick = save; // whole chip/tile is click-to-save
+        // Images open the in-app viewer on tap; files download on tap.
+        card.onclick = isImage ? view : save;
         const loading = card.querySelector('.ipfs-attachment-loading') as HTMLElement | null;
         if (loading) loading.hidden = true;
         if (img) {
           img.src = url;
           img.hidden = false;
         }
+        // The small Download link always saves the file.
         if (dl) {
           dl.hidden = false;
           dl.onclick = save;

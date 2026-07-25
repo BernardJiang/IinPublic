@@ -2839,22 +2839,41 @@ body.iinpublic-debug .conversation-health-status {
   max-width: 260px;
 }
 
-/* Inline chip: compact one-line attachment; full previews live in the media gallery. */
+/* Inline chip: small preview thumbnail (image) or icon + name + Download link. */
 .ipfs-attachment-chip {
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
-  max-width: 280px;
+  max-width: 300px;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-subtle);
 }
 
-.ipfs-attachment-chip .ipfs-attachment-name {
-  flex: 1;
+.ipfs-attachment-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  background: var(--bg-muted);
+}
+
+.ipfs-attachment-chip .ipfs-attachment-icon {
+  flex-shrink: 0;
+  font-size: 1.4em;
+}
+
+.ipfs-attachment-meta {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  flex: 1;
+}
+
+.ipfs-attachment-chip .ipfs-attachment-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2862,9 +2881,72 @@ body.iinpublic-debug .conversation-health-status {
   font-size: 0.9em;
 }
 
-.ipfs-attachment-chip .ipfs-attachment-icon,
 .ipfs-attachment-chip .ipfs-attachment-download {
   flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* In-app full-size photo viewer (lightbox) */
+.media-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.media-lightbox-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.9);
+}
+
+.media-lightbox-img {
+  position: relative;
+  max-width: 92vw;
+  max-height: 84vh;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.media-lightbox-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  color: white;
+  z-index: 1;
+}
+
+.media-lightbox-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.media-lightbox-action {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  font-size: 1.1em;
+  cursor: pointer;
+}
+
+.media-lightbox-action:hover {
+  background: rgba(255, 255, 255, 0.28);
 }
 
 .ipfs-attachment-head {
