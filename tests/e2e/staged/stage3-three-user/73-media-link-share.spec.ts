@@ -128,9 +128,12 @@ test.describe('Multimedia link sharing (composer + talk editor)', () => {
     await expect(pageAdam.locator('#conversation-messages .ipfs-attachment-link')).toContainText('ipfs://');
     await expect(pageAdam.locator('#conversation-messages')).not.toContainText('IPFS_SHARE:');
 
-    // The Shared-media gallery collects the file out of the DM stream into its own grid.
+    // The Shared-media gallery collects shared items out of the DM stream, tabbed.
     await pageAdam.locator('#conversation-media-btn').click();
     await expect(pageAdam.locator('#conversation-media-gallery')).toBeVisible();
+    // notes.txt is a file, not media → the default Media tab is empty, Files holds it.
+    await expect(pageAdam.locator('#conversation-media-grid [data-testid="media-tile"]')).toHaveCount(0);
+    await pageAdam.locator('.conversation-media-tab[data-media-tab="files"]').click();
     await expect(pageAdam.locator('#conversation-media-grid [data-testid="media-tile"]')).toHaveCount(1);
     await expect(pageAdam.locator('#conversation-media-grid .media-tile-name')).toContainText('notes.txt');
     // Gallery hides the message thread; going back restores it.

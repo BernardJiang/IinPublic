@@ -1072,6 +1072,11 @@ export class UIManager extends EventEmitter {
                   <button class="back-btn" id="back-from-media">‹ Back</button>
                   <div class="conversation-media-title" id="conversation-media-title">Shared media</div>
                 </div>
+                <div class="conversation-media-tabs" role="tablist">
+                  <button class="conversation-media-tab active" data-media-tab="media" type="button">Media</button>
+                  <button class="conversation-media-tab" data-media-tab="files" type="button">Files</button>
+                  <button class="conversation-media-tab" data-media-tab="links" type="button">Links</button>
+                </div>
                 <div class="conversation-media-grid" id="conversation-media-grid"></div>
               </div>
               <div class="conversation-input-container">
@@ -7973,26 +7978,57 @@ export class UIManager extends EventEmitter {
     });
   }
 
-  /** One-time wiring for the shared-media gallery buttons (called from setupBaseUI). */
+  /** Active shared-media gallery tab. */
+  private mediaGalleryTab: 'media' | 'files' | 'links' = 'media';
+
+  /** One-time wiring for the shared-media gallery buttons + tabs (called from setupBaseUI). */
   private setupMediaGallery(): void {
-    const openBtn = document.getElementById('conversation-media-btn');
-    const backBtn = document.getElementById('back-from-media');
-    openBtn?.addEventListener('click', () => this.openMediaGallery());
-    backBtn?.addEventListener('click', () => this.closeMediaGallery());
+    document.getElementById('conversation-media-btn')?.addEventListener('click', () => this.openMediaGallery());
+    document.getElementById('back-from-media')?.addEventListener('click', () => this.closeMediaGallery());
+    const tabLabels: Record<string, UiTranslationKey> = {
+      media: 'mediaTabMedia', files: 'mediaTabFiles', links: 'mediaTabLinks',
+    };
+    document.querySelectorAll('.conversation-media-tab').forEach((el) => {
+      const tab = (el as HTMLElement).getAttribute('data-media-tab') || '';
+      if (tabLabels[tab]) (el as HTMLElement).textContent = this.t(tabLabels[tab]);
+      el.addEventListener('click', () => {
+        if (tab === 'media' || tab === 'files' || tab === 'links') this.setMediaGalleryTab(tab);
+      });
+    });
   }
 
-  /** All shared-media (IPFS_SHARE) attachments in the open conversation, newest first. */
-  private collectSharedMedia(): Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }> {
-    const items: Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }> = [];
+  /** All IPFS_SHARE attachments in the open conversation, split by kind, newest first. */
+  private collectSharedAttachments(): {
+    media: Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }>;
+    files: Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }>;
+  } {
+    const media: Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }> = [];
+    const files: Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }> = [];
     const seen = new Set<string>();
     for (const msg of this.lastConversationMessages || []) {
       const share = this.parseIpfsSharePayload(String(msg?.text || ''));
-      if (share && !seen.has(share.cid)) {
-        seen.add(share.cid);
-        items.push(share);
+      if (!share || seen.has(share.cid)) continue;
+      seen.add(share.cid);
+      const isMedia = share.mimeType.startsWith('image/') || share.mimeType.startsWith('video/');
+      (isMedia ? media : files).push(share);
+    }
+    return { media: media.reverse(), files: files.reverse() };
+  }
+
+  /** http(s):// URLs found in plain text messages of the open conversation, newest first. */
+  private collectSharedLinks(): string[] {
+    const urls: string[] = [];
+    const seen = new Set<string>();
+    const re = /https?:\/\/[^\s<>"')]+/gi;
+    for (const msg of this.lastConversationMessages || []) {
+      const text = String(msg?.text || '');
+      if (text.startsWith('IPFS_SHARE:')) continue;
+      for (const m of text.match(re) || []) {
+        const url = m.replace(/[.,)]+$/, '');
+        if (!seen.has(url)) { seen.add(url); urls.push(url); }
       }
     }
-    return items.reverse();
+    return urls.reverse();
   }
 
   private renderMediaTile(share: { cid: string; link: string; name: string; mimeType: string; sizeBytes: number }): string {
@@ -8016,19 +8052,51 @@ export class UIManager extends EventEmitter {
     `;
   }
 
-  private openMediaGallery(): void {
+  private renderMediaLinkRow(url: string): string {
+    const safe = escapeHtml(url);
+    return `<a class="conversation-media-link" href="${safe}" target="_blank" rel="noopener noreferrer" data-testid="media-link">${safe}</a>`;
+  }
+
+  /** Render the active tab's content into the grid (media/files grid, or a links list). */
+  private renderMediaGalleryTab(): void {
     const grid = document.getElementById('conversation-media-grid');
+    if (!grid) return;
+    const { media, files } = this.collectSharedAttachments();
+    let count = 0;
+    if (this.mediaGalleryTab === 'links') {
+      const links = this.collectSharedLinks();
+      count = links.length;
+      grid.classList.add('is-list');
+      grid.innerHTML = links.length === 0
+        ? `<p class="conversation-media-empty">${escapeHtml(this.t('mediaLinksEmpty'))}</p>`
+        : links.map((u) => this.renderMediaLinkRow(u)).join('');
+    } else {
+      const items = this.mediaGalleryTab === 'files' ? files : media;
+      count = items.length;
+      grid.classList.remove('is-list');
+      grid.innerHTML = items.length === 0
+        ? `<p class="conversation-media-empty">${escapeHtml(this.t('mediaGalleryEmpty'))}</p>`
+        : items.map((m) => this.renderMediaTile(m)).join('');
+      this.hydrateAttachmentImages(grid);
+    }
+    const title = document.getElementById('conversation-media-title');
+    if (title) title.textContent = this.tf('mediaGalleryTitle', { count });
+  }
+
+  private setMediaGalleryTab(tab: 'media' | 'files' | 'links'): void {
+    this.mediaGalleryTab = tab;
+    document.querySelectorAll('.conversation-media-tab').forEach((el) => {
+      el.classList.toggle('active', (el as HTMLElement).getAttribute('data-media-tab') === tab);
+    });
+    this.renderMediaGalleryTab();
+  }
+
+  private openMediaGallery(): void {
     const gallery = document.getElementById('conversation-media-gallery');
     const messages = document.getElementById('conversation-messages');
     const composer = document.querySelector('.conversation-input-container') as HTMLElement | null;
-    if (!grid || !gallery) return;
-    const media = this.collectSharedMedia();
-    grid.innerHTML = media.length === 0
-      ? `<p class="conversation-media-empty">${escapeHtml(this.t('mediaGalleryEmpty'))}</p>`
-      : media.map((m) => this.renderMediaTile(m)).join('');
-    this.hydrateAttachmentImages(grid);
-    const title = document.getElementById('conversation-media-title');
-    if (title) title.textContent = this.tf('mediaGalleryTitle', { count: media.length });
+    if (!gallery) return;
+    this.setMediaGalleryTab(this.mediaGalleryTab);
     if (messages) messages.style.display = 'none';
     if (composer) composer.style.display = 'none';
     gallery.style.display = 'flex';

@@ -2921,6 +2921,30 @@ body.iinpublic-debug .conversation-health-status {
   color: var(--text-primary);
 }
 
+.conversation-media-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 0;
+  flex-shrink: 0;
+}
+
+.conversation-media-tab {
+  flex: 1;
+  padding: 8px 4px;
+  border: none;
+  background: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  font-size: 0.9em;
+  cursor: pointer;
+}
+
+.conversation-media-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
 .conversation-media-grid {
   flex: 1;
   min-height: 0;
@@ -2930,6 +2954,27 @@ body.iinpublic-debug .conversation-health-status {
   grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
   gap: 10px;
   align-content: start;
+}
+
+.conversation-media-grid.is-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conversation-media-link {
+  display: block;
+  font-size: 0.85em;
+  color: var(--accent);
+  word-break: break-all;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+}
+
+.conversation-media-link:hover {
+  border-color: var(--accent);
 }
 
 .conversation-media-empty {
