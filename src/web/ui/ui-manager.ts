@@ -810,6 +810,7 @@ export class UIManager extends EventEmitter {
     }
     this.appContainer = container;
     this.setupBaseUI();
+    this.setupMediaGallery();
     this.applyShellTranslations();
     // Diagnostic conversation lines (transport / fallback / last-contact) are hidden by
     // default; enable with ?debug=1 or localStorage iinpublic_debug=1.
@@ -1061,9 +1062,17 @@ export class UIManager extends EventEmitter {
                   <div class="conversation-fallback-status" id="conversation-fallback-status"></div>
                   <div class="conversation-health-status" id="conversation-health-status"></div>
                 </div>
+                <button class="conversation-media-btn" id="conversation-media-btn" type="button" title="Shared media" aria-label="Shared media">🖼</button>
               </div>
               <div class="conversation-messages" id="conversation-messages">
                 <p style="text-align: center; padding: 20px; color: #999;">Start your conversation!</p>
+              </div>
+              <div class="conversation-media-gallery" id="conversation-media-gallery" style="display:none;">
+                <div class="conversation-media-gallery-header">
+                  <button class="back-btn" id="back-from-media">‹ Back</button>
+                  <div class="conversation-media-title" id="conversation-media-title">Shared media</div>
+                </div>
+                <div class="conversation-media-grid" id="conversation-media-grid"></div>
               </div>
               <div class="conversation-input-container">
                 <input class="visually-hidden" type="file" id="conversation-attach-input" aria-hidden="true">
@@ -4816,6 +4825,8 @@ export class UIManager extends EventEmitter {
 
     const overlay = document.getElementById('conversation-detail-overlay');
     if (overlay) overlay.style.display = 'flex';
+    // Always land on the message thread, not a leftover media gallery from a prior conversation.
+    this.closeMediaGallery();
 
     this.currentConversationId = conversationId;
     // Per-talk Thread scope (redesign §5): messages and the composer are bound to one
@@ -7960,6 +7971,76 @@ export class UIManager extends EventEmitter {
         }
       }).catch(() => { /* leave the loading state; a later fetch/re-render can resolve it */ });
     });
+  }
+
+  /** One-time wiring for the shared-media gallery buttons (called from setupBaseUI). */
+  private setupMediaGallery(): void {
+    const openBtn = document.getElementById('conversation-media-btn');
+    const backBtn = document.getElementById('back-from-media');
+    openBtn?.addEventListener('click', () => this.openMediaGallery());
+    backBtn?.addEventListener('click', () => this.closeMediaGallery());
+  }
+
+  /** All shared-media (IPFS_SHARE) attachments in the open conversation, newest first. */
+  private collectSharedMedia(): Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }> {
+    const items: Array<{ cid: string; link: string; name: string; mimeType: string; sizeBytes: number }> = [];
+    const seen = new Set<string>();
+    for (const msg of this.lastConversationMessages || []) {
+      const share = this.parseIpfsSharePayload(String(msg?.text || ''));
+      if (share && !seen.has(share.cid)) {
+        seen.add(share.cid);
+        items.push(share);
+      }
+    }
+    return items.reverse();
+  }
+
+  private renderMediaTile(share: { cid: string; link: string; name: string; mimeType: string; sizeBytes: number }): string {
+    const isImage = share.mimeType.startsWith('image/');
+    const safeName = this.attachmentDownloadFilename(share.name, share.mimeType);
+    const name = escapeHtml(safeName);
+    const cid = escapeHtml(share.cid);
+    const mime = escapeHtml(share.mimeType);
+    const size = escapeHtml(this.formatAttachmentSize(share.sizeBytes));
+    const icon = this.attachmentIconForMime(share.mimeType);
+    const thumb = isImage
+      ? `<img class="ipfs-attachment-img media-tile-img" alt="${name}" hidden />`
+      : `<div class="media-tile-fileicon">${icon}</div>`;
+    return `
+      <div class="conversation-media-tile ipfs-attachment" data-testid="media-tile" data-ipfs-cid="${cid}" data-ipfs-mime="${mime}" data-ipfs-name="${name}" title="${name}">
+        ${thumb}
+        <a class="ipfs-attachment-download media-tile-download" download="${name}" hidden>⬇</a>
+        <div class="media-tile-name">${name}</div>
+        ${size ? `<div class="media-tile-size">${size}</div>` : ''}
+      </div>
+    `;
+  }
+
+  private openMediaGallery(): void {
+    const grid = document.getElementById('conversation-media-grid');
+    const gallery = document.getElementById('conversation-media-gallery');
+    const messages = document.getElementById('conversation-messages');
+    const composer = document.querySelector('.conversation-input-container') as HTMLElement | null;
+    if (!grid || !gallery) return;
+    const media = this.collectSharedMedia();
+    grid.innerHTML = media.length === 0
+      ? `<p class="conversation-media-empty">${escapeHtml(this.t('mediaGalleryEmpty'))}</p>`
+      : media.map((m) => this.renderMediaTile(m)).join('');
+    this.hydrateAttachmentImages(grid);
+    const title = document.getElementById('conversation-media-title');
+    if (title) title.textContent = this.tf('mediaGalleryTitle', { count: media.length });
+    if (messages) messages.style.display = 'none';
+    if (composer) composer.style.display = 'none';
+    gallery.style.display = 'flex';
+  }
+
+  private closeMediaGallery(): void {
+    const gallery = document.getElementById('conversation-media-gallery');
+    const messages = document.getElementById('conversation-messages');
+    const composer = document.querySelector('.conversation-input-container') as HTMLElement | null;
+    if (gallery) gallery.style.display = 'none';
+    if (messages) messages.style.display = '';
+    if (composer) composer.style.display = '';
   }
 
   displayConversationMessages(conversationId: string, messages: any[]): void {

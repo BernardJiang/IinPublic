@@ -128,6 +128,17 @@ test.describe('Multimedia link sharing (composer + talk editor)', () => {
     await expect(pageAdam.locator('#conversation-messages .ipfs-attachment-link')).toContainText('ipfs://');
     await expect(pageAdam.locator('#conversation-messages')).not.toContainText('IPFS_SHARE:');
 
+    // The Shared-media gallery collects the file out of the DM stream into its own grid.
+    await pageAdam.locator('#conversation-media-btn').click();
+    await expect(pageAdam.locator('#conversation-media-gallery')).toBeVisible();
+    await expect(pageAdam.locator('#conversation-media-grid [data-testid="media-tile"]')).toHaveCount(1);
+    await expect(pageAdam.locator('#conversation-media-grid .media-tile-name')).toContainText('notes.txt');
+    // Gallery hides the message thread; going back restores it.
+    await expect(pageAdam.locator('#conversation-messages')).toBeHidden();
+    await pageAdam.locator('#back-from-media').click();
+    await expect(pageAdam.locator('#conversation-media-gallery')).toBeHidden();
+    await expect(pageAdam.locator('#conversation-messages')).toBeVisible();
+
     // Bob receives the same link card.
     await openConversation(pageBob, bobAdam);
     await expect(pageBob.locator('#conversation-messages [data-testid="ipfs-attachment"]'))
