@@ -120,6 +120,43 @@ and a signed identity/pointer record. No support database on the server.
 > contradicted the P2P-first design (spec §19.4, §23, §25; `CLAUDE.md` — "the server is a
 > bootstrap/signaling/room-membership connector, not the talk inbox authority").
 
+### Resolved decisions 2026-07-25 (Bernard)
+
+| # | Decision | Choice |
+|---|---|---|
+| K1-1 | Where the TechSupport record comes from | **Relay seeds on boot.** Public key served by the relay; every client receives it as given. TechSupport is a built-in Contact for every user from first launch |
+| K1-2 | Headcount when the device is offline | **Always count 1 + separate online/away indicator** |
+| K1-3 | Eviction immunity | **Never evicted from Global**; implement at the cheapest single point |
+| K2-1 | Greeting artifact | **Hybrid** — signed template renders immediately, a real DM follows when the device is online |
+| K2-2 | Greeting form | **Real message** persisted in the receiver's local Gun |
+| K2-3 | Signature verification failure | **Suppress silently** |
+| K3-1 | Key custody | **Two keys** — announcement key (server) + DM/greeting key (TechSupport device) |
+| K3-2 | Rotation | **Trust-anchor list** — clients accept any pub in a compiled array |
+| K3-3 | How a developer runs it | **Both** — headless agent for uptime, browser mode for answering |
+| K3-4 | Production custody | **Redundant** — server, laptops, and a dedicated machine; reliability over minimal key surface |
+
+**Additional requirements from the same decision:**
+
+- A small **user guide ships with the relay**, so basic help is answerable with no TechSupport
+  device online and no per-deployment setup.
+- **New answers come from a TechSupport client**, only when it is online.
+- **Questions are never lost.** If the device is away, the message waits in the offline mailbox and
+  is delivered on reconnect.
+- **Chatbot marker:** an answer served automatically from the existing FAQ is labelled with the
+  chatbot icon, the same treatment as chatbot replies elsewhere — a user must be able to tell an
+  automatic answer from a human one.
+
+> **Two tensions worth holding onto while implementing.**
+>
+> 1. *K1-1 + K3-2:* "the relay serves the public key" must stay a **convenience, not the trust
+>    root**. If a client would accept a key merely because the relay served it, a compromised relay
+>    can substitute its own TechSupport. The compiled trust-anchor list stays authoritative; a
+>    relay-served key is only usable if it already appears in that list.
+> 2. *K3-4:* redundancy raises reliability and compromise surface at the same time. Because K3-1
+>    splits the keys, keep the **DM/greeting key** off the relay even when replicating for
+>    availability — otherwise a relay compromise can author messages as TechSupport, which is the
+>    exact property K2 exists to prevent. Replicate it across operator machines instead.
+
 ### Target contract (amend the contract doc as part of K1)
 
 1. **Identity is built-in; presence is peer-provided.** `TECHSUPPORT_ROOT_USER_ID` +

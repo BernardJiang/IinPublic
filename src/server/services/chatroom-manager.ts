@@ -2,6 +2,7 @@ import type { GPSCoordinate, CommunityRole, CommunityRoleRecord } from '../../sh
 import { GunService } from './gun-service';
 import { canAssignRole, chatroomRolePath, deriveCommunityId } from '../../shared/chatroom-hierarchy';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
+import { isTechSupportId } from '../../shared/techsupport';
 
 export class ChatroomManager {
   private fastActiveMembers = new Map<string, Map<string, { userId: string; stageName: string; lastSeen: string }>>();
@@ -395,6 +396,10 @@ export class ChatroomManager {
     ]);
     for (const records of recordGroups) {
       for (const record of records) {
+        // TechSupport is never evicted from a room (decision K1-3, docs/TODO.md). Checked here,
+        // at the single point where staleness becomes an eviction, so every caller of the prune
+        // is covered by one string comparison rather than a guard per call site.
+        if (isTechSupportId(record.userId)) continue;
         if (this.roomMembershipIsStale(record.data, now)) stale.add(record.userId);
       }
     }

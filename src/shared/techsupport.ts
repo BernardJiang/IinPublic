@@ -2,8 +2,62 @@ import type { User } from './types';
 
 export const TECHSUPPORT_STAGE_NAME = 'TechSupport';
 export const TECHSUPPORT_ROOT_USER_ID = 'iinpublic-root-techsupport';
-/** Development trust anchor. Replace this public key together with the server secret before production. */
+/**
+ * Development trust anchor. Replace before production.
+ *
+ * @deprecated Prefer the trust-anchor lists below. Kept as the current single key so existing
+ * call sites keep working while K3 lands; it is seeded into both lists.
+ */
 export const TECHSUPPORT_PUB = 'mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ';
+
+/**
+ * Two keys, two trust anchors (decision K3-1, docs/TODO.md).
+ *
+ * - **Announcement key** — held by the relay; signs system announcements.
+ * - **DM key** — held by the TechSupport *device*; signs greetings, FAQ bundles, and support
+ *   replies. Deliberately kept off the relay even under the K3-4 redundancy decision: if the
+ *   relay could sign DMs, a relay compromise could author messages as TechSupport, which is
+ *   exactly what K2's signature requirement exists to prevent.
+ *
+ * Both lists currently hold the same development key, so nothing changes behaviourally until a
+ * separate device key is generated. They are lists rather than scalars because of decision
+ * K3-2: rotation ships a new client build, and a list lets the old and new keys both verify
+ * during the rollout instead of orphaning everything signed by the previous key.
+ *
+ * Ordered newest-first by convention; signing should always use the first entry.
+ *
+ * **The compiled list is the trust root.** A key served by the relay is a convenience for
+ * discovery only and must be checked against these anchors before use — otherwise a compromised
+ * relay could substitute its own TechSupport identity.
+ */
+export const TECHSUPPORT_ANNOUNCEMENT_TRUST_ANCHORS: readonly string[] = [TECHSUPPORT_PUB];
+
+export const TECHSUPPORT_DM_TRUST_ANCHORS: readonly string[] = [TECHSUPPORT_PUB];
+
+function isTrustedPub(pub: string | undefined | null, anchors: readonly string[]): boolean {
+  const candidate = String(pub ?? '').trim();
+  if (!candidate) return false;
+  return anchors.includes(candidate);
+}
+
+/** True when `pub` may sign system announcements. */
+export function isTrustedAnnouncementPub(pub: string | undefined | null): boolean {
+  return isTrustedPub(pub, TECHSUPPORT_ANNOUNCEMENT_TRUST_ANCHORS);
+}
+
+/** True when `pub` may sign greetings, FAQ bundles, and support replies. */
+export function isTrustedTechSupportDmPub(pub: string | undefined | null): boolean {
+  return isTrustedPub(pub, TECHSUPPORT_DM_TRUST_ANCHORS);
+}
+
+/** The key to sign with now — the newest anchor. */
+export function currentTechSupportDmPub(): string {
+  return TECHSUPPORT_DM_TRUST_ANCHORS[0];
+}
+
+export function currentTechSupportAnnouncementPub(): string {
+  return TECHSUPPORT_ANNOUNCEMENT_TRUST_ANCHORS[0];
+}
 export const TECHSUPPORT_NETWORK_ROLE = 'root-techsupport';
 export const TECHSUPPORT_HEADSHOT = 'TS';
 
