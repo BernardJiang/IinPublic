@@ -3,11 +3,8 @@ import path from 'path';
 import { gunBaseURL } from './ports';
 import { parallelSlot } from './ports';
 import { clearGunDatabases, maybeClearGunDatabases, waitForGunApiReady } from './clear-database';
-import {
-  TECHSUPPORT_NETWORK_ROLE,
-  TECHSUPPORT_ROOT_USER_ID,
-  TECHSUPPORT_STAGE_NAME,
-} from '../../../src/shared/techsupport';
+import { assertTechSupportBaseline, duplicateSupportGreeting } from './techsupport-baseline';
+import { TECHSUPPORT_STAGE_NAME } from '../../../src/shared/techsupport';
 
 export type E2eStageName = 'stage0' | 'stage1' | 'stage2' | 'stage3' | 'stage4' | 'stage5';
 
@@ -49,31 +46,9 @@ function assertStageSnapshotIntegrity(stage: E2eStageName, snapshot: unknown): v
   const graph = (snapshot as { gunGraph?: Record<string, any> } | undefined)?.gunGraph;
   if (!graph) throw new Error(`[e2e-stage] ${stage} snapshot has no Gun graph`);
 
-  const rootSoul = `users/${TECHSUPPORT_ROOT_USER_ID}`;
-  const root = graph[rootSoul];
-  const networkRoot = graph['network-root-techsupport'];
-  const globalMember = graph[`chatrooms/global/users/${TECHSUPPORT_ROOT_USER_ID}`];
-  if (
-    root?.id !== TECHSUPPORT_ROOT_USER_ID ||
-    root?.stageName !== TECHSUPPORT_STAGE_NAME ||
-    root?.networkRole !== TECHSUPPORT_NETWORK_ROLE
-  ) {
-    throw new Error(`[e2e-stage] ${stage} snapshot is missing the canonical TechSupport user root`);
-  }
-  if (
-    networkRoot?.userId !== TECHSUPPORT_ROOT_USER_ID ||
-    networkRoot?.stageName !== TECHSUPPORT_STAGE_NAME ||
-    networkRoot?.networkRole !== TECHSUPPORT_NETWORK_ROLE
-  ) {
-    throw new Error(`[e2e-stage] ${stage} snapshot is missing the canonical TechSupport network marker`);
-  }
-  if (
-    globalMember?.userId !== TECHSUPPORT_ROOT_USER_ID ||
-    globalMember?.stageName !== TECHSUPPORT_STAGE_NAME ||
-    globalMember?.isActive !== true
-  ) {
-    throw new Error(`[e2e-stage] ${stage} snapshot does not keep TechSupport active in Global`);
-  }
+  // Shared with the post-reset guard in clear-database.ts — one definition of
+  // "this graph has a valid built-in TechSupport" (docs/TODO.md K4).
+  assertTechSupportBaseline(graph, `${stage} snapshot`);
 
   const userRoots = Object.entries(graph)
     .filter(([soul, record]) => /^users\/[^/]+$/.test(soul) && record?.stageName)
@@ -92,14 +67,9 @@ function assertStageSnapshotIntegrity(stage: E2eStageName, snapshot: unknown): v
     );
   }
 
-  const welcomeReceivers = new Set<string>();
-  for (const soul of Object.keys(graph)) {
-    const match = soul.match(/^conversations\/conv_support_[^/]+\/messages\/support_welcome_(.+)$/);
-    if (!match) continue;
-    if (welcomeReceivers.has(match[1])) {
-      throw new Error(`[e2e-stage] ${stage} snapshot has duplicate support greetings for ${match[1]}`);
-    }
-    welcomeReceivers.add(match[1]);
+  const duplicate = duplicateSupportGreeting(graph);
+  if (duplicate) {
+    throw new Error(`[e2e-stage] ${stage} snapshot has duplicate support greetings for ${duplicate}`);
   }
 }
 

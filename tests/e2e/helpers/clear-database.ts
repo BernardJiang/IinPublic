@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import { gunBaseURL } from './ports';
+import { assertTechSupportBaseline } from './techsupport-baseline';
 import {
   TECHSUPPORT_HEADSHOT,
   TECHSUPPORT_NETWORK_ROLE,
@@ -86,6 +87,7 @@ export async function clearGunDatabases(options: { seedTechSupportRoot?: boolean
         await sleep(SETTLE_AFTER_CLEAR_MS);
         if (options.seedTechSupportRoot !== false) {
           await seedTechSupportRootBaseline();
+          await verifyTechSupportBaseline('after clearGunDatabases');
         }
         return;
       }
@@ -105,6 +107,21 @@ export async function clearGunDatabases(options: { seedTechSupportRoot?: boolean
   console.warn(
     `[clearGunDatabases] WARNING: POST ${clearUrl} failed after ${CLEAR_POST_MAX_ATTEMPTS} attempts (${lastErr}). Server may have crashed under load -- skipping cleanup.`,
   );
+}
+
+/**
+ * Post-reset guard (docs/TODO.md K4): every seeded baseline must actually contain the
+ * built-in TechSupport root. Cheap — the graph is at its smallest right after a clear.
+ * Set `E2E_SKIP_BASELINE_GUARD=1` to opt out (e.g. when profiling reset cost).
+ */
+export async function verifyTechSupportBaseline(context: string): Promise<void> {
+  if (process.env.E2E_SKIP_BASELINE_GUARD === '1') return;
+  const res = await fetch(`${gunBaseURL()}/api/test/export-snapshot`);
+  if (!res.ok) {
+    throw new Error(`[techsupport-baseline] ${context}: export-snapshot failed: ${res.status}`);
+  }
+  const snapshot = (await res.json()) as { gunGraph?: Record<string, unknown> };
+  assertTechSupportBaseline(snapshot.gunGraph, context);
 }
 
 export async function seedTechSupportRootBaseline(): Promise<void> {
