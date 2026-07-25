@@ -5,6 +5,8 @@ import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 import { isTechSupportId } from '../../shared/techsupport';
 import {
   incrementVisitSlot,
+  LEGACY_VISIT_SLOT_ID,
+  legacyMigrationState,
   publishedVisitTotalsPath,
   readVisitCounterState,
   readVisitSlot,
@@ -576,6 +578,7 @@ export class ChatroomManager {
    */
   private async recordVisit(chatroomId: string, userId: string): Promise<void> {
     const now = new Date().toISOString();
+    await this.migrateLegacyVisitScalar(chatroomId, now);
     const existing = readVisitSlot(
       userId,
       await this.gunService.getPath(visitCounterPath(chatroomId, userId)).catch(() => null),
@@ -589,6 +592,32 @@ export class ChatroomManager {
     void this.publishRoomVisitTotals(chatroomId).catch(() => {
       /* best-effort public badge */
     });
+  }
+
+  /**
+   * One-time conversion of a pre-CRDT room (docs/TODO.md L1).
+   *
+   * Rooms that predate the G-Counter carry their whole history in the legacy `visitCount`
+   * scalar. The historical per-user split is unrecoverable, so the total is parked in a single
+   * synthetic slot — meaning `uniqueVisitorCount` reads as 1 for such a room until real
+   * visitors arrive. That is a deliberate, documented loss of fidelity, preferred over either
+   * resetting old rooms to zero or carrying the `max(new, legacy)` fallback forever.
+   *
+   * Idempotent: once the synthetic slot exists, this is a no-op.
+   */
+  private async migrateLegacyVisitScalar(chatroomId: string, now: string): Promise<void> {
+    const alreadyMigrated = await this.gunService
+      .getPath(visitCounterPath(chatroomId, LEGACY_VISIT_SLOT_ID))
+      .catch(() => null);
+    if (alreadyMigrated) return;
+
+    const legacy = await this.gunService
+      .getPath(['chatrooms', chatroomId, 'visitCount'])
+      .catch(() => 0);
+    const seeded = legacyMigrationState(legacy, now);
+    const slot = seeded[LEGACY_VISIT_SLOT_ID];
+    if (!slot) return;
+    await this.gunService.putPath(visitCounterPath(chatroomId, LEGACY_VISIT_SLOT_ID), slot);
   }
 
   /** Publish `visitTotals` for cheap room-list rendering. The G-Counter stays the source of truth. */

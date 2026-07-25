@@ -503,10 +503,17 @@ associative, and idempotent, so concurrent writers and replays cannot lose or do
 - [x] Pure shared module + CRDT-property tests — `src/shared/visit-counter.ts`. 2026-07-25.
 - [x] Server `recordVisit` writes only its own slot and publishes the aggregate. 2026-07-25.
 - [x] Client `recordRoomVisit` writes only its own slot; no more shared-scalar RMW. 2026-07-25.
+- [x] Migrate existing rooms: `migrateLegacyVisitScalar` seeds one synthetic slot from the old
+      scalar on first visit, idempotently. Rooms that predate the CRDT therefore report
+      `unique = 1` until real visitors arrive — a documented, deliberate fidelity loss, preferred
+      over resetting old rooms to zero. 2026-07-25.
+- [x] E2E: `stage2/35-concurrent-visit-counter.spec.ts` (+ companion `.md`) — two browsers bootstrap
+      under one `Promise.all`; asserts both visits counted and unique = +2, plus a repeat visit
+      raising visits but not unique. **Written, not yet run** — needs a host with the browser
+      suite. 2026-07-25.
 - [ ] Remove the legacy `visitCount` / `uniqueVisitorCount` scalars and the `visits/<eventId>`
-      nodes once no client reads them; migrate existing rooms by seeding one slot from the old
-      scalar (best-effort — the historical split per user is unrecoverable).
-- [ ] E2E: two browsers join the same room simultaneously; both visits counted, unique = 2.
+      nodes once no client reads them. Blocked on the `max(new, legacy)` fallback in `getChatroom`
+      being retired, which needs one full staged run to confirm nothing else reads the scalars.
 
 **Read cost, stated honestly.** Summing slots is O(members-ever) per room, versus O(1) for the old
 scalar. Mitigated by publishing an aggregate the same way `publishRoomMemberCount` already does
@@ -525,17 +532,27 @@ Storage grows without bound, and the badge data is the worst offender:
 | `conversations/<id>/messages/*` | one node per message | ❌ |
 | `talks/<id>` | one node per talk | expiry exists (`expiresAt`), no reclaim |
 
-- [ ] Delete the `visits/<visitEventId>` event nodes outright — the G-Counter slot supersedes them
-      and nothing else reads them. Biggest single win, no data anyone consumes.
-- [ ] Decide a retention policy per path (how long is a room visit interesting?) and record it here
-      before writing a reaper — a reaper without an agreed policy is how real data gets lost.
+- [x] Stopped *writing* `visits/<visitEventId>` — the client no longer creates one node per visit
+      (the G-Counter slot supersedes it). Existing nodes remain until a reaper exists. 2026-07-25.
+- [x] Size instrumentation: `src/shared/graph-size-report.ts` classifies every soul into a growth
+      category (`bounded` / `per-user` / `per-event`) and reports node counts + share, sorted
+      biggest-first. Exposed at `GET /api/test/graph-size` (`?growth=per-event` narrows to the
+      unbounded paths). Read-only by design — it measures, it never reaps. 11 unit tests.
+      2026-07-25.
+- [ ] **Run it against a real deployment and paste the numbers here**, then decide a retention
+      policy per path. A reaper without an agreed policy is how real data gets lost, so the
+      numbers come first.
 - [ ] Tombstone semantics: Gun is append-oriented and P2P, so a "delete" that a peer never sees can
       be resurrected on the next sync. Any reaper needs a tombstone the peers honour, or a
       compaction that runs on each device against its own store.
 - [ ] Decide whether trimming is relay-side, device-side, or both. Under the P2P model the relay
       cannot be the sole authority — each device holds its own Gun graph.
-- [ ] Size instrumentation first: report per-path node counts from `/api/test/export-snapshot` so
-      the policy is chosen against real numbers rather than guesses.
+> **Blocked on you, not on code.** The remaining L2 items are policy, not implementation:
+> how long a room visit stays interesting, what a tombstone means on a graph where a peer that
+> was offline during the delete can resurrect it on next sync, and whether trimming runs on the
+> relay, on each device, or both. Under the P2P model the relay cannot be the sole authority —
+> every device holds its own Gun graph — so "delete" is closer to "convince every replica to
+> forget", which is a design decision before it is a task.
 
 > **Open question:** are the lifetime badges worth their cost at all? If "visits ever" is not a
 > number users act on, replacing both with "active now" deletes this entire problem class. Worth

@@ -3,6 +3,7 @@ import path from 'path';
 import type express from 'express';
 import { logger } from '../logger';
 import { clearExactChatbotMemoryCacheForTesting } from '../exact-chatbot-memory-store';
+import { buildGraphSizeReport, unboundedGrowthCategories } from '../../shared/graph-size-report';
 import type { GunService } from '../services/gun-service';
 import {
   applyP2PNeighborCacheAction,
@@ -700,6 +701,31 @@ export function registerSystemRoutes(
         res.json(snapshot);
       } catch (error) {
         logger.error({ err: error }, 'Error exporting E2E snapshot');
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    /**
+     * Per-path node accounting for retention planning (docs/TODO.md L2).
+     *
+     * Deliberately read-only: it measures, it never reaps. A retention policy should be
+     * argued from real numbers, and the biggest category here is where a reaper should
+     * start. `?growth=per-event` narrows it to the paths that grow without bound.
+     */
+    app.get('/api/test/graph-size', (req, res) => {
+      try {
+        if (!gun?._?.graph) {
+          res.status(500).json({ error: 'Gun.js graph not accessible' });
+          return;
+        }
+        const report = buildGraphSizeReport(gun._.graph as Record<string, unknown>);
+        if (String(req.query.growth || '') === 'per-event') {
+          res.json({ ...report, categories: unboundedGrowthCategories(report) });
+          return;
+        }
+        res.json(report);
+      } catch (error) {
+        logger.error({ err: error }, 'Error building graph size report');
         res.status(500).json({ error: (error as Error).message });
       }
     });
