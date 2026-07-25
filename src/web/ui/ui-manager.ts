@@ -7932,8 +7932,8 @@ export class UIManager extends EventEmitter {
               <span class="ipfs-attachment-name">${name}</span>
               ${size ? `<span class="ipfs-attachment-size">${size}</span>` : ''}
               <span class="ipfs-attachment-loading" aria-hidden="true">⏳</span>
+              <a class="ipfs-attachment-download" download="${name}" title="${downloadLabel}" aria-label="${downloadLabel}" hidden>⬇</a>
             </span>
-            <a class="ipfs-attachment-download" download="${name}" hidden>⬇ ${downloadLabel}</a>
           </div>
           <div class="message-time">${this.formatTalkRelativeTime(new Date(timestamp as any))}</div>
         </div>

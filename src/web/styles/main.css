@@ -2882,8 +2882,15 @@ body.iinpublic-debug .conversation-health-status {
 }
 
 .ipfs-attachment-chip .ipfs-attachment-download {
-  flex-shrink: 0;
-  white-space: nowrap;
+  align-self: flex-start;
+  margin-top: 2px;
+  font-size: 0.95em;
+  opacity: 0.55;
+  text-decoration: none;
+}
+
+.ipfs-attachment-chip .ipfs-attachment-download:hover {
+  opacity: 1;
 }
 
 /* In-app full-size photo viewer (lightbox) */

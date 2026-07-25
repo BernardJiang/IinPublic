@@ -725,9 +725,22 @@ export class IinPublicApp {
     // L5: turn decrypted shared-attachment bytes into a viewable object URL so the
     // conversation view can render the shared photo instead of the raw IPFS_SHARE payload.
     this.uiManager.setSharedAttachmentResolver(async (cid: string, mimeType: string) => {
-      const bytes = this.fetchedAttachmentBytesByCid.get(String(cid || '').trim());
-      if (!bytes) return null;
       const key = String(cid || '').trim();
+      if (!key) return null;
+      let bytes = this.fetchedAttachmentBytesByCid.get(key);
+      if (!bytes) {
+        // The SENDER holds their own published block locally (they never "fetch" it), and
+        // the content node caches fetched blocks — read it so the author's own shared photo
+        // previews instead of showing a broken/forever-loading chip.
+        try {
+          const local = await this.contentNodeService.readLocalBlock(key);
+          if (local && local.length) {
+            bytes = local;
+            this.fetchedAttachmentBytesByCid.set(key, local);
+          }
+        } catch { /* not available locally */ }
+      }
+      if (!bytes) return null;
       let url = this.attachmentObjectUrlByCid.get(key);
       if (!url) {
         // Copy into a fresh ArrayBuffer-backed view so Blob's typing is satisfied.
