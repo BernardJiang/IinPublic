@@ -477,6 +477,72 @@ Verifiable entirely at **stage1** (one ordinary user + TechSupport).
 
 ---
 
+## L. Room metrics: counter correctness + data retention `[Opus]`
+
+Audit 2026-07-25. The three badges on every chatroom row are 👥 active members (live, correct),
+🚪 **lifetime** visits, and ◎ **lifetime** unique visitors. The two lifetime counters are wrong in
+three independent ways and grow without bound.
+
+### L1. The counters are unreliable `[Opus]`
+
+1. **Lost updates (worst).** `ChatroomManager.recordVisit` and `WebChatroomService.recordRoomVisit`
+   both do read-count → write `count + 1` on a *shared* Gun scalar
+   (`chatrooms/<id>/visitCount`, `chatrooms/<id>/uniqueVisitorCount`). Two concurrent joins read the
+   same N and both write N+1; Gun's last-write-wins keeps one. The lost visit is unrecoverable —
+   there is no event log to rebuild from. At scale the counters drift permanently low.
+2. **Double counting.** Server *and* client increment the same two scalars. A join that traverses
+   both paths counts twice. With (1), the number is neither an upper nor a lower bound.
+3. **Timeout clobber.** `readNumericRoomMetric` resolves **0** after a 700 ms timeout, then writes
+   `0 + 1 = 1` — one slow read replaces a real count of thousands with 1.
+
+**Fix: CRDT G-Counter.** Each user owns a monotone slot; nobody writes anyone else's. Total = sum
+of slots, unique = count of non-zero slots — so one structure yields *both* badges and the separate
+`uniqueVisitors/*` node and both scalars disappear. Merge is per-slot max, making it commutative,
+associative, and idempotent, so concurrent writers and replays cannot lose or double-count.
+
+- [x] Pure shared module + CRDT-property tests — `src/shared/visit-counter.ts`. 2026-07-25.
+- [x] Server `recordVisit` writes only its own slot and publishes the aggregate. 2026-07-25.
+- [x] Client `recordRoomVisit` writes only its own slot; no more shared-scalar RMW. 2026-07-25.
+- [ ] Remove the legacy `visitCount` / `uniqueVisitorCount` scalars and the `visits/<eventId>`
+      nodes once no client reads them; migrate existing rooms by seeding one slot from the old
+      scalar (best-effort — the historical split per user is unrecoverable).
+- [ ] E2E: two browsers join the same room simultaneously; both visits counted, unique = 2.
+
+**Read cost, stated honestly.** Summing slots is O(members-ever) per room, versus O(1) for the old
+scalar. Mitigated by publishing an aggregate the same way `publishRoomMemberCount` already does
+(`public/room-member-counts/<id>`): the CRDT is the source of truth, the published aggregate is what
+the room list renders. Clients only sum slots when no aggregate is available.
+
+### L2. Nothing is ever trimmed `[Opus]`
+
+Storage grows without bound, and the badge data is the worst offender:
+
+| Path | Growth | Bounded? |
+|---|---|---|
+| `chatrooms/<id>/visits/<visitEventId>` | one node **per visit event**, forever | ❌ worst offender |
+| `chatrooms/<id>/uniqueVisitors/<userId>` | one node per user per room, forever | ❌ (replaced by the G-Counter slot) |
+| `chatrooms/<id>/visitCounter/<userId>` (new) | one node per user per room | ❌ but one node, not one per visit |
+| `conversations/<id>/messages/*` | one node per message | ❌ |
+| `talks/<id>` | one node per talk | expiry exists (`expiresAt`), no reclaim |
+
+- [ ] Delete the `visits/<visitEventId>` event nodes outright — the G-Counter slot supersedes them
+      and nothing else reads them. Biggest single win, no data anyone consumes.
+- [ ] Decide a retention policy per path (how long is a room visit interesting?) and record it here
+      before writing a reaper — a reaper without an agreed policy is how real data gets lost.
+- [ ] Tombstone semantics: Gun is append-oriented and P2P, so a "delete" that a peer never sees can
+      be resurrected on the next sync. Any reaper needs a tombstone the peers honour, or a
+      compaction that runs on each device against its own store.
+- [ ] Decide whether trimming is relay-side, device-side, or both. Under the P2P model the relay
+      cannot be the sole authority — each device holds its own Gun graph.
+- [ ] Size instrumentation first: report per-path node counts from `/api/test/export-snapshot` so
+      the policy is chosen against real numbers rather than guesses.
+
+> **Open question:** are the lifetime badges worth their cost at all? If "visits ever" is not a
+> number users act on, replacing both with "active now" deletes this entire problem class. Worth
+> answering before building the reaper.
+
+---
+
 ## Future / low priority (explicitly deferred)
 
 - Multiple identities on one device (profile switching). Decided low priority 2026-07-13; v1 stays one identity per device install.

@@ -3,6 +3,15 @@ import { GunService } from './gun-service';
 import { canAssignRole, chatroomRolePath, deriveCommunityId } from '../../shared/chatroom-hierarchy';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 import { isTechSupportId } from '../../shared/techsupport';
+import {
+  incrementVisitSlot,
+  publishedVisitTotalsPath,
+  readVisitCounterState,
+  readVisitSlot,
+  visitCounterMapPath,
+  visitCounterPath,
+  visitTotals,
+} from '../../shared/visit-counter';
 
 export class ChatroomManager {
   private fastActiveMembers = new Map<string, Map<string, { userId: string; stageName: string; lastSeen: string }>>();
@@ -161,17 +170,20 @@ export class ChatroomManager {
       ?? await this.getPathWithRetry(['chatroomMeta', chatroomId], 6, 150);
     if (!meta || typeof meta !== 'object') return null;
     if (!this.roomMetaCache.has(chatroomId)) this.roomMetaCache.set(chatroomId, meta);
-    const [visitCountRaw, uniqueVisitorCountRaw] = await Promise.all([
+    // Both totals come from the CRDT G-Counter (docs/TODO.md L1). Legacy scalars are still
+    // read as a fallback so rooms that predate the migration do not report zero; whichever
+    // source is higher wins, which is safe because both are monotone.
+    const [counterRaw, legacyVisitRaw, legacyUniqueRaw] = await Promise.all([
+      this.gunService.getPath(visitCounterMapPath(chatroomId)).catch(() => null),
       this.gunService.getPath(['chatrooms', chatroomId, 'visitCount']).catch(() => 0),
       this.gunService.getPath(['chatrooms', chatroomId, 'uniqueVisitorCount']).catch(() => 0),
     ]);
-    const visitCount = Number(visitCountRaw) || 0;
-    const uniqueVisitorCount = Number(uniqueVisitorCountRaw) || 0;
+    const totals = visitTotals(readVisitCounterState(counterRaw));
     return {
       id: chatroomId,
       ...meta,
-      visitCount,
-      uniqueVisitorCount,
+      visitCount: Math.max(totals.visitCount, Number(legacyVisitRaw) || 0),
+      uniqueVisitorCount: Math.max(totals.uniqueVisitorCount, Number(legacyUniqueRaw) || 0),
     };
   }
 
@@ -553,20 +565,40 @@ export class ChatroomManager {
     ]);
   }
 
+  /**
+   * Record a room visit into the CRDT G-Counter (docs/TODO.md L1).
+   *
+   * Writes **only this user's slot** — there is no shared scalar to race on, so a
+   * concurrent visit by another user can no longer overwrite this one. The previous
+   * implementation read `visitCount` and wrote `visitCount + 1`, which lost an
+   * increment whenever two joins interleaved, and double-counted whenever the browser
+   * incremented the same scalar for the same visit.
+   */
   private async recordVisit(chatroomId: string, userId: string): Promise<void> {
     const now = new Date().toISOString();
-    const visitCount = Number(await this.gunService.getPath(['chatrooms', chatroomId, 'visitCount']).catch(() => 0)) || 0;
-    await this.gunService.putPath(['chatrooms', chatroomId, 'visitCount'], visitCount + 1);
-    const existingVisitor = await this.gunService.getPath(['chatrooms', chatroomId, 'uniqueVisitors', userId]).catch(() => null);
-    await this.gunService.putPath(['chatrooms', chatroomId, 'uniqueVisitors', userId], {
+    const existing = readVisitSlot(
       userId,
-      firstVisitedAt: existingVisitor?.firstVisitedAt || now,
-      lastVisitedAt: now,
+      await this.gunService.getPath(visitCounterPath(chatroomId, userId)).catch(() => null),
+    );
+    await this.gunService.putPath(
+      visitCounterPath(chatroomId, userId),
+      incrementVisitSlot(existing, userId, now),
+    );
+    // Eventually-consistent public badge; summing slots on every room-list render is
+    // O(members-ever), so publish an aggregate the same way member counts are published.
+    void this.publishRoomVisitTotals(chatroomId).catch(() => {
+      /* best-effort public badge */
     });
-    if (!existingVisitor) {
-      const uniqueCount = Number(await this.gunService.getPath(['chatrooms', chatroomId, 'uniqueVisitorCount']).catch(() => 0)) || 0;
-      await this.gunService.putPath(['chatrooms', chatroomId, 'uniqueVisitorCount'], uniqueCount + 1);
-    }
+  }
+
+  /** Publish `visitTotals` for cheap room-list rendering. The G-Counter stays the source of truth. */
+  private async publishRoomVisitTotals(chatroomId: string): Promise<void> {
+    const raw = await this.gunService.getPath(visitCounterMapPath(chatroomId)).catch(() => null);
+    const totals = visitTotals(readVisitCounterState(raw));
+    await this.gunService.putPath(publishedVisitTotalsPath(chatroomId), {
+      ...totals,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   async leaveChatroom(chatroomId: string, userId: string): Promise<void> {

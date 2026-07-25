@@ -4,6 +4,13 @@ import { CONFIG } from '../../shared/config';
 import { findAppropriateChildChatroom, getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
+import {
+  incrementVisitSlot,
+  readVisitCounterState,
+  readVisitSlot,
+  visitTotals,
+  type VisitCounterSlot,
+} from '../../shared/visit-counter';
 import type { ChallengeGateConfig } from '../../shared/challenge-plugins';
 import { getChallengePlugin } from '../../shared/challenge-plugins';
 
@@ -404,41 +411,34 @@ export class WebChatroomService {
     }
   }
 
+  /**
+   * Record a room visit into the CRDT G-Counter (docs/TODO.md L1).
+   *
+   * Writes **only this user's slot**. Replaces three problems in one change:
+   *   - the shared `visitCount` / `uniqueVisitorCount` read-modify-write, which lost
+   *     increments whenever two joins interleaved;
+   *   - double counting, because the server incremented the same scalars for the same visit;
+   *   - the unbounded `visits/<visitEventId>` node written on every single visit.
+   *
+   * A slow or failed read is now harmless: it can only produce a LOWER slot value, and
+   * merge keeps the higher one — where the old 700 ms default-to-0 wrote 1 over a real total.
+   */
   private async recordRoomVisit(chatroomId: string, userId: string): Promise<void> {
     const gun = this.gunService.getGun();
-    const visitEventId = `visit_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
     const now = new Date().toISOString();
-    await new Promise<void>((resolve) => {
-      gun.get('chatrooms').get(chatroomId).get('visits').get(visitEventId).put({
-        id: visitEventId,
-        userId,
-        visitedAt: now,
-      }, () => resolve());
-    });
-    const currentVisitCount = await this.readNumericRoomMetric(chatroomId, 'visitCount');
-    gun.get('chatrooms').get(chatroomId).get('visitCount').put(currentVisitCount + 1);
-    const uniquePath = gun.get('chatrooms').get(chatroomId).get('uniqueVisitors').get(userId);
-    const wasSeen = await new Promise<boolean>((resolve) => {
-      uniquePath.once((data: any) => resolve(!!data));
-    });
-    uniquePath.put({ userId, firstVisitedAt: now, lastVisitedAt: now });
-    if (!wasSeen) {
-      const uniqueCount = await this.readNumericRoomMetric(chatroomId, 'uniqueVisitorCount');
-      gun.get('chatrooms').get(chatroomId).get('uniqueVisitorCount').put(uniqueCount + 1);
-    }
-  }
-
-  private async readNumericRoomMetric(chatroomId: string, key: 'visitCount' | 'uniqueVisitorCount'): Promise<number> {
-    const gun = this.gunService.getGun();
-    return new Promise<number>((resolve) => {
-      const timeoutId = setTimeout(() => resolve(0), 700);
-      gun.get('chatrooms').get(chatroomId).get(key).once((value: any) => {
+    const slotRef = gun.get('chatrooms').get(chatroomId).get('visitCounter').get(userId);
+    const existing = await new Promise<VisitCounterSlot | null>((resolve) => {
+      const timeoutId = setTimeout(() => resolve(null), 700);
+      slotRef.once((data: any) => {
         clearTimeout(timeoutId);
-        const n = Number(value);
-        resolve(Number.isFinite(n) && n >= 0 ? n : 0);
+        resolve(readVisitSlot(userId, data));
       });
     });
+    slotRef.put(incrementVisitSlot(existing, userId, now));
   }
+
+  // readNumericRoomMetric was removed with the shared-scalar counters (docs/TODO.md L1).
+  // Its 700 ms default-to-0 was bug #3: a slow read wrote 1 over a real total.
 
   /**
    * Watch if this user gets evicted from current chatroom by FIFO logic
@@ -857,22 +857,23 @@ export class WebChatroomService {
     const existingUnsubscribe = this.visitCountSubscriptions.get(chatroomId);
     if (existingUnsubscribe) existingUnsubscribe();
     const gun = this.gunService.getGun();
-    let visitCount = 0;
-    let uniqueVisitorCount = 0;
-    const emit = () => callback({ visitCount, uniqueVisitorCount });
-    const offVisit = gun.get('chatrooms').get(chatroomId).get('visitCount').on((value: any) => {
-      const n = Number(value);
-      visitCount = Number.isFinite(n) && n >= 0 ? n : 0;
-      emit();
-    });
-    const offUnique = gun.get('chatrooms').get(chatroomId).get('uniqueVisitorCount').on((value: any) => {
-      const n = Number(value);
-      uniqueVisitorCount = Number.isFinite(n) && n >= 0 ? n : 0;
-      emit();
-    });
+    // Both badges now come from one CRDT map (docs/TODO.md L1): total = sum of slots,
+    // unique = number of non-zero slots. `.map()` is required — a parent `.once()` on a
+    // Gun child map usually comes back empty.
+    const slots: Record<string, unknown> = {};
+    const emit = () => callback(visitTotals(readVisitCounterState(slots)));
+    const offSlots = gun
+      .get('chatrooms')
+      .get(chatroomId)
+      .get('visitCounter')
+      .map()
+      .on((value: any, key: string) => {
+        if (!key) return;
+        slots[key] = value;
+        emit();
+      });
     this.visitCountSubscriptions.set(chatroomId, () => {
-      offVisit.off();
-      offUnique.off();
+      offSlots?.off?.();
     });
   }
 
