@@ -3346,8 +3346,10 @@ export class UIManager extends EventEmitter {
    * should be hidden at render (it stays in the Gun graph). Fires one toast per
    * hidden message.
    */
-  public shouldHideIncomingMessage(message: string): MessageFilterResult {
-    return filterIncomingMessage(message, this.messageFilters());
+  public shouldHideIncomingMessage(message: string, senderId?: string): MessageFilterResult {
+    // TechSupport is exempt (docs/TODO.md K6): a strict dirty-word or grammar filter
+    // must never silence the only support channel the user has.
+    return filterIncomingMessage(message, this.messageFilters(), { senderId });
   }
 
   private showContentFilterToast(result: MessageFilterResult, direction: 'send' | 'receive'): void {
@@ -8224,7 +8226,7 @@ export class UIManager extends EventEmitter {
         // incoming messages at render (they stay in the Gun graph). Never hide your
         // own outgoing messages.
         if (!isOwn) {
-          const verdict = this.shouldHideIncomingMessage(text);
+          const verdict = this.shouldHideIncomingMessage(text, String(msg.senderId || ''));
           if (!verdict.passed) {
             const msgKey = String(msg.id || `${msg.senderId || ''}:${msg.timestamp || ''}`);
             if (!this.hiddenMessageToastIds.has(msgKey)) {

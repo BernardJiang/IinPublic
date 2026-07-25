@@ -5,7 +5,7 @@ import { getDefaultTalkIntakeFilters, normalizeCustomBlockedTerms } from '../../
 import { CONFIG } from '../../shared/config';
 import { filterProfileAttributesForViewer } from '../../shared/profile-privacy';
 import { v4 as uuidv4 } from 'uuid';
-import { assertStageNameAllowed, TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import { assertBlockTargetAllowed, assertStageNameAllowed, TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { buildUserTagsEnvelope, USER_TAGS_KEY } from '../../shared/user-tags';
 
 const PUBLIC_TALK_FILTERS_KEY = 'user-talk-filters';
@@ -467,6 +467,8 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     if (blockerId === targetId) {
       throw new Error('Cannot block yourself');
     }
+    // TechSupport is unblockable (docs/TODO.md K6). Refuse before any edge is written.
+    assertBlockTargetAllowed(targetId);
     const alreadyBlocked = await this.readEffectiveBlockState(blockerId, targetId);
     const blockedAt = new Date().toISOString();
     if (alreadyBlocked) {

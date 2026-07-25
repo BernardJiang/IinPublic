@@ -17,6 +17,7 @@ import { getSEA } from '../sea-gun';
 import type { GunPair } from './gun-bridge';
 import { ReputationManager } from '../../shared/reputation';
 import {
+  assertBlockTargetAllowed,
   assertStageNameAllowed,
   TECHSUPPORT_HEADSHOT,
   TECHSUPPORT_NETWORK_ROLE,
@@ -823,6 +824,9 @@ export class WebUserService {
   async blockUser(userId: string, targetId: string): Promise<string[]> {
     if (!userId || !targetId) throw new Error('userId and targetId required');
     if (userId === targetId) throw new Error('Cannot block yourself');
+    // TechSupport is unblockable (docs/TODO.md K6). Refuse before touching the API or
+    // the SEA-private block list, so no half-written block edge can survive locally.
+    assertBlockTargetAllowed(targetId);
     const apiBlockedUserIds = await this.updateBlockAtApi(userId, targetId, true);
     if (apiBlockedUserIds) {
       // The server block graph is updated, but the client's SEA-encrypted private

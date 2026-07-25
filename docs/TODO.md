@@ -260,17 +260,23 @@ and a signed identity/pointer record. No support database on the server.
 Requirement 2026-07-25. TechSupport must never be blocked, muted, or filtered out by an ordinary
 user — the support channel is the only recourse a stuck user has.
 
-- [ ] Block path: `WebUserService` block/unblock and the block graph
-      (`user-blocks/*`, `user-blocked-by/*`) reject the TechSupport root id; the contacts/peer-detail
-      UI hides or disables Block for it rather than failing after the click.
-- [ ] Intake filters: `talkPassesIntakeFilters` / `filterReasonsForTalk` never apply to the support
-      channel — no `age_gate`, `language`, distance, grammar, or dirty-word rejection can drop a
-      TechSupport message.
-- [ ] Reconcile with the existing **mute** affordance
-      (`stage2/00k-techsupport-contact-mute.spec.ts`, `isSupportNotificationsMuted()`): decide and
-      document that muting suppresses *notifications only* and never delivery or the contact row.
-- [ ] Enforce in `src/shared/` so sender and receiver agree, and so the rule cannot drift between
-      the web client and the TechSupport client.
+- [x] Block path: `WebUserService.blockUser` and server `UserService.blockUser` reject the
+      TechSupport root id before writing any edge. The contacts/peer-detail UI already routed
+      TechSupport to a mute-only dialog (`openSupportControlsDialog`, and `user-detail-view`
+      swapping Block→Mute), so this added the missing service-layer backstop. 2026-07-25.
+- [x] Content filters: `filterIncomingMessage` takes an optional `senderId` and never suppresses a
+      TechSupport-authored message; `ui-manager` threads `msg.senderId` through. The **outgoing**
+      path is deliberately not exempt — a user writing to TechSupport still gets their own composer
+      filters. 2026-07-25.
+- [x] Reconciled with the existing **mute** affordance
+      (`stage2/00k-techsupport-contact-mute.spec.ts`, `isSupportNotificationsMuted()`): muting
+      suppresses *notifications only*, never delivery or the contact row. 2026-07-25.
+- [x] Enforced in `src/shared/techsupport.ts` (`isTechSupportId`, `canBlockTarget`,
+      `assertBlockTargetAllowed`) so sender, receiver, and the TechSupport client cannot drift.
+      10 unit tests. 2026-07-25.
+- [ ] Age-gate/language/distance rejection on the *talk* intake path still needs an explicit
+      support-channel carve-out if TechSupport ever sends anything through it. Not reachable today
+      because TechSupport neither sends nor receives talks (K5) — revisit if that changes.
 - [ ] Test: `stage1` — attempt to block/filter TechSupport by every available route; contact row and
       message delivery survive all of them.
 - [ ] Test: `stage1` — set maximally restrictive intake filters (language, distance, age, grammar,
@@ -332,10 +338,10 @@ constructed in code, not a loaded stage. `maybeClearGunDatabases()`
 - [ ] Non-staged dirs (`talks-matching`, `mass`, `isolated`) have no stage of their own — decide
       per directory which stage they should load (likely stage2 for the pair-exchange mesh specs)
       and record it in `tests/e2e/staged/README.md`.
-- [ ] Add a shared guard so this cannot silently regress: every reset helper asserts the resulting
-      graph contains a valid TechSupport root (reuse `assertStageSnapshotIntegrity`'s checks) and
-      fails loudly otherwise. **Land this guard first** — it is cheap and catches drift while the
-      rest of K4 is still in flight.
+- [x] Shared guard so this cannot silently regress: `tests/e2e/helpers/techsupport-baseline.ts`
+      holds one definition of a valid built-in TechSupport; `clear-database.ts` verifies it after
+      every seeded reset (`E2E_SKIP_BASELINE_GUARD=1` opts out) and `e2e-stage-pipeline.ts` imports
+      the same checks instead of its own copy. 11 unit tests. Commit `8cf04727`, 2026-07-25.
 - [ ] Give `stage1/00x-tab-sweep-smoke.spec.ts` and `stage1/75-p2p-rate-limit-429.spec.ts` a real
       `beforeAll` reset; they currently inherit whatever the previous spec left behind.
 - [ ] Amend `docs/design/techsupport-bootstrap-contract.md`: headcount rule as "empty network = 1,
@@ -385,10 +391,19 @@ Verifiable entirely at **stage1** (one ordinary user + TechSupport).
 
 **Work**
 
-- [ ] Hard-exclude the TechSupport root from talk fanout, match candidates, and any auto-response
-      path; document it as an invariant in the contract doc. `[Sonnet]`
-- [ ] FAQ + inbox stores, question normalization, and `questionKey` derivation, with unit tests for
-      normalization (case, whitespace, punctuation, unicode/Chinese input). `[Sonnet]`
+- [x] Hard-exclude the TechSupport root from talk delivery: `acceptsIncomingTalks()` in
+      `src/shared/techsupport.ts`, checked at the top of `shouldAcceptIncomingTalkAsync`
+      (`src/web/app/app.ts`) before any filter runs. Never receiving a talk means it can never
+      produce a response, match, or ignore. 2026-07-25.
+      - [ ] Still to do: document it as an invariant in the contract doc.
+- [x] Question normalization + `questionKey` derivation + FAQ lookup:
+      `src/shared/techsupport-faq.ts` (`normalizeSupportQuestion`, `supportQuestionKey`,
+      `lookupSupportAnswer`, `buildSupportFaqEntry`, `upsertSupportFaqEntry`, deterministic
+      message ids). Reuses `hashIdentityPayload`/`normalizeIdentityText` from `cid.ts` rather than
+      adding a second hashing scheme. 20 unit tests incl. Chinese full-width punctuation.
+      2026-07-25.
+- [ ] Wire the pure module into the live DM path: FAQ bundle distribution + cache, pending inbox on
+      the TechSupport device, and the hit/miss branch replacing the blanket canned reply.
 - [ ] Replace the blanket canned reply (`sendTechSupportAutoReply` / `supportReply` in
       `ui-translations.ts:421`) with the hit/miss branch. Two new strings, EN + 中文:
       auto-answer prefix, and "new question, a human will get back to you".

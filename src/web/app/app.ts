@@ -26,6 +26,7 @@ import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, compu
 import { getDevStageZeroMaxGlobalMembers, isDevStageZero, isDevStageZeroSelfHeal } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
 import {
+  acceptsIncomingTalks,
   isTechSupportUser,
   TECHSUPPORT_PUB,
   TECHSUPPORT_ROOT_USER_ID,
@@ -1321,6 +1322,9 @@ export class IinPublicApp {
   }): Promise<boolean> {
     const me = this.currentUser;
     if (!me?.id || offer.senderId === me.id) return false;
+    // TechSupport ignores all talks (docs/TODO.md K5) — hard rule on the canonical root id,
+    // checked before any filter so it cannot be re-enabled through intake settings.
+    if (!acceptsIncomingTalks(me.id)) return false;
     if (await this.resolveBlockStatusEitherWay(offer.senderId)) return false;
     const talkData = offer.talkData;
     // Resolve ageVerified asynchronously before calling the shared synchronous filter function.

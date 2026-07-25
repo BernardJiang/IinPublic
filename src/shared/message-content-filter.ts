@@ -2,6 +2,7 @@ import type { TalkIntakeFilters } from './types';
 import { ContentFilter } from './reputation';
 import { CONFIG } from './config';
 import { normalizeDirtyWords } from './talk-intake-filters';
+import { isTechSupportId } from './techsupport';
 
 /**
  * Shared message content filtering (redesign §9.3).
@@ -74,10 +75,18 @@ export function filterOutgoingMessage(
  * Incoming (receive) path: the receiver's device runs this before rendering.
  * On a hit the message stays in the pair's Gun graph but is suppressed at
  * display (collapsed placeholder). Toggling the filter off reveals it again.
+ *
+ * **TechSupport is exempt (docs/TODO.md K6).** A message authored by the built-in
+ * TechSupport root is never suppressed by the receiver's own filters — otherwise a
+ * user who set a strict dirty-word or grammar filter could silently lose the only
+ * support channel they have. Pass `senderId` wherever it is known; omitting it keeps
+ * the previous behaviour for ordinary peers.
  */
 export function filterIncomingMessage(
   text: string,
   filters: Pick<TalkIntakeFilters, 'blockDirtyWords' | 'requireGoodGrammar' | 'dirtyWords'> | null | undefined,
+  options?: { senderId?: string | null | undefined },
 ): MessageFilterResult {
+  if (isTechSupportId(options?.senderId)) return PASS;
   return assessMessageContent(text, filters);
 }
