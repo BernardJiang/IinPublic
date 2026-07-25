@@ -2839,6 +2839,34 @@ body.iinpublic-debug .conversation-health-status {
   max-width: 260px;
 }
 
+/* Inline chip: compact one-line attachment; full previews live in the media gallery. */
+.ipfs-attachment-chip {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 280px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+}
+
+.ipfs-attachment-chip .ipfs-attachment-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+.ipfs-attachment-chip .ipfs-attachment-icon,
+.ipfs-attachment-chip .ipfs-attachment-download {
+  flex-shrink: 0;
+}
+
 .ipfs-attachment-head {
   font-size: 0.9em;
   font-weight: 600;

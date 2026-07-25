@@ -121,11 +121,10 @@ test.describe('Multimedia link sharing (composer + talk editor)', () => {
       buffer: Buffer.from('my dog notes: loves fetch', 'utf-8'),
     });
 
-    // Adam's own thread shows the file card (not an inline image, not raw JSON).
+    // Adam's own thread shows a compact attachment chip (not an inline image, not raw JSON).
     await expect(pageAdam.locator('#conversation-messages [data-testid="ipfs-attachment"]'))
       .toBeVisible({ timeout: E2E_TIMEOUT_MS });
     await expect(pageAdam.locator('#conversation-messages .ipfs-attachment-name')).toContainText('notes.txt');
-    await expect(pageAdam.locator('#conversation-messages .ipfs-attachment-link')).toContainText('ipfs://');
     await expect(pageAdam.locator('#conversation-messages')).not.toContainText('IPFS_SHARE:');
 
     // The Shared-media gallery collects shared items out of the DM stream, tabbed.
@@ -142,14 +141,13 @@ test.describe('Multimedia link sharing (composer + talk editor)', () => {
     await expect(pageAdam.locator('#conversation-media-gallery')).toBeHidden();
     await expect(pageAdam.locator('#conversation-messages')).toBeVisible();
 
-    // Bob receives the same link card.
+    // Bob receives the same compact chip.
     await openConversation(pageBob, bobAdam);
     await expect(pageBob.locator('#conversation-messages [data-testid="ipfs-attachment"]'))
       .toBeVisible({ timeout: E2E_TIMEOUT_MS });
     await expect(pageBob.locator('#conversation-messages .ipfs-attachment-name')).toContainText('notes.txt');
-    await expect(pageBob.locator('#conversation-messages .ipfs-attachment-link')).toContainText('ipfs://');
     await expect(pageBob.locator('#conversation-messages')).not.toContainText('IPFS_SHARE:');
-    // A text file is not rendered as an inline image.
+    // Inline chips never embed an image preview (that lives in the gallery).
     await expect(pageBob.locator('#conversation-messages img.ipfs-attachment-img')).toHaveCount(0);
 
     // ── Part B: talk editor attachment → the created talk carries an ipfs cid ────

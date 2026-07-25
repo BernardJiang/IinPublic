@@ -462,24 +462,28 @@ test.describe('Three-user dog talk + full DM mesh (both ends)', () => {
         { timeout: DM_E2E_TIMEOUT_MS, message: 'Bob: dog photo bytes were not fetched/decrypted' })
       .toBe(new TextEncoder().encode(dogPhotoBytes).length);
 
-    // ── 11. The shared photo is actually VISIBLE in the conversation UI ──────
-    // Bob's Adam thread renders the attachment card, and (once bytes are decrypted)
-    // an <img> preview with a blob: source — not the raw IPFS_SHARE JSON.
+    // ── 11. The shared photo is VISIBLE — inline as a compact chip, previewed in gallery ──
+    // Bob's Adam thread shows a compact attachment chip (not the raw IPFS_SHARE JSON, not a
+    // big inline preview); the full image preview lives in the Shared-media gallery.
     await openConversation(pageBob, bobAdam);
     await expect(pageBob.locator('#conversation-messages [data-testid="ipfs-attachment"]'))
       .toBeVisible({ timeout: DM_E2E_TIMEOUT_MS });
     await expect(pageBob.locator('#conversation-messages .ipfs-attachment-name'))
       .toContainText('adam-dog.png');
+    // The raw share payload must never be shown as plain text; no big inline image.
+    await expect(pageBob.locator('#conversation-messages')).not.toContainText('IPFS_SHARE:');
+    await expect(pageBob.locator('#conversation-messages img.ipfs-attachment-img')).toHaveCount(0);
+    // Open the gallery Media tab: the photo previews there with a blob: source.
+    await pageBob.locator('#conversation-media-btn').click();
     await expect
       .poll(() => pageBob.evaluate(() => {
-        const img = document.querySelector('#conversation-messages img.ipfs-attachment-img') as HTMLImageElement | null;
+        const img = document.querySelector('#conversation-media-grid img.ipfs-attachment-img') as HTMLImageElement | null;
         return img?.getAttribute('src') || '';
-      }), { timeout: DM_E2E_TIMEOUT_MS, message: 'Bob: photo preview <img> never got a blob source' })
+      }), { timeout: DM_E2E_TIMEOUT_MS, message: 'Bob: gallery photo preview never got a blob source' })
       .toContain('blob:');
-    // The raw share payload must never be shown as plain text.
-    await expect(pageBob.locator('#conversation-messages')).not.toContainText('IPFS_SHARE:');
+    await pageBob.locator('#back-from-media').click();
 
-    // Adam (author) sees the attachment card for what he shared.
+    // Adam (author) sees the attachment chip for what he shared.
     await openConversation(pageAdam, adamBob);
     await expect(pageAdam.locator('#conversation-messages [data-testid="ipfs-attachment"]'))
       .toBeVisible({ timeout: DM_E2E_TIMEOUT_MS });

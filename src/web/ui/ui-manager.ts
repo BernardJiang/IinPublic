@@ -7890,36 +7890,30 @@ export class UIManager extends EventEmitter {
     return '📎';
   }
 
+  /**
+   * Inline attachment: a COMPACT chip (icon + name + size), not a big preview — the full
+   * photos/files live in the Shared-media gallery (🖼 in the header). The chip downloads on
+   * click once its bytes arrive.
+   */
   private renderIpfsAttachmentMessage(
     share: { cid: string; link: string; name: string; mimeType: string; sizeBytes: number },
     isOwn: boolean,
     timestamp: unknown,
   ): string {
-    const isImage = share.mimeType.startsWith('image/');
     const icon = this.attachmentIconForMime(share.mimeType);
     const safeName = this.attachmentDownloadFilename(share.name, share.mimeType);
     const name = escapeHtml(safeName);
     const size = escapeHtml(this.formatAttachmentSize(share.sizeBytes));
     const cid = escapeHtml(share.cid);
     const mime = escapeHtml(share.mimeType);
-    const downloadLabel = escapeHtml(this.t('attachmentDownload'));
-    const loadingLabel = escapeHtml(this.t('attachmentLoading'));
-    const link = escapeHtml(share.link);
-    // Bytes are pulled P2P from the sender over the DM DataChannel (no server/gateway).
-    // Until they arrive the card shows a "loading" line; the hydrate pass swaps in the
-    // image preview + Download once this device has the bytes as a blob URL.
-    const preview = isImage
-      ? `<img class="ipfs-attachment-img" alt="${name}" hidden />`
-      : '';
     return `
       <div class="message ${isOwn ? 'message-own' : 'message-other'}">
         <div class="message-content">
-          <div class="ipfs-attachment" data-testid="ipfs-attachment" data-ipfs-cid="${cid}" data-ipfs-mime="${mime}" data-ipfs-name="${name}">
-            <div class="ipfs-attachment-head"><span class="ipfs-attachment-icon">${icon}</span> <span class="ipfs-attachment-name">${name}</span>${size ? ` <span class="ipfs-attachment-size">${size}</span>` : ''}</div>
-            ${preview}
-            <span class="ipfs-attachment-loading">${loadingLabel}</span>
-            <a class="ipfs-attachment-download" download="${name}" hidden>⬇ ${downloadLabel}</a>
-            <span class="ipfs-attachment-link" title="${link}">${link}</span>
+          <div class="ipfs-attachment ipfs-attachment-chip" data-testid="ipfs-attachment" data-ipfs-cid="${cid}" data-ipfs-mime="${mime}" data-ipfs-name="${name}" title="${name}">
+            <span class="ipfs-attachment-icon">${icon}</span>
+            <span class="ipfs-attachment-name">${name}</span>${size ? ` <span class="ipfs-attachment-size">${size}</span>` : ''}
+            <span class="ipfs-attachment-loading" aria-hidden="true">⏳</span>
+            <a class="ipfs-attachment-download" download="${name}" hidden>⬇</a>
           </div>
           <div class="message-time">${this.formatTalkRelativeTime(new Date(timestamp as any))}</div>
         </div>
@@ -7928,10 +7922,43 @@ export class UIManager extends EventEmitter {
   }
 
   /**
+   * Save a blob URL under a real filename. Prefer the File System Access API (a native "save
+   * as" dialog — guarantees the name/extension and lets the user pick a location, so files are
+   * never dropped as an unopenable blob-UUID). Fall back to an <a download> anchor.
+   */
+  private async saveObjectUrlAs(objectUrl: string, name: string, mimeType: string): Promise<void> {
+    const anySelf = window as unknown as { showSaveFilePicker?: (opts: unknown) => Promise<unknown> };
+    if (typeof anySelf.showSaveFilePicker === 'function') {
+      try {
+        const dot = name.lastIndexOf('.');
+        const ext = dot > 0 ? name.slice(dot) : '';
+        const handle = await anySelf.showSaveFilePicker({
+          suggestedName: name,
+          ...(ext ? { types: [{ description: 'File', accept: { [mimeType || 'application/octet-stream']: [ext] } }] } : {}),
+        }) as { createWritable: () => Promise<{ write: (d: Blob) => Promise<void>; close: () => Promise<void> }> };
+        const blob = await (await fetch(objectUrl)).blob();
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return;
+      } catch (err) {
+        // User cancelled the picker, or it's unavailable — fall through to the anchor.
+        if ((err as Error)?.name === 'AbortError') return;
+      }
+    }
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = name;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  /**
    * After rendering, turn the bytes this device holds into a usable blob URL for each
-   * attachment: image previews get their src, and every card's Download link + (for images)
-   * click-to-open-full is wired so the recipient can retrieve the whole file — the ipfs://
-   * scheme itself isn't browser-openable.
+   * attachment: gallery image tiles get a preview, and every card/tile/chip becomes
+   * click-to-save under the real filename once the bytes arrive.
    */
   private hydrateAttachmentImages(container: HTMLElement): void {
     if (!this.sharedAttachmentResolver) return;
@@ -7944,35 +7971,23 @@ export class UIManager extends EventEmitter {
       const name = card.getAttribute('data-ipfs-name') || 'download';
       const img = card.querySelector('img.ipfs-attachment-img') as HTMLImageElement | null;
       const dl = card.querySelector('a.ipfs-attachment-download') as HTMLAnchorElement | null;
-      // The card already links to the HTTP gateway. If this device also holds the bytes
-      // locally, prefer them (works offline / instantly) by swapping in a blob URL.
-      // Save the blob under the real filename+extension. window.open(blob) would make the OS
-      // save a blob-UUID file with no extension that won't open.
-      const saveWithName = () => {
-        const a = document.createElement('a');
-        a.href = objectUrl;
-        a.download = name;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      };
       let objectUrl = '';
+      const save = (e: Event) => { e.preventDefault(); e.stopPropagation(); void this.saveObjectUrlAs(objectUrl, name, mime); };
       void this.sharedAttachmentResolver!(cid, mime).then((url) => {
-        if (!url) return; // bytes not here yet — the P2P fetch will re-render when they arrive
+        if (!url) return; // bytes not here yet — a later fetch/re-render resolves it
         objectUrl = url;
         card.dataset.localReady = '1';
+        card.style.cursor = 'pointer';
+        card.onclick = save; // whole chip/tile is click-to-save
         const loading = card.querySelector('.ipfs-attachment-loading') as HTMLElement | null;
         if (loading) loading.hidden = true;
         if (img) {
           img.src = url;
           img.hidden = false;
-          img.style.cursor = 'pointer';
-          img.title = this.t('attachmentDownload');
-          img.onclick = (e) => { e.stopPropagation(); saveWithName(); };
         }
         if (dl) {
           dl.hidden = false;
-          dl.onclick = (e) => { e.preventDefault(); e.stopPropagation(); saveWithName(); };
+          dl.onclick = save;
         }
       }).catch(() => { /* leave the loading state; a later fetch/re-render can resolve it */ });
     });
