@@ -107,6 +107,324 @@ No server login/logout exists; a public-PC session leaves an identity behind. Bu
 
 ---
 
+## K. TechSupport as a true built-in presence `[Opus]`
+
+Source: `docs/design/techsupport-bootstrap-contract.md` (contract to be amended by K1–K3 below).
+
+**Decision 2026-07-25 (revised): "built-in" means built into the client, not resident in the
+server.** TechSupport is an ordinary *peer* — it may run on a separate device — whose identity is
+compiled into every client bundle. The hub stays a lightweight relay: signaling, room membership,
+and a signed identity/pointer record. No support database on the server.
+
+> Supersedes the first draft of K1/K2, which made the server author and store support data. That
+> contradicted the P2P-first design (spec §19.4, §23, §25; `CLAUDE.md` — "the server is a
+> bootstrap/signaling/room-membership connector, not the talk inbox authority").
+
+### Target contract (amend the contract doc as part of K1)
+
+1. **Identity is built-in; presence is peer-provided.** `TECHSUPPORT_ROOT_USER_ID` +
+   `TECHSUPPORT_PUB` already ship in `src/shared/techsupport.ts`, so every client knows who
+   TechSupport is without asking the server. The relay carries only the signed identity record
+   (`public/techsupport-identity`, produced by the existing `publishIdentity()`) plus one Global
+   member row and signaling data — bytes, not a database.
+2. **Headcount is unconditional.** Empty network = **1**; one ordinary user = **2**. TechSupport
+   renders as a built-in member whether or not its device is currently reachable; liveness is shown
+   as a separate online/away indicator, never by removing it from the count.
+3. **TechSupport can never be blocked, muted, or filtered out** by an ordinary user (see K6).
+4. **Every message attributed to TechSupport is signed by the TechSupport key** and verified
+   against `TECHSUPPORT_PUB` by the receiving client. No component may fabricate messages in
+   TechSupport's name — the server included.
+5. **Developers act as TechSupport by running the TechSupport client with the keypair**, never as a
+   random ordinary id and never by having the server ghost-write on its behalf.
+
+### Answering "can TechSupport live off-server?" — yes
+
+- **Greeting** needs no stored per-user message: TechSupport pre-signs a welcome *template* once
+  with its key; the client renders it locally and verifies the signature. Real authorship, zero
+  server storage, works while TechSupport's device is offline.
+- **Known-question answers** ride the same trick — a signed, content-addressed FAQ bundle
+  distributed over the existing libp2p/IPFS path (spec §25); clients answer locally from a cached
+  bundle. The relay stores at most a CID pointer.
+- **New questions** are the only path that needs TechSupport actually online. When its device is
+  away, the question waits in the existing offline mailbox
+  (`talks-matching/05-mailbox-offline-response.spec.ts`) and is delivered on reconnect.
+- **Cost of the model, recorded honestly:** new questions have unbounded latency (bounded by when
+  a developer brings the TechSupport device up); the pre-signed template must be re-signed to
+  change the greeting copy; and the deterministic `support_welcome_<userId>` message id that
+  `e2e-stage-pipeline.ts:95-103` asserts on has to be reworked, since there is no longer a stored
+  greeting message per user.
+
+### Current state (why the work is needed)
+
+- `IinPublicApp.bootstrapTechSupportRootIfMissing()` (`src/web/app/app.ts:1048`) creates the root
+  **from the first browser** — TechSupport exists only after someone opens a tab.
+- The welcome message is written by the *new user's own browser* posing as TechSupport
+  (`app.ts:~2493`, `sendMessage(convId, TECHSUPPORT_ROOT_USER_ID, …)`, id `support_welcome_<userId>`),
+  gated on a `localStorage` `supportState` key — unsigned, and lost/re-run when storage is cleared
+  or the user opens a second device. This is the invariant-4 violation.
+- `TechSupportAnnouncementService` (`src/server/services/techsupport-announcement-service.ts`)
+  already loads the canonical SEA pair from `TECHSUPPORT_SEA_PAIR_JSON` and validates it against
+  `TECHSUPPORT_PUB`. Under the revised model this pair moves to the TechSupport *device*; the
+  server keeps at most the ability to republish the public identity record.
+- Dev "login as TechSupport" is build-time only (`isDevStageTechSupportLoginResolved()`,
+  `src/web/dev-stage-env.ts:55` → `src/web/index.ts:47`), carries no keypair, and cannot sign.
+
+### Current state (why the work is needed)
+
+- `IinPublicApp.bootstrapTechSupportRootIfMissing()` (`src/web/app/app.ts:1048`) creates the root
+  **from the first browser**. Server up + no browser = no TechSupport.
+- The welcome message is written by the *new user's own browser* posing as TechSupport
+  (`app.ts:~2493`, `sendMessage(convId, TECHSUPPORT_ROOT_USER_ID, …)`, id `support_welcome_<userId>`),
+  gated on a `localStorage` `supportState` key — unsigned, and lost/re-run when storage is cleared
+  or the user opens a second device.
+- `TechSupportAnnouncementService` (`src/server/services/techsupport-announcement-service.ts`)
+  already loads the canonical SEA pair from `TECHSUPPORT_SEA_PAIR_JSON` and validates it against
+  `TECHSUPPORT_PUB` — the server-side signing capability exists but is used only for announcements.
+- Dev "login as TechSupport" is build-time only (`isDevStageTechSupportLoginResolved()`,
+  `src/web/dev-stage-env.ts:55` → `src/web/index.ts:47`), carries no keypair, and cannot sign.
+
+### K1. Built-in identity + relay-light presence `[Opus]`
+
+- [ ] Client renders TechSupport as a built-in Global member from the compiled constants — no
+      round-trip, no dependence on a browser having bootstrapped it. Empty network = headcount 1.
+- [ ] Relay keeps exactly one TechSupport member row + the signed `public/techsupport-identity`
+      record, republished on boot from the **public** half only. Never evictable by presence
+      expiry or `CHATROOM_MAX_CAPACITY` FIFO.
+- [ ] Add an online/away indicator sourced from real peer presence, decoupled from headcount.
+- [ ] Delete `bootstrapTechSupportRootIfMissing()`'s write path (browsers must stop minting the
+      root); keep only local rendering.
+- [ ] Reconcile the three competing TechSupport graph builders into one shared factory:
+      `seedTechSupportRootBaseline()` (`tests/e2e/helpers/clear-database.ts:110`),
+      `scripts/dev-techsupport-bootstrap.js`, and the client constant.
+- [ ] Test: `stage0-bootstrap` — fresh relay, no browser: identity record present, no support DB.
+- [ ] Test: `stage1` — TechSupport device **not running**: headcount is still 2 and the contact is
+      listed, with the away indicator shown.
+
+### K2. Signed greeting without server storage `[Opus]`
+
+- [ ] TechSupport pre-signs the welcome template (per locale — EN + 中文,
+      `ui-translations.ts:420`); ship the signed blob and verify against `TECHSUPPORT_PUB` before
+      rendering. Nothing per-user is stored or transmitted.
+- [ ] Delete the browser-side compose path and the `supportState` localStorage gate; a client that
+      cannot verify the signature shows no greeting rather than a fabricated one.
+- [ ] Rework the `support_welcome_<userId>` assumption in `e2e-stage-pipeline.ts:95-103` — the
+      integrity check must assert "at most one rendered greeting per user" against the new model
+      instead of counting stored messages.
+- [ ] Decide: does the greeting appear in the support conversation as a real message (needs local
+      persistence on the receiver only), or as a rendered header? Record the choice.
+- [ ] Test: `stage1` — clear storage and re-open; exactly one greeting, signature verifies.
+- [ ] Test: `stage1` — tampered signature ⇒ greeting suppressed, no impersonated message rendered.
+
+### K3. Developer login as TechSupport `[Opus]`
+
+**Proposal (revised): the TechSupport device is a normal client holding the keypair.**
+
+> Reverses the earlier draft. That draft had the *server* own the private key and vend it over a
+> dev endpoint — which only makes sense if TechSupport is server-resident. Under the peer model the
+> previously-rejected "agent on its own device" option is the correct one, not the heavy one.
+
+- The SEA pair lives in a **key file on the TechSupport device** (`TECHSUPPORT_SEA_PAIR_JSON` or a
+  path to it), never in the web bundle, never on the relay. The relay only ever sees
+  `TECHSUPPORT_PUB`.
+- Boot the normal web client in TechSupport mode: it loads the pair from the local file,
+  `gun.user().auth(pair)`, adopts `TECHSUPPORT_ROOT_USER_ID`, and joins Global as a real peer.
+  Same app, same transports — it is the built-in identity, not a special client.
+- Persist under a distinct localStorage key so it never collides with the device's ordinary
+  identity; show a permanent "TechSupport (root)" badge in the app bar.
+- Refuse to start if the loaded pair's `pub !== TECHSUPPORT_PUB` — no silent impersonation.
+- Dev ergonomics: `npm run dev:techsupport` launches this mode against the running relay, so a
+  developer can answer queued questions (K5) from a second browser window on any machine.
+- Production posture: whoever holds the key file is TechSupport. Key handling, rotation, and where
+  the operator device runs are an **open question below**, not settled by this item.
+
+- [ ] Implement key-file loading + `pub` assertion + TechSupport-mode boot; document the key file
+      in `.env.local` notes and add it to `.gitignore`.
+- [ ] Add `npm run dev:techsupport`; retire `isDevStageTechSupportLoginResolved()` and the
+      `IINPUBLIC_STAGE_SEED` TechSupport special case once it lands.
+- [ ] Move the pair out of the server: `TechSupportAnnouncementService` keeps republishing the
+      public identity record but must no longer require the private half at boot.
+- [ ] Test: unit — a pair whose `pub` mismatches `TECHSUPPORT_PUB` is rejected.
+- [ ] Test: `stage1` — boot TechSupport mode in a second browser, post a message to a user; the
+      user's client verifies the signature against `TECHSUPPORT_PUB`.
+
+**Open questions for K3**
+
+- Key rotation: `TECHSUPPORT_PUB` is a compiled constant, so rotating the key ships a new client
+  build and orphans previously-signed greetings/FAQ bundles. Need a versioned-key or
+  trust-anchor-list story before production.
+- The dev-anchor comment on `TECHSUPPORT_PUB` (`src/shared/techsupport.ts:5`) still says to replace
+  it "together with the server secret" — reword once K3 lands.
+
+### K6. TechSupport is unblockable / unfilterable `[Sonnet]`
+
+Requirement 2026-07-25. TechSupport must never be blocked, muted, or filtered out by an ordinary
+user — the support channel is the only recourse a stuck user has.
+
+- [ ] Block path: `WebUserService` block/unblock and the block graph
+      (`user-blocks/*`, `user-blocked-by/*`) reject the TechSupport root id; the contacts/peer-detail
+      UI hides or disables Block for it rather than failing after the click.
+- [ ] Intake filters: `talkPassesIntakeFilters` / `filterReasonsForTalk` never apply to the support
+      channel — no `age_gate`, `language`, distance, grammar, or dirty-word rejection can drop a
+      TechSupport message.
+- [ ] Reconcile with the existing **mute** affordance
+      (`stage2/00k-techsupport-contact-mute.spec.ts`, `isSupportNotificationsMuted()`): decide and
+      document that muting suppresses *notifications only* and never delivery or the contact row.
+- [ ] Enforce in `src/shared/` so sender and receiver agree, and so the rule cannot drift between
+      the web client and the TechSupport client.
+- [ ] Test: `stage1` — attempt to block/filter TechSupport by every available route; contact row and
+      message delivery survive all of them.
+- [ ] Test: `stage1` — set maximally restrictive intake filters (language, distance, age, grammar,
+      dirty words); a TechSupport DM still arrives.
+
+> **Honest scope note:** in a P2P network this is a guarantee about the *shipped client*, not a
+> cryptographic one. A user running patched code can always drop TechSupport's traffic locally.
+> Design for the shipped client and say so in the contract doc rather than implying enforcement.
+
+### K4. Every stage but stage0 loads a TechSupport-bearing snapshot `[Sonnet]`
+
+**Requirement 2026-07-25: stage0 is the only place a database is built from scratch. Every other
+E2E spec — staged or not — must start by loading a stage snapshot that already contains
+TechSupport.** Scope decision: tighten the plan now, land it *after* K1–K3, because K1 changes
+where the baseline comes from and doing the refactor first means doing it twice.
+
+**Audit (2026-07-25).** Every spec technically sees a TechSupport today, but it comes from
+`seedTechSupportRootBaseline()` (`tests/e2e/helpers/clear-database.ts:110`) — a hand-built graph
+constructed in code, not a loaded stage. `maybeClearGunDatabases()`
+(`clear-database.ts:60`) wipes and re-seeds it even under `E2E_STAGE_PIPELINE=1`, so the
+`_setup/load-stage{2,3,4}.setup.ts` imports are thrown away by the first spec's `beforeAll`.
+
+| Location | `maybeClearGunDatabases()` call sites | Loads a stage snapshot? |
+|---|---|---|
+| `staged/stage1-single-user/` | 0 (uses `clearGunForStage1Spec`) | ✅ stage0 |
+| `staged/stage2-two-user/` | 15 | partly — 127 via `clearGunForStage2Spec` |
+| `staged/stage3-three-user/` | 128 | ❌ |
+| `staged/stage4-four-user/` | 3 | ❌ |
+| `staged/stage5-multi-user/` | 13 | ❌ |
+| `talks-matching/` | 36 | ❌ |
+| `mass/` | 9 | ❌ |
+| `isolated/` | 6 | ❌ |
+| `topology/`, `cross-platform/`, `embedded-node/` | 0 | ✅ stage2 |
+| `platform-smoke/` | 0 | ✅ stage1 |
+
+**Baseline source — decision: commit a verified stage0 fixture.**
+
+- Check a validated `tests/e2e/staged/snapshots/stage0.fixture.json` into the repo; every reset
+  path restores that file instead of constructing a graph in code. One definition of the built-in
+  TechSupport, no drift.
+- This is what makes the default parallel run work: `npm run test:e2e` `testIgnore`s
+  `stage0-bootstrap/`, `_setup/`, and `aaa-`/`zzz-` specs, and each worker owns an isolated Gun
+  server, so there is no generated stage0 snapshot to load there. A committed fixture is available
+  to every worker with no extra boot cost, in both the pipeline and parallel runs.
+- Per-worker snapshots stay generated as today; the fixture is the seed they derive from.
+- `stage0-bootstrap/zzz-save-stage0.spec.ts` becomes the fixture's regeneration path — add a
+  documented command to refresh it, and a check that fails if the committed fixture no longer
+  passes `assertStageSnapshotIntegrity`.
+
+**Work (in this order, after K1–K3)**
+
+- [ ] Commit the stage0 fixture + regeneration command; point `clearGunDatabases()` at it and
+      delete `seedTechSupportRootBaseline()`'s hand-built graph.
+- [ ] Add `clearGunForStage3Spec` / `4` / `5` mirroring `clearGunForStage2Spec`
+      (`e2e-stage-pipeline.ts:151`), then convert the call sites in the table above,
+      **one directory per commit, running that directory's suite before moving on**:
+      stage2 (15) → stage4 (3) → stage5 (13) → `isolated` (6) → `mass` (9) →
+      `talks-matching` (36) → stage3 (128, largest and last).
+- [ ] Non-staged dirs (`talks-matching`, `mass`, `isolated`) have no stage of their own — decide
+      per directory which stage they should load (likely stage2 for the pair-exchange mesh specs)
+      and record it in `tests/e2e/staged/README.md`.
+- [ ] Add a shared guard so this cannot silently regress: every reset helper asserts the resulting
+      graph contains a valid TechSupport root (reuse `assertStageSnapshotIntegrity`'s checks) and
+      fails loudly otherwise. **Land this guard first** — it is cheap and catches drift while the
+      rest of K4 is still in flight.
+- [ ] Give `stage1/00x-tab-sweep-smoke.spec.ts` and `stage1/75-p2p-rate-limit-429.spec.ts` a real
+      `beforeAll` reset; they currently inherit whatever the previous spec left behind.
+- [ ] Amend `docs/design/techsupport-bootstrap-contract.md`: headcount rule as "empty network = 1,
+      one ordinary user = 2", and record that the client constant + committed fixture (not the
+      first browser, not a code-built seed) define the baseline.
+- [ ] Test: a meta-spec asserting no spec outside `stage0-bootstrap/` constructs a graph from
+      scratch — grep-level check in CI that `seedTechSupportRootBaseline` has no callers and that
+      every `beforeAll` reset routes through a stage loader.
+
+### K5. TechSupport DM Q&A: ignore talks, answer questions `[Opus]`
+
+Decision 2026-07-25. Depends on **K2** (signed authorship) and **K3** (TechSupport client).
+Verifiable entirely at **stage1** (one ordinary user + TechSupport).
+
+**Behavior**
+
+1. **TechSupport ignores all talks.** It is never a talk recipient and never produces a response,
+   match, or ignore. Enforced in the delivery/fanout path as a hard rule on the canonical root id
+   — *not* as a `TalkIntakeFilters` entry, which is user-editable and would let TechSupport be
+   filtered back in. TechSupport still counts as 1 in every headcount (unchanged).
+2. **TechSupport answers questions over DM**, in the support conversation `conv_support_<userId>`.
+3. **Known question ⇒ automatic answer.** On an incoming support message, normalize the question
+   and look it up; on a hit, reply immediately, signed by TechSupport.
+4. **New question ⇒ queued for a human.** On a miss, acknowledge to the user that it's a new
+   question, and file it in a pending inbox a developer logged in as TechSupport can see and answer.
+   Answering both delivers the reply and promotes the pair into the answered store, so the next
+   asker is auto-answered.
+
+**Data model (proposed)**
+
+- **FAQ bundle** — signed by TechSupport, content-addressed, published over the existing
+  libp2p/IPFS path (spec §25); relay stores at most the CID pointer. Entries:
+  `{ questionKey, canonicalQuestion, answer, answeredAt }`. Clients cache the bundle and
+  auto-answer **locally**, so known questions work even while TechSupport's device is away.
+- **Pending inbox** — lives on the **TechSupport device**, not the relay. A miss is delivered as an
+  ordinary P2P DM; if TechSupport is offline it waits in the existing offline mailbox and lands on
+  reconnect. Entry: `{ questionKey, question, askedBy, conversationId, askedAt, status }`.
+- `questionKey` = content hash of the normalized question; reuse the
+  `src/shared/talk-content-id.ts` hashing pattern rather than inventing a second one.
+- Normalization v1: trim, lowercase, collapse whitespace, strip trailing punctuation.
+  **Exact normalized match only** — fuzzy/semantic matching is explicitly out of scope for v1.
+- Deterministic message ids (`support_auto_<userMessageId>`, `support_answer_<questionKey>`) so
+  replays are idempotent. Every answer is signature-verified before render, per invariant 4.
+- **Privacy note:** publishing the FAQ bundle makes answered questions public to every client.
+  Answers must be written as generic FAQ entries; never promote a question containing the asker's
+  personal detail verbatim. Add this as a rule in the answering UI.
+
+**Work**
+
+- [ ] Hard-exclude the TechSupport root from talk fanout, match candidates, and any auto-response
+      path; document it as an invariant in the contract doc. `[Sonnet]`
+- [ ] FAQ + inbox stores, question normalization, and `questionKey` derivation, with unit tests for
+      normalization (case, whitespace, punctuation, unicode/Chinese input). `[Sonnet]`
+- [ ] Replace the blanket canned reply (`sendTechSupportAutoReply` / `supportReply` in
+      `ui-translations.ts:421`) with the hit/miss branch. Two new strings, EN + 中文:
+      auto-answer prefix, and "new question, a human will get back to you".
+- [ ] Support-inbox view, visible **only** to a session authenticated as the TechSupport root:
+      list pending questions, answer inline, publish + promote to FAQ in one action. `[Opus]`
+- [ ] Decide whether a developer can edit or retire an existing FAQ answer in v1, or only add.
+      Record the decision here.
+
+**Tests**
+
+- [ ] Test: `stage1` — user broadcasts all four talk types to Global; TechSupport's IN index stays
+      empty, no response/match is produced, Global headcount stays 2.
+- [ ] Test: `stage1` — user DMs a brand-new question: receives the "new question" acknowledgement,
+      and the TechSupport client shows exactly one pending entry (assert against the TechSupport
+      device's local state, **not** a server snapshot — the relay must hold no support data).
+- [ ] Test: `stage1` — ask a new question with the TechSupport client stopped; start it; the
+      question arrives from the offline mailbox and appears in the inbox.
+- [ ] Test: `stage1` — with TechSupport stopped, a *known* question is still auto-answered from the
+      cached FAQ bundle.
+- [ ] Test: `stage1` — dev logs in as TechSupport (K3), sees the pending question in the support
+      inbox, answers it; the asking user's support conversation receives the answer, the inbox entry
+      flips to answered, and `techsupport-faq/<key>` now holds the pair.
+- [ ] Test: `stage1` — the same user asks that question again: auto-answered with no new inbox
+      entry and no duplicate FAQ row.
+- [ ] Test: `stage2` — a *different* user asks the same question and is auto-answered without any
+      developer involvement.
+- [ ] Test: each spec gets its companion `.md` (execution rule 2); assert via hard signals — the
+      support `.conversation-list-item` and snapshot state, not toasts.
+
+**Open question**
+
+- Does the developer answer as "TechSupport" anonymously, or is the answering operator recorded in
+  `answeredBy`? (Proposed: record internally, display as TechSupport.)
+
+---
+
 ## Future / low priority (explicitly deferred)
 
 - Multiple identities on one device (profile switching). Decided low priority 2026-07-13; v1 stays one identity per device install.
