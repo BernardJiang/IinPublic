@@ -281,11 +281,24 @@ test.describe('Messaging semantics — concurrent order, read state, history ord
     await expect(messagesA.locator('.message-text').filter({ hasText: 'warmup-A' })).toBeVisible();
 
     // Conversation message edit/delete is intentionally unsupported right now: the overlay has
-    // only navigation and send controls, and message rows expose no action buttons.
+    // only navigation, share-media and send controls, and message rows expose no action buttons.
+    // Media-gallery tab buttons carry no id, so they are identified by their data-media-tab value.
     const overlayButtonIds = await pageA
       .locator('#conversation-detail-overlay button')
-      .evaluateAll((buttons) => buttons.map((button) => (button as HTMLButtonElement).id).sort());
-    expect(overlayButtonIds).toEqual(['back-from-conversation', 'send-conversation-message']);
+      .evaluateAll((buttons) => buttons
+        .map((button) => (button as HTMLButtonElement).id
+          || `tab:${(button as HTMLElement).dataset.mediaTab || 'unknown'}`)
+        .sort());
+    expect(overlayButtonIds).toEqual([
+      'back-from-conversation',
+      'back-from-media',
+      'conversation-attach-btn',
+      'conversation-media-btn',
+      'send-conversation-message',
+      'tab:files',
+      'tab:links',
+      'tab:media',
+    ].sort());
     await expect(pageA.locator('#conversation-messages .message button')).toHaveCount(0);
 
     await reloadAppReady(pageB);

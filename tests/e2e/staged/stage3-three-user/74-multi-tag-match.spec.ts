@@ -121,14 +121,18 @@ test.describe('Multiple tag talks each record the right outcome', () => {
     }
 
     // Bob's local exchanges: all three talks recorded as match, none as mismatch.
-    const outcomes = await pageBob.evaluate(({ ids }) => {
-      const ex = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
-      return ids.map((id: string) => {
-        const entry = Object.entries(ex).find(([k]) => k.endsWith(`::${id}`));
-        return (entry?.[1] as any)?.outcome ?? 'none';
-      });
-    }, { ids: talks.map((t) => t.id) });
-    expect(outcomes, 'all three tag talks must record as match').toEqual(['match', 'match', 'match']);
+    // The exchange is written asynchronously after submit (QA-preference sync + mesh submit run
+    // past the modal close), so poll instead of reading once — a fixed wait is racy under load.
+    await expect
+      .poll(() => pageBob!.evaluate(({ ids }) => {
+        const ex = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
+        return ids.map((id: string) => {
+          const entry = Object.entries(ex).find(([k]) => k.endsWith(`::${id}`));
+          return (entry?.[1] as any)?.outcome ?? 'none';
+        });
+      }, { ids: talks.map((t) => t.id) }),
+      { timeout: E2E_TIMEOUT_MS, message: 'all three tag talks must record as match' })
+      .toEqual(['match', 'match', 'match']);
 
     // Adam sees three matched exchanges with Bob (one per talk).
     await expect

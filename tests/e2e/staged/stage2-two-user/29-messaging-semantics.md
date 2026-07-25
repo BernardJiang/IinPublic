@@ -93,7 +93,7 @@ Fix: added a deterministic tie-breaker — when timestamps are equal, sort by me
 
 6. **Large-history renderer:** The UI is then given a 54-message snapshot (2 warmups + 12 real-history rows + 40 bulk rows) on both pages. The test asserts all 54 message rows render and that both top and bottom scroll positions remain reachable.
 
-7. **Unsupported edit/delete state:** The conversation overlay currently exposes only the back and send buttons, and message rows expose no action buttons. This pins edit/delete as explicitly unsupported instead of half-present.
+7. **Unsupported edit/delete state:** The conversation overlay currently exposes only navigation, share-media and send buttons (back, shared-media, back-from-media, the three media-gallery tabs, attach and send), and message rows expose no action buttons. This pins edit/delete as explicitly unsupported instead of half-present.
 
 8. **Reload recovery:** B reloads, reopens the same canonical `conv_pair_...` conversation, and the 12-message ordered Gun-backed core history reappears in the same order.
 
