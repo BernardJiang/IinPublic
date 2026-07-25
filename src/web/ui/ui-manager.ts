@@ -7839,6 +7839,29 @@ export class UIManager extends EventEmitter {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  /**
+   * A safe download filename: keep the sender's name if it already has an extension, otherwise
+   * append one derived from the mime type. Without an extension the OS saves an unopenable
+   * blob-UUID file (macOS can't tell a `d393a824-…` file is a PNG).
+   */
+  private attachmentDownloadFilename(rawName: string, mimeType: string): string {
+    const base = String(rawName || '').trim() || 'download';
+    if (/\.[a-z0-9]{1,6}$/i.test(base)) return base;
+    const m = String(mimeType || '').toLowerCase();
+    const ext = m === 'image/jpeg' ? 'jpg'
+      : m === 'image/png' ? 'png'
+      : m === 'image/gif' ? 'gif'
+      : m === 'image/webp' ? 'webp'
+      : m === 'image/avif' ? 'avif'
+      : m === 'image/svg+xml' ? 'svg'
+      : m === 'application/pdf' ? 'pdf'
+      : m.startsWith('video/') ? (m.split('/')[1] || 'mp4')
+      : m.startsWith('audio/') ? (m.split('/')[1] || 'mp3')
+      : m.startsWith('text/') ? 'txt'
+      : '';
+    return ext ? `${base}.${ext}` : base;
+  }
+
   /** Emoji cue by media type — messenger-style icon for the attachment card. */
   private attachmentIconForMime(mimeType: string): string {
     const m = String(mimeType || '').toLowerCase();
@@ -7858,7 +7881,8 @@ export class UIManager extends EventEmitter {
   ): string {
     const isImage = share.mimeType.startsWith('image/');
     const icon = this.attachmentIconForMime(share.mimeType);
-    const name = escapeHtml(share.name);
+    const safeName = this.attachmentDownloadFilename(share.name, share.mimeType);
+    const name = escapeHtml(safeName);
     const size = escapeHtml(this.formatAttachmentSize(share.sizeBytes));
     const cid = escapeHtml(share.cid);
     const mime = escapeHtml(share.mimeType);
@@ -7906,29 +7930,33 @@ export class UIManager extends EventEmitter {
       const dl = card.querySelector('a.ipfs-attachment-download') as HTMLAnchorElement | null;
       // The card already links to the HTTP gateway. If this device also holds the bytes
       // locally, prefer them (works offline / instantly) by swapping in a blob URL.
+      // Save the blob under the real filename+extension. window.open(blob) would make the OS
+      // save a blob-UUID file with no extension that won't open.
+      const saveWithName = () => {
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      };
+      let objectUrl = '';
       void this.sharedAttachmentResolver!(cid, mime).then((url) => {
         if (!url) return; // bytes not here yet — the P2P fetch will re-render when they arrive
+        objectUrl = url;
         card.dataset.localReady = '1';
         const loading = card.querySelector('.ipfs-attachment-loading') as HTMLElement | null;
         if (loading) loading.hidden = true;
         if (img) {
           img.src = url;
           img.hidden = false;
-          img.style.cursor = 'zoom-in';
-          img.onclick = (e) => { e.stopPropagation(); window.open(url, '_blank'); };
+          img.style.cursor = 'pointer';
+          img.title = this.t('attachmentDownload');
+          img.onclick = (e) => { e.stopPropagation(); saveWithName(); };
         }
         if (dl) {
           dl.hidden = false;
-          dl.onclick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = name;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-          };
+          dl.onclick = (e) => { e.preventDefault(); e.stopPropagation(); saveWithName(); };
         }
       }).catch(() => { /* leave the loading state; a later fetch/re-render can resolve it */ });
     });
