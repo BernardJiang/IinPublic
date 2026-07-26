@@ -15,9 +15,17 @@ import {
   type SchemaKind,
   type VersionedRecord,
 } from '../../shared/p2p-schema-migrations';
+import { assertTechSupportDmPair } from '../../shared/techsupport';
 
 const KEYPAIR_STORAGE = 'iinpublic_keypair';
 export const KEY_CUSTODY_STORAGE = 'iinpublic_key_custody_v1';
+/**
+ * K3 (docs/TODO.md): distinct from KEYPAIR_STORAGE/KEY_CUSTODY_STORAGE so the TechSupport
+ * device identity never collides with, or gets migrated into, the device's own ordinary
+ * identity. Populated only by `scripts/dev-techsupport-login.js` (dev) or an equivalent
+ * operator boot step (production) — never by the web bundle itself.
+ */
+export const TECHSUPPORT_KEYPAIR_STORAGE = 'iinpublic_techsupport_keypair_v1';
 
 /**
  * Pure form of WebGunService's page-origin → Gun-hub-URL derivation, factored
@@ -674,6 +682,29 @@ export class WebGunService extends EventEmitter {
     if (!this.gun) {
       throw new Error('Gun not initialized');
     }
+
+    // K3 (docs/TODO.md): a TechSupport-mode boot (scripts/dev-techsupport-login.js in dev)
+    // injects the canonical DM pair under a distinct storage key before this ever runs. Checked
+    // first and unconditionally: refuses to start on a key mismatch ("no silent impersonation")
+    // rather than falling through to generating an ordinary device identity, and never persists
+    // into the ordinary encrypted custody record so the two identities can never merge.
+    let techSupportPair: GunPair | null = null;
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(TECHSUPPORT_KEYPAIR_STORAGE) : null;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        assertTechSupportDmPair(parsed);
+        techSupportPair = parsed as GunPair;
+      }
+    } catch (error) {
+      if (typeof localStorage !== 'undefined' && localStorage.getItem(TECHSUPPORT_KEYPAIR_STORAGE)) {
+        // A pair WAS injected but failed validation — this must fail loudly, not fall through
+        // to generating a random device identity that would silently impersonate no one but
+        // also silently NOT be TechSupport.
+        throw error;
+      }
+    }
+
     let legacyRaw: string | null = null;
     let existingCustody: KeyCustodyRecord | null = null;
     try {
@@ -687,7 +718,10 @@ export class WebGunService extends EventEmitter {
     }
     let pair: GunPair;
     const custodyPair = existingCustody ? await this.unwrapKeypairFromStorage(existingCustody) : null;
-    if (custodyPair) {
+    if (techSupportPair) {
+      pair = techSupportPair;
+      console.log('🔐 Loaded canonical TechSupport DM identity (K3 TechSupport-mode boot)');
+    } else if (custodyPair) {
       pair = custodyPair;
       console.log('🔐 Loaded SEA identity from encrypted custody');
     } else if (legacyRaw) {
@@ -704,17 +738,21 @@ export class WebGunService extends EventEmitter {
       pair = await SEA.pair();
       console.log('🔐 Created new local SEA identity');
     }
-    try {
-      await this.persistCustodyRecord(pair, existingCustody);
-      console.log('🔐 SEA identity custody stored');
-    } catch (error) {
-      console.warn('⚠️ Encrypted SEA key custody unavailable — keeping pair in memory only:', error);
+    if (techSupportPair) {
+      console.log('🔐 Skipping ordinary key custody for TechSupport-mode identity');
+    } else {
       try {
-        if (typeof localStorage !== 'undefined') localStorage.removeItem(KEYPAIR_STORAGE);
-      } catch {
-        /* ignore */
+        await this.persistCustodyRecord(pair, existingCustody);
+        console.log('🔐 SEA identity custody stored');
+      } catch (error) {
+        console.warn('⚠️ Encrypted SEA key custody unavailable — keeping pair in memory only:', error);
+        try {
+          if (typeof localStorage !== 'undefined') localStorage.removeItem(KEYPAIR_STORAGE);
+        } catch {
+          /* ignore */
+        }
+        /* ignore quota / private mode */
       }
-      /* ignore quota / private mode */
     }
 
     if (this.isEmbeddedLocalOrigin()) {

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "greetings": [
+    {
+      "locale": "en",
+      "template": "Welcome to IinPublic, {name}. TechSupport is here if you need help.",
+      "authorPub": "mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ",
+      "signature": "SEA{\"m\":{\"authorPub\":\"mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ\",\"kind\":\"techsupport-greeting\",\"locale\":\"en\",\"template\":\"Welcome to IinPublic, {name}. TechSupport is here if you need help.\"},\"s\":\"RUlrMELOwypAtN3FCMdkGm5/laydPincBHjTvAmAUaYOhUd72t9r1n9n6ddnNz9nrBwLqzF270b4QkFFljPdDQ==\"}"
+    },
+    {
+      "locale": "zh",
+      "template": "欢迎来到 IinPublic，{name}。如需帮助，TechSupport 随时为你服务。",
+      "authorPub": "mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ",
+      "signature": "SEA{\"m\":{\"authorPub\":\"mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ\",\"kind\":\"techsupport-greeting\",\"locale\":\"zh\",\"template\":\"欢迎来到 IinPublic，{name}。如需帮助，TechSupport 随时为你服务。\"},\"s\":\"q2QPNexmWjD+7mACUVEUmjNZeYagUqjsThdairjEvgDrHjRpSL9YmkgGxR1tgRrmGEH0IvURFIxtmeDi6Q7rDQ==\"}"
+    }
+  ]
+}

@@ -3,7 +3,7 @@ import path from 'path';
 import { gunBaseURL } from './ports';
 import { parallelSlot } from './ports';
 import { clearGunDatabases, maybeClearGunDatabases, waitForGunApiReady } from './clear-database';
-import { assertTechSupportBaseline, duplicateSupportGreeting } from './techsupport-baseline';
+import { assertTechSupportBaseline, duplicateSupportGreeting, signedGreetingProblem } from './techsupport-baseline';
 import { TECHSUPPORT_STAGE_NAME } from '../../../src/shared/techsupport';
 
 export type E2eStageName = 'stage0' | 'stage1' | 'stage2' | 'stage3' | 'stage4' | 'stage5';
@@ -42,7 +42,7 @@ async function postSnapshot(body: unknown): Promise<void> {
   if (!res.ok) throw new Error(`import-snapshot failed: ${res.status} ${await res.text()}`);
 }
 
-function assertStageSnapshotIntegrity(stage: E2eStageName, snapshot: unknown): void {
+async function assertStageSnapshotIntegrity(stage: E2eStageName, snapshot: unknown): Promise<void> {
   const graph = (snapshot as { gunGraph?: Record<string, any> } | undefined)?.gunGraph;
   if (!graph) throw new Error(`[e2e-stage] ${stage} snapshot has no Gun graph`);
 
@@ -71,13 +71,20 @@ function assertStageSnapshotIntegrity(stage: E2eStageName, snapshot: unknown): v
   if (duplicate) {
     throw new Error(`[e2e-stage] ${stage} snapshot has duplicate support greetings for ${duplicate}`);
   }
+
+  // K2 (docs/TODO.md): any greeting that IS present (client-authored, so a snapshot may
+  // legitimately have none) must be signature-valid — never required, never forbidden.
+  const signedProblem = await signedGreetingProblem(graph);
+  if (signedProblem) {
+    throw new Error(`[e2e-stage] ${stage} snapshot: ${signedProblem}`);
+  }
 }
 
 export async function saveStageSnapshot(stage: E2eStageName): Promise<void> {
   const dir = stageSnapshotsDir();
   fs.mkdirSync(dir, { recursive: true });
   const snapshot = await fetchSnapshot();
-  assertStageSnapshotIntegrity(stage, snapshot);
+  await assertStageSnapshotIntegrity(stage, snapshot);
   fs.writeFileSync(stageSnapshotPath(stage), JSON.stringify(snapshot, null, 2));
   console.log(`[e2e-stage] validated and saved ${stage} → ${stageSnapshotPath(stage)}`);
 }
@@ -88,9 +95,9 @@ export async function loadStageSnapshot(stage: E2eStageName): Promise<void> {
     throw new Error(`Missing stage snapshot: ${file} (run prior stage pipeline steps first)`);
   }
   const body = JSON.parse(fs.readFileSync(file, 'utf8'));
-  assertStageSnapshotIntegrity(stage, body);
+  await assertStageSnapshotIntegrity(stage, body);
   await postSnapshot(body);
-  assertStageSnapshotIntegrity(stage, await fetchSnapshot());
+  await assertStageSnapshotIntegrity(stage, await fetchSnapshot());
   console.log(`[e2e-stage] validated and loaded ${stage} ← ${file}`);
 }
 

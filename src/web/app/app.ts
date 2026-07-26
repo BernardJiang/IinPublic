@@ -32,6 +32,15 @@ import {
   TECHSUPPORT_ROOT_USER_ID,
   TECHSUPPORT_STAGE_NAME,
 } from '../../shared/techsupport';
+import {
+  renderGreeting,
+  verifyTechSupportGreeting,
+  type GreetingLocale,
+  type SignedGreeting,
+} from '../../shared/techsupport-greeting';
+import techsupportGreetingBundle from '../../shared/techsupport-greeting.signed.json';
+import { uiLanguageFromProfile } from '../ui/ui-translations';
+import { getUiLanguagePreference } from '../ui/ui-settings-storage';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
 import { getTalkIntakeFilters } from '../ui/talk-intake-filters';
@@ -949,9 +958,10 @@ export class IinPublicApp {
 
   private async initializeUser(): Promise<void> {
     if (isDevStageZero()) {
-      // Preserve the TechSupport root id (set by index.ts for the stage-zero login and the
-      // dev:multi ?devRole=techsupport driver window) so this window stays logged in as root.
-      // Ordinary dev windows have no stored id here and get a fresh identity as before.
+      // Preserve the TechSupport root id (K3: only the dev:multi ?devRole=techsupport driver
+      // window sets it now — plain stage-zero/empty boots as an ordinary user) so that window
+      // stays logged in as root. Ordinary dev windows have no stored id here and get a fresh
+      // identity as before.
       if (localStorage.getItem('iinpublic_user_id') !== TECHSUPPORT_ROOT_USER_ID) {
         localStorage.removeItem('iinpublic_user_id');
         localStorage.removeItem('iinpublic_keypair');
@@ -982,7 +992,8 @@ export class IinPublicApp {
         isNewUser = true;
       }
     } else {
-      await this.bootstrapTechSupportRootIfMissing();
+      // K1 (docs/TODO.md): TechSupport is guaranteed by the relay (server boot seed) and
+      // rendered/counted locally from compiled constants — browsers no longer mint the root.
       this.currentUser = await this.createNewUser();
       isNewUser = true;
     }
@@ -1044,65 +1055,6 @@ export class IinPublicApp {
 
     console.log('✨ New user created:', user.stageName);
     return user;
-  }
-
-  private async bootstrapTechSupportRootIfMissing(): Promise<void> {
-    if (await this.userService.hasTechSupportRoot()) return;
-
-    const rootLocation = this.currentLocation
-      ? LocationPrivacy.blurLocation(this.currentLocation)
-      : { region: '', chatrooms: ['global'] };
-    await this.userService.createTechSupportRoot({
-      location: {
-        ...rootLocation,
-        chatrooms: ['global'],
-      },
-      languages: ['en'],
-      interests: [],
-      profile: [],
-    });
-    await this.seedTechSupportGlobalMembership();
-    console.log('✨ TechSupport root bootstrapped before first ordinary user');
-  }
-
-  private async seedTechSupportGlobalMembership(): Promise<void> {
-    const now = new Date().toISOString();
-    const memberData = {
-      userId: TECHSUPPORT_ROOT_USER_ID,
-      stageName: TECHSUPPORT_STAGE_NAME,
-      joinedAt: now,
-      lastSeen: now,
-      isActive: true,
-    };
-    const gun = this.gunService.getGun();
-    gun.get('chatrooms').get('global').get('users').get(TECHSUPPORT_ROOT_USER_ID).put(memberData);
-    gun.get('chatroomMembers').get('global').get(TECHSUPPORT_ROOT_USER_ID).put(memberData);
-    gun.get('chatrooms').get('global').get('visits').get(TECHSUPPORT_ROOT_USER_ID).put({
-      userId: TECHSUPPORT_ROOT_USER_ID,
-      stageName: TECHSUPPORT_STAGE_NAME,
-      enteredAt: now,
-    });
-    gun.get('chatrooms').get('global').get('uniqueVisitors').get(TECHSUPPORT_ROOT_USER_ID).put(true);
-
-    const apiBase = this.getBackendApiBase();
-    if (!apiBase) return;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 1500);
-    try {
-      await fetch(`${apiBase}/api/chatrooms/global/members`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: TECHSUPPORT_ROOT_USER_ID,
-          stageName: TECHSUPPORT_STAGE_NAME,
-        }),
-        signal: controller.signal,
-      });
-    } catch {
-      // Local Gun bootstrap is already written; server membership sync is best-effort here.
-    } finally {
-      clearTimeout(timeout);
-    }
   }
 
   private async initializeChatrooms(): Promise<void> {
@@ -1479,6 +1431,10 @@ export class IinPublicApp {
         ...(pair.epub ? { epub: String(pair.epub) } : {}),
       });
       const peers = await this.presenceClient.fetchNearby(this.currentUser.id, 20);
+      // K1 item 3: TechSupport's online/away indicator is real peer presence, not a fake heartbeat —
+      // this reuses the same registry an eventual TechSupport client (K3) would heartbeat into by
+      // running the ordinary client in TechSupport mode, same as any other peer.
+      this.uiManager.setTechSupportOnlineStatus(peers.some((peer) => peer.userId === TECHSUPPORT_ROOT_USER_ID));
       for (const peer of peers) {
         if (peer.epub) this.peerEpubByUserId.set(peer.userId, peer.epub);
         try {
@@ -2422,34 +2378,15 @@ export class IinPublicApp {
     if (!this.currentUser || this.supportBootstrapChecked || isTechSupportUser(this.currentUser)) return;
 
     const userId = this.currentUser.id;
-    const supportStateKey = 'iinpublic_support_channels';
-    const supportState = (() => {
-      try {
-        return JSON.parse(localStorage.getItem(supportStateKey) || '{}') as Record<string, {
-          greetedAt?: string;
-          conversationId?: string;
-          transportMode?: string;
-        }>;
-      } catch {
-        return {};
-      }
-    })();
-    if (supportState[userId]?.conversationId && supportState[userId]?.greetedAt) {
-      this.supportBootstrapChecked = true;
-      return;
-    }
-
     const conversationId = `conv_support_${TECHSUPPORT_ROOT_USER_ID}_${userId}`;
     const now = new Date().toISOString();
-    const welcome =
-      `Welcome to IinPublic, ${this.currentUser.stageName}. ${TECHSUPPORT_STAGE_NAME} is here if you need help.`;
     const transportMode = this.conversationService.getTransportMode();
     const gun = this.gunService.getGun();
 
-    // Write the LOCAL contact record first, independent of the network send below.
+    // Write the LOCAL contact record first, independent of the greeting below.
     // hasSupportContact()/Contacts read `myConversations` (via addNewConversation), so
-    // the support contact must appear even if the DM transport is slow or fails — a race
-    // that previously left some browsers without TechSupport in their Contacts list.
+    // the support contact must appear even if verification fails — the contact row is not
+    // gated on the greeting (K1-3/K6: the support channel is a stuck user's only recourse).
     gun.get(`conversations/${conversationId}`).put({
       data: JSON.stringify({
         id: conversationId,
@@ -2474,32 +2411,44 @@ export class IinPublicApp {
       supportChannel: true,
       transportMode,
     });
-    this.uiManager.updateConversationMessage(conversationId, welcome, now);
-
-    supportState[userId] = { greetedAt: now, conversationId, transportMode };
-    localStorage.setItem(supportStateKey, JSON.stringify(supportState));
-    // Local record is durable now — safe to mark done and never redo the local writes.
+    // Idempotency no longer needs a localStorage gate: the greeting write below uses a
+    // deterministic message id (a repeat call overwrites the same soul), so the in-memory
+    // flag is a per-session no-op optimization, not persistence.
     this.supportBootstrapChecked = true;
 
-    if (!this.uiManager.isSupportNotificationsMuted()) {
-      this.uiManager.showNotification(this.uiManager.formatSupportWelcome(this.currentUser.stageName), 'info');
-    }
+    // K2 (docs/TODO.md): render the pre-signed, per-locale welcome template — verify against
+    // the compiled DM trust anchors BEFORE rendering. A client that cannot verify shows no
+    // greeting at all (K2-3: silent suppression, never a fabricated/impersonated message).
+    const locale = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages)) as GreetingLocale;
+    const bundle = techsupportGreetingBundle.greetings as SignedGreeting[];
+    const entry = bundle.find((g) => g.locale === locale) ?? bundle.find((g) => g.locale === 'en');
+    const verified = entry ? await verifyTechSupportGreeting(entry) : null;
+    if (!verified) return;
 
-    // Best-effort welcome message delivery. A failure here must not abort boot or undo
-    // the local contact record above (previously it did both).
-    try {
-      await this.conversationService.sendMessage(
-        conversationId,
-        TECHSUPPORT_ROOT_USER_ID,
-        welcome,
-        {
-          otherUserId: userId,
-          messageId: `support_welcome_${userId}`,
-          isFromChatbot: true,
-        },
-      );
-    } catch (error) {
-      console.warn('Support welcome message send failed (contact still added):', error);
+    const rendered = renderGreeting(verified.template, this.currentUser.stageName);
+    // Real message, persisted in the receiver's own local Gun only (K2-2) — never
+    // transmitted. The greeting is authored by TechSupport, not "sent" by this device, so
+    // this writes directly through the local-only primitive rather than sendMessage's
+    // peer-notify path.
+    this.conversationService.upsertMessageRecord(
+      conversationId,
+      {
+        id: `support_welcome_${userId}`,
+        senderId: TECHSUPPORT_ROOT_USER_ID,
+        text: rendered,
+        timestamp: now,
+        channel: 'public',
+        transport: transportMode,
+        greetingLocale: verified.locale,
+        greetingSignature: verified.signature,
+        greetingAuthorPub: verified.authorPub,
+      },
+      { otherUserId: userId },
+    );
+    this.uiManager.updateConversationMessage(conversationId, rendered, now);
+
+    if (!this.uiManager.isSupportNotificationsMuted()) {
+      this.uiManager.showNotification(rendered, 'info');
     }
   }
 
@@ -4181,6 +4130,9 @@ export class IinPublicApp {
     try {
       const peers = await presence.fetchNearby(this.currentUser.id, 200);
       this.uiManager.setConversationOnlineStatus(new Set(peers.map((peer) => peer.userId)));
+      // K1 item 3: same real-presence signal, kept fresh whenever we already refresh for
+      // conversations rather than a separate poll loop.
+      this.uiManager.setTechSupportOnlineStatus(peers.some((peer) => peer.userId === TECHSUPPORT_ROOT_USER_ID));
     } catch {
       // Presence is supplemental list metadata; leave the existing state intact on failure.
     }

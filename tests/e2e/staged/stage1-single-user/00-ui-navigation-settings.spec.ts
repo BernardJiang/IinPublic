@@ -397,14 +397,18 @@ test.describe('UI navigation and settings shell', () => {
         supportChannel: true,
         transportMode: 'star-gun',
       });
+      // K2 (docs/TODO.md): the stored greeting text is already rendered in its write-time
+      // locale — there is no runtime re-localization, so this fixture supplies the Chinese
+      // text directly rather than relying on a regex re-localizer that no longer exists.
+      const greetingText = '欢迎来到 IinPublic，Ming。如需帮助，TechSupport 随时为你服务。';
       ui?.updateConversationMessage?.(
         conversationId,
-        'Welcome to IinPublic, Ming. TechSupport is here if you need help.',
+        greetingText,
         new Date().toISOString(),
       );
       ui?.showConversationDetail?.(conversationId);
       ui?.displayConversationMessages?.(conversationId, [{
-        text: 'Welcome to IinPublic, Ming. TechSupport is here if you need help.',
+        text: greetingText,
         timestamp: new Date().toISOString(),
         isOwnMessage: false,
       }]);

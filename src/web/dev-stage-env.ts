@@ -47,17 +47,6 @@ export function isDevStageZeroResolved(): boolean {
 }
 
 /**
- * `stage-zero`/`empty` boot the browser logged in as the built-in TechSupport root
- * (TechSupport is the first user of an empty network and counts as 1 in every headcount).
- * `multi` keeps ordinary browser users — TechSupport is seeded server-side by
- * `scripts/dev-techsupport-bootstrap` before the browsers navigate.
- */
-export function isDevStageTechSupportLoginResolved(): boolean {
-  const seed = resolveDevStageSeed();
-  return seed === 'stage-zero' || seed === 'empty';
-}
-
-/**
  * dev:multi can launch one window as a TechSupport driver via `?devRole=techsupport`,
  * so a human can answer other users as TechSupport. That window logs in as the root
  * user instead of creating an ordinary Adam/Bob/Carol.

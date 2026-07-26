@@ -5,7 +5,8 @@ import {
   createSystemAnnouncement,
   type SystemAnnouncement,
 } from '../../shared/system-announcements';
-import { TECHSUPPORT_NETWORK_ROLE, TECHSUPPORT_PUB, TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import { TECHSUPPORT_PUB } from '../../shared/techsupport';
+import techSupportIdentity from '../../shared/techsupport-identity.signed.json';
 import type { GunService } from './gun-service';
 
 type SeaPair = { pub: string; epub: string; priv: string; epriv: string };
@@ -32,16 +33,15 @@ export class TechSupportAnnouncementService {
     return this.pair !== null;
   }
 
+  /**
+   * K3 (docs/TODO.md): republishes the committed, pre-signed identity record
+   * (`src/shared/techsupport-identity.signed.json`, signed once by
+   * `scripts/sign-techsupport-identity.js` with the announcement key) — no private key
+   * required at boot. The relay only ever needs the public identity record to exist; the
+   * private half lives on whichever machine last ran the signing script.
+   */
   async publishIdentity(): Promise<void> {
-    if (!this.pair) throw new Error('TechSupport SEA identity is not configured');
-    const identity = {
-      userId: TECHSUPPORT_ROOT_USER_ID,
-      pub: this.pair.pub,
-      epub: this.pair.epub,
-      role: TECHSUPPORT_NETWORK_ROLE,
-    };
-    const signature = await SEA.sign(canonicalSerialize(identity), this.pair);
-    await this.gunService.putPath(['public', 'techsupport-identity'], { ...identity, signature });
+    await this.gunService.putPath(['public', 'techsupport-identity'], techSupportIdentity);
   }
 
   async createAnnouncement(input: { text: string; expiresAt: string }): Promise<SystemAnnouncement> {

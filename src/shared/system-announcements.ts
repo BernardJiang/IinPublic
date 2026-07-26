@@ -21,6 +21,32 @@ export type TechSupportIdentity = {
   signature: string;
 };
 
+export type UnsignedTechSupportIdentity = Omit<TechSupportIdentity, 'signature'>;
+
+export function techSupportIdentitySigningPayload(identity: UnsignedTechSupportIdentity): string {
+  return canonicalSerialize(identity);
+}
+
+/**
+ * Build-time only (docs/TODO.md K3's `scripts/sign-techsupport-identity.js`) — signs the
+ * identity record once with the announcement key and commits the result as
+ * `src/shared/techsupport-identity.signed.json`. The server republishes that committed blob on
+ * every boot and E2E reset without ever holding the private key at boot time.
+ */
+export async function signTechSupportIdentity(
+  pair: { pub: string; epub: string; priv: string; epriv: string },
+): Promise<TechSupportIdentity> {
+  const unsigned: UnsignedTechSupportIdentity = {
+    userId: TECHSUPPORT_ROOT_USER_ID,
+    pub: pair.pub,
+    epub: pair.epub,
+    role: TECHSUPPORT_NETWORK_ROLE,
+  };
+  const signature = await SEA.sign(techSupportIdentitySigningPayload(unsigned), pair);
+  if (!signature) throw new Error('Could not sign TechSupport identity');
+  return { ...unsigned, signature };
+}
+
 /**
  * Verify the identity record carried by the public Gun graph.
  *

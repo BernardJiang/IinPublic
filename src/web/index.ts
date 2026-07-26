@@ -1,7 +1,7 @@
 import './styles/main.css';
 import { IinPublicApp } from './app/app';
 import { applyDevStageSeed } from './dev-stage-seeds';
-import { isDevStageTechSupportLoginResolved, isDevStageZeroResolved, isDevTechSupportDriver, resolveDevStageSeed } from './dev-stage-env';
+import { isDevStageZeroResolved, isDevTechSupportDriver, resolveDevStageSeed } from './dev-stage-env';
 import { TECHSUPPORT_ROOT_USER_ID } from '../shared/techsupport';
 import { LocationPrivacy } from '../shared/location';
 import { GPSCoordinate } from '../shared/types';
@@ -44,11 +44,15 @@ class WebApp {
           return;
         }
         sessionStorage.removeItem(STAGE_ZERO_BOOT_KEY);
-        if (isDevStageTechSupportLoginResolved() || isDevTechSupportDriver()) {
-          // TechSupport is the built-in first user: a clean dev boot logs in as the root so an
-          // empty database shows exactly one member (TechSupport counts as 1 in every headcount).
-          // In dev:multi, the ?devRole=techsupport window also logs in as root so a human can
-          // answer other users as TechSupport.
+        // K3 (docs/TODO.md): plain `stage-zero`/`empty` no longer auto-logs the browser in as
+        // TechSupport root — K1 already decoupled the headcount floor from the browser being
+        // root (the relay boot seed + the client's compiled-constant floor cover it), so a
+        // clean dev boot is now an ordinary user (headcount 2: the dev user + built-in
+        // TechSupport). To act AS TechSupport with a real signing identity, run
+        // `npm run dev:techsupport` instead. dev:multi's `?devRole=techsupport` driver window is
+        // unaffected — it still logs in as root (without a real keypair) so a human can answer
+        // other users as TechSupport in that flow.
+        if (isDevTechSupportDriver()) {
           localStorage.setItem('iinpublic_user_id', TECHSUPPORT_ROOT_USER_ID);
         }
         // Server was just restarted by dev:stage-zero (empty graph). Skip clear-database here —

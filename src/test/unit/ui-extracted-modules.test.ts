@@ -303,10 +303,10 @@ describe('extracted UI helpers', () => {
   it('renders Chinese conversation copy and formatted support previews', () => {
     document.body.innerHTML = '<div id="conversations-list"></div>';
     const text = (key: Parameters<typeof uiText>[1]) => uiText('zh', key);
-    const formatMessage = (message: string, supportChannel: boolean) =>
-      supportChannel && message.startsWith('Welcome to IinPublic, ')
-        ? text('supportWelcome').replace('{name}', 'Ming')
-        : message;
+    // K2 (docs/TODO.md): the stored `lastMessage` is already the verified, rendered greeting
+    // text in whatever locale it was written in — the list preview is a pass-through, not a
+    // re-localizer (the old regex-based `formatConversationMessage` is gone).
+    const formatMessage = (message: string) => message;
 
     displayConversationsList({
       getMyConversations: () => ({
@@ -316,7 +316,7 @@ describe('extracted UI helpers', () => {
           online: true,
           transportMode: 'direct-p2p',
           unreadCount: 2,
-          lastMessage: 'Welcome to IinPublic, Ming. TechSupport is here if you need help.',
+          lastMessage: '欢迎来到 IinPublic，Ming。如需帮助，TechSupport 随时为你服务。',
           createdAt: '2026-04-21T10:00:00.000Z',
         },
       }),

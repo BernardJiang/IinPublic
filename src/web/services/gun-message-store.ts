@@ -19,6 +19,14 @@ export type ConversationMessageWire = {
   isFromChatbot?: boolean;
   /** Per-matched-talk thread scope (redesign §5); absent/'direct' = the pair DM thread. */
   talkId?: string;
+  /**
+   * K2 (docs/TODO.md): present only on the signed TechSupport welcome greeting. Lets a later
+   * render pass re-verify the stored record's authenticity (`verifyTechSupportGreeting`)
+   * independent of the write-time check, defending against a tampered downstream write.
+   */
+  greetingLocale?: string;
+  greetingSignature?: string;
+  greetingAuthorPub?: string;
 };
 
 /**
@@ -247,6 +255,9 @@ export class GunMessageStore {
       ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
       ...(wire.isFromChatbot ? { isFromChatbot: true } : {}),
       ...(wire.talkId ? { talkId: wire.talkId } : {}),
+      ...(wire.greetingLocale ? { greetingLocale: wire.greetingLocale } : {}),
+      ...(wire.greetingSignature ? { greetingSignature: wire.greetingSignature } : {}),
+      ...(wire.greetingAuthorPub ? { greetingAuthorPub: wire.greetingAuthorPub } : {}),
     };
     if (wire.transport === 'direct-p2p' && opts.otherUserId) {
       gun

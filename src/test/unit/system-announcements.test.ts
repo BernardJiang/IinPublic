@@ -7,6 +7,7 @@ import {
   isVerifiedTechSupportIdentity,
   isRenderableSystemAnnouncement,
   readVerifiedTechSupportIdentity,
+  signTechSupportIdentity,
 } from '../../shared/system-announcements';
 import { TECHSUPPORT_NETWORK_ROLE, TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { TechSupportAnnouncementService } from '../../server/services/techsupport-announcement-service';
@@ -45,6 +46,32 @@ describe('system announcements', () => {
     await expect(isVerifiedTechSupportIdentity({ ...identity, signature }, pair.pub)).resolves.toBe(true);
     await expect(isVerifiedTechSupportIdentity({ ...identity, pub: 'wrong-key', signature }, pair.pub)).resolves.toBe(false);
     await expect(readVerifiedTechSupportIdentity({ ...identity, signature })).resolves.toEqual({ ...identity, signature });
+  });
+
+  it('signTechSupportIdentity produces a record readVerifiedTechSupportIdentity accepts (docs/TODO.md K3)', async () => {
+    const pair = await SEA.pair();
+    const identity = await signTechSupportIdentity(pair);
+    expect(identity).toMatchObject({
+      userId: TECHSUPPORT_ROOT_USER_ID,
+      pub: pair.pub,
+      epub: pair.epub,
+      role: TECHSUPPORT_NETWORK_ROLE,
+    });
+    await expect(readVerifiedTechSupportIdentity(identity, pair.pub)).resolves.toEqual(identity);
+    // Tampering after signing (e.g. swapping in a different epub) must fail verification.
+    await expect(readVerifiedTechSupportIdentity({ ...identity, epub: 'swapped' }, pair.pub)).resolves.toBeNull();
+  });
+
+  it('publishIdentity republishes a committed blob with no private key configured at all (docs/TODO.md K3)', async () => {
+    const gunService = { putPath: jest.fn().mockResolvedValue(undefined) };
+    // No pair passed — this is the exact "no private key required at boot" scenario K3 requires.
+    const service = new TechSupportAnnouncementService(gunService as any, null);
+    expect(service.isConfigured()).toBe(false);
+    await expect(service.publishIdentity()).resolves.toBeUndefined();
+    expect(gunService.putPath).toHaveBeenCalledWith(
+      ['public', 'techsupport-identity'],
+      expect.objectContaining({ userId: TECHSUPPORT_ROOT_USER_ID, role: TECHSUPPORT_NETWORK_ROLE }),
+    );
   });
 
   it('renders a valid unexpired announcement', async () => {

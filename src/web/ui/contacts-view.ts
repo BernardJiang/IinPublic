@@ -32,6 +32,8 @@ export type ContactsViewDeps = {
   hasSupportContact: () => boolean;
   isSupportNotificationsMuted: () => boolean;
   setSupportNotificationsMuted: (muted: boolean) => Promise<void>;
+  /** Liveness, never headcount (K1-2, docs/TODO.md) — see ui-manager.ts `setTechSupportOnlineStatus`. */
+  isTechSupportOnline: () => boolean;
   text: (key: UiTranslationKey) => string;
   formatLanguage: (code: string) => string;
   getProfileLanguages: () => string[];
@@ -724,11 +726,12 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
     const status = document.getElementById('contacts-status-text');
     if (status) status.textContent = formatCountText(deps, visiblePeers.length, 'contactsCountOne', 'contactsCount');
 
+    const supportOnline = deps.isTechSupportOnline();
     const supportRow = showSupportContact
       ? `
           <div class="contact-item contact-support-item" data-support-contact="true" data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}" data-contact-name="${TECHSUPPORT_STAGE_NAME}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 8px; background: var(--accent-soft); border-radius: 12px; border: 1px solid var(--accent-border); cursor: pointer;">
             <div style="min-width:0;">
-              <div class="contact-item-name" style="font-weight:700;">${TECHSUPPORT_STAGE_NAME}<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent-hover);font-size:0.72em;font-weight:700;margin-left:8px;">${deps.text('contactsSupportPinned')}</span></div>
+              <div class="contact-item-name" style="font-weight:700;">${TECHSUPPORT_STAGE_NAME}<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent-hover);font-size:0.72em;font-weight:700;margin-left:8px;">${deps.text('contactsSupportPinned')}</span><span class="techsupport-presence-indicator ${supportOnline ? 'online' : 'away'}" data-techsupport-online="${supportOnline}" aria-label="${deps.text(supportOnline ? 'contactsSupportOnline' : 'contactsSupportAway')}"></span></div>
               <div class="contact-item-meta" style="font-size:0.85em;color:var(--accent-text);margin-top:4px;">${deps.text('contactsSupportBuiltIn')}</div>
               <div class="contact-item-meta" style="font-size:0.8em;color:var(--text-tertiary);margin-top:4px;">${deps.text(deps.isSupportNotificationsMuted() ? 'contactSupportNotificationsMuted' : 'contactSupportNotificationsOn')}</div>
             </div>

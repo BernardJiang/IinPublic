@@ -124,17 +124,29 @@ class IinPublicServer {
     void this.publishPublicBootstrap();
   }
 
-  /** Public, signed network metadata must exist after boot and after an E2E graph reset. */
+  /**
+   * Public, signed network metadata must exist after boot and after an E2E graph reset.
+   *
+   * K3 (docs/TODO.md): no longer gated on `techSupportAnnouncements.isConfigured()` — the
+   * identity record is a committed, pre-signed blob (no private key needed at boot), and the
+   * Global member-row seed is a plain Gun write (never needed a key). A relay with no
+   * `TECHSUPPORT_SEA_PAIR_JSON` configured at all (the announcement pair is only needed for the
+   * on-demand admin announcement feature) still produces a full, correct relay-light presence.
+   */
   private async publishPublicBootstrap(): Promise<void> {
     this.gun.get('public').get('chatroom-hierarchy').put(JSON.stringify(CHATROOM_HIERARCHY));
-    if (!this.techSupportAnnouncements.isConfigured()) {
-      logger.warn('TechSupport SEA identity is not configured; bootstrap identity and announcements are disabled');
-      return;
-    }
     try {
       await this.techSupportAnnouncements.publishIdentity();
     } catch (error) {
       logger.error({ error }, 'Could not publish TechSupport identity');
+    }
+    // K1 item 2: the relay alone must produce headcount 2 in Global, with no browser ever
+    // having bootstrapped. Best-effort like the identity publish above — a seed failure must
+    // not crash boot; the client-side synthetic floor (K1 item 1) is the safety net.
+    try {
+      await this.chatroomManager.seedTechSupportGlobalMembership();
+    } catch (error) {
+      logger.error({ error }, 'Could not seed TechSupport Global membership');
     }
   }
 

@@ -2436,6 +2436,40 @@ button:focus:not(:focus-visible) {
   background: var(--success);
 }
 
+/* K1 item 3 (docs/TODO.md): TechSupport liveness, never headcount — inline dot next to the
+   built-in support row/roster name. Defaults to "away" until a real presence signal arrives. */
+.techsupport-presence-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.techsupport-presence-indicator.online {
+  background: var(--success);
+}
+
+.techsupport-presence-indicator.away {
+  background: var(--text-tertiary);
+}
+
+/* K3 (docs/TODO.md): permanent app-bar badge whenever the current identity IS the TechSupport
+   root — an operator must always be able to tell they are signed in as TechSupport. */
+.techsupport-root-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-size: 0.72em;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .peer-compatibility {
   margin-top: 9px;
 }

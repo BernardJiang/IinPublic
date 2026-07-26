@@ -351,9 +351,10 @@ export async function applyDevStageSeed(app: any, stageName: string): Promise<vo
 
   if (stage === 'stage-zero' || stage === 'empty' || stage === 'multi') {
     clearClientGunChatrooms(app.gunService?.getGun?.());
-    // stage-zero/empty boot logged in as the built-in TechSupport root (see index.ts) —
-    // never rename it. Only `multi` browsers are ordinary users that get the Adam stage name.
-    // The dev:multi TechSupport driver window logs in as the root user — never rename it.
+    // stage-zero/empty boot as an ordinary user since K3 (see index.ts) — no special-casing
+    // needed here for them. Only `multi` browsers get the Adam/Bob/... stage-name treatment
+    // below, and only when they are NOT the dev:multi TechSupport driver window (which still
+    // logs in as the root user via ?devRole=techsupport and must never be renamed).
     if (stage === 'multi' && app.currentUser?.id !== TECHSUPPORT_ROOT_USER_ID) {
       // Each dev:multi browser is launched with ?devUser=<name> so the windows are
       // tellable apart; fall back to 'Adam' when launched without one.

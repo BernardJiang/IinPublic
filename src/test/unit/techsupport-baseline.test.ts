@@ -1,13 +1,16 @@
 import {
   assertTechSupportBaseline,
   duplicateSupportGreeting,
+  signedGreetingProblem,
   techSupportBaselineProblem,
 } from '../../../tests/e2e/helpers/techsupport-baseline';
 import {
   TECHSUPPORT_NETWORK_ROLE,
+  TECHSUPPORT_PUB,
   TECHSUPPORT_ROOT_USER_ID,
   TECHSUPPORT_STAGE_NAME,
 } from '../../shared/techsupport';
+import { signGreeting } from '../../shared/techsupport-greeting';
 
 /**
  * Guard for docs/TODO.md K4: every E2E baseline except the deliberate stage0 empty
@@ -106,5 +109,61 @@ describe('duplicateSupportGreeting', () => {
 
   it('ignores non-greeting souls', () => {
     expect(duplicateSupportGreeting({ 'conversations/conv_x/messages/m1': {} })).toBeNull();
+  });
+});
+
+describe('signedGreetingProblem (docs/TODO.md K2)', () => {
+  const DEV_PAIR = {
+    pub: TECHSUPPORT_PUB,
+    priv: 'yUVBUKZfcZDOxssGwm5CZNUnbnyH3QZLiMtM43vpSDo',
+    epub: 'BCl0htwOHtTgNFQU0OK7HpzKg4M5OaJIZaGvVKICP_I.fwyq2-rc9lleKgpDrR0YlbhS2mW4024uEj0SHjmbiQE',
+    epriv: 'y0MVYkN5wSAcAW4doxkv2EVlDLGgwy7bv6s8woJXTY4',
+  };
+  const soul = (conv: string, user: string) =>
+    `conversations/conv_support_${conv}/messages/support_welcome_${user}`;
+
+  it('returns null when no greeting soul is present (the expected case for a fresh reset)', async () => {
+    expect(await signedGreetingProblem(validGraph())).toBeNull();
+  });
+
+  it('returns null (not an error) for an absent/undefined graph', async () => {
+    expect(await signedGreetingProblem(undefined)).toBeNull();
+  });
+
+  it('accepts a greeting whose signature verifies', async () => {
+    const signed = await signGreeting('en', DEV_PAIR);
+    const graph = {
+      ...validGraph(),
+      [soul('techsupport_user-a', 'user-a')]: {
+        text: 'Welcome to IinPublic, Alice. TechSupport is here if you need help.',
+        greetingLocale: signed.locale,
+        greetingSignature: signed.signature,
+        greetingAuthorPub: signed.authorPub,
+      },
+    };
+    expect(await signedGreetingProblem(graph)).toBeNull();
+  });
+
+  it('flags a greeting with a tampered signature', async () => {
+    const signed = await signGreeting('en', DEV_PAIR);
+    const other = await signGreeting('zh', DEV_PAIR);
+    const graph = {
+      ...validGraph(),
+      [soul('techsupport_user-a', 'user-a')]: {
+        text: 'Welcome to IinPublic, Alice. TechSupport is here if you need help.',
+        greetingLocale: signed.locale,
+        greetingSignature: other.signature,
+        greetingAuthorPub: signed.authorPub,
+      },
+    };
+    expect(await signedGreetingProblem(graph)).toMatch(/user-a.*does not verify/);
+  });
+
+  it('flags a greeting with a missing signature field', async () => {
+    const graph = {
+      ...validGraph(),
+      [soul('techsupport_user-a', 'user-a')]: { text: 'hi' },
+    };
+    expect(await signedGreetingProblem(graph)).toMatch(/does not verify/);
   });
 });

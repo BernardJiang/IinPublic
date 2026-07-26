@@ -26,6 +26,7 @@ import { getFlatChatroomList, getActiveChatroomHierarchy } from '../../shared/ch
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { LocationPrivacy } from '../../shared/location';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import { verifyTechSupportGreeting, TECHSUPPORT_GREETING_TEMPLATES, type GreetingLocale } from '../../shared/techsupport-greeting';
 import type { StatsByRegion, StatsByTime, StatsDashboard, StatsSummary, TalkType } from '../../shared/talk-stats';
 import {
   summarize,
@@ -1745,11 +1746,20 @@ export class UIManager extends EventEmitter {
     const headerStatus = document.getElementById('header-status');
     const headerUserInfo = document.getElementById('header-user-info');
     if (headerUserInfo) {
+      // K3 (docs/TODO.md): a permanent, always-visible badge whenever the current identity IS
+      // the TechSupport root — gated on the id, not on dev-mode, so it also shows for a real
+      // production operator device (a developer/operator must always be able to tell they are
+      // signed in as TechSupport and not their own ordinary identity).
+      const isTechSupportRoot = user.id === TECHSUPPORT_ROOT_USER_ID;
+      const techSupportBadge = isTechSupportRoot
+        ? `<span class="techsupport-root-badge" data-testid="techsupport-root-badge">${escapeHtml(this.t('techSupportRootBadge'))}</span>`
+        : '';
       headerUserInfo.innerHTML = `
         <div class="user-avatar">
           ${avatarInnerHtml(user.headshot, user.stageName.charAt(0).toUpperCase(), escapeHtml)}
         </div>
         <span class="visually-hidden" data-testid="user-stage-name">${user.stageName}</span>
+        ${techSupportBadge}
       `;
     }
     if (headerStatus) {
@@ -1854,6 +1864,7 @@ export class UIManager extends EventEmitter {
       hasSupportContact: this.hasSupportContact.bind(this),
       isSupportNotificationsMuted: this.isSupportNotificationsMuted.bind(this),
       setSupportNotificationsMuted: this.setSupportNotificationsMuted.bind(this),
+      isTechSupportOnline: this.isTechSupportOnline.bind(this),
       text: this.t.bind(this),
       formatLanguage: this.formatTalkLanguage.bind(this),
       getProfileLanguages: () => this.currentUser?.languages || ['en'],
@@ -1908,6 +1919,7 @@ export class UIManager extends EventEmitter {
       apiBase: this.apiBase,
       text: this.t.bind(this),
       formatDate: this.formatUiDate.bind(this),
+      isTechSupportOnline: this.isTechSupportOnline.bind(this),
     };
   }
 
@@ -4624,7 +4636,10 @@ export class UIManager extends EventEmitter {
       formatTimeAgo: this.formatTalkRelativeTime.bind(this),
       showConversationDetail: this.showConversationDetail.bind(this),
       text: this.t.bind(this),
-      formatMessage: this.formatConversationMessage.bind(this),
+      // K2: the greeting's authenticity check lives in the full-thread render
+      // (filterVerifiedSupportMessages); the list preview just shows the already-verified,
+      // already-rendered `lastMessage` text as-is — no re-localization needed.
+      formatMessage: (message: string) => message,
     });
   }
 
@@ -4632,10 +4647,6 @@ export class UIManager extends EventEmitter {
   public getMyConversations(): Record<string, any> {
     const conversationsJson = localStorage.getItem('myConversations');
     return conversationsJson ? JSON.parse(conversationsJson) : {};
-  }
-
-  public formatSupportWelcome(stageName: string): string {
-    return this.tf('supportWelcome', { name: stageName });
   }
 
   public formatSupportReply(stageName: string): string {
@@ -4805,12 +4816,6 @@ export class UIManager extends EventEmitter {
 
   public formatConversationLoadFailed(reason: string): string {
     return this.tf('conversationLoadFailed', { reason });
-  }
-
-  private formatConversationMessage(message: string, supportChannel: boolean): string {
-    if (!supportChannel) return message;
-    const match = /^Welcome to IinPublic, (.+)\. TechSupport is here if you need help\.$/.exec(message);
-    return match ? this.formatSupportWelcome(match[1] || '') : message;
   }
 
   private formatTransportMode(mode: string): string {
@@ -7610,6 +7615,30 @@ export class UIManager extends EventEmitter {
     );
   }
 
+  /**
+   * Liveness, never headcount (K1-2, docs/TODO.md). Whether TechSupport's device is currently
+   * reachable is independent of whether it counts toward the room — that floor is unconditional
+   * (see `techSupportRosterMember`/`seedTechSupportGlobalMembership`). Defaults to away until a
+   * positive presence signal arrives (app.ts wires this from `P2PPresenceClient.fetchNearby`), so
+   * a device that has never connected — or hasn't been built yet (K3) — reads as away, not a
+   * stuck "checking" state.
+   */
+  private techSupportOnline = false;
+
+  private isTechSupportOnline(): boolean {
+    return this.techSupportOnline;
+  }
+
+  public setTechSupportOnlineStatus(online: boolean): void {
+    if (this.techSupportOnline === online) return;
+    this.techSupportOnline = online;
+    const contactsTab = document.querySelector('.nav-btn[data-view="contacts"]');
+    if (contactsTab?.classList.contains('active')) this.displayContactsList();
+    if (document.getElementById('chatroom-members-list')) {
+      renderChatroomMembers(this.chatroomsDeps(), this.currentChatroomMembers, this.currentUserId || '');
+    }
+  }
+
   public isSupportNotificationsMuted(): boolean {
     if (!this.currentUserId) return false;
     return localStorage.getItem(`iinpublic_support_notifications_muted:${this.currentUserId}`) === '1';
@@ -8185,11 +8214,57 @@ export class UIManager extends EventEmitter {
     if (composer) composer.style.display = '';
   }
 
-  displayConversationMessages(conversationId: string, messages: any[]): void {
+  /**
+   * K2 (docs/TODO.md): authenticity check for a *stored* TechSupport greeting record —
+   * defends against tampering after the write-time verification in
+   * `ensureSupportBootstrapForCurrentUser` (a corrupted downstream write, e.g. from a
+   * compromised peer or a bug, must never render as if it were genuine). Re-derives the
+   * template from the client's own compiled copy (never trusts a stored template string),
+   * and additionally confirms the stored `text` is exactly what that verified template
+   * renders to for the *current* user — closing the gap where `greetingSignature`/
+   * `greetingLocale` are left untouched but `text` itself was altered after signing.
+   * Non-greeting messages pass through unchanged. Failures are dropped silently (K2-3) —
+   * no error toast, no impersonated message rendered.
+   */
+  private async filterVerifiedSupportMessages(messages: any[]): Promise<any[]> {
+    const stageName = this.currentUser?.stageName || '';
+    const kept: any[] = [];
+    for (const msg of messages) {
+      const isGreeting =
+        typeof msg?.id === 'string' &&
+        msg.id.startsWith('support_welcome_') &&
+        msg.senderId === TECHSUPPORT_ROOT_USER_ID &&
+        !!msg.greetingSignature;
+      if (!isGreeting) {
+        kept.push(msg);
+        continue;
+      }
+      const locale = msg.greetingLocale as GreetingLocale;
+      const verified = await verifyTechSupportGreeting({
+        locale,
+        template: TECHSUPPORT_GREETING_TEMPLATES[locale],
+        authorPub: msg.greetingAuthorPub,
+        signature: msg.greetingSignature,
+      });
+      if (!verified) continue;
+      const expectedText = verified.template.replace('{name}', stageName);
+      if (String(msg.text || '') !== expectedText) continue;
+      kept.push(msg);
+    }
+    return kept;
+  }
+
+  async displayConversationMessages(conversationId: string, messages: any[]): Promise<void> {
     if (this.currentConversationId !== conversationId) return;
 
     const messagesContainer = document.getElementById('conversation-messages');
     if (!messagesContainer) return;
+
+    const isSupportChannel = this.getMyConversations()[conversationId]?.supportChannel === true;
+    if (isSupportChannel) {
+      messages = await this.filterVerifiedSupportMessages(messages);
+      if (this.currentConversationId !== conversationId) return; // stale by the time verify resolved
+    }
 
     // Thread isolation (redesign §5): only the open scope's messages render here.
     messages = messages.filter((msg) => this.messageInCurrentThread(msg));
@@ -8206,7 +8281,6 @@ export class UIManager extends EventEmitter {
       return;
     }
 
-    const isSupportChannel = this.getMyConversations()[conversationId]?.supportChannel === true;
     const toastQueue: MessageFilterResult[] = [];
     messagesContainer.innerHTML = messages
       .map((msg) => {
@@ -8245,7 +8319,7 @@ export class UIManager extends EventEmitter {
         return `
           <div class="message ${isOwn ? 'message-own' : 'message-other'}">
             <div class="message-content">
-              <div class="message-text">${escapeHtml(this.formatConversationMessage(text, isSupportChannel))}</div>
+              <div class="message-text">${escapeHtml(text)}</div>
               <div class="message-time">${this.formatTalkRelativeTime(new Date(msg.timestamp))}</div>
             </div>
           </div>

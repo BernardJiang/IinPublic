@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last updated: 2026-07-19
+Last updated: 2026-07-26
 
 This file tracks only open work. Completed items are archived in `docs/completed.md`.
 - **Authoritative product + P2P design:** `docs/specs/iinpublic-technical-specifications.md` (§19.13, §19.14, REQ-P2P-09–29; mesh talk delivery design §23; libp2p/IPFS §25 — supersedes Phase D §24; find-similar §22)
@@ -191,106 +191,34 @@ and a signed identity/pointer record. No support database on the server.
   `e2e-stage-pipeline.ts:95-103` asserts on has to be reworked, since there is no longer a stored
   greeting message per user.
 
-### Current state (why the work is needed)
+### Current state (K1–K3 complete — K4/K5 next)
 
-- `IinPublicApp.bootstrapTechSupportRootIfMissing()` (`src/web/app/app.ts:1048`) creates the root
-  **from the first browser** — TechSupport exists only after someone opens a tab.
-- The welcome message is written by the *new user's own browser* posing as TechSupport
-  (`app.ts:~2493`, `sendMessage(convId, TECHSUPPORT_ROOT_USER_ID, …)`, id `support_welcome_<userId>`),
-  gated on a `localStorage` `supportState` key — unsigned, and lost/re-run when storage is cleared
-  or the user opens a second device. This is the invariant-4 violation.
-- `TechSupportAnnouncementService` (`src/server/services/techsupport-announcement-service.ts`)
-  already loads the canonical SEA pair from `TECHSUPPORT_SEA_PAIR_JSON` and validates it against
-  `TECHSUPPORT_PUB`. Under the revised model this pair moves to the TechSupport *device*; the
-  server keeps at most the ability to republish the public identity record.
-- Dev "login as TechSupport" is build-time only (`isDevStageTechSupportLoginResolved()`,
-  `src/web/dev-stage-env.ts:55` → `src/web/index.ts:47`), carries no keypair, and cannot sign.
+K1, K2, and K3 (below) landed 2026-07-25/26 — see `docs/completed.md` and the three design notes
+(`docs/design/techsupport-k1-design-note.md`, `-k2-`, `-k3-`) for the implementation record.
+What's left for the K series:
 
-### Current state (why the work is needed)
-
-- `IinPublicApp.bootstrapTechSupportRootIfMissing()` (`src/web/app/app.ts:1048`) creates the root
-  **from the first browser**. Server up + no browser = no TechSupport.
-- The welcome message is written by the *new user's own browser* posing as TechSupport
-  (`app.ts:~2493`, `sendMessage(convId, TECHSUPPORT_ROOT_USER_ID, …)`, id `support_welcome_<userId>`),
-  gated on a `localStorage` `supportState` key — unsigned, and lost/re-run when storage is cleared
-  or the user opens a second device.
-- `TechSupportAnnouncementService` (`src/server/services/techsupport-announcement-service.ts`)
-  already loads the canonical SEA pair from `TECHSUPPORT_SEA_PAIR_JSON` and validates it against
-  `TECHSUPPORT_PUB` — the server-side signing capability exists but is used only for announcements.
-- Dev "login as TechSupport" is build-time only (`isDevStageTechSupportLoginResolved()`,
-  `src/web/dev-stage-env.ts:55` → `src/web/index.ts:47`), carries no keypair, and cannot sign.
+- K4 (every stage loads a TechSupport-bearing snapshot) can now start — it was explicitly gated on
+  K1–K3 landing first.
+- K5 (TechSupport DM Q&A) depends on K3's TechSupport client now existing — a developer can run
+  `npm run dev:techsupport` and answer queued questions from a real signed identity.
+- Key rotation tooling, the headless-agent run mode (K3-3's other half), and production key
+  custody (K3-4) remain open — see K3's completed-entry "Open questions carried forward" in
+  `docs/completed.md`.
 
 ### K1. Built-in identity + relay-light presence `[Opus]`
 
-- [ ] Client renders TechSupport as a built-in Global member from the compiled constants — no
-      round-trip, no dependence on a browser having bootstrapped it. Empty network = headcount 1.
-- [ ] Relay keeps exactly one TechSupport member row + the signed `public/techsupport-identity`
-      record, republished on boot from the **public** half only. Never evictable by presence
-      expiry or `CHATROOM_MAX_CAPACITY` FIFO.
-- [ ] Add an online/away indicator sourced from real peer presence, decoupled from headcount.
-- [ ] Delete `bootstrapTechSupportRootIfMissing()`'s write path (browsers must stop minting the
-      root); keep only local rendering.
-- [ ] Reconcile the three competing TechSupport graph builders into one shared factory:
-      `seedTechSupportRootBaseline()` (`tests/e2e/helpers/clear-database.ts:110`),
-      `scripts/dev-techsupport-bootstrap.js`, and the client constant.
-- [ ] Test: `stage0-bootstrap` — fresh relay, no browser: identity record present, no support DB.
-- [ ] Test: `stage1` — TechSupport device **not running**: headcount is still 2 and the contact is
-      listed, with the away indicator shown.
+> **Complete 2026-07-25** — see `docs/completed.md`. Design note:
+> `docs/design/techsupport-k1-design-note.md`. Contract doc amended.
 
 ### K2. Signed greeting without server storage `[Opus]`
 
-- [ ] TechSupport pre-signs the welcome template (per locale — EN + 中文,
-      `ui-translations.ts:420`); ship the signed blob and verify against `TECHSUPPORT_PUB` before
-      rendering. Nothing per-user is stored or transmitted.
-- [ ] Delete the browser-side compose path and the `supportState` localStorage gate; a client that
-      cannot verify the signature shows no greeting rather than a fabricated one.
-- [ ] Rework the `support_welcome_<userId>` assumption in `e2e-stage-pipeline.ts:95-103` — the
-      integrity check must assert "at most one rendered greeting per user" against the new model
-      instead of counting stored messages.
-- [ ] Decide: does the greeting appear in the support conversation as a real message (needs local
-      persistence on the receiver only), or as a rendered header? Record the choice.
-- [ ] Test: `stage1` — clear storage and re-open; exactly one greeting, signature verifies.
-- [ ] Test: `stage1` — tampered signature ⇒ greeting suppressed, no impersonated message rendered.
+> **Complete 2026-07-25** — see `docs/completed.md`. Design note:
+> `docs/design/techsupport-k2-design-note.md`. Contract doc amended.
 
 ### K3. Developer login as TechSupport `[Opus]`
 
-**Proposal (revised): the TechSupport device is a normal client holding the keypair.**
-
-> Reverses the earlier draft. That draft had the *server* own the private key and vend it over a
-> dev endpoint — which only makes sense if TechSupport is server-resident. Under the peer model the
-> previously-rejected "agent on its own device" option is the correct one, not the heavy one.
-
-- The SEA pair lives in a **key file on the TechSupport device** (`TECHSUPPORT_SEA_PAIR_JSON` or a
-  path to it), never in the web bundle, never on the relay. The relay only ever sees
-  `TECHSUPPORT_PUB`.
-- Boot the normal web client in TechSupport mode: it loads the pair from the local file,
-  `gun.user().auth(pair)`, adopts `TECHSUPPORT_ROOT_USER_ID`, and joins Global as a real peer.
-  Same app, same transports — it is the built-in identity, not a special client.
-- Persist under a distinct localStorage key so it never collides with the device's ordinary
-  identity; show a permanent "TechSupport (root)" badge in the app bar.
-- Refuse to start if the loaded pair's `pub !== TECHSUPPORT_PUB` — no silent impersonation.
-- Dev ergonomics: `npm run dev:techsupport` launches this mode against the running relay, so a
-  developer can answer queued questions (K5) from a second browser window on any machine.
-- Production posture: whoever holds the key file is TechSupport. Key handling, rotation, and where
-  the operator device runs are an **open question below**, not settled by this item.
-
-- [ ] Implement key-file loading + `pub` assertion + TechSupport-mode boot; document the key file
-      in `.env.local` notes and add it to `.gitignore`.
-- [ ] Add `npm run dev:techsupport`; retire `isDevStageTechSupportLoginResolved()` and the
-      `IINPUBLIC_STAGE_SEED` TechSupport special case once it lands.
-- [ ] Move the pair out of the server: `TechSupportAnnouncementService` keeps republishing the
-      public identity record but must no longer require the private half at boot.
-- [ ] Test: unit — a pair whose `pub` mismatches `TECHSUPPORT_PUB` is rejected.
-- [ ] Test: `stage1` — boot TechSupport mode in a second browser, post a message to a user; the
-      user's client verifies the signature against `TECHSUPPORT_PUB`.
-
-**Open questions for K3**
-
-- Key rotation: `TECHSUPPORT_PUB` is a compiled constant, so rotating the key ships a new client
-  build and orphans previously-signed greetings/FAQ bundles. Need a versioned-key or
-  trust-anchor-list story before production.
-- The dev-anchor comment on `TECHSUPPORT_PUB` (`src/shared/techsupport.ts:5`) still says to replace
-  it "together with the server secret" — reword once K3 lands.
+> **Complete 2026-07-26** — see `docs/completed.md`. Design note:
+> `docs/design/techsupport-k3-design-note.md`. Contract doc amended.
 
 ### K6. TechSupport is unblockable / unfilterable `[Sonnet]`
 

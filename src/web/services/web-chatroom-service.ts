@@ -2,7 +2,7 @@ import { GPSCoordinate } from '../../shared/types';
 import { deriveBackendApiBaseFromLocation, WebGunService } from './web-gun-service';
 import { CONFIG } from '../../shared/config';
 import { findAppropriateChildChatroom, getLocationChatroomPath } from '../../shared/location-to-chatroom';
-import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_GLOBAL_ROOM_ID, techSupportRosterMember } from '../../shared/techsupport';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 import {
   incrementVisitSlot,
@@ -603,6 +603,21 @@ export class WebChatroomService {
     return this.observeActiveMemberIds(chatroomId, 800);
   }
 
+  /**
+   * K1 item 1 (docs/TODO.md): Global always has a floor of one built-in TechSupport member,
+   * synthesized from compiled constants — no round-trip, no dependence on a browser having
+   * bootstrapped it. Injected only when no real `TECHSUPPORT_ROOT_USER_ID` entry is already in
+   * the map (a real seeded row, K1 item 2, always wins and is never double-counted).
+   */
+  private rosterWithTechSupportFloor(
+    chatroomId: string,
+    members: Array<{ userId: string; stageName: string; joinedAt?: string | Date; epub?: string; pub?: string }>,
+  ): Array<{ userId: string; stageName: string; joinedAt?: string | Date; epub?: string; pub?: string }> {
+    if (chatroomId !== TECHSUPPORT_GLOBAL_ROOM_ID) return members;
+    if (members.some((m) => m.userId === TECHSUPPORT_ROOT_USER_ID)) return members;
+    return [...members, techSupportRosterMember()];
+  }
+
   subscribeToMembers(
     chatroomId: string,
     callback: (members: Array<{ userId: string; stageName: string; joinedAt?: string | Date; epub?: string; pub?: string }>) => void,
@@ -615,7 +630,7 @@ export class WebChatroomService {
     if (this.membersListenerRoomId === chatroomId && this.activeMembersUnsubscribe) {
       queueMicrotask(() => {
         if (this.membersListCallback === callback && chatroomId === this.membersListenerRoomId) {
-          callback(Array.from(this.activeMembersForList.values()));
+          callback(this.rosterWithTechSupportFloor(chatroomId, Array.from(this.activeMembersForList.values())));
         }
       });
       return;
@@ -659,7 +674,9 @@ export class WebChatroomService {
         if (this.membersListDebounce) clearTimeout(this.membersListDebounce);
         this.membersListDebounce = setTimeout(() => {
           if (chatroomId === this.membersListenerRoomId && this.membersListCallback) {
-            this.membersListCallback(Array.from(this.activeMembersForList.values()));
+            this.membersListCallback(
+              this.rosterWithTechSupportFloor(chatroomId, Array.from(this.activeMembersForList.values())),
+            );
           }
         }, 150);
       });
@@ -745,6 +762,10 @@ export class WebChatroomService {
    */
   async getMemberCount(chatroomId: string): Promise<number> {
     const activeMemberIds = await this.observeActiveMemberIds(chatroomId, 1400, { includeTechSupport: true });
+    // K1 item 1: Global's count floor of 1 does not depend on any Gun row existing yet.
+    if (chatroomId === TECHSUPPORT_GLOBAL_ROOM_ID && !activeMemberIds.includes(TECHSUPPORT_ROOT_USER_ID)) {
+      return activeMemberIds.length + 1;
+    }
     return activeMemberIds.length;
   }
 
@@ -782,11 +803,17 @@ export class WebChatroomService {
 
     const emitCount = () => {
       let count = 0;
-      for (const [, data] of activeMembers) {
+      let sawFreshTechSupport = false;
+      for (const [id, data] of activeMembers) {
         if (this.isFreshActiveMember(data)) {
           count++;
+          if (id === TECHSUPPORT_ROOT_USER_ID) sawFreshTechSupport = true;
         }
       }
+      // K1 item 1: Global's count floor of 1 does not depend on any Gun row existing (or
+      // reading fresh) yet — TechSupport is always in the room whether or not its device is
+      // currently reachable (liveness is a separate signal, K1 item 3).
+      if (chatroomId === TECHSUPPORT_GLOBAL_ROOM_ID && !sawFreshTechSupport) count++;
 
       console.log(`📊 Member count update for ${chatroomId}: ${count} members`);
       callback(count);

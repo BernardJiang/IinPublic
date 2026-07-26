@@ -2,7 +2,8 @@ import type { GPSCoordinate, CommunityRole, CommunityRoleRecord } from '../../sh
 import { GunService } from './gun-service';
 import { canAssignRole, chatroomRolePath, deriveCommunityId } from '../../shared/chatroom-hierarchy';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
-import { isTechSupportId } from '../../shared/techsupport';
+import { isTechSupportId, TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../shared/techsupport';
+import { techSupportGlobalMemberFields } from '../../shared/techsupport-graph';
 import {
   incrementVisitSlot,
   LEGACY_VISIT_SLOT_ID,
@@ -101,7 +102,11 @@ export class ChatroomManager {
     if (!room) return [];
     const members: Array<{ userId: string; stageName: string }> = [];
     for (const [userId, member] of room) {
-      if (this.roomMembershipIsStale({ isActive: true, lastSeen: member.lastSeen }, now)) {
+      // TechSupport is never evicted from a room (decision K1-3, docs/TODO.md), including here —
+      // this in-memory fast path has its own independent staleness check from
+      // pruneStaleRoomMemberships's Gun-persisted path, so the immunity guard has to be repeated
+      // or a TechSupport device that never heartbeats would silently age out after the TTL.
+      if (!isTechSupportId(userId) && this.roomMembershipIsStale({ isActive: true, lastSeen: member.lastSeen }, now)) {
         room.delete(userId);
         continue;
       }
@@ -530,6 +535,32 @@ export class ChatroomManager {
     // is an eventually-consistent badge, so fan it out without blocking the caller's response.
     void this.publishRoomMemberCount(chatroomId).catch(() => {
       /* best-effort public badge; never blocks membership writes */
+    });
+  }
+
+  /**
+   * Relay-light presence (docs/TODO.md K1 item 2): seed the one TechSupport Global member row
+   * on boot and after every E2E reset, so a bare relay with no browser ever having bootstrapped
+   * still reports TechSupport present. "Bytes, not a database" — this writes exactly the member
+   * row, nothing else (no user record, reputation, or filters; those come from the client's
+   * compiled constants + the signed identity record, not a server-side user).
+   *
+   * Idempotent and safe to call repeatedly: re-stamps `lastSeen`/`joinedAt` fresh each call so
+   * the row never reads as stale even though eviction already skips it (K1-3) — a fresh stamp
+   * also means a boot seed run after an E2E reset is never mistaken for a pre-reset ghost.
+   */
+  async seedTechSupportGlobalMembership(chatroomId = 'global'): Promise<void> {
+    const nowIso = new Date().toISOString();
+    const fields = techSupportGlobalMemberFields(nowIso);
+    this.upsertFastMember(chatroomId, TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME, nowIso, {
+      bypassResetFence: true,
+    });
+    await Promise.all([
+      this.gunService.putPath(['chatrooms', chatroomId, 'users', TECHSUPPORT_ROOT_USER_ID], fields),
+      this.gunService.putPath(['chatroomMembers', chatroomId, TECHSUPPORT_ROOT_USER_ID], fields),
+    ]);
+    void this.publishRoomMemberCount(chatroomId).catch(() => {
+      /* best-effort public badge; a missing publish does not drop the member row itself */
     });
   }
 

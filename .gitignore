@@ -4,6 +4,10 @@ node_modules/
 # Local dev TLS certs (self-signed, per-machine — never commit)
 certs/
 
+# TechSupport device key file, if using the TECHSUPPORT_KEY_FILE form instead of
+# TECHSUPPORT_SEA_PAIR_JSON in .env.local (docs/TODO.md K3) — never commit.
+secrets/
+
 # Build outputs
 dist/
 coverage/

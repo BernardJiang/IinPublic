@@ -3,6 +3,11 @@ import {
   TECHSUPPORT_ROOT_USER_ID,
   TECHSUPPORT_STAGE_NAME,
 } from '../../../src/shared/techsupport';
+import {
+  TECHSUPPORT_GREETING_TEMPLATES,
+  verifyTechSupportGreeting,
+  type GreetingLocale,
+} from '../../../src/shared/techsupport-greeting';
 
 /**
  * Shared TechSupport-baseline checks (docs/TODO.md K4).
@@ -53,15 +58,43 @@ export function techSupportBaselineProblem(graph: GunGraph | undefined): string 
   return null;
 }
 
+const SUPPORT_GREETING_SOUL_RE = /^conversations\/conv_support_[^/]+\/messages\/support_welcome_(.+)$/;
+
 /** Duplicate support greetings for one receiver, or null if clean. */
 export function duplicateSupportGreeting(graph: GunGraph | undefined): string | null {
   if (!graph) return null;
   const seen = new Set<string>();
   for (const soul of Object.keys(graph)) {
-    const match = soul.match(/^conversations\/conv_support_[^/]+\/messages\/support_welcome_(.+)$/);
+    const match = soul.match(SUPPORT_GREETING_SOUL_RE);
     if (!match) continue;
     if (seen.has(match[1])) return match[1];
     seen.add(match[1]);
+  }
+  return null;
+}
+
+/**
+ * K2 (docs/TODO.md): any stored `support_welcome_*` greeting must carry a signature that
+ * verifies against the compiled DM trust anchors. Presence is never required — under K2 the
+ * greeting is authored client-side, into the receiver's own local Gun, and not transmitted, so
+ * a server-side snapshot legitimately has zero greeting souls. Only "if one is present, it must
+ * be genuine" is asserted; returns a human-readable reason or null if clean/absent.
+ */
+export async function signedGreetingProblem(graph: GunGraph | undefined): Promise<string | null> {
+  if (!graph) return null;
+  for (const [soul, record] of Object.entries(graph)) {
+    const match = soul.match(SUPPORT_GREETING_SOUL_RE);
+    if (!match) continue;
+    const locale = record?.greetingLocale as GreetingLocale | undefined;
+    const verified = await verifyTechSupportGreeting({
+      locale,
+      template: locale ? TECHSUPPORT_GREETING_TEMPLATES[locale] : undefined,
+      authorPub: record?.greetingAuthorPub,
+      signature: record?.greetingSignature,
+    });
+    if (!verified) {
+      return `support_welcome_${match[1]} (${soul}) does not verify against the compiled DM trust anchors`;
+    }
   }
   return null;
 }

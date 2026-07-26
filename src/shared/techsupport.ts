@@ -3,10 +3,14 @@ import type { User } from './types';
 export const TECHSUPPORT_STAGE_NAME = 'TechSupport';
 export const TECHSUPPORT_ROOT_USER_ID = 'iinpublic-root-techsupport';
 /**
- * Development trust anchor. Replace before production.
+ * Compiled trust anchor for the TechSupport identity. Kept as the current single key while the
+ * announcement and DM anchor lists below both hold it; rotation is via those lists (K3-2), not
+ * by editing this constant.
  *
- * @deprecated Prefer the trust-anchor lists below. Kept as the current single key so existing
- * call sites keep working while K3 lands; it is seeded into both lists.
+ * The **private** halves live off the client: the DM key on the TechSupport device (replicated
+ * across operator machines per K3-4), the announcement key on the relay. Neither is ever
+ * compiled into the client bundle — see `assertTechSupportDmPair()` below and
+ * `scripts/dev-techsupport-login.js`.
  */
 export const TECHSUPPORT_PUB = 'mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ';
 
@@ -58,8 +62,57 @@ export function currentTechSupportDmPub(): string {
 export function currentTechSupportAnnouncementPub(): string {
   return TECHSUPPORT_ANNOUNCEMENT_TRUST_ANCHORS[0];
 }
+
+export interface TechSupportSeaPair {
+  pub: string;
+  epub: string;
+  priv: string;
+  epriv: string;
+}
+
+export const TECHSUPPORT_PAIR_MISMATCH_ERROR =
+  'Loaded TechSupport key does not match a TechSupport DM trust anchor — refusing to start.';
+
+/**
+ * Refuses to boot a TechSupport-mode client with the wrong key (docs/TODO.md K3 — "no silent
+ * impersonation"). Validates shape, then checks `pub` against the DM trust-anchor **list**
+ * (not a literal `=== TECHSUPPORT_PUB`) so this survives key rotation (K3-2) without editing.
+ */
+export function assertTechSupportDmPair(pair: unknown): asserts pair is TechSupportSeaPair {
+  const candidate = pair as Partial<TechSupportSeaPair> | null | undefined;
+  const wellFormed =
+    !!candidate &&
+    typeof candidate === 'object' &&
+    typeof candidate.pub === 'string' &&
+    typeof candidate.epub === 'string' &&
+    typeof candidate.priv === 'string' &&
+    typeof candidate.epriv === 'string' &&
+    candidate.pub.length > 0;
+  if (!wellFormed || !isTrustedTechSupportDmPub(candidate!.pub)) {
+    throw new Error(TECHSUPPORT_PAIR_MISMATCH_ERROR);
+  }
+}
+
 export const TECHSUPPORT_NETWORK_ROLE = 'root-techsupport';
 export const TECHSUPPORT_HEADSHOT = 'TS';
+
+/**
+ * The synthetic Global-room roster entry the client injects from compiled constants (docs/TODO.md
+ * K1 item 1) — "no round-trip, no dependence on a browser having bootstrapped it." Only ever used
+ * as a floor when no real `TECHSUPPORT_ROOT_USER_ID` roster entry is already present; callers must
+ * dedup by this id so a real seeded row (K1 item 2) is never double-counted.
+ */
+export interface TechSupportRosterMember {
+  userId: string;
+  stageName: string;
+}
+
+export function techSupportRosterMember(): TechSupportRosterMember {
+  return { userId: TECHSUPPORT_ROOT_USER_ID, stageName: TECHSUPPORT_STAGE_NAME };
+}
+
+/** Only Global carries the built-in TechSupport floor (K1) — never sub-rooms. */
+export const TECHSUPPORT_GLOBAL_ROOM_ID = 'global';
 
 export const RESERVED_STAGE_NAMES = [
   TECHSUPPORT_STAGE_NAME,

@@ -6,14 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Development
-npm run dev                    # clean DB, browser logs in as built-in TechSupport (headcount 1); web (webpack, port 3001) + server (tsx watch, port 8080)
+npm run dev                    # clean DB, browser boots as an ordinary user (headcount 2: dev user + built-in TechSupport); web (webpack, port 3001) + server (tsx watch, port 8080)
 npm run dev:run                # web + server WITHOUT reset (internal base for dev/dev:multi)
-npm run dev:stage-empty        # alias of dev (clean DB + TechSupport only)
+npm run dev:stage-empty        # alias of dev (clean DB, ordinary user + built-in TechSupport)
 npm run dev:stage-user1        # dev with a pre-seeded single user (IINPUBLIC_STAGE_SEED=user1)
 npm run dev:stage-user2-match  # two users with a pre-existing match
 npm run dev:stage-user3-network # three-user network scenario
 npm run dev:web                # webpack dev server only
 npm run dev:server             # Express/Gun server only (hot-reload via tsx)
+npm run dev:techsupport        # boot the web client AS TechSupport (real DM-key signing) against an already-running dev server — run `npm run dev` in another terminal first
 
 # Build
 npm run build:web              # webpack production bundle
@@ -176,7 +177,10 @@ Tests live in `tests/e2e/`. Each spec has a companion `.md` with a plain-English
 ### Dev stage seeds
 
 `src/web/dev-stage-seeds.ts` contains seed functions keyed by `IINPUBLIC_STAGE_SEED`:
-- `stage-zero` / `empty` — clean DB; browser boots logged in as the built-in TechSupport root (headcount 1)
+- `stage-zero` / `empty` — clean DB; browser boots as an ordinary user (headcount 2: dev user +
+  built-in TechSupport, provided by the relay boot seed and the client's compiled-constant floor,
+  K1). To act *as* TechSupport with a real signing identity, run `npm run dev:techsupport` (K3)
+  against the running server instead.
 - `multi` — dev:multi only: clean DB, ordinary browser users; TechSupport seeded server-side
 - `user1` — one user with profile
 - `user2-match` — two users with a pre-existing match conversation

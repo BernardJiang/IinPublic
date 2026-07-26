@@ -1,6 +1,7 @@
 import { ChatroomManager } from '../../server/services/chatroom-manager';
 import type { GunService } from '../../server/services/gun-service';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
+import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../shared/techsupport';
 
 class MemoryGunService {
   private state: Record<string, any> = {};
@@ -114,5 +115,68 @@ describe('ChatroomManager visit accounting', () => {
       visitCount: 1,
       uniqueVisitorCount: 1,
     });
+  });
+});
+
+describe('ChatroomManager TechSupport built-in presence (docs/TODO.md K1)', () => {
+  function buildManager(): ChatroomManager {
+    return new ChatroomManager(new MemoryGunService() as unknown as GunService);
+  }
+
+  it('seedTechSupportGlobalMembership writes one active member row and publishes the count', async () => {
+    const manager = buildManager();
+    const gunService = (manager as any).gunService as MemoryGunService;
+
+    await manager.seedTechSupportGlobalMembership();
+
+    expect(await gunService.getPath(['chatrooms', 'global', 'users', TECHSUPPORT_ROOT_USER_ID]))
+      .toMatchObject({ userId: TECHSUPPORT_ROOT_USER_ID, stageName: TECHSUPPORT_STAGE_NAME, isActive: true });
+    expect(await gunService.getPath(['chatroomMembers', 'global', TECHSUPPORT_ROOT_USER_ID]))
+      .toMatchObject({ userId: TECHSUPPORT_ROOT_USER_ID, stageName: TECHSUPPORT_STAGE_NAME, isActive: true });
+    expect(await manager.getActiveMembersWithStageName('global')).toEqual([
+      { userId: TECHSUPPORT_ROOT_USER_ID, stageName: TECHSUPPORT_STAGE_NAME },
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 0)); // let the fire-and-forget count publish settle
+    expect(await gunService.getPath(['public', 'room-member-counts', 'global'])).toMatchObject({ count: 1 });
+  });
+
+  it('never evicts TechSupport from the fast in-memory path even long past the TTL (K1-3)', async () => {
+    const manager = buildManager();
+    await manager.seedTechSupportGlobalMembership();
+
+    // Simulate a TechSupport device that seeded once and never heartbeat again — backdate its
+    // fast-path lastSeen the same way a stale ordinary member would look after the TTL.
+    const old = new Date(Date.now() - (ROOM_MEMBERSHIP_TTL_SECONDS + 5) * 1000).toISOString();
+    (manager as any).fastActiveMembers.get('global').set(TECHSUPPORT_ROOT_USER_ID, {
+      userId: TECHSUPPORT_ROOT_USER_ID,
+      stageName: TECHSUPPORT_STAGE_NAME,
+      lastSeen: old,
+    });
+
+    expect(await manager.getActiveMembersWithStageName('global')).toEqual([
+      { userId: TECHSUPPORT_ROOT_USER_ID, stageName: TECHSUPPORT_STAGE_NAME },
+    ]);
+  });
+
+  it('headcount is exactly 2 once an ordinary user joins alongside the seeded TechSupport row', async () => {
+    const manager = buildManager();
+    await manager.seedTechSupportGlobalMembership();
+    await manager.addMemberFast('global', 'user_1', 'Alice');
+
+    const members = await manager.getActiveMembersWithStageName('global');
+    expect(members).toHaveLength(2);
+    expect(members.map((m) => m.userId).sort()).toEqual([TECHSUPPORT_ROOT_USER_ID, 'user_1'].sort());
+  });
+
+  it('re-seeding refreshes lastSeen so a boot seed after reset never reads as stale', async () => {
+    const manager = buildManager();
+    await manager.seedTechSupportGlobalMembership();
+    const first = await (manager as any).gunService.getPath(['chatrooms', 'global', 'users', TECHSUPPORT_ROOT_USER_ID]);
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await manager.seedTechSupportGlobalMembership();
+    const second = await (manager as any).gunService.getPath(['chatrooms', 'global', 'users', TECHSUPPORT_ROOT_USER_ID]);
+
+    expect(Date.parse(second.lastSeen)).toBeGreaterThanOrEqual(Date.parse(first.lastSeen));
   });
 });

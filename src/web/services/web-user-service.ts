@@ -478,34 +478,6 @@ export class WebUserService {
     });
   }
 
-  async hasTechSupportRoot(): Promise<boolean> {
-    const apiBase = this.getApiBase();
-    if (apiBase) {
-      try {
-        const root = await fetch(`${apiBase}/api/users/${encodeURIComponent(TECHSUPPORT_ROOT_USER_ID)}`, {
-          cache: 'no-store',
-        });
-        if (root.ok) return true;
-      } catch {
-        // Fall back to the local Gun graph below when the HTTP API is unavailable.
-      }
-    }
-
-    const gun = this.gunService.getGun();
-    return new Promise<boolean>((resolve) => {
-      const timeoutId = setTimeout(() => resolve(false), 750);
-      gun.get('users').get(TECHSUPPORT_ROOT_USER_ID).once((data: any) => {
-        clearTimeout(timeoutId);
-        resolve(
-          !!data &&
-          typeof data === 'object' &&
-          data.id === TECHSUPPORT_ROOT_USER_ID &&
-          data.stageName === TECHSUPPORT_STAGE_NAME,
-        );
-      });
-    });
-  }
-
   async createTechSupportRoot(userData: Partial<User> = {}): Promise<User> {
     return this.createUser({
       ...userData,

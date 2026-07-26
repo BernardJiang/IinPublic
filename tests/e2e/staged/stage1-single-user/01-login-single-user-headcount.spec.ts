@@ -6,7 +6,7 @@ import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, delay, headless } from '../../helpers/timing';
-import { webBaseURL, e2eTestScreenshotsDir, gunBaseURL } from '../../helpers/ports';
+import { webBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../../../src/shared/techsupport';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
@@ -32,14 +32,6 @@ async function readFirstUserSupportState(page: Page): Promise<{
       supportMessages: supportConversations.map((conversation) => String(conversation?.lastMessage || '')),
     };
   }, TECHSUPPORT_ROOT_USER_ID);
-}
-
-async function countSupportWelcomeMessages(userId: string): Promise<number> {
-  const res = await fetch(`${gunBaseURL()}/api/test/export-snapshot`);
-  expect(res.ok).toBeTruthy();
-  const snapshot = await res.json() as { gunGraph?: Record<string, unknown> };
-  const suffix = `/messages/support_welcome_${userId}`;
-  return Object.keys(snapshot.gunGraph || {}).filter((soul) => soul.endsWith(suffix)).length;
 }
 
 test.describe('Login — single user headcount', () => {
@@ -84,12 +76,8 @@ test.describe('Login — single user headcount', () => {
     expect(firstLoginState.currentUserId).not.toBe(TECHSUPPORT_ROOT_USER_ID);
     expect(firstLoginState.currentStageName).not.toBe(TECHSUPPORT_STAGE_NAME);
     expect(firstLoginState.supportConversationCount).toBe(1);
-    expect(firstLoginState.supportMessages[0]).toContain('Welcome to IinPublic');
-    expect(firstLoginState.supportMessages[0]).toContain(firstLoginState.currentStageName);
-    await expect.poll(
-      () => countSupportWelcomeMessages(firstLoginState.currentUserId),
-      { timeout: 15_000 },
-    ).toBe(1);
+    // Greeting text/signature correctness is 03-support-greeting-signed.spec.ts's job (K2,
+    // docs/TODO.md) — this spec only proves the contact exists and headcount holds.
 
     const expectedHeadcount = '2';
     const headcount = page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount');
@@ -114,10 +102,6 @@ test.describe('Login — single user headcount', () => {
     const reloginState = await readFirstUserSupportState(page);
     expect(reloginState.currentUserId).toBe(firstLoginState.currentUserId);
     expect(reloginState.supportConversationCount).toBe(1);
-    await expect.poll(
-      () => countSupportWelcomeMessages(firstLoginState.currentUserId),
-      { timeout: 15_000 },
-    ).toBe(1);
     await expect(page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount')).toContainText(
       expectedHeadcount,
       { timeout: 20000 },

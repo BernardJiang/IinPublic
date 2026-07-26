@@ -1,6 +1,6 @@
 # IinPublic Completed Work
 
-Last updated: 2026-07-14
+Last updated: 2026-07-25
 
 ## 2026-07-14 — S3 embedded-node mobile shells: Android/iOS native builds verified
 
@@ -2990,3 +2990,196 @@ light-shard confirmation run) stay in TODO.
   `node_modules/.cache/webpack`. **Maintenance invariant:** any new env var read
   by DefinePlugin/EnvironmentPlugin must be added to `BUNDLED_ENV_KEYS`.
 - Host timing verification still pending (tracked in TODO).
+
+## 2026-07-25 — K1: TechSupport built-in identity + relay-light presence
+
+Moved from `docs/TODO.md` K1. Design note (implementation guide, landing order, risks):
+`docs/design/techsupport-k1-design-note.md`. Contract doc amended:
+`docs/design/techsupport-bootstrap-contract.md`.
+
+- **Unified graph builder** — `src/shared/techsupport-graph.ts` (`techSupportBaselineGraph`,
+  `techSupportGlobalMemberFields`/`Row`) is the single authored source for the TechSupport baseline
+  graph. `tests/e2e/helpers/clear-database.ts` imports it directly (TS); the plain-Node
+  `scripts/dev-techsupport-bootstrap.js` requires the compiled `dist/server/shared` output,
+  auto-building via `npm run build:server` on first use if missing. Removes ~150 lines of
+  duplicated, drifting graph-construction code.
+- **Relay boot/reset seed** — `ChatroomManager.seedTechSupportGlobalMembership()` writes exactly
+  one Global member row (`chatrooms/global/users/<id>` + `chatroomMembers/global/<id>`, fresh
+  `lastSeen` every call) and nothing else — no full user record, reputation, or filters ("bytes,
+  not a database"). Called from `IinPublicServer.publishPublicBootstrap()` on boot and after every
+  E2E reset, right after the signed identity republish.
+- **Eviction-immunity gap found and fixed while implementing:** TechSupport's "never evicted"
+  guarantee (K1-3) was only enforced in the Gun-persisted staleness path
+  (`pruneStaleRoomMemberships`). The separate in-memory fast-path map
+  (`ChatroomManager.getFastActiveMembers`) had its own independent TTL check with no such guard —
+  a TechSupport device that seeded once and never heartbeat again would have silently aged out.
+  Fixed by adding the same `isTechSupportId` skip there; covered by a unit test that backdates the
+  fast-path `lastSeen` past the TTL and asserts TechSupport survives.
+- **Client-side floor** — `src/shared/techsupport.ts` exports `techSupportRosterMember()`
+  (userId/stageName from compiled constants). `WebChatroomService.rosterWithTechSupportFloor()`
+  injects it into the Global roster only when no real `TECHSUPPORT_ROOT_USER_ID` entry is already
+  present (both `subscribeToMembers` emit paths — the "reopen same room" fast path and the
+  debounced live path). `getMemberCount()` and `subscribeToMemberCount()`'s `emitCount()` apply the
+  same +1 floor. Dedup is by canonical id, so the relay seed and the client floor never
+  double-count (headcount is always exactly 2 for one ordinary user + TechSupport, never 3).
+- **Online/away indicator** — `UIManager.setTechSupportOnlineStatus()`/`isTechSupportOnline()`,
+  wired from real `P2PPresenceClient.fetchNearby()` results in `app.ts`'s
+  `initP2PPresenceAndBridge()` and `refreshConversationPresence()` (no separate poll loop — reuses
+  the existing presence-refresh calls). Renders as a `.techsupport-presence-indicator` dot
+  (`online`/`away` class + `data-techsupport-online` attribute) on both the Contacts support row
+  and the Global roster row. Defaults to away; never confused with headcount (K1-2).
+- **Deleted the browser root-minting write path** — `bootstrapTechSupportRootIfMissing()` and the
+  browser-side `seedTechSupportGlobalMembership()` (`app.ts`), plus the now-dead
+  `WebUserService.hasTechSupportRoot()` (no remaining callers). Browsers only render TechSupport
+  locally now; `createTechSupportRoot()` stays for the unrelated dev stage-zero TechSupport-login
+  path (K3's concern).
+- **New unit tests:** `src/test/unit/chatroom-manager.test.ts` (+4: seed writes/publishes,
+  eviction immunity on the fast path, headcount exactly 2 alongside a real join, re-seed refreshes
+  `lastSeen`); `src/test/unit/web-chatroom-techsupport-floor.test.ts` (+4: roster floor dedup
+  logic, pure/sync).
+- **New E2E specs:**
+  `tests/e2e/staged/stage0-bootstrap/000-relay-only-techsupport-presence.spec.ts` (fresh relay, no
+  browser: identity + one member row present, no support DB — reads the member row through the
+  real `/api/chatrooms/global/members` endpoint rather than the raw `export-snapshot` graph dump,
+  since Gun's chain-based `.get().get()...put()` writes — same mechanism ordinary `addMemberFast`
+  joins use — don't reliably surface as a literal joined-path soul in a shallow `_.graph` copy the
+  way pre-built import-snapshot graphs do; the real read API is what every actual client uses, so
+  it is the correct thing to assert against) and
+  `tests/e2e/staged/stage1-single-user/02-techsupport-away-headcount.spec.ts` (headcount 2, contact
+  + roster row listed, away indicator settled and never "online," with no TechSupport device
+  process ever started). Both pass locally against the staged pipeline
+  (`E2E_STAGE_PIPELINE=1 PW_WORKERS=1`); confirmed `baa-techsupport-single-user-tabs.spec.ts` and
+  `caa-techsupport-four-talk-types.spec.ts` fail identically on the pre-K1 baseline (verified via
+  `git stash`), i.e. pre-existing, unrelated flakiness, not a regression.
+- **Full suite green:** 912/912 unit tests pass; `npm run build:server` / `build:web` both clean;
+  full-project `tsc --noEmit` and `npm run lint` both clean.
+
+## 2026-07-25 — K2: signed greeting without server storage
+
+Moved from `docs/TODO.md` K2. Design note: `docs/design/techsupport-k2-design-note.md`. Contract
+doc amended: `docs/design/techsupport-bootstrap-contract.md`. Builds on K1 (same day).
+
+- **Signed-greeting module** — `src/shared/techsupport-greeting.ts` (`signGreeting`/
+  `verifyTechSupportGreeting`/`renderGreeting`, mirroring `system-announcements.ts`'s sign/verify
+  convention). The payload signed is the generic per-locale template **with the literal `{name}`
+  placeholder still in it** — personalization happens client-side, only after signature
+  verification succeeds, so nothing per-user is ever signed or transmitted.
+- **Committed signed artifact** — `src/shared/techsupport-greeting.signed.json` (EN + 中文), produced
+  by the one-off `scripts/sign-techsupport-greeting.js` (`npm run sign:techsupport-greeting`; reads
+  `TECHSUPPORT_SEA_PAIR_JSON`, asserts the pair matches `currentTechSupportDmPub()` before signing,
+  auto-builds `dist/server/shared` if missing so the script and the client verifier can never sign
+  against a payload shape the other disagrees with).
+- **Client render + persist** — `IinPublicApp.ensureSupportBootstrapForCurrentUser()` (`app.ts`) now
+  verifies the compiled bundle against `TECHSUPPORT_DM_TRUST_ANCHORS` before rendering; on failure it
+  returns with **no greeting at all** (K2-3: silent suppression, no toast, no fabricated message).
+  On success it persists the rendered text as a real message via the new
+  `WebConversationService.upsertMessageRecord` → `GunMessageStore.putMessageRecord` local-only write
+  (never `sendMessage`'s peer-notify path) at the existing deterministic soul
+  `support_welcome_<userId>`, with three new `ConversationMessageWire` fields
+  (`greetingLocale`/`greetingSignature`/`greetingAuthorPub`) carried through for later re-verification.
+- **Deleted the old compose path** — the `supportState` localStorage gate, the fabricated English
+  string, and the network `sendMessage(...)` greeting send are gone. The contact-record writes stay
+  (unconditional on verification — K6: the support channel is a stuck user's only recourse).
+  `formatSupportWelcome`/`formatConversationMessage` (the old regex-based re-localizer) are deleted;
+  `ui-translations.ts`'s duplicate `supportWelcome` EN/ZH strings are deleted in favor of the single
+  compiled `TECHSUPPORT_GREETING_TEMPLATES` source of truth.
+- **Render-time re-verification (new defense, not just write-time)** —
+  `UIManager.filterVerifiedSupportMessages()` re-derives the template from the compiled constant
+  (never trusts a stored template string) and additionally confirms the stored `text` is exactly
+  what the verified template renders to *for the current user* — this is what catches a stored
+  record whose `text` was altered after signing while `greetingSignature`/`greetingLocale` were left
+  untouched, a gap a signature-only check would miss. `displayConversationMessages` became `async`
+  to accommodate the one-message crypto check; the conversation-list preview formatter is now a
+  pass-through (no more dynamic re-localization — the stored text is already in its write-time locale).
+- **E2E integrity guard reworked** — `tests/e2e/helpers/techsupport-baseline.ts` gained
+  `signedGreetingProblem()`: a stage snapshot may legitimately contain **zero** greeting souls
+  (client-authored, not server-stored) — presence is never required, but any greeting that *is*
+  present must verify. Wired into `assertStageSnapshotIntegrity` (now `async`).
+- **New unit tests:** `src/test/unit/techsupport-greeting.test.ts` (11: sign/verify round-trip,
+  committed-bundle verification, tamper/mismatch/untrusted-key/malformed-input rejection);
+  `src/test/unit/techsupport-baseline.test.ts` (+5 for `signedGreetingProblem`).
+- **New E2E specs:** `tests/e2e/staged/stage1-single-user/03-support-greeting-signed.spec.ts`
+  (positive path — renders once, personalizes correctly, verifies, survives clear-storage +
+  re-open) and `04-support-greeting-tamper-suppressed.spec.ts` (negative path — text altered after
+  signing renders as nothing, no toast). `01-login-single-user-headcount.spec.ts` reworked to drop
+  its server-snapshot greeting-content assertions (moved to spec 03); `00-ui-navigation-settings.spec.ts`'s
+  fabricated Chinese-greeting fixture updated to supply already-localized text instead of relying on
+  the now-deleted regex re-localizer.
+- **Real UI-structure bug found while writing the E2E tests:** the Me tab has no conversation-list
+  UI at all (`#conversations-list` is referenced by `getElementById` checks but never exists in the
+  static shell — dead code path); a contact click lands on the DM conversation directly (redesign
+  §5, rule N2a). Both new specs navigate via Contacts → the support contact row, not a nonexistent
+  conversation-list item.
+- **Full suite green:** 928/928 unit tests pass; `npm run build:server` / `build:web` both clean;
+  full-project `tsc --noEmit` and `npm run lint` both clean; both new E2E specs pass, plus
+  `01-login`, `00-ui-navigation-settings`, and the full `stage0-bootstrap` pipeline (same
+  pre-existing, unrelated `baa`/`caa` failures as K1, confirmed via `git stash` against this
+  session's earlier baseline check).
+
+## 2026-07-26 — K3: developer login as TechSupport
+
+Moved from `docs/TODO.md` K3. Design note: `docs/design/techsupport-k3-design-note.md`. Contract
+doc amended: `docs/design/techsupport-bootstrap-contract.md`. Builds on K1/K2.
+
+- **The gap found while implementing:** the *existing* dev "login as TechSupport"
+  (`isDevStageTechSupportLoginResolved()`) adopted the correct user id but authenticated with a
+  **freshly generated random SEA pair** — `getStoredPair().pub` never matched `TECHSUPPORT_PUB`.
+  Any DM/greeting it authored was therefore silently suppressed by K2/K6 signature checks. K3's
+  job was making the TechSupport-mode boot authenticate with the **canonical DM pair** instead.
+- **Pure validator** — `assertTechSupportDmPair()` in `src/shared/techsupport.ts` validates shape
+  and checks `pub` against the DM trust-anchor **list** (`isTrustedTechSupportDmPub`), not a
+  hand-rolled `=== TECHSUPPORT_PUB`, so it survives key rotation (K3-2) without editing. Reworded
+  the stale `TECHSUPPORT_PUB` doc-comment ("replace before production... together with the server
+  secret") that no longer matched the split-key model.
+- **Client TechSupport-mode boot** — `WebGunService.ensureKeypairAndAuth()` checks a new,
+  *distinct* storage key (`TECHSUPPORT_KEYPAIR_STORAGE = 'iinpublic_techsupport_keypair_v1'`)
+  before the ordinary custody/legacy/new-pair branch. If present, validates and authenticates with
+  it, and **throws** rather than falling through to a random pair on validation failure ("no
+  silent impersonation"); skips writing it into the ordinary encrypted key-custody record so the
+  two identities can never merge. Added a permanent "TechSupport (root)" app-bar badge, gated on
+  the user id (so it also shows for a real production operator device, not just dev mode).
+- **`npm run dev:techsupport`** (`scripts/dev-techsupport-login.js`) — a Node launcher (modelled on
+  `launch-browsers.js`) that reads the pair from `TECHSUPPORT_SEA_PAIR_JSON` (or
+  `TECHSUPPORT_KEY_FILE`), asserts it matches `currentTechSupportDmPub()` before ever opening a
+  browser, launches a headed Playwright context against the already-running dev server, and
+  injects the root id + pair via `addInitScript` before navigation — disk → Node → browser
+  `localStorage`, so the private key never touches the webpack bundle or the relay. `.gitignore`
+  gained a `secrets/` entry for the optional key-file form; `.env.local`/`.env.example` reworded
+  to describe the pair as the TechSupport device key, not a server secret.
+- **Server de-gating** — the identity record is now a **committed, pre-signed artifact**
+  (`src/shared/techsupport-identity.signed.json`, signed once by the new
+  `scripts/sign-techsupport-identity.js` / `npm run sign:techsupport-identity` with the
+  **announcement** key, mirroring K2's greeting-signing pattern exactly).
+  `TechSupportAnnouncementService.publishIdentity()` just republishes the committed blob — no
+  private key needed at boot. `IinPublicServer.publishPublicBootstrap()` no longer gates on
+  `isConfigured()`, so a relay with **no** `TECHSUPPORT_SEA_PAIR_JSON` configured at all still
+  produces a full, correct identity record + Global member row (that env var now only gates the
+  on-demand admin announcement feature, which already guards itself with `if (!this.pair)`).
+- **Retired `isDevStageTechSupportLoginResolved()`** — deleted outright (single consumer). Plain
+  `npm run dev` / `dev:stage-zero` now boots an **ordinary** user (headcount 2: dev user +
+  built-in TechSupport) instead of auto-logging in as root — safe because K1 already decoupled the
+  headcount floor from the browser being TechSupport. `dev:multi`'s `?devRole=techsupport` driver
+  window (`isDevTechSupportDriver()`) is untouched and still logs in as root without a real
+  keypair (a documented, deliberate follow-up, not fixed here). Corrected three stale
+  "browser boots as TechSupport (headcount 1)" descriptions in `CLAUDE.md`.
+- **New unit tests:** `src/test/unit/techsupport-login.test.ts` (5: `assertTechSupportDmPair`
+  accept/reject/rotation-list cases); `src/test/unit/techsupport-key-not-bundled.test.ts` (1,
+  scans the built web bundle for the private key material and the env-var name — the design
+  note's single biggest risk, guarded permanently); `src/test/unit/system-announcements.test.ts`
+  (+2: `signTechSupportIdentity` round-trip, `publishIdentity()` with no pair configured at all).
+- **New E2E spec:** `tests/e2e/staged/stage1-single-user/05-techsupport-mode-signed-dm.spec.ts` —
+  boots a second browser in TechSupport mode, asserts `getStoredPair().pub === TECHSUPPORT_PUB`
+  (not a random pair), asserts the TechSupport user record's published `pub` updates to the
+  canonical key, sends a DM via the real `sendMessage` path, and confirms the receiver sees it
+  with an author identity that verifies as a trusted DM anchor.
+  - **Honest scope note recorded in the spec and the contract doc:** per-message cryptographic
+    signing for ad hoc operator DMs (beyond the K2 greeting template) is not built — that is a
+    K5/future concern. What K3 actually delivers and what this test actually proves is that the
+    *operator's authenticated identity* is the canonical key, not a random device pair.
+- **Full suite green:** 936/936 unit tests pass; `npm run build:server` / `build:web` both clean;
+  full-project `tsc --noEmit` and `npm run lint` both clean; the new E2E spec passes, plus
+  `01`–`04`, `00-techsupport-identity-bootstrap`, `00-ui-navigation-settings`, and the full
+  `stage0-bootstrap` pipeline (same pre-existing, unrelated `baa`/`caa` failures as K1/K2).
+- **Open questions carried forward (not settled by K3):** key rotation tooling/versioning, the
+  K3-3 headless-agent run mode, and K3-4 production key custody (redundant across server/laptops/
+  a dedicated machine) all remain future work.
