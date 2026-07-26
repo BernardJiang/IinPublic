@@ -7633,9 +7633,25 @@ export class UIManager extends EventEmitter {
     if (this.techSupportOnline === online) return;
     this.techSupportOnline = online;
     const contactsTab = document.querySelector('.nav-btn[data-view="contacts"]');
+    // getMyConversations()/deriveLocalPeers() read live localStorage, never a stale snapshot,
+    // so a full re-render here is safe.
     if (contactsTab?.classList.contains('active')) this.displayContactsList();
-    if (document.getElementById('chatroom-members-list')) {
-      renderChatroomMembers(this.chatroomsDeps(), this.currentChatroomMembers, this.currentUserId || '');
+    // The chatroom roster is NOT re-rendered from `currentChatroomMembers` here — that array is
+    // a point-in-time snapshot from the last live subscription emit, and `#chatroom-members-list`
+    // exists in the static shell regardless of which tab is active, so re-rendering from it would
+    // risk clobbering a since-arrived member (e.g. a peer whose row synced in after this snapshot
+    // was captured) with stale data. Instead, patch only the TechSupport presence dot in place —
+    // a no-op if the row isn't currently rendered.
+    this.patchTechSupportPresenceIndicators();
+  }
+
+  private patchTechSupportPresenceIndicators(): void {
+    const indicators = document.querySelectorAll<HTMLElement>('.techsupport-presence-indicator');
+    for (const el of Array.from(indicators)) {
+      el.classList.toggle('online', this.techSupportOnline);
+      el.classList.toggle('away', !this.techSupportOnline);
+      el.setAttribute('data-techsupport-online', String(this.techSupportOnline));
+      el.setAttribute('aria-label', this.t(this.techSupportOnline ? 'contactsSupportOnline' : 'contactsSupportAway'));
     }
   }
 

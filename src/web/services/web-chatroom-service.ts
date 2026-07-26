@@ -166,8 +166,9 @@ export class WebChatroomService {
     if (alreadyActive) {
       this.watchForEviction(userId, chatroomId, onMoved);
       await this.syncJoinWithServer(chatroomId, userId, userData.stageName);
+      await this.recordRoomVisit(chatroomId, userId);
       this.startMembershipHeartbeat(chatroomId, userId, userData.stageName);
-      console.log(`✅ Already active in chatroom, preserving existing visit: ${chatroomId}`);
+      console.log(`✅ Already active in chatroom, rerecording visit: ${chatroomId}`);
       return;
     }
 

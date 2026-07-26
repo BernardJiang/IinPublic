@@ -361,7 +361,13 @@ test.describe('Chatroom peer detail views', () => {
       // Tom opens peer detail for Jerry
       await pageTom.waitForSelector('.chatroom-member-item', { timeout: 20_000 });
       const jerryItem = pageTom.locator('.chatroom-member-item').filter({ hasText: 'JerrySend' });
-      await expect(jerryItem).toBeVisible({ timeout: 15_000 });
+      // TechSupport's Global member row (K1, docs/TODO.md) now flows through the same live
+      // members subscription as Jerry's, and every beforeEach reset does two more synchronous
+      // Gun writes (identity + membership seed) before the page even loads — both add variance
+      // to how many debounce cycles the member-list subscription needs. 15s measured too tight
+      // once K1 landed (intermittent timeout with no other symptom); 30s matches this file's
+      // existing generous-timeout convention (20s/60s elsewhere) rather than tightening product code.
+      await expect(jerryItem).toBeVisible({ timeout: 30_000 });
       await jerryItem.click();
 
       // N2a: dismiss the auto-opened DM conversation to use the User layout.
