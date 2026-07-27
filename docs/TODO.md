@@ -293,13 +293,30 @@ constructed in code, not a loaded stage. `maybeClearGunDatabases()`
 
 **Work (in this order, after K1–K3)**
 
-- [ ] Commit the stage0 fixture + regeneration command; point `clearGunDatabases()` at it and
-      delete `seedTechSupportRootBaseline()`'s hand-built graph.
+- [x] Commit the stage0 fixture + regeneration command; point `clearGunDatabases()` at it and
+      delete `seedTechSupportRootBaseline()`'s hand-built graph. Fixture at
+      `tests/e2e/staged/fixtures/stage0.fixture.json` (gitignore carves out this path from the
+      otherwise-ignored `snapshots/` tree), produced by a real browser traversal, never
+      hand-authored. Regenerate with `npm run test:e2e:regen-stage0-fixture`. Fixing this exposed
+      two real bugs along the way: `baa-techsupport-single-user-tabs.spec.ts` and
+      `caa-techsupport-four-talk-types.spec.ts` were asserting against the mobile-collapsed
+      "Filters ▾" disclosure without opening it first, and a route-talk answer-row locator matched
+      2 elements ambiguously — both fixed (test bugs, not product bugs; product behavior was
+      correct). `seedTechSupportRootBaseline()` still takes the same `techSupportBaselineGraph()`
+      shape (unchanged, still used by `scripts/dev-techsupport-bootstrap.js`) but the E2E seed path
+      now loads the committed fixture instead of calling the factory in-process. 2026-07-26.
 - [ ] Add `clearGunForStage3Spec` / `4` / `5` mirroring `clearGunForStage2Spec`
       (`e2e-stage-pipeline.ts:151`), then convert the call sites in the table above,
       **one directory per commit, running that directory's suite before moving on**:
       stage2 (15) → stage4 (3) → stage5 (13) → `isolated` (6) → `mass` (9) →
-      `talks-matching` (36) → stage3 (128, largest and last).
+      `talks-matching` (36) → stage3 (128, largest and last). **Scope note:** every one of these
+      call sites already gets a validated built-in TechSupport today via
+      `seedTechSupportRootBaseline()` (now fixture-backed, see above) — this remaining item is
+      about giving stage3/4/5 the same *progressive multi-user* snapshot shortcut stage1/stage2
+      get in pipeline mode (faster setup, more realistic multi-user starting state), not about
+      TechSupport correctness, which is already guaranteed everywhere by
+      `verifyTechSupportBaseline()`. Not started — genuinely large (~210 call sites), deferred
+      pending a scope/priority decision.
 - [ ] Non-staged dirs (`talks-matching`, `mass`, `isolated`) have no stage of their own — decide
       per directory which stage they should load (likely stage2 for the pair-exchange mesh specs)
       and record it in `tests/e2e/staged/README.md`.
@@ -307,14 +324,18 @@ constructed in code, not a loaded stage. `maybeClearGunDatabases()`
       holds one definition of a valid built-in TechSupport; `clear-database.ts` verifies it after
       every seeded reset (`E2E_SKIP_BASELINE_GUARD=1` opts out) and `e2e-stage-pipeline.ts` imports
       the same checks instead of its own copy. 11 unit tests. Commit `8cf04727`, 2026-07-25.
-- [ ] Give `stage1/00x-tab-sweep-smoke.spec.ts` and `stage1/75-p2p-rate-limit-429.spec.ts` a real
-      `beforeAll` reset; they currently inherit whatever the previous spec left behind.
-- [ ] Amend `docs/design/techsupport-bootstrap-contract.md`: headcount rule as "empty network = 1,
-      one ordinary user = 2", and record that the client constant + committed fixture (not the
-      first browser, not a code-built seed) define the baseline.
-- [ ] Test: a meta-spec asserting no spec outside `stage0-bootstrap/` constructs a graph from
-      scratch — grep-level check in CI that `seedTechSupportRootBaseline` has no callers and that
-      every `beforeAll` reset routes through a stage loader.
+- [x] `stage1/00x-tab-sweep-smoke.spec.ts` already had a real `beforeAll: maybeClearGunDatabases()`
+      reset; `stage1/75-p2p-rate-limit-429.spec.ts` spawns its own dedicated server process per run
+      (unique port, fresh in-memory Gun), so there is no prior spec's state to inherit in the first
+      place. This item was already satisfied — TODO.md was stale. 2026-07-26.
+- [x] Amended `docs/design/techsupport-bootstrap-contract.md`: new K4 invariant bullet + Verification
+      + Honest-cost entries recording the fixture as the one baseline definition, the regeneration
+      command, and the drift risk (fixture can go stale relative to the live factory/traversal
+      until someone re-runs the regen command — not yet CI-enforced). 2026-07-26.
+- [x] Test: `src/test/unit/no-inline-baseline-graph.test.ts` — no `.spec.ts` outside
+      `stage0-bootstrap/` references the raw graph factory or calls `seedTechSupportRootBaseline`
+      directly. `src/test/unit/stage0-fixture.test.ts` — the committed fixture exists and passes
+      `assertStageSnapshotIntegrity` (exported from `e2e-stage-pipeline.ts` for this). 2026-07-26.
 
 ### K5. TechSupport DM Q&A: ignore talks, answer questions `[Opus]`
 

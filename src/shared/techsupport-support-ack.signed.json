@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "acks": [
+    {
+      "locale": "en",
+      "template": "Thanks, {name}. This is a new question — a human will get back to you here.",
+      "authorPub": "mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ",
+      "signature": "SEA{\"m\":{\"authorPub\":\"mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ\",\"kind\":\"techsupport-support-ack\",\"locale\":\"en\",\"template\":\"Thanks, {name}. This is a new question — a human will get back to you here.\"},\"s\":\"fByjnzleQ5gTxWavGqWd4xFq4h+eYcdETE7n8MrBeNsqP+Aafyjy3AjBE5YnHq5g1Loo5WMwJcDjEu4aOpRepQ==\"}"
+    },
+    {
+      "locale": "zh",
+      "template": "谢谢你，{name}。这是一个新问题，我们的人工客服会在这里回复你。",
+      "authorPub": "mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ",
+      "signature": "SEA{\"m\":{\"authorPub\":\"mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ\",\"kind\":\"techsupport-support-ack\",\"locale\":\"zh\",\"template\":\"谢谢你，{name}。这是一个新问题，我们的人工客服会在这里回复你。\"},\"s\":\"a+dexXY1T9KxoVzgO2yUU2LzraE8xgtRUmjzR+rfjHB12Rreqf6QpWdX2D5CglbuHENUEQNkirfnQQlgg44iKA==\"}"
+    }
+  ]
+}

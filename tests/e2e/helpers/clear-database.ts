@@ -1,7 +1,8 @@
 import type { Page } from '@playwright/test';
+import fs from 'fs';
+import path from 'path';
 import { gunBaseURL } from './ports';
 import { assertTechSupportBaseline } from './techsupport-baseline';
-import { techSupportBaselineGraph } from '../../../src/shared/techsupport-graph';
 
 /** Let in-memory graph swaps and any in-flight relay frames drain (parallel E2E). */
 const SETTLE_AFTER_CLEAR_MS = 250;
@@ -55,7 +56,9 @@ export async function waitForGunApiReady(maxWaitMs = HEALTH_POLL_MAX_WAIT_MS): P
 /** Clear Gun for an isolated spec; stage-pipeline clears still reseed the TechSupport baseline. */
 export async function maybeClearGunDatabases(options: { seedTechSupportRoot?: boolean } = {}): Promise<void> {
   if (process.env.E2E_STAGE_PIPELINE === '1' || process.env.E2E_STAGE_PIPELINE === 'true') {
-    await clearGunDatabases({ seedTechSupportRoot: options.seedTechSupportRoot });
+    await clearGunDatabases(
+      options.seedTechSupportRoot === undefined ? {} : { seedTechSupportRoot: options.seedTechSupportRoot },
+    );
     return;
   }
   await clearGunDatabases(options);
@@ -119,23 +122,40 @@ export async function verifyTechSupportBaseline(context: string): Promise<void> 
   assertTechSupportBaseline(snapshot.gunGraph, context);
 }
 
+/**
+ * docs/TODO.md K4: stage0 is the only place a database is built from scratch. This committed,
+ * validated fixture (produced by a real browser traversal — `npm run test:e2e:regen-stage0-fixture`
+ * — never hand-authored) is the one definition of the built-in TechSupport baseline every reset
+ * path restores, instead of each call site constructing its own graph in code.
+ */
+export function stage0FixturePath(): string {
+  return path.join(process.cwd(), 'tests/e2e/staged/fixtures/stage0.fixture.json');
+}
+
+let cachedStage0Fixture: { version: number; gunGraph: Record<string, unknown> } | null = null;
+
+function loadStage0Fixture(): { version: number; gunGraph: Record<string, unknown> } {
+  if (cachedStage0Fixture) return cachedStage0Fixture;
+  const file = stage0FixturePath();
+  if (!fs.existsSync(file)) {
+    throw new Error(
+      `Missing committed stage0 fixture: ${file}. Regenerate with \`npm run test:e2e:regen-stage0-fixture\`.`,
+    );
+  }
+  cachedStage0Fixture = JSON.parse(fs.readFileSync(file, 'utf8'));
+  return cachedStage0Fixture!;
+}
+
 export async function seedTechSupportRootBaseline(): Promise<void> {
   await waitForGunApiReady();
 
-  const graph = techSupportBaselineGraph();
+  const fixture = loadStage0Fixture();
 
   const base = gunBaseURL();
   const res = await fetch(`${base}/api/test/import-snapshot`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      version: 1,
-      gunGraph: graph,
-      incomingTalks: {},
-      conversations: {},
-      talkResponses: {},
-      statsIdx: { byDay: {}, byRegion: {}, byTalkAnswer: {} },
-    }),
+    body: JSON.stringify(fixture),
   });
   if (!res.ok) {
     throw new Error(`TechSupport snapshot seed failed: ${res.status} ${await res.text()}`);

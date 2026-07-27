@@ -104,6 +104,20 @@ TechSupport is a bootstrap/system presence, not an interchangeable ordinary user
   (independent of the write-time check), including confirming the stored `text` is exactly what
   the verified template renders to for the current user — closing the gap where a stored record's
   signature fields are left untouched but its displayed text was altered after signing.
+- **Stage0 is the only place a database is built from scratch (K4, 2026-07-26).** A committed,
+  validated fixture — `tests/e2e/staged/fixtures/stage0.fixture.json` — is the one definition of
+  the built-in TechSupport baseline. It is produced by a real browser traversal
+  (`npm run test:e2e:regen-stage0-fixture`, which drives `stage0-bootstrap/aaa` → `baa` → `caa` →
+  `zzz-save-stage0` and copies the validated result into the committed path), never hand-authored.
+  `tests/e2e/helpers/clear-database.ts`'s `seedTechSupportRootBaseline()` — the seed every
+  `clearGunDatabases()`/`maybeClearGunDatabases()` call routes through — loads this fixture via
+  `POST /api/test/import-snapshot` instead of calling the `techSupportBaselineGraph()` factory
+  in-process. The factory itself is unchanged and still used by `scripts/dev-techsupport-bootstrap.js`
+  (dev seeding, not E2E) and by the regeneration pipeline's own traversal setup.
+  `src/test/unit/stage0-fixture.test.ts` fails fast (no server needed) if the committed fixture
+  ever stops passing the same `assertStageSnapshotIntegrity` check the stage pipeline enforces;
+  `src/test/unit/no-inline-baseline-graph.test.ts` fails if any `.spec.ts` outside
+  `stage0-bootstrap/` references the raw factory or calls the seed function directly.
 
 ## Verification
 
@@ -137,6 +151,10 @@ TechSupport is a bootstrap/system presence, not an interchangeable ordinary user
   neither the TechSupport private key material nor the `TECHSUPPORT_SEA_PAIR_JSON` env-var name.
 - `src/test/unit/system-announcements.test.ts` — `signTechSupportIdentity` round-trips through
   `readVerifiedTechSupportIdentity`; `publishIdentity()` succeeds with no pair configured at all.
+- `src/test/unit/stage0-fixture.test.ts` (K4) — the committed stage0 fixture exists and passes
+  `assertStageSnapshotIntegrity`.
+- `src/test/unit/no-inline-baseline-graph.test.ts` (K4) — no spec outside `stage0-bootstrap/`
+  constructs the baseline graph in code.
 
 ## Honest cost (K2/K3)
 
@@ -145,3 +163,17 @@ lists) and re-running the relevant signing script (`sign:techsupport-greeting`,
 `sign:techsupport-identity`) to produce and commit a new signed artifact; for K3 specifically, the
 operator must also redistribute the new key file to every machine that runs `dev:techsupport` /
 the production TechSupport device.
+
+## Honest cost (K4)
+
+The committed fixture can drift from the live `techSupportBaselineGraph()` factory /
+`aaa`/`baa`/`caa` traversal behavior over time — a code change to any of those without re-running
+`npm run test:e2e:regen-stage0-fixture` leaves the fixture stale until someone notices (the
+integrity unit test catches a fixture that fails validation, but not one that is merely
+out-of-date relative to new traversal steps). Regenerating and reviewing the JSON diff is a manual
+step, not yet enforced in CI. Only `stage1`/`stage2` (via `clearGunForStage1Spec`/
+`clearGunForStage2Spec` in `E2E_STAGE_PIPELINE=1` mode) load a *progressive* multi-user snapshot
+built on top of this fixture; `stage3`/`stage4`/`stage5` and the non-staged directories
+(`talks-matching/`, `mass/`, `isolated/`) still reset via the bare fixture on every spec rather
+than a stage-appropriate multi-user baseline — see the remaining `docs/TODO.md` K4 work items for
+that follow-on scope.

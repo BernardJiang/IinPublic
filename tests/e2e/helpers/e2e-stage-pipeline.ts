@@ -42,7 +42,13 @@ async function postSnapshot(body: unknown): Promise<void> {
   if (!res.ok) throw new Error(`import-snapshot failed: ${res.status} ${await res.text()}`);
 }
 
-async function assertStageSnapshotIntegrity(stage: E2eStageName, snapshot: unknown): Promise<void> {
+/**
+ * Exported for `src/test/unit/stage0-fixture.test.ts` (docs/TODO.md K4): a fast, no-server
+ * check that the committed `stage0.fixture.json` still passes the same integrity check every
+ * stage-pipeline load/save runs, so a bad regeneration fails `npm test` instead of surfacing
+ * only in a slow E2E run.
+ */
+export async function assertStageSnapshotIntegrity(stage: E2eStageName, snapshot: unknown): Promise<void> {
   const graph = (snapshot as { gunGraph?: Record<string, any> } | undefined)?.gunGraph;
   if (!graph) throw new Error(`[e2e-stage] ${stage} snapshot has no Gun graph`);
 

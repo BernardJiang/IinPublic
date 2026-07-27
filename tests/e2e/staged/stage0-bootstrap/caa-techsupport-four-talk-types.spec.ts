@@ -140,7 +140,12 @@ test.describe('Stage 0 — TechSupport creates four talk types', () => {
 
     for (const talk of talks) {
       await expect(page.locator('#answers-content')).toContainText(talk.title);
-      await expect(page.locator(`#answers-content .answer-talk-item.talk-type-${talk.type}`).filter({ hasText: talk.title })).toBeVisible();
+      // The route talk self-answers two questions, so it renders two `.answer-talk-item` rows
+      // sharing the same source-talk title — `.first()` just confirms at least one rendered;
+      // per-question content is asserted separately below via `expectedAnswerRows`.
+      await expect(
+        page.locator(`#answers-content .answer-talk-item.talk-type-${talk.type}`).filter({ hasText: talk.title }).first(),
+      ).toBeVisible();
     }
 
     const expectedAnswerRows = [

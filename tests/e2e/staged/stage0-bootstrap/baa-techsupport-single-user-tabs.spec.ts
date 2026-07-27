@@ -5,6 +5,7 @@ import { bootstrapTechSupport } from '../../helpers/bootstrap-canonical';
 import { assertStatusChecks } from '../../helpers/e2e-status-checks';
 import { afterNav, afterSync, headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openCollapsedFilters } from '../../helpers/filter-bar';
 
 test.describe('Stage 0 — TechSupport single-user traversal', () => {
   test.skip(!isStagePipeline(), 'only for E2E_STAGE_PIPELINE=1');
@@ -27,6 +28,9 @@ test.describe('Stage 0 — TechSupport single-user traversal', () => {
     await page.click('.nav-btn[data-view="contacts"]');
     await afterNav();
     await expect(page.locator('#contacts-list')).toBeVisible();
+    // Below 768px (this browser's default 640px viewport) the filter row collapses
+    // behind a "Filters ▾" disclosure — open it before asserting the controls inside.
+    await openCollapsedFilters(page, 'contacts-filter-toggle');
     await expect(page.locator('#contacts-filter-name')).toBeVisible();
     await expect(page.locator('#contacts-filter-relation')).toBeVisible();
     await expect(page.locator('#contacts-filter-relation option[value="partner"]')).toHaveText('Partners');
@@ -42,6 +46,7 @@ test.describe('Stage 0 — TechSupport single-user traversal', () => {
     await expect(page.locator('#talks-out-sort-order option[value="latest-reply"]')).toHaveText('Latest reply');
     await expect(page.locator('#talks-out-sort-order option[value="weighted"]')).toHaveText('Weighted performance');
     await expect(page.locator('#creator-replies-panel')).toBeVisible();
+    await openCollapsedFilters(page, 'replies-filter-toggle');
     await expect(page.locator('#reply-filter-query')).toBeVisible();
     await expect(page.locator('#reply-filter-type')).toBeVisible();
     await expect(page.locator('#reply-filter-language')).toBeVisible();

@@ -1,0 +1,532 @@
+{
+  "version": 1,
+  "gunGraph": {
+    "public": {
+      "_": {
+        "#": "public",
+        ">": {
+          "chatroom-hierarchy": 1785114358619.002,
+          "room-member-counts": 1785114375012,
+          "techsupport-identity": 1785114358619.003
+        }
+      },
+      "chatroom-hierarchy": "{\"id\":\"global\",\"name\":\"Global\",\"icon\":\"🌍\",\"description\":\"Connect with everyone worldwide\",\"children\":[{\"id\":\"north-america\",\"name\":\"North America\",\"icon\":\"🌎\",\"description\":\"North American continent\",\"children\":[{\"id\":\"usa\",\"name\":\"United States\",\"icon\":\"🇺🇸\",\"description\":\"United States chatroom\",\"children\":[{\"id\":\"california\",\"name\":\"California\",\"icon\":\"🌉\",\"description\":\"California regional chatroom\",\"children\":[{\"id\":\"san-diego\",\"name\":\"San Diego\",\"icon\":\"🌊\",\"description\":\"San Diego city chatroom\"},{\"id\":\"los-angeles\",\"name\":\"Los Angeles\",\"icon\":\"🎬\",\"description\":\"Los Angeles city chatroom\"}]},{\"id\":\"new-york-state\",\"name\":\"New York\",\"icon\":\"🗽\",\"description\":\"New York regional chatroom\",\"children\":[{\"id\":\"new-york-city\",\"name\":\"New York City\",\"icon\":\"🏙️\",\"description\":\"New York City chatroom\"},{\"id\":\"buffalo\",\"name\":\"Buffalo\",\"icon\":\"❄️\",\"description\":\"Buffalo city chatroom\"}]},{\"id\":\"texas\",\"name\":\"Texas\",\"icon\":\"⭐\",\"description\":\"Texas regional chatroom\",\"children\":[{\"id\":\"austin\",\"name\":\"Austin\",\"icon\":\"🎸\",\"description\":\"Austin city chatroom\"},{\"id\":\"houston\",\"name\":\"Houston\",\"icon\":\"🚀\",\"description\":\"Houston city chatroom\"}]}]},{\"id\":\"canada\",\"name\":\"Canada\",\"icon\":\"🇨🇦\",\"description\":\"Canada chatroom\",\"children\":[{\"id\":\"ontario\",\"name\":\"Ontario\",\"icon\":\"🍁\",\"description\":\"Ontario regional chatroom\",\"children\":[{\"id\":\"toronto\",\"name\":\"Toronto\",\"icon\":\"🏙️\",\"description\":\"Toronto city chatroom\"},{\"id\":\"ottawa\",\"name\":\"Ottawa\",\"icon\":\"🏛️\",\"description\":\"Ottawa city chatroom\"}]},{\"id\":\"british-columbia\",\"name\":\"British Columbia\",\"icon\":\"🏔️\",\"description\":\"British Columbia regional chatroom\",\"children\":[{\"id\":\"vancouver\",\"name\":\"Vancouver\",\"icon\":\"🌲\",\"description\":\"Vancouver city chatroom\"},{\"id\":\"victoria-bc\",\"name\":\"Victoria\",\"icon\":\"🌊\",\"description\":\"Victoria city chatroom\"}]}]}]},{\"id\":\"south-america\",\"name\":\"South America\",\"icon\":\"🌎\",\"description\":\"South American continent\",\"children\":[{\"id\":\"brazil\",\"name\":\"Brazil\",\"icon\":\"🇧🇷\",\"description\":\"Brazil chatroom\",\"children\":[{\"id\":\"sao-paulo-state\",\"name\":\"Sao Paulo\",\"icon\":\"🏙️\",\"description\":\"Sao Paulo regional chatroom\",\"children\":[{\"id\":\"sao-paulo-city\",\"name\":\"Sao Paulo\",\"icon\":\"🏙️\",\"description\":\"Sao Paulo city chatroom\"},{\"id\":\"campinas\",\"name\":\"Campinas\",\"icon\":\"🌳\",\"description\":\"Campinas city chatroom\"}]},{\"id\":\"rio-de-janeiro-state\",\"name\":\"Rio de Janeiro\",\"icon\":\"🏖️\",\"description\":\"Rio de Janeiro regional chatroom\",\"children\":[{\"id\":\"rio-de-janeiro-city\",\"name\":\"Rio de Janeiro\",\"icon\":\"🏖️\",\"description\":\"Rio de Janeiro city chatroom\"},{\"id\":\"niteroi\",\"name\":\"Niteroi\",\"icon\":\"🌉\",\"description\":\"Niteroi city chatroom\"}]}]},{\"id\":\"argentina\",\"name\":\"Argentina\",\"icon\":\"🇦🇷\",\"description\":\"Argentina chatroom\",\"children\":[{\"id\":\"buenos-aires-province\",\"name\":\"Buenos Aires\",\"icon\":\"🏙️\",\"description\":\"Buenos Aires regional chatroom\",\"children\":[{\"id\":\"buenos-aires-city\",\"name\":\"Buenos Aires\",\"icon\":\"🏙️\",\"description\":\"Buenos Aires city chatroom\"},{\"id\":\"la-plata\",\"name\":\"La Plata\",\"icon\":\"🌳\",\"description\":\"La Plata city chatroom\"}]},{\"id\":\"cordoba-province\",\"name\":\"Cordoba\",\"icon\":\"⛰️\",\"description\":\"Cordoba regional chatroom\",\"children\":[{\"id\":\"cordoba-city\",\"name\":\"Cordoba\",\"icon\":\"⛰️\",\"description\":\"Cordoba city chatroom\"},{\"id\":\"villa-carlos-paz\",\"name\":\"Villa Carlos Paz\",\"icon\":\"🌊\",\"description\":\"Villa Carlos Paz city chatroom\"}]}]}]},{\"id\":\"europe\",\"name\":\"Europe\",\"icon\":\"🇪🇺\",\"description\":\"European continent\",\"children\":[{\"id\":\"uk\",\"name\":\"United Kingdom\",\"icon\":\"🇬🇧\",\"description\":\"United Kingdom chatroom\",\"children\":[{\"id\":\"england\",\"name\":\"England\",\"icon\":\"🏙️\",\"description\":\"England regional chatroom\",\"children\":[{\"id\":\"london\",\"name\":\"London\",\"icon\":\"🏙️\",\"description\":\"London city chatroom\"},{\"id\":\"manchester\",\"name\":\"Manchester\",\"icon\":\"🎵\",\"description\":\"Manchester city chatroom\"}]},{\"id\":\"scotland\",\"name\":\"Scotland\",\"icon\":\"🏔️\",\"description\":\"Scotland regional chatroom\",\"children\":[{\"id\":\"edinburgh\",\"name\":\"Edinburgh\",\"icon\":\"🏰\",\"description\":\"Edinburgh city chatroom\"},{\"id\":\"glasgow\",\"name\":\"Glasgow\",\"icon\":\"🎭\",\"description\":\"Glasgow city chatroom\"}]}]},{\"id\":\"germany\",\"name\":\"Germany\",\"icon\":\"🇩🇪\",\"description\":\"Germany chatroom\",\"children\":[{\"id\":\"bavaria\",\"name\":\"Bavaria\",\"icon\":\"🏔️\",\"description\":\"Bavaria regional chatroom\",\"children\":[{\"id\":\"munich\",\"name\":\"Munich\",\"icon\":\"🏛️\",\"description\":\"Munich city chatroom\"},{\"id\":\"nuremberg\",\"name\":\"Nuremberg\",\"icon\":\"🏰\",\"description\":\"Nuremberg city chatroom\"}]},{\"id\":\"berlin-state\",\"name\":\"Berlin\",\"icon\":\"🏙️\",\"description\":\"Berlin regional chatroom\",\"children\":[{\"id\":\"berlin-city\",\"name\":\"Berlin\",\"icon\":\"🏙️\",\"description\":\"Berlin city chatroom\"},{\"id\":\"potsdam\",\"name\":\"Potsdam\",\"icon\":\"🌳\",\"description\":\"Potsdam city chatroom\"}]}]}]},{\"id\":\"asia\",\"name\":\"Asia\",\"icon\":\"🌏\",\"description\":\"Asian continent\",\"children\":[{\"id\":\"china\",\"name\":\"China\",\"icon\":\"🇨🇳\",\"description\":\"China chatroom\",\"children\":[{\"id\":\"guangdong\",\"name\":\"Guangdong\",\"icon\":\"🏙️\",\"description\":\"Guangdong regional chatroom\",\"children\":[{\"id\":\"guangzhou\",\"name\":\"Guangzhou\",\"icon\":\"🏙️\",\"description\":\"Guangzhou city chatroom\"},{\"id\":\"shenzhen\",\"name\":\"Shenzhen\",\"icon\":\"🌆\",\"description\":\"Shenzhen city chatroom\"}]},{\"id\":\"beijing-municipality\",\"name\":\"Beijing\",\"icon\":\"🏛️\",\"description\":\"Beijing regional chatroom\",\"children\":[{\"id\":\"beijing-city\",\"name\":\"Beijing\",\"icon\":\"🏛️\",\"description\":\"Beijing city chatroom\"},{\"id\":\"tongzhou\",\"name\":\"Tongzhou\",\"icon\":\"🌉\",\"description\":\"Tongzhou city chatroom\"}]}]},{\"id\":\"japan\",\"name\":\"Japan\",\"icon\":\"🇯🇵\",\"description\":\"Japan chatroom\",\"children\":[{\"id\":\"tokyo-metropolis\",\"name\":\"Tokyo\",\"icon\":\"🏙️\",\"description\":\"Tokyo regional chatroom\",\"children\":[{\"id\":\"tokyo-city\",\"name\":\"Tokyo\",\"icon\":\"🏙️\",\"description\":\"Tokyo city chatroom\"},{\"id\":\"hachioji\",\"name\":\"Hachioji\",\"icon\":\"🌳\",\"description\":\"Hachioji city chatroom\"}]},{\"id\":\"kansai\",\"name\":\"Kansai\",\"icon\":\"⛩️\",\"description\":\"Kansai regional chatroom\",\"children\":[{\"id\":\"osaka\",\"name\":\"Osaka\",\"icon\":\"🏙️\",\"description\":\"Osaka city chatroom\"},{\"id\":\"kyoto\",\"name\":\"Kyoto\",\"icon\":\"⛩️\",\"description\":\"Kyoto city chatroom\"}]}]}]},{\"id\":\"africa\",\"name\":\"Africa\",\"icon\":\"🌍\",\"description\":\"African continent\",\"children\":[{\"id\":\"nigeria\",\"name\":\"Nigeria\",\"icon\":\"🇳🇬\",\"description\":\"Nigeria chatroom\",\"children\":[{\"id\":\"lagos-state\",\"name\":\"Lagos\",\"icon\":\"🏙️\",\"description\":\"Lagos regional chatroom\",\"children\":[{\"id\":\"lagos-city\",\"name\":\"Lagos\",\"icon\":\"🏙️\",\"description\":\"Lagos city chatroom\"},{\"id\":\"ikeja\",\"name\":\"Ikeja\",\"icon\":\"🏛️\",\"description\":\"Ikeja city chatroom\"}]},{\"id\":\"federal-capital-territory\",\"name\":\"Federal Capital Territory\",\"icon\":\"🏛️\",\"description\":\"Federal Capital Territory regional chatroom\",\"children\":[{\"id\":\"abuja\",\"name\":\"Abuja\",\"icon\":\"🏛️\",\"description\":\"Abuja city chatroom\"},{\"id\":\"gwagwalada\",\"name\":\"Gwagwalada\",\"icon\":\"🌳\",\"description\":\"Gwagwalada city chatroom\"}]}]},{\"id\":\"south-africa\",\"name\":\"South Africa\",\"icon\":\"🇿🇦\",\"description\":\"South Africa chatroom\",\"children\":[{\"id\":\"western-cape\",\"name\":\"Western Cape\",\"icon\":\"⛰️\",\"description\":\"Western Cape regional chatroom\",\"children\":[{\"id\":\"cape-town\",\"name\":\"Cape Town\",\"icon\":\"⛰️\",\"description\":\"Cape Town city chatroom\"},{\"id\":\"stellenbosch\",\"name\":\"Stellenbosch\",\"icon\":\"🍇\",\"description\":\"Stellenbosch city chatroom\"}]},{\"id\":\"gauteng\",\"name\":\"Gauteng\",\"icon\":\"🏙️\",\"description\":\"Gauteng regional chatroom\",\"children\":[{\"id\":\"johannesburg\",\"name\":\"Johannesburg\",\"icon\":\"🏙️\",\"description\":\"Johannesburg city chatroom\"},{\"id\":\"pretoria\",\"name\":\"Pretoria\",\"icon\":\"🏛️\",\"description\":\"Pretoria city chatroom\"}]}]}]},{\"id\":\"oceania\",\"name\":\"Oceania\",\"icon\":\"🌏\",\"description\":\"Oceania continent\",\"children\":[{\"id\":\"australia\",\"name\":\"Australia\",\"icon\":\"🇦🇺\",\"description\":\"Australia chatroom\",\"children\":[{\"id\":\"new-south-wales\",\"name\":\"New South Wales\",\"icon\":\"🌉\",\"description\":\"New South Wales regional chatroom\",\"children\":[{\"id\":\"sydney\",\"name\":\"Sydney\",\"icon\":\"🌉\",\"description\":\"Sydney city chatroom\"},{\"id\":\"newcastle-au\",\"name\":\"Newcastle\",\"icon\":\"⚓\",\"description\":\"Newcastle city chatroom\"}]},{\"id\":\"victoria-au\",\"name\":\"Victoria\",\"icon\":\"🏙️\",\"description\":\"Victoria regional chatroom\",\"children\":[{\"id\":\"melbourne\",\"name\":\"Melbourne\",\"icon\":\"🏙️\",\"description\":\"Melbourne city chatroom\"},{\"id\":\"geelong\",\"name\":\"Geelong\",\"icon\":\"🌊\",\"description\":\"Geelong city chatroom\"}]}]},{\"id\":\"new-zealand\",\"name\":\"New Zealand\",\"icon\":\"🇳🇿\",\"description\":\"New Zealand chatroom\",\"children\":[{\"id\":\"auckland-region\",\"name\":\"Auckland\",\"icon\":\"🌋\",\"description\":\"Auckland regional chatroom\",\"children\":[{\"id\":\"auckland-city\",\"name\":\"Auckland\",\"icon\":\"🌋\",\"description\":\"Auckland city chatroom\"},{\"id\":\"manukau\",\"name\":\"Manukau\",\"icon\":\"🌊\",\"description\":\"Manukau city chatroom\"}]},{\"id\":\"wellington-region\",\"name\":\"Wellington\",\"icon\":\"🌬️\",\"description\":\"Wellington regional chatroom\",\"children\":[{\"id\":\"wellington-city\",\"name\":\"Wellington\",\"icon\":\"🌬️\",\"description\":\"Wellington city chatroom\"},{\"id\":\"lower-hutt\",\"name\":\"Lower Hutt\",\"icon\":\"🌳\",\"description\":\"Lower Hutt city chatroom\"}]}]}]}]}",
+      "room-member-counts": {
+        "#": "public/room-member-counts"
+      },
+      "techsupport-identity": {
+        "#": "public/techsupport-identity"
+      }
+    },
+    "public/room-member-counts": {
+      "_": {
+        "#": "public/room-member-counts",
+        ">": {
+          "global": 1785114375012
+        }
+      },
+      "global": {
+        "#": "public/room-member-counts/global"
+      }
+    },
+    "public/room-member-counts/global": {
+      "_": {
+        "#": "public/room-member-counts/global",
+        ">": {
+          "count": 1785114375012,
+          "updatedAt": 1785114375012
+        }
+      },
+      "count": 1,
+      "updatedAt": "2026-07-27T01:06:15.012Z"
+    },
+    "public/techsupport-identity": {
+      "_": {
+        "#": "public/techsupport-identity",
+        ">": {
+          "epub": 1785114358619.003,
+          "pub": 1785114358619.003,
+          "role": 1785114358619.003,
+          "signature": 1785114358619.003,
+          "userId": 1785114358619.003
+        }
+      },
+      "epub": "BCl0htwOHtTgNFQU0OK7HpzKg4M5OaJIZaGvVKICP_I.fwyq2-rc9lleKgpDrR0YlbhS2mW4024uEj0SHjmbiQE",
+      "pub": "mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ",
+      "role": "root-techsupport",
+      "signature": "SEA{\"m\":{\"epub\":\"BCl0htwOHtTgNFQU0OK7HpzKg4M5OaJIZaGvVKICP_I.fwyq2-rc9lleKgpDrR0YlbhS2mW4024uEj0SHjmbiQE\",\"pub\":\"mYRexxiSF2FG3oV-3-LKXEtisnUv5JQ9nDHbRANxiZo.jRqTX1_rg0v3BbFWYt1ZqGwBRG7wzg44IKgPobrSpfQ\",\"role\":\"root-techsupport\",\"userId\":\"iinpublic-root-techsupport\"},\"s\":\"Nf58JIlzAdYMWJOuP0MI+VEIvjMcehGjTEZlUatunHrqdTpkGr0XVpb+NVPoR46XjKa5E222admKDi22xsQizA==\"}",
+      "userId": "iinpublic-root-techsupport"
+    },
+    "users/iinpublic-root-techsupport": {
+      "_": {
+        "#": "users/iinpublic-root-techsupport",
+        ">": {
+          "createdAt": 1785114373492,
+          "epub": 1785114373492,
+          "headshot": 1785114373492,
+          "id": 1785114373492,
+          "interests": 1785114373492,
+          "knownPeople": 1785114373492,
+          "languages": 1785114373492,
+          "lastActive": 1785114373492,
+          "location": 1785114373492,
+          "networkRole": 1785114373492,
+          "profile": 1785114373492,
+          "pub": 1785114373492,
+          "reputation": 1785114373492,
+          "stageName": 1785114373492
+        }
+      },
+      "createdAt": "2026-07-27T01:05:59.488Z",
+      "epub": "qeyUbNPRS47bEp0SIlCwEQZStaxShQi2kStQRswDlZ8.-cVo3mdUFO8DHP8tKZ4gO2pfPZUvQ9pr7vKAzCFrdKo",
+      "headshot": "TS",
+      "id": "iinpublic-root-techsupport",
+      "interests": {
+        "#": "users/iinpublic-root-techsupport/interests"
+      },
+      "knownPeople": {
+        "#": "users/iinpublic-root-techsupport/knownPeople"
+      },
+      "languages": {
+        "#": "users/iinpublic-root-techsupport/languages"
+      },
+      "lastActive": "2026-07-27T01:06:13.492Z",
+      "location": {
+        "#": "users/iinpublic-root-techsupport/location"
+      },
+      "networkRole": "root-techsupport",
+      "profile": {
+        "#": "users/iinpublic-root-techsupport/profile"
+      },
+      "pub": "Yy2XPqT5R_goVAFQuM8bqWghE3MYu9TmeMmat0VQFTI.ROgLTRi5PDdi57MhCXMXg-vbTv9YvkalE3VwSNRL8rc",
+      "reputation": {
+        "#": "users/iinpublic-root-techsupport/reputation"
+      },
+      "stageName": "TechSupport"
+    },
+    "users/iinpublic-root-techsupport/interests": {
+      "_": {
+        "#": "users/iinpublic-root-techsupport/interests",
+        ">": {
+          "_isArray": 1785114373492,
+          "_length": 1785114373492,
+          "isArray": 1785114373492,
+          "length": 1785114373492
+        }
+      },
+      "_isArray": true,
+      "_length": 0,
+      "isArray": true,
+      "length": 0
+    },
+    "users/iinpublic-root-techsupport/knownPeople": {
+      "_": {
+        "#": "users/iinpublic-root-techsupport/knownPeople",
+        ">": {
+          "_isArray": 1785114373492,
+          "_length": 1785114373492,
+          "isArray": 1785114373492,
+          "length": 1785114373492
+        }
+      },
+      "_isArray": true,
+      "_length": 0,
+      "isArray": true,
+      "length": 0
+    },
+    "users/iinpublic-root-techsupport/languages": {
+      "0": "en",
+      "_": {
+        "#": "users/iinpublic-root-techsupport/languages",
+        ">": {
+          "0": 1785114373492,
+          "_isArray": 1785114373492,
+          "_length": 1785114373492,
+          "isArray": 1785114373492,
+          "length": 1785114373492
+        }
+      },
+      "_isArray": true,
+      "_length": 1,
+      "isArray": true,
+      "length": 1
+    },
+    "users/iinpublic-root-techsupport/location": {
+      "_": {
+        "#": "users/iinpublic-root-techsupport/location",
+        ">": {
+          "chatrooms": 1785114373324,
+          "region": 1785114373324,
+          "trueLocation": 1785114373324
+        }
+      },
+      "chatrooms": {
+        "#": "users/iinpublic-root-techsupport/location/chatrooms"
+      },
+      "region": "region_32.71_-117.17",
+      "trueLocation": {
+        "#": "users/iinpublic-root-techsupport/location/trueLocation"
+      }
+    },
+    "users/iinpublic-root-techsupport/location/chatrooms": {
+      "_": {
+        "#": "users/iinpublic-root-techsupport/location/chatrooms",
+        ">": {
+          "_isArray": 1785114373324,
+          "_length": 1785114373324,
+          "isArray": 1785114373324,
+          "length": 1785114373324
+        }
+      },
+      "_isArray": true,
+      "_length": 0,
+      "isArray": true,
+      "length": 0
+    },
+    "users/iinpublic-root-techsupport/location/trueLocation": {
+      "_": {
+        "#": "users/iinpublic-root-techsupport/location/trueLocation",
+        ">": {
+          "accuracy": 1785114373324,
+          "latitude": 1785114373324,
+          "longitude": 1785114373324,
+          "timestamp": 1785114373324
+        }
+      },
+      "accuracy": 100,
+      "latitude": 32.7157,
+      "longitude": -117.1611,
+      "timestamp": "2026-07-27T01:06:10.057Z"
+    },
+    "users/iinpublic-root-techsupport/profile": {
+      "0": {
+        "#": "users/iinpublic-root-techsupport/profile/0"
+      },
+      "_": {
+        "#": "users/iinpublic-root-techsupport/profile",
+        ">": {
+          "0": 1785114373492,
+          "_isArray": 1785114373492,
+          "_length": 1785114373492,
+          "isArray": 1785114373492,
+          "length": 1785114373492
+        }
+      },
+      "_isArray": true,
+      "_length": 1,
+      "isArray": true,
+      "length": 1
+    },
+    "users/iinpublic-root-techsupport/profile/0": {
+      "_": {
+        "#": "users/iinpublic-root-techsupport/profile/0",
+        ">": {
+          "answer": 1785114373492,
+          "answeredAt": 1785114373492,
+          "id": 1785114373492,
+          "isAuto": 1785114373492,
+          "question": 1785114373492
+        }
+      },
+      "answer": "IinPublic network support",
+      "answeredAt": "2026-07-27T01:05:59.488Z",
+      "id": "techsupport_profile_role",
+      "isAuto": false,
+      "question": "Role"
+    },
+    "users/iinpublic-root-techsupport/reputation": {
+      "_": {
+        "#": "users/iinpublic-root-techsupport/reputation",
+        ">": {
+          "ageVerificationVotes": 1785114373492,
+          "ageVerified": 1785114373492,
+          "blockCount": 1785114373492,
+          "dislikedCount": 1785114373492,
+          "friendsCount": 1785114373492,
+          "isHidden": 1785114373492,
+          "likedCount": 1785114373492,
+          "matchesFound": 1785114373492,
+          "mutualFriendsCount": 1785114373492,
+          "questionsAnswered": 1785114373492,
+          "reviewCount": 1785114373492,
+          "starRating": 1785114373492,
+          "talksSent": 1785114373492
+        }
+      },
+      "ageVerificationVotes": 0,
+      "ageVerified": false,
+      "blockCount": 0,
+      "dislikedCount": 0,
+      "friendsCount": 0,
+      "isHidden": false,
+      "likedCount": 0,
+      "matchesFound": 0,
+      "mutualFriendsCount": 0,
+      "questionsAnswered": 0,
+      "reviewCount": 0,
+      "starRating": 3,
+      "talksSent": 0
+    },
+    "user-public-profile/iinpublic-root-techsupport": {
+      "_": {
+        "#": "user-public-profile/iinpublic-root-techsupport",
+        ">": {
+          "headshot": 1785114359532,
+          "interestsJson": 1785114359532,
+          "languagesJson": 1785114359532,
+          "profileJson": 1785114359532
+        }
+      },
+      "headshot": "TS",
+      "interestsJson": "[]",
+      "languagesJson": "[\"en\"]",
+      "profileJson": "[{\"id\":\"techsupport_profile_role\",\"question\":\"Role\",\"answer\":\"IinPublic network support\",\"isAuto\":false,\"answeredAt\":\"2026-07-27T01:05:59.488Z\"}]"
+    },
+    "user-talk-filters/iinpublic-root-techsupport": {
+      "_": {
+        "#": "user-talk-filters/iinpublic-root-techsupport",
+        ">": {
+          "filtersJson": 1785114359589
+        }
+      },
+      "filtersJson": "{\"allowedLanguages\":[\"en\"],\"minDistanceMiles\":0,\"maxDistanceMiles\":50,\"requireGoodGrammar\":true,\"blockDirtyWords\":true,\"allowedTalkTypes\":[\"flow\",\"survey\",\"tag\",\"route\"]}"
+    },
+    "~Yy2XPqT5R_goVAFQuM8bqWghE3MYu9TmeMmat0VQFTI.ROgLTRi5PDdi57MhCXMXg-vbTv9YvkalE3VwSNRL8rc": {
+      "_": {
+        "#": "~Yy2XPqT5R_goVAFQuM8bqWghE3MYu9TmeMmat0VQFTI.ROgLTRi5PDdi57MhCXMXg-vbTv9YvkalE3VwSNRL8rc",
+        ">": {
+          "private": 1785114359650
+        }
+      },
+      "private": "{\":\":{\"#\":\"~Yy2XPqT5R_goVAFQuM8bqWghE3MYu9TmeMmat0VQFTI.ROgLTRi5PDdi57MhCXMXg-vbTv9YvkalE3VwSNRL8rc/private\"},\"~\":\"FnpTWbhF0kFOHq5m4xc7y+F2ERnQewDLAtPx/+5a3u02zEUNeSccks1bTgnT/dAz7ImP+pPb7c6KFp5P9sVihA==\"}"
+    },
+    "~Yy2XPqT5R_goVAFQuM8bqWghE3MYu9TmeMmat0VQFTI.ROgLTRi5PDdi57MhCXMXg-vbTv9YvkalE3VwSNRL8rc/private": {
+      "_": {
+        "#": "~Yy2XPqT5R_goVAFQuM8bqWghE3MYu9TmeMmat0VQFTI.ROgLTRi5PDdi57MhCXMXg-vbTv9YvkalE3VwSNRL8rc/private",
+        ">": {
+          "profile": 1785114359650
+        }
+      },
+      "profile": "{\":\":\"SEA{\\\"ct\\\":\\\"2gTQD57GV2iBa1jJqblrgcIJu7gGdRFxyXxH0TTg1QWqSo402BW9CyMiAi6NcoMiMPWIlxeBVXsdjVet6Sy4+VwumU35eX8T5B1WeFuRyZFFxBc6kcLhNf35Bh2c9g1eHKsfhs4/pX/8MeceX+W4DeThZoNqUxW9ZOtk5jRxsR7cFFWBOoqt2zzKg+x97mED70INkEzOkaV3FTXzVFlpWrzGl24XInFvBGl/UzjpqR8qmmUkLmMyPQzVjA9CS9sfGc55hmcXLV5kolF8K7d2M4J6uaIZd5sal73wI8I9/8XcpIpPDRVSIhDWQNfIqEI7o2DDCeCoA0TCQPeziEPTqSeipA7ZOm0tUbRP/0NYgU4it2jJB3P+eHYvRcrnvq8E0B/fghU7A4POiCBHdvS9DWQJOB7g/Xl6NR8cjAYcv/zvC91Ps7P++mnKilL07zSPrea44Yu7JFAJBgv45SQCol4tD4RuEpyuF4sA23Jqnp6WxIzIVg2eroVwDIxGXF3NTlUjXA1w68tkELY2bWWyd71xMGov+5gzPgAN4EIvY7Nm0EkLY+edkoSqaQasek51q7wJlx9uf0/hyzmWZYQ5ayLhLUV56tB2yWPBmELq9QFHzgpRCZ0OOl/ZipuEhCxItnzBQij4UCKA+hn+wiaBerIHclAYUVGPtCmGi6Ax/eHjKTQGE74LppYY3L9ZPXpVf8i3ilDp3j8vUQmHAAjT4yK13CW1vk423QqpCjRj6MsbGdoFTi35cpjApelU7R4VAfKd+aKz0eHGVC0OppZ0+gUOcDd1bG8xkkGgm/6GbZ4ukMbYzEmDjNZF2JzhIvcJqGT5BPGVLnEEmaFCnw2gDBhuR8K/nMXH00UDwsd/BOsJ9tRRRi98Q9bVTnSfRei/+knmwC4J6UucQKgVRrQU2c5/qrOoVVU/uMjsuiy3l96GrzK5Mld4l60KbTq8+ygtWq+/injv3MZJsNR9iqzpdcqb2bxKBSVtwJT0h67nACcAWf8JYM2/rBHF6CLtOybPhC3nIquVGlHpVg0XVjQFZa/YUfOHJqjJwIqzbPhhcs7lFqQZAYUpa/3yPAHElfiQsafsJxSzPasrNbieyh3fG2TZ5XIA3ozX5Kwlec9b8F4=\\\",\\\"iv\\\":\\\"bvqdY6mN5d4rN7lVM+5C\\\",\\\"s\\\":\\\"rho4DsWJoJks\\\"}\",\"~\":\"eZtWXGdpOHoflTyrVSBG8O+KqaW5Q7AI7awQ3PGczWjd8bvfKMJGJElxgnUZQ9R+TeW/kvUHit5S3liT1bDjbA==\"}"
+    },
+    "network-root-techsupport": {
+      "_": {
+        "#": "network-root-techsupport",
+        ">": {
+          "createdAt": 1785114359709,
+          "networkRole": 1785114359709,
+          "stageName": 1785114359709,
+          "userId": 1785114359709
+        }
+      },
+      "createdAt": "2026-07-27T01:05:59.488Z",
+      "networkRole": "root-techsupport",
+      "stageName": "TechSupport",
+      "userId": "iinpublic-root-techsupport"
+    },
+    "user-public-profile/iinpublic-root-techsupport/chatroomAffinity": {
+      "_": {
+        "#": "user-public-profile/iinpublic-root-techsupport/chatroomAffinity",
+        ">": {
+          "chatroomId": 1785114373405,
+          "chatroomPath": 1785114373405,
+          "updatedAt": 1785114373405
+        }
+      },
+      "chatroomId": "san-diego",
+      "chatroomPath": {
+        "#": "user-public-profile/iinpublic-root-techsupport/chatroomAffinity/chatroomPath"
+      },
+      "updatedAt": "2026-07-27T01:06:13.405Z"
+    },
+    "user-public-profile/iinpublic-root-techsupport/chatroomAffinity/chatroomPath": {
+      "0": "global",
+      "1": "north-america",
+      "2": "usa",
+      "3": "california",
+      "4": "san-diego",
+      "_": {
+        "#": "user-public-profile/iinpublic-root-techsupport/chatroomAffinity/chatroomPath",
+        ">": {
+          "0": 1785114373405,
+          "1": 1785114373405,
+          "2": 1785114373405,
+          "3": 1785114373405,
+          "4": 1785114373405,
+          "_isArray": 1785114373405,
+          "_length": 1785114373405,
+          "isArray": 1785114373405,
+          "length": 1785114373405
+        }
+      },
+      "_isArray": true,
+      "_length": 5,
+      "isArray": true,
+      "length": 5
+    },
+    "chatrooms": {
+      "_": {
+        "#": "chatrooms",
+        ">": {
+          "global": 1785114377222
+        }
+      },
+      "global": {
+        "#": "chatrooms/global"
+      }
+    },
+    "chatrooms/global": {
+      "_": {
+        "#": "chatrooms/global",
+        ">": {
+          "users": 1785114377222,
+          "visitCounter": 1785114375116,
+          "locations": 1785114360205
+        }
+      },
+      "users": {
+        "#": "chatrooms/global/users"
+      },
+      "visitCounter": {
+        "#": "chatrooms/global/visitCounter"
+      },
+      "locations": {
+        "#": "chatrooms/global/locations"
+      }
+    },
+    "chatrooms/global/users": {
+      "_": {
+        "#": "chatrooms/global/users",
+        ">": {
+          "iinpublic-root-techsupport": 1785114377222
+        }
+      },
+      "iinpublic-root-techsupport": {
+        "#": "chatrooms/global/users/iinpublic-root-techsupport"
+      }
+    },
+    "chatrooms/global/users/iinpublic-root-techsupport": {
+      "_": {
+        "#": "chatrooms/global/users/iinpublic-root-techsupport",
+        ">": {
+          "isActive": 1785114377222,
+          "joinedAt": 1785114377222,
+          "lastSeen": 1785114377222,
+          "stageName": 1785114377222,
+          "userId": 1785114377222,
+          "epub": 1785114375116.001,
+          "pub": 1785114375116.001
+        }
+      },
+      "isActive": true,
+      "joinedAt": "2026-07-27T01:06:15.011Z",
+      "lastSeen": "2026-07-27T01:06:15.116Z",
+      "stageName": "TechSupport",
+      "userId": "iinpublic-root-techsupport",
+      "epub": "qeyUbNPRS47bEp0SIlCwEQZStaxShQi2kStQRswDlZ8.-cVo3mdUFO8DHP8tKZ4gO2pfPZUvQ9pr7vKAzCFrdKo",
+      "pub": "Yy2XPqT5R_goVAFQuM8bqWghE3MYu9TmeMmat0VQFTI.ROgLTRi5PDdi57MhCXMXg-vbTv9YvkalE3VwSNRL8rc"
+    },
+    "chatroomMembers": {
+      "_": {
+        "#": "chatroomMembers",
+        ">": {
+          "global": 1785114377222.001
+        }
+      },
+      "global": {
+        "#": "chatroomMembers/global"
+      }
+    },
+    "chatroomMembers/global": {
+      "_": {
+        "#": "chatroomMembers/global",
+        ">": {
+          "iinpublic-root-techsupport": 1785114377222.001
+        }
+      },
+      "iinpublic-root-techsupport": {
+        "#": "chatroomMembers/global/iinpublic-root-techsupport"
+      }
+    },
+    "chatroomMembers/global/iinpublic-root-techsupport": {
+      "_": {
+        "#": "chatroomMembers/global/iinpublic-root-techsupport",
+        ">": {
+          "isActive": 1785114377222.001,
+          "joinedAt": 1785114377222.001,
+          "lastSeen": 1785114377222.001,
+          "stageName": 1785114377222.001,
+          "userId": 1785114377222.001
+        }
+      },
+      "isActive": true,
+      "joinedAt": "2026-07-27T01:06:15.011Z",
+      "lastSeen": "2026-07-27T01:06:15.116Z",
+      "stageName": "TechSupport",
+      "userId": "iinpublic-root-techsupport"
+    },
+    "chatrooms/global/visitCounter": {
+      "_": {
+        "#": "chatrooms/global/visitCounter",
+        ">": {
+          "iinpublic-root-techsupport": 1785114375116
+        }
+      },
+      "iinpublic-root-techsupport": {
+        "#": "chatrooms/global/visitCounter/iinpublic-root-techsupport"
+      }
+    },
+    "chatrooms/global/locations": {
+      "_": {
+        "#": "chatrooms/global/locations",
+        ">": {
+          "iinpublic-root-techsupport": 1785114360205
+        }
+      },
+      "iinpublic-root-techsupport": {
+        "#": "chatrooms/global/locations/iinpublic-root-techsupport"
+      }
+    },
+    "chatrooms/global/visitCounter/iinpublic-root-techsupport": {
+      "_": {
+        "#": "chatrooms/global/visitCounter/iinpublic-root-techsupport",
+        ">": {
+          "count": 1785114375116,
+          "firstVisitedAt": 1785114375116,
+          "lastVisitedAt": 1785114375116,
+          "userId": 1785114375116
+        }
+      },
+      "count": 3,
+      "firstVisitedAt": "2026-07-27T01:06:00.101Z",
+      "lastVisitedAt": "2026-07-27T01:06:15.013Z",
+      "userId": "iinpublic-root-techsupport"
+    },
+    "chatrooms/global/locations/iinpublic-root-techsupport": {
+      "_": {
+        "#": "chatrooms/global/locations/iinpublic-root-techsupport",
+        ">": {
+          "accuracy": 1785114360205,
+          "latitude": 1785114360205,
+          "longitude": 1785114360205,
+          "timestamp": 1785114360205
+        }
+      },
+      "accuracy": 100,
+      "latitude": 32.7157,
+      "longitude": -117.1611,
+      "timestamp": "2026-07-27T01:05:59.349Z"
+    },
+    "users/iinpublic-root-techsupport/status": {
+      "_": {
+        "#": "users/iinpublic-root-techsupport/status",
+        ">": {
+          "status": 1785114379019,
+          "timestamp": 1785114379019
+        }
+      },
+      "status": "away",
+      "timestamp": "2026-07-27T01:06:19.019Z"
+    }
+  }
+}
