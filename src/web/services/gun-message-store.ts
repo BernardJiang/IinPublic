@@ -27,6 +27,22 @@ export type ConversationMessageWire = {
   greetingLocale?: string;
   greetingSignature?: string;
   greetingAuthorPub?: string;
+  /**
+   * K5 (docs/TODO.md): present only on a locally-rendered FAQ auto-answer. `faqQuestionKey`
+   * identifies which cached bundle entry this message renders; `faqAuthorPub`/`faqSignature`
+   * are the cached bundle's own signature, carried on the message so a later render pass can
+   * re-verify (`verifyFaqBundle`) that the cache backing this message is still authentic.
+   */
+  faqQuestionKey?: string;
+  faqAuthorPub?: string;
+  faqSignature?: string;
+  /**
+   * K5: present only on the signed "new question" acknowledgement. Same re-verify-on-render
+   * discipline as the greeting fields above (`verifySupportAck`).
+   */
+  ackLocale?: string;
+  ackSignature?: string;
+  ackAuthorPub?: string;
 };
 
 /**
@@ -258,6 +274,12 @@ export class GunMessageStore {
       ...(wire.greetingLocale ? { greetingLocale: wire.greetingLocale } : {}),
       ...(wire.greetingSignature ? { greetingSignature: wire.greetingSignature } : {}),
       ...(wire.greetingAuthorPub ? { greetingAuthorPub: wire.greetingAuthorPub } : {}),
+      ...(wire.faqQuestionKey ? { faqQuestionKey: wire.faqQuestionKey } : {}),
+      ...(wire.faqAuthorPub ? { faqAuthorPub: wire.faqAuthorPub } : {}),
+      ...(wire.faqSignature ? { faqSignature: wire.faqSignature } : {}),
+      ...(wire.ackLocale ? { ackLocale: wire.ackLocale } : {}),
+      ...(wire.ackSignature ? { ackSignature: wire.ackSignature } : {}),
+      ...(wire.ackAuthorPub ? { ackAuthorPub: wire.ackAuthorPub } : {}),
     };
     if (wire.transport === 'direct-p2p' && opts.otherUserId) {
       gun

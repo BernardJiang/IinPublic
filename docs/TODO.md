@@ -388,15 +388,49 @@ Verifiable entirely at **stage1** (one ordinary user + TechSupport).
       message ids). Reuses `hashIdentityPayload`/`normalizeIdentityText` from `cid.ts` rather than
       adding a second hashing scheme. 20 unit tests incl. Chinese full-width punctuation.
       2026-07-25.
-- [ ] Wire the pure module into the live DM path: FAQ bundle distribution + cache, pending inbox on
-      the TechSupport device, and the hit/miss branch replacing the blanket canned reply.
-- [ ] Replace the blanket canned reply (`sendTechSupportAutoReply` / `supportReply` in
-      `ui-translations.ts:421`) with the hit/miss branch. Two new strings, EN + 中文:
-      auto-answer prefix, and "new question, a human will get back to you".
-- [ ] Support-inbox view, visible **only** to a session authenticated as the TechSupport root:
-      list pending questions, answer inline, publish + promote to FAQ in one action. `[Opus]`
-- [ ] Decide whether a developer can edit or retire an existing FAQ answer in v1, or only add.
-      Record the decision here.
+- [x] **Design note** `docs/design/techsupport-k5-design-note.md` — Opus wrote the full
+      implementation plan for Items 1-6 before Sonnet implemented; two decisions resolved there:
+      **K5-A** (the user-visible support thread stays on the server-durable
+      `TechSupportConversationTransport` per spec §19.7 — only inbox *delivery* rides the offline
+      mailbox, since a full migration off the server store is a larger deferred follow-up) and
+      **K5-B** (v1 distributes the signed FAQ bundle over a public Gun path
+      `techsupport-faq/bundle`, not libp2p/IPFS — investigated and confirmed that distribution
+      path doesn't exist yet, only a media-attachment blockstore does). 2026-07-26.
+- [x] **Item 1** — signed FAQ-bundle module (`src/shared/techsupport-faq-bundle.ts`: `signFaqBundle`/
+      `verifyFaqBundle`, content-addressed via `bundleCid`), compiled pre-signed ack template
+      (`techsupport-greeting.ts` extended with `TECHSUPPORT_SUPPORT_ACK_TEMPLATES`/`signSupportAck`/
+      `verifySupportAck`, committed as `techsupport-support-ack.signed.json` via the new
+      `npm run sign:techsupport-ack`), and the two `ui-translations.ts` strings
+      (`supportAutoAnswerPrefix`, `supportNewQuestionAck`) — replacing the old blanket
+      `supportReply`/`formatSupportReply`, now deleted. 28 unit tests. 2026-07-26.
+- [x] **Items 2+3 — wired the pure module into the live DM path.** `IinPublicApp.handleSupportQuestion()`
+      (`app.ts`, replaces the deleted `sendTechSupportAutoReply`) runs the hit/miss branch on the
+      *asker's own client*: a known question renders a signed auto-answer locally from the cached,
+      verified FAQ bundle (`src/web/services/techsupport-faq-cache.ts` — `subscribeToFaqBundle`
+      keeps the cache fresh from `techsupport-faq/bundle`, only ever caching a bundle
+      `verifyFaqBundle` accepted); a new question renders the signed ack and is delivered to the
+      TechSupport device as an encrypted `support-question-v1` mailbox envelope
+      (`postSupportQuestionToMailbox`), ingested into **TechSupport-local** Gun
+      (`techsupport-inbox/<questionKey>`, never a `public/` path) by
+      `ingestSupportQuestionFromMailbox` — gated on the ingesting session's `currentUser.id ===
+      TECHSUPPORT_ROOT_USER_ID` so an ordinary user can never materialize someone else's inbox.
+      `UIManager.filterVerifiedSupportMessages()` extended to re-verify auto-answers and acks at
+      render time (same K2-3 fail-closed discipline as the greeting). `ConversationMessageWire`
+      gained `faqQuestionKey`/`faqAuthorPub`/`faqSignature` and `ackLocale`/`ackSignature`/
+      `ackAuthorPub` fields. E2E: `stage1/06-support-new-question-ack.spec.ts` (miss-path ack
+      renders, verifies, and the mailbox envelope posts — confirmed live in the test console);
+      `stage2/00k-techsupport-contact-mute.spec.ts` updated to assert the new ack text instead of
+      the retired blanket reply. 2026-07-26.
+- [ ] **Item 4** — support-inbox view, visible **only** to a session authenticated as the
+      TechSupport root: list pending `techsupport-inbox/*` questions. `[Opus]`
+- [ ] **Item 5** — answer inline + publish/promote to FAQ in one action (sign the updated bundle,
+      write `techsupport-faq/<key>` + `techsupport-faq/bundle`, deliver the answer, flip the inbox
+      entry to answered). Decisions already made in the design note: `answeredBy` recorded
+      internally only (never in the public bundle/message); v1 supports add + edit-by-overwrite,
+      retire is out of scope (needs a signed tombstone).
+- [ ] Remaining Item 6 tests (offline delivery/answer while TechSupport is stopped, operator
+      answers + promotes, re-ask is a hit with no duplicate FAQ row, `stage2` cross-user
+      auto-answer) — need Items 4/5 to exist first.
 
 **Tests**
 

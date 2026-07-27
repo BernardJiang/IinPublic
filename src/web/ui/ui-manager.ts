@@ -26,7 +26,16 @@ import { getFlatChatroomList, getActiveChatroomHierarchy } from '../../shared/ch
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { LocationPrivacy } from '../../shared/location';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
-import { verifyTechSupportGreeting, TECHSUPPORT_GREETING_TEMPLATES, type GreetingLocale } from '../../shared/techsupport-greeting';
+import {
+  verifyTechSupportGreeting,
+  TECHSUPPORT_GREETING_TEMPLATES,
+  verifySupportAck,
+  TECHSUPPORT_SUPPORT_ACK_TEMPLATES,
+  type GreetingLocale,
+  type SupportAckLocale,
+} from '../../shared/techsupport-greeting';
+import { verifyFaqBundle } from '../../shared/techsupport-faq-bundle';
+import { readCachedFaqBundle } from '../services/techsupport-faq-cache';
 import type { StatsByRegion, StatsByTime, StatsDashboard, StatsSummary, TalkType } from '../../shared/talk-stats';
 import {
   summarize,
@@ -4649,10 +4658,6 @@ export class UIManager extends EventEmitter {
     return conversationsJson ? JSON.parse(conversationsJson) : {};
   }
 
-  public formatSupportReply(stageName: string): string {
-    return this.tf('supportReply', { name: stageName });
-  }
-
   public formatStageNameUpdated(): string {
     return this.t('stageNameUpdated');
   }
@@ -8239,8 +8244,12 @@ export class UIManager extends EventEmitter {
    * and additionally confirms the stored `text` is exactly what that verified template
    * renders to for the *current* user — closing the gap where `greetingSignature`/
    * `greetingLocale` are left untouched but `text` itself was altered after signing.
-   * Non-greeting messages pass through unchanged. Failures are dropped silently (K2-3) —
-   * no error toast, no impersonated message rendered.
+   *
+   * K5 (docs/TODO.md): same discipline extended to the two other TechSupport-authored,
+   * locally-rendered message types — a FAQ auto-answer (`faqSignature`) and the new-question
+   * ack (`ackSignature`). All three fail closed (K2-3): a verify failure drops the message
+   * silently, no error toast, no impersonated message rendered. Everything else passes
+   * through unchanged.
    */
   private async filterVerifiedSupportMessages(messages: any[]): Promise<any[]> {
     const stageName = this.currentUser?.stageName || '';
@@ -8251,6 +8260,38 @@ export class UIManager extends EventEmitter {
         msg.id.startsWith('support_welcome_') &&
         msg.senderId === TECHSUPPORT_ROOT_USER_ID &&
         !!msg.greetingSignature;
+      const isFaqAnswer = msg.senderId === TECHSUPPORT_ROOT_USER_ID && !!msg.faqSignature;
+      const isAck = msg.senderId === TECHSUPPORT_ROOT_USER_ID && !!msg.ackSignature;
+
+      if (isFaqAnswer) {
+        const cached = readCachedFaqBundle();
+        const verifiedBundle = cached ? await verifyFaqBundle(cached) : null;
+        if (!verifiedBundle) continue;
+        // The message must be attributed to the exact cached bundle version, not merely
+        // any validly-signed bundle — otherwise a stale message could survive a bundle
+        // rotation with a mismatched answer for the same questionKey.
+        if (verifiedBundle.authorPub !== msg.faqAuthorPub || verifiedBundle.signature !== msg.faqSignature) continue;
+        const entry = verifiedBundle.entries.find((e) => e.questionKey === msg.faqQuestionKey);
+        if (!entry || entry.answer !== String(msg.text || '')) continue;
+        kept.push(msg);
+        continue;
+      }
+
+      if (isAck) {
+        const locale = msg.ackLocale as SupportAckLocale;
+        const verified = await verifySupportAck({
+          locale,
+          template: TECHSUPPORT_SUPPORT_ACK_TEMPLATES[locale],
+          authorPub: msg.ackAuthorPub,
+          signature: msg.ackSignature,
+        });
+        if (!verified) continue;
+        const expectedText = verified.template.replace('{name}', stageName);
+        if (String(msg.text || '') !== expectedText) continue;
+        kept.push(msg);
+        continue;
+      }
+
       if (!isGreeting) {
         kept.push(msg);
         continue;

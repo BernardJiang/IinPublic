@@ -4,6 +4,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync, headless } from '../../helpers/timing';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
+import { TECHSUPPORT_SUPPORT_ACK_TEMPLATES } from '../../../../src/shared/techsupport-greeting';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 test.describe('TechSupport built-in contact controls', () => {
@@ -50,9 +51,12 @@ test.describe('TechSupport built-in contact controls', () => {
       (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showConversationDetail?.(conversationId);
     }, supportConversationId);
     await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 10_000 });
+    // K5 (docs/TODO.md): a message TechSupport has never seen before takes the miss path and
+    // renders the signed "new question" ack, not the old blanket "received your message" reply.
     await page.locator('#conversation-message-input').fill('你好，TechSupport');
     await page.locator('#send-conversation-message').click();
-    await expect(page.locator('#conversation-messages')).toContainText('收到你的消息，Tom', { timeout: 20_000 });
+    const expectedAck = TECHSUPPORT_SUPPORT_ACK_TEMPLATES.zh.replace('{name}', 'Tom');
+    await expect(page.locator('#conversation-messages')).toContainText(expectedAck, { timeout: 20_000 });
     await page.locator('#back-from-conversation').click();
     await page.evaluate(() => localStorage.setItem('iinpublic_ui_language', 'en'));
 

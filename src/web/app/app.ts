@@ -35,10 +35,20 @@ import {
 import {
   renderGreeting,
   verifyTechSupportGreeting,
+  verifySupportAck,
   type GreetingLocale,
   type SignedGreeting,
+  type SupportAckLocale,
+  type SignedSupportAck,
 } from '../../shared/techsupport-greeting';
 import techsupportGreetingBundle from '../../shared/techsupport-greeting.signed.json';
+import techsupportSupportAckBundle from '../../shared/techsupport-support-ack.signed.json';
+import {
+  lookupSupportAnswer,
+  supportAutoAnswerMessageId,
+  type SupportInboxEntry,
+} from '../../shared/techsupport-faq';
+import { readCachedFaqBundle, readCachedFaqEntries, subscribeToFaqBundle } from '../services/techsupport-faq-cache';
 import { uiLanguageFromProfile } from '../ui/ui-translations';
 import { getUiLanguagePreference } from '../ui/ui-settings-storage';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags } from '../../shared/p2p-runtime';
@@ -122,6 +132,21 @@ type MailboxConversationMessagePayload = {
   wire: import('../services/gun-message-store').ConversationMessageWire;
 };
 
+/**
+ * docs/TODO.md K5, design note §Item 3 (decision K5-A): a new question reaches the TechSupport
+ * device as an encrypted mailbox envelope — never a server route — so the relay holds no
+ * support-inbox data. The TechSupport device ingests this into its OWN local Gun
+ * (`techsupport-inbox/<questionKey>`) on drain.
+ */
+type MailboxSupportQuestionPayload = {
+  kind: 'support-question-v1';
+  questionKey: string;
+  question: string;
+  askedBy: string;
+  conversationId: string;
+  askedAt: string;
+};
+
 export class IinPublicApp {
   private gunService: WebGunService;
   private userService: WebUserService;
@@ -160,6 +185,8 @@ export class IinPublicApp {
   private peerMeshService: PeerMeshService | null = null;
   private mailboxClient: WebMailboxClient | null = null;
   private mailboxPollTimer: ReturnType<typeof setInterval> | undefined;
+  /** docs/TODO.md K5 — live subscription that keeps the local FAQ-bundle cache verified/fresh. */
+  private techSupportFaqBundleUnsubscribe: (() => void) | null = null;
   private mailboxDrainPromise: Promise<void> | null = null;
   private attachmentShareSentIds = new Set<string>();
   private fetchedAttachmentBytesByCid = new Map<string, Uint8Array>();
@@ -1214,6 +1241,7 @@ export class IinPublicApp {
     await this.ensureSupportBootstrapForCurrentUser().catch((error) => {
       console.warn('Support bootstrap failed:', error);
     });
+    this.subscribeToTechSupportFaqBundle();
     await this.initP2PPresenceAndBridge();
     this.initDirectTalkDeliverySubscriptions();
     // Step 6: drain mailbox on app boot + retry any failed mailbox POSTs.
@@ -1701,6 +1729,7 @@ export class IinPublicApp {
           | import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload
           | MailboxAttachmentSharePayload
           | MailboxConversationMessagePayload
+          | MailboxSupportQuestionPayload
         >(
           envelope.ciphertext,
           pair as import('../sea-gun').GunPair,
@@ -1717,6 +1746,7 @@ export class IinPublicApp {
         // Dispatch based on payload kind:
         //   - kind 'conversation-message-v1' → offline DM (Phase 4)
         //   - kind 'ipfs-conversation-share-v1' → attachment share link
+        //   - kind 'support-question-v1' → TechSupport inbox delivery (K5)
         //   - has `talkData` → talk-body payload from R-a mailbox fallback
         //   - has `retractedAt` (number) → step-10 retraction envelope
         //   - has `responseId` → talk-response payload from step 6
@@ -1724,6 +1754,8 @@ export class IinPublicApp {
           await this.ingestConversationMessageFromMailbox(payload as MailboxConversationMessagePayload);
         } else if ((payload as any).kind === 'ipfs-conversation-share-v1') {
           await this.ingestAttachmentShareFromMailbox(payload as MailboxAttachmentSharePayload);
+        } else if ((payload as any).kind === 'support-question-v1') {
+          await this.ingestSupportQuestionFromMailbox(payload as MailboxSupportQuestionPayload);
         } else if ((payload as any).talkData !== undefined) {
           await this.handleMeshTalkBody(payload as import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload);
         } else if (typeof (payload as any).retractedAt === 'number') {
@@ -1842,6 +1874,81 @@ export class IinPublicApp {
       { otherUserId: payload.recipientUserId || this.currentUser.id },
     );
     console.log('[Mailbox] Ingested offline DM', payload.wire.id, 'in', payload.conversationId);
+  }
+
+  /**
+   * docs/TODO.md K5, design note §Item 3 (decision K5-A). A new question reaches TechSupport as
+   * an encrypted mailbox envelope, never a server route, so the relay holds no support-inbox
+   * data — the same pattern `postConversationMessageToMailbox` uses for ordinary DMs. Called
+   * only from the asker's client (§Item 2's miss branch). The envelope id is deterministic on
+   * `questionKey` + `askedBy`, so a repeat ask overwrites rather than duplicating.
+   */
+  private async postSupportQuestionToMailbox(entry: SupportInboxEntry): Promise<void> {
+    if (this.mailboxFallbackDisabledForE2e) return;
+    if (!this.currentUser?.id) return;
+    const mailbox = this.ensureMailboxClient();
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.priv) return;
+    try {
+      const supportEpub = await this.resolvePeerEpub(TECHSUPPORT_ROOT_USER_ID);
+      if (!supportEpub) {
+        console.warn('[Mailbox] Cannot post support question — TechSupport epub not found');
+        return;
+      }
+      const payload: MailboxSupportQuestionPayload = {
+        kind: 'support-question-v1',
+        questionKey: entry.questionKey,
+        question: entry.question,
+        askedBy: entry.askedBy,
+        conversationId: entry.conversationId,
+        askedAt: entry.askedAt,
+      };
+      const ciphertext = await mailbox.encryptForRecipient(supportEpub, pair as import('../sea-gun').GunPair, payload);
+      const result = await mailbox.postEnvelope({
+        id: `mbx_support_${entry.questionKey}_${entry.askedBy}`,
+        recipientId: TECHSUPPORT_ROOT_USER_ID,
+        ciphertext,
+      });
+      if (result.stored) {
+        console.log('[Mailbox] Posted support question envelope for', entry.questionKey);
+      } else {
+        console.warn('[Mailbox] Server rejected support question envelope:', result.error);
+      }
+    } catch (err) {
+      console.warn('[Mailbox] postSupportQuestionToMailbox failed:', err);
+    }
+  }
+
+  /**
+   * docs/TODO.md K5, design note §Item 3. Device-side ingest: only materializes a pending inbox
+   * entry when THIS session is authenticated as TechSupport (an ordinary user must never build
+   * someone else's inbox). Writes to TechSupport-LOCAL Gun only (`techsupport-inbox/<key>`) —
+   * never a `public/` path, so it does not replicate as a relay-held authority record. Idempotent
+   * by questionKey: a duplicate ask overwrites the same row rather than creating a second one.
+   */
+  private async ingestSupportQuestionFromMailbox(payload: MailboxSupportQuestionPayload): Promise<void> {
+    if (!this.currentUser?.id || this.currentUser.id !== TECHSUPPORT_ROOT_USER_ID) return;
+    if (payload.kind !== 'support-question-v1' || !payload.questionKey) return;
+    const gun = this.gunService.getGun();
+    const existing = await new Promise<any>((resolve) => {
+      const timer = setTimeout(() => resolve(null), 700);
+      gun.get('techsupport-inbox').get(payload.questionKey).once((data: any) => {
+        clearTimeout(timer);
+        resolve(data);
+      });
+    });
+    // A question already answered must not regress to pending on a re-ask/replay.
+    if (existing?.status === 'answered') return;
+    const entry: SupportInboxEntry = {
+      questionKey: payload.questionKey,
+      question: payload.question,
+      askedBy: payload.askedBy,
+      conversationId: payload.conversationId,
+      askedAt: payload.askedAt,
+      status: 'pending',
+    };
+    gun.get('techsupport-inbox').get(payload.questionKey).put(entry);
+    console.log('[Support] Ingested pending question', payload.questionKey, 'from', payload.askedBy);
   }
 
   /**
@@ -2452,21 +2559,95 @@ export class IinPublicApp {
     }
   }
 
-  private async sendTechSupportAutoReply(conversationId: string, userMessageId: string): Promise<void> {
+  /** docs/TODO.md K5, design note §Item 1a: keeps the local FAQ-bundle cache verified/fresh. */
+  private subscribeToTechSupportFaqBundle(): void {
+    if (this.techSupportFaqBundleUnsubscribe) return;
+    const gun = this.gunService.getGun();
+    this.techSupportFaqBundleUnsubscribe = subscribeToFaqBundle(gun);
+  }
+
+  /**
+   * docs/TODO.md K5, design note §Item 2 — replaces the old blanket canned reply
+   * (sendTechSupportAutoReply/supportReply) with a hit/miss branch, run on the ASKER'S OWN
+   * client so a known question is answered even while TechSupport's device is offline:
+   *
+   *   - known  → render a signed auto-answer locally from the verified cached FAQ bundle
+   *              (never `sendMessage` — authored by TechSupport, not transmitted, same trick
+   *              as the K2 greeting).
+   *   - new    → render the compiled, pre-signed acknowledgement locally, and deliver the
+   *              question to the TechSupport device via the offline mailbox (§Item 3).
+   *   - unanswerable (no real question text) → do nothing; no reply, no inbox entry.
+   */
+  private async handleSupportQuestion(
+    conversationId: string,
+    userMessageId: string,
+    questionText: string,
+  ): Promise<void> {
     if (!this.currentUser || isTechSupportUser(this.currentUser)) return;
-    const reply = this.uiManager.formatSupportReply(this.currentUser.stageName);
+    const faq = readCachedFaqEntries();
+    const result = lookupSupportAnswer(questionText, faq);
     const now = new Date().toISOString();
-    await this.conversationService.sendMessage(
+
+    if (result.status === 'unanswerable') return;
+
+    if (result.status === 'known') {
+      const cachedBundle = readCachedFaqBundle();
+      // Re-derive the entry from the freshest cache read rather than trusting the lookup
+      // snapshot, and bail if the cache went missing between lookup and here.
+      if (!cachedBundle) return;
+      this.conversationService.upsertMessageRecord(
+        conversationId,
+        {
+          id: supportAutoAnswerMessageId(userMessageId),
+          senderId: TECHSUPPORT_ROOT_USER_ID,
+          text: result.entry.answer,
+          timestamp: now,
+          channel: 'public',
+          isFromChatbot: true,
+          faqQuestionKey: result.questionKey,
+          faqAuthorPub: cachedBundle.authorPub,
+          faqSignature: cachedBundle.signature,
+        },
+        { otherUserId: this.currentUser.id },
+      );
+      this.uiManager.updateConversationMessage(conversationId, result.entry.answer, now);
+      return;
+    }
+
+    // result.status === 'new' (MISS)
+    const locale = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages)) as SupportAckLocale;
+    const ackBundle = techsupportSupportAckBundle.acks as SignedSupportAck[];
+    const ackEntry = ackBundle.find((a) => a.locale === locale) ?? ackBundle.find((a) => a.locale === 'en');
+    const verifiedAck = ackEntry ? await verifySupportAck(ackEntry) : null;
+    if (verifiedAck) {
+      const renderedAck = renderGreeting(verifiedAck.template, this.currentUser.stageName);
+      this.conversationService.upsertMessageRecord(
+        conversationId,
+        {
+          id: `support_ack_${userMessageId}`,
+          senderId: TECHSUPPORT_ROOT_USER_ID,
+          text: renderedAck,
+          timestamp: now,
+          channel: 'public',
+          isFromChatbot: true,
+          ackLocale: verifiedAck.locale,
+          ackSignature: verifiedAck.signature,
+          ackAuthorPub: verifiedAck.authorPub,
+        },
+        { otherUserId: this.currentUser.id },
+      );
+      this.uiManager.updateConversationMessage(conversationId, renderedAck, now);
+    }
+    // A verify failure suppresses the ack (K2-3 discipline) but must never block delivery —
+    // the question still needs to reach TechSupport either way.
+    await this.postSupportQuestionToMailbox({
+      questionKey: result.questionKey,
+      question: questionText,
+      askedBy: this.currentUser.id,
       conversationId,
-      TECHSUPPORT_ROOT_USER_ID,
-      reply,
-      {
-        otherUserId: this.currentUser.id,
-        messageId: `support_reply_${userMessageId}`,
-        isFromChatbot: true,
-      },
-    );
-    this.uiManager.updateConversationMessage(conversationId, reply, now);
+      askedAt: now,
+      status: 'pending',
+    });
   }
 
   private loadTravelModeStateFromStorage(): void {
@@ -4818,7 +4999,7 @@ export class IinPublicApp {
 
           console.log('✅ Conversation message sent');
           if (conversation?.supportChannel === true || otherUserId === TECHSUPPORT_ROOT_USER_ID) {
-            await this.sendTechSupportAutoReply(data.conversationId, messageId);
+            await this.handleSupportQuestion(data.conversationId, messageId, data.message);
           }
 
           // Phase E: ledger hook — CONVERSATION_MSG
