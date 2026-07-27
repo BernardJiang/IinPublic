@@ -421,16 +421,42 @@ Verifiable entirely at **stage1** (one ordinary user + TechSupport).
       renders, verifies, and the mailbox envelope posts — confirmed live in the test console);
       `stage2/00k-techsupport-contact-mute.spec.ts` updated to assert the new ack text instead of
       the retired blanket reply. 2026-07-26.
-- [ ] **Item 4** — support-inbox view, visible **only** to a session authenticated as the
-      TechSupport root: list pending `techsupport-inbox/*` questions. `[Opus]`
-- [ ] **Item 5** — answer inline + publish/promote to FAQ in one action (sign the updated bundle,
-      write `techsupport-faq/<key>` + `techsupport-faq/bundle`, deliver the answer, flip the inbox
-      entry to answered). Decisions already made in the design note: `answeredBy` recorded
-      internally only (never in the public bundle/message); v1 supports add + edit-by-overwrite,
-      retire is out of scope (needs a signed tombstone).
-- [ ] Remaining Item 6 tests (offline delivery/answer while TechSupport is stopped, operator
-      answers + promotes, re-ask is a hit with no duplicate FAQ row, `stage2` cross-user
-      auto-answer) — need Items 4/5 to exist first.
+- [x] **Items 4+5** — support-inbox view + answer/publish action. New
+      `src/web/ui/support-inbox-view.ts` (`renderSupportInboxSection`, the `answers-view.ts`-style
+      deps pattern) renders into a `#support-inbox-section` placeholder that
+      `UIManager.renderSettingsView` only emits when `user.id === TECHSUPPORT_ROOT_USER_ID` — an
+      operator tool, not a per-user surface, gated on the same `isTechSupportRoot` predicate as
+      the K3 root badge. Fed by `IinPublicApp.subscribeToSupportInboxIfTechSupport()`, a live
+      `techsupport-inbox/*` Gun subscription (TechSupport-root sessions only). The answer control
+      exposes both an editable question and an answer field (privacy — publishing the
+      operator-edited question, not the asker's raw text verbatim), submitting via the
+      `answerSupportQuestion` event to `IinPublicApp.handleAnswerSupportQuestion()`, which signs
+      the updated bundle with the live DM pair, writes `techsupport-faq/<key>` +
+      `techsupport-faq/bundle`, delivers the answer as a real signed DM, and flips the inbox entry
+      to `answered`. `[Opus]`
+      - **Real bug found and fixed during E2E verification:** `postSupportQuestionToMailbox`
+        originally resolved TechSupport's mailbox-encryption `epub` via the generic
+        `resolvePeerEpub` (presence/`users/<id>` lookup) — which reads whatever epub is currently
+        on `users/TECHSUPPORT_ROOT_USER_ID`, poisonable by any session that has ever adopted that
+        reserved id (including the K4 stage0 fixture's own `aaa`/`baa`/`caa` traversal, which
+        boots as an *ordinary* session under the TechSupport id/name, not real K3 DM-key auth).
+        Fixed to resolve the epub from the signed, trust-anchor-verified
+        `public/techsupport-identity` record (`discoverTechSupportIdentityFromGun()`) instead —
+        the same guarantee K1/K3 already rely on, and the only source immune to this class of
+        pollution.
+      - **Second real bug found and fixed:** Gun cannot store a nested array (documented
+        elsewhere in this codebase) — `SignedFaqBundle.entries` is exactly that, and writing it
+        directly silently produced a bundle no client could read back. Fixed with
+        `faqBundleToGunWire`/`faqBundleFromGunWire` in `techsupport-faq-cache.ts` (JSON-encodes
+        `entries` as `entriesJson` for Gun storage only; every other layer — the cache,
+        `verifyFaqBundle`, localStorage — still works with the real typed array).
+      - E2E: `stage1/07-support-inbox-answer-flow.spec.ts` is a real, passing, non-flaky (3/3)
+        end-to-end confirmation of the full operator loop — question asked → mailbox delivery →
+        TechSupport boots and drains → inbox row renders → operator answers → asker receives the
+        answer → FAQ bundle independently readable and verifiable. 2026-07-26.
+- [ ] Remaining Item 6 tests (offline auto-answer while TechSupport is stopped, re-ask is a hit
+      with no duplicate FAQ row, `stage2` cross-user auto-answer) — narrower slices of the same
+      flow spec 07 already exercises end-to-end.
 
 **Tests**
 

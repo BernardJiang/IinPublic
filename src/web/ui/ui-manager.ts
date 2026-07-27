@@ -36,6 +36,8 @@ import {
 } from '../../shared/techsupport-greeting';
 import { verifyFaqBundle } from '../../shared/techsupport-faq-bundle';
 import { readCachedFaqBundle } from '../services/techsupport-faq-cache';
+import type { SupportInboxEntry } from '../../shared/techsupport-faq';
+import { renderSupportInboxSection } from './support-inbox-view';
 import type { StatsByRegion, StatsByTime, StatsDashboard, StatsSummary, TalkType } from '../../shared/talk-stats';
 import {
   summarize,
@@ -264,6 +266,8 @@ export class UIManager extends EventEmitter {
   private currentUser?: User;
   private currentChatroom: string = 'global';
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
+  /** docs/TODO.md K5 — the TechSupport-root session's own pending-question inbox, fed by app.ts's live `techsupport-inbox/*` subscription (never read directly from Gun here). */
+  private currentSupportInboxEntries: SupportInboxEntry[] = [];
   private talksViewMode: 'all' | 'in' | 'out' = 'all';
   private talksOutSortMode: 'recent' | 'oldest' | 'latest-reply' | 'matches' | 'responses' | 'match-rate' | 'weighted' | 'title' = 'recent';
   private talksQuery = '';
@@ -3335,10 +3339,12 @@ export class UIManager extends EventEmitter {
           </div>
           <div id="settings-storage-inspector-body" style="font-size:0.9em;color:var(--text-tertiary);">${this.t('settingsStorageLoading')}</div>
         </section>
+        ${user.id === TECHSUPPORT_ROOT_USER_ID ? '<div id="support-inbox-section"></div>' : ''}
       </div>
     `;
     this.bindSettingsControls();
     void this.refreshStorageInspector();
+    this.renderSupportInboxSectionIfPresent();
   }
 
   /**
@@ -7476,6 +7482,30 @@ export class UIManager extends EventEmitter {
       `📊 Updating member count for ${this.currentChatroom}: ${members.length} total members`,
     );
     renderChatroomMembers(this.chatroomsDeps(), members, currentUserId);
+  }
+
+  /**
+   * docs/TODO.md K5, design note §Item 4. Fed by app.ts's live `techsupport-inbox/*`
+   * subscription (TechSupport-root sessions only) — re-renders the inbox section in place if
+   * the Me/Settings tab is currently showing it, matching the presence-indicator patch pattern
+   * (no full-page re-render, just this one section).
+   */
+  updateSupportInboxEntries(entries: SupportInboxEntry[]): void {
+    this.currentSupportInboxEntries = entries;
+    this.renderSupportInboxSectionIfPresent();
+  }
+
+  private renderSupportInboxSectionIfPresent(): void {
+    if (!document.getElementById('support-inbox-section')) return;
+    renderSupportInboxSection(
+      {
+        escapeHtml,
+        text: this.t.bind(this),
+        formatDate: this.formatUiDate.bind(this),
+        onAnswer: (input) => this.emit('answerSupportQuestion', input),
+      },
+      this.currentSupportInboxEntries,
+    );
   }
 
   setMemberMatched(userId: string): void {

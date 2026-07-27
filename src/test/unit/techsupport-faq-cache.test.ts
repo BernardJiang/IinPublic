@@ -4,8 +4,14 @@
  * No jsdom needed — the module only touches `localStorage`, which src/test/setup.ts already
  * polyfills for the default Node test environment (same as techsupport-faq-bundle.test.ts).
  */
-import { readCachedFaqBundle, readCachedFaqEntries, subscribeToFaqBundle } from '../../web/services/techsupport-faq-cache';
-import { signFaqBundle } from '../../shared/techsupport-faq-bundle';
+import {
+  faqBundleFromGunWire,
+  faqBundleToGunWire,
+  readCachedFaqBundle,
+  readCachedFaqEntries,
+  subscribeToFaqBundle,
+} from '../../web/services/techsupport-faq-cache';
+import { signFaqBundle, verifyFaqBundle } from '../../shared/techsupport-faq-bundle';
 import { buildSupportFaqEntry } from '../../shared/techsupport-faq';
 import SEA from 'gun/sea';
 
@@ -95,5 +101,38 @@ describe('techsupport-faq-cache (docs/TODO.md K5)', () => {
     expect(wasUnsubscribed()).toBe(false);
     unsubscribe();
     expect(wasUnsubscribed()).toBe(true);
+  });
+
+  describe('faqBundleToGunWire / faqBundleFromGunWire', () => {
+    it('round-trips a bundle through the Gun-safe wire shape (entries -> entriesJson -> entries)', async () => {
+      const entries = [buildSupportFaqEntry({ question: 'q1', answer: 'a1' })!, buildSupportFaqEntry({ question: 'q2', answer: 'a2' })!];
+      const signed = await signFaqBundle(entries, DEV_PAIR);
+      const wire = faqBundleToGunWire(signed);
+      expect(typeof (wire as any).entriesJson).toBe('string');
+      expect((wire as any).entries).toBeUndefined();
+
+      const restored = faqBundleFromGunWire(wire);
+      expect(await verifyFaqBundle(restored)).toEqual(signed);
+    });
+
+    it('subscribeToFaqBundle verifies a Gun-persisted wire-shaped record (the real write shape after the entries-array fix)', async () => {
+      const entry = buildSupportFaqEntry({ question: 'q', answer: 'a' })!;
+      const signed = await signFaqBundle([entry], DEV_PAIR);
+      const { gun } = fakeGun(faqBundleToGunWire(signed));
+
+      let received: unknown = null;
+      subscribeToFaqBundle(gun, (bundle) => {
+        received = bundle;
+      });
+      await waitUntil(() => received !== null);
+      expect(readCachedFaqEntries()).toEqual([entry]);
+    });
+
+    it('passes non-wire data through unchanged (backward compatible with a plain entries array)', () => {
+      const value = { entries: [{ questionKey: 'x' }] };
+      expect(faqBundleFromGunWire(value)).toBe(value);
+      expect(faqBundleFromGunWire(null)).toBeNull();
+      expect(faqBundleFromGunWire('a string')).toBe('a string');
+    });
   });
 });

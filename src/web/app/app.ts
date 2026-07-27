@@ -44,11 +44,21 @@ import {
 import techsupportGreetingBundle from '../../shared/techsupport-greeting.signed.json';
 import techsupportSupportAckBundle from '../../shared/techsupport-support-ack.signed.json';
 import {
+  buildSupportFaqEntry,
   lookupSupportAnswer,
   supportAutoAnswerMessageId,
+  supportHumanAnswerMessageId,
+  upsertSupportFaqEntry,
   type SupportInboxEntry,
 } from '../../shared/techsupport-faq';
-import { readCachedFaqBundle, readCachedFaqEntries, subscribeToFaqBundle } from '../services/techsupport-faq-cache';
+import { signFaqBundle } from '../../shared/techsupport-faq-bundle';
+import {
+  faqBundleFromGunWire,
+  faqBundleToGunWire,
+  readCachedFaqBundle,
+  readCachedFaqEntries,
+  subscribeToFaqBundle,
+} from '../services/techsupport-faq-cache';
 import { uiLanguageFromProfile } from '../ui/ui-translations';
 import { getUiLanguagePreference } from '../ui/ui-settings-storage';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags } from '../../shared/p2p-runtime';
@@ -1242,6 +1252,7 @@ export class IinPublicApp {
       console.warn('Support bootstrap failed:', error);
     });
     this.subscribeToTechSupportFaqBundle();
+    this.subscribeToSupportInboxIfTechSupport();
     await this.initP2PPresenceAndBridge();
     this.initDirectTalkDeliverySubscriptions();
     // Step 6: drain mailbox on app boot + retry any failed mailbox POSTs.
@@ -1882,6 +1893,15 @@ export class IinPublicApp {
    * data — the same pattern `postConversationMessageToMailbox` uses for ordinary DMs. Called
    * only from the asker's client (§Item 2's miss branch). The envelope id is deterministic on
    * `questionKey` + `askedBy`, so a repeat ask overwrites rather than duplicating.
+   *
+   * Deliberately does NOT use `resolvePeerEpub` (generic presence/`users/<id>` lookup): that
+   * path reads whatever epub is currently on `users/TECHSUPPORT_ROOT_USER_ID`, which any session
+   * that has ever adopted the reserved TechSupport id — including test fixtures built by an
+   * ordinary (non-K3-mode) bootstrap — can have overwritten with an unrelated device keypair.
+   * Encrypting to that would silently produce an envelope the real TechSupport device can never
+   * decrypt. `discoverTechSupportIdentityFromGun()` reads the signed `public/techsupport-identity`
+   * record and verifies it against the compiled `TECHSUPPORT_PUB` trust anchor, so its `epub` is
+   * guaranteed to be the canonical DM key's — the same guarantee K1/K3 already rely on elsewhere.
    */
   private async postSupportQuestionToMailbox(entry: SupportInboxEntry): Promise<void> {
     if (this.mailboxFallbackDisabledForE2e) return;
@@ -1890,9 +1910,10 @@ export class IinPublicApp {
     const pair = this.gunService.getStoredPair();
     if (!pair?.priv) return;
     try {
-      const supportEpub = await this.resolvePeerEpub(TECHSUPPORT_ROOT_USER_ID);
+      const identity = await this.discoverTechSupportIdentityFromGun();
+      const supportEpub = identity?.epub || '';
       if (!supportEpub) {
-        console.warn('[Mailbox] Cannot post support question — TechSupport epub not found');
+        console.warn('[Mailbox] Cannot post support question — verified TechSupport identity not found');
         return;
       }
       const payload: MailboxSupportQuestionPayload = {
@@ -1949,6 +1970,88 @@ export class IinPublicApp {
     };
     gun.get('techsupport-inbox').get(payload.questionKey).put(entry);
     console.log('[Support] Ingested pending question', payload.questionKey, 'from', payload.askedBy);
+  }
+
+  /**
+   * docs/TODO.md K5, design note §Item 4. Live view of TechSupport-LOCAL Gun
+   * (`techsupport-inbox/*`) for the support-inbox UI — only subscribed when this session is
+   * authenticated as TechSupport itself; an ordinary user has nothing to read here (K1's
+   * relay-light presence invariant: the relay/other sessions hold no support data).
+   */
+  private subscribeToSupportInboxIfTechSupport(): void {
+    if (!this.currentUser || this.currentUser.id !== TECHSUPPORT_ROOT_USER_ID) return;
+    const entries = new Map<string, SupportInboxEntry>();
+    const gun = this.gunService.getGun();
+    gun
+      .get('techsupport-inbox')
+      .map()
+      .on((data: any, questionKey: string) => {
+        if (!questionKey || questionKey.startsWith('_')) return;
+        if (!data || typeof data !== 'object') {
+          entries.delete(questionKey);
+        } else {
+          entries.set(questionKey, { ...data, questionKey } as SupportInboxEntry);
+        }
+        this.uiManager.updateSupportInboxEntries(Array.from(entries.values()));
+      });
+  }
+
+  /**
+   * docs/TODO.md K5, design note §Item 5. Runs only in a session authenticated as TechSupport
+   * (holds the DM pair via K3) — one action does all four steps: sign + publish the updated FAQ
+   * bundle, deliver the answer to the asker over the real support transport, and flip the inbox
+   * entry to answered.
+   */
+  private async handleAnswerSupportQuestion(input: {
+    questionKey: string;
+    question: string;
+    answer: string;
+    conversationId: string;
+    askedBy: string;
+  }): Promise<void> {
+    if (!this.currentUser || this.currentUser.id !== TECHSUPPORT_ROOT_USER_ID) return;
+    const pair = this.gunService.getStoredPair();
+    if (!pair?.priv) {
+      console.warn('[Support] Cannot answer — no DM keypair available on this session');
+      return;
+    }
+    // The operator may have edited the question text (privacy — never publish the asker's raw
+    // wording verbatim if it carries personal detail); the PUBLISHED entry is keyed on the
+    // edited text, not the original asked text. The original questionKey is kept only for
+    // flipping the right inbox row below.
+    const entry = buildSupportFaqEntry({ question: input.question, answer: input.answer });
+    if (!entry) return;
+
+    const gun = this.gunService.getGun();
+    const currentBundleRaw = await new Promise<unknown>((resolve) => {
+      const timer = setTimeout(() => resolve(null), 1500);
+      gun.get('techsupport-faq').get('bundle').once((data: unknown) => {
+        clearTimeout(timer);
+        resolve(data);
+      });
+    });
+    const currentBundle = faqBundleFromGunWire(currentBundleRaw) as
+      | { entries?: import('../../shared/techsupport-faq').SupportFaqEntry[] }
+      | null;
+    const nextEntries = upsertSupportFaqEntry(currentBundle?.entries || [], entry);
+    const signedBundle = await signFaqBundle(nextEntries, pair as import('../sea-gun').GunPair & { pub: string; priv: string });
+
+    gun.get('techsupport-faq').get(entry.questionKey).put(entry);
+    gun.get('techsupport-faq').get('bundle').put(faqBundleToGunWire(signedBundle));
+
+    await this.conversationService.sendMessage(
+      input.conversationId,
+      TECHSUPPORT_ROOT_USER_ID,
+      input.answer,
+      {
+        otherUserId: input.askedBy,
+        messageId: supportHumanAnswerMessageId(input.questionKey),
+        isFromChatbot: false,
+      },
+    );
+
+    gun.get('techsupport-inbox').get(input.questionKey).put({ status: 'answered' });
+    console.log('[Support] Answered and published', input.questionKey);
   }
 
   /**
@@ -5010,6 +5113,23 @@ export class IinPublicApp {
           });
         } catch (error) {
           console.error('Failed to send conversation message:', error);
+          this.uiManager.showNotification(
+            this.uiManager.formatMessageSendFailed((error as Error).message),
+            'error',
+          );
+        }
+      },
+    );
+
+    // docs/TODO.md K5, design note §Item 5 — the TechSupport-inbox answer control (only ever
+    // rendered inside a TechSupport-root session, ui-manager.ts's renderSettingsView).
+    this.uiManager.on(
+      'answerSupportQuestion',
+      async (data: { questionKey: string; question: string; answer: string; conversationId: string; askedBy: string }) => {
+        try {
+          await this.handleAnswerSupportQuestion(data);
+        } catch (error) {
+          console.error('Failed to answer support question:', error);
           this.uiManager.showNotification(
             this.uiManager.formatMessageSendFailed((error as Error).message),
             'error',
