@@ -54,7 +54,9 @@
       "Bash(PW_WORKERS=2 npx playwright test tests/e2e/talks-matching/12-two-responders-partial-match.spec.ts tests/e2e/15-blocking-system.spec.ts --reporter=line)",
       "Bash(awk -F: '{print $1}')",
       "mcp__plugin_claude-mem_mcp-search__smart_outline",
-      "Bash(PW_WORKERS=10 npm run test:e2e)"
+      "Bash(PW_WORKERS=10 npm run test:e2e)",
+      "Bash(python3 -c ' *)",
+      "Bash(grep -v '^[0-9a-f]\\\\{20\\\\}\\\\.json$')"
     ]
   }
 }

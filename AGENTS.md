@@ -215,79 +215,80 @@ This is a starting point. Add your own conventions, style, and rules as you figu
 <claude-mem-context>
 # Memory Context
 
-# [IinPublic] recent context, 2026-07-07 2:59pm PDT
+# [IinPublic] recent context, 2026-07-26 9:52pm PDT
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (17,996t read) | 173,677t work | 90% savings
+Stats: 50 obs (24,485t read) | 530,998t work | 95% savings
 
-### May 15, 2026
-S17 Double-check current status against deleted P0 section of TODO.md from git history; create new plan and insert at beginning of TODO.md if differences found (May 15 at 12:10 AM)
-S18 Pre-commit State: Major UI Refactor Pending in /IinPublic (May 15 at 12:10 AM)
-S19 Git commit pending UI refactor changes in /IinPublic project (May 15 at 12:15 AM)
-S20 Software Architect: Prioritized Development Plan for IinPublic (2026-06-14) (May 15 at 12:16 AM)
 ### Jun 14, 2026
-S21 Activate Software Architect and Minimal Change Engineer to review IinPublic repo and propose a development plan (Jun 14 at 2:35 PM)
 S22 Distance Sort Branch Implemented in contacts-view.ts Sort Comparator (Jun 14 at 2:36 PM)
 S23 Verify Phase 5 follow-up items (steps 3 and 4): re-digest on reconnect and listLocalWires bounding (Jun 14 at 2:42 PM)
 S24 Green CI Commit dbf22108 Landed with scripts/ci-local.sh Created (Jun 14 at 2:51 PM)
 S25 Use local PC as CI — run ./scripts/ci-local.sh, fix failures, commit on green (Jun 14 at 3:52 PM)
-### Jun 25, 2026
-817 5:29p 🔵 IinPublic E2E Test Suite — Git State and Recent Helper Changes
-818 " 🟣 timing.ts: waitForAppReady and gotoAppReady Accept Optional timeoutMs
-819 5:30p 🔵 talks-matching-flow.ts in Contradictory Staged/Unstaged State
-820 " 🔵 playwright.config.ts — Full E2E Infrastructure Architecture
-821 " 🟣 S3 Embedded-Node Platform Support Added to Server and package.json
-822 5:31p 🔵 Stage1 Single-User Spec Passes When Run in Isolation (1 Worker)
-823 5:32p 🔵 Stage2 Two-User Spec Passes in Isolation — Confirms Parallel Execution Root Cause
-824 5:43p 🔵 Critical Mismatch: Single webpack-dev-server vs Multi-Worker Port Mapping
-825 5:44p 🔵 `window.__gunReady` Never Set in Source Code — afterSync Always Times Out
-826 5:45p 🔵 App.tsx Missing window.__gunReady Signal and Missing Test-Required UI Elements
-827 " 🔵 Window Globals Declared in TypeScript but Never Assigned at Runtime
-828 " 🔴 playwright.config.ts: Reduced Workers to 1 and Added baseURL
-829 " 🔴 fixtures.ts: Hardcoded Port 3001 Replacing Dynamic Worker Port Mapping
-830 " 🔴 timing.ts and talks-matching-flow.ts: Graceful Fallback When __gunReady Not Set
-831 " 🟣 App.tsx: Full UI Implementation with All Test-Required data-testid Elements
-832 " ✅ TypeScript Compilation Passes Clean After All Code Changes
-833 " 🔴 First E2E Test Passing: "auto-copy keeps clipboard in sync" Passes in 4.2s
-834 " 🔴 Stage2 Profile Edit Tests Both Pass: Stage Name Edit and Two-User Visibility
-835 " 🔴 All 7 Stage1 Single-User E2E Tests Pass After Infrastructure and App Fixes
-836 " 🔴 All 5 Stage2 Two-User E2E Tests Pass — Full Suite Now Green
+S26 DMG Confirmed at 247MB — Wine Not Installed, brew install wine-stable Started as Background Task (Jun 14 at 3:52 PM)
 ### Jul 2, 2026
-837 11:26p 🟣 IinPublic Desktop App Build Task Initiated for macOS and Windows
-838 11:27p 🔵 IinPublic Desktop Build Environment State Confirmed
-839 " 🔵 macOS sips Can Generate All Required Icon Formats Natively
-840 " 🟣 1024×1024 App Icon Generated with Pure Python + NumPy (No PIL)
-841 11:28p 🟣 All Three Platform Icons Generated and Verified in platforms/desktop/resources/
-842 " ✅ Embedded Artifacts Rebuilt — buildId 55019cd2 Stamped to dist/web and dist/server
-843 " 🔵 Desktop npm Install Complete — Electron 31.7.7 Binary Present, 6 High Severity Vulns
-844 " 🔵 Electron Install Incomplete — path.txt Missing, Binary Present But Unregistered
-845 11:29p 🔵 Electron dist/ Confirms Incomplete Install — No version File, Only Electron.app Present
-846 " 🔵 Electron Artifact Cache Missing — Fresh Download Required for electron-builder
-847 " 🔵 electron-builder Packaging Started — Unsigned macOS arm64 Build, No Developer ID Cert
-848 " 🟣 IinPublic.app macOS arm64 Bundle Built Successfully — 949MB Total
-849 " ✅ macOS DMG Build Phase Started (Task 4)
-850 11:30p 🟣 macOS DMG Built Successfully — IinPublic-1.0.0-arm64.dmg with APFS Format
-851 11:31p 🔵 DMG Confirmed at 247MB — Wine Not Installed, brew install wine-stable Started as Background Task
-S26 DMG Confirmed at 247MB — Wine Not Installed, brew install wine-stable Started as Background Task (Jul 2 at 11:31 PM)
-### Jul 3, 2026
-852 8:32p 🔵 IinPublic Project Structure Contains Multi-Platform Build Directories
-853 " 🔵 Windows Desktop App Built and Present; iOS Shell Incomplete
-854 8:33p 🔵 Desktop Electron Install Instructions and Build Config Confirmed
-855 8:39p 🔵 IinPublic Desktop (Windows/macOS/Linux) Build & Install System
-856 " 🟣 Windows Build Scripts Split into x64, arm64, and Universal Targets
-857 " ✅ Desktop README Updated with Windows Architecture Build Guidance
-858 " ✅ Windows Build Now Produces zip Artifact and electron-builder Bumped to v25
-859 8:40p 🔵 Windows x64 Build Successfully Compiles and Packages IinPublic Desktop
-860 " 🔵 NSIS Installer Build Confirmed: `IinPublic Setup 1.0.0.exe` Produced
-861 8:42p 🔵 Windows x64 Build Completed Successfully (Exit Code 0)
-862 " 🔵 Both Windows x64 and ARM64 Installer Artifacts Present in dist/
-863 8:43p ✅ Session Memory Entry Created for 2026-07-04
-864 " 🔵 iOS NodeRunner.swift: NodeMobile Bridge Stubbed, Not Yet Linked
-865 " 🔵 iOS App Architecture: WKWebView over Loopback with Health-Check Boot Sequencing
-866 " 🔵 Shared nodejs-mobile Entry Point Used by Both Android and iOS
+S27 Fix two failing Playwright E2E mass tests (02-survey-mass-exchange and 04-mixed-saturation) that fail during concurrent-wave test:all execution due to Gun mesh timing issues (Jul 2 at 11:31 PM)
+### Jul 10, 2026
+S28 IinPublic TODO.md: Full Project Backlog State as of 2026-07-25 (Jul 10 at 11:26 PM)
+### Jul 14, 2026
+911 10:46p 🟣 AppBar Component Created at src/web/ui/app-bar.ts
+912 " 🟣 AppBar Component Passes TypeScript Strict Type-Check with Zero Errors
+913 " 🟣 AppBar Unit Test Suite Created at src/test/unit/app-bar.test.ts
+914 10:47p 🔴 Overflow Test Assertion Fixed: Priority Order Spills Actions 1 and 2, Not Just 2
+### Jul 25, 2026
+915 4:38p 🔵 IinPublic TODO.md: Full Project Backlog State as of 2026-07-25
+916 " ⚖️ K. TechSupport Redesigned as Peer Client, Not Server-Resident (2026-07-25)
+917 " 🟣 K6: TechSupport Made Unblockable and Unfilterable (2026-07-25)
+918 " 🟣 K5 Partial: TechSupport Talk Exclusion + FAQ Normalization Module (2026-07-25)
+919 " 🔴 L1: Room Visit Counters Fixed with CRDT G-Counter (2026-07-25)
+920 " 🟣 L2: Graph Size Instrumentation Added; Retention Policy Blocked on Human Decision
+921 " ⚖️ K4: Commit Stage0 Fixture to Repo; All E2E Specs Load Snapshots Instead of Constructing Graphs
+S29 Read docs/TODO.md and summarize all open action items for the IinPublic project (Jul 25 at 4:38 PM)
+S30 IinPublic Full E2E Suite Green: 199/201 Passed, 0 Failures (Jul 25, 2026) (Jul 25 at 4:38 PM)
+922 5:06p 🔵 test:all Script Architecture in IinPublic Project
+923 5:07p 🔵 Latest test:all Report Located at playwright-report/index.html (Jul 25 16:50)
+924 " 🔵 Playwright HTML Report Embeds Test Data as Base64 ZIP
+925 " 🔵 Playwright Report ZIP Contains Hash-Named JSON Test Result Files
+926 5:08p 🔵 Playwright Merged Report ZIP Contains report.json with Top-Level Stats
+927 " 🔵 test:all Run (Jul 25 16:50) Fully Passed: 199/201 Tests, 0 Failures
+928 5:20p 🔵 IinPublic Full E2E Suite Green: 199/201 Passed, 0 Failures (Jul 25, 2026)
+S31 Check the latest npm run test:all report for IinPublic project (Jul 25 at 5:20 PM)
+929 5:24p ✅ TODO.md Action Items Work Initiated
+930 5:25p 🟣 K1 Feature: TechSupport Built-in Identity + Relay-Light Presence
+931 5:26p 🟣 K1 Feature: Additional Tasks — Cleanup, Unification, and Tests
+932 5:27p 🔵 K-Section Architecture: Full Design Decisions for TechSupport Built-in Presence
+933 " 🔵 src/shared/techsupport.ts: Split Trust-Anchor Architecture Already Implemented
+934 " 🔵 TechSupportAnnouncementService Requires Full SEA Pair — Must Lose Private Half in K3
+935 5:28p 🔵 K1-3 Eviction Immunity Already Implemented in chatroom-manager.ts
+936 " 🔵 bootstrapTechSupportRootIfMissing() Full Flow: Browser-Side Root Minting to Be Deleted
+937 " 🔵 dev-techsupport-bootstrap.js: Third TechSupport Graph Builder — Full Structure Mapped
+938 5:29p 🔵 contacts-view.ts Already Renders TechSupport as Hardcoded Client-Side Row (Partial K1)
+939 " 🔵 Stage0-Bootstrap Test Directory Exists; Identity Bootstrap Test Already Written
+940 " 🔵 Three TechSupport Graph Builders: Structurally Identical Gun Graphs with Timestamp-Dependent Member Rows
+941 5:30p 🔵 Member Count Badge Depends on TechSupport Gun Member Row Being Present and Fresh
+942 5:31p 🟣 K1 Design Note Created: Full Implementation Guide for 7 K1 Items
+943 5:32p 🟣 Opus Research Agent Completed; K1 Design Note Verified; Task 6 (Graph Builder Unification) Begins
+944 5:33p 🔵 dev-techsupport-bootstrap.js Usage Map: Required by launch-browsers.js and smoke-dev-multi.js
+945 " 🔵 ensureTechSupportBootstrap Call Sites: Snapshot Import Controlled by DEV_MULTI_BOOTSTRAP_IMPORT
+946 " 🟣 src/shared/techsupport-baseline.ts Created: Canonical TechSupport Graph Factory
+947 5:34p 🔄 Graph Builder Unification: Shared Factory Renamed to techsupport-graph.ts; clear-database.ts Import Updated
+948 " 🔄 seedTechSupportRootBaseline() Refactored: 127 Lines of Inline Graph Replaced with techSupportBaselineGraph()
+949 " 🔄 dev-techsupport-bootstrap.js Refactored: Auto-Builds and Delegates to dist/shared/techsupport-graph.js
+950 5:35p 🔵 Build Pipeline Gotcha: Shared Modules Compile to dist/server/shared/, Not dist/shared/
+### Jul 26, 2026
+960 3:15p 🟣 Playwright E2E Stress Test: Heavy User GUI Load Spec
+961 3:16p 🔵 IinPublic E2E Test Infrastructure: Helper Patterns and DOM Selectors
+962 3:17p 🔵 IinPublic Contacts API, Answer History Storage, and DOM Selector Map
+963 " 🟣 Heavy-User GUI Stress Spec Written: tests/e2e/mass/04-heavy-user-gui-stress.spec.ts
+964 3:18p 🔴 Corrected UIManager method: setCurrentUser → adoptSessionUser
+965 " 🔵 Spec 04 Test Runner Started Successfully
+966 " 🔵 Gun.js Relaxed-Mode Timeout Warning During Talk Creation
+967 3:19p 🔵 Test Failure: #contacts-content DOM Element Does Not Exist
+968 3:20p 🔴 Contacts DOM Selector Corrected: #contacts-content → #contacts-list
+969 3:22p 🟣 Spec 04 Passes: Heavy-User GUI Stress Test Green in 1.5 Minutes
 
-Access 174k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 531k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>
