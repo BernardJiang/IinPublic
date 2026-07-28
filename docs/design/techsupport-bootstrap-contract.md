@@ -48,6 +48,11 @@ TechSupport is a bootstrap/system presence, not an interchangeable ordinary user
 - TechSupport is **never evicted** from Global by presence-staleness pruning, in either the
   Gun-persisted path (`ChatroomManager.pruneStaleRoomMemberships`) or the in-memory fast path
   (`ChatroomManager.getFastActiveMembers`) — both check `isTechSupportId` before applying the TTL (K1-3).
+- **TechSupport never receives or answers talks (K5).** It is not a valid talk recipient and never
+  produces a response, match, or ignore. This is enforced as a hard rule on the canonical root id
+  in the delivery/fanout path — deliberately *not* a `TalkIntakeFilters` entry, since that is
+  user-editable and would let TechSupport be filtered back in by mistake. TechSupport still counts
+  as 1 in every headcount regardless (invariant above, unchanged).
 
 ## Current Enforcement
 
@@ -155,6 +160,25 @@ TechSupport is a bootstrap/system presence, not an interchangeable ordinary user
   `assertStageSnapshotIntegrity`.
 - `src/test/unit/no-inline-baseline-graph.test.ts` (K4) — no spec outside `stage0-bootstrap/`
   constructs the baseline graph in code.
+- `tests/e2e/staged/stage1-single-user/06-support-new-question-ack.spec.ts` (K5) — a miss-path
+  question renders a signed ack, verifies, and posts to the TechSupport mailbox envelope.
+- `tests/e2e/staged/stage1-single-user/07-support-inbox-answer-flow.spec.ts` (K5) — full operator
+  loop: question asked → mailbox delivery → TechSupport drains inbox → operator answers → asker
+  receives the answer → FAQ bundle independently readable and verifiable.
+- `acceptsIncomingTalks()` (`src/shared/techsupport.ts`), checked at the top of
+  `shouldAcceptIncomingTalkAsync` (`src/web/app/app.ts`) before any filter runs (K5 talk-exclusion
+  invariant above).
+- **Enforced a second time on the sender's own side, discovered while E2E-verifying the above:**
+  `IinPublicApp.resolveBroadcastReceivers()` (`app.ts`) filters `TECHSUPPORT_ROOT_USER_ID` out of
+  every candidate source (UI member list, server member fetch, Gun active-members fallback) before
+  resolving who a broadcast goes to. A broadcast into a room containing only TechSupport therefore
+  never even attempts delivery ("no receivers resolved") — TechSupport is excluded from receiver
+  *resolution*, not merely from *acceptance* once an offer arrives. `acceptsIncomingTalks()` remains
+  the receiver-side backstop if that sender-side filter is ever removed.
+- `tests/e2e/staged/stage1-single-user/10-techsupport-ignores-broadcast-talks.spec.ts` (K5) is the
+  E2E proof of both of the above: broadcasting tag and flow talks into a room containing an
+  ordinary user and a real TechSupport session never populates TechSupport's local incoming-talk
+  index, and Global headcount stays 2 throughout.
 
 ## Honest cost (K2/K3)
 

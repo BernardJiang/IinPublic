@@ -1,6 +1,6 @@
 # IinPublic Completed Work
 
-Last updated: 2026-07-25
+Last updated: 2026-07-27
 
 ## 2026-07-14 — S3 embedded-node mobile shells: Android/iOS native builds verified
 
@@ -3183,3 +3183,205 @@ doc amended: `docs/design/techsupport-bootstrap-contract.md`. Builds on K1/K2.
 - **Open questions carried forward (not settled by K3):** key rotation tooling/versioning, the
   K3-3 headless-agent run mode, and K3-4 production key custody (redundant across server/laptops/
   a dedicated machine) all remain future work.
+
+## 2026-07-26 — K4: committed stage0 fixture as the one baseline definition
+
+Moved from `docs/TODO.md` K4 (first landing). Commit `d1f8456d` (fixture),
+`8cf04727` (shared guard). Contract doc amended:
+`docs/design/techsupport-bootstrap-contract.md`.
+
+- **Committed the stage0 fixture + regeneration command**; pointed `clearGunDatabases()` at it and
+  deleted `seedTechSupportRootBaseline()`'s hand-built graph. Fixture at
+  `tests/e2e/staged/fixtures/stage0.fixture.json` (gitignore carves out this path from the
+  otherwise-ignored `snapshots/` tree), produced by a real browser traversal, never hand-authored.
+  Regenerate with `npm run test:e2e:regen-stage0-fixture`. Fixing this exposed two real bugs along
+  the way: `baa-techsupport-single-user-tabs.spec.ts` and `caa-techsupport-four-talk-types.spec.ts`
+  were asserting against the mobile-collapsed "Filters ▾" disclosure without opening it first, and
+  a route-talk answer-row locator matched 2 elements ambiguously — both fixed (test bugs, not
+  product bugs; product behavior was correct). `seedTechSupportRootBaseline()` still takes the
+  same `techSupportBaselineGraph()` shape (unchanged, still used by
+  `scripts/dev-techsupport-bootstrap.js`) but the E2E seed path now loads the committed fixture
+  instead of calling the factory in-process.
+- **Shared guard so this cannot silently regress:** `tests/e2e/helpers/techsupport-baseline.ts`
+  holds one definition of a valid built-in TechSupport; `clear-database.ts` verifies it after every
+  seeded reset (`E2E_SKIP_BASELINE_GUARD=1` opts out) and `e2e-stage-pipeline.ts` imports the same
+  checks instead of its own copy. 11 unit tests. Commit `8cf04727`.
+- **`stage1/00x-tab-sweep-smoke.spec.ts`** already had a real `beforeAll: maybeClearGunDatabases()`
+  reset; `stage1/75-p2p-rate-limit-429.spec.ts` spawns its own dedicated server process per run
+  (unique port, fresh in-memory Gun), so there is no prior spec's state to inherit in the first
+  place. This item was already satisfied — TODO.md was stale.
+- **Amended `docs/design/techsupport-bootstrap-contract.md`:** new K4 invariant bullet + Verification
+  + Honest-cost entries recording the fixture as the one baseline definition, the regeneration
+  command, and the drift risk (fixture can go stale relative to the live factory/traversal until
+  someone re-runs the regen command — not yet CI-enforced).
+- **New unit tests:** `src/test/unit/no-inline-baseline-graph.test.ts` — no `.spec.ts` outside
+  `stage0-bootstrap/` references the raw graph factory or calls `seedTechSupportRootBaseline`
+  directly. `src/test/unit/stage0-fixture.test.ts` — the committed fixture exists and passes
+  `assertStageSnapshotIntegrity` (exported from `e2e-stage-pipeline.ts` for this).
+- **Remaining (still open in `docs/TODO.md`):** converting the ~210 `maybeClearGunDatabases()` call
+  sites in stage2–5/`isolated`/`mass`/`talks-matching` to load progressive multi-user snapshots is
+  a large, separately-scoped follow-up — TechSupport correctness at every one of those sites is
+  already guaranteed today via the fixture-backed `seedTechSupportRootBaseline()` and
+  `verifyTechSupportBaseline()`; this remaining item is purely a setup-speed/realism upgrade.
+
+## 2026-07-25/26 — K5: TechSupport DM Q&A (Items 1–5 of 6)
+
+Moved from `docs/TODO.md` K5. Depends on K2 (signed authorship) and K3 (TechSupport client).
+Design note: `docs/design/techsupport-k5-design-note.md`. Commits `f492af3b`, `d1f8456d`,
+`1c319419`, `ba4f9f63`.
+
+- **Hard-exclude the TechSupport root from talk delivery:** `acceptsIncomingTalks()` in
+  `src/shared/techsupport.ts`, checked at the top of `shouldAcceptIncomingTalkAsync`
+  (`src/web/app/app.ts`) before any filter runs. Never receiving a talk means it can never produce
+  a response, match, or ignore.
+- **Question normalization + `questionKey` derivation + FAQ lookup:** `src/shared/techsupport-faq.ts`
+  (`normalizeSupportQuestion`, `supportQuestionKey`, `lookupSupportAnswer`, `buildSupportFaqEntry`,
+  `upsertSupportFaqEntry`, deterministic message ids). Reuses `hashIdentityPayload`/
+  `normalizeIdentityText` from `cid.ts` rather than adding a second hashing scheme. 20 unit tests
+  incl. Chinese full-width punctuation.
+- **Design note** `docs/design/techsupport-k5-design-note.md` — Opus wrote the full implementation
+  plan for Items 1-6 before Sonnet implemented; two decisions resolved there: **K5-A** (the
+  user-visible support thread stays on the server-durable `TechSupportConversationTransport` per
+  spec §19.7 — only inbox *delivery* rides the offline mailbox, since a full migration off the
+  server store is a larger deferred follow-up) and **K5-B** (v1 distributes the signed FAQ bundle
+  over a public Gun path `techsupport-faq/bundle`, not libp2p/IPFS — investigated and confirmed
+  that distribution path doesn't exist yet, only a media-attachment blockstore does).
+- **Item 1** — signed FAQ-bundle module (`src/shared/techsupport-faq-bundle.ts`: `signFaqBundle`/
+  `verifyFaqBundle`, content-addressed via `bundleCid`), compiled pre-signed ack template
+  (`techsupport-greeting.ts` extended with `TECHSUPPORT_SUPPORT_ACK_TEMPLATES`/`signSupportAck`/
+  `verifySupportAck`, committed as `techsupport-support-ack.signed.json` via the new
+  `npm run sign:techsupport-ack`), and the two `ui-translations.ts` strings
+  (`supportAutoAnswerPrefix`, `supportNewQuestionAck`) — replacing the old blanket
+  `supportReply`/`formatSupportReply`, now deleted. 28 unit tests.
+- **Items 2+3 — wired the pure module into the live DM path.** `IinPublicApp.handleSupportQuestion()`
+  (`app.ts`, replaces the deleted `sendTechSupportAutoReply`) runs the hit/miss branch on the
+  *asker's own client*: a known question renders a signed auto-answer locally from the cached,
+  verified FAQ bundle (`src/web/services/techsupport-faq-cache.ts` — `subscribeToFaqBundle` keeps
+  the cache fresh from `techsupport-faq/bundle`, only ever caching a bundle `verifyFaqBundle`
+  accepted); a new question renders the signed ack and is delivered to the TechSupport device as an
+  encrypted `support-question-v1` mailbox envelope (`postSupportQuestionToMailbox`), ingested into
+  **TechSupport-local** Gun (`techsupport-inbox/<questionKey>`, never a `public/` path) by
+  `ingestSupportQuestionFromMailbox` — gated on the ingesting session's `currentUser.id ===
+  TECHSUPPORT_ROOT_USER_ID` so an ordinary user can never materialize someone else's inbox.
+  `UIManager.filterVerifiedSupportMessages()` extended to re-verify auto-answers and acks at render
+  time (same K2-3 fail-closed discipline as the greeting). `ConversationMessageWire` gained
+  `faqQuestionKey`/`faqAuthorPub`/`faqSignature` and `ackLocale`/`ackSignature`/`ackAuthorPub`
+  fields. E2E: `stage1/06-support-new-question-ack.spec.ts` (miss-path ack renders, verifies, and
+  the mailbox envelope posts — confirmed live in the test console); `stage2/00k-techsupport-contact-mute.spec.ts`
+  updated to assert the new ack text instead of the retired blanket reply.
+- **Items 4+5** — support-inbox view + answer/publish action. New `src/web/ui/support-inbox-view.ts`
+  (`renderSupportInboxSection`, the `answers-view.ts`-style deps pattern) renders into a
+  `#support-inbox-section` placeholder that `UIManager.renderSettingsView` only emits when
+  `user.id === TECHSUPPORT_ROOT_USER_ID` — an operator tool, not a per-user surface, gated on the
+  same `isTechSupportRoot` predicate as the K3 root badge. Fed by
+  `IinPublicApp.subscribeToSupportInboxIfTechSupport()`, a live `techsupport-inbox/*` Gun
+  subscription (TechSupport-root sessions only). The answer control exposes both an editable
+  question and an answer field (privacy — publishing the operator-edited question, not the asker's
+  raw text verbatim), submitting via the `answerSupportQuestion` event to
+  `IinPublicApp.handleAnswerSupportQuestion()`, which signs the updated bundle with the live DM
+  pair, writes `techsupport-faq/<key>` + `techsupport-faq/bundle`, delivers the answer as a real
+  signed DM, and flips the inbox entry to `answered`.
+  - **Real bug found and fixed during E2E verification:** `postSupportQuestionToMailbox`
+    originally resolved TechSupport's mailbox-encryption `epub` via the generic `resolvePeerEpub`
+    (presence/`users/<id>` lookup) — which reads whatever epub is currently on
+    `users/TECHSUPPORT_ROOT_USER_ID`, poisonable by any session that has ever adopted that reserved
+    id (including the K4 stage0 fixture's own `aaa`/`baa`/`caa` traversal, which boots as an
+    *ordinary* session under the TechSupport id/name, not real K3 DM-key auth). Fixed to resolve
+    the epub from the signed, trust-anchor-verified `public/techsupport-identity` record
+    (`discoverTechSupportIdentityFromGun()`) instead — the same guarantee K1/K3 already rely on,
+    and the only source immune to this class of pollution.
+  - **Second real bug found and fixed:** Gun cannot store a nested array (documented elsewhere in
+    this codebase) — `SignedFaqBundle.entries` is exactly that, and writing it directly silently
+    produced a bundle no client could read back. Fixed with `faqBundleToGunWire`/
+    `faqBundleFromGunWire` in `techsupport-faq-cache.ts` (JSON-encodes `entries` as `entriesJson`
+    for Gun storage only; every other layer — the cache, `verifyFaqBundle`, localStorage — still
+    works with the real typed array).
+  - E2E: `stage1/07-support-inbox-answer-flow.spec.ts` is a real, passing, non-flaky (3/3)
+    end-to-end confirmation of the full operator loop — question asked → mailbox delivery →
+    TechSupport boots and drains → inbox row renders → operator answers → asker receives the answer
+    → FAQ bundle independently readable and verifiable.
+- **Remaining (still open in `docs/TODO.md`):** Item 6 (offline auto-answer while TechSupport is
+  stopped, re-ask is a hit with no duplicate FAQ row, `stage2` cross-user auto-answer — narrower
+  slices of the same flow spec 07 already exercises end-to-end), the full stage1/stage2 test list,
+  and one open design question (record `answeredBy` internally vs. display-only "TechSupport").
+
+## 2026-07-25 — K6: TechSupport is unblockable / unfilterable
+
+Moved from `docs/TODO.md` K6. Commit `f492af3b`. Requirement: the support channel is the only
+recourse a stuck user has, so TechSupport must never be blocked, muted, or filtered out.
+
+- **Block path:** `WebUserService.blockUser` and server `UserService.blockUser` reject the
+  TechSupport root id before writing any edge. The contacts/peer-detail UI already routed
+  TechSupport to a mute-only dialog (`openSupportControlsDialog`, and `user-detail-view` swapping
+  Block→Mute), so this added the missing service-layer backstop.
+- **Content filters:** `filterIncomingMessage` takes an optional `senderId` and never suppresses a
+  TechSupport-authored message; `ui-manager` threads `msg.senderId` through. The **outgoing** path
+  is deliberately not exempt — a user writing to TechSupport still gets their own composer filters.
+- **Reconciled with the existing mute affordance**
+  (`stage2/00k-techsupport-contact-mute.spec.ts`, `isSupportNotificationsMuted()`): muting
+  suppresses *notifications only*, never delivery or the contact row.
+- **Enforced in `src/shared/techsupport.ts`** (`isTechSupportId`, `canBlockTarget`,
+  `assertBlockTargetAllowed`) so sender, receiver, and the TechSupport client cannot drift. 10 unit
+  tests.
+- **Honest scope note carried forward:** in a P2P network this is a guarantee about the *shipped
+  client*, not a cryptographic one. A user running patched code can always drop TechSupport's
+  traffic locally. The contract doc records this as a design-for-the-shipped-client statement
+  rather than implying enforcement.
+- **Remaining (still open in `docs/TODO.md`):** an explicit support-channel carve-out on the talk
+  intake path (age-gate/language/distance) is deferred — not reachable today because TechSupport
+  neither sends nor receives talks (K5) — plus the two stage1 E2E tests exercising every
+  block/filter route and a maximally-restrictive-filter DM-still-arrives check.
+
+## 2026-07-25 — L1: room visit counters as a CRDT G-Counter
+
+Moved from `docs/TODO.md` L1. Commit `1cfe1ee2`. Audit: the two lifetime badges on every chatroom
+row (🚪 visits, ◎ unique visitors) were wrong in three independent, compounding ways — lost updates
+from concurrent shared-scalar read-modify-write, double counting from both server and client
+incrementing the same scalars, and a 700 ms timeout that clobbered a real count with `1`.
+
+- **Fix shipped: each user owns a monotone slot; nobody writes anyone else's.** Total = sum of
+  slots, unique = count of non-zero slots, so one structure yields both badges and the separate
+  `uniqueVisitors/*` node and both legacy scalars become unnecessary. Merge is per-slot max, making
+  it commutative, associative, and idempotent, so concurrent writers and replays cannot lose or
+  double-count.
+- Pure shared module + CRDT-property tests — `src/shared/visit-counter.ts`.
+- Server `recordVisit` writes only its own slot and publishes the aggregate.
+- Client `recordRoomVisit` writes only its own slot; no more shared-scalar RMW.
+- Migrate existing rooms: `migrateLegacyVisitScalar` seeds one synthetic slot from the old scalar
+  on first visit, idempotently. Rooms that predate the CRDT therefore report `unique = 1` until real
+  visitors arrive — a documented, deliberate fidelity loss, preferred over resetting old rooms to
+  zero.
+- **Read cost, stated honestly:** summing slots is O(members-ever) per room, versus O(1) for the
+  old scalar. Mitigated by publishing an aggregate the same way `publishRoomMemberCount` already
+  does (`public/room-member-counts/<id>`): the CRDT is the source of truth, the published aggregate
+  is what the room list renders. Clients only sum slots when no aggregate is available.
+- **E2E:** `stage2/35-concurrent-visit-counter.spec.ts` (+ companion `.md`) — two browsers bootstrap
+  under one `Promise.all`; asserts both visits counted and unique = +2, plus a repeat visit (page
+  reload while still active) raising visits but not unique visitors. Confirmed green 2026-07-27
+  (both subtests pass). That reload-repeat-visit fix (`joinChatroom`'s `alreadyActive` fast path
+  now calls `recordRoomVisit`) initially over-fired on a different call path — a same-room
+  `switchChatroom()` no-op also re-recorded a visit, breaking
+  `00-ui-navigation-settings.spec.ts`'s duplicate-switch idempotency check. Fixed same day
+  (commit `05cf99ae`) by short-circuiting `switchChatroom()` when the target room already matches
+  `currentChatroomId`, leaving the reload path (which has no `currentChatroomId` to compare
+  against on a fresh service instance) untouched. Both specs are green together.
+- **Remaining (still open in `docs/TODO.md`):** removing the legacy `visitCount`/
+  `uniqueVisitorCount` scalars and the `visits/<eventId>` nodes, blocked on the `max(new, legacy)`
+  fallback in `getChatroom` being retired, which needs one full staged run to confirm nothing else
+  reads the scalars.
+
+## 2026-07-25 — L2: room-data retention instrumentation (read-only)
+
+Moved from `docs/TODO.md` L2. Commit `1cfe1ee2`. Storage grows without bound today; this lands the
+measurement tooling a retention policy decision needs, without reaping anything yet.
+
+- Stopped *writing* `visits/<visitEventId>` — the client no longer creates one node per visit (the
+  L1 G-Counter slot supersedes it). Existing nodes remain until a reaper exists.
+- Size instrumentation: `src/shared/graph-size-report.ts` classifies every soul into a growth
+  category (`bounded` / `per-user` / `per-event`) and reports node counts + share, sorted
+  biggest-first. Exposed at `GET /api/test/graph-size` (`?growth=per-event` narrows to the
+  unbounded paths). Read-only by design — it measures, it never reaps. 11 unit tests.
+- **Remaining (still open in `docs/TODO.md`, policy not code):** run the instrumentation against a
+  real deployment and record the numbers; decide a retention policy per path; work out tombstone
+  semantics for a P2P graph where an offline peer can resurrect a deleted node on next sync; and
+  decide whether trimming runs relay-side, device-side, or both.
