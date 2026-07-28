@@ -116,57 +116,65 @@ async function seedLocalData(page: Page, userId: string): Promise<void> {
   );
 }
 
-async function seedContactsViaHttp(page: Page, userId: string): Promise<void> {
+async function seedContactsAsUsers(page: Page, userId: string): Promise<void> {
+  // Contacts derive from localTalkExchanges (primary), myConversations (secondary), knownPeople (tertiary).
+  // Seeding only knownPeople gets overwritten on reload — Gun hasn't propagated the writes.
+  // Instead we seed both: (1) Gun user records for identities, AND (2) localTalkExchanges so they
+  // derive as peers through the PRIMARY path in deriveLocalPeers().
+
   const baseURL = await page.evaluate(() =>
     String((window as any).__iinpublic_app?.getApp()?.getBackendApiBase?.() || 'http://127.0.0.1:3001'));
 
   const client = page.context().request;
-  const batchSize = 50;
 
-  // Step 1: Create user records in Gun so renderer has something to display
+  // Step 1: Create user records in Gun so their profiles exist on the mesh.
+  // We only need these for profile lookups — NOT for contacts derivation (that comes from exchanges).
+  const batchSize = 50;
   for (let start = 1; start <= NUM_CONTACTS; start += batchSize) {
     const end = Math.min(start + batchSize - 1, NUM_CONTACTS);
     await Promise.all(Array.from({ length: end - start + 1 }, (_, i) => {
-      const id = start + i;
+      const num = start + i;
       return client.post(`${baseURL}/api/users`, { data: {
-        id: `sc-${id}`, stageName: `Stress Contact ${id}`, profile: [], reputation: {},
+        id: `sc-${num}`, stageName: `Stress Contact ${num}`, profile: [], reputation: {},
         location: { region: '', chatrooms: [] }, languages: ['en'], interests: [],
       }});
     }));
   }
 
-  // Step 2: Add as known-persons for our user
+  // Step 2: Seed localTalkExchanges so contacts derive through the PRIMARY source in
+  // deriveLocalPeers(). Each peer gets one 'match' exchange — enough to appear with stats.
+  await page.evaluate(({ contactsCount }) => {
+    const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
+    const createdAt = new Date().toISOString();
+    for (let i = 1; i <= contactsCount; i++) {
+      const peerId = `sc-${i}`;
+      exchanges[`${peerId}::stress-contact-talk-${i}`] = {
+        peerId,
+        peerName: `Stress Contact ${i}`,
+        talkId: `stress-contact-talk-${i}`,
+        title: `Stress contact talk ${i}`,
+        type: 'flow',
+        language: 'en',
+        outcome: 'match' as const,
+        direction: 'sent' as const,
+        date: createdAt,
+      };
+    }
+    localStorage.setItem('localTalkExchanges', JSON.stringify(exchanges));
+  }, { contactsCount: NUM_CONTACTS });
+
+  // Step 3: Also add as known-people so the contacts tab shows labels/nicknames alongside them.
   for (let start = 1; start <= NUM_CONTACTS; start += batchSize) {
     const end = Math.min(start + batchSize - 1, NUM_CONTACTS);
     await Promise.all(Array.from({ length: end - start + 1 }, (_, i) => {
-      const id = start + i;
-      const label = RELATIONSHIP_LABELS[id % RELATIONSHIP_LABELS.length];
+      const num = start + i;
+      const label = RELATIONSHIP_LABELS[num % RELATIONSHIP_LABELS.length];
       return client.post(`${baseURL}/api/users/${encodeURIComponent(userId)}/known-people`, { data: {
-        targetId: `sc-${id}`, label, nickname: `Stress Contact ${id}`,
-        ...(label === 'custom' ? { customLabel: `Custom ${id}` } : {}),
+        targetId: `sc-${num}`, label, nickname: `Stress Contact ${num}`,
+        ...(label === 'custom' ? { customLabel: `Custom ${num}` } : {}),
       }});
     }));
   }
-
-  // Step 3: Build knownPeople map in Node (same data we just wrote via HTTP), then merge
-  // directly into currentUser so adoptSessionUser gets full knownPeople immediately.
-  // Avoids reading from Gun (slow + async propagation) — this copy is authoritative.
-  const kpMap: Record<string, any> = {};
-  for (let id = 1; id <= NUM_CONTACTS; id++) {
-    kpMap[`sc-${id}`] = {
-      userId: `sc-${id}`, label: RELATIONSHIP_LABELS[id % RELATIONSHIP_LABELS.length],
-      nickname: `Stress Contact ${id}`, addedAt: new Date().toISOString(),
-      ...(RELATIONSHIP_LABELS[id % RELATIONSHIP_LABELS.length] === 'custom' ? { customLabel: `Custom ${id}` } : {}),
-    };
-  }
-  await page.evaluate(async ({ ownerId, kp }) => {
-    const app = (window as any).__iinpublic_app?.getApp?.();
-    if (!app) throw new Error('App unavailable');
-    const updatedUser = await app.userService.getUser(ownerId);
-    updatedUser.knownPeople = Object.keys(kp).length > 0 ? kp : (updatedUser.knownPeople ?? {});
-    app.currentUser = updatedUser;
-    app.uiManager.adoptSessionUser(updatedUser);
-  }, { ownerId: userId, kp: kpMap });
 }
 
 test.describe('M4 heavy-user GUI stress', () => {
@@ -198,7 +206,7 @@ test.describe('M4 heavy-user GUI stress', () => {
       await seedLocalData(page, userId);
 
       const contactSeedStart = Date.now();
-      await seedContactsViaHttp(page, userId);
+      await seedContactsAsUsers(page, userId);
       console.log(`[seed] Contacts seeded in ${((Date.now() - contactSeedStart) / 1000).toFixed(1)}s`);
 
       // Visit contacts tab to warm up Gun subscription for knownPeople. Seed is async via HTTP so
