@@ -538,7 +538,13 @@ export class WebChatroomService {
   }
 
   async switchChatroom(userId: string, newChatroomId: string, stageName?: string): Promise<void> {
-    if (this.currentChatroomId && this.currentChatroomId !== newChatroomId) {
+    // A same-room switch is a no-op, not a revisit: joinChatroom()'s alreadyActive
+    // fast path re-records a visit unconditionally (needed for the page-reload case,
+    // where a fresh service instance has no currentChatroomId to compare against).
+    if (this.currentChatroomId === newChatroomId) {
+      return;
+    }
+    if (this.currentChatroomId) {
       await this.leaveChatroom(this.currentChatroomId, userId);
     }
     await this.joinChatroom(newChatroomId, userId, stageName);
