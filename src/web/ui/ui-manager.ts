@@ -2468,9 +2468,13 @@ export class UIManager extends EventEmitter {
               .map(
                 ([talkId, talk]) => {
                   const stats = this.talkStatsMap[talkId];
-                  const matchedNames = Object.values(conversations)
-                    .filter((c: any) => c.talkId === talkId)
-                    .map((c: any) => c.respondedByBot ? `${c.otherUserName} 🤖` : c.otherUserName);
+                  const matchedPeople = Object.values(conversations)
+                    .filter((c: any) => c.talkId === talkId && c.otherUserId)
+                    .map((c: any) => ({
+                      id: String(c.otherUserId),
+                      name: c.respondedByBot ? `${c.otherUserName} 🤖` : String(c.otherUserName || ''),
+                    }));
+                  const matchedNames = matchedPeople.map((p) => p.name);
                   const metrics = outMetrics(talkId);
                   const statsLine = stats || metrics.responses > 0
                     ? this.tf('talksStats', {
@@ -2487,8 +2491,8 @@ export class UIManager extends EventEmitter {
                       ? `<div class="talk-weighted-score" style="font-size:0.82em;color:var(--text-tertiary);margin-top:4px;">${this.tf('talksLatestReplyLabel', { date: escapeHtml(new Date(metrics.latestResponseAt).toLocaleString()) })}</div>`
                       : '';
                   const matchedLine =
-                    matchedNames.length > 0
-                      ? `<div class="talk-item-matched" style="font-size: 0.85em; color: var(--success-text); margin-top: 4px;">${this.tf('talksMatchedWith', { names: escapeHtml(matchedNames.join(', ')) })}</div>`
+                    matchedPeople.length > 0
+                      ? `<div class="talk-item-matched talk-matched-people" data-matched-people="${escapeHtml(JSON.stringify(matchedPeople))}" style="font-size: 0.85em; color: var(--success-text); margin-top: 4px; cursor: pointer;">${this.tf('talksMatchedWith', { names: escapeHtml(matchedNames.join(', ')) })}</div>`
                       : '';
                   const disabled = !!talk.disabled;
                   const expText = this.formatTalkExpiration(talk.expiresAt);
@@ -2567,6 +2571,12 @@ export class UIManager extends EventEmitter {
                 const senderList = Object.values(sendersObj) as Array<{ senderId?: string; senderName?: string; headshot?: string }>;
                 const primarySender = senderList[0] || {};
                 const primarySenderName = String(primarySender.senderName || senderNames[0] || this.t('settingsUnknown'));
+                const senderPeopleById = new Map<string, string>();
+                for (const s of senderList) {
+                  if (s?.senderId && s?.senderName) senderPeopleById.set(String(s.senderId), String(s.senderName));
+                }
+                const senderPeople = Array.from(senderPeopleById, ([id, name]) => ({ id, name }));
+                const senderPeopleJson = escapeHtml(JSON.stringify(senderPeople));
                 const senderInitial = primarySenderName.trim().charAt(0).toUpperCase() || '?';
                 const talkId = this.pickIncomingRowTalkId(cluster);
                 const identityKey = String(cluster?.identityKey || '');
@@ -2627,7 +2637,7 @@ export class UIManager extends EventEmitter {
               <span class="talk-badge talk-badge-type">${escapeHtml(this.formatTalkType(String(cluster?.type || 'flow')))}</span>
             </div>
           </div>
-          <div class="talk-incoming-sender">
+          <div class="talk-incoming-sender talk-sender-people" data-sender-people="${senderPeopleJson}" style="cursor:pointer;">
             <span class="talk-incoming-avatar">${avatarInnerHtml(primarySender.headshot, senderInitial, escapeHtml)}</span>
             <span class="talk-incoming-sender-name">${escapeHtml(primarySenderName)}</span>
             ${senderNames.length > 1 ? `<span class="talk-info-chip">${this.tf('talksSenders', { count: senderNames.length })}</span>` : ''}
@@ -2643,7 +2653,7 @@ export class UIManager extends EventEmitter {
           <div class="talk-item-meta" style="${metaStyle}">
             <span class="talk-item-time">${this.formatTalkRelativeTime(new Date(cluster?.updatedAt || Date.now()))}</span>
           </div>
-          <div class="talk-item-meta" style="font-size: 0.85em; ${metaStyle}">
+          <div class="talk-item-meta talk-sender-people" data-sender-people="${senderPeopleJson}" style="font-size: 0.85em; ${metaStyle} cursor:pointer;">
             ${this.tf('talksFrom', { names: escapeHtml(senderNames.join(', ') || this.t('settingsUnknown')) })}
           </div>
           <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
@@ -2696,6 +2706,24 @@ export class UIManager extends EventEmitter {
         checkbox.indeterminate = true;
       });
 
+      // TODO §N3: trace back from a talk row to whom it was exchanged with, then DM them.
+      // Single exchange partner navigates straight through the dispatcher; multiple partners
+      // is a "choose who to DM" picker (build-order item 8, not yet wired here).
+      talksList.querySelectorAll<HTMLElement>('.talk-matched-people, .talk-sender-people').forEach((el) => {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          let people: Array<{ id: string; name: string }> = [];
+          try {
+            people = JSON.parse(el.dataset.matchedPeople || el.dataset.senderPeople || '[]');
+          } catch {
+            return;
+          }
+          if (people.length === 1) {
+            this.navigateToGraphNode({ type: 'person', id: people[0].id, name: people[0].name });
+          }
+        });
+      });
+
       // Row click opens edit/detail only when not clicking an action button (handled in capture above)
       talksList.querySelectorAll('.talk-list-item').forEach((item) => {
         const el = item as HTMLElement;
@@ -2705,7 +2733,7 @@ export class UIManager extends EventEmitter {
         if (role === 'incoming' && !talkId && !identityKey) return;
         if (role !== 'incoming' && !talkId) return;
         item.addEventListener('click', (e) => {
-          if ((e.target as HTMLElement).closest('.talk-item-actions, .talk-tag-checkbox-wrap, .view-talk-btn')) return;
+          if ((e.target as HTMLElement).closest('.talk-item-actions, .talk-tag-checkbox-wrap, .view-talk-btn, .talk-matched-people, .talk-sender-people')) return;
           if (role === 'copied') {
             const copied = myTalks[talkId];
             if (copied?.fullTalk) {
