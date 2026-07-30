@@ -688,9 +688,17 @@ this is a sequencing index, not new content. Land top-to-bottom.
    talks, since editing intent is correct there. New regression test in `05-talks-edit.spec.ts`
    ("Self-answered own talk: Me-tab entry opens the response view, not the editor") — confirmed it
    fails without the fix, passes with it. `tsc`/`lint`/Jest (1048 tests) all clean.
-5. **Easy.** N1 — make the DM-arrival toast clickable, routed through the new dispatcher. Settle
+5. [x] **Easy.** N1 — make the DM-arrival toast clickable, routed through the new dispatcher. Settle
    the shared "which overlay does a DM click open" destination decision here, since N3 and O both
    reuse it.
+   **Done 2026-07-30.** Destination decision: route through `navigateToGraphNode({type:'person',
+   id, name})` — the same N2a "land on ⟨Conv⟩ with ⟨User⟩ underneath" convention every other
+   click-to-a-person surface already uses (Contacts, Chatroom roster) — rather than the bare
+   `showConversationDetail` the existing Match!-toast click uses. `showNotification` gained
+   `peerId`/`peerName` options; the DM-arrival call site in `syncConversationMessageSummary` passes
+   them. Existing Match!-toast behavior (rule N6, `showConversationDetail`) is untouched. New test
+   `73-dm-arrival-toast-navigation.spec.ts`, confirmed it fails without the fix (toast dismisses,
+   doesn't navigate) and passes 3/3 with it. `tsc`/`lint`/Jest (1048 tests) all clean.
 6. **Easy.** N3, single-exchange-partner case — thread the already-available `otherUserId`/
    `senderId` onto the matched-name/sender-name elements, wire via the dispatcher using N1's
    destination decision.
@@ -1021,7 +1029,7 @@ should be able to trace back to who I exchanged it with and go straight to DM wi
 
 **Work**
 
-- [ ] **N1 — make the DM toast clickable.** Pass `{ conversationId }` when calling
+- [x] **N1 — make the DM toast clickable.** Pass `{ conversationId }` when calling
       `showNotification` for the DM-arrival case (`ui-manager.ts:8776`), and extend the
       click-navigate condition at `ui-manager.ts:6753` to also fire for plain DM-arrival toasts,
       not only `isMatchNotification`. **Design decision needed first:** should the click route
@@ -1029,6 +1037,12 @@ should be able to trace back to who I exchanged it with and go straight to DM wi
       today's only working destination) or through `openPeerDetailView` (the "real"
       Contacts-tab-linked flow, redesign §5 rule N2a's contact-click-lands-on-DM convention)? Pick
       one destination and use it consistently with N2 below.
+      **Done 2026-07-30.** Decided `openPeerDetailView`'s destination (via
+      `navigateToGraphNode({type:'person',...})`, N2a convention), not `showConversationDetail` —
+      keeps one consistent "go to this person" behavior across Contacts/Chatroom-roster/DM-toast/
+      future N3/O, rather than the toast being a one-off. Existing Match!-toast click (rule N6)
+      left as `showConversationDetail`, unchanged — a separate, already-shipped behavior, not part
+      of this decision. `showNotification` gained `peerId`/`peerName` options for this.
 - [ ] **N2 — build the actual "no matter which tab" affordance**, since none exists: a small
       global element (app-bar icon is the natural fit, consistent with the existing icon-button
       row in `#top-header`) visible from every tab, badge-driven off the same aggregate unread
@@ -1045,6 +1059,9 @@ should be able to trace back to who I exchanged it with and go straight to DM wi
 - [ ] Test: `stage2` — Tom messages Jerry while Jerry is on Chatrooms/Talks/Settings (not
       Contacts); Jerry sees the toast and/or the app-bar affordance's badge update regardless of
       active tab; clicking either navigates to the Tom↔Jerry conversation.
+      **Toast half done 2026-07-30:** `73-dm-arrival-toast-navigation.spec.ts` covers the toast
+      side of this (Jerry on Settings, not Contacts) — still open pending N2's app-bar affordance
+      for the badge half.
 - [ ] Test: `stage3` — Tom and Jerry both DM Bob while Bob is on a non-Contacts tab; Bob opens the
       cross-tab affordance and sees both senders sorted most-recent-first; picking one opens that
       conversation, and the other sender's unread state is unaffected.

@@ -6752,7 +6752,7 @@ export class UIManager extends EventEmitter {
   showNotification(
     message: string,
     type: 'success' | 'error' | 'info' | 'warning' = 'info',
-    options?: { persistent?: boolean; conversationId?: string; contentFilter?: string },
+    options?: { persistent?: boolean; conversationId?: string; contentFilter?: string; peerId?: string; peerName?: string },
   ): void {
     if (this.notificationsSuppressedForE2e) return;
 
@@ -6779,12 +6779,17 @@ export class UIManager extends EventEmitter {
       notification.dataset.matchNotification = 'true';
     }
     // All toasts are click-to-dismiss; a Match! toast with a conversation navigates to it
-    // on click (rule N6).
+    // on click (rule N6). A DM-arrival toast (TODO §N1) navigates through the graph-node
+    // dispatcher's 'person' destination instead — the same "land on ⟨Conv⟩ with ⟨User⟩
+    // underneath" convention every other click-to-a-person surface uses (N2a), so N2/N3/O
+    // can all reuse this one settled destination rather than each picking their own.
     notification.style.cursor = 'pointer';
     notification.addEventListener('click', () => {
       if (document.body.contains(notification)) document.body.removeChild(notification);
       if (isMatchNotification && options?.conversationId) {
         this.showConversationDetail(options.conversationId);
+      } else if (options?.peerId) {
+        this.navigateToGraphNode({ type: 'person', id: options.peerId, name: options.peerName || '' });
       }
     });
 
@@ -8806,7 +8811,10 @@ export class UIManager extends EventEmitter {
       !conversation.supportChannel
     ) {
       const name = this.getPeerName(conversation.otherUserId, conversation.otherUserName);
-      this.showNotification(this.tf('conversationNewMessage', { name }), 'info');
+      this.showNotification(this.tf('conversationNewMessage', { name }), 'info', {
+        peerId: conversation.otherUserId,
+        peerName: name,
+      });
     }
 
     // Re-render the conversation list whenever it exists in the DOM (not only when the Me tab is
