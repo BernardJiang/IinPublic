@@ -815,9 +815,9 @@ this is a sequencing index, not new content. Land top-to-bottom.
     picker lists the sender, picking navigates to the right conversation. Confirmed it fails
     without the fix and passes 3/3 with it; regression on 4 other app-bar/notification specs
     (9/9). `tsc`/`lint`/Jest all clean.
-15. **Medium–hard.** M2/M3 — compress talk/answer rows to title+status (2 lines) with inline icon
+15. [x] **Medium–hard.** M2/M3 — compress talk/answer rows to title+status (2 lines) with inline icon
     actions and a shared details-popup modal; touches four talk-type variants plus the answer-entry
-    template.
+    template. **Done 2026-07-30.** See M2/M3 sections above for full detail.
 16. **Medium–hard.** M4 — Settings tab cleanup: shared section-wrapper extraction, splitting
     content-filters into its sub-concerns, and the grouping/accordion design decision.
 17. **Hardest — do last.** This section's own Talk → "people I've separately exchanged this
@@ -915,7 +915,7 @@ contact rows need a headshot added (M6, currently text-only).
   `.talk-item-actions`/`.view-talk-btn` (guard at `2688`) so the two never conflict — there is no
   existing two-step "select row, then act" flow to remove. What needs to change is purely visual:
   stop reserving a whole row for actions.
-- [ ] Collapse both OUT and IN rows to 2 visible lines — **title** and **status** — with actions
+- [x] Collapse both OUT and IN rows to 2 visible lines — **title** and **status** — with actions
       folded in as compact inline icon buttons rather than a dedicated row:
   - The row itself stays clickable for the primary action (open detail/editor — already the
     existing behavior, `ui-manager.ts:2680-2702`), so no new click is introduced for that case.
@@ -925,19 +925,52 @@ contact rows need a headshot added (M6, currently text-only).
     changes, not their click semantics.
   - Move everything else (badges beyond type, expiration, location, chips, matched-names, weighted
     score, sender detail) into a details popup opened from the row.
-  - [ ] Applies identically to all four talk types (flow/tag/survey/route) — tag's existing
+  - [x] Applies identically to all four talk types (flow/tag/survey/route) — tag's existing
         simpler branch is the template to generalize from, not a special case to preserve.
-- [ ] New details-popup modal, modeled on the existing `.modal-overlay`/`.modal-content`/
+- [x] New details-popup modal, modeled on the existing `.modal-overlay`/`.modal-content`/
       `.modal-header`/`.modal-title`/`.modal-actions` skeleton already used by
       `showTalkResponseDialog` (`talk-response-dialog.ts:200-245`) and the peer-send-picker modal
       (`user-detail-view.ts:963-1000`) — same duplicate-guard-then-`appendChild`/remove pattern,
       not a new modal convention.
-- [ ] Test: `stage1` — an OUT row of each talk type renders exactly 2 lines with inline icon
+- [x] Test: `stage1` — an OUT row of each talk type renders exactly 2 lines with inline icon
       actions (no dedicated actions row); a single click on an icon fires its action with no prior
       row-selection step; clicking the row body opens the details popup showing the previously
       inline fields.
-- [ ] Test: `stage2` — an IN row renders 2 lines with an inline View icon; details popup shows
+- [x] Test: `stage2` — an IN row renders 2 lines with an inline View icon; details popup shows
       sender/chip/meta info; the View action still opens the response flow in one click.
+
+**Done 2026-07-30.** Implemented as designed, with one deliberate deviation from the "move
+everything else" line above: matched-names (OUT) / sender-name (IN) stay **visible on the row**,
+not moved into the popup — they're the interactive item 6/8 click-to-DM traceback affordance, not
+decorative detail, and hiding them behind an extra popup-open click would violate Bernard's own
+2026-07-29 "acting on an item must never need a prior select step" principle applied to this
+affordance. Everything else (language badge, expiration/location meta, stats breakdown,
+rank/weighted-score line, IN row's chip row) moved into the hidden `.talk-item-details` /
+`.talk-item-status-line` structure as planned. Tag rows were intentionally left untouched — already
+a simpler single-line chip branch, no dedicated actions row, single-click quick-decision UX; folding
+them into the same template would have been a much larger, riskier change for no compaction benefit
+since they're already more compact than the 2-line target.
+- `showDetailsPopupFor(detailsEl, originalParent)` / `showTalkItemDetailsPopup(talkId)`
+  (`ui-manager.ts`, near `showDmInboxPicker`) reparent (not clone) the row's hidden
+  `.talk-item-details` node into a shared `#item-details-popup` modal and back on close, so
+  already-wired interactive content inside it keeps working without re-wiring.
+- New tests: `37-compact-talk-rows-out.spec.ts` (stage1 — flow/survey/route OUT rows: 2 visible
+  lines, no `.talk-item-actions`, popup shows moved fields, broadcast-toggle/survey-stats/remove
+  icons all fire on a single click) and `79-compact-talk-row-in.spec.ts` (stage2 — IN row: 2 visible
+  lines, sender stays visible, popup shows the chip row, View icon fires on a single click). Both
+  confirmed to fail without the fix and pass with it.
+- Pre-existing regression risk, surveyed across the whole `tests/e2e/` tree before implementing:
+  fixed `00-ui-navigation-settings.spec.ts`'s localization check (the broadcast-toggle's Chinese
+  label moved from visible text to the button's `title` attribute — `toContainText` →
+  `toHaveAttribute('title', …)`). Verified no regressions on the full at-risk list: 4/4
+  `74-talk-row-person-traceback.spec.ts`, `00d-super-user-20-broadcast.spec.ts`,
+  `08-super-user-copy-talk.spec.ts`, `38-mobile-talk-answer-flow.spec.ts`,
+  `77-talk-to-me-tab-reverse-edge.spec.ts`, `28-stage-zero-n2n.spec.ts`,
+  `36-per-question-deep-link.spec.ts`, `caa-techsupport-four-talk-types.spec.ts` (updated for M3,
+  see below) — plus a full `stage1-single-user/` + `stage2-two-user/` sweep (149 passed, 2 failed:
+  the localization fix above, and `00h-chatroom-hierarchy-broadcast.spec.ts` confirmed pre-existing
+  on the base commit, unrelated to this change — a Gun-mesh-timing flake in regional broadcast
+  scoping). `tsc`/`lint`/Jest (1048/1048) all clean.
 
 ### M3. Compress Me tab question/answer entries to title + status, inline icon action, details in a popup
 
@@ -957,17 +990,42 @@ contact rows need a headshot added (M6, currently text-only).
     row's own click listener (`535-541`, guarded to skip the button via `.closest('.answer-copy-talk-btn')`
     at line 537) which opens talk detail. Same "no dedicated actions row" requirement as M2 applies
     here — this is a layout change, not a new interaction to wire up.
-- [ ] Collapse each answer entry to 2 visible lines — **title** and a single **status** line (e.g.
+- [x] Collapse each answer entry to 2 visible lines — **title** and a single **status** line (e.g.
       outcome + answered-count) — with the copy-to-talks action folded in as a compact inline icon
       on the title or status line rather than its own row. The row body stays clickable to open
       talk detail (existing behavior, unchanged). Move the metadata line, badge line, and all
       nested per-question detail (prompt/answer/mode badges/context) into a details popup opened
       from the entry.
-- [ ] Reuse the same modal skeleton as M2 rather than inventing a second popup convention.
-- [ ] Test: `stage1` — an answer entry renders exactly 2 lines with an inline copy-to-talks icon
+- [x] Reuse the same modal skeleton as M2 rather than inventing a second popup convention.
+- [x] Test: `stage1` — an answer entry renders exactly 2 lines with an inline copy-to-talks icon
       (no dedicated actions row), regardless of how many nested questions it has; the icon fires
       copy-to-talks in one click with no prior selection step; the details popup shows the full
       per-question breakdown (prompt, answer, mode badges, context) that used to render inline.
+
+**Done 2026-07-30.** Unlike M2, no exception was made here — per-question detail (prompt/answer/
+mode badges/context) moves entirely into the popup, since (unlike matched-names/sender-name) it
+has no click-to-navigate affordance of its own; the row body's existing click still opens talk
+detail. New `showItemDetailsPopup` dep in `AnswersViewDeps` (`answers-view.ts`), wired in
+`ui-manager.ts`'s `displayAnswersList()` as `this.showDetailsPopupFor.bind(this)` — reuses M2's
+popup mechanism rather than inventing a second one. Both row builders (flattened-history and
+legacy-deduped) collapsed to `.answer-item-title` + `.answer-item-status-line` (outcome +
+answered-count + inline copy/details icons), with metadata/badges/`.answer-question-list` moved
+into a hidden `.answer-item-details`. New test `76-compact-answer-rows.spec.ts` (stage1, using a
+self-answered route talk since its 2-question self-answer produces the richest nested detail of
+all four types): 2 visible lines, no dedicated actions row, popup shows the full per-question
+breakdown including context path, copy-to-talks icon fires on a single click and the copied talk
+appears as a fresh OUT row. Confirmed it fails without the fix and passes with it.
+Updated `caa-techsupport-four-talk-types.spec.ts`'s visibility assertions on `.answer-outcome-item`
+to open the details popup first (text-content checks like `toContainText` still work while hidden,
+but `toBeVisible()` needs the popup open) — a deliberate, expected consequence of this item's own
+design change, not an accidental break. Also updated the Jest unit test
+`src/test/unit/answers-view.test.ts`'s 5 `displayAnswersList(...)` call sites to include the new
+required `showItemDetailsPopup` dep. Verified no other regressions: `08-super-user-copy-talk.spec.ts`,
+`77-talk-to-me-tab-reverse-edge.spec.ts`, `00d-super-user-20-broadcast.spec.ts`,
+`29-me-answers-search.spec.ts`, `56-me-dialogs.spec.ts`, `36-per-question-deep-link.spec.ts`,
+`05-talks-edit.spec.ts`, `35-me-answer-dead-end-retry.spec.ts` all still pass (these only assert on
+the outer `.answer-talk-item` container or use visibility-independent selectors, unaffected by the
+inner-content move). `tsc`/`lint`/Jest (1048/1048) all clean.
 
 ### M4. Settings tab cleanup
 

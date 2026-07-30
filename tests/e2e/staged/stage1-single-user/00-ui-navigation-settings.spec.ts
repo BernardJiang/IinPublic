@@ -428,7 +428,9 @@ test.describe('UI navigation and settings shell', () => {
     await expect(localizedRow.locator('.talk-badge-type')).toHaveText('流程');
     await expect(localizedRow).toContainText('有效期：永久');
     await expect(localizedRow).toContainText('位置：不限位置');
-    await expect(localizedRow).toContainText('广播开启');
+    // TODO §M2: the broadcast toggle is now an icon-only inline button — its localized label
+    // lives in the title attribute, not visible text.
+    await expect(localizedRow.locator('.talk-broadcast-toggle-btn')).toHaveAttribute('title', '广播开启');
     await expect(p.locator('#talks-status-text')).toContainText('1 个发出');
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showTalkEditorDialog());
     await expect(p.locator('#talk-editor-modal')).toContainText('创建话题');

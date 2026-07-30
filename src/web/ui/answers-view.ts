@@ -18,6 +18,10 @@ type AnswersViewDeps = {
    *  multi-question review, instead of only landing on the talk as a whole. */
   showTalkDetail: (talkId: string, questionId?: string) => void;
   showPreferencesDialog: () => void;
+  /** TODO §M3: reuses M2's shared reparent-into-popup mechanism (ui-manager.ts's
+   *  showDetailsPopupFor) so the moved-out metadata/badge/per-question detail keeps working
+   *  without a second popup convention. */
+  showItemDetailsPopup: (detailsEl: HTMLElement, originalParent: HTMLElement) => void;
   getTalkContentKey: (talk: any) => string;
   text: (key: UiTranslationKey) => string;
   formatDate: (date: Date) => string;
@@ -435,20 +439,26 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       item.dataset.chatbotLastUsedAt = String(Math.max(0, ...answerItems.map((answer) => answer.latestAutoUseAt || 0)));
       item.dataset.answerText = answerItems.map((answer) => answer.choice).join(' ').toLowerCase();
       item.dataset.searchText = searchText;
-      item.style.cssText = `display:flex; flex-direction:column; gap:12px; padding:14px 16px; border-radius:12px; cursor:pointer; background:${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-soft)'}; border:1px solid ${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-border)'};`;
+      item.style.cssText = `display:flex; flex-direction:column; gap:4px; padding:14px 16px; border-radius:12px; cursor:pointer; background:${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-soft)'}; border:1px solid ${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-border)'};`;
+      // TODO §M3: 2 visible lines (title, status) with the copy action as an inline icon; the
+      // metadata line, type/language badges, and full per-question breakdown move into
+      // .answer-item-details — still a normal DOM child, just display:none until the "ℹ️" icon
+      // reparents it into the shared M2 popup (showItemDetailsPopup).
       item.innerHTML = `
-        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
-          <div style="flex: 1; min-width: 0;">
-            <div style="font-weight: 700;">${deps.escapeHtml(record.title)}</div>
-            <div style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(metadata)}</div>
-            <div style="font-size: 0.82em; color: var(--text-tertiary); margin-top: 4px;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · ${deps.escapeHtml(deps.formatType(record.type))} · <span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(language)}">${deps.escapeHtml(languageLabel)}</span></div>
-          </div>
-          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${deps.escapeHtml(record.talkId)}" style="padding: 6px 12px; font-size: 0.9em;">${deps.text('copy')}</button>
-          </div>
+        <div class="answer-item-title" style="font-weight: 700;">${deps.escapeHtml(record.title)}</div>
+        <div class="answer-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <span style="font-size:0.85em;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · ${deps.escapeHtml(format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount }))}</span>
+          <span style="display:flex;gap:4px;flex-shrink:0;">
+            <button type="button" class="btn answer-copy-talk-btn answer-icon-btn" data-talk-id="${deps.escapeHtml(record.talkId)}" title="${deps.text('copy')}">📋</button>
+            <button type="button" class="btn answer-details-btn answer-icon-btn" title="${deps.text('talksDetails')}">ℹ️</button>
+          </span>
         </div>
-        <div class="answer-question-list" style="display: grid; gap: 8px;">
-          ${renderAnswerItemsHtml(answerItems, deps)}
+        <div class="answer-item-details" style="display:none;">
+          <div style="font-size: 0.85em; color: #666;">${deps.escapeHtml(metadata)}</div>
+          <div style="font-size: 0.82em; color: var(--text-tertiary); margin-top: 4px;">${deps.escapeHtml(deps.formatType(record.type))} · <span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(language)}">${deps.escapeHtml(languageLabel)}</span></div>
+          <div class="answer-question-list" style="display: grid; gap: 8px; margin-top: 8px;">
+            ${renderAnswerItemsHtml(answerItems, deps)}
+          </div>
         </div>
       `;
       listEl.appendChild(item);
@@ -496,20 +506,22 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       item.dataset.chatbotLastUsedAt = String(Math.max(0, ...answerItems.map((answer) => answer.latestAutoUseAt || 0)));
       item.dataset.answerText = answerItems.map((answer) => answer.choice).join(' ').toLowerCase();
       item.dataset.searchText = searchText;
-      item.style.cssText = `display:flex; flex-direction:column; gap:12px; padding:14px 16px; border-radius:12px; cursor:pointer; background:${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-soft)'}; border:1px solid ${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-border)'};`;
+      item.style.cssText = `display:flex; flex-direction:column; gap:4px; padding:14px 16px; border-radius:12px; cursor:pointer; background:${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-soft)'}; border:1px solid ${outcome === 'match' ? 'var(--success-soft)' : 'var(--warning-border)'};`;
       item.innerHTML = `
-        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
-          <div style="flex: 1; min-width: 0;">
-            <div style="font-weight: 700;">${deps.escapeHtml(talk.title)}</div>
-            <div style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(metadata)}</div>
-            <div style="font-size: 0.82em; color: var(--text-tertiary); margin-top: 4px;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · <span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(language)}">${deps.escapeHtml(languageLabel)}</span></div>
-          </div>
-          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button type="button" class="btn answer-copy-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em;">${deps.text('copy')}</button>
-          </div>
+        <div class="answer-item-title" style="font-weight: 700;">${deps.escapeHtml(talk.title)}</div>
+        <div class="answer-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <span style="font-size:0.85em;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${outcome === 'match' ? `✓ ${deps.text('match')}` : `✗ ${deps.text('mismatch')}`} · ${deps.escapeHtml(format(answeredCount === 1 ? 'meAnsweredCount' : 'meAnsweredCounts', { count: answeredCount }))}</span>
+          <span style="display:flex;gap:4px;flex-shrink:0;">
+            <button type="button" class="btn answer-copy-talk-btn answer-icon-btn" data-talk-id="${talkId}" title="${deps.text('copy')}">📋</button>
+            <button type="button" class="btn answer-details-btn answer-icon-btn" title="${deps.text('talksDetails')}">ℹ️</button>
+          </span>
         </div>
-        <div class="answer-question-list" style="display: grid; gap: 8px;">
-          ${renderAnswerItemsHtml(answerItems, deps)}
+        <div class="answer-item-details" style="display:none;">
+          <div style="font-size: 0.85em; color: #666;">${deps.escapeHtml(metadata)}</div>
+          <div style="font-size: 0.82em; color: var(--text-tertiary); margin-top: 4px;"><span class="talk-badge talk-badge-language answer-language-badge" data-language="${deps.escapeHtml(language)}">${deps.escapeHtml(languageLabel)}</span></div>
+          <div class="answer-question-list" style="display: grid; gap: 8px; margin-top: 8px;">
+            ${renderAnswerItemsHtml(answerItems, deps)}
+          </div>
         </div>
       `;
       listEl.appendChild(item);
@@ -534,13 +546,23 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
     });
   });
 
+  // TODO §M3: "ℹ️" opens the entry's hidden .answer-item-details in the shared M2 popup.
+  listEl?.querySelectorAll<HTMLElement>('.answer-details-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const item = (e.currentTarget as HTMLElement).closest('.answer-talk-item') as HTMLElement | null;
+      const details = item?.querySelector('.answer-item-details') as HTMLElement | null;
+      if (item && details) deps.showItemDetailsPopup(details, item);
+    });
+  });
+
   // TODO §P: per-question deep link. If the click landed inside a specific .answer-outcome-item
   // (one question of a possibly multi-question entry), thread its questionId through so the
   // talk opens scrolled/highlighted to that question instead of just the talk as a whole.
   listEl?.querySelectorAll<HTMLElement>('.answer-talk-item').forEach((item) => {
     item.addEventListener('click', (e) => {
       const target = e.target as HTMLElement;
-      if (target.closest('.answer-copy-talk-btn')) return;
+      if (target.closest('.answer-copy-talk-btn') || target.closest('.answer-details-btn') || target.closest('.answer-item-details')) return;
       const talkId = item.dataset.sourceTalkId || item.dataset.talkId;
       if (!talkId) return;
       const outcomeItem = target.closest('.answer-outcome-item') as HTMLElement | null;

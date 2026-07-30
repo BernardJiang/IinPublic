@@ -156,15 +156,28 @@ test.describe('Stage 0 — TechSupport creates four talk types', () => {
       ['TechSupport engineering roles?', 'Yes, engineering.'],
     ];
 
+    // TODO §M3: per-question detail (.answer-outcome-item) now renders inside the hidden
+    // .answer-item-details, opened via the entry's "ℹ️" icon into the shared M2 popup — text
+    // content (hasText/toContainText) is still readable while hidden, but visibility assertions
+    // need the popup open first.
     for (const [question, answer] of expectedAnswerRows) {
-      const row = page.locator('#answers-content .answer-outcome-item').filter({ hasText: question }).filter({ hasText: answer });
-      await expect(row.first()).toBeVisible();
+      const row = page.locator('#answers-content .answer-talk-item').filter({ hasText: question }).filter({ hasText: answer });
+      await row.first().locator('.answer-details-btn').click();
+      const popup = page.locator('#item-details-popup');
+      await expect(popup).toBeVisible({ timeout: 10_000 });
+      await expect(popup.locator('.answer-outcome-item').filter({ hasText: question }).filter({ hasText: answer }).first()).toBeVisible();
+      await popup.locator('#close-item-details-popup').click();
+      await expect(popup).toHaveCount(0);
     }
-    const routeChildRow = page.locator('#answers-content .answer-outcome-item')
+    const routeChildRow = page.locator('#answers-content .answer-talk-item')
       .filter({ hasText: 'TechSupport engineering roles?' });
-    await expect(routeChildRow).toContainText('Context path:');
-    await expect(routeChildRow).toContainText('TechSupport job searching? -> Yes.');
-    await expect(routeChildRow).not.toContainText('q_job -> a_job_yes');
+    await routeChildRow.first().locator('.answer-details-btn').click();
+    const routeChildPopup = page.locator('#item-details-popup');
+    await expect(routeChildPopup).toBeVisible({ timeout: 10_000 });
+    await expect(routeChildPopup).toContainText('Context path:');
+    await expect(routeChildPopup).toContainText('TechSupport job searching? -> Yes.');
+    await expect(routeChildPopup).not.toContainText('q_job -> a_job_yes');
+    await routeChildPopup.locator('#close-item-details-popup').click();
 
     await expect
       .poll(

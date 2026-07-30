@@ -2067,6 +2067,49 @@ export class UIManager extends EventEmitter {
     });
   }
 
+  /**
+   * TODO §M2/§M3: relocates (not clones) a row's hidden `.talk-item-details`/`.answer-item-details`
+   * into a shared popup, so already-wired interactive content inside it (matched-names click-to-DM,
+   * §N3/item 6) keeps its real event listeners intact — DOM nodes carry their listeners with them
+   * across a reparent. Moves it back to its original row on close, restoring display:none.
+   */
+  private showDetailsPopupFor(detailsEl: HTMLElement, originalParent: HTMLElement): void {
+    document.getElementById('item-details-popup')?.remove();
+    const modal = document.createElement('div');
+    modal.id = 'item-details-popup';
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width:480px;">
+        <div class="modal-header">
+          <h2 class="modal-title">${this.t('talksDetails')}</h2>
+          <button class="close-button" id="close-item-details-popup">&times;</button>
+        </div>
+        <div class="item-details-popup-body" style="padding:16px;"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    const body = modal.querySelector('.item-details-popup-body') as HTMLElement;
+    body.appendChild(detailsEl);
+    detailsEl.style.display = 'block';
+    const close = () => {
+      detailsEl.style.display = 'none';
+      originalParent.appendChild(detailsEl);
+      modal.remove();
+    };
+    document.getElementById('close-item-details-popup')?.addEventListener('click', close);
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) close();
+    });
+  }
+
+  private showTalkItemDetailsPopup(talkId: string): void {
+    const escape = (window.CSS?.escape ?? ((v: string) => v)) as (v: string) => string;
+    const row = document.querySelector(`.talk-list-item[data-talk-id="${escape(talkId)}"]`) as HTMLElement | null;
+    const details = row?.querySelector('.talk-item-details') as HTMLElement | null;
+    if (!row || !details) return;
+    this.showDetailsPopupFor(details, row);
+  }
+
   private chatroomsDeps(): Parameters<typeof renderChatrooms>[0] {
     return {
       currentChatroom: this.currentChatroom,
@@ -2425,6 +2468,15 @@ export class UIManager extends EventEmitter {
             }
             return;
           }
+          // TODO §M2: "ℹ️" opens the row's hidden .talk-item-details in a shared popup.
+          const detailsBtn = target.closest('.talk-details-btn') as HTMLElement | null;
+          if (detailsBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const talkId = detailsBtn.dataset.talkId;
+            if (talkId) setTimeout(() => this.showTalkItemDetailsPopup(talkId), 0);
+            return;
+          }
         },
         { capture: true },
       );
@@ -2640,10 +2692,6 @@ export class UIManager extends EventEmitter {
                     : `<span class="talk-badge talk-badge-created" style="background:var(--accent-soft);color:var(--accent-text);">📝 ${this.t('talksCreated')}</span>`;
                   const talkTypeLower = String(talk.type || talk.fullTalk?.type || '').toLowerCase();
                   const talkLanguage = String(talk.language || talk.fullTalk?.language || 'en').toLowerCase();
-                  const surveyStatsBtn =
-                    talkTypeLower === 'survey'
-                      ? `<button type="button" class="btn survey-stats-btn" data-talk-id="${escapeHtml(talkId)}" data-testid="survey-stats-button" style="padding: 6px 12px; font-size: 0.9em; background:var(--success-soft);color:var(--success-text);border:1px solid var(--success-border);">📊 ${this.t('talksResults')}</button>`
-                      : '';
                   const typeAccent =
                     talkTypeLower === 'tag' ? '#7c3aed'
                     : talkTypeLower === 'survey' ? 'var(--success)'
@@ -2659,6 +2707,17 @@ export class UIManager extends EventEmitter {
         </div>
       `;
                   }
+                  // TODO §M2: 2 visible lines (title, status) with actions as inline icons; fields
+                  // that were purely informational (language badge, meta, rank/weighted-score)
+                  // move into .talk-item-details — still a normal DOM child (not removed, not a
+                  // <template>), just display:none until the "ℹ️" icon opens the shared details
+                  // popup. matchedLine stays visible on the row itself: it's the interactive N3
+                  // click-to-DM affordance (§N3), not decorative detail, and existing tests assert
+                  // its visibility inline.
+                  const surveyStatsIconBtn =
+                    talkTypeLower === 'survey'
+                      ? `<button type="button" class="btn survey-stats-btn talk-icon-btn" data-talk-id="${escapeHtml(talkId)}" data-testid="survey-stats-button" title="${this.t('talksResults')}">📊</button>`
+                      : '';
                   return `
         <div class="talk-list-item talk-type-${escapeHtml(talkTypeLower || 'flow')} ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-role="${talk.role || 'created'}" data-talk-type="${escapeHtml(talkTypeLower || 'flow')}" style="border-left:5px solid ${typeAccent};">
           <div class="talk-item-header">
@@ -2666,26 +2725,30 @@ export class UIManager extends EventEmitter {
             <div class="talk-item-badges">
               ${roleBadge}
               <span class="talk-badge talk-badge-type">${escapeHtml(this.formatTalkType(String(talk.type || 'flow')))}</span>
-              <span class="talk-badge talk-badge-language" data-language="${escapeHtml(talkLanguage)}">${escapeHtml(this.formatTalkLanguage(talkLanguage))}</span>
             </div>
           </div>
-          <div class="talk-item-meta">
-            <span class="talk-item-time">${this.formatTalkRelativeTime(new Date(talk.lastInteraction || 0))}</span>
+          <div class="talk-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
+            <span class="talk-item-status-summary" style="font-size:0.85em;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(statsLine)} · ${escapeHtml(this.formatTalkRelativeTime(new Date(talk.lastInteraction || 0)))}</span>
+            <span class="talk-item-inline-actions" style="display:flex;gap:4px;flex-shrink:0;">
+              ${surveyStatsIconBtn}
+              <button type="button" class="btn talk-broadcast-toggle-btn talk-icon-btn ${disabled ? 'talk-broadcast-toggle-off' : 'talk-broadcast-toggle-on'}" data-talk-id="${talkId}" data-broadcast-enabled="${disabled ? 'false' : 'true'}" title="${disabled ? this.t('talksBroadcastOff') : this.t('talksBroadcastOn')}">${disabled ? '🔇' : '📣'}</button>
+              <button type="button" class="btn remove-talk-btn talk-icon-btn" data-talk-id="${talkId}" title="${this.t('talksRemove')}" style="background: var(--danger); color: white;">🗑️</button>
+              <button type="button" class="btn talk-details-btn talk-icon-btn" data-talk-id="${talkId}" title="${this.t('talksDetails')}">ℹ️</button>
+            </span>
           </div>
-          <div class="talk-item-meta" style="font-size: 0.85em; color: #666;">
-            ${this.tf('talksExpiration', { value: expText })} · ${this.tf('talksLocation', { value: locText })}
-          </div>
-          <div class="talk-item-stats" style="font-size: 0.85em; color: #666; margin-top: 6px;">
-            ${statsLine}
-          </div>
-          ${rankLine}
           ${matchedLine}
-          <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-            ${surveyStatsBtn}
-            <button type="button" class="btn talk-broadcast-toggle-btn ${disabled ? 'talk-broadcast-toggle-off' : 'talk-broadcast-toggle-on'}" data-talk-id="${talkId}" data-broadcast-enabled="${disabled ? 'false' : 'true'}" style="padding: 6px 12px; font-size: 0.9em;">
-              ${disabled ? this.t('talksBroadcastOff') : this.t('talksBroadcastOn')}
-            </button>
-            <button type="button" class="btn remove-talk-btn" data-talk-id="${talkId}" style="padding: 6px 12px; font-size: 0.9em; background: var(--danger); color: white;">🗑️ ${this.t('talksRemove')}</button>
+          <div class="talk-item-details" data-talk-id="${talkId}" style="display:none;">
+            <span class="talk-badge talk-badge-language" data-language="${escapeHtml(talkLanguage)}">${escapeHtml(this.formatTalkLanguage(talkLanguage))}</span>
+            <div class="talk-item-meta">
+              <span class="talk-item-time">${this.formatTalkRelativeTime(new Date(talk.lastInteraction || 0))}</span>
+            </div>
+            <div class="talk-item-meta" style="font-size: 0.85em; color: #666;">
+              ${this.tf('talksExpiration', { value: expText })} · ${this.tf('talksLocation', { value: locText })}
+            </div>
+            <div class="talk-item-stats" style="font-size: 0.85em; color: #666; margin-top: 6px;">
+              ${statsLine}
+            </div>
+            ${rankLine}
           </div>
         </div>
       `;
@@ -2766,6 +2829,11 @@ export class UIManager extends EventEmitter {
         </div>
       `;
                 }
+                // TODO §M2: same 2-visible-line collapse as the OUT row. The sender row stays
+                // visible (not moved into the popup) for the same reason matchedLine does on the
+                // OUT row: it's the interactive N3 click-to-DM traceback affordance, not decorative
+                // detail. Chips/meta/"from"-line (redundant with the visible sender row) move into
+                // .talk-item-details.
                 return `
         <div class="talk-list-item talk-type-${escapeHtml(incomingType)} ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}" style="border-left:5px solid ${typeAccent};">
           <div class="talk-item-header">
@@ -2775,27 +2843,29 @@ export class UIManager extends EventEmitter {
               <span class="talk-badge talk-badge-type">${escapeHtml(this.formatTalkType(String(cluster?.type || 'flow')))}</span>
             </div>
           </div>
-          <div class="talk-incoming-sender talk-sender-people" data-sender-people="${senderPeopleJson}" style="cursor:pointer;">
-            <span class="talk-incoming-avatar">${avatarInnerHtml(primarySender.headshot, senderInitial, escapeHtml)}</span>
-            <span class="talk-incoming-sender-name">${escapeHtml(primarySenderName)}</span>
-            ${senderNames.length > 1 ? `<span class="talk-info-chip">${this.tf('talksSenders', { count: senderNames.length })}</span>` : ''}
+          <div class="talk-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
+            <div class="talk-incoming-sender talk-sender-people" data-sender-people="${senderPeopleJson}" style="cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              <span class="talk-incoming-avatar">${avatarInnerHtml(primarySender.headshot, senderInitial, escapeHtml)}</span>
+              <span class="talk-incoming-sender-name">${escapeHtml(primarySenderName)}</span>
+              ${senderNames.length > 1 ? `<span class="talk-info-chip">${this.tf('talksSenders', { count: senderNames.length })}</span>` : ''}
+            </div>
+            <span class="talk-item-inline-actions" style="display:flex;gap:4px;flex-shrink:0;">
+              <button type="button" class="btn view-talk-btn talk-icon-btn" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" title="${this.t('talksView')}" ${talkId || identityKey ? '' : 'disabled'}>🔍</button>
+              <button type="button" class="btn talk-details-btn talk-icon-btn" data-talk-id="${talkId}" title="${this.t('talksDetails')}">ℹ️</button>
+            </span>
           </div>
-          <div class="talk-info-chips">
-            ${progressChip}
-            ${languageChip}
-            <span class="talk-info-chip talk-expiry-${expiryTone}">${escapeHtml(expText)}</span>
-            <span class="talk-info-chip">${escapeHtml(locText)}</span>
-            ${distanceChip}
-            ${responseChip}
-          </div>
-          <div class="talk-item-meta" style="${metaStyle}">
-            <span class="talk-item-time">${this.formatTalkRelativeTime(new Date(cluster?.updatedAt || Date.now()))}</span>
-          </div>
-          <div class="talk-item-meta talk-sender-people" data-sender-people="${senderPeopleJson}" style="font-size: 0.85em; ${metaStyle} cursor:pointer;">
-            ${this.tf('talksFrom', { names: escapeHtml(senderNames.join(', ') || this.t('settingsUnknown')) })}
-          </div>
-          <div class="talk-item-actions" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-            <button type="button" class="btn view-talk-btn" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" style="padding: 6px 12px; font-size: 0.9em;" ${talkId || identityKey ? '' : 'disabled'}>🔍 ${this.t('talksView')}</button>
+          <div class="talk-item-details" data-talk-id="${talkId}" style="display:none;">
+            <div class="talk-info-chips">
+              ${progressChip}
+              ${languageChip}
+              <span class="talk-info-chip talk-expiry-${expiryTone}">${escapeHtml(expText)}</span>
+              <span class="talk-info-chip">${escapeHtml(locText)}</span>
+              ${distanceChip}
+              ${responseChip}
+            </div>
+            <div class="talk-item-meta" style="${metaStyle}">
+              <span class="talk-item-time">${this.formatTalkRelativeTime(new Date(cluster?.updatedAt || Date.now()))}</span>
+            </div>
           </div>
         </div>
       `;
@@ -2873,7 +2943,7 @@ export class UIManager extends EventEmitter {
         if (role === 'incoming' && !talkId && !identityKey) return;
         if (role !== 'incoming' && !talkId) return;
         item.addEventListener('click', (e) => {
-          if ((e.target as HTMLElement).closest('.talk-item-actions, .talk-tag-checkbox-wrap, .view-talk-btn, .talk-matched-people, .talk-sender-people')) return;
+          if ((e.target as HTMLElement).closest('.talk-item-actions, .talk-item-inline-actions, .talk-tag-checkbox-wrap, .view-talk-btn, .talk-matched-people, .talk-sender-people, .talk-item-details')) return;
           if (role === 'copied') {
             const copied = myTalks[talkId];
             if (copied?.fullTalk) {
@@ -3141,6 +3211,7 @@ export class UIManager extends EventEmitter {
       copyAnsweredTalkToTalks: this.copyAnsweredTalkToTalks.bind(this),
       showTalkDetail: this.showTalkDetailAsAnswer.bind(this),
       showPreferencesDialog: this.showPreferencesDialog.bind(this),
+      showItemDetailsPopup: this.showDetailsPopupFor.bind(this),
       getTalkContentKey: UIManager.getTalkContentKey,
       text: this.t.bind(this),
       formatDate: this.formatUiDate.bind(this),
