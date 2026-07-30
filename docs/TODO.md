@@ -657,8 +657,20 @@ this is a sequencing index, not new content. Land top-to-bottom.
    `src/web/ui/graph-navigation.ts`; `UIManager.navigateToGraphNode(target)` switches on it and
    delegates to the existing `showChatroomDetail`/`showConversationDetail`/`showContactDetail`.
    No new call sites yet, per scope — `tsc`/`lint`/Jest (1048 tests) all clean.
-2. **Trivial.** M1 — disable the "Replies To My Talks" panel. Already confirmed a single
+2. [x] **Trivial.** M1 — disable the "Replies To My Talks" panel. Already confirmed a single
    contiguous, self-contained edit.
+   **Done 2026-07-30:** `#creator-replies-panel` set to `display:none`; the 3 external
+   `renderCreatorReplies()` call sites (two filter-control listeners + `refreshCreatorReplies()`)
+   removed so it's never invoked (the data derivation `deriveLocalCreatorReplies` stays, since
+   `creatorReplyRows` still feeds the OUT-row matched-names line). Turned out to be wider than
+   "self-contained": 5 E2E specs dedicated to this panel now `test.describe.skip` with a dated
+   comment (`35-reply-filter-query`, `65-reply-triage-option-matrix`,
+   `00ad-reply-triage-group-date`, `00v-creator-reply-triage-matrix`,
+   `70-reply-triage-grouping-multi`), and 4 more specs that asserted panel visibility/interaction
+   alongside otherwise-unrelated checks were surgically trimmed (`00-ui-navigation-settings`,
+   `00x-tab-sweep-smoke`, `00y-chinese-ui-traversal` needed no fix — text-content assertions don't
+   require visibility, `baa-techsupport-single-user-tabs`). Full light E2E shard (177 passed, 5
+   skipped, 0 failed), `tsc`/`lint`/Jest (1048 tests) all clean.
 3. **Trivial.** Verify Chatroom → Person (clicking a chatroom roster row reaches that person's
    contact/DM) actually works today — a check, not new work, unless it turns out broken.
 4. **Trivial.** P's `'created'`-vs-`'answered'` destination asymmetry for self-answered own talks —
@@ -740,13 +752,24 @@ contact rows need a headshot added (M6, currently text-only).
   (`ui-manager.ts:2803-2943`) from `deriveLocalCreatorReplies(this.currentUserId)`
   (`ui-manager.ts:2798-2799`), called on every Talks-tab activation/filter change
   (`ui-manager.ts:1529`, `1543`) with no existing visibility flag gating it.
-- [ ] Hide the section (wrap `#creator-replies-panel` in `style="display:none"` or remove the
+- [x] Hide the section (wrap `#creator-replies-panel` in `style="display:none"` or remove the
       block outright) and short-circuit `renderCreatorReplies()`'s call sites to a no-op. The
       section is self-contained (own DOM ids, own filter state, doesn't feed `#talks-list`), so
       this is one contiguous edit, not a scattered one — confirmed safe to disable without
       touching the OUT/IN list below it.
-- [ ] Test: `stage1` — Talks tab renders with `#creator-replies-panel` absent/hidden; `#talks-list`
+      **Done 2026-07-30.** `deriveLocalCreatorReplies`'s output (`creatorReplyRows`) still feeds
+      the OUT-row matched-names line (`ui-manager.ts` ~2313), so `refreshCreatorReplies()` keeps
+      that derivation and only drops its own `renderCreatorReplies()` call.
+- [x] Test: `stage1` — Talks tab renders with `#creator-replies-panel` absent/hidden; `#talks-list`
       and its existing OUT/IN rows are unaffected.
+      **Done 2026-07-30:** covered by the existing `00x-tab-sweep-smoke` (stage1) and
+      `baa-techsupport-single-user-tabs` (stage0) specs, both updated with a `toBeHidden()`
+      assertion right alongside their existing `#talks-list`/OUT-sort checks. Also had to
+      `test.describe.skip` 5 specs dedicated to this panel's now-dead functionality
+      (`35-reply-filter-query`, `65-reply-triage-option-matrix`, `00ad-reply-triage-group-date`,
+      `00v-creator-reply-triage-matrix`, `70-reply-triage-grouping-multi`) and trim panel-specific
+      assertions out of `00-ui-navigation-settings` — wider blast radius than the "self-contained"
+      framing above assumed, since several specs asserted on this panel's own behavior directly.
 
 ### M2. Compress flow/tag/survey/route talk rows to title + status, inline icon actions, details in a popup
 

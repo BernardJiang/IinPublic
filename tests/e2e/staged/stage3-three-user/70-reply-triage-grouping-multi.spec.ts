@@ -25,7 +25,10 @@ const RESPONDERS: MatrixResponder[] = Array.from({ length: SIZE }, (_, i) => ({
 
 test.describe.configure({ timeout: 180_000 });
 
-test.describe('Reply triage grouping across 3 responders', () => {
+// TODO §M1 (2026-07-30): "Replies To My Talks" panel (#creator-replies-panel) is hidden for now
+// (renderCreatorReplies() call sites are no-ops). Skipped rather than deleted — re-enable if/when
+// the panel comes back.
+test.describe.skip('Reply triage grouping across 3 responders', () => {
   let browser: Browser;
   let page: Page;
 

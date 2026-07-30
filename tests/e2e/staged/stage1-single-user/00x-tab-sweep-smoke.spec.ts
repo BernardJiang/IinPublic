@@ -42,12 +42,9 @@ test.describe('Tab sweep smoke (D6)', () => {
 
     await page.click('.nav-btn[data-view="talks"]');
     await afterNav();
-    await expect(page.locator('#creator-replies-panel')).toBeVisible();
-    await expect(page.locator('#reply-sort-order option[value="matches"]')).toHaveText('Matches');
+    // TODO §M1: "Replies To My Talks" panel is hidden for now.
+    await expect(page.locator('#creator-replies-panel')).toBeHidden();
     await expect(page.locator('#talks-out-sort-order option[value="weighted"]')).toHaveText('Weighted performance');
-    // Below 768px the triage filters live behind the "Filters ▾" disclosure (redesign §6).
-    await page.click('[data-testid="replies-filter-toggle"]');
-    await expect(page.locator('#reply-group-order')).toBeVisible();
 
     await page.click('.nav-btn[data-view="contacts"]');
     await afterNav();

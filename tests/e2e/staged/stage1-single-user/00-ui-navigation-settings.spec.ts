@@ -107,39 +107,6 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#contacts-view .status-bar')).toHaveCount(0);
     await expect(p.locator('.contacts-action-bar')).toBeVisible();
 
-    const replyFixture = Array.from({ length: 30 }, (_, index) => ({
-      responseId: `reply-${index}`,
-      talkId: `talk-${index % 3}`,
-      title: `Source Talk ${index % 3}`,
-      type: index % 2 === 0 ? 'flow' : 'survey',
-      language: index % 2 === 0 ? 'en' : 'zh',
-      responderId: `responder-${index % 5}`,
-      responderName: `Responder ${index % 5}`,
-      outcome: index % 3 === 0 ? 'match' : 'mismatch',
-      answerMode: index % 4 === 0 ? 'auto' : 'manual',
-      date: new Date(Date.UTC(2026, 4, 1, 0, index)).toISOString(),
-      answers: [{ questionId: 'q1', answerId: 'a1', answerText: `Answer ${index}` }],
-    }));
-    await p.evaluate((rows) => {
-      const exchanges = Object.fromEntries(rows.map((row) => [
-        `${row.responderId}::${row.talkId}::${row.responseId}`,
-        {
-          peerId: row.responderId,
-          peerName: row.responderName,
-          talkId: row.talkId,
-          title: row.title,
-          type: row.type,
-          language: row.language,
-          outcome: row.outcome,
-          answerMode: row.answerMode,
-          direction: 'sent',
-          date: row.date,
-          responseId: row.responseId,
-          answers: row.answers,
-        },
-      ]));
-      localStorage.setItem('localTalkExchanges', JSON.stringify(exchanges));
-    }, replyFixture);
     await p.locator('.nav-btn[data-view="talks"]').click();
     await afterNav();
     await expect(p.locator('#header-title')).toBeEmpty();
@@ -151,21 +118,8 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#talks-view')).not.toContainText('Create New Talk');
     await expect(p.locator('#talks-out-sort-order option[value="latest-reply"]')).toHaveText('Latest reply');
     await expect(p.locator('#talks-out-sort-order option[value="weighted"]')).toHaveText('Weighted performance');
-    await expect(p.locator('#reply-filter-type')).toBeVisible();
-    await expect(p.locator('#reply-filter-language')).toBeVisible();
-    await expect(p.locator('#reply-group-order')).toBeVisible();
-    await expect(p.locator('#creator-replies-summary')).toContainText('Showing 25 of 30');
-    await expect(p.locator('.creator-reply-row')).toHaveCount(25);
-    await p.locator('#reply-load-more').click();
-    await expect(p.locator('.creator-reply-row')).toHaveCount(30);
-    await p.locator('#reply-filter-language').selectOption('zh');
-    await p.locator('#reply-group-order').selectOption('talk');
-    await expect(p.locator('.creator-reply-row')).toHaveCount(15);
-    await expect(p.locator('#creator-replies-active-filters')).toContainText('Language: Chinese');
-    await expect(p.locator('.creator-reply-row').first()).toContainText('Chinese');
-    await expect
-      .poll(async () => p.evaluate(() => localStorage.getItem('creatorReplyFilterState')))
-      .toContain('"language":"zh"');
+    // TODO §M1: "Replies To My Talks" panel is hidden for now.
+    await expect(p.locator('#creator-replies-panel')).toBeHidden();
 
     await p.locator('.nav-btn[data-view="me"]').click();
     await afterNav();
@@ -185,13 +139,6 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#copy-talk-autosave-checkbox')).toHaveCount(0);
     await expect(p.locator('#chatbot-enabled-checkbox')).toHaveCount(0);
     await expect(p.locator('#talk-filter-min-distance')).toHaveCount(0);
-
-    await p.locator('.nav-btn[data-view="talks"]').click();
-    await afterNav();
-    await expect(p.locator('#reply-filter-language')).toHaveValue('zh');
-    await expect(p.locator('#reply-group-order')).toHaveValue('talk');
-    await p.locator('#reply-clear-filters').click();
-    await expect(p.locator('#creator-replies-summary')).toContainText('Showing 25 of 30');
 
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
@@ -456,10 +403,6 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#reply-filter-query')).toHaveAttribute('placeholder', '昵称或话题');
     await expect(p.locator('#talks-out-sort-order option[value="weighted"]')).toHaveText('加权表现');
     await expect(p.locator('#reply-filter-language option[value="zh"]')).toHaveText('中文');
-    await p.locator('#reply-filter-language').selectOption('zh');
-    await expect(p.locator('#creator-replies-active-filters')).toContainText('语言: 中文');
-    await expect(p.locator('.creator-reply-row').first()).toContainText('中文');
-    await expect(p.locator('#creator-replies-summary')).toContainText('筛选回复');
     await expect(p.locator('#talks-stats-strip')).toContainText('统计：');
     await expect(p.locator('#talks-list')).toContainText('还没有话题');
     await p.evaluate(() => {

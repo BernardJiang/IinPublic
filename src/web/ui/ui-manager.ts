@@ -998,7 +998,7 @@ export class UIManager extends EventEmitter {
                 </div>
               </div>
               <div class="embedded-stats-strip" id="talks-stats-strip" style="padding:8px 12px;color:var(--text-tertiary);font-size:0.88em;"></div>
-              <section id="creator-replies-panel" style="padding:12px;border-bottom:1px solid var(--border);background:#fff;">
+              <section id="creator-replies-panel" style="display:none;padding:12px;border-bottom:1px solid var(--border);background:#fff;">
                 <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px;">
                   <strong>Replies To My Talks</strong>
                   <span id="creator-replies-summary" style="font-size:0.85em;color:var(--text-tertiary);">Loading...</span>
@@ -1524,10 +1524,11 @@ export class UIManager extends EventEmitter {
     });
     this.restoreCreatorReplyFilterState();
     ['reply-filter-query', 'reply-filter-outcome', 'reply-filter-relationship', 'reply-filter-type', 'reply-filter-language', 'reply-filter-from', 'reply-filter-to', 'reply-sort-order', 'reply-group-order'].forEach((id) => {
+      // TODO §M1: #creator-replies-panel is hidden (display:none); skip renderCreatorReplies()
+      // here since it would only re-render DOM the user can't see.
       document.getElementById(id)?.addEventListener(id === 'reply-filter-query' ? 'input' : 'change', () => {
         this.creatorReplyVisibleCount = CREATOR_REPLY_PAGE_SIZE;
         this.persistCreatorReplyFilterState();
-        this.renderCreatorReplies();
       });
     });
     document.getElementById('reply-clear-filters')?.addEventListener('click', () => {
@@ -1541,7 +1542,6 @@ export class UIManager extends EventEmitter {
       });
       this.creatorReplyVisibleCount = CREATOR_REPLY_PAGE_SIZE;
       this.persistCreatorReplyFilterState();
-      this.renderCreatorReplies();
     });
 
     const talksNavBack = document.getElementById('talks-nav-back');
@@ -2815,8 +2815,10 @@ export class UIManager extends EventEmitter {
   private async refreshCreatorReplies(): Promise<void> {
     if (!this.currentUserId) return;
     // P0 step 5: replies derived from localTalkExchanges — no server call to /api/users/:id/replies.
+    // creatorReplyRows also feeds the OUT-row matched-names line in displayTalksList (line ~2313),
+    // so this derivation stays even though the panel itself (TODO §M1) is hidden and its own
+    // renderCreatorReplies() DOM update is skipped.
     this.creatorReplyRows = deriveLocalCreatorReplies(this.currentUserId) as CreatorReplyRow[];
-    this.renderCreatorReplies();
     if (document.getElementById('talks-view')?.classList.contains('active')) this.displayTalksList();
   }
 

@@ -45,13 +45,8 @@ test.describe('Stage 0 — TechSupport single-user traversal', () => {
     await expect(page.locator('#talks-out-sort-order option[value="matches"]')).toHaveText('Most matches');
     await expect(page.locator('#talks-out-sort-order option[value="latest-reply"]')).toHaveText('Latest reply');
     await expect(page.locator('#talks-out-sort-order option[value="weighted"]')).toHaveText('Weighted performance');
-    await expect(page.locator('#creator-replies-panel')).toBeVisible();
-    await openCollapsedFilters(page, 'replies-filter-toggle');
-    await expect(page.locator('#reply-filter-query')).toBeVisible();
-    await expect(page.locator('#reply-filter-type')).toBeVisible();
-    await expect(page.locator('#reply-filter-language')).toBeVisible();
-    await expect(page.locator('#reply-group-order')).toBeVisible();
-    await expect(page.locator('#reply-sort-order option[value="weighted"]')).toHaveText('Relevance score');
+    // TODO §M1: "Replies To My Talks" panel is hidden for now.
+    await expect(page.locator('#creator-replies-panel')).toBeHidden();
 
     await page.click('.nav-btn[data-view="me"]');
     await afterNav();

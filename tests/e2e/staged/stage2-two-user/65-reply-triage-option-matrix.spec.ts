@@ -20,7 +20,10 @@ const TYPES = ['all', 'flow', 'tag', 'survey', 'route'];
 const SORTS = ['recent', 'oldest', 'user', 'talk', 'relationship', 'matches', 'talk-matches', 'talk-replies', 'weighted'];
 const GROUPS = ['none', 'responder', 'talk', 'relationship'];
 
-test.describe('Reply-triage option matrix', () => {
+// TODO §M1 (2026-07-30): "Replies To My Talks" panel (#creator-replies-panel) is hidden for now
+// (renderCreatorReplies() call sites are no-ops). Skipped rather than deleted — re-enable if/when
+// the panel comes back.
+test.describe.skip('Reply-triage option matrix', () => {
   let browserA: Browser;
   let browserB: Browser;
   let pair: FastDmPair | undefined;
