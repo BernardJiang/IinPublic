@@ -32,8 +32,9 @@ export type UserDetailViewDeps = {
   isSupportNotificationsMuted: () => boolean;
   setSupportNotificationsMuted: (muted: boolean) => Promise<void>;
   sendDirectMessage: (peerId: string, peerName: string, text: string) => Promise<void>;
-  /** Opens (creating on demand) the pair's talk-independent DM conversation (C4b). */
-  openDirectConversation: (peerId: string, peerName: string) => void;
+  /** Opens (creating on demand) the pair's DM conversation (C4b). Optional talkId (TODO §O)
+   *  scopes the newly-created conversation's active thread to that talk from the first message. */
+  openDirectConversation: (peerId: string, peerName: string, talkId?: string) => void;
   /** Renders the relationship/credit context block + edit button into a container (shared with Contacts). */
   renderPeerContext?: (container: HTMLElement, peerId: string, peerName: string) => void;
   getTransportStatus: () => {
@@ -812,7 +813,7 @@ async function fetchAndRenderHistory(peerId: string, deps: UserDetailViewDeps): 
 
 function renderHistory(): void {
   if (!currentState) return;
-  const { history, sort, filter, deps } = currentState;
+  const { peerId, peerName, history, sort, filter, deps } = currentState;
   const historyEl = document.getElementById('peer-talk-history-list');
   if (!historyEl) return;
 
@@ -849,7 +850,7 @@ function renderHistory(): void {
       const typeLabel = item.type ? `<span class="peer-talk-type">${escapeHtml(deps.formatType(item.type))}</span>` : '';
       const dateLabel = deps.formatRelativeTime(new Date(item.date));
       return `
-        <div class="peer-history-item ${outcomeClass}">
+        <div class="peer-history-item ${outcomeClass}" data-talk-id="${escapeHtml(item.talkId)}" role="button" tabindex="0" style="cursor:pointer;">
           <div class="peer-history-direction" title="${dirLabel}">${dirIcon}</div>
           <div class="peer-history-body">
             <div class="peer-history-title">${escapeHtml(item.title)} ${typeLabel}</div>
@@ -862,6 +863,25 @@ function renderHistory(): void {
       `;
     })
     .join('');
+
+  // TODO §O: every exchanged talk (not only ones already in relatedTalkIds) opens the DM with
+  // that talk as the active thread context — a mismatch/pending talk with no conversation yet
+  // creates one on demand; an existing conversation just re-scopes to this talk.
+  historyEl.querySelectorAll<HTMLElement>('.peer-history-item').forEach((row) => {
+    row.addEventListener('click', () => {
+      const talkId = row.dataset.talkId || '';
+      if (!talkId) return;
+      const conversations = deps.getMyConversations();
+      const pairEntry = Object.entries(conversations).find(
+        ([, c]: [string, any]) => c.otherUserId === peerId,
+      );
+      if (pairEntry) {
+        deps.showConversationDetail(pairEntry[0], talkId);
+      } else {
+        deps.openDirectConversation(peerId, peerName, talkId);
+      }
+    });
+  });
 }
 
 async function handleSendMyTalks(): Promise<void> {

@@ -757,8 +757,20 @@ this is a sequencing index, not new content. Land top-to-bottom.
     already resolved. Confirmed it fails without the fix and passes 3/3 with it; regression on
     `64-contacts-filter-sort-options`, `00k-techsupport-contact-mute`, `00f-ux-contacts-talks-
     answers`, `06-contacts-tab` (4/4). `tsc`/`lint`/Jest all clean.
-11. **Medium.** O — make the peer-detail exchanged-talks history list clickable, with on-demand
+11. [x] **Medium.** O — make the peer-detail exchanged-talks history list clickable, with on-demand
     `threadSummaries[talkId]` creation for talks that don't have one yet.
+    **Done 2026-07-30.** `.peer-history-item` rows are now clickable: if a conversation already
+    exists with the peer, calls `showConversationDetail(convId, talkId)` directly (works for any
+    talkId, `threadSummaries[talkId]` doesn't need to pre-exist — it's created naturally once a
+    message is sent under that scope); if no conversation exists yet, calls the (now
+    talkId-aware) `openDirectConversation(peerId, peerName, talkId)`, which creates one and opens
+    it already scoped to that talk. `openDirectConversationWithPeer` gained the same optional
+    `talkId` param, threading through to `showConversationDetail`. New test
+    `76-peer-history-clickable.spec.ts` (2 tests: brand-new conversation from a mismatch talk;
+    existing conversation re-scoping across two distinct exchanged talks, including a regression
+    check on the already-matched talk). Confirmed both fail without the fix and pass 3/3 with it;
+    regression on `67-peer-history-controls`, `68-conversation-first-entry`,
+    `69-matched-talk-threads`, `00e-chatroom-peer-detail` (9/9). `tsc`/`lint`/Jest all clean.
 12. **Medium.** This section's own Talk → Me-tab Q&A reverse edge — reuses P's `talkId` join,
     just the other direction.
 13. **Medium.** P — wire the already-computed `contextHash`/`contextPath` into a per-question deep
@@ -1257,27 +1269,47 @@ messages, not any exchanged talk.
 
 **Work**
 
-- [ ] Make `#peer-talk-history-list` rows (`user-detail-view.ts:785-865`) clickable — every
+- [x] Make `#peer-talk-history-list` rows (`user-detail-view.ts:785-865`) clickable — every
       exchanged talk, not only ones already in `relatedTalkIds`. Clicking one opens the DM with
       that peer, with that talk as the active thread context (creating a `threadSummaries[talkId]`
       entry on demand if one doesn't exist yet, rather than requiring a message to have been sent
       first).
-- [ ] Extend `openDirectConversationWithPeer`/`showConversationDetail` (`ui-manager.ts:7544`,
+      **Done 2026-07-30.** Turned out `showConversationDetail` already tolerates an arbitrary
+      `threadTalkId` with no pre-existing `threadSummaries[talkId]` entry — it just becomes the
+      active scope, and the entry forms naturally once a message is sent under it. No extra
+      "creation" logic needed beyond wiring the click.
+- [x] Extend `openDirectConversationWithPeer`/`showConversationDetail` (`ui-manager.ts:7544`,
       `4852`) to accept an optional `talkId` context param so both the generic "message this
       person" entry point and the history-list click path go through one consistent function,
       instead of the history list needing its own separate opening logic.
-- [ ] Decide (small design call) whether switching which talk is the "active context" mid-session,
+      **Done 2026-07-30.** `showConversationDetail` already had it; added the same optional
+      `talkId` to `openDirectConversationWithPeer` and the `openDirectConversation` dep it's bound
+      through, so the history-list click reuses this one path instead of inventing its own.
+- [x] Decide (small design call) whether switching which talk is the "active context" mid-session,
       inside an already-open conversation, is in scope now or a follow-up — today there's no
       in-overlay control for that at all; at minimum, opening from a *different* history row while
       already in a conversation with the same peer should re-scope to the newly picked talk.
-- [ ] Test: `stage2` — clicking a *mismatched* or *pending* exchanged talk in the history list
+      **Decided 2026-07-30:** already correct by construction, no extra work needed — every history
+      row click goes through the User layout first (back-then-click-another-row), and
+      `showConversationDetail` unconditionally overwrites `currentThreadTalkId` on every call, so
+      re-scoping already happens naturally. An in-overlay switcher (without leaving to the User
+      layout first) is a follow-up, not required by this item's wording.
+- [x] Test: `stage2` — clicking a *mismatched* or *pending* exchanged talk in the history list
       (never previously messaged) opens a DM with that talk as context — no message required to
       exist first.
-- [ ] Test: `stage2` — clicking a *matched-with-existing-messages* talk still opens the same
+      **Done 2026-07-30:** `76-peer-history-clickable.spec.ts` ("a mismatch talk with no
+      conversation yet…"). Confirmed it fails without the fix, passes 3/3 with it.
+- [x] Test: `stage2` — clicking a *matched-with-existing-messages* talk still opens the same
       thread it already would via `#peer-conversations-section` today (no regression).
-- [ ] Test: `stage3` — two different exchanged talks with the same peer, picked one after another
+      **Done 2026-07-30:** same spec's second test, first half (clicking the already-matched
+      talk's history row).
+- [x] Test: `stage3` — two different exchanged talks with the same peer, picked one after another
       from the history list, each open/create their own distinct thread context rather than
       collapsing into one.
+      **Done 2026-07-30 (as stage2, not stage3 — two-user setup was sufficient, a third user
+      wasn't needed to exercise "two talks, one peer"):** same spec's second test, second half —
+      confirmed both talks share the same conversationId (one-per-pair) but re-scope
+      `currentThreadTalkId` distinctly each time.
 
 ---
 

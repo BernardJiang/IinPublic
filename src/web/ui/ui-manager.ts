@@ -7690,12 +7690,17 @@ export class UIManager extends EventEmitter {
     void this.openDirectConversationWithPeer(userId, stageName);
   }
 
-  private async openDirectConversationWithPeer(peerId: string, peerName: string): Promise<void> {
+  /**
+   * TODO §O: an exchanged-talk history row (mismatch/pending/never-messaged) has no conversation
+   * record yet — talkId lets the caller open that talk as the DM's active thread context from
+   * the very first message, instead of always starting talk-independent from scratch.
+   */
+  private async openDirectConversationWithPeer(peerId: string, peerName: string, talkId?: string): Promise<void> {
     try {
       const conversationId = await new Promise<string>((resolve, reject) => {
         this.emit('openDirectConversation', { peerId, peerName, resolve, reject });
       });
-      if (conversationId) this.showConversationDetail(conversationId);
+      if (conversationId) this.showConversationDetail(conversationId, talkId);
     } catch {
       // The ⟨User⟩ layout stays on screen when the DM channel cannot be opened.
     }
@@ -7746,8 +7751,8 @@ export class UIManager extends EventEmitter {
           this.emit('sendDirectMessage', { peerId, peerName, text, resolve, reject });
         });
       },
-      openDirectConversation: (peerId: string, peerName: string) => {
-        void this.openDirectConversationWithPeer(peerId, peerName);
+      openDirectConversation: (peerId: string, peerName: string, talkId?: string) => {
+        void this.openDirectConversationWithPeer(peerId, peerName, talkId);
       },
       renderPeerContext: (container: HTMLElement, peerId: string, peerName: string) => {
         this.renderPeerContextSection(container, peerId, peerName);
