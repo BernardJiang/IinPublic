@@ -2971,7 +2971,7 @@ export class UIManager extends EventEmitter {
       escapeHtml: escapeHtml,
       getFlatAnswerHistory,
       copyAnsweredTalkToTalks: this.copyAnsweredTalkToTalks.bind(this),
-      showTalkDetail: this.showTalkDetail.bind(this),
+      showTalkDetail: this.showTalkDetailAsAnswer.bind(this),
       showPreferencesDialog: this.showPreferencesDialog.bind(this),
       getTalkContentKey: UIManager.getTalkContentKey,
       text: this.t.bind(this),
@@ -4618,7 +4618,17 @@ export class UIManager extends EventEmitter {
     this.completeTalk(talk, completed, checked ? 'match' : 'mismatch');
   }
 
-  private showTalkDetail(talkId: string, identityKeyFallback?: string): void {
+  /**
+   * Me-tab Q&A traceback (TODO §P) always means "show my answer," never "edit the talk" — even
+   * for a self-answered own-created talk, which otherwise keeps role:'created' and would route
+   * to the editor. Route through showTalkDetail's preferAnswerView option instead of duplicating
+   * its role/fullTalk lookup here.
+   */
+  private showTalkDetailAsAnswer(talkId: string): void {
+    this.showTalkDetail(talkId, undefined, { preferAnswerView: true });
+  }
+
+  private showTalkDetail(talkId: string, identityKeyFallback?: string, options?: { preferAnswerView?: boolean }): void {
     const raw = (talkId || '').trim();
     const tid = isValidTalkId(raw) ? raw : '';
     if (!tid && identityKeyFallback) {
@@ -4640,10 +4650,11 @@ export class UIManager extends EventEmitter {
     const talk = myTalks[tid];
 
     if (talk) {
-      if (talk.role === 'created') {
+      const preferAnswerView = options?.preferAnswerView && !!talk.fullTalk;
+      if (talk.role === 'created' && !preferAnswerView) {
         // Open editor for editing
         this.emit('loadTalkForEdit', { talkId: tid });
-      } else if ((talk.role === 'answered' || talk.role === 'copied') && talk.fullTalk) {
+      } else if ((talk.role === 'answered' || talk.role === 'copied' || preferAnswerView) && talk.fullTalk) {
         // Open response view without auto-answering (avoid instant "Match!" toast when just viewing)
         this.showTalkResponseDialog(talk.fullTalk, { skipAutoAnswer: true });
       } else {

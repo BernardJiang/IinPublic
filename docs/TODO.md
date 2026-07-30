@@ -595,9 +595,9 @@ other one:
     what's wanted. The only privacy-safe framing is "people **I** have separately exchanged this
     same content with" (a join over my own local records I already have a relationship-based right
     to see), not "everyone in the mesh with this identityKey."
-- **Chatroom → Person is assumed already-working baseline, not yet verified this session.**
-  Clicking a member row in a chatroom's roster to reach that person's contact/DM was not
-  re-confirmed as part of this audit — flag as a quick verification pass, not an assumed gap.
+- **Chatroom → Person verified working 2026-07-30** (build-order item 3): `.chatroom-member-item`
+  click → `openUserConversationFirst`, confirmed passing via `00e-chatroom-peer-detail.spec.ts` and
+  `68-conversation-first-entry.spec.ts`.
 - **Settings is not fully isolated today, but the coupling found is a read, not a graph edge.**
   The Talks tab's IN-list render reads `talkFilters`/`allowedTalkTypes` etc.
   (Settings-owned, `ui-manager.ts:2322-2326`) to decide what's visible — Settings values
@@ -671,10 +671,23 @@ this is a sequencing index, not new content. Land top-to-bottom.
    `00x-tab-sweep-smoke`, `00y-chinese-ui-traversal` needed no fix — text-content assertions don't
    require visibility, `baa-techsupport-single-user-tabs`). Full light E2E shard (177 passed, 5
    skipped, 0 failed), `tsc`/`lint`/Jest (1048 tests) all clean.
-3. **Trivial.** Verify Chatroom → Person (clicking a chatroom roster row reaches that person's
+3. [x] **Trivial.** Verify Chatroom → Person (clicking a chatroom roster row reaches that person's
    contact/DM) actually works today — a check, not new work, unless it turns out broken.
-4. **Trivial.** P's `'created'`-vs-`'answered'` destination asymmetry for self-answered own talks —
+   **Verified 2026-07-30, no fix needed.** `.chatroom-member-item` click →
+   `chatroomsDeps().openPeerDetail` → `openUserConversationFirst(userId, stageName)`
+   (`ui-manager.ts:1949`, N2a rule) — same function `showContactDetail` uses. Confirmed passing
+   today: `00e-chatroom-peer-detail.spec.ts` ("Clicking a member opens the peer detail overlay")
+   and `68-conversation-first-entry.spec.ts` ("member click lands on ⟨Conv⟩") — 7/7 passed.
+4. [x] **Trivial.** P's `'created'`-vs-`'answered'` destination asymmetry for self-answered own talks —
    decide and document (or a one-line routing tweak if the decision is "fix it now").
+   **Done 2026-07-30 — fixed it now.** Decision: Me-tab Q&A traceback always means "show my
+   answer," regardless of `myTalks[tid].role`. Added `showTalkDetail`'s `preferAnswerView` option
+   (routes to the response dialog when `fullTalk` is present, even for `role:'created'`) and a
+   `showTalkDetailAsAnswer` wrapper bound only to `displayAnswersList`'s deps — the Talks-tab OUT
+   row and "My Talks" dialog call sites are untouched and still open the editor for `'created'`
+   talks, since editing intent is correct there. New regression test in `05-talks-edit.spec.ts`
+   ("Self-answered own talk: Me-tab entry opens the response view, not the editor") — confirmed it
+   fails without the fix, passes with it. `tsc`/`lint`/Jest (1048 tests) all clean.
 5. **Easy.** N1 — make the DM-arrival toast clickable, routed through the new dispatcher. Settle
    the shared "which overlay does a DM click open" destination decision here, since N3 and O both
    reuse it.
@@ -1217,17 +1230,24 @@ inconsistency in destination.
       to `showTalkDetail`/`showTalkResponseDialog` so opening a multi-question entry can
       scroll/highlight the specific question that produced the clicked answer, instead of only
       landing on the talk as a whole.
-- [ ] Resolve or explicitly document the `'created'`-vs-`'answered'` destination asymmetry for
+- [x] Resolve or explicitly document the `'created'`-vs-`'answered'` destination asymmetry for
       self-answered own talks — decide whether self-test answers should route to the same
       read-only response view as any other answer, or whether routing to the editor is intended
       and just needs a one-line note so it isn't mistaken for a bug later.
+      **Done 2026-07-30.** Decided self-test answers route to the read-only response view, same as
+      any other answer — Me-tab clicks always mean "show my answer." `showTalkDetail` gained a
+      `preferAnswerView` option; `showTalkDetailAsAnswer` (bound only to `displayAnswersList`)
+      passes it, leaving the Talks-tab OUT-row and "My Talks" dialog editor-opening behavior
+      untouched for `role:'created'` talks reached from those two contexts.
 - [ ] Test: `stage1` — a talk purged from local storage: clicking its Me-tab entry surfaces a real
       retry affordance (not just a dead toast), and a successful retry opens the talk normally.
 - [ ] Test: `stage1`/`stage3` — a multi-question flow/route entry: clicking an individual nested
       question's answer opens the talk scrolled/highlighted to that specific question, not just
       the talk's first screen.
-- [ ] Test: `stage1` — a self-answered own-created talk's Me-tab entry: confirm which destination
+- [x] Test: `stage1` — a self-answered own-created talk's Me-tab entry: confirm which destination
       it opens (editor or response view) matches the resolved design decision above.
+      **Done 2026-07-30:** `05-talks-edit.spec.ts` — "Self-answered own talk: Me-tab entry opens
+      the response view, not the editor." Confirmed it fails without the fix, passes with it.
 
 ---
 

@@ -7,6 +7,7 @@ import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '..
 import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { completeTalkInAppByAnswerIds } from '../../helpers/talk-demo-ui';
 
 test.describe('Talks: create and edit', () => {
   let browser: Browser;
@@ -90,5 +91,50 @@ test.describe('Talks: create and edit', () => {
     await editedTalkItem.click();
     await page.waitForSelector('#talk-editor-modal');
     await expect(page.locator('#talk-language')).toHaveValue('es');
+  });
+
+  // TODO §P/§Q build-order item 4: a self-answered own-created talk kept role:'created' in myTalks,
+  // so its Me-tab entry incorrectly routed to the talk editor instead of the read-only response
+  // view any other answered talk gets. showTalkDetailAsAnswer/preferAnswerView fixes this.
+  test('Self-answered own talk: Me-tab entry opens the response view, not the editor', async () => {
+    await bootstrapUser('SelfAnswerUser');
+
+    await page.click('#create-talk-btn');
+    await page.waitForSelector('#talk-editor-form');
+    await page.fill('#talk-title', 'Self Answer Test');
+    await page.selectOption('#talk-type', 'flow');
+    const q = page.locator('.question-item').first();
+    await q.locator('.question-text').fill('Do you like tea?');
+    await q.locator('.answer-item').nth(0).locator('.answer-text').fill('Yes');
+    await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
+    await q.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
+    await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
+    await page.click('#talk-editor-form button[type="submit"]');
+    await afterSync();
+
+    await page.click('.nav-btn[data-view="talks"]');
+    await afterSync();
+    const talkItem = page.locator('.talk-list-item').filter({ hasText: 'Self Answer Test' }).first();
+    await talkItem.waitFor({ state: 'visible', timeout: 15000 });
+    const talkId = await talkItem.getAttribute('data-talk-id');
+    expect(talkId).toBeTruthy();
+
+    const talkData = await page.evaluate(async (id) => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      return app?.talkService?.getTalkWithRetry?.(id, { attempts: 30, gapMs: 250 }) ?? null;
+    }, talkId);
+    expect(talkData).toBeTruthy();
+    const matchAnswerId = String(talkData.questions?.[0]?.answers?.[0]?.id || '');
+    expect(matchAnswerId).toBeTruthy();
+
+    await completeTalkInAppByAnswerIds(page, talkId!, talkData, [matchAnswerId], 'match');
+
+    await page.click('.nav-btn[data-view="me"]');
+    await afterSync();
+    const answerItem = page.locator('.answer-talk-item').filter({ hasText: 'Self Answer Test' }).first();
+    await expect(answerItem).toBeVisible({ timeout: 15000 });
+    await answerItem.click();
+    await expect(page.locator('#talk-response-modal')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('#talk-editor-modal')).toHaveCount(0);
   });
 });
