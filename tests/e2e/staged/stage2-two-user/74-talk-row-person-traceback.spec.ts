@@ -10,6 +10,7 @@ import { headless, afterAction, afterNav, afterSync } from '../../helpers/timing
 import { setupFastMatchedDm, teardownFastDmPair, FastDmPair } from '../../helpers/fast-dm-setup';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
+import { completeTalkInAppByAnswerIds } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 async function createSimpleFlowTalk(page: Page, title: string): Promise<void> {
@@ -142,6 +143,84 @@ test.describe('Talk row -> person traceback (N3, single partner)', () => {
       await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
       await tom.context.close().catch(() => {});
       await jerry.context.close().catch(() => {});
+    }
+  });
+
+  test('OUT row: two matched responders opens the "choose who to DM" picker (item 8)', async () => {
+    const browserC = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--window-position=1280,0', '--window-size=640,1100'] });
+    const tom = await bootstrapUser(browserA, 'TracePickerTom', 'TracePickerTom');
+    const jerry = await bootstrapUser(browserB, 'TracePickerJerry', 'TracePickerJerry');
+    const bob = await bootstrapUser(browserC, 'TracePickerBob', 'TracePickerBob');
+    const pageTom = tom.page;
+    const pageJerry = jerry.page;
+    const pageBob = bob.page;
+    try {
+      await createSimpleFlowTalk(pageTom, 'Multi-partner picker talk');
+      const delivery = await pageTom.evaluate(async () => {
+        const app = (window as any).__iinpublic_app?.getApp?.();
+        return app.deliverPendingBroadcastTalksForE2e(2);
+      });
+      expect(delivery).toMatchObject({ talksSent: 1, receivers: 2 });
+
+      const talkId = await pageTom.evaluate(() => {
+        const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        return Object.keys(talks)[0] || '';
+      });
+      expect(talkId).toBeTruthy();
+
+      for (const responder of [pageJerry, pageBob]) {
+        const talkData = await responder.evaluate(async (id: string) => {
+          const app = (window as any).__iinpublic_app?.getApp?.();
+          return app?.talkService?.getTalkWithRetry?.(id, { attempts: 30, gapMs: 250 });
+        }, talkId);
+        const matchAnswerId = String(talkData.questions?.[0]?.answers?.[0]?.id || '');
+        expect(matchAnswerId).toBeTruthy();
+        await completeTalkInAppByAnswerIds(responder, talkId, talkData, [matchAnswerId], 'match');
+      }
+
+      const jerryId = await pageJerry.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''));
+      const bobId = await pageBob.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''));
+
+      await pageTom.click('.nav-btn[data-view="talks"]');
+      await waitForTabActive(pageTom, 'talks');
+      await afterSync();
+
+      const matchedLine = pageTom.locator('.talk-matched-people').first();
+      await expect
+        .poll(() => matchedLine.getAttribute('data-matched-people'), { timeout: 15_000 })
+        .toContain(jerryId);
+      await expect
+        .poll(() => matchedLine.getAttribute('data-matched-people'), { timeout: 15_000 })
+        .toContain(bobId);
+
+      await matchedLine.click();
+      await afterAction();
+
+      const picker = pageTom.locator('#talk-dm-picker-modal');
+      await expect(picker).toBeVisible({ timeout: 10_000 });
+      await expect(picker.locator('.talk-dm-picker-row')).toHaveCount(2);
+
+      await picker.locator(`.talk-dm-picker-row[data-user-id="${jerryId}"]`).click();
+      await afterAction();
+
+      await expect(pageTom.locator('#talk-dm-picker-modal')).toHaveCount(0);
+      await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 10_000 });
+      const openedConversationId = await pageTom.evaluate(
+        () => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.currentConversationId || '',
+      );
+      const openedOtherUserId = await pageTom.evaluate((cid: string) => {
+        const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+        return conversations[cid]?.otherUserId || '';
+      }, openedConversationId);
+      expect(openedOtherUserId).toBe(jerryId);
+    } finally {
+      await pageTom.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
+      await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
+      await pageBob.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
+      await tom.context.close().catch(() => {});
+      await jerry.context.close().catch(() => {});
+      await bob.context.close().catch(() => {});
+      await browserC.close().catch(() => {});
     }
   });
 });

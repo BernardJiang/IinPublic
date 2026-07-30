@@ -722,8 +722,16 @@ this is a sequencing index, not new content. Land top-to-bottom.
    + `data-support-muted` attribute instead; added a `.contact-item-meta` count(0) assertion for
    the line-count requirement. Regression: 12/12 passed across all 5 affected specs. Confirmed the
    new assertions fail without the fix. `tsc`/`lint`/Jest all clean.
-8. **Medium.** N3, multi-partner case — the "choose who to DM" picker, modeled on the existing
+8. [x] **Medium.** N3, multi-partner case — the "choose who to DM" picker, modeled on the existing
    `#peer-send-picker-modal` pattern.
+   **Done 2026-07-30.** New `showChooseWhoToDmPicker(people)` in `ui-manager.ts` (modal-overlay +
+   one row per person, no checkboxes/confirm needed since a row click IS the pick), wired into the
+   existing `.talk-matched-people`/`.talk-sender-people` delegate from item 6: exactly one person
+   navigates directly (unchanged), more than one opens this picker; picking a row navigates via
+   the same `navigateToGraphNode` destination. New test in `74-talk-row-person-traceback.spec.ts`
+   ("OUT row: two matched responders opens…") using a real 3-user broadcast+match setup (Tom
+   creates/broadcasts, Jerry and Bob both match). Confirmed it fails without the fix and passes
+   3/3 with it. `tsc`/`lint`/Jest all clean.
 9. **Medium.** P — the actual dead-end fix: a real retry when `demandFullTalk` fails, instead of
    the current one-shot error toast whose copy already claims a retry it doesn't perform.
 10. **Medium.** M6 — contact headshots: new `Map`-based prefetch cache modeled on the existing
@@ -1146,16 +1154,21 @@ clicking one does nothing beyond what clicking anywhere else on the row does.
         destination.
         **Done 2026-07-30.** `data-matched-people`/`data-sender-people` (JSON `{id,name}[]`) +
         one delegated handler; single-person case navigates via `navigateToGraphNode`.
-  - [ ] Multiple exchange partners: click opens a "choose who to DM" list, modeled on the existing
+  - [x] Multiple exchange partners: click opens a "choose who to DM" list, modeled on the existing
         `#peer-send-picker-modal` (`user-detail-view.ts:952-1000` — list rows + modal skeleton +
         confirm/cancel wiring), adapted from "pick which talks to send" to "pick which person to
         DM." Picking one navigates via the same N1 destination.
+        **Done 2026-07-30.** No confirm/cancel step needed here (unlike the send-picker's
+        multi-select) — since picking is single-choice, a row click both picks and closes.
 - [x] Test: `stage2` — an OUT talk matched by exactly one responder: clicking their name in the
       Talks-tab row opens the DM with them directly.
       **Done 2026-07-30:** `74-talk-row-person-traceback.spec.ts` ("OUT row: clicking the sole
       matched name…"). Confirmed it fails without the fix, passes 3/3 with it.
-- [ ] Test: `stage3` — an OUT talk matched by two or more responders: clicking the matched-names
+- [x] Test: `stage3` — an OUT talk matched by two or more responders: clicking the matched-names
       area opens a picker listing all of them; choosing one opens that specific DM.
+      **Done 2026-07-30:** `74-talk-row-person-traceback.spec.ts` ("OUT row: two matched
+      responders opens…"), 3-user real broadcast+match setup. Confirmed it fails without the fix,
+      passes 3/3 with it.
 - [x] Test: `stage2` — an IN talk row's sender name: clicking it opens the DM with the sender,
       without also opening the talk editor/detail (click doesn't double-fire).
       **Done 2026-07-30:** same spec, "IN row: clicking the sender name…" — required a real

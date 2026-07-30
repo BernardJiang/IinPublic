@@ -1929,6 +1929,52 @@ export class UIManager extends EventEmitter {
     }
   }
 
+  /**
+   * TODO §N3 (build-order item 8): a talk row's matched-names/sender-name click, when there's
+   * more than one exchange partner, opens this picker instead of navigating directly — modeled
+   * on the existing `#peer-send-picker-modal` skeleton (`user-detail-view.ts:952-1000`), adapted
+   * from "pick which talks to send" to "pick which person to DM." Picking a row navigates via
+   * the same `navigateToGraphNode` 'person' destination N1/item 6 already settled on.
+   */
+  private showChooseWhoToDmPicker(people: Array<{ id: string; name: string }>): void {
+    document.getElementById('talk-dm-picker-modal')?.remove();
+    const modal = document.createElement('div');
+    modal.id = 'talk-dm-picker-modal';
+    modal.className = 'modal-overlay';
+    const rows = people
+      .map(
+        (person) => `
+      <div class="talk-dm-picker-row" data-user-id="${escapeHtml(person.id)}" data-user-name="${escapeHtml(person.name)}" style="display:flex;align-items:center;gap:8px;padding:10px;background:var(--bg-muted);border-radius:8px;margin-bottom:6px;cursor:pointer;">
+        <span style="font-weight:600;">${escapeHtml(person.name)}</span>
+      </div>
+    `,
+      )
+      .join('');
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width:380px;">
+        <div class="modal-header">
+          <h2 class="modal-title">${this.t('talksChooseWhoToDm')}</h2>
+          <button class="close-button" id="close-talk-dm-picker">&times;</button>
+        </div>
+        <div style="padding:16px;">${rows}</div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    const close = () => modal.remove();
+    document.getElementById('close-talk-dm-picker')?.addEventListener('click', close);
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) close();
+    });
+    modal.querySelectorAll<HTMLElement>('.talk-dm-picker-row').forEach((row) => {
+      row.addEventListener('click', () => {
+        const id = row.dataset.userId || '';
+        const name = row.dataset.userName || '';
+        close();
+        if (id) this.navigateToGraphNode({ type: 'person', id, name });
+      });
+    });
+  }
+
   private chatroomsDeps(): Parameters<typeof renderChatrooms>[0] {
     return {
       currentChatroom: this.currentChatroom,
@@ -2708,7 +2754,7 @@ export class UIManager extends EventEmitter {
 
       // TODO §N3: trace back from a talk row to whom it was exchanged with, then DM them.
       // Single exchange partner navigates straight through the dispatcher; multiple partners
-      // is a "choose who to DM" picker (build-order item 8, not yet wired here).
+      // opens the "choose who to DM" picker.
       talksList.querySelectorAll<HTMLElement>('.talk-matched-people, .talk-sender-people').forEach((el) => {
         el.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -2720,6 +2766,8 @@ export class UIManager extends EventEmitter {
           }
           if (people.length === 1) {
             this.navigateToGraphNode({ type: 'person', id: people[0].id, name: people[0].name });
+          } else if (people.length > 1) {
+            this.showChooseWhoToDmPicker(people);
           }
         });
       });
