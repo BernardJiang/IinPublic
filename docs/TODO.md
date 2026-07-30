@@ -821,11 +821,12 @@ this is a sequencing index, not new content. Land top-to-bottom.
 16. [x] **Medium–hard.** M4 — Settings tab cleanup: shared section-wrapper extraction, splitting
     content-filters into its sub-concerns, and the grouping/accordion design decision.
     **Done 2026-07-30.** See M4 section above for full detail.
-17. **Hardest — do last.** This section's own Talk → "people I've separately exchanged this
+17. [x] **Hardest — do last.** This section's own Talk → "people I've separately exchanged this
     content with" edge. Genuinely new data-layer design (no existing pattern to extend), and
     privacy-sensitive (see the audit above) — deliberately sequenced after everything else so the
     dispatcher, the easier edges, and the destination conventions they settle are all already in
     place before tackling the one item with no precedent to lean on.
+    **Done 2026-07-30.**
 
 **Work**
 
@@ -837,22 +838,77 @@ this is a sequencing index, not new content. Land top-to-bottom.
 - [x] Build the missing Talk → Me-tab Q&A reverse edge (from a talk, show my answer to it, if any)
       — same `talkId` join P already established, just the other direction.
       **Done 2026-07-30 — build-order item 12.**
-- [ ] Design (privacy-first, per the framing above) and build Talk → "people I've separately
+- [x] Design (privacy-first, per the framing above) and build Talk → "people I've separately
   exchanged this same content with" — scoped to the current user's own local records, never a
   cross-user/mesh-wide query.
+      **Done 2026-07-30 — build-order item 17.** See item 17's own writeup below for full detail.
 - [x] Verify Chatroom → Person (clicking a chatroom roster row reaches that person's contact/DM)
       actually works today; if it doesn't, it's the same shape of gap as the others in this
       section and should get its own click-to-navigate treatment through the new dispatcher.
       **Done 2026-07-30 — build-order item 3, verified already working, no fix needed.**
-- [ ] Document the Settings-isolation principle precisely (read-dependency from other views is
+- [x] Document the Settings-isolation principle precisely (read-dependency from other views is
       fine; a click path starting in Settings and landing on a graph node is not) so M4's Settings
       cleanup doesn't accidentally wire Settings into the navigable graph.
-- [ ] Test: `stage2` — from a chatroom, pick a person present in it, then pick a talk the two
+      **Already done** — see "Settings is not fully isolated today..." in the Audit section above
+      (this doc, pre-dating M4). M4's implementation (build-order item 16) confirmed compliant on
+      review: `renderSettingsSection()`'s refactor only changes wrapping markup/collapse behavior,
+      adds no new click handler that navigates to a chatroom/person/talk/Q&A node.
+- [x] Test: `stage2` — from a chatroom, pick a person present in it, then pick a talk the two
       exchanged, then from that talk reach the Me-tab Q&A it produced (if any) — one continuous
       traversal through all four node types without a dead end.
-- [ ] Test: `stage3` — a talk I exchanged separately with two different people: from that talk,
+      **Done 2026-07-30.** New `81-graph-traversal-no-dead-end.spec.ts` — walks Chatroom
+      (member-row click) → Person (conversation + peer-detail) → Talk (peer-history row reopens
+      the conversation scoped to that talk) → Q&A (the talk's own response view's "View in My
+      Answers" link jumps to the Me-tab entry), all in one continuous session, reusing build-order
+      items 3/11/12's already-shipped edges. No new product code needed — this test exists purely
+      to prove the chain has no dead end end-to-end, per this bullet's own framing.
+- [x] Test: `stage3` — a talk I exchanged separately with two different people: from that talk,
       both people are reachable; a third person who has the same talk content only via a
       chatroom broadcast I wasn't part of is correctly *not* surfaced (privacy boundary holds).
+      **Done 2026-07-30.** New `80-talk-co-exchangers.spec.ts` (3 real browsers — written in
+      `stage2-two-user/` rather than the `stage3-three-user/` pipeline directory, since 3 ordinary
+      `bootstrapUser` sessions already exercise this without needing the sequential stage-pipeline
+      machinery). See item 17's writeup below for why this needed *explicit-id* talks to actually
+      exercise the new code path, and how the "third person" exclusion is proven.
+
+**Item 17 implementation notes — a key finding revised the original test plan:**
+
+- **Investigation finding, discovered while building this item's own test:** for talks created
+  through the real editor, `talk.id` is *itself* a content hash (`WebTalkService.createTalk`:
+  `talk.id = talkData.id || await computeTalkCIDv1(talk)`) built from the **exact same payload**
+  (`buildIdentityPayloadFromTalk` — type + language + question/answer text, sorted) as the ledger's
+  `identityKey` (`buildTalkIdentityKey`, same payload, different hash encoding). Two organically-
+  created talks with identical Q&A content therefore don't just share an identityKey — they
+  collapse to the literal same `talk.id`, and the *existing* matched-names computation (filtered
+  by `conversation.talkId`) already aggregates every exchange partner across that content
+  automatically. Confirmed empirically: two same-content, different-title talks from two different
+  authors produced byte-identical CIDv1 ids. This means identityKey and talk.id only genuinely
+  diverge when a talk carries an **explicit** id rather than a computed one — which is exactly how
+  this repo's own test fixtures (`talks-matching/lib/four-types-talks.ts`,
+  `techSupportFourTalks`) and (by the same code path) any real explicit-id talk already work. The
+  ledger-join design below targets precisely that divergence case, which is real but narrower than
+  the original "any two separately-broadcast copies" framing assumed.
+- `getCoExchangedPeople(identityKey, excludePeerIds)` (`ui-manager.ts`, near
+  `showTalkItemDetailsPopup`) reads `web-talk-ledger-store.ts`'s local `talkLedger.exchanged` map —
+  **this device's own record only**, combining both ledger roles for the given identityKey:
+  `role:'author'` entries (responders who answered a talk *I created* with this content, across
+  any talkId) and `role:'responder'` entries (authors whose talk *I answered* with this same
+  content, excluding `outcome:'no-reply'` seed rows — only real exchanges). `excludePeerIds` drops
+  whoever the row's own N3 matched-names/sender-name line already shows, so this surfaces only
+  *additional* co-exchangers.
+- Wired into both OUT-row and IN-row `.talk-item-details` popups (M2's shared popup mechanism) as
+  `.talk-item-co-exchanged` (reuses the `.talk-matched-people` class for click delegation — single
+  person navigates directly, multiple opens item 8's picker — no new click wiring needed). New
+  translation key `talksAlsoExchangedWith` (EN+ZH).
+- Privacy scoping is structural, not a runtime check: `getCoExchangedPeople` only ever reads local
+  `localStorage`, so it is architecturally incapable of a mesh-wide "who else has this identityKey"
+  leak — there is no code path by which a peer Tom never personally exchanged with could appear.
+- Test `80-talk-co-exchangers.spec.ts` had to move to `createTalkFromCompanyPage` with explicit
+  distinct ids (`coex-x-*` / `coex-y-*`) after the investigation above — an organic two-talk
+  same-content setup collapsed to one row (the pre-existing behavior working correctly, not a
+  test bug) and would have tested nothing new. Confirmed it fails without the fix (popup's
+  `.talk-item-co-exchanged` absent) and passes with it. Full stage2 regression swept.
+  `tsc`/`lint`/Jest (1048/1048, one confirmed-flaky unrelated retry) all clean.
 
 ---
 

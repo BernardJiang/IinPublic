@@ -144,6 +144,7 @@ import { showLinkedDevicesDialog, type LinkedDeviceRow } from './linked-devices-
 import { decodePairingCode, isPairingExpired } from '../../shared/identity-linking';
 import { showEraseDeviceDialog } from './erase-device-dialog';
 import { eraseDevice } from '../services/device-wipe';
+import { getTalkLedgerDoc } from '../services/web-talk-ledger-store';
 
 function resolveExpiresAtMs(value: unknown): number {
   if (typeof value === 'number') return value;
@@ -2110,6 +2111,35 @@ export class UIManager extends EventEmitter {
     this.showDetailsPopupFor(details, row);
   }
 
+  /**
+   * TODO §Q "Talk -> people I've separately exchanged this with" edge (build-order item 17).
+   * Privacy-scoped by construction: reads only the local talkLedger (`web-talk-ledger-store.ts`),
+   * this device's own record of talks *I* personally authored or answered — never a mesh-wide
+   * identityKey query. Combines both ledger roles for the given identityKey:
+   *   - role:'author' entries — responders who answered a talk *I created* with this content
+   *     (possibly via a different talkId than the one currently in view, e.g. a separate
+   *     broadcast round or a re-created copy).
+   *   - role:'responder' entries — authors whose talk *I answered* with this same content
+   *     (excludes version:0 "received but not yet answered" seed rows — only real exchanges).
+   * `excludePeerIds` drops people already shown by the row's own N3 matched-names/sender-name
+   * line, so this surfaces only *additional* co-exchangers, not a duplicate listing.
+   */
+  private getCoExchangedPeople(
+    identityKey: string,
+    excludePeerIds: Set<string>,
+  ): Array<{ id: string; name: string }> {
+    if (!identityKey) return [];
+    const doc = getTalkLedgerDoc();
+    const resolved = new Map<string, string>();
+    for (const entry of Object.values(doc.exchanged)) {
+      if (entry.identityKey !== identityKey) continue;
+      if (entry.role === 'responder' && entry.outcome === 'no-reply') continue;
+      if (excludePeerIds.has(entry.peerId) || resolved.has(entry.peerId)) continue;
+      resolved.set(entry.peerId, this.getPeerName(entry.peerId, entry.peerName));
+    }
+    return Array.from(resolved, ([id, name]) => ({ id, name }));
+  }
+
   private chatroomsDeps(): Parameters<typeof renderChatrooms>[0] {
     return {
       currentChatroom: this.currentChatroom,
@@ -2684,6 +2714,20 @@ export class UIManager extends EventEmitter {
                     matchedPeople.length > 0
                       ? `<div class="talk-item-matched talk-matched-people" data-matched-people="${escapeHtml(JSON.stringify(matchedPeople))}" style="font-size: 0.85em; color: var(--success-text); margin-top: 4px; cursor: pointer;">${this.tf('talksMatchedWith', { names: escapeHtml(matchedNames.join(', ')) })}</div>`
                       : '';
+                  // TODO §Q build-order item 17: "people I've separately exchanged this same
+                  // content with" — a different talkId sharing the same identityKey (e.g. a
+                  // separate broadcast round), scoped to this device's own talkLedger only.
+                  // Excludes people already shown by matchedLine above (this row's own partners).
+                  const coExchangedPeople = talk.fullTalk
+                    ? this.getCoExchangedPeople(
+                        computeTalkIdFromTalkData(talk.fullTalk),
+                        new Set(matchedPeople.map((p) => p.id)),
+                      )
+                    : [];
+                  const coExchangedLine =
+                    coExchangedPeople.length > 0
+                      ? `<div class="talk-item-co-exchanged talk-matched-people" data-matched-people="${escapeHtml(JSON.stringify(coExchangedPeople))}" style="font-size: 0.85em; color: var(--accent-text); margin-top: 4px; cursor: pointer;">${this.tf('talksAlsoExchangedWith', { names: escapeHtml(coExchangedPeople.map((p) => p.name).join(', ')) })}</div>`
+                      : '';
                   const disabled = !!talk.disabled;
                   const expText = this.formatTalkExpiration(talk.expiresAt);
                   const locText = this.formatTalkLocation(talk.locationRadiusMiles);
@@ -2749,6 +2793,7 @@ export class UIManager extends EventEmitter {
               ${statsLine}
             </div>
             ${rankLine}
+            ${coExchangedLine}
           </div>
         </div>
       `;
@@ -2781,6 +2826,16 @@ export class UIManager extends EventEmitter {
                 const senderInitial = primarySenderName.trim().charAt(0).toUpperCase() || '?';
                 const talkId = this.pickIncomingRowTalkId(cluster);
                 const identityKey = String(cluster?.identityKey || '');
+                // TODO §Q build-order item 17: other people I've separately exchanged this same
+                // content with (e.g. a different sender who sent me the identical talk), scoped
+                // to this device's own talkLedger only. Excludes this cluster's own sender(s).
+                const coExchangedPeople = identityKey
+                  ? this.getCoExchangedPeople(identityKey, new Set(senderPeople.map((p) => p.id)))
+                  : [];
+                const coExchangedLine =
+                  coExchangedPeople.length > 0
+                    ? `<div class="talk-item-co-exchanged talk-matched-people" data-matched-people="${escapeHtml(JSON.stringify(coExchangedPeople))}" style="font-size: 0.85em; color: var(--accent-text); margin-top: 4px; cursor: pointer;">${this.tf('talksAlsoExchangedWith', { names: escapeHtml(coExchangedPeople.map((p) => p.name).join(', ')) })}</div>`
+                    : '';
                 const isAnswered = !!cluster?.isAnswered;
                 const titleStyle = isAnswered
                   ? 'font-weight: 500; color: var(--text-muted);'
@@ -2866,6 +2921,7 @@ export class UIManager extends EventEmitter {
             <div class="talk-item-meta" style="${metaStyle}">
               <span class="talk-item-time">${this.formatTalkRelativeTime(new Date(cluster?.updatedAt || Date.now()))}</span>
             </div>
+            ${coExchangedLine}
           </div>
         </div>
       `;
