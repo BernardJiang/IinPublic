@@ -648,11 +648,15 @@ an existing convention; there simply isn't one yet.
 Every item below already has its full detail in M/N/O/P (or in this section's own "Work" list) —
 this is a sequencing index, not new content. Land top-to-bottom.
 
-1. **Foundational, kept deliberately small.** Land the `navigateToGraphNode(target)` skeleton — the
+1. [x] **Foundational, kept deliberately small.** Land the `navigateToGraphNode(target)` skeleton — the
    dispatcher + discriminated-union type, with just 2-3 existing functions wired through as its
    first targets (`showConversationDetail`, `showChatroomDetail`, `showContactDetail` — already
    take a single target-id-ish param, no generalization needed). No new click handlers yet; this
    step only creates the shape everything below plugs into.
+   **Done 2026-07-30:** `GraphNodeTarget` union (`chatroom` / `conversation` / `person`) in new
+   `src/web/ui/graph-navigation.ts`; `UIManager.navigateToGraphNode(target)` switches on it and
+   delegates to the existing `showChatroomDetail`/`showConversationDetail`/`showContactDetail`.
+   No new call sites yet, per scope — `tsc`/`lint`/Jest (1048 tests) all clean.
 2. **Trivial.** M1 — disable the "Replies To My Talks" panel. Already confirmed a single
    contiguous, self-contained edit.
 3. **Trivial.** Verify Chatroom → Person (clicking a chatroom roster row reaches that person's

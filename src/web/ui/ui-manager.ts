@@ -38,6 +38,7 @@ import { verifyFaqBundle } from '../../shared/techsupport-faq-bundle';
 import { readCachedFaqBundle } from '../services/techsupport-faq-cache';
 import type { SupportInboxEntry } from '../../shared/techsupport-faq';
 import { renderSupportInboxSection } from './support-inbox-view';
+import type { GraphNodeTarget } from './graph-navigation';
 import type { StatsByRegion, StatsByTime, StatsDashboard, StatsSummary, TalkType } from '../../shared/talk-stats';
 import {
   summarize,
@@ -1907,6 +1908,25 @@ export class UIManager extends EventEmitter {
   /** Legacy contact-detail entry — now lands on the shared ⟨User⟩ layout (redesign §5). */
   showContactDetail(otherUserId: string, otherUserName: string): void {
     this.openUserConversationFirst(otherUserId, otherUserName);
+  }
+
+  /**
+   * Single dispatcher every click-to-traverse handler should route through (docs/TODO.md §Q,
+   * build order item 1). Delegates to the existing show-/open- implementations per node type —
+   * this only creates the shape; no new call sites are wired up yet.
+   */
+  navigateToGraphNode(target: GraphNodeTarget): void {
+    switch (target.type) {
+      case 'chatroom':
+        this.showChatroomDetail(target.id);
+        break;
+      case 'conversation':
+        this.showConversationDetail(target.id, target.threadTalkId);
+        break;
+      case 'person':
+        this.showContactDetail(target.id, target.name);
+        break;
+    }
   }
 
   private chatroomsDeps(): Parameters<typeof renderChatrooms>[0] {
