@@ -1,8 +1,8 @@
 # IinPublic — Technical Specification
 ## Software Requirements, Architecture, Security, Data, Network, Mobile & API Interfaces
 
-> **Version:** 4.5 — Long-term decentralization vision, community ownership, challenge plugin framework, connection establishment priority, future architecture, local node diagram, profile/identity separation, Phase D peer discovery detail
-> **Date:** 2026-06-06
+> **Version:** 4.6 — Part VI added: GUI navigation shell redesign & layout catalog (§26), cross-platform embedded-node native clients (§27), Gun database architecture/scalability/retention (§28); §19.7 expanded with the current TechSupport K1–K6 built-in-identity/presence/Q&A/unblockability contract
+> **Date:** 2026-07-29
 > **Status:** Authoritative — single source of truth for all requirements and design decisions
 
 ---
@@ -46,8 +46,22 @@
 22. [Scalable "Find Similar People" by Matched Tags](#22-scalable-find-similar-people-by-matched-tags)
 23. [Mesh Talk Delivery Design (PeerMeshService)](#23-mesh-talk-delivery-design-peermeshservice)
 24. [Phase D — DHT Bootstrap Design](#24-phase-d--dht-bootstrap-design)
+25. [libp2p Transport Migration & IPFS Content Layer](#25-libp2p-transport-migration--ipfs-content-layer)
+
+**Part VI — Consolidated Design Documents (merged 2026-07-29)**
+
+26. [GUI Navigation Shell Redesign & Layout Catalog](#26-gui-navigation-shell-redesign--layout-catalog)
+27. [Cross-Platform Native Clients — Embedded Node Shell (S3)](#27-cross-platform-native-clients--embedded-node-shell-s3)
+28. [Gun Database Architecture, Scalability & Retention](#28-gun-database-architecture-scalability--retention)
 
 ---
+
+> **Consolidation note (2026-07-29):** Sections 26–28 were merged in from `docs/gui-redesign-plan.md`,
+> `docs/gui-layout-catalog-and-e2e-plan.md`, `docs/design/S3-embedded-node-shell.md`, and
+> `docs/Gun-Database-Architecture.md`. Section 19.7 was expanded with the current TechSupport K1–K6
+> contract (from `docs/design/techsupport-bootstrap-contract.md`). Source documents — plus other
+> design notes whose conclusions were already fully captured here or in `docs/completed.md` — were
+> moved to `docs/archive/consolidated-2026-07-29/`. See that folder's README for the full mapping.
 
 > **Consolidation note (2026-06-08):** Sections 22–24 were merged in from previously separate feature-design documents (`similar-people-scalable-srs.md`, `p2p-mesh-talk-delivery-plan.md`, `roadmap/phase-d-dht-bootstrap.md`) so that all feature/design detail lives in this single specification. Their action items remain in `docs/TODO.md`; their test-impact notes are in `docs/testing/testplan.md`; the source documents were moved to `docs/archive/`.
 
@@ -2580,11 +2594,227 @@ The website does **not** ship a pre-filled Gun database download. Users build lo
 
 ### 19.7 TechSupport Server Exception
 
+#### 19.7.0 Message-Storage Transport Exception (original)
+
 `TechSupport` (`iinpublic-root-techsupport`, see `src/shared/techsupport.ts`) is the **only** peer conversation whose message history may be stored durably on `www.iinpublic.com`.
 
 - **Rationale:** Support staff and cold-start users need a reliable channel before P2P mesh is warm.
 - **Implementation:** Stack branches `ConversationTransport` by peer id — TechSupport uses server-backed storage (star-gun or dedicated `/api/support/messages` + SQLite); all other peers use P2P-H write-through local Gun.
 - **Privacy:** Support messages are still SEA-encrypted in transit; server store policy must be documented in the privacy notice.
+
+#### 19.7.1 Built-in Identity, Presence, Q&A, and Unblockability Contract (K1–K6, merged 2026-07-29)
+
+> Merged in full from `docs/design/techsupport-bootstrap-contract.md` (2026-07-29 consolidation).
+> This is the current, amended contract — it **revises** 19.7.0's framing above: TechSupport's
+> *identity and presence* are built into the client (not server-authored/stored), while the
+> message-storage transport described in 19.7.0 remains true for the user-visible support thread
+> (decision K5-A). Read both together: 19.7.0 = transport; 19.7.1 = identity, presence, Q&A,
+> and unblockability invariants layered on top of it.
+
+#### TechSupport Bootstrap Contract
+
+TechSupport is a bootstrap/system presence, not an interchangeable ordinary user.
+
+##### Invariants
+
+- The canonical root id is `iinpublic-root-techsupport`; the canonical stage name is `TechSupport`.
+- **TechSupport is built into the client, not resident in the server (K1, 2026-07-25 revision).**
+  Identity is compiled into every client bundle (`TECHSUPPORT_ROOT_USER_ID` + trust-anchor keys in
+  `src/shared/techsupport.ts`); presence is peer-provided. The relay seeds the signed
+  `public/techsupport-identity` record and one Global member row on boot and after every E2E
+  reset (`ChatroomManager.seedTechSupportGlobalMembership`, called from
+  `IinPublicServer.publishPublicBootstrap`) — bytes, not a database. The client also synthesizes
+  TechSupport as a built-in Global roster/count entry directly from the compiled constants
+  (`techSupportRosterMember()`), so headcount 1 on an empty network never depends on any Gun row
+  existing yet, nor on a browser having bootstrapped anything.
+- In dev, `npm run dev` / `dev:stage-zero` starts a clean database and boots an **ordinary** user;
+  the built-in TechSupport member is provided by the relay boot seed and the client's
+  compiled-constant floor (K1), so headcount is **2** (dev user + TechSupport). A developer acts
+  **as** TechSupport by running **`npm run dev:techsupport`** (K3, 2026-07-26), which boots the
+  normal web client in TechSupport mode: it loads the canonical DM SEA pair from the device key
+  file (`TECHSUPPORT_SEA_PAIR_JSON` or `TECHSUPPORT_KEY_FILE`), refuses to start unless the pair's
+  pub is a trusted DM anchor, `gun.user().auth(pair)`s, adopts `TECHSUPPORT_ROOT_USER_ID`, and
+  shows a permanent "TechSupport (root)" badge. `dev:multi` still seeds TechSupport server-side
+  and keeps its ordinary browsers as ordinary users; its `?devRole=techsupport` driver window
+  still logs in as root without a real keypair (unaffected by K3, tracked as a follow-up).
+- **The TechSupport DM/greeting private key lives only on the TechSupport device** — a key file
+  loaded at runtime into the distinct localStorage key `iinpublic_techsupport_keypair_v1` via the
+  `dev:techsupport` launcher (`scripts/dev-techsupport-login.js`). It is never inlined into the
+  web bundle and never held by the relay (guarded by
+  `src/test/unit/techsupport-key-not-bundled.test.ts`). The relay holds at most the
+  **announcement** key (for on-demand system announcements) and republishes a **pre-signed**
+  identity record; server boot and E2E reset require **no** private SEA pair (K3).
+- A first-time ordinary user must not claim the TechSupport id or stage-name reservation.
+- Every ordinary user gets one support channel with TechSupport. The welcome greeting is rendered
+  client-side from a **compiled, pre-signed, per-locale template**
+  (`src/shared/techsupport-greeting.signed.json`, signed by the TechSupport **DM key**), verified
+  against `TECHSUPPORT_DM_TRUST_ANCHORS` before rendering, then persisted as a real message in the
+  **receiver's own local Gun** at the deterministic soul `support_welcome_<userId>` (K2, 2026-07-25).
+  Nothing per-user is authored or stored by the relay. A client that cannot verify the signature
+  renders **no** greeting (never a fabricated one). Substitution of the user's stage name into the
+  `{name}` placeholder happens only **after** signature verification. This satisfies invariant 4
+  (every message attributed to TechSupport is signed by the TechSupport key and verified by the
+  receiving client) — the browser no longer fabricates an unsigned message in TechSupport's name.
+- Support-channel messages are durable through the support transport. Ordinary user-to-user messages remain separate from support channels.
+- **Headcounts count TechSupport as exactly 1 in all cases** — status bar, chatroom list badges, and any user-facing room total. It is never excluded and never double-counted. **Liveness is a separate signal** (online/away, sourced from real peer presence via `P2PPresenceClient`) and is never reflected in the count — TechSupport renders as present whether or not its device is currently reachable (K1-2).
+- User-facing lists that show TechSupport must label it as built-in/bootstrap support, not as a normal peer.
+- TechSupport is **never evicted** from Global by presence-staleness pruning, in either the
+  Gun-persisted path (`ChatroomManager.pruneStaleRoomMemberships`) or the in-memory fast path
+  (`ChatroomManager.getFastActiveMembers`) — both check `isTechSupportId` before applying the TTL (K1-3).
+- **TechSupport never receives or answers talks (K5).** It is not a valid talk recipient and never
+  produces a response, match, or ignore. This is enforced as a hard rule on the canonical root id
+  in the delivery/fanout path — deliberately *not* a `TalkIntakeFilters` entry, since that is
+  user-editable and would let TechSupport be filtered back in by mistake. TechSupport still counts
+  as 1 in every headcount regardless (invariant above, unchanged).
+
+##### Current Enforcement
+
+- `src/shared/techsupport.ts` reserves the TechSupport name and root id, and exports
+  `techSupportRosterMember()` / `TECHSUPPORT_GLOBAL_ROOM_ID` for the client-side floor.
+- `src/shared/techsupport-graph.ts` is the single authored source for the baseline graph shape,
+  consumed by both `tests/e2e/helpers/clear-database.ts` (TS) and `scripts/dev-techsupport-bootstrap.js`
+  (via the compiled `dist/server/shared` output) — no more drifting duplicate graph builders.
+- `IinPublicServer.publishPublicBootstrap()` (`src/server/index.ts`) republishes the signed identity
+  record and calls `ChatroomManager.seedTechSupportGlobalMembership()` on boot and after every E2E
+  reset. `bootstrapTechSupportRootIfMissing()` (the old browser-side root-minting path) is deleted —
+  browsers no longer write the root; they only render it locally.
+- `WebChatroomService.rosterWithTechSupportFloor()` / the count floors in `getMemberCount()` and
+  `subscribeToMemberCount()`'s `emitCount()` inject the synthetic entry only when no real
+  `TECHSUPPORT_ROOT_USER_ID` row is already present, so the two sources (relay seed, client floor)
+  dedup by canonical id and never double-count.
+- `IinPublicApp.countRoomMembers()` counts every unique member — TechSupport included — as 1 for the status bar.
+- `UIManager.setTechSupportOnlineStatus()` / `isTechSupportOnline()` carry the liveness indicator,
+  sourced from `P2PPresenceClient.fetchNearby()` results (`app.ts`'s `initP2PPresenceAndBridge()` and
+  `refreshConversationPresence()`), decoupled from headcount.
+- `scripts/dev-techsupport-login.js` (`npm run dev:techsupport`, K3) launches the web client in
+  TechSupport mode, injecting the root id + canonical DM pair into localStorage before
+  navigation; `WebGunService.ensureKeypairAndAuth()` loads the pair from
+  `TECHSUPPORT_KEYPAIR_STORAGE`, asserts it via `assertTechSupportDmPair()`
+  (`src/shared/techsupport.ts`), and authenticates with it instead of generating a device pair —
+  never persisting it into the ordinary encrypted key-custody record. `isDevStageTechSupportLoginResolved()`
+  (the old `stage-zero`/`empty` auto-login-as-root special case) is deleted; `dev:multi`'s
+  `?devRole=techsupport` driver window (`isDevTechSupportDriver()`) is untouched.
+- `TechSupportAnnouncementService.publishIdentity()` (K3) republishes the committed, pre-signed
+  `src/shared/techsupport-identity.signed.json` (signed once by
+  `scripts/sign-techsupport-identity.js` / `npm run sign:techsupport-identity` with the
+  **announcement** key) — no boot-time private key. `IinPublicServer.publishPublicBootstrap()` no
+  longer gates on `techSupportAnnouncements.isConfigured()`, so the identity record and the Global
+  member-row seed are produced unconditionally, even on a relay with no
+  `TECHSUPPORT_SEA_PAIR_JSON` configured at all (that env var now only gates the on-demand admin
+  announcement feature).
+- Contacts render TechSupport with `data-support-contact="true"` and built-in support copy, plus a
+  `.techsupport-presence-indicator` online/away dot.
+- Chatroom member rows render TechSupport with built-in support status copy, plus the same presence indicator.
+- E2E helper bootstraps assert root-vs-ordinary identity through `tests/e2e/helpers/techsupport-contract.ts`.
+- `src/shared/techsupport-greeting.ts` (K2, 2026-07-25) — `signGreeting`/`verifyTechSupportGreeting`/
+  `renderGreeting`, mirroring `system-announcements.ts`'s sign/verify convention. Verification
+  checks the trust anchor, that the template text matches the client's own compiled
+  `TECHSUPPORT_GREETING_TEMPLATES` (a swapped template is rejected even if validly signed), and the
+  SEA signature. `scripts/sign-techsupport-greeting.js` is the one-off build/dev signing step
+  (`npm run sign:techsupport-greeting`; reads `TECHSUPPORT_SEA_PAIR_JSON`, asserts the pair matches
+  `currentTechSupportDmPub()`, writes the committed `techsupport-greeting.signed.json`). Re-run and
+  commit a new signed bundle whenever the greeting copy or the DM key changes.
+- `IinPublicApp.ensureSupportBootstrapForCurrentUser()` (`app.ts`) verifies-then-renders the
+  greeting and persists it via `WebConversationService.upsertMessageRecord` (a local-only Gun
+  write, never `sendMessage`'s peer-notify path). No `supportState` localStorage gate remains —
+  idempotency comes from the deterministic message id.
+- `UIManager.filterVerifiedSupportMessages()` re-verifies a stored greeting at render time
+  (independent of the write-time check), including confirming the stored `text` is exactly what
+  the verified template renders to for the current user — closing the gap where a stored record's
+  signature fields are left untouched but its displayed text was altered after signing.
+- **Stage0 is the only place a database is built from scratch (K4, 2026-07-26).** A committed,
+  validated fixture — `tests/e2e/staged/fixtures/stage0.fixture.json` — is the one definition of
+  the built-in TechSupport baseline. It is produced by a real browser traversal
+  (`npm run test:e2e:regen-stage0-fixture`, which drives `stage0-bootstrap/aaa` → `baa` → `caa` →
+  `zzz-save-stage0` and copies the validated result into the committed path), never hand-authored.
+  `tests/e2e/helpers/clear-database.ts`'s `seedTechSupportRootBaseline()` — the seed every
+  `clearGunDatabases()`/`maybeClearGunDatabases()` call routes through — loads this fixture via
+  `POST /api/test/import-snapshot` instead of calling the `techSupportBaselineGraph()` factory
+  in-process. The factory itself is unchanged and still used by `scripts/dev-techsupport-bootstrap.js`
+  (dev seeding, not E2E) and by the regeneration pipeline's own traversal setup.
+  `src/test/unit/stage0-fixture.test.ts` fails fast (no server needed) if the committed fixture
+  ever stops passing the same `assertStageSnapshotIntegrity` check the stage pipeline enforces;
+  `src/test/unit/no-inline-baseline-graph.test.ts` fails if any `.spec.ts` outside
+  `stage0-bootstrap/` references the raw factory or calls the seed function directly.
+
+##### Verification
+
+- `tests/e2e/staged/stage0-bootstrap/000-relay-only-techsupport-presence.spec.ts` — bare relay, no
+  browser: identity record + one member row present, no support DB (K1 item 6).
+- `tests/e2e/staged/stage1-single-user/02-techsupport-away-headcount.spec.ts` — TechSupport device
+  not running: headcount still 2, contact/roster row listed, away indicator shown (K1 item 7).
+- `tests/e2e/staged/stage1-single-user/01-login-single-user-headcount.spec.ts` — contact count +
+  headcount across re-login (no longer asserts a server-stored greeting; that moved to spec 03).
+- `tests/e2e/staged/stage1-single-user/03-support-greeting-signed.spec.ts` (K2) — signed greeting
+  renders once, personalizes correctly, verifies, and survives clear-storage + re-open.
+- `tests/e2e/staged/stage1-single-user/04-support-greeting-tamper-suppressed.spec.ts` (K2) — a
+  stored greeting whose text was altered after signing renders as nothing, silently, no toast.
+- `tests/e2e/staged/stage2-two-user/00k-techsupport-contact-mute.spec.ts`
+- `tests/e2e/staged/stage2-two-user/34-contacts-filter-name.spec.ts`
+- `src/test/unit/techsupport.test.ts`
+- `src/test/unit/chatroom-manager.test.ts` — `seedTechSupportGlobalMembership` presence + eviction
+  immunity (both the Gun-persisted and in-memory fast paths).
+- `src/test/unit/web-chatroom-techsupport-floor.test.ts` — client-side roster floor dedup.
+- `src/test/unit/techsupport-greeting.test.ts` — sign/verify round-trip, tamper rejection, untrusted
+  key rejection, malformed-input handling.
+- `src/test/unit/techsupport-baseline.test.ts` — `signedGreetingProblem`: absence is not an error,
+  presence must verify.
+- `tests/e2e/staged/stage1-single-user/05-techsupport-mode-signed-dm.spec.ts` (K3) — a browser
+  booted in TechSupport mode authenticates with the canonical DM pub (not a random device pair),
+  publishes it to the TechSupport user record, and a DM it sends is visible to the receiver
+  alongside an author identity that verifies as a trusted DM anchor.
+- `src/test/unit/techsupport-login.test.ts` (K3) — `assertTechSupportDmPair`: a pair whose pub is
+  not a trusted DM anchor is rejected; malformed input is rejected without leaking.
+- `src/test/unit/techsupport-key-not-bundled.test.ts` (K3) — the built web bundle contains
+  neither the TechSupport private key material nor the `TECHSUPPORT_SEA_PAIR_JSON` env-var name.
+- `src/test/unit/system-announcements.test.ts` — `signTechSupportIdentity` round-trips through
+  `readVerifiedTechSupportIdentity`; `publishIdentity()` succeeds with no pair configured at all.
+- `src/test/unit/stage0-fixture.test.ts` (K4) — the committed stage0 fixture exists and passes
+  `assertStageSnapshotIntegrity`.
+- `src/test/unit/no-inline-baseline-graph.test.ts` (K4) — no spec outside `stage0-bootstrap/`
+  constructs the baseline graph in code.
+- `tests/e2e/staged/stage1-single-user/06-support-new-question-ack.spec.ts` (K5) — a miss-path
+  question renders a signed ack, verifies, and posts to the TechSupport mailbox envelope.
+- `tests/e2e/staged/stage1-single-user/07-support-inbox-answer-flow.spec.ts` (K5) — full operator
+  loop: question asked → mailbox delivery → TechSupport drains inbox → operator answers → asker
+  receives the answer → FAQ bundle independently readable and verifiable.
+- `acceptsIncomingTalks()` (`src/shared/techsupport.ts`), checked at the top of
+  `shouldAcceptIncomingTalkAsync` (`src/web/app/app.ts`) before any filter runs (K5 talk-exclusion
+  invariant above).
+- **Enforced a second time on the sender's own side, discovered while E2E-verifying the above:**
+  `IinPublicApp.resolveBroadcastReceivers()` (`app.ts`) filters `TECHSUPPORT_ROOT_USER_ID` out of
+  every candidate source (UI member list, server member fetch, Gun active-members fallback) before
+  resolving who a broadcast goes to. A broadcast into a room containing only TechSupport therefore
+  never even attempts delivery ("no receivers resolved") — TechSupport is excluded from receiver
+  *resolution*, not merely from *acceptance* once an offer arrives. `acceptsIncomingTalks()` remains
+  the receiver-side backstop if that sender-side filter is ever removed.
+- `tests/e2e/staged/stage1-single-user/10-techsupport-ignores-broadcast-talks.spec.ts` (K5) is the
+  E2E proof of both of the above: broadcasting tag and flow talks into a room containing an
+  ordinary user and a real TechSupport session never populates TechSupport's local incoming-talk
+  index, and Global headcount stays 2 throughout.
+
+##### Honest cost (K2/K3)
+
+Rotating the DM or announcement key means shipping a new client build (the compiled trust-anchor
+lists) and re-running the relevant signing script (`sign:techsupport-greeting`,
+`sign:techsupport-identity`) to produce and commit a new signed artifact; for K3 specifically, the
+operator must also redistribute the new key file to every machine that runs `dev:techsupport` /
+the production TechSupport device.
+
+##### Honest cost (K4)
+
+The committed fixture can drift from the live `techSupportBaselineGraph()` factory /
+`aaa`/`baa`/`caa` traversal behavior over time — a code change to any of those without re-running
+`npm run test:e2e:regen-stage0-fixture` leaves the fixture stale until someone notices (the
+integrity unit test catches a fixture that fails validation, but not one that is merely
+out-of-date relative to new traversal steps). Regenerating and reviewing the JSON diff is a manual
+step, not yet enforced in CI. Only `stage1`/`stage2` (via `clearGunForStage1Spec`/
+`clearGunForStage2Spec` in `E2E_STAGE_PIPELINE=1` mode) load a *progressive* multi-user snapshot
+built on top of this fixture; `stage3`/`stage4`/`stage5` and the non-staged directories
+(`talks-matching/`, `mass/`, `isolated/`) still reset via the bare fixture on every spec rather
+than a stage-appropriate multi-user baseline — see the remaining `docs/TODO.md` K4 work items for
+that follow-on scope.
+
 
 ---
 
@@ -4122,3 +4352,1804 @@ parallel to L3. The epic is sequenced after P0 steps 9-11.
 | §24 custom bootstrap service (never built) | Gossip logic: split-horizon, TTL, room scope, seen-set |
 | Manual ICE/STUN plumbing | TalkLedger ordering (version-then-timestamp, retraction-wins) |
 | | Gun.js replication + IndexedDB; hub encrypted mailbox |
+
+
+---
+
+# PART VI — CONSOLIDATED DESIGN DOCUMENTS (merged 2026-07-29)
+
+The sections below were merged in full from standalone design documents previously scattered
+under `docs/` (2026-07-29 consolidation). Each retains its original heading structure, demoted
+to nest under its new section number, so no detail from the source document is lost. Sources
+are preserved verbatim in `docs/archive/consolidated-2026-07-29/` for provenance.
+
+## 26. GUI Navigation Shell Redesign & Layout Catalog
+
+> Merged from `docs/gui-redesign-plan.md` and `docs/gui-layout-catalog-and-e2e-plan.md`
+> (2026-07-29). This is the normative navigation/layout contract referenced throughout
+> `docs/TODO.md` sections A–D, I, J, and M–Q. Items A–D, H, and parts of I/J/K have since
+> shipped (see `docs/completed.md`); this section is retained as the design-of-record for
+> the shell those items implemented, and for the parts (§10/§11 linking + erase, the
+> layout catalog itself) still tracked as open work.
+
+### 26.1 Redesign Plan (source: `gui-redesign-plan.md`)
+
+### GUI Redesign Plan — Consistent Navigation & Layout
+
+Status: proposed / not yet implemented. This is a design + refactor plan only; no behavior has changed yet.
+
+Companion: `docs/gui-layout-catalog-and-e2e-plan.md` — full catalog of every existing screen, current e2e coverage per screen, and the e2e test plan this redesign must ship with.
+
+#### Goal
+
+Establish one consistent shell used by every screen: a **fixed bottom navigation bar** plus a **single top bar** that combines status and actions. Today several screens stack two separate rows at the top (the global `top-header` plus a per-view `tab-action-bar`), and the one-on-one peer view lays its actions out as full-width stacked buttons. This plan unifies all of that into one pattern and one reusable component.
+
+#### Current state (for reference)
+
+Defined in `src/web/ui/ui-manager.ts` `render()` (the `appContainer.innerHTML` template, ~line 789+):
+
+- `#top-header` — row 1: `#header-title`, `#header-status` (status text per view), `#header-actions` with the single `#create-talk-btn` (➕).
+- Each view panel then has its own `.tab-action-bar` — row 2. For chatrooms that is `#chatroom-action-bar` with three text buttons: `#create-custom-chatroom-btn` ("New Room"), `#return-home-btn` ("Return Home"), `#broadcast-talk-btn` ("Broadcast"), plus a hidden `#back-to-chatrooms` ("‹ Back").
+- `.bottom-nav` — fixed bottom navigation (`.nav-btn` for chatrooms / contacts / talks / me / settings). This already matches the target and stays.
+- Peer one-on-one overlay: `#peer-detail-overlay` in `ui-manager.ts` (~line 1030) + `src/web/ui/user-detail-view.ts`. Actions are full-width stacked buttons in `.peer-send-section`: `#peer-send-talks-btn` ("📤 Send My Talks"), `#peer-dm-input` + `#peer-dm-send-btn` ("💬 Send Message"), `#peer-block-user-btn` ("Block User"). A separate `#peer-conversations-section` renders the "Open Chat" list higher up in the body — so messaging is split across two disconnected places.
+- Contact detail: `#contact-detail-container` / `.contact-detail-header` (in `contacts-view.ts`) is a cleaner header + list; the peer overlay should converge on this.
+- Notifications: `showNotification()` in `ui-manager.ts` (~line 6206). Non-match toasts auto-dismiss (3s); "Match!" notices are treated as durable and only clear on click. (A `persistent` option was recently added.)
+
+The "two rows" the redesign removes: `#top-header` **and** `.tab-action-bar` both being visible at once.
+
+#### Target design
+
+##### 1. One top bar per screen (the "AppBar")
+
+A single horizontal bar directly under the OS chrome, replacing the current `top-header` + `tab-action-bar` stack. Three zones:
+
+- **Left** — a contextual control: the screen title when at a list root, or a **back icon** (`‹` / chevron) when inside a sub-view (chatroom detail, peer detail, conversation, contact detail). The text "‹ Back" buttons (`#back-to-chatrooms`, `#back-to-contacts-list`, `#talks-nav-back`, `#back-from-peer-detail`, `#back-from-conversation`) all collapse into this one left-corner icon.
+- **Center** — the status / context line (single line, truncates with ellipsis). Reuses the existing per-view status text (`#status-bar-text`, `#contacts-status-text`, etc.).
+- **Right** — a row of **action icons**, contextual to the screen. Icons render inline until they no longer fit; overflow collapses into a single **`⋯` (more) button** that opens a small menu with the remaining actions and their labels.
+
+Every screen uses the same component so spacing, height, icon size, and the overflow behavior are identical everywhere.
+
+##### 2. Chatrooms tab
+
+Merge the two rows into the single top bar. The three text buttons become **icons, in parallel with the ➕ create-talk icon**:
+
+| Action | Current | Target icon |
+|---|---|---|
+| Create talk | `#create-talk-btn` ➕ | ➕ |
+| New room | `#create-custom-chatroom-btn` "New Room" | e.g. 🏠➕ / "+room" glyph |
+| Return home | `#return-home-btn` "Return Home" | e.g. 🏠 / home glyph |
+| Broadcast | `#broadcast-talk-btn` "Broadcast" | e.g. 📣 |
+
+- All four sit in the top bar's right zone, in parallel.
+- When the window is too narrow to show them all, the ones that don't fit collapse into the `⋯` overflow menu (labels shown in the menu for clarity). Priority order (most → least likely to stay inline) to be finalized during build; suggested: ➕ create talk, 📣 broadcast, home, new room.
+- `#return-home-btn`'s existing enabled/disabled logic and `#broadcast-talk-btn`'s visibility logic (`syncStatusBroadcastButtonVisibility`) carry over to the icon/menu items.
+- Keep `data-testid` attributes on the new icon buttons (and menu items) so existing E2E selectors keep working: `create-custom-chatroom-btn`, `return-home-btn`, `broadcast-talk-btn`, `bottom-navigation-button-*`.
+
+##### 3. Inside a chatroom (chatroom detail)
+
+- The "‹ Back" (`#back-to-chatrooms`) becomes the **left-corner back icon** of the same single top bar.
+- Center shows the room title/status (`#current-chatroom-title` / `#current-chatroom-status` content).
+- Right zone shows only the actions valid inside a room (e.g. broadcast, create talk); room-list-only actions (new room / return-home as appropriate) hide or move to overflow.
+
+##### 4. Notifications auto-dismiss
+
+All toasts disappear after a few seconds — including the "Match!" notices, which currently linger until clicked.
+
+- In `showNotification()`, give every toast a timeout. Durable/match notices can get a longer timeout (e.g. ~6–8s) instead of never dismissing, and stay click-to-dismiss.
+- Keep the `data-match-notification` attribute (an E2E assertion depends on it) but stop treating "no timeout" as the way match notices are identified.
+- Verify the E2E specs that assert badge/notification behavior still pass (`stage1 .../00-ui-navigation-settings`, `stage2 .../30-messaging-read-state`).
+
+##### 5. One-on-one peer view — restructure to match the Contact/User layout
+
+The peer overlay (`#peer-detail-overlay` + `user-detail-view.ts`) is the messy screen. Target:
+
+- **All actions move to the top bar as icons**: `Block User` (e.g. 🚫), `Send My Talks` (📤), plus the back icon on the left. Low-frequency / destructive actions (Block) can live under `⋯`.
+- **Merge messaging into one place.** Today the "Conversations / Open Chat" list (`#peer-conversations-section`) and the "Send Message" composer (`#peer-dm-*`) are separated by the talk-history block. Combine them into a single messaging area: the conversation(s) with this peer and the message composer together, so "see the chat" and "send a message" are one unit.
+- **Adopt the Contact detail layout.** The peer overlay and the Contact detail view (`#contact-detail-container`) should render from **one shared layout/component**: same header (avatar/name/subtitle), same body order (relationship/stats → messaging → talk history). Clicking a user from a chatroom member list and clicking a user from the Contacts tab should land on the **identical screen**.
+- **Conversation-first entry.** Clicking a user anywhere (chatroom member row, contact row) opens the **direct Conversation page immediately** — not the User layout. The click pushes two levels in one action (User layout, then the default DM Conversation on top — rule N2a in §7), so the AppBar back icon from the Conversation lands on the **User layout**, and a second back returns to wherever the user was clicked (room detail or Contacts list).
+- **Matched-talk threads (email model).** The User layout's talk history becomes a **thread list**: one row per matched talk between the two people, rendered like an email inbox — subject = talk title, snippet = latest reply, timestamp, unread badge. Each row expands into its **own per-talk Thread page** (a Conversation page scoped to that talk): full reply history for that talk plus a composer, so every matched talk **can be replied to** in its own thread. Back from a Thread returns to the User layout. The talk-independent DM thread (the page a user-click opens directly) and per-talk Threads share the same Conversation component, differing only in scope (`conversationId` vs. `conversationId + talkId`).
+
+##### 6. Shared component & consistency pass
+
+- Introduce a single `renderAppBar({ title, statusText, backAction?, actions: [{icon, label, onClick, testId, hidden?, disabled?}] })` helper (new file, e.g. `src/web/ui/app-bar.ts`) that owns: layout, icon rendering, the narrow-width measurement, and the `⋯` overflow menu. Every view calls it instead of hand-rolling a `.tab-action-bar`.
+- Introduce a shared peer/contact detail renderer so §5's "same layout" is enforced structurally, not by copy-paste.
+- Define a small icon set (emoji or an icon font/SVG sprite — decide during build) and reuse it across bars.
+- Remove the per-view `.tab-action-bar` inline styles once migrated.
+
+#### 7. Page transition specification (complete)
+
+This section is the normative navigation contract. Every edge the app can take is listed here; anything not listed is a bug. Page names follow the tree in `docs/gui-layout-catalog-and-e2e-plan.md` Part 1B.
+
+##### 7.1 Navigation model
+
+App state = **(activeTab, per-tab sub-view stack, modal stack)**.
+
+- **N1 — Tabs.** The bottom nav switches `activeTab`. Switching tabs closes any open modal, pops the leaving tab's sub-view stack to its root, and shows the target tab's root list. Tapping the already-active tab scrolls its root list to top. The bottom nav stays visible on every page; modals overlay it.
+- **N2 — Push/pop.** Entering a sub-view (room detail, User layout, Conversation, Q&A detail, Settings item page) pushes one level. The AppBar back icon (left zone) pops exactly one level — always to the parent that opened the view, never to a fixed tab root (this matters for the shared destinations, §5).
+- **N2a — Conversation-first user click.** Clicking a user pushes **two levels in one action**: the User layout, then the default DM Conversation on top of it. Back then pops normally: Conversation → User layout → opener (room detail or Contacts list). Per-talk Threads opened from the User layout push a single level as usual.
+- **N3 — Modals.** Modals stack above pages and never change the page stack. Three uniform close paths: Cancel/`✕` button, scrim (click on `.modal-overlay` outside `.modal-content`), and `Esc` (to be added uniformly in `app-bar.ts`-era work — today only some dialogs honor scrim). Submit resolves the dialog's promise and closes it. Closing a modal restores focus to its trigger.
+- **N4 — Chained modals** replace, not stack: Camera capture → Photo preview is one chain; cancel at any link returns to the page (Settings), not to the previous link, and discards the capture.
+- **N5 — Guards.** A transition with a guard listed below must be disabled/hidden when the guard fails (not fail after click). Existing logic carries over: `#return-home-btn` disabled at home, `syncStatusBroadcastButtonVisibility` for broadcast.
+- **N6 — Notification taps.** Clicking a Match! toast opens the Conversation for that match (pushes onto the current tab). Clicking the location-room suggestion "Join" switches to Chatrooms and pushes that Room detail. Other toasts dismiss on click with no navigation.
+
+##### 7.2 Transition tables
+
+Legend: **From → To** with trigger (selector) and back target. `⟨User⟩` = shared User layout, `⟨Conv⟩` = shared default DM Conversation, `⟨Thread⟩` = per-matched-talk Conversation page (same component as ⟨Conv⟩, scoped to one talk), `⟨Editor⟩` = shared Talk Editor.
+
+**Chatrooms tab**
+
+| # | From | Trigger | To | Back returns to |
+|---|---|---|---|---|
+| C1 | Chatroom list | click room row in `#chatroom-list` (leaf or custom room) | Room detail (`#chatroom-detail-container`) | Chatroom list |
+| C2 | Chatroom list | click hierarchy node caret | same page (expand/collapse only, no push) | — |
+| C3 | Room detail | click member row in `#chatroom-members-list` | **⟨Conv⟩ directly** (pushes ⟨User⟩ + ⟨Conv⟩, rule N2a) | ⟨User⟩, then Room detail |
+| C4 | ⟨User⟩ | click a matched-talk row in the thread list | ⟨Thread⟩ for that talk (reply composer included) | ⟨User⟩ |
+| C4b | ⟨User⟩ | open DM in merged messaging area | ⟨Conv⟩ | ⟨User⟩ |
+| C5 | Chatroom list | `create-custom-chatroom-btn` (icon/⋯) | **Create Room dialog** | on cancel: list · on create: Room detail of new room (`showChatroomDetail(createdId)`) |
+| C6 | Room detail (owner) | `chatroom-rename-btn` | **Rename Room dialog** | Room detail |
+| C7 | Room detail (owner) | `chatroom-delete-btn` | confirm → Chatroom list | — |
+| C8 | Room detail / list | `broadcast-talk-btn` (icon) — guard: OUT list non-empty (else guard toast), visibility per `syncStatusBroadcastButtonVisibility` | **Broadcast preamble dialog** | same page; on send: same page + `#broadcast-bulk-ack` status |
+| C9 | Chatroom list | `return-home-btn` (icon) — guard: travel mode active (disabled at home) | Home room's Room detail | Chatroom list |
+| C10 | any Chatrooms page | `create-talk-btn` ➕ | **⟨Editor⟩ dialog** | same page |
+
+**Contacts tab**
+
+| # | From | Trigger | To | Back returns to |
+|---|---|---|---|---|
+| K1 | Contacts list | click contact row | **⟨Conv⟩ directly** (pushes ⟨User⟩ + ⟨Conv⟩, rule N2a — identical screens to C3's) | ⟨User⟩, then Contacts list |
+| K2 | Contacts list | relationship chip / edit control on a row | **Relationship editor dialog** (`#contact-relationship-modal`) | Contacts list |
+| K3 | ⟨User⟩ | click a matched-talk row | ⟨Thread⟩ — same thread object as C4 for the same peer + talk | ⟨User⟩ |
+| K4 | ⟨User⟩ | open DM | ⟨Conv⟩ — same thread object as C3/K1 for the same peer | ⟨User⟩ |
+
+**Talks tab**
+
+| # | From | Trigger | To | Back returns to |
+|---|---|---|---|---|
+| T1 | Talks list | `talks-nav-all/in/out` | same page, mode switch (no push) | — |
+| T2 | Talks list | click a talk row | Talk detail / responses | Talks list (`talks-nav-back`) |
+| T3 | Talks list (IN) or talk-received notification | answer action | **Talk Response dialog** (`#talk-response-modal`) | Talks list; on submit: outcome toast (+ match ⇒ conversation created) |
+| T4 | Talks list / Talk detail | ➕ create or edit action | **⟨Editor⟩ dialog** (`#talk-editor-modal`) | same page |
+| T5 | Talks list | `survey-stats-button` on a survey talk | **Survey stats dialog** | Talks list |
+| T6 | Talks list | triage panel filters (`reply-*`) | same page (inline panel, no push) | — |
+
+**Me tab**
+
+| # | From | Trigger | To | Back returns to |
+|---|---|---|---|---|
+| M1 | Q&A list | filter/sort controls | same page (no push) | — |
+| M2 | Q&A list | click an answer row | Q&A detail | Q&A list |
+| M3 | Q&A list / detail | create or edit | **⟨Editor⟩ dialog**, seeded from the Q&A context | same page |
+
+**Settings tab** (target structure per Part 1B: root + item pages)
+
+| # | From | Trigger | To | Back returns to |
+|---|---|---|---|---|
+| S1 | Settings root | any itemized row (profile languages, incoming-language, distance, grammar, dirty-word, cutoff, location, travel, age-verify, feature toggles) | that item's page | Settings root |
+| S2 | Settings root | Edit Stage Name | **Edit Stage Name dialog** | Settings root |
+| S3 | Settings root | Headshot → Take Photo | **Camera capture dialog** → **Photo preview dialog** (chain, rule N4) | Settings root |
+| S4 | Settings root | Headshot → Choose Photo (file input) | **Photo preview dialog** | Settings root |
+| S5 | Settings root | `settings-edit-profile-btn` | **Edit Profile dialog** | Settings root |
+| S6 | Settings root | Credit / Reputation row | Credit page (read-only) | Settings root |
+| S7 | Settings root | Development settings row | Dev settings page (storage inspector etc.) | Settings root |
+| S8 | Settings root | Linked devices row | Linked devices page (§10) — hosts **Link-device code**, **Enter-code**, and **Unlink confirm** dialogs | Settings root |
+| S9 | Settings root | Erase this device row (danger zone) | **Erase confirm dialog** (§11) → optional **Sync progress dialog** → full wipe + reload to fresh boot (new identity) | Settings root (on cancel) |
+
+**Global overlays (reachable from any page)**
+
+| # | Trigger | Opens | Dismissal |
+|---|---|---|---|
+| G1 | any `showNotification()` | toast | auto (3s; Match! 8s) · click (Match! navigates per N6) |
+| G2 | location detected near a room | location-room suggestion banner | Join (→ Room detail) · dismiss · auto |
+| G3 | server announcement | system announcement banner | dismiss |
+| G4 | My Talks entry point | **My Talks dialog** | `close-my-talks-modal` / scrim / Esc |
+| G5 | preferences entry point | **Preferences (My Answers) dialog** | `close-preferences-modal` / scrim / Esc |
+| G6 | ⟨User⟩ `peer-send-talks-btn` | **Send-My-Talks picker** | confirm / cancel / `✕` / scrim / Esc |
+
+##### 7.3 Transition diagram
+
+```mermaid
+graph LR
+  subgraph tabs [bottom nav]
+    CH[Chatrooms list]; CO[Contacts list]; TA[Talks list]; ME[Me Q&A list]; SE[Settings root]
+  end
+  CH -->|room row| RD[Room detail]
+  RD -->|member click N2a| CV[Conversation SHARED]
+  CO -->|contact click N2a| CV
+  CV -->|back| U[User layout SHARED]
+  U -->|matched-talk row| TH[Talk thread ×N]
+  U -->|open DM| CV
+  TA -->|talk row| TD[Talk detail]
+  TA -->|IN item| TR{{Talk Response}}
+  TA -->|create/edit| ED{{Talk Editor SHARED}}
+  ME -->|answer row| QD[Q&A detail]
+  ME -->|create/edit| ED
+  SE -->|item row| SI[Settings item pages ×10]
+  SE --> SN{{Edit Stage Name}}
+  SE --> CAM{{Camera capture}} --> PP{{Photo preview}}
+  SE --> EP{{Edit Profile}}
+  CH --> CR{{Create Room}} --> RD
+  RD --> RR{{Rename Room}}
+  U --> SP{{Send-My-Talks picker}}
+  CO --> RE{{Relationship editor}}
+```
+
+Braces `{{ }}` are modals (no page-stack change); rectangles are pages (push/pop). A user click lands on `CV` directly (rule N2a); `U` sits underneath it on the stack and hosts the per-talk `TH` threads. The shared nodes `U`/`CV`/`TH` and the shared editor `ED` implement the traversal contract in the companion doc.
+
+#### 8. Popup window (modal/dialog) specification — all screen sizes
+
+All popups share the frame: `.modal-overlay` (full-viewport scrim, `rgba(0,0,0,.5)`, z-index 1000, flex-centered) containing `.modal-content` (white, radius 8, base `max-width:500px; width:90%; max-height:80vh; overflow-y:auto`). Per-dialog `max-width` overrides put every popup in one of four size classes.
+
+##### 8.1 Size classes and behavior per viewport width
+
+Reference widths (= the e2e width matrix): **320 · 390 · 768 · 1024** px.
+
+| Class | Intrinsic max-width | Dialogs |
+|---|---|---|
+| **S** | 400–480px | Create Room (420) · Rename Room (400) · Send-My-Talks picker (420) · Photo preview (420) · Camera capture (480) · Broadcast preamble · Relationship editor |
+| **M** | 500–620px | default `.modal-content` (500) · Edit Stage Name (500) · Talk Response (600) · Response review screen (620) |
+| **L** | 760–860px | Edit Profile (760) · Preferences / My Answers (800) · My Talks (800) · Survey stats (860) |
+| **XL** | 1000px, `max-height:90vh` | Talk Editor |
+
+| Viewport | S | M | L | XL |
+|---|---|---|---|---|
+| **1024** | centered card at intrinsic width | centered card | centered card | centered card, 90vh |
+| **768** | centered card | centered card | card clamps to `calc(100vw − 40px)` (≈728) | same clamp, 90vh |
+| **390** | **bottom sheet**: width `100vw − 24px`, `max-height 92dvh`, actions stacked full-width | bottom sheet | **full-screen takeover**: `100vw × 100dvh`, own AppBar with `✕`/back in left zone | full-screen takeover |
+| **320** | bottom sheet (same rule) | bottom sheet | full-screen takeover | full-screen takeover |
+
+Rules at ≤ 480px (covers 320/390):
+
+- `.modal-actions` switches to `flex-direction:column`; every button full-width; primary action last (bottom).
+- Inputs/selects never narrower than 44px touch height; no horizontal scrolling inside any dialog (e2e-asserted).
+- Full-screen takeovers (L/XL) reuse the shared AppBar component from §1 — title in center, `✕` left, dialog-specific action icons right — so even modals obey the one-bar pattern.
+- Multi-column grids inside dialogs (Edit Profile Q&A rows: `1fr 1fr 154px auto`; Settings credit grid: 2 columns) collapse to a single column.
+- Scrim-click closing is disabled for full-screen takeovers (there is no visible scrim); `✕`/back and Esc remain.
+
+Banners and toasts: at ≥ 768 toasts stack top-right (max 3 visible, newest on top); at < 768 they render full-width at the top, one at a time. The location-suggestion and system-announcement banners are full-width bars directly under the AppBar at every size.
+
+##### 8.2 Popup inventory (contents, close paths, per-size notes)
+
+| Popup | id / key testids | Class | Contents (controls) | Close paths | Narrow-width notes |
+|---|---|---|---|---|---|
+| Create Room | `custom-room-name-input`, `custom-room-submit-btn` | S | type select (community/business — business reveals headline input, maxlength 120), name (2–80, required), description (≤500, optional), capacity (1–50000, optional) | Cancel · scrim · submit (name < 2 ⇒ warning toast, stays open) | bottom sheet |
+| Rename Room | `rename-custom-room-input` | S | name input prefilled (2–80) | Cancel · scrim · submit | bottom sheet |
+| Edit Stage Name | `stage-name-input`, `save-stage-name-button` | M | name input (3–50, required); too-short ⇒ inline error, stays open | Cancel · submit | bottom sheet |
+| Edit Profile | `settings-edit-profile-button` opens; `profile-languages-select` | L | language checkboxes; headshot choices; profile Q&A rows (question, answer, visibility select public/contacts/private, remove) + add row | Cancel · Save | full-screen takeover; Q&A rows stack |
+| Camera capture | `settings-camera-capture-modal`, `settings-camera-capture`, `settings-camera-cancel` | S | live `<video>` preview, Capture, Cancel; permission-denied ⇒ status text + error toast, modal never opens | Capture (→ Photo preview) · Cancel | bottom sheet; video letterboxed |
+| Photo preview | `settings-photo-preview-modal`, `-confirm`, `-cancel` | S | image preview, Save, Cancel | Save · Cancel | bottom sheet |
+| Talk Editor | `#talk-editor-modal` | XL | title (req), language select, type radios ×4 (tag/flow/survey/route — switching swaps question area), tag-like checkbox (tag only), questions container + Add Question, route DAG editor (`route-branch-*`), expiration (forever/1y/1M/1w/1d), location radius (anywhere/10/100/1000 mi), Send-to-Chatroom checkbox (create only), 🔞 adult checkbox, validation-error + autofix banners | Cancel · Create/Save (validation blocks submit, errors shown inline) | full-screen takeover; route editor scrolls internally |
+| Talk Response | `#talk-response-modal`, `close-response-btn`, `back-question-btn` | M | tag: single match checkbox + Submit; flow/route: one question per step with answer buttons + Back; survey: sequential questions; review screen (620): pre-filled radios, "(pre-filled)" tags, superseded banner, Edit-manually + Confirm | Submit path · close · scrim | bottom sheet; answer options full-width |
+| Survey stats | `survey-stats-button` opens | L | per-question response counts/funnel | close · scrim | full-screen takeover |
+| My Talks | `close-my-talks-modal` | L | per-talk cards: role + type badges, last interaction, talk id, broadcast enable/disable toggle | `✕` · scrim | full-screen takeover |
+| Preferences (My Answers) | `close-preferences-modal` | L | per answered question: answer select (all options) + mode select (ask again / auto once / always auto / skip) | `✕` · scrim | full-screen takeover |
+| Send-My-Talks picker | `peer-send-picker-modal`, `confirm-send-picker`, `cancel-send-picker` | S | eligible talks as checked checkboxes; omitted talks with reasons (read-only); confirm disabled when none eligible | Confirm · Cancel · `✕` · scrim | bottom sheet |
+| Relationship editor | `contact-relationship-modal`, `close-contact-relationship-modal` | S | relationship label (friend/relative/coworker/acquaintance/partner/custom + custom label), credit panel | `✕` · Close btn · scrim | bottom sheet |
+| Broadcast preamble | `broadcast-preamble-modal`, `-send`, `-cancel` | S | preview of what will broadcast; Send / Cancel | Send · Cancel · scrim | bottom sheet |
+| Block confirm (peer) | via `peer-block-user-btn` | S | confirm text, Block / Cancel; warns + offers cluster-wide block when the target has linked identities (§10.2) | either button | bottom sheet |
+| Link-device code | `link-device-code-modal`, `link-device-code`, `link-device-copy` | S | link code + QR + expiry countdown + Copy | Done · scrim · auto-close on expiry | bottom sheet; QR scales to width |
+| Enter link code | `enter-link-code-modal`, `enter-link-code-input`, `enter-link-code-submit` | S | code input; inline error (expired / invalid / reused) | Cancel · scrim · submit | bottom sheet |
+| Unlink confirm | `unlink-device-confirm` | S | device summary, Unlink / Cancel | either button | bottom sheet |
+| Erase confirm | `erase-device-modal`, `erase-confirm-input`, `erase-device-btn`, `erase-sync-first-btn` | M | warning text, type-`ERASE` input (erase button disabled until it matches), "Save to ⟨device⟩ first" (when linked + online) / link-now offer / erase-without-saving | Cancel · scrim (Esc only before typing) · erase | bottom sheet; buttons stacked, erase last |
+| Sync progress | `erase-sync-progress-modal`, `erase-sync-done` | S | per-category progress (profile, contacts, filters, answers, talks, conversations), receiving-device acknowledgment state | auto-advance to Erase confirm on ack · Cancel (aborts sync, no erase) | bottom sheet |
+
+Every popup keeps its listed testids after the redesign (Execution gate in the companion doc). Any popup not in this table is out of scope for v1 and must be added here before being built.
+
+#### 9. Content filters v2 — dirty-word and grammar enforcement on messages
+
+Today `ContentFilter` (`src/shared/reputation.ts`) only gates **incoming talks** (via `talkPassesIntakeFilters`), its word list is hardcoded (`latinBlockedWords`), and DMs/threads are never filtered. This section makes both filters real for **messages** in both directions.
+
+##### 9.1 Dirty-word filter
+
+- **Default word list:** `fuck`, `cunt`, `bitch`, `cock` — seeded into a new user-editable list, merged at match time with the existing built-in spam/CJK terms in `ContentFilter`. Matching stays whole-word on NFKC-lowercased text (the existing `containsDirtyWords` tokenizer), so "cocktail" does not match `cock`.
+- **Word-list editor** lives on the **Dirty-word filter Settings page** (the page already planned in the target IA with its explicit open/close control). Controls: the enable/disable toggle (`settings-dirty-words-filter`), the current list rendered as removable chips (`dirty-word-chip`, each with a remove ✕), an add-word input + Add button (`dirty-word-add-input`, `dirty-word-add-btn`), and **Reset to defaults** (`dirty-word-reset-btn`). Validation reuses the `normalizeCustomBlockedTerms` rules: 2–48 chars, lowercased, deduped, max 50 entries; duplicates and too-short entries are rejected with an inline message. Stored as a new `dirtyWords: string[]` field on `TalkIntakeFilters` (SEA-private like the rest), separate from `customBlockedTerms` (which remains the talk-phrase blocker).
+- **Enforcement when enabled** — applies to the DM Conversation, per-talk Threads (§5), and the peer DM composer, in both directions:
+  - **Send:** the composer's send action runs the filter first. On a hit the message is **not sent**; a warning toast fires — "Message not sent: contains a blocked word ('X')" (`data-content-filter-notification="send"`); the composer keeps the text for editing.
+  - **Receive:** the receiver's device checks each incoming message before rendering (receiver-side, consistent with the P2P model — the message exists in the pair's Gun graph but is never displayed). A hidden message triggers one warning toast — "A message was hidden by your dirty-word filter" (`data-content-filter-notification="receive"`) — and a collapsed "1 message hidden by your filters" placeholder row in the thread (no content shown; tapping it does nothing while the filter is on).
+  - Toggling the filter **off** reveals previously hidden messages (they were stored, only suppressed at render) and stops both checks.
+- The sender is never told the receiver filtered them (receiver-side privacy); the sender-side block is purely about the sender's own outgoing content.
+
+##### 9.2 Grammar filter
+
+Same shape, same enforcement points, driven by the existing `assessGrammar` score against `CONFIG.GRAMMAR_THRESHOLD`:
+
+- The **Grammar filter Settings page** keeps its enable/disable control (`settings-grammar-filter`); no editable list — instead it shows a short explanation and the strictness (read-only in v1, from `CONFIG`).
+- **Send:** an outgoing message scoring below threshold is blocked with a warning toast "Message not sent: failed the grammar check" (`data-content-filter-notification="grammar-send"`), text preserved.
+- **Receive:** below-threshold incoming messages are hidden with the same placeholder-row + toast pattern (`grammar-receive`).
+
+##### 9.3 Shared rules
+
+- Both filters keep their existing role on incoming **talks** unchanged; this section only adds the message path. One shared helper (e.g. `filterOutgoingMessage` / `filterIncomingMessage` in `src/shared/`) is used by the conversation send path, the thread reply path, and the peer DM composer — never duplicated per call site (same invariant style as the match engine).
+- The block/hide toasts are ordinary §4 toasts (warning type, 3s auto-dismiss) and carry the `data-content-filter-notification` attribute for e2e.
+- Empty user word list + filter enabled = built-ins only; filter disabled = no message checks at all, regardless of list contents.
+
+#### 10. Multi-device identity linking
+
+**Principle (decision, 2026-07-13):** a person who runs the app on multiple devices has a **different identity (SEA keypair) on each device** — keys are generated locally and never exported or copied between devices (consistent with the key-custody model, `stage1/00-p2p-sea-key-custody`). What gets developed is a way to **link** those identities into one person cluster. This replaces the former open question "same identity on two platforms?" — the answer is no; linking is the mechanism.
+
+**Non-goal for now (decision, 2026-07-13):** the inverse — **one person managing multiple identities on a single device** (profile switching) — is a **low-priority future item**. The v1 model stays strictly one identity per device install; nothing in §10/§11 (attestations, archives, erase) may assume otherwise, but no switching UI is designed or built until it's prioritized.
+
+##### 10.1 Linking flow
+
+1. On device A (existing identity): Settings → **Linked devices** → **Link a device** — shows a short-lived **link code** (and QR of the same payload): device A's pub key + a one-time pairing secret + expiry (~5 min), with a countdown.
+2. On device B: Settings → Linked devices → **Enter link code** (or scan). B verifies the secret, then both devices write **mutual signed link attestations** to Gun — `identity-links/<pubA>/<pubB>` signed by A and `identity-links/<pubB>/<pubA>` signed by B. A link exists only when **both** attestations are present and verify (one-sided claims are ignored).
+3. Either device can **Unlink** at any time (confirm dialog); unlinking writes a signed revocation that supersedes the attestation. Expired, reused, or malformed codes are rejected with an inline error.
+
+##### 10.2 v1 semantics of a link
+
+- **Public effect:** linked identities are attested as the same person; a peer viewing either identity's User layout sees a "also on N other devices" line, and the Contacts list **merges linked identities into one contact row** (expandable to per-device identities).
+- **What does NOT merge in v1:** message history and conversations stay per device-pair (P2P, device-local Gun); reputation stays per identity (aggregation is a flagged open question); blocks apply per identity but blocking one linked identity **warns** the blocker and offers to block the whole cluster.
+- Stage name may differ per device; the cluster displays the most recently updated one as primary.
+
+##### 10.3 Same-device linking (app ↔ browser on one phone or computer)
+
+When the native app and the web browser run on the **same device** (iPhone/Android especially, but also desktop), typing a code from another screen is needless friction. Easier paths, same attestation protocol underneath (§10.1 — only the code delivery changes):
+
+- **Mobile (iPhone/Android):** the app's Linked devices page offers **"Link this device's browser"** — it opens iinpublic.com in the browser with the pairing payload in the URL fragment (`iinpublic.com/#link=…`; the fragment never reaches any server), and the web session auto-completes the link after one confirmation tap. The reverse direction: the website shows **"Open in app to link"** using the app's universal/app link with the same payload. Fallback for both: **Copy link code** to the clipboard, paste in the other side's Enter-code dialog.
+- **Desktop (Electron webapp + browser on the same machine):** the webapp's embedded node listens on loopback (`IINPUBLIC_LOCAL_PORT`); the browser session detects it, and the Linked devices page shows a one-click **"Link with the app on this computer"** — the handshake runs over localhost, no code shown at all.
+- **Data sharing after linking** on the same device uses the same encrypted handoff archive as §11.2, but transfers locally (loopback / same hub), so "move my browser data into the app" (or the reverse) is one tap from the Linked devices page: **"Copy my data to ⟨other side⟩"**.
+- One-time payloads expire and are single-use exactly like typed codes; a link opened twice fails with the same reused-code error.
+
+##### 10.4 GUI
+
+- **Linked devices page** (new Settings itemized row, transition S8): list of linked identities — stage name, platform glyph, linked date, per-row **Unlink**; actions **Link a device**, **Enter link code**, and the context-aware same-device shortcuts from §10.3 (**Link this device's browser** / **Open in app to link** / **Link with the app on this computer**, shown only when applicable) plus per-link **Copy my data to ⟨other side⟩**.
+- Three new popups (all size class **S**, §8 rules apply): **Link-device code dialog** (code + QR + countdown + copy), **Enter-code dialog** (input + inline error for expired/invalid), **Unlink confirm**.
+- e2e requires the cross-platform harness (companion doc Part 6, revised X3): linking is most meaningful website ↔ webapp.
+
+#### 11. Public-device exit — sync-then-erase
+
+Decentralized reality: there is **no server login/logout**. Visiting iinpublic.com from a public/library PC creates a device-local identity (SEA keypair + Gun data + localStorage) that would otherwise **stay on that PC** for the next person to find. The app must offer a clean exit.
+
+##### 11.1 Erase this device
+
+- New Settings itemized row **"Erase this device"** (danger zone, last row before Development settings; transition S9). It opens the **Erase confirm dialog**: a plain-language warning ("this removes your identity and all data from this computer; without a sync it is gone forever"), a **type-to-confirm** input (type `ERASE`), and the sync offer (§11.2) when available.
+- On confirm, the app: (1) writes best-effort **signed link revocations** for any linked identities (§10) while still online, (2) destroys the SEA keypair, (3) clears **all** device storage — localStorage, IndexedDB/Gun radata, caches, session state — and (4) reloads to a **fresh boot**: the next person gets a brand-new auto-created identity (user creation is automatic, layout H2) with none of the previous person's data reachable.
+- Honest limits, stated in the dialog: records already published to the shared graph (public user record, broadcast talks, delivered messages on peers' devices) are not recalled — erasing destroys the key, making the old identity permanently unusable, and marks it retired.
+
+##### 11.2 Save & synchronize first (when a linked personal device is online)
+
+- If the device is **linked** (§10) and a linked personal device is currently online, the Erase dialog leads with **"Save to ⟨device⟩ first"**. If unlinked, it offers to run the §10 linking flow now ("link your phone to keep your data"); if no linked device is online, it says so and allows **Erase without saving** (extra warning).
+- **Sync = encrypted handoff archive**: the public-PC identity's private data — profile, contacts/known people, talk filters + dirty-word list, answer preferences, my-talks, and this device's conversation/thread history — is packaged, **encrypted to the personal device's pub key**, and transferred over the existing P2P channel. A **Sync progress dialog** shows per-category progress and ends in a verifiable "saved to ⟨device⟩" state; erase stays disabled until the archive is acknowledged by the receiving device (or the user explicitly skips).
+- On the **personal device**, the archive appears on the Linked devices page as an importable item: **merge per category** (contacts, talks/answers merge into the local identity; conversation history imports as a read-only archive, since those pair-threads belong to the erased identity).
+
+##### 11.3 Rules
+
+- Erase is never reachable in fewer than two deliberate steps (row → typed confirm), is disabled while a sync is in flight, and never appears in the `⋯` overflow (too destructive for a one-tap surface).
+- The full wipe is verifiable: after reload, localStorage and IndexedDB are empty of prior keys, the new identity's pub differs, and no prior contact/talk/conversation is reachable (e2e-asserted).
+
+#### Resolved decisions (v1)
+
+- **Icon system: emoji.** Zero-dependency, matches the existing bottom nav. Revisit SVG sprite only if theming demands it.
+- **Glyphs:** create talk **➕** · broadcast **📣** · return home **🏠** · new room **🆕** · send my talks **📤** · block **🚫** · overflow **⋯** · back **‹**.
+- **Overflow priority** (stays inline longest → first into `⋯`): Chatrooms root: ➕, 📣, 🏠, 🆕. Room detail: ➕, 📣. User layout: 📤 inline; 🚫 always under `⋯` (destructive). Other tabs: ➕ only, never overflows.
+- **Match-notice timeout: 8s** (other toasts keep 3s); still click-to-dismiss, click navigates per §7 N6.
+- **Filter controls** (Talks, Contacts, triage panel, Me): inline at ≥ 768px; below that they collapse into a single "Filters ▾" disclosure panel under the AppBar (same principle as `⋯`; each control keeps its id/testid inside the panel).
+
+#### Suggested implementation order
+
+1. Build `app-bar.ts` (the shared top bar + overflow menu) with tests for the narrow-width collapse.
+2. Migrate the **Chatrooms** tab to it (list root + room detail), converting the three buttons to icons. Keep `data-testid`s.
+3. Fix notifications: universal auto-dismiss in `showNotification()`.
+4. Build the shared **peer/contact detail** renderer; migrate both entry points to it; move actions to the app bar; merge the messaging area.
+5. Migrate remaining tabs (Contacts, Talks, Me, Settings) to the app bar for full consistency.
+6. Full pass: run `npm run health` (type-check + lint + unit + integration + build) and the affected E2E specs; visually verify narrow-width overflow on each screen.
+
+#### Files likely touched
+
+- `src/web/ui/ui-manager.ts` — shell template, `showNotification`, wiring.
+- `src/web/ui/app-bar.ts` — **new** shared top bar component.
+- `src/web/ui/chatrooms-view.ts` — chatroom list/detail bars.
+- `src/web/ui/user-detail-view.ts` + `src/web/ui/contacts-view.ts` — unified peer/contact detail.
+- `src/web/ui/conversations-view.ts` — messaging area reuse.
+- `src/web/styles/main.css` — app-bar, icon, and overflow-menu styles; remove old `.tab-action-bar` rules.
+- `src/web/ui/ui-translations.ts` — labels/tooltips for the new icon actions and overflow menu.
+
+
+### 26.2 Layout Catalog, Coverage & Test Plan (source: `gui-layout-catalog-and-e2e-plan.md`)
+
+### GUI Layout Catalog, E2E Coverage & Test Plan
+
+Companion to `docs/gui-redesign-plan.md`. Six parts: (1) a catalog of every existing screen/layout grouped by function (with the full layout tree and navigation graph in 1B), (2) how well each is covered by the current 139-spec Playwright suite, (3) the e2e test plan the redesign must ship with, (4) the stage-based functional plan organized by user count, (5) the exhaustive per-control option matrix that pins every user-facing option to a covering spec, and (6) the platform × screen-size × cross-platform matrix.
+
+Coverage was measured by counting `tests/e2e/**/*.spec.ts` files that reference each screen's identifying selector/testid. Counts are "how many spec files touch this surface," not assertion depth. Legend: **Strong** ≥8 · **Good** 4–7 · **Thin** 1–3 · **None** 0.
+
+---
+
+#### Part 1 — Layout catalog (by functionality)
+
+##### A. App shell & global chrome
+| # | Layout | Key selector / builder | Coverage | Spec count |
+|---|---|---|---|---|
+| A1 | Bottom navigation bar | `.bottom-nav` / `.nav-btn` / `bottom-navigation-button-*` | Strong | 88 |
+| A2 | Top header (title + status + `➕`) | `#top-header` / `#header-status` / `#create-talk-btn` | Good (via tab flows) | ~9 |
+| A3 | Per-view action bar (row 2) | `.tab-action-bar` (`chatroom/contacts/talks/me/settings`) | Good | — |
+| A4 | Toast notifications | `.notification`, `showNotification()` | Good | 7 |
+| A5 | Location-room suggestion banner | `showLocationRoomSuggestion()` / `#location-room-suggestion` | Thin | ~1 |
+| A6 | System announcement banner | `showSystemAnnouncement()` / `#system-announcement-*` | None | 0 |
+
+##### B. Chatrooms
+| # | Layout | Key selector / builder | Coverage | Spec count |
+|---|---|---|---|---|
+| B1 | Chatroom list (hierarchy tree) | `#chatroom-list` / `chatrooms-view.ts renderChatroomList` | Moderate | 4 |
+| B2 | Chatroom detail (members + metadata) | `#chatroom-detail-container` / `#chatroom-members-list` / `#current-chatroom-title` | Good | 6 |
+| B3 | Create custom chatroom dialog | `showCreateCustomChatroomDialog()` / `create-custom-chatroom-btn` | Thin | 2 |
+| B4 | Rename custom chatroom dialog | `showRenameCustomChatroomDialog()` | Thin | ~1 |
+| B5 | Broadcast action + bulk ack | `#broadcast-talk-btn` / `#broadcast-bulk-ack` | Good | ~7 |
+
+##### C. Contacts & peers
+| # | Layout | Key selector / builder | Coverage | Spec count |
+|---|---|---|---|---|
+| C1 | Contacts list (filters/sort) | `#contacts-list` / `displayContactsList` | Strong | 16 |
+| C2 | Contact detail (talks with user) | `#contact-detail-container` / `#contact-talks-list` | Thin | 2 |
+| C3 | Contact relationship modal | `close-contact-relationship-modal` / relationship label | Strong | 10 |
+| C4 | **Peer detail overlay (one-on-one)** — the messy screen | `#peer-detail-overlay` / `peer-dm-input` / `peer-send-talks-btn` / `peer-block-user-btn` | Good | 7 |
+| C5 | Send-My-Talks picker (inside peer) | `confirm-send-picker` / `send-picker` | Thin | 1 |
+
+##### D. Talks
+| # | Layout | Key selector / builder | Coverage | Spec count |
+|---|---|---|---|---|
+| D1 | Talks view (All/IN/OUT + filter bar) | `#talks-view` / `.talks-nav-btn` / talks filters | Strong | 9 |
+| D2 | Creator "Replies To My Talks" triage panel | `#creator-replies-panel` / `reply-filter-*` | Good | ~4 |
+| D3 | Talk editor dialog (create/edit, 4 types) | `#talk-editor-modal` / `showTalkEditorDialog` | Strong | 33 |
+| D4 | Talk response dialog (answer incoming) | `#talk-response-modal` / `showTalkResponseDialog` | Strong | 8 |
+| D5 | My Talks dialog | `#close-my-talks-modal` / `showMyTalksDialog` | Thin | 1 |
+| D6 | Talk completion notice | `showTalkCompletion()` | Thin | ~1 |
+
+##### E. Conversations / messaging
+| # | Layout | Key selector / builder | Coverage | Spec count |
+|---|---|---|---|---|
+| E1 | Conversations list (Me tab) | `#conversations-list` / `displayConversationsList` | Good | ~5 |
+| E2 | Conversation detail overlay (chat) | `#conversation-detail-overlay` / `#conversation-message-input` / `#conversation-user-name` | Strong | 10 |
+
+##### F. Me / profile
+| # | Layout | Key selector / builder | Coverage | Spec count |
+|---|---|---|---|---|
+| F1 | Me view (profile summary + reputation) | `#me-view` / `.me-talk-type-filter` | Good | 7 |
+| F2 | Answer history list + search | `answers-view.ts` / `#me-answers-search` | Thin | 2 |
+| F3 | Edit stage name dialog | `stage-name-input` / `save-stage-name-button` | Strong | 23 |
+| F4 | Edit profile dialog (languages/profile) | `showEditProfileDialog` / `settings-profile-languages` | Good | 5 |
+
+##### G. Settings
+| # | Layout | Key selector / builder | Coverage | Spec count |
+|---|---|---|---|---|
+| G1 | Settings view (stage name, photo, languages, distance, filters) | `#settings-view` / `#settings-content` | Strong | 23 |
+| G2 | Camera capture modal | `#settings-camera-capture-modal` / `settings-camera-capture` | Thin | 1 |
+| G3 | Photo preview / confirm modal | `settings-photo-preview-confirm/cancel` | Thin | 1 |
+| G4 | Preferences dialog | `#close-preferences-modal` / `showPreferencesDialog` | Thin | 1 |
+| G5 | Intake-filter controls (language/distance/content) | `settings-filter-*` | Good (via intake specs) | ~6 |
+
+##### H. Identity & gating
+| # | Layout | Key selector / builder | Coverage | Spec count |
+|---|---|---|---|---|
+| H1 | Age verification / gating | age-gate / `vouchAgeVerified` / `ageVerified` | Good | 3 |
+| H2 | User creation (automatic, no modal) | `showUserCreationDialog()` (no UI) | n/a | — |
+
+---
+
+#### Part 1B — Full layout tree, page count & navigation graph
+
+This is the **target** information architecture (the redesign's intended tree), not just today's DOM. It formalizes the structure requested: 5 tabs off the main page, people and conversations shared between Chatrooms and Contacts, Talks and Me sharing the editor, and a restructured Settings where only stage name + headshot are "profile" and everything else is an itemized, individually-openable setting page.
+
+##### Tree
+
+```
+Main App  ── persistent bottom nav: 5 tabs ──────────────────────────────
+│
+├─ 1. CHATROOMS
+│   └─ Chatroom list  (hierarchy: Global ▸ Region ▸ City; expand/collapse)
+│       ├─ Create Room            (page)
+│       ├─ Rename Room            (page)
+│       └─ Room detail            (members + headcount + metadata)  e.g. "Global"
+│           └─ (tap a member → Conversation ⟨SHARED⟩ opens DIRECTLY; back lands on User layout)
+│               User layout ⟨SHARED⟩  (matched-talk thread list, email-style)
+│               ├─ Conversation ⟨SHARED⟩      (default DM thread)
+│               └─ Talk thread ⟨SHARED⟩ ×N    (one reply-able thread per matched talk)
+│
+├─ 2. CONTACTS
+│   └─ Contacts list  (filter by name/relation, sort)
+│       ├─ Relationship editor    (set relation / nickname)
+│       └─ (tap a contact → Conversation ⟨SHARED⟩ opens DIRECTLY; back lands on User layout)
+│           User layout ⟨SHARED⟩  (same screen + threads as via Chatrooms)
+│
+├─ 3. TALKS
+│   └─ Talks list  (All / IN / OUT · sort · filter bar)
+│       ├─ Creator replies triage (Replies To My Talks)
+│       ├─ Talk detail / responses
+│       ├─ Talk Editor ⟨SHARED⟩   (Create / Edit)          ← also from Me
+│       └─ Talk Response          (answer an incoming talk)
+│
+├─ 4. ME
+│   └─ Q&A list  (flattened answers · sort · type/state filters)
+│       ├─ Q&A detail
+│       └─ Talk Editor ⟨SHARED⟩   (Create / Edit a Q&A = talk) ← also from Talks
+│
+└─ 5. SETTINGS
+    ├─ Profile  (top only)  ──────────  stage name + headshot ONLY
+    │   ├─ Edit Stage Name   (page)
+    │   └─ Headshot          (page)  → Camera capture · Photo preview
+    ├─ Itemized settings  (each row opens its OWN page, with open/close where applicable)
+    │   ├─ Profile languages
+    │   ├─ Incoming language filter
+    │   ├─ Distance filter (min / max)
+    │   ├─ Grammar filter          (own page, open/close; blocks sending AND hides
+    │   │                           receiving failing messages — redesign §9.2)
+    │   ├─ Dirty-word filter       (own page, open/close + word-list editor: defaults
+    │   │                           fuck/cunt/bitch/cock, add/remove chips, reset;
+    │   │                           blocks sending AND hides receiving — redesign §9.1)
+    │   ├─ Sent-after / cutoff
+    │   ├─ Location  (refresh / auto-assign)
+    │   ├─ Travel mode
+    │   ├─ Age verification
+    │   ├─ Linked devices  (per-device identities linked into one person cluster —
+    │   │                   link code / QR, enter code, unlink; redesign §10)
+    │   ├─ Feature toggles / preferences
+    │   └─ Erase this device  (danger zone: public-PC exit — optional encrypted sync
+    │                          to a linked device, then full local wipe + fresh
+    │                          identity for the next person; redesign §11)
+    ├─ Credit / Reputation   (read-only submenu)
+    └─ Development settings   (at end)
+
+Auxiliary overlays (not primary tree; float over any screen):
+  · Toast notifications (auto-dismiss)     · Send-My-Talks picker
+  · My Talks dialog                        · Location-room suggestion banner
+  · System announcement banner
+```
+
+##### Page count
+
+Counting **distinct page/layout types** (shared nodes counted once):
+
+| Group | Pages | Count |
+|---|---|---|
+| Tab roots | Chatrooms list, Contacts list, Talks list, Me (Q&A) list, Settings root | 5 |
+| Chatrooms | Room detail, Create Room, Rename Room | 3 |
+| Contacts | Relationship editor | 1 |
+| Shared people/messaging | User layout, Conversation, Talk thread (per matched talk) | 3 |
+| Talks | Creator replies triage, Talk detail/responses, Talk Response | 3 |
+| Shared editor | Talk Editor (Talks + Me) | 1 |
+| Me | Q&A detail | 1 |
+| Settings · profile | Edit Stage Name, Headshot, Camera capture, Photo preview | 4 |
+| Settings · itemized | languages, incoming-language, distance, grammar, dirty-word, cutoff, location, travel, age-verify, linked devices, feature toggles, erase this device | 12 |
+| Settings · read-only | Credit / Reputation | 1 |
+| Settings · dev | Development settings | 1 |
+| **Primary pages subtotal** | | **35** |
+| Auxiliary overlays | notifications, send-talks picker, My Talks dialog, location-suggestion banner, system-announcement banner | 5 |
+| App shell | bottom-nav frame | 1 |
+| **Grand total** | | **≈ 41** |
+
+So: **35 distinct primary pages**, plus the shell and ~5 floating overlays ≈ **41 navigable layouts**. (Instance counts are unbounded — one Room/User/Conversation/Thread/Talk page type renders per room, per user, per thread, per matched talk.)
+
+##### Navigation graph — pages travel to and from one another
+
+The tree is a hierarchy, but several nodes are **shared destinations reachable from multiple parents**, and each stacks a back-path to wherever it was entered from:
+
+- **Conversation-first entry (redesign §5, rule N2a).** Clicking a user from **(a) a Chatroom room's member list** or **(b) the Contacts list** opens the **default DM Conversation directly**; the User layout is pushed underneath it, so back goes Conversation → User layout → opener. The same underlying thread must resolve to the same Conversation regardless of entry point.
+- **User layout ⟨SHARED⟩** is one component, identical from both entry points (redesign §5). Its body is the **matched-talk thread list** (email-style: talk title as subject, latest reply snippet, timestamp, unread badge) plus the relationship/stats header and the DM entry.
+- **Talk thread ⟨SHARED⟩ ×N** — each matched talk expands from the User layout into its own reply-able Conversation page scoped to that talk; back returns to the User layout. Threads use the same Conversation component as the DM, keyed by `conversationId + talkId`. (Conversations are reached *through people*; the Me tab no longer hosts a standalone conversation list — that relocates under the user layout.)
+- **Talk Editor ⟨SHARED⟩** is reachable from **Talks** (create/edit a talk) and from **Me** (create/edit a Q&A, which is a talk) — same editor, **context differs**: Talks opens it in talk-authoring context, Me opens it seeded from the answer/Q&A context.
+- **Talk Response** is reached from an **incoming-talk entry point** (Talks ▸ IN, or a talk-received notification).
+- **Settings itemized pages** each open from the Settings root and close back to it; **Grammar filter** and **Dirty-word filter** are their own pages with an explicit **open/close (enable/disable)** control plus their configuration, not inline toggles.
+
+**Traversal contract (used by the e2e plan below):** every stage must visit every tree page reachable given the users present, and must exercise the shared-destination edges — click a user from *both* Chatrooms and Contacts and land directly on the same Conversation, back out to the same User layout from both, open at least one per-talk Thread from the User layout and reply in it, and open the Talk Editor from *both* Talks and Me.
+
+---
+
+#### Part 2 — Coverage summary
+
+**~30 distinct layouts.** By band:
+
+- **Strong (≥8 specs):** bottom nav, talk editor, settings view, edit stage name, contacts list, relationship modal, conversation detail, talks view, talk response. → The core matching/messaging path is well protected.
+- **Good (4–7):** chatroom detail, peer detail overlay, me view, edit profile, notifications, broadcast, creator-replies, conversations list, age gating.
+- **Thin (1–3) — the fragile tail, usually one spec each (often the single mega-spec `stage1/00-ui-navigation-settings.spec.ts`):** create-room dialog (2), rename-room (1), contact detail (2), send-talks picker (1), My Talks dialog (1), preferences dialog (1), camera modal (1), photo-preview modal (1), answer history (2), talk completion (1), location-suggestion banner (1).
+- **None (0):** system announcement banner; and — critical for this redesign — **the responsive overflow / `⋯` more-menu behavior does not exist yet, so it has zero coverage.**
+
+**Key risks for the redesign:**
+1. Many "Thin" screens lean on one spec, and several of those pile into `stage1/00-ui-navigation-settings.spec.ts`. Refactoring the shell can break that file broadly; per-screen specs would localize failures.
+2. **Narrow-width overflow is brand-new behavior with no test.** This is the single biggest new-coverage gap the redesign introduces.
+3. The peer↔contact "same layout" unification (redesign §5) has no test asserting the two entry points render an equivalent screen.
+
+---
+
+#### Part 3 — E2E test plan for the redesign
+
+Organized by redesign change (see `gui-redesign-plan.md` §1–6). **New** = spec to add; **Update** = extend/adjust an existing spec. Priority P0 (blocker) → P2 (nice-to-have). New specs follow the repo convention: a `.spec.ts` plus a plain-English companion `.md`.
+
+##### T1 — Shared AppBar component (redesign §1, §6)
+- **New** `stage1/50-appbar-layout.spec.ts` (P0): the single top bar renders on every tab; exactly one bar (assert the old stacked `#top-header` + `.tab-action-bar` double-row is gone); left zone shows title at list root and a back **icon** inside a sub-view; center status text present and truncates; right zone shows action icons.
+- **New** `stage1/51-appbar-actions.spec.ts` (P0): each action icon fires the same handler as before and preserves its `data-testid` (`create-custom-chatroom-btn`, `return-home-btn`, `broadcast-talk-btn`, create-talk). Back icon returns to the parent list from chatroom detail, peer detail, conversation, contact detail.
+
+##### T2 — Responsive overflow "⋯" menu (redesign §2) — *highest-value new coverage*
+- **New** `stage1/52-appbar-overflow-responsive.spec.ts` (P0): drive `setViewportSize` across a width matrix (e.g. 1024 / 768 / 390 / 320). At wide width all icons are inline and no `⋯`; as width shrinks, lowest-priority icons move into the `⋯` menu (assert inline count decreases and the moved actions appear as labeled menu items); every action remains invocable from the menu and still triggers its handler. Assert priority order (create-talk stays longest, etc.).
+- **Update** `stage1/25-mobile-viewport-navigation.spec.ts` + `stage1/33-mobile-chatroom-hierarchy.spec.ts` (P1): confirm chatroom actions are reachable via `⋯` at mobile width.
+
+##### T3 — Chatrooms single-bar migration (redesign §2, §3)
+- **Update** `stage1/00-ui-navigation-settings.spec.ts` (P0): re-point "New Room / Return Home / Broadcast" assertions from text buttons to icon buttons (via `data-testid`, so most assertions survive).
+- **Update** `stage5/13-chatroom-scroll-and-broadcast-bar.spec.ts` (P0): broadcast is now a top-bar icon; assert visibility/enablement logic (`syncStatusBroadcastButtonVisibility`) still holds.
+- **New** `stage1/53-chatroom-back-icon.spec.ts` (P1): entering a room swaps the left zone to a back icon; clicking it returns to the tree; `return-home` enable/disable state is correct in both contexts.
+
+##### T4 — Notification auto-dismiss (redesign §4)
+- **New** `stage1/54-notification-autodismiss.spec.ts` (P0): every toast type (info/success/warning/error **and** the "Match!" notice) disappears within its timeout without a click; match notice still carries `data-match-notification` and is still click-to-dismiss before timeout.
+- **Update** `stage1/00-ui-navigation-settings.spec.ts` and `stage2/30-messaging-read-state.spec.ts` (P0): adjust any assertion that assumed the match banner persists indefinitely; badge assertions unchanged.
+
+##### T5 — Unified peer / contact detail (redesign §5)
+- **New** `stage2/60-peer-contact-layout-parity.spec.ts` (P0): open the same user from (a) a chatroom member row and (b) the Contacts tab; assert both render the shared detail component with the same structural regions (header, messaging area, talk history) in the same order.
+- **New** `stage2/61-peer-actions-in-appbar.spec.ts` (P0): Block User and Send-My-Talks are top-bar icons (in-bar or under `⋯`); each still works (`peer-block-user-btn`, `peer-send-talks-btn`, `confirm-send-picker` testids preserved). Block still stops delivery — cross-check with `stage2/15b-blocking-*`.
+- **New** `stage2/62-peer-messaging-merged.spec.ts` (P1): the conversation list ("Open Chat") and the message composer live in one merged messaging area; opening a chat and sending a message both work from that single region (ties into the recently-fixed stale-name + new-message-toast behavior).
+- **Update** `stage2/00e-chatroom-peer-detail.spec.ts` (P0): re-point selectors to the new layout.
+
+##### T6 — Regression protection for the "Thin" tail (before migrating them)
+Add focused specs so shell refactors don't silently break single-spec screens:
+- **New** `stage1/55-create-and-rename-room.spec.ts` (P1) — B3/B4.
+- **New** `stage1/56-my-talks-dialog.spec.ts` (P1) — D5.
+- **New** `stage1/57-preferences-dialog.spec.ts` (P2) — G4.
+- **New** `stage1/58-answer-history.spec.ts` (P2) — F2 (beyond the current search-only spec).
+- **New** `stage2/63-send-talks-picker.spec.ts` (P2) — C5.
+- Camera/photo modals (G2/G3): keep in `stage2/04-profile-edit-stage-name.spec.ts`; add width check that its controls collapse gracefully (P2).
+
+##### T7 — Cross-cutting responsive sweep
+- **New** `stage1/59-responsive-tab-sweep.spec.ts` (P1): extend the existing `00x-tab-sweep-smoke` idea across the width matrix — visit every tab at wide + narrow, assert no horizontal overflow/clipping and that each tab's primary action is reachable (inline or via `⋯`). Add the Chinese-locale variant to mirror `00y`/`00z` so icon+overflow works with longer localized menu labels.
+
+##### T8 — Conversation-first entry + matched-talk threads (redesign §5, rule N2a)
+- **New** `stage2/68-conversation-first-entry.spec.ts` (P0): clicking a user from a room member row and from a Contacts row both land **directly on the Conversation page**; back from the Conversation lands on the User layout; back again returns to the correct opener (room detail vs. Contacts list); both entry paths resolve to the same thread.
+- **New** `stage2/69-matched-talk-threads.spec.ts` (P0): after ≥2 matched talks, the User layout shows one email-style row per matched talk (title, latest-reply snippet, timestamp, unread badge); opening a row shows only that talk's history; sending a reply delivers to the peer's same thread (and only that thread); back returns to the User layout; DM messages never leak into talk threads and vice versa.
+- **New** `stage3/71-thread-isolation-multi.spec.ts` (P1): with 3 users, A↔B threads are invisible to C (pair-private isolation extended to per-talk threads); unread badges count per-thread.
+- **Update** `stage2/62-peer-messaging-merged.spec.ts` (P0): the merged messaging area is now the thread list + DM entry; re-point assertions.
+
+##### T9 — Message content filters: dirty words + grammar (redesign §9)
+- **New** `stage1/70-dirty-word-list-editor.spec.ts` (P0): the Dirty-word filter page shows the default list (fuck/cunt/bitch/cock) as chips; add a word (appears, lowercased); reject <2 chars, duplicates, >50 entries; remove a word; Reset restores defaults; list + toggle persist across reload (SEA-private `dirtyWords` field).
+- **New** `stage2/70-dirty-word-message-blocking.spec.ts` (P0): with the filter **on**, Adam sends "…fuck…" in the DM → not sent, warning toast (`data-content-filter-notification="send"`), composer text preserved, peer receives nothing; a clean message still sends. Receiver side: Adam disables his filter, sends a dirty word; TechSupport (filter on) sees the hidden-message placeholder + `receive` toast, never the content; toggling TechSupport's filter **off** reveals the message. Repeat one send-block + one receive-hide inside a **matched-talk Thread** (T8 surface). Whole-word check: "cocktail" passes.
+- **New** `stage2/71-grammar-message-blocking.spec.ts` (P1): same shape driven by a below-`GRAMMAR_THRESHOLD` message — send blocked with `grammar-send` toast; receive hidden with placeholder + `grammar-receive` toast; filter off ⇒ both directions pass.
+- **Update** `stage3` intake specs: assert the talk-path behavior is unchanged by the message-path work (regression guard).
+
+##### T10 — Multi-device identity linking (redesign §10)
+- **New** `stage1/71-linked-devices-page.spec.ts` (P1): Settings → Linked devices page opens/closes; empty state; **Link a device** shows code + QR + countdown; code expires (clock override) and the dialog auto-closes; **Enter link code** rejects expired/invalid/reused codes with inline errors.
+- **New** `cross-platform/x3-identity-linking.spec.ts` (P0, replaces the old X3): website identity + webapp identity (different SEA keypairs) link via code; both sides show the other in Linked devices; **mutual signed attestations** exist in Gun (one-sided claim asserted to NOT create a link); a third user's Contacts merges the two identities into one row with "also on 1 other device"; **Unlink** from either side revokes and un-merges; blocking one linked identity triggers the cluster-wide-block offer.
+- **New** `cross-platform/x8-same-device-link.spec.ts` (P1): same-device shortcuts (redesign §10.3) — browser session + Electron app on one machine link via the **loopback one-click** path (no code typed); the URL-fragment path (`#link=…`) completes with one confirmation and the payload is single-use (opening the link twice fails with the reused-code error); after linking, **Copy my data to ⟨other side⟩** transfers the handoff archive locally.
+- Regression: key custody unchanged — no private key ever leaves its device (`stage1/00-p2p-sea-key-custody` still passes).
+
+##### T11 — Public-device exit: sync-then-erase (redesign §11)
+- **New** `stage1/72-erase-this-device.spec.ts` (P0): Erase row → confirm dialog; erase button stays disabled until `ERASE` typed; cancel leaves everything intact; confirm with no linked device shows the lost-forever warning; after erase + reload: localStorage/IndexedDB empty of prior keys, **new identity pub differs**, fresh auto-created user, no prior talk/contact/conversation reachable, chatroom headcount reflects only the new identity.
+- **New** `stage2/72-sync-before-erase.spec.ts` (P0): two linked browser identities; Erase on device A offers "Save to ⟨B⟩ first"; sync transfers the encrypted archive (per-category progress; erase disabled until B acknowledges); B's Linked devices page shows the importable archive; B merges contacts + talks/answers (conversation history imports read-only); A erases; B retains everything; A's link shows revoked on B.
+- **New** `cross-platform/x7-sync-then-erase.spec.ts` (P1): same flow website (public PC) → desktop webapp (personal device); abort-mid-sync leaves A intact and un-erased.
+- Guard checks inside both: erase never appears in the `⋯` overflow; sync-in-flight disables erase.
+
+##### Execution & gates
+- Path shorthand: `stageN/…` in this doc means `tests/e2e/staged/stageN-<suffix>/…` (`stage0-bootstrap`, `stage1-single-user`, `stage2-two-user`, `stage3-three-user`, `stage4-four-user`, `stage5-multi-user`).
+- Run per-stage during development; full gate before merge: `npm run health` (type-check + lint + unit + integration + both builds) then the affected E2E subsets, then `npm run test:e2e:parallel` for the full suite.
+- Keep every migrated control's existing `data-testid` to minimize churn; where a control moves into the `⋯` menu, the menu item must reuse the same testid.
+- Priority order to land: **T1 → T2 → T4 → T5 → T8 → T9 → T3 → T6 → T7** (shared component and its brand-new overflow behavior first, then notifications, then the peer/contact unification, the conversation-first/thread model, and the message content filters, then the tail).
+
+##### New-coverage scorecard (target)
+| Redesign area | Coverage today | After plan |
+|---|---|---|
+| Single top bar / AppBar | none (implicit only) | T1 |
+| Responsive `⋯` overflow | **none** | T2, T7 |
+| Notification auto-dismiss | partial/contradictory | T4 |
+| Peer↔contact layout parity | none | T5 |
+| Chatroom icon actions | text-button only | T3 |
+| Thin-tail dialogs | 1 spec each | T6 |
+| Conversation-first entry + talk threads | **none** (new behavior) | T8 |
+| Message dirty-word/grammar filtering + word-list editor | **none** (feature doesn't exist yet) | T9 |
+| Platform / cross-platform coverage | native-app only (3 specs) | Part 6 |
+
+---
+
+#### Part 4 — Stage-based functional e2e plan (organized by number of users)
+
+Part 3 (T1–T10) covers the *redesign mechanics*. Part 4 is the *functional* suite, organized by how many users are present. **Stage number = total concurrent users**, matching the `tests/e2e/staged/stageN-*` directories one-to-one (labels previously counted peers and were off by one; corrected 2026-07-13 — former Stages 2 and 3 were both three-user stages and are merged into the new Stage 3). Each stage builds on the saved state of the prior one (matching the repo's `zzz-save-stageN` pattern). The rule for every stage: **use the Traversal contract from Part 1B** — visit every tree page reachable with the users present, and exercise every function that becomes possible at that user count. The redesign overlay (T1–T10, especially the narrow-viewport `⋯` overflow) is asserted on the relevant screens within each stage rather than only in isolation.
+
+##### Stage 1 — TechSupport only (1 user): exhaustive single-user clickability + baseline
+
+TechSupport must click through **every** reachable item and establish the empty-world baseline.
+
+- **Identity:** boot as TechSupport; assert stage name is exactly `TechSupport`.
+- **Chatrooms:** traverse the full default hierarchy **one room at a time** (Global ▸ each Region ▸ each City); expand/collapse every node; enter each room and **verify headcount** (the room(s) TechSupport occupies show 1; all others show 0); use Return Home; create a custom room, then rename it; confirm Broadcast with an empty OUT list shows the proper guard (no crash).
+- **Contacts:** open Contacts → assert **zero contacts** (empty state); exercise the name/relation filters and every sort option on the empty list (no error).
+- **Talks:** create **3 talks of each type** — tag, flow, survey, route (**12 total**) — using the editor's per-type structure (checkbox items / branching flow / survey questions / route DAG); confirm all appear in OUT; exercise the sort control and every filter (type, status, outcome, date range, text query).
+- **Me:** open Me → assert the flattened **Q&A reflects the 12 created talks** (each talk's questions/answers appear); exercise Q&A sort + type/state filters; **create one new talk from the Me tab** (Me ▸ Talk Editor, one type) and assert it appears in **both** Me and Talks (shared-editor edge).
+- **Settings — walk every page:** Profile shows stage name `TechSupport` + headshot control; open **Edit Stage Name** (open→close), **Headshot** → Camera capture + Photo preview (open→close). Then open each itemized page and back out: profile languages, incoming-language filter, distance min/max, **Grammar filter page (toggle open→close)**, **Dirty-word filter page (toggle open→close)**, cutoff/sent-after, location refresh, travel mode, age verification, feature toggles. Open **Credit/Reputation** and assert it is **read-only**. Open **Development settings**. Assert each page opens, its control responds, and back returns to the Settings root.
+- **Notifications:** any toast raised during the run auto-dismisses (T4).
+
+##### Stage 2 — + Adam (2 users): full two-party talk lifecycle, all types, varied answers
+
+- **Onboard:** Adam boots, sets stage name + profile, lands in Global; **headcount = 2**.
+- **Adam answers all of TechSupport's talks.** For each **same-type triple**, Adam gives **three different answers** (e.g. match / mismatch / ignore, or three distinct branch paths), across all four types.
+- **Verify on Adam's side:** each talk's outcome is recorded (match vs mismatch/ignore); a conversation is created on match and **not** on mismatch/ignore.
+- **Verify on TechSupport's side:** the Creator "Replies To My Talks" triage shows Adam's reply per talk with the correct outcome; matched talks create the conversation.
+- **Messaging + shared destinations (conversation-first):** Adam clicks TechSupport **in the room** and lands **directly on the Conversation**; sends a message; TechSupport gets the new-message toast + badge **without** opening it, then opens and replies; both sides show ordered history. Adam presses back → **User layout** (thread list visible), opens a **matched-talk Thread**, replies in it, back → User layout, back → room detail. Then click TechSupport **from Contacts** (now a contact) and assert it lands on the **same Conversation/thread** (shared-edge + N2a back-chain check).
+
+##### Stage 3 — + Eve (3 users: TechSupport + Adam + Eve): peer↔peer core + network effects
+
+Merged from the former Stages 2 and 3 (both were three-user stages). Where a function already has a two-user variant in `stage2-two-user` (blocking 15b, reputation 21a–c, messaging 29–31), Stage 3 extends it across the Adam↔Eve pair rather than re-testing it.
+
+- **Matching:** both peers create/broadcast talks; cross-answer; verify matches/mismatches on both sides for all types.
+- **Messaging depth:** concurrent-send ordering; unread badge; read-state cursor persistence; history order after reload; offline delivery via mailbox; new-message toast when not viewing the thread.
+- **Layout parity (T5):** open Eve from a **room** and from **Contacts** → identical shared User layout; Block and Send-My-Talks work from the top bar.
+- **Blocking:** Adam blocks Eve → delivery stops + peer hidden; unblock resumes; blocklist persists across restart.
+- **Contacts:** relationship editor (friend/relative/nickname); contact detail talk history; filter by name.
+- **Reputation:** block count, peer star rating, vouch threshold; age-verify vouch flips 18+.
+- **Rename propagation:** Eve renames → the new name shows in the chatroom, the User-layout header, **and** the Conversation header (the recently-fixed stale-name bug).
+- **Multi-responder lifecycles:** one creator, the other two respond per talk for tag / flow / survey / route.
+- **Triage matrix:** Creator reply triage grouped by date and filtered by outcome / stage name across the responders present.
+- **Intake filters end-to-end** with Eve as the distinct third user: language, distance, content (dirty-word/grammar), custom cutoff, talk-type — each filter produces the correct include/exclude; **pair-private isolation** (A↔B messages and talk threads invisible to C).
+- **Network:** contacts network + relationship credit across 3 users; find-similar-people; profile privacy/visibility; chatbot auto-reply + bot badge; ignore-then-change-answer; mismatch paths.
+
+##### Stage 4 — 4 users: capacity + membership integrity
+
+- **Capacity eviction:** the 4th user triggers the room eviction rule; verify resulting headcount and who remains.
+- **Membership pruning:** stale/crash room-membership pruning with 4 members; headcount self-corrects after a peer crash/disconnect.
+
+##### Stage 5 — multi / saturation (5–20 users): scale + broadcast fan-out
+
+- **Broadcast at scale:** super-user broadcasts to 20; every recipient receives; bulk ack; broadcast-bar behavior under scroll.
+- **Spread + mass exchange:** regional capacity spread; mass exchange of each talk type (flow / survey / route) at scale; mesh-only delivery with the server down; presence at scale.
+
+##### Stage coverage matrix (function → stages that exercise it; SN = N concurrent users = `staged/stageN-*`)
+
+| Function area | S1 | S2 | S3 | S4 | S5 |
+|---|:--:|:--:|:--:|:--:|:--:|
+| Every-page clickability sweep | ✓ | | | | |
+| Chatroom hierarchy + headcount | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Create/rename room | ✓ | | | | |
+| Empty contacts state | ✓ | | | | |
+| Create talks (all 4 types) | ✓ | ✓ | ✓ | | ✓ |
+| Talk sort/filter controls | ✓ | | | | |
+| Me Q&A mirror + create from Me | ✓ | | | | |
+| Full Settings page walk | ✓ | | | | |
+| Grammar / dirty-word filter pages | ✓ | | ✓ | | |
+| Dirty-word list editor (defaults/CRUD/reset) | ✓ | | | | |
+| Message content filters (send-block / receive-hide) | | ✓ | ✓ | | |
+| Linked devices page (linking flow: cross-platform X3) | ✓ | | | | |
+| Erase this device / sync-then-erase (X7) | ✓ | ✓ | | | |
+| Credit/Reputation read-only | ✓ | ✓ | | | |
+| Answer talks + outcomes (varied) | | ✓ | ✓ | | |
+| Creator reply triage | | ✓ | ✓ | | |
+| User layout from room + contacts | | ✓ | ✓ | | |
+| Conversation (both entry paths) | | ✓ | ✓ | | |
+| Messaging (order/unread/offline) | | ✓ | ✓ | | |
+| Blocking / unblock / persist | | ✓ | ✓ | | |
+| Reputation (rating/vouch/age) | | ✓ | ✓ | | |
+| Rename propagation everywhere | | ✓ | ✓ | | |
+| Intake filters (lang/dist/content/type) | | | ✓ | | |
+| Pair-private isolation (messages + threads) | | | ✓ | | |
+| Multi-responder lifecycles | | | ✓ | | |
+| Capacity eviction / pruning | | | | ✓ | ✓ |
+| Broadcast fan-out at scale | | | | | ✓ |
+| Mesh-only / server-down delivery | | | | | ✓ |
+| Redesign overlay (T1–T10, `⋯` overflow) | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+---
+
+#### Part 5 — Exhaustive user-option matrix (every control, every value)
+
+Parts 3–4 say *which screens* get specs; this part pins **every user-facing control and every one of its values** to a covering spec, so "all user options are tested thoroughly" is checkable line by line. Selectors are the current ones from `src/web/ui/*`; the redesign must preserve them (Execution & gates).
+
+##### 5.0 Coverage rules (apply to every row below)
+
+- **R1 — Enumerations:** every `<select>` option / radio value / mode button is selected at least once, with an assertion on the rendered effect (list re-orders, rows filtered, form section swaps), not just on the control's value.
+- **R2 — Toggles:** every checkbox/toggle is exercised in **both** directions; where the value persists (intake filters, feature toggles, auto-mode, broadcast enable), assert persistence across reload.
+- **R3 — Text/date filters:** each gets a hit case, a miss case (empty-result state renders, no error), and a clear/reset case.
+- **R4 — Validation guards:** every guard is driven with invalid input and asserted to block with its message (room name < 2, stage name < 3, min > max distance, empty-OUT broadcast, editor validation errors, zero-language / zero-type fallback to defaults).
+- **R5 — Narrow reachability:** each control is reachable and operable at 320px (inline, in the "Filters ▾" panel, or under `⋯` — redesign §8/T2).
+- **R6 — Locale:** rows marked 🌐 run a Chinese-locale variant (mirrors `00y`/`00z`).
+
+##### 5.1 App shell & chatrooms
+
+| Control (selector) | Values / states | Assert | Spec | Stage |
+|---|---|---|---|---|
+| Bottom nav ×5 (`bottom-navigation-button-*`) | each tab, incl. re-tap of active tab | tab root shown; re-tap scrolls to top; sub-view popped (rule N1) 🌐 | T1 `stage1/50` + existing `00x` sweep | 1 |
+| AppBar back icon | from room detail, ⟨User⟩, ⟨Conv⟩, contact origin, Q&A detail, Settings item | pops exactly one level to opener | T1 `stage1/51` | 1–2 |
+| `⋯` overflow | width matrix 320/390/768/1024 | inline count shrinks per priority (➕, 📣, 🏠, 🆕); menu items fire handlers, keep testids 🌐 | T2 `stage1/52` | 1 |
+| Hierarchy node caret | expand + collapse every node | children shown/hidden; no push | **New** `stage1/60-chatroom-hierarchy-walk` | 1 |
+| Room row → detail | one leaf per level + custom room | headcount correct (occupied 1 / others 0) | `stage1/60` + existing headcount specs | 1 |
+| `create-custom-chatroom-btn` → dialog | type=community; type=business (headline appears, filled/empty); description empty/filled; capacity empty/1/50000; name 1 char (R4) / 80 chars; cancel; scrim | created room opened; business headline stored; guard toast on short name | T6 `stage1/55` (extend to full option grid) | 1 |
+| Rename dialog (`rename-custom-room-input`) | valid rename; 1-char (R4); cancel; scrim | new name in list + detail + AppBar center | T6 `stage1/55` | 1 |
+| `chatroom-delete-btn` | owner deletes | back to list; room gone | `stage1/55` | 1 |
+| `return-home-btn` | disabled at home; enabled in travel; click | guard state per context; lands in home room | existing travel specs + T3 `stage1/53` | 1 |
+| `broadcast-talk-btn` → preamble | empty OUT (guard, R4); non-empty: `broadcast-preamble-send` / `-cancel` / scrim | guard toast; send ⇒ `broadcast-bulk-ack`; cancel ⇒ nothing sent | `stage1/55` (guard) · `stage5/13` (send) | 1, 5 |
+
+##### 5.2 Contacts & peers
+
+| Control (selector) | Values / states | Assert | Spec | Stage |
+|---|---|---|---|---|
+| `contacts-filter-name` | hit / miss / clear (R3) | rows filtered; empty state | existing `stage2/34` + **New** `stage2/64-contacts-filter-sort-options` | 2 |
+| `contacts-filter-relation` | **all 7**: all, friend, relative, coworker, acquaintance, partner, custom | only matching relations listed | `stage2/64` | 2 |
+| `contacts-sort-order` | **all 7**: recent, talks, matches, match-rate, weighted, name, relationship | first row changes per known fixture ordering | `stage2/64` | 2 |
+| Empty-list state | every filter+sort on zero contacts | no error, empty message | Part 4 Stage 1 sweep | 1 |
+| Relationship editor | each label incl. custom + custom text; `✕` / Close / scrim | label shown on row; persists after reload (R2) | existing C3 specs + `stage2/64` | 2 |
+| ⟨User⟩ `peer-sort-btn` | date · outcome | history reorders | **New** `stage2/67-peer-history-controls` | 2 |
+| ⟨User⟩ `peer-filter-tab` | all · sent · received | rows filtered by direction | `stage2/67` | 2 |
+| `peer-auto-mode-checkbox` | on ↔ off (R2, persisted) | new talks auto-sent only when on | `stage2/67` | 2 |
+| `peer-send-talks-btn` → picker | all checked (default); deselect subset; deselect all (confirm disabled); omitted reasons rendered; confirm / cancel / `✕` / scrim | only selected talks delivered; omitted never sent | T6 `stage2/63` (extend) | 2 |
+| `peer-dm-input` + `peer-dm-send-btn` | send; empty input (no-op) | message in ⟨Conv⟩ both sides | existing `stage2/09` + T5 `stage2/62` | 2 |
+| User click (member row / contact row) | from room; from Contacts | lands directly on ⟨Conv⟩; back → ⟨User⟩ → opener (N2a) | T8 `stage2/68` | 2 |
+| Matched-talk thread rows | 0 matches (empty state); ≥2 threads; open each; unread badge | email-style row fields; per-thread history isolation | T8 `stage2/69` | 2 |
+| Thread reply composer | send; empty no-op; reply visible to peer in same thread only | no DM↔thread leakage | T8 `stage2/69` · `stage3/71` | 2, 3 |
+| `peer-block-user-btn` | block → confirm; unblock; persists (R2) | delivery stops; hidden; blocklist survives restart | existing `stage2/15b`, `21a` | 2 |
+
+##### 5.3 Talks list, triage, editor, response
+
+| Control (selector) | Values / states | Assert | Spec | Stage |
+|---|---|---|---|---|
+| `talks-nav-all/in/out` | all 3 modes | list scope switches | existing D1 specs | 1–2 |
+| `talks-out-sort-order` | **all 8**: recent, oldest, latest-reply, matches, responses, match-rate, weighted, title | order changes (semantic asserts for reply-dependent sorts at stage 2+) | **New** `stage1/64-talks-filter-sort-options` (+ stage2 semantic pass) | 1, 2 |
+| `talks-filter-query` | hit / miss / clear (R3) | — | `stage1/64` | 1 |
+| `talks-filter-type` | **all 5**: all, tag, flow, survey, route | only that type listed (12-talk fixture: 3 per type) | `stage1/64` | 1 |
+| `talks-filter-completion` | all, unanswered, answered | needs answered data | `stage1/64` (values) · stage2 (semantics) | 1, 2 |
+| `talks-filter-outcome` | all, match, mismatch | needs outcomes | stage2 pass of `64` | 2 |
+| `talks-filter-date-from/-to` | in-range / out-of-range / cleared | — | `stage1/64` | 1 |
+| Triage `reply-filter-outcome` | **all 5**: all, match, mismatch, ignore, auto | rows filtered | **New** `stage2/65-reply-triage-option-matrix` | 2 |
+| Triage `reply-filter-relationship` | **all 8** incl. stranger, custom | — | `stage2/65` | 2 |
+| Triage `reply-filter-type` | all 5 | — | `stage2/65` | 2 |
+| Triage `reply-filter-language` | all + each fixture language | — | `stage2/65` | 2 |
+| Triage `reply-filter-query`, `-from`, `-to` | R3 each | — | existing `stage2/35` + `stage2/65` | 2 |
+| Triage `reply-sort-order` | **all 9**: recent, oldest, user, talk, relationship, matches, talk-matches, talk-replies, weighted | first-row assertion each | `stage2/65` | 2 |
+| Triage `reply-group-order` | **all 5**: none, responder, talk, relationship, day | group headers correct across 3 responders | `stage2/65` (values) · **New** `stage3/70-reply-triage-grouping-multi` (semantics) | 2, 3 |
+| `reply-clear-filters` + active-filter chips | set several → clear | chips render per active filter; clear resets all to defaults | `stage2/65` | 2 |
+| Editor type radios | tag / flow / survey / route | form sections swap (tag-like appears for tag; route editor for route); hint text per type 🌐 | **New** `stage1/67-talk-editor-option-matrix` | 1 |
+| Editor `talk-title` | empty (R4) / valid | required blocks submit | `stage1/67` | 1 |
+| Editor `talk-language` | each offered language | stored on talk; respected by intake filter | `stage1/67` · stage3 intake | 1, 3 |
+| Editor `tag-like-checkbox` | on ↔ off | match/ignore semantics of resulting tag | `stage1/67` + stage2 answer pass | 1, 2 |
+| Editor questions | add ×N, remove, reorder branches; route `route-branch-change/-continue/-preview`; duplicate-question-on-path (R4) | validation errors + autofix banner behavior | `stage1/67` + existing D3 specs | 1 |
+| Editor `talk-expires` | **all 5**: forever, 1y, 1M, 1w, 1d | stored; expired talk not delivered (server-side check at stage 2) | `stage1/67` | 1, 2 |
+| Editor `talk-location-radius` | **all 4**: anywhere, 10, 100, 1000 | stored; distance filtering honors it | `stage1/67` · stage3 intake | 1, 3 |
+| Editor `talk-send-to-chatroom` | on ↔ off; hidden in edit mode | off ⇒ created but not broadcast | `stage1/67` | 1 |
+| Editor `talk-is-adult` 🔞 | on ↔ off | delivered only to age-verified (threshold 3 vouches) | `stage1/67` + existing H1 specs | 1, 2 |
+| Editor Cancel / scrim | with dirty form | closes without creating | `stage1/67` | 1 |
+| Response — tag | checked ⇒ match toast+conversation; unchecked ⇒ ignore toast, no conversation | both paths | existing talks-matching + **New** `stage2/66-talk-response-option-paths` | 2 |
+| Response — flow/route | 3 distinct branch paths per talk (Part 4 Stage 2 rule); `back-question-btn` | outcome per leaf flag | `stage2/66` | 2 |
+| Response — survey | full completion | stats recorded, no match | `stage2/66` + existing D4 | 2 |
+| Response — review screen | pre-filled radios; change a radio; `review-edit-btn` (manual mode); confirm; superseded banner (talk updated) | no silent auto-submit; "(pre-filled)" tags | `stage2/66` + existing chatbot specs | 2, 3 |
+| `close-response-btn` / scrim | mid-answer | no answer recorded | `stage2/66` | 2 |
+| `survey-stats-button` → stats dialog | open/close; per-question counts | counts match responses | existing `stage2/41` | 2 |
+| My Talks dialog | open, `✕`, scrim; per-talk broadcast toggle on ↔ off (R2) | disabled talk stops broadcasting | T6 `stage1/56` (extend with toggle) | 1 |
+
+##### 5.4 Me tab
+
+| Control (selector) | Values / states | Assert | Spec | Stage |
+|---|---|---|---|---|
+| Type toggles `me-talk-type-filter` ×4 | each off ↔ on, and all-off | rows of that type hidden; all-off ⇒ empty state | **New** `stage1/65-me-filter-options` | 1 |
+| Tag-state checkboxes ×3 | checked / unchecked / indeterminate each toggled | tag rows filtered by state | `stage1/65` | 1 |
+| `me-outcome-filter` | all, match, mismatch | — | `stage1/65` (semantics at stage 2) | 1, 2 |
+| `me-answer-sort` | **all 4**: answered-desc, answered-asc, chatbot-recent, chatbot-count | order changes (chatbot sorts asserted at stage 3 where bot answers exist) | `stage1/65` · stage3 | 1, 3 |
+| `me-answer-filter`, `answers-search-input`, date from/to | R3 each | — | `stage1/65` + existing F2 | 1 |
+| `me-clear-filters` | after setting everything | all controls back to defaults; full list | `stage1/65` | 1 |
+| Q&A detail + create-from-Me | open detail; ⟨Editor⟩ seeded from Q&A; created talk appears in Me **and** Talks | shared-editor edge | Part 4 Stage 1 sweep | 1 |
+
+##### 5.5 Settings (every control)
+
+| Control (selector) | Values / states | Assert | Spec | Stage |
+|---|---|---|---|---|
+| `settings-stage-name-input` | valid; < 3 chars (R4 inline error `settings-stage-name-error`); 50 chars | propagates to chatroom/⟨User⟩/⟨Conv⟩ headers (rename propagation) | existing F3/G1 (23 specs) + `stage2` rename spec | 1, 2 |
+| `settings-headshot-select` | initial + each of 8 emoji | avatar updates everywhere | **New** `stage1/66-settings-option-matrix` | 1 |
+| Choose Photo / Take Photo / Remove | file → preview confirm; file → preview cancel; camera capture → confirm/cancel; camera denied (R4 status); remove | avatar set/kept/cleared per path (chain rule N4) | existing G2/G3 + `stage1/66` | 1 |
+| `settings-edit-profile-btn` → dialog | add/edit/remove Q&A rows; visibility select **public / contacts_only / private** per row; language checkboxes | visibility respected cross-user | existing F4 + stage3 privacy specs | 1, 3 |
+| `settings-ui-language` | en ↔ zh (R2 persisted) 🌐 | full shell re-translates | existing `00y/00z` | 1 |
+| `settings-profile-languages` | each language; none ⇒ falls back `['en']` (R4) | — | `stage1/66` | 1 |
+| `settings-default-talk-language` | each language | editor pre-selects it | `stage1/66` | 1 |
+| Incoming-language checkboxes | subset; zero ⇒ fallback `['en']` (R4); count label updates | intake include/exclude end-to-end | `stage1/66` (UI) · stage3 intake (delivery) | 1, 3 |
+| `settings-credit-visible` | on ↔ off (R2) | peers see/don't see credit | `stage1/66` · stage2 visibility | 1, 2 |
+| `settings-copy-talk-autosave` | on ↔ off (R2) | copy-talk flow honors it | existing `stage2/08` | 2 |
+| `settings-chatbot-enabled` | on ↔ off (R2) | auto-reply + bot badge only when on | stage3 chatbot specs | 3 |
+| `settings-min/max-distance` | valid pair; min > max (R4 toast + revert); empty | delivery honors bounds | `stage1/66` · stage3 intake | 1, 3 |
+| `settings-home-room` | default room; custom room | return-home targets it | `stage1/66` | 1 |
+| `settings-sent-after` | set / clear | older talks filtered | `stage1/66` · stage3 cutoff | 1, 3 |
+| `settings-grammar-filter` | on ↔ off (own page open/close in target IA) | bad-grammar talk excluded only when on; **message send blocked / receive hidden** (redesign §9.2) | `stage1/66` · stage3 content · T9 `stage2/71` | 1, 2, 3 |
+| `settings-dirty-words-filter` | on ↔ off (own page open/close) | dirty talk excluded; **message send blocked / receive hidden** (§9.1) | `stage1/66` · stage3 content · T9 `stage2/70` | 1, 2, 3 |
+| Dirty-word list editor (`dirty-word-chip`, `-add-input`, `-add-btn`, `-reset-btn`) | defaults fuck/cunt/bitch/cock; add valid; add <2 chars / duplicate / 51st (R4); remove; reset; persist (R2) | list drives both talk and message filtering | T9 `stage1/70` | 1 |
+| Allowed-type checkboxes ×4 | subsets; zero ⇒ fallback all-4 (R4) | type-filtered delivery | `stage1/66` · stage3 | 1, 3 |
+| `settings-custom-blocked` | comma and newline separated terms; clear | matching talks hidden; hidden-count summary updates (`settings-filtered-incoming-summary`) | `stage1/66` · stage3 | 1, 3 |
+| `settings-refresh-location-btn` | click | location text updates; pending-location note when unknown | `stage1/66` | 1 |
+| Storage inspector + `settings-refresh-storage-btn` | open dev page; refresh | body populates, read-only | Part 4 Stage 1 sweep | 1 |
+| Age verification | vouch ×1, ×2 (still off), ×3 (flips 18+) | threshold = 3 | existing H1 | 2–3 |
+| Linked devices page (`link-device-code-modal`, `enter-link-code-input`, `unlink-device-confirm`) | empty state; link code + QR + expiry; enter valid / expired / invalid / reused code; unlink from either side; cluster-wide block offer | mutual attestations only; merged contact row for third users; key custody intact | T10 `stage1/71` · `cross-platform/x3` | 1, X |
+| Erase this device (`erase-device-modal`, `erase-confirm-input`, `erase-device-btn`, `erase-sync-first-btn`) | cancel; wrong/empty confirm text (button disabled, R4); erase unlinked (lost-forever warning); erase after sync; abort mid-sync | full wipe verified (storage empty, new pub, fresh user); archive + per-category merge on the linked device; revocation written | T11 `stage1/72` · `stage2/72` · `cross-platform/x7` | 1, 2, X |
+
+##### 5.6 Conversation & notifications
+
+| Control | Values / states | Assert | Spec | Stage |
+|---|---|---|---|---|
+| `conversation-message-input` + Send | click send; Enter sends; Shift+Enter newline; empty no-op | ordered history both sides | existing E2 (10 specs) | 2 |
+| Content-filter enforcement (DM + thread composers) | dirty word send-block / receive-hide / filter-off reveal; grammar same; whole-word ("cocktail" passes) | `data-content-filter-notification` toasts; placeholder row; composer text preserved | T9 `stage2/70`, `stage2/71` | 2 |
+| Toasts | info / success / warning / error / Match! | auto-dismiss 3s (match 8s); match click navigates to ⟨Conv⟩; `data-match-notification` kept | T4 `stage1/54` | 1–2 |
+| Location-room banner | Join / dismiss | Join pushes Room detail | existing A5 + T7 | 1 |
+| System announcement | show / dismiss | renders + dismisses | **New** `stage1/68-system-announcement` (closes the only "None" gap) | 1 |
+
+##### 5.7 New specs introduced by this matrix
+
+`stage1/60-chatroom-hierarchy-walk`, `stage1/64-talks-filter-sort-options`, `stage1/65-me-filter-options`, `stage1/66-settings-option-matrix`, `stage1/67-talk-editor-option-matrix`, `stage1/68-system-announcement`, `stage2/64-contacts-filter-sort-options`, `stage2/65-reply-triage-option-matrix`, `stage2/66-talk-response-option-paths`, `stage2/67-peer-history-controls`, `stage2/68-conversation-first-entry`, `stage2/69-matched-talk-threads`, `stage1/70-dirty-word-list-editor`, `stage2/70-dirty-word-message-blocking`, `stage2/71-grammar-message-blocking`, `stage3/70-reply-triage-grouping-multi`, `stage3/71-thread-isolation-multi` — each with its companion `.md`, using the option-sweep pattern: build the fixture once per spec, then iterate the enumeration with per-value assertions (R1), ending with the clear/reset check (R3) and one 320px-width pass (R5).
+
+---
+
+#### Part 6 — Platform × screen-size × cross-platform matrix
+
+Parts 3–5 define **what** to test; this part defines **where**. Three added dimensions: platform, screen size, and mixed-platform topology. The user-count stages (Part 4) stay the primary axis; platform and size multiply it.
+
+##### 6.1 Platform targets
+
+| # | Platform | Runtime | Harness | Role |
+|---|---|---|---|---|
+| P1 | **Website** — browser SPA | Chromium (primary), WebKit, Firefox | existing Playwright suite (`tests/e2e/staged`, `talks-matching`, …) | **Broad layer**: full functional + redesign suite runs here |
+| P2 | **Webapp macOS** — Electron shell (`platforms/desktop`) with embedded node, on the Mac mini | `npm run desktop:dist` / `test:e2e:native-app` | `tests/e2e/native-app` (Electron launch, per-test `IINPUBLIC_USER_DATA_DIR`) | packaging, embedded-node startup, profile isolation + per-stage smoke |
+| P3 | **Webapp Windows** — Electron (`desktop:dist:win`) | same shell, Windows CI runner | native-app config on Windows | same narrow scope as P2 |
+| P4 | **Webapp Linux** — Electron | same shell, Linux CI runner | native-app config on Linux | same narrow scope as P2 |
+| P5 | **iPhone** — mobile Safari (and the `platforms/ios` shell when it ships) | Playwright WebKit + iPhone device profile; real device manual pass per release | staged suite with device profile | mobile layout + touch |
+| P6 | **Android** — mobile Chrome (and the `platforms/mobile` shell when it ships) | Playwright Chromium + Pixel device profile; real device manual pass per release | staged suite with device profile | mobile layout + touch |
+
+Policy: the **full** suite (Parts 3–5, all stages) runs on P1/Chromium only. Every other platform runs the **platform smoke set**: tab sweep (`00x`), redesign overlay (T1/T2 AppBar + `⋯`), conversation-first + one thread reply (T8 core), one talk create→broadcast→answer→match round-trip, settings persistence across app restart. P2 additionally keeps its packaging/embedded-node specs.
+
+##### 6.2 Screen-size matrix
+
+Reference device sizes (≥3 required; these 5 are the targets — the widths align with the redesign §8 breakpoints 320/390/768/1024):
+
+| Size | Viewport | Represents | What must hold |
+|---|---|---|---|
+| SZ1 | **1920×1080** | desktop monitor (Mac mini / Windows / Linux) | all AppBar icons inline, no `⋯`; L/XL dialogs centered cards |
+| SZ2 | **1366×768** | common laptop | same as SZ1; XL dialog still fits at 90vh |
+| SZ3 | **768×1024** | tablet portrait / narrow window | L/XL dialogs clamp; filters still inline (boundary width) |
+| SZ4 | **390×844** | iPhone 14 class | bottom sheets + full-screen takeovers; filters collapse to "Filters ▾"; overflow `⋯` active |
+| SZ5 | **360×800** | mainstream Android | same as SZ4 with 30px less width (near the 320 floor) |
+
+Execution: T2/T7 (overflow + responsive sweep) run at **all five** sizes on P1. Every other platform runs its smoke set at its native default (P2–P4: SZ1; P5: SZ4; P6: SZ5) plus one narrow pass (P2–P4 at SZ3 window size). The 320px floor from Part 5 R5 stays as the hard minimum asserted in option-sweep specs.
+
+##### 6.3 Cross-platform scenarios (X-specs, `tests/e2e/native-app/` + new `tests/e2e/cross-platform/`)
+
+Mixed topologies — different platforms **online simultaneously** against the same hub, extending the existing `native-app/02-browser-and-desktop-app-presence`:
+
+- **X1 — Website + webapp presence (P0):** one user on P1, one on P2, same room; both see headcount 2 and each other's member rows; extends `native-app/02`. |
+- **X2 — Cross-platform talk lifecycle (P0):** broadcast website→webapp and webapp→website; answer on the receiving side; match; conversation-first click and DM reply cross the boundary; per-talk **thread reply round-trips** website↔webapp.
+- **X3 — Identity linking across devices (P0, decided 2026-07-13):** the same person on website and webapp has **two distinct identities** (per-device SEA keypairs — never shared); X3 tests the **linking flow** (redesign §10): link code generated on one platform, entered on the other, mutual attestations, merged contact row seen by a third user, unlink/revoke. Spec: `cross-platform/x3-identity-linking` (T10).
+- **X4 — Mobile ↔ desktop (P1):** P5/P6 device profile user matches and threads with a P2 desktop-app user; narrow-width overlay (T2) asserted live on the mobile side during the exchange.
+- **X5 — Three-platform network (P1):** stage-3 functions (multi-responder talks, intake filters, pair-private thread isolation) with one user each on P1, P2, and P5/P6 profile.
+- **X6 — Offline/mailbox across platforms (P2):** webapp goes offline (app quit), website user sends DM + thread reply + new talk; webapp relaunch receives all via mailbox; then the reverse direction.
+- **X7 — Public-PC sync-then-erase (P1):** website session (the "library PC") linked to a desktop-webapp personal device; encrypted handoff archive syncs, public PC erases to a fresh identity, personal device imports the archive (redesign §11). Spec: `cross-platform/x7-sync-then-erase` (T11).
+- **X8 — Same-device app ↔ browser linking (P1):** browser and native app on one machine link via loopback one-click / URL-fragment payload (no typed code) and share data locally (redesign §10.3); on mobile profiles, assert the universal-link/"open in app" affordances render. Spec: `cross-platform/x8-same-device-link` (T10).
+
+Gate: X1–X2 join the merge gate alongside `npm run test:e2e:parallel`; X3–X6 run nightly on the platform runners.
+
+##### 6.4 Stage × platform coverage
+
+| | P1 website | P2 macOS app | P3 Win app | P4 Linux app | P5 iPhone | P6 Android |
+|---|:--:|:--:|:--:|:--:|:--:|:--:|
+| Stages 0–5 full (Parts 3–5) | ✓ | | | | | |
+| Platform smoke set | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Packaging / embedded node | | ✓ | ✓ | ✓ | | |
+| Screen-size sweep (5 sizes) | ✓ | SZ1+SZ3 | SZ1+SZ3 | SZ1+SZ3 | SZ4 | SZ5 |
+| X-specs | X1–X6 (as the browser side) | X1–X6 | X2 nightly | X2 nightly | X4, X5 | X4, X5 |
+
+
+---
+
+## 27. Cross-Platform Native Clients — Embedded Node Shell (S3)
+
+> Merged from `docs/design/S3-embedded-node-shell.md` (2026-07-29). Supersedes the
+> earlier libp2p-native-shell approach (`S3-native-libp2p-shell.md`, archived — see
+> `docs/archive/consolidated-2026-07-29/`). Status per `docs/completed.md` 2026-07-14/
+> 2026-06-30: desktop (Windows/macOS/Linux via Electron) and Android builds verified;
+> iOS shell scaffolded. Remaining items tracked in `docs/TODO.md` G (CI runner wiring).
+
+## S3 — Cross-platform native clients via embedded Node (design)
+
+Status: in progress (desktop runnable; mobile scaffolded). Supersedes
+`S3-native-libp2p-shell.md`.
+
+### Goal
+
+Ship IinPublic as native apps on **Windows, Linux, macOS, Android, iOS** while
+reusing the existing web + server code as close to 100% as possible. Each app
+runs a real **Node.js process** that connects to the original hub **only for
+peer discovery**, then talks **directly P2P** with peers.
+
+### Architecture
+
+```
+┌──────────────────────────── one device ────────────────────────────┐
+│                                                                     │
+│   UI layer (reused 100%)            Peer layer (reused 100%)        │
+│   ┌───────────────────────┐         ┌──────────────────────────┐   │
+│   │ web SPA  (dist/web)    │  http://│ embedded node            │   │
+│   │ = src/web, unchanged   │ ◄──────►│ = src/server, unchanged  │   │
+│   │ Gun client →127.0.0.1  │  ws://  │ · Gun peer + radisk      │   │
+│   │ WebRTC datachannels    │127.0.0.1│ · serves dist/web        │   │
+│   └───────────────────────┘         │ · dials hub: DISCOVERY    │   │
+│      Electron renderer /            │   only                    │   │
+│      Android WebView /              └────────────┬─────────────┘   │
+│      iOS WKWebView                               │                 │
+└───────────────────────────────────────────────────│───────────────┘
+                                                      │ discovery / signaling
+                                              ┌───────▼────────┐
+                                              │  public hub    │  relay-only
+                                              └───────┬────────┘
+                                                      │ direct P2P
+                              ┌───────────────────────┼───────────────────────┐
+                        ┌─────▼─────┐           ┌──────▼──────┐         ┌──────▼──────┐
+                        │ peer A    │           │ peer B      │   ...   │ peer N      │
+                        └───────────┘           └─────────────┘         └─────────────┘
+```
+
+The key insight: the **UI and the peer are separate processes on the same
+device**, bridged over loopback exactly like the browser bridges to the hub
+today. The web client's `deriveGunHubUrl()` already returns `127.0.0.1:<port>`
+when served from there, so no web code changes for the happy path.
+
+### Why "node server inside" instead of a libp2p native module
+
+| Concern | Embedded full Node (chosen) | libp2p native module |
+|---|---|---|
+| Code reuse | `src/server` runs verbatim | new node logic per platform |
+| Gun persistence | radisk on-device, unchanged | must re-implement store bridge |
+| UI changes | none (loads from local node) | new local-WS bridge protocol |
+| WebRTC on mobile | irrelevant — Node is the peer | still needed in WebView |
+| Risk | low; one entry, one config | high; parallel transport stack |
+
+### Shell choice: Electron for desktop
+
+- **Electron (chosen):** main process is real Node → Gun code runs unmodified
+  with full radisk; Chromium renderer guarantees the WebRTC the direct-P2P
+  conversation transport depends on. ~150 MB binary.
+- **Tauri + Node sidecar:** smaller, but the system WebView (WebKitGTK on Linux
+  especially) has inconsistent WebRTC — directly threatens the DM transport.
+- **Plain Node + system browser:** Gun + WebRTC fine, but no app window, no
+  mobile-parity foreground story, and `pkg` fights Gun's dynamic requires.
+
+### Mobile: nodejs-mobile
+
+Both Android and iOS embed a Node runtime via
+[nodejs-mobile](https://github.com/nodejs-mobile/nodejs-mobile) running
+`platforms/mobile/nodejs-project/main.js`, which boots the same
+`embedded-node.ts`. The WebView is UI-only and loads from the local node, so
+WKWebView's limited WebRTC does not block P2P.
+
+- Android: `NodeForegroundService` keeps the peer reachable while the app is in
+  the foreground/recents (battery-friendly; no always-on background claim).
+- iOS: foreground-scoped peer; no always-on node (App Store / OS limits). Future:
+  notification-assisted wakeup (already modeled in `P2P_PLATFORM_DESCRIPTORS`).
+
+### Configuration
+
+`src/shared/embedded-node-config.ts` resolves a single `EmbeddedNodeConfig` from
+env + shell-injected defaults:
+
+| field | source | default |
+|---|---|---|
+| `enabled` | `IINPUBLIC_EMBEDDED_NODE` | false |
+| `platform` | `IINPUBLIC_PLATFORM` | unknown |
+| `localPort` | `IINPUBLIC_LOCAL_PORT` / `PORT` | 8080 |
+| `hubGunPeers` | `IINPUBLIC_HUB_GUN_URL` (csv) | public hub when enabled |
+| `webRoot` | `IINPUBLIC_WEB_ROOT` / shell | `dist/web` |
+| `dataDir` | `IINPUBLIC_DATA_DIR` / shell | `radata` |
+| `loopbackOnly` | `IINPUBLIC_LOOPBACK_ONLY` | true |
+
+`attachGun` reads it to add the upstream hub peer and force on-device radisk;
+`configureHttpMiddleware` reads it to serve `dist/web`. Both changes are additive
+and env-gated — default (hub) server behavior is unchanged.
+
+### Data flow & "discovery only"
+
+Gun has no native per-subgraph peer scoping, so "discovery only" is enforced at
+the application/relay layer, consistent with the existing design:
+- the production hub runs `relayOnlyHub` (no application radata);
+- the protocol classifies `relayOnlyDataClasses` (discovery, signaling, presence,
+  room-membership) vs `localFirstDataClasses` (profiles, contacts, blocks,
+  messages, talks, chatbot memory) — see
+  `createP2PNodeProtocolSpec().syncPolicy`;
+- conversations use the direct-P2P WebRTC transport, never the hub.
+
+**Verification owed:** the embedded-node E2E must assert no `localFirst` app data
+appears on the hub graph after a local node syncs.
+
+### Build & run
+
+```bash
+# shared bundles (reused by every platform)
+npm run build:embedded            # build:web + build:server
+
+# desktop
+npm run desktop:dev               # build + electron
+npm run desktop:dist              # installers (win/linux/mac)
+
+# headless embedded node (debugging)
+npm run dev:embedded-node         # tsx src/node-app/embedded-node.ts
+
+# android (needs Android SDK + nodejs-mobile AAR)
+npm run mobile:stage && npm run android:build
+
+# ios (needs Xcode + NodeMobile pod)
+npm run mobile:stage && (cd platforms/ios && pod install)  # then build in Xcode
+```
+
+### Files
+
+| Path | Role |
+|---|---|
+| `src/shared/embedded-node-config.ts` | config resolver (+ unit test) |
+| `src/node-app/embedded-node.ts` | embedded entry every shell boots |
+| `src/server/bootstrap/http-bootstrap.ts` | embedded-aware Gun + static SPA |
+| `platforms/desktop/` | Electron shell |
+| `platforms/mobile/nodejs-project/` | nodejs-mobile Node project |
+| `android/app/src/main/.../*.kt` | Android WebView + foreground service |
+| `platforms/ios/IinPublic/` | iOS WKWebView + nodejs-mobile bootstrap |
+
+### Open items
+
+Tracked in `docs/TODO.md` under "S3 — Remaining".
+
+
+---
+
+## 28. Gun Database Architecture, Scalability & Retention
+
+> Merged from `docs/Gun-Database-Architecture.md` (2026-07-29). Complements §11.2 (App ↔
+> Gun Database Interface) and §12 (Gun.js Data Model Specifications) with a consolidated
+> graph reference, end-to-end data-flow walkthroughs, storage-sizing formulas, a tiered
+> retention policy, and a merkle-checkpoint pruning design. The retention/pruning design
+> in §28.8–28.9 directly informs `docs/TODO.md` L2 (room-visit retention policy) and is
+> the most complete existing answer to that section's open questions — see the TODO
+> cross-reference added there as part of this consolidation.
+
+## IinPublic: Gun Database Architecture & Data Flow
+
+### 1. What Is IinPublic?
+
+**Not a chat app.** IinPublic is a **public self-definition through interaction platform**. A person's identity on the network is defined by three pillars:
+
+| Pillar | Description | Persistence |
+|---|---|---|
+| **Profile Q&A** | List of questions + personal answers defining the user's public image. Visibility tiers: `public`, `contacts_only`, `private`. Some auto-generated (chatbot-reusable), some manual. | SEA-encrypted in private space; foundation index published publicly |
+| **Talks** | Structured interaction templates in 4 types — `tag` (binary toggle/interest signal), `flow` (linear Q/A chain), `survey` (independent poll with aggregation), `route` (branching DAG with context-hash routing) | Full talk definition on public mesh (`talks/<id>`) |
+| **Interactions** | Conversations triggered when a talk match — cryptographically verifiable, optionally encrypted message exchange | Dual storage: public mesh + pair-private; every event signed to ledger |
+
+### 2. Identity & Encryption Layer (SEA)
+
+Every user gets a Gun SEA keypair on first run. It is persisted as an AES-GCM encrypted custody record in localStorage:
+
+- **`pub` / `priv`**: Signing keys — authorize ledger events, prove talk authorship
+- **`epub` / `epriv`**: Ephemeral keys — generate per-pair shared secrets via `SEA.secret(peerEpub, myPair)` for message encryption
+
+Custody mechanism: PBKDF2-SHA256 (150k iterations) from a per-device 32-byte secret → AES-GCM key → encrypt full `{pub,epub,priv,epriv}`. Exportable + importable recovery package.
+
+localStorage keys: `iinpublic_key_custody_v1`, `iinpublic_key_custody_device_secret_v1`
+
+### 3. Complete Gun Graph Reference
+
+#### 3.1 User Profiles (Public)
+
+```
+users/<userId>                          — core user record (stageName, location blur, languages, interests, pub, epub)
+└── reputation                          — sub-node: { questionsAnswered, talksSent, matchesFound, friendsCount,
+                                                   likedCount, dislikedCount, starRating, reviewCount,
+                                                   ageVerified, blockCount, isHidden }
+```
+
+#### 3.2 Profile Foundation (Discovery Index)
+
+Separate from `users/` — optimized for peer discovery scans:
+
+```
+user-public-profile/<userId>
+├── headshot?
+├── languagesJson          # JSON string of language list
+├── profileJson            # JSON string of QuestionAnswer[] with visibility filter applied
+└── interestsJson          # JSON string of Tag[]
+```
+
+Why separate? Because `profile.public-profile` can be updated incrementally without rewriting the whole user record. The merge algorithm handles concurrent writes better.
+
+#### 3.3 Private User Space (SEA Encrypted)
+
+Path: `gun.user(<userId>).private/<key>` — AES encrypted, owner-only readable.
+
+```
+private/profile
+├── profile[]              # Full Q&A including private-visibility items
+├── languages[]
+├── interests[]
+├── knownPeople[]          # Friend/relative/coworker list with labels, nicknames, ratings, notes
+├── blockedUserIds[]
+└── talkFilters            # Intake filters: distance range, allowed languages, blockDirtyWords,
+                           #    allowedTalkTypes[], customBlockedTerms[]
+
+private/chatrooms/<chatroomId>/<path>  — per-chatroom preferences (SEA encrypted)
+```
+
+#### 3.4 Tags & Tag Index (Discovery)
+
+Two-path system for interest-based user discovery:
+
+```
+user-tags/<userId>              →  { tags: Record<tagName, weight>, updated }
+tag-index/<tagName>/<userId>    →  reverse index: given tag → set of tagged users
+user-tags-delta/<userId>        →  delta envelope for incremental peer sync
+```
+
+#### 3.5 Talk Definitions
+
+```
+talks/<talkId>
+└── data: JSON.stringify({ id, title, authorId, type, isAdult, language, tags[], questions[],
+                             createdAt, isTemplate, usageCount, expiresAt?, locationRadiusMiles? })
+
+questions (serialized inside talk):
+├── cidId                  # Content hash — stable across routing changes
+├── text, answers[]
+├── nextQuestionId?        # linear flow chaining
+├── branchingLogic[]?      # route DAG edges: { answerId → nextQuestionId }
+├── contextPath[]?         # ordered (questionId:answerId) steps for DAG traversal
+└── contextHashId?         # 8-char FNV-1a hash of preceding chain — O(1) chatbot lookup
+
+bulkJobs/<jobId>           →  broadcast job metadata { talkId, senderId, targetScope, status... }
+```
+
+#### 3.6 Incoming Talk Index (Mesh Matching)
+
+When talks are broadcast through the Gun mesh, they arrive at recipients' inboxes. Clusters group identical/related talks so the user sees "one topic" not hundreds of duplicates.
+
+```
+ownerIncomingTalkIndex/<receiverUserId>/<identityKey>
+├── title, type, language
+├── senders: { senderId: { senderName, lastTalkId, lastReceivedAt } }
+├── talkIds                  # per-talker latest instance map
+├── questionCount, latestTalkId, updatedAt
+├── identityAliases          # tracks equivalent identityKeys (content-semantic grouping)
+└── authorLocation?          # for radius-based recipient filtering
+```
+
+**Identity key** = content-derived hash. Same logical talk with edits or re-broadcasts from different senders coalesces into one cluster node. The merge function (`mergeIncomingTalkCluster`) handles incremental updates.
+
+#### 3.7 Conversation System (Two-Writer DAG)
+
+Created when a talk match triggers:
+
+```
+conversations/<conversationId>
+├── data: JSON.stringify({ participants:[userIdA, userIdB], talkId?,
+    status:'active'|'matched'|'ignored'|'expired'|'withdrawn', createdAt, lastActivity })
+└── messages/               →  message nodes (public mesh storage)
+
+users/<userId>/conversations/<conversationId>
+├── conversationId
+└── otherUserId             # O(1) peer lookup within this convo
+
+conversations/<convId>/answers/<questionId>  →  { answerId, userId }
+```
+
+#### 3.8 Message Records — Dual Storage Architecture
+
+**This is critical for the scalability question.** Messages are stored using ONE of two paths based on transport mode:
+
+```
+# Star-gun / server-relay mode (public mesh — everyone can see)
+conversations/<convId>/messages/<msgId>
+
+# Direct-p2p mode (pair-scoped — only A and B access this path)
+pairConversations/<pairId>/<convId>/messages/<msgId>
+```
+
+where `pairId = [userIdA, userIdB].sort().join('__')` — deterministic collision-free pair key.
+
+**Message wire format:**
+```json
+{
+  "id": "<msgId>",
+  "senderId": "<userId>",
+  "text": "...",                  // plaintext OR SEA{...} ciphertext
+  "timestamp": "ISO-8601",
+  "channel": "public|known|mutual",
+  "transport": "star-gun|server-relay|direct-p2p",
+  "encryption": "sea-ecdh-v1",   // present when encrypted
+  "prevSeen": "<otherMsgId>",     // DAG link — last message from OTHER participant
+  "isFromChatbot": true
+}
+```
+
+**Encryption**: When `channel !== 'public'` or transport is `direct-p2p`: text = `SEA.encrypt(plaintext, SEA.secret(peerEpub, myPair))`. Only holders of the matching ephemeral key pair can decrypt.
+
+#### 3.9 Interaction Ledger (Cryptographic Audit Trail)
+
+Per-user event chain with CIDv1 self-certifying IDs and SEA signatures:
+
+```
+ledger/<userId>/events/<seq>   →  { id (CIDv1), seq, prev (CIDv1|null), kind, pubkey,
+                                     timestamp, contentJson, sig }
+ledger/<userId>/head           →  { seq, prevCid }          # feed head pointer
+ledger/<userId>/state          →  { stateJson, updatedAt }   # broadcasted LedgerState
+
+# Indexes for O(1) lookup:
+ledger/<userId>/index/talkId/<talkId>
+    →  { eventIds: "id1,id2,...", lastSeq }
+ledger/<userId>/index/responseId/<responseId>
+    →  { eventId, seq }
+ledger/<userId>/index/withdrawn/<talkId>
+    →  { withdrawnAt, eventId, gracePeriodMs }
+
+# Delta-sync inbox (other peers push here):
+ledger/<peerId>/inbox/<eventId>
+    →  { eventJson, deliveredAt }
+```
+
+**Event kinds:** `TALK_CREATED`, `TALK_BROADCAST`, `TALK_RECEIVED`, `TALK_ANSWERED`
+(outcome: match/mismatch/ignore), `TALK_SUPERSEDED`, `TALK_WITHDRAWN`, `TALK_RETRACTED`
+(tombstone), `MATCH_CREATED`, `CONVERSATION_MSG`
+
+#### 3.10 Chatroom System
+
+```
+chatrooms/<chatroomId>
+├── users/<userId>           →  { isActive: bool }
+├── visits/<visitEventId>    →  visit audit trail entries
+├── visitCount               →  running number
+├── uniqueVisitors/<userId>  →  presence flag (dedup)
+└── uniqueVisitorCount       →  running number
+
+chatroomRoles/<chatroomId>/<userId>
+→  { chatroomId, userId, role:'owner'|'moderator'|'member'|'guest',
+     assignedAt (unix ms), assignedBy (userId) }
+```
+
+Private per-user chatroom prefs stored SEA-encrypted at `gun.user().private/chatrooms/...`
+
+#### 3.11 Blocks
+
+```
+user-blocks/<blockerId>/<blockedId>        →  block record + timestamp
+user-blocked-by/<blockedId>/<blockerId>    →  reverse lookup (who blocked me)
+```
+
+### 4. Two-Person Interaction Data Flow (Complete Pipeline)
+
+#### Phase 1: A sends a talk, B receives it
+
+```
+A creates talk "Coffee in SF?" (type: flow)
+  │
+  ├─→ talks/<talkId>          [PUBLIC mesh — anyone can discover]
+  │
+  ├─→ ledger/A/events/seq++   [AUDIT — TALK_CREATED event signed and chained]
+  │   { talkId, title, type:'flow', language:'en' }
+  │
+  └─→ Gun mesh broadcast → delivered to B
+      │
+      └─→ ownerIncomingTalkIndex/B/<identityKey> [B's INBOX — merged into cluster]
+          sender field updated: { A.id: { name, lastTalkId, receivedAt } }
+          │
+          └─→ ledger/B/events/seq++    [AUDIT — TALK_RECEIVED]
+              { talkId, senderId:A }
+```
+
+#### Phase 2: B answers → Match → Conversation
+
+```
+B answers "Yes, Friday" → outcome: match
+  │
+  ├─→ conversations/<convId>/answers/Q1   [ANSWER stored per-question]
+  │   { answerId:'yes_friday', userId'B' }
+  │
+  ├─→ ledger/B/events/seq++              [AUDIT — TALK_ANSWERED, outcome:match]
+  │
+  ├─→ conversations/<convId>             [CONVERSATION created on mesh]
+  │   { participants:[A,B], talkId, status:'matched', ... }
+  │
+  ├─→ users/A/conversations/<convId>     [INDEX — A's conversation list]
+  ├─→ users/B/conversations/<convId>     [INDEX — B's conversation list]
+  │
+  └─→ ledger/B/events/seq++              [AUDIT — MATCH_CREATED]
+      { talkId, conversationId, otherUserId:A }
+```
+
+#### Phase 3: A ↔ B exchange messages (Two-writer DAG)
+
+```
+A sends "Sounds good" (channel:'mutual', SEA encrypted):
+  │
+  ├─→ pairConversations/A__B/<convId>/messages/msgA1   [PAIR-PRIVATE — direct-p2p mode]
+  │     { id:msgA1, senderId:A, text:"SEA{...encrypted...}", prevSeen:null }
+  │
+  └─→ (if also star-gun fallback) → conversations/<convId>/messages/msgA1
+
+B sends "Bring cash" (channel:'known', SEA encrypted):
+  │
+  ├─→ pairConversations/A__B/<convId>/messages/msgB1 [PAIR-PRIVATE]
+  │     { id:msgB1, senderId:B, text:"SEA{...encrypted...}", prevSeen:"msgA1" }
+  │
+  └─→ (if also star-gun fallback) → conversations/<convId>/messages/msgB1
+
+Both subscribe to changes via Gun .on() callbacks — messages arrive in real time.
+prevSeen links form a mergeable DAG for offline convergence.
+```
+
+#### Phase 4: Delta-sync (Ledger propagation)
+
+```
+A broadcasts: ledger/A/state → { B.userId → A.latestSeq, ... }
+B reads A's state → compares with own peerState[A.userId]
+B pushes missing events → ledger/B/inbox/<missingEventIds>
+A subscribes to ledger/A/inbox → ingests + verifies remote events
+```
+
+### 5. Scalability Analysis: Tom Meets 10,000 People
+
+#### What actually occupies space on Tom's Gun node?
+
+| Data | Growth Model | Example (10K people) | Local or Mesh? |
+|---|---|---|---|
+| **Tom's own profile** | O(1) | ~5 KB always | Private SEA-encrypted + public index |
+| **Tom's own ledger events** | O(events per talk action) | ~20K–50K events at 2–5 each | Public mesh (`ledger/Tom/events/`) |
+| **Jerry's profile (cached)** | O(1) per recently-viewed user | One page-load fetch, evicted by GC naturally | Public mesh — NOT pinned locally |
+| **Tom's conversations with Jerry** | O(1) conversation header | ~200 bytes each × 10K = ~2 MB | Public mesh + personal index at `users/Tom/conversations/` |
+| **Messages with Jerry** | O(msgsPerConv × 10K) | Critical growth vector | **Dual storage** — see below |
+| **Remote ledger events (delta-sync)** | O(peersTomActivelySyncsWith × theirSeqDelta) | Selective — Tom only syncs active conversations' peers | Pushed to `ledger/Tom/inbox/` by interested peers |
+| **Talk definitions read by Tom** | O(unique talks answered) | Bounded — even 10K people reuse same talk templates | Public mesh — one copy per talkId, NOT per person |
+
+#### Key insight: The actual storage bottleneck is message history.
+
+In **direct-p2p mode** (the target architecture), messages go to `pairConversations/<pairId>/<convId>/messages/` — these are pair-scoped graph paths that only Tom and Jerry access. Gun's replication protocol means other peers don't receive them. However, the Hub Gun server IS a peer and will store everything unless the p2p-runtime flag `shouldSkipServerGunPersist()` intercepts it.
+
+From the runtime config:
+```typescript
+messageBodyStorage: 'gun-local',  // default — only client-side storage
+receiptsStorage: 'gun-local',     // same for receipts
+```
+
+And the server service checks:
+```typescript
+if (shouldSkipServerGunPersist(path, flags, options)) return;
+```
+
+So in production with `gun-local` mode, **10K conversations' message history lives only on Tom's and Jerry's respective devices, NOT replicated to the hub or other peers.** The Hub stores the conversation header (participants, status) but not individual messages.
+
+#### Estimated storage on Tom's node at 10K people:
+
+| Component | Size estimate | Notes |
+|---|---|---|
+| Private profile data | ~5 KB | Fixed |
+| KnownPeople records | ~1 MB | ~100 bytes per KnownPerson × 10K = ~1 MB max |
+| Conversation headers (index) at `users/Tom/conversations/` | ~2 MB | ~200B × 10K conversations |
+| Own ledger events | ~5–10 MB | ~300 bytes/event × 30K events ≈ ~9 MB |
+| Messages (average case) | **~50–300 MB** | If avg 50 msgs/conv at 200B each: 10K × 50 × 200B ≈ 100 MB. Varies wildly. |
+| Others' ledger inbox events | ~1–5 MB | Selective delta-sync from active peers only |
+| Talk definitions (duplicates avoided) | ~1–5 MB | Reused templates — 10K people might use 200 unique talks |
+
+**Total estimate: ~60–320 MB on Tom's localStorage/IndexedDB at 10K conversations.**
+
+The dominant term is message history, and it scales linearly — each additional person costs only their own conversation's messages plus a few hundred bytes of index overhead.
+
+#### What Tom does NOT store locally:
+
+- **Jerry's full profile** beyond what Gun naturally caches from the last fetch — profiles are fetched on-demand, not pinned
+- **Talk content for talks Tom didn't answer** — talk definitions are shared state (one `talks/<id>` per unique talk), not duplicated per conversation
+- **Messages with people who used star-gun transport and whose conversations are stale** — Gun's gc can trim rarely-accessed nodes
+
+#### Design recommendations:
+
+1. **Message TTL / pagination**: For 10K people, Tom shouldn't hold the full message stream live. The UI should page through `conversations/<convId>/messages/` on demand rather than pre-subscribing to all.
+2. **Profile fetch caching, not pinning**: `users/<userId>` records are fetched per-view and naturally evict from Gun's internal cache. No explicit retention policy needed for profiles.
+3. **Ledger inbox pruning**: After Tom ingests a remote event from `ledger/Tom/inbox/<eventId>`, that inbox entry should be purged to prevent unbounded growth.
+4. **Incoming talk cluster merging**: The cluster system already solves the "same talk from 50 people" problem — one node in Gun per identityKey regardless of sender count.
+
+### 6. Persistence Architecture
+
+- **Server Hub Gun** (production): `radisk: true`, persistent JSON file on disk, WebSocket/WebRTC mesh hub for client synchronization
+- **Client Gun** (browser): `localStorage: true` + Web Worker bridge (`/worker.js`) backing IndexedDB — better capacity and durability than plain localStorage
+- **SEA Private Space**: AES-GCM encrypted values stored on mesh at `gun.user().private/<path>` — readable only by owner's SEA pair, invisible to other peers (they see garbage ciphertext)
+- **Direct-P2P fallback**: When the Hub is down, pair-scoped paths under `pairConversations/` still exist locally — Tom and Jerry each have their own partial graph that merges deterministically via message DAG linking on reconnection
+
+### 7. Database Size Estimation Formulas
+
+#### 7.1 Wire Format & Per-Record Overhead
+
+Every message stored in the Gun graph traverses three cost layers:
+
+| Layer | Size | What it is |
+|---|---|---|
+| Wire payload (plaintext JSON) | 150–250 bytes | `ConversationMessageWire` fields: `id, senderId, text, timestamp, channel, transport?, encryption?, prevSeen?, isFromChatbot?` |
+| SEA.encrypt overhead | ~176 bytes | NaCl box seal → base64 expansion; applies only to non-`public` channels |
+| Gun radisk node envelope | ~400 bytes | HAM CRDT metadata, JSON wrapping, node pointer, and graph links written to radisk |
+
+**Total per message in Gun DB:**
+- Encrypted (non-public channel, `direct-p2p` or `star-gun`): **~725–900 bytes ≈ 800B average**
+- Plaintext (public channel): **~550–650 bytes ≈ 600B average**
+
+#### 7.2 Data Category Reference Sizes
+
+| Data category | Size per unit | Gun path | Growth model |
+|---|---|---|---|
+| Talk definition (simple `tag`/`flow`) | ~400B | `talks/<talkId>` | One copy per unique talk — NOT duplicated per sender |
+| Talk definition (complex `route` DAG) | up to ~5KB | `talks/<talkId>` | Multiple questions with branching logic and `contextHashId` fields |
+| Answer record | ~300B | `conversations/<convId>/answers/<qId>` | Per `(talkId, questionId)` pair, includes `contextHash` + SEA sig |
+| Conversation header | ~200B | `conversations/<convId>` + `users/<id>/conversations/<convId>` index | One per conversation |
+| Conversation message (encrypted) | ~800B avg | `pairConversations/<pairId>/<convId>/messages/<msgId>` | **Primary growth driver** |
+| Conversation message (plaintext) | ~600B avg | `conversations/<convId>/messages/<msgId>` | Public channel, `star-gun` mode only |
+| Chatbot memory entry | ~200B | `talkAnswerTemplateByUser/<userId>/<identityKey>` | Per `(questionId, responseMode)` pair |
+| Public profile index node | ~500B | `user-public-profile/<userId>` | Replicated from all chatroom members ever seen |
+| Ledger event | ~350B | `ledger/<userId>/events/<seq>` | CIDv1 content ID + SEA sig + `prev` chain pointer + kind payload |
+| KnownPerson record | ~100B | Inside SEA-encrypted `private/profile` blob | Per mutual contact with label, notes, rating |
+
+#### 7.3 Storage Formulas
+
+**Per-conversation storage:**
+```
+S_conv(n, encrypted) = n × 800B + 200B (header)
+S_conv(n, plaintext) = n × 600B + 200B (header)
+```
+
+**Talk-related storage** (combined sent + received, `a` = avg answers per talk):
+```
+S_talks(t, a) = t × 400B + t × a × 300B
+             = t × (400 + 300a) bytes
+```
+For a `flow`/`route` talk with 4 questions: `a = 4`, giving `S_talks(t, 4) = t × 1,600B ≈ t × 1.6KB`.
+
+**Ledger event storage** (`e ≈ 2t + C + m_sent` for a typical usage pattern):
+```
+S_ledger(e) = e × 350B
+```
+Event count breakdown: ~2 events per talk exchange (`TALK_CREATED`/`TALK_RECEIVED` + `TALK_ANSWERED`), 1 `MATCH_CREATED` per conversation, 1 `CONVERSATION_MSG` per outbound message sent.
+
+**Total storage model:**
+```
+S_total = S_messages + S_ledger + S_talks + S_profiles + S_chatbot + S_misc
+
+  S_messages = Σ_i (n_i × 800B)            [sum over all conversations, encrypted mode]
+  S_ledger   = (2t + C + m_sent) × 350B
+  S_talks    = t × (400 + 300a)B
+  S_profiles = peers_seen × 500B
+  S_chatbot  = unique_questions × 200B
+  S_misc     ≈ 5–10KB                       [own profile, ledger indexes — effectively constant]
+```
+
+Variables: `t` = total talks exchanged, `C` = total conversations, `n_i` = messages in conversation i, `m_sent` = outbound messages sent by this user, `a` = avg answers per talk, `peers_seen` = distinct users whose profiles were fetched.
+
+#### 7.4 Concrete Scenarios
+
+**Scenario A — Light user:** 5 talks exchanged, 3 conversations with ~20 messages each
+
+| Category | Calculation | Size |
+|---|---|---|
+| Conversation messages (encrypted) | 3 × 20 × 800B | 48.0 KB |
+| Conversation headers | 3 × 200B | 0.6 KB |
+| Talk definitions | 5 × 400B | 2.0 KB |
+| Answer records | 5 × 4 answers × 300B | 6.0 KB |
+| Ledger events | (10 talk + 3 match + 30 msg) × 350B | 15.1 KB |
+| Chatbot memory | 10 unique questions × 200B | 2.0 KB |
+| Public profile index (peers seen) | 5 peers × 500B | 2.5 KB |
+| Own profile + misc (fixed) | — | 5.0 KB |
+| **Total** | | **≈ 81 KB** |
+
+**Scenario B — Active user:** 50 talks, 15 conversations averaging ~50 messages each
+
+| Category | Calculation | Size |
+|---|---|---|
+| Conversation messages (encrypted) | 15 × 50 × 800B | 600.0 KB |
+| Conversation headers | 15 × 200B | 3.0 KB |
+| Talk definitions | 50 × 400B | 20.0 KB |
+| Answer records | 50 × 4 answers × 300B | 60.0 KB |
+| Ledger events | (100 + 15 + 375) × 350B | 171.5 KB |
+| Chatbot memory | 50 unique questions × 200B | 10.0 KB |
+| Public profile index (peers seen) | 50 peers × 500B | 25.0 KB |
+| Own profile + misc (fixed) | — | 5.0 KB |
+| **Total** | | **≈ 895 KB ≈ 0.9 MB** |
+
+**Scenario C — Power user:** 200 talks, 50 conversations averaging ~200 messages each
+
+| Category | Calculation | Size |
+|---|---|---|
+| Conversation messages (encrypted) | 50 × 200 × 800B | 8,000.0 KB |
+| Conversation headers | 50 × 200B | 10.0 KB |
+| Talk definitions | 200 × 450B (mix of simple + route) | 90.0 KB |
+| Answer records | 200 × 5 answers × 300B | 300.0 KB |
+| Ledger events | (400 + 50 + 5,000) × 350B | 1,925.0 KB |
+| Chatbot memory | 200 unique questions × 200B | 40.0 KB |
+| Public profile index (peers seen) | 100 peers × 500B | 50.0 KB |
+| Own profile + misc (fixed) | — | 10.0 KB |
+| **Total** | | **≈ 10,425 KB ≈ 10.2 MB** |
+
+**Scenario D — Degenerate case:** 1,000+ concurrent conversations
+
+At 1,000 conversations averaging 100 messages each:
+
+| Component | Size |
+|---|---|
+| Messages | 1,000 × 100 × 800B = **78.1 MB** |
+| Ledger events (outbound msgs ≈ 50%) | 50,000 × 350B = **16.8 MB** |
+| Talk definitions + profiles + misc | ~2 MB |
+| **Total** | **≈ 97 MB** |
+
+At 10,000 conversations (see §5), this extrapolates to ~960 MB — approaching or exceeding typical browser IndexedDB limits (50–250 MB common practice, 2 GB maximum). The dominant cost term is `S_messages = C × n_avg × 800B`, which scales O(C·n) while all other categories scale O(C) or are bounded constants. This confirms the §5 design recommendations that message TTL and on-demand pagination are required above approximately the 500-conversation threshold, and that merkle-checkpoint pruning (§9) is essential for long-lived power users.
+
+---
+
+### 8. Data Ownership & Retention Policy
+
+#### 8.1 The Gun.js Replication Problem
+
+Gun.js replicates every graph node a client subscribes to — there is no built-in scope boundary. When a user joins a chatroom and views other members' profiles, those nodes are written to their local radisk. When talks arrive in the `ownerIncomingTalkIndex`, the full cluster payloads — authored by others — are stored locally. Over time, a user's Gun database accumulates significant volumes of data they did not create and may no longer need.
+
+This section defines a **tiered retention policy** that answers: *who owns what, and how long should a local node keep it?*
+
+#### 8.2 Tiered Retention Model
+
+##### Tier 1 — Cryptographic Root (Never delete, immutable)
+
+These records form the foundation of identity and chain integrity. Their loss is irreversible.
+
+| Record | Location | Why permanent |
+|---|---|---|
+| SEA keypair custody | localStorage `iinpublic_key_custody_v1` | Loss = permanent identity loss with no recovery path |
+| Device secret | localStorage `iinpublic_key_custody_device_secret_v1` | Required to decrypt keypair custody record |
+| Ledger head pointer | `ledger/<myId>/head` | Provides verification anchor for current chain tip |
+| Merkle checkpoint events | `ledger/<myId>/checkpoints/<seq_N>` | These are the pruning summary records — see §9 |
+| CIDv1 hashes of my authored content | Ledger index `ledger/<myId>/index/talkId/<talkId>` | Content-addressing integrity requires my CID claims to remain self-consistent |
+
+##### Tier 2 — Mine + Pair-Confidential (Retain indefinitely unless user explicitly wipes)
+
+Data the user authored or co-created in a bilateral private context. Loss degrades experience permanently; no re-fetch is possible.
+
+| Record | Gun path | TTL |
+|---|---|---|
+| My talk definitions | `talks/<talkId>` where `authorId === myId` | Indefinite |
+| Pair-scoped conversation messages | `pairConversations/<pairId>/<convId>/messages/<msgId>` | Indefinite, or merkle-checkpointed per §9 after full-detail window |
+| Conversation headers and answer records | `conversations/<convId>`, `conversations/<convId>/answers/<qId>` | Indefinite |
+| My ledger events (own chain) | `ledger/<myId>/events/<seq>` | Full detail for last M=500 events; older ranges: merkle-checkpointed (§9) |
+| Chatbot memory (my chosen answers) | `talkAnswerTemplateByUser/<myId>/<identityKey>` | Indefinite |
+| Private encrypted profile | `gun.user(<myId>).private/profile` | Indefinite |
+| Per-user conversation index | `users/<myId>/conversations/<convId>` | Indefinite (small fixed-size per conversation) |
+
+##### Tier 3 — Other Users' Public Data (Bounded TTL: 7 days after last interaction)
+
+Data replicated from other nodes that the local client fetched. All records are authoritative on the public mesh and can be re-fetched on demand.
+
+| Record | Gun path | TTL | Re-fetch trigger |
+|---|---|---|---|
+| Others' talk definitions | `talks/<talkId>` where `authorId !== myId` | 7 days since last answer/view | Loaded on-demand when incoming talk modal opens |
+| Other users' public profiles | `users/<userId>`, `user-public-profile/<userId>` | 7 days since last profile view | Fetched per contacts-view render |
+| Chatroom presence records | `chatrooms/<chatroomId>/users/<userId>` | 7 days since last active session | Re-populated on next chatroom join |
+| Other users' tag indexes | `tag-index/<tagName>/<userId>`, `user-tags/<userId>` | 7 days since last tag search | Rebuilt per-query |
+| Answered/dismissed incoming talk clusters | `ownerIncomingTalkIndex/<myId>/<identityKey>` | 7 days after answer or dismissal | Outcome is already in own ledger; cluster is redundant |
+| Others' ledger inbox events | `ledger/<myId>/inbox/<eventId>` | **Immediate** after ingestion | Inbox is a delivery buffer (see §4 Phase 4); delete after `applyEvent` succeeds |
+| Chatroom visit records | `chatrooms/<chatroomId>/visits/<visitEventId>` | 7 days | Audit data not needed locally |
+
+##### Tier 4 — Session State (Ephemeral; survives restart only for UX continuity)
+
+Transient coordination state. Safe to delete on any storage-pressure event or cache clear.
+
+| Record | Location | Lifecycle |
+|---|---|---|
+| Active WebRTC session state | In-memory `P2PWebRTCSession` | Cleared on disconnect; never persisted to Gun |
+| Connected neighbor cache | In-memory only | Cleared on page unload |
+| Polling cursors | In-memory `P2PConversationRelayClient.lastNonce` | Reset per session |
+| Temporary answer buffers | DOM state in `talk-response-dialog.ts` | Cleared on dialog close |
+| Transport mode flag cache | localStorage `transport_mode` | Refreshed from `GET /api/debug/storage` at every boot |
+
+#### 8.3 Pruning Without Breaking Chain Integrity
+
+The critical constraint on Tier 2 pruning is **ledger chain integrity**. The ledger's `prev` field creates a hash-linked sequence: event seq 201 contains the CIDv1 of event 200, which contains the CIDv1 of event 199. Deleting any individual event in the middle severs these pointers and makes the range unverifiable by any peer.
+
+**Naive pruning (breaks integrity):** Delete events 100–200, keep 1–99 and 201+. Event 201 now points to a CID that no longer exists locally. Peer reconciliation and audit protocols fail silently.
+
+**Correct approach: pruning-point markers.** Before deleting any event range, write a single signed merkle checkpoint that summarizes the entire pruned range (see §9 for the full protocol). The checkpoint carries a merkle root committing to all deleted events' CIDs. The chain remains verifiable: seq 201 points to seq 200 (or the checkpoint that replaced it), and any event in the pruned range can be proven to have existed via a O(log N) merkle proof path against the checkpoint's root.
+
+---
+
+### 9. Blockchain-Style Integrity Preservation During Trim
+
+#### 9.1 The Core Insight
+
+Bitcoin and similar blockchains solve exactly this problem: they must prove old transactions existed and were valid without requiring every node to hold full history forever. The solution is **simplified payment verification (SPV)**: instead of storing old blocks, store a merkle root that commits to all of them. Any individual transaction can be proven in O(log N) steps against the root.
+
+IinPublic's interaction ledger uses the same structural ingredients — an append-only chain of CIDv1-identified events with `prev` pointers — making this pattern directly applicable to both ledger pruning and conversation message pruning.
+
+#### 9.2 Merkle Checkpoint Design for Ledger Events
+
+**Checkpoint frequency:** Every N = 100 ledger events, write one checkpoint.
+
+**Checkpoint structure** (stored at `ledger/<userId>/checkpoints/seq_<N>`):
+
+```json
+{
+  "checkpointSeq": 100,
+  "rangeStart": 1,
+  "rangeEnd": 100,
+  "merkleRoot": "<SHA-256 hex of sorted CIDv1 array>",
+  "count": 100,
+  "computedAt": "ISO-8601",
+  "sig": "<SEA signature over all above fields>"
+}
+```
+
+**Merkle root computation:**
+```
+input   = [event_seq1.id, event_seq2.id, ..., event_seq100.id]   // CIDv1 strings
+ordered = lexicographic_sort(input)                               // deterministic across re-computations
+root    = SHA-256(JSON.stringify(ordered))
+```
+
+The checkpoint is written as a ledger event of kind `CHECKPOINT_CREATED` carrying its own `prev` pointer to event seq N. It is signed with the user's SEA signing key, making it a first-class member of the chain that any peer can verify against the user's public key.
+
+**Pruning window:** Keep the last M = 500 events in full detail. Any event at position `(currentHead.seq − seq) > 500` may be deleted from the Gun graph after its checkpoint has been written and confirmed.
+
+#### 9.3 Event Range Verification Protocol
+
+When a peer or auditor requests proof that event E (with CIDv1 `cid_E`) existed in Alice's ledger and Alice has pruned that range:
+
+1. Alice locates the checkpoint for the 100-event window containing E's seq.
+2. Alice provides:
+   - The checkpoint node (merkle root + SEA sig + range metadata).
+   - A merkle proof path for `cid_E` within that 100-event sorted array (7 hash values, O(log₂ 100) ≈ 7 steps).
+3. The verifier:
+   - Checks the checkpoint SEA signature against Alice's known `pub` key.
+   - Verifies that `cid_E` hashes to a leaf consistent with the provided proof path and the root.
+4. Both pass → the event is cryptographically proven to have existed, without Alice storing it.
+
+Proof path length: 7 hashes for N=100. Even at N=1,000, proof length is only 10 hashes. Verification cost is O(log N) regardless of how many events were pruned.
+
+#### 9.4 Applying the Pattern to Conversation Messages
+
+Messages are the dominant storage category (§7.4). The same checkpoint approach applies: every K = 50 messages in a conversation, compute a message checkpoint:
+
+```
+pairConversations/<pairId>/<convId>/checkpoints/<checkpoint_seq>:
+{
+  "checkpointSeq": 50,
+  "rangeStart": 1,
+  "rangeEnd": 50,
+  "merkleRoot": "<SHA-256 of sorted array of [msgId + SHA-256(ciphertext)] pairs>",
+  "count": 50,
+  "computedAt": "ISO-8601",
+  "sig": "<SEA signature>"
+}
+```
+
+The message merkle root commits to both **message IDs** (conversation ordering) and **ciphertext hashes** (content integrity). After pruning, any party with the checkpoint can prove:
+
+- That message `msgK` existed in this conversation (ID in the merkle tree).
+- That its ciphertext had a specific SHA-256 hash at commit time (content integrity, not content disclosure).
+- When it was committed (checkpoint timestamp + SEA sig).
+
+What cannot be proven retroactively: the plaintext. Only the encrypted form's hash is stored in the checkpoint. This is a deliberate privacy property — pruned messages are provably committed but not reconstructible.
+
+**Retention window for messages:** Keep the last K_retain = 200 messages per conversation in full detail. Messages older than position 200 from the current head are pruned after their checkpoints are written.
+
+#### 9.5 Storage Savings Analysis
+
+| Pruned unit | Before pruning | After (checkpoints only) | Reduction |
+|---|---|---|---|
+| 100 ledger events | 100 × 350B = 35.0 KB | 1 checkpoint × 256B = 0.25 KB | **99.3%** |
+| 500 ledger events (5 checkpoints) | 500 × 350B = 175.0 KB | 5 × 256B = 1.3 KB | **99.3%** |
+| 50 conversation messages | 50 × 800B = 40.0 KB | 1 checkpoint × 512B = 0.5 KB | **98.8%** |
+| 200 messages (4 checkpoints) | 200 × 800B = 160.0 KB | 4 × 512B = 2.0 KB | **98.8%** |
+
+Checkpoint size breakdown:
+- Merkle root (SHA-256 as hex string): 64 bytes
+- SEA signature (NaCl detached sig → base64): ~128 bytes
+- Metadata fields (range seqs, count, timestamp): ~64 bytes
+- **Total per ledger checkpoint: ~256 bytes**
+- **Total per message checkpoint (adds ciphertext hash pairs): ~512 bytes**
+
+**Net storage for Scenario C (power user, §7.4) with pruning applied:**
+
+| Component | Without pruning | With pruning | Saving |
+|---|---|---|---|
+| Ledger events (5,450 total → keep 500 full, 4,950 → 49 checkpoints) | 1,925 KB | 175 KB + 12.5 KB = 188 KB | −1,737 KB |
+| Messages (50 convs × 200 msgs → keep 200 full per conv, prune none at this scale) | 8,000 KB | 8,000 KB | 0 (within window) |
+| **Total** | **10,425 KB** | **~8,688 KB** | **−17%** |
+
+For a longer-lived power user with 50 conversations × 2,000 messages each:
+
+| Component | Without pruning | With pruning (keep 200 full) | Saving |
+|---|---|---|---|
+| Messages | 50 × 2,000 × 800B = 78.1 MB | 50 × 200 × 800B + 50 × 36 × 512B = 7.7 MB | **−90%** |
+| Ledger | 18.9 MB | 0.19 MB (500 full + checkpoints) | **−99%** |
+| **Total** | **~97 MB** | **~9.9 MB** | **−90%** |
+
+#### 9.6 Integration with Existing Architecture
+
+These sections cross-reference the rest of this document:
+
+- The ledger `prev`-chain structure is defined in **§3.9 Interaction Ledger**. Checkpoints are written as a new event kind (`CHECKPOINT_CREATED`) that participates in the same chain.
+- CIDv1 content addressing (used for event IDs and as the leaf values in the merkle tree) is the same scheme already documented in **§3.9**.
+- The delta-sync protocol (**§4 Phase 4**) must recognize pruned ranges: when peer B requests event E and A has pruned it, A returns a merkle proof rather than the raw event node.
+- The `ledger/<userId>/state` broadcast (**§3.9**) is unchanged — it carries only `{seq, prevCid}` for the current chain head.
+- Per the **§8.3** constraint, a Tier 2 pruning operation MUST write and confirm the merkle checkpoint before deleting any event range. This ordering prevents a crash-between-checkpoint-and-delete from producing an unverifiable gap in the chain.
+
+
+---
+

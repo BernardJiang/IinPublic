@@ -1,12 +1,18 @@
 # IinPublic Docs
 
-Last updated: 2026-06-08
+Last updated: 2026-07-29
 
 This folder is organized around four canonical documents (everything else is operational guides or
 archive). As of 2026-06-08 the scattered spec/roadmap/status/backlog files were consolidated into
-these four; their sources live in [Archive](archive/consolidated-2026-06-08/README.md).
+these four; their sources live in [Archive](archive/consolidated-2026-06-08/README.md). A second
+consolidation pass on 2026-07-29 folded the remaining design documents scattered under `docs/`
+(GUI redesign/layout catalog, the S3 embedded-node native-client design, the Gun database
+architecture/scalability/retention design, and the current TechSupport K1–K6 contract) into the
+Technical Specification's new Part VI (§26–28) and §19.7; sources live in
+[Archive](archive/consolidated-2026-07-29/README.md). `docs/current/` and `docs/zh/` (stale,
+unmaintained) were retired into the same archive folder.
 
-- [Technical Specification](specs/iinpublic-technical-specifications.md) — **all feature/design detail**: requirements, architecture, data model, UI contracts, P2P deep dives (§19–24), testing strategy, future enhancements.
+- [Technical Specification](specs/iinpublic-technical-specifications.md) — **all feature/design detail**: requirements, architecture, data model, UI contracts, P2P deep dives (§19–25), testing strategy, future enhancements, plus consolidated design documents (§26–28: GUI navigation shell + layout catalog, cross-platform native clients, Gun database architecture/scalability/retention).
 - [Test Plan](testing/testplan.md) — **all test detail**: E2E catalog, strategy, plus flake investigations & benchmarks (Appendix C).
 - [TODO](TODO.md) — **all future tasks**: execution queue plus detailed backlog inventory and statistics/spec-gap follow-ups (Appendices A–C).
 - [Completed Work](completed.md) — **all completed tasks**: durable ledger for finished features.
@@ -25,7 +31,7 @@ these four; their sources live in [Archive](archive/consolidated-2026-06-08/READ
 | Build, test, and operation | [How To Run](guides/HOW_TO_RUN.md), [Debug Guide](guides/DEBUG_GUIDE.md) | Keep commands aligned with `package.json`. |
 | Port and native topology | [Port Usage Scenarios](design/port-usage-scenarios.md), [Native App E2E Strategy](testing/native-app-e2e-strategy.md) | Shared-dev versus isolated E2E ports, native embedded-node app testing. |
 | Testing plans & flake history | [Test Plan](testing/testplan.md), [Manual Verification Guide](guides/manual-verification-guide.md) | Automated catalog + flake/benchmark appendices. |
-| Historical/imported source docs | [Archive](archive/README.md) | Not authoritative. 2026-06-08 consolidation sources: [here](archive/consolidated-2026-06-08/README.md). |
+| Historical/imported source docs | [Archive](archive/README.md) | Not authoritative. 2026-06-08 consolidation sources: [here](archive/consolidated-2026-06-08/README.md); 2026-07-29 consolidation sources (GUI redesign/catalog, S3 embedded-node shell, Gun DB architecture, TechSupport K1–K6 contract): [here](archive/consolidated-2026-07-29/README.md). |
 
 ## Current Implemented Feature Baseline
 

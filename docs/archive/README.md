@@ -19,5 +19,13 @@ Imported document files moved here during cleanup:
 - `imported/IinPublic_TODO_specs.docx`
 - `imported/IinPublic_Frontend_Backend_Interface.docx`
 
-Current source-of-truth docs are listed in [Docs Home](../README.md) and
-[Current Docs](../current/README.md).
+Current source-of-truth docs are listed in [Docs Home](../README.md). (`docs/current/README.md` was
+itself a stale duplicate of that index and was retired into `consolidated-2026-07-29/` — see below.)
+
+- `consolidated-2026-06-08/` — first consolidation pass: scattered spec/roadmap/status/backlog
+  files merged into the four canonical docs.
+- `consolidated-2026-07-29/` — second consolidation pass: remaining scattered design documents
+  (GUI redesign/layout catalog, S3 embedded-node native-client design, Gun database architecture,
+  TechSupport K1–K6 contract) merged into the Technical Specification's Part VI (§26–28) and §19.7;
+  also retired `docs/current/` (stale duplicate index) and `docs/zh/` (stale, unmaintained
+  translations).

@@ -189,7 +189,7 @@ Tests live in `tests/e2e/`. Each spec has a companion `.md` with a plain-English
 ## Key invariants
 
 - **Match logic is in `src/shared/talk-engine.ts`** — never duplicate it in routes or UI.
-- **TechSupport is the built-in first user and counts as exactly 1 in every headcount** (status bar, room badges) — see `docs/design/techsupport-bootstrap-contract.md`.
+- **TechSupport is the built-in first user and counts as exactly 1 in every headcount** (status bar, room badges) — see spec `docs/specs/iinpublic-technical-specifications.md` §19.7.1 (merged from the former `docs/design/techsupport-bootstrap-contract.md`, now in `docs/archive/consolidated-2026-07-29/`).
 - **Server `incomingTalksMap` is authoritative** — Gun writes for `incomingTalksByUser` are skipped in the delivery path; the browser fetches via HTTP.
 - **Private user data is SEA-encrypted** — `WebUserService.putPrivateUserData` writes `blockedUserIds`, `knownPeople`, `talkFilters` under the Gun user keypair. The server cannot read these; server-side user ops use Gun public paths only.
 - **`ContactsViewDeps`** must include every function deps object passed to contacts-view rendering; there are three call sites in `ui-manager.ts` (~lines 873, 890, 908).

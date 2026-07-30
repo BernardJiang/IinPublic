@@ -1,6 +1,6 @@
 # IinPublic Completed Work
 
-Last updated: 2026-07-27
+Last updated: 2026-07-29
 
 ## 2026-07-14 — S3 embedded-node mobile shells: Android/iOS native builds verified
 
@@ -3385,3 +3385,60 @@ measurement tooling a retention policy decision needs, without reaping anything 
   real deployment and record the numbers; decide a retention policy per path; work out tombstone
   semantics for a P2P graph where an offline peer can resurrect a deleted node on next sync; and
   decide whether trimming runs relay-side, device-side, or both.
+
+## 2026-07-29 — Docs consolidation: remaining design documents merged into the spec + archive
+
+Second consolidation pass (first was 2026-06-08). Reviewed every file under `docs/` for design
+requirements not yet reflected in the canonical spec, merged the genuinely new/current ones in
+full, and archived everything superseded — without eliminating any detail (archive, not delete).
+Full mapping and rationale: `docs/archive/consolidated-2026-07-29/README.md`.
+
+**Merged in full into `docs/specs/iinpublic-technical-specifications.md` (new Part VI, §26–28,
+plus a §19.7 expansion) — bumped to v4.6:**
+- **§26 GUI Navigation Shell Redesign & Layout Catalog** ← `docs/gui-redesign-plan.md` (§26.1) +
+  `docs/gui-layout-catalog-and-e2e-plan.md` (§26.2). This is the normative navigation/layout
+  contract behind `docs/TODO.md` A–D, H, I, J, and the new M–Q cluster; A–D/H and parts of I/J
+  have since shipped, but the full-page transition tables, popup-size-class rules, and the
+  per-control option matrix were never previously in the spec itself.
+- **§27 Cross-Platform Native Clients — Embedded Node Shell (S3)** ← `docs/design/S3-embedded-node-shell.md`.
+  Real, current architecture (desktop/Android builds already verified per the 2026-07-14 and
+  2026-06-30 entries above) that had no spec section of its own at all.
+- **§28 Gun Database Architecture, Scalability & Retention** ← `docs/Gun-Database-Architecture.md`.
+  Genuinely new material not covered by the existing §11/§12/§20 — storage-sizing formulas
+  (§28.7), a tiered data-ownership/retention policy (§28.8), and a merkle-checkpoint pruning
+  design for both the ledger and conversation messages (§28.9). This is the most complete existing
+  answer to `docs/TODO.md` L2's open retention-policy questions — a TODO cross-reference was added
+  there pointing back at this section.
+- **§19.7 expanded** with the current TechSupport K1–K6 built-in-identity/presence/Q&A/
+  unblockability contract ← `docs/design/techsupport-bootstrap-contract.md` (now §19.7.1). The
+  pre-existing §19.7 content (server message-storage transport exception) is kept as §19.7.0 and
+  remains true — K5-A's decision keeps the user-visible support thread on that transport; K1's
+  revision is about identity/presence, not message storage, so the two subsections coexist rather
+  than one replacing the other.
+
+**Archived without re-merge** (implementation-handoff plans for now-shipped work, already-superseded
+analysis, or stale duplicates — conclusions already live in the entries above or elsewhere in this
+file): `docs/design/hub-hardening-explicit-relay-channel.md`, `p0-step1-mesh-transport.md`,
+`p0-step4-mesh-responses.md`, `p0-steps8-11-ledger.md`, `S3-native-libp2p-shell.md` (superseded by
+S3-embedded-node-shell.md per its own header), `techsupport-k1/k2/k3/k5-design-note.md` (conclusions
+already in §19.7.1 + this file's K1/K2/K3/K5 entries above), `docs/architecture/p2p-mesh-libp2p-analysis.md`
+(already merged into spec §25 on 2026-06-10, confirmed by that file's own "Review notes" section),
+`docs/current/README.md` (stale duplicate of `docs/README.md` — `docs/current/` removed), and
+`docs/zh/projectplan_zh.md` + `testplan_zh.md` (stale translations of a pre-2026-06-08 superseded
+draft SRS/test plan — `docs/zh/` removed).
+
+**Out of scope** (not design requirements): `docs/LAN-HTTPS.md` (dev-ops guide),
+`docs/e2e-test-analysis.md` (test-coverage analysis, likely itself superseded by the
+auto-generated `docs/testing/coverage-matrix.md` — a separate cleanup), `docs/design/port-usage-scenarios.md`
+(already its own canonical doc).
+
+**Pointers updated:** `CLAUDE.md`'s TechSupport-headcount invariant note and `docs/TODO.md`'s four
+`Source:` lines (G/I/J/K) now point at the new spec sections instead of the archived file paths.
+Historical mentions inside this file and scattered code-comment doc-pointers (e.g. `app.ts`,
+`talk-ledger.ts`) were deliberately left as-is — they still resolve to real content at the archived
+paths, and rewriting historical ledger entries was judged out of proportion with the value, same
+as the 2026-06-08 consolidation's own approach.
+
+**Verification:** code-fence balance checked (238 markers, even) and heading counts reconciled
+(150 source headings + 6 new wrapper headings ≈ 155 in the merged range) across all four merged
+files after the heading-level-demotion transform, confirming no content was silently dropped.
