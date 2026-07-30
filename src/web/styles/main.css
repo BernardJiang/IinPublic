@@ -1095,6 +1095,11 @@ button:focus:not(:focus-visible) {
   75% { background: rgba(5, 150, 105, 0.25); }
 }
 
+/* TODO §Q: Talk -> Me-tab Q&A reverse edge — briefly highlights the answer row(s) scrolled to. */
+.answer-item-highlighted {
+  animation: flashMember 2s ease-out;
+}
+
 .status-bar-actions #broadcast-talk-btn {
   margin: 0;
   padding: 12px 14px;

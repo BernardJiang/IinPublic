@@ -6073,6 +6073,7 @@ export class UIManager extends EventEmitter {
   }
 
   showTalkResponseDialog(talk: any, options?: { skipAutoAnswer?: boolean; isTalkSuperseded?: boolean; senderName?: string }): void {
+    const talkId = String(talk?.id || '');
     openTalkResponseDialog({
       talk,
       ...(options?.skipAutoAnswer !== undefined ? { skipAutoAnswer: options.skipAutoAnswer } : {}),
@@ -6084,7 +6085,43 @@ export class UIManager extends EventEmitter {
       resolveAnswerPreferenceForTalkQuestion: this.resolveAnswerPreferenceForTalkQuestion.bind(this),
       saveAnswerPreference: this.saveAnswerPreference.bind(this),
       text: this.t.bind(this),
+      // TODO §Q: Talk → Me-tab Q&A reverse edge — same talkId join P's Q&A → Talk direction
+      // already established. Only offered when I've actually answered this talk (viewing my own
+      // answer), not while answering it live for the first time.
+      ...(talkId && this.hasMeTabAnswerForTalk(talkId)
+        ? { viewInMyAnswers: () => this.navigateToMyAnswerForTalk(talkId) }
+        : {}),
     });
+  }
+
+  /** TODO §Q: does this talk have a Me-tab Q&A entry — i.e. did I actually answer it? */
+  private hasMeTabAnswerForTalk(talkId: string): boolean {
+    const flatHistory = getFlatAnswerHistory();
+    if (Object.values(flatHistory).some((record) => record.talkId === talkId)) return true;
+    const talk = this.getMyTalks()[talkId];
+    return talk?.role === 'answered' || talk?.role === 'copied';
+  }
+
+  /**
+   * TODO §Q: Talk → Me-tab Q&A reverse edge. Switches to the Me tab and scrolls/highlights the
+   * answer entry (or entries, for a multi-question flow/route talk) that came from this talk —
+   * the reverse of P's Q&A → Talk `showTalkDetailAsAnswer` direction, same talkId join.
+   */
+  private navigateToMyAnswerForTalk(talkId: string): void {
+    document.getElementById('talk-response-modal')?.remove();
+    (document.querySelector('.nav-btn[data-view="me"]') as HTMLElement | null)?.click();
+    window.setTimeout(() => {
+      const rows = document.querySelectorAll<HTMLElement>(
+        `.answer-talk-item[data-source-talk-id="${talkId}"], .answer-talk-item[data-talk-id="${talkId}"]`,
+      );
+      const first = rows[0];
+      if (!first) return;
+      first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      rows.forEach((row) => {
+        row.classList.add('answer-item-highlighted');
+        window.setTimeout(() => row.classList.remove('answer-item-highlighted'), 2000);
+      });
+    }, 0);
   }
 
   private static getTalkContentKey(talk: any): string {

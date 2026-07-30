@@ -574,6 +574,7 @@ other one:
 - **Missing edge, not yet in any TODO item: Talk → Me-tab Q&A (forward direction).** P only wires
   Q&A → Talk; there's no reverse "from this talk, show me my answer to it" link yet, even though
   the same `talkId` join already used by P would answer it.
+  **Built 2026-07-30 — see build-order item 12** for the full implementation.
 - **Missing edge, not yet in any TODO item, and genuinely new — not a refactor of something
   existing: Talk → other people who separately exchanged the *same* talk content.** Audited
   thoroughly (2026-07-29): **no code path supports this today, in either direction.**
@@ -771,8 +772,17 @@ this is a sequencing index, not new content. Land top-to-bottom.
     check on the already-matched talk). Confirmed both fail without the fix and pass 3/3 with it;
     regression on `67-peer-history-controls`, `68-conversation-first-entry`,
     `69-matched-talk-threads`, `00e-chatroom-peer-detail` (9/9). `tsc`/`lint`/Jest all clean.
-12. **Medium.** This section's own Talk → Me-tab Q&A reverse edge — reuses P's `talkId` join,
+12. [x] **Medium.** This section's own Talk → Me-tab Q&A reverse edge — reuses P's `talkId` join,
     just the other direction.
+    **Done 2026-07-30.** New `hasMeTabAnswerForTalk`/`navigateToMyAnswerForTalk` in `ui-manager.ts`;
+    `showTalkResponseDialog` passes a `viewInMyAnswers` callback only when this talk actually has
+    a Me-tab entry (i.e. I've answered it) — a "View in My Answers" link/button injected into the
+    response-dialog modal (all 3 render branches: tag, TALK_SUPERSEDED review, per-question flow),
+    switching to the Me tab and scrolling/highlighting the matching `.answer-talk-item` row(s) on
+    click. New test `77-talk-to-me-tab-reverse-edge.spec.ts`: no link before answering, link
+    appears and correctly navigates after. Confirmed it fails without the fix and passes 3/3 with
+    it; regression on `05-talks-edit`, `35-me-answer-dead-end-retry`, `00i-p0-direct-talk-delivery`,
+    `00w-talk-lifecycle-flow-multi-responder` (5/5). `tsc`/`lint`/Jest all clean.
 13. **Medium.** P — wire the already-computed `contextHash`/`contextPath` into a per-question deep
     link, so a multi-question entry can scroll/highlight the specific question, not just open the
     talk.
@@ -791,18 +801,21 @@ this is a sequencing index, not new content. Land top-to-bottom.
 
 **Work**
 
-- [ ] Design + land the thin `navigateToGraphNode(target)` dispatcher described above, with
+- [x] Design + land the thin `navigateToGraphNode(target)` dispatcher described above, with
       `show*`/`open*` functions as its per-type implementations. Land this *before or alongside*
       the first of M2/M3/N3/O/P's new click-to-navigate handlers, so those items build on it
       rather than duplicating one-off logic that gets retrofitted later.
-- [ ] Build the missing Talk → Me-tab Q&A reverse edge (from a talk, show my answer to it, if any)
+      **Done 2026-07-30 — build-order item 1.**
+- [x] Build the missing Talk → Me-tab Q&A reverse edge (from a talk, show my answer to it, if any)
       — same `talkId` join P already established, just the other direction.
+      **Done 2026-07-30 — build-order item 12.**
 - [ ] Design (privacy-first, per the framing above) and build Talk → "people I've separately
   exchanged this same content with" — scoped to the current user's own local records, never a
   cross-user/mesh-wide query.
-- [ ] Verify Chatroom → Person (clicking a chatroom roster row reaches that person's contact/DM)
+- [x] Verify Chatroom → Person (clicking a chatroom roster row reaches that person's contact/DM)
       actually works today; if it doesn't, it's the same shape of gap as the others in this
       section and should get its own click-to-navigate treatment through the new dispatcher.
+      **Done 2026-07-30 — build-order item 3, verified already working, no fix needed.**
 - [ ] Document the Settings-isolation principle precisely (read-dependency from other views is
       fine; a click path starting in Settings and landing on a graph node is not) so M4's Settings
       cleanup doesn't accidentally wire Settings into the navigable graph.

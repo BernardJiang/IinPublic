@@ -90,6 +90,9 @@ type TalkResponseDialogOptions = {
     mode?: 'auto' | 'manual' | 'permanent' | 'suppressed',
   ) => void;
   text?: (key: UiTranslationKey) => string;
+  /** TODO §Q: Talk → Me-tab Q&A reverse edge. Present only when this talk has already been
+   *  answered by me — shows a "View in My Answers" link that jumps to the Me-tab entry. */
+  viewInMyAnswers?: () => void;
 };
 
 /**
@@ -185,6 +188,24 @@ function renderStepIndicator(
   `;
 }
 
+/**
+ * TODO §Q: Talk → Me-tab Q&A reverse edge. Appends a small "View in My Answers" link into the
+ * modal header, common to all talk-type branches, right before each is attached to the DOM.
+ */
+function injectViewInMyAnswersLink(modal: HTMLElement, options: TalkResponseDialogOptions): void {
+  if (!options.viewInMyAnswers) return;
+  const header = modal.querySelector('.modal-header');
+  if (!header) return;
+  const link = document.createElement('button');
+  link.type = 'button';
+  link.id = 'view-in-my-answers-btn';
+  link.className = 'btn';
+  link.style.cssText = 'margin-top:8px;font-size:0.85em;';
+  link.textContent = options.text?.('talksViewInMyAnswers') || 'View in My Answers';
+  link.addEventListener('click', () => options.viewInMyAnswers?.());
+  header.appendChild(link);
+}
+
 export function showTalkResponseDialog(options: TalkResponseDialogOptions): void {
   const { talk } = options;
   const text = (key: UiTranslationKey, fallback: string): string => options.text?.(key) || fallback;
@@ -242,6 +263,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         </div>
       </div>
     `;
+    injectViewInMyAnswersLink(modal, options);
     document.body.appendChild(modal);
     // Scope to THIS modal so a second stacked dialog can't read the first modal's checkbox
     // (fixed ids would otherwise resolve to the first-opened modal via document.getElementById).
@@ -354,6 +376,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           </div>
         </div>`;
 
+      injectViewInMyAnswersLink(modal, options);
       document.body.appendChild(modal);
 
       // Live update reviewAnswers when user selects a radio
@@ -596,6 +619,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         </div>
       </div>
     `;
+    injectViewInMyAnswersLink(modal, options);
 
     const applyChoice = (radio: HTMLInputElement): void => {
       const answerId = radio.dataset.answerId!;
