@@ -3276,6 +3276,34 @@ export class UIManager extends EventEmitter {
     if (empty) empty.style.display = visibleCount === 0 && document.querySelector('#answers-content .answer-talk-item') ? 'block' : 'none';
   }
 
+  /**
+   * TODO §M4: shared section-wrapper for Settings — one consistent border/background/padding
+   * and one heading convention (title + optional subtitle + optional right-aligned action)
+   * instead of the 9 copy-pasted inline-style `<section>` strings this replaces. Uses `<details
+   * open>` (the one existing precedent in this UI layer, `answers-view.ts`'s context-group
+   * `<details>`) so every section is independently collapsible — open by default, so nothing
+   * about current visibility/interaction changes unless the user chooses to collapse it. The
+   * action control renders in the body, below the summary (not inside it), so its own click
+   * handler never fights the browser's native summary-click-toggles-open/closed behavior.
+   */
+  private renderSettingsSection(
+    opts: { id?: string; title: string; subtitle?: string; action?: string; danger?: boolean },
+    bodyHtml: string,
+  ): string {
+    return `
+      <details class="settings-section" ${opts.id ? `id="${opts.id}"` : ''} style="background:#fff;border:1px solid ${opts.danger ? 'var(--danger-border)' : 'var(--border)'};border-radius:8px;" open>
+        <summary class="settings-section-summary" style="cursor:pointer;padding:16px;">
+          <div style="font-weight:700;color:${opts.danger ? 'var(--danger-hover)' : 'var(--text-primary)'};display:inline;">${opts.title}</div>
+          ${opts.subtitle ? `<div style="font-size:0.82em;color:var(--text-tertiary);margin-top:2px;">${opts.subtitle}</div>` : ''}
+        </summary>
+        <div class="settings-section-body" style="padding:0 16px 16px 16px;">
+          ${opts.action ? `<div style="display:flex;justify-content:flex-end;margin-bottom:12px;">${opts.action}</div>` : ''}
+          ${bodyHtml}
+        </div>
+      </details>
+    `;
+  }
+
   private renderSettingsView(user: User): void {
     const container = document.getElementById('settings-content');
     if (!container) return;
@@ -3376,7 +3404,7 @@ export class UIManager extends EventEmitter {
     const headshotChoices = ['🙂', '😎', '🤠', '🎾', '☕', '🌟', '🐱', '🦊'];
     container.innerHTML = `
       <div style="display:grid;gap:14px;">
-        <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
+        ${this.renderSettingsSection({ title: this.t('profile') }, `
           <div style="display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start;">
             <div style="display:grid;gap:8px;min-width:0;">
               <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
@@ -3421,18 +3449,19 @@ export class UIManager extends EventEmitter {
               <div style="display:grid;gap:8px;">${profilePreview}</div>
             </div>
           </div>
-        </section>
-        <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
-            <div>
-              <div style="font-weight:700;color:var(--text-primary);">${this.t('credit')}</div>
-              <div style="font-size:0.82em;color:var(--text-tertiary);">${this.t('meCreditHelp')}</div>
-            </div>
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;">
-              <input type="checkbox" id="settings-credit-visible" ${isCreditVisible ? 'checked' : ''}>
-              <span>${this.t('settingsCreditVisible')}</span>
-            </label>
-          </div>
+        `)}
+        ${this.renderSettingsSection(
+          {
+            title: this.t('credit'),
+            subtitle: this.t('meCreditHelp'),
+            action: `
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;">
+                <input type="checkbox" id="settings-credit-visible" ${isCreditVisible ? 'checked' : ''}>
+                <span>${this.t('settingsCreditVisible')}</span>
+              </label>
+            `,
+          },
+          `
           <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meReviews')}</div><div style="font-size:1.15em;font-weight:700;">${reviewCount}</div></div>
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meStarRating')}</div><div style="font-size:1.15em;font-weight:700;">${starRating.toFixed(1)}</div></div>
@@ -3442,9 +3471,9 @@ export class UIManager extends EventEmitter {
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meMatches')}</div><div style="font-size:1.15em;font-weight:700;">${matchesFound}</div></div>
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);grid-column:span 2;"><div style="font-size:0.78em;color:var(--warning-text);">${this.t('meAgeVerified')}</div><div style="font-size:1.15em;font-weight:700;">${ageVerified ? '18+' : this.t('unavailable')}</div></div>
           </div>
-        </section>
-        <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
-          <div style="font-weight:700;color:var(--text-primary);margin-bottom:10px;">${this.t('settingsLanguages')}</div>
+        `,
+        )}
+        ${this.renderSettingsSection({ title: this.t('settingsLanguages') }, `
           <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
             <span>${this.t('settingsUiLanguage')}</span>
             <select class="form-input" id="settings-ui-language" data-testid="settings-ui-language-select">
@@ -3484,9 +3513,8 @@ export class UIManager extends EventEmitter {
             </div>
             <div id="settings-filter-languages-count" style="font-size:0.82em;color:var(--text-tertiary);">${talkFilters.allowedLanguages.length} ${this.t('settingsActive')}</div>
           </div>
-        </section>
-        <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
-          <div style="font-weight:700;color:var(--text-primary);margin-bottom:10px;">${this.t('settingsTalkBehavior')}</div>
+        `)}
+        ${this.renderSettingsSection({ title: this.t('settingsTalkBehavior') }, `
           <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;">
             <input type="checkbox" id="settings-copy-talk-autosave" ${getCopyTalkAutoSave() ? 'checked' : ''}>
             <span>${this.t('settingsCopyTalk')}</span>
@@ -3495,9 +3523,8 @@ export class UIManager extends EventEmitter {
             <input type="checkbox" id="settings-chatbot-enabled" ${getChatbotEnabled() ? 'checked' : ''}>
             <span>${this.t('settingsChatbot')}</span>
           </label>
-        </section>
-        <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
-          <div style="font-weight:700;color:var(--text-primary);margin-bottom:10px;">${this.t('settingsDistanceHome')}</div>
+        `)}
+        ${this.renderSettingsSection({ title: this.t('settingsDistanceHome') }, `
           <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
             <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
               <span>${this.t('settingsMinDistance')}</span>
@@ -3523,16 +3550,16 @@ export class UIManager extends EventEmitter {
             <span>${this.t('settingsSentAfter')}</span>
             <input type="datetime-local" class="form-input" id="settings-sent-after" value="${escapeHtml(datetimeLocalValue(talkFilters.sentAfter))}">
           </label>
-        </section>
-        <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
-          <div style="font-weight:700;color:var(--text-primary);margin-bottom:10px;">${this.t('settingsContentFilters')}</div>
+        `)}
+        ${this.renderSettingsSection({ title: this.t('settingsContentFilters') }, `
+          <div style="font-size:0.85em;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">${this.t('settingsMessageFiltersHeading')}</div>
           <div style="display:flex;flex-wrap:wrap;gap:10px;">
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-grammar-filter" ${talkFilters.requireGoodGrammar ? 'checked' : ''}> ${this.t('settingsGrammar')}</label>
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-dirty-words-filter" ${talkFilters.blockDirtyWords ? 'checked' : ''}> ${this.t('settingsDirtyWords')}</label>
           </div>
           <div style="font-size:0.8em;color:var(--text-tertiary);margin-top:8px;">${this.t('settingsGrammarHelp')} ${this.tf('settingsGrammarStrictness', { threshold: String(CONFIG.GRAMMAR_THRESHOLD) })}</div>
           <div style="font-size:0.8em;color:var(--text-tertiary);margin-top:4px;">${this.t('settingsDirtyWordsHelp')}</div>
-          <div id="settings-dirty-words-editor" style="margin-top:10px;">
+          <div id="settings-dirty-words-editor" style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
             <div style="font-size:0.9em;font-weight:600;margin-bottom:6px;">${this.t('settingsDirtyWordsListLabel')}</div>
             <div id="dirty-word-chips" data-testid="dirty-word-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
               ${dirtyWordList
@@ -3552,8 +3579,8 @@ export class UIManager extends EventEmitter {
             <div id="dirty-word-error" data-testid="dirty-word-error" style="font-size:0.8em;color:var(--danger);margin-top:4px;min-height:1em;"></div>
             <div style="font-size:0.8em;color:var(--text-tertiary);margin-top:2px;">${this.t('settingsDirtyWordsListHelp')}</div>
           </div>
-          <div style="margin-top:12px;">
-            <div style="font-size:0.9em;margin-bottom:6px;">${this.t('settingsAllowedTypes')}</div>
+          <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
+            <div style="font-size:0.9em;font-weight:600;margin-bottom:6px;">${this.t('settingsAllowedTypes')}</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px;">
               ${(['tag', 'flow', 'route', 'survey'] as const)
                 .map((type) => `
@@ -3565,41 +3592,46 @@ export class UIManager extends EventEmitter {
                 .join('')}
             </div>
           </div>
-          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
-            <span>${this.t('settingsBlockedPhrases')}</span>
-            <textarea class="form-input" id="settings-custom-blocked" rows="3">${escapeHtml((talkFilters.customBlockedTerms || []).join(', '))}</textarea>
-          </label>
-          <div id="settings-filtered-incoming-summary" style="font-size:0.84em;color:var(--text-tertiary);margin-top:10px;">
-            ${this.t('settingsHiddenIncoming')}: ${filteredIncoming.hiddenCount}
-            ${hiddenIncomingText ? `<div>${escapeHtml(hiddenIncomingText)}</div>` : ''}
-            ${!this.currentLocation && (this.incomingTalkClusters || []).some((c: any) => c?.latestTalk?.locationRadiusMiles != null || c?.locationRadiusMiles != null) ? `<div style="color:var(--warning-text);font-style:italic;margin-top:4px;">${escapeHtml(this.t('filterLocationPending'))}</div>` : ''}
+          <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
+              <span>${this.t('settingsBlockedPhrases')}</span>
+              <textarea class="form-input" id="settings-custom-blocked" rows="3">${escapeHtml((talkFilters.customBlockedTerms || []).join(', '))}</textarea>
+            </label>
           </div>
-        </section>
-        <section style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-            <div>
-              <div style="font-weight:700;color:var(--text-primary);">${this.t('settingsLinkedDevices')}</div>
-              <div style="font-size:0.82em;color:var(--text-tertiary);">${this.t('settingsLinkedDevicesHelp')}</div>
+          <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
+            <div style="font-size:0.9em;font-weight:600;margin-bottom:6px;">${this.t('settingsFilteredIncomingHeading')}</div>
+            <div id="settings-filtered-incoming-summary" style="font-size:0.84em;color:var(--text-tertiary);">
+              ${this.t('settingsHiddenIncoming')}: ${filteredIncoming.hiddenCount}
+              ${hiddenIncomingText ? `<div>${escapeHtml(hiddenIncomingText)}</div>` : ''}
+              ${!this.currentLocation && (this.incomingTalkClusters || []).some((c: any) => c?.latestTalk?.locationRadiusMiles != null || c?.locationRadiusMiles != null) ? `<div style="color:var(--warning-text);font-style:italic;margin-top:4px;">${escapeHtml(this.t('filterLocationPending'))}</div>` : ''}
             </div>
-            <button type="button" class="btn" id="settings-linked-devices-btn" data-testid="settings-linked-devices-btn">${this.t('settingsManage')}</button>
           </div>
-        </section>
-        <section style="padding:16px;background:#fff;border:1px solid var(--danger-border);border-radius:8px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-            <div>
-              <div style="font-weight:700;color:var(--danger-hover);">${this.t('settingsEraseDevice')}</div>
-              <div style="font-size:0.82em;color:var(--text-tertiary);">${this.t('settingsEraseDeviceHelp')}</div>
-            </div>
-            <button type="button" class="btn" id="settings-erase-device-btn" data-testid="settings-erase-device-btn" style="background:var(--danger);color:#fff;">${this.t('settingsEraseDevice')}</button>
-          </div>
-        </section>
-        <section id="settings-storage-inspector" style="padding:16px;background:#fff;border:1px solid var(--border);border-radius:8px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
-            <div style="font-weight:700;color:var(--text-primary);">${this.t('settingsStorage')}</div>
-            <button type="button" class="btn" id="settings-refresh-storage-btn">${this.t('settingsRefresh')}</button>
-          </div>
-          <div id="settings-storage-inspector-body" style="font-size:0.9em;color:var(--text-tertiary);">${this.t('settingsStorageLoading')}</div>
-        </section>
+        `)}
+        ${this.renderSettingsSection(
+          {
+            title: this.t('settingsLinkedDevices'),
+            subtitle: this.t('settingsLinkedDevicesHelp'),
+            action: `<button type="button" class="btn" id="settings-linked-devices-btn" data-testid="settings-linked-devices-btn">${this.t('settingsManage')}</button>`,
+          },
+          '',
+        )}
+        ${this.renderSettingsSection(
+          {
+            title: this.t('settingsEraseDevice'),
+            subtitle: this.t('settingsEraseDeviceHelp'),
+            action: `<button type="button" class="btn" id="settings-erase-device-btn" data-testid="settings-erase-device-btn" style="background:var(--danger);color:#fff;">${this.t('settingsEraseDevice')}</button>`,
+            danger: true,
+          },
+          '',
+        )}
+        ${this.renderSettingsSection(
+          {
+            id: 'settings-storage-inspector',
+            title: this.t('settingsStorage'),
+            action: `<button type="button" class="btn" id="settings-refresh-storage-btn">${this.t('settingsRefresh')}</button>`,
+          },
+          `<div id="settings-storage-inspector-body" style="font-size:0.9em;color:var(--text-tertiary);">${this.t('settingsStorageLoading')}</div>`,
+        )}
         ${user.id === TECHSUPPORT_ROOT_USER_ID ? '<div id="support-inbox-section"></div>' : ''}
       </div>
     `;

@@ -818,8 +818,9 @@ this is a sequencing index, not new content. Land top-to-bottom.
 15. [x] **Medium–hard.** M2/M3 — compress talk/answer rows to title+status (2 lines) with inline icon
     actions and a shared details-popup modal; touches four talk-type variants plus the answer-entry
     template. **Done 2026-07-30.** See M2/M3 sections above for full detail.
-16. **Medium–hard.** M4 — Settings tab cleanup: shared section-wrapper extraction, splitting
+16. [x] **Medium–hard.** M4 — Settings tab cleanup: shared section-wrapper extraction, splitting
     content-filters into its sub-concerns, and the grouping/accordion design decision.
+    **Done 2026-07-30.** See M4 section above for full detail.
 17. **Hardest — do last.** This section's own Talk → "people I've separately exchanged this
     content with" edge. Genuinely new data-layer design (no existing pattern to extend), and
     privacy-sensitive (see the audit above) — deliberately sequenced after everything else so the
@@ -1051,21 +1052,52 @@ Requirement 2026-07-29 (Bernard): "Settings tab looks too messy."
   - No accordion/collapsible/tabs-within-tabs pattern exists anywhere in Settings (confirmed: zero
     `<details>`/`<summary>`/"accordion"/"collapsible" hits in `ui-manager.ts`; the only
     `<details>` usage in the whole UI layer is unrelated, in `answers-view.ts:312-313`).
-- [ ] Extract one shared section-wrapper helper (consistent border/background/padding, one heading
+- [x] Extract one shared section-wrapper helper (consistent border/background/padding, one heading
       convention — pick the flex title+subtitle+action pattern since it already covers the cases
       that need an inline action button) and convert all 9–10 sections to use it, instead of the
       copy-pasted inline-style string.
-- [ ] Split the content-filters section into its actual sub-concerns (or at minimum give each
+- [x] Split the content-filters section into its actual sub-concerns (or at minimum give each
       sub-concern its own heading within the section) rather than bundling grammar/dirty-word/
       allowed-types/blocked-phrases/summary into one undifferentiated block.
-- [ ] Decide whether the now-consistent sections should also be grouped/collapsed (e.g. an
+- [x] Decide whether the now-consistent sections should also be grouped/collapsed (e.g. an
       accordion, or a lightweight in-page section nav) given there are 9–10 of them stacked in one
       scroll — no existing pattern to reuse, so this needs a small design decision before
       implementation, not just a mechanical refactor.
-- [ ] Test: `stage1` — every Settings section renders via the shared wrapper (no leftover ad hoc
+- [x] Test: `stage1` — every Settings section renders via the shared wrapper (no leftover ad hoc
       inline-style section markup); all existing controls in every section (profile, languages,
       distance, content filters, linked devices, erase device, storage inspector) still read/write
       the same state and fire the same handlers as before the refactor.
+
+**Done 2026-07-30.** New `renderSettingsSection(opts, bodyHtml)` helper (`ui-manager.ts`, right
+before `renderSettingsView`) renders `<details class="settings-section" open><summary>title +
+optional subtitle</summary><div class="settings-section-body">optional action + bodyHtml</div>
+</details>` — all 9 sections (profile, credit, languages, talk behavior, distance/home, content
+filters, linked devices, erase device, storage inspector) now use it, replacing the copy-pasted
+`<section style="padding:16px;background:#fff;...">` string. Design decision for the "grouped/
+collapsed" question: extended the one existing precedent (`answers-view.ts`'s context-group
+`<details>`) rather than inventing an accordion widget or in-page nav — every section is
+independently collapsible via the native disclosure triangle, defaulting to **open** so nothing
+about current visibility changes unless the user collapses a section themselves. Action controls
+(Manage/Erase/Refresh buttons, the credit-visibility checkbox) render in the body just below the
+summary rather than inside it, specifically so their own click handlers never fight the browser's
+native summary-click-toggles-open/closed behavior — no new click semantics needed for any existing
+button. Content-filters split into 4 visually-separated sub-concerns with their own headings:
+message filters (new `settingsMessageFiltersHeading`), the dirty-word list (existing
+`settingsDirtyWordsListLabel`), allowed talk types (existing `settingsAllowedTypes`), blocked
+phrases (existing label promoted to a heading), and filtered-incoming summary (new
+`settingsFilteredIncomingHeading`) — two new translation keys added (EN+ZH). New test
+`77-settings-section-wrapper.spec.ts` (stage1): asserts zero leftover `<section>` elements, exactly
+9 `.settings-section` wrappers all starting `open`, collapsing one section hides only its own body
+(others unaffected), then exercises a representative control from profile/credit/content-filters/
+distance/linked-devices/erase-device/storage-inspector to confirm each still reads/writes the same
+underlying state as before the refactor. Confirmed it fails without the fix (`9` leftover `<section>`
+elements found) and passes with it. Verified visually via a throwaway screenshot script (not
+committed) — clean bordered cards, consistent title+subtitle+action heading, correct
+collapse/expand behavior, and the four labeled content-filters sub-concerns render as intended.
+Regression: full `stage1-single-user/` sweep (84/84 passed, including `00-ui-navigation-settings.spec.ts`,
+`31-intake-filters-persist.spec.ts`, `32-language-setting-persist.spec.ts`, `00y-chinese-ui-traversal.spec.ts`,
+`71-linked-devices-page.spec.ts`, `72-erase-this-device.spec.ts`) plus stage2's
+`04-profile-edit-stage-name.spec.ts`. `tsc`/`lint`/Jest (1048/1048) all clean.
 
 ### M5. Compact the TechSupport row on the Contacts tab
 
