@@ -1416,6 +1416,65 @@ mechanism at all** today, and a complete design for one already exists in the sp
 
 ---
 
+## T. Chatroom-hierarchy broadcast isolation leak: room-scoped mesh session gets stomped back to a stale boot-time room `[Opus]`
+
+Found 2026-07-30 investigating a genuinely reproducible (non-flaky, fails in full isolation)
+failure in `stage2/00h-chatroom-hierarchy-broadcast.spec.ts` ("Broadcaster on North America does
+not register inbox for peer joined only under United States" — FR-BM-7, parent-room broadcasts
+must not reach a peer who only joined a child/leaf room).
+
+**Root cause #1 (found and fixed):** `initializeChatrooms()` (`app.ts`, the boot-time flow) does
+`chatroomId = findOptimalChatroomHierarchical(...)` (often resolves to `global`), sets
+`this.currentChatroomId = chatroomId`, then `await`s `chatroomService.joinChatroom(chatroomId,
+...)` — a Gun write with retries that can take a while — before finally calling
+`chatroomService.subscribeToMembers(chatroomId, ...)`. If the user has already navigated to a
+*different* room during that await window (e.g. immediately clicking into a room right after
+`bootstrapUser` returns, as this test and any fast-navigating E2E flow does), this callback's
+closure-captured `chatroomId` is stale: it wins the single-slot `subscribeToMembers` race against
+the newer room's subscription and silently re-scopes the live `PeerMeshService` session — and any
+subsequent room-broadcast issued from it — back to the stale boot-time room, even though
+`this.currentChatroomId`/the UI correctly show the room the user navigated to. Confirmed via live
+instrumentation: Tom's mesh session properly scoped to `north-america` (empty member/neighbor set,
+correct — he's alone there), then a `WebChatroomService.membersListCallback` fired with a
+closure-captured `chatroomId === 'global'`, reconnecting Tom's mesh to Jerry (who transiently
+touches `global` during his own boot) and leaking the broadcast to him.
+- [x] **Fixed:** guard the boot-time `subscribeToMembers` call (and its callback) on
+      `this.currentChatroomId === chatroomId`, skipping the stale subscription entirely if the
+      user has since navigated elsewhere. Verified: no regressions across headcount, chatroom-nav,
+      mesh-ping, mesh-response-match, and P0 direct-talk-delivery specs; full unit suite (1048
+      tests), `tsc`, and `lint` all clean.
+
+**Root cause #2 (found, not yet fixed):** the same test *still* fails after the fix above — a
+second, distinct trigger re-invokes the same stale-'global'-reassignment pattern. Live
+instrumentation after the fix showed `this.currentChatroomId` itself (not just the mesh session)
+reverting to `'global'` a second time, from the same `subscribeToMembers` singular-slot race, but
+the synchronous stack trace only shows the debounced-timeout caller inside
+`WebChatroomService` (async origin lost) — the actual second caller that invokes the
+equivalent of `initializeChatrooms()`'s boot assignment (or emits `'chatroomChanged'` with
+`'global'`) a second time, later in the session, was not pinned down before time was reallocated
+to other work this session. Neither of the two known `'chatroomChanged'` emit sites
+(`chatrooms-view.ts:264`'s row-click, `app.ts:931`'s location-suggestion-banner Join click) fire in
+this test, so it's something else — possibly a second, independent call to
+`findOptimalChatroomHierarchical`-style room (re)assignment triggered by a location update, a
+reconnect/resume path, or similar.
+
+- [ ] Find the second caller: instrument `subscribeToMembers` itself (`web-chatroom-service.ts`)
+      with a synchronous stack trace at the exact call site (not inside the debounced Gun
+      callback, which loses the async origin) to catch the actual second invocation with `'global'`
+      as the target room.
+- [ ] Fix it the same way as root cause #1 (guard against re-asserting a stale/default room once
+      the user has navigated elsewhere), or find the shared underlying cause and fix both at once
+      if it's the same trigger manifesting twice.
+- [ ] Once fixed, confirm `00h-chatroom-hierarchy-broadcast.spec.ts`'s "does not register inbox"
+      test passes reliably (run it standalone at least 3× in a row, per this session's own
+      verification convention for flaky-looking failures).
+- [ ] Audit whether this same class of bug (boot-time default-room assignment racing a fast
+      subsequent navigation) affects other mesh-room-scoped features beyond broadcast — e.g.
+      direct-peer-send, mailbox fallback targeting, or presence — since the underlying race is in
+      shared boot/navigation plumbing, not broadcast-specific code.
+
+---
+
 ## Future / low priority (explicitly deferred)
 
 - Multiple identities on one device (profile switching). Decided low priority 2026-07-13; v1 stays one identity per device install.

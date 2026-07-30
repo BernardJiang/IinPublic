@@ -1185,22 +1185,33 @@ export class IinPublicApp {
 
     console.log('🏠 Joined chatroom:', chatroomId);
 
-    // Subscribe to chatroom members and update UI
-    this.chatroomService.subscribeToMembers(chatroomId, (members) => {
-      this.harvestRosterEpubs(members);
-      console.log('👥 Chatroom members updated:', members);
-      this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
-      this.syncPeerMeshRoom(chatroomId, members);
+    // Subscribe to chatroom members and update UI. `joinChatroom` above is an awaited Gun write
+    // (with retries) that can take a while — if the user has already navigated to a different
+    // room in the meantime (e.g. a fast subsequent click during this boot-time assignment), this
+    // callback's closure-captured `chatroomId` is stale. Without this guard it would win the
+    // single-slot `subscribeToMembers` race against the newer room's subscription and silently
+    // re-scope the live mesh session (and any broadcast issued from it) back to the boot-time
+    // room, even though the UI/currentChatroomId correctly show the room the user navigated to.
+    if (this.currentChatroomId !== chatroomId) {
+      console.log(`⏭️  Skipping stale boot-time chatroom subscription for ${chatroomId}; user is now in ${this.currentChatroomId}`);
+    } else {
+      this.chatroomService.subscribeToMembers(chatroomId, (members) => {
+        if (this.currentChatroomId !== chatroomId) return;
+        this.harvestRosterEpubs(members);
+        console.log('👥 Chatroom members updated:', members);
+        this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
+        this.syncPeerMeshRoom(chatroomId, members);
 
-      // Update status bar with current chatroom info (real-time)
-      const chatroomName = this.getChatroomDisplayName(chatroomId);
-      this.uiManager.updateStatusBar(
-        this.currentUser!.stageName,
-        chatroomName,
-        this.countRoomMembers(members),
-        this.uiManager.getTotalMatches(),
-      );
-    });
+        // Update status bar with current chatroom info (real-time)
+        const chatroomName = this.getChatroomDisplayName(chatroomId);
+        this.uiManager.updateStatusBar(
+          this.currentUser!.stageName,
+          chatroomName,
+          this.countRoomMembers(members),
+          this.uiManager.getTotalMatches(),
+        );
+      });
+    }
 
     // Subscribe to chatroom messages
     this.subscribeToMessages(chatroomId);

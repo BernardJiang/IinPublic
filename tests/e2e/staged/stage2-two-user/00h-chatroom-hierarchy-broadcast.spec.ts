@@ -6,7 +6,6 @@ import { afterSync, delay, headless } from '../../helpers/timing';
 import { bootstrapUser, incomingClustersIncludeTitleForUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { waitForBroadcastBulkAck } from '../../helpers/broadcast-ack';
-import { gunBaseURL } from '../../helpers/ports';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 /** Expand parent only when collapsed (▶). Default UI already expands NA/Europe — blind toggle hides children. */
