@@ -732,8 +732,18 @@ this is a sequencing index, not new content. Land top-to-bottom.
    ("OUT row: two matched responders opens…") using a real 3-user broadcast+match setup (Tom
    creates/broadcasts, Jerry and Bob both match). Confirmed it fails without the fix and passes
    3/3 with it. `tsc`/`lint`/Jest all clean.
-9. **Medium.** P — the actual dead-end fix: a real retry when `demandFullTalk` fails, instead of
+9. [x] **Medium.** P — the actual dead-end fix: a real retry when `demandFullTalk` fails, instead of
    the current one-shot error toast whose copy already claims a retry it doesn't perform.
+   **Done 2026-07-30.** `showNotification` gained a `retry?: () => void` option (extending the
+   existing click-to-navigate pattern) — a retryable toast is marked `data-retryable="true"`,
+   lingers 8s (was 3s, giving a fair window to act), and clicking it re-runs the callback instead
+   of just dismissing. `showTalkDetail`'s dead-end branch now passes
+   `retry: () => this.showTalkDetail(talkId, identityKeyFallback, options)` — clicking re-attempts
+   the exact same lookup, which can succeed later if the mesh cache catches up. New test
+   `35-me-answer-dead-end-retry.spec.ts`: a purged talk fails once, then a successful retry
+   (after seeding the mesh cache) opens the response dialog normally. Confirmed it fails without
+   the fix and passes 3/3 with it; regression on `54-notification-autodismiss` +
+   `00-ui-navigation-settings` (13/13). `tsc`/`lint`/Jest all clean.
 10. **Medium.** M6 — contact headshots: new `Map`-based prefetch cache modeled on the existing
     `peerLocationCache` pattern, then render via the already-existing `avatarInnerHtml` helper.
 11. **Medium.** O — make the peer-detail exchanged-talks history list clickable, with on-demand
@@ -1295,11 +1305,17 @@ inconsistency in destination.
 
 **Work**
 
-- [ ] Fix the actual dead end: when `demandFullTalk` fails, offer a real retry (re-attempt the
+- [x] Fix the actual dead end: when `demandFullTalk` fails, offer a real retry (re-attempt the
       mesh/identity-key resolution `app.ts:4886-4905` already does) instead of a one-shot error
       toast whose copy already claims retry behavior it doesn't perform. If retry genuinely can't
       succeed (talk gone for good), the toast/message should say so plainly rather than implying a
       retry that isn't there.
+      **Done 2026-07-30.** `showNotification`'s new `retry` option re-invokes the exact same
+      `showTalkDetail` call on click, so the identical lookup runs again (can succeed later if the
+      mesh cache catches up). Left the existing copy ("Check your connection and try again.") as
+      is — it now honestly describes what clicking does, rather than a new "talk gone for good"
+      message; a truly permanent failure still shows this same retryable toast; a follow-up could
+      add attempt-count-based wording if that's ever needed, not required by this fix.
 - [ ] Wire the already-computed `contextHash`/`contextPath` into the traceback: passing it through
       to `showTalkDetail`/`showTalkResponseDialog` so opening a multi-question entry can
       scroll/highlight the specific question that produced the clicked answer, instead of only
@@ -1313,8 +1329,10 @@ inconsistency in destination.
       `preferAnswerView` option; `showTalkDetailAsAnswer` (bound only to `displayAnswersList`)
       passes it, leaving the Talks-tab OUT-row and "My Talks" dialog editor-opening behavior
       untouched for `role:'created'` talks reached from those two contexts.
-- [ ] Test: `stage1` — a talk purged from local storage: clicking its Me-tab entry surfaces a real
+- [x] Test: `stage1` — a talk purged from local storage: clicking its Me-tab entry surfaces a real
       retry affordance (not just a dead toast), and a successful retry opens the talk normally.
+      **Done 2026-07-30:** `35-me-answer-dead-end-retry.spec.ts`. Confirmed it fails without the
+      fix and passes 3/3 with it.
 - [ ] Test: `stage1`/`stage3` — a multi-question flow/route entry: clicking an individual nested
       question's answer opens the talk scrolled/highlighted to that specific question, not just
       the talk's first screen.

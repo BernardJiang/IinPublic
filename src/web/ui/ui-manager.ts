@@ -4743,10 +4743,14 @@ export class UIManager extends EventEmitter {
         identityKeyFallback: identityKeyFallback || undefined,
         callback: (fullTalk: any) => {
           if (fullTalk) this.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true });
+          // TODO §P: a real retry, not a one-shot toast whose copy claims retry it doesn't
+          // perform — clicking re-runs this same lookup (mesh cache/identity-key resolution
+          // may have caught up since the first attempt).
           else
             this.showNotification(
               this.t('talksCouldNotLoadRetry'),
               'error',
+              { retry: () => this.showTalkDetail(talkId, identityKeyFallback, options) },
             );
         },
       });
@@ -6828,7 +6832,7 @@ export class UIManager extends EventEmitter {
   showNotification(
     message: string,
     type: 'success' | 'error' | 'info' | 'warning' = 'info',
-    options?: { persistent?: boolean; conversationId?: string; contentFilter?: string; peerId?: string; peerName?: string },
+    options?: { persistent?: boolean; conversationId?: string; contentFilter?: string; peerId?: string; peerName?: string; retry?: () => void },
   ): void {
     if (this.notificationsSuppressedForE2e) return;
 
@@ -6858,14 +6862,19 @@ export class UIManager extends EventEmitter {
     // on click (rule N6). A DM-arrival toast (TODO §N1) navigates through the graph-node
     // dispatcher's 'person' destination instead — the same "land on ⟨Conv⟩ with ⟨User⟩
     // underneath" convention every other click-to-a-person surface uses (N2a), so N2/N3/O
-    // can all reuse this one settled destination rather than each picking their own.
+    // can all reuse this one settled destination rather than each picking their own. A
+    // retry-capable toast (TODO §P) re-attempts the failed lookup on click instead of just
+    // dismissing — real recovery, not a copy that promises retry it doesn't perform.
     notification.style.cursor = 'pointer';
+    if (options?.retry) notification.dataset.retryable = 'true';
     notification.addEventListener('click', () => {
       if (document.body.contains(notification)) document.body.removeChild(notification);
       if (isMatchNotification && options?.conversationId) {
         this.showConversationDetail(options.conversationId);
       } else if (options?.peerId) {
         this.navigateToGraphNode({ type: 'person', id: options.peerId, name: options.peerName || '' });
+      } else if (options?.retry) {
+        options.retry();
       }
     });
 
@@ -6875,7 +6884,9 @@ export class UIManager extends EventEmitter {
       ? 8000
       : message === this.t('chatroomNoTalksToBroadcast')
         ? 10000
-        : 3000;
+        : options?.retry
+          ? 8000
+          : 3000;
     setTimeout(() => {
       if (document.body.contains(notification)) {
         document.body.removeChild(notification);
