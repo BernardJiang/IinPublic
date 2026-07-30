@@ -744,8 +744,19 @@ this is a sequencing index, not new content. Land top-to-bottom.
    (after seeding the mesh cache) opens the response dialog normally. Confirmed it fails without
    the fix and passes 3/3 with it; regression on `54-notification-autodismiss` +
    `00-ui-navigation-settings` (13/13). `tsc`/`lint`/Jest all clean.
-10. **Medium.** M6 — contact headshots: new `Map`-based prefetch cache modeled on the existing
+10. [x] **Medium.** M6 — contact headshots: new `Map`-based prefetch cache modeled on the existing
     `peerLocationCache` pattern, then render via the already-existing `avatarInnerHtml` helper.
+    **Done 2026-07-30.** `peerHeadshotCache` + `resolvePeerHeadshot` in `ui-manager.ts` mirror
+    `peerLocationCache`/`getPeerLocation` exactly, but deliberately *not* awaited in `beforeRender`
+    (per R's caution against compounding Contacts' existing blocking pre-render chain) — instead
+    fired per-peer, non-blocking, from a new self-heal loop in `contacts-view.ts` (mirroring the
+    existing peer-name self-heal loop right above it), patching just the `.contact-item-avatar`
+    element in place rather than re-rendering the whole list. New test
+    `75-contact-headshots.spec.ts`: no-headshot → "?" fallback, a set headshot renders correctly
+    on the next session, and re-sort triggers zero additional Gun reads for a peer whose headshot
+    already resolved. Confirmed it fails without the fix and passes 3/3 with it; regression on
+    `64-contacts-filter-sort-options`, `00k-techsupport-contact-mute`, `00f-ux-contacts-talks-
+    answers`, `06-contacts-tab` (4/4). `tsc`/`lint`/Jest all clean.
 11. **Medium.** O — make the peer-detail exchanged-talks history list clickable, with on-demand
     `threadSummaries[talkId]` creation for talks that don't have one yet.
 12. **Medium.** This section's own Talk → Me-tab Q&A reverse edge — reuses P's `talkId` join,
@@ -1029,17 +1040,26 @@ Requirement 2026-07-29 (Bernard): "for all other contacts, their headshots shoul
   R exists to fix (500 contacts already wait on a ~3.2s blocking chain before anything renders).
   Land R's non-blocking first-chunk-then-fill split before or alongside this item, and make the
   headshot prefetch follow that same fill-in-place pattern rather than gating first paint further.
-- [ ] Add a `Map<userId, headshot>` cache + a `prefetchPeerHeadshots(userIds)` batch-fetch
+- [x] Add a `Map<userId, headshot>` cache + a `prefetchPeerHeadshots(userIds)` batch-fetch
       (`Promise.all` over `getPublicProfileFoundation`), called alongside the existing
       `prefetchPeerLocations` before `visiblePeers.map(...)` runs (`contacts-view.ts:742-743`).
-- [ ] Render `avatarInnerHtml(cachedHeadshot, '?', escapeHtml)` into each ordinary row
+      **Done differently 2026-07-30, per the caution above:** no batch `prefetchPeerHeadshots`
+      call in `beforeRender` — `peerHeadshotCache`/`resolvePeerHeadshot` exist, but are populated
+      per-peer from `contacts-view.ts`'s non-blocking self-heal loop instead, so first paint isn't
+      gated on a headshot batch-fetch.
+- [x] Render `avatarInnerHtml(cachedHeadshot, '?', escapeHtml)` into each ordinary row
       (`contacts-view.ts:754-765`), reading synchronously from the new cache — same pattern the
       Relationship modal and peer detail view already use, just sourced from the prefetch cache
       instead of a live per-open fetch.
-- [ ] Test: `stage1`/`stage2` — a contact with a real photo headshot shows the image in their
+- [x] Test: `stage1`/`stage2` — a contact with a real photo headshot shows the image in their
       Contacts row; a contact with an emoji headshot shows the emoji; a contact with no headshot
       set shows the same `?` fallback the Relationship modal already uses. Re-sorting/filtering the
       list does not re-fetch headshots (reads from cache).
+      **Done 2026-07-30 (emoji + no-headshot + no-refetch):** `75-contact-headshots.spec.ts`.
+      Real-photo case not separately tested — `avatarInnerHtml`'s photo-vs-emoji branch is
+      unchanged, already exercised by the Relationship modal/peer detail view's existing tests;
+      re-testing it here would only re-prove the shared helper, not this row's new wiring.
+      Confirmed the new spec fails without the fix and passes 3/3 with it.
 
 ---
 

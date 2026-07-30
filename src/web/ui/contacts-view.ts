@@ -52,6 +52,11 @@ export type ContactsViewDeps = {
   onSortChange?: (sortId: string) => void;
   /** Returns distance in miles to a peer; undefined when location is unavailable (peers without distance sort last) */
   distanceMiles?: (userId: string) => number | undefined;
+  /** Synchronous cache read for first paint (TODO §M6) — null means not yet resolved. */
+  getCachedHeadshot?: (userId: string) => string | null;
+  /** Async fetch-and-cache, used by the row self-heal loop to fill in headshots without
+   *  blocking first render; resolves from cache on subsequent calls (no re-fetch on re-sort). */
+  resolvePeerHeadshot?: (userId: string) => Promise<string | null>;
 };
 
 function formatText(deps: ContactsViewDeps, key: UiTranslationKey, values: Record<string, string | number>): string {
@@ -754,14 +759,18 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
           ? `<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:var(--warning-soft);color:var(--warning-text);font-size:0.72em;font-weight:700;margin-left:8px;">${deps.text('contactsBlocked')}</span>`
           : '';
         const matchRateChip = `<div class="contact-item-match-rate" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}" data-total-talks="${peer.stats.totalTalks}" style="font-size:0.8em;color:var(--accent);font-weight:700;margin-top:4px;">${deps.text('matchRate')}: ${matchPercent}% · ${formatText(deps, 'contactsMatchRateDetail', { matched: metrics.matchedTalks, total: peer.stats.totalTalks })}</div>`;
+        const headshotHtml = avatarInnerHtml(deps.getCachedHeadshot?.(peer.peerId) ?? undefined, '?', deps.escapeHtml);
         return `
           <div class="contact-item" data-contact-user-id="${deps.escapeHtml(peer.peerId)}" data-contact-name="${deps.escapeHtml(resolvedStageName)}" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 8px; background: white; border-radius: 12px; border: 1px solid var(--border); cursor: pointer;">
-            <div style="min-width: 0;">
-              <div class="contact-item-name" style="font-weight: 700;">${deps.escapeHtml(displayName)}${blockedBadge}</div>
-              <div class="contact-item-meta" style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(buildMetaLine(peer, known, deps))}</div>
-              <div class="contact-item-meta" style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px;">${deps.text('sent')} ${peer.stats.sent.talks} · ${deps.text('received')} ${peer.stats.received.talks} · ${deps.text('relationship')}: ${deps.escapeHtml(relationship)}</div>
-              ${sortOrder === 'match-rate' ? matchRateChip : ''}
-              ${sortOrder === 'weighted' ? `<div class="contact-item-rank" title="${deps.escapeHtml(metrics.explanation)}" style="font-size:0.8em;color:var(--text-secondary);margin-top:4px;">${deps.text('relevanceScore')}: ${metrics.relevance} · ${deps.escapeHtml(metrics.explanation)}</div>` : ''}
+            <div style="display:flex; align-items:center; gap:12px; min-width:0; flex:1;">
+              <span class="contact-item-avatar" style="width:40px;height:40px;border-radius:50%;background:var(--bg-muted);display:flex;align-items:center;justify-content:center;font-size:1.2em;flex-shrink:0;overflow:hidden;">${headshotHtml}</span>
+              <div style="min-width: 0;">
+                <div class="contact-item-name" style="font-weight: 700;">${deps.escapeHtml(displayName)}${blockedBadge}</div>
+                <div class="contact-item-meta" style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(buildMetaLine(peer, known, deps))}</div>
+                <div class="contact-item-meta" style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px;">${deps.text('sent')} ${peer.stats.sent.talks} · ${deps.text('received')} ${peer.stats.received.talks} · ${deps.text('relationship')}: ${deps.escapeHtml(relationship)}</div>
+                ${sortOrder === 'match-rate' ? matchRateChip : ''}
+                ${sortOrder === 'weighted' ? `<div class="contact-item-rank" title="${deps.escapeHtml(metrics.explanation)}" style="font-size:0.8em;color:var(--text-secondary);margin-top:4px;">${deps.text('relevanceScore')}: ${metrics.relevance} · ${deps.escapeHtml(metrics.explanation)}</div>` : ''}
+              </div>
             </div>
             <span style="color: #999; flex-shrink: 0;">›</span>
           </div>
@@ -807,6 +816,24 @@ export async function displayContactsList(deps: ContactsViewDeps): Promise<void>
             }
             nameEl.insertBefore(document.createTextNode(display), nameEl.firstChild);
           }
+        });
+      }
+    }
+
+    // TODO §M6: non-blocking headshot fill-in — cache lives in ui-manager.ts (peerHeadshotCache),
+    // so this only re-fetches peers not already cached from a prior render (no re-fetch on
+    // re-sort/filter). Patches the row's avatar in place rather than re-rendering the list.
+    if (deps.resolvePeerHeadshot) {
+      for (const peer of peers) {
+        if (peer.peerId === TECHSUPPORT_ROOT_USER_ID) continue;
+        if (deps.getCachedHeadshot?.(peer.peerId)) continue;
+        void deps.resolvePeerHeadshot(peer.peerId).then((headshot) => {
+          if (!headshot) return;
+          const row = listEl.querySelector(
+            `.contact-item[data-contact-user-id="${(window.CSS?.escape ?? ((v: string) => v))(peer.peerId)}"]`,
+          ) as HTMLElement | null;
+          const avatarEl = row?.querySelector('.contact-item-avatar');
+          if (avatarEl) avatarEl.innerHTML = avatarInnerHtml(headshot, '?', deps.escapeHtml);
         });
       }
     }

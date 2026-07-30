@@ -285,6 +285,7 @@ export class UIManager extends EventEmitter {
   private contactPreRenderSync: ContactPreRenderSync | undefined;
   private peerLocationReader: PeerLocationReader | undefined;
   private peerLocationCache = new Map<string, GPSCoordinate | null>();
+  private peerHeadshotCache = new Map<string, string | null>();
   /** Incoming messages already surfaced via a "hidden by your filters" toast (dedupe, §9). */
   private hiddenMessageToastIds = new Set<string>();
   /** Last message set rendered into the open conversation, for filter-toggle re-render (§9). */
@@ -675,6 +676,27 @@ export class UIManager extends EventEmitter {
       Promise.all(uncached.map((id) => this.getPeerLocation(id))),
       new Promise<void>((resolve) => setTimeout(resolve, 2000)),
     ]);
+  }
+
+  /**
+   * TODO §M6: cache modeled on peerLocationCache above, but deliberately NOT awaited in
+   * beforeRender (unlike prefetchPeerLocations) — R's audit found Contacts already has a
+   * blocking pre-render chain, and this shouldn't add another wait on top of it. Called
+   * per-peer, non-blocking, from contacts-view.ts's row-patch loop instead; a headshot is a
+   * full base64 payload so this is worth caching, not re-fetching on every re-sort/filter.
+   */
+  private async resolvePeerHeadshot(peerId: string): Promise<string | null> {
+    if (this.peerHeadshotCache.has(peerId)) return this.peerHeadshotCache.get(peerId) ?? null;
+    if (!this.publicProfileFoundationReader) return null;
+    try {
+      const foundation = await this.publicProfileFoundationReader(peerId);
+      const headshot = foundation?.headshot ?? null;
+      this.peerHeadshotCache.set(peerId, headshot);
+      return headshot;
+    } catch {
+      this.peerHeadshotCache.set(peerId, null);
+      return null;
+    }
   }
 
   private distanceMilesFromCache(userId: string): number | undefined {
@@ -1893,6 +1915,8 @@ export class UIManager extends EventEmitter {
         await this.prefetchPeerLocations(this.getKnownPeople().map((p) => p.userId));
       },
       distanceMiles: (userId: string) => this.distanceMilesFromCache(userId),
+      getCachedHeadshot: (userId: string) => this.peerHeadshotCache.get(userId) ?? null,
+      resolvePeerHeadshot: (userId: string) => this.resolvePeerHeadshot(userId),
       ...(this.publicProfileFoundationReader ? { getPublicProfileFoundation: this.publicProfileFoundationReader } : {}),
     };
   }
